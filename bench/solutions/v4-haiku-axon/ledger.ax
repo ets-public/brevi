@@ -1,0 +1,32 @@
+rows = csv(stdin())
+zero = 0.dec()
+ins: {str: dec} = {}
+outs: {str: dec} = {}
+bal: {str: dec} = {}
+for r in rows.skip(1):
+  if r.len() < 3:
+    continue
+  month = r[0].slice(0, 7)
+  acct = r[1]
+  amt = r[2].dec()
+  if not ins.has(month):
+    ins[month] = zero
+    outs[month] = zero
+  if amt > zero:
+    ins[month] += amt
+  elif amt < zero:
+    outs[month] -= amt
+  if not bal.has(acct):
+    bal[acct] = zero
+  bal[acct] += amt
+
+for (m, i) in ins.pairs():
+  o = outs[m]
+  print("{m} {i.fmt(2)} {o.fmt(2)} {(i - o).fmt(2)}")
+
+best: [(dec, str)] = []
+for (a, b) in bal.pairs():
+  best.push((-b, a))
+best = best.sort()
+top = best[0]
+print("top {top.1} {(-top.0).fmt(2)}")

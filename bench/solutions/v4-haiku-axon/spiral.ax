@@ -1,0 +1,44 @@
+ls = lines()
+dims = ls[0].ints()
+r = dims[0]
+c = dims[1]
+g: [[int]] = []
+for line in ls.skip(1).take(r):
+  g.push(line.ints())
+
+out: [int] = []
+top = 0
+bot = r - 1
+left = 0
+right = c - 1
+while top <= bot and left <= right:
+  j = left
+  while j <= right:
+    out.push(g[top][j])
+    j += 1
+  top += 1
+  i = top
+  while i <= bot:
+    out.push(g[i][right])
+    i += 1
+  right -= 1
+  if top <= bot and left <= right:
+    j = right
+    while j >= left:
+      out.push(g[bot][j])
+      j -= 1
+    bot -= 1
+    i = bot
+    while i >= top:
+      out.push(g[i][left])
+      i -= 1
+    left += 1
+
+print(out.join(" "))
+sums: [str] = []
+for j in 0..c:
+  s = 0
+  for i in 0..r:
+    s += g[i][j]
+  sums.push(str(s))
+print(sums.join(" "))

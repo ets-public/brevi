@@ -1,0 +1,7 @@
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  a = w[0].big()
+  b = w[1].big()
+  print(str(a + b))

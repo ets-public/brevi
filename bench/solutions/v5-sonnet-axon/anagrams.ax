@@ -1,0 +1,8 @@
+ws = stdin().words().map(w => w.lower()).unique()
+g: {str: [str]} = {}
+for w in ws:
+  key = w.chars().sort().join("")
+  g[key].push(w)
+groups = g.values().filter(x => x.len() > 1).map(x => x.sort())
+groups = groups.sort_by(x => (-x.len(), x[0]))
+for x in groups: print(x.join(" "))

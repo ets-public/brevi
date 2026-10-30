@@ -1,0 +1,55 @@
+ls = lines()
+q = ls[ls.len() - 1].words()
+src = q[0]
+dst = q[1]
+
+adj: {str: [(str, int)]} = {}
+for i in 0..ls.len() - 1:
+  w = ls[i].words()
+  if w.is_empty():
+    continue
+  a = w[0]
+  b = w[1]
+  wt = w[2].int()
+  if not adj.has(a):
+    adj[a] = []
+  if not adj.has(b):
+    adj[b] = []
+  adj[a].push((b, wt))
+  adj[b].push((a, wt))
+
+# distances from dst to every node
+dist: {str: int} = {}
+dist[dst] = 0
+h: heap[(int, str)] = heap()
+h.push((0, dst))
+while not h.is_empty():
+  cur = h.pop()
+  d = cur.0
+  u = cur.1
+  if d > dist[u]:
+    continue
+  if adj.has(u):
+    for e in adj[u]:
+      v = e.0
+      nd = d + e.1
+      if not dist.has(v) or nd < dist[v]:
+        dist[v] = nd
+        h.push((nd, v))
+
+if not dist.has(src):
+  print("none")
+else:
+  path: [str] = [src]
+  at = src
+  while at != dst:
+    best = ""
+    for e in adj[at]:
+      v = e.0
+      if dist.has(v) and e.1 + dist[v] == dist[at]:
+        if best == "" or v < best:
+          best = v
+    path.push(best)
+    at = best
+  print(dist[src])
+  print(path.join("->"))

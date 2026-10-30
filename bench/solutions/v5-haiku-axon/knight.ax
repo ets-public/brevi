@@ -1,0 +1,36 @@
+fn sq_index(s: str, n: int) -> int:
+  col = s.slice(0, 1).code() - 97
+  row = s.slice(1, s.len()).int() - 1
+  row * n + col
+
+fn knight_dist(n: int, src: int, dst: int) -> int:
+  dist: [int] = [-1].repeat(n * n)
+  q: [int] = [src]
+  dist[src] = 0
+  moves = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+  head = 0
+  while head < q.len():
+    cur = q[head]
+    head += 1
+    x = cur % n
+    y = cur // n
+    for (dx, dy) in moves:
+      nx = x + dx
+      ny = y + dy
+      if nx >= 0 and nx < n and ny >= 0 and ny < n:
+        idx = ny * n + nx
+        if dist[idx] < 0:
+          dist[idx] = dist[cur] + 1
+          q.push(idx)
+  dist[dst]
+
+ls = lines()
+n = ls[0].trim().int()
+for i in 1..ls.len():
+  w = ls[i].words()
+  if w.is_empty():
+    continue
+  a = sq_index(w[0], n)
+  b = sq_index(w[1], n)
+  d = knight_dist(n, a, b)
+  print(d)

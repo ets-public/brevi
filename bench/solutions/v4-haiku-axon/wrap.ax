@@ -1,0 +1,38 @@
+fn wrap_para(toks: [str], w: int) -> [str]:
+  out: [str] = []
+  cur = ""
+  for x in toks:
+    if cur == "":
+      cur = x
+    elif cur.len() + 1 + x.len() <= w:
+      cur = cur + " " + x
+    else:
+      out.push(cur)
+      cur = x
+  if cur != "":
+    out.push(cur)
+  return out
+
+ls = lines()
+width = ls[0].trim().int().or(80)
+paras: [[str]] = []
+cur_words: [str] = []
+for line in ls.skip(1):
+  ws = line.words()
+  if ws.is_empty():
+    if not cur_words.is_empty():
+      paras.push(cur_words)
+      cur_words = []
+  else:
+    for x in ws:
+      cur_words.push(x)
+if not cur_words.is_empty():
+  paras.push(cur_words)
+
+first = true
+for p in paras:
+  if not first:
+    print("")
+  first = false
+  for l in wrap_para(p, width):
+    print(l)

@@ -1,0 +1,22 @@
+adj: {str: [str]} = {}
+indeg: {str: int} = {}
+for line in lines():
+  if line.trim().is_empty(): continue
+  p = line.split("->")
+  a = p[0].trim()
+  b = p[1].trim()
+  if !indeg.has(a): indeg[a] = 0
+  if !indeg.has(b): indeg[b] = 0
+  adj[a].push(b)
+  indeg[b] += 1
+h = heap()
+for (k, v) in indeg.pairs():
+  if v == 0: h.push(k)
+out: [str] = []
+while !h.is_empty():
+  x = h.pop()
+  out.push(x)
+  for y in adj[x]:
+    indeg[y] -= 1
+    if indeg[y] == 0: h.push(y)
+if out.len() < indeg.len(): print("cycle") else: print(out.join("\n"))

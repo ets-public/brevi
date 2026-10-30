@@ -1,0 +1,22 @@
+iv: [(int, int)] = []
+for line in lines():
+  nums = line.ints()
+  if nums.len() < 2:
+    continue
+  iv.push((nums[0], nums[1]))
+
+iv = iv.sort()
+out: [(int, int)] = []
+for (s, e) in iv:
+  n = out.len()
+  if n > 0 and s <= out[n - 1].1:
+    if e > out[n - 1].1:
+      out[n - 1] = (out[n - 1].0, e)
+  else:
+    out.push((s, e))
+
+total = 0
+for (s, e) in out:
+  print("{s} {e}")
+  total += e - s
+print("total {total}")

@@ -1,0 +1,36 @@
+fn sq(s: str, n: int) -> int:
+  col = s.slice(0, 1).code() - 97
+  row = s.slice(1, s.len()).int().or(1) - 1
+  return row * n + col
+
+fn knight(n: int, src: int, dst: int) -> int:
+  dr = [1, 2, 2, 1, -1, -2, -2, -1]
+  dc = [2, 1, -1, -2, -2, -1, 1, 2]
+  dist = [-1].repeat(n * n)
+  q: [int] = [src]
+  dist[src] = 0
+  head = 0
+  while head < q.len():
+    cur = q[head]
+    head += 1
+    if cur == dst:
+      return dist[cur]
+    r = cur // n
+    c = cur % n
+    for k in 0..8:
+      nr = r + dr[k]
+      nc = c + dc[k]
+      if nr >= 0 and nr < n and nc >= 0 and nc < n:
+        ni = nr * n + nc
+        if dist[ni] == -1:
+          dist[ni] = dist[cur] + 1
+          q.push(ni)
+  return -1
+
+ls = lines()
+n = ls[0].trim().int().or(8)
+for line in ls.skip(1):
+  p = line.words()
+  if p.len() < 2:
+    continue
+  print(knight(n, sq(p[0], n), sq(p[1], n)))

@@ -1,0 +1,28 @@
+ls = lines()
+adj: {str: [(str, int)]} = {}
+n = 0
+for line in ls:
+  w = line.words()
+  if w.len() == 3:
+    adj[w[0]].push((w[1], w[2].int()))
+    adj[w[1]].push((w[0], w[2].int()))
+last = ls.filter(l => !l.trim().is_empty()).last().words()
+src = last[0]
+dst = last[1]
+done: {str: bool} = {}
+h = heap()
+h.push((0, [src]))
+found = false
+while !h.is_empty():
+  (d, path) = h.pop()
+  node = path[-1]
+  if done.has(node): continue
+  done[node] = true
+  if node == dst:
+    print(d)
+    print(path.join("->"))
+    found = true
+    break
+  for (nb, wt) in adj[node]:
+    if !done.has(nb): h.push((d + wt, path + [nb]))
+if !found: print("none")

@@ -1,0 +1,30 @@
+fn touch(mut order: [str], k: str):
+  i = order.index_of(k)
+  order.remove(i)
+  order.push(k)
+
+ls = lines()
+cap = ls[0].trim().int().or(1)
+vals: {str: str} = {}
+order: [str] = []
+for line in ls.skip(1):
+  p = line.words()
+  if p.len() < 2:
+    continue
+  k = p[1]
+  if p[0] == "get":
+    if vals.has(k):
+      touch(order, k)
+      print(vals[k])
+    else:
+      print("-1")
+  else:
+    v = p[2]
+    if vals.has(k):
+      touch(order, k)
+    else:
+      if order.len() >= cap:
+        old = order.remove(0)
+        vals.remove(old)
+      order.push(k)
+    vals[k] = v

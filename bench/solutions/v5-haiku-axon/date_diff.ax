@@ -1,0 +1,7 @@
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  a = date(w[0]).days
+  b = date(w[1]).days
+  print(abs(a - b))

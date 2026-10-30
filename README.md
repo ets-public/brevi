@@ -16,7 +16,16 @@ Works today:
 - Short syntax: `x = 1` declares, `x: [str] = []` gives a type, `(a, b) = pair`, errors pass up without `?`, field defaults and shorthand constructors
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Axon line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
-- Benchmarks in `bench/`: 10 hard tasks, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Axon, Python and Rust
+- Benchmarks in `bench/`: 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Axon, Python and Rust
+
+Tokens per finished task set (18 tasks: code written plus errors read, average of 2 runs; Python and Rust from earlier runs of the same tasks):
+
+| Model | Axon v0.7 | Python | First try (Axon) |
+| --- | --- | --- | --- |
+| Sonnet | 4,363 | 4,021 | 36 of 36 |
+| Haiku | 5,631 | 5,266 | 34 of 36 |
+
+Axon is now within about 8% of Python on tokens, and Rust takes about 2.4 times as many tokens on the hard tasks.
 
 Speed (best of 3, seconds):
 

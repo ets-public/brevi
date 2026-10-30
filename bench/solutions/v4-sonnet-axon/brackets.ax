@@ -1,0 +1,17 @@
+for line in lines():
+  st: [str] = []
+  res = "ok"
+  cs = line.chars()
+  i = 0
+  for ch in cs:
+    i += 1
+    if ch == "(" or ch == "[" or ch == "{":
+      st.push(ch)
+    elif ch == ")" or ch == "]" or ch == "}":
+      want = if ch == ")": "(" elif ch == "]": "[" else: "{"
+      if st.is_empty() or st.last() != want:
+        res = "error at {i}"
+        break
+      st.pop()
+  if res == "ok" and !st.is_empty(): res = "error at {cs.len() + 1}"
+  print(res)

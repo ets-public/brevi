@@ -1,0 +1,20 @@
+fn check(s: str) -> str:
+  stack: [str] = []
+  for i in 0..s.len():
+    c = s.slice(i, i + 1)
+    if c == "(" or c == "[" or c == "{":
+      stack.push(c)
+    elif c == ")" or c == "]" or c == "}":
+      n = i + 1
+      if stack.is_empty():
+        return "error at {n}"
+      top = stack.pop()
+      if (c == ")" and top != "(") or (c == "]" and top != "[") or (c == "}" and top != "{"):
+        return "error at {n}"
+  if not stack.is_empty():
+    n = s.len() + 1
+    return "error at {n}"
+  "ok"
+
+for line in lines():
+  print(check(line))

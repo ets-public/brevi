@@ -261,25 +261,30 @@ pub fn ax_approx(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-6 * (1.0 + a.abs().max(b.abs()))
 }
 
-pub trait Plus {
-    fn plus(self, o: Self) -> Self;
+pub trait Plus<Rhs = Self> {
+    type Out;
+    fn plus(self, o: Rhs) -> Self::Out;
 }
 impl Plus for i64 {
+    type Out = i64;
     fn plus(self, o: i64) -> i64 {
         self + o
     }
 }
 impl Plus for f64 {
+    type Out = f64;
     fn plus(self, o: f64) -> f64 {
         self + o
     }
 }
 impl Plus for String {
+    type Out = String;
     fn plus(self, o: String) -> String {
         self + &o
     }
 }
 impl<T> Plus for Vec<T> {
+    type Out = Vec<T>;
     fn plus(mut self, o: Vec<T>) -> Vec<T> {
         self.extend(o);
         self
@@ -1265,6 +1270,7 @@ impl Show for Big {
     }
 }
 impl Plus for Big {
+    type Out = Big;
     fn plus(self, o: Big) -> Big {
         if self.neg == o.neg {
             return Big::make(self.neg, mag_add(&self.mag, &o.mag));
@@ -1502,6 +1508,7 @@ impl Show for Dec {
     }
 }
 impl Plus for Dec {
+    type Out = Dec;
     fn plus(self, o: Dec) -> Dec {
         Dec(self.0 + o.0)
     }
@@ -1525,6 +1532,54 @@ impl std::ops::Div for Dec {
             panic!("division by zero");
         }
         Dec(self.0 * DEC_ONE / o.0)
+    }
+}
+// Ints mix with decs in arithmetic: `0 - amt`, `price * 2`, `total += 1`.
+fn dec_of(n: i64) -> Dec {
+    Dec(n as i128 * DEC_ONE)
+}
+impl Plus<i64> for Dec {
+    type Out = Dec;
+    fn plus(self, o: i64) -> Dec {
+        Dec(self.0 + dec_of(o).0)
+    }
+}
+impl Plus<Dec> for i64 {
+    type Out = Dec;
+    fn plus(self, o: Dec) -> Dec {
+        Dec(dec_of(self).0 + o.0)
+    }
+}
+macro_rules! dec_int_ops {
+    ($($tr:ident $f:ident $atr:ident $af:ident),*) => {$(
+        impl std::ops::$tr<i64> for Dec {
+            type Output = Dec;
+            fn $f(self, o: i64) -> Dec {
+                std::ops::$tr::$f(self, dec_of(o))
+            }
+        }
+        impl std::ops::$tr<Dec> for i64 {
+            type Output = Dec;
+            fn $f(self, o: Dec) -> Dec {
+                std::ops::$tr::$f(dec_of(self), o)
+            }
+        }
+        impl std::ops::$atr<i64> for Dec {
+            fn $af(&mut self, o: i64) {
+                *self = std::ops::$tr::$f(*self, dec_of(o))
+            }
+        }
+    )*};
+}
+dec_int_ops!(Sub sub SubAssign sub_assign, Mul mul MulAssign mul_assign, Div div DivAssign div_assign);
+impl PartialEq<Dec> for i64 {
+    fn eq(&self, o: &Dec) -> bool {
+        dec_of(*self) == *o
+    }
+}
+impl PartialOrd<Dec> for i64 {
+    fn partial_cmp(&self, o: &Dec) -> Option<std::cmp::Ordering> {
+        dec_of(*self).partial_cmp(o)
     }
 }
 impl std::ops::Neg for Dec {

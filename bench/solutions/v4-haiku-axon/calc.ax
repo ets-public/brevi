@@ -1,0 +1,67 @@
+fn tokenize(s: str) -> [str]:
+  out: [str] = []
+  cur = ""
+  for c in s.chars():
+    if c.is_digit():
+      cur += c
+    else:
+      if cur != "":
+        out.push(cur)
+        cur = ""
+      if c != " ":
+        out.push(c)
+  if cur != "":
+    out.push(cur)
+  return out
+
+fn parse_atom(toks: [str], mut pos: int) -> int:
+  t = toks[pos]
+  if t == "(":
+    pos += 1
+    v = parse_expr(toks, pos)
+    pos += 1
+    return v
+  if t == "-":
+    pos += 1
+    v = parse_atom(toks, pos)
+    return 0 - v
+  pos += 1
+  return t.int().or(0)
+
+fn parse_term(toks: [str], mut pos: int) -> int:
+  v = parse_atom(toks, pos)
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    r = parse_atom(toks, pos)
+    if op == "*":
+      v = v * r
+    else:
+      if r == 0: fail("division by zero")
+      v = v / r
+  return v
+
+fn parse_expr(toks: [str], mut pos: int) -> int:
+  v = parse_term(toks, pos)
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    r = parse_term(toks, pos)
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+  return v
+
+fn eval_line(s: str) -> int:
+  toks = tokenize(s)
+  pos = 0
+  return parse_expr(toks, pos)
+
+for line in lines():
+  t = line.trim()
+  if t == "":
+    continue
+  match eval_line(t):
+    Ok(v) => print(str(v))
+    Err(m) => print("error")

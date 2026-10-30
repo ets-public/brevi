@@ -1,0 +1,38 @@
+rows = csv(stdin())
+ins: {str: dec} = {}
+outs: {str: dec} = {}
+bal: {str: dec} = {}
+
+for i in 1..rows.len():
+  row = rows[i]
+  if row.len() < 3:
+    continue
+  month = row[0].trim().slice(0, 7)
+  account = row[1].trim()
+  amt = row[2].dec()
+  bal[account] += amt
+  if amt > 0:
+    ins[month] += amt
+  elif amt < 0:
+    outs[month] += -amt
+
+months = ins.keys()
+for k in outs.keys():
+  if not ins.has(k):
+    months.push(k)
+months = months.sort()
+
+for m in months:
+  i_s = ins[m].fmt(2)
+  o_s = outs[m].fmt(2)
+  net = (ins[m] - outs[m]).fmt(2)
+  print("{m} {i_s} {o_s} {net}")
+
+accts = bal.keys().sort()
+if not accts.is_empty():
+  best = accts[0]
+  for a in accts:
+    if bal[a] > bal[best]:
+      best = a
+  b_s = bal[best].fmt(2)
+  print("top {best} {b_s}")

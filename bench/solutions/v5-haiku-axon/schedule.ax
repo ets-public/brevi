@@ -1,0 +1,58 @@
+order: [str] = []
+dur: {str: int} = {}
+deps: {str: [str]} = {}
+
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  name = w[0]
+  dur[name] = w[1].int()
+  ds: [str] = []
+  if w.len() > 2:
+    ds = w.slice(3, w.len())
+  deps[name] = ds
+  order.push(name)
+
+bad = false
+for name in order:
+  for d in deps[name]:
+    if not dur.has(d):
+      bad = true
+
+start: {str: int} = {}
+end: {str: int} = {}
+done: {str: bool} = {}
+remaining = order.len()
+progress = true
+while not bad and remaining > 0 and progress:
+  progress = false
+  for name in order:
+    if not done.has(name):
+      ready = true
+      st = 0
+      for d in deps[name]:
+        if not done.has(d):
+          ready = false
+        elif end[d] > st:
+          st = end[d]
+      if ready:
+        done[name] = true
+        start[name] = st
+        end[name] = st + dur[name]
+        remaining -= 1
+        progress = true
+
+if bad or remaining > 0:
+  print("invalid")
+else:
+  pairs: [(int, str)] = []
+  total = 0
+  for name in order:
+    pairs.push((start[name], name))
+    if end[name] > total:
+      total = end[name]
+  pairs = pairs.sort()
+  for p in pairs:
+    print("{p.1} {start[p.1]} {end[p.1]}")
+  print("total {total}")

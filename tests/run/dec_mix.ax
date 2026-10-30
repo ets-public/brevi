@@ -1,0 +1,21 @@
+amt = "2.50".dec()
+print(0 - amt)
+print(amt * 2)
+print(amt / 4)
+t = 0.dec()
+t += 1
+t += amt
+t -= 1
+print(t)
+print(1 + amt)
+print(0 < amt)
+m: {str: dec} = {}
+m["a"] += amt
+print(m["a"] - 1)
+n = 3
+print(n + 4)
+xs = [1, 2]
+print(xs.sum() + 1)
+s = "hello"
+print(s.slice(1))
+print([1, 2, 3].slice(-2))

@@ -1,0 +1,34 @@
+fn val(c: str) -> int:
+  if c == "I": return 1
+  if c == "V": return 5
+  if c == "X": return 10
+  if c == "L": return 50
+  if c == "C": return 100
+  if c == "D": return 500
+  1000
+fn parse(s: str) -> int:
+  cs = s.chars()
+  t = 0
+  for i in 0..cs.len():
+    v = val(cs[i])
+    if i + 1 < cs.len() and val(cs[i + 1]) > v: t -= v else: t += v
+  t
+fn fmtr(n: int) -> str:
+  vs = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  ss = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  x = n
+  for i in 0..vs.len():
+    while x >= vs[i]:
+      out = out + ss[i]
+      x -= vs[i]
+  out
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  t = parse(w[0])
+  i = 1
+  while i + 1 < w.len() + 0 and i < w.len():
+    if w[i] == "+": t += parse(w[i + 1]) else: t -= parse(w[i + 1])
+    i += 2
+  if t <= 0: print("nulla") else: print(fmtr(t))

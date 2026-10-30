@@ -1,0 +1,20 @@
+inn: {str: dec} = {}
+out: {str: dec} = {}
+bal: {str: dec} = {}
+for r in csv(stdin()).skip(1):
+  if r.len() < 3: continue
+  m = r[0].slice(0, 7)
+  a = r[2].dec()
+  if a > 0: inn[m] += a else: out[m] += -a
+  bal[r[1]] += a
+  if !inn.has(m): inn[m] = 0.dec()
+  if !out.has(m): out[m] = 0.dec()
+for m in inn.keys():
+  print("{m} {inn[m].fmt(2)} {out[m].fmt(2)} {(inn[m] - out[m]).fmt(2)}")
+best = ""
+bv = 0.dec()
+for (k, v) in bal.pairs():
+  if best == "" or v > bv:
+    best = k
+    bv = v
+print("top {best} {bv.fmt(2)}")

@@ -1,0 +1,25 @@
+pairs: [(int, int)] = []
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  nums = line.ints()
+  pairs.push((nums[0], nums[1]))
+
+pairs = pairs.sort()
+
+out: [(int, int)] = []
+for (s, e) in pairs:
+  if out.is_empty():
+    out.push((s, e))
+  else:
+    last = out[out.len() - 1]
+    if s <= last.1:
+      out[out.len() - 1] = (last.0, max(last.1, e))
+    else:
+      out.push((s, e))
+
+total = 0
+for (s, e) in out:
+  print("{s} {e}")
+  total += e - s
+print("total {total}")

@@ -1,0 +1,62 @@
+src: [str] = []
+pos = 0
+bad = false
+
+fn peek() -> str:
+  while pos < src.len() and src[pos] == " ": pos += 1
+  if pos < src.len(): src[pos] else: ""
+
+fn expr() -> int:
+  v = term()
+  while true:
+    c = peek()
+    if c == "+":
+      pos += 1
+      v = v + term()
+    elif c == "-":
+      pos += 1
+      v = v - term()
+    else: break
+  v
+
+fn term() -> int:
+  v = factor()
+  while true:
+    c = peek()
+    if c == "*":
+      pos += 1
+      v = v * factor()
+    elif c == "/":
+      pos += 1
+      d = factor()
+      if d == 0:
+        bad = true
+      else:
+        v = v / d
+    else: break
+  v
+
+fn factor() -> int:
+  c = peek()
+  if c == "-":
+    pos += 1
+    return -factor()
+  if c == "(":
+    pos += 1
+    v = expr()
+    peek()
+    pos += 1
+    return v
+  n = 0
+  while pos < src.len() and src[pos].is_digit():
+    n = n * 10 + src[pos].digit()
+    pos += 1
+  n
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  src = line.chars()
+  pos = 0
+  bad = false
+  r = expr()
+  if bad: print("error") else: print(r)

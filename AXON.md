@@ -66,7 +66,7 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 - list: `len is_empty push(x) pop insert(i, x) remove(i) first last slice(a, b) map(f) filter(f) any(f) all(f) count(f) fold(init, f) sort sort_by(f) rev take(n) skip(n) enumerate zip(ys) sum min max contains(x) index_of(x) join(sep) (any items) unique repeat(n) step(n)` (`[0].repeat(n)` is n zeros; `unique` sorts and drops repeats; `(0..10).step(3)` is [0, 3, 6, 9]; `(0..n).rev()` counts down)
 - map: `len is_empty has(k) get_or(k, default) remove(k) keys values pairs`
 - int and f64: `abs float int fmt(decimals)` (`2.5.fmt(2)` is "2.50"); f64 also `sqrt round floor ceil`; int also `big char` (`97.char()` is "a")
-`min` and `max` fail on an empty list (`xs.max().or(0)`). `a..b` excludes b. `slice` takes Python-style bounds (negatives count from the end). `find` and `index_of` return -1 when absent. `"7".digit()` is 7 (-1 if not a digit). `len` counts characters. `pop` and `remove(i)` return the removed item. `words` splits on any run of whitespace. `and`/`or` short-circuit.
+`min` and `max` fail on an empty list (`xs.max().or(0)`). `a..b` excludes b. `slice` takes Python-style bounds (negatives count from the end); `s.slice(a)` runs to the end and `s.slice(i, i + 1)` is one character. `chars` gives a list of one-character strings. `first`, `last` and `pop` return the item itself and stop the program on an empty list. `find` and `index_of` return -1 when absent. `"7".digit()` is 7 (-1 if not a digit). `len` counts characters. `pop` and `remove(i)` return the removed item. `words` splits on any run of whitespace. `and`/`or` short-circuit.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 
 Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert remove` change the list in place.
@@ -79,7 +79,7 @@ Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert r
 - `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
 - `date("2024-02-29")` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
 - `big` is an exact integer of any size: `"123...".big()`, `n.big()`, with `+ - *` and comparisons.
-- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, comparisons (also with ints: `p > 0`), `sum`, `fmt(2)` (rounds half to even), `float int round`.
+- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, and ints mix in (`0 - p`, `p * 2`, `t += 1`, `p > 0`), `sum`, `fmt(2)` (rounds half to even), `float int round`.
 - `heap()` is a min-heap of any comparable values: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
 
 ## Tests

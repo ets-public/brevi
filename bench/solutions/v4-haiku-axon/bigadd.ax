@@ -1,0 +1,5 @@
+for line in lines():
+  p = line.words()
+  if p.len() < 2:
+    continue
+  print(str(p[0].big() + p[1].big()))

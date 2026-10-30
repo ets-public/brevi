@@ -1,0 +1,40 @@
+nums = stdin().ints()
+R = nums[0]
+C = nums[1]
+m: [[int]] = []
+for i in 0..R:
+  row: [int] = []
+  for j in 0..C:
+    row.push(nums[2 + i * C + j])
+  m.push(row)
+
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+out: [int] = []
+while top <= bot and left <= right:
+  for j in left..right + 1:
+    out.push(m[top][j])
+  top += 1
+  if top <= bot:
+    for i in top..bot + 1:
+      out.push(m[i][right])
+    right -= 1
+  if top <= bot and left <= right:
+    for k in 0..right - left + 1:
+      out.push(m[bot][right - k])
+    bot -= 1
+  if left <= right and top <= bot:
+    for k in 0..bot - top + 1:
+      out.push(m[bot - k][left])
+    left += 1
+
+print(out.join(" "))
+sums: [int] = []
+for j in 0..C:
+  s = 0
+  for i in 0..R:
+    s += m[i][j]
+  sums.push(s)
+print(sums.join(" "))

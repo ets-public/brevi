@@ -1,0 +1,11 @@
+fn is_red(j: Json) -> bool = match j:
+  Str(s) => s == "red"
+  _ => false
+
+fn total(j: Json) -> int = match j:
+  Num(n) => n.int()
+  Arr(xs) => xs.map(x => total(x)).sum()
+  Obj(m) => if m.values().any(v => is_red(v)): 0 else: m.values().map(v => total(v)).sum()
+  _ => 0
+
+print(total(json(stdin())))

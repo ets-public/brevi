@@ -1,0 +1,38 @@
+adj: {str: [str]} = {}
+indeg: {str: int} = {}
+for line in lines():
+  t = line.trim()
+  if t == "":
+    continue
+  parts = t.split("->")
+  a = parts[0].trim()
+  b = parts[1].trim()
+  if not indeg.has(a):
+    indeg[a] = 0
+  if not indeg.has(b):
+    indeg[b] = 0
+  if not adj.has(a):
+    adj[a] = []
+  adj[a].push(b)
+  indeg[b] += 1
+
+h = heap()
+for k in indeg.keys():
+  if indeg[k] == 0:
+    h.push(k)
+
+order: [str] = []
+while not h.is_empty():
+  x = h.pop()
+  order.push(x)
+  if adj.has(x):
+    for y in adj[x]:
+      indeg[y] -= 1
+      if indeg[y] == 0:
+        h.push(y)
+
+if order.len() < indeg.len():
+  print("cycle")
+else:
+  for x in order:
+    print(x)

@@ -1,0 +1,15 @@
+ws = stdin().words().map(w => w.lower()).unique()
+groups: {str: [str]} = {}
+for w in ws:
+  key = w.chars().sort().join("")
+  if not groups.has(key):
+    groups[key] = []
+  groups[key].push(w)
+
+gs: [[str]] = []
+for (k, g) in groups.pairs():
+  if g.len() > 1:
+    gs.push(g)
+gs = gs.sort_by(g => (-g.len(), g[0]))
+for g in gs:
+  print(g.join(" "))

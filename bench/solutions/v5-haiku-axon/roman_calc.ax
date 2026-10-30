@@ -1,0 +1,49 @@
+fn rv(c: str) -> int:
+  match c:
+    "I" => 1
+    "V" => 5
+    "X" => 10
+    "L" => 50
+    "C" => 100
+    "D" => 500
+    "M" => 1000
+    _ => 0
+
+fn parse_roman(s: str) -> int:
+  total = 0
+  for i in 0..s.len():
+    v = rv(s.slice(i, i + 1))
+    if i + 1 < s.len() and v < rv(s.slice(i + 1, i + 2)):
+      total -= v
+    else:
+      total += v
+  total
+
+fn to_roman(n: int) -> str:
+  vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  m = n
+  for i in 0..vals.len():
+    while m >= vals[i]:
+      out = out + syms[i]
+      m -= vals[i]
+  out
+
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  total = parse_roman(w[0])
+  i = 1
+  while i + 1 < w.len():
+    v = parse_roman(w[i + 1])
+    if w[i] == "+":
+      total += v
+    else:
+      total -= v
+    i += 2
+  if total <= 0:
+    print("nulla")
+  else:
+    print(to_roman(total))

@@ -1033,6 +1033,11 @@ impl Emitter {
                         other => self.expr(other),
                     })
                     .collect();
+                // `s.slice(a)` runs to the end.
+                let mut a = a;
+                if name == "slice" && a.len() == 1 {
+                    a.push("i64::MAX".into());
+                }
                 if tries {
                     format!("{{ ax_l({line}); {r}.ax_try_{name}({})? }}", a.join(", "))
                 } else {

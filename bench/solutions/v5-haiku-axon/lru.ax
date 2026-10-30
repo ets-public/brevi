@@ -1,0 +1,30 @@
+ls = lines()
+cap = ls[0].trim().int()
+vals: {str: str} = {}
+stamp: {str: int} = {}
+tick = 0
+
+for i in 1..ls.len():
+  w = ls[i].words()
+  if w.is_empty():
+    continue
+  tick += 1
+  k = w[1]
+  if w[0] == "get":
+    if vals.has(k):
+      stamp[k] = tick
+      print(vals[k])
+    else:
+      print(-1)
+  else:
+    if not vals.has(k) and vals.len() >= cap:
+      oldest = ""
+      best = -1
+      for (kk, s) in stamp.pairs():
+        if best < 0 or s < best:
+          best = s
+          oldest = kk
+      vals.remove(oldest)
+      stamp.remove(oldest)
+    vals[k] = w[2]
+    stamp[k] = tick

@@ -1,0 +1,25 @@
+ls = lines()
+cap = ls[0].int()
+vals: {str: int} = {}
+order: [str] = []
+fn touch(k: str):
+  i = order.index_of(k)
+  if i >= 0: order.remove(i)
+  order.push(k)
+for line in ls.skip(1):
+  w = line.words()
+  if w.is_empty(): continue
+  if w[0] == "put":
+    k = w[1]
+    if !vals.has(k) and vals.len() >= cap:
+      old = order.remove(0)
+      vals.remove(old)
+    vals[k] = w[2].int()
+    touch(k)
+  else:
+    k = w[1]
+    if vals.has(k):
+      print(vals[k])
+      touch(k)
+    else:
+      print(-1)

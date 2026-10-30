@@ -1,0 +1,18 @@
+rows = csv(stdin())
+totals: {str: dec} = {}
+for r in rows.skip(1):
+  if r.len() < 3:
+    continue
+  name = r[0]
+  value = r[1].dec() * r[2].dec()
+  if totals.has(name):
+    totals[name] += value
+  else:
+    totals[name] = value
+
+pairs: [(dec, str)] = []
+for (k, v) in totals.pairs():
+  pairs.push((v, k))
+pairs = pairs.sort_by(p => (-p.0, p.1))
+for p in pairs:
+  print("{p.1}: {p.0.fmt(2)}")

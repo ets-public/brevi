@@ -1,0 +1,56 @@
+names: [str] = []
+dur: {str: int} = {}
+deps: {str: [str]} = {}
+for line in lines():
+  p = line.words()
+  if p.is_empty():
+    continue
+  nm = p[0]
+  dur[nm] = p[1].int().or(0)
+  ds: [str] = []
+  if p.len() > 3:
+    for x in p.skip(3):
+      ds.push(x)
+  deps[nm] = ds
+  names.push(nm)
+
+bad = false
+for nm in names:
+  for d in deps[nm]:
+    if not dur.has(d):
+      bad = true
+
+start: {str: int} = {}
+fin: {str: int} = {}
+done = 0
+progress = true
+while not bad and progress and done < names.len():
+  progress = false
+  for nm in names:
+    if not fin.has(nm):
+      ready = true
+      s = 0
+      for d in deps[nm]:
+        if not fin.has(d):
+          ready = false
+        else:
+          if fin[d] > s:
+            s = fin[d]
+      if ready:
+        start[nm] = s
+        fin[nm] = s + dur[nm]
+        done += 1
+        progress = true
+
+if bad or done < names.len():
+  print("invalid")
+else:
+  items: [(int, str)] = []
+  ends: [int] = []
+  for nm in names:
+    items.push((start[nm], nm))
+    ends.push(fin[nm])
+  items = items.sort()
+  for (s, nm) in items:
+    print("{nm} {s} {fin[nm]}")
+  print("total {ends.max().or(0)}")
