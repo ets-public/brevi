@@ -298,7 +298,7 @@ impl Emitter {
         for it in items {
             match it {
                 Item::Type { name, fields, line } => {
-                    out.push_str(&format!("/*@L{line}*/#[derive(Debug, Clone, PartialEq, PartialOrd)]\npub struct {name} {{\n"));
+                    out.push_str(&format!("/*@L{line}*/#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]\npub struct {name} {{\n"));
                     for f in fields {
                         out.push_str(&format!("    pub {}: {},\n", f.name, rust_ty(&f.ty)));
                     }
@@ -315,6 +315,12 @@ impl Emitter {
                         }
                     }
                     out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n"));
+                    // Default is the first variant, so `m[k]` can create entries of this type.
+                    if let Some(v) = variants.first() {
+                        let fs: Vec<String> = v.fields.iter().map(|f| format!("{}: Default::default()", f.name)).collect();
+                        let val = if fs.is_empty() { format!("{name}::{}", v.name) } else { format!("{name}::{} {{ {} }}", v.name, fs.join(", ")) };
+                        out.push_str(&format!("impl Default for {name} {{ fn default() -> Self {{ {val} }} }}\n"));
+                    }
                 }
                 Item::Fn { name, params, ret, body, line, .. } => {
                     let fallible = self.fns.get(name).map_or(false, |f| f.fallible);

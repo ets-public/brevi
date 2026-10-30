@@ -52,6 +52,11 @@ impl Show for String {
         self.clone()
     }
 }
+impl Show for &str {
+    fn show(&self) -> String {
+        self.to_string()
+    }
+}
 impl Show for () {
     fn show(&self) -> String {
         "()".into()
