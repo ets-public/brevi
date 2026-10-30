@@ -1,0 +1,15 @@
+m: {str: [(int, int)]} = {}
+for line in lines() {
+  w = line.words()
+  if w.len() >= 4 { m[w[1]].push((w[3].int(), w[2].int())) }
+}
+for (p, xs) in m.pairs() {
+  n = xs.len()
+  ms = xs.map(x => x.0).sort()
+  avg = ms.sum().float() / n.float()
+  need = (n * 9 + 9) / 10
+  p90 = ms[need - 1]
+  errs = xs.count(x => x.1 >= 500)
+  pct = errs.float() * 100.0 / n.float()
+  print("{p} {n} {avg.fmt(1)} {p90} {pct.fmt(1)}%")
+}

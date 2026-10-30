@@ -1349,6 +1349,56 @@ impl AxDigit for String {
     }
 }
 
+// "a".code() is 97 and 97.char() is "a".
+pub trait AxCode {
+    fn ax_code(&self) -> i64;
+}
+impl AxCode for String {
+    fn ax_code(&self) -> i64 {
+        self.chars().next().map_or(-1, |c| c as i64)
+    }
+}
+pub trait AxChar {
+    fn ax_char(&self) -> String;
+}
+impl AxChar for i64 {
+    fn ax_char(&self) -> String {
+        char::from_u32(*self as u32).map_or(String::new(), |c| c.to_string())
+    }
+}
+// [0].repeat(n) is a list of n zeros; unique() sorts and drops repeats.
+pub trait AxListRepeat<T> {
+    fn ax_repeat(&self, n: i64) -> Vec<T>;
+}
+impl<T: Clone> AxListRepeat<T> for Vec<T> {
+    fn ax_repeat(&self, n: i64) -> Vec<T> {
+        let mut v = Vec::with_capacity(self.len() * n.max(0) as usize);
+        for _ in 0..n.max(0) {
+            v.extend_from_slice(self);
+        }
+        v
+    }
+}
+pub trait AxStep<T> {
+    fn ax_step(&self, n: i64) -> Vec<T>;
+}
+impl<T: Clone> AxStep<T> for Vec<T> {
+    fn ax_step(&self, n: i64) -> Vec<T> {
+        self.iter().step_by(n.max(1) as usize).cloned().collect()
+    }
+}
+pub trait AxUnique<T> {
+    fn ax_unique(&self) -> Vec<T>;
+}
+impl<T: Clone + PartialOrd> AxUnique<T> for Vec<T> {
+    fn ax_unique(&self) -> Vec<T> {
+        let mut v = self.clone();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v.dedup_by(|a, b| a == b);
+        v
+    }
+}
+
 // ---- free numeric helpers ----
 pub fn abs<T: AxNum>(x: T) -> T {
     x.ax_abs()

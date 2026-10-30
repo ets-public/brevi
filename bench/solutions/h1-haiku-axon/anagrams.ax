@@ -1,0 +1,20 @@
+words = stdin().words()
+uniq = {}
+for w in words {
+  uniq[w.lower()] = true
+}
+groups: {str: [str]} = {}
+for w in uniq.keys() {
+  key = w.chars().sort().join("")
+  groups[key].push(w)
+}
+out = []
+for g in groups.values() {
+  if g.len() > 1 {
+    out.push(g.sort())
+  }
+}
+out = out.sort_by(g => (-g.len(), g.first()))
+for g in out {
+  print(g.join(" "))
+}

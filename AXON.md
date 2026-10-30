@@ -10,7 +10,7 @@ print("total {nums.sum()}, mean {(nums.sum().float() / nums.len().float()).fmt(2
 
 ## Types
 `int` (64-bit), `f64`, `bool`, `str`, `[T]` list, `{K: V}` map (sorted by key), `(A, B)` tuple, `dec` exact decimal, `big` exact integer, `Date`, `Json`, `heap[T]` min-heap.
-No references or lifetimes: values act as copies. Local variables never need a type. A `mut` parameter edits the caller's variable (call it as `f(x)`).
+No references or lifetimes: values act as copies. Local variables never need a type. A `mut` parameter edits the caller's variable (call it as `f(x)`); other parameters are local copies the function may change.
 Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`. `let (a, b) = t` destructures; `p.0` is a field.
 
 ```
@@ -51,16 +51,16 @@ Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followe
 Escapes: `\n \t \r \0 \" \\`.
 
 ## Collections
-`xs[0]`, `xs[-1]` (last), `m[k]` (missing key stops the program), `m[k] = v`, `m[k] += 1` and `m[k].push(x)` (missing key starts at the type's zero: 0, 0.0, "", [], dec 0).
+`xs[0]`, `xs[-1]` (last), `m[k]` (missing key stops the program), `xs[i] = v`, `m[k] = v`, `m[k] += 1` and `m[k].push(x)` (missing key starts at the type's zero: 0, 0.0, "", [], dec 0).
 Empty values: `xs = []`, `m = {}` (add a type like `m: {str: int} = {}` only if the compiler asks).
 Lambdas: `x => x * 2`, `(a, b) => a + b`. In map/filter/any/all/count/sort_by, `(a, b) => b - a` unpacks a tuple item.
 
 ## Methods
 Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
-- str: `len words lines chars split(sep) slice(a, b) find(s) lower upper trim contains starts_with ends_with replace(a, b) repeat(n) is_empty is_digit is_alpha is_space`, and `int() float() ints() big() dec()` which can fail. `ints()` = all whitespace-separated ints
-- list: `len is_empty push(x) pop insert(i, x) remove(i) first last slice(a, b) map(f) filter(f) any(f) all(f) count(f) fold(init, f) sort sort_by(f) rev take(n) skip(n) enumerate zip(ys) sum min max contains(x) index_of(x) join(sep)`
+- str: `len words lines chars split(sep) slice(a, b) find(s) lower upper trim contains starts_with ends_with replace(a, b) repeat(n) is_empty is_digit is_alpha is_space code` (`"a".code()` is 97), and `int() float() ints() big() dec()` which can fail. `ints()` = all whitespace-separated ints
+- list: `len is_empty push(x) pop insert(i, x) remove(i) first last slice(a, b) map(f) filter(f) any(f) all(f) count(f) fold(init, f) sort sort_by(f) rev take(n) skip(n) enumerate zip(ys) sum min max contains(x) index_of(x) join(sep) unique repeat(n) step(n)` (`[0].repeat(n)` is n zeros; `unique` sorts and drops repeats; `(0..10).step(3)` is [0, 3, 6, 9]; `(0..n).rev()` counts down)
 - map: `len is_empty has(k) get_or(k, default) remove(k) keys values pairs`
-- int and f64: `abs float int fmt(decimals)` (`2.5.fmt(2)` is "2.50"); f64 also `sqrt round floor ceil`; int also `big`
+- int and f64: `abs float int fmt(decimals)` (`2.5.fmt(2)` is "2.50"); f64 also `sqrt round floor ceil`; int also `big char` (`97.char()` is "a")
 `slice` takes Python-style bounds (negatives count from the end). `find` and `index_of` return -1 when absent. `"7".digit()` is 7 (-1 if not a digit). `len` counts characters. `pop` and `remove(i)` return the removed item. `words` splits on any run of whitespace. `and`/`or` short-circuit.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 

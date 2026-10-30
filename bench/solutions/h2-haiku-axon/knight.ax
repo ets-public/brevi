@@ -1,0 +1,47 @@
+fn sq(s: str) -> (int, int) {
+  c = "abcdefghijklmnopqrstuvwxyz".find(s.slice(0, 1))
+  r = s.slice(1, s.len()).int().or(0) - 1
+  (c, r)
+}
+
+fn solve(n: int, a: (int, int), b: (int, int)) -> int {
+  dist: {int: int} = {}
+  start = a.1 * n + a.0
+  goal = b.1 * n + b.0
+  dist[start] = 0
+  q = [start]
+  head = 0
+  dx = [1, 2, 2, 1, -1, -2, -2, -1]
+  dy = [2, 1, -1, -2, -2, -1, 1, 2]
+  while head < q.len() {
+    cur = q[head]
+    head += 1
+    if cur == goal { return dist[cur] }
+    c = cur % n
+    r = cur / n
+    for k in 0..8 {
+      nc = c + dx[k]
+      nr = r + dy[k]
+      if nc >= 0 and nc < n and nr >= 0 and nr < n {
+        id = nr * n + nc
+        if !dist.has(id) {
+          dist[id] = dist[cur] + 1
+          q.push(id)
+        }
+      }
+    }
+  }
+  return -1
+}
+
+fn main() {
+  ls = stdin().lines()
+  n = ls[0].trim().int().or(0)
+  for line in ls.slice(1, ls.len()) {
+    w = line.words()
+    if w.len() < 2 { continue }
+    a = sq(w[0])
+    b = sq(w[1])
+    print(str(solve(n, a, b)))
+  }
+}

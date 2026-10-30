@@ -1,0 +1,9 @@
+{"run":"h1-haiku-axon","lang":"axon","task":"anagrams","code_tok":152,"out_tok":101,"compiled":false,"pass":0,"total":0}
+{"run":"h1-haiku-axon","lang":"axon","task":"anagrams","code_tok":160,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-haiku-axon","lang":"axon","task":"log_stats","code_tok":253,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-haiku-axon","lang":"axon","task":"spiral","code_tok":354,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-haiku-axon","lang":"axon","task":"brackets","code_tok":244,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-haiku-axon","lang":"axon","task":"schedule","code_tok":395,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-haiku-axon","lang":"axon","task":"roman_calc","code_tok":482,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-haiku-axon","lang":"axon","task":"ledger","code_tok":321,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-haiku-axon","lang":"axon","task":"knight","code_tok":435,"out_tok":4,"compiled":true,"pass":3,"total":3}

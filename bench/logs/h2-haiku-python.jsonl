@@ -1,0 +1,8 @@
+{"run":"h2-haiku-python","lang":"python","task":"anagrams","code_tok":122,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-haiku-python","lang":"python","task":"log_stats","code_tok":276,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-haiku-python","lang":"python","task":"spiral","code_tok":318,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-haiku-python","lang":"python","task":"brackets","code_tok":175,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-haiku-python","lang":"python","task":"schedule","code_tok":387,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-haiku-python","lang":"python","task":"roman_calc","code_tok":405,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-haiku-python","lang":"python","task":"ledger","code_tok":343,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-haiku-python","lang":"python","task":"knight","code_tok":432,"out_tok":4,"compiled":true,"pass":3,"total":3}

@@ -1,0 +1,45 @@
+names: [str] = []
+dur: {str: int} = {}
+deps: {str: [str]} = {}
+for line in lines() {
+  w = line.words()
+  if w.len() >= 2 {
+    names.push(w[0])
+    dur[w[0]] = w[1].int()
+    deps[w[0]] = w.skip(3)
+  }
+}
+valid = true
+for n in names {
+  for d in deps[n] { if !dur.has(d) { valid = false } }
+}
+start: {str: int} = {}
+done = 0
+if valid {
+  progress = true
+  while progress {
+    progress = false
+    for n in names {
+      if !start.has(n) {
+        ok = true
+        t = 0
+        for d in deps[n] {
+          if !start.has(d) { ok = false } else { t = max(t, start[d] + dur[d]) }
+        }
+        if ok { start[n] = t
+          progress = true }
+      }
+    }
+  }
+  if start.len() != dur.len() { valid = false }
+}
+if !valid { print("invalid") } else {
+  rows = names.map(n => (start[n], n))
+  rows = rows.sort()
+  total = 0
+  for (s, n) in rows {
+    print("{n} {s} {s + dur[n]}")
+    total = max(total, s + dur[n])
+  }
+  print("total {total}")
+}

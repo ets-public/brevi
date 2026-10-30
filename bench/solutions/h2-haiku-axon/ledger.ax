@@ -1,0 +1,39 @@
+fn main() {
+  z = "0".dec()
+  rows = csv(stdin())
+  months: {str: bool} = {}
+  ins: {str: dec} = {}
+  outs: {str: dec} = {}
+  bal: {str: dec} = {}
+  for row in rows {
+    if row.len() < 3 or row[0].trim() == "date" { continue }
+    m = row[0].trim().slice(0, 7)
+    amt = row[2].trim().dec().or(z)
+    acc = row[1].trim()
+    months[m] = true
+    if amt > z {
+      ins[m] += amt
+    } else {
+      outs[m] += z - amt
+    }
+    bal[acc] += amt
+  }
+  for m in months.keys().sort() {
+    i = ins.get_or(m, z)
+    o = outs.get_or(m, z)
+    net = i - o
+    print("{m} {i.fmt(2)} {o.fmt(2)} {net.fmt(2)}")
+  }
+  top = ""
+  best = z
+  first = true
+  for a in bal.keys().sort() {
+    b = bal[a]
+    if first or b > best {
+      top = a
+      best = b
+      first = false
+    }
+  }
+  print("top {top} {best.fmt(2)}")
+}

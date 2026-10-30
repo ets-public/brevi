@@ -1,0 +1,33 @@
+fn opener(c: str) -> str = if c == ")" { "(" } else if c == "]" { "[" } else { "{" }
+
+fn check(line: str) -> str {
+  stack: [str] = []
+  err = 0
+  for (i, ch) in line.chars().enumerate() {
+    if ch == "(" or ch == "[" or ch == "{" {
+      stack.push(ch)
+    } else if ch == ")" or ch == "]" or ch == "}" {
+      if stack.is_empty() {
+        err = i + 1
+        break
+      }
+      top = stack.pop()
+      if top != opener(ch) {
+        err = i + 1
+        break
+      }
+    }
+  }
+  if err > 0 { return "error at {err}" }
+  if !stack.is_empty() {
+    n = line.len() + 1
+    return "error at {n}"
+  }
+  "ok"
+}
+
+fn main() {
+  for line in stdin().lines() {
+    print(check(line))
+  }
+}

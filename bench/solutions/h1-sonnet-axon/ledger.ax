@@ -1,0 +1,32 @@
+rows = csv(stdin())
+ins: {str: dec} = {}
+outs: {str: dec} = {}
+bal: {str: dec} = {}
+for r in rows.skip(1) {
+  if r.len() >= 3 {
+    m = r[0].slice(0, 7)
+    a = r[2].dec()
+    if !ins.has(m) {
+      ins[m] = "0".dec()
+      outs[m] = "0".dec()
+    }
+    if a > "0".dec() { ins[m] += a } else { outs[m] += -a }
+    bal[r[1]] += a
+  }
+}
+for m in ins.keys() {
+  i = ins[m]
+  o = outs[m]
+  print("{m} {i.fmt(2)} {o.fmt(2)} {(i - o).fmt(2)}")
+}
+best = ""
+bv = "0".dec()
+first = true
+for (k, v) in bal.pairs() {
+  if first or v > bv {
+    best = k
+    bv = v
+    first = false
+  }
+}
+print("top {best} {bv.fmt(2)}")

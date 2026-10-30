@@ -1,0 +1,47 @@
+fn sq(s: str) -> (int, int) {
+  x = "abcdefghijklmnopqrstuvwxyz".find(s.slice(0, 1))
+  y = s.slice(1, s.len()).int().or(1) - 1
+  (x, y)
+}
+
+fn knight(n: int, fx: int, fy: int, tx: int, ty: int) -> int {
+  dxs = [1, 2, 2, 1, -1, -2, -2, -1]
+  dys = [2, 1, -1, -2, -2, -1, 1, 2]
+  start = fy * n + fx
+  target = ty * n + tx
+  dist: {int: int} = {}
+  dist[start] = 0
+  q = [start]
+  head = 0
+  while head < q.len() {
+    cur = q[head]
+    head += 1
+    if cur == target {
+      return dist[cur]
+    }
+    cx = cur % n
+    cy = cur / n
+    for k in 0..8 {
+      nx = cx + dxs[k]
+      ny = cy + dys[k]
+      if nx >= 0 and nx < n and ny >= 0 and ny < n {
+        idx = ny * n + nx
+        if not dist.has(idx) {
+          dist[idx] = dist[cur] + 1
+          q.push(idx)
+        }
+      }
+    }
+  }
+  -1
+}
+
+ls = stdin().lines()
+n = ls[0].trim().int().or(8)
+for l in ls.skip(1) {
+  p = l.words()
+  if p.len() < 2 { continue }
+  a = sq(p[0])
+  b = sq(p[1])
+  print(knight(n, a.0, a.1, b.0, b.1))
+}

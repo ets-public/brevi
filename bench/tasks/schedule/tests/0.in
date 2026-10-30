@@ -1,0 +1,5 @@
+build 3 after fetch
+fetch 2
+test 4 after build
+lint 1 after fetch
+docs 5

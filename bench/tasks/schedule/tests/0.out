@@ -1,0 +1,6 @@
+docs 0 5
+fetch 0 2
+build 2 5
+lint 2 3
+test 5 9
+total 9

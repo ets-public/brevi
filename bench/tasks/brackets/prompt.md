@@ -1,1 +1,1 @@
-For each line of stdin, print `yes` if the brackets ()[]{} in it are balanced and properly nested, else `no`. Other characters are ignored.
+For each stdin line, check whether its brackets `()[]{}` are balanced; other characters are ignored. Print `ok` if balanced. Otherwise print `error at N` where N is the 1-based character position of the first closing bracket that does not match, or, if every closing bracket matched but some are left open, `error at N` where N is the length of the line plus 1.

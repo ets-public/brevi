@@ -1,0 +1,52 @@
+fn rv(c: str) -> int = if c == "I" { 1 } else if c == "V" { 5 } else if c == "X" { 10 } else if c == "L" { 50 } else if c == "C" { 100 } else if c == "D" { 500 } else { 1000 }
+
+fn roman(s: str) -> int {
+  cs = s.chars()
+  total = 0
+  for i in 0..cs.len() {
+    v = rv(cs[i])
+    if i + 1 < cs.len() and rv(cs[i + 1]) > v {
+      total -= v
+    } else {
+      total += v
+    }
+  }
+  total
+}
+
+fn to_roman(n: int) -> str {
+  vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  x = n
+  for i in 0..vals.len() {
+    while x >= vals[i] {
+      out += syms[i]
+      x -= vals[i]
+    }
+  }
+  out
+}
+
+fn main() {
+  for line in stdin().lines() {
+    toks = line.words()
+    if toks.is_empty() { continue }
+    acc = roman(toks[0])
+    i = 1
+    while i + 1 < toks.len() {
+      v = roman(toks[i + 1])
+      if toks[i] == "+" {
+        acc += v
+      } else {
+        acc -= v
+      }
+      i += 2
+    }
+    if acc <= 0 {
+      print("nulla")
+    } else {
+      print(to_roman(acc))
+    }
+  }
+}

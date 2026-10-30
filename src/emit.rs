@@ -13,12 +13,12 @@ const METHODS: &[&str] = &[
     "find", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "weekday", "words", "year", "zip", "month",
+    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
 const PURE_METHODS: &[&str] = &[
-    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip",
+    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step",
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
@@ -45,6 +45,8 @@ pub struct Emitter {
     fallible: bool,
     line: usize,
     pub diags: Vec<Diag>,
+    // Names whose items are lists changed in place (`m[k].push(x)`), so an empty `m = {}` gets a partial type.
+    nested: HashSet<String>,
     // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
     pub borrow_loops: bool,
 }
@@ -248,6 +250,49 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
     }
 }
 
+// Names used as `name[k].push(..)` (or pop, insert, remove) anywhere in a body.
+fn nested_lists(body: &Expr) -> HashSet<String> {
+    let text = format!("{body:?}");
+    let mut out = HashSet::new();
+    let pat = "Method(Index(Ident(\"";
+    let mut from = 0;
+    while let Some(i) = text[from..].find(pat) {
+        let start = from + i + pat.len();
+        from = start;
+        let Some(q) = text[start..].find('"') else { break };
+        let name = &text[start..start + q];
+        // Skip past the Index(...) to the method name.
+        let bytes = text.as_bytes();
+        let (mut depth, mut in_str) = (0i32, false);
+        let mut j = start - pat.len() + "Method(".len();
+        while j < bytes.len() {
+            let c = bytes[j];
+            if in_str {
+                if c == b'\\' {
+                    j += 1;
+                } else if c == b'"' {
+                    in_str = false;
+                }
+            } else if c == b'"' {
+                in_str = true;
+            } else if c == b'(' || c == b'[' || c == b'{' {
+                depth += 1;
+            } else if c == b')' || c == b']' || c == b'}' {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            j += 1;
+        }
+        let rest = &text[(j + 1).min(text.len())..];
+        if ["push", "pop", "insert", "remove"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
+            out.insert(name.to_string());
+        }
+    }
+    out
+}
+
 // The variable at the bottom of a place like a.b[i].c.
 fn root_name(e: &Expr) -> Option<&str> {
     match e {
@@ -285,6 +330,7 @@ impl Emitter {
             block_only: HashSet::new(),
             fallible: false,
             borrow_loops: false,
+            nested: HashSet::new(),
             line: 0,
             diags: Vec::new(),
         };
@@ -474,6 +520,7 @@ impl Emitter {
                 Item::Test { body, line, name } => {
                     test_n += 1;
                     self.begin_fn(&[], true);
+                    self.nested = nested_lists(body);
                     let b = self.body(body, &Ty::Unit, true);
                     tests.push_str(&format!("/*@L{line}*/#[test] fn t{test_n}_{}() -> R<()> {b}\n", slug(name)));
                 }
@@ -494,6 +541,18 @@ impl Emitter {
         out
     }
 
+    // `m = {}` later used as `m[k].push(x)`: Rust needs to know the items are lists.
+    fn nested_hint(&self, n: &str, value: &Expr) -> String {
+        if !self.nested.contains(n) {
+            return String::new();
+        }
+        match value {
+            Expr::Map(ps) if ps.is_empty() => ": AxM<_, Vec<_>>".into(),
+            Expr::List(xs) if xs.is_empty() => ": Vec<Vec<_>>".into(),
+            _ => String::new(),
+        }
+    }
+
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
         self.locals = params.iter().map(|p| p.name.clone()).collect();
         self.refs = params.iter().filter(|p| p.is_mut).map(|p| p.name.clone()).collect();
@@ -502,10 +561,11 @@ impl Emitter {
 
     fn function(&mut self, name: &str, params: &[Param], ret: &Ty, fallible: bool, body: &Expr, line: usize) -> String {
         self.begin_fn(params, fallible);
+        self.nested = nested_lists(body);
         self.line = line;
         let ps: Vec<String> = params
             .iter()
-            .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("{}: {}", p.name, rust_ty(&p.ty)) })
+            .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
         let init = if name == "main" && !fallible { "ax_init();\n" } else { "" };
@@ -667,7 +727,11 @@ impl Emitter {
                 let v = self.expr(value);
                 self.bind_pat(name);
                 let p = self.pat(name);
-                let t = ty.as_ref().map(|t| format!(": {}", rust_ty(t))).unwrap_or_default();
+                let t = match (ty, name) {
+                    (Some(t), _) => format!(": {}", rust_ty(t)),
+                    (None, Pat::Bind(n)) => self.nested_hint(n, value),
+                    _ => String::new(),
+                };
                 format!("let {}{p}{t} = {v};", if *mutable { "mut " } else { "" })
             }
             Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) => {
@@ -680,7 +744,7 @@ impl Emitter {
             {
                 let v = self.expr(value);
                 self.locals.insert(n.clone());
-                format!("let mut {n} = {v};")
+                format!("let mut {n}{} = {v};", self.nested_hint(n, value))
             }
             // `(a, b) = v` unpacks; new names are declared.
             Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {

@@ -1,0 +1,54 @@
+fn main() {
+  names: [str] = []
+  durs: {str: int} = {}
+  deps: {str: [str]} = {}
+  for line in stdin().lines() {
+    w = line.words()
+    if w.is_empty() { continue }
+    name = w[0]
+    names.push(name)
+    durs[name] = w[1].int().or(0)
+    ds = []
+    if w.len() > 2 { ds = w.slice(3, w.len()) }
+    deps[name] = ds
+  }
+  n = names.len()
+  starts: {str: int} = {}
+  ends: {str: int} = {}
+  done: {str: bool} = {}
+  count = 0
+  progress = true
+  while progress and count < n {
+    progress = false
+    for name in names {
+      if done.has(name) { continue }
+      ready = true
+      st = 0
+      for d in deps[name] {
+        if !done.has(d) {
+          ready = false
+        } else if ends[d] > st {
+          st = ends[d]
+        }
+      }
+      if ready {
+        starts[name] = st
+        ends[name] = st + durs[name]
+        done[name] = true
+        count += 1
+        progress = true
+      }
+    }
+  }
+  if count < n {
+    print("invalid")
+    return
+  }
+  order = names.sort_by(x => (starts[x], x))
+  total = 0
+  for x in order {
+    print("{x} {starts[x]} {ends[x]}")
+    if ends[x] > total { total = ends[x] }
+  }
+  print("total {total}")
+}

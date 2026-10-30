@@ -1,0 +1,31 @@
+all = stdin().ints()
+r = all[0]
+c = all[1]
+g = all.skip(2)
+out: [str] = []
+top = 0
+bot = r - 1
+left = 0
+right = c - 1
+while top <= bot and left <= right {
+  for j in left..right + 1 { out.push(str(g[top * c + j])) }
+  top += 1
+  for i in top..bot + 1 { out.push(str(g[i * c + right])) }
+  right -= 1
+  if top <= bot {
+    for j in 0..right - left + 1 { out.push(str(g[bot * c + right - j])) }
+    bot -= 1
+  }
+  if left <= right {
+    for i in 0..bot - top + 1 { out.push(str(g[(bot - i) * c + left])) }
+    left += 1
+  }
+}
+print(out.join(" "))
+sums: [str] = []
+for j in 0..c {
+  t = 0
+  for i in 0..r { t += g[i * c + j] }
+  sums.push(str(t))
+}
+print(sums.join(" "))

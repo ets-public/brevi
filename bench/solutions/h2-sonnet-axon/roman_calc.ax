@@ -1,0 +1,44 @@
+fn val(c: str) -> int = match c {
+  "I" => 1
+  "V" => 5
+  "X" => 10
+  "L" => 50
+  "C" => 100
+  "D" => 500
+  "M" => 1000
+  _ => 0
+}
+fn parse(s: str) -> int {
+  cs = s.chars()
+  t = 0
+  for i in 0..cs.len() {
+    v = val(cs[i])
+    if i + 1 < cs.len() and val(cs[i + 1]) > v { t -= v } else { t += v }
+  }
+  t
+}
+fn roman(n: int) -> str {
+  vs = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  ss = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  m = n
+  for i in 0..13 {
+    while m >= vs[i] {
+      out += ss[i]
+      m -= vs[i]
+    }
+  }
+  out
+}
+for line in lines() {
+  w = line.words()
+  if w.len() > 0 {
+    r = parse(w[0])
+    i = 1
+    while i + 1 < w.len() + 1 and i < w.len() {
+      if w[i] == "+" { r += parse(w[i + 1]) } else { r -= parse(w[i + 1]) }
+      i += 2
+    }
+    if r <= 0 { print("nulla") } else { print(roman(r)) }
+  }
+}

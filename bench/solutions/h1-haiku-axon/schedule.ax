@@ -1,0 +1,57 @@
+names = []
+durs: {str: int} = {}
+deps: {str: [str]} = {}
+for line in stdin().lines() {
+  p = line.words()
+  if p.is_empty() { continue }
+  name = p[0]
+  names.push(name)
+  durs[name] = p[1].int().or(0)
+  deps[name] = p.skip(3)
+}
+bad = false
+for n in names {
+  for d in deps[n] {
+    if not durs.has(d) {
+      bad = true
+    }
+  }
+}
+fin: {str: int} = {}
+start: {str: int} = {}
+changed = true
+while changed and not bad {
+  changed = false
+  for n in names {
+    if fin.has(n) { continue }
+    ready = true
+    st = 0
+    for d in deps[n] {
+      if fin.has(d) {
+        st = max(st, fin[d])
+      } else {
+        ready = false
+      }
+    }
+    if ready {
+      start[n] = st
+      fin[n] = st + durs[n]
+      changed = true
+    }
+  }
+}
+if bad or fin.len() != names.len() {
+  print("invalid")
+} else {
+  rows = []
+  total = 0
+  for n in names {
+    rows.push((start[n], n, fin[n]))
+    total = max(total, fin[n])
+  }
+  rows = rows.sort()
+  for r in rows {
+    print("{r.1} {r.0} {r.2}")
+  }
+  print("total " + str(total))
+}

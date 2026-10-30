@@ -1,0 +1,10 @@
+groups = {}
+for w in ["ab", "ba", "c"] { groups[w.chars().sort().join("")].push(w) }
+print(groups)
+fn f(xs: [str]) -> int {
+  g = []
+  g.push([1])
+  g[0].push(2)
+  g[0].len()
+}
+print(f([]))

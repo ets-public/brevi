@@ -1,0 +1,17 @@
+ms: {str: [int]} = {}
+errs: {str: int} = {}
+for line in lines() {
+  p = line.words()
+  if p.len() >= 4 {
+    ms[p[1]].push(p[3].int())
+    if p[2].int() >= 500 { errs[p[1]] += 1 }
+  }
+}
+for (path, xs) in ms.pairs() {
+  s = xs.sort()
+  n = s.len()
+  idx = (n * 9 + 9) / 10 - 1
+  avg = xs.sum().float() / n.float()
+  e = errs.get_or(path, 0).float() * 100.0 / n.float()
+  print("{path} {n} {avg.fmt(1)} {s[idx]} {e.fmt(1)}%")
+}

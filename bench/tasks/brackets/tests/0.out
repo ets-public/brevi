@@ -1,4 +1,5 @@
-yes
-no
-no
-yes
+ok
+error at 3
+error at 5
+ok
+error at 1

@@ -1,0 +1,37 @@
+rows = csv(stdin())
+data = rows.skip(1).filter(r => r.len() >= 3)
+zero = "0".dec()
+inc: {str: dec} = {}
+outc: {str: dec} = {}
+bal: {str: dec} = {}
+for r in data {
+  mo = r[0].slice(0, 7)
+  acct = r[1]
+  a = r[2].trim().dec()
+  ip = if a > zero { a } else { zero }
+  op = if a < zero { -a } else { zero }
+  inc[mo] += ip
+  outc[mo] += op
+  bal[acct] += a
+}
+for mo in inc.keys() {
+  i = inc[mo]
+  o = outc[mo]
+  si = i.fmt(2)
+  so = o.fmt(2)
+  sn = (i - o).fmt(2)
+  print("{mo} {si} {so} {sn}")
+}
+ks = bal.keys()
+if ks.len() > 0 {
+  best = ks[0]
+  bestv = bal[best]
+  for a in ks {
+    if bal[a] > bestv {
+      best = a
+      bestv = bal[a]
+    }
+  }
+  sb = bestv.fmt(2)
+  print("top {best} {sb}")
+}

@@ -1,0 +1,8 @@
+{"run":"h1-sonnet-axon","lang":"axon","task":"anagrams","code_tok":168,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-sonnet-axon","lang":"axon","task":"log_stats","code_tok":220,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-sonnet-axon","lang":"axon","task":"spiral","code_tok":297,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-sonnet-axon","lang":"axon","task":"brackets","code_tok":230,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-sonnet-axon","lang":"axon","task":"schedule","code_tok":379,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-sonnet-axon","lang":"axon","task":"roman_calc","code_tok":425,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-sonnet-axon","lang":"axon","task":"ledger","code_tok":297,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h1-sonnet-axon","lang":"axon","task":"knight","code_tok":415,"out_tok":4,"compiled":true,"pass":3,"total":3}

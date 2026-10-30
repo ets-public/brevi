@@ -1,0 +1,15 @@
+seen: {str: int} = {}
+groups: {str: [str]} = {}
+for w in stdin().words() {
+  lw = w.lower()
+  if !seen.has(lw) {
+    seen[lw] = 1
+    groups[lw.chars().sort().join("")].push(lw)
+  }
+}
+res: [[str]] = []
+for g in groups.values() {
+  if g.len() > 1 { res.push(g.sort()) }
+}
+res = res.sort_by(g => (-g.len(), g.first()))
+for g in res { print(g.join(" ")) }

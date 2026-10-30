@@ -1,0 +1,20 @@
+for line in lines() {
+  st: [str] = []
+  bad = 0
+  cs = line.chars()
+  for i in 0..cs.len() {
+    ch = cs[i]
+    if ch == "(" or ch == "[" or ch == "{" {
+      st.push(ch)
+    } else if ch == ")" or ch == "]" or ch == "}" {
+      want = if ch == ")" { "(" } else if ch == "]" { "[" } else { "{" }
+      if st.is_empty() or st.last() != want {
+        bad = i + 1
+        break
+      }
+      st.pop()
+    }
+  }
+  if bad == 0 and !st.is_empty() { bad = cs.len() + 1 }
+  if bad == 0 { print("ok") } else { print("error at {bad}") }
+}

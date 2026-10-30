@@ -1,0 +1,8 @@
+{"run":"h2-sonnet-python","lang":"python","task":"anagrams","code_tok":114,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-sonnet-python","lang":"python","task":"log_stats","code_tok":181,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-sonnet-python","lang":"python","task":"spiral","code_tok":294,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-sonnet-python","lang":"python","task":"brackets","code_tok":190,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-sonnet-python","lang":"python","task":"schedule","code_tok":287,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-sonnet-python","lang":"python","task":"roman_calc","code_tok":349,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-sonnet-python","lang":"python","task":"ledger","code_tok":247,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"h2-sonnet-python","lang":"python","task":"knight","code_tok":333,"out_tok":4,"compiled":true,"pass":3,"total":3}

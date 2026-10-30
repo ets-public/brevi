@@ -1,0 +1,1 @@
+Each stdin line is an expression of Roman numerals joined by `+` or `-` with spaces around the operators, for example `XIV + IX - III`. Evaluate left to right and print the result as a Roman numeral. If the result is zero or less, print `nulla`. Numerals use I V X L C D M with standard subtractive pairs, and results stay below 4000.

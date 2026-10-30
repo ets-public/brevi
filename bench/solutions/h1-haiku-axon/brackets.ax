@@ -1,0 +1,25 @@
+for line in stdin().lines() {
+  cs = line.chars()
+  stack: [str] = []
+  res = "ok"
+  i = 0
+  while i < cs.len() {
+    c = cs[i]
+    pos = i + 1
+    if c == "(" or c == "[" or c == "{" {
+      stack.push(c)
+    } else if c == ")" or c == "]" or c == "}" {
+      want = if c == ")" { "(" } else if c == "]" { "[" } else { "{" }
+      if stack.is_empty() or stack.last() != want {
+        res = "error at " + str(pos)
+        break
+      }
+      stack.pop()
+    }
+    i += 1
+  }
+  if res == "ok" and not stack.is_empty() {
+    res = "error at " + str(line.len() + 1)
+  }
+  print(res)
+}

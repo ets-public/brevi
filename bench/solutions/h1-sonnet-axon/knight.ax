@@ -1,0 +1,45 @@
+fn sq(s: str, n: int) -> int {
+  c = s.slice(0, 1)
+  col = "abcdefghijklmnopqrstuvwxyz".find(c)
+  row = s.slice(1, s.len()).int() - 1
+  if col < 0 or col >= n or row < 0 or row >= n { return -1 }
+  row * n + col
+}
+ls = lines()
+n = ls[0].trim().int()
+dx = [1, 2, 2, 1, -1, -2, -2, -1]
+dy = [2, 1, -1, -2, -2, -1, 1, 2]
+for k in 1..ls.len() {
+  p = ls[k].words()
+  if p.len() >= 2 {
+    a = sq(p[0], n)
+    b = sq(p[1], n)
+    if a < 0 or b < 0 {
+      print(-1)
+    } else {
+      dist: [int] = []
+      for _ in 0..n * n { dist.push(-1) }
+      dist[a] = 0
+      q = [a]
+      h = 0
+      while h < q.len() {
+        cur = q[h]
+        h += 1
+        cx = cur % n
+        cy = cur / n
+        for d in 0..8 {
+          nx = cx + dx[d]
+          ny = cy + dy[d]
+          if nx >= 0 and nx < n and ny >= 0 and ny < n {
+            id = ny * n + nx
+            if dist[id] < 0 {
+              dist[id] = dist[cur] + 1
+              q.push(id)
+            }
+          }
+        }
+      }
+      print(dist[b])
+    }
+  }
+}

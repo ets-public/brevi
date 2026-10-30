@@ -1,0 +1,35 @@
+ls = lines()
+n = ls[0].trim().int()
+letters = "abcdefghijklmnopqrstuvwxyz"
+fn col(s: str, letters: str) -> int = letters.find(s.slice(0, 1))
+dx = [1, 2, 2, 1, -1, -2, -2, -1]
+dy = [2, 1, -1, -2, -2, -1, 1, 2]
+for line in ls.skip(1) {
+  w = line.words()
+  if w.len() >= 2 {
+    sx = col(w[0], letters)
+    sy = w[0].slice(1, w[0].len()).int() - 1
+    tx = col(w[1], letters)
+    ty = w[1].slice(1, w[1].len()).int() - 1
+    d: [int] = []
+    for i in 0..(n * n) { d.push(-1) }
+    q = [sy * n + sx]
+    d[sy * n + sx] = 0
+    h = 0
+    while h < q.len() {
+      cur = q[h]
+      h += 1
+      cx = cur % n
+      cy = cur / n
+      for k in 0..8 {
+        nx = cx + dx[k]
+        ny = cy + dy[k]
+        if nx >= 0 and nx < n and ny >= 0 and ny < n and d[ny * n + nx] < 0 {
+          d[ny * n + nx] = d[cur] + 1
+          q.push(ny * n + nx)
+        }
+      }
+    }
+    print(d[ty * n + tx])
+  }
+}

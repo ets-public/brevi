@@ -1,0 +1,19 @@
+fn key(w: str) -> str = w.chars().sort().join("")
+
+fn main() {
+  words = stdin().words()
+  seen: {str: bool} = {}
+  groups: {str: [str]} = {}
+  for w in words {
+    lw = w.lower()
+    if seen.has(lw) { continue }
+    seen[lw] = true
+    groups[key(lw)].push(lw)
+  }
+  out = []
+  for (k, g) in groups.pairs() {
+    if g.len() >= 2 { out.push(g.sort()) }
+  }
+  out = out.sort_by(g => (-g.len(), g.first()))
+  for g in out { print(g.join(" ")) }
+}

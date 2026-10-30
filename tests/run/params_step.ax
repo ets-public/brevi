@@ -1,0 +1,9 @@
+fn roman(n: int) -> str {
+  out = ""
+  while n >= 10 { out += "X"
+ n -= 10 }
+  out + "I".repeat(n)
+}
+print(roman(23))
+for i in (1..8).step(3) { print(i) }
+print((0..4).rev())

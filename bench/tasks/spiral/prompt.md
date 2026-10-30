@@ -1,0 +1,1 @@
+The first stdin line has two integers R and C. The next R lines each have C integers: a matrix. Print the matrix's numbers in clockwise spiral order starting at the top-left corner, all on one line separated by spaces. Then print the sum of each column on a second line, separated by spaces.

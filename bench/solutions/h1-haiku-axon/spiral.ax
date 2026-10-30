@@ -1,0 +1,49 @@
+ls = stdin().lines().filter(l => l.trim().len() > 0)
+dims = ls[0].ints()
+R = dims[0]
+C = dims[1]
+m = []
+for i in 0..R {
+  m.push(ls[i + 1].ints())
+}
+out = []
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+while top <= bot and left <= right {
+  for j in left..(right + 1) {
+    out.push(m[top][j])
+  }
+  top += 1
+  for i in top..(bot + 1) {
+    out.push(m[i][right])
+  }
+  right -= 1
+  if top <= bot {
+    j = right
+    while j >= left {
+      out.push(m[bot][j])
+      j -= 1
+    }
+    bot -= 1
+  }
+  if left <= right {
+    i = bot
+    while i >= top {
+      out.push(m[i][left])
+      i -= 1
+    }
+    left += 1
+  }
+}
+cols = []
+for c in 0..C {
+  s = 0
+  for i in 0..R {
+    s += m[i][c]
+  }
+  cols.push(s)
+}
+print(out.map(x => str(x)).join(" "))
+print(cols.map(x => str(x)).join(" "))

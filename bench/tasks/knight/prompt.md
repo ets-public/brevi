@@ -1,0 +1,1 @@
+The first stdin line has N, the board size (N by N, squares named by column letter a.. and row number 1..N, like `a1`). Each following line has two squares `FROM TO`. For each, print the minimum number of knight moves from FROM to TO, or `-1` if it cannot be reached.
