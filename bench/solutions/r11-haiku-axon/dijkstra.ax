@@ -1,0 +1,66 @@
+ed: [str] = []
+for line in lines() {
+  if line.trim() != "" {
+    ed.push(line.trim())
+  }
+}
+last = ed[-1].words()
+from_n = last[0]
+to_n = last[1]
+
+adj: {str: [(str, int)]} = {}
+for line in ed.slice(0, ed.len() - 1) {
+  w = line.words()
+  a = w[0]
+  b = w[1]
+  c = w[2].int().or(1)
+  if !adj.has(a) {
+    adj[a] = []
+  }
+  if !adj.has(b) {
+    adj[b] = []
+  }
+  adj[a].push((b, c))
+  adj[b].push((a, c))
+}
+
+dist: {str: int} = {}
+dist[to_n] = 0
+h: heap[(int, str)] = heap()
+h.push((0, to_n))
+while !h.is_empty() {
+  top = h.pop()
+  d = top.0
+  u = top.1
+  if d <= dist[u] {
+    for e in adj.get_or(u, []) {
+      nd = d + e.1
+      if !dist.has(e.0) or nd < dist[e.0] {
+        dist[e.0] = nd
+        h.push((nd, e.0))
+      }
+    }
+  }
+}
+
+if !dist.has(from_n) {
+  print("none")
+} else {
+  print(dist[from_n])
+  path: [str] = [from_n]
+  u = from_n
+  while u != to_n {
+    best = ""
+    for e in adj.get_or(u, []) {
+      v = e.0
+      if dist.has(v) and dist[v] + e.1 == dist[u] {
+        if best == "" or v < best {
+          best = v
+        }
+      }
+    }
+    u = best
+    path.push(u)
+  }
+  print(path.join("->"))
+}

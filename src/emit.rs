@@ -45,6 +45,8 @@ pub struct Emitter {
     fallible: bool,
     line: usize,
     pub diags: Vec<Diag>,
+    // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
+    pub borrow_loops: bool,
 }
 
 fn edit_distance(a: &str, b: &str) -> usize {
@@ -282,6 +284,7 @@ impl Emitter {
             globals: HashMap::new(),
             block_only: HashSet::new(),
             fallible: false,
+            borrow_loops: false,
             line: 0,
             diags: Vec::new(),
         };
@@ -979,6 +982,12 @@ impl Emitter {
                 let it = match iter.as_ref() {
                     // A range is counted through directly instead of being built as a list.
                     Expr::Range(a, b) => format!("({}..{})", self.expr(a), self.expr(b)),
+                    // A list that is still needed is read item by item instead of copied whole.
+                    e @ (Expr::Ident(_) | Expr::Field(..) | Expr::TupleField(..) | Expr::Index(..))
+                        if self.borrow_loops && root_name(e).map_or(false, |r| self.locals.contains(r) && self.global(r).is_none()) =>
+                    {
+                        format!("{}.ax_iter()", self.place(e))
+                    }
                     other => self.expr(other),
                 };
                 let outer = self.locals.clone();

@@ -1,0 +1,17 @@
+rows = csv(stdin())
+totals: {str: dec} = {}
+for i in 1..rows.len() {
+  r = rows[i]
+  if r.len() >= 3 {
+    v = r[1].int().or(0).dec() * r[2].dec()
+    totals[r[0]] = totals.get_or(r[0], "0".dec()) + v
+  }
+}
+out: [(dec, str)] = []
+for (k, v) in totals.pairs() {
+  out.push((v, k))
+}
+out = out.sort_by(p => (-p.0, p.1))
+for p in out {
+  print("{p.1}: {p.0.fmt(2)}")
+}

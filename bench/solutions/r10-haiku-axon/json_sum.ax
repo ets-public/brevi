@@ -1,0 +1,31 @@
+fn is_red(j: Json) -> bool = match j {
+  Str(s) => s == "red"
+  _ => false
+}
+
+fn total(j: Json) -> f64 {
+  match j {
+    Num(n) => n
+    Arr(xs) => xs.map(x => total(x)).sum()
+    Obj(m) => {
+      red = false
+      for v in m.values() {
+        if is_red(v) {
+          red = true
+        }
+      }
+      if red {
+        0.0
+      } else {
+        m.values().map(v => total(v)).sum()
+      }
+    }
+    _ => 0.0
+  }
+}
+
+fn main() {
+  j = json(stdin())
+  s = total(j)
+  print(s.round().int())
+}

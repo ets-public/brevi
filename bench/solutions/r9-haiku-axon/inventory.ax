@@ -1,0 +1,23 @@
+var totals: {str: dec} = {}
+
+rows = csv(stdin())
+for row in rows.skip(1) {
+  if row.len() >= 3 {
+    k = row[0].trim()
+    v = row[1].trim().int().or(0).dec() * row[2].trim().dec()
+    if totals.has(k) {
+      totals[k] = totals[k] + v
+    } else {
+      totals[k] = v
+    }
+  }
+}
+
+var pairs: [(dec, str)] = []
+for (k, v) in totals.pairs() {
+  pairs.push((-v, k))
+}
+for p in pairs.sort() {
+  neg = -p.0
+  print("{p.1}: {neg.fmt(2)}")
+}

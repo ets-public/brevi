@@ -2,23 +2,31 @@
 
 A programming language for AI models to write. Axon compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one JSON line with a suggested fix.
 
-The guide a model reads before writing Axon is [AXON.md](AXON.md), about 2,300 tokens (estimated).
+The guide a model reads before writing Axon is [AXON.md](AXON.md), about 2,500 tokens (estimated).
 
-## Status: v0.4
+## Status: v0.6
 
 Works today:
 - Parser for the full core syntax in AXON.md
-- Front-end checks with short JSON errors: unknown names and methods with "did you mean" hints, a missing `?` on a call that can fail, wrong argument counts
+- Front-end checks with short JSON errors: unknown names and methods with "did you mean" hints, wrong argument counts, names used outside their block
 - Emits Rust and builds it with `rustc`. rustc errors are mapped back to the Axon line and rewritten in Axon's type names
 - `run`, `test`, `check`, `build`, `emit`
-- Runtime prelude with strings, lists, sorted maps, files, stdin, JSON, CSV, dates and big integers
-- `?` works inside lambdas, `!` is inferred, `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures
-- Script-level variables can be used from functions; exact decimals (`dec`) and a min-heap (`heap()`)
-- Errors list the valid methods or fields; runtime errors are one JSON line with the Axon line
-- Benchmark in `bench/`: 22 tasks, results for Claude Sonnet and Haiku in Axon, Python and Rust
+- Runtime prelude with strings, lists, maps (hash lookups, listed in key order), files, stdin, JSON, CSV, dates, big integers, exact decimals and a min-heap
+- Short syntax: `x = 1` declares, `x: [str] = []` gives a type, `(a, b) = pair`, errors pass up without `?`, field defaults and shorthand constructors
+- `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Axon line
+- Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
+- Benchmarks in `bench/`: 10 hard tasks, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Axon, Python and Rust
+
+Speed (best of 3, seconds):
+
+| Program | Python | Axon | Rust |
+| --- | --- | --- | --- |
+| Word counts | 0.35 | 0.18 | 0.09 |
+| Dijkstra | 2.90 | 0.47 | 0.30 |
+| Prime sieve | 1.33 | 0.05 | 0.02 |
+| Group records | 0.76 | 0.31 | 0.12 |
 
 Not done yet:
-- Ownership inference. v0 clones every value it reads, so code is always correct but slower than hand-written Rust
 - Axon's own type inference. Type errors currently come from rustc, translated
 - Edit-by-name patches and compact output printing
 

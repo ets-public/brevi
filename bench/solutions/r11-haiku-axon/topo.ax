@@ -1,0 +1,47 @@
+nodes: {str: bool} = {}
+indeg: {str: int} = {}
+adj: {str: [str]} = {}
+
+for line in lines() {
+  t = line.trim()
+  if t != "" {
+    parts = t.split("->")
+    a = parts[0].trim()
+    b = parts[1].trim()
+    nodes[a] = true
+    nodes[b] = true
+    indeg[b] += 1
+    if !adj.has(a) {
+      adj[a] = []
+    }
+    adj[a].push(b)
+  }
+}
+
+ready: [str] = []
+for n in nodes.keys() {
+  if indeg.get_or(n, 0) == 0 {
+    ready.push(n)
+  }
+}
+
+result: [str] = []
+while !ready.is_empty() {
+  ready = ready.sort()
+  n = ready.remove(0)
+  result.push(n)
+  for m in adj.get_or(n, []) {
+    indeg[m] -= 1
+    if indeg[m] == 0 {
+      ready.push(m)
+    }
+  }
+}
+
+if result.len() < nodes.len() {
+  print("cycle")
+} else {
+  for r in result {
+    print(r)
+  }
+}

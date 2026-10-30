@@ -1,0 +1,17 @@
+n = stdin().trim().int()
+is_p: [bool] = []
+for i in 0..n + 1 { is_p.push(true) }
+i = 2
+while i * i <= n {
+  if is_p[i] {
+    j = i * i
+    while j <= n {
+      is_p[j] = false
+      j += i
+    }
+  }
+  i += 1
+}
+c = 0
+for k in 2..n + 1 { if is_p[k] { c += 1 } }
+print(c)

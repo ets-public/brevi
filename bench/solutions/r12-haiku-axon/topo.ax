@@ -1,0 +1,41 @@
+fn main() {
+  adj: {str: [str]} = {}
+  indeg: {str: int} = {}
+  for line in lines() {
+    if line.trim().is_empty() {
+      continue
+    }
+    parts = line.split("->")
+    a = parts[0].trim()
+    b = parts[1].trim()
+    adj[a].push(b)
+    indeg[a] = indeg.get_or(a, 0)
+    indeg[b] = indeg.get_or(b, 0) + 1
+  }
+  h = heap()
+  for k in indeg.keys() {
+    if indeg[k] == 0 {
+      h.push(k)
+    }
+  }
+  out: [str] = []
+  while not h.is_empty() {
+    n = h.pop()
+    out.push(n)
+    if adj.has(n) {
+      for m in adj[n] {
+        indeg[m] -= 1
+        if indeg[m] == 0 {
+          h.push(m)
+        }
+      }
+    }
+  }
+  if out.len() < indeg.len() {
+    print("cycle")
+  } else {
+    for n in out {
+      print(n)
+    }
+  }
+}

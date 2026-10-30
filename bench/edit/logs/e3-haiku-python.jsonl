@@ -1,0 +1,4 @@
+{"run":"e3-haiku-python","lang":"python","task":"discount","code_tok":15,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e3-haiku-python","lang":"python","task":"top","code_tok":146,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e3-haiku-python","lang":"python","task":"cancel_twice","code_tok":23,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e3-haiku-python","lang":"python","task":"customer","code_tok":132,"out_tok":4,"compiled":true,"pass":3,"total":3}

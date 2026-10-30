@@ -1,0 +1,40 @@
+ivs: [(int, int)] = []
+for line in lines() {
+  w = line.words()
+  if w.len() == 2 {
+    ivs.push((w[0].int().or(0), w[1].int().or(0)))
+  }
+}
+ivs = ivs.sort()
+
+merged: [(int, int)] = []
+cs = 0
+ce = 0
+started = false
+for iv in ivs {
+  if !started {
+    cs = iv.0
+    ce = iv.1
+    started = true
+  } else if iv.0 <= ce {
+    if iv.1 > ce {
+      ce = iv.1
+    }
+  } else {
+    merged.push((cs, ce))
+    cs = iv.0
+    ce = iv.1
+  }
+}
+if started {
+  merged.push((cs, ce))
+}
+
+total = 0
+for m in merged {
+  a = m.0
+  b = m.1
+  print("{a} {b}")
+  total += b - a
+}
+print("total {total}")

@@ -1,0 +1,55 @@
+indeg: {str: int} = {}
+adj: {str: [str]} = {}
+nodes: [str] = []
+
+for line in lines() {
+  if line.trim() == "" {
+    continue
+  }
+  parts = line.split("->")
+  a = parts[0].trim()
+  b = parts[1].trim()
+  if !indeg.has(a) {
+    indeg[a] = 0
+    nodes.push(a)
+  }
+  if !indeg.has(b) {
+    indeg[b] = 0
+    nodes.push(b)
+  }
+  indeg[b] += 1
+  adj[a].push(b)
+}
+
+fin: {str: bool} = {}
+out: [str] = []
+cyc = false
+while out.len() < nodes.len() {
+  best = ""
+  found = false
+  for n in nodes {
+    if indeg[n] == 0 and !fin.has(n) {
+      if !found or n < best {
+        best = n
+        found = true
+      }
+    }
+  }
+  if !found {
+    cyc = true
+    break
+  }
+  fin[best] = true
+  out.push(best)
+  for m in adj.get_or(best, []) {
+    indeg[m] -= 1
+  }
+}
+
+if cyc {
+  print("cycle")
+} else {
+  for n in out {
+    print(n)
+  }
+}

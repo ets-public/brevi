@@ -1,0 +1,49 @@
+var indeg: {str: int} = {}
+var adj: {str: [str]} = {}
+var placed: {str: bool} = {}
+
+for line in lines() {
+  s = line.trim()
+  if s.is_empty() {
+    continue
+  }
+  parts = s.split("->")
+  a = parts[0].trim()
+  b = parts[1].trim()
+  if !indeg.has(a) {
+    indeg[a] = 0
+  }
+  if !indeg.has(b) {
+    indeg[b] = 0
+  }
+  adj[a].push(b)
+  indeg[b] += 1
+}
+
+ks = indeg.keys()
+order = []
+for i in 0..ks.len() {
+  pick = ""
+  for k in ks {
+    if !placed.has(k) and indeg[k] == 0 {
+      pick = k
+      break
+    }
+  }
+  if pick == "" {
+    break
+  }
+  placed[pick] = true
+  order.push(pick)
+  for m in adj.get_or(pick, []) {
+    indeg[m] -= 1
+  }
+}
+
+if order.len() < ks.len() {
+  print("cycle")
+} else {
+  for t in order {
+    print(t)
+  }
+}

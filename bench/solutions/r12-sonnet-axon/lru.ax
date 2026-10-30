@@ -1,0 +1,30 @@
+ls = lines()
+cap = ls[0].trim().int()
+vals: {str: str} = {}
+order: [str] = []
+fn touch(mut o: [str], k: str) {
+  i = o.index_of(k)
+  if i >= 0 { o.remove(i) }
+  o.push(k)
+}
+for l in ls.skip(1) {
+  w = l.words()
+  if w.is_empty() { continue }
+  if w[0] == "put" {
+    k = w[1]
+    if !vals.has(k) and vals.len() >= cap {
+      old = order.remove(0)
+      vals.remove(old)
+    }
+    vals[k] = w[2]
+    touch(order, k)
+  } else {
+    k = w[1]
+    if vals.has(k) {
+      print(vals[k])
+      touch(order, k)
+    } else {
+      print(-1)
+    }
+  }
+}

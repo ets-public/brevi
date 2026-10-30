@@ -1,0 +1,67 @@
+var adj: {str: [(str, int)]} = {}
+var dist: {str: int} = {}
+var done: {str: bool} = {}
+
+ls = []
+for line in lines() {
+  t = line.trim()
+  if !t.is_empty() {
+    ls.push(t)
+  }
+}
+
+q = ls[ls.len() - 1].words()
+frm = q[0]
+tgt = q[1]
+
+for i in 0..ls.len() - 1 {
+  w = ls[i].words()
+  if w.len() == 3 {
+    a = w[0]
+    b = w[1]
+    wt = w[2].int().or(1)
+    adj[a].push((b, wt))
+    adj[b].push((a, wt))
+  }
+}
+
+dist[tgt] = 0
+while true {
+  u = ""
+  for k in dist.keys() {
+    if !done.has(k) and (u == "" or dist[k] < dist[u]) {
+      u = k
+    }
+  }
+  if u == "" {
+    break
+  }
+  done[u] = true
+  for e in adj.get_or(u, []) {
+    nd = dist[u] + e.1
+    if !dist.has(e.0) or nd < dist[e.0] {
+      dist[e.0] = nd
+    }
+  }
+}
+
+if !dist.has(frm) {
+  print("none")
+} else {
+  print("{dist[frm]}")
+  path = [frm]
+  cur = frm
+  while cur != tgt {
+    best = ""
+    for e in adj.get_or(cur, []) {
+      if dist.has(e.0) and dist[e.0] + e.1 == dist[cur] {
+        if best == "" or e.0 < best {
+          best = e.0
+        }
+      }
+    }
+    cur = best
+    path.push(cur)
+  }
+  print(path.join("->"))
+}

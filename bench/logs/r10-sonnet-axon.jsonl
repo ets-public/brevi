@@ -1,0 +1,11 @@
+{"run":"r10-sonnet-axon","lang":"axon","task":"calc","code_tok":406,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r10-sonnet-axon","lang":"axon","task":"topo","code_tok":280,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r10-sonnet-axon","lang":"axon","task":"intervals","code_tok":203,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r10-sonnet-axon","lang":"axon","task":"lru","code_tok":234,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r10-sonnet-axon","lang":"axon","task":"json_sum","code_tok":162,"out_tok":4,"compiled":true,"pass":4,"total":4}
+{"run":"r10-sonnet-axon","lang":"axon","task":"bigadd","code_tok":53,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r10-sonnet-axon","lang":"axon","task":"wrap","code_tok":222,"out_tok":390,"compiled":false,"pass":0,"total":0}
+{"run":"r10-sonnet-axon","lang":"axon","task":"inventory","code_tok":122,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r10-sonnet-axon","lang":"axon","task":"wrap","code_tok":222,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r10-sonnet-axon","lang":"axon","task":"dijkstra","code_tok":435,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r10-sonnet-axon","lang":"axon","task":"date_diff","code_tok":55,"out_tok":4,"compiled":true,"pass":3,"total":3}

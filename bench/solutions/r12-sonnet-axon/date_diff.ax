@@ -1,0 +1,5 @@
+for l in lines() {
+  w = l.words()
+  if w.len() < 2 { continue }
+  print(abs(date(w[0]).days - date(w[1]).days))
+}

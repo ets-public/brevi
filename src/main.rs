@@ -95,6 +95,7 @@ pub fn compile_to_rust(src: &str, moves: bool) -> Result<String, Vec<Diag>> {
     if moves {
         moves::mark_moves(&mut items);
     }
+    em.borrow_loops = moves;
     let rust = em.program(&items);
     if em.diags.is_empty() {
         Ok(rust)

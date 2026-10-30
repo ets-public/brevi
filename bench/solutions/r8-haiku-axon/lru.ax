@@ -1,0 +1,42 @@
+var cap = 1
+var started = false
+var vals: {str: str} = {}
+var order: [str] = []
+
+fn touch(k: str) {
+  i = order.index_of(k)
+  order.remove(i)
+  order.push(k)
+}
+
+for line in lines() {
+  w = line.words()
+  if w.is_empty() {
+    continue
+  }
+  if !started {
+    cap = w[0].int().or(1)
+    started = true
+    continue
+  }
+  k = w[1]
+  if w[0] == "put" {
+    if vals.has(k) {
+      touch(k)
+    } else {
+      if vals.len() >= cap {
+        old = order.remove(0)
+        vals.remove(old)
+      }
+      order.push(k)
+    }
+    vals[k] = w[2]
+  } else {
+    if vals.has(k) {
+      touch(k)
+      print("{vals[k]}")
+    } else {
+      print("-1")
+    }
+  }
+}

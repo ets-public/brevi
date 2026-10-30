@@ -1,0 +1,4 @@
+{"run":"e3-sonnet-rust","lang":"rust","task":"discount","code_tok":17,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e3-sonnet-rust","lang":"rust","task":"top","code_tok":254,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e3-sonnet-rust","lang":"rust","task":"cancel_twice","code_tok":30,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e3-sonnet-rust","lang":"rust","task":"customer","code_tok":230,"out_tok":4,"compiled":true,"pass":3,"total":3}

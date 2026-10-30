@@ -1,0 +1,8 @@
+order o1: 5.00
+cancelled o1
+error: order o1 already cancelled
+A1 apple 100
+B2 bread 20
+C3 cheese 10
+D4 dates 30
+stock value 439.90

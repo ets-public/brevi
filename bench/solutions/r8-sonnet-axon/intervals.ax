@@ -1,0 +1,27 @@
+var iv: [(int, int)] = []
+for line in lines() {
+  n = line.ints()
+  if n.len() == 2 { iv.push((n[0], n[1])) }
+}
+iv = iv.sort()
+var cs = 0
+var ce = 0
+var have = false
+var total = 0
+for (a, b) in iv {
+  if !have { cs = a
+    ce = b
+    have = true }
+  else if a <= ce { if b > ce { ce = b } }
+  else {
+    print("{cs} {ce}")
+    total += ce - cs
+    cs = a
+    ce = b
+  }
+}
+if have {
+  print("{cs} {ce}")
+  total += ce - cs
+}
+print("total {total}")

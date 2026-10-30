@@ -1,0 +1,32 @@
+ls = lines()
+h0 = ls[0].ints()
+n = h0[0]
+adj: [[(int, int)]] = []
+for i in 0..n { adj.push([]) }
+for l in ls.skip(1) {
+  e = l.ints()
+  adj[e[0]].push((e[1], e[2]))
+  adj[e[1]].push((e[0], e[2]))
+}
+inf = 1000000000
+dist: [int] = []
+for i in 0..n { dist.push(inf) }
+dist[0] = 0
+h = heap()
+h.push((0, 0))
+while !h.is_empty() {
+  (d, u) = h.pop()
+  if d > dist[u] { continue }
+  for (v, w) in adj[u] {
+    nd = d + w
+    if nd < dist[v] {
+      dist[v] = nd
+      h.push((nd, v))
+    }
+  }
+}
+total = 0
+reached = 0
+for d in dist { if d < inf { total += d
+ reached += 1 } }
+print("{reached} {total}")

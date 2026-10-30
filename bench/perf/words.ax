@@ -1,0 +1,6 @@
+counts: {str: int} = {}
+for l in lines() {
+  for w in l.words() { counts[w] += 1 }
+}
+top = counts.pairs().sort_by((w, c) => (-c, w)).take(10)
+for (w, c) in top { print("{w} {c}") }

@@ -1,0 +1,21 @@
+var iv: [(int, int)] = []
+for line in lines() {
+  n = line.ints()
+  if n.len() == 2 { iv.push((n[0], n[1])) }
+}
+iv = iv.sort()
+var res: [(int, int)] = []
+for p in iv {
+  if res.len() > 0 and p.0 <= res[-1].1 {
+    last = res[-1]
+    if p.1 > last.1 { res[res.len() - 1] = (last.0, p.1) }
+  } else {
+    res.push(p)
+  }
+}
+t = 0
+for r in res {
+  print("{r.0} {r.1}")
+  t += r.1 - r.0
+}
+print("total {t}")

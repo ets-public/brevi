@@ -1,0 +1,8 @@
+ls = csv(stdin())
+var tot: {str: dec} = {}
+for r in ls.skip(1) {
+  if r.len() < 3 { continue }
+  tot[r[0]] += r[1].dec() * r[2].dec()
+}
+ps = tot.pairs().sort_by(p => (-p.1, p.0))
+for p in ps { print("{p.0}: {p.1.fmt(2)}") }

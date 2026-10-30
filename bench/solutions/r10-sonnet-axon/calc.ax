@@ -1,0 +1,53 @@
+var cs: [str] = []
+pos = 0
+fn expr() -> int {
+  v = term()
+  while pos < cs.len() and (cs[pos] == "+" or cs[pos] == "-") {
+    op = cs[pos]
+    pos += 1
+    r = term()
+    if op == "+" { v += r } else { v -= r }
+  }
+  v
+}
+fn term() -> int {
+  v = factor()
+  while pos < cs.len() and (cs[pos] == "*" or cs[pos] == "/") {
+    op = cs[pos]
+    pos += 1
+    r = factor()
+    if op == "*" { v *= r } else {
+      if r == 0 { fail("div") }
+      v /= r
+    }
+  }
+  v
+}
+fn factor() -> int {
+  c = cs[pos]
+  if c == "-" {
+    pos += 1
+    return 0 - factor()
+  }
+  if c == "(" {
+    pos += 1
+    v = expr()
+    pos += 1
+    return v
+  }
+  n = 0
+  while pos < cs.len() and cs[pos].is_digit() {
+    n = n * 10 + cs[pos].digit()
+    pos += 1
+  }
+  n
+}
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  cs = line.chars().filter(c => c != " ")
+  pos = 0
+  match expr() {
+    Ok(v) => print(v)
+    Err(m) => print("error")
+  }
+}

@@ -1,0 +1,94 @@
+toks: [str] = []
+pos = 0
+bad = false
+
+fn tokenize(s: str) -> [str] {
+  out: [str] = []
+  num = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      num += c
+    } else {
+      if num != "" {
+        out.push(num)
+        num = ""
+      }
+      if c != " " {
+        out.push(c)
+      }
+    }
+  }
+  if num != "" {
+    out.push(num)
+  }
+  out
+}
+
+fn peek() -> str {
+  if pos < toks.len() { toks[pos] } else { "" }
+}
+
+fn parse_factor() -> int {
+  t = peek()
+  if t == "-" {
+    pos += 1
+    return -parse_factor()
+  }
+  if t == "(" {
+    pos += 1
+    v = parse_expr()
+    pos += 1
+    return v
+  }
+  pos += 1
+  t.int().or(0)
+}
+
+fn parse_term() -> int {
+  v = parse_factor()
+  while peek() == "*" or peek() == "/" {
+    op = peek()
+    pos += 1
+    r = parse_factor()
+    if op == "*" {
+      v = v * r
+    } else {
+      if r == 0 {
+        bad = true
+        return 0
+      }
+      v = v / r
+    }
+  }
+  v
+}
+
+fn parse_expr() -> int {
+  v = parse_term()
+  while peek() == "+" or peek() == "-" {
+    op = peek()
+    pos += 1
+    r = parse_term()
+    if op == "+" {
+      v = v + r
+    } else {
+      v = v - r
+    }
+  }
+  v
+}
+
+for line in lines() {
+  if line.trim() == "" {
+    continue
+  }
+  toks = tokenize(line)
+  pos = 0
+  bad = false
+  v = parse_expr()
+  if bad {
+    print("error")
+  } else {
+    print(v)
+  }
+}

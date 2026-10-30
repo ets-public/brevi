@@ -1,0 +1,69 @@
+var cs: [str] = []
+pos = 0
+fn skip() {
+  while pos < cs.len() and cs[pos] == " " { pos += 1 }
+}
+fn atom() -> int {
+  skip()
+  c = cs[pos]
+  if c == "-" {
+    pos += 1
+    return 0 - atom()
+  }
+  if c == "(" {
+    pos += 1
+    v = expr()
+    skip()
+    pos += 1
+    return v
+  }
+  v = 0
+  while pos < cs.len() and cs[pos].is_digit() {
+    v = v * 10 + cs[pos].digit()
+    pos += 1
+  }
+  v
+}
+fn term() -> int {
+  v = atom()
+  while true {
+    skip()
+    if pos >= cs.len() { break }
+    c = cs[pos]
+    if c == "*" {
+      pos += 1
+      v = v * atom()
+    } else if c == "/" {
+      pos += 1
+      d = atom()
+      if d == 0 { fail("div") }
+      v = v / d
+    } else { break }
+  }
+  v
+}
+fn expr() -> int {
+  v = term()
+  while true {
+    skip()
+    if pos >= cs.len() { break }
+    c = cs[pos]
+    if c == "+" {
+      pos += 1
+      v = v + term()
+    } else if c == "-" {
+      pos += 1
+      v = v - term()
+    } else { break }
+  }
+  v
+}
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  cs = line.chars()
+  pos = 0
+  match expr() {
+    Ok(v) => print(v)
+    Err(m) => print("error")
+  }
+}

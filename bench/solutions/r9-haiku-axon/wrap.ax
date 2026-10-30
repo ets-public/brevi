@@ -1,0 +1,51 @@
+var width = 0
+var paras: [[str]] = []
+var cur: [str] = []
+var first = true
+
+for line in lines() {
+  if first {
+    width = line.trim().int().or(0)
+    first = false
+  } else {
+    w = line.words()
+    if w.len() == 0 {
+      if cur.len() > 0 {
+        paras.push(cur)
+        cur = []
+      }
+    } else {
+      for x in w {
+        cur.push(x)
+      }
+    }
+  }
+}
+if cur.len() > 0 {
+  paras.push(cur)
+}
+
+var outlines: [str] = []
+pi = 0
+for para in paras {
+  if pi > 0 {
+    outlines.push("")
+  }
+  pi += 1
+  cl = ""
+  for word in para {
+    if cl == "" {
+      cl = word
+    } else if cl.len() + 1 + word.len() <= width {
+      cl = cl + " " + word
+    } else {
+      outlines.push(cl)
+      cl = word
+    }
+  }
+  outlines.push(cl)
+}
+
+for l in outlines {
+  print(l)
+}

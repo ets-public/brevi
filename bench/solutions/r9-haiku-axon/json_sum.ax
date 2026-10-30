@@ -1,0 +1,115 @@
+var cs: [str] = []
+var pos = 0
+var red_flag = false
+
+fn skip_ws() {
+  while pos < cs.len() and cs[pos].is_space() {
+    pos += 1
+  }
+}
+
+fn pstr() -> str {
+  pos += 1
+  out = ""
+  while cs[pos] != "\"" {
+    if cs[pos] == "\\" {
+      out += cs[pos]
+      pos += 1
+    }
+    out += cs[pos]
+    pos += 1
+  }
+  pos += 1
+  out
+}
+
+fn pnum() -> int {
+  neg = false
+  if cs[pos] == "-" {
+    neg = true
+    pos += 1
+  }
+  n = 0
+  while pos < cs.len() and cs[pos].is_digit() {
+    n = n * 10 + cs[pos].digit()
+    pos += 1
+  }
+  if neg {
+    return 0 - n
+  }
+  n
+}
+
+fn pobj() -> int {
+  pos += 1
+  total = 0
+  has_red = false
+  skip_ws()
+  while cs[pos] != "}" {
+    skip_ws()
+    pstr()
+    skip_ws()
+    pos += 1
+    total += pval()
+    if red_flag {
+      has_red = true
+    }
+    skip_ws()
+    if cs[pos] == "," {
+      pos += 1
+    }
+    skip_ws()
+  }
+  pos += 1
+  red_flag = false
+  if has_red {
+    return 0
+  }
+  total
+}
+
+fn parr() -> int {
+  pos += 1
+  total = 0
+  skip_ws()
+  while cs[pos] != "]" {
+    total += pval()
+    skip_ws()
+    if cs[pos] == "," {
+      pos += 1
+    }
+    skip_ws()
+  }
+  pos += 1
+  red_flag = false
+  total
+}
+
+fn pval() -> int {
+  skip_ws()
+  c = cs[pos]
+  if c == "{" {
+    return pobj()
+  }
+  if c == "[" {
+    return parr()
+  }
+  if c == "\"" {
+    s = pstr()
+    red_flag = s == "red"
+    return 0
+  }
+  red_flag = false
+  if c == "-" or c.is_digit() {
+    return pnum()
+  }
+  while pos < cs.len() and cs[pos].is_alpha() {
+    pos += 1
+  }
+  0
+}
+
+s = stdin()
+cs = s.chars()
+pos = 0
+print(str(pval()))

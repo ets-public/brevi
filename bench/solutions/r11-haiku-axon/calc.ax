@@ -1,0 +1,102 @@
+toks: [str] = []
+pos = 0
+bad = false
+
+fn tokenize(s: str) -> [str] {
+  out: [str] = []
+  cur = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      cur += c
+    } else {
+      if cur != "" {
+        out.push(cur)
+        cur = ""
+      }
+      if c != " " and c != "\t" {
+        out.push(c)
+      }
+    }
+  }
+  if cur != "" {
+    out.push(cur)
+  }
+  out
+}
+
+fn peek() -> str {
+  if pos < toks.len() {
+    toks[pos]
+  } else {
+    ""
+  }
+}
+
+fn parse_expr() -> int {
+  v = parse_term()
+  while peek() == "+" or peek() == "-" {
+    op = peek()
+    pos += 1
+    r = parse_term()
+    if op == "+" {
+      v = v + r
+    } else {
+      v = v - r
+    }
+  }
+  v
+}
+
+fn parse_term() -> int {
+  v = parse_unary()
+  while peek() == "*" or peek() == "/" {
+    op = peek()
+    pos += 1
+    r = parse_unary()
+    if op == "*" {
+      v = v * r
+    } else {
+      if r == 0 {
+        bad = true
+        return 0
+      }
+      v = v / r
+    }
+  }
+  v
+}
+
+fn parse_unary() -> int {
+  if peek() == "-" {
+    pos += 1
+    u = parse_unary()
+    return 0 - u
+  }
+  parse_atom()
+}
+
+fn parse_atom() -> int {
+  t = peek()
+  if t == "(" {
+    pos += 1
+    v = parse_expr()
+    pos += 1
+    return v
+  }
+  pos += 1
+  t.int().or(0)
+}
+
+for line in lines() {
+  if line.trim() != "" {
+    toks = tokenize(line)
+    pos = 0
+    bad = false
+    v = parse_expr()
+    if bad {
+      print("error")
+    } else {
+      print(v)
+    }
+  }
+}

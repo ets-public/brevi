@@ -1,0 +1,25 @@
+var iv: [(int, int)] = []
+
+for line in lines() {
+  if line.trim() != "" {
+    p = line.ints()
+    iv.push((p[0], p[1]))
+  }
+}
+
+var merged: [(int, int)] = []
+for p in iv.sort() {
+  if merged.len() > 0 and p.0 <= merged.last().1 {
+    top = merged.pop()
+    merged.push((top.0, max(top.1, p.1)))
+  } else {
+    merged.push(p)
+  }
+}
+
+total = 0
+for m in merged {
+  print("{m.0} {m.1}")
+  total += m.1 - m.0
+}
+print("total {total}")

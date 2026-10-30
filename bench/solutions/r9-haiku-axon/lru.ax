@@ -1,0 +1,42 @@
+var capacity = 1
+var vals: {str: str} = {}
+var order: [str] = []
+var first = true
+
+fn touch(k: str) {
+  i = order.index_of(k)
+  order.remove(i)
+  order.push(k)
+}
+
+for line in lines() {
+  w = line.words()
+  if w.len() > 0 {
+    if first {
+      capacity = w[0].int().or(1)
+      first = false
+    } else if w[0] == "put" {
+      k = w[1]
+      v = w[2]
+      if vals.has(k) {
+        vals[k] = v
+        touch(k)
+      } else {
+        if order.len() >= capacity {
+          old = order.remove(0)
+          vals.remove(old)
+        }
+        vals[k] = v
+        order.push(k)
+      }
+    } else if w[0] == "get" {
+      k = w[1]
+      if vals.has(k) {
+        touch(k)
+        print(vals[k])
+      } else {
+        print("-1")
+      }
+    }
+  }
+}

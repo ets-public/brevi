@@ -1,0 +1,41 @@
+ls = lines().filter(l => l.trim() != "")
+adj: {str: [(str, int)]} = {}
+for l in ls.take(ls.len() - 1) {
+  w = l.words()
+  wt = w[2].int()
+  adj[w[0]].push((w[1], wt))
+  adj[w[1]].push((w[0], wt))
+}
+ft = ls[-1].words()
+src = ft[0]
+dst = ft[1]
+dist: {str: int} = {}
+h = heap()
+h.push((0, dst))
+while !h.is_empty() {
+  (d, n) = h.pop()
+  if !dist.has(n) {
+    dist[n] = d
+    for (m, w) in adj.get_or(n, []) {
+      if !dist.has(m) { h.push((d + w, m)) }
+    }
+  }
+}
+if !dist.has(src) {
+  print("none")
+} else {
+  print(dist[src])
+  path = [src]
+  cur = src
+  while cur != dst {
+    best = ""
+    for (m, w) in adj[cur] {
+      if dist.has(m) and w + dist[m] == dist[cur] {
+        if best == "" or m < best { best = m }
+      }
+    }
+    path.push(best)
+    cur = best
+  }
+  print(path.join("->"))
+}

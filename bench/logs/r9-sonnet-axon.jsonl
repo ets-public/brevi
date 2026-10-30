@@ -1,0 +1,14 @@
+{"run":"r9-sonnet-axon","lang":"axon","task":"calc","code_tok":452,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r9-sonnet-axon","lang":"axon","task":"topo","code_tok":260,"out_tok":64,"compiled":false,"pass":0,"total":0}
+{"run":"r9-sonnet-axon","lang":"axon","task":"intervals","code_tok":183,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r9-sonnet-axon","lang":"axon","task":"topo","code_tok":276,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r9-sonnet-axon","lang":"axon","task":"lru","code_tok":227,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r9-sonnet-axon","lang":"axon","task":"json_sum","code_tok":159,"out_tok":4,"compiled":true,"pass":4,"total":4}
+{"run":"r9-sonnet-axon","lang":"axon","task":"bigadd","code_tok":52,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r9-sonnet-axon","lang":"axon","task":"wrap","code_tok":251,"out_tok":53,"compiled":false,"pass":0,"total":0}
+{"run":"r9-sonnet-axon","lang":"axon","task":"wrap","code_tok":252,"out_tok":455,"compiled":false,"pass":0,"total":0}
+{"run":"r9-sonnet-axon","lang":"axon","task":"wrap","code_tok":252,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r9-sonnet-axon","lang":"axon","task":"inventory","code_tok":169,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r9-sonnet-axon","lang":"axon","task":"dijkstra","code_tok":389,"out_tok":571,"compiled":false,"pass":0,"total":0}
+{"run":"r9-sonnet-axon","lang":"axon","task":"dijkstra","code_tok":390,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r9-sonnet-axon","lang":"axon","task":"date_diff","code_tok":54,"out_tok":4,"compiled":true,"pass":3,"total":3}

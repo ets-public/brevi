@@ -1,0 +1,84 @@
+fn tokenize(s: str) -> [str] {
+  toks: [str] = []
+  num = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      num = num + c
+    } else {
+      if num != "" {
+        toks.push(num)
+        num = ""
+      }
+      if c != " " and c != "\t" and c != "\r" {
+        toks.push(c)
+      }
+    }
+  }
+  if num != "" {
+    toks.push(num)
+  }
+  toks
+}
+
+fn parse_factor(t: [str], p: int) -> (int, int) {
+  if t[p] == "-" {
+    (v, q) = parse_factor(t, p + 1)
+    return (-v, q)
+  }
+  if t[p] == "(" {
+    (v, q) = parse_expr(t, p + 1)
+    return (v, q + 1)
+  }
+  (t[p].int(), p + 1)
+}
+
+fn parse_term(t: [str], p: int) -> (int, int) {
+  (v, q) = parse_factor(t, p)
+  while q < t.len() and (t[q] == "*" or t[q] == "/") {
+    op = t[q]
+    (r, q2) = parse_factor(t, q + 1)
+    if op == "*" {
+      v = v * r
+    } else {
+      if r == 0 {
+        fail("division by zero")
+      }
+      v = v / r
+    }
+    q = q2
+  }
+  (v, q)
+}
+
+fn parse_expr(t: [str], p: int) -> (int, int) {
+  (v, q) = parse_term(t, p)
+  while q < t.len() and (t[q] == "+" or t[q] == "-") {
+    op = t[q]
+    (r, q2) = parse_term(t, q + 1)
+    if op == "+" {
+      v = v + r
+    } else {
+      v = v - r
+    }
+    q = q2
+  }
+  (v, q)
+}
+
+fn eval_tokens(t: [str]) -> int {
+  (v, q) = parse_expr(t, 0)
+  v
+}
+
+fn main() {
+  for line in lines() {
+    t = tokenize(line)
+    if t.is_empty() {
+      continue
+    }
+    match eval_tokens(t) {
+      Ok(v) => print(str(v))
+      Err(m) => print("error")
+    }
+  }
+}

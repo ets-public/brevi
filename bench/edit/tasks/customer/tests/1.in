@@ -1,0 +1,9 @@
+add A1 apple 0.50 100
+add B2 bread 2.5 20
+add C3 cheese 12.99 10
+add D4 dates 7 30
+order o1 ann A1 2
+order o2 bob B2 1
+order o3 ann C3 1
+customer ann
+customer bob

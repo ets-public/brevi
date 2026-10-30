@@ -1,0 +1,5 @@
+{"run":"e2-haiku-axon","lang":"axon","task":"discount","code_tok":14,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e2-haiku-axon","lang":"axon","task":"top","code_tok":183,"out_tok":113,"compiled":true,"pass":0,"total":3}
+{"run":"e2-haiku-axon","lang":"axon","task":"top","code_tok":188,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e2-haiku-axon","lang":"axon","task":"cancel_twice","code_tok":27,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"e2-haiku-axon","lang":"axon","task":"customer","code_tok":171,"out_tok":4,"compiled":true,"pass":3,"total":3}

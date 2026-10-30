@@ -1,0 +1,55 @@
+adj: {str: [(str, int)]} = {}
+src = ""
+dst = ""
+for line in lines() {
+  ps = line.words()
+  if ps.len() == 3 {
+    a = ps[0]
+    b = ps[1]
+    w = ps[2].int()
+    adj[a].push((b, w))
+    adj[b].push((a, w))
+  } else if ps.len() == 2 {
+    src = ps[0]
+    dst = ps[1]
+  }
+}
+
+// distances from dst, so the path can be built greedily from src
+dist: {str: int} = {}
+h = heap()
+h.push((0, dst))
+while not h.is_empty() {
+  (d, u) = h.pop()
+  if not dist.has(u) {
+    dist[u] = d
+    if adj.has(u) {
+      for (v, w) in adj[u] {
+        if not dist.has(v) {
+          h.push((d + w, v))
+        }
+      }
+    }
+  }
+}
+
+if not dist.has(src) {
+  print("none")
+} else {
+  print(str(dist[src]))
+  path: [str] = [src]
+  cur = src
+  while cur != dst {
+    nxt = ""
+    for (v, w) in adj[cur] {
+      if dist.has(v) and w + dist[v] == dist[cur] {
+        if nxt == "" or v < nxt {
+          nxt = v
+        }
+      }
+    }
+    path.push(nxt)
+    cur = nxt
+  }
+  print(path.join("->"))
+}

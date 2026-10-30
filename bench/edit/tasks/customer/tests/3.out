@@ -1,0 +1,8 @@
+order o1: 16.00
+error: order o2: not enough C3
+cy 1 16.00
+A1 apple 96
+B2 bread 20
+C3 cheese 10
+D4 dates 28
+stock value 423.90

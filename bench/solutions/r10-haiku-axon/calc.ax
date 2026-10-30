@@ -1,0 +1,90 @@
+fn tokenize(s: str) -> [str] {
+  var out: [str] = []
+  num = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      num += c
+    } else {
+      if num.len() > 0 {
+        out.push(num)
+        num = ""
+      }
+      if c != " " {
+        out.push(c)
+      }
+    }
+  }
+  if num.len() > 0 {
+    out.push(num)
+  }
+  out
+}
+
+fn parse_atom(toks: [str], pos: int) -> (int, int) {
+  t = toks[pos]
+  if t == "(" {
+    r = parse_expr(toks, pos + 1)
+    return (r.0, r.1 + 1)
+  }
+  if t == "-" {
+    r = parse_atom(toks, pos + 1)
+    return (-r.0, r.1)
+  }
+  (t.int(), pos + 1)
+}
+
+fn parse_term(toks: [str], pos: int) -> (int, int) {
+  r = parse_atom(toks, pos)
+  v = r.0
+  p = r.1
+  while p < toks.len() and (toks[p] == "*" or toks[p] == "/") {
+    op = toks[p]
+    r2 = parse_atom(toks, p + 1)
+    if op == "*" {
+      v = v * r2.0
+    } else {
+      if r2.0 == 0 {
+        fail("division by zero")
+      }
+      v = v / r2.0
+    }
+    p = r2.1
+  }
+  (v, p)
+}
+
+fn parse_expr(toks: [str], pos: int) -> (int, int) {
+  r = parse_term(toks, pos)
+  v = r.0
+  p = r.1
+  while p < toks.len() and (toks[p] == "+" or toks[p] == "-") {
+    op = toks[p]
+    r2 = parse_term(toks, p + 1)
+    if op == "+" {
+      v = v + r2.0
+    } else {
+      v = v - r2.0
+    }
+    p = r2.1
+  }
+  (v, p)
+}
+
+fn eval_line(s: str) -> int {
+  toks = tokenize(s)
+  r = parse_expr(toks, 0)
+  r.0
+}
+
+fn main() {
+  for line in lines() {
+    t = line.trim()
+    if t.is_empty() {
+      continue
+    }
+    match eval_line(t) {
+      Ok(v) => print(v)
+      Err(m) => print("error")
+    }
+  }
+}

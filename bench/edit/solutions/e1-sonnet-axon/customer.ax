@@ -1,0 +1,116 @@
+type Product { sku: str, name: str, price: int, stock: int }   // price in cents
+type Order { id: str, lines: [(str, int)], total: int, cancelled: bool, customer: str }
+
+var products: {str: Product} = {}
+var orders: {str: Order} = {}
+
+fn parse_cents(s: str) -> int {
+  let parts = s.split(".")
+  var frac = if parts.len() > 1 { parts[1] } else { "" }
+  frac = (frac + "00").slice(0, 2)
+  parts[0].int()? * 100 + frac.int()?
+}
+
+fn money(c: int) -> str {
+  let f = c % 100
+  if f < 10 { "{c / 100}.0{f}" } else { "{c / 100}.{f}" }
+}
+
+fn cmd_add(args: [str]) {
+  let sku = args[0]
+  if products.has(sku) {
+    print("error: {sku} exists")
+    return
+  }
+  products[sku] = Product(sku: sku, name: args[1], price: parse_cents(args[2])?, stock: args[3].int()?)
+}
+
+fn cmd_restock(args: [str]) {
+  let sku = args[0]
+  if !products.has(sku) {
+    print("error: unknown product {sku}")
+    return
+  }
+  products[sku].stock += args[1].int()?
+}
+
+fn cmd_order(args: [str]) {
+  let oid = args[0]
+  if orders.has(oid) {
+    print("error: order {oid} exists")
+    return
+  }
+  let cust = args[1]
+  var lines: [(str, int)] = []
+  var i = 2
+  while i < args.len() {
+    lines.push((args[i], args[i + 1].int()?))
+    i += 2
+  }
+  for (sku, qty) in lines {
+    if !products.has(sku) {
+      print("error: unknown product {sku}")
+      return
+    }
+    if products[sku].stock < qty {
+      print("error: order {oid}: not enough {sku}")
+      return
+    }
+  }
+  var total = 0
+  for (sku, qty) in lines {
+    products[sku].stock -= qty
+    total += products[sku].price * qty
+  }
+  orders[oid] = Order(id: oid, lines: lines, total: total, cancelled: false, customer: cust)
+  print("order {oid}: {money(total)}")
+}
+
+fn cmd_cancel(args: [str]) {
+  let oid = args[0]
+  if !orders.has(oid) {
+    print("error: unknown order {oid}")
+    return
+  }
+  for (sku, qty) in orders[oid].lines {
+    products[sku].stock += qty
+  }
+  orders[oid].cancelled = true
+  print("cancelled {oid}")
+}
+
+fn cmd_report() {
+  var value = 0
+  for (sku, p) in products.pairs() {
+    print("{p.sku} {p.name} {p.stock}")
+    value += p.price * p.stock
+  }
+  print("stock value {money(value)}")
+}
+
+fn cmd_revenue() {
+  let total = orders.values().filter(o => !o.cancelled).map(o => o.total).sum()
+  print("revenue {money(total)}")
+}
+
+fn cmd_customer(args: [str]) {
+  let mine = orders.values().filter(o => !o.cancelled and o.customer == args[0])
+  let total = mine.map(o => o.total).sum()
+  print("{args[0]} {mine.len()} {money(total)}")
+}
+
+for line in lines() {
+  let words = line.words()
+  if words.is_empty() { continue }
+  let args = words.skip(1)
+  match words[0] {
+    "add" => cmd_add(args)?
+    "restock" => cmd_restock(args)?
+    "order" => cmd_order(args)?
+    "cancel" => cmd_cancel(args)
+    "customer" => cmd_customer(args)
+    "report" => cmd_report()
+    "revenue" => cmd_revenue()
+    other => print("error: unknown command {other}")
+  }
+}

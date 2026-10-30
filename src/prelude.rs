@@ -86,6 +86,25 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
         self.iter().map(|(_, v)| v)
     }
 }
+// `for x in xs` on a list that is used again reads its items without copying the whole list.
+pub trait AxIter {
+    type I<'a>: Iterator
+    where
+        Self: 'a;
+    fn ax_iter<'a>(&'a self) -> Self::I<'a>;
+}
+impl<T: Clone> AxIter for Vec<T> {
+    type I<'a> = std::iter::Cloned<std::slice::Iter<'a, T>> where T: 'a;
+    fn ax_iter<'a>(&'a self) -> Self::I<'a> {
+        self.iter().cloned()
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxIter for AxM<K, V> {
+    type I<'a> = std::vec::IntoIter<(K, V)> where K: 'a, V: 'a;
+    fn ax_iter<'a>(&'a self) -> Self::I<'a> {
+        self.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>().into_iter()
+    }
+}
 impl<K: Hash + Eq + Ord, V> IntoIterator for AxM<K, V> {
     type Item = (K, V);
     type IntoIter = std::vec::IntoIter<(K, V)>;

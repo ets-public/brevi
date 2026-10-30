@@ -1,0 +1,22 @@
+iv: [(int, int)] = []
+for line in lines() {
+  n = line.ints()
+  if n.len() == 2 { iv.push((n[0], n[1])) }
+}
+iv = iv.sort()
+res: [(int, int)] = []
+for (a, b) in iv {
+  if res.len() > 0 and a <= res[-1].1 {
+    if b > res[-1].1 {
+      (s0, e0) = res[-1]
+      res.pop()
+      res.push((s0, b))
+    }
+  } else { res.push((a, b)) }
+}
+t = 0
+for (a, b) in res {
+  print("{a} {b}")
+  t += b - a
+}
+print("total {t}")

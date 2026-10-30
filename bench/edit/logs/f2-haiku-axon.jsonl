@@ -1,0 +1,6 @@
+{"run":"f2-haiku-axon","lang":"axon","task":"discount","code_tok":14,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"f2-haiku-axon","lang":"axon","task":"top","code_tok":168,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"f2-haiku-axon","lang":"axon","task":"cancel_twice","code_tok":25,"out_tok":131,"compiled":true,"pass":1,"total":3}
+{"run":"f2-haiku-axon","lang":"axon","task":"cancel_twice","code_tok":27,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"f2-haiku-axon","lang":"axon","task":"customer","code_tok":167,"out_tok":53,"compiled":false,"pass":0,"total":0}
+{"run":"f2-haiku-axon","lang":"axon","task":"customer","code_tok":166,"out_tok":4,"compiled":true,"pass":3,"total":3}

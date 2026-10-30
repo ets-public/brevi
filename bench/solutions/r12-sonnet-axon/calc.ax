@@ -1,0 +1,56 @@
+src = ""
+pos = 0
+fn peek() -> str {
+  if pos < src.len() { src.slice(pos, pos + 1) } else { "" }
+}
+fn atom() -> int {
+  c = peek()
+  if c == "-" {
+    pos += 1
+    return -atom()
+  }
+  if c == "(" {
+    pos += 1
+    v = expr()
+    pos += 1
+    return v
+  }
+  start = pos
+  while peek().is_digit() { pos += 1 }
+  src.slice(start, pos).int()
+}
+fn term() -> int {
+  v = atom()
+  while peek() == "*" or peek() == "/" {
+    op = peek()
+    pos += 1
+    r = atom()
+    if op == "*" { v = v * r } else {
+      if r == 0 { fail("div") }
+      v = v / r
+    }
+  }
+  v
+}
+fn expr() -> int {
+  v = term()
+  while peek() == "+" or peek() == "-" {
+    op = peek()
+    pos += 1
+    r = term()
+    if op == "+" { v = v + r } else { v = v - r }
+  }
+  v
+}
+fn calc(s: str) -> int {
+  src = s.replace(" ", "")
+  pos = 0
+  expr()
+}
+for l in lines() {
+  if l.trim().is_empty() { continue }
+  match calc(l) {
+    Ok(v) => print(v)
+    Err(m) => print("error")
+  }
+}

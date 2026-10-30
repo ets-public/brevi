@@ -1,0 +1,4 @@
+{"run":"f3-sonnet-axon","lang":"axon","task":"discount","code_tok":14,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"f3-sonnet-axon","lang":"axon","task":"top","code_tok":162,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"f3-sonnet-axon","lang":"axon","task":"cancel_twice","code_tok":27,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"f3-sonnet-axon","lang":"axon","task":"customer","code_tok":166,"out_tok":4,"compiled":true,"pass":3,"total":3}

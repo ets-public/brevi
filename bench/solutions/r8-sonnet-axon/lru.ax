@@ -1,0 +1,26 @@
+ls = lines()
+cap = ls[0].trim().int()
+var vals: {str: str} = {}
+var order: [str] = []
+for i in 1..ls.len() {
+  w = ls[i].words()
+  if w.len() == 0 { continue }
+  if w[0] == "get" {
+    k = w[1]
+    if vals.has(k) {
+      print(vals[k])
+      order.remove(order.index_of(k))
+      order.push(k)
+    } else { print("-1") }
+  } else {
+    k = w[1]
+    if vals.has(k) {
+      order.remove(order.index_of(k))
+    } else if order.len() >= cap {
+      old = order.remove(0)
+      vals.remove(old)
+    }
+    vals[k] = w[2]
+    order.push(k)
+  }
+}

@@ -1,0 +1,107 @@
+cs = stdin().chars()
+pos = 0
+
+fn skip_ws() {
+  while pos < cs.len() and (cs[pos] == " " or cs[pos] == "\n" or cs[pos] == "\t" or cs[pos] == "\r") {
+    pos += 1
+  }
+}
+
+fn parse_string() -> str {
+  pos += 1
+  out = ""
+  while pos < cs.len() and cs[pos] != "\"" {
+    if cs[pos] == "\\" {
+      out += cs[pos + 1]
+      pos += 2
+    } else {
+      out += cs[pos]
+      pos += 1
+    }
+  }
+  pos += 1
+  out
+}
+
+fn parse_value() -> (int, int, str) {
+  skip_ws()
+  c = cs[pos]
+  if c == "{" {
+    pos += 1
+    total = 0
+    red = false
+    skip_ws()
+    if cs[pos] == "}" {
+      pos += 1
+      return (0, 0, "")
+    }
+    while true {
+      skip_ws()
+      parse_string()
+      skip_ws()
+      pos += 1
+      r = parse_value()
+      total += r.0
+      if r.1 == 1 and r.2 == "red" {
+        red = true
+      }
+      skip_ws()
+      if cs[pos] == "," {
+        pos += 1
+      } else {
+        pos += 1
+        break
+      }
+    }
+    if red {
+      return (0, 0, "")
+    }
+    return (total, 0, "")
+  }
+  if c == "[" {
+    pos += 1
+    total = 0
+    skip_ws()
+    if cs[pos] == "]" {
+      pos += 1
+      return (0, 0, "")
+    }
+    while true {
+      r = parse_value()
+      total += r.0
+      skip_ws()
+      if cs[pos] == "," {
+        pos += 1
+      } else {
+        pos += 1
+        break
+      }
+    }
+    return (total, 0, "")
+  }
+  if c == "\"" {
+    s = parse_string()
+    return (0, 1, s)
+  }
+  if c == "t" {
+    pos += 4
+    return (0, 0, "")
+  }
+  if c == "f" {
+    pos += 5
+    return (0, 0, "")
+  }
+  if c == "n" {
+    pos += 4
+    return (0, 0, "")
+  }
+  numtxt = ""
+  while pos < cs.len() and (cs[pos] == "-" or cs[pos].is_digit()) {
+    numtxt += cs[pos]
+    pos += 1
+  }
+  (numtxt.int().or(0), 0, "")
+}
+
+top = parse_value()
+print(top.0)

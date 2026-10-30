@@ -1,0 +1,36 @@
+fn main() {
+  ls = lines()
+  cap = ls[0].trim().int().or(1)
+  var vals: {str: str} = {}
+  var order: [str] = []
+  for line in ls.skip(1) {
+    t = line.trim()
+    if t.is_empty() {
+      continue
+    }
+    p = t.words()
+    if p[0] == "get" {
+      k = p[1]
+      if vals.has(k) {
+        i = order.index_of(k)
+        order.remove(i)
+        order.push(k)
+        print(vals[k])
+      } else {
+        print(-1)
+      }
+    } else {
+      k = p[1]
+      v = p[2]
+      if vals.has(k) {
+        i = order.index_of(k)
+        order.remove(i)
+      } else if vals.len() >= cap {
+        old = order.remove(0)
+        vals.remove(old)
+      }
+      vals[k] = v
+      order.push(k)
+    }
+  }
+}

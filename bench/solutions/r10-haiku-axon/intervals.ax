@@ -1,0 +1,27 @@
+fn main() {
+  var iv: [(int, int)] = []
+  for line in lines() {
+    t = line.trim()
+    if t.is_empty() {
+      continue
+    }
+    p = t.ints()
+    iv.push((p[0], p[1]))
+  }
+  iv = iv.sort()
+  var merged: [(int, int)] = []
+  for (s, e) in iv {
+    if merged.is_empty() or s > merged[-1].1 {
+      merged.push((s, e))
+    } else {
+      last = merged.pop()
+      merged.push((last.0, max(last.1, e)))
+    }
+  }
+  total = 0
+  for (s, e) in merged {
+    print("{s} {e}")
+    total += e - s
+  }
+  print("total {total}")
+}

@@ -1,0 +1,54 @@
+var s = ""
+pos = 0
+bad = false
+fn peek() -> str {
+  while pos < s.len() and s.slice(pos, pos + 1) == " " { pos += 1 }
+  if pos < s.len() { s.slice(pos, pos + 1) } else { "" }
+}
+fn expr() -> int {
+  v = term()
+  while true {
+    c = peek()
+    if c == "+" { pos += 1
+      v = v + term() }
+    else if c == "-" { pos += 1
+      v = v - term() }
+    else { break }
+  }
+  v
+}
+fn term() -> int {
+  v = unary()
+  while true {
+    c = peek()
+    if c == "*" { pos += 1
+      v = v * unary() }
+    else if c == "/" { pos += 1
+      d = unary()
+      if d == 0 { bad = true
+        v = 0 } else { v = v / d } }
+    else { break }
+  }
+  v
+}
+fn unary() -> int {
+  c = peek()
+  if c == "-" { pos += 1
+    return -unary() }
+  if c == "(" { pos += 1
+    v = expr()
+    peek()
+    pos += 1
+    return v }
+  st = pos
+  while pos < s.len() and s.slice(pos, pos + 1).is_digit() { pos += 1 }
+  s.slice(st, pos).int()
+}
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  s = line
+  pos = 0
+  bad = false
+  r = expr()
+  if bad { print("error") } else { print(r) }
+}

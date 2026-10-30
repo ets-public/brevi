@@ -1,0 +1,62 @@
+var adj: {str: [(str, int)]} = {}
+
+var ls: [str] = []
+for line in lines() {
+  if line.trim() != "" {
+    ls.push(line.trim())
+  }
+}
+
+fw = ls[-1].words()
+src = fw[0]
+dst = fw[1]
+
+for line in ls.slice(0, ls.len() - 1) {
+  ew = line.words()
+  a = ew[0]
+  b = ew[1]
+  w = ew[2].int().or(0)
+  adj[a].push((b, w))
+  adj[b].push((a, w))
+}
+
+# Dijkstra from the destination, so dist[n] = distance from n to dst
+var dist: {str: int} = {}
+dist[dst] = 0
+h = heap()
+h.push((0, dst))
+while !h.is_empty() {
+  top = h.pop()
+  d = top.0
+  u = top.1
+  if d == dist[u] {
+    for e in adj.get_or(u, []) {
+      nd = d + e.1
+      if !dist.has(e.0) or nd < dist[e.0] {
+        dist[e.0] = nd
+        h.push((nd, e.0))
+      }
+    }
+  }
+}
+
+if !dist.has(src) {
+  print("none")
+} else {
+  print(str(dist[src]))
+  var path: [str] = [src]
+  cur = src
+  while cur != dst {
+    best = ""
+    for e in adj.get_or(cur, []) {
+      if dist.has(e.0) and e.1 + dist[e.0] == dist[cur] {
+        if best == "" or e.0 < best {
+          best = e.0
+        }
+      }
+    }
+    path.push(best)
+    cur = best
+  }
+  print(path.join("->"))
+}

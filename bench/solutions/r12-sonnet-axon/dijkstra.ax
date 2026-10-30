@@ -1,0 +1,30 @@
+ls = lines().filter(l => !l.trim().is_empty())
+adj: {str: [(str, int)]} = {}
+for l in ls.take(ls.len() - 1) {
+  w = l.words()
+  adj[w[0]].push((w[1], w[2].int()))
+  adj[w[1]].push((w[0], w[2].int()))
+}
+q = ls[-1].words()
+src = q[0]
+dst = q[1]
+h = heap()
+h.push((0, [src]))
+done: {str: bool} = {}
+found = false
+while !h.is_empty() {
+  (d, path) = h.pop()
+  n = path[-1]
+  if done.has(n) { continue }
+  done[n] = true
+  if n == dst {
+    print(d)
+    print(path.join("->"))
+    found = true
+    break
+  }
+  for (m, w) in adj.get_or(n, []) {
+    if !done.has(m) { h.push((d + w, path + [m])) }
+  }
+}
+if !found { print("none") }

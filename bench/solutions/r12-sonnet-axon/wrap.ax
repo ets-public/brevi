@@ -1,0 +1,31 @@
+ls = lines()
+w = ls[0].trim().int()
+paras: [[str]] = []
+cur: [str] = []
+for l in ls.skip(1) {
+  if l.trim().is_empty() {
+    if !cur.is_empty() { paras.push(cur) }
+    cur = []
+  } else {
+    cur = cur + l.words()
+  }
+}
+if !cur.is_empty() { paras.push(cur) }
+outp: [str] = []
+for p in paras {
+  line = ""
+  out: [str] = []
+  for word in p {
+    if line.is_empty() {
+      line = word
+    } else if line.len() + 1 + word.len() <= w {
+      line = line + " " + word
+    } else {
+      out.push(line)
+      line = word
+    }
+  }
+  out.push(line)
+  outp.push(out.join("\n"))
+}
+print(outp.join("\n\n"))

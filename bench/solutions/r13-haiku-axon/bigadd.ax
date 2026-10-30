@@ -1,0 +1,8 @@
+for line in lines() {
+  if line.trim() == "" {
+    continue
+  }
+  w = line.words()
+  s = w[0].big() + w[1].big()
+  print(s)
+}

@@ -1,0 +1,48 @@
+fn wrap_para(ws: [str], w: int) -> [str] {
+  res: [str] = []
+  cur = ""
+  for word in ws {
+    if cur == "" {
+      cur = word
+    } else if cur.len() + 1 + word.len() <= w {
+      cur = cur + " " + word
+    } else {
+      res.push(cur)
+      cur = word
+    }
+  }
+  if cur != "" {
+    res.push(cur)
+  }
+  res
+}
+
+ls = lines()
+w = ls[0].trim().int()
+ws: [str] = []
+paras: [[str]] = []
+for line in ls.skip(1) {
+  if line.trim().is_empty() {
+    if not ws.is_empty() {
+      paras.push(ws)
+      ws = []
+    }
+  } else {
+    for word in line.words() {
+      ws.push(word)
+    }
+  }
+}
+if not ws.is_empty() {
+  paras.push(ws)
+}
+first = true
+for p in paras {
+  if not first {
+    print("")
+  }
+  first = false
+  for l in wrap_para(p, w) {
+    print(l)
+  }
+}

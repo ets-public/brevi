@@ -1,0 +1,31 @@
+indeg: {str: int} = {}
+adj: {str: [str]} = {}
+for l in lines() {
+  if l.trim().is_empty() { continue }
+  parts = l.split("->")
+  a = parts[0].trim()
+  b = parts[1].trim()
+  if !indeg.has(a) { indeg[a] = 0 }
+  if !indeg.has(b) { indeg[b] = 0 }
+  indeg[b] += 1
+  adj[a].push(b)
+}
+free: [str] = []
+for (k, v) in indeg.pairs() {
+  if v == 0 { free.push(k) }
+}
+out: [str] = []
+while !free.is_empty() {
+  free = free.sort()
+  n = free.remove(0)
+  out.push(n)
+  for m in adj.get_or(n, []) {
+    indeg[m] -= 1
+    if indeg[m] == 0 { free.push(m) }
+  }
+}
+if out.len() < indeg.len() {
+  print("cycle")
+} else {
+  for n in out { print(n) }
+}

@@ -1,0 +1,43 @@
+fn main() {
+  var indeg: {str: int} = {}
+  var adj: {str: [str]} = {}
+  var nodes: {str: bool} = {}
+  for line in lines() {
+    t = line.trim()
+    if t.is_empty() {
+      continue
+    }
+    parts = t.split("->")
+    a = parts[0].trim()
+    b = parts[1].trim()
+    nodes[a] = true
+    nodes[b] = true
+    adj[a].push(b)
+    indeg[b] = indeg.get_or(b, 0) + 1
+  }
+  var ready: [str] = []
+  for n in nodes.keys() {
+    if indeg.get_or(n, 0) == 0 {
+      ready.push(n)
+    }
+  }
+  var order: [str] = []
+  while not ready.is_empty() {
+    ready = ready.sort()
+    x = ready.remove(0)
+    order.push(x)
+    for y in adj.get_or(x, []) {
+      indeg[y] = indeg[y] - 1
+      if indeg[y] == 0 {
+        ready.push(y)
+      }
+    }
+  }
+  if order.len() < nodes.len() {
+    print("cycle")
+  } else {
+    for x in order {
+      print(x)
+    }
+  }
+}

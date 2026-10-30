@@ -1,0 +1,9 @@
+add A1 apple 0.50 100
+add B2 bread 2.5 20
+add C3 cheese 12.99 10
+add D4 dates 7 30
+order o1 A1 5
+order o2 D4 5
+order o3 C3 9
+cancel o3
+top 5

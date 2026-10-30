@@ -1,0 +1,10 @@
+tot: {str: int} = {}
+cnt: {str: int} = {}
+for l in lines() {
+  f = l.split(",")
+  if f.len() < 3 { continue }
+  tot[f[1]] += f[2].int()
+  cnt[f[1]] += 1
+}
+rows = tot.pairs().sort_by((d, t) => (-t, d))
+for (d, t) in rows.take(5) { print("{d} {t} {cnt[d]}") }

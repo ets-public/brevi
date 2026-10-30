@@ -1,0 +1,8 @@
+add A1 apple 0.50 100
+add B2 bread 2.5 20
+add C3 cheese 12.99 10
+add D4 dates 7 30
+cancel o9
+order o1 B2 1
+cancel o1
+revenue

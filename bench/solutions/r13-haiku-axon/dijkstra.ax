@@ -1,0 +1,61 @@
+ls: [str] = []
+for line in lines() {
+  if line.trim() != "" {
+    ls.push(line.trim())
+  }
+}
+q = ls.pop().words()
+src = q[0]
+dst = q[1]
+
+edges: [(str, str, int)] = []
+adj: {str: [(str, int)]} = {}
+for l in ls {
+  w = l.words()
+  a = w[0]
+  b = w[1]
+  c = w[2].int().or(0)
+  edges.push((a, b, c))
+  adj[a].push((b, c))
+  adj[b].push((a, c))
+}
+
+dist: {str: int} = {}
+dist[dst] = 0
+changed = true
+while changed {
+  changed = false
+  for e in edges {
+    a = e.0
+    b = e.1
+    if dist.has(b) and (!dist.has(a) or dist[b] + e.2 < dist[a]) {
+      dist[a] = dist[b] + e.2
+      changed = true
+    }
+    if dist.has(a) and (!dist.has(b) or dist[a] + e.2 < dist[b]) {
+      dist[b] = dist[a] + e.2
+      changed = true
+    }
+  }
+}
+
+if !dist.has(src) {
+  print("none")
+} else {
+  path: [str] = [src]
+  cur = src
+  while cur != dst {
+    best = ""
+    for e in adj[cur] {
+      if dist.has(e.0) and e.1 + dist[e.0] == dist[cur] {
+        if best == "" or e.0 < best {
+          best = e.0
+        }
+      }
+    }
+    cur = best
+    path.push(cur)
+  }
+  print(dist[src])
+  print(path.join("->"))
+}

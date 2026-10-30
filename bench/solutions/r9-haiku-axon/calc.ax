@@ -1,0 +1,94 @@
+var toks: [str] = []
+var pos = 0
+var bad = false
+
+fn tokenize(s: str) -> [str] {
+  out = []
+  num = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      num += c
+    } else {
+      if num != "" {
+        out.push(num)
+        num = ""
+      }
+      if c != " " {
+        out.push(c)
+      }
+    }
+  }
+  if num != "" {
+    out.push(num)
+  }
+  out
+}
+
+fn peek() -> str = if pos < toks.len() { toks[pos] } else { "" }
+
+fn primary() -> int {
+  t = peek()
+  pos += 1
+  if t == "(" {
+    v = expr()
+    pos += 1
+    return v
+  }
+  t.int().or(0)
+}
+
+fn unary() -> int {
+  if peek() == "-" {
+    pos += 1
+    return 0 - unary()
+  }
+  primary()
+}
+
+fn term() -> int {
+  v = unary()
+  while peek() == "*" or peek() == "/" {
+    op = peek()
+    pos += 1
+    r = unary()
+    if op == "*" {
+      v = v * r
+    } else {
+      if r == 0 {
+        bad = true
+        return 0
+      }
+      v = v / r
+    }
+  }
+  v
+}
+
+fn expr() -> int {
+  v = term()
+  while peek() == "+" or peek() == "-" {
+    op = peek()
+    pos += 1
+    r = term()
+    if op == "+" {
+      v = v + r
+    } else {
+      v = v - r
+    }
+  }
+  v
+}
+
+for line in lines() {
+  if line.trim() != "" {
+    toks = tokenize(line)
+    pos = 0
+    bad = false
+    v = expr()
+    if bad {
+      print("error")
+    } else {
+      print(str(v))
+    }
+  }
+}

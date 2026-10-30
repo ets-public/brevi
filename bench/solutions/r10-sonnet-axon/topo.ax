@@ -1,0 +1,30 @@
+var indeg: {str: int} = {}
+var adj: {str: [str]} = {}
+for line in lines() {
+  p = line.split("->").map(x => x.trim())
+  if p.len() != 2 { continue }
+  a = p[0]
+  b = p[1]
+  if !indeg.has(a) { indeg[a] = 0 }
+  if !indeg.has(b) { indeg[b] = 0 }
+  indeg[b] += 1
+  adj[a].push(b)
+}
+h = heap()
+for k in indeg.keys() {
+  if indeg[k] == 0 { h.push(k) }
+}
+var out: [str] = []
+while !h.is_empty() {
+  n = h.pop()
+  out.push(n)
+  for m in adj.get_or(n, []) {
+    indeg[m] -= 1
+    if indeg[m] == 0 { h.push(m) }
+  }
+}
+if out.len() < indeg.len() {
+  print("cycle")
+} else {
+  for o in out { print(o) }
+}

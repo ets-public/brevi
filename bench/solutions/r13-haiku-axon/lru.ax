@@ -1,0 +1,36 @@
+cap = 1
+first = true
+vals: {str: str} = {}
+order: [str] = []
+
+for line in lines() {
+  if line.trim() == "" {
+    continue
+  }
+  if first {
+    cap = line.trim().int().or(1)
+    first = false
+    continue
+  }
+  w = line.words()
+  if w[0] == "put" {
+    k = w[1]
+    if vals.has(k) {
+      order.remove(order.index_of(k))
+    } else if vals.len() >= cap {
+      old = order.remove(0)
+      vals.remove(old)
+    }
+    vals[k] = w[2]
+    order.push(k)
+  } else {
+    k = w[1]
+    if vals.has(k) {
+      order.remove(order.index_of(k))
+      order.push(k)
+      print(vals[k])
+    } else {
+      print("-1")
+    }
+  }
+}

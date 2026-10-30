@@ -1,0 +1,10 @@
+rows = csv(stdin())
+tot: {str: dec} = {}
+for r in rows.skip(1) {
+  if r.len() < 3 { continue }
+  name = r[0]
+  v = r[1].trim().int().dec() * r[2].trim().dec()
+  if tot.has(name) { tot[name] = tot[name] + v } else { tot[name] = v }
+}
+ps = tot.pairs().sort_by(p => (-p.1, p.0))
+for (k, v) in ps { print("{k}: {v.fmt(2)}") }

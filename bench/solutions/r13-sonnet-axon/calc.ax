@@ -1,0 +1,65 @@
+s = ""
+pos = 0
+err = false
+fn peek() -> str {
+  while pos < s.len() and s.slice(pos, pos + 1) == " " { pos += 1 }
+  if pos < s.len() { s.slice(pos, pos + 1) } else { "" }
+}
+fn atom() -> int {
+  c = peek()
+  if c == "(" {
+    pos += 1
+    v = expr()
+    peek()
+    pos += 1
+    v
+  } else if c == "-" {
+    pos += 1
+    0 - atom()
+  } else {
+    n = 0
+    while pos < s.len() and s.slice(pos, pos + 1).is_digit() {
+      n = n * 10 + s.slice(pos, pos + 1).digit()
+      pos += 1
+    }
+    n
+  }
+}
+fn term() -> int {
+  v = atom()
+  while true {
+    c = peek()
+    if c == "*" {
+      pos += 1
+      v = v * atom()
+    } else if c == "/" {
+      pos += 1
+      d = atom()
+      if d == 0 { err = true
+        v = 0 } else { v = v / d }
+    } else { break }
+  }
+  v
+}
+fn expr() -> int {
+  v = term()
+  while true {
+    c = peek()
+    if c == "+" {
+      pos += 1
+      v = v + term()
+    } else if c == "-" {
+      pos += 1
+      v = v - term()
+    } else { break }
+  }
+  v
+}
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  s = line
+  pos = 0
+  err = false
+  r = expr()
+  if err { print("error") } else { print(r) }
+}

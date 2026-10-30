@@ -6,3 +6,15 @@ A model solves each task in one language and checks it with `run.sh LANG TASK FI
 
 Token counts are estimates from `tokcount.py` (words, numbers and symbols), not a real tokenizer.
 Set `AXON=/path/to/axon` when running Axon tasks.
+
+## Editing benchmark (`edit/`)
+
+Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}`), the kind of edit a model makes most often.
+`edit/run.sh LANG TASK FILE` tests the changed program and logs the tokens in the changed lines only (`difftok.py`), plus errors read.
+
+## Speed benchmark (`perf/`)
+
+Four programs written the plain way in Axon, Python and Rust: word counts (2M words), Dijkstra on a 100k-node graph, a prime sieve to 5M, and grouping 1M records.
+`python3 perf/gen.py` makes the inputs; `perf/time.sh` builds everything and prints the best of 3 runs.
+
+`verify_axon.sh NEW_AXON` rebuilds every earlier Axon solution with a new compiler and checks it prints the same as before.

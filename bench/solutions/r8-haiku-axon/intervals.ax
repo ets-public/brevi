@@ -1,0 +1,27 @@
+pairs = []
+for line in lines() {
+  w = line.words()
+  if w.len() < 2 {
+    continue
+  }
+  pairs.push((w[0].int().or(0), w[1].int().or(0)))
+}
+
+pairs = pairs.sort()
+var ms: [(int, int)] = []
+for p in pairs {
+  n = ms.len()
+  if n == 0 or p.0 > ms[n - 1].1 {
+    ms.push(p)
+  } else {
+    top = ms.pop()
+    ms.push((top.0, max(top.1, p.1)))
+  }
+}
+
+total = 0
+for m in ms {
+  print("{m.0} {m.1}")
+  total += m.1 - m.0
+}
+print("total {total}")

@@ -1,0 +1,1 @@
+Orders now name a customer: the command becomes `order ID CUSTOMER SKU QTY [SKU QTY ...]`. Add a command `customer NAME` that prints `NAME COUNT TOTAL`: how many orders that customer has that are not cancelled, and their total in money format (`0.00` if none). Everything else works as before.

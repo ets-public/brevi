@@ -1,0 +1,6 @@
+for l in lines() {
+  w = l.words()
+  if w.len() == 2 {
+    print(str(w[0].big() + w[1].big()))
+  }
+}

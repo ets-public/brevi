@@ -1,0 +1,67 @@
+toks: [str] = []
+pos = 0
+fn peek() -> str {
+  if pos < toks.len() { toks[pos] } else { "" }
+}
+fn atom() -> int {
+  t = peek()
+  pos += 1
+  if t == "(" {
+    v = expr()
+    pos += 1
+    v
+  } else if t == "-" {
+    -atom()
+  } else {
+    t.int()
+  }
+}
+fn term() -> int {
+  v = atom()
+  while peek() == "*" or peek() == "/" {
+    op = peek()
+    pos += 1
+    r = atom()
+    if op == "*" { v = v * r } else {
+      if r == 0 { fail("div") }
+      v = v / r
+    }
+  }
+  v
+}
+fn expr() -> int {
+  v = term()
+  while peek() == "+" or peek() == "-" {
+    op = peek()
+    pos += 1
+    r = term()
+    if op == "+" { v = v + r } else { v = v - r }
+  }
+  v
+}
+fn evalline(s: str) -> int {
+  toks = []
+  pos = 0
+  num = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      num = num + c
+    } else {
+      if num != "" {
+        toks.push(num)
+        num = ""
+      }
+      if c != " " { toks.push(c) }
+    }
+  }
+  if num != "" { toks.push(num) }
+  expr()
+}
+for l in lines() {
+  if l.trim() != "" {
+    match evalline(l) {
+      Ok(v) => print(v)
+      Err(m) => print("error")
+    }
+  }
+}

@@ -1,0 +1,11 @@
+fn main() {
+  for line in lines() {
+    t = line.trim()
+    if t.is_empty() {
+      continue
+    }
+    p = t.words()
+    s = p[0].big() + p[1].big()
+    print(str(s))
+  }
+}

@@ -1,0 +1,26 @@
+rows = csv(stdin())
+var totals: {str: dec} = {}
+for r in rows.slice(1, rows.len()) {
+  if r.len() < 3 {
+    continue
+  }
+  item = r[0].trim()
+  v = r[1].trim().dec() * r[2].trim().dec()
+  if !totals.has(item) {
+    totals[item] = "0".dec()
+  }
+  totals[item] = totals[item] + v
+}
+
+rem = totals.keys()
+while !rem.is_empty() {
+  bi = 0
+  for i in 0..rem.len() {
+    if totals[rem[i]] > totals[rem[bi]] {
+      bi = i
+    }
+  }
+  k = rem.remove(bi)
+  val = totals[k]
+  print("{k}: {val.fmt(2)}")
+}

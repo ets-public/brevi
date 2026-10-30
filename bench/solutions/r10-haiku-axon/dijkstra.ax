@@ -1,0 +1,66 @@
+fn main() {
+  var adj: {str: [(str, int)]} = {}
+  var ls: [str] = []
+  for line in lines() {
+    if not line.trim().is_empty() {
+      ls.push(line.trim())
+    }
+  }
+  q = ls[-1].words()
+  frm = q[0]
+  to = q[1]
+  n = ls.len() - 1
+  for i in 0..n {
+    p = ls[i].words()
+    a = p[0]
+    b = p[1]
+    w = p[2].int()
+    adj[a].push((b, w))
+    adj[b].push((a, w))
+  }
+
+  // distances from TO (undirected, so this also works for reverse search)
+  var dist: {str: int} = {}
+  h = heap()
+  dist[to] = 0
+  h.push((0, to))
+  while not h.is_empty() {
+    top = h.pop()
+    d = top.0
+    u = top.1
+    if d > dist[u] {
+      continue
+    }
+    for e in adj.get_or(u, []) {
+      v = e.0
+      nd = d + e.1
+      if not dist.has(v) or nd < dist[v] {
+        dist[v] = nd
+        h.push((nd, v))
+      }
+    }
+  }
+
+  if not dist.has(frm) {
+    print("none")
+  } else {
+    total = dist[frm]
+    var path: [str] = [frm]
+    u = frm
+    while u != to {
+      best = ""
+      for e in adj.get_or(u, []) {
+        v = e.0
+        if dist.has(v) and dist[v] + e.1 == dist[u] {
+          if best == "" or v < best {
+            best = v
+          }
+        }
+      }
+      path.push(best)
+      u = best
+    }
+    print(total)
+    print(path.join("->"))
+  }
+}
