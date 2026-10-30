@@ -3,6 +3,7 @@ mod diag;
 mod emit;
 mod json;
 mod lexer;
+mod moves;
 mod parser;
 
 use diag::{esc, Diag};
@@ -31,7 +32,8 @@ fn main() {
             exit(1);
         }
     };
-    let rust = match compile_to_rust(&src) {
+    let plain = compile_to_rust(&src, false);
+    let rust = match compile_to_rust(&src, true) {
         Ok(r) => r,
         Err(diags) => {
             for d in diags {
@@ -46,7 +48,7 @@ fn main() {
         "check" => {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
-            if !rustc(&rust, &dir, &dir.join("check"), &file, &["--emit=metadata"], false) {
+            if !rustc(&rust, plain.as_ref().ok().map(|s| s.as_str()), &dir, &dir.join("check"), &file, &["--emit=metadata"], false) {
                 exit(1);
             }
         }
@@ -61,7 +63,7 @@ fn main() {
             if release {
                 extra.extend(["-C", "opt-level=3"]);
             }
-            if !rustc(&rust, &dir, &bin, &file, &extra, true) {
+            if !rustc(&rust, plain.as_ref().ok().map(|s| s.as_str()), &dir, &bin, &file, &extra, true) {
                 exit(1);
             }
             if cmd == "build" {
@@ -86,10 +88,13 @@ fn main() {
     }
 }
 
-pub fn compile_to_rust(src: &str) -> Result<String, Vec<Diag>> {
+pub fn compile_to_rust(src: &str, moves: bool) -> Result<String, Vec<Diag>> {
     let mut items = parser::parse_program(src).map_err(|d| vec![d])?;
     emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items);
+    if moves {
+        moves::mark_moves(&mut items);
+    }
     let rust = em.program(&items);
     if em.diags.is_empty() {
         Ok(rust)
@@ -110,7 +115,8 @@ fn build_dir(file: &str) -> PathBuf {
 }
 
 // Compiles generated Rust. rustc errors are mapped back to Axon lines and printed as JSON.
-fn rustc(rust: &str, dir: &Path, out: &Path, file: &str, extra: &[&str], link: bool) -> bool {
+// `plain` is the same program without moves; it is used if moving a value broke the borrow rules.
+fn rustc(rust: &str, plain: Option<&str>, dir: &Path, out: &Path, file: &str, extra: &[&str], link: bool) -> bool {
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = Command::new("rustc");
@@ -132,9 +138,16 @@ fn rustc(rust: &str, dir: &Path, out: &Path, file: &str, extra: &[&str], link: b
     if output.status.success() {
         return true;
     }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if let Some(p) = plain {
+        const MOVE_CODES: [&str; 8] = ["E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597"];
+        if MOVE_CODES.iter().any(|c| stderr.contains(&format!("\"code\":\"{c}\""))) {
+            return rustc(p, None, dir, out, file, extra, link);
+        }
+    }
     let line_map = axon_lines(rust);
     let mut seen = std::collections::HashSet::new();
-    for l in String::from_utf8_lossy(&output.stderr).lines() {
+    for l in stderr.lines() {
         let Some(j) = json::parse(l) else { continue };
         if j.get("level").and_then(|v| v.str()) != Some("error") {
             continue;
@@ -207,6 +220,7 @@ fn to_axon_words(s: &str) -> String {
         .replace("std::string::String", "str")
         .replace("alloc::vec::Vec", "Vec")
         .replace("std::collections::BTreeMap", "BTreeMap")
+        .replace("axon_prog::AxM", "AxM")
         .replace("found for struct ", "found for ")
         .replace(" in the current scope", "")
         .replace("&mut ", "mut ")
@@ -215,7 +229,7 @@ fn to_axon_words(s: &str) -> String {
         t = replace_word(&t, r, a);
     }
     t = rewrite_generic(&t, "Vec", |args| format!("[{}]", args));
-    t = rewrite_generic(&t, "BTreeMap", |args| format!("{{{}}}", args.replacen(", ", ": ", 1)));
+    t = rewrite_generic(&t, "AxM", |args| format!("{{{}}}", args.replacen(", ", ": ", 1)));
     t = rewrite_generic(&t, "R", |args| format!("{args} !"));
     t = rewrite_generic(&t, "Result", |args| format!("{} !", args.trim_end_matches(", AxErr")));
     t.replace("ax_", "")
@@ -280,7 +294,7 @@ fn valid_options(code: &str, msg: &str, rust: &str) -> Option<String> {
             let ty = msg.split("found for ").nth(1).unwrap_or("");
             let list = if ty.contains("Vec") {
                 LIST
-            } else if ty.contains("BTreeMap") {
+            } else if ty.contains("AxM") {
                 MAP
             } else if ty.contains("String") {
                 STR

@@ -78,6 +78,7 @@ pub enum Expr {
     Bool(bool),
     Str(Vec<StrPart>),
     Ident(String),
+    Move(String), // the variable's last read: its value moves instead of being copied
     List(Vec<Expr>),
     Map(Vec<(Expr, Expr)>),
     Tuple(Vec<Expr>),

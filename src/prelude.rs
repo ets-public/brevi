@@ -2,6 +2,109 @@
 // Axon methods map to ax_-prefixed trait methods so Axon controls their names and int types.
 #![allow(warnings)]
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hash, Hasher};
+
+// Axon's map: a hash map (fast lookups) that always lists its entries sorted by key.
+#[derive(Default, Clone, Copy)]
+pub struct AxHasher(u64);
+impl Hasher for AxHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut h = self.0;
+        let mut c = bytes.chunks_exact(8);
+        for w in &mut c {
+            h = (h.rotate_left(5) ^ u64::from_le_bytes(w.try_into().unwrap())).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        }
+        for &b in c.remainder() {
+            h = (h.rotate_left(5) ^ b as u64).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        }
+        self.0 = h;
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn finish(&self) -> u64 {
+        // Mix the high bits down so hashbrown's bucket choice sees them.
+        let h = self.0;
+        h ^ (h >> 29) ^ (h >> 47)
+    }
+}
+#[derive(Clone, Debug)]
+pub struct AxM<K, V> {
+    m: HashMap<K, V, BuildHasherDefault<AxHasher>>,
+}
+impl<K, V> Default for AxM<K, V> {
+    fn default() -> Self {
+        AxM { m: HashMap::default() }
+    }
+}
+impl<K: Hash + Eq + Ord, V> AxM<K, V> {
+    pub fn new() -> Self {
+        AxM { m: HashMap::default() }
+    }
+    pub fn from<const N: usize>(xs: [(K, V); N]) -> Self {
+        let mut m = AxM::new();
+        for (k, v) in xs {
+            m.m.insert(k, v);
+        }
+        m
+    }
+    pub fn len(&self) -> usize {
+        self.m.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.m.is_empty()
+    }
+    pub fn get(&self, k: &K) -> Option<&V> {
+        self.m.get(k)
+    }
+    pub fn get_mut(&mut self, k: &K) -> Option<&mut V> {
+        self.m.get_mut(k)
+    }
+    pub fn contains_key(&self, k: &K) -> bool {
+        self.m.contains_key(k)
+    }
+    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
+        self.m.insert(k, v)
+    }
+    pub fn remove(&mut self, k: &K) -> Option<V> {
+        self.m.remove(k)
+    }
+    pub fn entry(&mut self, k: K) -> std::collections::hash_map::Entry<'_, K, V> {
+        self.m.entry(k)
+    }
+    // Entries sorted by key.
+    pub fn iter(&self) -> std::vec::IntoIter<(&K, &V)> {
+        let mut v: Vec<(&K, &V)> = self.m.iter().collect();
+        v.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        v.into_iter()
+    }
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.iter().map(|(k, _)| k)
+    }
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.iter().map(|(_, v)| v)
+    }
+}
+impl<K: Hash + Eq + Ord, V> IntoIterator for AxM<K, V> {
+    type Item = (K, V);
+    type IntoIter = std::vec::IntoIter<(K, V)>;
+    fn into_iter(self) -> Self::IntoIter {
+        let mut v: Vec<(K, V)> = self.m.into_iter().collect();
+        v.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        v.into_iter()
+    }
+}
+impl<K: Hash + Eq, V: PartialEq> PartialEq for AxM<K, V> {
+    fn eq(&self, o: &Self) -> bool {
+        self.m == o.m
+    }
+}
+impl<K: Hash + Eq + Ord, V: PartialOrd> PartialOrd for AxM<K, V> {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        self.iter().partial_cmp(o.iter())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct AxErr(pub String);
@@ -74,7 +177,7 @@ impl<T: Show + 'static> Show for Vec<T> {
         format!("[{}]", self.iter().map(show_item).collect::<Vec<_>>().join(", "))
     }
 }
-impl<K: Show + 'static, V: Show + 'static> Show for BTreeMap<K, V> {
+impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> {
     fn show(&self) -> String {
         let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}: {}", show_item(k), show_item(v))).collect();
         format!("{{{}}}", parts.join(", "))
@@ -211,7 +314,7 @@ pub trait AxStr {
     fn ax_lower(&self) -> String;
     fn ax_upper(&self) -> String;
     fn ax_trim(&self) -> String;
-    fn ax_contains(&self, s: String) -> bool;
+    fn ax_contains(&self, s: &String) -> bool;
     fn ax_starts_with(&self, s: String) -> bool;
     fn ax_ends_with(&self, s: String) -> bool;
     fn ax_replace(&self, a: String, b: String) -> String;
@@ -259,7 +362,7 @@ impl AxStr for String {
     fn ax_trim(&self) -> String {
         self.trim().to_string()
     }
-    fn ax_contains(&self, s: String) -> bool {
+    fn ax_contains(&self, s: &String) -> bool {
         self.contains(s.as_str())
     }
     fn ax_starts_with(&self, s: String) -> bool {
@@ -467,8 +570,8 @@ pub trait AxOrdList<T> {
     fn ax_sort(&self) -> Vec<T>;
     fn ax_min(&self) -> T;
     fn ax_max(&self) -> T;
-    fn ax_contains(&self, x: T) -> bool;
-    fn ax_index_of(&self, x: T) -> i64;
+    fn ax_contains(&self, x: &T) -> bool;
+    fn ax_index_of(&self, x: &T) -> i64;
 }
 impl<T: Clone + PartialOrd> AxOrdList<T> for Vec<T> {
     fn ax_sort(&self) -> Vec<T> {
@@ -477,16 +580,30 @@ impl<T: Clone + PartialOrd> AxOrdList<T> for Vec<T> {
         v
     }
     fn ax_min(&self) -> T {
-        self.ax_sort().first().expect("min of empty list").clone()
+        let mut it = self.iter();
+        let mut m = it.next().expect("min of empty list");
+        for x in it {
+            if x < m {
+                m = x;
+            }
+        }
+        m.clone()
     }
     fn ax_max(&self) -> T {
-        self.ax_sort().last().expect("max of empty list").clone()
+        let mut it = self.iter();
+        let mut m = it.next().expect("max of empty list");
+        for x in it {
+            if x > m {
+                m = x;
+            }
+        }
+        m.clone()
     }
-    fn ax_contains(&self, x: T) -> bool {
-        self.iter().any(|y| *y == x)
+    fn ax_contains(&self, x: &T) -> bool {
+        self.iter().any(|y| y == x)
     }
-    fn ax_index_of(&self, x: T) -> i64 {
-        self.iter().position(|y| *y == x).map_or(-1, |i| i as i64)
+    fn ax_index_of(&self, x: &T) -> i64 {
+        self.iter().position(|y| y == x).map_or(-1, |i| i as i64)
     }
 }
 pub trait AxSum<T> {
@@ -514,25 +631,25 @@ impl AxJoin for Vec<String> {
 pub trait AxMap<K, V> {
     fn ax_len(&self) -> i64;
     fn ax_is_empty(&self) -> bool;
-    fn ax_has(&self, k: K) -> bool;
-    fn ax_get_or(&self, k: K, d: V) -> V;
+    fn ax_has(&self, k: &K) -> bool;
+    fn ax_get_or(&self, k: &K, d: V) -> V;
     fn ax_remove(&mut self, k: K);
     fn ax_keys(&self) -> Vec<K>;
     fn ax_values(&self) -> Vec<V>;
     fn ax_pairs(&self) -> Vec<(K, V)>;
 }
-impl<K: Ord + Clone, V: Clone> AxMap<K, V> for BTreeMap<K, V> {
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMap<K, V> for AxM<K, V> {
     fn ax_len(&self) -> i64 {
         self.len() as i64
     }
     fn ax_is_empty(&self) -> bool {
         self.is_empty()
     }
-    fn ax_has(&self, k: K) -> bool {
-        self.contains_key(&k)
+    fn ax_has(&self, k: &K) -> bool {
+        self.contains_key(k)
     }
-    fn ax_get_or(&self, k: K, d: V) -> V {
-        self.get(&k).cloned().unwrap_or(d)
+    fn ax_get_or(&self, k: &K, d: V) -> V {
+        self.get(k).cloned().unwrap_or(d)
     }
     fn ax_remove(&mut self, k: K) {
         self.remove(&k);
@@ -555,6 +672,79 @@ pub trait AxIndex<K, V> {
 pub trait AxIndexMut<K, V> {
     fn ax_at_mut(&mut self, k: K) -> &mut V;
 }
+// Reading or changing through an index without copying the item.
+pub trait AxRef<K, V> {
+    fn ax_ref(&self, k: &K) -> &V;
+}
+pub trait AxMut<K, V> {
+    fn ax_mut(&mut self, k: &K) -> &mut V;
+}
+impl<T> AxRef<i64, T> for Vec<T> {
+    fn ax_ref(&self, i: &i64) -> &T {
+        &self[ax_idx(*i, self.len())]
+    }
+}
+impl<T> AxMut<i64, T> for Vec<T> {
+    fn ax_mut(&mut self, i: &i64) -> &mut T {
+        let j = ax_idx(*i, self.len());
+        &mut self[j]
+    }
+}
+impl<K: Hash + Eq + Ord + Show + 'static, V> AxRef<K, V> for AxM<K, V> {
+    fn ax_ref(&self, k: &K) -> &V {
+        match self.get(k) {
+            Some(v) => v,
+            None => panic!("key {} not in map", show_item(k)),
+        }
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V: Default> AxMut<K, V> for AxM<K, V> {
+    fn ax_mut(&mut self, k: &K) -> &mut V {
+        // Updating a missing key starts it at the default (0, "", [] ...); the key is copied only then.
+        if let Some(v) = self.get_mut(k) {
+            // Safe: the borrow ends here on this path (a known limit of Rust's borrow checker).
+            return unsafe { &mut *(v as *mut V) };
+        }
+        self.entry(k.clone()).or_default()
+    }
+}
+impl AxRef<i64, String> for String {
+    fn ax_ref(&self, i: &i64) -> &String {
+        // One-character strings live in a table (ASCII) or are kept for the program's life.
+        static ASCII: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+        let c = if self.is_ascii() {
+            self.as_bytes()[ax_idx(*i, self.len())] as char
+        } else {
+            let cs: Vec<char> = self.chars().collect();
+            cs[ax_idx(*i, cs.len())]
+        };
+        if c.is_ascii() {
+            &ASCII.get_or_init(|| (0..128u8).map(|b| (b as char).to_string()).collect())[c as usize]
+        } else {
+            Box::leak(Box::new(c.to_string()))
+        }
+    }
+}
+static AX_NULL: Json = Json::Null;
+impl AxRef<String, Json> for Json {
+    fn ax_ref(&self, k: &String) -> &Json {
+        match self {
+            Json::Obj { v } => v.get(k).unwrap_or(&AX_NULL),
+            _ => &AX_NULL,
+        }
+    }
+}
+impl AxRef<i64, Json> for Json {
+    fn ax_ref(&self, i: &i64) -> &Json {
+        match self {
+            Json::Arr { v } => {
+                let j = if *i < 0 { v.len() as i64 + *i } else { *i };
+                v.get(j.max(0) as usize).unwrap_or(&AX_NULL)
+            }
+            _ => &AX_NULL,
+        }
+    }
+}
 impl<T: Clone> AxIndex<i64, T> for Vec<T> {
     fn ax_at(&self, i: i64) -> T {
         self[ax_idx(i, self.len())].clone()
@@ -570,7 +760,7 @@ impl<T: Clone> AxIndexMut<i64, T> for Vec<T> {
         &mut self[j]
     }
 }
-impl<K: Ord + Clone + Show + 'static, V: Clone> AxIndex<K, V> for BTreeMap<K, V> {
+impl<K: Hash + Eq + Ord + Clone + Show + 'static, V: Clone> AxIndex<K, V> for AxM<K, V> {
     fn ax_at(&self, k: K) -> V {
         match self.get(&k) {
             Some(v) => v.clone(),
@@ -581,7 +771,7 @@ impl<K: Ord + Clone + Show + 'static, V: Clone> AxIndex<K, V> for BTreeMap<K, V>
         self.insert(k, v);
     }
 }
-impl<K: Ord + Clone, V: Default> AxIndexMut<K, V> for BTreeMap<K, V> {
+impl<K: Hash + Eq + Ord + Clone, V: Default> AxIndexMut<K, V> for AxM<K, V> {
     fn ax_at_mut(&mut self, k: K) -> &mut V {
         // Updating a missing key starts it at the default (0, "", [] ...).
         self.entry(k).or_default()
@@ -605,7 +795,7 @@ pub enum Json {
     Num { v: f64 },
     Str { v: String },
     Arr { v: Vec<Json> },
-    Obj { v: BTreeMap<String, Json> },
+    Obj { v: AxM<String, Json> },
 }
 impl Default for Json {
     fn default() -> Json {
@@ -645,7 +835,7 @@ fn json_value(c: &[char], i: &mut usize) -> R<Json> {
     match c.get(*i) {
         Some('{') => {
             *i += 1;
-            let mut m = BTreeMap::new();
+            let mut m = AxM::new();
             json_ws(c, i);
             if c.get(*i) == Some(&'}') {
                 *i += 1;
@@ -821,7 +1011,7 @@ pub fn csv(text: String) -> Vec<Vec<String>> {
 }
 
 // ---- dates (proleptic Gregorian) ----
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct Date {
     pub days: i64,
 }
@@ -896,7 +1086,7 @@ impl AxDate for Date {
 }
 
 // ---- big integers (sign + base 1e9 limbs, little-endian) ----
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Big {
     neg: bool,
     mag: Vec<u32>,
@@ -1151,7 +1341,7 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> T {
     if b > a { b } else { a }
 }
 // ---- exact decimals: fixed point with 9 places ----
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default, Hash)]
 pub struct Dec(pub i128);
 const DEC_ONE: i128 = 1_000_000_000;
 impl Dec {

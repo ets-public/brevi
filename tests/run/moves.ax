@@ -1,0 +1,34 @@
+// Last reads move; everything else must still see its own copy.
+fn total(xs: [int]) -> int = xs.sum()
+fn grow(mut xs: [int]) { xs.push(9) }
+xs = [1, 2, 3]
+ys = xs
+ys.push(4)
+print("{xs} {ys}")
+s = ""
+for w in ["a", "b", "c"] { s = s + w }
+print(s)
+grid = [[1, 2], [3, 4]]
+row = grid[1]
+row.push(5)
+print("{grid} {row}")
+m: {str: [int]} = {}
+m["a"].push(1)
+k = "a"
+m[k].push(2)
+v = m[k]
+v.push(3)
+print("{m} {v}")
+for i in 0..3 { grow(xs) }
+print("{xs} {total(xs)}")
+words = ["x", "y"]
+out = []
+for w in words { out.push(w) }
+print("{words} {out}")
+c: {str: int} = {}
+for w in ["b", "a", "b"] { c[w] += 1 }
+print(c)
+print(c.pairs())
+t = (xs, "z")
+(a, b) = t
+print("{a} {b} {t.1}")

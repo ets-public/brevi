@@ -83,7 +83,7 @@ pub fn rust_ty(t: &Ty) -> String {
             other => other.into(),
         },
         Ty::List(t) => format!("Vec<{}>", rust_ty(t)),
-        Ty::Map(k, v) => format!("BTreeMap<{}, {}>", rust_ty(k), rust_ty(v)),
+        Ty::Map(k, v) => format!("AxM<{}, {}>", rust_ty(k), rust_ty(v)),
         Ty::Tuple(ts) => format!("({})", ts.iter().map(rust_ty).collect::<Vec<_>>().join(", ")),
         Ty::Unit => "()".into(),
     }
@@ -110,7 +110,7 @@ fn walk_try(e: &Expr, deep: bool) -> bool {
         Expr::Try(_) => true,
         Expr::Call(n, _, _) if deep && n == "fail" => true,
         Expr::Lambda(_, b) => deep && contains_try(b),
-        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Ident(_) => false,
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Ident(_) | Expr::Move(_) => false,
         Expr::Str(parts) => parts.iter().any(|p| matches!(p, StrPart::Interp(x) if contains_try(x))),
         Expr::List(xs) | Expr::Tuple(xs) => any(xs),
         Expr::Map(ps) => ps.iter().any(|(k, v)| contains_try(k) || contains_try(v)),
@@ -195,7 +195,7 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
                 *e = Expr::Try(Box::new(call));
             }
         }
-        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Ident(_) => {}
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Ident(_) | Expr::Move(_) => {}
         Expr::Str(parts) => parts.iter_mut().for_each(|p| {
             if let StrPart::Interp(x) = p {
                 wrap_calls(x, f)
@@ -246,7 +246,16 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
     }
 }
 
-fn assigns_to(e: &Expr, name: &str) -> bool {
+// The variable at the bottom of a place like a.b[i].c.
+fn root_name(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Ident(n) | Expr::Move(n) => Some(n),
+        Expr::Field(b, _) | Expr::TupleField(b, _) | Expr::Index(b, _) => root_name(b),
+        _ => None,
+    }
+}
+
+pub fn assigns_to(e: &Expr, name: &str) -> bool {
     match e {
         Expr::Block(stmts, tail) => {
             stmts.iter().any(|s| match s {
@@ -727,9 +736,11 @@ impl Emitter {
             Expr::Field(b, f) => format!("{}.{f}", self.place_mut(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place_mut(b)),
             Expr::Index(b, i) => {
+                // The key is borrowed unless it reads the collection being changed; then it is computed first.
+                let reads_base = root_name(b).map_or(true, |r| format!("{i:?}").contains(&format!("({r:?})")));
                 let b = self.place_mut(b);
-                let i = self.expr(i);
-                format!("(*{b}.ax_at_mut({i}))")
+                let i = if reads_base { format!("&({})", self.expr(i)) } else { self.arg_ref(i) };
+                format!("(*{b}.ax_mut({i}))")
             }
             other => {
                 self.diag(self.line, "this expression cannot be assigned to", Some("assign to a variable, field or index".into()));
@@ -751,8 +762,24 @@ impl Emitter {
             }
             Expr::Field(b, f) => format!("{}.{f}", self.place(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
+            Expr::Index(b, i) => {
+                let b = self.place(b);
+                format!("(*{b}.ax_ref({}))", self.arg_ref(i))
+            }
             other => format!("({})", self.expr(other)),
         }
+    }
+
+    fn operand(&mut self, e: &Expr) -> String {
+        match e {
+            Expr::Ident(_) | Expr::Field(..) | Expr::TupleField(..) | Expr::Index(..) => self.place(e),
+            other => self.expr(other),
+        }
+    }
+
+    // A reference to a value, for arguments that are only read (keys, searched-for items).
+    fn arg_ref(&mut self, e: &Expr) -> String {
+        format!("&{}", self.place(e))
     }
 
     fn check_ident(&mut self, n: &str) {
@@ -800,6 +827,13 @@ impl Emitter {
                 }
                 format!("format!(\"{fmt}\", {})", args.join(", "))
             }
+            Expr::Move(n) => {
+                if self.global(n).is_none() && self.locals.contains(n) && !self.refs.contains(n) {
+                    n.clone()
+                } else {
+                    self.expr(&Expr::Ident(n.clone()))
+                }
+            }
             Expr::Ident(n) => {
                 if let Some((en, fields)) = self.variants.get(n).cloned() {
                     if fields.is_empty() {
@@ -819,16 +853,17 @@ impl Emitter {
             Expr::List(items) => format!("vec![{}]", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", ")),
             Expr::Map(pairs) => {
                 if pairs.is_empty() {
-                    "BTreeMap::new()".into()
+                    "AxM::new()".into()
                 } else {
                     let ps: Vec<String> = pairs.iter().map(|(k, v)| format!("({}, {})", self.expr(k), self.expr(v))).collect();
-                    format!("BTreeMap::from([{}])", ps.join(", "))
+                    format!("AxM::from([{}])", ps.join(", "))
                 }
             }
             Expr::Tuple(items) => format!("({})", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", ")),
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
             Expr::Binary(op, a, b) => {
-                let (a, b) = (self.expr(a), self.expr(b));
+                // Comparisons read their operands in place, without copying them.
+                let (a, b) = if ["==", "!=", "<", ">", "<=", ">="].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
                 match *op {
                     "+" => format!("Plus::plus({a}, {b})"),
                     "and" => format!("({a} && {b})"),
@@ -868,9 +903,12 @@ impl Emitter {
                     self.diag(*line, "'?' used in a function that cannot fail", Some("add ! after the function's return type".into()));
                 }
                 let unpack = ONE_ARG_METHODS.contains(&name.as_str());
+                let ref_arg = ["has", "get_or", "contains", "index_of"].contains(&name.as_str());
                 let a: Vec<String> = args
                     .iter()
-                    .map(|a| match a {
+                    .enumerate()
+                    .map(|(k, a)| match a {
+                        a if k == 0 && ref_arg => self.arg_ref(a),
                         Expr::Lambda(ps, body) => {
                             for p in ps {
                                 self.locals.insert(p.clone());
@@ -894,10 +932,7 @@ impl Emitter {
                 }
             }
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
-            Expr::Index(b, i) => {
-                let b = self.place(b);
-                format!("{b}.ax_at({})", self.expr(i))
-            }
+            Expr::Index(..) => format!("{}.clone()", self.place(e)),
             Expr::Lambda(params, body) => {
                 for p in params {
                     self.locals.insert(p.clone());
@@ -941,7 +976,11 @@ impl Emitter {
                         return format!("for {n} in {it}.iter_mut() {b}");
                     }
                 }
-                let it = self.expr(iter);
+                let it = match iter.as_ref() {
+                    // A range is counted through directly instead of being built as a list.
+                    Expr::Range(a, b) => format!("({}..{})", self.expr(a), self.expr(b)),
+                    other => self.expr(other),
+                };
                 let outer = self.locals.clone();
                 self.bind_pat(p);
                 let p = self.pat(p);
@@ -1042,7 +1081,7 @@ impl Emitter {
         let mut slot: Vec<Option<usize>> = vec![None; fields.len()];
         for (fi, f) in fields.iter().enumerate() {
             let by_name = args.iter().enumerate().position(|(j, (n, a))| {
-                !used[j] && (n.as_deref() == Some(f.name.as_str()) || (n.is_none() && matches!(a, Expr::Ident(v) if *v == f.name)))
+                !used[j] && (n.as_deref() == Some(f.name.as_str()) || (n.is_none() && matches!(a, Expr::Ident(v) | Expr::Move(v) if *v == f.name)))
             });
             if let Some(j) = by_name {
                 used[j] = true;
