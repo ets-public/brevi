@@ -1,0 +1,36 @@
+var pos = 0
+var toks: [str] = []
+fn peek() -> str = if pos < toks.len() { toks[pos] } else { "" }
+fn next() -> str {
+  let t = peek()
+  pos += 1
+  t
+}
+fn num() -> int {
+  let t = next()
+  if t == "x" { fail("bad token") }
+  t.int()?
+}
+for l in lines() {
+  toks = l.words()
+  pos = 0
+  match num() {
+    Ok(v) => print(v * 2)
+    Err(m) => print("error: {m}")
+  }
+}
+let pairs = [(1, 5), (3, 4)]
+print(pairs.map((a, b) => b - a).sum())
+var h = heap()
+h.push((3, "c"))
+h.push((1, "a"))
+h.push((2, "b"))
+while !h.is_empty() {
+  let (d, s) = h.pop()
+  print("{d} {s}")
+}
+let price = "19.99".dec()?
+let total = price * 3.dec() + "0.005".dec()?
+print(total)
+print(total.fmt(2))
+print([price, price].sum())

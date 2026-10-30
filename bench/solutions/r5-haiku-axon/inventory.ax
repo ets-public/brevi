@@ -1,0 +1,27 @@
+let rows = csv(stdin())
+var totals: {str: dec} = {}
+var first = true
+for r in rows {
+  if first {
+    first = false
+    continue
+  }
+  if r.len() < 3 {
+    continue
+  }
+  let name = r[0].trim()
+  let q = r[1].trim().int().or(0)
+  let price = r[2].trim().dec().or(0.dec())
+  totals[name] = totals.get_or(name, 0.dec()) + q.dec() * price
+}
+
+var pairs: [(dec, str)] = []
+for (k, v) in totals.pairs() {
+  pairs.push((v, k))
+}
+pairs = pairs.sort_by(p => (0.dec() - p.0, p.1))
+
+for p in pairs {
+  let s = p.0.fmt(2)
+  print("{p.1}: {s}")
+}

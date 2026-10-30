@@ -1112,4 +1112,195 @@ pub fn min<T: PartialOrd>(a: T, b: T) -> T {
 pub fn max<T: PartialOrd>(a: T, b: T) -> T {
     if b > a { b } else { a }
 }
+// ---- exact decimals: fixed point with 9 places ----
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default)]
+pub struct Dec(pub i128);
+const DEC_ONE: i128 = 1_000_000_000;
+impl Dec {
+    fn parse(s: &str) -> R<Dec> {
+        let t = s.trim();
+        let (neg, body) = match t.strip_prefix('-') { Some(b) => (true, b), None => (false, t.strip_prefix('+').unwrap_or(t)) };
+        let (ip, fp) = body.split_once('.').unwrap_or((body, ""));
+        let ok = !(ip.is_empty() && fp.is_empty()) && ip.chars().all(|c| c.is_ascii_digit()) && fp.chars().all(|c| c.is_ascii_digit()) && fp.len() <= 9;
+        if !ok {
+            return Err(AxErr(format!("not a decimal: {:?}", s)));
+        }
+        let i: i128 = if ip.is_empty() { 0 } else { ip.parse().map_err(|_| AxErr(format!("decimal too large: {:?}", s)))? };
+        let f: i128 = format!("{:0<9}", fp).parse().unwrap_or(0);
+        let v = i * DEC_ONE + f;
+        Ok(Dec(if neg { -v } else { v }))
+    }
+    pub fn ax_fmt(&self, decimals: i64) -> String {
+        let d = decimals.clamp(0, 9) as u32;
+        let unit = 10i128.pow(9 - d);
+        let (q, r) = (self.0.div_euclid(unit), self.0.rem_euclid(unit));
+        // Round half to even, like Python's Decimal.
+        let q = if r * 2 > unit || (r * 2 == unit && q % 2 != 0) { q + 1 } else { q };
+        let neg = q < 0;
+        let a = q.abs();
+        let p = 10i128.pow(d);
+        let s = if d == 0 { format!("{}", a / p) } else { format!("{}.{:0w$}", a / p, a % p, w = d as usize) };
+        if neg { format!("-{s}") } else { s }
+    }
+    pub fn ax_abs(&self) -> Dec {
+        Dec(self.0.abs())
+    }
+    pub fn ax_float(&self) -> f64 {
+        self.0 as f64 / DEC_ONE as f64
+    }
+    pub fn ax_int(&self) -> i64 {
+        (self.0 / DEC_ONE) as i64
+    }
+    pub fn ax_round(&self) -> Dec {
+        Dec::parse(&self.ax_fmt(0)).unwrap()
+    }
+}
+impl Show for Dec {
+    fn show(&self) -> String {
+        let s = self.ax_fmt(9);
+        let s = s.trim_end_matches('0');
+        s.trim_end_matches('.').to_string()
+    }
+}
+impl Plus for Dec {
+    fn plus(self, o: Dec) -> Dec {
+        Dec(self.0 + o.0)
+    }
+}
+impl std::ops::Sub for Dec {
+    type Output = Dec;
+    fn sub(self, o: Dec) -> Dec {
+        Dec(self.0 - o.0)
+    }
+}
+impl std::ops::Mul for Dec {
+    type Output = Dec;
+    fn mul(self, o: Dec) -> Dec {
+        Dec(self.0 * o.0 / DEC_ONE)
+    }
+}
+impl std::ops::Div for Dec {
+    type Output = Dec;
+    fn div(self, o: Dec) -> Dec {
+        if o.0 == 0 {
+            panic!("division by zero");
+        }
+        Dec(self.0 * DEC_ONE / o.0)
+    }
+}
+impl std::ops::Neg for Dec {
+    type Output = Dec;
+    fn neg(self) -> Dec {
+        Dec(-self.0)
+    }
+}
+impl std::ops::SubAssign for Dec {
+    fn sub_assign(&mut self, o: Dec) {
+        self.0 -= o.0
+    }
+}
+impl std::ops::MulAssign for Dec {
+    fn mul_assign(&mut self, o: Dec) {
+        *self = *self * o
+    }
+}
+impl std::ops::DivAssign for Dec {
+    fn div_assign(&mut self, o: Dec) {
+        *self = *self / o
+    }
+}
+impl AxSum<Dec> for Vec<Dec> {
+    fn ax_sum(&self) -> Dec {
+        Dec(self.iter().map(|d| d.0).sum())
+    }
+}
+pub trait AxToDec {
+    fn ax_dec(&self) -> Dec;
+}
+impl AxToDec for i64 {
+    fn ax_dec(&self) -> Dec {
+        Dec(*self as i128 * DEC_ONE)
+    }
+}
+pub trait AxStrDec {
+    fn ax_dec(&self) -> R<Dec>;
+}
+impl AxStrDec for String {
+    fn ax_dec(&self) -> R<Dec> {
+        Dec::parse(self)
+    }
+}
+
+// ---- min-heap: pop gives the smallest item ----
+#[derive(Debug, Clone, Default)]
+pub struct AxHeap<T>(Vec<T>);
+pub fn heap<T: PartialOrd + Clone>() -> AxHeap<T> {
+    AxHeap(Vec::new())
+}
+impl<T: PartialOrd + Clone> AxHeap<T> {
+    pub fn ax_push(&mut self, x: T) {
+        let v = &mut self.0;
+        v.push(x);
+        let mut i = v.len() - 1;
+        while i > 0 {
+            let p = (i - 1) / 2;
+            if v[i] < v[p] {
+                v.swap(i, p);
+                i = p;
+            } else {
+                break;
+            }
+        }
+    }
+    pub fn ax_pop(&mut self) -> T {
+        let v = &mut self.0;
+        if v.is_empty() {
+            panic!("pop from an empty heap");
+        }
+        let last = v.len() - 1;
+        v.swap(0, last);
+        let top = v.pop().unwrap();
+        let mut i = 0;
+        loop {
+            let (l, r) = (2 * i + 1, 2 * i + 2);
+            let mut m = i;
+            if l < v.len() && v[l] < v[m] {
+                m = l;
+            }
+            if r < v.len() && v[r] < v[m] {
+                m = r;
+            }
+            if m == i {
+                break;
+            }
+            v.swap(i, m);
+            i = m;
+        }
+        top
+    }
+    pub fn ax_first(&self) -> T {
+        self.0.first().cloned().expect("first of an empty heap")
+    }
+    pub fn ax_len(&self) -> i64 {
+        self.0.len() as i64
+    }
+    pub fn ax_is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+impl<T: Show + PartialOrd + Clone + 'static> Show for AxHeap<T> {
+    fn show(&self) -> String {
+        let mut v = self.0.clone();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v.show()
+    }
+}
+
+// Script-level variables that functions use live in statics.
+pub fn ax_gp<T>(p: *mut Option<T>, name: &str) -> &'static mut T {
+    match unsafe { (*p).as_mut() } {
+        Some(v) => v,
+        None => panic!("{name} is used before it is set"),
+    }
+}
 // ---- end of prelude ----

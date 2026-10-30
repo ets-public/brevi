@@ -35,6 +35,7 @@ pub enum Item {
         fallible: bool,
         body: Expr,
         line: usize,
+        script: bool, // made from top-level statements
     },
     Type { name: String, fields: Vec<Field>, line: usize },
     Enum { name: String, variants: Vec<Variant>, line: usize },

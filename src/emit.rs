@@ -6,10 +6,10 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max"];
+const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 const METHODS: &[&str] = &[
-    "abs", "add_days", "all", "any", "big", "day", "days", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
+    "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
     "find", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
@@ -23,6 +23,8 @@ const PURE_METHODS: &[&str] = &[
 const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
 const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
+// Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
+const ONE_ARG_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "sort_by"];
 
 struct FnSig {
     params: Vec<Param>,
@@ -36,6 +38,8 @@ pub struct Emitter {
     // Per-function state.
     locals: HashSet<String>,
     refs: HashSet<String>, // names bound to &mut (mut params, iter_mut loop vars)
+    // Script-level variables that functions use: name -> (type, line of its let).
+    globals: HashMap<String, (Ty, usize)>,
     fallible: bool,
     line: usize,
     pub diags: Vec<Diag>,
@@ -70,6 +74,10 @@ pub fn rust_ty(t: &Ty) -> String {
             "f64" | "float" => "f64".into(),
             "bool" => "bool".into(),
             "str" => "String".into(),
+            "dec" => "Dec".into(),
+            "big" => "Big".into(),
+            "date" => "Date".into(),
+            "json" => "Json".into(),
             other => other.into(),
         },
         Ty::List(t) => format!("Vec<{}>", rust_ty(t)),
@@ -148,6 +156,7 @@ impl Emitter {
             fns: HashMap::new(),
             locals: HashSet::new(),
             refs: HashSet::new(),
+            globals: HashMap::new(),
             fallible: false,
             line: 0,
             diags: Vec::new(),
@@ -177,7 +186,97 @@ impl Emitter {
                 Item::Test { .. } => {}
             }
         }
+        e.find_globals(items);
         e
+    }
+
+    // A script-level `let`/`var` that a function or test mentions becomes a global.
+    fn find_globals(&mut self, items: &[Item]) {
+        let Some(Expr::Block(stmts, _)) = items.iter().find_map(|i| match i {
+            Item::Fn { script: true, body, .. } => Some(body),
+            _ => None,
+        }) else {
+            return;
+        };
+        // (parameter names, debug text of the body) for every function and test.
+        let others: Vec<(Vec<String>, String)> = items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Fn { script: false, body, params, .. } => Some((params.iter().map(|p| p.name.clone()).collect(), format!("{body:?}"))),
+                Item::Test { body, .. } => Some((vec![], format!("{body:?}"))),
+                _ => None,
+            })
+            .collect();
+        for st in stmts {
+            if let Stmt::Let { name: Pat::Bind(n), ty, value, line, .. } = st {
+                // Used by name, and not a parameter or a local of the same name there.
+                let used = others.iter().any(|(ps, body)| {
+                    body.contains(&format!("Ident({n:?})")) && !ps.contains(n) && !body.contains(&format!("Bind({n:?})")) && !body.contains(&format!("{n:?}]"))
+                });
+                if !used || self.globals.contains_key(n) {
+                    continue;
+                }
+                match ty.clone().or_else(|| self.infer_ty(value)) {
+                    Some(t) => {
+                        self.globals.insert(n.clone(), (t, *line));
+                    }
+                    None => {
+                        let example = match value {
+                            Expr::List(_) => "[int] = []",
+                            Expr::Map(_) => "{str: int} = {}",
+                            _ => "TYPE = ...",
+                        };
+                        self.diag(*line, &format!("{n} is used inside a function, so it needs a type"), Some(format!("write var {n}: {example} with the real type")));
+                        // Known by name from here on, so later uses are not reported too.
+                        self.globals.insert(n.clone(), (Ty::Named("_".into()), *line));
+                    }
+                }
+            }
+        }
+    }
+
+    // The type of a simple initial value, for globals.
+    fn infer_ty(&self, e: &Expr) -> Option<Ty> {
+        let named = |n: &str| Some(Ty::Named(n.into()));
+        match e {
+            Expr::Int(_) => named("int"),
+            Expr::Float(_) => named("f64"),
+            Expr::Bool(_) => named("bool"),
+            Expr::Str(_) => named("str"),
+            Expr::Unary(_, a) => self.infer_ty(a),
+            Expr::List(xs) if !xs.is_empty() => Some(Ty::List(Box::new(self.infer_ty(&xs[0])?))),
+            Expr::Tuple(xs) => Some(Ty::Tuple(xs.iter().map(|x| self.infer_ty(x)).collect::<Option<Vec<_>>>()?)),
+            Expr::Call(n, _, _) => match n.as_str() {
+                "lines" | "args" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
+                "stdin" | "input" | "str" => named("str"),
+                "csv" => Some(Ty::List(Box::new(Ty::List(Box::new(Ty::Named("str".into())))))),
+                n if self.structs.contains_key(n) => named(n),
+                n => self.variants.get(n).map(|(en, _)| Ty::Named(en.clone())),
+            },
+            Expr::Try(inner) => match inner.as_ref() {
+                Expr::Method(_, m, _, _) if m == "int" => named("int"),
+                Expr::Method(_, m, _, _) if m == "float" => named("f64"),
+                Expr::Method(_, m, _, _) if m == "ints" => Some(Ty::List(Box::new(Ty::Named("int".into())))),
+                Expr::Call(n, _, _) if n == "read" => named("str"),
+                Expr::Call(n, _, _) if n == "json" => named("Json"),
+                Expr::Call(n, _, _) if n == "date" => named("Date"),
+                _ => None,
+            },
+            Expr::Method(_, m, _, _) => match m.as_str() {
+                "len" | "count" | "find" | "index_of" | "digit" => named("int"),
+                "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
+                "trim" | "lower" | "upper" | "join" | "replace" => named("str"),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn global(&self, n: &str) -> Option<String> {
+        if self.locals.contains(n) || !self.globals.contains_key(n) {
+            return None;
+        }
+        Some(format!("(*ax_gp(unsafe {{ std::ptr::addr_of_mut!(AXG_{n}) }}, {n:?}))"))
     }
 
     fn diag(&mut self, line: usize, msg: &str, fix: Option<String>) {
@@ -191,6 +290,11 @@ impl Emitter {
         out.push('\n');
         let mut tests = String::new();
         let mut test_n = 0;
+        let mut gs: Vec<_> = self.globals.iter().map(|(n, (t, _))| (n.clone(), rust_ty(t))).collect();
+        gs.sort();
+        for (n, t) in gs {
+            out.push_str(&format!("static mut AXG_{n}: Option<{t}> = None;\n"));
+        }
         for it in items {
             match it {
                 Item::Type { name, fields, line } => {
@@ -369,6 +473,10 @@ impl Emitter {
             Pat::Str(s) => rust_str_lit(s),
             Pat::Bool(b) => b.to_string(),
             Pat::Tuple(ps) => format!("({})", ps.iter().map(|p| self.pat(p)).collect::<Vec<_>>().join(", ")),
+            Pat::Variant(name, args) if (name == "Ok" || name == "Err") && args.len() == 1 => {
+                let p = self.pat(&args[0]);
+                if name == "Ok" { format!("Ok({p})") } else { format!("Err(AxErr({p}))") }
+            }
             Pat::Variant(name, args) => match self.variants.get(name).cloned() {
                 Some((en, fields)) => {
                     if fields.is_empty() {
@@ -396,6 +504,10 @@ impl Emitter {
         };
         self.line = line;
         let body = match s {
+            Stmt::Let { name: Pat::Bind(n), value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) => {
+                let v = self.expr(value);
+                format!("unsafe {{ AXG_{n} = Some({v}); }}")
+            }
             Stmt::Let { name, ty, value, mutable, .. } => {
                 let v = self.expr(value);
                 self.bind_pat(name);
@@ -437,6 +549,9 @@ impl Emitter {
     fn place_mut(&mut self, e: &Expr) -> String {
         match e {
             Expr::Ident(n) => {
+                if let Some(g) = self.global(n) {
+                    return g;
+                }
                 self.check_ident(n);
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
             }
@@ -456,6 +571,11 @@ impl Emitter {
 
     // A place to read through without cloning (method receivers, field bases).
     fn place(&mut self, e: &Expr) -> String {
+        if let Expr::Ident(n) = e {
+            if let Some(g) = self.global(n) {
+                return g;
+            }
+        }
         match e {
             Expr::Ident(n) if self.locals.contains(n) => {
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
@@ -467,7 +587,7 @@ impl Emitter {
     }
 
     fn check_ident(&mut self, n: &str) {
-        if self.locals.contains(n) || self.fns.contains_key(n) {
+        if self.locals.contains(n) || self.fns.contains_key(n) || self.globals.contains_key(n) {
             return;
         }
         let names: Vec<String> = self.locals.iter().cloned().chain(self.fns.keys().cloned()).collect();
@@ -512,6 +632,9 @@ impl Emitter {
                     if fields.is_empty() {
                         return format!("{en}::{n}");
                     }
+                }
+                if let Some(g) = self.global(n) {
+                    return format!("{g}.clone()");
                 }
                 self.check_ident(n);
                 if self.locals.contains(n) {
@@ -571,17 +694,22 @@ impl Emitter {
                 if tries && !self.fallible {
                     self.diag(*line, "'?' used in a function that cannot fail", Some("add ! after the function's return type".into()));
                 }
+                let unpack = ONE_ARG_METHODS.contains(&name.as_str());
                 let a: Vec<String> = args
                     .iter()
                     .map(|a| match a {
-                        Expr::Lambda(ps, body) if tries => {
+                        Expr::Lambda(ps, body) => {
                             for p in ps {
                                 self.locals.insert(p.clone());
+                            }
+                            let params = if unpack && ps.len() > 1 { format!("({})", ps.join(", ")) } else { ps.join(", ") };
+                            if !tries {
+                                return format!("(|{params}| {})", self.expr(body));
                             }
                             let saved = std::mem::replace(&mut self.fallible, true);
                             let b = self.expr(body);
                             self.fallible = saved;
-                            format!("(|{}| -> R<_> {{ Ok({b}) }})", ps.join(", "))
+                            format!("(|{params}| -> R<_> {{ Ok({b}) }})")
                         }
                         other => self.expr(other),
                     })
@@ -656,7 +784,15 @@ impl Emitter {
 
     fn match_expr(&mut self, subj: &Expr, arms: &[(Pat, Expr)], discard: bool) -> String {
         let has_str = arms.iter().any(|(p, _)| matches!(p, Pat::Str(_)));
-        let s = self.expr(subj);
+        let handles_err = arms.iter().any(|(p, _)| matches!(p, Pat::Variant(n, _) if n == "Ok" || n == "Err"));
+        let s = match subj {
+            // Matching Ok/Err handles the call's error, so it needs no `?`.
+            Expr::Call(n, args, line) if handles_err => {
+                self.line = *line;
+                format!("{{ ax_l({line}); {} }}", self.call(n, args, true))
+            }
+            other => self.expr(other),
+        };
         let s = if has_str { format!("({s}).as_str()") } else { s };
         let mut out = format!("match {s} {{\n");
         for (p, body) in arms {
@@ -675,7 +811,7 @@ impl Emitter {
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
         match name {
-            "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" => return format!("{name}({})", plain.join(", ")),
+            "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "fail" => {
                 if !self.fallible {

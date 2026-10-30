@@ -1,0 +1,23 @@
+var iv: [(int, int)] = []
+for l in lines() {
+  if !l.trim().is_empty() {
+    let n = l.ints()?
+    iv.push((n[0], n[1]))
+  }
+}
+iv = iv.sort()
+var res: [(int, int)] = []
+for p in iv {
+  if res.len() > 0 and p.0 <= res[-1].1 {
+    let last = res[-1]
+    res[res.len() - 1] = (last.0, max(last.1, p.1))
+  } else {
+    res.push(p)
+  }
+}
+var total = 0
+for p in res {
+  print("{p.0} {p.1}")
+  total += p.1 - p.0
+}
+print("total {total}")

@@ -1,0 +1,14 @@
+var totals: {str: dec} = {}
+var rows = csv(stdin())
+for r in rows.skip(1) {
+  if r.len() >= 3 {
+    let q = r[1].trim().int()?
+    let p = r[2].trim().dec()?
+    totals[r[0]] += q.dec() * p
+  }
+}
+var ps = totals.pairs()
+ps = ps.sort_by(p => (-p.1.float(), p.0))
+for p in ps {
+  print("{p.0}: {p.1.fmt(2)}")
+}

@@ -1,0 +1,57 @@
+var width = 80
+var paras: [[str]] = []
+var words: [str] = []
+var first = true
+
+fn wrap(ws: [str], w: int) -> [str] {
+  var out: [str] = []
+  var buf = ""
+  for wd in ws {
+    if buf == "" {
+      buf = wd
+    } else if buf.len() + 1 + wd.len() <= w {
+      buf = buf + " " + wd
+    } else {
+      out.push(buf)
+      buf = wd
+    }
+  }
+  if buf != "" {
+    out.push(buf)
+  }
+  out
+}
+
+for line in lines() {
+  if first {
+    width = line.trim().int().or(80)
+    first = false
+    continue
+  }
+  if line.trim().is_empty() {
+    if !words.is_empty() {
+      paras.push(words)
+      words = []
+    }
+  } else {
+    for w in line.trim().split(" ") {
+      if w != "" {
+        words.push(w)
+      }
+    }
+  }
+}
+if !words.is_empty() {
+  paras.push(words)
+}
+
+var pi = 0
+for p in paras {
+  if pi > 0 {
+    print("")
+  }
+  for l in wrap(p, width) {
+    print(l)
+  }
+  pi += 1
+}

@@ -1,0 +1,10 @@
+for line in lines() {
+  let t = line.trim()
+  if t.is_empty() {
+    continue
+  }
+  let p = t.split(" ")
+  let x = p[0].big().or(0.big())
+  let y = p[1].big().or(0.big())
+  print("{x + y}")
+}

@@ -45,6 +45,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
             fallible: true,
             body: Expr::Block(script, None),
             line: script_line,
+            script: true,
         });
     }
     Ok(items)
@@ -161,7 +162,7 @@ impl Parser {
             } else {
                 return Err(self.err("expected '=' or '{' to start the function body"));
             };
-            return Ok(Item::Fn { name, params, ret, fallible, body, line });
+            return Ok(Item::Fn { name, params, ret, fallible, body, line, script: false });
         }
         if self.eat_kw("type") {
             let name = self.ident()?;
@@ -238,7 +239,13 @@ impl Parser {
             self.expect_sym(")")?;
             return Ok(if ts.is_empty() { Ty::Unit } else { Ty::Tuple(ts) });
         }
-        Ok(Ty::Named(self.ident()?))
+        let name = self.ident()?;
+        if name == "heap" && self.eat_sym("[") {
+            let t = self.ty()?;
+            self.expect_sym("]")?;
+            return Ok(Ty::Named(format!("AxHeap<{}>", crate::emit::rust_ty(&t))));
+        }
+        Ok(Ty::Named(name))
     }
 
     fn block(&mut self) -> R<Expr> {

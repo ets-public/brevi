@@ -2,9 +2,9 @@
 
 A programming language for AI models to write. Axon compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one JSON line with a suggested fix.
 
-The guide a model reads before writing Axon is [AXON.md](AXON.md), about 1,900 tokens (estimated).
+The guide a model reads before writing Axon is [AXON.md](AXON.md), about 2,300 tokens (estimated).
 
-## Status: v0.3
+## Status: v0.4
 
 Works today:
 - Parser for the full core syntax in AXON.md
@@ -12,7 +12,8 @@ Works today:
 - Emits Rust and builds it with `rustc`. rustc errors are mapped back to the Axon line and rewritten in Axon's type names
 - `run`, `test`, `check`, `build`, `emit`
 - Runtime prelude with strings, lists, sorted maps, files, stdin, JSON, CSV, dates and big integers
-- `?` works inside lambdas, `!` is inferred, `.or(default)` handles a failure in place
+- `?` works inside lambdas, `!` is inferred, `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures
+- Script-level variables can be used from functions; exact decimals (`dec`) and a min-heap (`heap()`)
 - Errors list the valid methods or fields; runtime errors are one JSON line with the Axon line
 - Benchmark in `bench/`: 22 tasks, results for Claude Sonnet and Haiku in Axon, Python and Rust
 
@@ -20,7 +21,6 @@ Not done yet:
 - Ownership inference. v0 clones every value it reads, so code is always correct but slower than hand-written Rust
 - Axon's own type inference. Type errors currently come from rustc, translated
 - Edit-by-name patches and compact output printing
-- A priority queue, and try/catch-style recovery beyond `.or()`
 
 ## Build and try
 

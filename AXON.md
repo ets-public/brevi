@@ -1,7 +1,7 @@
 # Axon language guide (for models)
 
 Axon compiles to Rust. Write one statement per line, no semicolons. Types are required only on function parameters and returns.
-A file can be just statements (script mode), or define `fn main()`.
+A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables (`var pos = 0`; give a type when the value is not a literal: `var toks: [str] = []`).
 
 ```
 let nums = stdin().ints()?
@@ -9,7 +9,7 @@ print("total {nums.sum()}, mean {(nums.sum().float() / nums.len().float()).fmt(2
 ```
 
 ## Types
-`int` (64-bit), `f64`, `bool`, `str`, `[T]` list, `{K: V}` map (sorted by key), `(A, B)` tuple.
+`int` (64-bit), `f64`, `bool`, `str`, `[T]` list, `{K: V}` map (sorted by key), `(A, B)` tuple, `dec` exact decimal, `big` exact integer, `Date`, `Json`, `heap[T]` min-heap.
 No references or lifetimes: values act as copies. A `mut` parameter edits the caller's variable (call it as `f(x)`).
 Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`. `let (a, b) = t` destructures.
 
@@ -35,7 +35,8 @@ fn load(path: str) -> [str] {
 fn bump(mut xs: [int]) { for x in xs { x += 1 } }   // edits caller's list
 fn main() ! { ... }
 ```
-A function that uses `?` or `fail` can fail, and every call to it needs `?` (marking it `!` is optional). `?` also works inside lambdas: `lines().map(l => l.int()?)`.
+A function (or the top level of a script) that uses `?` or `fail` can fail, and every call to it needs `?` (marking it `!` is optional). `?` also works inside lambdas: `lines().map(l => l.int()?)`.
+Handle a failure with `match f(x) { Ok(v) => ..., Err(msg) => ... }` or `.or(default)`.
 
 ## Statements
 `let x = 1` fixed, `var x = 1` changeable, `x = 2`, `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
@@ -51,15 +52,15 @@ Escapes: `\n \t \r \0 \" \\`.
 
 ## Collections
 `xs[0]`, `xs[-1]` (last), `m[k]` (missing key stops the program), `m[k] = v`, `m[k] += 1` and `m[k].push(x)` (missing key starts at 0, "" or []).
-Empty typed values: `var m: {str: int} = {}`, `var xs: [str] = []`.
-Lambdas: `x => x * 2`, `(a, b) => a + b`.
+Empty values: `var xs = []`, `var m = {}` (add a type like `var m: {str: int} = {}` if the compiler asks).
+Lambdas: `x => x * 2`, `(a, b) => a + b`. In map/filter/any/all/count/sort_by, `(a, b) => b - a` unpacks a tuple item.
 
 ## Methods
 - str: `len words lines chars split(sep) slice(a, b) find(s) lower upper trim contains starts_with ends_with replace(a, b) repeat(n) is_empty is_digit is_alpha is_space`, and `int() float() ints() big()` which can fail, so use `?`. `ints()` = all whitespace-separated ints
 - list: `len is_empty push(x) pop insert(i, x) remove(i) first last slice(a, b) map(f) filter(f) any(f) all(f) count(f) fold(init, f) sort sort_by(f) rev take(n) skip(n) enumerate zip(ys) sum min max contains(x) index_of(x) join(sep)`
 - map: `len is_empty has(k) get_or(k, default) remove(k) keys values pairs`
 - int and f64: `abs float int fmt(decimals)` (`2.5.fmt(2)` is "2.50"); f64 also `sqrt round floor ceil`; int also `big`
-`slice` takes Python-style bounds (negatives count from the end). `find` and `index_of` return -1 when absent. `"7".digit()` is 7 (-1 if not a digit). `len` counts characters. `pop` returns the removed item. `and`/`or` short-circuit.
+`slice` takes Python-style bounds (negatives count from the end). `find` and `index_of` return -1 when absent. `"7".digit()` is 7 (-1 if not a digit). `len` counts characters. `pop` and `remove(i)` return the removed item. `words` splits on any run of whitespace. `and`/`or` short-circuit.
 Handle a failure in place with `.or(default)`: `s.int().or(0)`, `load(p).or([])`.
 
 Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert remove` change the list in place.
@@ -72,6 +73,8 @@ Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert r
 - `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
 - `date("2024-02-29")?` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
 - `big` is an exact integer of any size: `"123...".big()?`, `n.big()`, with `+ - *` and comparisons.
+- `dec` is an exact decimal (9 places) for money: `"19.99".dec()?`, `n.dec()`, `+ - * /`, `sum`, `fmt(2)` (rounds half to even), `float int round`.
+- `heap()` is a min-heap: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
 
 ## Tests
 ```

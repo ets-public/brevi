@@ -1,0 +1,8 @@
+fn total(j: Json) -> f64 = match j {
+  Num(n) => n
+  Arr(xs) => xs.map(x => total(x)).sum()
+  Obj(m) => if m.values().any(v => str(v) == "\"red\"") { 0.0 } else { m.values().map(v => total(v)).sum() }
+  _ => 0.0
+}
+let j = json(stdin())?
+print(total(j).int())

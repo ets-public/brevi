@@ -1,0 +1,46 @@
+var cap = 1
+var vals: {str: str} = {}
+var order: [str] = []
+var first = true
+
+fn touch(k: str) {
+  let i = order.index_of(k)
+  order.remove(i)
+  order.push(k)
+}
+
+for line in lines() {
+  let t = line.trim()
+  if t.is_empty() {
+    continue
+  }
+  if first {
+    cap = t.int().or(1)
+    first = false
+    continue
+  }
+  let p = t.split(" ")
+  if p[0] == "get" {
+    let k = p[1]
+    if vals.has(k) {
+      touch(k)
+      print(vals[k])
+    } else {
+      print(-1)
+    }
+  } else {
+    let k = p[1]
+    let v = p[2]
+    if vals.has(k) {
+      touch(k)
+    } else {
+      if vals.len() >= cap {
+        let old = order[0]
+        order.remove(0)
+        vals.remove(old)
+      }
+      order.push(k)
+    }
+    vals[k] = v
+  }
+}

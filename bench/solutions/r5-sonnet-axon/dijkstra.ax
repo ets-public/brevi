@@ -1,0 +1,49 @@
+var adj: {str: [(str, int)]} = {}
+var from = ""
+var to = ""
+for l in lines() {
+  let w = l.words()
+  if w.len() == 3 {
+    let c = w[2].int()?
+    adj[w[0]].push((w[1], c))
+    adj[w[1]].push((w[0], c))
+  } else if w.len() == 2 {
+    from = w[0]
+    to = w[1]
+  }
+}
+var dist: {str: int} = {}
+var h = heap()
+if adj.has(to) or from == to {
+  h.push((0, to))
+}
+while !h.is_empty() {
+  let t = h.pop()
+  let d = t.0
+  let n = t.1
+  if dist.has(n) { continue }
+  dist[n] = d
+  if adj.has(n) {
+    for e in adj[n] {
+      if !dist.has(e.0) { h.push((d + e.1, e.0)) }
+    }
+  }
+}
+if !dist.has(from) {
+  print("none")
+} else {
+  print(dist[from])
+  var path = [from]
+  var cur = from
+  while cur != to {
+    var best = ""
+    for e in adj[cur] {
+      if dist.has(e.0) and dist[e.0] + e.1 == dist[cur] {
+        if best.is_empty() or e.0 < best { best = e.0 }
+      }
+    }
+    path.push(best)
+    cur = best
+  }
+  print(path.join("->"))
+}

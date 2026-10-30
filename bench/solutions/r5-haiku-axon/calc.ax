@@ -1,0 +1,88 @@
+var toks: [str] = []
+var pos = 0
+
+fn tokenize(s: str) -> [str] {
+  var out: [str] = []
+  var num = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      num += c
+    } else {
+      if num != "" {
+        out.push(num)
+        num = ""
+      }
+      if c == "+" or c == "-" or c == "*" or c == "/" or c == "(" or c == ")" {
+        out.push(c)
+      }
+    }
+  }
+  if num != "" {
+    out.push(num)
+  }
+  out
+}
+
+fn peek() -> str {
+  if pos < toks.len() { toks[pos] } else { "" }
+}
+
+fn parse_expr() -> int {
+  var v = parse_term()?
+  while peek() == "+" or peek() == "-" {
+    let op = peek()
+    pos += 1
+    let r = parse_term()?
+    if op == "+" {
+      v = v + r
+    } else {
+      v = v - r
+    }
+  }
+  v
+}
+
+fn parse_term() -> int {
+  var v = parse_factor()?
+  while peek() == "*" or peek() == "/" {
+    let op = peek()
+    pos += 1
+    let r = parse_factor()?
+    if op == "*" {
+      v = v * r
+    } else {
+      if r == 0 { fail("division by zero") }
+      v = v / r
+    }
+  }
+  v
+}
+
+fn parse_factor() -> int {
+  let t = peek()
+  if t == "-" {
+    pos += 1
+    let f = parse_factor()?
+    return 0 - f
+  }
+  if t == "(" {
+    pos += 1
+    let v = parse_expr()?
+    pos += 1
+    return v
+  }
+  pos += 1
+  t.int()?
+}
+
+for line in lines() {
+  toks = tokenize(line)
+  pos = 0
+  if toks.is_empty() {
+    continue
+  }
+  match parse_expr() {
+    Ok(v) => print(v)
+    Err(m) => print("error")
+  }
+}

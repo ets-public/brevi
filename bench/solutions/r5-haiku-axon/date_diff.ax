@@ -1,0 +1,17 @@
+fn diff(a: str, b: str) -> int {
+  let x = date(a)?
+  let y = date(b)?
+  abs(x.days - y.days)
+}
+
+for line in lines() {
+  let t = line.trim()
+  if t.is_empty() {
+    continue
+  }
+  let p = t.split(" ")
+  match diff(p[0], p[1]) {
+    Ok(n) => print(n)
+    Err(m) => print("error")
+  }
+}

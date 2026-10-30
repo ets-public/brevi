@@ -1,0 +1,36 @@
+fn is_red(j: Json) -> bool {
+  match j {
+    Str(s) => s == "red"
+    _ => false
+  }
+}
+
+fn total(j: Json) -> int {
+  match j {
+    Num(n) => n.int()
+    Arr(xs) => {
+      var s = 0
+      for x in xs {
+        s += total(x)
+      }
+      s
+    }
+    Obj(m) => {
+      var red = false
+      var s = 0
+      for v in m.values() {
+        if is_red(v) {
+          red = true
+        }
+        s += total(v)
+      }
+      if red { 0 } else { s }
+    }
+    _ => 0
+  }
+}
+
+match json(stdin()) {
+  Ok(j) => print(total(j))
+  Err(m) => print("error")
+}

@@ -1,0 +1,40 @@
+var iv: [(int, int)] = []
+for line in lines() {
+  if line.trim().is_empty() {
+    continue
+  }
+  let p = line.ints().or([0, 0])
+  iv.push((p[0], p[1]))
+}
+
+iv = iv.sort()
+
+var have = false
+var cs = 0
+var ce = 0
+var merged: [(int, int)] = []
+for (s, e) in iv {
+  if !have {
+    cs = s
+    ce = e
+    have = true
+  } else if s <= ce {
+    if e > ce {
+      ce = e
+    }
+  } else {
+    merged.push((cs, ce))
+    cs = s
+    ce = e
+  }
+}
+if have {
+  merged.push((cs, ce))
+}
+
+var total = 0
+for (s, e) in merged {
+  print("{s} {e}")
+  total += e - s
+}
+print("total {total}")

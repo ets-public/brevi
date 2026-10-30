@@ -1,0 +1,57 @@
+let ls = lines().filter(l => !l.trim().is_empty())
+let q = ls[ls.len() - 1].trim().split(" ")
+let from = q[0]
+let to = q[1]
+
+var adj: {str: [(str, int)]} = {}
+for i in 0..(ls.len() - 1) {
+  let p = ls[i].trim().split(" ")
+  let a = p[0]
+  let b = p[1]
+  let w = p[2].int().or(0)
+  adj[a].push((b, w))
+  adj[b].push((a, w))
+}
+
+// distances from TO, so the path can be built greedily from FROM
+var dist: {str: int} = {}
+var pq: heap[(int, str)] = heap()
+dist[to] = 0
+pq.push((0, to))
+while !pq.is_empty() {
+  let top = pq.pop()
+  let d = top.0
+  let u = top.1
+  if d > dist[u] {
+    continue
+  }
+  for e in adj.get_or(u, []) {
+    let nd = d + e.1
+    let known = dist.has(e.0)
+    if !known or nd < dist[e.0] {
+      dist[e.0] = nd
+      pq.push((nd, e.0))
+    }
+  }
+}
+
+if !dist.has(from) {
+  print("none")
+} else {
+  print(dist[from])
+  var path: [str] = [from]
+  var u = from
+  while u != to {
+    var best = ""
+    for e in adj.get_or(u, []) {
+      if dist.has(e.0) and dist[e.0] + e.1 == dist[u] {
+        if best == "" or e.0 < best {
+          best = e.0
+        }
+      }
+    }
+    u = best
+    path.push(u)
+  }
+  print(path.join("->"))
+}

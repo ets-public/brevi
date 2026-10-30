@@ -1,0 +1,29 @@
+let ls = lines()
+let cap = ls[0].trim().int()?
+var vals: {str: str} = {}
+var order: [str] = []
+fn touch(k: str) {
+  let i = order.index_of(k)
+  if i >= 0 { order.remove(i) }
+  order.push(k)
+}
+for l in ls.skip(1) {
+  let w = l.words()
+  if w.len() == 0 { continue }
+  if w[0] == "get" {
+    if vals.has(w[1]) {
+      touch(w[1])
+      print(vals[w[1]])
+    } else {
+      print(-1)
+    }
+  } else {
+    let k = w[1]
+    if !vals.has(k) and vals.len() >= cap {
+      let old = order.remove(0)
+      vals.remove(old)
+    }
+    vals[k] = w[2]
+    touch(k)
+  }
+}
