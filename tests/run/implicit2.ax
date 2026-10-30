@@ -1,0 +1,11 @@
+nums = lines().map(l => l.int())
+print(nums.sum())
+x = 2.7
+print(x.int() + "3".int())
+print("zz".int().or(-1))
+fn parse(s: str) -> int = s.trim().int() * 2
+print(parse(" 21 "))
+match parse("q") {
+  Ok(v) => print(v)
+  Err(m) => print("bad: {m}")
+}

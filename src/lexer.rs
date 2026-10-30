@@ -142,6 +142,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             continue;
         }
         let rest: String = chars[i..(i + 2).min(chars.len())].iter().collect();
+        // `&&` and `||` are accepted as spellings of `and` and `or`.
+        if rest == "&&" || rest == "||" {
+            push(&mut out, Tok::Kw(if rest == "&&" { "and" } else { "or" }));
+            i += 2;
+            col += 2;
+            continue;
+        }
         match SYMBOLS.iter().find(|s| rest.starts_with(**s)) {
             Some(s) => {
                 match *s {

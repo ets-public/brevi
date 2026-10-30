@@ -209,7 +209,8 @@ impl Parser {
             let name = self.ident()?;
             self.expect_sym(":")?;
             let ty = self.ty()?;
-            fields.push(Field { name, ty });
+            let default = if self.eat_sym("=") { Some(self.expr()?) } else { None };
+            fields.push(Field { name, ty, default });
             self.skip_seps();
         }
         Ok(fields)
@@ -632,7 +633,7 @@ impl Parser {
                     lit.push('}');
                     i += 2;
                 }
-                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || *c == '_' || *c == '(') => {
+                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!')) => {
                     lit.push('{');
                     i += 1;
                 }

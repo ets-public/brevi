@@ -1,0 +1,7 @@
+type Order { id: str, lines: [(str, int)], total: int, cancelled: bool = false }
+let id = "o1"
+let total = 5
+let o = Order(id, [("a", 1)], total)
+let p = Order(id: "o2", lines: [], total: 7, cancelled: true)
+let r = (3, "x")
+print("{o.id} {o.total} {o.cancelled} {p.cancelled} {-r.0} {!o.cancelled}")

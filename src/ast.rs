@@ -18,6 +18,7 @@ pub struct Param {
 pub struct Field {
     pub name: String,
     pub ty: Ty,
+    pub default: Option<Expr>, // `cancelled: bool = false` lets constructors leave it out
 }
 
 #[derive(Debug, Clone)]

@@ -1,0 +1,18 @@
+// `x = v` declares; calls to functions that can fail pass errors up without `?`
+fn half(n: int) -> int {
+  if n % 2 == 1 { fail("odd {n}") }
+  n / 2
+}
+fn quarter(n: int) -> int = half(half(n))
+total = 0
+for n in [8, 12] {
+  q = quarter(n)
+  total += q
+}
+print(total)
+print(quarter(6).or(-1))
+match quarter(20) {
+  Ok(v) => print("ok {v}")
+  Err(m) => print("err {m}")
+}
+if total > 0 { big = true }

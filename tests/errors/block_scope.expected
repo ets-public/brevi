@@ -1,0 +1,1 @@
+{"e":"check","at":"block_scope.ax:2:1","msg":"best was first set inside a block that has ended","fix":"set best before that block, e.g. best = 0"}

@@ -40,6 +40,8 @@ pub struct Emitter {
     refs: HashSet<String>, // names bound to &mut (mut params, iter_mut loop vars)
     // Script-level variables that functions use: name -> (type, line of its let).
     globals: HashMap<String, (Ty, usize)>,
+    // Names first set inside a block that has ended, for a clearer "unknown name" error.
+    block_only: HashSet<String>,
     fallible: bool,
     line: usize,
     pub diags: Vec<Diag>,
@@ -132,6 +134,118 @@ fn walk_try(e: &Expr, deep: bool) -> bool {
     }
 }
 
+// `?` is optional on calls: a call to a function that can fail passes its error up unless it is
+// already handled (`?`, `.or(...)`, or a match on Ok/Err). Repeats until no more functions become fallible.
+pub fn auto_try(items: &mut [Item]) {
+    loop {
+        let mut fallible: HashSet<String> = FALLIBLE_BUILTINS.iter().map(|s| s.to_string()).collect();
+        for it in items.iter() {
+            if let Item::Fn { name, fallible: f, body, .. } = it {
+                if *f || can_fail(body) {
+                    fallible.insert(name.clone());
+                }
+            }
+        }
+        let before = fallible.len();
+        for it in items.iter_mut() {
+            match it {
+                Item::Fn { body, .. } | Item::Test { body, .. } => wrap_calls(body, &fallible),
+                _ => {}
+            }
+        }
+        let after = items.iter().filter(|it| matches!(it, Item::Fn { fallible: f, body, .. } if *f || can_fail(body))).count()
+            + FALLIBLE_BUILTINS.len();
+        if after <= before {
+            return;
+        }
+    }
+}
+
+// Conversions that fail on bad text (`"x".int()`); on numbers they cannot fail.
+const CONVERT_METHODS: &[&str] = &["int", "float", "ints", "big", "dec"];
+
+fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
+    // Walks into a call or conversion whose error is handled here, without wrapping it.
+    let args_of = |e: &mut Expr, f: &HashSet<String>| match e {
+        Expr::Call(_, args, _) => args.iter_mut().for_each(|(_, a)| wrap_calls(a, f)),
+        Expr::Method(r, m, args, _) if CONVERT_METHODS.contains(&m.as_str()) => {
+            wrap_calls(r, f);
+            args.iter_mut().for_each(|a| wrap_calls(a, f));
+        }
+        other => wrap_calls(other, f),
+    };
+    match e {
+        Expr::Try(inner) => args_of(inner, f),
+        Expr::Method(recv, m, args, _) if m == "or" => {
+            args_of(recv, f);
+            args.iter_mut().for_each(|a| wrap_calls(a, f));
+        }
+        Expr::Match(subj, arms) => {
+            if arms.iter().any(|(p, _)| matches!(p, Pat::Variant(n, _) if n == "Ok" || n == "Err")) {
+                args_of(subj, f);
+            } else {
+                wrap_calls(subj, f);
+            }
+            arms.iter_mut().for_each(|(_, b)| wrap_calls(b, f));
+        }
+        Expr::Call(n, args, _) => {
+            args.iter_mut().for_each(|(_, a)| wrap_calls(a, f));
+            if f.contains(n.as_str()) {
+                let call = std::mem::replace(e, Expr::Bool(false));
+                *e = Expr::Try(Box::new(call));
+            }
+        }
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Ident(_) => {}
+        Expr::Str(parts) => parts.iter_mut().for_each(|p| {
+            if let StrPart::Interp(x) = p {
+                wrap_calls(x, f)
+            }
+        }),
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter_mut().for_each(|x| wrap_calls(x, f)),
+        Expr::Map(ps) => ps.iter_mut().for_each(|(k, v)| {
+            wrap_calls(k, f);
+            wrap_calls(v, f)
+        }),
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Lambda(_, a) => wrap_calls(a, f),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) | Expr::For(_, a, b) => {
+            wrap_calls(a, f);
+            wrap_calls(b, f)
+        }
+        Expr::Method(r, m, args, _) => {
+            wrap_calls(r, f);
+            args.iter_mut().for_each(|a| wrap_calls(a, f));
+            if CONVERT_METHODS.contains(&m.as_str()) {
+                let call = std::mem::replace(e, Expr::Bool(false));
+                *e = Expr::Try(Box::new(call));
+            }
+        }
+        Expr::If(c, t, e2) => {
+            wrap_calls(c, f);
+            wrap_calls(t, f);
+            if let Some(x) = e2 {
+                wrap_calls(x, f)
+            }
+        }
+        Expr::Block(stmts, tail) => {
+            for s in stmts {
+                match s {
+                    Stmt::Let { value, .. } => wrap_calls(value, f),
+                    Stmt::Assign { target, value, .. } => {
+                        wrap_calls(target, f);
+                        wrap_calls(value, f)
+                    }
+                    Stmt::Expr { expr, .. } | Stmt::Assert { cond: expr, .. } => wrap_calls(expr, f),
+                    Stmt::Return { value: Some(v), .. } => wrap_calls(v, f),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                wrap_calls(t, f)
+            }
+        }
+    }
+}
+
 fn assigns_to(e: &Expr, name: &str) -> bool {
     match e {
         Expr::Block(stmts, tail) => {
@@ -157,11 +271,12 @@ impl Emitter {
             locals: HashSet::new(),
             refs: HashSet::new(),
             globals: HashMap::new(),
+            block_only: HashSet::new(),
             fallible: false,
             line: 0,
             diags: Vec::new(),
         };
-        let one = |n: &str, t: &str| vec![Field { name: "v".into(), ty: Ty::Named(t.into()) }].into_iter().filter(|_| !n.is_empty()).collect::<Vec<_>>();
+        let one = |n: &str, t: &str| vec![Field { name: "v".into(), ty: Ty::Named(t.into()), default: None }].into_iter().filter(|_| !n.is_empty()).collect::<Vec<_>>();
         for (v, t) in [("Null", ""), ("Bool", "bool"), ("Num", "f64"), ("Str", "str"), ("Arr", "[Json]"), ("Obj", "{str: Json}")] {
             e.variants.insert(v.into(), ("Json".into(), one(t, t)));
         }
@@ -207,8 +322,17 @@ impl Emitter {
                 _ => None,
             })
             .collect();
-        for st in stmts {
-            if let Stmt::Let { name: Pat::Bind(n), ty, value, line, .. } = st {
+        let decls: Vec<(String, Option<Ty>, Expr, usize)> = stmts
+            .iter()
+            .filter_map(|st| match st {
+                Stmt::Let { name: Pat::Bind(n), ty, value, line, .. } => Some((n.clone(), ty.clone(), value.clone(), *line)),
+                Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } => Some((n.clone(), None, value.clone(), *line)),
+                _ => None,
+            })
+            .collect();
+        for (n, ty, value, line) in &decls {
+            let (n, ty, value, line) = (n, ty, value, line);
+            {
                 // Used by name, and not a parameter or a local of the same name there.
                 let used = others.iter().any(|(ps, body)| {
                     body.contains(&format!("Ident({n:?})")) && !ps.contains(n) && !body.contains(&format!("Bind({n:?})")) && !body.contains(&format!("{n:?}]"))
@@ -417,6 +541,8 @@ impl Emitter {
     fn block_d(&mut self, e: &Expr, discard: bool) -> String {
         match e {
             Expr::Block(stmts, tail) => {
+                // Names declared in a block end with it.
+                let outer = self.locals.clone();
                 let mut out = String::from("{\n");
                 for s in stmts {
                     out.push_str(&self.stmt(s));
@@ -429,6 +555,8 @@ impl Emitter {
                     }
                 }
                 out.push('}');
+                let inner = std::mem::replace(&mut self.locals, outer);
+                self.block_only.extend(inner.into_iter().filter(|n| !self.locals.contains(n)));
                 out
             }
             other if discard => format!("{{ {}; }}", self.stmt_expr(other)),
@@ -521,6 +649,18 @@ impl Emitter {
                 let t = ty.as_ref().map(|t| format!(": {}", rust_ty(t))).unwrap_or_default();
                 format!("let {}{p}{t} = {v};", if *mutable { "mut " } else { "" })
             }
+            Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) => {
+                let v = self.expr(value);
+                format!("unsafe {{ AXG_{n} = Some({v}); }}")
+            }
+            // `x = v` for a new name declares it, like `var x = v`.
+            Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. }
+                if !self.locals.contains(n) && !self.globals.contains_key(n) && !self.fns.contains_key(n) && !self.variants.contains_key(n) =>
+            {
+                let v = self.expr(value);
+                self.locals.insert(n.clone());
+                format!("let mut {n} = {v};")
+            }
             Stmt::Assign { target, op, value, .. } => {
                 let v = self.expr(value);
                 match (target, *op) {
@@ -594,6 +734,10 @@ impl Emitter {
 
     fn check_ident(&mut self, n: &str) {
         if self.locals.contains(n) || self.fns.contains_key(n) || self.globals.contains_key(n) {
+            return;
+        }
+        if self.block_only.contains(n) {
+            self.diag(self.line, &format!("{n} was first set inside a block that has ended"), Some(format!("set {n} before that block, e.g. {n} = 0")));
             return;
         }
         let names: Vec<String> = self.locals.iter().cloned().chain(self.fns.keys().cloned()).collect();
@@ -746,7 +890,8 @@ impl Emitter {
                         self.line = *line;
                         format!("{}?", self.call(name, args, true))
                     }
-                    other => format!("({})?", self.expr(other)),
+                    // ax_q lets `?` follow conversions that cannot fail on numbers (`2.5.int()`).
+                    other => format!("ax_q({})?", self.expr(other)),
                 }
             }
             Expr::If(c, t, f) => {
@@ -860,19 +1005,48 @@ impl Emitter {
         format!("{name}({})", plain.join(", "))
     }
 
+    // Each field takes, in order of preference: an argument named after it (`total: t`), a plain
+    // variable of the same name (`total`), the next plain argument, or the field's default.
     fn construct(&mut self, path: &str, name: &str, fields: &[Field], args: &[(Option<String>, Expr)], plain: Vec<String>) -> String {
         if fields.is_empty() && args.is_empty() {
             return path.to_string();
         }
-        if fields.len() != args.len() {
-            let want = fields.iter().map(|f| format!("{}: ...", f.name)).collect::<Vec<_>>().join(", ");
-            self.diag(self.line, &format!("{name} has {} fields, got {}", fields.len(), args.len()), Some(format!("write {name}({want})")));
+        let mut used = vec![false; args.len()];
+        let mut slot: Vec<Option<usize>> = vec![None; fields.len()];
+        for (fi, f) in fields.iter().enumerate() {
+            let by_name = args.iter().enumerate().position(|(j, (n, a))| {
+                !used[j] && (n.as_deref() == Some(f.name.as_str()) || (n.is_none() && matches!(a, Expr::Ident(v) if *v == f.name)))
+            });
+            if let Some(j) = by_name {
+                used[j] = true;
+                slot[fi] = Some(j);
+            }
+        }
+        for fi in 0..fields.len() {
+            if slot[fi].is_some() {
+                continue;
+            }
+            if let Some(j) = (0..args.len()).find(|&j| !used[j] && args[j].0.is_none()) {
+                used[j] = true;
+                slot[fi] = Some(j);
+            }
+        }
+        let missing: Vec<&str> = fields.iter().zip(&slot).filter(|(f, s)| s.is_none() && f.default.is_none()).map(|(f, _)| f.name.as_str()).collect();
+        let extra: Vec<String> = args.iter().zip(&used).filter(|(_, u)| !**u).map(|((n, _), _)| n.clone().unwrap_or_else(|| "a value".into())).collect();
+        if !missing.is_empty() || !extra.is_empty() {
+            let want = fields.iter().filter(|f| f.default.is_none()).map(|f| format!("{}: ...", f.name)).collect::<Vec<_>>().join(", ");
+            let msg = if !missing.is_empty() { format!("{name} is missing {}", missing.join(", ")) } else { format!("{name} has no field for {}", extra.join(", ")) };
+            self.diag(self.line, &msg, Some(format!("write {name}({want})")));
         }
         let mut parts = Vec::new();
-        for (i, f) in fields.iter().enumerate() {
-            let j = args.iter().position(|(n, _)| n.as_deref() == Some(f.name.as_str())).unwrap_or(i);
-            if let Some(v) = plain.get(j) {
-                parts.push(format!("{}: {v}", f.name));
+        for (f, s) in fields.iter().zip(&slot) {
+            match (s, &f.default) {
+                (Some(j), _) => parts.push(format!("{}: {}", f.name, plain[*j])),
+                (None, Some(d)) => {
+                    let v = self.expr(d);
+                    parts.push(format!("{}: {v}", f.name));
+                }
+                _ => {}
             }
         }
         format!("{path} {{ {} }}", parts.join(", "))

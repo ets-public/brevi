@@ -1085,6 +1085,39 @@ impl AxStrBig for String {
     }
 }
 
+// ax_q(x)? works on both fallible results and plain values.
+pub trait IntoR<T> {
+    fn into_r(self) -> R<T>;
+}
+impl<T> IntoR<T> for R<T> {
+    fn into_r(self) -> R<T> {
+        self
+    }
+}
+impl IntoR<i64> for i64 {
+    fn into_r(self) -> R<i64> {
+        Ok(self)
+    }
+}
+impl IntoR<f64> for f64 {
+    fn into_r(self) -> R<f64> {
+        Ok(self)
+    }
+}
+impl IntoR<Big> for Big {
+    fn into_r(self) -> R<Big> {
+        Ok(self)
+    }
+}
+impl IntoR<Dec> for Dec {
+    fn into_r(self) -> R<Dec> {
+        Ok(self)
+    }
+}
+pub fn ax_q<T, X: IntoR<T>>(x: X) -> R<T> {
+    x.into_r()
+}
+
 // x.or(default): use the default instead of failing.
 pub trait AxOr<T> {
     fn ax_or(self, d: T) -> T;

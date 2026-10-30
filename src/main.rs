@@ -87,7 +87,8 @@ fn main() {
 }
 
 pub fn compile_to_rust(src: &str) -> Result<String, Vec<Diag>> {
-    let items = parser::parse_program(src).map_err(|d| vec![d])?;
+    let mut items = parser::parse_program(src).map_err(|d| vec![d])?;
+    emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items);
     let rust = em.program(&items);
     if em.diags.is_empty() {
