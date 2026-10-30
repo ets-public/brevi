@@ -1,0 +1,3 @@
+var tot: {str: f64} = {}
+for r in csv(stdin()).skip(1) { tot[r[0]] += r[1].float()? * r[2].float()? }
+for (k, v) in tot.pairs().sort_by(p => (-p.1, p.0)) { print("{k}: {v.fmt(2)}") }

@@ -1,0 +1,1 @@
+Each stdin line is `A -> B`, meaning task A must come before task B. Print all tasks in an order that respects every rule, one per line. Whenever several tasks are free to go next, pick the alphabetically smallest. If the rules contain a cycle, print only `cycle`.

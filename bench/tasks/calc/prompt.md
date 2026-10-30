@@ -1,0 +1,1 @@
+Each stdin line is an integer arithmetic expression with + - * / and parentheses, possibly with spaces and unary minus (e.g. `-(2+3)*4`). `/` is integer division truncating toward zero. `*` and `/` bind tighter than `+` and `-`; operators of equal precedence are left-associative. Print each result on its own line, or `error` if a division by zero happens.

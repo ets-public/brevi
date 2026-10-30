@@ -1,0 +1,6 @@
+type P { x: int, y: int }
+let p = P(1, 2)
+print(p.z)
+let xs = [1]
+print(xs.words())
+print("a".sum())

@@ -1,0 +1,50 @@
+fn wrap_para(words: [str], w: int) -> [str] {
+  var out: [str] = []
+  var cur = ""
+  for wd in words {
+    if cur == "" {
+      cur = wd
+    } else if cur.len() + 1 + wd.len() <= w {
+      cur = cur + " " + wd
+    } else {
+      out.push(cur)
+      cur = wd
+    }
+  }
+  if cur != "" {
+    out.push(cur)
+  }
+  return out
+}
+
+let all = lines()
+let w = all[0].trim().int()?
+let n = all.len()
+var res: [str] = []
+var pw: [str] = []
+for idx in 1..n + 1 {
+  var t = ""
+  if idx < n {
+    t = all[idx].trim()
+  }
+  if t == "" {
+    if pw.len() > 0 {
+      if res.len() > 0 {
+        res.push("")
+      }
+      for l in wrap_para(pw, w) {
+        res.push(l)
+      }
+      pw = []
+    }
+  } else {
+    for wd in t.split(" ") {
+      if wd != "" {
+        pw.push(wd)
+      }
+    }
+  }
+}
+for l in res {
+  print(l)
+}

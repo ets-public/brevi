@@ -1,0 +1,90 @@
+fn skip_ws(cs: [str], mut pos: int) {
+  while pos < cs.len() and (cs[pos] == " " or cs[pos] == "\n" or cs[pos] == "\t" or cs[pos] == "\r") { pos += 1 }
+}
+
+fn parse_str(cs: [str], mut pos: int) -> str {
+  pos += 1
+  var s = ""
+  while pos < cs.len() and cs[pos] != "\"" {
+    if cs[pos] == "\\" {
+      pos += 1
+    }
+    s = s + cs[pos]
+    pos += 1
+  }
+  pos += 1
+  s
+}
+
+fn value(cs: [str], mut pos: int, mut isred: bool) -> int ! {
+  skip_ws(cs, pos)
+  isred = false
+  let c = cs[pos]
+  if c == "\"" {
+    let s = parse_str(cs, pos)
+    isred = s == "red"
+    return 0
+  }
+  if c == "[" {
+    pos += 1
+    var sum = 0
+    skip_ws(cs, pos)
+    if cs[pos] == "]" { pos += 1
+      return 0 }
+    while true {
+      var f = false
+      sum += value(cs, pos, f)?
+      skip_ws(cs, pos)
+      if cs[pos] == "," { pos += 1 } else { break }
+    }
+    pos += 1
+    return sum
+  }
+  if c == "{" {
+    pos += 1
+    var sum = 0
+    var red = false
+    skip_ws(cs, pos)
+    if cs[pos] == "}" { pos += 1
+      return 0 }
+    while true {
+      skip_ws(cs, pos)
+      let k = parse_str(cs, pos)
+      skip_ws(cs, pos)
+      pos += 1
+      var f = false
+      sum += value(cs, pos, f)?
+      if f { red = true }
+      skip_ws(cs, pos)
+      if cs[pos] == "," { pos += 1 } else { break }
+    }
+    pos += 1
+    if red { return 0 }
+    return sum
+  }
+  if c == "t" { pos += 4
+    return 0 }
+  if c == "f" { pos += 5
+    return 0 }
+  if c == "n" { pos += 4
+    return 0 }
+  var neg = false
+  if c == "-" {
+    neg = true
+    pos += 1
+  }
+  var n = 0
+  while pos < cs.len() and cs[pos] >= "0" and cs[pos] <= "9" {
+    n = n * 10 + cs[pos].int()?
+    pos += 1
+  }
+  if neg { return 0 - n }
+  n
+}
+
+fn main() ! {
+  let cs = stdin().chars()
+  var pos = 0
+  var f = false
+  print(value(cs, pos, f)?)
+}

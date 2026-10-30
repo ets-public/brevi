@@ -1,0 +1,10 @@
+{"run":"r4-haiku-axon","lang":"axon","task":"calc","code_tok":770,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r4-haiku-axon","lang":"axon","task":"topo","code_tok":338,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r4-haiku-axon","lang":"axon","task":"intervals","code_tok":228,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r4-haiku-axon","lang":"axon","task":"lru","code_tok":273,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r4-haiku-axon","lang":"axon","task":"json_sum","code_tok":181,"out_tok":4,"compiled":true,"pass":4,"total":4}
+{"run":"r4-haiku-axon","lang":"axon","task":"bigadd","code_tok":102,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r4-haiku-axon","lang":"axon","task":"wrap","code_tok":323,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r4-haiku-axon","lang":"axon","task":"inventory","code_tok":331,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r4-haiku-axon","lang":"axon","task":"dijkstra","code_tok":461,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r4-haiku-axon","lang":"axon","task":"date_diff","code_tok":104,"out_tok":4,"compiled":true,"pass":3,"total":3}

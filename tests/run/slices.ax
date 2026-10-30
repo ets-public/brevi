@@ -1,0 +1,8 @@
+fn parse(s: str) -> int = s.int()?
+fn main() {
+  print(parse("41")? + 1)
+  print("hello".slice(1, -1))
+  print([1,2,3,4].slice(-2, 99))
+  print("abc".find("c"))
+  print("7".is_digit())
+}

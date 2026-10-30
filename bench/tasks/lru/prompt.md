@@ -1,0 +1,1 @@
+First stdin line is the cache capacity N (N >= 1). Each following line is `put KEY VALUE` or `get KEY`. Simulate a least-recently-used cache: `get` prints the value or -1 if absent, and counts as a use. `put` inserts or updates the key (an update also counts as a use); if inserting a new key would exceed capacity, first evict the least recently used key.

@@ -1,0 +1,36 @@
+let all = lines()
+let cap = all[0].trim().int()?
+var vals: {str: str} = {}
+var order: [str] = []
+for idx in 1..all.len() {
+  let s = all[idx].trim()
+  if s == "" {
+    continue
+  }
+  let parts = s.split(" ")
+  let op = parts[0]
+  let k = parts[1]
+  if op == "get" {
+    if vals.has(k) {
+      if order.contains(k) {
+        order.remove(order.index_of(k))
+      }
+      order.push(k)
+      print(vals[k])
+    } else {
+      print("-1")
+    }
+  } else {
+    let v = parts[2]
+    if !vals.has(k) and vals.len() >= cap {
+      let old = order[0]
+      order.remove(0)
+      vals.remove(old)
+    }
+    if order.contains(k) {
+      order.remove(order.index_of(k))
+    }
+    order.push(k)
+    vals[k] = v
+  }
+}

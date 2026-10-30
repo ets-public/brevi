@@ -1,0 +1,96 @@
+fn tokenize(s: str) -> [str] {
+  var out: [str] = []
+  var cur = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      cur += c
+    } else {
+      if cur != "" {
+        out.push(cur)
+        cur = ""
+      }
+      if c != " " {
+        out.push(c)
+      }
+    }
+  }
+  if cur != "" {
+    out.push(cur)
+  }
+  out
+}
+
+fn parse_atom(t: [str], p: int) -> (int, int, bool) {
+  if t[p] == "(" {
+    let r = parse_expr(t, p + 1)?
+    return (r.0, r.1 + 1, r.2)
+  }
+  let v = t[p].int()?
+  (v, p + 1, false)
+}
+
+fn parse_unary(t: [str], p: int) -> (int, int, bool) {
+  if t[p] == "-" {
+    let r = parse_unary(t, p + 1)?
+    return (0 - r.0, r.1, r.2)
+  }
+  parse_atom(t, p)?
+}
+
+fn parse_term(t: [str], p: int) -> (int, int, bool) {
+  let r = parse_unary(t, p)?
+  var v = r.0
+  var q = r.1
+  var e = r.2
+  while q < t.len() and (t[q] == "*" or t[q] == "/") and !e {
+    let op = t[q]
+    let r2 = parse_unary(t, q + 1)?
+    q = r2.1
+    if r2.2 {
+      e = true
+    } else if op == "*" {
+      v = v * r2.0
+    } else if r2.0 == 0 {
+      e = true
+    } else {
+      v = v / r2.0
+    }
+  }
+  (v, q, e)
+}
+
+fn parse_expr(t: [str], p: int) -> (int, int, bool) {
+  let r = parse_term(t, p)?
+  var v = r.0
+  var q = r.1
+  var e = r.2
+  while q < t.len() and (t[q] == "+" or t[q] == "-") and !e {
+    let op = t[q]
+    let r2 = parse_term(t, q + 1)?
+    q = r2.1
+    if r2.2 {
+      e = true
+    } else if op == "+" {
+      v = v + r2.0
+    } else {
+      v = v - r2.0
+    }
+  }
+  (v, q, e)
+}
+
+fn main() ! {
+  for line in lines() {
+    let s = line.trim()
+    if s.is_empty() {
+      continue
+    }
+    let t = tokenize(s)
+    let r = parse_expr(t, 0)?
+    if r.2 {
+      print("error")
+    } else {
+      print(r.0)
+    }
+  }
+}

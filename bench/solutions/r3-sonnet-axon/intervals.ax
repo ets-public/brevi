@@ -1,0 +1,32 @@
+fn main() ! {
+  var iv: [(int, int)] = []
+  for line in lines() {
+    if line.trim().is_empty() { continue }
+    let p = line.ints()?
+    iv.push((p[0], p[1]))
+  }
+  iv = iv.sort()
+  var total = 0
+  var have = false
+  var cs = 0
+  var ce = 0
+  for (s, e) in iv {
+    if !have {
+      cs = s
+      ce = e
+      have = true
+    } else if s <= ce {
+      if e > ce { ce = e }
+    } else {
+      print("{cs} {ce}")
+      total += ce - cs
+      cs = s
+      ce = e
+    }
+  }
+  if have {
+    print("{cs} {ce}")
+    total += ce - cs
+  }
+  print("total {total}")
+}

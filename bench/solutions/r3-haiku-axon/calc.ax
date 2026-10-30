@@ -1,0 +1,86 @@
+fn tokenize(s: str) -> [str] {
+  var toks: [str] = []
+  var cur = ""
+  for c in s.chars() {
+    if "0123456789".contains(c) {
+      cur += c
+    } else {
+      if cur != "" {
+        toks.push(cur)
+        cur = ""
+      }
+      if c != " " {
+        toks.push(c)
+      }
+    }
+  }
+  if cur != "" {
+    toks.push(cur)
+  }
+  return toks
+}
+
+fn factor(toks: [str], mut pos: int, mut err: bool) -> int ! {
+  let t = toks[pos]
+  pos += 1
+  if t == "-" {
+    let v = factor(toks, pos, err)?
+    return -v
+  }
+  if t == "(" {
+    let v = expr(toks, pos, err)?
+    pos += 1
+    return v
+  }
+  return t.int()?
+}
+
+fn term(toks: [str], mut pos: int, mut err: bool) -> int ! {
+  var v = factor(toks, pos, err)?
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/") {
+    let op = toks[pos]
+    pos += 1
+    let r = factor(toks, pos, err)?
+    if op == "*" {
+      v = v * r
+    } else {
+      if r == 0 {
+        err = true
+      } else {
+        v = v / r
+      }
+    }
+  }
+  return v
+}
+
+fn expr(toks: [str], mut pos: int, mut err: bool) -> int ! {
+  var v = term(toks, pos, err)?
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-") {
+    let op = toks[pos]
+    pos += 1
+    let r = term(toks, pos, err)?
+    if op == "+" {
+      v = v + r
+    } else {
+      v = v - r
+    }
+  }
+  return v
+}
+
+for line in lines() {
+  let s = line.trim()
+  if s == "" {
+    continue
+  }
+  let toks = tokenize(s)
+  var pos = 0
+  var err = false
+  let v = expr(toks, pos, err)?
+  if err {
+    print("error")
+  } else {
+    print("{v}")
+  }
+}

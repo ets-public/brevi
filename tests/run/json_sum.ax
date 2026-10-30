@@ -1,0 +1,7 @@
+fn total(j: Json) -> int = match j {
+  Num(n) => n.int()
+  Arr(xs) => xs.map(x => total(x)).sum()
+  Obj(m) => if m.values().contains(Str("red")) { 0 } else { m.values().map(x => total(x)).sum() }
+  _ => 0
+}
+print(total(json(stdin())?))

@@ -1,0 +1,92 @@
+var adj: {str: [str]} = {}
+var wt: {str: int} = {}
+var from = ""
+var to = ""
+for line in lines() {
+  let s = line.trim()
+  if s == "" {
+    continue
+  }
+  let parts = s.split(" ")
+  if parts.len() == 2 {
+    from = parts[0]
+    to = parts[1]
+    continue
+  }
+  let a = parts[0]
+  let b = parts[1]
+  let w = parts[2].int()?
+  if !adj.has(a) {
+    adj[a] = []
+  }
+  if !adj.has(b) {
+    adj[b] = []
+  }
+  let k1 = a + " " + b
+  let k2 = b + " " + a
+  if !wt.has(k1) {
+    adj[a].push(b)
+    adj[b].push(a)
+    wt[k1] = w
+    wt[k2] = w
+  } else if w < wt[k1] {
+    wt[k1] = w
+    wt[k2] = w
+  }
+}
+
+if !adj.has(from) or !adj.has(to) {
+  print("none")
+} else {
+  var dist: {str: int} = {}
+  var done: {str: bool} = {}
+  dist[to] = 0
+  var go = true
+  while go {
+    var best = ""
+    var bd = 0
+    var found = false
+    for k in dist.keys() {
+      if !done.has(k) and (!found or dist[k] < bd) {
+        best = k
+        bd = dist[k]
+        found = true
+      }
+    }
+    if !found {
+      go = false
+    } else {
+      done[best] = true
+      for nb in adj[best] {
+        let nd = bd + wt[best + " " + nb]
+        if !dist.has(nb) or nd < dist[nb] {
+          dist[nb] = nd
+        }
+      }
+    }
+  }
+  if !dist.has(from) {
+    print("none")
+  } else {
+    print(dist[from])
+    var path: [str] = [from]
+    var cur = from
+    while cur != to {
+      var nxt = ""
+      var have = false
+      let dc = dist[cur]
+      for nb in adj[cur] {
+        let ww = wt[cur + " " + nb]
+        if dist.has(nb) and dist[nb] + ww == dc {
+          if !have or nb < nxt {
+            nxt = nb
+            have = true
+          }
+        }
+      }
+      path.push(nxt)
+      cur = nxt
+    }
+    print(path.join("->"))
+  }
+}

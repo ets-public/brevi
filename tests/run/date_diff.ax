@@ -1,0 +1,4 @@
+for l in lines() {
+  let p = l.words()
+  print(abs(date(p[1])?.days() - date(p[0])?.days()))
+}

@@ -1,0 +1,33 @@
+fn main() ! {
+  let ls = lines()
+  let w = ls[0].trim().int()?
+  var paras: [[str]] = []
+  var cur: [str] = []
+  for i in 1..ls.len() {
+    let ws = ls[i].words()
+    if ws.is_empty() {
+      if !cur.is_empty() {
+        paras.push(cur)
+        cur = []
+      }
+    } else {
+      for x in ws { cur.push(x) }
+    }
+  }
+  if !cur.is_empty() { paras.push(cur) }
+  var first = true
+  for p in paras {
+    if !first { print("") }
+    first = false
+    var line = ""
+    for x in p {
+      if line.is_empty() { line = x } else if line.len() + 1 + x.len() <= w {
+        line = line + " " + x
+      } else {
+        print(line)
+        line = x
+      }
+    }
+    if !line.is_empty() { print(line) }
+  }
+}

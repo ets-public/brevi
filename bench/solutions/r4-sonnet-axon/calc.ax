@@ -1,0 +1,51 @@
+fn peek(cs: [str], st: [int]) -> str {
+  if st[0] < cs.len() { cs[st[0]] } else { "" }
+}
+fn atom(cs: [str], mut st: [int]) -> int {
+  let c = peek(cs, st)
+  if c == "-" {
+    st[0] += 1
+    return 0 - atom(cs, st)
+  }
+  if c == "(" {
+    st[0] += 1
+    let v = expr(cs, st)
+    st[0] += 1
+    return v
+  }
+  var n = 0
+  while peek(cs, st) != "" and peek(cs, st).is_digit() {
+    n = n * 10 + "0123456789".find(peek(cs, st))
+    st[0] += 1
+  }
+  n
+}
+fn term(cs: [str], mut st: [int]) -> int {
+  var v = atom(cs, st)
+  while peek(cs, st) == "*" or peek(cs, st) == "/" {
+    let op = peek(cs, st)
+    st[0] += 1
+    let r = atom(cs, st)
+    if op == "*" { v = v * r } else {
+      if r == 0 { st[1] = 1 } else { v = v / r }
+    }
+  }
+  v
+}
+fn expr(cs: [str], mut st: [int]) -> int {
+  var v = term(cs, st)
+  while peek(cs, st) == "+" or peek(cs, st) == "-" {
+    let op = peek(cs, st)
+    st[0] += 1
+    let r = term(cs, st)
+    if op == "+" { v = v + r } else { v = v - r }
+  }
+  v
+}
+for l in lines() {
+  let cs = l.replace(" ", "").chars()
+  if cs.is_empty() { continue }
+  var st = [0, 0]
+  let v = expr(cs, st)
+  if st[1] == 1 { print("error") } else { print("{v}") }
+}

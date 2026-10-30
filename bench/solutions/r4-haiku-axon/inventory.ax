@@ -1,0 +1,37 @@
+fn to_cents(s: str) -> int {
+  let parts = s.trim().split(".")
+  var c = parts[0].int()? * 100
+  if parts.len() > 1 {
+    let f = parts[1] + "00"
+    c += f.slice(0, 2).int()?
+  }
+  c
+}
+
+fn main() ! {
+  let rows = csv(stdin())
+  var totals: {str: int} = {}
+  for r in rows.skip(1) {
+    if r.len() < 3 {
+      continue
+    }
+    let item = r[0].trim()
+    let q = r[1].trim().int()?
+    let c = to_cents(r[2])?
+    totals[item] += q * c
+  }
+  var out: [(str, int)] = []
+  for (k, v) in totals.pairs() {
+    out.push((k, v))
+  }
+  out = out.sort_by(p => (-p.1, p.0))
+  for p in out {
+    let whole = p.1 / 100
+    let frac = p.1 % 100
+    var fs = str(frac)
+    if frac < 10 {
+      fs = "0" + fs
+    }
+    print("{p.0}: {whole}.{fs}")
+  }
+}

@@ -1,0 +1,2 @@
+fn parse(s: str) -> int = s.int()?
+print(parse("x").or(5) + "9".digit() + "z".int().or(1))

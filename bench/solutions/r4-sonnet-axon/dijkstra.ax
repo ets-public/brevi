@@ -1,0 +1,43 @@
+let ls = lines().filter(l => !l.trim().is_empty())
+var adj: {str: [(str, int)]} = {}
+for l in ls.take(ls.len() - 1) {
+  let w = l.words()
+  adj[w[0]].push((w[1], w[2].int()?))
+  adj[w[1]].push((w[0], w[2].int()?))
+}
+let q = ls[-1].words()
+let src = q[0]
+let dst = q[1]
+var dist: {str: int} = {}
+var prev: {str: str} = {}
+var done: {str: bool} = {}
+dist[src] = 0
+while true {
+  var best = ""
+  var bd = -1
+  for (k, d) in dist.pairs() {
+    if !done.has(k) and (bd < 0 or d < bd) {
+      bd = d
+      best = k
+    }
+  }
+  if bd < 0 { break }
+  done[best] = true
+  for (m, w) in adj.get_or(best, []) {
+    let nd = bd + w
+    if !dist.has(m) or nd < dist[m] or (nd == dist[m] and best < prev[m]) {
+      dist[m] = nd
+      prev[m] = best
+    }
+  }
+}
+if !dist.has(dst) { print("none") } else {
+  var path = [dst]
+  var c = dst
+  while c != src {
+    c = prev[c]
+    path.push(c)
+  }
+  print("{dist[dst]}")
+  print(path.rev().join("->"))
+}

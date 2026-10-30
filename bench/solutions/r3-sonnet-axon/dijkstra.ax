@@ -1,0 +1,46 @@
+fn main() ! {
+  var ls: [str] = []
+  for l in lines() { if !l.trim().is_empty() { ls.push(l) } }
+  var adj: {str: [(str, int)]} = {}
+  for i in 0..ls.len() - 1 {
+    let w = ls[i].words()
+    let wt = w[2].int()?
+    adj[w[0]].push((w[1], wt))
+    adj[w[1]].push((w[0], wt))
+  }
+  let q = ls[-1].words()
+  let from = q[0]
+  let to = q[1]
+  var dist: {str: int} = {}
+  dist[to] = 0
+  var changed = true
+  while changed {
+    changed = false
+    for (u, es) in adj.pairs() {
+      if !dist.has(u) { continue }
+      for (v, w) in es {
+        let nd = dist[u] + w
+        if !dist.has(v) or nd < dist[v] {
+          dist[v] = nd
+          changed = true
+        }
+      }
+    }
+  }
+  if !dist.has(from) { print("none") } else {
+    print(dist[from])
+    var path = [from]
+    var cur = from
+    while cur != to {
+      var best = ""
+      for (v, w) in adj[cur] {
+        if dist.has(v) and w + dist[v] == dist[cur] {
+          if best.is_empty() or v < best { best = v }
+        }
+      }
+      path.push(best)
+      cur = best
+    }
+    print(path.join("->"))
+  }
+}

@@ -1,0 +1,51 @@
+var adj: {str: [str]} = {}
+var indeg: {str: int} = {}
+for line in lines() {
+  let s = line.trim()
+  if s == "" {
+    continue
+  }
+  let parts = s.split("->")
+  let a = parts[0].trim()
+  let b = parts[1].trim()
+  if !adj.has(a) {
+    adj[a] = []
+    indeg[a] = 0
+  }
+  if !adj.has(b) {
+    adj[b] = []
+    indeg[b] = 0
+  }
+  adj[a].push(b)
+  indeg[b] += 1
+}
+var used: {str: bool} = {}
+var order: [str] = []
+var cyc = false
+while order.len() < indeg.len() {
+  var pick = ""
+  var found = false
+  for k in indeg.keys() {
+    if !found and indeg[k] == 0 and !used.has(k) {
+      pick = k
+      found = true
+      break
+    }
+  }
+  if !found {
+    cyc = true
+    break
+  }
+  used[pick] = true
+  order.push(pick)
+  for nb in adj[pick] {
+    indeg[nb] -= 1
+  }
+}
+if cyc {
+  print("cycle")
+} else {
+  for k in order {
+    print(k)
+  }
+}

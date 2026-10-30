@@ -1,1 +1,1 @@
-{"e":"check","at":"missing_try.ax:2:1","msg":"read() can fail but its error is not handled","fix":"write read(...)? and mark this function with !"}
+{"e":"check","at":"missing_try.ax:2:1","msg":"read() can fail but its error is not handled","fix":"write read(...)? to pass the error up"}

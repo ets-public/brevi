@@ -1,0 +1,1 @@
+Stdin lines are undirected weighted edges `A B W` (W a positive integer), then a final line `FROM TO`. Print the shortest distance, then on the next line the path as nodes joined by `->`. If several shortest paths exist, print the one whose node list is lexicographically smallest when compared node by node. If TO is unreachable print only `none`.

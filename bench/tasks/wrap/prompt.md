@@ -1,0 +1,1 @@
+The first stdin line is a width W. The rest is text. Paragraphs are separated by one or more blank lines. For each paragraph, join its words with single spaces and wrap greedily so no line exceeds W characters (a word longer than W goes on its own line). Print the wrapped paragraphs separated by exactly one blank line.

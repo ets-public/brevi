@@ -1,0 +1,22 @@
+let rows = csv(stdin())
+var tot: {str: int} = {}
+for r in rows.skip(1) {
+  if r.len() < 3 { continue }
+  let q = r[1].trim().int()?
+  let ps = r[2].trim()
+  let parts = ps.split(".")
+  var cents = parts[0].int()? * 100
+  if parts.len() > 1 {
+    var f = parts[1]
+    if f.len() == 1 { f = f + "0" }
+    cents += f.int()?
+  }
+  tot[r[0]] += q * cents
+}
+var ps = tot.pairs()
+ps = ps.sort_by(p => (-p.1, p.0))
+for (k, v) in ps {
+  let c = v % 100
+  let cs = if c < 10 { "0{c}" } else { "{c}" }
+  print("{k}: {v / 100}.{cs}")
+}

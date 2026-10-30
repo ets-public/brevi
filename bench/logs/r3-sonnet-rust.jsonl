@@ -1,0 +1,10 @@
+{"run":"r3-sonnet-rust","lang":"rust","task":"calc","code_tok":734,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-sonnet-rust","lang":"rust","task":"topo","code_tok":489,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-sonnet-rust","lang":"rust","task":"intervals","code_tok":275,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-sonnet-rust","lang":"rust","task":"lru","code_tok":320,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r3-sonnet-rust","lang":"rust","task":"json_sum","code_tok":872,"out_tok":4,"compiled":true,"pass":4,"total":4}
+{"run":"r3-sonnet-rust","lang":"rust","task":"bigadd","code_tok":355,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-sonnet-rust","lang":"rust","task":"wrap","code_tok":394,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-sonnet-rust","lang":"rust","task":"inventory","code_tok":734,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r3-sonnet-rust","lang":"rust","task":"dijkstra","code_tok":653,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-sonnet-rust","lang":"rust","task":"date_diff","code_tok":278,"out_tok":4,"compiled":true,"pass":3,"total":3}

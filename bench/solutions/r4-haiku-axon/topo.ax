@@ -1,0 +1,50 @@
+fn main() ! {
+  var indeg: {str: int} = {}
+  var adj: {str: [str]} = {}
+  for line in lines() {
+    let s = line.trim()
+    if s.is_empty() {
+      continue
+    }
+    let parts = s.split("->")
+    let a = parts[0].trim()
+    let b = parts[1].trim()
+    if !indeg.has(a) {
+      indeg[a] = 0
+    }
+    if !indeg.has(b) {
+      indeg[b] = 0
+    }
+    indeg[b] += 1
+    adj[a].push(b)
+  }
+  let total = indeg.len()
+  var used: {str: bool} = {}
+  var out: [str] = []
+  while out.len() < total {
+    var pick = ""
+    for k in indeg.keys() {
+      if !used.has(k) and indeg[k] == 0 {
+        pick = k
+        break
+      }
+    }
+    if pick == "" {
+      break
+    }
+    used[pick] = true
+    out.push(pick)
+    if adj.has(pick) {
+      for nb in adj[pick] {
+        indeg[nb] -= 1
+      }
+    }
+  }
+  if out.len() < total {
+    print("cycle")
+  } else {
+    for n in out {
+      print(n)
+    }
+  }
+}

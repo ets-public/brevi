@@ -1,0 +1,36 @@
+var starts: [int] = []
+var ends: [int] = []
+for line in lines() {
+  let s = line.trim()
+  if s == "" {
+    continue
+  }
+  let nums = s.ints()?
+  starts.push(nums[0])
+  ends.push(nums[1])
+}
+starts = starts.sort()
+ends = ends.sort()
+var count = 0
+var gs = 0
+var i = 0
+var j = 0
+var total = 0
+while j < ends.len() {
+  if i < starts.len() and starts[i] <= ends[j] {
+    if count == 0 {
+      gs = starts[i]
+    }
+    count += 1
+    i += 1
+  } else {
+    let e = ends[j]
+    count -= 1
+    if count == 0 {
+      print("{gs} {e}")
+      total += e - gs
+    }
+    j += 1
+  }
+}
+print("total {total}")

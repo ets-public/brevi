@@ -1,0 +1,7 @@
+1
+put x 5
+put x 6
+get x
+put y 1
+get x
+get y

@@ -1,0 +1,7 @@
+for l in lines() {
+  let w = l.words()
+  if w.len() < 2 { continue }
+  let a = w[0].big()?
+  let b = w[1].big()?
+  print(str(a + b))
+}

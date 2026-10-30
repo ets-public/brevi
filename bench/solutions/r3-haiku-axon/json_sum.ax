@@ -1,0 +1,112 @@
+fn ws(cs: [str], mut pos: int) {
+  while pos < cs.len() and (cs[pos] == " " or cs[pos] == "\n" or cs[pos] == "\t" or cs[pos] == "\r") {
+    pos += 1
+  }
+}
+
+fn parse_str(cs: [str], mut pos: int) -> str ! {
+  pos += 1
+  var out = ""
+  while cs[pos] != "\"" {
+    if cs[pos] == "\\" {
+      out += cs[pos]
+      pos += 1
+    }
+    out += cs[pos]
+    pos += 1
+  }
+  pos += 1
+  return out
+}
+
+fn value(cs: [str], mut pos: int, mut ls: str, mut lb: bool) -> int ! {
+  ws(cs, pos)
+  let c = cs[pos]
+  if c == "{" {
+    pos += 1
+    var sum = 0
+    var red = false
+    ws(cs, pos)
+    if cs[pos] == "}" {
+      pos += 1
+    } else {
+      var more = true
+      while more {
+        ws(cs, pos)
+        let k = parse_str(cs, pos)?
+        ws(cs, pos)
+        pos += 1
+        var vs = ""
+        var vb = false
+        let v = value(cs, pos, vs, vb)?
+        if vb and vs == "red" {
+          red = true
+        }
+        sum += v
+        ws(cs, pos)
+        if cs[pos] == "," {
+          pos += 1
+        } else {
+          more = false
+          pos += 1
+        }
+      }
+    }
+    lb = false
+    if red {
+      return 0
+    }
+    return sum
+  }
+  if c == "[" {
+    pos += 1
+    var sum = 0
+    ws(cs, pos)
+    if cs[pos] == "]" {
+      pos += 1
+    } else {
+      var more = true
+      while more {
+        var vs = ""
+        var vb = false
+        let v = value(cs, pos, vs, vb)?
+        sum += v
+        ws(cs, pos)
+        if cs[pos] == "," {
+          pos += 1
+        } else {
+          more = false
+          pos += 1
+        }
+      }
+    }
+    lb = false
+    return sum
+  }
+  if c == "\"" {
+    ls = parse_str(cs, pos)?
+    lb = true
+    return 0
+  }
+  if "abcdefghijklmnopqrstuvwxyz".contains(c) {
+    while "abcdefghijklmnopqrstuvwxyz".contains(cs[pos]) {
+      pos += 1
+    }
+    lb = false
+    return 0
+  }
+  var numtxt = ""
+  while "-0123456789".contains(cs[pos]) {
+    numtxt += cs[pos]
+    pos += 1
+  }
+  lb = false
+  return numtxt.int()?
+}
+
+let cs = stdin().chars()
+var p = 0
+var ls = ""
+var lb = false
+let total = value(cs, p, ls, lb)?
+print("{total}")

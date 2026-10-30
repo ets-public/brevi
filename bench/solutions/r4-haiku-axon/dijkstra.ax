@@ -1,0 +1,49 @@
+fn main() ! {
+  let ls = lines().filter(l => !l.trim().is_empty())
+  let last = ls[-1].split(" ").filter(x => !x.is_empty())
+  let src = last[0]
+  let dst = last[1]
+  var arcs: [(str, str, int)] = []
+  for line in ls.slice(0, ls.len() - 1) {
+    let p = line.split(" ").filter(x => !x.is_empty())
+    let w = p[2].int()?
+    arcs.push((p[0], p[1], w))
+    arcs.push((p[1], p[0], w))
+  }
+  // distance from every node to dst (Bellman-Ford style relaxation)
+  var dt: {str: int} = {}
+  dt[dst] = 0
+  var changed = true
+  while changed {
+    changed = false
+    for a in arcs {
+      if dt.has(a.1) {
+        let nd = dt[a.1] + a.2
+        if !dt.has(a.0) or nd < dt[a.0] {
+          dt[a.0] = nd
+          changed = true
+        }
+      }
+    }
+  }
+  if !dt.has(src) {
+    print("none")
+    return
+  }
+  var path = [src]
+  var cur = src
+  while cur != dst {
+    var best = ""
+    for a in arcs {
+      if a.0 == cur and dt.has(a.1) and dt[a.1] + a.2 == dt[cur] {
+        if best == "" or a.1 < best {
+          best = a.1
+        }
+      }
+    }
+    path.push(best)
+    cur = best
+  }
+  print(dt[src])
+  print(path.join("->"))
+}

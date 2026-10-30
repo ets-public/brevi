@@ -1,0 +1,26 @@
+fn leap(y: int) -> bool = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+
+fn days(d: str) -> int ! {
+  let p = d.split("-")
+  let y = p[0].int()?
+  let m = p[1].int()?
+  let dd = p[2].int()?
+  let py = y - 1
+  var n = py * 365 + py / 4 - py / 100 + py / 400
+  let ml = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  for i in 0..m - 1 {
+    n += ml[i]
+    if i == 1 and leap(y) { n += 1 }
+  }
+  n + dd
+}
+
+fn main() ! {
+  for line in lines() {
+    let w = line.words()
+    if w.len() < 2 { continue }
+    let a = days(w[0])?
+    let b = days(w[1])?
+    print((a - b).abs())
+  }
+}

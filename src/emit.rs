@@ -6,14 +6,14 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail"];
-const FALLIBLE_BUILTINS: &[&str] = &["read", "write"];
+const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max"];
+const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 const METHODS: &[&str] = &[
-    "abs", "all", "any", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
-    "float", "floor", "fmt", "fold", "ints", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
+    "abs", "add_days", "all", "any", "big", "day", "days", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
+    "find", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "words", "zip",
+    "weekday", "words", "year", "zip", "month",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -21,6 +21,8 @@ const PURE_METHODS: &[&str] = &[
     "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip",
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove"];
+// Methods whose lambda may use `?`; the whole call then fails with the first error.
+const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
 
 struct FnSig {
     params: Vec<Param>,
@@ -81,6 +83,47 @@ fn rust_str_lit(s: &str) -> String {
     format!("{s:?}")
 }
 
+// Does this expression use `?` outside any nested lambda?
+fn contains_try(e: &Expr) -> bool {
+    walk_try(e, false)
+}
+
+// Can this function body fail: any `?` (lambdas included) or a call to fail()?
+fn can_fail(e: &Expr) -> bool {
+    walk_try(e, true)
+}
+
+fn walk_try(e: &Expr, deep: bool) -> bool {
+    let contains_try = |x: &Expr| walk_try(x, deep);
+    let any = |xs: &[Expr]| xs.iter().any(|x| walk_try(x, deep));
+    match e {
+        Expr::Try(_) => true,
+        Expr::Call(n, _, _) if deep && n == "fail" => true,
+        Expr::Lambda(_, b) => deep && contains_try(b),
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Ident(_) => false,
+        Expr::Str(parts) => parts.iter().any(|p| matches!(p, StrPart::Interp(x) if contains_try(x))),
+        Expr::List(xs) | Expr::Tuple(xs) => any(xs),
+        Expr::Map(ps) => ps.iter().any(|(k, v)| contains_try(k) || contains_try(v)),
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) => contains_try(a),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) => contains_try(a) || contains_try(b),
+        Expr::Call(_, args, _) => args.iter().any(|(_, a)| contains_try(a)),
+        Expr::Method(r, _, args, _) => contains_try(r) || any(args),
+        Expr::If(c, t, f) => contains_try(c) || contains_try(t) || f.as_ref().map_or(false, |f| contains_try(f)),
+        Expr::Match(s, arms) => contains_try(s) || arms.iter().any(|(_, b)| contains_try(b)),
+        Expr::For(_, i, b) => contains_try(i) || contains_try(b),
+        Expr::Block(stmts, tail) => {
+            tail.as_ref().map_or(false, |t| contains_try(t))
+                || stmts.iter().any(|s| match s {
+                    Stmt::Let { value, .. } => contains_try(value),
+                    Stmt::Assign { target, value, .. } => contains_try(target) || contains_try(value),
+                    Stmt::Expr { expr, .. } | Stmt::Assert { cond: expr, .. } => contains_try(expr),
+                    Stmt::Return { value, .. } => value.as_ref().map_or(false, |v| contains_try(v)),
+                    _ => false,
+                })
+        }
+    }
+}
+
 fn assigns_to(e: &Expr, name: &str) -> bool {
     match e {
         Expr::Block(stmts, tail) => {
@@ -109,6 +152,10 @@ impl Emitter {
             line: 0,
             diags: Vec::new(),
         };
+        let one = |n: &str, t: &str| vec![Field { name: "v".into(), ty: Ty::Named(t.into()) }].into_iter().filter(|_| !n.is_empty()).collect::<Vec<_>>();
+        for (v, t) in [("Null", ""), ("Bool", "bool"), ("Num", "f64"), ("Str", "str"), ("Arr", "[Json]"), ("Obj", "{str: Json}")] {
+            e.variants.insert(v.into(), ("Json".into(), one(t, t)));
+        }
         for it in items {
             match it {
                 Item::Type { name, fields, .. } => {
@@ -119,11 +166,13 @@ impl Emitter {
                         e.variants.insert(v.name.clone(), (name.clone(), v.fields.clone()));
                     }
                 }
-                Item::Fn { name, params, fallible, line, .. } => {
+                Item::Fn { name, params, fallible, line, body, .. } => {
                     if e.fns.contains_key(name) {
                         e.diag(*line, &format!("function '{name}' is defined twice"), None);
                     }
-                    e.fns.insert(name.clone(), FnSig { params: params.clone(), fallible: *fallible });
+                    // `!` is optional: a function that uses ? or fail() can fail.
+                    let fallible = *fallible || can_fail(body);
+                    e.fns.insert(name.clone(), FnSig { params: params.clone(), fallible });
                 }
                 Item::Test { .. } => {}
             }
@@ -163,8 +212,9 @@ impl Emitter {
                     }
                     out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n"));
                 }
-                Item::Fn { name, params, ret, fallible, body, line } => {
-                    out.push_str(&self.function(name, params, ret, *fallible, body, *line));
+                Item::Fn { name, params, ret, body, line, .. } => {
+                    let fallible = self.fns.get(name).map_or(false, |f| f.fallible);
+                    out.push_str(&self.function(name, params, ret, fallible, body, *line));
                 }
                 Item::Test { body, line, name } => {
                     test_n += 1;
@@ -503,13 +553,44 @@ impl Emitter {
                     self.diag(*line, &format!("unknown method .{name}()"), hint);
                 }
                 // Changing a list stored in a map or list creates the entry if needed.
-                let r = if MUTATING_METHODS.contains(&name.as_str()) && matches!(recv.as_ref(), Expr::Index(..)) {
+                let r = if name == "or" {
+                    // The receiver's error is handled here, so no `?` is needed on it.
+                    match recv.as_ref() {
+                        Expr::Call(n, cargs, l) => {
+                            self.line = *l;
+                            format!("({})", self.call(n, cargs, true))
+                        }
+                        other => format!("({})", self.expr(other)),
+                    }
+                } else if MUTATING_METHODS.contains(&name.as_str()) && matches!(recv.as_ref(), Expr::Index(..)) {
                     self.place_mut(recv)
                 } else {
                     self.place(recv)
                 };
-                let a: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
-                format!("{{ ax_l({line}); {r}.ax_{name}({}) }}", a.join(", "))
+                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if contains_try(b)));
+                if tries && !self.fallible {
+                    self.diag(*line, "'?' used in a function that cannot fail", Some("add ! after the function's return type".into()));
+                }
+                let a: Vec<String> = args
+                    .iter()
+                    .map(|a| match a {
+                        Expr::Lambda(ps, body) if tries => {
+                            for p in ps {
+                                self.locals.insert(p.clone());
+                            }
+                            let saved = std::mem::replace(&mut self.fallible, true);
+                            let b = self.expr(body);
+                            self.fallible = saved;
+                            format!("(|{}| -> R<_> {{ Ok({b}) }})", ps.join(", "))
+                        }
+                        other => self.expr(other),
+                    })
+                    .collect();
+                if tries {
+                    format!("{{ ax_l({line}); {r}.ax_try_{name}({})? }}", a.join(", "))
+                } else {
+                    format!("{{ ax_l({line}); {r}.ax_{name}({}) }}", a.join(", "))
+                }
             }
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
             Expr::Index(b, i) => {
@@ -590,11 +671,11 @@ impl Emitter {
 
     fn call(&mut self, name: &str, args: &[(Option<String>, Expr)], tried: bool) -> String {
         if !tried && self.call_is_fallible(&Expr::Call(name.into(), vec![], 0)) {
-            self.diag(self.line, &format!("{name}() can fail but its error is not handled"), Some(format!("write {name}(...)? and mark this function with !")));
+            self.diag(self.line, &format!("{name}() can fail but its error is not handled"), Some(format!("write {name}(...)? to pass the error up")));
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
         match name {
-            "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" => return format!("{name}({})", plain.join(", ")),
+            "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" => return format!("{name}({})", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "fail" => {
                 if !self.fallible {

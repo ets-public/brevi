@@ -1,0 +1,4 @@
+for l in lines() {
+  let p = l.words()
+  print(p[0].big()? + p[1].big()?)
+}

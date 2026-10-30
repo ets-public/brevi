@@ -1,0 +1,10 @@
+{"run":"r3-haiku-python","lang":"python","task":"calc","code_tok":714,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-haiku-python","lang":"python","task":"topo","code_tok":289,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-haiku-python","lang":"python","task":"intervals","code_tok":187,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-haiku-python","lang":"python","task":"lru","code_tok":309,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r3-haiku-python","lang":"python","task":"json_sum","code_tok":150,"out_tok":4,"compiled":true,"pass":4,"total":4}
+{"run":"r3-haiku-python","lang":"python","task":"bigadd","code_tok":114,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-haiku-python","lang":"python","task":"wrap","code_tok":258,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-haiku-python","lang":"python","task":"inventory","code_tok":327,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r3-haiku-python","lang":"python","task":"dijkstra","code_tok":444,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r3-haiku-python","lang":"python","task":"date_diff","code_tok":129,"out_tok":4,"compiled":true,"pass":3,"total":3}

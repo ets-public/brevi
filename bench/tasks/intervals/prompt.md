@@ -1,0 +1,1 @@
+Each stdin line is `START END` (integers, START <= END). Merge intervals that overlap or touch (e.g. 1 3 and 3 5 merge to 1 5). Print the merged intervals sorted by start as `START END`, one per line, then a final line `total N` where N is the sum of (END - START) over merged intervals.

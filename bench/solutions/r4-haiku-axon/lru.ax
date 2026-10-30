@@ -1,0 +1,36 @@
+fn main() ! {
+  let all = lines()
+  let cap = all[0].trim().int()?
+  var vals: {str: str} = {}
+  var order: [str] = []
+  for line in all.skip(1) {
+    let s = line.trim()
+    if s.is_empty() {
+      continue
+    }
+    let p = s.split(" ")
+    if p[0] == "get" {
+      let k = p[1]
+      if vals.has(k) {
+        let i = order.index_of(k)
+        order.remove(i)
+        order.push(k)
+        print(vals[k])
+      } else {
+        print("-1")
+      }
+    } else {
+      let k = p[1]
+      let v = p[2]
+      if vals.has(k) {
+        let i = order.index_of(k)
+        order.remove(i)
+      } else if vals.len() >= cap {
+        let old = order.remove(0)
+        vals.remove(old)
+      }
+      vals[k] = v
+      order.push(k)
+    }
+  }
+}

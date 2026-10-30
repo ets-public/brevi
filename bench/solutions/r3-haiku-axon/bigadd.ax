@@ -1,0 +1,36 @@
+fn dv(c: str) -> int {
+  return "0123456789".chars().index_of(c)
+}
+
+fn add_str(a: str, b: str) -> str {
+  let x = a.chars().rev()
+  let y = b.chars().rev()
+  var out: [str] = []
+  var carry = 0
+  var i = 0
+  while i < x.len() or i < y.len() or carry > 0 {
+    var s = carry
+    if i < x.len() {
+      s += dv(x[i])
+    }
+    if i < y.len() {
+      s += dv(y[i])
+    }
+    out.push(str(s % 10))
+    carry = s / 10
+    i += 1
+  }
+  while out.len() > 1 and out[out.len() - 1] == "0" {
+    out.pop()
+  }
+  return out.rev().join("")
+}
+
+for line in lines() {
+  let s = line.trim()
+  if s == "" {
+    continue
+  }
+  let parts = s.split(" ")
+  print(add_str(parts[0], parts[1]))
+}

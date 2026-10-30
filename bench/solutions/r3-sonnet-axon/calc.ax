@@ -1,0 +1,57 @@
+fn is_digit(c: str) -> bool = c >= "0" and c <= "9"
+
+fn expr(cs: [str], mut pos: int, mut err: bool) -> int ! {
+  var v = term(cs, pos, err)?
+  while pos < cs.len() and (cs[pos] == "+" or cs[pos] == "-") {
+    let op = cs[pos]
+    pos += 1
+    let r = term(cs, pos, err)?
+    if op == "+" { v = v + r } else { v = v - r }
+  }
+  v
+}
+
+fn term(cs: [str], mut pos: int, mut err: bool) -> int ! {
+  var v = factor(cs, pos, err)?
+  while pos < cs.len() and (cs[pos] == "*" or cs[pos] == "/") {
+    let op = cs[pos]
+    pos += 1
+    let r = factor(cs, pos, err)?
+    if op == "*" { v = v * r } else {
+      if r == 0 { err = true } else { v = v / r }
+    }
+  }
+  v
+}
+
+fn factor(cs: [str], mut pos: int, mut err: bool) -> int ! {
+  if pos >= cs.len() { return 0 }
+  let c = cs[pos]
+  if c == "-" {
+    pos += 1
+    return 0 - factor(cs, pos, err)?
+  }
+  if c == "(" {
+    pos += 1
+    let v = expr(cs, pos, err)?
+    pos += 1
+    return v
+  }
+  var n = 0
+  while pos < cs.len() and is_digit(cs[pos]) {
+    n = n * 10 + cs[pos].int()?
+    pos += 1
+  }
+  n
+}
+
+fn main() ! {
+  for line in lines() {
+    let cs = line.chars().filter(c => c != " ")
+    if cs.is_empty() { continue }
+    var pos = 0
+    var err = false
+    let v = expr(cs, pos, err)?
+    if err { print("error") } else { print(v) }
+  }
+}

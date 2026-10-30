@@ -1,0 +1,45 @@
+fn main() ! {
+  let all = lines()
+  let w = all[0].trim().int()?
+  var paras: [[str]] = []
+  var cur: [str] = []
+  for line in all.skip(1) {
+    let ws = line.trim().split(" ").filter(x => !x.is_empty())
+    if ws.is_empty() {
+      if cur.len() > 0 {
+        paras.push(cur)
+        cur = []
+      }
+    } else {
+      cur = cur + ws
+    }
+  }
+  if cur.len() > 0 {
+    paras.push(cur)
+  }
+  var blocks: [[str]] = []
+  for para in paras {
+    var plines: [str] = []
+    var cl = ""
+    for word in para {
+      if cl == "" {
+        cl = word
+      } else if cl.len() + 1 + word.len() <= w {
+        cl = cl + " " + word
+      } else {
+        plines.push(cl)
+        cl = word
+      }
+    }
+    plines.push(cl)
+    blocks.push(plines)
+  }
+  for i in 0..blocks.len() {
+    if i > 0 {
+      print("")
+    }
+    for l in blocks[i] {
+      print(l)
+    }
+  }
+}

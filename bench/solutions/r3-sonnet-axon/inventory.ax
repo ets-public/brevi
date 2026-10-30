@@ -1,0 +1,46 @@
+fn fields(line: str) -> [str] {
+  var out: [str] = []
+  var cur = ""
+  var inq = false
+  for c in line.chars() {
+    if c == "\"" { inq = !inq } else if c == "," and !inq {
+      out.push(cur)
+      cur = ""
+    } else { cur = cur + c }
+  }
+  out.push(cur)
+  out
+}
+
+fn cents(p: str) -> int ! {
+  let parts = p.trim().split(".")
+  var whole = parts[0].int()?
+  var fr = 0
+  if parts.len() > 1 {
+    var f = parts[1]
+    if f.len() == 1 { f = f + "0" }
+    if f.len() >= 2 { fr = f.chars().take(2).join("").int()? }
+  }
+  whole * 100 + fr
+}
+
+fn main() ! {
+  let ls = lines()
+  var tot: {str: int} = {}
+  for i in 1..ls.len() {
+    if ls[i].trim().is_empty() { continue }
+    let f = fields(ls[i])
+    let q = f[1].trim().int()?
+    let c = cents(f[2])?
+    tot[f[0]] += q * c
+  }
+  var items: [(int, str)] = []
+  for (k, v) in tot.pairs() { items.push((0 - v, k)) }
+  items = items.sort()
+  for (nv, k) in items {
+    let v = 0 - nv
+    let r = v % 100
+    let rs = if r < 10 { "0" + str(r) } else { str(r) }
+    print("{k}: {v / 100}.{rs}")
+  }
+}

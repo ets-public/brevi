@@ -425,7 +425,11 @@ impl Parser {
             if self.eat_sym(".") {
                 match self.next() {
                     Tok::Int(n) => e = Expr::TupleField(Box::new(e), n as usize),
-                    Tok::Ident(name) => {
+                    t @ (Tok::Ident(_) | Tok::Kw("or")) => {
+                        let name = match t {
+                            Tok::Ident(n) => n,
+                            _ => "or".to_string(),
+                        };
                         if self.eat_sym("(") {
                             let args = self.args()?.into_iter().map(|(_, a)| a).collect();
                             e = Expr::Method(Box::new(e), name, args, line);

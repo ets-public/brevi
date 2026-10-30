@@ -113,7 +113,7 @@ fn rustc(rust: &str, dir: &Path, out: &Path, file: &str, extra: &[&str], link: b
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = Command::new("rustc");
-    c.args(["--edition", "2021", "--error-format=json", "--crate-name", "axon_prog", "-A", "warnings"]);
+    c.args(["--edition", "2021", "--error-format=json", "--crate-name", "axon_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
     c.args(extra);
     if link {
         c.arg("-o").arg(out);
@@ -160,7 +160,13 @@ fn rustc(rust: &str, dir: &Path, out: &Path, file: &str, extra: &[&str], link: b
         } else if !label.is_empty() && !text.contains(&label) {
             text = format!("{text}: {}", to_axon_words(&label));
         }
-        let fix = fix_for(code, &format!("{msg} {label}"));
+        let mut fix = fix_for(code, &format!("{msg} {label}"));
+        if let Some(opts) = valid_options(code, msg, rust) {
+            fix = Some(match fix {
+                Some(f) => format!("{f}; {opts}"),
+                None => opts,
+            });
+        }
         // One error per line: later ones are usually knock-on effects.
         if !seen.insert(aline) {
             continue;
@@ -200,6 +206,8 @@ fn to_axon_words(s: &str) -> String {
         .replace("std::string::String", "str")
         .replace("alloc::vec::Vec", "Vec")
         .replace("std::collections::BTreeMap", "BTreeMap")
+        .replace("found for struct ", "found for ")
+        .replace(" in the current scope", "")
         .replace("&mut ", "mut ")
         .replace("`", "");
     for (r, a) in [("String", "str"), ("i64", "int"), ("f64", "f64")] {
@@ -258,6 +266,41 @@ fn rewrite_generic(s: &str, name: &str, f: impl Fn(&str) -> String) -> String {
         out = format!("{}{}{}", &out[..p], f(&inner), &out[end + 1..]);
     }
     out
+}
+
+// Lists what would have been valid, since errors that name the alternatives get fixed far more often.
+fn valid_options(code: &str, msg: &str, rust: &str) -> Option<String> {
+    const STR: &str = "len words lines chars split slice find lower upper trim contains starts_with ends_with replace repeat is_empty is_digit is_alpha is_space digit int float ints big";
+    const LIST: &str = "len is_empty push pop insert remove first last slice map filter any all count fold sort sort_by rev take skip enumerate zip sum min max contains index_of join";
+    const MAP: &str = "len is_empty has get_or remove keys values pairs";
+    const NUM: &str = "abs float int fmt sqrt round floor ceil";
+    match code {
+        "E0599" => {
+            let ty = msg.split("found for ").nth(1).unwrap_or("");
+            let list = if ty.contains("Vec") {
+                LIST
+            } else if ty.contains("BTreeMap") {
+                MAP
+            } else if ty.contains("String") {
+                STR
+            } else if ty.contains("i64") || ty.contains("f64") {
+                NUM
+            } else {
+                return None;
+            };
+            Some(format!("valid methods here: {list}"))
+        }
+        "E0609" | "E0560" | "E0026" => {
+            // "no field `z` on type `Point`": list the struct's fields from the generated code.
+            let ty = msg.rsplit('`').nth(1)?;
+            let start = rust.find(&format!("pub struct {ty} {{"))?;
+            let body = &rust[start..];
+            let body = &body[..body.find('}')?];
+            let fields: Vec<&str> = body.lines().filter_map(|l| l.trim().strip_prefix("pub ")?.split(':').next()).filter(|f| !f.starts_with("struct")).collect();
+            Some(format!("fields of {ty}: {}", fields.join(", ")))
+        }
+        _ => None,
+    }
 }
 
 fn fix_for(code: &str, msg: &str) -> Option<String> {

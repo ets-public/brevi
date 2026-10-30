@@ -1,0 +1,67 @@
+fn split_csv(line: str) -> [str] {
+  var out: [str] = []
+  var cur = ""
+  var inq = false
+  for c in line.chars() {
+    if c == "\"" {
+      inq = !inq
+    } else if c == "," and !inq {
+      out.push(cur)
+      cur = ""
+    } else {
+      cur += c
+    }
+  }
+  out.push(cur)
+  return out
+}
+
+fn to_cents(p: str) -> int ! {
+  let parts = p.trim().split(".")
+  let whole = parts[0].int()?
+  var frac = 0
+  if parts.len() > 1 {
+    var fs = parts[1]
+    while fs.len() < 2 {
+      fs = fs + "0"
+    }
+    frac = fs.int()?
+  }
+  return whole * 100 + frac
+}
+
+var totals: {str: int} = {}
+var header = true
+for line in lines() {
+  let s = line.trim()
+  if s == "" {
+    continue
+  }
+  if header {
+    header = false
+    continue
+  }
+  let f = split_csv(s)
+  let item = f[0].trim()
+  let qty = f[1].trim().int()?
+  let c = to_cents(f[2])?
+  totals[item] += qty * c
+}
+
+var rem = totals.keys()
+while rem.len() > 0 {
+  var bi = 0
+  for i in 0..rem.len() {
+    if totals[rem[i]] > totals[rem[bi]] {
+      bi = i
+    }
+  }
+  let name = rem[bi]
+  rem.remove(bi)
+  let v = totals[name]
+  var fr = str(v % 100)
+  if fr.len() < 2 {
+    fr = "0" + fr
+  }
+  print("{name}: {v / 100}.{fr}")
+}

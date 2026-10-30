@@ -1,0 +1,26 @@
+fn day_num(s: str) -> int ! {
+  let p = s.trim().split("-")
+  let y = p[0].int()?
+  let m = p[1].int()?
+  let d = p[2].int()?
+  var yy = y
+  if m <= 2 {
+    yy = y - 1
+  }
+  var mm = m + 9
+  if m > 2 {
+    mm = m - 3
+  }
+  return 365 * yy + yy / 4 - yy / 100 + yy / 400 + (153 * mm + 2) / 5 + d
+}
+
+for line in lines() {
+  let s = line.trim()
+  if s == "" {
+    continue
+  }
+  let parts = s.split(" ")
+  let a = day_num(parts[0])?
+  let b = day_num(parts[1])?
+  print(str((a - b).abs()))
+}

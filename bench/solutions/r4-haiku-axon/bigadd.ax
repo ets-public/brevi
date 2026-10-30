@@ -1,0 +1,12 @@
+fn main() ! {
+  for line in lines() {
+    let s = line.trim()
+    if s.is_empty() {
+      continue
+    }
+    let p = s.split(" ").filter(x => !x.is_empty())
+    let a = p[0].big()?
+    let b = p[1].big()?
+    print(str(a + b))
+  }
+}
