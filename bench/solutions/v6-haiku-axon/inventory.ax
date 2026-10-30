@@ -1,0 +1,16 @@
+rows = csv(stdin())
+totals = {}
+for r in rows.slice(1):
+  if r.len() < 3:
+    continue
+  q = r[1].int().or(0)
+  v = r[2].dec() * q
+  totals[r[0]] += v
+
+pairs = []
+for (k, v) in totals.pairs():
+  pairs.push((v, k))
+pairs = pairs.sort_by(p => (-p.0, p.1))
+for p in pairs:
+  s = p.0.fmt(2)
+  print("{p.1}: {s}")

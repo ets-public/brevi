@@ -1,0 +1,16 @@
+ws = stdin().words().map(w => w.lower()).unique()
+groups = {}
+for w in ws:
+  k = w.chars().sort().join("")
+  if !groups.has(k):
+    groups[k] = []
+  groups[k].push(w)
+
+gl = []
+for (k, g) in groups.pairs():
+  if g.len() > 1:
+    gs = g.sort()
+    gl.push((0 - gs.len(), gs.first(), gs.join(" ")))
+gl = gl.sort()
+for g in gl:
+  print(g.2)

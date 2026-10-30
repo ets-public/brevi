@@ -4,7 +4,7 @@ A programming language for AI models to write. Axon compiles to Rust, so program
 
 The guide a model reads before writing Axon is [AXON.md](AXON.md), about 2,700 tokens (estimated).
 
-## Status: v0.7
+## Status: v0.8
 
 Works today:
 - Parser for the full core syntax in AXON.md
@@ -13,19 +13,20 @@ Works today:
 - `run`, `test`, `check`, `build`, `emit`
 - Runtime prelude with strings, lists, maps (hash lookups, listed in key order), files, stdin, JSON, CSV, dates, big integers, exact decimals and a min-heap
 - Python-style indented blocks (`if x:` and an indented body), with braces still accepted
+- Empty lists, maps and heaps need no type: the compiler works it out from later use
 - Short syntax: `x = 1` declares, `x: [str] = []` gives a type, `(a, b) = pair`, errors pass up without `?`, field defaults and shorthand constructors
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Axon line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Axon, Python and Rust
 
-Tokens per finished task set (18 tasks: code written plus errors read, average of 2 runs; Python and Rust from earlier runs of the same tasks):
+Tokens per finished task set (18 tasks: code written plus errors read, average of 2 runs; Python from earlier runs of the same tasks):
 
-| Model | Axon v0.7 | Python | First try (Axon) |
-| --- | --- | --- | --- |
-| Sonnet | 4,363 | 4,021 | 36 of 36 |
-| Haiku | 5,631 | 5,266 | 34 of 36 |
+| Model | Axon v0.8 | Axon v0.7 | Python | First try (Axon v0.8) |
+| --- | --- | --- | --- | --- |
+| Sonnet | 4,309 | 4,363 | 4,021 | 36 of 36 |
+| Haiku | 4,987 | 5,631 | 5,266 | 35 of 36 |
 
-Axon is now within about 8% of Python on tokens, and Rust takes about 2.4 times as many tokens on the hard tasks.
+Axon now beats Python on tokens with Haiku and is 7% above it with Sonnet. Rust takes about 2.4 times as many tokens as Axon on the hard tasks.
 
 Speed (best of 3, seconds):
 

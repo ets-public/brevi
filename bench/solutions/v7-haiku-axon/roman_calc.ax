@@ -1,0 +1,38 @@
+fn roman_val(s: str) -> int:
+  m = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+  total = 0
+  for i in 0..s.len():
+    v = m[s.slice(i, i + 1)]
+    if i + 1 < s.len() and m[s.slice(i + 1, i + 2)] > v:
+      total -= v
+    else:
+      total += v
+  return total
+
+fn to_roman(n: int) -> str:
+  vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  x = n
+  for i in 0..vals.len():
+    while x >= vals[i]:
+      out += syms[i]
+      x -= vals[i]
+  return out
+
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  acc = roman_val(w[0])
+  i = 1
+  while i + 1 < w.len():
+    if w[i] == "+":
+      acc += roman_val(w[i + 1])
+    else:
+      acc -= roman_val(w[i + 1])
+    i += 2
+  if acc <= 0:
+    print("nulla")
+  else:
+    print(to_roman(acc))

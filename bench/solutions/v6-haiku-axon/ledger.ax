@@ -1,0 +1,35 @@
+rows = csv(stdin())
+ins = {}
+outs = {}
+bal = {}
+months = {}
+for r in rows.slice(1):
+  if r.len() < 3:
+    continue
+  m = r[0].slice(0, 7)
+  a = r[1]
+  v = r[2].dec()
+  months[m] = true
+  if v > 0:
+    ins[m] += v
+  elif v < 0:
+    outs[m] += 0 - v
+  bal[a] += v
+
+for m in months.keys():
+  i = ins[m]
+  o = outs[m]
+  n = i - o
+  si = i.fmt(2)
+  so = o.fmt(2)
+  sn = n.fmt(2)
+  print("{m} {si} {so} {sn}")
+
+best = ""
+bestv = 0.dec()
+for a in bal.keys():
+  if best == "" or bal[a] > bestv:
+    best = a
+    bestv = bal[a]
+sb = bestv.fmt(2)
+print("top {best} {sb}")

@@ -1,0 +1,34 @@
+adj = {}
+indeg = {}
+names = {}
+for line in lines():
+  w = line.words()
+  if w.len() < 3:
+    continue
+  a = w[0]
+  b = w[2]
+  adj[a].push(b)
+  indeg[b] += 1
+  names[a] = 1
+  names[b] = 1
+
+ready: [str] = []
+for n in names.keys():
+  if indeg[n] == 0:
+    ready.push(n)
+
+out: [str] = []
+while not ready.is_empty():
+  ready = ready.sort()
+  n = ready.remove(0)
+  out.push(n)
+  for m in adj[n]:
+    indeg[m] -= 1
+    if indeg[m] == 0:
+      ready.push(m)
+
+if out.len() < names.len():
+  print("cycle")
+else:
+  for n in out:
+    print(n)

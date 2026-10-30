@@ -1,0 +1,24 @@
+for line in lines():
+  cs = line.chars()
+  st: [str] = []
+  bad = 0
+  for i in 0..cs.len():
+    c = cs[i]
+    if c == "(" or c == "[" or c == "{":
+      st.push(c)
+    elif c == ")" or c == "]" or c == "}":
+      m = "("
+      if c == "]":
+        m = "["
+      if c == "}":
+        m = "{"
+      if st.is_empty() or st.last() != m:
+        bad = i + 1
+        break
+      st.pop()
+  if bad > 0:
+    print("error at {bad}")
+  elif !st.is_empty():
+    print("error at {cs.len() + 1}")
+  else:
+    print("ok")

@@ -1,0 +1,29 @@
+ls = lines()
+cap = ls[0].trim().int()
+vals = {}
+stamp = {}
+t = 0
+for line in ls.skip(1):
+  w = line.words()
+  if w.is_empty(): continue
+  t += 1
+  if w[0] == "put":
+    k = w[1]
+    if !vals.has(k) and vals.len() >= cap:
+      best = ""
+      bt = 0 - 1
+      for (kk, s) in stamp.pairs():
+        if bt < 0 or s < bt:
+          bt = s
+          best = kk
+      vals.remove(best)
+      stamp.remove(best)
+    vals[k] = w[2]
+    stamp[k] = t
+  else:
+    k = w[1]
+    if vals.has(k):
+      stamp[k] = t
+      print(vals[k])
+    else:
+      print(-1)

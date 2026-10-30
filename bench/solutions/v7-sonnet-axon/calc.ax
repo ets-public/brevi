@@ -1,0 +1,59 @@
+toks: [str] = []
+pos = 0
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+fn atom() -> int:
+  t = peek()
+  pos += 1
+  if t == "(":
+    v = expr()
+    pos += 1
+    v
+  elif t == "-":
+    0 - atom()
+  else:
+    t.int()
+fn term() -> int:
+  v = atom()
+  while peek() == "*" or peek() == "/":
+    op = peek()
+    pos += 1
+    r = atom()
+    if op == "*":
+      v = v * r
+    else:
+      if r == 0: fail("div")
+      v = v / r
+  v
+fn expr() -> int:
+  v = term()
+  while peek() == "+" or peek() == "-":
+    op = peek()
+    pos += 1
+    r = term()
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+  v
+fn tokenize(s: str) -> [str]:
+  out: [str] = []
+  cur = ""
+  for c in s.chars():
+    if c.is_digit():
+      cur = cur + c
+    else:
+      if cur != "":
+        out.push(cur)
+        cur = ""
+      if c != " ": out.push(c)
+  if cur != "": out.push(cur)
+  out
+fn calc(s: str) -> int:
+  toks = tokenize(s)
+  pos = 0
+  expr()
+for line in lines():
+  if line.trim().is_empty(): continue
+  match calc(line):
+    Ok(v) => print(v)
+    Err(m) => print("error")

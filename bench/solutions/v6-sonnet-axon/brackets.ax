@@ -1,0 +1,19 @@
+for line in lines():
+  st = []
+  err = 0
+  cs = line.chars()
+  for i in 0..cs.len():
+    c = cs[i]
+    if c == "(" or c == "[" or c == "{":
+      st.push(c)
+    elif c == ")" or c == "]" or c == "}":
+      want = if c == ")": "(" elif c == "]": "[" else: "{"
+      if st.is_empty() or st.last() != want:
+        err = i + 1
+        break
+      st.pop()
+  if err == 0 and !st.is_empty(): err = cs.len() + 1
+  if err == 0:
+    print("ok")
+  else:
+    print("error at {err}")

@@ -1,0 +1,29 @@
+cap = 1
+got_cap = false
+vals = {}
+order = []
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  if not got_cap:
+    cap = w[0].int().or(1)
+    got_cap = true
+    continue
+  k = w[1]
+  if w[0] == "get":
+    if vals.has(k):
+      order.remove(order.index_of(k))
+      order.push(k)
+      print(vals[k])
+    else:
+      print(-1)
+  else:
+    v = w[2]
+    if vals.has(k):
+      order.remove(order.index_of(k))
+    elif vals.len() >= cap:
+      old = order.remove(0)
+      vals.remove(old)
+    vals[k] = v
+    order.push(k)

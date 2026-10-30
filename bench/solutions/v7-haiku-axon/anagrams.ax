@@ -1,0 +1,18 @@
+seen = {}
+groups = {}
+for w in stdin().words():
+  lw = w.lower()
+  if seen.has(lw):
+    continue
+  seen[lw] = 1
+  key = lw.chars().sort().join("")
+  groups[key].push(lw)
+
+gl = []
+for g in groups.values():
+  if g.len() >= 2:
+    s = g.sort()
+    gl.push((0 - s.len(), s[0], s.join(" ")))
+gl = gl.sort()
+for (a, b, line) in gl:
+  print(line)

@@ -1,0 +1,5 @@
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  p = line.words()
+  print(str(p[0].big() + p[1].big()))

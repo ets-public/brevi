@@ -1,0 +1,26 @@
+fn is_red(v: Json) -> bool:
+  match v:
+    Str(s) => s == "red"
+    _ => false
+
+fn tsum(j: Json) -> f64:
+  match j:
+    Num(n) => n
+    Arr(xs) =>
+      t = 0.0
+      for x in xs:
+        t += tsum(x)
+      t
+    Obj(m) =>
+      red = false
+      for v in m.values():
+        if is_red(v):
+          red = true
+      t = 0.0
+      if not red:
+        for v in m.values():
+          t += tsum(v)
+      t
+    _ => 0.0
+
+print(tsum(json(stdin())).int())

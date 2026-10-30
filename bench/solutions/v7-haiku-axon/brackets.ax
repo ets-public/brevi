@@ -1,0 +1,23 @@
+fn opener_of(c: str) -> str:
+  if c == ")":
+    return "("
+  if c == "]":
+    return "["
+  return "{"
+
+for line in lines():
+  st: [str] = []
+  result = "ok"
+  i = 0
+  for ch in line.chars():
+    i += 1
+    if ch == "(" or ch == "[" or ch == "{":
+      st.push(ch)
+    elif ch == ")" or ch == "]" or ch == "}":
+      if st.is_empty() or st.last() != opener_of(ch):
+        result = "error at {i}"
+        break
+      st.pop()
+  if result == "ok" and not st.is_empty():
+    result = "error at {line.len() + 1}"
+  print(result)

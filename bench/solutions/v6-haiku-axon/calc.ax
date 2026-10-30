@@ -1,0 +1,70 @@
+toks: [str] = []
+pos = 0
+
+fn tokenize(s: str) -> [str]:
+  out: [str] = []
+  i = 0
+  while i < s.len():
+    c = s.slice(i, i + 1)
+    if c.is_digit():
+      j = i
+      while j < s.len() and s.slice(j, j + 1).is_digit():
+        j += 1
+      out.push(s.slice(i, j))
+      i = j
+    else:
+      if c != " ":
+        out.push(c)
+      i += 1
+  out
+
+fn parse_factor() -> int:
+  t = toks[pos]
+  if t == "-":
+    pos += 1
+    return 0 - parse_factor()
+  if t == "(":
+    pos += 1
+    v = parse_expr()
+    pos += 1
+    return v
+  pos += 1
+  t.int()
+
+fn parse_term() -> int:
+  v = parse_factor()
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    r = parse_factor()
+    if op == "*":
+      v = v * r
+    else:
+      if r == 0:
+        fail("division by zero")
+      v = v / r
+  v
+
+fn parse_expr() -> int:
+  v = parse_term()
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    r = parse_term()
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+  v
+
+fn evaluate() -> int:
+  parse_expr()
+
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  toks = tokenize(line)
+  pos = 0
+  match evaluate():
+    Ok(v) => print(v)
+    Err(m) => print("error")

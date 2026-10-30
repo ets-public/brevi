@@ -1,0 +1,32 @@
+iv = []
+for line in lines():
+  w = line.words()
+  if w.len() < 2:
+    continue
+  iv.push((w[0].int().or(0), w[1].int().or(0)))
+iv = iv.sort()
+
+cs = 0
+ce = 0
+has = false
+out = []
+for (s, e) in iv:
+  if not has:
+    cs = s
+    ce = e
+    has = true
+  elif s <= ce:
+    if e > ce:
+      ce = e
+  else:
+    out.push((cs, ce))
+    cs = s
+    ce = e
+if has:
+  out.push((cs, ce))
+
+total = 0
+for (a, b) in out:
+  print("{a} {b}")
+  total += b - a
+print("total {total}")

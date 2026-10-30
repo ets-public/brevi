@@ -1,0 +1,27 @@
+ls = lines()
+cap = ls[0].trim().int().or(1)
+vals = {}
+order = []
+for line in ls.slice(1):
+  p = line.trim().words()
+  if p.len() == 0:
+    continue
+  k = p[1]
+  if p[0] == "get":
+    if vals.has(k):
+      i = order.index_of(k)
+      order.remove(i)
+      order.push(k)
+      print(vals[k])
+    else:
+      print(-1)
+  else:
+    v = p[2]
+    if vals.has(k):
+      i = order.index_of(k)
+      order.remove(i)
+    elif vals.len() >= cap:
+      ek = order.remove(0)
+      vals.remove(ek)
+    vals[k] = v
+    order.push(k)

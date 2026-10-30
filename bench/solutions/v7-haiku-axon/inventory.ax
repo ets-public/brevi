@@ -1,0 +1,13 @@
+rows = csv(stdin())
+tot = {}
+for r in rows.skip(1):
+  if r.len() < 3:
+    continue
+  v = r[1].int().or(0).dec() * r[2].dec()
+  tot[r[0]] += v
+items = []
+for (k, v) in tot.pairs():
+  items.push((-v, k))
+items = items.sort()
+for (nv, k) in items:
+  print("{k}: {(-nv).fmt(2)}")

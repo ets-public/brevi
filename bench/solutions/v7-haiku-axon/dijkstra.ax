@@ -1,0 +1,44 @@
+all = []
+for line in lines():
+  if not line.words().is_empty():
+    all.push(line.words())
+q = all.last()
+fr = q[0]
+to = q[1]
+adj = {}
+for w in all.take(all.len() - 1):
+  a = w[0]
+  b = w[1]
+  c = w[2].int().or(1)
+  adj[a].push((b, c))
+  adj[b].push((a, c))
+
+dist = {}
+h = heap()
+dist[to] = 0
+h.push((0, to))
+while not h.is_empty():
+  (d, u) = h.pop()
+  if d > dist[u]:
+    continue
+  for (v, wt) in adj[u]:
+    nd = d + wt
+    if not dist.has(v) or nd < dist[v]:
+      dist[v] = nd
+      h.push((nd, v))
+
+if not dist.has(fr):
+  print("none")
+else:
+  print(dist[fr])
+  path = [fr]
+  cur = fr
+  while cur != to:
+    best = ""
+    for (v, wt) in adj[cur]:
+      if dist.has(v) and dist[v] + wt == dist[cur]:
+        if best == "" or v < best:
+          best = v
+    cur = best
+    path.push(cur)
+  print(path.join("->"))

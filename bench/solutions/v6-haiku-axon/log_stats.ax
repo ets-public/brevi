@@ -1,0 +1,24 @@
+ms = {}
+er = {}
+for line in lines():
+  p = line.words()
+  if p.len() < 4:
+    continue
+  path = p[1]
+  if !ms.has(path):
+    ms[path] = []
+    er[path] = 0
+  ms[path].push(p[3].int().or(0))
+  if p[2].int().or(0) >= 500:
+    er[path] += 1
+
+for path in ms.keys():
+  xs = ms[path].sort()
+  n = xs.len()
+  avg = xs.sum().float() / n.float()
+  rank = (9 * n + 9) // 10
+  p90 = xs[rank - 1]
+  errp = er[path].float() * 100.0 / n.float()
+  a = avg.fmt(1)
+  e = errp.fmt(1)
+  print("{path} {n} {a} {p90} {e}%")

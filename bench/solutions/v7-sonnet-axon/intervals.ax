@@ -1,0 +1,18 @@
+iv: [(int, int)] = []
+for line in lines():
+  if line.trim().is_empty(): continue
+  p = line.ints()
+  iv.push((p[0], p[1]))
+iv = iv.sort()
+merged: [(int, int)] = []
+for (s, e) in iv:
+  if !merged.is_empty() and s <= merged[-1].1:
+    if e > merged[-1].1:
+      merged[-1] = (merged[-1].0, e)
+  else:
+    merged.push((s, e))
+total = 0
+for (s, e) in merged:
+  print("{s} {e}")
+  total += e - s
+print("total {total}")

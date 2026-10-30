@@ -1,0 +1,59 @@
+dur = {}
+deps = {}
+for line in lines():
+  p = line.words()
+  if p.len() < 2:
+    continue
+  n = p[0]
+  dur[n] = p[1].int().or(0)
+  ds = []
+  if p.len() > 3 and p[2] == "after":
+    ds = p.slice(3)
+  deps[n] = ds
+
+bad = false
+for n in deps.keys():
+  for d in deps[n]:
+    if !dur.has(d):
+      bad = true
+
+if bad:
+  print("invalid")
+else:
+  indeg = {}
+  children = {}
+  start = {}
+  for n in dur.keys():
+    indeg[n] = deps[n].len()
+    children[n] = []
+    start[n] = 0
+  for n in dur.keys():
+    for d in deps[n]:
+      children[d].push(n)
+
+  q = []
+  for n in dur.keys():
+    if indeg[n] == 0:
+      q.push(n)
+  rows = []
+  done = 0
+  while q.len() > 0:
+    n = q.pop()
+    done += 1
+    e = start[n] + dur[n]
+    rows.push((start[n], n, e))
+    for c in children[n]:
+      start[c] = max(start[c], e)
+      indeg[c] -= 1
+      if indeg[c] == 0:
+        q.push(c)
+
+  if done < dur.len():
+    print("invalid")
+  else:
+    rows = rows.sort()
+    total = 0
+    for (s, n, e) in rows:
+      print("{n} {s} {e}")
+      total = max(total, e)
+    print("total {total}")

@@ -1,0 +1,47 @@
+names = []
+dur = {}
+deps = {}
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  nm = w[0]
+  names.push(nm)
+  dur[nm] = w[1].int().or(0)
+  if w.len() > 3:
+    deps[nm] = w.slice(3)
+  else:
+    deps[nm] = []
+
+fin = {}
+st = {}
+progress = true
+while progress and fin.len() < names.len():
+  progress = false
+  for nm in names:
+    if not fin.has(nm):
+      ok = true
+      s = 0
+      for d in deps[nm]:
+        if not dur.has(d) or not fin.has(d):
+          ok = false
+        elif fin[d] > s:
+          s = fin[d]
+      if ok:
+        st[nm] = s
+        fin[nm] = s + dur[nm]
+        progress = true
+
+if fin.len() < names.len():
+  print("invalid")
+else:
+  rows = []
+  total = 0
+  for nm in names:
+    rows.push((st[nm], nm, fin[nm]))
+    if fin[nm] > total:
+      total = fin[nm]
+  rows = rows.sort()
+  for (s, nm, e) in rows:
+    print("{nm} {s} {e}")
+  print("total {total}")

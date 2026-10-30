@@ -1,0 +1,4 @@
+rv = {"I": 1, "V": 5}
+fn val(c: str) -> int:
+  rv[c]
+print(val("V"))

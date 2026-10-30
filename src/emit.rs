@@ -468,6 +468,7 @@ impl Emitter {
             Expr::Str(_) => named("str"),
             Expr::Unary(_, a) => self.infer_ty(a),
             Expr::List(xs) if !xs.is_empty() => Some(Ty::List(Box::new(self.infer_ty(&xs[0])?))),
+            Expr::Map(ps) if !ps.is_empty() => Some(Ty::Map(Box::new(self.infer_ty(&ps[0].0)?), Box::new(self.infer_ty(&ps[0].1)?))),
             Expr::Tuple(xs) => Some(Ty::Tuple(xs.iter().map(|x| self.infer_ty(x)).collect::<Option<Vec<_>>>()?)),
             Expr::Call(n, _, _) => match n.as_str() {
                 "lines" | "args" => Some(Ty::List(Box::new(Ty::Named("str".into())))),

@@ -1,0 +1,27 @@
+rows = csv(stdin())
+mon = {}
+inn = {}
+outt = {}
+bal = {}
+for r in rows.skip(1):
+  if r.len() < 3:
+    continue
+  m = r[0].slice(0, 7)
+  a = r[2].dec()
+  mon[m] = 1
+  if a > 0:
+    inn[m] += a
+  else:
+    outt[m] += 0 - a
+  bal[r[1]] += a
+
+for m in mon.keys().sort():
+  net = inn[m] - outt[m]
+  print("{m} {inn[m].fmt(2)} {outt[m].fmt(2)} {net.fmt(2)}")
+
+best = []
+for (acc, b) in bal.pairs():
+  best.push((0 - b, acc))
+best = best.sort()
+if not best.is_empty():
+  print("top {best[0].1} {(0 - best[0].0).fmt(2)}")

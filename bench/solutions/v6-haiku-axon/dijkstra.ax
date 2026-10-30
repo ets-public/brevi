@@ -1,0 +1,49 @@
+adj = {}
+q = []
+for line in lines():
+  p = line.words()
+  if p.len() == 3:
+    a = p[0]
+    b = p[1]
+    w = p[2].int().or(0)
+    if !adj.has(a):
+      adj[a] = []
+    if !adj.has(b):
+      adj[b] = []
+    adj[a].push((b, w))
+    adj[b].push((a, w))
+  elif p.len() == 2:
+    q = p
+
+src = q[0]
+dst = q[1]
+dist = {}
+dist[dst] = 0
+h = heap()
+h.push((0, dst))
+while !h.is_empty():
+  (d, u) = h.pop()
+  if d > dist[u]:
+    continue
+  if adj.has(u):
+    for (v, w) in adj[u]:
+      nd = d + w
+      if !dist.has(v) or nd < dist[v]:
+        dist[v] = nd
+        h.push((nd, v))
+
+if !dist.has(src):
+  print("none")
+else:
+  path = [src]
+  cur = src
+  while cur != dst:
+    best = ""
+    for (v, w) in adj[cur]:
+      if dist.has(v) and dist[v] + w == dist[cur]:
+        if best == "" or v < best:
+          best = v
+    path.push(best)
+    cur = best
+  print(dist[src])
+  print(path.join("->"))
