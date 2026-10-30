@@ -1,0 +1,649 @@
+// Types for empty values: `xs = []` and `m = {}` get their item types from how they are used later,
+// so programs need no `xs: [str] = []`. The result is a Rust type with `_` where nothing is known.
+use crate::ast::*;
+use std::collections::HashMap;
+
+#[derive(Clone, Debug, PartialEq)]
+enum T {
+    Hole,
+    Int,
+    F64,
+    Bool,
+    Str,
+    Dec,
+    Big,
+    Date,
+    Json,
+    Named(String),
+    List(Box<T>),
+    Map(Box<T>, Box<T>),
+    Tuple(Vec<T>),
+    Heap(Box<T>),
+    Unit,
+}
+use T::*;
+
+fn from_ast(t: &Ty) -> T {
+    match t {
+        Ty::Named(n) => match n.as_str() {
+            "int" => Int,
+            "f64" | "float" => F64,
+            "bool" => Bool,
+            "str" => Str,
+            "dec" => Dec,
+            "big" => Big,
+            "date" | "Date" => Date,
+            "json" | "Json" => Json,
+            n if n.starts_with("AxHeap<") => Hole,
+            n => Named(n.into()),
+        },
+        Ty::List(t) => List(Box::new(from_ast(t))),
+        Ty::Map(k, v) => Map(Box::new(from_ast(k)), Box::new(from_ast(v))),
+        Ty::Tuple(ts) => Tuple(ts.iter().map(from_ast).collect()),
+        Ty::Unit => Unit,
+    }
+}
+
+fn rust(t: &T) -> String {
+    match t {
+        Hole => "_".into(),
+        Int => "i64".into(),
+        F64 => "f64".into(),
+        Bool => "bool".into(),
+        Str => "String".into(),
+        Dec => "Dec".into(),
+        Big => "Big".into(),
+        Date => "Date".into(),
+        Json => "Json".into(),
+        Named(n) => n.clone(),
+        List(e) => format!("Vec<{}>", rust(e)),
+        Map(k, v) => format!("AxM<{}, {}>", rust(k), rust(v)),
+        Tuple(ts) => format!("({},)", ts.iter().map(rust).collect::<Vec<_>>().join(", ")),
+        Heap(e) => format!("AxHeap<{}>", rust(e)),
+        Unit => "()".into(),
+    }
+}
+
+fn known(t: &T) -> bool {
+    match t {
+        Hole => false,
+        List(e) | Heap(e) => known(e),
+        Map(k, v) => known(k) && known(v),
+        Tuple(ts) => ts.iter().all(known),
+        _ => true,
+    }
+}
+
+// Anything learned below the outer container?
+fn some_known(t: &T) -> bool {
+    match t {
+        List(e) | Heap(e) => *e.as_ref() != Hole,
+        Map(k, v) => **k != Hole || **v != Hole,
+        _ => false,
+    }
+}
+
+fn merge(a: T, b: T) -> T {
+    match (a, b) {
+        (Hole, b) => b,
+        (a, Hole) => a,
+        (List(x), List(y)) => List(Box::new(merge(*x, *y))),
+        (Heap(x), Heap(y)) => Heap(Box::new(merge(*x, *y))),
+        (Map(k1, v1), Map(k2, v2)) => Map(Box::new(merge(*k1, *k2)), Box::new(merge(*v1, *v2))),
+        (Tuple(x), Tuple(y)) if x.len() == y.len() => Tuple(x.into_iter().zip(y).map(|(a, b)| merge(a, b)).collect()),
+        // An int next to a dec or float is a literal that mixes in.
+        (Int, b @ (Dec | F64)) => b,
+        (a, _) => a,
+    }
+}
+
+fn elem(t: &T) -> T {
+    match t {
+        List(e) | Heap(e) => *e.clone(),
+        Map(k, v) => Tuple(vec![*k.clone(), *v.clone()]),
+        Str => Str,
+        _ => Hole,
+    }
+}
+
+fn empty_kind(e: &Expr) -> Option<T> {
+    match e {
+        Expr::List(xs) if xs.is_empty() => Some(List(Box::new(Hole))),
+        Expr::Map(ps) if ps.is_empty() => Some(Map(Box::new(Hole), Box::new(Hole))),
+        Expr::Call(n, a, _) if n == "heap" && a.is_empty() => Some(Heap(Box::new(Hole))),
+        _ => None,
+    }
+}
+
+type Env = HashMap<String, T>;
+
+struct Cx<'a> {
+    fns: HashMap<String, (Vec<(String, T)>, T)>,
+    structs: HashMap<String, Vec<(String, T)>>,
+    variants: HashMap<String, String>,
+    others: Vec<(&'a [Param], &'a Expr)>,
+    ret: T,
+    hints: HashMap<(String, usize), String>,
+    known_hints: HashMap<(String, usize), bool>,
+}
+
+// (name, line) of each untyped empty value -> its Rust type, and whether the type is complete.
+pub fn empty_types(items: &[Item]) -> HashMap<(String, usize), (String, bool)> {
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new() };
+    for it in items {
+        match it {
+            Item::Fn { name, params, ret, body, script, .. } => {
+                cx.fns.insert(name.clone(), (params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect(), from_ast(ret)));
+                if !script {
+                    cx.others.push((params, body));
+                }
+            }
+            Item::Type { name, fields, .. } => {
+                cx.structs.insert(name.clone(), fields.iter().map(|f| (f.name.clone(), from_ast(&f.ty))).collect());
+            }
+            Item::Enum { name, variants, .. } => {
+                for v in variants {
+                    cx.variants.insert(v.name.clone(), name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    for it in items {
+        let (params, ret, body, script) = match it {
+            Item::Fn { params, ret, body, script, .. } => (params.as_slice(), from_ast(ret), body, *script),
+            Item::Test { body, .. } => (&[][..], Unit, body, false),
+            _ => continue,
+        };
+        cx.ret = ret;
+        let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+        cx.walk(body, &mut env, script);
+    }
+    cx.hints.into_iter().map(|(k, v)| {
+        let full = cx.known_hints[&k];
+        (k, (v, full))
+    }).collect()
+}
+
+impl Cx<'_> {
+    // ---- forward walk: find empty declarations, and keep local types up to date ----
+    fn walk(&mut self, e: &Expr, env: &mut Env, top: bool) {
+        match e {
+            Expr::Block(stmts, tail) => {
+                let mut inner = env.clone();
+                self.stmts(stmts, &mut inner, top);
+                if let Some(t) = tail {
+                    self.walk(t, &mut inner, false);
+                }
+                if top {
+                    *env = inner;
+                }
+            }
+            Expr::For(p, it, body) => {
+                let t = elem(&self.ty(it, env));
+                let mut inner = env.clone();
+                bind(p, t, &mut inner);
+                self.walk(body, &mut inner, false);
+            }
+            Expr::While(c, body) => {
+                self.walk(c, env, false);
+                self.walk(body, &mut env.clone(), false);
+            }
+            Expr::If(c, a, b) => {
+                self.walk(c, env, false);
+                self.walk(a, &mut env.clone(), false);
+                if let Some(b) = b {
+                    self.walk(b, &mut env.clone(), false);
+                }
+            }
+            Expr::Match(s, arms) => {
+                for (_, a) in arms {
+                    self.walk(a, &mut env.clone(), false);
+                }
+                self.walk(s, env, false);
+            }
+            _ => {}
+        }
+    }
+
+    fn stmts(&mut self, stmts: &[Stmt], env: &mut Env, top: bool) {
+        for (i, st) in stmts.iter().enumerate() {
+            let decl = match st {
+                Stmt::Let { name: Pat::Bind(n), ty: None, value, line, .. } => Some((n, value, *line)),
+                Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } if !env.contains_key(n) => Some((n, value, *line)),
+                _ => None,
+            };
+            if let Some((n, value, line)) = decl {
+                if let Some(base) = empty_kind(value) {
+                    let mut t = base.clone();
+                    self.look(n, &stmts[i + 1..], &mut env.clone(), &mut t);
+                    if top {
+                        // A top-level name may be filled inside functions.
+                        for (ps, body) in self.others.clone() {
+                            if ps.iter().any(|p| &p.name == n) {
+                                continue;
+                            }
+                            let mut fenv: Env = ps.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                            fenv.insert(n.clone(), t.clone());
+                            self.look_expr(n, body, &mut fenv, &mut t);
+                        }
+                    }
+                    if some_known(&t) {
+                        self.hints.insert((n.clone(), line), rust(&t));
+                        self.known_hints.insert((n.clone(), line), known(&t));
+                    }
+                    env.insert(n.clone(), t);
+                    continue;
+                }
+            }
+            match st {
+                Stmt::Let { name, ty, value, .. } => {
+                    self.walk(value, env, false);
+                    let t = ty.as_ref().map(from_ast).unwrap_or_else(|| self.ty(value, env));
+                    bind(name, t, env);
+                }
+                Stmt::Assign { target, op, value, .. } => {
+                    self.walk(value, env, false);
+                    match (target, *op) {
+                        (Expr::Ident(n), "=") if !env.contains_key(n) => {
+                            let t = self.ty(value, env);
+                            env.insert(n.clone(), t);
+                        }
+                        (Expr::Tuple(xs), "=") => {
+                            let t = self.ty(value, env);
+                            for (k, x) in xs.iter().enumerate() {
+                                if let Expr::Ident(n) = x {
+                                    if !env.contains_key(n) {
+                                        let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                                        env.insert(n.clone(), et);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Stmt::Expr { expr, .. } => self.walk(expr, env, false),
+                Stmt::Return { value: Some(v), .. } => self.walk(v, env, false),
+                _ => {}
+            }
+        }
+    }
+
+    // ---- look ahead: what do later statements put into `n`? ----
+    fn look(&mut self, n: &str, stmts: &[Stmt], env: &mut Env, acc: &mut T) {
+        for st in stmts {
+            match st {
+                Stmt::Let { name, ty, value, .. } => {
+                    self.look_expr(n, value, env, acc);
+                    if matches!(name, Pat::Bind(m) if m == n) {
+                        return;
+                    }
+                    let t = ty.as_ref().map(from_ast).unwrap_or_else(|| self.ty(value, env));
+                    bind(name, t, env);
+                }
+                Stmt::Assign { target, op, value, .. } => {
+                    self.look_expr(n, value, env, acc);
+                    let vt = self.ty(value, env);
+                    match (target, *op) {
+                        (Expr::Ident(m), "=" | "+=") if m == n => *acc = merge(acc.clone(), vt),
+                        (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) => {
+                            let kt = self.ty(k, env);
+                            *acc = merge(acc.clone(), self.slot(acc, kt, vt));
+                        }
+                        (Expr::Index(b, k), _) => {
+                            // `m[a][b] = v`
+                            if let Expr::Index(bb, k1) = b.as_ref() {
+                                if matches!(bb.as_ref(), Expr::Ident(m) if m == n) {
+                                    let (k1t, k2t) = (self.ty(k1, env), self.ty(k, env));
+                                    let inner = match acc {
+                                        Map(_, v) | List(v) => *v.clone(),
+                                        _ => Hole,
+                                    };
+                                    let inner = merge(inner.clone(), self.slot(&inner, k2t, vt));
+                                    *acc = merge(acc.clone(), self.slot(acc, k1t, inner));
+                                }
+                            }
+                            self.look_expr(n, b, env, acc);
+                            self.look_expr(n, k, env, acc);
+                        }
+                        (Expr::Ident(m), "=") if !env.contains_key(m) => {
+                            env.insert(m.clone(), vt);
+                        }
+                        (Expr::Tuple(xs), "=") => {
+                            for (k, x) in xs.iter().enumerate() {
+                                if let Expr::Ident(m) = x {
+                                    if !env.contains_key(m) {
+                                        let et = if let Tuple(ts) = &vt { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                                        env.insert(m.clone(), et);
+                                    }
+                                }
+                            }
+                        }
+                        (t, _) => self.look_expr(n, t, env, acc),
+                    }
+                }
+                Stmt::Expr { expr, .. } => self.look_expr(n, expr, env, acc),
+                Stmt::Return { value: Some(v), .. } => {
+                    if matches!(v, Expr::Ident(m) if m == n) {
+                        *acc = merge(acc.clone(), self.ret.clone());
+                    }
+                    self.look_expr(n, v, env, acc);
+                }
+                Stmt::Assert { cond, .. } => self.look_expr(n, cond, env, acc),
+                _ => {}
+            }
+            env.insert(n.to_string(), acc.clone());
+        }
+    }
+
+    // The container type that holds `v` at key `k`, given the container's kind.
+    fn slot(&self, acc: &T, k: T, v: T) -> T {
+        match acc {
+            Map(..) => Map(Box::new(k), Box::new(v)),
+            List(_) => List(Box::new(v)),
+            _ => Hole,
+        }
+    }
+
+    fn is_n(e: &Expr, n: &str) -> bool {
+        matches!(e, Expr::Ident(m) | Expr::Move(m) if m == n)
+    }
+
+    fn look_expr(&mut self, n: &str, e: &Expr, env: &mut Env, acc: &mut T) {
+        match e {
+            Expr::Method(recv, m, args, _) => {
+                let a0 = args.first().map(|a| self.ty(a, env)).unwrap_or(Hole);
+                if Self::is_n(recv, n) {
+                    let ev = match (m.as_str(), &*acc) {
+                        ("push", List(_)) => List(Box::new(a0)),
+                        ("push", Heap(_)) => Heap(Box::new(a0)),
+                        ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
+                        ("has" | "remove", Map(..)) => Map(Box::new(a0), Box::new(Hole)),
+                        ("get_or", Map(..)) => Map(Box::new(a0), Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
+                        ("contains" | "index_of", List(_)) => List(Box::new(a0)),
+                        _ => Hole,
+                    };
+                    *acc = merge(acc.clone(), ev);
+                } else if let Expr::Index(b, k) = recv.as_ref() {
+                    if Self::is_n(b, n) {
+                        let kt = self.ty(k, env);
+                        let inner = match m.as_str() {
+                            "push" => List(Box::new(a0)),
+                            _ => Hole,
+                        };
+                        *acc = merge(acc.clone(), self.slot(acc, kt, inner));
+                    }
+                }
+                self.look_expr(n, recv, env, acc);
+                let et = elem(&self.ty(recv, env));
+                for a in args {
+                    self.look_lambda(n, a, &et, env, acc);
+                }
+            }
+            Expr::Index(b, k) => {
+                if Self::is_n(b, n) {
+                    if let Map(..) = acc {
+                        let kt = self.ty(k, env);
+                        *acc = merge(acc.clone(), Map(Box::new(kt), Box::new(Hole)));
+                    }
+                }
+                self.look_expr(n, b, env, acc);
+                self.look_expr(n, k, env, acc);
+            }
+            Expr::Call(f, args, _) => {
+                if let Some((ps, _)) = self.fns.get(f).cloned() {
+                    for (k, (_, a)) in args.iter().enumerate() {
+                        if Self::is_n(a, n) {
+                            if let Some((_, pt)) = ps.get(k) {
+                                *acc = merge(acc.clone(), pt.clone());
+                            }
+                        }
+                    }
+                }
+                for (_, a) in args {
+                    self.look_expr(n, a, env, acc);
+                }
+            }
+            Expr::Block(stmts, tail) => {
+                let mut inner = env.clone();
+                self.look(n, stmts, &mut inner, acc);
+                if let Some(t) = tail {
+                    self.look_expr(n, t, &mut inner, acc);
+                }
+            }
+            Expr::For(p, it, body) => {
+                self.look_expr(n, it, env, acc);
+                let t = elem(&self.ty(it, env));
+                let mut inner = env.clone();
+                bind(p, t, &mut inner);
+                self.look_expr(n, body, &mut inner, acc);
+            }
+            Expr::While(c, body) => {
+                self.look_expr(n, c, env, acc);
+                self.look_expr(n, body, &mut env.clone(), acc);
+            }
+            Expr::If(c, a, b) => {
+                self.look_expr(n, c, env, acc);
+                self.look_expr(n, a, &mut env.clone(), acc);
+                if let Some(b) = b {
+                    self.look_expr(n, b, &mut env.clone(), acc);
+                }
+            }
+            Expr::Match(s, arms) => {
+                self.look_expr(n, s, env, acc);
+                for (_, a) in arms {
+                    self.look_expr(n, a, &mut env.clone(), acc);
+                }
+            }
+            Expr::Binary(_, a, b) | Expr::Range(a, b) => {
+                self.look_expr(n, a, env, acc);
+                self.look_expr(n, b, env, acc);
+            }
+            Expr::Unary(_, a) | Expr::Try(a) | Expr::Field(a, _) | Expr::TupleField(a, _) => self.look_expr(n, a, env, acc),
+            Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| self.look_expr(n, x, env, acc)),
+            Expr::Str(parts) => {
+                for p in parts {
+                    if let StrPart::Interp(x) = p {
+                        self.look_expr(n, x, env, acc);
+                    }
+                }
+            }
+            Expr::Lambda(..) => self.look_lambda(n, e, &Hole, env, acc),
+            _ => {}
+        }
+    }
+
+    fn look_lambda(&mut self, n: &str, e: &Expr, et: &T, env: &mut Env, acc: &mut T) {
+        if let Expr::Lambda(ps, body) = e {
+            let mut inner = env.clone();
+            bind_params(ps, et, &mut inner);
+            self.look_expr(n, body, &mut inner, acc);
+        } else {
+            self.look_expr(n, e, env, acc);
+        }
+    }
+
+    // ---- the type of an expression, Hole when unknown ----
+    fn ty(&self, e: &Expr, env: &Env) -> T {
+        match e {
+            Expr::Int(_) => Int,
+            Expr::Float(_) => F64,
+            Expr::Bool(_) => Bool,
+            Expr::Str(_) => Str,
+            Expr::Ident(n) | Expr::Move(n) => env.get(n).cloned().unwrap_or(Hole),
+            Expr::List(xs) => List(Box::new(xs.iter().fold(Hole, |a, x| merge(a, self.ty(x, env))))),
+            Expr::Map(ps) => {
+                let (k, v) = ps.iter().fold((Hole, Hole), |(k, v), (a, b)| (merge(k, self.ty(a, env)), merge(v, self.ty(b, env))));
+                Map(Box::new(k), Box::new(v))
+            }
+            Expr::Tuple(xs) => Tuple(xs.iter().map(|x| self.ty(x, env)).collect()),
+            Expr::Unary(op, a) => {
+                if *op == "!" || *op == "not" {
+                    Bool
+                } else {
+                    self.ty(a, env)
+                }
+            }
+            Expr::Binary(op, a, b) => match *op {
+                "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "~=" | "&&" | "||" => Bool,
+                _ => {
+                    let (x, y) = (self.ty(a, env), self.ty(b, env));
+                    match (&x, &y) {
+                        (Str, _) | (_, Str) => Str,
+                        (Dec, _) | (_, Dec) => Dec,
+                        (F64, _) | (_, F64) => F64,
+                        _ => merge(x, y),
+                    }
+                }
+            },
+            Expr::Call(n, args, _) => {
+                let a0 = || args.first().map(|(_, a)| self.ty(a, env)).unwrap_or(Hole);
+                match n.as_str() {
+                    "lines" | "args" => List(Box::new(Str)),
+                    "stdin" | "input" | "read" | "str" => Str,
+                    "csv" => List(Box::new(List(Box::new(Str)))),
+                    "json" => Json,
+                    "date" => Date,
+                    "abs" => a0(),
+                    "min" | "max" => args.iter().fold(Hole, |t, (_, a)| merge(t, self.ty(a, env))),
+                    "heap" => Heap(Box::new(Hole)),
+                    n if self.structs.contains_key(n) => Named(n.into()),
+                    n if self.variants.contains_key(n) => {
+                        let en = &self.variants[n];
+                        if en == "Json" { Json } else { Named(en.clone()) }
+                    }
+                    n => self.fns.get(n).map(|f| f.1.clone()).unwrap_or(Hole),
+                }
+            }
+            Expr::Method(recv, m, args, _) => self.method(recv, m, args, env),
+            Expr::Field(b, f) => match self.ty(b, env) {
+                Named(s) => self.structs.get(&s).and_then(|fs| fs.iter().find(|(n, _)| n == f).map(|(_, t)| t.clone())).unwrap_or(Hole),
+                _ => Hole,
+            },
+            Expr::TupleField(b, i) => match self.ty(b, env) {
+                Tuple(ts) => ts.get(*i).cloned().unwrap_or(Hole),
+                _ => Hole,
+            },
+            Expr::Index(b, _) => match self.ty(b, env) {
+                List(e) => *e,
+                Map(_, v) => *v,
+                Str => Str,
+                Json => Json,
+                _ => Hole,
+            },
+            Expr::Try(a) => self.ty(a, env),
+            Expr::If(_, a, b) => {
+                let t = self.ty(a, env);
+                match b {
+                    Some(b) => merge(t, self.ty(b, env)),
+                    None => t,
+                }
+            }
+            Expr::Range(..) => List(Box::new(Int)),
+            Expr::Block(stmts, Some(tail)) => {
+                let mut inner = env.clone();
+                for st in stmts {
+                    match st {
+                        Stmt::Let { name, ty, value, .. } => {
+                            let t = ty.as_ref().map(from_ast).unwrap_or_else(|| self.ty(value, &inner));
+                            bind(name, t, &mut inner);
+                        }
+                        Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if !inner.contains_key(n) => {
+                            let t = self.ty(value, &inner);
+                            inner.insert(n.clone(), t);
+                        }
+                        _ => {}
+                    }
+                }
+                self.ty(tail, &inner)
+            }
+            _ => Hole,
+        }
+    }
+
+    fn method(&self, recv: &Expr, m: &str, args: &[Expr], env: &Env) -> T {
+        let r = self.ty(recv, env);
+        let a = |i: usize| args.get(i).map(|x| self.ty(x, env)).unwrap_or(Hole);
+        let lam = |i: usize, et: &T| match args.get(i) {
+            Some(Expr::Lambda(ps, body)) => {
+                let mut inner = env.clone();
+                bind_params(ps, et, &mut inner);
+                self.ty(body, &inner)
+            }
+            _ => Hole,
+        };
+        match m {
+            "len" | "count" | "find" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" => Int,
+            "float" | "sqrt" | "floor" | "ceil" => F64,
+            "dec" => Dec,
+            "big" => Big,
+            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" => Str,
+            "join" => Str,
+            "words" | "lines" | "chars" | "split" => List(Box::new(Str)),
+            "ints" => List(Box::new(Int)),
+            "is_empty" | "is_digit" | "is_alpha" | "is_space" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
+            "first" | "last" | "pop" | "min" | "max" | "sum" => match &r {
+                Map(_, v) if m == "pop" => *v.clone(),
+                _ => elem(&r),
+            },
+            "remove" => match &r {
+                Map(_, v) => *v.clone(),
+                _ => elem(&r),
+            },
+            "slice" | "sort" | "sort_by" | "rev" | "take" | "skip" | "filter" | "unique" | "step" | "repeat" | "abs" | "round" => match &r {
+                Hole if m == "repeat" || m == "slice" => Hole,
+                _ => r,
+            },
+            "enumerate" => List(Box::new(Tuple(vec![Int, elem(&r)]))),
+            "zip" => List(Box::new(Tuple(vec![elem(&r), elem(&a(0))]))),
+            "keys" => match &r {
+                Map(k, _) => List(k.clone()),
+                _ => Hole,
+            },
+            "values" => match &r {
+                Map(_, v) => List(v.clone()),
+                _ => Hole,
+            },
+            "pairs" => match &r {
+                Map(k, v) => List(Box::new(Tuple(vec![*k.clone(), *v.clone()]))),
+                _ => Hole,
+            },
+            "get_or" => match &r {
+                Map(_, v) => merge(*v.clone(), a(1)),
+                _ => a(1),
+            },
+            "or" => merge(r, a(0)),
+            "map" => List(Box::new(lam(0, &elem(&r)))),
+            "fold" => merge(a(0), Hole),
+            "add_days" => Date,
+            _ => Hole,
+        }
+    }
+}
+
+fn bind(p: &Pat, t: T, env: &mut Env) {
+    match p {
+        Pat::Bind(n) => {
+            env.insert(n.clone(), t);
+        }
+        Pat::Tuple(ps) => {
+            for (k, p) in ps.iter().enumerate() {
+                let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                bind(p, et, env);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn bind_params(ps: &[String], et: &T, env: &mut Env) {
+    if ps.len() == 1 {
+        env.insert(ps[0].clone(), et.clone());
+    } else {
+        for (k, p) in ps.iter().enumerate() {
+            let t = if let Tuple(ts) = et { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+            env.insert(p.clone(), t);
+        }
+    }
+}

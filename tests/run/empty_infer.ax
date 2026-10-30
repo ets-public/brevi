@@ -1,0 +1,31 @@
+dur = {}
+deps = {}
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  dur[w[0]] = w[1].int()
+  deps[w[0]] = w.skip(3)
+bad = false
+for (k, ds) in deps.pairs():
+  for d in ds:
+    if !dur.has(d): bad = true
+st = {}
+en = {}
+if !bad:
+  progress = true
+  while progress:
+    progress = false
+    for (k, ds) in deps.pairs():
+      if en.has(k): continue
+      if ds.all(d => en.has(d)):
+        s = ds.map(d => en[d]).max().or(0)
+        st[k] = s
+        en[k] = s + dur[k]
+        progress = true
+  if en.len() < dur.len(): bad = true
+if bad:
+  print("invalid")
+else:
+  rows = st.pairs().map(p => (p.1, p.0)).sort()
+  for (s, k) in rows: print("{k} {s} {en[k]}")
+  print("total {en.values().max().or(0)}")

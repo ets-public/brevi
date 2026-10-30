@@ -1,0 +1,5 @@
+var seen = []
+fn add(x: int) { seen.push(x) }
+add(1)
+add(2)
+print(seen)

@@ -4,6 +4,7 @@ mod emit;
 mod json;
 mod lexer;
 mod moves;
+mod infer;
 mod parser;
 
 use diag::{esc, Diag};
@@ -32,8 +33,17 @@ fn main() {
             exit(1);
         }
     };
-    let plain = compile_to_rust(&src, false);
-    let rust = match compile_to_rust(&src, true) {
+    // Builds to try in order: with inferred types for empty values, then without (the errors shown come from the last).
+    let versions: Vec<(String, Option<String>)> = [true, false]
+        .iter()
+        .filter_map(|&h| compile_to_rust(&src, true, h).ok().map(|r| (r, compile_to_rust(&src, false, h).ok())))
+        .fold(vec![], |mut vs, v| {
+            if !vs.iter().any(|(r, _)| *r == v.0) {
+                vs.push(v);
+            }
+            vs
+        });
+    let rust = match compile_to_rust(&src, true, true) {
         Ok(r) => r,
         Err(diags) => {
             for d in diags {
@@ -48,7 +58,7 @@ fn main() {
         "check" => {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
-            if !rustc(&rust, plain.as_ref().ok().map(|s| s.as_str()), &dir, &dir.join("check"), &file, &["--emit=metadata"], false) {
+            if !rustc(&versions, &dir, &dir.join("check"), &file, &["--emit=metadata"], false) {
                 exit(1);
             }
         }
@@ -63,7 +73,7 @@ fn main() {
             if release {
                 extra.extend(["-C", "opt-level=3"]);
             }
-            if !rustc(&rust, plain.as_ref().ok().map(|s| s.as_str()), &dir, &bin, &file, &extra, true) {
+            if !rustc(&versions, &dir, &bin, &file, &extra, true) {
                 exit(1);
             }
             if cmd == "build" {
@@ -88,10 +98,10 @@ fn main() {
     }
 }
 
-pub fn compile_to_rust(src: &str, moves: bool) -> Result<String, Vec<Diag>> {
+pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
     let mut items = parser::parse_program(src).map_err(|d| vec![d])?;
     emit::auto_try(&mut items);
-    let mut em = emit::Emitter::new(&items);
+    let mut em = emit::Emitter::new(&items, hints);
     if moves {
         moves::mark_moves(&mut items);
     }
@@ -116,8 +126,37 @@ fn build_dir(file: &str) -> PathBuf {
 }
 
 // Compiles generated Rust. rustc errors are mapped back to Axon lines and printed as JSON.
-// `plain` is the same program without moves; it is used if moving a value broke the borrow rules.
-fn rustc(rust: &str, plain: Option<&str>, dir: &Path, out: &Path, file: &str, extra: &[&str], link: bool) -> bool {
+// Each version is (program, the same program without moves). The plain one is used if moving a value broke
+// the borrow rules. Errors are reported from the last version tried.
+fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, file: &str, extra: &[&str], link: bool) -> bool {
+    const MOVE_CODES: [&str; 8] = ["E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597"];
+    let mut last = None;
+    for (rust, plain) in versions {
+        let mut r = (rust.as_str(), match compile(rust, dir, out, extra, link) {
+            Some(Ok(())) => return true,
+            Some(Err(e)) => e,
+            None => return false,
+        });
+        if let Some(p) = plain {
+            if MOVE_CODES.iter().any(|c| r.1.contains(&format!("\"code\":\"{c}\""))) {
+                r = (p.as_str(), match compile(p, dir, out, extra, link) {
+                    Some(Ok(())) => return true,
+                    Some(Err(e)) => e,
+                    None => return false,
+                });
+            }
+        }
+        last = Some(r);
+    }
+    match last {
+        Some((rust, stderr)) => report(rust, &stderr, file),
+        None => {}
+    }
+    false
+}
+
+// None when rustc could not be started.
+fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = Command::new("rustc");
@@ -129,23 +168,17 @@ fn rustc(rust: &str, plain: Option<&str>, dir: &Path, out: &Path, file: &str, ex
         c.arg("--out-dir").arg(dir);
     }
     c.arg(&rs);
-    let output = match c.output() {
-        Ok(o) => o,
+    match c.output() {
+        Ok(o) if o.status.success() => Some(Ok(())),
+        Ok(o) => Some(Err(String::from_utf8_lossy(&o.stderr).to_string())),
         Err(e) => {
             println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
-            return false;
-        }
-    };
-    if output.status.success() {
-        return true;
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if let Some(p) = plain {
-        const MOVE_CODES: [&str; 8] = ["E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597"];
-        if MOVE_CODES.iter().any(|c| stderr.contains(&format!("\"code\":\"{c}\""))) {
-            return rustc(p, None, dir, out, file, extra, link);
+            None
         }
     }
+}
+
+fn report(rust: &str, stderr: &str, file: &str) {
     let line_map = axon_lines(rust);
     let mut seen = std::collections::HashSet::new();
     for l in stderr.lines() {
@@ -194,7 +227,6 @@ fn rustc(rust: &str, plain: Option<&str>, dir: &Path, out: &Path, file: &str, ex
         }
         println!("{s}");
     }
-    false
 }
 
 // For each generated Rust line, the Axon line it came from (from /*@L..*/ markers).

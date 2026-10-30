@@ -1,0 +1,7 @@
+docs 0 5
+fetch 0 2
+build 2 5
+lint 2 3
+test 5 9
+total 9
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

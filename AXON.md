@@ -57,7 +57,7 @@ Escapes: `\n \t \r \0 \" \\`.
 
 ## Collections
 `xs[0]`, `xs[-1]` (last), `xs[i] = v`, `m[k] = v`, `m[k] += 1`, `m[k].push(x)`. A missing map key reads as the type's zero (0, 0.0, "", [], dec 0); use `m.has(k)` to tell.
-Empty values: `xs = []`, `m = {}` (add a type like `m: {str: int} = {}` only if the compiler asks).
+Empty values: `xs = []`, `m = {}`, `h = heap()`. Don't write their types: the compiler works them out from later use (add one like `m: {str: int} = {}` only if it asks).
 Lambdas: `x => x * 2`, `(a, b) => a + b`. In map/filter/any/all/count/sort_by, `(a, b) => b - a` unpacks a tuple item.
 
 ## Methods

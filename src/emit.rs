@@ -49,6 +49,8 @@ pub struct Emitter {
     nested: HashSet<String>,
     // Top-level names that the current function sets before reading, so they are its own locals.
     own_locals: HashSet<String>,
+    // Types for untyped empty values, by (name, line): (Rust type, complete).
+    hints: HashMap<(String, usize), (String, bool)>,
     // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
     pub borrow_loops: bool,
 }
@@ -350,7 +352,7 @@ pub fn assigns_to(e: &Expr, name: &str) -> bool {
 }
 
 impl Emitter {
-    pub fn new(items: &[Item]) -> Emitter {
+    pub fn new(items: &[Item], hints: bool) -> Emitter {
         let mut e = Emitter {
             structs: HashMap::new(),
             variants: HashMap::new(),
@@ -363,6 +365,7 @@ impl Emitter {
             borrow_loops: false,
             nested: HashSet::new(),
             own_locals: HashSet::new(),
+            hints: if hints { crate::infer::empty_types(items) } else { HashMap::new() },
             line: 0,
             diags: Vec::new(),
         };
@@ -430,7 +433,8 @@ impl Emitter {
                 if !used || self.globals.contains_key(n) {
                     continue;
                 }
-                let found = ty.clone().or_else(|| self.infer_ty(value));
+                let hinted = self.hints.get(&(n.clone(), *line)).filter(|h| h.1).map(|h| Ty::Named(h.0.clone()));
+                let found = ty.clone().or(hinted).or_else(|| self.infer_ty(value));
                 // With no known type, a function that sets the name before reading it has its own local.
                 if found.is_none() && others.iter().all(|(ps, body)| ps.contains(n) || sets_first(body, n)) {
                     continue;
@@ -570,6 +574,13 @@ impl Emitter {
     }
 
     // `m = {}` later used as `m[k].push(x)`: Rust needs to know the items are lists.
+    fn empty_hint(&self, n: &str, line: usize, value: &Expr) -> String {
+        match self.hints.get(&(n.to_string(), line)) {
+            Some((t, _)) => format!(": {t}"),
+            None => self.nested_hint(n, value),
+        }
+    }
+
     fn nested_hint(&self, n: &str, value: &Expr) -> String {
         if !self.nested.contains(n) {
             return String::new();
@@ -769,7 +780,7 @@ impl Emitter {
                 let p = self.pat(name);
                 let t = match (ty, name) {
                     (Some(t), _) => format!(": {}", rust_ty(t)),
-                    (None, Pat::Bind(n)) => self.nested_hint(n, value),
+                    (None, Pat::Bind(n)) => self.empty_hint(n, line, value),
                     _ => String::new(),
                 };
                 format!("let {}{p}{t} = {v};", if *mutable { "mut " } else { "" })
@@ -784,7 +795,7 @@ impl Emitter {
             {
                 let v = self.expr(value);
                 self.locals.insert(n.clone());
-                format!("let mut {n}{} = {v};", self.nested_hint(n, value))
+                format!("let mut {n}{} = {v};", self.empty_hint(n, line, value))
             }
             // `(a, b) = v` unpacks; new names are declared.
             Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {
