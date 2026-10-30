@@ -1,0 +1,42 @@
+var adj: {str: [str]} = {}
+var indeg: {str: int} = {}
+var names: [str] = []
+
+for line in lines() {
+  let t = line.trim()
+  if t != "" {
+    let parts = t.split("->")
+    let a = parts[0].trim()
+    let b = parts[1].trim()
+    for n in [a, b] {
+      if !indeg.has(n) {
+        indeg[n] = 0
+        names.push(n)
+      }
+    }
+    adj[a].push(b)
+    indeg[b] += 1
+  }
+}
+
+var free: [str] = []
+for n in names {
+  if indeg[n] == 0 { free.push(n) }
+}
+
+var out: [str] = []
+while !free.is_empty() {
+  free = free.sort()
+  let cur = free.remove(0)
+  out.push(cur)
+  for m in adj.get_or(cur, []) {
+    indeg[m] -= 1
+    if indeg[m] == 0 { free.push(m) }
+  }
+}
+
+if out.len() < names.len() {
+  print("cycle")
+} else {
+  for n in out { print(n) }
+}

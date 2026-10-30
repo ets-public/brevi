@@ -1,0 +1,19 @@
+fn sumj(j: Json) -> int {
+  match j {
+    Num(n) => n.int()
+    Arr(xs) => xs.map(x => sumj(x)).sum()
+    Obj(m) => {
+      var red = false
+      for v in m.values() {
+        match v {
+          Str(s) => { if s == "red" { red = true } }
+          _ => {}
+        }
+      }
+      if red { 0 } else { m.values().map(x => sumj(x)).sum() }
+    }
+    _ => 0
+  }
+}
+let j = json(stdin())?
+print(sumj(j))

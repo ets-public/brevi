@@ -21,7 +21,7 @@ pub struct Token {
 
 const KEYWORDS: &[&str] = &[
     "fn", "let", "var", "type", "enum", "if", "else", "for", "in", "while", "match", "return",
-    "true", "false", "mut", "test", "assert", "break", "continue", "and", "or",
+    "true", "false", "mut", "test", "assert", "break", "continue", "and", "or", "not",
 ];
 
 // Longest symbols first so the scanner can take the first match.
@@ -56,7 +56,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             col += 1;
             continue;
         }
-        if c == '/' && chars.get(i + 1) == Some(&'/') {
+        // `#` comments are accepted too, since models often write them.
+        if c == '#' || (c == '/' && chars.get(i + 1) == Some(&'/')) {
             while i < chars.len() && chars[i] != '\n' {
                 i += 1;
             }

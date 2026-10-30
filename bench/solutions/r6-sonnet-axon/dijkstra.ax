@@ -1,0 +1,31 @@
+let ls = lines().filter(l => !l.trim().is_empty())
+var adj: {str: [(str, int)]} = {}
+for l in ls.take(ls.len() - 1) {
+  let w = l.words()
+  let n = w[2].int()?
+  adj[w[0]].push((w[1], n))
+  adj[w[1]].push((w[0], n))
+}
+let ft = ls[-1].words()
+let src = ft[0]
+let dst = ft[1]
+var h = heap()
+h.push((0, [src]))
+var done: {str: bool} = {}
+var found = false
+while !h.is_empty() and !found {
+  let (d, path) = h.pop()
+  let u = path[-1]
+  if done.has(u) { continue }
+  done[u] = true
+  if u == dst {
+    print(d)
+    print(path.join("->"))
+    found = true
+  } else if adj.has(u) {
+    for (v, w) in adj[u] {
+      if !done.has(v) { h.push((d + w, path + [v])) }
+    }
+  }
+}
+if !found { print("none") }

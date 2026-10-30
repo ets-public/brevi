@@ -1,0 +1,11 @@
+let rows = csv(stdin())
+var tot: {str: dec} = {}
+for r in rows.skip(1) {
+  if r.len() < 3 { continue }
+  let q = r[1].trim().int()?
+  let p = r[2].trim().dec()?
+  let v = q.dec() * p
+  if tot.has(r[0]) { tot[r[0]] = tot[r[0]] + v } else { tot[r[0]] = v }
+}
+let ps = tot.pairs().sort_by(p => (0.dec() - p.1, p.0))
+for (k, v) in ps { print("{k}: {v.fmt(2)}") }

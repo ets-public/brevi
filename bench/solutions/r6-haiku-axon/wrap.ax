@@ -1,0 +1,42 @@
+let ls = lines()
+let width = ls[0].trim().int()?
+
+var paras: [[str]] = []
+var cur: [str] = []
+for ln in ls.skip(1) {
+  if ln.trim() == "" {
+    if cur.len() > 0 {
+      paras.push(cur)
+      cur = []
+    }
+  } else {
+    cur = cur + ln.words()
+  }
+}
+if cur.len() > 0 {
+  paras.push(cur)
+}
+
+var first = true
+for para in paras {
+  if !first {
+    print("")
+  }
+  first = false
+  var out: [str] = []
+  var curLine = ""
+  for w in para {
+    if curLine == "" {
+      curLine = w
+    } else if curLine.len() + 1 + w.len() <= width {
+      curLine += " " + w
+    } else {
+      out.push(curLine)
+      curLine = w
+    }
+  }
+  out.push(curLine)
+  for o in out {
+    print(o)
+  }
+}

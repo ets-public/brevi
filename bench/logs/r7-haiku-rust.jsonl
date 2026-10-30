@@ -1,0 +1,10 @@
+{"run":"r7-haiku-rust","lang":"rust","task":"calc","code_tok":1080,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-haiku-rust","lang":"rust","task":"topo","code_tok":697,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-haiku-rust","lang":"rust","task":"intervals","code_tok":422,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-haiku-rust","lang":"rust","task":"lru","code_tok":650,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r7-haiku-rust","lang":"rust","task":"json_sum","code_tok":1402,"out_tok":4,"compiled":true,"pass":4,"total":4}
+{"run":"r7-haiku-rust","lang":"rust","task":"bigadd","code_tok":529,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-haiku-rust","lang":"rust","task":"wrap","code_tok":642,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-haiku-rust","lang":"rust","task":"inventory","code_tok":1034,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r7-haiku-rust","lang":"rust","task":"dijkstra","code_tok":1268,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-haiku-rust","lang":"rust","task":"date_diff","code_tok":491,"out_tok":4,"compiled":true,"pass":3,"total":3}

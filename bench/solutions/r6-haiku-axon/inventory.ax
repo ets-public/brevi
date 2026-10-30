@@ -1,0 +1,19 @@
+let rows = csv(stdin())
+var tot: {str: int} = {}
+for r in rows.skip(1) {
+  if r.len() >= 3 {
+    let cents = (r[2].trim().dec()?.float() * 100.0).round().int()
+    let qty = r[1].trim().int()?
+    tot[r[0]] += qty * cents
+  }
+}
+
+var items: [(int, str)] = []
+for (name, v) in tot.pairs() {
+  items.push((0 - v, name))
+}
+let sorted = items.sort()
+for p in sorted {
+  let dollars = (0 - p.0).float() / 100.0
+  print("{p.1}: {dollars.fmt(2)}")
+}

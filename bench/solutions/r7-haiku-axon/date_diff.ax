@@ -1,0 +1,8 @@
+for line in lines() {
+  let p = line.words()
+  if p.len() == 2 {
+    let a = date(p[0])?
+    let b = date(p[1])?
+    print(abs(a.days - b.days))
+  }
+}

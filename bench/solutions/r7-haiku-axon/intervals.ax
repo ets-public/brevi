@@ -1,0 +1,31 @@
+var pairs: [(int, int)] = []
+
+for line in lines() {
+  if line.trim() != "" {
+    let nums = line.ints()?
+    pairs.push((nums[0], nums[1]))
+  }
+}
+
+pairs = pairs.sort()
+var merged: [(int, int)] = []
+for p in pairs {
+  if merged.is_empty() {
+    merged.push(p)
+  } else {
+    let last = merged.last()
+    if p.0 <= last.1 {
+      merged.pop()
+      merged.push((last.0, max(last.1, p.1)))
+    } else {
+      merged.push(p)
+    }
+  }
+}
+
+var total = 0
+for m in merged {
+  print("{m.0} {m.1}")
+  total += m.1 - m.0
+}
+print("total {total}")

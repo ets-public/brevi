@@ -407,7 +407,8 @@ impl Parser {
         if self.eat_sym("-") {
             return Ok(Expr::Unary("-", Box::new(self.unary()?)));
         }
-        if self.eat_sym("!") {
+        // `not` is accepted as a spelling of `!`.
+        if self.eat_sym("!") || self.eat_kw("not") {
             return Ok(Expr::Unary("!", Box::new(self.unary()?)));
         }
         self.postfix()

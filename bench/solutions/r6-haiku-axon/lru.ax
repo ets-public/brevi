@@ -1,0 +1,31 @@
+let ls = lines()
+let cap = ls[0].trim().int()?
+var vals: {str: str} = {}
+var order: [str] = []
+
+for line in ls.skip(1) {
+  let w = line.words()
+  if w.len() > 0 {
+    if w[0] == "put" {
+      let k = w[1]
+      let v = w[2]
+      if vals.has(k) {
+        order.remove(order.index_of(k))
+      } else if vals.len() >= cap {
+        let old = order.remove(0)
+        vals.remove(old)
+      }
+      order.push(k)
+      vals[k] = v
+    } else {
+      let k = w[1]
+      if vals.has(k) {
+        order.remove(order.index_of(k))
+        order.push(k)
+        print(vals[k])
+      } else {
+        print(-1)
+      }
+    }
+  }
+}

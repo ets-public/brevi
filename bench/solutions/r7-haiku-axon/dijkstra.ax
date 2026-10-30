@@ -1,0 +1,79 @@
+fn dists(src: str, adj: {str: [(str, int)]}, nodes: [str]) -> {str: int} {
+  var d: {str: int} = {}
+  var done: {str: bool} = {}
+  d[src] = 0
+  while true {
+    var best = ""
+    var bd = 0
+    for n in nodes {
+      if d.has(n) and !done.has(n) {
+        if best == "" or d[n] < bd {
+          best = n
+          bd = d[n]
+        }
+      }
+    }
+    if best == "" { break }
+    done[best] = true
+    for (v, w) in adj.get_or(best, []) {
+      let nd = bd + w
+      if !d.has(v) or nd < d[v] {
+        d[v] = nd
+      }
+    }
+  }
+  return d
+}
+
+let all = lines().filter(l => l.trim() != "")
+let q = all[-1].words()
+let src = q[0]
+let dst = q[1]
+
+var adj: {str: [(str, int)]} = {}
+var nodes: [str] = []
+var seen: {str: bool} = {}
+for l in all.slice(0, -1) {
+  let p = l.words()
+  let a = p[0]
+  let b = p[1]
+  let w = p[2].int()?
+  for n in [a, b] {
+    if !seen.has(n) {
+      seen[n] = true
+      nodes.push(n)
+    }
+  }
+  adj[a].push((b, w))
+  adj[b].push((a, w))
+}
+for n in [src, dst] {
+  if !seen.has(n) {
+    seen[n] = true
+    nodes.push(n)
+  }
+}
+
+let ds = dists(src, adj, nodes)
+if !ds.has(dst) {
+  print("none")
+} else {
+  let dist = ds[dst]
+  let dt = dists(dst, adj, nodes)
+  var path = [src]
+  var cur = src
+  while cur != dst {
+    var nxt = ""
+    for (v, w) in adj.get_or(cur, []) {
+      if dt.has(v) and ds[cur] + w + dt[v] == dist {
+        if nxt == "" or v < nxt {
+          nxt = v
+        }
+      }
+    }
+    path.push(nxt)
+    cur = nxt
+  }
+  print(dist)
+  print(path.join("->"))
+}

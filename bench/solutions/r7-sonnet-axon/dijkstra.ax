@@ -1,0 +1,44 @@
+let ls = lines().filter(l => !l.trim().is_empty())
+var adj: {str: [(str, int)]} = {}
+for l in ls.take(ls.len() - 1) {
+  let w = l.words()
+  let a = w[0]
+  let b = w[1]
+  let c = w[2].int()?
+  adj[a].push((b, c))
+  adj[b].push((a, c))
+}
+let ft = ls[-1].words()
+let src = ft[0]
+let dst = ft[1]
+var dist: {str: int} = {}
+var h = heap()
+dist[dst] = 0
+h.push((0, dst))
+while !h.is_empty() {
+  let (d, u) = h.pop()
+  if d > dist[u] { continue }
+  for (v, c) in adj.get_or(u, []) {
+    let nd = d + c
+    if !dist.has(v) or nd < dist[v] {
+      dist[v] = nd
+      h.push((nd, v))
+    }
+  }
+}
+if !dist.has(src) { print("none") } else {
+  print(dist[src])
+  var path = [src]
+  var cur = src
+  while cur != dst {
+    var best = ""
+    for (v, c) in adj[cur] {
+      if dist.has(v) and c + dist[v] == dist[cur] {
+        if best.is_empty() or v < best { best = v }
+      }
+    }
+    path.push(best)
+    cur = best
+  }
+  print(path.join("->"))
+}

@@ -1,0 +1,48 @@
+var adj: {str: [str]} = {}
+var indeg: {str: int} = {}
+var seen: {str: bool} = {}
+
+for line in lines() {
+  let t = line.trim()
+  if t != "" {
+    let parts = t.split("->")
+    let a = parts[0].trim()
+    let b = parts[1].trim()
+    adj[a].push(b)
+    indeg[b] += 1
+    seen[a] = true
+    seen[b] = true
+  }
+}
+
+let names = seen.keys()
+var done: {str: bool} = {}
+var order: [str] = []
+var bad = false
+
+while order.len() < names.len() and !bad {
+  var pick = ""
+  for v in names {
+    if !done.has(v) and indeg.get_or(v, 0) == 0 {
+      pick = v
+      break
+    }
+  }
+  if pick == "" {
+    bad = true
+  } else {
+    done[pick] = true
+    order.push(pick)
+    for w in adj.get_or(pick, []) {
+      indeg[w] -= 1
+    }
+  }
+}
+
+if bad {
+  print("cycle")
+} else {
+  for v in order {
+    print(v)
+  }
+}

@@ -1,0 +1,30 @@
+var iv: [(int, int)] = []
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  let w = line.ints()?
+  iv.push((w[0], w[1]))
+}
+iv = iv.sort()
+var total = 0
+var cs = 0
+var ce = 0
+var started = false
+for (a, b) in iv {
+  if !started {
+    cs = a
+    ce = b
+    started = true
+  } else if a <= ce {
+    if b > ce { ce = b }
+  } else {
+    print("{cs} {ce}")
+    total += ce - cs
+    cs = a
+    ce = b
+  }
+}
+if started {
+  print("{cs} {ce}")
+  total += ce - cs
+}
+print("total {total}")

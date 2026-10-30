@@ -1,0 +1,25 @@
+var iv: [(int, int)] = []
+for line in lines() {
+  if line.trim() != "" {
+    let p = line.ints()?
+    iv.push((p[0], p[1]))
+  }
+}
+
+let sorted = iv.sort()
+var out: [(int, int)] = []
+for (s, e) in sorted {
+  if out.len() > 0 and s <= out.last().1 {
+    let prev = out.pop()
+    out.push((prev.0, max(prev.1, e)))
+  } else {
+    out.push((s, e))
+  }
+}
+
+var total = 0
+for (s, e) in out {
+  print("{s} {e}")
+  total += e - s
+}
+print("total {total}")

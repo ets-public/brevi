@@ -1,0 +1,57 @@
+let ls = lines()
+var adj: {str: [(str, int)]} = {}
+var qfrom = ""
+var qto = ""
+
+for ln in ls {
+  let w = ln.words()
+  if w.len() == 3 {
+    let a = w[0]
+    let b = w[1]
+    let c = w[2].int()?
+    adj[a].push((b, c))
+    adj[b].push((a, c))
+  } else if w.len() == 2 {
+    qfrom = w[0]
+    qto = w[1]
+  }
+}
+
+// Dijkstra from the target, so the path can be rebuilt greedily from the source.
+var dist: {str: int} = {}
+var h: heap[(int, str)] = heap()
+h.push((0, qto))
+while !h.is_empty() {
+  let top = h.pop()
+  let d = top.0
+  let u = top.1
+  if !dist.has(u) {
+    dist[u] = d
+    for (v, w) in adj.get_or(u, []) {
+      if !dist.has(v) {
+        h.push((d + w, v))
+      }
+    }
+  }
+}
+
+if !dist.has(qfrom) {
+  print("none")
+} else {
+  print(dist[qfrom])
+  var path: [str] = [qfrom]
+  var u = qfrom
+  while u != qto {
+    var best = ""
+    for (v, w) in adj.get_or(u, []) {
+      if dist.has(v) and dist[v] + w == dist[u] {
+        if best == "" or v < best {
+          best = v
+        }
+      }
+    }
+    path.push(best)
+    u = best
+  }
+  print(path.join("->"))
+}

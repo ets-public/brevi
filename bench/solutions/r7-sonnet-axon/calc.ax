@@ -1,0 +1,65 @@
+var s = ""
+var pos = 0
+var err = false
+fn peek() -> str {
+  while pos < s.len() and s.slice(pos, pos + 1) == " " { pos += 1 }
+  if pos < s.len() { s.slice(pos, pos + 1) } else { "" }
+}
+fn atom() -> int {
+  let c = peek()
+  if c == "-" {
+    pos += 1
+    return 0 - atom()
+  }
+  if c == "(" {
+    pos += 1
+    let v = expr()
+    peek()
+    pos += 1
+    return v
+  }
+  var n = 0
+  while pos < s.len() and s.slice(pos, pos + 1).is_digit() {
+    n = n * 10 + s.slice(pos, pos + 1).digit()
+    pos += 1
+  }
+  n
+}
+fn term() -> int {
+  var v = atom()
+  while true {
+    let c = peek()
+    if c == "*" {
+      pos += 1
+      v = v * atom()
+    } else if c == "/" {
+      pos += 1
+      let d = atom()
+      if d == 0 { err = true
+        v = 0 } else { v = v / d }
+    } else { break }
+  }
+  v
+}
+fn expr() -> int {
+  var v = term()
+  while true {
+    let c = peek()
+    if c == "+" {
+      pos += 1
+      v = v + term()
+    } else if c == "-" {
+      pos += 1
+      v = v - term()
+    } else { break }
+  }
+  v
+}
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  s = line
+  pos = 0
+  err = false
+  let r = expr()
+  if err { print("error") } else { print(r) }
+}

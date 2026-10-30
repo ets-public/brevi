@@ -1,0 +1,43 @@
+fn wrap_words(words: [str], w: int) -> [str] {
+  var out: [str] = []
+  var cur = ""
+  for word in words {
+    if cur == "" {
+      cur = word
+    } else {
+      if cur.len() + 1 + word.len() <= w {
+        cur = cur + " " + word
+      } else {
+        out.push(cur)
+        cur = word
+      }
+    }
+  }
+  if cur != "" { out.push(cur) }
+  return out
+}
+
+let all = lines()
+let width = all[0].trim().int()?
+var paras: [[str]] = []
+var cur: [str] = []
+for line in all.skip(1) {
+  if line.trim() == "" {
+    if !cur.is_empty() {
+      paras.push(cur)
+      cur = []
+    }
+  } else {
+    cur = cur + line.words()
+  }
+}
+if !cur.is_empty() { paras.push(cur) }
+
+var first = true
+for p in paras {
+  if !first { print("") }
+  first = false
+  for l in wrap_words(p, width) {
+    print(l)
+  }
+}

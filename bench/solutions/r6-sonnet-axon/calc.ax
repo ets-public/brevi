@@ -1,0 +1,67 @@
+var cs: [str] = []
+var pos = 0
+var bad = false
+
+fn skip() {
+  while pos < cs.len() and cs[pos] == " " { pos += 1 }
+}
+
+fn atom() -> int {
+  skip()
+  if pos >= cs.len() { return 0 }
+  let c = cs[pos]
+  if c == "-" {
+    pos += 1
+    return 0 - atom()
+  }
+  if c == "(" {
+    pos += 1
+    let v = expr()
+    skip()
+    pos += 1
+    return v
+  }
+  var n = 0
+  while pos < cs.len() and cs[pos].is_digit() {
+    n = n * 10 + cs[pos].digit()
+    pos += 1
+  }
+  n
+}
+
+fn term() -> int {
+  var v = atom()
+  skip()
+  while pos < cs.len() and (cs[pos] == "*" or cs[pos] == "/") {
+    let op = cs[pos]
+    pos += 1
+    let r = atom()
+    if op == "*" { v = v * r } else {
+      if r == 0 { bad = true } else { v = v / r }
+    }
+    skip()
+  }
+  v
+}
+
+fn expr() -> int {
+  var v = term()
+  skip()
+  while pos < cs.len() and (cs[pos] == "+" or cs[pos] == "-") {
+    let op = cs[pos]
+    pos += 1
+    let r = term()
+    if op == "+" { v = v + r } else { v = v - r }
+    skip()
+  }
+  v
+}
+
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  cs = line.chars()
+  pos = 0
+  bad = false
+  let v = expr()
+  if bad { print("error") } else { print(v) }
+}

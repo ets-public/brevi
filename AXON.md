@@ -1,6 +1,6 @@
 # Axon language guide (for models)
 
-Axon compiles to Rust. Write one statement per line, no semicolons. Types are required only on function parameters and returns.
+Axon compiles to Rust. Write one statement per line, no semicolons. Comments start with `//`. Types are required only on function parameters and returns.
 A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables (`var pos = 0`; give a type when the value is not a literal: `var toks: [str] = []`).
 
 ```
@@ -39,13 +39,13 @@ A function (or the top level of a script) that uses `?` or `fail` can fail, and 
 Handle a failure with `match f(x) { Ok(v) => ..., Err(msg) => ... }` or `.or(default)`.
 
 ## Statements
-`let x = 1` fixed, `var x = 1` changeable, `x = 2`, `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
+`let x = 1` fixed, `var x = 1` changeable (use `var` for anything you change later, including with `push` or `pop`), `x = 2`, `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
 `if c { } else if d { } else { }`, `for x in xs { }`, `for (k, v) in m.pairs() { }`, `for i in 0..n { }`, `while c { }`.
 `if` and `match` are values: `let y = if a > b { a } else { b }`.
 Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.
 
 ## Operators
-`+ - * / %`, `== != < > <= >=`, `and`, `or`, `!`, `a ~= b` (float equal within 1e-6).
+`+ - * / %`, `== != < > <= >=`, `and`, `or`, `!` (or `not`), `a ~= b` (float equal within 1e-6).
 `+` joins strings and lists. int and f64 never mix: convert with `.float()` or `.int()`.
 Strings interpolate: `"{name} is {age}"` (a `{` not followed by a letter or `(` is a plain brace; `{{` is always a plain brace). Inside `{}` use names or simple expressions without quotes.
 Escapes: `\n \t \r \0 \" \\`.
@@ -73,7 +73,7 @@ Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert r
 - `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
 - `date("2024-02-29")?` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
 - `big` is an exact integer of any size: `"123...".big()?`, `n.big()`, with `+ - *` and comparisons.
-- `dec` is an exact decimal (9 places) for money: `"19.99".dec()?`, `n.dec()`, `+ - * /`, `sum`, `fmt(2)` (rounds half to even), `float int round`.
+- `dec` is an exact decimal (9 places) for money: `"19.99".dec()?`, `n.dec()`, `+ - * /`, unary `-`, comparisons, `sum`, `fmt(2)` (rounds half to even), `float int round`.
 - `heap()` is a min-heap: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
 
 ## Tests

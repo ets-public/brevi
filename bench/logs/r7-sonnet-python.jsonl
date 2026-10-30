@@ -1,0 +1,10 @@
+{"run":"r7-sonnet-python","lang":"python","task":"calc","code_tok":381,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-sonnet-python","lang":"python","task":"topo","code_tok":222,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-sonnet-python","lang":"python","task":"intervals","code_tok":130,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-sonnet-python","lang":"python","task":"lru","code_tok":180,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r7-sonnet-python","lang":"python","task":"json_sum","code_tok":134,"out_tok":4,"compiled":true,"pass":4,"total":4}
+{"run":"r7-sonnet-python","lang":"python","task":"bigadd","code_tok":45,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-sonnet-python","lang":"python","task":"wrap","code_tok":189,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-sonnet-python","lang":"python","task":"inventory","code_tok":150,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r7-sonnet-python","lang":"python","task":"dijkstra","code_tok":293,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r7-sonnet-python","lang":"python","task":"date_diff","code_tok":77,"out_tok":4,"compiled":true,"pass":3,"total":3}
