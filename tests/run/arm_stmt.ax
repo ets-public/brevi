@@ -1,0 +1,19 @@
+enum J { Num(n: int), Str(s: str), Nil }
+fn f(xs: [J]) -> int {
+  r = 0
+  for x in xs {
+    match x {
+      Num(n) => r += n
+      Str(s) => r = r + s.len()
+      Nil => continue
+    }
+  }
+  r
+}
+r = f([Num(3), Str("ab"), Nil])
+print(r)
+fn g() -> int {
+  r = 5
+  r
+}
+print(g())

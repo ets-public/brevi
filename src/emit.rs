@@ -340,7 +340,16 @@ impl Emitter {
                 if !used || self.globals.contains_key(n) {
                     continue;
                 }
-                match ty.clone().or_else(|| self.infer_ty(value)) {
+                let found = ty.clone().or_else(|| self.infer_ty(value));
+                // With no known type, a function that sets the name before reading it has its own local.
+                let own_local = |body: &String| {
+                    let id = format!("Ident({n:?})");
+                    body.find(&id).map_or(true, |i| body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")))
+                };
+                if found.is_none() && others.iter().all(|(ps, body)| ps.contains(n) || own_local(body)) {
+                    continue;
+                }
+                match found {
                     Some(t) => {
                         self.globals.insert(n.clone(), (t, *line));
                     }
@@ -350,7 +359,7 @@ impl Emitter {
                             Expr::Map(_) => "{str: int} = {}",
                             _ => "TYPE = ...",
                         };
-                        self.diag(*line, &format!("{n} is used inside a function, so it needs a type"), Some(format!("write var {n}: {example} with the real type")));
+                        self.diag(*line, &format!("{n} is used inside a function, so it needs a type"), Some(format!("write {n}: {example} with the real type")));
                         // Known by name from here on, so later uses are not reported too.
                         self.globals.insert(n.clone(), (Ty::Named("_".into()), *line));
                     }

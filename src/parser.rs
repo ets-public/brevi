@@ -599,7 +599,15 @@ impl Parser {
                     let p = self.pat()?;
                     self.expect_sym("=>")?;
                     self.skip_newlines();
-                    let body = if self.is_sym("{") { self.block()? } else { self.expr()? };
+                    let body = if self.is_sym("{") {
+                        self.block()?
+                    } else {
+                        // An arm can also be one statement, such as `Num(n) => total += n`.
+                        match self.stmt()? {
+                            Stmt::Expr { expr, .. } => expr,
+                            st => Expr::Block(vec![st], None),
+                        }
+                    };
                     arms.push((p, body));
                     self.skip_seps();
                 }
