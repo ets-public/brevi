@@ -1,0 +1,1 @@
+Stdin is a grid of characters: `.` open, `#` wall, `S` start, `E` end. Moving up, down, left or right one step at a time through non-wall cells, print the fewest steps from S to E, or -1 if unreachable.

@@ -1,0 +1,1 @@
+Read words from stdin (whitespace separated). Group words that are anagrams of each other. Within a group sort words alphabetically and join with spaces; print one group per line, groups sorted by their first word. Duplicate words appear once.

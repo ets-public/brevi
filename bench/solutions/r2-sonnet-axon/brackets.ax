@@ -1,0 +1,17 @@
+for l in lines() {
+  var st: [str] = []
+  var ok = true
+  for c in l.chars() {
+    if c == "(" or c == "[" or c == "{" { st.push(c) }
+    else if c == ")" or c == "]" or c == "}" {
+      let want = if c == ")" { "(" } else if c == "]" { "[" } else { "{" }
+      if st.is_empty() { ok = false
+        break }
+      if st[-1] != want { ok = false
+        break }
+      st.pop()
+    }
+  }
+  if !st.is_empty() { ok = false }
+  print(if ok { "yes" } else { "no" })
+}

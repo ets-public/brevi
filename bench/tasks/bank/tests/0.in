@@ -1,0 +1,5 @@
+deposit ann 50
+withdraw ann 20
+balance ann
+withdraw ann 100
+balance bob

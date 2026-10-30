@@ -13,12 +13,39 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     let toks = lex(src)?;
     let mut p = Parser { toks, pos: 0 };
     let mut items = Vec::new();
+    // Statements outside any function form the program's main (script mode).
+    let mut script = Vec::new();
+    let mut script_line = 0;
     loop {
         p.skip_newlines();
         if p.peek() == &Tok::Eof {
             break;
         }
-        items.push(p.item()?);
+        if matches!(p.peek(), Tok::Kw("fn" | "type" | "enum" | "test")) {
+            items.push(p.item()?);
+        } else {
+            if script.is_empty() {
+                script_line = p.line();
+            }
+            script.push(p.stmt()?);
+            if p.peek() != &Tok::Newline {
+                return Err(p.err(&format!("expected end of line, found {}", tok_text(p.peek()))));
+            }
+        }
+    }
+    if !script.is_empty() {
+        if items.iter().any(|i| matches!(i, Item::Fn { name, .. } if name == "main")) {
+            return Err(Diag::new("parse", script_line, 1, "top-level statements and fn main cannot both be used")
+                .fix_hint("move these statements into main, or delete fn main"));
+        }
+        items.push(Item::Fn {
+            name: "main".into(),
+            params: vec![],
+            ret: Ty::Unit,
+            fallible: true,
+            body: Expr::Block(script, None),
+            line: script_line,
+        });
     }
     Ok(items)
 }
@@ -226,6 +253,10 @@ impl Parser {
                 return Err(self.err("block is missing its closing '}'").fix_hint("insert '}'"));
             }
             stmts.push(self.stmt()?);
+            if self.is_sym("!") {
+                return Err(self.err("unexpected '!' after an expression")
+                    .fix_hint("use ? to pass an error up; ! only goes after a function's return type"));
+            }
             if !(self.peek() == &Tok::Newline || self.is_sym("}")) {
                 return Err(self.err(&format!("expected end of line, found {}", tok_text(self.peek())))
                     .fix_hint("put one statement per line"));
@@ -588,6 +619,10 @@ impl Parser {
                 '}' if chars.get(i + 1) == Some(&'}') => {
                     lit.push('}');
                     i += 2;
+                }
+                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || *c == '_' || *c == '(') => {
+                    lit.push('{');
+                    i += 1;
                 }
                 '{' => {
                     let mut depth = 1;

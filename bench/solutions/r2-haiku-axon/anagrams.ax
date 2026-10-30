@@ -1,0 +1,17 @@
+var uniq: {str: bool} = {}
+for w in stdin().words() {
+  uniq[w] = true
+}
+var groups: {str: [str]} = {}
+for w in uniq.keys() {
+  let key = w.chars().sort().join("")
+  groups[key].push(w)
+}
+var byfirst: {str: str} = {}
+for g in groups.values() {
+  let srt = g.sort()
+  byfirst[srt[0]] = srt.join(" ")
+}
+for k in byfirst.keys() {
+  print(byfirst[k])
+}

@@ -1,0 +1,16 @@
+var sums: {str: f64} = {}
+var counts: {str: int} = {}
+for line in lines().skip(1) {
+  if !line.trim().is_empty() {
+    let p = line.split(",")
+    let d = p[1].trim()
+    let s = p[2].trim().float()?
+    sums[d] += s
+    counts[d] += 1
+  }
+}
+for (d, s) in sums.pairs() {
+  let c = counts[d]
+  let avg = s / c.float()
+  print("{d} {avg.fmt(2)}")
+}

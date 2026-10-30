@@ -1,0 +1,53 @@
+fn encode(text: str) -> str {
+  var out = ""
+  var prev = ""
+  var count = 0
+  for c in text.chars() {
+    if c == prev {
+      count += 1
+    } else {
+      if count > 0 {
+        out += prev + str(count)
+      }
+      prev = c
+      count = 1
+    }
+  }
+  if count > 0 {
+    out += prev + str(count)
+  }
+  return out
+}
+
+fn decode(code: str) -> str {
+  let cs = code.chars()
+  let digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+  var out = ""
+  var i = 0
+  while i < cs.len() {
+    let ch = cs[i]
+    i += 1
+    var n = 0
+    while i < cs.len() and digits.contains(cs[i]) {
+      n = n * 10 + digits.index_of(cs[i])
+      i += 1
+    }
+    for k in 0..n {
+      out += ch
+    }
+  }
+  return out
+}
+
+fn main() {
+  for line in stdin().lines() {
+    if line.is_empty() { continue }
+    let op = line.chars()[0]
+    let rest = line.chars().skip(2).join("")
+    if op == "e" {
+      print(encode(rest))
+    } else {
+      print(decode(rest))
+    }
+  }
+}

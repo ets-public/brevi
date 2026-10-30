@@ -1,0 +1,37 @@
+fn opener(c: str) -> str {
+  if c == ")" {
+    return "("
+  }
+  if c == "]" {
+    return "["
+  }
+  return "{{"
+}
+
+fn check(s: str) -> bool {
+  var stack: [str] = []
+  for c in s.chars() {
+    if c == "(" or c == "[" or c == "{{" {
+      stack.push(c)
+    } else if c == ")" or c == "]" or c == "}}" {
+      if stack.is_empty() {
+        return false
+      }
+      let top = stack.pop()
+      if top != opener(c) {
+        return false
+      }
+    }
+  }
+  return stack.is_empty()
+}
+
+fn main() {
+  for line in stdin().lines() {
+    if check(line) {
+      print("yes")
+    } else {
+      print("no")
+    }
+  }
+}

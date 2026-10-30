@@ -1,0 +1,11 @@
+var seen: {str: int} = {}
+for w in stdin().words() { seen[w] += 1 }
+var groups: {str: [str]} = {}
+for w in seen.keys() {
+  groups[w.chars().sort().join("")].push(w)
+}
+var out: [str] = []
+for g in groups.values() {
+  out.push(g.sort().join(" "))
+}
+for l in out.sort() { print(l) }

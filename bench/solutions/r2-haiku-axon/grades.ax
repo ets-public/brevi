@@ -1,0 +1,28 @@
+var names: [str] = []
+var scores: [int] = []
+for line in lines() {
+  let p = line.words()
+  if p.len() >= 2 {
+    names.push(p[0])
+    scores.push(p[1].int()?)
+  }
+}
+let srt = scores.sort()
+let n = srt.len()
+var med = 0.0
+if n % 2 == 1 {
+  med = srt[n / 2].float()
+} else {
+  med = (srt[n / 2 - 1] + srt[n / 2]).float() / 2.0
+}
+print(med.fmt(1))
+let top = scores.max()
+var winners: [str] = []
+for i in 0..names.len() {
+  if scores[i] == top {
+    winners.push(names[i])
+  }
+}
+for w in winners.sort() {
+  print(w)
+}

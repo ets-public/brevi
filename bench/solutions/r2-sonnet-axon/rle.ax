@@ -1,0 +1,29 @@
+for l in lines() {
+  if l.len() < 2 { continue }
+  let cs = l.chars()
+  let rest = cs.skip(2)
+  var out = ""
+  if cs[0] == "e" {
+    var i = 0
+    while i < rest.len() {
+      var j = i
+      while j < rest.len() and rest[j] == rest[i] { j += 1 }
+      out = out + rest[i] + str(j - i)
+      i = j
+    }
+  } else {
+    var i = 0
+    while i < rest.len() {
+      let ch = rest[i]
+      var j = i + 1
+      var num = ""
+      while j < rest.len() and "0123456789".contains(rest[j]) {
+        num = num + rest[j]
+        j += 1
+      }
+      out = out + ch.repeat(num.int()?)
+      i = j
+    }
+  }
+  print(out)
+}

@@ -1,0 +1,18 @@
+fn ok(s: str) -> bool {
+  var st: [str] = []
+  for c in s.chars() {
+    if c == "(" or c == "[" or c == "{{" {
+      st.push(c)
+    } else if c == ")" or c == "]" or c == "}}" {
+      if st.is_empty() { return false }
+      let o = st.pop()
+      if (c == ")" and o != "(") or (c == "]" and o != "[") or (c == "}}" and o != "{{") { return false }
+    }
+  }
+  st.is_empty()
+}
+fn main() {
+  for line in stdin().lines() {
+    print(if ok(line) { "yes" } else { "no" })
+  }
+}

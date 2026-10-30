@@ -1,0 +1,12 @@
+{"run":"haiku-rust","lang":"rust","task":"sum_numbers","code_tok":132,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"haiku-rust","lang":"rust","task":"fizzbuzz","code_tok":216,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"haiku-rust","lang":"rust","task":"reverse_words","code_tok":95,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"haiku-rust","lang":"rust","task":"word_freq","code_tok":229,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"haiku-rust","lang":"rust","task":"csv_avg","code_tok":348,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"haiku-rust","lang":"rust","task":"bank","code_tok":371,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"haiku-rust","lang":"rust","task":"brackets","code_tok":236,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"haiku-rust","lang":"rust","task":"roman","code_tok":303,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"haiku-rust","lang":"rust","task":"grid_path","code_tok":658,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"haiku-rust","lang":"rust","task":"anagrams","code_tok":279,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"haiku-rust","lang":"rust","task":"rle","code_tok":456,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"haiku-rust","lang":"rust","task":"grades","code_tok":391,"out_tok":4,"compiled":true,"pass":2,"total":2}

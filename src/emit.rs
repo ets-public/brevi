@@ -6,15 +6,21 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "str", "fail"];
+const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write"];
 const METHODS: &[&str] = &[
     "abs", "all", "any", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
-    "float", "floor", "fold", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
+    "float", "floor", "fmt", "fold", "ints", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
     "words", "zip",
 ];
+
+// Methods that return a new value; calling one as a statement does nothing.
+const PURE_METHODS: &[&str] = &[
+    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip",
+];
+const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove"];
 
 struct FnSig {
     params: Vec<Param>,
@@ -170,7 +176,7 @@ impl Emitter {
         }
         match self.fns.get("main") {
             Some(sig) if sig.fallible => out.push_str(
-                "fn main() {\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",\\\"msg\\\":{:?}}}\", e.0);\n        std::process::exit(1);\n    }\n}\n",
+                "fn main() {\n    ax_init();\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",\\\"line\\\":{},\\\"msg\\\":{:?}}}\", AX_LINE.load(std::sync::atomic::Ordering::Relaxed), e.0);\n        std::process::exit(1);\n    }\n}\n",
             ),
             Some(_) => {}
             None => out.push_str("fn main() {}\n"),
@@ -197,11 +203,13 @@ impl Emitter {
             .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("{}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
+        let init = if name == "main" && !fallible { "ax_init();\n" } else { "" };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }
         let rret = if fallible { format!(" -> R<{}>", rust_ty(ret)) } else if matches!(ret, Ty::Unit) { String::new() } else { format!(" -> {}", rust_ty(ret)) };
         let b = self.body(body, ret, fallible);
+        let b = if init.is_empty() { b } else { b.replacen("{\n", &format!("{{\n    {init}"), 1) };
         format!("/*@L{line}*/fn {rname}({}){rret} {b}\n", ps.join(", "))
     }
 
@@ -218,7 +226,7 @@ impl Emitter {
         }
         match tail {
             Some(t) if unit => {
-                out.push_str(&format!("    {};\n", self.expr(t)));
+                out.push_str(&format!("    {};\n", self.stmt_expr(t)));
                 if fallible {
                     out.push_str("    Ok(())\n");
                 }
@@ -242,6 +250,11 @@ impl Emitter {
     }
 
     fn block(&mut self, e: &Expr) -> String {
+        self.block_d(e, false)
+    }
+
+    // discard: the block is used as a statement, so its last value is thrown away.
+    fn block_d(&mut self, e: &Expr, discard: bool) -> String {
         match e {
             Expr::Block(stmts, tail) => {
                 let mut out = String::from("{\n");
@@ -249,12 +262,42 @@ impl Emitter {
                     out.push_str(&self.stmt(s));
                 }
                 if let Some(t) = tail {
-                    out.push_str(&format!("    {}\n", self.expr(t)));
+                    if discard {
+                        out.push_str(&format!("    {};\n", self.stmt_expr(t)));
+                    } else {
+                        out.push_str(&format!("    {}\n", self.expr(t)));
+                    }
                 }
                 out.push('}');
                 out
             }
+            other if discard => format!("{{ {}; }}", self.stmt_expr(other)),
             other => format!("{{ {} }}", self.expr(other)),
+        }
+    }
+
+    // An expression whose value is not used: if/match branches need not agree on a type.
+    fn stmt_expr(&mut self, e: &Expr) -> String {
+        match e {
+            Expr::If(c, t, f) => {
+                let c = self.expr(c);
+                let t = self.block_d(t, true);
+                match f {
+                    Some(f) if matches!(f.as_ref(), Expr::If(..)) => format!("if {c} {t} else {}", self.stmt_expr(f)),
+                    Some(f) => format!("if {c} {t} else {}", self.block_d(f, true)),
+                    None => format!("if {c} {t}"),
+                }
+            }
+            Expr::Match(subj, arms) => self.match_expr(subj, arms, true),
+            Expr::Method(recv, name, _, line) if PURE_METHODS.contains(&name.as_str()) => {
+                let target = match recv.as_ref() {
+                    Expr::Ident(n) => n.clone(),
+                    _ => "x".into(),
+                };
+                self.diag(*line, &format!(".{name}() returns a new value and does not change {target}"), Some(format!("write {target} = {target}.{name}(...)")));
+                self.expr(e)
+            }
+            other => self.expr(other),
         }
     }
 
@@ -328,7 +371,7 @@ impl Emitter {
                     }
                 }
             }
-            Stmt::Expr { expr, .. } => format!("{};", self.expr(expr)),
+            Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
                 let v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
                 if self.fallible { format!("return Ok({v});") } else { format!("return {v};") }
@@ -337,7 +380,7 @@ impl Emitter {
             Stmt::Continue { .. } => "continue;".into(),
             Stmt::Assert { cond, .. } => format!("assert!({}, \"assert failed at line {line}\");", self.expr(cond)),
         };
-        format!("    /*@L{line}*/{body}\n")
+        format!("    /*@L{line}*/ax_l({line}); {body}\n")
     }
 
     // A place that can be written to.
@@ -450,7 +493,8 @@ impl Emitter {
             }
             Expr::Call(name, args, line) => {
                 self.line = *line;
-                self.call(name, args, false)
+                let c = self.call(name, args, false);
+                if c.starts_with("(return") { c } else { format!("{{ ax_l({line}); {c} }}") }
             }
             Expr::Method(recv, name, args, line) => {
                 self.line = *line;
@@ -458,9 +502,14 @@ impl Emitter {
                     let hint = closest(name, METHODS.iter().copied()).map(|c| format!("did you mean .{c}()?"));
                     self.diag(*line, &format!("unknown method .{name}()"), hint);
                 }
-                let r = self.place(recv);
+                // Changing a list stored in a map or list creates the entry if needed.
+                let r = if MUTATING_METHODS.contains(&name.as_str()) && matches!(recv.as_ref(), Expr::Index(..)) {
+                    self.place_mut(recv)
+                } else {
+                    self.place(recv)
+                };
                 let a: Vec<String> = args.iter().map(|a| self.expr(a)).collect();
-                format!("{r}.ax_{name}({})", a.join(", "))
+                format!("{{ ax_l({line}); {r}.ax_{name}({}) }}", a.join(", "))
             }
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
             Expr::Index(b, i) => {
@@ -496,20 +545,7 @@ impl Emitter {
                     None => format!("if {c} {t}"),
                 }
             }
-            Expr::Match(subj, arms) => {
-                let has_str = arms.iter().any(|(p, _)| matches!(p, Pat::Str(_)));
-                let s = self.expr(subj);
-                let s = if has_str { format!("({s}).as_str()") } else { s };
-                let mut out = format!("match {s} {{\n");
-                for (p, body) in arms {
-                    self.bind_pat(p);
-                    let p = self.pat(p);
-                    let b = self.block(body);
-                    out.push_str(&format!("        {p} => {b},\n"));
-                }
-                out.push_str("    }");
-                out
-            }
+            Expr::Match(subj, arms) => self.match_expr(subj, arms, false),
             Expr::For(p, iter, body) => {
                 // Assigning to the loop variable edits the list in place.
                 if let (Pat::Bind(n), Expr::Ident(_)) = (p, iter.as_ref()) {
@@ -517,7 +553,7 @@ impl Emitter {
                         let it = self.place_mut(iter);
                         self.locals.insert(n.clone());
                         self.refs.insert(n.clone());
-                        let b = self.block(body);
+                        let b = self.block_d(body, true);
                         self.refs.remove(n);
                         return format!("for {n} in {it}.iter_mut() {b}");
                     }
@@ -525,16 +561,31 @@ impl Emitter {
                 let it = self.expr(iter);
                 self.bind_pat(p);
                 let p = self.pat(p);
-                let b = self.block(body);
+                let b = self.block_d(body, true);
                 format!("for {p} in {it} {b}")
             }
             Expr::While(c, body) => {
                 let c = self.expr(c);
-                format!("while {c} {}", self.block(body))
+                format!("while {c} {}", self.block_d(body, true))
             }
             Expr::Range(a, b) => format!("({}..{}).collect::<Vec<i64>>()", self.expr(a), self.expr(b)),
             Expr::Block(..) => self.block(e),
         }
+    }
+
+    fn match_expr(&mut self, subj: &Expr, arms: &[(Pat, Expr)], discard: bool) -> String {
+        let has_str = arms.iter().any(|(p, _)| matches!(p, Pat::Str(_)));
+        let s = self.expr(subj);
+        let s = if has_str { format!("({s}).as_str()") } else { s };
+        let mut out = format!("match {s} {{\n");
+        for (p, body) in arms {
+            self.bind_pat(p);
+            let p = self.pat(p);
+            let b = self.block_d(body, discard);
+            out.push_str(&format!("        {p} => {b},\n"));
+        }
+        out.push_str("    }");
+        out
     }
 
     fn call(&mut self, name: &str, args: &[(Option<String>, Expr)], tried: bool) -> String {
@@ -543,7 +594,7 @@ impl Emitter {
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
         match name {
-            "print" | "read" | "write" | "args" | "input" | "stdin" => return format!("{name}({})", plain.join(", ")),
+            "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" => return format!("{name}({})", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "fail" => {
                 if !self.fallible {

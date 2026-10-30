@@ -1,0 +1,2 @@
+use std::io::*;
+fn main(){let mut s=String::new();stdin().read_to_string(&mut s).unwrap();for l in s.lines(){let (c,t)=match l.split_once(' '){Some(x)=>x,None=>(l,"")};let ch:Vec<char>=t.chars().collect();let mut o=String::new();if c=="e"{let mut i=0;while i<ch.len(){let mut j=i;while j<ch.len()&&ch[j]==ch[i]{j+=1;}o.push(ch[i]);o+=&(j-i).to_string();i=j;}}else{let mut i=0;while i<ch.len(){let c=ch[i];i+=1;let mut n=String::new();while i<ch.len()&&ch[i].is_ascii_digit(){n.push(ch[i]);i+=1;}let k:usize=n.parse().unwrap_or(1);for _ in 0..k{o.push(c);}}}println!("{}",o);}}

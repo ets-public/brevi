@@ -1,0 +1,20 @@
+fn main() ! {
+  var acc: {str: int} = {}
+  for line in stdin().lines() {
+    let p = line.words()
+    if p.is_empty() { continue }
+    let name = p[1]
+    if p[0] == "deposit" {
+      acc[name] += p[2].int()?
+    } else if p[0] == "withdraw" {
+      let a = p[2].int()?
+      if a > acc.get_or(name, 0) {
+        print("error: insufficient funds for {name}")
+      } else {
+        acc[name] -= a
+      }
+    } else {
+      print("{name} {acc.get_or(name, 0)}")
+    }
+  }
+}

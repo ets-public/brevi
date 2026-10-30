@@ -1,0 +1,20 @@
+let text = stdin().lower()
+var counts: {str: int} = {}
+for w in text.words() {
+  counts[w] += 1
+}
+var used: [str] = []
+for k in 0..3 {
+  var best = ""
+  var bestc = 0
+  for (w, c) in counts.pairs() {
+    if !used.contains(w) and c > bestc {
+      best = w
+      bestc = c
+    }
+  }
+  if bestc > 0 {
+    print("{best} {bestc}")
+    used.push(best)
+  }
+}

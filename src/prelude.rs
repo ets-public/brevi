@@ -12,6 +12,23 @@ impl<E: std::fmt::Display> From<E> for AxErr {
 }
 pub type R<T> = Result<T, AxErr>;
 
+// Current Axon line, so runtime errors can point at the source.
+pub static AX_LINE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+#[inline(always)]
+pub fn ax_l(n: usize) {
+    AX_LINE.store(n, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn ax_init() {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = match info.payload().downcast_ref::<&str>() {
+            Some(s) => s.to_string(),
+            None => info.payload().downcast_ref::<String>().cloned().unwrap_or_else(|| "panic".into()),
+        };
+        let line = AX_LINE.load(std::sync::atomic::Ordering::Relaxed);
+        eprintln!("{{\"e\":\"runtime\",\"line\":{line},\"msg\":{msg:?}}}");
+    }));
+}
+
 pub trait Show {
     fn show(&self) -> String;
 }
@@ -92,6 +109,9 @@ pub fn stdin() -> String {
     std::io::stdin().read_to_string(&mut s).ok();
     s
 }
+pub fn lines() -> Vec<String> {
+    stdin().lines().map(String::from).collect()
+}
 pub fn ax_approx(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-6 * (1.0 + a.abs().max(b.abs()))
 }
@@ -122,11 +142,15 @@ impl<T> Plus for Vec<T> {
 }
 
 pub trait AxNum {
+    fn ax_fmt(&self, decimals: i64) -> String;
     fn ax_abs(&self) -> Self;
     fn ax_float(&self) -> f64;
     fn ax_int(&self) -> i64;
 }
 impl AxNum for i64 {
+    fn ax_fmt(&self, decimals: i64) -> String {
+        format!("{:.*}", decimals.max(0) as usize, *self as f64)
+    }
     fn ax_abs(&self) -> i64 {
         self.abs()
     }
@@ -138,6 +162,9 @@ impl AxNum for i64 {
     }
 }
 impl AxNum for f64 {
+    fn ax_fmt(&self, decimals: i64) -> String {
+        format!("{:.*}", decimals.max(0) as usize, self)
+    }
     fn ax_abs(&self) -> f64 {
         self.abs()
     }
@@ -186,6 +213,7 @@ pub trait AxStr {
     fn ax_repeat(&self, n: i64) -> String;
     fn ax_int(&self) -> R<i64>;
     fn ax_float(&self) -> R<f64>;
+    fn ax_ints(&self) -> R<Vec<i64>>;
 }
 impl AxStr for String {
     fn ax_len(&self) -> i64 {
@@ -235,6 +263,9 @@ impl AxStr for String {
     }
     fn ax_float(&self) -> R<f64> {
         self.trim().parse::<f64>().map_err(|_| AxErr(format!("not a float: {self:?}")))
+    }
+    fn ax_ints(&self) -> R<Vec<i64>> {
+        self.split_whitespace().map(|w| w.parse::<i64>().map_err(|_| AxErr(format!("not an int: {w:?}")))).collect()
     }
 }
 

@@ -1,0 +1,1 @@
+Each stdin line is `e TEXT` or `d CODE`. For `e`, print the run-length encoding of TEXT as char then count for each run (e.g. `aaab` -> `a3b1`). For `d`, decode such a code back (counts may have several digits).

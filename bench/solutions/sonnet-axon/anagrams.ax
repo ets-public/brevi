@@ -1,0 +1,14 @@
+fn main() {
+  var m: {str: [str]} = {}
+  for w in stdin().words() {
+    let k = w.chars().sort().join("")
+    if !m.get_or(k, []).contains(w) { m[k] += [w] }
+  }
+  var groups: [str] = []
+  var firsts: [(str, str)] = []
+  for (k, ws) in m.pairs() {
+    let s = ws.sort()
+    firsts.push((s[0], s.join(" ")))
+  }
+  for g in firsts.sort() { print(g.1) }
+}

@@ -1,0 +1,13 @@
+var rows: [(str, int)] = []
+for l in lines() {
+  let w = l.words()
+  if w.len() < 2 { continue }
+  rows.push((w[0], w[1].int()?))
+}
+let sc = rows.map(r => r.1).sort()
+let n = sc.len()
+let med = if n % 2 == 1 { sc[n / 2].float() } else { (sc[n / 2 - 1] + sc[n / 2]).float() / 2.0 }
+print(med.fmt(1))
+let top = sc[-1]
+var names = rows.filter(r => r.1 == top).map(r => r.0).sort()
+for x in names { print(x) }

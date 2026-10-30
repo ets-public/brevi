@@ -1,0 +1,14 @@
+fn main() ! {
+  var rows: [(str, int)] = []
+  for line in stdin().lines() {
+    let p = line.words()
+    if p.len() < 2 { continue }
+    rows.push((p[0], p[1].int()?))
+  }
+  let sc = rows.map(r => r.1).sort()
+  let n = sc.len()
+  let twice = if n % 2 == 1 { sc[n / 2] * 2 } else { sc[n / 2 - 1] + sc[n / 2] }
+  print("{twice / 2}.{if twice % 2 == 1 { 5 } else { 0 }}")
+  let mx = sc.max()
+  for nm in rows.filter(r => r.1 == mx).map(r => r.0).sort() { print(nm) }
+}

@@ -1,0 +1,28 @@
+fn key(w: str) -> str {
+  let cs = w.chars().sort()
+  return cs.join("")
+}
+
+fn main() {
+  var groups: {str: [str]} = {}
+  var seen: {str: bool} = {}
+  for w in stdin().split(" ") {
+    let t = w.trim()
+    if t.is_empty() { continue }
+    if seen.has(t) { continue }
+    seen[t] = true
+    let k = key(t)
+    var g = groups.get_or(k, [])
+    g.push(t)
+    groups[k] = g
+  }
+  var lines: [str] = []
+  for g in groups.values() {
+    let s = g.sort()
+    lines.push(s.join(" "))
+  }
+  let sorted_lines = lines.sort()
+  for l in sorted_lines {
+    print(l)
+  }
+}

@@ -1,0 +1,4 @@
+for line in lines() {
+  let ws = line.split(" ").filter(w => !w.is_empty())
+  print(ws.rev().join(" "))
+}

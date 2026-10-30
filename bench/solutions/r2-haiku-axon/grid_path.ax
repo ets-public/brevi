@@ -1,0 +1,53 @@
+let grid = lines().filter(l => !l.trim().is_empty())
+let h = grid.len()
+let w = grid[0].len()
+var cells: [str] = []
+for row in grid {
+  for ch in row.chars() {
+    cells.push(ch)
+  }
+}
+let n = cells.len()
+var s = 0
+var e = 0
+for i in 0..n {
+  if cells[i] == "S" {
+    s = i
+  }
+  if cells[i] == "E" {
+    e = i
+  }
+}
+var dist: [int] = []
+for i in 0..n {
+  dist.push(-1)
+}
+dist[s] = 0
+var q: [int] = [s]
+var head = 0
+while head < q.len() {
+  let cur = q[head]
+  head += 1
+  let r = cur / w
+  let c = cur % w
+  var nbrs: [int] = []
+  if r > 0 {
+    nbrs.push(cur - w)
+  }
+  if r < h - 1 {
+    nbrs.push(cur + w)
+  }
+  if c > 0 {
+    nbrs.push(cur - 1)
+  }
+  if c < w - 1 {
+    nbrs.push(cur + 1)
+  }
+  for nb in nbrs {
+    if cells[nb] != "#" and dist[nb] < 0 {
+      dist[nb] = dist[cur] + 1
+      q.push(nb)
+    }
+  }
+}
+print(dist[e])

@@ -160,8 +160,9 @@ fn rustc(rust: &str, dir: &Path, out: &Path, file: &str, extra: &[&str], link: b
         } else if !label.is_empty() && !text.contains(&label) {
             text = format!("{text}: {}", to_axon_words(&label));
         }
-        let fix = fix_for(code, msg);
-        if !seen.insert((aline, text.clone())) {
+        let fix = fix_for(code, &format!("{msg} {label}"));
+        // One error per line: later ones are usually knock-on effects.
+        if !seen.insert(aline) {
             continue;
         }
         let mut d = Diag::new("type", aline, 1, &text);
@@ -207,6 +208,7 @@ fn to_axon_words(s: &str) -> String {
     t = rewrite_generic(&t, "Vec", |args| format!("[{}]", args));
     t = rewrite_generic(&t, "BTreeMap", |args| format!("{{{}}}", args.replacen(", ", ": ", 1)));
     t = rewrite_generic(&t, "R", |args| format!("{args} !"));
+    t = rewrite_generic(&t, "Result", |args| format!("{} !", args.trim_end_matches(", AxErr")));
     t.replace("ax_", "")
 }
 
@@ -259,8 +261,12 @@ fn rewrite_generic(s: &str, name: &str, f: impl Fn(&str) -> String) -> String {
 }
 
 fn fix_for(code: &str, msg: &str) -> Option<String> {
+    if msg.contains("Result<") || msg.contains("AxErr") {
+        return Some("this value can fail: add ? after the call that produced it".into());
+    }
     match code {
         "E0384" | "E0596" => Some("declare the variable with var instead of let, or mark the parameter mut".into()),
+        "E0308" if msg.contains("Result") || msg.contains("R<") => Some("a call that can fail needs ? after it".into()),
         "E0308" if msg.contains("mismatched") => Some("convert with .int(), .float() or str(x)".into()),
         "E0599" => Some("check the method name and the value's type".into()),
         "E0277" if msg.contains("Plus") => Some("both sides of + must have the same type".into()),

@@ -1,0 +1,12 @@
+{"run":"sonnet-python","lang":"python","task":"sum_numbers","code_tok":24,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-python","lang":"python","task":"fizzbuzz","code_tok":58,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-python","lang":"python","task":"reverse_words","code_tok":27,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-python","lang":"python","task":"word_freq","code_tok":69,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-python","lang":"python","task":"csv_avg","code_tok":86,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-python","lang":"python","task":"bank","code_tok":159,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-python","lang":"python","task":"brackets","code_tok":146,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-python","lang":"python","task":"roman","code_tok":167,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-python","lang":"python","task":"grid_path","code_tok":287,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-python","lang":"python","task":"anagrams","code_tok":90,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-python","lang":"python","task":"rle","code_tok":173,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-python","lang":"python","task":"grades","code_tok":149,"out_tok":4,"compiled":true,"pass":2,"total":2}

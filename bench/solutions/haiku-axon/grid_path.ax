@@ -1,0 +1,46 @@
+fn main() {
+  let rows = stdin().lines().filter(l => !l.trim().is_empty())
+  let h = rows.len()
+  let w = rows[0].trim().len()
+  var cells: [str] = []
+  var start = 0
+  var goal = 0
+  for r in 0..h {
+    let line = rows[r].trim()
+    for c in 0..w {
+      let ch = line[c]
+      cells.push(ch)
+      if ch == "S" {
+        start = r * w + c
+      }
+      if ch == "E" {
+        goal = r * w + c
+      }
+    }
+  }
+  var dist: [int] = []
+  for i in 0..h * w {
+    dist.push(-1)
+  }
+  var queue: [int] = [start]
+  dist[start] = 0
+  var head = 0
+  while head < queue.len() {
+    let cur = queue[head]
+    head += 1
+    let r = cur / w
+    let c = cur % w
+    var nbrs: [int] = []
+    if r > 0 { nbrs.push(cur - w) }
+    if r < h - 1 { nbrs.push(cur + w) }
+    if c > 0 { nbrs.push(cur - 1) }
+    if c < w - 1 { nbrs.push(cur + 1) }
+    for n in nbrs {
+      if cells[n] != "#" and dist[n] < 0 {
+        dist[n] = dist[cur] + 1
+        queue.push(n)
+      }
+    }
+  }
+  print(dist[goal])
+}

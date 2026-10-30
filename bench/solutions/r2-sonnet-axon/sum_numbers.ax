@@ -1,0 +1,2 @@
+let nums = stdin().ints()?
+print(nums.sum())

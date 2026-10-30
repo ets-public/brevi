@@ -1,0 +1,1 @@
+Process commands from stdin, one per line: `deposit NAME AMOUNT`, `withdraw NAME AMOUNT`, `balance NAME`. Accounts start at 0. For `balance` print `NAME BALANCE`. If a withdrawal exceeds the balance, do not change it and print `error: insufficient funds for NAME`.

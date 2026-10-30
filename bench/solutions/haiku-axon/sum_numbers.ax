@@ -1,0 +1,9 @@
+fn main() ! {
+  var total = 0
+  for line in stdin().lines() {
+    let t = line.trim()
+    if t.is_empty() { continue }
+    total += t.int()?
+  }
+  print(total)
+}

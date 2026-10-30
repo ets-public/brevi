@@ -1,0 +1,47 @@
+for line in lines() {
+  let cs = line.chars()
+  if !cs.is_empty() {
+    let cmd = cs[0]
+    if cmd == "e" {
+      var out = ""
+      var prev = ""
+      var cnt = 0
+      for i in 2..cs.len() {
+        let ch = cs[i]
+        if ch == prev {
+          cnt += 1
+        } else {
+          if cnt > 0 {
+            out += "{prev}{cnt}"
+          }
+          prev = ch
+          cnt = 1
+        }
+      }
+      if cnt > 0 {
+        out += "{prev}{cnt}"
+      }
+      print(out)
+    } else if cmd == "d" {
+      var out = ""
+      var letter = ""
+      var num = ""
+      for i in 2..cs.len() {
+        let ch = cs[i]
+        if "0123456789".contains(ch) {
+          num += ch
+        } else {
+          if letter != "" {
+            out += letter.repeat(num.int()?)
+          }
+          letter = ch
+          num = ""
+        }
+      }
+      if letter != "" {
+        out += letter.repeat(num.int()?)
+      }
+      print(out)
+    }
+  }
+}

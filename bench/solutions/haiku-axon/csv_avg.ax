@@ -1,0 +1,26 @@
+fn main() ! {
+  var sums: {str: f64} = {}
+  var counts: {str: int} = {}
+  var first = true
+  for line in stdin().lines() {
+    if first {
+      first = false
+      continue
+    }
+    let t = line.trim()
+    if t.is_empty() { continue }
+    let parts = t.split(",")
+    let dept = parts[1].trim()
+    let sal = parts[2].trim().float()?
+    sums[dept] += sal
+    counts[dept] += 1
+  }
+  for d in sums.keys() {
+    let avg = sums[d] / counts[d].float()
+    let cents = (avg * 100.0 + 0.5).floor().int()
+    let whole = cents / 100
+    let frac = cents % 100
+    let fs = if frac < 10 { "0" + str(frac) } else { str(frac) }
+    print(d + " " + str(whole) + "." + fs)
+  }
+}

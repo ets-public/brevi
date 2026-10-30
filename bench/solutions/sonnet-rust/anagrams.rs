@@ -1,0 +1,2 @@
+use std::io::*;use std::collections::{BTreeMap,BTreeSet};
+fn main(){let mut s=String::new();stdin().read_to_string(&mut s).unwrap();let mut m:BTreeMap<Vec<char>,BTreeSet<String>>=BTreeMap::new();for w in s.split_whitespace(){let mut k:Vec<char>=w.chars().collect();k.sort();m.entry(k).or_default().insert(w.to_string());}let mut g:Vec<Vec<String>>=m.into_values().map(|s|s.into_iter().collect()).collect();g.sort();for x in g{println!("{}",x.join(" "));}}

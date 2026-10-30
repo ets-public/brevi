@@ -1,0 +1,26 @@
+fn fmt2(x: f64) -> str {
+  let c = (x * 100.0).round().int()
+  let r = c % 100
+  let rs = if r < 10 { "0{r}" } else { "{r}" }
+  "{c / 100}.{rs}"
+}
+fn main() ! {
+  var sums: {str: f64} = {}
+  var cnt: {str: int} = {}
+  var first = true
+  for line in stdin().lines() {
+    if first {
+      first = false
+      continue
+    }
+    if line.trim().is_empty() { continue }
+    let f = line.split(",")
+    let d = f[1].trim()
+    sums[d] += f[2].trim().float()?
+    cnt[d] += 1
+  }
+  for (d, s) in sums.pairs() {
+    let avg = s / cnt[d].float()
+    print("{d} {fmt2(avg)}")
+  }
+}

@@ -1,0 +1,17 @@
+fn main() ! {
+  let vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  let syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  for line in stdin().lines() {
+    let t = line.trim()
+    if t.is_empty() { continue }
+    var n = t.int()?
+    var out = ""
+    for i in 0..13 {
+      while n >= vals[i] {
+        out += syms[i]
+        n -= vals[i]
+      }
+    }
+    print(out)
+  }
+}

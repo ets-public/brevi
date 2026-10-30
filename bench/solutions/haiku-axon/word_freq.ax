@@ -1,0 +1,13 @@
+fn main() {
+  var counts: {str: int} = {}
+  let text = stdin().lower().replace("\n", " ").replace("\t", " ")
+  for w in text.split(" ") {
+    if !w.is_empty() {
+      counts[w] += 1
+    }
+  }
+  let pairs = counts.pairs().sort_by(p => -p.1)
+  for p in pairs.take(3) {
+    print(p.0 + " " + str(p.1))
+  }
+}

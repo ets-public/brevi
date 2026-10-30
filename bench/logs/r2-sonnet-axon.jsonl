@@ -1,0 +1,12 @@
+{"run":"r2-sonnet-axon","lang":"axon","task":"sum_numbers","code_tok":19,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r2-sonnet-axon","lang":"axon","task":"fizzbuzz","code_tok":81,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r2-sonnet-axon","lang":"axon","task":"reverse_words","code_tok":27,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r2-sonnet-axon","lang":"axon","task":"word_freq","code_tok":88,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r2-sonnet-axon","lang":"axon","task":"csv_avg","code_tok":157,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r2-sonnet-axon","lang":"axon","task":"bank","code_tok":176,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r2-sonnet-axon","lang":"axon","task":"brackets","code_tok":197,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r2-sonnet-axon","lang":"axon","task":"roman","code_tok":175,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r2-sonnet-axon","lang":"axon","task":"grid_path","code_tok":345,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r2-sonnet-axon","lang":"axon","task":"anagrams","code_tok":127,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"r2-sonnet-axon","lang":"axon","task":"rle","code_tok":232,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"r2-sonnet-axon","lang":"axon","task":"grades","code_tok":198,"out_tok":4,"compiled":true,"pass":2,"total":2}

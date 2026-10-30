@@ -81,9 +81,14 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         s.push(match e {
                             'n' => '\n',
                             't' => '\t',
+                            'r' => '\r',
+                            '0' => '\0',
                             '"' => '"',
                             '\\' => '\\',
-                            other => other,
+                            other => {
+                                return Err(Diag::new("lex", line, col, &format!("unknown escape \\{other}"))
+                                    .fix_hint("escapes are \\n \\t \\r \\0 \\\" \\\\"));
+                            }
                         });
                         i += 2;
                         col += 2;

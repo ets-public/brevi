@@ -1,0 +1,10 @@
+var acc: {str: int} = {}
+for l in lines() {
+  let w = l.words()
+  if w.is_empty() { continue }
+  if w[0] == "deposit" { acc[w[1]] += w[2].int()? }
+  else if w[0] == "withdraw" {
+    let a = w[2].int()?
+    if a > acc.get_or(w[1], 0) { print("error: insufficient funds for {w[1]}") } else { acc[w[1]] -= a }
+  } else { print("{w[1]} {acc.get_or(w[1], 0)}") }
+}

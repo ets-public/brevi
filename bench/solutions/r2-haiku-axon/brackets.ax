@@ -1,0 +1,24 @@
+for line in lines() {
+  var stack: [str] = []
+  var ok = true
+  for c in line.chars() {
+    if c == "(" or c == "[" or c == "{" {
+      stack.push(c)
+    } else if c == ")" or c == "]" or c == "}" {
+      let want = if c == ")" { "(" } else if c == "]" { "[" } else { "{" }
+      if ok and !stack.is_empty() and stack.last() == want {
+        stack.pop()
+      } else {
+        ok = false
+      }
+    }
+  }
+  if ok and !stack.is_empty() {
+    ok = false
+  }
+  if ok {
+    print("yes")
+  } else {
+    print("no")
+  }
+}

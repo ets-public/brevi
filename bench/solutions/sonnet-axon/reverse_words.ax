@@ -1,0 +1,5 @@
+fn main() {
+  for line in stdin().lines() {
+    print(line.words().rev().join(" "))
+  }
+}

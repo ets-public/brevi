@@ -1,0 +1,2 @@
+use std::io::*;use std::collections::BTreeMap;
+fn main(){let mut s=String::new();stdin().read_to_string(&mut s).unwrap();let mut m:BTreeMap<String,(f64,usize)>=BTreeMap::new();for l in s.lines().skip(1){let p:Vec<&str>=l.trim().split(',').collect();if p.len()<3{continue;}if let Ok(x)=p[2].trim().parse::<f64>(){let e=m.entry(p[1].trim().to_string()).or_insert((0.0,0));e.0+=x;e.1+=1;}}for (d,(t,c)) in m{println!("{} {:.2}",d,t/c as f64);}}

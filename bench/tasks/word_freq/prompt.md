@@ -1,0 +1,1 @@
+Read text from stdin. Words are separated by whitespace; compare them lowercased. Print the 3 most frequent words as `word count`, one per line, most frequent first; break ties alphabetically. If fewer than 3 distinct words, print them all.

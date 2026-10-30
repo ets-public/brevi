@@ -1,0 +1,15 @@
+var tot: {str: int} = {}
+var cnt: {str: int} = {}
+var first = true
+for l in lines() {
+  if first { first = false
+    continue }
+  if l.trim().is_empty() { continue }
+  let f = l.split(",")
+  let s = f[2].trim().int()?
+  tot[f[1]] += s
+  cnt[f[1]] += 1
+}
+for (d, t) in tot.pairs() {
+  print("{d} {(t.float() / cnt[d].float()).fmt(2)}")
+}

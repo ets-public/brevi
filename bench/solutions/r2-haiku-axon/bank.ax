@@ -1,0 +1,23 @@
+var acc: {str: int} = {}
+for line in lines() {
+  let p = line.words()
+  if !p.is_empty() {
+    let cmd = p[0]
+    let name = p[1]
+    if cmd == "deposit" {
+      let amt = p[2].int()?
+      acc[name] += amt
+    } else if cmd == "withdraw" {
+      let amt = p[2].int()?
+      let bal = acc.get_or(name, 0)
+      if amt > bal {
+        print("error: insufficient funds for {name}")
+      } else {
+        acc[name] = bal - amt
+      }
+    } else if cmd == "balance" {
+      let bal = acc.get_or(name, 0)
+      print("{name} {bal}")
+    }
+  }
+}

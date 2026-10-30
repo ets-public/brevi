@@ -1,0 +1,6 @@
+fn main() {
+  var m: {str: int} = {}
+  for w in stdin().lower().words() { m[w] += 1 }
+  let ps = m.pairs().sort_by(p => (0 - p.1, p.0))
+  for p in ps.take(3) { print("{p.0} {p.1}") }
+}

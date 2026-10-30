@@ -1,0 +1,23 @@
+fn main() ! {
+  var bal: {str: int} = {}
+  for line in stdin().lines() {
+    let t = line.trim()
+    if t.is_empty() { continue }
+    let p = t.split(" ")
+    let cmd = p[0]
+    let name = p[1]
+    if cmd == "deposit" {
+      bal[name] += p[2].int()?
+    } else if cmd == "withdraw" {
+      let amt = p[2].int()?
+      let cur = bal.get_or(name, 0)
+      if amt > cur {
+        print("error: insufficient funds for " + name)
+      } else {
+        bal[name] = cur - amt
+      }
+    } else if cmd == "balance" {
+      print(name + " " + str(bal.get_or(name, 0)))
+    }
+  }
+}

@@ -1,0 +1,6 @@
+fn main() {
+  for line in stdin().lines() {
+    let words = line.split(" ").filter(w => !w.is_empty())
+    print(words.rev().join(" "))
+  }
+}

@@ -1,0 +1,12 @@
+{"run":"sonnet-rust","lang":"rust","task":"sum_numbers","code_tok":100,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-rust","lang":"rust","task":"fizzbuzz","code_tok":141,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-rust","lang":"rust","task":"reverse_words","code_tok":97,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-rust","lang":"rust","task":"word_freq","code_tok":204,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-rust","lang":"rust","task":"csv_avg","code_tok":244,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-rust","lang":"rust","task":"bank","code_tok":310,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-rust","lang":"rust","task":"brackets","code_tok":214,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-rust","lang":"rust","task":"roman","code_tok":240,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-rust","lang":"rust","task":"grid_path","code_tok":558,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-rust","lang":"rust","task":"anagrams","code_tok":214,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"sonnet-rust","lang":"rust","task":"rle","code_tok":336,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"sonnet-rust","lang":"rust","task":"grades","code_tok":345,"out_tok":4,"compiled":true,"pass":2,"total":2}

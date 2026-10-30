@@ -1,0 +1,32 @@
+fn isd(c: str) -> bool = "0123456789".contains(c)
+fn main() ! {
+  for line in stdin().lines() {
+    if line.trim().is_empty() { continue }
+    let cs = line.chars()
+    let t = cs.skip(2)
+    var out = ""
+    if cs[0] == "e" {
+      var i = 0
+      while i < t.len() {
+        var j = i
+        while j < t.len() and t[j] == t[i] { j += 1 }
+        out += t[i] + str(j - i)
+        i = j
+      }
+    } else {
+      var i = 0
+      while i < t.len() {
+        let ch = t[i]
+        var j = i + 1
+        var num = ""
+        while j < t.len() and isd(t[j]) {
+          num += t[j]
+          j += 1
+        }
+        out += ch.repeat(num.int()?)
+        i = j
+      }
+    }
+    print(out)
+  }
+}
