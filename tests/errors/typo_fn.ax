@@ -1,0 +1,4 @@
+fn total(xs: [int]) -> int = xs.sum()
+fn main() {
+  print(totl([1, 2]))
+}

@@ -1,0 +1,2 @@
+fn half(n: int) -> int = n / 2.0
+fn main() { print(half(3)) }

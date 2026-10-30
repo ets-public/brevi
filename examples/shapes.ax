@@ -1,0 +1,44 @@
+type Point { x: f64, y: f64 }
+enum Shape { Circle(r: f64), Rect(w: f64, h: f64) }
+
+fn area(s: Shape) -> f64 = match s {
+  Circle(r) => 3.14159 * r * r
+  Rect(w, h) => w * h
+}
+
+fn longest(a: str, b: str) -> str = if a.len() > b.len() { a } else { b }
+
+fn bump_all(mut xs: [int], by: int) {
+  for x in xs { x += by }
+}
+
+fn parse_all(lines: [str]) -> [int] ! {
+  var out: [int] = []
+  for l in lines { out.push(l.int()?) }
+  out
+}
+
+fn main() ! {
+  let shapes = [Circle(1.0), Rect(w: 2.0, h: 3.0)]
+  let total = shapes.map(s => area(s)).sum()
+  print("total area {total}")
+  print(longest("hello", "hi"))
+  var xs = [1, 2, 3]
+  bump_all(xs, 10)
+  print(xs)
+  let nums = parse_all(["4", " 5", "6"])?
+  print("sum {nums.sum()}, max {nums.max()}")
+  let p = Point(x: 1.5, y: 2.0)
+  print("point {p.x},{p.y}")
+  var i = 0
+  while i < 3 { i += 1 }
+  let label = match i {
+    3 => "three"
+    _ => "other"
+  }
+  print(label)
+  let evens = (0..10).filter(n => n % 2 == 0)
+}
+
+test "area of unit circle" { assert area(Circle(1.0)) ~= 3.14159 }
+test "longest" { assert longest("ab", "c") == "ab" }

@@ -1,0 +1,6 @@
+// Top 10 words in a file
+fn main() ! {
+  var counts: {str: int} = {}
+  for w in read("tests/run/input.txt")?.words() { counts[w.lower()] += 1 }
+  for (w, n) in counts.pairs().sort_by(p => -p.1).take(3) { print("{w}: {n}") }
+}

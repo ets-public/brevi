@@ -1,0 +1,46 @@
+enum Light { Red, Green, Yellow }
+
+type Account { owner: str, balance: int }
+
+fn next(l: Light) -> Light = match l {
+  Red => Green
+  Green => Yellow
+  Yellow => Red
+}
+
+fn fib(n: int) -> int = if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+
+fn deposit(mut a: Account, amount: int) ! {
+  if amount <= 0 { fail("deposit must be positive") }
+  a.balance += amount
+}
+
+fn find_first_neg(xs: [int]) -> int {
+  for (i, x) in xs.enumerate() {
+    if x < 0 { return i }
+  }
+  -1
+}
+
+fn main() ! {
+  print(next(Red))
+  print(fib(15))
+  var acc = Account(owner: "ada", balance: 10)
+  deposit(acc, 5)?
+  print("{acc.owner} has {acc.balance}")
+  print(find_first_neg([3, 1, -4, 1]))
+  let words = "b a c a".split(" ")
+  let uniq = words.sort().fold([], (acc, w) => if acc.contains(w) { acc } else { acc + [w] })
+  print(uniq.join(","))
+  var grid: {str: [int]} = {}
+  grid["a"] = [1, 2]
+  grid["a"][0] = 9
+  print(grid)
+  let total = [1.5, 2.5].sum()
+  let xs = "x".repeat(3)
+  print("{total} {(7).float() / 2.0} {xs}")
+  let csv = "name,age\nann,31\nbob,27"
+  var ages: [int] = []
+  for l in csv.lines().skip(1) { ages.push(l.split(",")[1].int()?) }
+  print(ages)
+}

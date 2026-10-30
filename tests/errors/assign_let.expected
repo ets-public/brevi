@@ -1,0 +1,1 @@
+{"e":"type","at":"assign_let.ax:3:1","msg":"cannot change n: it was declared with let","fix":"declare the variable with var instead of let, or mark the parameter mut","rust":"E0596"}
