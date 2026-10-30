@@ -135,6 +135,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             let word: String = chars[start..i].iter().collect();
             col += i - start;
+            // Python's `elif` is accepted as `else if`.
+            if word == "elif" {
+                push(&mut out, Tok::Kw("else"));
+                push(&mut out, Tok::Kw("if"));
+                continue;
+            }
             match KEYWORDS.iter().find(|k| **k == word) {
                 Some(k) => push(&mut out, Tok::Kw(k)),
                 None => push(&mut out, Tok::Ident(word)),
@@ -168,4 +174,47 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     out.push(Token { tok: Tok::Newline, line, col });
     out.push(Token { tok: Tok::Eof, line, col });
     Ok(out)
+}
+
+// Python-style blocks: a line ending in `:` opens a block that holds the more-indented lines after it.
+// The block is turned into `{ ... }` here, so the parser only sees braces. Brace blocks still work.
+pub fn indent_blocks(toks: Vec<Token>) -> Vec<Token> {
+    let mut lines: Vec<Vec<Token>> = vec![vec![]];
+    let mut eof = None;
+    for t in toks {
+        match t.tok {
+            Tok::Newline => lines.push(vec![]),
+            Tok::Eof => eof = Some(t),
+            _ => lines.last_mut().unwrap().push(t),
+        }
+    }
+    let mut out = Vec::new();
+    let mut open: Vec<usize> = Vec::new(); // indentation of each open block's header line
+    let mk = |tok: Tok, at: &Token| Token { tok, line: at.line, col: at.col };
+    for mut l in lines.into_iter().filter(|l| !l.is_empty()) {
+        let ind = l[0].col;
+        while open.last().map_or(false, |&h| ind <= h) {
+            open.pop();
+            out.push(mk(Tok::Sym("}"), &l[0]));
+            // `else` continues the `if` whose block just closed.
+            let continues = l[0].tok == Tok::Kw("else") && open.last().map_or(true, |&h| ind > h);
+            if !continues {
+                out.push(mk(Tok::Newline, &l[0]));
+            }
+        }
+        if l.last().map_or(false, |t| t.tok == Tok::Sym(":")) && l.len() > 1 {
+            l.last_mut().unwrap().tok = Tok::Sym("{");
+            open.push(ind);
+        }
+        let last = l.last().unwrap().clone();
+        out.extend(l);
+        out.push(mk(Tok::Newline, &last));
+    }
+    let end = eof.unwrap_or(Token { tok: Tok::Eof, line: 0, col: 0 });
+    for _ in open {
+        out.push(mk(Tok::Sym("}"), &end));
+        out.push(mk(Tok::Newline, &end));
+    }
+    out.push(end);
+    out
 }

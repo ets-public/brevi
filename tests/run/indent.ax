@@ -1,0 +1,42 @@
+type Point:
+  x: f64
+  y: f64
+  label: str = ""       // default
+enum Shape:
+  Circle(r: f64)
+  Rect(w: f64, h: f64)
+  Empty
+fn area(s: Shape) -> f64 = match s:
+  Circle(r) => 3.14159 * r * r
+  Rect(w, h) => w * h
+  Empty => 0.0
+fn load(path: str) -> [str]:
+  text = read(path)
+  if text.is_empty(): fail("empty file")
+  text.lines()
+fn bump(mut xs: [int]):
+  for x in xs: x += 1
+fn double(x: int) -> int = x * 2
+fn half(s: str) -> int:
+  n = s.int()
+  n / 2
+p = Point(1.0, 2.0)
+a = 3
+b = 4
+y = if a > b: a else: b
+print(y)
+xs = [1, 2]
+bump(xs)
+print(xs)
+print(area(Rect(w: 2.0, h: 3.0)))
+match half("x"):
+  Ok(v) => print(v)
+  Err(m) => print("bad: {m}")
+v = match load("/nonexistent"):
+  Ok(ls) => ls.len()
+  Err(m) => -1
+print(v)
+for (i, c) in "ab".chars().enumerate():
+  print("{i}{c}")
+test "area":
+  assert area(Circle(1.0)) ~= 3.14159

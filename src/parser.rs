@@ -10,7 +10,7 @@ pub struct Parser {
 type R<T> = Result<T, Diag>;
 
 pub fn parse_program(src: &str) -> R<Vec<Item>> {
-    let toks = lex(src)?;
+    let toks = crate::lexer::indent_blocks(lex(src)?);
     let mut p = Parser { toks, pos: 0 };
     let mut items = Vec::new();
     // Statements outside any function form the program's main (script mode).
@@ -157,10 +157,10 @@ impl Parser {
             let body = if self.eat_sym("=") {
                 self.skip_newlines();
                 self.expr()?
-            } else if self.is_sym("{") {
+            } else if self.is_sym("{") || self.is_sym(":") {
                 self.block()?
             } else {
-                return Err(self.err("expected '=' or '{' to start the function body"));
+                return Err(self.err("expected '=', ':' or '{' to start the function body"));
             };
             return Ok(Item::Fn { name, params, ret, fallible, body, line, script: false });
         }
@@ -250,6 +250,14 @@ impl Parser {
     }
 
     fn block(&mut self) -> R<Expr> {
+        // `if c: stmt` on one line.
+        if self.eat_sym(":") {
+            let st = self.stmt()?;
+            return Ok(match st {
+                Stmt::Expr { expr, .. } => Expr::Block(vec![], Some(Box::new(expr))),
+                st => Expr::Block(vec![st], None),
+            });
+        }
         self.expect_sym("{")?;
         let mut stmts = Vec::new();
         loop {
