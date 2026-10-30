@@ -1,0 +1,21 @@
+// Total value per item from CSV (item,qty,price), sorted by value desc then name asc.
+rows = csv(stdin())
+totals: {str: dec} = {}
+for r in rows.skip(1) {
+  if r.len() < 3 {
+    continue
+  }
+  name = r[0]
+  q = r[1].trim().int().or(0)
+  p = r[2].trim().dec().or("0".dec())
+  totals[name] += q.dec() * p
+}
+
+pairs: [(dec, str)] = []
+for k in totals.keys() {
+  pairs.push((totals[k], k))
+}
+pairs = pairs.sort_by(p => (-p.0, p.1))
+for p in pairs {
+  print("{p.1}: {p.0.fmt(2)}")
+}

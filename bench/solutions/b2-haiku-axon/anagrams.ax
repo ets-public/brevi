@@ -1,0 +1,19 @@
+// Group anagrams (case-insensitive, duplicates counted once).
+ws = stdin().words().map(w => w.lower()).unique()
+groups: {str: [str]} = {}
+for w in ws {
+  key = w.chars().sort().join("")
+  groups[key].push(w)
+}
+
+items: [(int, str, str)] = []
+for k in groups.keys() {
+  g = groups[k]
+  if g.len() > 1 {
+    items.push((g.len(), g[0], g.join(" ")))
+  }
+}
+items = items.sort_by(p => (-p.0, p.1))
+for it in items {
+  print(it.2)
+}

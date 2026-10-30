@@ -1,0 +1,24 @@
+ms: {str: [int]} = {}
+errs: {str: int} = {}
+
+for line in lines():
+  w = line.words()
+  if w.len() < 4:
+    continue
+  p = w[1]
+  st = w[2].int().or(0)
+  t = w[3].int().or(0)
+  ms[p].push(t)
+  if st >= 500:
+    errs[p] += 1
+
+for p in ms.keys().unique():
+  xs = ms[p].sort()
+  n = xs.len()
+  total = xs.sum()
+  avg = total.float() / n.float()
+  k = (9 * n + 9) / 10
+  p90 = xs[k - 1]
+  e = errs.get_or(p, 0)
+  pct = e.float() * 100.0 / n.float()
+  print("{p} {n} {avg.fmt(1)} {p90} {pct.fmt(1)}%")

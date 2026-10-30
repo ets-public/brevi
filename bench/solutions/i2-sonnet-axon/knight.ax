@@ -1,0 +1,29 @@
+ls = lines()
+n = ls[0].trim().int()
+fn sq(s: str) -> int:
+  c = s.slice(0, 1).code() - 97
+  r = s.slice(1, s.len()).int() - 1
+  r * n + c
+for line in ls.skip(1):
+  w = line.words()
+  if w.len() < 2: continue
+  a = sq(w[0])
+  b = sq(w[1])
+  dist = [-1].repeat(n * n)
+  dist[a] = 0
+  q = [a]
+  qi = 0
+  while qi < q.len():
+    cur = q[qi]
+    qi += 1
+    cr = cur / n
+    cc = cur % n
+    for (dr, dc) in [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]:
+      nr = cr + dr
+      nc = cc + dc
+      if nr >= 0 and nr < n and nc >= 0 and nc < n:
+        id = nr * n + nc
+        if dist[id] < 0:
+          dist[id] = dist[cur] + 1
+          q.push(id)
+  print(dist[b])

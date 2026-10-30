@@ -1,0 +1,27 @@
+ls = lines()
+n = ls[0].trim().int()
+fn sq(s: str) -> (int, int) = (s.slice(0, 1).code() - 97, s.slice(1, s.len()).int() - 1)
+moves = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+for line in ls.skip(1) {
+  w = line.words()
+  if w.len() < 2 { continue }
+  (sx, sy) = sq(w[0])
+  (tx, ty) = sq(w[1])
+  dist = [-1].repeat(n * n)
+  dist[sx * n + sy] = 0
+  q = [(sx, sy)]
+  qi = 0
+  while qi < q.len() {
+    (x, y) = q[qi]
+    qi += 1
+    for (dx, dy) in moves {
+      nx = x + dx
+      ny = y + dy
+      if nx >= 0 and ny >= 0 and nx < n and ny < n and dist[nx * n + ny] < 0 {
+        dist[nx * n + ny] = dist[x * n + y] + 1
+        q.push((nx, ny))
+      }
+    }
+  }
+  print(dist[tx * n + ty])
+}

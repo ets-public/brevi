@@ -1,0 +1,15 @@
+ms: {str: [int]} = {}
+errs: {str: int} = {}
+for line in lines():
+  w = line.words()
+  if w.len() < 4: continue
+  ms[w[1]].push(w[3].int())
+  if w[2].int() >= 500: errs[w[1]] += 1
+  else: errs[w[1]] += 0
+for (p, v) in ms.pairs():
+  n = v.len()
+  s = v.sort()
+  k = (9 * n + 9) / 10
+  avg = v.sum().float() / n.float()
+  e = 100.0 * errs[p].float() / n.float()
+  print("{p} {n} {avg.fmt(1)} {s[k - 1]} {e.fmt(1)}%")

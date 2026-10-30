@@ -2,9 +2,9 @@
 
 A programming language for AI models to write. Axon compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one JSON line with a suggested fix.
 
-The guide a model reads before writing Axon is [AXON.md](AXON.md), about 2,500 tokens (estimated).
+The guide a model reads before writing Axon is [AXON.md](AXON.md), about 2,700 tokens (estimated).
 
-## Status: v0.6
+## Status: v0.7
 
 Works today:
 - Parser for the full core syntax in AXON.md
@@ -12,6 +12,7 @@ Works today:
 - Emits Rust and builds it with `rustc`. rustc errors are mapped back to the Axon line and rewritten in Axon's type names
 - `run`, `test`, `check`, `build`, `emit`
 - Runtime prelude with strings, lists, maps (hash lookups, listed in key order), files, stdin, JSON, CSV, dates, big integers, exact decimals and a min-heap
+- Python-style indented blocks (`if x:` and an indented body), with braces still accepted
 - Short syntax: `x = 1` declares, `x: [str] = []` gives a type, `(a, b) = pair`, errors pass up without `?`, field defaults and shorthand constructors
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Axon line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead

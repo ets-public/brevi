@@ -1,0 +1,12 @@
+fn check(s: str) -> str:
+  st: [str] = []
+  i = 0
+  for c in s.chars():
+    i += 1
+    if c == "(" or c == "[" or c == "{": st.push(c)
+    elif c == ")" or c == "]" or c == "}":
+      want = if c == ")": "(" elif c == "]": "[" else: "{"
+      if st.is_empty() or st.last() != want: return "error at {i}"
+      st.pop()
+  if st.is_empty(): "ok" else: "error at {s.len() + 1}"
+for l in lines(): print(check(l))

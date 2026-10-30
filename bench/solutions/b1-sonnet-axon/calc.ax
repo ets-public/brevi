@@ -1,0 +1,74 @@
+toks: [str] = []
+pos = 0
+err = false
+
+fn peek() -> str = if pos < toks.len() { toks[pos] } else { "" }
+
+fn factor() -> int {
+  t = peek()
+  if t == "-" {
+    pos += 1
+    return -factor()
+  }
+  if t == "(" {
+    pos += 1
+    v = expr()
+    pos += 1
+    return v
+  }
+  pos += 1
+  t.int()
+}
+
+fn term() -> int {
+  v = factor()
+  while peek() == "*" or peek() == "/" {
+    op = peek()
+    pos += 1
+    r = factor()
+    if op == "*" {
+      v = v * r
+    } else {
+      if r == 0 {
+        err = true
+        v = 0
+      } else {
+        v = v / r
+      }
+    }
+  }
+  v
+}
+
+fn expr() -> int {
+  v = term()
+  while peek() == "+" or peek() == "-" {
+    op = peek()
+    pos += 1
+    r = term()
+    if op == "+" { v = v + r } else { v = v - r }
+  }
+  v
+}
+
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  toks = []
+  pos = 0
+  err = false
+  cur = ""
+  for c in line.chars() {
+    if c.is_digit() {
+      cur = cur + c
+    } else {
+      if !cur.is_empty() {
+        toks.push(cur)
+        cur = ""
+      }
+      if !c.is_space() { toks.push(c) }
+    }
+  }
+  if !cur.is_empty() { toks.push(cur) }
+  v = expr()
+  if err { print("error") } else { print(v) }
+}

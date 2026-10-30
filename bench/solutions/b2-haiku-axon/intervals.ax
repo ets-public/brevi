@@ -1,0 +1,27 @@
+// Merge overlapping or touching intervals, then print them with the total length.
+pairs: [(int, int)] = []
+for line in lines() {
+  if line.trim() == "" {
+    continue
+  }
+  p = line.ints()
+  pairs.push((p[0], p[1]))
+}
+pairs = pairs.sort()
+
+merged: [(int, int)] = []
+for (s, e) in pairs {
+  n = merged.len()
+  if n > 0 and s <= merged[n - 1].1 {
+    merged[n - 1] = (merged[n - 1].0, max(merged[n - 1].1, e))
+  } else {
+    merged.push((s, e))
+  }
+}
+
+total = 0
+for (s, e) in merged {
+  print("{s} {e}")
+  total += e - s
+}
+print("total {total}")

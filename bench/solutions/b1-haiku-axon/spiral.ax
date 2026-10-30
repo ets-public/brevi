@@ -1,0 +1,56 @@
+ls = lines()
+dims = ls[0].ints()
+R = dims[0]
+C = dims[1]
+grid: [[int]] = []
+for r in 0..R {
+  grid.push(ls[r + 1].ints())
+}
+
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+out: [int] = []
+while top <= bot and left <= right {
+  j = left
+  while j <= right {
+    out.push(grid[top][j])
+    j += 1
+  }
+  top += 1
+  i = top
+  while i <= bot {
+    out.push(grid[i][right])
+    i += 1
+  }
+  right -= 1
+  if top <= bot and left <= right {
+    k = right
+    while k >= left {
+      out.push(grid[bot][k])
+      k -= 1
+    }
+    bot -= 1
+  }
+  if left <= right and top <= bot {
+    m = bot
+    while m >= top {
+      out.push(grid[m][left])
+      m -= 1
+    }
+    left += 1
+  }
+}
+
+print(out.map(x => str(x)).join(" "))
+
+sums: [int] = []
+for c in 0..C {
+  s = 0
+  for r in 0..R {
+    s += grid[r][c]
+  }
+  sums.push(s)
+}
+print(sums.map(x => str(x)).join(" "))

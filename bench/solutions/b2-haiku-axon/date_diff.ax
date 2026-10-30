@@ -1,0 +1,10 @@
+// Absolute number of days between two dates per line.
+for line in lines() {
+  ws = line.words()
+  if ws.len() < 2 {
+    continue
+  }
+  a = date(ws[0])
+  b = date(ws[1])
+  print(abs(a.days - b.days))
+}

@@ -1,0 +1,26 @@
+iv: [(int, int)] = []
+for line in lines() {
+  t = line.trim()
+  if t != "" {
+    p = t.ints()
+    iv.push((p[0], p[1]))
+  }
+}
+iv = iv.sort()
+
+merged: [(int, int)] = []
+for (s, e) in iv {
+  n = merged.len()
+  if n > 0 and s <= merged[n - 1].1 {
+    merged[n - 1] = (merged[n - 1].0, max(merged[n - 1].1, e))
+  } else {
+    merged.push((s, e))
+  }
+}
+
+total = 0
+for (s, e) in merged {
+  print("{s} {e}")
+  total += e - s
+}
+print("total {total}")

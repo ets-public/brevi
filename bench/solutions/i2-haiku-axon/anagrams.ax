@@ -1,0 +1,13 @@
+ws = stdin().lower().words().unique()
+groups: {str: [str]} = {}
+for w in ws:
+  groups[w.chars().sort().join("")].push(w)
+
+gl: [[str]] = []
+for k in groups.keys():
+  g = groups[k]
+  if g.len() >= 2:
+    gl.push(g.sort())
+gl = gl.sort_by(g => (-g.len(), g.first()))
+for g in gl:
+  print(g.join(" "))

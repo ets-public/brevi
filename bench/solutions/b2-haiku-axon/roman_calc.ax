@@ -1,0 +1,77 @@
+// Evaluate Roman numeral sums and differences left to right.
+
+fn rv(c: str) -> int {
+  if c == "I" {
+    return 1
+  }
+  if c == "V" {
+    return 5
+  }
+  if c == "X" {
+    return 10
+  }
+  if c == "L" {
+    return 50
+  }
+  if c == "C" {
+    return 100
+  }
+  if c == "D" {
+    return 500
+  }
+  if c == "M" {
+    return 1000
+  }
+  0
+}
+
+fn roman_val(s: str) -> int {
+  total = 0
+  prev = 0
+  for c in s.chars().rev() {
+    v = rv(c)
+    if v < prev {
+      total -= v
+    } else {
+      total += v
+    }
+    prev = v
+  }
+  total
+}
+
+fn to_roman(n0: int) -> str {
+  table = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+  out = ""
+  n = n0
+  for (v, sym) in table {
+    while n >= v {
+      out = out + sym
+      n -= v
+    }
+  }
+  out
+}
+
+for line in lines() {
+  ws = line.words()
+  if ws.len() == 0 {
+    continue
+  }
+  total = roman_val(ws[0])
+  i = 1
+  while i + 1 < ws.len() {
+    v = roman_val(ws[i + 1])
+    if ws[i] == "+" {
+      total += v
+    } else {
+      total -= v
+    }
+    i += 2
+  }
+  if total <= 0 {
+    print("nulla")
+  } else {
+    print(to_roman(total))
+  }
+}

@@ -1,0 +1,23 @@
+ls = lines()
+cap = ls[0].trim().int()
+keys: [str] = []
+vals: {str: str} = {}
+for l in ls.skip(1):
+  w = l.words()
+  if w.is_empty(): continue
+  if w[0] == "put":
+    k = w[1]
+    if vals.has(k):
+      keys.remove(keys.index_of(k))
+    elif keys.len() >= cap:
+      old = keys.remove(0)
+      vals.remove(old)
+    keys.push(k)
+    vals[k] = w[2]
+  else:
+    k = w[1]
+    if vals.has(k):
+      keys.remove(keys.index_of(k))
+      keys.push(k)
+      print(vals[k])
+    else: print(-1)

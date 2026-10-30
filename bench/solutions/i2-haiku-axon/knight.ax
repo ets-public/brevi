@@ -1,0 +1,34 @@
+fn sq(s: str, n: int) -> int:
+  col = s.slice(0, 1).code() - 97
+  row = s.slice(1, s.len()).int().or(1) - 1
+  col * n + row
+
+fn knight_dist(n: int, a: int, b: int) -> int:
+  moves = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+  dist = [-1].repeat(n * n)
+  dist[a] = 0
+  q: [int] = [a]
+  head = 0
+  while head < q.len():
+    cur = q[head]
+    head += 1
+    cc = cur / n
+    rr = cur % n
+    for (dx, dy) in moves:
+      nc = cc + dx
+      nr = rr + dy
+      if nc >= 0 and nc < n and nr >= 0 and nr < n:
+        ni = nc * n + nr
+        if dist[ni] == -1:
+          dist[ni] = dist[cur] + 1
+          q.push(ni)
+  dist[b]
+
+ls = lines()
+n = ls[0].trim().int().or(1)
+for line in ls.skip(1):
+  p = line.words()
+  if p.len() < 2:
+    continue
+  d = knight_dist(n, sq(p[0], n), sq(p[1], n))
+  print(d)

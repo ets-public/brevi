@@ -1,0 +1,57 @@
+dur: {str: int} = {}
+deps: {str: [str]} = {}
+names: [str] = []
+for line in lines():
+  p = line.words()
+  if p.is_empty():
+    continue
+  nm = p[0]
+  dur[nm] = p[1].int().or(0)
+  names.push(nm)
+  ds: [str] = []
+  if p.len() > 2:
+    for d in p.skip(3):
+      ds.push(d)
+  deps[nm] = ds
+names = names.unique()
+
+bad = false
+for nm in names:
+  for d in deps[nm]:
+    if not dur.has(d):
+      bad = true
+
+start: {str: int} = {}
+end: {str: int} = {}
+progress = true
+while not bad and progress and end.len() < names.len():
+  progress = false
+  for nm in names:
+    ready = true
+    s = 0
+    for d in deps[nm]:
+      if not end.has(d):
+        ready = false
+      elif end[d] > s:
+        s = end[d]
+    if ready and not end.has(nm):
+      start[nm] = s
+      end[nm] = s + dur[nm]
+      progress = true
+
+if end.len() < names.len():
+  bad = true
+
+if bad:
+  print("invalid")
+else:
+  rows: [(int, str, int)] = []
+  total = 0
+  for nm in names:
+    rows.push((start[nm], nm, end[nm]))
+    if end[nm] > total:
+      total = end[nm]
+  rows = rows.sort()
+  for (s, nm, e) in rows:
+    print("{nm} {s} {e}")
+  print("total {total}")

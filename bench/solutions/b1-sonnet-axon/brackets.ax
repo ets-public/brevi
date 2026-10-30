@@ -1,0 +1,25 @@
+for line in lines() {
+  st: [str] = []
+  bad = 0
+  i = 0
+  for c in line.chars() {
+    i += 1
+    if c == "(" or c == "[" or c == "{" {
+      st.push(c)
+    } else if c == ")" or c == "]" or c == "}" {
+      want = if c == ")" { "(" } else if c == "]" { "[" } else { "{" }
+      if st.is_empty() or st[-1] != want {
+        bad = i
+        break
+      }
+      st.pop()
+    }
+  }
+  if bad > 0 {
+    print("error at {bad}")
+  } else if !st.is_empty() {
+    print("error at {line.len() + 1}")
+  } else {
+    print("ok")
+  }
+}

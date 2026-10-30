@@ -1,0 +1,32 @@
+rows = csv(stdin())
+z = "0".dec()
+inn: {str: dec} = {}
+out: {str: dec} = {}
+bal: {str: dec} = {}
+
+for r in rows.slice(1, rows.len()):
+  if r.len() < 3:
+    continue
+  m = r[0].trim().slice(0, 7)
+  acct = r[1].trim()
+  amt = r[2].trim().dec()
+  inn[m] += z
+  out[m] += z
+  bal[acct] += z
+  if amt > z:
+    inn[m] += amt
+  else:
+    out[m] += -amt
+  bal[acct] += amt
+
+for m in inn.keys():
+  net = inn[m] - out[m]
+  print("{m} {inn[m].fmt(2)} {out[m].fmt(2)} {net.fmt(2)}")
+
+best = ""
+bestv = z
+for (a, v) in bal.pairs():
+  if best == "" or v > bestv:
+    best = a
+    bestv = v
+print("top {best} {bestv.fmt(2)}")

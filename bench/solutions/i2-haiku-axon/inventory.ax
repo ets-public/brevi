@@ -1,0 +1,15 @@
+rows = csv(stdin())
+totals: {str: dec} = {}
+for row in rows.skip(1):
+  if row.len() < 3:
+    continue
+  qty = row[1].trim().int().or(0)
+  price = row[2].trim().dec()
+  totals[row[0]] += qty.dec() * price
+
+pairs: [(dec, str)] = []
+for k in totals.keys():
+  pairs.push((totals[k], k))
+pairs = pairs.sort_by(p => (-p.0, p.1))
+for p in pairs:
+  print("{p.1}: {p.0.fmt(2)}")

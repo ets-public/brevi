@@ -239,6 +239,24 @@ pub fn stdin() -> String {
 pub fn lines() -> Vec<String> {
     stdin().lines().map(String::from).collect()
 }
+// a // b rounds down, as in Python.
+pub trait AxFloorDiv {
+    fn floordiv(self, b: Self) -> Self;
+}
+impl AxFloorDiv for i64 {
+    fn floordiv(self, b: i64) -> i64 {
+        let q = self / b;
+        if (self % b != 0) && ((self < 0) != (b < 0)) { q - 1 } else { q }
+    }
+}
+impl AxFloorDiv for f64 {
+    fn floordiv(self, b: f64) -> f64 {
+        (self / b).floor()
+    }
+}
+pub fn ax_floordiv<T: AxFloorDiv>(a: T, b: T) -> T {
+    a.floordiv(b)
+}
 pub fn ax_approx(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-6 * (1.0 + a.abs().max(b.abs()))
 }
@@ -587,8 +605,8 @@ impl<T: Clone> AxTryList<T> for Vec<T> {
 
 pub trait AxOrdList<T> {
     fn ax_sort(&self) -> Vec<T>;
-    fn ax_min(&self) -> T;
-    fn ax_max(&self) -> T;
+    fn ax_min(&self) -> R<T>;
+    fn ax_max(&self) -> R<T>;
     fn ax_contains(&self, x: &T) -> bool;
     fn ax_index_of(&self, x: &T) -> i64;
 }
@@ -598,25 +616,25 @@ impl<T: Clone + PartialOrd> AxOrdList<T> for Vec<T> {
         v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         v
     }
-    fn ax_min(&self) -> T {
+    fn ax_min(&self) -> R<T> {
         let mut it = self.iter();
-        let mut m = it.next().expect("min of empty list");
+        let Some(mut m) = it.next() else { return Err(AxErr("min of an empty list".into())) };
         for x in it {
             if x < m {
                 m = x;
             }
         }
-        m.clone()
+        Ok(m.clone())
     }
-    fn ax_max(&self) -> T {
+    fn ax_max(&self) -> R<T> {
         let mut it = self.iter();
-        let mut m = it.next().expect("max of empty list");
+        let Some(mut m) = it.next() else { return Err(AxErr("max of an empty list".into())) };
         for x in it {
             if x > m {
                 m = x;
             }
         }
-        m.clone()
+        Ok(m.clone())
     }
     fn ax_contains(&self, x: &T) -> bool {
         self.iter().any(|y| y == x)
@@ -641,9 +659,9 @@ impl AxSum<f64> for Vec<f64> {
 pub trait AxJoin {
     fn ax_join(&self, sep: String) -> String;
 }
-impl AxJoin for Vec<String> {
+impl<T: Show> AxJoin for Vec<T> {
     fn ax_join(&self, sep: String) -> String {
-        self.join(&sep)
+        self.iter().map(|x| x.show()).collect::<Vec<_>>().join(&sep)
     }
 }
 
@@ -709,13 +727,26 @@ impl<T> AxMut<i64, T> for Vec<T> {
         &mut self[j]
     }
 }
-impl<K: Hash + Eq + Ord + Show + 'static, V> AxRef<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRef<K, V> for AxM<K, V> {
     fn ax_ref(&self, k: &K) -> &V {
+        // A missing key reads as the type's zero value (0, "", [] ...), like Python's defaultdict.
         match self.get(k) {
             Some(v) => v,
-            None => panic!("key {} not in map", show_item(k)),
+            None => ax_zero::<V>(),
         }
     }
+}
+// One shared zero value per type, made on first use.
+fn ax_zero<V: Default + 'static>() -> &'static V {
+    use std::any::{Any, TypeId};
+    thread_local! {
+        static ZEROS: std::cell::RefCell<HashMap<TypeId, &'static dyn Any>> = std::cell::RefCell::new(HashMap::new());
+    }
+    ZEROS.with(|z| {
+        let mut z = z.borrow_mut();
+        let v: &'static dyn Any = *z.entry(TypeId::of::<V>()).or_insert_with(|| Box::leak(Box::new(V::default())));
+        v.downcast_ref::<V>().unwrap()
+    })
 }
 impl<K: Hash + Eq + Ord + Clone, V: Default> AxMut<K, V> for AxM<K, V> {
     fn ax_mut(&mut self, k: &K) -> &mut V {
@@ -1030,7 +1061,7 @@ pub fn csv(text: String) -> Vec<Vec<String>> {
 }
 
 // ---- dates (proleptic Gregorian) ----
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Default)]
 pub struct Date {
     pub days: i64,
 }

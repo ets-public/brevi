@@ -1,0 +1,47 @@
+cs: [str] = []
+pos = 0
+fn peek() -> str = if pos < cs.len(): cs[pos] else: ""
+fn expr() -> int:
+  v = term()
+  while peek() == "+" or peek() == "-":
+    op = peek()
+    pos += 1
+    r = term()
+    if op == "+": v += r
+    else: v -= r
+  v
+fn term() -> int:
+  v = unary()
+  while peek() == "*" or peek() == "/":
+    op = peek()
+    pos += 1
+    r = unary()
+    if op == "*": v *= r
+    else:
+      if r == 0: fail("div")
+      v /= r
+  v
+fn unary() -> int:
+  c = peek()
+  if c == "-":
+    pos += 1
+    return -unary()
+  if c == "(":
+    pos += 1
+    v = expr()
+    pos += 1
+    return v
+  n = 0
+  while peek().is_digit():
+    n = n * 10 + peek().digit()
+    pos += 1
+  n
+fn run(s: str) -> int:
+  cs = s.chars().filter(c => c != " ")
+  pos = 0
+  expr()
+for l in lines():
+  if l.trim().is_empty(): continue
+  match run(l):
+    Ok(v) => print(v)
+    Err(_) => print("error")

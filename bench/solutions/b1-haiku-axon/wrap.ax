@@ -1,0 +1,41 @@
+ls = lines()
+width = ls[0].trim().int().or(1)
+paras: [[str]] = []
+cur: [str] = []
+
+for ln in ls.skip(1) {
+  t = ln.trim()
+  if t == "" {
+    if cur.len() > 0 {
+      paras.push(cur)
+      cur = []
+    }
+  } else {
+    for x in t.words() {
+      cur.push(x)
+    }
+  }
+}
+if cur.len() > 0 {
+  paras.push(cur)
+}
+
+first = true
+for p in paras {
+  if not first {
+    print("")
+  }
+  first = false
+  cur_line = ""
+  for word in p {
+    if cur_line == "" {
+      cur_line = word
+    } else if cur_line.len() + 1 + word.len() <= width {
+      cur_line = cur_line + " " + word
+    } else {
+      print(cur_line)
+      cur_line = word
+    }
+  }
+  print(cur_line)
+}

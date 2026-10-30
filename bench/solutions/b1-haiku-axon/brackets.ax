@@ -1,0 +1,36 @@
+fn open_of(c: str) -> str {
+  if c == ")" {
+    "("
+  } else if c == "]" {
+    "["
+  } else {
+    "{"
+  }
+}
+
+for line in lines() {
+  st: [str] = []
+  res = "ok"
+  pos = 0
+  for c in line.chars() {
+    pos += 1
+    if c == "(" or c == "[" or c == "{" {
+      st.push(c)
+    } else if c == ")" or c == "]" or c == "}" {
+      if st.len() == 0 {
+        res = "error at {pos}"
+        break
+      }
+      top = st.pop()
+      if top != open_of(c) {
+        res = "error at {pos}"
+        break
+      }
+    }
+  }
+  if res == "ok" and st.len() > 0 {
+    n1 = line.len() + 1
+    res = "error at {n1}"
+  }
+  print(res)
+}

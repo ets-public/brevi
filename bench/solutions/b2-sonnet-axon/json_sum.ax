@@ -1,0 +1,13 @@
+fn sum(j: Json) -> f64 = match j {
+  Num(n) => n
+  Arr(xs) => xs.map(x => sum(x)).sum()
+  Obj(m) => {
+    red = m.values().any(v => match v {
+      Str(s) => s == "red"
+      _ => false
+    })
+    if red { 0.0 } else { m.values().map(x => sum(x)).sum() }
+  }
+  _ => 0.0
+}
+print(sum(json(stdin())).int())

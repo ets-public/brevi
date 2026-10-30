@@ -1,0 +1,20 @@
+rows = csv(stdin())
+tot: {str: dec} = {}
+for r in rows.skip(1) {
+  if r.len() >= 3 {
+    q = r[1].trim().int().or(0)
+    p = r[2].trim().dec()
+    tot[r[0]] += q.dec() * p
+  }
+}
+
+pairs: [(dec, str)] = []
+for (k, v) in tot.pairs() {
+  pairs.push((v, k))
+}
+pairs = pairs.sort_by(p => (-p.0, p.1))
+
+for pr in pairs {
+  amt = pr.0.fmt(2)
+  print("{pr.1}: {amt}")
+}

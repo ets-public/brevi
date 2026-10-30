@@ -1,0 +1,64 @@
+ls2: [str] = []
+for ln in lines() {
+  if ln.trim() != "" {
+    ls2.push(ln.trim())
+  }
+}
+q = ls2[ls2.len() - 1].words()
+src = q[0]
+dst = q[1]
+
+edges: [(str, str, int)] = []
+adj: {str: [(str, int)]} = {}
+for ln in ls2.take(ls2.len() - 1) {
+  p = ln.words()
+  a = p[0]
+  b = p[1]
+  wt = p[2].int().or(1)
+  edges.push((a, b, wt))
+  adj[a].push((b, wt))
+  adj[b].push((a, wt))
+}
+
+dist: {str: int} = {}
+dist[dst] = 0
+changed = true
+while changed {
+  changed = false
+  for (a, b, wt) in edges {
+    if dist.has(b) and (not dist.has(a) or dist[b] + wt < dist[a]) {
+      dist[a] = dist[b] + wt
+      changed = true
+    }
+    if dist.has(a) and (not dist.has(b) or dist[a] + wt < dist[b]) {
+      dist[b] = dist[a] + wt
+      changed = true
+    }
+  }
+}
+
+if not dist.has(src) {
+  print("none")
+} else {
+  print(dist[src])
+  path: [str] = [src]
+  cur = src
+  while cur != dst {
+    best = ""
+    found = false
+    for (nb, wt) in adj.get_or(cur, []) {
+      if dist.has(nb) and dist[nb] + wt == dist[cur] {
+        if not found or nb < best {
+          best = nb
+          found = true
+        }
+      }
+    }
+    if not found {
+      break
+    }
+    path.push(best)
+    cur = best
+  }
+  print(path.join("->"))
+}

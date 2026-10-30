@@ -1,0 +1,32 @@
+// Bracket matching per line. Only ()[]{} matter; other characters are ignored.
+for line in lines() {
+  cs = line.chars()
+  st: [str] = []
+  err = 0
+  for i in 0..cs.len() {
+    c = cs[i]
+    if c == "(" or c == "[" or c == "{" {
+      st.push(c)
+    } else if c == ")" or c == "]" or c == "}" {
+      want = "{"
+      if c == ")" {
+        want = "("
+      } else if c == "]" {
+        want = "["
+      }
+      if st.len() == 0 or st[st.len() - 1] != want {
+        err = i + 1
+        break
+      }
+      st.pop()
+    }
+  }
+  n1 = cs.len() + 1
+  if err > 0 {
+    print("error at {err}")
+  } else if st.len() > 0 {
+    print("error at {n1}")
+  } else {
+    print("ok")
+  }
+}

@@ -1,0 +1,40 @@
+mv: [(int, int)] = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+
+fn square(s: str, n: int) -> int:
+  col = s.chars()[0].code() - 97
+  row = s.slice(1, s.len()).int().or(1) - 1
+  return row * n + col
+
+fn knight_dist(n: int, s: int, t: int) -> int:
+  dist: [int] = [-1].repeat(n * n)
+  dist[s] = 0
+  q: [int] = [s]
+  i = 0
+  while i < q.len():
+    cur = q[i]
+    i += 1
+    if cur == t:
+      return dist[cur]
+    r = cur / n
+    c = cur % n
+    for (dr, dc) in mv:
+      nr = r + dr
+      nc = c + dc
+      if nr >= 0 and nr < n and nc >= 0 and nc < n:
+        id = nr * n + nc
+        if dist[id] < 0:
+          dist[id] = dist[cur] + 1
+          q.push(id)
+  return -1
+
+rows: [[str]] = []
+for line in lines():
+  w = line.words()
+  if w.len() > 0:
+    rows.push(w)
+
+N = rows[0][0].int().or(8)
+for i in 1..rows.len():
+  a = square(rows[i][0], N)
+  b = square(rows[i][1], N)
+  print(knight_dist(N, a, b))

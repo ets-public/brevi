@@ -1,0 +1,47 @@
+rvals: [int] = [1, 5, 10, 50, 100, 500, 1000]
+rsyms = "IVXLCDM"
+nv: [int] = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+ns: [str] = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+
+fn rv(c: str) -> int:
+  idx = rsyms.find(c)
+  return rvals[idx]
+
+fn from_roman(s: str) -> int:
+  cs = s.chars()
+  total = 0
+  for i in 0..cs.len():
+    v = rv(cs[i])
+    if i + 1 < cs.len() and v < rv(cs[i + 1]):
+      total -= v
+    else:
+      total += v
+  return total
+
+fn to_roman(n0: int) -> str:
+  out = ""
+  n = n0
+  for i in 0..nv.len():
+    while n >= nv[i]:
+      out += ns[i]
+      n -= nv[i]
+  return out
+
+for line in lines():
+  w = line.words()
+  if w.len() == 0:
+    continue
+  total = from_roman(w[0])
+  i = 1
+  while i + 1 < w.len():
+    op = w[i]
+    v = from_roman(w[i + 1])
+    if op == "+":
+      total += v
+    else:
+      total -= v
+    i += 2
+  if total <= 0:
+    print("nulla")
+  else:
+    print(to_roman(total))

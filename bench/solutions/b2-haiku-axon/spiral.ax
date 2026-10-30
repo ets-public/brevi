@@ -1,0 +1,55 @@
+// Clockwise spiral of an R x C matrix, then the column sums.
+ls = lines()
+hdr = ls[0].ints()
+R = hdr[0]
+C = hdr[1]
+m: [[int]] = []
+for i in 1..(R + 1) {
+  m.push(ls[i].ints())
+}
+
+out: [int] = []
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+while top <= bot and left <= right {
+  j = left
+  while j <= right {
+    out.push(m[top][j])
+    j += 1
+  }
+  top += 1
+  i = top
+  while i <= bot {
+    out.push(m[i][right])
+    i += 1
+  }
+  right -= 1
+  if top <= bot and left <= right {
+    j = right
+    while j >= left {
+      out.push(m[bot][j])
+      j -= 1
+    }
+    bot -= 1
+    i = bot
+    while i >= top {
+      out.push(m[i][left])
+      i -= 1
+    }
+    left += 1
+  }
+}
+
+print(out.map(x => str(x)).join(" "))
+
+sums: [int] = []
+for j in 0..C {
+  s = 0
+  for i in 0..R {
+    s += m[i][j]
+  }
+  sums.push(s)
+}
+print(sums.map(x => str(x)).join(" "))

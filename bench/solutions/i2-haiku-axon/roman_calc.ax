@@ -1,0 +1,47 @@
+fn rval(c: str) -> int:
+  s = "IVXLCDM"
+  vs = [1, 5, 10, 50, 100, 500, 1000]
+  vs[s.find(c)]
+
+fn roman_to_int(t: str) -> int:
+  total = 0
+  n = t.len()
+  for i in 0..n:
+    v = rval(t.slice(i, i + 1))
+    nxt = 0
+    if i + 1 < n:
+      nxt = rval(t.slice(i + 1, i + 2))
+    if v < nxt:
+      total -= v
+    else:
+      total += v
+  total
+
+fn to_roman(n: int) -> str:
+  vs = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  x = n
+  for i in 0..vs.len():
+    while x >= vs[i]:
+      out += syms[i]
+      x -= vs[i]
+  out
+
+for line in lines():
+  p = line.words()
+  if p.is_empty():
+    continue
+  acc = roman_to_int(p[0])
+  i = 1
+  while i + 1 < p.len():
+    v = roman_to_int(p[i + 1])
+    if p[i] == "+":
+      acc += v
+    else:
+      acc -= v
+    i += 2
+  if acc <= 0:
+    print("nulla")
+  else:
+    print(to_roman(acc))

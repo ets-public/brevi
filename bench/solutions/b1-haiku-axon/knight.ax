@@ -1,0 +1,48 @@
+fn sq(s: str, n: int) -> int {
+  cs = s.chars()
+  c = cs[0].code() - 97
+  r = s.slice(1, s.len()).int().or(1) - 1
+  r * n + c
+}
+
+fn bfs(a: int, b: int, n: int) -> int {
+  if a == b {
+    return 0
+  }
+  dist = [-1].repeat(n * n)
+  q: [int] = [a]
+  dist[a] = 0
+  head = 0
+  while head < q.len() {
+    cur = q[head]
+    head += 1
+    r = cur / n
+    c = cur % n
+    for (dr, dc) in [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)] {
+      nr = r + dr
+      nc = c + dc
+      if nr >= 0 and nr < n and nc >= 0 and nc < n {
+        id = nr * n + nc
+        if dist[id] < 0 {
+          dist[id] = dist[cur] + 1
+          if id == b {
+            return dist[id]
+          }
+          q.push(id)
+        }
+      }
+    }
+  }
+  -1
+}
+
+ls = lines()
+n = ls[0].trim().int().or(8)
+for line in ls.skip(1) {
+  w = line.words()
+  if w.len() >= 2 {
+    a = sq(w[0], n)
+    b = sq(w[1], n)
+    print(bfs(a, b, n))
+  }
+}

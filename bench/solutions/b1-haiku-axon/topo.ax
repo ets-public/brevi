@@ -1,0 +1,52 @@
+adj: {str: [str]} = {}
+indeg: {str: int} = {}
+names: [str] = []
+
+for line in lines() {
+  t = line.trim()
+  if t != "" {
+    p = t.split("->")
+    a = p[0].trim()
+    b = p[1].trim()
+    if not indeg.has(a) {
+      indeg[a] = 0
+      names.push(a)
+    }
+    if not indeg.has(b) {
+      indeg[b] = 0
+      names.push(b)
+    }
+    adj[a].push(b)
+    indeg[b] += 1
+  }
+}
+
+result: [str] = []
+while result.len() < names.len() {
+  best = ""
+  found = false
+  for n in names {
+    if indeg[n] == 0 {
+      if not found or n < best {
+        best = n
+        found = true
+      }
+    }
+  }
+  if not found {
+    break
+  }
+  result.push(best)
+  indeg[best] = -1
+  for m in adj.get_or(best, []) {
+    indeg[m] -= 1
+  }
+}
+
+if result.len() < names.len() {
+  print("cycle")
+} else {
+  for r in result {
+    print(r)
+  }
+}

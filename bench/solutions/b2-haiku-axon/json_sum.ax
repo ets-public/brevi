@@ -1,0 +1,95 @@
+// Sum all numbers in a JSON document, ignoring objects that have a "red" value.
+// Each parse function returns (sum, next position, value-is-red-string).
+
+fn skipws(cs: [str], p: int) -> int {
+  q = p
+  while q < cs.len() and (cs[q] == " " or cs[q] == "\n" or cs[q] == "\t" or cs[q] == "\r") {
+    q += 1
+  }
+  q
+}
+
+fn parse_string(cs: [str], p: int) -> (str, int) {
+  text = ""
+  q = p + 1
+  while q < cs.len() and cs[q] != "\"" {
+    if cs[q] == "\\" {
+      text = text + cs[q] + cs[q + 1]
+      q += 2
+    } else {
+      text = text + cs[q]
+      q += 1
+    }
+  }
+  (text, q + 1)
+}
+
+fn parse_num(cs: [str], p: int) -> (int, int) {
+  text = ""
+  q = p
+  while q < cs.len() and (cs[q] == "-" or cs[q].is_digit()) {
+    text = text + cs[q]
+    q += 1
+  }
+  (text.int().or(0), q)
+}
+
+fn parse_value(cs: [str], p0: int) -> (int, int, bool) {
+  p = skipws(cs, p0)
+  if p >= cs.len() {
+    return (0, p, false)
+  }
+  c = cs[p]
+  if c == "{" {
+    total = 0
+    red = false
+    p = skipws(cs, p + 1)
+    while p < cs.len() and cs[p] != "}" {
+      (key, q) = parse_string(cs, p)
+      q = skipws(cs, q)
+      (v, r, isred) = parse_value(cs, q + 1)
+      total += v
+      if isred {
+        red = true
+      }
+      p = skipws(cs, r)
+      if p < cs.len() and cs[p] == "," {
+        p = skipws(cs, p + 1)
+      }
+    }
+    if red {
+      return (0, p + 1, false)
+    }
+    return (total, p + 1, false)
+  }
+  if c == "[" {
+    total = 0
+    p = skipws(cs, p + 1)
+    while p < cs.len() and cs[p] != "]" {
+      (v, r, isred) = parse_value(cs, p)
+      total += v
+      p = skipws(cs, r)
+      if p < cs.len() and cs[p] == "," {
+        p = skipws(cs, p + 1)
+      }
+    }
+    return (total, p + 1, false)
+  }
+  if c == "\"" {
+    (t, q) = parse_string(cs, p)
+    return (0, q, t == "red")
+  }
+  if c == "-" or c.is_digit() {
+    (n, q) = parse_num(cs, p)
+    return (n, q, false)
+  }
+  q = p
+  while q < cs.len() and cs[q].is_alpha() {
+    q += 1
+  }
+  (0, q, false)
+}
+
+cs = stdin().chars()
+(total, q, r) = parse_value(cs, 0)
+print(total)

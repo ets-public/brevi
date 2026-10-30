@@ -57,6 +57,17 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             continue;
         }
         // `#` comments are accepted too, since models often write them.
+        // `a // 2` after a value, followed by a number or `(`, is floor division (as in Python); otherwise `//` starts a comment.
+        if c == '/' && chars.get(i + 1) == Some(&'/') {
+            let after_value = matches!(out.last(), Some(Token { tok: Tok::Int(_) | Tok::Float(_) | Tok::Ident(_) | Tok::Sym(")") | Tok::Sym("]"), line: l, .. }) if *l == line);
+            let next = chars[i + 2..].iter().find(|c| **c != ' ').copied();
+            if after_value && next.map_or(false, |n| n.is_ascii_digit() || n == '(') {
+                push(&mut out, Tok::Sym("//"));
+                i += 2;
+                col += 2;
+                continue;
+            }
+        }
         if c == '#' || (c == '/' && chars.get(i + 1) == Some(&'/')) {
             while i < chars.len() && chars[i] != '\n' {
                 i += 1;
@@ -204,6 +215,11 @@ pub fn indent_blocks(toks: Vec<Token>) -> Vec<Token> {
         }
         if l.last().map_or(false, |t| t.tok == Tok::Sym(":")) && l.len() > 1 {
             l.last_mut().unwrap().tok = Tok::Sym("{");
+            open.push(ind);
+        } else if l.last().map_or(false, |t| t.tok == Tok::Sym("=>")) && open.last().map_or(false, |&h| ind > h) {
+            // A match arm whose body is the indented lines below it.
+            let at = l.last().unwrap().clone();
+            l.push(mk(Tok::Sym("{"), &at));
             open.push(ind);
         }
         let last = l.last().unwrap().clone();

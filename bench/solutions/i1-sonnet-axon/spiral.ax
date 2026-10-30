@@ -1,0 +1,25 @@
+ns = stdin().ints()
+r = ns[0]
+c = ns[1]
+g = ns.skip(2)
+out: [str] = []
+cols = [0].repeat(c)
+for i in 0..r:
+  for j in 0..c: cols[j] += g[i * c + j]
+top = 0
+bot = r - 1
+lf = 0
+rt = c - 1
+while top <= bot and lf <= rt:
+  for j in lf..rt + 1: out.push(str(g[top * c + j]))
+  top += 1
+  for i in top..bot + 1: out.push(str(g[i * c + rt]))
+  rt -= 1
+  if top <= bot:
+    for j in (lf..rt + 1).rev(): out.push(str(g[bot * c + j]))
+    bot -= 1
+  if lf <= rt:
+    for i in (top..bot + 1).rev(): out.push(str(g[i * c + lf]))
+    lf += 1
+print(out.join(" "))
+print(cols.map(x => str(x)).join(" "))

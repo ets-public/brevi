@@ -1,0 +1,47 @@
+// Minimum knight moves between squares on an N x N board (BFS per query).
+
+fn sq(s: str) -> (int, int) {
+  c = s.slice(0, 1).code() - 97
+  r = s.slice(1, s.len()).int().or(1) - 1
+  (c, r)
+}
+
+fn bfs(n: int, sc: int, sr: int, tc: int, tr: int) -> int {
+  dist: [int] = [-1].repeat(n * n)
+  q: [int] = []
+  start = sr * n + sc
+  target = tr * n + tc
+  dist[start] = 0
+  q.push(start)
+  head = 0
+  while head < q.len() {
+    cur = q[head]
+    head += 1
+    cr = cur / n
+    cc = cur % n
+    for (dc, dr) in [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)] {
+      nc = cc + dc
+      nr = cr + dr
+      if nc >= 0 and nc < n and nr >= 0 and nr < n {
+        idx = nr * n + nc
+        if dist[idx] < 0 {
+          dist[idx] = dist[cur] + 1
+          q.push(idx)
+        }
+      }
+    }
+  }
+  dist[target]
+}
+
+ls = lines()
+n = ls[0].trim().int().or(8)
+for i in 1..ls.len() {
+  ws = ls[i].words()
+  if ws.len() < 2 {
+    continue
+  }
+  (c1, r1) = sq(ws[0])
+  (c2, r2) = sq(ws[1])
+  print(bfs(n, c1, r1, c2, r2))
+}

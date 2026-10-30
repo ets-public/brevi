@@ -1,0 +1,40 @@
+// Monthly in/out/net totals from a CSV ledger, then the account with the largest balance.
+rows = csv(stdin())
+zero = "0".dec()
+ins: {str: dec} = {}
+outs: {str: dec} = {}
+bal: {str: dec} = {}
+
+for r in rows.skip(1) {
+  if r.len() < 3 {
+    continue
+  }
+  m = r[0].trim().slice(0, 7)
+  acc = r[1].trim()
+  amt = r[2].trim().dec().or(zero)
+  ins[m] += zero
+  outs[m] += zero
+  if amt > zero {
+    ins[m] += amt
+  } else {
+    outs[m] += zero - amt
+  }
+  bal[acc] += amt
+}
+
+for m in ins.keys().sort() {
+  i_tot = ins[m]
+  o_tot = outs[m]
+  net = i_tot - o_tot
+  print("{m} {i_tot.fmt(2)} {o_tot.fmt(2)} {net.fmt(2)}")
+}
+
+pairs: [(dec, str)] = []
+for a in bal.keys() {
+  pairs.push((bal[a], a))
+}
+if pairs.len() > 0 {
+  pairs = pairs.sort_by(p => (-p.0, p.1))
+  best = pairs[0]
+  print("top {best.1} {best.0.fmt(2)}")
+}

@@ -1,0 +1,74 @@
+// Parallel job schedule with dependencies. Jobs start as soon as all their
+// dependencies have finished. Unknown dependencies or cycles print "invalid".
+jobs: [str] = []
+dur: {str: int} = {}
+deps: {str: [str]} = {}
+for line in lines() {
+  ws = line.words()
+  if ws.len() < 2 {
+    continue
+  }
+  n = ws[0]
+  jobs.push(n)
+  dur[n] = ws[1].int().or(0)
+  ds: [str] = []
+  if ws.len() > 3 {
+    ds = ws.slice(3, ws.len())
+  }
+  deps[n] = ds
+}
+
+bad = false
+for n in jobs {
+  for d in deps[n] {
+    if not dur.has(d) {
+      bad = true
+    }
+  }
+}
+
+t0: {str: int} = {}
+t1: {str: int} = {}
+if not bad {
+  progress = true
+  while progress {
+    progress = false
+    for n in jobs {
+      if not t1.has(n) {
+        ready = true
+        s = 0
+        for d in deps[n] {
+          if not t1.has(d) {
+            ready = false
+          } else if t1[d] > s {
+            s = t1[d]
+          }
+        }
+        if ready {
+          t0[n] = s
+          t1[n] = s + dur[n]
+          progress = true
+        }
+      }
+    }
+  }
+  if t1.len() < jobs.len() {
+    bad = true
+  }
+}
+
+if bad {
+  print("invalid")
+} else {
+  rows: [(int, str, int)] = []
+  tend = 0
+  for n in jobs {
+    rows.push((t0[n], n, t1[n]))
+    tend = max(tend, t1[n])
+  }
+  rows = rows.sort()
+  for r in rows {
+    print("{r.1} {r.0} {r.2}")
+  }
+  print("total {tend}")
+}

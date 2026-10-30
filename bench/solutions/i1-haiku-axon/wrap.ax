@@ -1,0 +1,41 @@
+result: [str] = []
+W = 80
+
+fn wrap_para(ws: [str], width: int) -> [str]:
+  res: [str] = []
+  cur = ""
+  for x in ws:
+    if cur == "":
+      cur = x
+    elif cur.len() + 1 + x.len() <= width:
+      cur = cur + " " + x
+    else:
+      res.push(cur)
+      cur = x
+  if cur != "":
+    res.push(cur)
+  return res
+
+fn flush(ws: [str]):
+  if ws.len() == 0:
+    return
+  if result.len() > 0:
+    result.push("")
+  for l in wrap_para(ws, W):
+    result.push(l)
+
+all = lines()
+W = all[0].trim().int().or(80)
+para: [str] = []
+for i in 1..all.len():
+  ws = all[i].words()
+  if ws.len() == 0:
+    flush(para)
+    para = []
+  else:
+    for x in ws:
+      para.push(x)
+flush(para)
+
+for l in result:
+  print(l)

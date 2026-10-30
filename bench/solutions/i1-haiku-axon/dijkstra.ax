@@ -1,0 +1,49 @@
+rows: [[str]] = []
+for line in lines():
+  ws = line.words()
+  if ws.len() > 0:
+    rows.push(ws)
+
+q = rows[rows.len() - 1]
+FROM = q[0]
+TO = q[1]
+
+adj: {str: [(str, int)]} = {}
+for i in 0..rows.len() - 1:
+  r = rows[i]
+  a = r[0]
+  b = r[1]
+  w = r[2].int().or(0)
+  adj[a].push((b, w))
+  adj[b].push((a, w))
+
+dist: {str: int} = {}
+dist[TO] = 0
+h = heap()
+h.push((0, TO))
+while !h.is_empty():
+  (d, u) = h.pop()
+  if d > dist[u]:
+    continue
+  if adj.has(u):
+    for (v, w) in adj[u]:
+      nd = d + w
+      if !dist.has(v) or nd < dist[v]:
+        dist[v] = nd
+        h.push((nd, v))
+
+if !dist.has(FROM):
+  print("none")
+else:
+  print(dist[FROM])
+  path: [str] = [FROM]
+  c = FROM
+  while c != TO:
+    best = ""
+    for (v, w) in adj[c]:
+      if dist.has(v) and w + dist[v] == dist[c]:
+        if best == "" or v < best:
+          best = v
+    c = best
+    path.push(c)
+  print(path.join("->"))

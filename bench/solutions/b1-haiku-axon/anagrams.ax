@@ -1,0 +1,22 @@
+seen: {str: bool} = {}
+groups: {str: [str]} = {}
+for w in stdin().words() {
+  lw = w.lower()
+  if not seen.has(lw) {
+    seen[lw] = true
+    key = lw.chars().sort().join("")
+    groups[key].push(lw)
+  }
+}
+
+gl: [[str]] = []
+for (k, g) in groups.pairs() {
+  if g.len() >= 2 {
+    gl.push(g.sort())
+  }
+}
+gl = gl.sort_by(g => (-g.len(), g[0]))
+
+for g in gl {
+  print(g.join(" "))
+}

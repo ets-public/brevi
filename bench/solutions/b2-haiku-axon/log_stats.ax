@@ -1,0 +1,27 @@
+// Per-path request statistics from "METHOD PATH STATUS MS" lines.
+data: {str: [int]} = {}
+errs: {str: int} = {}
+for line in lines() {
+  ws = line.words()
+  if ws.len() < 4 {
+    continue
+  }
+  p = ws[1]
+  st = ws[2].int().or(0)
+  t = ws[3].int().or(0)
+  data[p].push(t)
+  if st >= 500 {
+    errs[p] += 1
+  }
+}
+
+for p in data.keys().sort() {
+  v = data[p].sort()
+  n = v.len()
+  avg = v.sum().float() / n.float()
+  k = (9 * n + 9) / 10
+  p90 = v[k - 1]
+  e = errs.get_or(p, 0)
+  pct = e.float() * 100.0 / n.float()
+  print("{p} {n} {avg.fmt(1)} {p90} {pct.fmt(1)}%")
+}

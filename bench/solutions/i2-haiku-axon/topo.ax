@@ -1,0 +1,41 @@
+adj: {str: [str]} = {}
+indeg: {str: int} = {}
+nodes: [str] = []
+
+for line in lines():
+  if line.trim() == "":
+    continue
+  parts = line.split("->")
+  a = parts[0].trim()
+  b = parts[1].trim()
+  adj[a].push(b)
+  indeg[b] += 1
+  nodes.push(a)
+  nodes.push(b)
+
+nodes = nodes.unique()
+n = nodes.len()
+used: {str: bool} = {}
+order: [str] = []
+cyc = false
+
+while order.len() < n and not cyc:
+  pick = ""
+  for x in nodes:
+    if indeg.get_or(x, 0) == 0 and not used.has(x):
+      pick = x
+      break
+  if pick == "":
+    cyc = true
+  else:
+    used[pick] = true
+    order.push(pick)
+    if adj.has(pick):
+      for y in adj[pick]:
+        indeg[y] -= 1
+
+if cyc:
+  print("cycle")
+else:
+  for x in order:
+    print(x)

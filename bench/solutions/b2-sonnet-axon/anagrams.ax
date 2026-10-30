@@ -1,0 +1,9 @@
+groups: {str: [str]} = {}
+for w in stdin().words() {
+  lw = w.lower()
+  k = lw.chars().sort().join("")
+  if !groups.get_or(k, []).contains(lw) { groups[k].push(lw) }
+}
+gs = groups.values().filter(g => g.len() > 1).map(g => g.sort())
+gs = gs.sort_by(g => (-g.len(), g[0]))
+for g in gs { print(g.join(" ")) }

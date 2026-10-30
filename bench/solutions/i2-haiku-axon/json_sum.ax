@@ -1,0 +1,97 @@
+cs: [str] = stdin().chars()
+pos = 0
+lastred = false
+
+fn skip_ws():
+  while cs[pos] == " " or cs[pos] == "\n" or cs[pos] == "\t" or cs[pos] == "\r":
+    pos += 1
+
+fn parse_string() -> str:
+  pos += 1
+  out = ""
+  while cs[pos] != "\"":
+    if cs[pos] == "\\":
+      pos += 1
+    out += cs[pos]
+    pos += 1
+  pos += 1
+  out
+
+fn parse_number() -> int:
+  neg = false
+  if cs[pos] == "-":
+    neg = true
+    pos += 1
+  n = 0
+  while cs[pos].is_digit():
+    n = n * 10 + cs[pos].digit()
+    pos += 1
+  if neg:
+    return 0 - n
+  n
+
+fn parse_object() -> int:
+  pos += 1
+  total = 0
+  red = false
+  skip_ws()
+  if cs[pos] == "}":
+    pos += 1
+    return 0
+  while true:
+    skip_ws()
+    parse_string()
+    skip_ws()
+    pos += 1
+    v = parse_value()
+    if lastred:
+      red = true
+    total += v
+    skip_ws()
+    c = cs[pos]
+    pos += 1
+    if c == "}":
+      break
+  if red:
+    return 0
+  total
+
+fn parse_array() -> int:
+  pos += 1
+  total = 0
+  skip_ws()
+  if cs[pos] == "]":
+    pos += 1
+    return 0
+  while true:
+    total += parse_value()
+    skip_ws()
+    c = cs[pos]
+    pos += 1
+    if c == "]":
+      break
+  total
+
+fn parse_value() -> int:
+  skip_ws()
+  c = cs[pos]
+  if c == "{":
+    v = parse_object()
+    lastred = false
+    return v
+  if c == "[":
+    v = parse_array()
+    lastred = false
+    return v
+  lastred = false
+  if c == "\"":
+    s = parse_string()
+    lastred = s == "red"
+    return 0
+  if c == "t" or c == "f" or c == "n":
+    while cs[pos].is_alpha():
+      pos += 1
+    return 0
+  parse_number()
+
+print(parse_value())

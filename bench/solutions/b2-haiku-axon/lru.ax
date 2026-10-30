@@ -1,0 +1,41 @@
+// LRU cache simulation. Each operation gets a clock tick; the key with the
+// oldest tick is evicted when a new key would exceed capacity.
+ls = lines()
+cap = ls[0].trim().int().or(1)
+vals: {str: str} = {}
+used: {str: int} = {}
+clock = 0
+
+for i in 1..ls.len() {
+  parts = ls[i].words()
+  if parts.len() == 0 {
+    continue
+  }
+  clock += 1
+  if parts[0] == "get" {
+    k = parts[1]
+    if vals.has(k) {
+      used[k] = clock
+      print(vals[k])
+    } else {
+      print("-1")
+    }
+  } else {
+    k = parts[1]
+    v = parts[2]
+    if not vals.has(k) and vals.len() >= cap {
+      oldest = ""
+      best = 0
+      for key in vals.keys() {
+        if oldest == "" or used[key] < best {
+          oldest = key
+          best = used[key]
+        }
+      }
+      vals.remove(oldest)
+      used.remove(oldest)
+    }
+    vals[k] = v
+    used[k] = clock
+  }
+}

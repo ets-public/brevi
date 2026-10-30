@@ -1,0 +1,41 @@
+nums = stdin().ints()
+R = nums[0]
+C = nums[1]
+vals = nums.slice(2, nums.len())
+
+out: [int] = []
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+while top <= bot and left <= right:
+  c = left
+  while c <= right:
+    out.push(vals[top * C + c])
+    c += 1
+  top += 1
+  r = top
+  while r <= bot:
+    out.push(vals[r * C + right])
+    r += 1
+  right -= 1
+  if top <= bot:
+    c = right
+    while c >= left:
+      out.push(vals[bot * C + c])
+      c -= 1
+    bot -= 1
+  if left <= right:
+    r = bot
+    while r >= top:
+      out.push(vals[r * C + left])
+      r -= 1
+    left += 1
+
+print(out.map(x => str(x)).join(" "))
+
+sums: [int] = [0].repeat(C)
+for r in 0..R:
+  for c in 0..C:
+    sums[c] = sums[c] + vals[r * C + c]
+print(sums.map(x => str(x)).join(" "))

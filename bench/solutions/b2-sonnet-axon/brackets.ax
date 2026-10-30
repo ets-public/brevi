@@ -1,0 +1,25 @@
+for line in lines() {
+  stack: [str] = []
+  bad = 0
+  cs = line.chars()
+  for i in 0..cs.len() {
+    ch = cs[i]
+    if ch == "(" or ch == "[" or ch == "{" {
+      stack.push(ch)
+    } else if ch == ")" or ch == "]" or ch == "}" {
+      want = if ch == ")" { "(" } else if ch == "]" { "[" } else { "{" }
+      if stack.is_empty() or stack[-1] != want {
+        bad = i + 1
+        break
+      }
+      stack.pop()
+    }
+  }
+  if bad > 0 {
+    print("error at {bad}")
+  } else if !stack.is_empty() {
+    print("error at {cs.len() + 1}")
+  } else {
+    print("ok")
+  }
+}

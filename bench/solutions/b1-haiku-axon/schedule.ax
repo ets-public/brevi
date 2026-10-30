@@ -1,0 +1,66 @@
+durs: {str: int} = {}
+deps: {str: [str]} = {}
+names: [str] = []
+ends: {str: int} = {}
+starts: {str: int} = {}
+state: {str: int} = {}
+bad = false
+
+fn finish(n: str) -> int {
+  if state.get_or(n, 0) == 2 {
+    return ends[n]
+  }
+  if state.get_or(n, 0) == 1 {
+    bad = true
+    return 0
+  }
+  state[n] = 1
+  st = 0
+  for d in deps.get_or(n, []) {
+    if not durs.has(d) {
+      bad = true
+      return 0
+    }
+    f = finish(d)
+    if f > st {
+      st = f
+    }
+  }
+  starts[n] = st
+  ends[n] = st + durs[n]
+  state[n] = 2
+  ends[n]
+}
+
+for line in lines() {
+  w = line.words()
+  if w.len() >= 2 {
+    names.push(w[0])
+    durs[w[0]] = w[1].int().or(0)
+    if w.len() > 2 {
+      deps[w[0]] = w.skip(3)
+    }
+  }
+}
+
+for n in names {
+  finish(n)
+}
+
+if bad {
+  print("invalid")
+} else {
+  rows: [(int, str, int)] = []
+  total = 0
+  for n in names {
+    rows.push((starts[n], n, ends[n]))
+    if ends[n] > total {
+      total = ends[n]
+    }
+  }
+  rows = rows.sort()
+  for (s, n, e) in rows {
+    print("{n} {s} {e}")
+  }
+  print("total {total}")
+}

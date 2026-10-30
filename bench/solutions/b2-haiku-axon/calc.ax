@@ -1,0 +1,92 @@
+// Integer arithmetic calculator: recursive descent parser.
+// Each parse function returns (value, next position, bad flag).
+
+fn lex(s: str) -> [str] {
+  toks: [str] = []
+  num = ""
+  for c in s.chars() {
+    if c.is_digit() {
+      num = num + c
+    } else {
+      if num != "" {
+        toks.push(num)
+        num = ""
+      }
+      if c != " " {
+        toks.push(c)
+      }
+    }
+  }
+  if num != "" {
+    toks.push(num)
+  }
+  toks
+}
+
+fn parse_atom(toks: [str], p: int) -> (int, int, bool) {
+  if p >= toks.len() {
+    return (0, p, true)
+  }
+  t = toks[p]
+  if t == "(" {
+    (v, q, bad) = parse_expr(toks, p + 1)
+    if q < toks.len() and toks[q] == ")" {
+      return (v, q + 1, bad)
+    }
+    return (v, q, true)
+  }
+  if t == "-" {
+    (v, q, bad) = parse_atom(toks, p + 1)
+    return (-v, q, bad)
+  }
+  (t.int().or(0), p + 1, false)
+}
+
+fn parse_term(toks: [str], p: int) -> (int, int, bool) {
+  (v, q, bad) = parse_atom(toks, p)
+  while q < toks.len() and (toks[q] == "*" or toks[q] == "/") {
+    op = toks[q]
+    (w, r, b) = parse_atom(toks, q + 1)
+    bad = bad or b
+    if op == "*" {
+      v = v * w
+    } else {
+      if w == 0 {
+        bad = true
+      } else {
+        v = v / w
+      }
+    }
+    q = r
+  }
+  (v, q, bad)
+}
+
+fn parse_expr(toks: [str], p: int) -> (int, int, bool) {
+  (v, q, bad) = parse_term(toks, p)
+  while q < toks.len() and (toks[q] == "+" or toks[q] == "-") {
+    op = toks[q]
+    (w, r, b) = parse_term(toks, q + 1)
+    bad = bad or b
+    if op == "+" {
+      v = v + w
+    } else {
+      v = v - w
+    }
+    q = r
+  }
+  (v, q, bad)
+}
+
+for line in lines() {
+  if line.trim() == "" {
+    continue
+  }
+  toks = lex(line)
+  (v, q, bad) = parse_expr(toks, 0)
+  if bad {
+    print("error")
+  } else {
+    print(v)
+  }
+}

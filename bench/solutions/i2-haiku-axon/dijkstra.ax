@@ -1,0 +1,45 @@
+edges: [(str, str, int)] = []
+src = ""
+dst = ""
+for line in lines():
+  p = line.words()
+  if p.len() == 3:
+    edges.push((p[0], p[1], p[2].int().or(0)))
+  elif p.len() == 2:
+    src = p[0]
+    dst = p[1]
+
+dist: {str: int} = {}
+dist[dst] = 0
+changed = true
+while changed:
+  changed = false
+  for (a, b, w) in edges:
+    if dist.has(b):
+      nd = dist[b] + w
+      if not dist.has(a) or nd < dist[a]:
+        dist[a] = nd
+        changed = true
+    if dist.has(a):
+      nd = dist[a] + w
+      if not dist.has(b) or nd < dist[b]:
+        dist[b] = nd
+        changed = true
+
+if not dist.has(src):
+  print("none")
+else:
+  print(dist[src])
+  u = src
+  path: [str] = [src]
+  while u != dst:
+    cands: [str] = []
+    for (a, b, w) in edges:
+      if a == u and dist.has(b) and w + dist[b] == dist[u]:
+        cands.push(b)
+      if b == u and dist.has(a) and w + dist[a] == dist[u]:
+        cands.push(a)
+    cands = cands.sort()
+    u = cands[0]
+    path.push(u)
+  print(path.join("->"))

@@ -166,7 +166,7 @@ pub fn auto_try(items: &mut [Item]) {
 }
 
 // Conversions that fail on bad text (`"x".int()`); on numbers they cannot fail.
-const CONVERT_METHODS: &[&str] = &["int", "float", "ints", "big", "dec"];
+const CONVERT_METHODS: &[&str] = &["int", "float", "ints", "big", "dec", "min", "max"];
 
 fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
     // Walks into a call or conversion whose error is handled here, without wrapping it.
@@ -936,6 +936,7 @@ impl Emitter {
                     "and" => format!("({a} && {b})"),
                     "or" => format!("({a} || {b})"),
                     "~=" => format!("ax_approx({a}, {b})"),
+                    "//" => format!("ax_floordiv({a}, {b})"),
                     op => format!("({a} {op} {b})"),
                 }
             }

@@ -1,0 +1,29 @@
+ls = lines()
+rc = ls[0].ints()
+r = rc[0]
+c = rc[1]
+m: [[int]] = []
+for i in 0..r: m.push(ls[i + 1].ints())
+out: [str] = []
+top = 0
+bot = r - 1
+l = 0
+rt = c - 1
+while top <= bot and l <= rt:
+  for j in l..(rt + 1): out.push(str(m[top][j]))
+  top += 1
+  for i in top..(bot + 1): out.push(str(m[i][rt]))
+  rt -= 1
+  if top <= bot:
+    for j in (l..(rt + 1)).rev(): out.push(str(m[bot][j]))
+    bot -= 1
+  if l <= rt:
+    for i in (top..(bot + 1)).rev(): out.push(str(m[i][l]))
+    l += 1
+print(out.join(" "))
+cols: [str] = []
+for j in 0..c:
+  s = 0
+  for i in 0..r: s += m[i][j]
+  cols.push(str(s))
+print(cols.join(" "))

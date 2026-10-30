@@ -1,0 +1,26 @@
+ls = lines()
+n = ls[0].trim().int()
+fn sq(s: str) -> int = (s.slice(1, s.len()).int() - 1) * n + (s.slice(0, 1).code() - 97)
+dx = [1, 2, 2, 1, -1, -2, -2, -1]
+dy = [2, 1, -1, -2, -2, -1, 1, 2]
+for l in ls.skip(1):
+  w = l.words()
+  if w.len() < 2: continue
+  a = sq(w[0])
+  b = sq(w[1])
+  d = [-1].repeat(n * n)
+  d[a] = 0
+  q = [a]
+  qi = 0
+  while qi < q.len():
+    u = q[qi]
+    qi += 1
+    ux = u % n
+    uy = u / n
+    for k in 0..8:
+      x = ux + dx[k]
+      y = uy + dy[k]
+      if x >= 0 and x < n and y >= 0 and y < n and d[y * n + x] < 0:
+        d[y * n + x] = d[u] + 1
+        q.push(y * n + x)
+  print(d[b])

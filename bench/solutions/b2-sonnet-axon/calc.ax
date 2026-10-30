@@ -1,0 +1,68 @@
+s = ""
+pos = 0
+fn peek() -> str {
+  while pos < s.len() and s[pos] == " " { pos += 1 }
+  if pos < s.len() { s[pos] } else { "" }
+}
+fn atom() -> int {
+  c = peek()
+  if c == "-" {
+    pos += 1
+    return -atom()
+  }
+  if c == "(" {
+    pos += 1
+    v = expr()
+    peek()
+    pos += 1
+    return v
+  }
+  n = 0
+  while pos < s.len() and s[pos].is_digit() {
+    n = n * 10 + s[pos].digit()
+    pos += 1
+  }
+  n
+}
+fn term() -> int {
+  v = atom()
+  while true {
+    c = peek()
+    if c == "*" {
+      pos += 1
+      v = v * atom()
+    } else if c == "/" {
+      pos += 1
+      d = atom()
+      if d == 0 { fail("div") }
+      v = v / d
+    } else { break }
+  }
+  v
+}
+fn expr() -> int {
+  v = term()
+  while true {
+    c = peek()
+    if c == "+" {
+      pos += 1
+      v = v + term()
+    } else if c == "-" {
+      pos += 1
+      v = v - term()
+    } else { break }
+  }
+  v
+}
+fn calc(line: str) -> int {
+  s = line
+  pos = 0
+  expr()
+}
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  match calc(line) {
+    Ok(v) => print(v)
+    Err(m) => print("error")
+  }
+}

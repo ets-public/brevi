@@ -1,0 +1,13 @@
+g: {str: [str]} = {}
+print(g["x"].contains("a"))
+c: {str: int} = {}
+print(c["q"] + 1)
+xs: [int] = []
+print(xs.max().or(-1))
+print([3, 9, 2].max())
+fn top(ys: [int]) -> int = ys.max()
+print(top([4, 5]))
+match top([]):
+  Ok(v) => print(v)
+  Err(m) => print(m)
+print(xs.min())

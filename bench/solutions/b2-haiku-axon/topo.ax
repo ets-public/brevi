@@ -1,0 +1,56 @@
+// Topological sort, always picking the alphabetically smallest free task.
+pairs: [(str, str)] = []
+names: [str] = []
+for line in lines() {
+  if line.trim() == "" {
+    continue
+  }
+  parts = line.split("->")
+  a = parts[0].trim()
+  b = parts[1].trim()
+  pairs.push((a, b))
+  names.push(a)
+  names.push(b)
+}
+
+nodes = names.unique()
+total = nodes.len()
+indeg: {str: int} = {}
+adj: {str: [str]} = {}
+for n in nodes {
+  indeg[n] = 0
+  adj[n] = []
+}
+for (a, b) in pairs {
+  adj[a].push(b)
+  indeg[b] += 1
+}
+
+done: {str: bool} = {}
+order: [str] = []
+cyc = false
+while order.len() < total and not cyc {
+  pick = ""
+  for n in nodes {
+    if pick == "" and not done.has(n) and indeg[n] == 0 {
+      pick = n
+    }
+  }
+  if pick == "" {
+    cyc = true
+  } else {
+    done[pick] = true
+    order.push(pick)
+    for m in adj[pick] {
+      indeg[m] -= 1
+    }
+  }
+}
+
+if cyc {
+  print("cycle")
+} else {
+  for n in order {
+    print(n)
+  }
+}

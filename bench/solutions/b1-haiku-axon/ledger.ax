@@ -1,0 +1,47 @@
+rows = csv(stdin())
+zero = "0".dec()
+ins: {str: dec} = {}
+outs: {str: dec} = {}
+months: {str: bool} = {}
+bal: {str: dec} = {}
+
+for r in rows.skip(1) {
+  if r.len() >= 3 {
+    m = r[0].trim().slice(0, 7)
+    acc = r[1].trim()
+    amt = r[2].trim().dec()
+    months[m] = true
+    ins[m] += zero
+    outs[m] += zero
+    bal[acc] += zero
+    bal[acc] += amt
+    if amt < zero {
+      outs[m] += zero - amt
+    } else {
+      ins[m] += amt
+    }
+  }
+}
+
+for m in months.keys().sort() {
+  ai = ins[m].fmt(2)
+  ao = outs[m].fmt(2)
+  an = (ins[m] - outs[m]).fmt(2)
+  print("{m} {ai} {ao} {an}")
+}
+
+top = ""
+topb = zero
+found = false
+for a in bal.keys().sort() {
+  b = bal[a]
+  if not found or b > topb {
+    top = a
+    topb = b
+    found = true
+  }
+}
+if found {
+  tb = topb.fmt(2)
+  print("top {top} {tb}")
+}

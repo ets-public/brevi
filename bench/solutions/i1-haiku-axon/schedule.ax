@@ -1,0 +1,68 @@
+dur: {str: int} = {}
+deps: {str: [str]} = {}
+names: [str] = []
+
+for line in lines():
+  w = line.words()
+  if w.len() < 2:
+    continue
+  nm = w[0]
+  dur[nm] = w[1].int().or(0)
+  deps[nm] = []
+  names.push(nm)
+  if w.len() > 3 and w[2] == "after":
+    for d in w.slice(3, w.len()):
+      deps[nm].push(d)
+
+invalid = false
+for nm in names:
+  for d in deps[nm]:
+    if !dur.has(d):
+      invalid = true
+
+indeg: {str: int} = {}
+children: {str: [str]} = {}
+for nm in names:
+  indeg[nm] = 0
+  children[nm] = []
+for nm in names:
+  for d in deps[nm]:
+    if dur.has(d):
+      children[d].push(nm)
+      indeg[nm] += 1
+
+order: [str] = []
+for nm in names:
+  if indeg[nm] == 0:
+    order.push(nm)
+i = 0
+while i < order.len():
+  n = order[i]
+  i += 1
+  for c in children[n]:
+    indeg[c] = indeg[c] - 1
+    if indeg[c] == 0:
+      order.push(c)
+
+if invalid or order.len() < names.len():
+  print("invalid")
+else:
+  st: {str: int} = {}
+  en: {str: int} = {}
+  for n in order:
+    s = 0
+    for d in deps[n]:
+      if en[d] > s:
+        s = en[d]
+    st[n] = s
+    en[n] = s + dur[n]
+  rows: [(int, str, int)] = []
+  total = 0
+  for n in names:
+    rows.push((st[n], n, en[n]))
+    if en[n] > total:
+      total = en[n]
+  rows = rows.sort()
+  for r in rows:
+    print("{r.1} {r.0} {r.2}")
+  print("total {total}")

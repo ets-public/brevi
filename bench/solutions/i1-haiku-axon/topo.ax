@@ -1,0 +1,37 @@
+indeg: {str: int} = {}
+adj: {str: [str]} = {}
+
+for line in lines():
+  t = line.trim()
+  if t == "":
+    continue
+  parts = t.split("->")
+  a = parts[0].trim()
+  b = parts[1].trim()
+  if !indeg.has(a):
+    indeg[a] = 0
+  if !indeg.has(b):
+    indeg[b] = 0
+  indeg[b] = indeg[b] + 1
+  adj[a].push(b)
+
+h = heap()
+for k in indeg.keys():
+  if indeg[k] == 0:
+    h.push(k)
+
+out: [str] = []
+while !h.is_empty():
+  n = h.pop()
+  out.push(n)
+  if adj.has(n):
+    for m in adj[n]:
+      indeg[m] = indeg[m] - 1
+      if indeg[m] == 0:
+        h.push(m)
+
+if out.len() < indeg.len():
+  print("cycle")
+else:
+  for n in out:
+    print(n)

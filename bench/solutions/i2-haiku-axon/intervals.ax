@@ -1,0 +1,21 @@
+pairs: [(int, int)] = []
+for line in lines():
+  if line.trim() == "":
+    continue
+  nums = line.ints()
+  pairs.push((nums[0], nums[1]))
+
+pairs = pairs.sort()
+merged: [(int, int)] = []
+for (s, e) in pairs:
+  if merged.is_empty() or s > merged.last().1:
+    merged.push((s, e))
+  else:
+    cur = merged.pop()
+    merged.push((cur.0, max(cur.1, e)))
+
+total = 0
+for (s, e) in merged:
+  print("{s} {e}")
+  total += e - s
+print("total {total}")

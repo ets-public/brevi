@@ -1,0 +1,37 @@
+ls = lines()
+cap = ls[0].trim().int().or(1)
+vals: {str: str} = {}
+tick: {str: int} = {}
+clock = 0
+
+for line in ls.skip(1) {
+  w = line.words()
+  if w.len() >= 2 {
+    clock += 1
+    if w[0] == "put" {
+      if not vals.has(w[1]) and vals.len() >= cap {
+        found = false
+        victim = ""
+        vt = 0
+        for (k, t) in tick.pairs() {
+          if not found or t < vt {
+            victim = k
+            vt = t
+            found = true
+          }
+        }
+        vals.remove(victim)
+        tick.remove(victim)
+      }
+      vals[w[1]] = w[2]
+      tick[w[1]] = clock
+    } else {
+      if vals.has(w[1]) {
+        tick[w[1]] = clock
+        print(vals[w[1]])
+      } else {
+        print("-1")
+      }
+    }
+  }
+}

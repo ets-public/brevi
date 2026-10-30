@@ -1,0 +1,27 @@
+ls = lines()
+cap = ls[0].trim().int().or(1)
+vals: {str: str} = {}
+order: [str] = []
+
+for line in ls.skip(1):
+  p = line.trim().words()
+  if p.is_empty():
+    continue
+  if p[0] == "put":
+    k = p[1]
+    if vals.has(k):
+      order.remove(order.index_of(k))
+    else:
+      if order.len() >= cap:
+        old = order.remove(0)
+        vals.remove(old)
+    vals[k] = p[2]
+    order.push(k)
+  else:
+    k = p[1]
+    if vals.has(k):
+      order.remove(order.index_of(k))
+      order.push(k)
+      print(vals[k])
+    else:
+      print("-1")

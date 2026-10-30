@@ -1,0 +1,9 @@
+// Exact addition of two big non-negative integers per line.
+for line in lines() {
+  parts = line.words()
+  if parts.len() < 2 {
+    continue
+  }
+  total = parts[0].big() + parts[1].big()
+  print(str(total))
+}

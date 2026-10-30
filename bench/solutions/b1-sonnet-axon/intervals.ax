@@ -1,0 +1,24 @@
+iv: [(int, int)] = []
+for line in lines() {
+  if line.trim().is_empty() { continue }
+  n = line.ints()
+  iv.push((n[0], n[1]))
+}
+iv = iv.sort()
+total = 0
+if !iv.is_empty() {
+  (cs, ce) = iv[0]
+  for (s, e) in iv.skip(1) {
+    if s <= ce {
+      if e > ce { ce = e }
+    } else {
+      print("{cs} {ce}")
+      total += ce - cs
+      cs = s
+      ce = e
+    }
+  }
+  print("{cs} {ce}")
+  total += ce - cs
+}
+print("total {total}")

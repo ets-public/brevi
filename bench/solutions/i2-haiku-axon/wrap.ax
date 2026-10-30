@@ -1,0 +1,36 @@
+fn wrap_para(words: [str], w: int) -> [str]:
+  out: [str] = []
+  line = ""
+  for word in words:
+    if line == "":
+      line = word
+    elif line.len() + 1 + word.len() <= w:
+      line = line + " " + word
+    else:
+      out.push(line)
+      line = word
+  if line != "":
+    out.push(line)
+  out
+
+ls = lines()
+w = ls[0].trim().int().or(1)
+paras: [[str]] = []
+cur: [str] = []
+for line in ls.skip(1):
+  p = line.words()
+  if p.is_empty():
+    if not cur.is_empty():
+      paras.push(cur)
+      cur = []
+  else:
+    for word in p:
+      cur.push(word)
+if not cur.is_empty():
+  paras.push(cur)
+
+for i in 0..paras.len():
+  if i > 0:
+    print("")
+  for l in wrap_para(paras[i], w):
+    print(l)

@@ -1,0 +1,50 @@
+// Greedy word wrap of blank-line separated paragraphs.
+
+fn wrap_para(ws: [str], width: int) -> [str] {
+  out: [str] = []
+  cur = ""
+  for w in ws {
+    if cur == "" {
+      cur = w
+    } else if cur.len() + 1 + w.len() <= width {
+      cur = cur + " " + w
+    } else {
+      out.push(cur)
+      cur = w
+    }
+  }
+  if cur != "" {
+    out.push(cur)
+  }
+  out
+}
+
+ls = lines()
+width = ls[0].trim().int().or(80)
+paras: [[str]] = []
+cur_words: [str] = []
+for i in 1..ls.len() {
+  ws = ls[i].words()
+  if ws.len() == 0 {
+    if cur_words.len() > 0 {
+      paras.push(cur_words)
+      cur_words = []
+    }
+  } else {
+    for w in ws {
+      cur_words.push(w)
+    }
+  }
+}
+if cur_words.len() > 0 {
+  paras.push(cur_words)
+}
+
+for pi in 0..paras.len() {
+  if pi > 0 {
+    print("")
+  }
+  for l in wrap_para(paras[pi], width) {
+    print(l)
+  }
+}

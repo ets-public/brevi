@@ -1,0 +1,57 @@
+// Shortest path in an undirected weighted graph, lexicographically smallest among ties.
+// Distances are computed from the destination (Bellman-Ford style relaxation), then the
+// path is walked from the source always taking the smallest neighbour that stays on a
+// shortest path.
+edges: [(str, str, int)] = []
+src = ""
+dst = ""
+for line in lines() {
+  ws = line.words()
+  if ws.len() == 3 {
+    edges.push((ws[0], ws[1], ws[2].int().or(1)))
+  } else if ws.len() == 2 {
+    src = ws[0]
+    dst = ws[1]
+  }
+}
+
+dist: {str: int} = {}
+dist[dst] = 0
+changed = true
+while changed {
+  changed = false
+  for (a, b, w) in edges {
+    for (x, y) in [(a, b), (b, a)] {
+      if dist.has(x) {
+        nd = dist[x] + w
+        if not dist.has(y) or nd < dist[y] {
+          dist[y] = nd
+          changed = true
+        }
+      }
+    }
+  }
+}
+
+if not dist.has(src) {
+  print("none")
+} else {
+  print(dist[src])
+  path: [str] = [src]
+  cur = src
+  while cur != dst {
+    best = ""
+    for (a, b, w) in edges {
+      for (x, y) in [(a, b), (b, a)] {
+        if x == cur and dist.has(y) and dist[y] + w == dist[cur] {
+          if best == "" or y < best {
+            best = y
+          }
+        }
+      }
+    }
+    path.push(best)
+    cur = best
+  }
+  print(path.join("->"))
+}

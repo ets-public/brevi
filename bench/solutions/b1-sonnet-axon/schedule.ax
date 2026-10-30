@@ -1,0 +1,49 @@
+dur: {str: int} = {}
+deps: {str: [str]} = {}
+for line in lines() {
+  w = line.words()
+  if w.is_empty() { continue }
+  dur[w[0]] = w[1].int()
+  deps[w[0]] = []
+  if w.len() > 3 {
+    deps[w[0]] = w.skip(3)
+  }
+}
+valid = true
+for (n, ds) in deps.pairs() {
+  for d in ds {
+    if !dur.has(d) { valid = false }
+  }
+}
+start: {str: int} = {}
+if valid {
+  progress = true
+  while progress {
+    progress = false
+    for (n, ds) in deps.pairs() {
+      if start.has(n) { continue }
+      if ds.all(d => start.has(d)) {
+        s = 0
+        for d in ds {
+          e = start[d] + dur[d]
+          if e > s { s = e }
+        }
+        start[n] = s
+        progress = true
+      }
+    }
+  }
+  if start.len() < dur.len() { valid = false }
+}
+if !valid {
+  print("invalid")
+} else {
+  rows = start.pairs().map(p => (p.1, p.0)).sort()
+  total = 0
+  for (s, n) in rows {
+    e = s + dur[n]
+    if e > total { total = e }
+    print("{n} {s} {e}")
+  }
+  print("total {total}")
+}

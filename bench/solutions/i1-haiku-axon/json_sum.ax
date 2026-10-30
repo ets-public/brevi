@@ -1,0 +1,31 @@
+fn is_red(j: Json) -> bool:
+  match j:
+    Str(s) => s == "red"
+    _ => false
+
+fn sum_arr(xs: [Json]) -> int:
+  s = 0
+  for x in xs:
+    s += total(x)
+  return s
+
+fn sum_obj(m: {str: Json}) -> int:
+  red = false
+  for v in m.values():
+    if is_red(v):
+      red = true
+  if red:
+    return 0
+  s = 0
+  for v in m.values():
+    s += total(v)
+  return s
+
+fn total(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    Arr(xs) => sum_arr(xs)
+    Obj(m) => sum_obj(m)
+    _ => 0
+
+print(total(json(stdin())))

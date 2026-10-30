@@ -1,0 +1,24 @@
+enum J:
+  Num(n: int)
+  Arr(xs: [int])
+fn tot(j: J) -> int = match j:
+  Num(n) => n
+  Arr(xs) =>
+    s = 0
+    for x in xs:
+      s += x
+    s
+print(tot(Arr([1, 2, 3])) + tot(Num(4)))
+v = match 3:
+  3 => {
+    "three"
+  }
+  _ => "other"
+print(v)
+n = 7
+print((9 * n + 9) // 10)   // comment after code
+print(-7 // 2)
+x = n // 2 # c
+print(x)
+print([1, 2].join(" "))
+print(["a", "b"].join(","))
