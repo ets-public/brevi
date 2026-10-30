@@ -1,7 +1,7 @@
 # Axon language guide (for models)
 
 Axon compiles to Rust. Write one statement per line, no semicolons. Comments start with `//`. Types are required only on function parameters and returns.
-A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables (`pos = 0`; give a type when the value is not a literal: `var toks: [str] = []`).
+A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables (`pos = 0`; give a type when the value is not a literal: `toks: [str] = []`).
 
 ```
 nums = stdin().ints()
@@ -39,7 +39,7 @@ Errors pass up automatically. `fail(msg)`, `read`, and conversions like `s.int()
 Handle a failure where it happens with `.or(default)` or `match f(x) { Ok(v) => ..., Err(msg) => ... }`. An uncaught failure stops the program with a JSON error.
 
 ## Statements
-`x = 1` creates a variable or changes it (`let x = 1` makes one that cannot change), `x = 2`, `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
+`x = 1` creates a variable or changes it (`let x = 1` makes one that cannot change, `x: [str] = []` gives a type), `(a, b) = pair` unpacks, `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
 `if c { } else if d { } else { }`, `for x in xs { }`, `for (k, v) in m.pairs() { }`, `for i in 0..n { }`, `while c { }`.
 `if` and `match` are values: `y = if a > b { a } else { b }`. A variable first set inside a block ends with the block, so set it before the block if you need it after.
 Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.
@@ -52,7 +52,7 @@ Escapes: `\n \t \r \0 \" \\`.
 
 ## Collections
 `xs[0]`, `xs[-1]` (last), `m[k]` (missing key stops the program), `m[k] = v`, `m[k] += 1` and `m[k].push(x)` (missing key starts at 0, "" or []).
-Empty values: `xs = []`, `m = {}` (add a type like `var m: {str: int} = {}` only if the compiler asks).
+Empty values: `xs = []`, `m = {}` (add a type like `m: {str: int} = {}` only if the compiler asks).
 Lambdas: `x => x * 2`, `(a, b) => a + b`. In map/filter/any/all/count/sort_by, `(a, b) => b - a` unpacks a tuple item.
 
 ## Methods

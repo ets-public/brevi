@@ -1,0 +1,17 @@
+indeg: {str: int} = {}
+h = heap()
+h.push((2, "b"))
+h.push((1, "a"))
+for n in [1, 2] { print(n) }
+while !h.is_empty() {
+  (d, u) = h.pop()
+  n = d
+  print("{n} {u}")
+}
+for line in ["x"] { print(line) }
+line = "y"
+print(line)
+a = 1
+b = 2
+(a, b) = (b, a)
+print("{a} {b} {indeg.len()}")

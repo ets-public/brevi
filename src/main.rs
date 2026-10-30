@@ -313,6 +313,7 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
         "E0308" if msg.contains("Result") || msg.contains("R<") => Some("a call that can fail needs ? after it".into()),
         "E0308" if msg.contains("mismatched") => Some("convert with .int(), .float() or str(x)".into()),
         "E0599" => Some("check the method name and the value's type".into()),
+        "E0282" => Some("give the empty value a type, e.g. m: {str: int} = {} or xs: [str] = []".into()),
         "E0412" => Some("types are int f64 bool str dec big Date Json [T] {K: V} (A, B) heap[T], or a type you defined".into()),
         "E0277" if msg.contains("Plus") => Some("both sides of + must have the same type".into()),
         "E0277" if msg.contains("i64") && msg.contains("f64") => Some("convert one side with .float() or .int()".into()),

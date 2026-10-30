@@ -292,6 +292,16 @@ impl Parser {
             let value = self.expr()?;
             return Ok(Stmt::Let { name, ty, value, mutable, line });
         }
+        // `x: T = v` declares a typed variable, like `var x: T = v`.
+        if matches!(self.peek(), Tok::Ident(_)) && matches!(self.peek_at(1), Tok::Sym(":")) {
+            let name = self.pat()?;
+            self.expect_sym(":")?;
+            let ty = Some(self.ty()?);
+            self.expect_sym("=")?;
+            self.skip_newlines();
+            let value = self.expr()?;
+            return Ok(Stmt::Let { name, ty, value, mutable: true, line });
+        }
         if self.eat_kw("return") {
             let value = if self.peek() == &Tok::Newline || self.is_sym("}") { None } else { Some(self.expr()?) };
             return Ok(Stmt::Return { value, line });
