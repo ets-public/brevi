@@ -2,7 +2,7 @@
 
 A programming language for AI models to write. Axon compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one JSON line with a suggested fix.
 
-The guide a model reads before writing Axon is [AXON.md](AXON.md), about 1,200 tokens.
+The guide a model reads before writing Axon is [AXON.md](AXON.md), about 1,900 tokens (estimated).
 
 ## Status: v0.3
 
