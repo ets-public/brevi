@@ -30,6 +30,13 @@ const SYMBOLS: &[&str] = &[
     "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?",
 ];
 
+// After a value, `a // b` is floor division unless what follows reads like words (`x = 5 // the count`).
+fn looks_like_prose(rest: &str) -> bool {
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    let is_word = |w: &str| w.chars().all(|c| c.is_alphanumeric() || c == '_') && !["and", "or", "not", "if", "else", "in"].contains(&w);
+    rest.trim().is_empty() || words.windows(2).any(|p| is_word(p[0]) && is_word(p[1]))
+}
+
 pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     let chars: Vec<char> = src.chars().collect();
     let mut out = Vec::new();
@@ -60,8 +67,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
         // `a // 2` after a value, followed by a number or `(`, is floor division (as in Python); otherwise `//` starts a comment.
         if c == '/' && chars.get(i + 1) == Some(&'/') {
             let after_value = matches!(out.last(), Some(Token { tok: Tok::Int(_) | Tok::Float(_) | Tok::Ident(_) | Tok::Sym(")") | Tok::Sym("]"), line: l, .. }) if *l == line);
-            let next = chars[i + 2..].iter().find(|c| **c != ' ').copied();
-            if after_value && next.map_or(false, |n| n.is_ascii_digit() || n == '(') {
+            let rest: String = chars[i + 2..].iter().take_while(|c| **c != '\n').collect();
+            // Only up to a later comment on the same line.
+            let rest = rest.split("//").next().unwrap_or("").split('#').next().unwrap_or("").to_string();
+            if after_value && !looks_like_prose(&rest) {
                 push(&mut out, Tok::Sym("//"));
                 i += 2;
                 col += 2;

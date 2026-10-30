@@ -1,0 +1,6 @@
+p = "1.50".dec()
+print(p > 0)
+print(p == 1)
+z = "0".dec()
+print(z == 0)
+print(p.fmt(2))

@@ -1443,6 +1443,17 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> T {
 // ---- exact decimals: fixed point with 9 places ----
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default, Hash)]
 pub struct Dec(pub i128);
+// A dec compares directly with an int: `price > 0`.
+impl PartialEq<i64> for Dec {
+    fn eq(&self, o: &i64) -> bool {
+        self.0 == (*o as i128) * 1_000_000_000
+    }
+}
+impl PartialOrd<i64> for Dec {
+    fn partial_cmp(&self, o: &i64) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&((*o as i128) * 1_000_000_000))
+    }
+}
 const DEC_ONE: i128 = 1_000_000_000;
 impl Dec {
     fn parse(s: &str) -> R<Dec> {

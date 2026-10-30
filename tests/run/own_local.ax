@@ -1,0 +1,8 @@
+cur: [str] = []
+fn f(ws: [str]) -> str:
+  cur = ""
+  for w in ws: cur = cur + w
+  cur
+print(f(["a", "b"]))
+cur.push("x")
+print(cur)

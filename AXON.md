@@ -79,7 +79,7 @@ Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert r
 - `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
 - `date("2024-02-29")` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
 - `big` is an exact integer of any size: `"123...".big()`, `n.big()`, with `+ - *` and comparisons.
-- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `n.dec()`, `+ - * /`, unary `-`, comparisons, `sum`, `fmt(2)` (rounds half to even), `float int round`.
+- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, comparisons (also with ints: `p > 0`), `sum`, `fmt(2)` (rounds half to even), `float int round`.
 - `heap()` is a min-heap of any comparable values: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
 
 ## Tests

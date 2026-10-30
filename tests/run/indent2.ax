@@ -22,3 +22,13 @@ x = n // 2 # c
 print(x)
 print([1, 2].join(" "))
 print(["a", "b"].join(","))
+cur = 17
+n = 5
+print(cur // n)
+print(cur % n)
+y = cur // n + 1 // then add one
+print(y)
+z = 3  // the count
+print(z)
+d = [1, 2, 2, 1, -1, -2]
+print(d[4])

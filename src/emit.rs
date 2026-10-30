@@ -47,6 +47,8 @@ pub struct Emitter {
     pub diags: Vec<Diag>,
     // Names whose items are lists changed in place (`m[k].push(x)`), so an empty `m = {}` gets a partial type.
     nested: HashSet<String>,
+    // Top-level names that the current function sets before reading, so they are its own locals.
+    own_locals: HashSet<String>,
     // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
     pub borrow_loops: bool,
 }
@@ -250,6 +252,35 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
     }
 }
 
+// The value in the first `n = value` statement of a body.
+fn first_assign<'a>(e: &'a Expr, n: &str) -> Option<&'a Expr> {
+    match e {
+        Expr::Block(stmts, tail) => {
+            for st in stmts {
+                let found = match st {
+                    Stmt::Assign { target: Expr::Ident(t), op: "=", value, .. } if t == n => Some(value),
+                    Stmt::Expr { expr, .. } => first_assign(expr, n),
+                    _ => None,
+                };
+                if found.is_some() {
+                    return found;
+                }
+            }
+            tail.as_deref().and_then(|t| first_assign(t, n))
+        }
+        Expr::If(_, t, f) => first_assign(t, n).or_else(|| f.as_deref().and_then(|f| first_assign(f, n))),
+        Expr::For(_, _, b) | Expr::While(_, b) => first_assign(b, n),
+        Expr::Match(_, arms) => arms.iter().find_map(|(_, b)| first_assign(b, n)),
+        _ => None,
+    }
+}
+
+// True when the first mention of `n` in a function body (its Debug text) is `n = ...`.
+fn sets_first(body: &str, n: &str) -> bool {
+    let id = format!("Ident({n:?})");
+    body.find(&id).map_or(false, |i| body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")))
+}
+
 // Names used as `name[k].push(..)` (or pop, insert, remove) anywhere in a body.
 fn nested_lists(body: &Expr) -> HashSet<String> {
     let text = format!("{body:?}");
@@ -331,6 +362,7 @@ impl Emitter {
             fallible: false,
             borrow_loops: false,
             nested: HashSet::new(),
+            own_locals: HashSet::new(),
             line: 0,
             diags: Vec::new(),
         };
@@ -400,11 +432,7 @@ impl Emitter {
                 }
                 let found = ty.clone().or_else(|| self.infer_ty(value));
                 // With no known type, a function that sets the name before reading it has its own local.
-                let own_local = |body: &String| {
-                    let id = format!("Ident({n:?})");
-                    body.find(&id).map_or(true, |i| body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")))
-                };
-                if found.is_none() && others.iter().all(|(ps, body)| ps.contains(n) || own_local(body)) {
+                if found.is_none() && others.iter().all(|(ps, body)| ps.contains(n) || sets_first(body, n)) {
                     continue;
                 }
                 match found {
@@ -464,7 +492,7 @@ impl Emitter {
     }
 
     fn global(&self, n: &str) -> Option<String> {
-        if self.locals.contains(n) || !self.globals.contains_key(n) {
+        if self.locals.contains(n) || !self.globals.contains_key(n) || self.own_locals.contains(n) {
             return None;
         }
         Some(format!("(*ax_gp(unsafe {{ std::ptr::addr_of_mut!(AXG_{n}) }}, {n:?}))"))
@@ -554,6 +582,7 @@ impl Emitter {
     }
 
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
+        self.own_locals.clear();
         self.locals = params.iter().map(|p| p.name.clone()).collect();
         self.refs = params.iter().filter(|p| p.is_mut).map(|p| p.name.clone()).collect();
         self.fallible = fallible;
@@ -562,6 +591,17 @@ impl Emitter {
     fn function(&mut self, name: &str, params: &[Param], ret: &Ty, fallible: bool, body: &Expr, line: usize) -> String {
         self.begin_fn(params, fallible);
         self.nested = nested_lists(body);
+        // A top-level name that this function first sets to a value of another type is the function's own.
+        let text = format!("{body:?}");
+        let names: Vec<String> = self.globals.keys().filter(|n| sets_first(&text, n)).cloned().collect();
+        for n in names {
+            let local_ty = first_assign(body, &n).and_then(|v| self.infer_ty(v));
+            if let (Some(t), Some((g, _))) = (local_ty, self.globals.get(&n)) {
+                if rust_ty(&t) != rust_ty(g) {
+                    self.own_locals.insert(n);
+                }
+            }
+        }
         self.line = line;
         let ps: Vec<String> = params
             .iter()
@@ -740,7 +780,7 @@ impl Emitter {
             }
             // `x = v` for a new name declares it, like `var x = v`.
             Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. }
-                if !self.locals.contains(n) && !self.globals.contains_key(n) && !self.fns.contains_key(n) && !self.variants.contains_key(n) =>
+                if !self.locals.contains(n) && (!self.globals.contains_key(n) || self.own_locals.contains(n)) && !self.fns.contains_key(n) && !self.variants.contains_key(n) =>
             {
                 let v = self.expr(value);
                 self.locals.insert(n.clone());
