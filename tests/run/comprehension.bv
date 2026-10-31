@@ -5,3 +5,5 @@ print([s for n, s in ps if n > 1])
 print(min(x for x in xs if x > 1), max([x + 1 for x in xs]), sum(xs))
 print(sum(x * x for x in xs))
 print(len(xs), sorted(xs))
+xs = [1, 2, 3]
+print(all(x > 0 for x in xs), any(x > 2 for x in xs if x < 3), any([false, true]))

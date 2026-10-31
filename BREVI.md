@@ -58,7 +58,7 @@ Escapes: `\n \t \r \0 \" \\ \{ \}`.
 ## Collections
 `xs[0]`, `xs[-1]` (last), `xs[a:b]` `xs[1:]` `s[:3]` (slices, also on strings), `xs[i] = v`, `m[k] = v`, `m[k] += 1`, `m[k].push(x)`. A missing map key reads as the type's zero (0, 0.0, "", [], dec 0); use `m.has(k)` to tell.
 Empty values: `xs = []`, `m = {}`, `h = heap()`. Don't write their types: the compiler works them out from later use (add one like `m: {str: int} = {}` only if it asks).
-Comprehensions: `[x * 2 for x in xs if x > 0]`, `[k for k, v in m.pairs() if v > 1]`, and in calls `min(d for d in ds)`. `len(x)`, `sum(xs)`, `min(xs)`, `max(xs)`, `sorted(xs)` work as in Python. Map keys can be tuples: `dist[(x, y)]`.
+Comprehensions: `[x * 2 for x in xs if x > 0]`, `[k for k, v in m.pairs() if v > 1]`, and in calls `min(d for d in ds)`. `len(x)`, `sum(xs)`, `min(xs)`, `max(xs)`, `sorted(xs)`, `any(...)`, `all(...)` work as in Python. Map keys can be tuples: `dist[(x, y)]`.
 Lambdas: `x => x * 2`, `(a, b) => a + b`. In map/filter/any/all/count/sort_by, `(a, b) => b - a` unpacks a tuple item.
 
 ## Methods

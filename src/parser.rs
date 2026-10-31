@@ -635,6 +635,14 @@ impl Parser {
                         "sorted" => Some("sort"),
                         _ => None,
                     };
+                    // any(c for x in xs) and all(...) test each item.
+                    if (name == "any" || name == "all") && args.len() == 1 && !self.user_fns.contains(&name) {
+                        let arg = args.remove(0).1;
+                        return Ok(match arg {
+                            Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => Expr::Method(base, name, vec![la.remove(0)], line),
+                            other => Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(Expr::Ident("b_".into())))], line),
+                        });
+                    }
                     match m {
                         Some(m) if args.len() == 1 && args[0].0.is_none() && !self.user_fns.contains(&name) => Ok(Expr::Method(Box::new(args.remove(0).1), m.into(), vec![], line)),
                         _ => Ok(Expr::Call(name, args, line)),
