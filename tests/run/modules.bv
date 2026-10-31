@@ -1,0 +1,4 @@
+# Items from other Brevi files.
+use "lib/shapes.bv"
+b = scaled(Rect(2, 3), 2)
+print(area(b), b.w)

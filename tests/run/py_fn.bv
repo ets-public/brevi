@@ -1,0 +1,32 @@
+# Functions written in Python; values cross as JSON.
+py:
+  import statistics
+  def _norm(s): return s.strip().lower()
+
+type Row:
+  name: str
+  score: f64
+py fn mean(xs: [f64]) -> f64 = statistics.mean(xs)
+py fn top(rows: [Row]) -> Row = max(rows, key=lambda r: r["score"])
+py fn counts(words: [str]) -> {str: int}:
+  out = {}
+  for w in words:
+    out[_norm(w)] = out.get(_norm(w), 0) + 1
+  return out
+py fn pairs(n: int) -> [(int, str)] = [(i, str(i * i)) for i in range(n)]
+py fn inv(x: int) -> f64 = 1 / x
+py fn noisy() -> int:
+  print("python print goes to stderr")
+  return 7
+
+print(mean([1.0, 2.0, 4.5]))
+best = top([Row("ann", 2.5), Row("bo", 9.0)])
+print(best.name, best.score)
+print(counts(["A", "a ", "b"]))
+print(pairs(3))
+print(inv(0).or(-1.0))
+match inv(0):
+  Ok(v) => print(v)
+  Err(m) => print(m)
+n = noisy()
+print(n)

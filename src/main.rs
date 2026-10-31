@@ -1,11 +1,13 @@
 mod ast;
 mod diag;
 mod emit;
+mod ffi;
 mod json;
 mod lexer;
 mod moves;
 mod infer;
 mod mcp;
+mod modules;
 mod parser;
 mod patch;
 
@@ -17,12 +19,14 @@ const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--rel
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
+// Kept out of the main guide, which every session reads: shown by `brevi guide Libraries` and word lookups.
+pub const GUIDE_LIBS: &str = include_str!("../LIBRARIES.md");
 static EXPLAIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // `## Name` sections of the guide, with the intro under the name "Intro".
 fn guide_sections() -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vec![("Intro".into(), String::new())];
-    for l in GUIDE.lines() {
+    for l in GUIDE.lines().chain(GUIDE_LIBS.lines().skip_while(|l| !l.starts_with("## "))) {
         if let Some(h) = l.strip_prefix("## ") {
             out.push((h.trim().to_string(), String::new()));
         }
@@ -94,8 +98,17 @@ fn explain(msg: &str, fix: &str) {
     }
 }
 
+// The files of the program (see modules.rs), so error lines can name the file they are in.
+static SEGS: std::sync::OnceLock<Vec<modules::Seg>> = std::sync::OnceLock::new();
+fn at(json: &str) -> String {
+    match SEGS.get() {
+        Some(s) if s.len() > 1 => modules::relocate(s, json),
+        _ => json.to_string(),
+    }
+}
+
 fn print_diag(d: &Diag) {
-    println!("{}", d.to_json());
+    println!("{}", at(&d.to_json()));
     explain(&d.msg, d.fix.as_deref().unwrap_or(""));
 }
 
@@ -165,15 +178,33 @@ fn main() {
     };
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
+    let (src, segs) = match modules::expand(&file, &src) {
+        Ok(x) => x,
+        Err(e) => {
+            println!("{e}");
+            exit(1);
+        }
+    };
+    SEGS.set(segs).ok();
+    let foreign = ffi::split(&src).1;
+    DEPS.set(ffi::all_deps(&foreign)).ok();
+    RUST_LINES.set(foreign.rust_lines.clone()).ok();
     let (src, fixed) = autofix(&src, cmd == "fix");
     for (line, old, new) in &fixed {
-        eprintln!("{{\"line\":{line},\"fixed\":\"{} -> {}\"}}", esc(old), esc(new));
+        eprintln!("{}", at(&format!("{{\"line\":{line},\"fixed\":\"{} -> {}\"}}", esc(old), esc(new))));
     }
     if cmd == "fix" {
         if !fixed.is_empty() {
-            if let Err(e) = std::fs::write(&file, &src) {
-                println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
-                exit(1);
+            let segs = SEGS.get().cloned().unwrap_or_default();
+            let parts = if segs.len() > 1 { modules::split_back(&segs, &src) } else { vec![(PathBuf::from(&file), src.clone())] };
+            for (path, text) in parts {
+                if std::fs::read_to_string(&path).ok().as_deref() == Some(text.as_str()) {
+                    continue;
+                }
+                if let Err(e) = std::fs::write(&path, &text) {
+                    println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+                    exit(1);
+                }
             }
         }
     }
@@ -271,7 +302,9 @@ fn autofix(src: &str, all: bool) -> (String, Vec<(usize, String, String)>) {
 }
 
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
-    let mut items = parser::parse_program(src).map_err(|d| vec![d])?;
+    let (src, foreign) = ffi::split(src);
+    let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
+    ffi::attach(&mut items, &foreign);
     infer::returns(&mut items)?;
     let errs = infer::check(&mut items);
     if !errs.is_empty() {
@@ -279,6 +312,8 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     }
     emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items, hints);
+    em.foreign = foreign;
+    em.files = SEGS.get().map(|s| s.iter().skip(1).map(|g| (g.file.clone(), g.start, g.len)).collect()).unwrap_or_default();
     if moves {
         moves::mark_moves(&mut items);
     }
@@ -289,6 +324,18 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     } else {
         Err(em.diags)
     }
+}
+
+// Parse errors on lines that try to reach a library the Python or Rust way point at how Brevi does it.
+fn lib_hint(mut d: Diag, src: &str) -> Diag {
+    let l = src.lines().nth(d.line.wrapping_sub(1)).unwrap_or("").trim();
+    let code = l.split('#').next().unwrap_or("");
+    if l.starts_with("import ") || (l.starts_with("from ") && l.contains(" import ")) {
+        d.fix = Some("Python modules are used inside a py fn (py fn f(x: int) -> int:, then Python lines); see brevi guide Libraries".into());
+    } else if code.split('"').step_by(2).any(|part| part.contains("::")) {
+        d.fix = Some("call crates from a rust fn (rust fn f(x: str) -> str: then Rust lines) after use NAME \"VERSION\"; see brevi guide Libraries".into());
+    }
+    d
 }
 
 fn build_dir(file: &str) -> PathBuf {
@@ -332,8 +379,103 @@ fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &
     false
 }
 
+// Crates the program uses (`use` lines, and crate paths in rust fns). With any, builds go through cargo.
+static DEPS: std::sync::OnceLock<Vec<ffi::Dep>> = std::sync::OnceLock::new();
+// Source lines written in Rust (rust fn and rust: blocks): their errors keep rustc's own help.
+static RUST_LINES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLock::new();
+
+// Where crates are built once and shared by every program: $BREVI_CACHE, else ~/.cache/brevi.
+fn cache_dir() -> PathBuf {
+    if let Ok(d) = std::env::var("BREVI_CACHE") {
+        return PathBuf::from(d);
+    }
+    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
+    home.join(".cache").join("brevi")
+}
+
+// Builds with cargo, for programs that use crates. Same results as compile().
+fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
+    let name = dir.file_name().map(|n| n.to_string_lossy().replace('-', "_")).unwrap_or_else(|| "brevi_prog".into());
+    let toml = ffi::cargo_toml(&name, deps);
+    let tp = dir.join("Cargo.toml");
+    if std::fs::read_to_string(&tp).ok().as_deref() != Some(toml.as_str()) {
+        std::fs::write(&tp, &toml).expect("write Cargo.toml");
+    }
+    // On the first line, so rustc's line numbers still match the generated code.
+    std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}")).expect("write generated rust");
+    let test = extra.contains(&"--test");
+    let mut c = Command::new("cargo");
+    if extra.contains(&"--emit=metadata") {
+        c.arg("check");
+    } else if test {
+        c.args(["test", "--no-run"]);
+    } else {
+        c.arg("build");
+    }
+    if extra.contains(&"opt-level=3") {
+        c.arg("--release");
+    }
+    c.args(["-q", "--message-format=json", "--manifest-path"]).arg(&tp);
+    c.env("CARGO_TARGET_DIR", cache_dir().join("target"));
+    let o = match c.output() {
+        Ok(o) => o,
+        Err(e) => {
+            println!("{{\"e\":\"io\",\"msg\":\"cargo not found (needed for crates): {}\"}}", esc(&e.to_string()));
+            return None;
+        }
+    };
+    let stdout = String::from_utf8_lossy(&o.stdout);
+    let mut msgs = String::new();
+    let mut exe = None;
+    for l in stdout.lines() {
+        if l.starts_with("{\"reason\":\"compiler-message\"") {
+            if let Some(p) = l.find(",\"message\":") {
+                msgs.push_str(&l[p + 11..l.len() - 1]);
+                msgs.push('\n');
+            }
+        } else if l.starts_with("{\"reason\":\"compiler-artifact\"") && l.contains(&format!("\"name\":\"{name}\"")) {
+            if let Some(e) = json::parse(l).and_then(|j| j.get("executable").and_then(|e| e.str()).map(String::from)) {
+                exe = Some(e);
+            }
+        }
+    }
+    if o.status.success() {
+        if link {
+            let Some(e) = exe else {
+                println!("{{\"e\":\"io\",\"msg\":\"cargo built no program\"}}");
+                return None;
+            };
+            if std::fs::copy(&e, out).is_err() {
+                println!("{{\"e\":\"io\",\"msg\":\"cannot write {}\"}}", esc(&out.to_string_lossy()));
+                return None;
+            }
+        }
+        return Some(Ok(()));
+    }
+    if msgs.contains("\"level\":\"error\"") {
+        return Some(Err(msgs));
+    }
+    // A crate that cannot be found or fetched: point at its use line.
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    let first: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).take(4).collect();
+    let text = first.join(" ").replace("error: ", "");
+    let dep = deps.iter().find(|d| text.contains(&format!("`{}`", d.name)) || text.contains(&format!("named {}", d.name)));
+    let fix = if text.contains("no matching package") || text.contains("failed to select a version") {
+        "check the crate name and version on crates.io: use NAME \"VERSION\""
+    } else if text.contains("feature") {
+        "check the feature names: use NAME \"VERSION\" \"feat1 feat2\""
+    } else {
+        "crates download from crates.io on first use; check the network"
+    };
+    println!("{}", at(&format!("{{\"line\":{},\"msg\":\"cargo: {}\",\"fix\":\"{}\"}}", dep.map_or(0, |d| d.line), esc(text.trim()), esc(fix))));
+    None
+}
+
 // None when rustc could not be started.
 fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
+    if let Some(deps) = DEPS.get().filter(|d| !d.is_empty()) {
+        return cargo_compile(deps, rust, dir, out, extra, link);
+    }
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = Command::new("rustc");
@@ -396,6 +538,9 @@ fn report(rust: &str, stderr: &str) {
                 None => opts,
             });
         }
+        if RUST_LINES.get().map_or(false, |rs| rs.iter().any(|&(a, b)| aline >= a && aline <= b)) {
+            fix = rust_help(&j, code).or(fix);
+        }
         // One error per line: later ones are usually knock-on effects.
         if !seen.insert(aline) {
             continue;
@@ -425,12 +570,25 @@ fn brevi_lines(rust: &str) -> Vec<usize> {
 
 // Rewrites Rust type names in rustc messages into Brevi's.
 fn to_brevi_words(s: &str) -> String {
+    // Programs built with cargo have the crate name brevi_<hash>.
+    let mut s = s.to_string();
+    let mut from = 0;
+    while let Some(p) = s[from..].find("brevi_").map(|p| p + from) {
+        let hex = s[p + 6..].chars().take_while(|c| c.is_ascii_hexdigit()).count();
+        if hex > 0 && s[p + 6 + hex..].starts_with("::") {
+            s.replace_range(p..p + 8 + hex, "");
+        } else {
+            from = p + 6;
+        }
+    }
+    let s = s.as_str();
     let mut t = s
         .replace("alloc::string::String", "str")
         .replace("std::string::String", "str")
         .replace("alloc::vec::Vec", "Vec")
         .replace("std::collections::BTreeMap", "BTreeMap")
         .replace("brevi_prog::AxM", "AxM")
+        .replace("brevi_prog::", "")
         .replace("found for struct ", "found for ")
         .replace(" in the current scope", "")
         .replace("&mut ", "mut ")
@@ -525,6 +683,37 @@ fn valid_options(code: &str, msg: &str, rust: &str) -> Option<String> {
             Some(format!("fields of {ty}: {}", fields.join(", ")))
         }
         _ => None,
+    }
+}
+
+// For errors in Rust code: rustc's help lines, and a hint to pin crate versions when an API is not found.
+fn rust_help(j: &json::J, code: &str) -> Option<String> {
+    let mut hs: Vec<String> = vec![];
+    for c in j.get("children").map(|c| c.arr()).unwrap_or(&[]) {
+        let lvl = c.get("level").and_then(|v| v.str()).unwrap_or("");
+        if lvl != "help" && lvl != "note" {
+            continue;
+        }
+        let mut m = c.get("message").and_then(|v| v.str()).unwrap_or("").replace('`', "");
+        let reps: Vec<String> = c.get("spans").map(|s| s.arr()).unwrap_or(&[]).iter().filter_map(|s| s.get("suggested_replacement").and_then(|v| v.str()).map(|r| r.trim().to_string())).filter(|r| !r.is_empty()).collect();
+        if !reps.is_empty() {
+            m = format!("{m}: {}", reps.join(" | "));
+        }
+        if !m.is_empty() && m.len() < 300 {
+            hs.push(m);
+        }
+        if hs.len() == 2 {
+            break;
+        }
+    }
+    let unpinned: Vec<&str> = DEPS.get().map(|d| d.iter().filter(|d| d.version == "*").map(|d| d.name.as_str()).collect()).unwrap_or_default();
+    if !unpinned.is_empty() && matches!(code, "E0599" | "E0432" | "E0433" | "E0425" | "E0412" | "E0061" | "E0277" | "E0308" | "E0603") {
+        hs.push(format!("{} has no version, so cargo used the newest: pin the one you know with use {} \"VERSION\"", unpinned.join(", "), unpinned[0]));
+    }
+    if hs.is_empty() {
+        None
+    } else {
+        Some(hs.join("; "))
     }
 }
 

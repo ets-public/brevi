@@ -228,14 +228,23 @@ pub static AX_LINE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUs
 pub fn ax_l(n: usize) {
     AX_LINE.store(n, std::sync::atomic::Ordering::Relaxed);
 }
+// Where a line of the combined program is: lines after the main file's come from files it uses (`use "lib.bv"`).
+pub fn ax_at(l: usize) -> String {
+    for (f, start, n) in AX_FILES {
+        if l >= *start && l < start + n {
+            return format!("\"file\":{f:?},\"line\":{}", l - start + 1);
+        }
+    }
+    format!("\"line\":{l}")
+}
 pub fn ax_init() {
     std::panic::set_hook(Box::new(|info| {
         let msg = match info.payload().downcast_ref::<&str>() {
             Some(s) => s.to_string(),
             None => info.payload().downcast_ref::<String>().cloned().unwrap_or_else(|| "panic".into()),
         };
-        let line = AX_LINE.load(std::sync::atomic::Ordering::Relaxed);
-        eprintln!("{{\"e\":\"runtime\",\"line\":{line},\"msg\":{msg:?}}}");
+        let at = ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed));
+        eprintln!("{{\"e\":\"runtime\",{at},\"msg\":{msg:?}}}");
     }));
 }
 

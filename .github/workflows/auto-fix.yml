@@ -42,11 +42,18 @@ jobs:
         run: rustup toolchain install stable beta nightly --profile minimal --no-self-update
       - uses: anthropics/claude-code-action@v1
         if: steps.key.outputs.ok == 'true'
+        env:
+          # So `gh` inside Claude's session can read issues, comment and open PRs.
+          GH_TOKEN: ${{ github.token }}
         with:
+          # Full transcript in the job log, so a run that ends without a PR can be diagnosed.
+          show_full_output: true
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
           prompt: |
             Work on issue #${{ github.event.issue.number || inputs.issue }} in ${{ github.repository }}. Read it with gh.
+            First comment on the issue that you are starting. If anything blocks you (a failing command, no
+            permission to push or open a PR), comment on the issue with the exact error before you stop.
             Brevi is a language that compiles to Rust (compiler in src/, guide BREVI.md, AGENTS.md has the rules).
             Rule: code that once passed must never break. `python3 tools/compat.py check` must pass and
             `sh tests/check.sh` must pass after `cargo build`. Never edit compat/baseline.txt to hide a failure.
