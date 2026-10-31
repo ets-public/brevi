@@ -149,7 +149,7 @@ footer .end { margin-left: auto; }
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="/"><svg class="mark" aria-hidden="true" width="26" height="26" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="13" fill="#1d5b4f"/><g fill="none" stroke="#fbfbfa" stroke-width="7"><path d="M15 10v42"/><circle cx="25.5" cy="40" r="8.5"/></g><rect x="40" y="45" width="12" height="7" fill="#7cc4b1"/></svg>Brevi<span>v0.16 preview</span></a>
+    <a class="brand" href="/"><svg class="mark" aria-hidden="true" width="26" height="26" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="13" fill="#1d5b4f"/><g fill="none" stroke="#fbfbfa" stroke-width="7"><path d="M15 10v42"/><circle cx="25.5" cy="40" r="8.5"/></g><rect x="40" y="45" width="12" height="7" fill="#7cc4b1"/></svg>Brevi<span>v__VERSION__ preview</span></a>
     <nav aria-label="Main">
       <a href="#why">Why Brevi</a>
       <a href="#benchmarks">Benchmarks</a>
@@ -382,6 +382,16 @@ if __name__ == &quot;__main__&quot;:
             <span class="fig">36 of 36 first try</span>
             <h3>Programs that work the first time</h3>
             <p>On the 18 small tasks, Claude Sonnet's Brevi programs passed on the first attempt every time, against 35 of 36 in Python. A first-try pass means no error to read and no retry to pay for.</p>
+          </div>
+          <div>
+            <span class="fig">Rust 1.99 · Python 3.15</span>
+            <h3>Keeps working as Rust and Python move</h3>
+            <p>Every day, Brevi is rebuilt on Rust stable, beta and nightly and on the newest and next Python, and every benchmark program that ever passed is run again. A break is fixed before it reaches a release, so programs written today keep building as the toolchains update.</p>
+          </div>
+          <div>
+            <span class="fig">crates · Python packages</span>
+            <h3>Not limited to the standard library</h3>
+            <p>A program can split over several files, call any Rust crate from crates.io, and run Python code with any installed package. The model writes a short Brevi signature and the library does the rest.</p>
           </div>
         </div>
       </div>
