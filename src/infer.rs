@@ -34,7 +34,7 @@ fn from_ast(t: &Ty) -> T {
             "big" => Big,
             "date" | "Date" => Date,
             "json" | "Json" => Json,
-            n if n.starts_with("AxHeap<") => Hole,
+            n if n.starts_with("AxHeap<") || n == "?" => Hole,
             n => Named(n.into()),
         },
         Ty::List(t) => List(Box::new(from_ast(t))),
@@ -888,11 +888,22 @@ fn no_value(e: &Expr) -> bool {
 
 impl Cx<'_> {
     // Types of every name set in a body, in order (first setting wins), for reading return values.
-    fn flat_env(&self, e: &Expr, env: &mut Env) {
+    fn flat_env(&mut self, e: &Expr, env: &mut Env) {
         match e {
             Expr::Block(stmts, tail) => {
-                for st in stmts {
+                for (i, st) in stmts.iter().enumerate() {
                     match st {
+                        // `out = []` then `out.push(x)`: the type comes from the lines after it.
+                        Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if empty_kind(value).is_some() && env.get(n).map_or(true, |t| !known(t)) => {
+                            let mut mt = empty_kind(value).unwrap();
+                            let mut later = env.clone();
+                            later.insert(n.clone(), mt.clone());
+                            self.look(n, &stmts[i + 1..], tail.as_deref(), &mut later, &mut mt);
+                            if let Some(tl) = tail {
+                                self.look_expr(n, tl, &mut later, &mut mt);
+                            }
+                            env.insert(n.clone(), mt);
+                        }
                         Stmt::Let { name, ty, value, .. } => {
                             self.flat_env(value, env);
                             let t = ty.as_ref().map(from_ast).unwrap_or_else(|| self.ty(value, env));
@@ -972,15 +983,80 @@ impl Cx<'_> {
     }
 }
 
+// Every call to a named function in `e`, with its arguments.
+fn calls_in<'a>(e: &'a Expr, out: &mut Vec<(&'a str, &'a [(Option<String>, Expr)])>) {
+    let mut go = |x: &'a Expr| calls_in(x, out);
+    match e {
+        Expr::Call(f, args, _) => {
+            for (_, a) in args {
+                calls_in(a, out);
+            }
+            out.push((f.as_str(), args.as_slice()));
+        }
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(go),
+        Expr::Map(ps) => {
+            for (k, v) in ps {
+                calls_in(k, out);
+                calls_in(v, out);
+            }
+        }
+        Expr::Str(parts) => {
+            for p in parts {
+                if let StrPart::Interp(x) = p {
+                    calls_in(x, out);
+                }
+            }
+        }
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Lambda(_, a) | Expr::Try(a) => go(a),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) | Expr::For(_, a, b) => {
+            go(a);
+            calls_in(b, out);
+        }
+        Expr::Method(r, _, args, _) => {
+            calls_in(r, out);
+            args.iter().for_each(|a| calls_in(a, out));
+        }
+        Expr::If(c, a, b) => {
+            calls_in(c, out);
+            calls_in(a, out);
+            if let Some(b) = b {
+                calls_in(b, out);
+            }
+        }
+        Expr::Match(s, arms) => {
+            calls_in(s, out);
+            arms.iter().for_each(|(_, a)| calls_in(a, out));
+        }
+        Expr::Block(stmts, tail) => {
+            for st in stmts {
+                match st {
+                    Stmt::Let { value, .. } => calls_in(value, out),
+                    Stmt::Assign { target, value, .. } => {
+                        calls_in(target, out);
+                        calls_in(value, out);
+                    }
+                    Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => calls_in(expr, out),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                calls_in(t, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 // Fills in the return type of every function written without `->`, from what it returns.
 pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
-    let open = |items: &[Item]| items.iter().any(|i| matches!(i, Item::Fn { ret: Ty::Named(n), .. } if n == "?"));
+    let q = |t: &Ty| matches!(t, Ty::Named(n) if n == "?");
+    let open = |items: &[Item]| items.iter().any(|i| matches!(i, Item::Fn { ret, params, .. } if q(ret) || params.iter().any(|p| q(&p.ty))));
     if !open(items) {
         return Ok(());
     }
     // Map literals whose values differ in type are Json objects, also as return values.
     let (_, mixed) = empty_types(items);
-    for round in 0..4 {
+    for round in 0..6 {
         let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv: Env::new() };
         for it in items.iter() {
             match it {
@@ -999,9 +1075,67 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 _ => {}
             }
         }
-        let last = round == 3;
-        let mut found = Vec::new();
+        let last = round == 5;
         let mut errs = Vec::new();
+        // A parameter written without a type (`fn chk(t: str, cc):`) takes the type of what the calls pass.
+        let untyped: HashMap<String, usize> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(k, i)| match i {
+                Item::Fn { name, params, .. } if params.iter().any(|p| q(&p.ty)) => Some((name.clone(), k)),
+                _ => None,
+            })
+            .collect();
+        if !untyped.is_empty() {
+            let mut fills: Vec<(usize, usize, Ty)> = Vec::new();
+            for it in items.iter() {
+                let (params, body): (&[Param], &Expr) = match it {
+                    Item::Fn { params, body, .. } => (params, body),
+                    Item::Test { body, .. } => (&[], body),
+                    _ => continue,
+                };
+                let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                cx.flat_env(body, &mut env);
+                let mut calls = Vec::new();
+                calls_in(body, &mut calls);
+                for (f, args) in calls {
+                    let Some(&k) = untyped.get(f) else { continue };
+                    let Item::Fn { params: ps, .. } = &items[k] else { continue };
+                    for (j, (nm, a)) in args.iter().enumerate() {
+                        let pi = match nm {
+                            Some(nm) => ps.iter().position(|p| &p.name == nm),
+                            None => Some(j),
+                        };
+                        let Some(pi) = pi.filter(|&pi| pi < ps.len() && q(&ps[pi].ty)) else { continue };
+                        if let Some(t) = to_ast(&cx.ty(a, &env)) {
+                            fills.push((k, pi, t));
+                        }
+                    }
+                }
+            }
+            for (k, pi, t) in fills {
+                if let Item::Fn { params, .. } = &mut items[k] {
+                    if q(&params[pi].ty) {
+                        params[pi].ty = t;
+                    }
+                }
+            }
+            if last {
+                for it in items.iter() {
+                    if let Item::Fn { name, params, line, .. } = it {
+                        for p in params.iter().filter(|p| q(&p.ty)) {
+                            let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out the type of {} in {name}", p.name));
+                            d.fix = Some(format!("write it: {}: TYPE", p.name));
+                            errs.push(d);
+                        }
+                    }
+                }
+                if !errs.is_empty() {
+                    return Err(errs);
+                }
+            }
+        }
+        let mut found = Vec::new();
         for (k, it) in items.iter().enumerate() {
             let Item::Fn { name, params, ret: Ty::Named(q), body, line, .. } = it else { continue };
             if q != "?" {

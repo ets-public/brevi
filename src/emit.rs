@@ -42,6 +42,8 @@ pub struct Emitter {
     refs: HashSet<String>, // names bound to &mut (mut params, iter_mut loop vars)
     // Script-level variables that functions use: name -> (type, line of its let).
     globals: HashMap<String, (Ty, usize)>,
+    // Types of script-level names set so far, used or not, so `b = a + "x"` is known from `a`.
+    top_tys: HashMap<String, Ty>,
     // Names first set inside a block that has ended, for a clearer "unknown name" error.
     block_only: HashSet<String>,
     fallible: bool,
@@ -383,6 +385,16 @@ fn branch_sets(e: &Expr, out: &mut Vec<String>) {
             for st in stmts {
                 match st {
                     Stmt::Assign { target: Expr::Ident(t), op: "=", .. } if !out.contains(t) => out.push(t.clone()),
+                    // `(a, b) = f()` in a branch sets a and b.
+                    Stmt::Assign { target: Expr::Tuple(xs), op: "=", .. } => {
+                        for x in xs {
+                            if let Expr::Ident(t) = x {
+                                if !out.contains(t) {
+                                    out.push(t.clone());
+                                }
+                            }
+                        }
+                    }
                     Stmt::Expr { expr, .. } => branch_sets(expr, out),
                     _ => {}
                 }
@@ -559,6 +571,7 @@ impl Emitter {
             locals: HashSet::new(),
             refs: HashSet::new(),
             globals: HashMap::new(),
+            top_tys: HashMap::new(),
             block_only: HashSet::new(),
             fallible: false,
             must: false,
@@ -688,6 +701,9 @@ impl Emitter {
             .collect();
         for (n, ty, value, line) in &decls {
             let (n, ty, value, line) = (n, ty, value, line);
+            if let Some(t) = ty.clone().or_else(|| self.infer_ty(value)) {
+                self.top_tys.entry(n.clone()).or_insert(t);
+            }
             {
                 // Used by name, and not a parameter or a local of the same name there.
                 let used = others.iter().any(|(ps, body, _, _)| {
@@ -732,7 +748,18 @@ impl Emitter {
             Expr::Float(_) => named("f64"),
             Expr::Bool(_) => named("bool"),
             Expr::Str(_) => named("str"),
+            Expr::Unary("!", _) => named("bool"),
             Expr::Unary(_, a) => self.infer_ty(a),
+            Expr::Ident(n) => self.globals.get(n).map(|g| g.0.clone()).or_else(|| self.top_tys.get(n).cloned()),
+            Expr::Binary(op, a, b) => match *op {
+                "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "in" => named("bool"),
+                "+" | "-" | "*" | "%" => {
+                    let (x, y) = (self.infer_ty(a), self.infer_ty(b));
+                    let is_f = |t: &Option<Ty>| matches!(t, Some(Ty::Named(n)) if n == "f64");
+                    if is_f(&x) || is_f(&y) { named("f64") } else { x.or(y) }
+                }
+                _ => None,
+            },
             Expr::List(xs) if !xs.is_empty() => Some(Ty::List(Box::new(self.infer_ty(&xs[0])?))),
             Expr::Map(ps) if !ps.is_empty() => Some(Ty::Map(Box::new(self.infer_ty(&ps[0].0)?), Box::new(self.infer_ty(&ps[0].1)?))),
             Expr::Tuple(xs) => Some(Ty::Tuple(xs.iter().map(|x| self.infer_ty(x)).collect::<Option<Vec<_>>>()?)),

@@ -169,8 +169,8 @@ impl Parser {
             while !self.is_sym(")") {
                 let is_mut = self.eat_kw("mut");
                 let pname = self.ident()?;
-                self.expect_sym(":")?;
-                let ty = self.ty()?;
+                // Without a type, the parameter takes the type of what the calls pass (see infer::returns).
+                let ty = if self.eat_sym(":") { self.ty()? } else { Ty::Named("?".into()) };
                 params.push(Param { name: pname, ty, is_mut });
                 if !self.eat_sym(",") {
                     break;
@@ -865,7 +865,7 @@ impl Parser {
                     lit.push('}');
                     i += 2;
                 }
-                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"' | '\'')) => {
+                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) => {
                     lit.push('{');
                     i += 1;
                 }

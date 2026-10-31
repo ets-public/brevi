@@ -346,7 +346,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 2;
                         col += 2;
                     }
-                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
+                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
                         depth = 1;
                         s.push('{');
                         i += 1;
