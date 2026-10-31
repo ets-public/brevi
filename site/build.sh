@@ -1,11 +1,15 @@
 #!/bin/bash
-# Builds the files brevi-lang.org serves for agents (llms.txt, llms-full.txt, .md pages) into site/out.
+# Builds brevi-lang.org into site/out: the home page plus the files it serves for agents
+# (llms.txt, llms-full.txt, .md pages), and the brevi.run holding page into site/out-run.
 set -e
 S=$(dirname "$(readlink -f "$0")"); R=$S/..; O=$S/out
-mkdir -p $O
-cp $S/llms.txt $O/llms.txt
+mkdir -p $O $S/out-run
+cp $S/index.html $O/index.html
+cp $S/run/index.html $S/out-run/index.html
+# The repo is private until the public release, so leave its link out of the served llms.txt.
+grep -v 'github.com/ets-public/brevi' $S/llms.txt | sed '/^## Tools$/{N;/\n$/d}' | cat -s > $O/llms.txt
 cp $R/BREVI.md $O/guide.md
 sed '1,/^---$/{/^---$/!d};1,/^---$/d' $R/skills/brevi/SKILL.md > $O/skill.md
 sed -n '/^## Status/,$p' $R/README.md > $O/bench.md
-{ cat $S/llms.txt; echo; cat $O/guide.md; echo; cat $O/skill.md; } > $O/llms-full.txt
+{ cat $O/llms.txt; echo; cat $O/guide.md; echo; cat $O/skill.md; } > $O/llms-full.txt
 echo "built $(ls $O | wc -l) files in $O"
