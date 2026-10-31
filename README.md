@@ -27,8 +27,8 @@ Big tasks on v0.14 (31 Oct 2026, exact tokens, retries scored as patches). Brevi
 
 | Task set | Model | Brevi | Python | Brevi finished code | Python finished code | First try (Brevi / Python) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 8 big | Sonnet | 9,784 | **8,721** | **8,214** | 8,665 | 28 / 48 of 32 / 48 |
-| 8 big | Haiku | **9,523** | 10,556 | **9,346** | 10,138 | 21 / 45 of 24 / 48 |
+| 8 big | Sonnet | 9,784 | **8,721** | **8,214** | 8,665 | 28 of 32 / 48 of 48 |
+| 8 big | Haiku | **9,523** | 10,556 | **9,346** | 10,138 | 21 of 24 / 45 of 48 |
 
 Haiku now uses 10% fewer tokens than Python on big tasks, with every Brevi run (9,180 to 9,890) below the Python average. Sonnet's finished Brevi code is 5% shorter than Python's, but Sonnet passes first time less often in Brevi, so its total is 12% higher; one Sonnet run (p11) also gave up on template after writing `"{{#each "` and expecting two braces (12,042 tokens). Without that run Sonnet is 9,032 vs 8,721. Two of the Sonnet failures are fixed in the compiler since (`str({...})` now keeps keys in written order; `'{{'` in single quotes is two braces).
 
