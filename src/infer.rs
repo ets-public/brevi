@@ -123,6 +123,8 @@ fn empty_kind(e: &Expr) -> Option<T> {
         Expr::List(xs) if xs.is_empty() => Some(List(Box::new(Hole))),
         Expr::Map(ps) if ps.is_empty() => Some(Map(Box::new(Hole), Box::new(Hole))),
         Expr::Call(n, a, _) if n == "heap" && a.is_empty() => Some(Heap(Box::new(Hole))),
+        // `inner = secs.get_or(k, {})`: typed by what is done with it, like a fresh `{}`.
+        Expr::Method(_, m, a, _) if matches!(m.as_str(), "get_or" | "get") && a.len() == 2 => empty_kind(&a[1]),
         _ => None,
     }
 }
@@ -918,10 +920,23 @@ fn ends_in_print(e: &Expr) -> bool {
     }
 }
 
+fn stmt_branch(e: &Expr) -> bool {
+    match e {
+        Expr::Block(_, Some(t)) => stmt_branch(t),
+        Expr::Call(..) | Expr::Method(..) | Expr::For(..) | Expr::While(..) | Expr::If(..) => {
+            !matches!(e, Expr::Call(n, _, _) if n == "fail") && no_value(e)
+        }
+        _ => false,
+    }
+}
+
 fn no_value(e: &Expr) -> bool {
     match e {
         Expr::For(..) | Expr::While(..) => true,
         Expr::If(_, _, None) => true,
+        // `if store.has(k): store.remove(k) else: print("NOT FOUND")`: a branch that only prints or
+        // changes a collection makes the whole if a statement (a branch ending in fail still has a value).
+        Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
         Expr::Call(n, _, _) => ["print", "write", "fail"].contains(&n.as_str()),
         // Changing a list or map is a statement even though remove and pop give a value.
         Expr::Method(_, m, _, _) => ["push", "insert", "remove", "pop"].contains(&m.as_str()),
@@ -1102,7 +1117,9 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     // Map literals whose values differ in type are Json objects, also as return values.
     let (_, mixed) = empty_types(items);
     for round in 0..6 {
-        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv: Env::new() };
+        // Top-level names (`ts = {}` filled inside a function) are known by type where functions read them.
+        let genv = empty_cx(items).genv;
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv };
         for it in items.iter() {
             match it {
                 Item::Fn { name, params, ret, .. } => {

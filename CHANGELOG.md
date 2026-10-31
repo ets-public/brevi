@@ -4,6 +4,11 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- Python's `f"..."` and `f'...'` strings are accepted (Brevi strings already fill in `{name}`).
+- A program's own type named `Result` no longer clashes with Rust's.
+- A top-level map filled inside a function (`ts = {}`, then `ts[n] = Team()` in a function) is typed where other functions read it, so `fn key(n: str) = (-ts[n].w, n)` needs no return type. This was the most common first-check error in recent runs.
+- `inner = m.get_or(k, {})` is typed by what is done with it, like a fresh `{}`, so nested maps built this way at the top level work inside functions.
+- A function ending in `if c: m.remove(k) else: print(...)` gives no value, as in Python.
 - Python 3.15 unpacking in comprehensions (`[*xs for xs in xss]`) reads as a comprehension followed by `flatten()` (#15). Rust 1.99 builds cleanly (#13).
 - The core guide is trimmed from 5,035 to 3,490 tokens; rare details move to REFERENCE.md, served by `brevi guide WORD`, and CI fails when BREVI.md goes over 3,600 tokens (#18).
 - Install channels prepared for launch, not yet published: Claude Code plugin and marketplace, MCP registry `server.json`, a PyPI wrapper, an npm wrapper (`brevi-lang`) and a dataset export of 49 tasks with 1,893 verified solutions (#20).

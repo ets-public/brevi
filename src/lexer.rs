@@ -27,7 +27,7 @@ const KEYWORDS: &[&str] = &[
 // Names Rust's prelude gives to traits and types: a Brevi `type Ord` must not clash with them.
 const RUST_PRELUDE: &[&str] = &[
     "Ord", "PartialOrd", "Eq", "PartialEq", "Clone", "Copy", "Default", "Debug", "Hash", "Iterator", "Drop", "Send",
-    "Sync", "Sized", "From", "Into", "Vec", "String", "Box", "Option", "ToString", "Fn", "FnMut", "FnOnce", "Display",
+    "Sync", "Sized", "From", "Into", "Vec", "String", "Box", "Option", "ToString", "Fn", "FnMut", "FnOnce", "Display", "Result",
 ];
 
 const RUST_KEYWORDS: &[&str] = &[
@@ -452,6 +452,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             let word: String = chars[start..i].iter().collect();
             col += i - start;
+            // Python's f"..." is a plain string: Brevi strings already fill in `{name}`.
+            if word == "f" && matches!(chars.get(i), Some('"') | Some('\'')) {
+                continue;
+            }
             // Python's `elif` is accepted as `else if`.
             if word == "elif" {
                 push(&mut out, Tok::Kw("else"));
