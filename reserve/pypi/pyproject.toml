@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brevi"
+version = "0.0.1"
+description = "Brevi: a programming language for AI models that compiles to Rust. Name reserved; the compiler is coming soon."
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.8"
+
+[project.urls]
+Homepage = "https://brevi-lang.org"

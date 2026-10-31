@@ -1,0 +1,8 @@
+[package]
+name = "brevi"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Brevi: a programming language for AI models that compiles to Rust. Name reserved; the compiler is coming soon."
+homepage = "https://brevi-lang.org"
+readme = "README.md"
