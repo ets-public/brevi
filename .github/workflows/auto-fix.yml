@@ -35,7 +35,7 @@ jobs:
         env:
           KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: '[ -n "$KEY" ] && echo "ok=true" >> "$GITHUB_OUTPUT" || echo "No ANTHROPIC_API_KEY secret; skipping."'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.key.outputs.ok == 'true'
         with: { fetch-depth: 0 }
       - name: Install Rust
