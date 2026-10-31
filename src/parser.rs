@@ -7,13 +7,19 @@ pub struct Parser {
     pos: usize,
     // The function being parsed returns a map, so an arm `_ => {}` is an empty map.
     ret_map: bool,
+    // Functions the program defines, which keep their own meaning over Python's len, sum, etc.
+    user_fns: Vec<String>,
 }
 
 type R<T> = Result<T, Diag>;
 
 pub fn parse_program(src: &str) -> R<Vec<Item>> {
     let toks = crate::lexer::indent_blocks(lex(src)?);
-    let mut p = Parser { toks, pos: 0, ret_map: false };
+    let user_fns = toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
+        (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
+        _ => None,
+    }).collect();
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns };
     let mut items = Vec::new();
     // Statements outside any function form the program's main (script mode).
     let mut script = Vec::new();
@@ -545,13 +551,41 @@ impl Parser {
                 }
                 _ => None,
             };
-            args.push((name, self.expr()?));
+            let e = self.expr()?;
+            // `min(x for x in xs)` passes the list the loop builds.
+            let e = if self.eat_kw("for") { self.comprehension(e)? } else { e };
+            args.push((name, e));
             if !self.eat_sym(",") {
                 break;
             }
         }
         self.expect_sym(")")?;
         Ok(args)
+    }
+
+    // The rest of `elem for x in xs if c`, as xs.filter(x => c).map(x => elem).
+    fn comprehension(&mut self, elem: Expr) -> R<Expr> {
+        let line = self.line();
+        let paren = self.eat_sym("(");
+        let mut names = vec![self.ident()?];
+        while self.eat_sym(",") {
+            names.push(self.ident()?);
+        }
+        if paren {
+            self.expect_sym(")")?;
+        }
+        if !self.eat_kw("in") {
+            return Err(self.err("expected in").fix_hint("write [x * 2 for x in xs]"));
+        }
+        let mut e = self.expr()?;
+        if self.eat_kw("if") {
+            let c = self.expr()?;
+            e = Expr::Method(Box::new(e), "filter".into(), vec![Expr::Lambda(names.clone(), Box::new(c))], line);
+        }
+        if !matches!(&elem, Expr::Ident(n) if names.len() == 1 && n == &names[0]) {
+            e = Expr::Method(Box::new(e), "map".into(), vec![Expr::Lambda(names, Box::new(elem))], line);
+        }
+        Ok(e)
     }
 
     // Is the '(' at the cursor the start of a lambda's parameter list?
@@ -594,7 +628,17 @@ impl Parser {
             Tok::Str(s) => Ok(Expr::Str(self.interp(&s, line)?)),
             Tok::Ident(name) => {
                 if self.eat_sym("(") {
-                    Ok(Expr::Call(name, self.args()?, line))
+                    let mut args = self.args()?;
+                    // Python's len(xs), sum(xs), sorted(xs), min(xs), max(xs) are the methods.
+                    let m = match name.as_str() {
+                        "len" | "sum" | "min" | "max" => Some(name.as_str()),
+                        "sorted" => Some("sort"),
+                        _ => None,
+                    };
+                    match m {
+                        Some(m) if args.len() == 1 && args[0].0.is_none() && !self.user_fns.contains(&name) => Ok(Expr::Method(Box::new(args.remove(0).1), m.into(), vec![], line)),
+                        _ => Ok(Expr::Call(name, args, line)),
+                    }
                 } else {
                     Ok(Expr::Ident(name))
                 }
@@ -617,7 +661,14 @@ impl Parser {
             Tok::Sym("[") => {
                 let mut items = Vec::new();
                 while !self.is_sym("]") {
-                    items.push(self.expr()?);
+                    let e = self.expr()?;
+                    // `[f(x) for x in xs if c]`
+                    if self.eat_kw("for") {
+                        let c = self.comprehension(e)?;
+                        self.expect_sym("]")?;
+                        return Ok(c);
+                    }
+                    items.push(e);
                     if !self.eat_sym(",") {
                         break;
                     }
@@ -755,7 +806,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone() };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d

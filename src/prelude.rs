@@ -296,6 +296,16 @@ impl AxTruth for Json {
         }
     }
 }
+impl<T> AxTruth for AxHeap<T> {
+    fn ax_truth(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
+impl AxTruth for Dec {
+    fn ax_truth(&self) -> bool {
+        self.0 != 0
+    }
+}
 #[inline]
 pub fn ax_t<T: AxTruth + ?Sized>(x: &T) -> bool {
     x.ax_truth()

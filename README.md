@@ -70,3 +70,7 @@ Needs `rustc` on the PATH.
 | `src/main.rs` | CLI, rustc invocation and error mapping |
 | `examples/` | Sample programs |
 | `tests/` | Expected outputs for programs and error cases |
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).

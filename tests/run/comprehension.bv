@@ -1,0 +1,7 @@
+xs = [3, 1, 4, 1, 5]
+print([x * 2 for x in xs if x > 1])
+ps = [(1, "a"), (2, "b")]
+print([s for n, s in ps if n > 1])
+print(min(x for x in xs if x > 1), max([x + 1 for x in xs]), sum(xs))
+print(sum(x * x for x in xs))
+print(len(xs), sorted(xs))

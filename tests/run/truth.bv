@@ -10,3 +10,7 @@ s = ""
 while not s: s = "x"
 n = 0
 print(if n: "yes" else: "no")
+h = heap()
+h.push(3)
+h.push(1)
+while h: print(h.pop())
