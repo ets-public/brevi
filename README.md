@@ -12,6 +12,8 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,665 toke
 - **Fast check:** `brevi check f.bv --fast` runs Brevi's own checks in about 3 ms, without rustc (a full check takes about 400 ms).
 - **Edit by name:** `brevi patch f.bv p.bv` replaces each `fn`, `type`, `enum` or `test` in p.bv by name, or adds it; `del fn name` removes one.
 - **llms.txt:** `site/build.sh` builds llms.txt, llms-full.txt and .md pages for brevi-lang.org into site/out.
+- **Install:** `sh install.sh` fetches the Rust toolchain if it is missing and builds brevi with `cargo install` (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
+- **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
 ## Status: v0.16
