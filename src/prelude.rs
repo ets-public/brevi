@@ -1886,6 +1886,20 @@ impl<T: Clone> AxStep<T> for Vec<T> {
         self.iter().step_by(n.max(1) as usize).cloned().collect()
     }
 }
+// [*xs for xs in xss] joins the lists; on strings it gives their characters.
+pub trait AxFlatten<T> {
+    fn ax_flatten(&self) -> Vec<T>;
+}
+impl<T: Clone> AxFlatten<T> for Vec<Vec<T>> {
+    fn ax_flatten(&self) -> Vec<T> {
+        self.concat()
+    }
+}
+impl AxFlatten<String> for Vec<String> {
+    fn ax_flatten(&self) -> Vec<String> {
+        self.iter().flat_map(|s| s.chars().map(|c| c.to_string())).collect()
+    }
+}
 pub trait AxUnique<T> {
     fn ax_unique(&self) -> Vec<T>;
 }
