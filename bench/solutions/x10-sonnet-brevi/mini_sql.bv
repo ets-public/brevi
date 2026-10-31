@@ -1,0 +1,155 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+NAME = "[A-Za-z][A-Za-z0-9_]*"
+VAL = "(?:-?\d+|'(?:[^']|'')*')"
+CMP = NAME + " (?:=|!=|<=|>=|<|>) " + VAL
+CONDRE = CMP + "(?: AND " + CMP + ")*"
+CMPG = "(" + NAME + ") (=|!=|<=|>=|<|>) (" + VAL + ")"
+tables = {}
+okc = 0
+
+fn cell(v: str) -> str:
+  if v.starts_with("'"): return v.slice(1, -1).replace("''", "'")
+  v.int().str()
+
+fn isint(v: str) = not v.starts_with("'")
+
+fn colidx(t: Table, c: str) -> int:
+  i = t.cols.index_of(c)
+  if i < 0: fail("no column {c}")
+  i
+
+fn gettable(n: str) -> Table:
+  if not tables.has(n): fail("no table {n}")
+  tables[n]
+
+fn typeok(t: Table, i: int, v: str) -> bool:
+  if isint(v): t.types[i] == "INT"
+  else: t.types[i] == "TEXT"
+
+fn parse_cond(t: Table, s: str) -> [(int, str, str, bool)]:
+  res = []
+  if s.is_empty(): return res
+  ms = s.re_all(CMPG)
+  for m in ms: colidx(t, m[1])
+  for m in ms:
+    i = colidx(t, m[1])
+    if not typeok(t, i, m[3]): fail("type mismatch")
+    res.push((i, m[2], cell(m[3]), isint(m[3])))
+  res
+
+fn matches(row: [str], conds: [(int, str, str, bool)]) -> bool:
+  for c in conds:
+    let (i, op, v, ii) = c
+    a = row[i]
+    d = 0
+    if ii:
+      x = a.int().or(0)
+      y = v.int().or(0)
+      d = if x < y: -1 elif x > y: 1 else: 0
+    else:
+      d = if a < v: -1 elif a > v: 1 else: 0
+    ok = match op:
+      "=" => d == 0
+      "!=" => d != 0
+      "<" => d < 0
+      ">" => d > 0
+      "<=" => d <= 0
+      _ => d >= 0
+    if not ok: return false
+  true
+
+fn run(line: str):
+  m = line.re_full("CREATE TABLE (" + NAME + ") \((.*)\)")
+  if m:
+    parts = m[2].split(", ")
+    cols = []
+    types = []
+    for p in parts:
+      q = p.re_full("(" + NAME + ") (INT|TEXT)")
+      if q.is_empty(): fail("syntax")
+      cols.push(q[1])
+      types.push(q[2])
+    if tables.has(m[1]): fail("table {m[1]} exists")
+    tables[m[1]] = Table(cols, types, [])
+    print("ok")
+    return
+  m = line.re_full("INSERT INTO (" + NAME + ") VALUES \((.*)\)")
+  if m:
+    if m[2].re_full(VAL + "(?:, " + VAL + ")*").is_empty(): fail("syntax")
+    t = gettable(m[1])
+    vs = m[2].re_list(VAL)
+    if vs.len() != t.cols.len(): fail("type mismatch")
+    row = []
+    for i in 0..vs.len():
+      if not typeok(t, i, vs[i]): fail("type mismatch")
+      row.push(cell(vs[i]))
+    t.rows.push(row)
+    tables[m[1]] = t
+    print("ok")
+    return
+  m = line.re_full("SELECT (.+?) FROM (" + NAME + ")(?: WHERE (.+?))?(?: ORDER BY (" + NAME + ")( DESC)?)?(?: LIMIT (\d+))?")
+  if m:
+    if m[3] and m[3].re_full(CONDRE).is_empty(): fail("syntax")
+    cnt = m[1] == "COUNT(*)"
+    if cnt and (m[4] or m[6]): fail("syntax")
+    if not cnt and m[1] != "*" and m[1].re_full(NAME + "(?:, " + NAME + ")*").is_empty(): fail("syntax")
+    t = gettable(m[2])
+    names = if m[1] == "*": t.cols else: m[1].split(", ")
+    idx = []
+    if not cnt:
+      for n in names: idx.push(colidx(t, n))
+    conds = parse_cond(t, m[3])
+    oi = -1
+    if m[4]: oi = colidx(t, m[4])
+    rows = [r for r in t.rows if matches(r, conds)]
+    if cnt:
+      print(rows.len())
+      return
+    if oi >= 0:
+      desc = m[5] != ""
+      if t.types[oi] == "INT": rows = rows.sort_by(r => r[oi].int().or(0), desc)
+      else: rows = rows.sort_by(r => r[oi], desc)
+    if m[6]: rows = rows.take(m[6].int())
+    out = [" | ".join(names)]
+    for r in rows: out.push(" | ".join([r[i] for i in idx]))
+    out.push("({rows.len()} rows)")
+    for o in out: print(o)
+    return
+  m = line.re_full("UPDATE (" + NAME + ") SET (" + NAME + ") = (" + VAL + ")(?: WHERE (.+))?")
+  if m:
+    if m[4] and m[4].re_full(CONDRE).is_empty(): fail("syntax")
+    t = gettable(m[1])
+    ci = colidx(t, m[2])
+    conds = parse_cond(t, m[4])
+    if not typeok(t, ci, m[3]): fail("type mismatch")
+    v = cell(m[3])
+    n = 0
+    for r in 0..t.rows.len():
+      if matches(t.rows[r], conds):
+        t.rows[r][ci] = v
+        n += 1
+    tables[m[1]] = t
+    print("updated {n}")
+    return
+  m = line.re_full("DELETE FROM (" + NAME + ")(?: WHERE (.+))?")
+  if m:
+    if m[2] and m[2].re_full(CONDRE).is_empty(): fail("syntax")
+    t = gettable(m[1])
+    conds = parse_cond(t, m[2])
+    keep = [r for r in t.rows if not matches(r, conds)]
+    n = t.rows.len() - keep.len()
+    t.rows = keep
+    tables[m[1]] = t
+    print("deleted {n}")
+    return
+  fail("syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => okc += 1
+    Err(m) => print("error: {m}")

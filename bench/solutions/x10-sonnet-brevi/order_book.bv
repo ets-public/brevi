@@ -1,0 +1,140 @@
+type Order:
+  id: str
+  qty: int
+  price: int
+
+asks: [Order] = []
+bids: [Order] = []
+used = {}
+vol = 0
+val = 0
+
+fn money(c: int) = "{c // 100}.{c % 100:02d}"
+
+fn cents(s: str) -> int:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): fail("bad command")
+  parts = s.split(".")
+  c = parts[0].int() * 100
+  if parts.len() > 1:
+    f = parts[1]
+    if f.len() == 1: f = f + "0"
+    c += f.int()
+  if c <= 0: fail("bad command")
+  c
+
+fn qtyof(s: str) -> int:
+  if s.re_full("\d+").is_empty(): fail("bad command")
+  q = s.int()
+  if q < 1: fail("bad command")
+  q
+
+fn best_ask(limit: int) -> int:
+  bi = -1
+  for i in 0..asks.len():
+    if bi < 0 or asks[i].price < asks[bi].price: bi = i
+  if bi >= 0 and limit > 0 and asks[bi].price > limit: bi = -1
+  bi
+
+fn best_bid(limit: int) -> int:
+  bi = -1
+  for i in 0..bids.len():
+    if bi < 0 or bids[i].price > bids[bi].price: bi = i
+  if bi >= 0 and limit > 0 and bids[bi].price < limit: bi = -1
+  bi
+
+fn trade(buyid: str, sellid: str, q: int, p: int):
+  print("TRADE {buyid} {sellid} {q} {money(p)}")
+  vol += q
+  val += q * p
+
+fn do_buy(id: str, qty: int, limit: int):
+  left = qty
+  while left > 0:
+    i = best_ask(limit)
+    if i < 0: break
+    t = min(left, asks[i].qty)
+    trade(id, asks[i].id, t, asks[i].price)
+    left -= t
+    asks[i].qty -= t
+    if asks[i].qty == 0: asks.remove(i)
+  if left > 0:
+    if limit > 0: bids.push(Order(id, left, limit))
+    else: print("DROPPED {id} {left}")
+
+fn do_sell(id: str, qty: int, limit: int):
+  left = qty
+  while left > 0:
+    i = best_bid(limit)
+    if i < 0: break
+    t = min(left, bids[i].qty)
+    trade(bids[i].id, id, t, bids[i].price)
+    left -= t
+    bids[i].qty -= t
+    if bids[i].qty == 0: bids.remove(i)
+  if left > 0:
+    if limit > 0: asks.push(Order(id, left, limit))
+    else: print("DROPPED {id} {left}")
+
+fn show(os: [Order], desc: bool):
+  m = {}
+  for o in os: m[o.price] += o.qty
+  ks = m.keys()
+  if desc: ks = ks.rev()
+  if ks.is_empty(): print("  -")
+  for k in ks: print("  {money(k)} {m[k]}")
+
+fn newid(id: str):
+  if used.has(id): fail("duplicate ID")
+  used[id] = 1
+
+fn cancel(id: str):
+  for i in 0..asks.len():
+    if asks[i].id == id:
+      print("CANCELLED {id} {asks[i].qty}")
+      asks.remove(i)
+      return
+  for i in 0..bids.len():
+    if bids[i].id == id:
+      print("CANCELLED {id} {bids[i].qty}")
+      bids.remove(i)
+      return
+  fail("unknown ID")
+
+fn run(line: str):
+  w = line.words()
+  c = w[0]
+  n = w.len()
+  if c == "BUY" and n == 4:
+    q = qtyof(w[2])
+    p = cents(w[3])
+    newid(w[1])
+    do_buy(w[1], q, p)
+  elif c == "SELL" and n == 4:
+    q = qtyof(w[2])
+    p = cents(w[3])
+    newid(w[1])
+    do_sell(w[1], q, p)
+  elif c == "MBUY" and n == 3:
+    q = qtyof(w[2])
+    newid(w[1])
+    do_buy(w[1], q, 0)
+  elif c == "MSELL" and n == 3:
+    q = qtyof(w[2])
+    newid(w[1])
+    do_sell(w[1], q, 0)
+  elif c == "CANCEL" and n == 2: cancel(w[1])
+  elif c == "BOOK" and n == 1:
+    print("asks")
+    show(asks, false)
+    print("bids")
+    show(bids, true)
+  else: fail("bad command")
+
+ln = 0
+for line in lines():
+  ln += 1
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => ln += 0
+    Err(m) => print("ERR line {ln}: {m}")
+print("volume {vol} value {money(val)}")

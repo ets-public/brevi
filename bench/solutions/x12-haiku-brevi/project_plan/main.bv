@@ -1,0 +1,12 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn solve(text: str) -> [str]:
+  g = load(text)
+  out = unlimited_lines(g)
+  out = out + schedule_lines(g)
+  return out
+
+match solve(stdin()):
+  Ok(out) => print(out.join("\n"))
+  Err(m) => print(m)

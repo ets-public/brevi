@@ -1,0 +1,7 @@
+{"file":"rules.bv","line":37,"msg":"mismatched types: expected int, found ()","fix":"convert with .int(), .float() or str(x)"}
+{"file":"rules.bv","line":44,"msg":"mismatched types: expected int, found ()","fix":"convert with .int(), .float() or str(x)"}
+{"file":"rules.bv","line":69,"msg":"mismatched types: expected int, found ()","fix":"convert with .int(), .float() or str(x)"}
+{"file":"rules.bv","line":91,"msg":"mismatched types: expected int, found ()","fix":"convert with .int(), .float() or str(x)"}
+{"file":"rules.bv","line":112,"msg":"mismatched types: expected int, found ()","fix":"convert with .int(), .float() or str(x)"}
+{"file":"rules.bv","line":119,"msg":"mismatched types: expected int, found ()","fix":"convert with .int(), .float() or str(x)"}
+{"file":"rules.bv","line":127,"msg":"mismatched types: expected int, found ()","fix":"convert with .int(), .float() or str(x)"}

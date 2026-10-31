@@ -1,0 +1,125 @@
+type Lot:
+  qty: int
+  cost: dec
+
+skus = {}
+seen = {}
+cogs = {}
+revs = {}
+profs = {}
+sloss = {}
+mprof = {}
+mloss = {}
+mseen = {}
+last_date = ""
+tot_prof = 0.dec()
+tot_loss = 0.dec()
+n_ok = 0
+
+fn on_hand(sku: str) -> int:
+  total = 0
+  for l in skus[sku]:
+    total += l.qty
+  total
+
+fn stock_value(sku: str) -> dec:
+  v = 0.dec()
+  for l in skus[sku]:
+    v += l.cost * l.qty
+  v
+
+fn take_units(sku: str, qty: int) -> dec:
+  lots = skus[sku]
+  need = qty
+  cost = 0.dec()
+  while need > 0:
+    lot = lots[0]
+    take = min(need, lot.qty)
+    cost += lot.cost * take
+    need -= take
+    if take == lot.qty:
+      lots.remove(0)
+    else:
+      lots[0] = Lot(lot.qty - take, lot.cost)
+  skus[sku] = lots
+  cost
+
+fn handle(ln: int, w: [str]) -> int:
+  if w.len() < 4: fail("line {ln}: bad line")
+  date = w[0]
+  op = w[1]
+  sku = w[2]
+  if date.re_full("\d{4}-\d{2}-\d{2}").is_empty(): fail("line {ln}: bad line")
+  if w[3].re_full("\d+").is_empty(): fail("line {ln}: bad line")
+  qty = w[3].int()
+  if qty < 1: fail("line {ln}: bad line")
+  price = 0.dec()
+  if op == "LOSS":
+    if w.len() != 4: fail("line {ln}: bad line")
+  elif w.len() == 5 and (op == "RECEIVE" or op == "SHIP"):
+    if w[4].re_full("\d+(\.\d{1,2})?").is_empty(): fail("line {ln}: bad line")
+    price = w[4].dec()
+  else:
+    fail("line {ln}: bad line")
+  if date < last_date: fail("line {ln}: date out of order")
+  mk = date.slice(0, 7)
+  if op == "RECEIVE":
+    lots = skus[sku]
+    lots.push(Lot(qty, price))
+    skus[sku] = lots
+    seen[sku] = 1
+  elif op == "SHIP":
+    have = on_hand(sku)
+    if have < qty: fail("line {ln}: short SKU need {qty} have {have}")
+    cost = take_units(sku, qty)
+    rev = price * qty
+    pr = rev - cost
+    cogs[sku] += cost
+    revs[sku] += rev
+    profs[sku] += pr
+    mprof[mk] += pr
+    mseen[mk] = 1
+    tot_prof += pr
+  else:
+    have = on_hand(sku)
+    if have < qty: fail("line {ln}: short SKU need {qty} have {have}")
+    cost = take_units(sku, qty)
+    sloss[sku] += cost
+    mloss[mk] += cost
+    mseen[mk] = 1
+    tot_loss += cost
+  last_date = date
+  1
+
+ls = lines()
+for k in 0..ls.len():
+  w = ls[k].words()
+  if w.is_empty(): continue
+  match handle(k + 1, w):
+    Ok(v) => n_ok += v
+    Err(m) => print(m)
+
+names = seen.keys()
+names.sort()
+for s in names:
+  oh = on_hand(s)
+  v = stock_value(s).fmt(2)
+  c = cogs[s].fmt(2)
+  r = revs[s].fmt(2)
+  p = profs[s].fmt(2)
+  l = sloss[s].fmt(2)
+  print("{s} on_hand {oh} value {v} cogs {c} revenue {r} profit {p} loss {l}")
+
+print("months")
+mlist = mseen.keys()
+mlist.sort()
+for m in mlist:
+  pf = mprof[m].fmt(2)
+  lf = mloss[m].fmt(2)
+  print("  {m} profit {pf} loss {lf}")
+
+net = tot_prof - tot_loss
+tp = tot_prof.fmt(2)
+tl = tot_loss.fmt(2)
+nf = net.fmt(2)
+print("total profit {tp} loss {tl} net {nf}")

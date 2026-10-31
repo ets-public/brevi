@@ -1,0 +1,1 @@
+{"line":5,"msg":"skus is used inside a function, so it needs a type","fix":"write skus: {str: int} = {} with the real type"}

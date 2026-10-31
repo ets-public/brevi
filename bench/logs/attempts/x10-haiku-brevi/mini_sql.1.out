@@ -1,0 +1,13 @@
+{"line":181,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":182,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":183,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":184,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":185,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":186,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":238,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":240,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":241,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":242,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":243,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":276,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":277,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}

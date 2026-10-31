@@ -1,0 +1,144 @@
+type Order:
+  id: str
+  side: str
+  qty: int
+  price: int
+  seq: int
+
+resting = []
+used = {}
+seq = 0
+vol_q = 0
+vol_v = 0
+
+fn fmt_price(c: int) -> str:
+  w = c // 100
+  f = c % 100
+  "{w}.{f:02d}"
+
+fn parse_price(s: str) -> int:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): return -1
+  parts = s.split(".")
+  if parts.len() == 1: return parts[0].int() * 100
+  frac = parts[1]
+  if frac.len() == 1: frac = frac + "0"
+  parts[0].int() * 100 + frac.int()
+
+fn parse_qty(s: str) -> int:
+  if s.re_full("\d+").is_empty(): return 0
+  s.int()
+
+fn submit(id: str, side: str, qty0: int, lim: int, is_market: bool):
+  opp = "SELL" if side == "BUY" else "BUY"
+  left = qty0
+  while left > 0:
+    best = -1
+    for i in 0..resting.len():
+      o = resting[i]
+      if o.side != opp: continue
+      if not is_market:
+        if side == "BUY" and o.price > lim: continue
+        if side == "SELL" and o.price < lim: continue
+      if best < 0:
+        best = i
+      elif side == "BUY" and o.price < resting[best].price:
+        best = i
+      elif side == "SELL" and o.price > resting[best].price:
+        best = i
+    if best < 0: break
+    oid = resting[best].id
+    px = resting[best].price
+    ps = fmt_price(px)
+    take = min(left, resting[best].qty)
+    if side == "BUY":
+      print("TRADE {id} {oid} {take} {ps}")
+    else:
+      print("TRADE {oid} {id} {take} {ps}")
+    vol_q += take
+    vol_v += take * px
+    resting[best].qty -= take
+    left -= take
+    if resting[best].qty == 0: resting.remove(best)
+  if left > 0:
+    if is_market:
+      print("DROPPED {id} {left}")
+    else:
+      seq += 1
+      resting.push(Order(id, side, left, lim, seq))
+
+fn do_limit(ln: int, w: [str]):
+  id = w[1]
+  side = w[0]
+  q = parse_qty(w[2])
+  px = parse_price(w[3])
+  if q < 1 or px <= 0:
+    print("ERR line {ln}: bad command")
+  elif used.has(id):
+    print("ERR line {ln}: duplicate ID")
+  else:
+    used[id] = 1
+    submit(id, side, q, px, false)
+
+fn do_market(ln: int, w: [str]):
+  id = w[1]
+  side = "BUY" if w[0] == "MBUY" else "SELL"
+  q = parse_qty(w[2])
+  if q < 1:
+    print("ERR line {ln}: bad command")
+  elif used.has(id):
+    print("ERR line {ln}: duplicate ID")
+  else:
+    used[id] = 1
+    submit(id, side, q, 0, true)
+
+fn do_cancel(ln: int, id: str):
+  i = -1
+  for j in 0..resting.len():
+    if resting[j].id == id: i = j
+  if i < 0:
+    print("ERR line {ln}: unknown ID")
+  else:
+    q = resting[i].qty
+    resting.remove(i)
+    print("CANCELLED {id} {q}")
+
+fn book_side(side: str):
+  totals = {}
+  for o in resting:
+    if o.side == side:
+      totals[o.price] += o.qty
+  ks = totals.keys()
+  ks.sort()
+  if side == "BUY": ks = ks.rev()
+  if ks.is_empty(): print("  -")
+  for p in ks:
+    ps = fmt_price(p)
+    print("  {ps} {totals[p]}")
+
+fn print_book():
+  print("asks")
+  book_side("SELL")
+  print("bids")
+  book_side("BUY")
+
+fn run_cmd(ln: int, w: [str]):
+  cmd = w[0]
+  n = w.len()
+  if cmd == "BOOK" and n == 1:
+    print_book()
+  elif cmd == "CANCEL" and n == 2:
+    do_cancel(ln, w[1])
+  elif (cmd == "BUY" or cmd == "SELL") and n == 4:
+    do_limit(ln, w)
+  elif (cmd == "MBUY" or cmd == "MSELL") and n == 3:
+    do_market(ln, w)
+  else:
+    print("ERR line {ln}: bad command")
+
+ls = lines()
+for k in 0..ls.len():
+  w = ls[k].words()
+  if not w.is_empty(): run_cmd(k + 1, w)
+vq = vol_q
+vv = fmt_price(vol_v)
+print("volume {vq} value {vv}")

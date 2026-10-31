@@ -51,6 +51,8 @@ pub struct Emitter {
     // Names first set inside a block that has ended, for a clearer "unknown name" error.
     block_only: HashSet<String>,
     fallible: bool,
+    // The current function gives no value, so `return x` only leaves it.
+    unit_fn: bool,
     // Inside a lambda that cannot return an error: a failing conversion stops the program.
     must: bool,
     line: usize,
@@ -458,7 +460,7 @@ fn reads_before_set(stmts: &[Stmt], tail: Option<&Expr>, n: &str) -> bool {
             _ => return true,
         }
     }
-    tail.map_or(false, |t| mentions(&format!("{t:?}")))
+    tail.map_or(false, |t| expr_reads_before_set(t, n))
 }
 
 fn expr_reads_before_set(e: &Expr, n: &str) -> bool {
@@ -480,7 +482,7 @@ fn expr_reads_before_set(e: &Expr, n: &str) -> bool {
     }
 }
 
-fn sets_first(body: &str, n: &str) -> bool {
+pub(crate) fn sets_first(body: &str, n: &str) -> bool {
     let id = format!("Ident({n:?})");
     body.find(&id).map_or(false, |i| {
         // `n = max(n, x)` reads n while setting it, so it is not set first.
@@ -594,6 +596,7 @@ impl Emitter {
             top_tys: HashMap::new(),
             block_only: HashSet::new(),
             fallible: false,
+            unit_fn: false,
             must: false,
             borrow_loops: false,
             nested: HashSet::new(),
@@ -1008,6 +1011,7 @@ impl Emitter {
             }
         }
         self.line = line;
+        self.unit_fn = matches!(ret, Ty::Unit);
         let ps: Vec<String> = params
             .iter()
             .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
@@ -1069,7 +1073,7 @@ impl Emitter {
             let mut names = Vec::new();
             branch_sets(e, &mut names);
             let rest = format!("{rest:?} {tail:?}");
-            for n in names {
+            for n in names.into_iter().filter(|n| n != "_") {
                 if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !stmts_set_first(rest_stmts, tail, &n) {
                     // A zero start value, as in Python a name set on only some paths can still be read after.
                     out.push_str(&format!("    let mut {n} = Default::default();\n"));
@@ -1285,6 +1289,10 @@ impl Emitter {
             Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
                 let v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
+                if self.unit_fn && value.is_some() && !self.must {
+                    let r = if self.fallible { "return Ok(())" } else { "return" };
+                    return format!("    /*@L{line}*/ax_l({line}); {{ let _ = {v}; {r}; }}\n");
+                }
                 if self.fallible { format!("return Ok({v});") } else { format!("return {v};") }
             }
             Stmt::Break { .. } => "break;".into(),

@@ -1,0 +1,113 @@
+type Order:
+  id: str
+  side: str
+  price: int
+  qty: int
+
+orders = []
+seen = {}
+volume = 0
+value = 0
+
+fn fm(c: int) = "{c // 100}.{c % 100:02d}"
+
+fn parse_qty(s: str) -> int:
+  if s.re_full("\d+").is_empty(): fail("bad command")
+  q = s.int()
+  if q < 1: fail("bad command")
+  q
+
+fn parse_price(s: str) -> int:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): fail("bad command")
+  parts = s.split(".")
+  c = parts[0].int() * 100
+  if parts.len() > 1:
+    f = parts[1]
+    if f.len() == 1: f = f + "0"
+    c += f.int()
+  if c <= 0: fail("bad command")
+  c
+
+fn place(side: str, id: str, qty: int, limit: int):
+  if seen.has(id): fail("duplicate ID")
+  seen[id] = 1
+  rem = qty
+  while rem > 0:
+    best = -1
+    for i in 0..orders.len():
+      o = orders[i]
+      if o.side == side: continue
+      if limit >= 0:
+        if side == "B" and o.price > limit: continue
+        if side == "S" and o.price < limit: continue
+      if best < 0:
+        best = i
+      else:
+        b = orders[best]
+        if side == "B" and o.price < b.price: best = i
+        if side == "S" and o.price > b.price: best = i
+    if best < 0: break
+    o = orders[best]
+    fill = min(rem, o.qty)
+    bid = if side == "B": id else: o.id
+    sid = if side == "B": o.id else: id
+    print("TRADE {bid} {sid} {fill} {fm(o.price)}")
+    volume += fill
+    value += fill * o.price
+    rem -= fill
+    if fill == o.qty:
+      orders.remove(best)
+    else:
+      orders[best] = Order(o.id, o.side, o.price, o.qty - fill)
+  if rem > 0:
+    if limit >= 0:
+      orders.push(Order(id, side, limit, rem))
+    else:
+      print("DROPPED {id} {rem}")
+
+fn show(side: str):
+  m = {}
+  for o in orders:
+    if o.side == side: m[o.price] += o.qty
+  ps = m.pairs()
+  if side == "B": ps = ps.rev()
+  if ps.is_empty():
+    print("  -")
+  else:
+    for p in ps: print("  {fm(p.0)} {p.1}")
+
+fn run(line: str):
+  w = line.words()
+  cmd = w[0]
+  n = w.len()
+  if (cmd == "BUY" or cmd == "SELL") and n == 4:
+    if w[1].re_full("\w+").is_empty(): fail("bad command")
+    q = parse_qty(w[2])
+    p = parse_price(w[3])
+    place(if cmd == "BUY": "B" else: "S", w[1], q, p)
+  elif (cmd == "MBUY" or cmd == "MSELL") and n == 3:
+    if w[1].re_full("\w+").is_empty(): fail("bad command")
+    q = parse_qty(w[2])
+    place(if cmd == "MBUY": "B" else: "S", w[1], q, -1)
+  elif cmd == "CANCEL" and n == 2:
+    idx = -1
+    for i in 0..orders.len():
+      if orders[i].id == w[1]: idx = i
+    if idx < 0: fail("unknown ID")
+    print("CANCELLED {w[1]} {orders[idx].qty}")
+    orders.remove(idx)
+  elif cmd == "BOOK" and n == 1:
+    print("asks")
+    show("S")
+    print("bids")
+    show("B")
+  else:
+    fail("bad command")
+
+ls = lines()
+for i in 0..ls.len():
+  if ls[i].trim().is_empty(): continue
+  match run(ls[i]):
+    Ok(_) => print("", end="")
+    Err(m) => print("ERR line {i + 1}: {m}")
+print("volume {volume} value {fm(value)}")

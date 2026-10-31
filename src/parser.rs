@@ -559,6 +559,11 @@ impl Parser {
                             } else {
                                 name
                             };
+                            // `n.range()` counts 0..n.
+                            if name == "range" && args.is_empty() {
+                                e = Expr::Range(Box::new(Expr::Int(0)), Box::new(e));
+                                continue;
+                            }
                             // Python's `", ".join(xs)` is `xs.join(", ")`.
                             e = if name == "join" && args.len() == 1 && matches!(e, Expr::Str(_)) && !matches!(args[0], Expr::Str(_)) {
                                 Expr::Method(Box::new(args.remove(0)), name, vec![e], line)

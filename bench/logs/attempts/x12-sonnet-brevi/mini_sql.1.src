@@ -1,0 +1,233 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+tables = {}
+
+fn tk(toks: [str], i: int) = if i < toks.len(): toks[i] else: ""
+fn is_id(t: str) = not t.re_full("[A-Za-z][A-Za-z0-9_]*").is_empty()
+fn is_s(t: str) = t.starts_with("'")
+fn is_i(t: str) = not t.re_full("-?\d+").is_empty()
+fn is_v(t: str) = is_s(t) or is_i(t)
+fn vstr(t: str) = if is_s(t): t.slice(1, -1).replace("''", "'") else: t
+fn syn():
+  fail("error: syntax")
+
+fn cmp3(a: str, b: str, ty: str) -> int:
+  if ty == "INT":
+    x = a.int()
+    y = b.int()
+    if x < y: return -1
+    if x > y: return 1
+    return 0
+  if a < b: return -1
+  if a > b: return 1
+  0
+
+fn test_op(d: int, op: str) -> bool:
+  if op == "=": return d == 0
+  if op == "!=": return d != 0
+  if op == "<": return d < 0
+  if op == ">": return d > 0
+  if op == "<=": return d <= 0
+  d >= 0
+
+fn parse_where(toks: [str], p0: int):
+  conds = []
+  p = p0
+  if tk(toks, p) == "WHERE":
+    p += 1
+    while True:
+      c = tk(toks, p)
+      op = tk(toks, p + 1)
+      v = tk(toks, p + 2)
+      if not is_id(c) or not (op in ["=", "!=", "<", ">", "<=", ">="]) or not is_v(v): syn()
+      conds.push((c, op, v))
+      p += 3
+      if tk(toks, p) == "AND":
+        p += 1
+      else:
+        break
+  (conds, p)
+
+fn get_table(name: str) -> Table:
+  if not tables.has(name): fail("error: no table {name}")
+  tables[name]
+
+fn need_col(tb: Table, c: str):
+  if c not in tb.cols: fail("error: no column {c}")
+
+fn check_conds(tb: Table, conds):
+  for c in conds: need_col(tb, c.0)
+  for c in conds:
+    ty = tb.types[tb.cols.index_of(c.0)]
+    if ty == "INT" and not is_i(c.2): fail("error: type mismatch")
+    if ty == "TEXT" and not is_s(c.2): fail("error: type mismatch")
+
+fn row_ok(row: [str], tb: Table, conds) -> bool:
+  for c in conds:
+    ci = tb.cols.index_of(c.0)
+    d = cmp3(row[ci], vstr(c.2), tb.types[ci])
+    if not test_op(d, c.1): return false
+  true
+
+fn do_create(toks: [str]):
+  if tk(toks, 1) != "TABLE" or not is_id(tk(toks, 2)) or tk(toks, 3) != "(" or toks[-1] != ")": syn()
+  inner = toks.slice(4, toks.len() - 1)
+  if inner.len() % 4 != 3: syn()
+  cols = []
+  types = []
+  for i in 0..inner.len():
+    t = inner[i]
+    m = i % 4
+    if m == 0:
+      if not is_id(t): syn()
+      cols.push(t)
+    elif m == 1:
+      if t != "INT" and t != "TEXT": syn()
+      types.push(t)
+    elif m == 3:
+      if t != ",": syn()
+  name = toks[2]
+  if tables.has(name): fail("error: table {name} exists")
+  rows: [[str]] = []
+  tables[name] = Table(cols, types, rows)
+  print("ok")
+
+fn do_insert(toks: [str]):
+  if tk(toks, 1) != "INTO" or not is_id(tk(toks, 2)) or tk(toks, 3) != "VALUES" or tk(toks, 4) != "(" or toks[-1] != ")": syn()
+  inner = toks.slice(5, toks.len() - 1)
+  if inner.len() % 2 != 1: syn()
+  vals = []
+  for i in 0..inner.len():
+    if i % 2 == 0:
+      if not is_v(inner[i]): syn()
+      vals.push(inner[i])
+    elif inner[i] != ",": syn()
+  tb = get_table(toks[2])
+  if vals.len() != tb.cols.len(): fail("error: type mismatch")
+  for i in 0..vals.len():
+    if tb.types[i] == "INT" and not is_i(vals[i]): fail("error: type mismatch")
+    if tb.types[i] == "TEXT" and not is_s(vals[i]): fail("error: type mismatch")
+  tb.rows.push([vstr(v) for v in vals])
+  tables[toks[2]] = tb
+  print("ok")
+
+fn do_select(toks: [str]):
+  fi = toks.index_of("FROM")
+  if fi < 0: syn()
+  sel = toks.slice(1, fi)
+  count = false
+  star = false
+  names = []
+  if sel.join(" ") == "COUNT ( * )":
+    count = true
+  elif sel.join(" ") == "*":
+    star = true
+  else:
+    if sel.len() % 2 != 1: syn()
+    for i in 0..sel.len():
+      if i % 2 == 0:
+        if not is_id(sel[i]): syn()
+        names.push(sel[i])
+      elif sel[i] != ",": syn()
+  tname = tk(toks, fi + 1)
+  if not is_id(tname): syn()
+  let (conds, p0) = parse_where(toks, fi + 2)
+  p = p0
+  ocol = ""
+  desc = false
+  limit = -1
+  if not count:
+    if tk(toks, p) == "ORDER":
+      if tk(toks, p + 1) != "BY" or not is_id(tk(toks, p + 2)): syn()
+      ocol = toks[p + 2]
+      p += 3
+      if tk(toks, p) == "DESC":
+        desc = true
+        p += 1
+    if tk(toks, p) == "LIMIT":
+      lt = tk(toks, p + 1)
+      if not is_i(lt) or lt.starts_with("-"): syn()
+      limit = lt.int()
+      p += 2
+  if p != toks.len(): syn()
+  tb = get_table(tname)
+  if star: names = tb.cols
+  for n in names: need_col(tb, n)
+  for c in conds: need_col(tb, c.0)
+  if ocol != "": need_col(tb, ocol)
+  check_conds(tb, conds)
+  rows = [r for r in tb.rows if row_ok(r, tb, conds)]
+  if count:
+    print(rows.len())
+    return
+  if ocol != "":
+    oi = tb.cols.index_of(ocol)
+    if tb.types[oi] == "INT":
+      rows = rows.sort_by(r => r[oi].int(), desc)
+    else:
+      rows = rows.sort_by(r => r[oi], desc)
+  if limit >= 0: rows = rows.take(limit)
+  idx = [tb.cols.index_of(n) for n in names]
+  print(names.join(" | "))
+  for r in rows: print([r[i] for i in idx].join(" | "))
+  print("({rows.len()} rows)")
+
+fn do_update(toks: [str]):
+  t = tk(toks, 1)
+  c = tk(toks, 3)
+  v = tk(toks, 5)
+  if not is_id(t) or tk(toks, 2) != "SET" or not is_id(c) or tk(toks, 4) != "=" or not is_v(v): syn()
+  let (conds, p) = parse_where(toks, 6)
+  if p != toks.len(): syn()
+  tb = get_table(t)
+  need_col(tb, c)
+  for cc in conds: need_col(tb, cc.0)
+  ci = tb.cols.index_of(c)
+  if tb.types[ci] == "INT" and not is_i(v): fail("error: type mismatch")
+  if tb.types[ci] == "TEXT" and not is_s(v): fail("error: type mismatch")
+  check_conds(tb, conds)
+  n = 0
+  for i in 0..tb.rows.len():
+    if row_ok(tb.rows[i], tb, conds):
+      r = tb.rows[i]
+      r[ci] = vstr(v)
+      tb.rows[i] = r
+      n += 1
+  tables[t] = tb
+  print("updated {n}")
+
+fn do_delete(toks: [str]):
+  t = tk(toks, 2)
+  if tk(toks, 1) != "FROM" or not is_id(t): syn()
+  let (conds, p) = parse_where(toks, 3)
+  if p != toks.len(): syn()
+  tb = get_table(t)
+  for cc in conds: need_col(tb, cc.0)
+  check_conds(tb, conds)
+  keep = [r for r in tb.rows if not row_ok(r, tb, conds)]
+  n = tb.rows.len() - keep.len()
+  tb.rows = keep
+  tables[t] = tb
+  print("deleted {n}")
+
+fn run(line: str):
+  toks = line.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z_]\w*|!=|<=|>=|[=<>(),*]")
+  if toks.is_empty(): syn()
+  stray = line.len() - sum(t.len() for t in toks) - line.chars().count(c => c == " ") + sum(t.chars().count(c => c == " ") for t in toks)
+  if stray != 0: syn()
+  kw = toks[0]
+  if kw == "CREATE": do_create(toks)
+  elif kw == "INSERT": do_insert(toks)
+  elif kw == "SELECT": do_select(toks)
+  elif kw == "UPDATE": do_update(toks)
+  elif kw == "DELETE": do_delete(toks)
+  else: syn()
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => continue
+    Err(m) => print(m)

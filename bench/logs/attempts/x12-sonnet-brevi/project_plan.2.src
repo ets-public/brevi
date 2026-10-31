@@ -1,0 +1,155 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int], en: [int]):
+  for i in 0..tasks.len(): print("  {tasks[i].name} {st[i]}-{en[i]}")
+  print("length {max(en)}")
+
+fn go(inp: [str]):
+  let (k, tasks) = parse(inp)
+  didx = dep_idx(tasks)
+  order = topo(didx)
+  let (st, en) = times(tasks, didx, order)
+  tl = tails(tasks, didx, order)
+  print("unlimited")
+  show(tasks, st, en)
+  ch = critical(didx, st, en, tl)
+  print("critical " + " > ".join([tasks[c].name for c in ch]))
+  print("workers {k}")
+  let (s2, e2) = schedule([t.days for t in tasks], didx, tl, k)
+  show(tasks, s2, e2)
+
+match go(lines()):
+  Ok(_) => continue
+  Err(m) => print(m)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse(inp: [str]) -> (int, [Task]):
+  k = 0
+  tasks = []
+  seen = {}
+  first = true
+  for i in 0..inp.len():
+    t = inp[i].trim()
+    if t.is_empty(): continue
+    if first:
+      first = false
+      w = t.words()
+      if w.len() != 2 or w[0] != "workers" or w[1].re_full("\d+").is_empty(): fail("line {i + 1}: bad line")
+      if w[1].int() < 1: fail("line {i + 1}: bad line")
+      k = w[1].int()
+      continue
+    g = t.re_full("(\w+) (\d+)(?: after (\w+(?:, \w+)*))?")
+    if g.is_empty(): fail("line {i + 1}: bad line")
+    if g[2].int() < 1: fail("line {i + 1}: bad line")
+    name = g[1]
+    if seen.has(name): fail("line {i + 1}: duplicate {name}")
+    seen[name] = 1
+    deps = if g.len() > 3 and g[3] != "": g[3].split(", ") else: []
+    tasks.push(Task(name, g[2].int(), deps))
+  if first: fail("line 1: bad line")
+  (k, tasks)
+
+fn dep_idx(tasks: [Task]) -> [[int]]:
+  pos = {}
+  for i in 0..tasks.len(): pos[tasks[i].name] = i
+  res = []
+  for t in tasks:
+    row = []
+    for d in t.deps:
+      if not pos.has(d): fail("unknown {d}")
+      row.push(pos[d])
+    res.push(row)
+  res
+
+fn topo(didx: [[int]]) -> [int]:
+  n = didx.len()
+  indeg = [0].repeat(n)
+  outs = {}
+  for i in 0..n:
+    indeg[i] = didx[i].len()
+    for d in didx[i]: outs[d].push(i)
+  q = []
+  for i in 0..n:
+    if indeg[i] == 0: q.push(i)
+  h = 0
+  while h < q.len():
+    u = q[h]
+    h += 1
+    for v in outs[u]:
+      indeg[v] -= 1
+      if indeg[v] == 0: q.push(v)
+  if q.len() < n: fail("cycle")
+  q
+
+fn times(tasks: [Task], didx: [[int]], order: [int]) -> ([int], [int]):
+  n = tasks.len()
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  for u in order:
+    s = 0
+    for d in didx[u]: s = max(s, en[d])
+    st[u] = s
+    en[u] = s + tasks[u].days
+  (st, en)
+
+fn tails(tasks: [Task], didx: [[int]], order: [int]) -> [int]:
+  n = tasks.len()
+  mx = [0].repeat(n)
+  tl = [0].repeat(n)
+  for u in order.rev():
+    tl[u] = tasks[u].days + mx[u]
+    for d in didx[u]: mx[d] = max(mx[d], tl[u])
+  tl
+
+fn critical(didx: [[int]], st: [int], en: [int], tl: [int]) -> [int]:
+  n = st.len()
+  total = max(en)
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and tl[i] == total: cur = i
+  chain = [cur]
+  while en[cur] != total:
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and cur in didx[j] and st[j] == en[cur] and st[j] + tl[j] == total: nxt = j
+    chain.push(nxt)
+    cur = nxt
+  chain
+## schedule.bv
+fn schedule(days: [int], didx: [[int]], tl: [int], k: int) -> ([int], [int]):
+  n = days.len()
+  st = [-1].repeat(n)
+  en = [-1].repeat(n)
+  done = [false].repeat(n)
+  fin = 0
+  t = 0
+  while True:
+    for i in 0..n:
+      if st[i] >= 0 and not done[i] and en[i] == t:
+        done[i] = true
+        fin += 1
+    if fin >= n: break
+    running = 0
+    for i in 0..n:
+      if st[i] >= 0 and not done[i]: running += 1
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0 and all(done[d] for d in didx[i]):
+          if best < 0 or tl[i] > tl[best]: best = i
+      if best < 0: break
+      st[best] = t
+      en[best] = t + days[best]
+      running += 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and not done[i]:
+        if nt < 0 or en[i] < nt: nt = en[i]
+    t = nt
+  (st, en)

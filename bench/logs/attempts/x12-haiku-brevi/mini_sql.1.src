@@ -1,0 +1,276 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+tables = {}
+
+fn toks(line: str) -> [str] = line.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z]\w*|<=|>=|!=|\S")
+
+fn at(tk: [str], i: int) -> str = tk[i] if i < tk.len() else ""
+
+fn want(tk: [str], i: int, s: str) -> int:
+  if at(tk, i) != s: fail("error: syntax")
+  return i + 1
+
+fn ident(tk: [str], i: int) -> str:
+  s = at(tk, i)
+  if s.re_full("[A-Za-z]\w*").len() == 0: fail("error: syntax")
+  return s
+
+fn lit(tk: [str], i: int) -> (str, str, int):
+  s = at(tk, i)
+  if s.len() >= 2 and s.starts_with("'"):
+    return ("TEXT", s[1:-1].replace("''", "'"), i + 1)
+  if s.re_full("-?\d+").len() > 0:
+    return ("INT", str(s.int()), i + 1)
+  fail("error: syntax")
+
+fn check_end(tk: [str], i: int):
+  if i != tk.len(): fail("error: syntax")
+
+fn parse_where(tk: [str], i: int) -> ([(str, str, str, str)], int):
+  cs = []
+  if at(tk, i) != "WHERE": return (cs, i)
+  i += 1
+  while True:
+    col = ident(tk, i)
+    op = at(tk, i + 1)
+    if op not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+    kind, text, j = lit(tk, i + 2)
+    cs.push((col, op, kind, text))
+    i = j
+    if at(tk, i) != "AND": break
+    i += 1
+  return (cs, i)
+
+fn get_table(name: str) -> Table:
+  if not tables.has(name): fail("error: no table {name}")
+  return tables[name]
+
+fn colidx(t: Table, name: str) -> int:
+  for j in 0..t.cols.len():
+    if t.cols[j] == name: return j
+  fail("error: no column {name}")
+
+fn resolve(t: Table, cs: [(str, str, str, str)]) -> [(int, str, str, str)]:
+  out = []
+  for (col, op, kind, text) in cs:
+    ci = colidx(t, col)
+    if kind != t.types[ci]: fail("error: type mismatch")
+    out.push((ci, op, kind, text))
+  return out
+
+fn cmp_int(a: str, b: str) -> int:
+  x = a.int()
+  y = b.int()
+  if x < y: return -1
+  if x > y: return 1
+  return 0
+
+fn cmp_text(a: str, b: str) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn holds(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn row_ok(r: [str], types: [str], wh: [(int, str, str, str)]) -> bool:
+  for (ci, op, kind, text) in wh:
+    c = cmp_int(r[ci], text) if types[ci] == "INT" else cmp_text(r[ci], text)
+    if not holds(c, op): return false
+  return true
+
+fn do_create(tk: [str]) -> str:
+  i = want(tk, 1, "TABLE")
+  name = ident(tk, i)
+  i += 1
+  i = want(tk, i, "(")
+  cols = []
+  types = []
+  while True:
+    c = ident(tk, i)
+    i += 1
+    ty = at(tk, i)
+    if ty not in ["INT", "TEXT"]: fail("error: syntax")
+    i += 1
+    cols.push(c)
+    types.push(ty)
+    if at(tk, i) != ",": break
+    i += 1
+  i = want(tk, i, ")")
+  check_end(tk, i)
+  if tables.has(name): fail("error: table {name} exists")
+  tables[name] = Table(cols: cols, types: types, rows: [])
+  return "ok"
+
+fn do_insert(tk: [str]) -> str:
+  i = want(tk, 1, "INTO")
+  name = ident(tk, i)
+  i += 1
+  i = want(tk, i, "VALUES")
+  i = want(tk, i, "(")
+  lits = []
+  while True:
+    kind, text, j = lit(tk, i)
+    lits.push((kind, text))
+    i = j
+    if at(tk, i) != ",": break
+    i += 1
+  i = want(tk, i, ")")
+  check_end(tk, i)
+  t = get_table(name)
+  if lits.len() != t.cols.len(): fail("error: type mismatch")
+  row = []
+  for j in 0..lits.len():
+    if lits[j][0] != t.types[j]: fail("error: type mismatch")
+    row.push(lits[j][1])
+  t.rows.push(row)
+  tables[name] = t
+  return "ok"
+
+fn do_select(tk: [str]) -> str:
+  i = want(tk, 0, "SELECT")
+  if at(tk, i) == "COUNT":
+    i = want(tk, i, "COUNT")
+    i = want(tk, i, "(")
+    i = want(tk, i, "*")
+    i = want(tk, i, ")")
+    i = want(tk, i, "FROM")
+    name = ident(tk, i)
+    i += 1
+    cs, i = parse_where(tk, i)
+    check_end(tk, i)
+    t = get_table(name)
+    wh = resolve(t, cs)
+    n = 0
+    for r in t.rows:
+      if row_ok(r, t.types, wh): n += 1
+    return str(n)
+  star = False
+  cols = []
+  if at(tk, i) == "*":
+    star = True
+    i += 1
+  else:
+    cols.push(ident(tk, i))
+    i += 1
+    while at(tk, i) == ",":
+      cols.push(ident(tk, i + 1))
+      i += 2
+  i = want(tk, i, "FROM")
+  name = ident(tk, i)
+  i += 1
+  cs, i = parse_where(tk, i)
+  ob = ""
+  desc = False
+  limit = -1
+  if at(tk, i) == "ORDER":
+    i = want(tk, i, "ORDER")
+    i = want(tk, i, "BY")
+    ob = ident(tk, i)
+    i += 1
+    if at(tk, i) == "DESC":
+      desc = True
+      i += 1
+  if at(tk, i) == "LIMIT":
+    i += 1
+    if at(tk, i).re_full("-?\d+").len() == 0: fail("error: syntax")
+    limit = at(tk, i).int()
+    i += 1
+  check_end(tk, i)
+  t = get_table(name)
+  sel = []
+  if star:
+    for j in 0..t.cols.len(): sel.push(j)
+  else:
+    for c in cols: sel.push(colidx(t, c))
+  wh = resolve(t, cs)
+  oi = -1
+  if ob != "": oi = colidx(t, ob)
+  matching = []
+  for r in t.rows:
+    if row_ok(r, t.types, wh): matching.push(r)
+  if oi >= 0:
+    if t.types[oi] == "INT":
+      matching = matching.sort_by(r => r[oi].int(), desc)
+    else:
+      matching = matching.sort_by(r => r[oi], desc)
+  if limit >= 0: matching = matching[0:limit]
+  out = []
+  names = []
+  for j in sel: names.push(t.cols[j])
+  out.push(names.join(" | "))
+  for r in matching:
+    vals = []
+    for j in sel: vals.push(r[j])
+    out.push(vals.join(" | "))
+  out.push("({matching.len()} rows)")
+  return out.join("\n")
+
+fn do_update(tk: [str]) -> str:
+  name = ident(tk, 1)
+  i = want(tk, 2, "SET")
+  col = ident(tk, i)
+  i += 1
+  i = want(tk, i, "=")
+  kind, text, i = lit(tk, i)
+  cs, i = parse_where(tk, i)
+  check_end(tk, i)
+  t = get_table(name)
+  ci = colidx(t, col)
+  if kind != t.types[ci]: fail("error: type mismatch")
+  wh = resolve(t, cs)
+  n = 0
+  newrows = []
+  for r in t.rows:
+    nr = r
+    if row_ok(r, t.types, wh):
+      nr[ci] = text
+      n += 1
+    newrows.push(nr)
+  t.rows = newrows
+  tables[name] = t
+  return "updated {n}"
+
+fn do_delete(tk: [str]) -> str:
+  i = want(tk, 1, "FROM")
+  name = ident(tk, i)
+  i += 1
+  cs, i = parse_where(tk, i)
+  check_end(tk, i)
+  t = get_table(name)
+  wh = resolve(t, cs)
+  keep = []
+  n = 0
+  for r in t.rows:
+    if row_ok(r, t.types, wh):
+      n += 1
+    else:
+      keep.push(r)
+  t.rows = keep
+  tables[name] = t
+  return "deleted {n}"
+
+fn run(line: str) -> str:
+  tk = toks(line)
+  h = at(tk, 0)
+  if h == "CREATE": return do_create(tk)
+  if h == "INSERT": return do_insert(tk)
+  if h == "SELECT": return do_select(tk)
+  if h == "UPDATE": return do_update(tk)
+  if h == "DELETE": return do_delete(tk)
+  fail("error: syntax")
+
+for raw in lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  match run(line):
+    Ok(s) => print(s)
+    Err(m) => print(m)

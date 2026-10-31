@@ -1,0 +1,351 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+tables = {}
+toks = []
+pos = 0
+
+fn tokenize(s: str) -> [str]:
+  cs = s.chars()
+  n = cs.len()
+  out = []
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == " ":
+      i += 1
+    elif c == "'":
+      buf = "'"
+      j = i + 1
+      closed = false
+      while j < n and not closed:
+        if cs[j] == "'":
+          if j + 1 < n and cs[j + 1] == "'":
+            buf += "'"
+            j += 2
+          else:
+            closed = true
+            j += 1
+        else:
+          buf += cs[j]
+          j += 1
+      if not closed: fail("error: syntax")
+      out.push(buf)
+      i = j
+    elif c.is_digit() or (c == "-" and i + 1 < n and cs[i + 1].is_digit()):
+      j = i + 1
+      while j < n and cs[j].is_digit(): j += 1
+      out.push("".join(cs.slice(i, j)))
+      i = j
+    elif c.is_alpha():
+      j = i + 1
+      while j < n and (cs[j].is_alpha() or cs[j].is_digit() or cs[j] == "_"): j += 1
+      out.push("".join(cs.slice(i, j)))
+      i = j
+    elif (c == "<" or c == ">" or c == "!") and i + 1 < n and cs[i + 1] == "=":
+      out.push(c + "=")
+      i += 2
+    elif c in "(),*=<>":
+      out.push(c)
+      i += 1
+    else:
+      fail("error: syntax")
+  out
+
+fn cur() -> str:
+  if pos < toks.len(): return toks[pos]
+  ""
+
+fn eat(v: str):
+  if cur() != v: fail("error: syntax")
+  pos += 1
+
+fn at_end():
+  if pos < toks.len(): fail("error: syntax")
+
+fn is_name(t: str) -> bool:
+  t.len() > 0 and t.slice(0, 1).is_alpha()
+
+fn is_str(t: str) -> bool:
+  t.len() > 0 and t.slice(0, 1) == "'"
+
+fn is_num(t: str) -> bool:
+  t.len() > 0 and (t.slice(0, 1).is_digit() or t.slice(0, 1) == "-")
+
+fn take_name() -> str:
+  t = cur()
+  if not is_name(t): fail("error: syntax")
+  pos += 1
+  t
+
+fn take_value() -> str:
+  t = cur()
+  if not (is_str(t) or is_num(t)): fail("error: syntax")
+  pos += 1
+  t
+
+fn take_op() -> str:
+  t = cur()
+  if not (t in ["=", "!=", "<", ">", "<=", ">="]): fail("error: syntax")
+  pos += 1
+  t
+
+fn take_coltype() -> str:
+  t = cur()
+  if t != "INT" and t != "TEXT": fail("error: syntax")
+  pos += 1
+  t
+
+fn parse_cond() -> (str, str, str):
+  cn = take_name()
+  o = take_op()
+  v = take_value()
+  (cn, o, v)
+
+fn parse_conds() -> [(str, str, str)]:
+  out = [parse_cond()]
+  while cur() == "AND":
+    pos += 1
+    out.push(parse_cond())
+  out
+
+fn get_table(name: str) -> Table:
+  if not tables.has(name): fail("error: no table {name}")
+  tables[name]
+
+fn col_index(t: Table, cn: str) -> int:
+  for i in 0..t.cols.len():
+    if t.cols[i] == cn: return i
+  fail("error: no column {cn}")
+
+fn check_value(typ: str, v: str):
+  if typ == "INT":
+    if not is_num(v): fail("error: type mismatch")
+  else:
+    if not is_str(v): fail("error: type mismatch")
+
+fn norm(typ: str, v: str) -> str:
+  if typ == "INT": return v.int().str()
+  v.slice(1)
+
+fn check_conds(t: Table, conds: [(str, str, str)]) -> [(int, str, str)]:
+  out = []
+  for c in conds:
+    out.push((col_index(t, c.0), c.1, c.2))
+  for c in out:
+    check_value(t.types[c.0], c.2)
+  out
+
+fn rel(cell: str, typ: str, v: str) -> int:
+  if typ == "INT":
+    x = cell.int()
+    y = v.int()
+    if x < y: return -1
+    if x > y: return 1
+    return 0
+  a = cell
+  b = v.slice(1)
+  if a < b: return -1
+  if a > b: return 1
+  0
+
+fn holds(cell: str, typ: str, op: str, v: str) -> bool:
+  c = rel(cell, typ, v)
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  c >= 0
+
+fn row_ok(row: [str], t: Table, conds: [(int, str, str)]) -> bool:
+  for c in conds:
+    if not holds(row[c.0], t.types[c.0], c.1, c.2): return false
+  true
+
+fn do_create() -> str:
+  eat("CREATE")
+  eat("TABLE")
+  tn = take_name()
+  eat("(")
+  cols = [take_name()]
+  types = [take_coltype()]
+  while cur() == ",":
+    pos += 1
+    cols.push(take_name())
+    types.push(take_coltype())
+  eat(")")
+  at_end()
+  if tables.has(tn): fail("error: table {tn} exists")
+  tables[tn] = Table(cols, types, [])
+  "ok"
+
+fn do_insert() -> str:
+  eat("INSERT")
+  eat("INTO")
+  tn = take_name()
+  eat("VALUES")
+  eat("(")
+  vals = [take_value()]
+  while cur() == ",":
+    pos += 1
+    vals.push(take_value())
+  eat(")")
+  at_end()
+  t = get_table(tn)
+  if vals.len() != t.cols.len(): fail("error: type mismatch")
+  for i in 0..vals.len():
+    check_value(t.types[i], vals[i])
+  row = []
+  for i in 0..vals.len():
+    row.push(norm(t.types[i], vals[i]))
+  t.rows.push(row)
+  tables[tn] = t
+  "ok"
+
+fn do_select() -> str:
+  eat("SELECT")
+  count = false
+  star = false
+  names = []
+  if cur() == "COUNT":
+    pos += 1
+    eat("(")
+    eat("*")
+    eat(")")
+    count = true
+  elif cur() == "*":
+    pos += 1
+    star = true
+  else:
+    names.push(take_name())
+    while cur() == ",":
+      pos += 1
+      names.push(take_name())
+  eat("FROM")
+  tn = take_name()
+  conds = []
+  if cur() == "WHERE":
+    pos += 1
+    conds = parse_conds()
+  if count:
+    at_end()
+    t = get_table(tn)
+    cs = check_conds(t, conds)
+    n = 0
+    for row in t.rows:
+      if row_ok(row, t, cs): n += 1
+    return n.str()
+  has_order = false
+  ocol = ""
+  desc = false
+  if cur() == "ORDER":
+    pos += 1
+    eat("BY")
+    ocol = take_name()
+    has_order = true
+    if cur() == "DESC":
+      pos += 1
+      desc = true
+  lim = -1
+  if cur() == "LIMIT":
+    pos += 1
+    lv = take_value()
+    if not is_num(lv): fail("error: syntax")
+    lim = lv.int()
+  at_end()
+  t = get_table(tn)
+  sidx = []
+  if star:
+    for i in 0..t.cols.len(): sidx.push(i)
+  else:
+    for nm in names: sidx.push(col_index(t, nm))
+  cs = check_conds(t, conds)
+  oi = 0
+  if has_order: oi = col_index(t, ocol)
+  sel = []
+  for row in t.rows:
+    if row_ok(row, t, cs): sel.push(row)
+  if has_order:
+    if t.types[oi] == "INT":
+      sel = sel.sort_by(r => r[oi].int(), desc)
+    else:
+      sel = sel.sort_by(r => r[oi], desc)
+  if lim >= 0: sel = sel.take(lim)
+  out = []
+  hs = []
+  for i in sidx: hs.push(t.cols[i])
+  out.push(" | ".join(hs))
+  for row in sel:
+    cells = []
+    for i in sidx: cells.push(row[i])
+    out.push(" | ".join(cells))
+  n = sel.len()
+  out.push("({n} rows)")
+  "\n".join(out)
+
+fn do_update() -> str:
+  eat("UPDATE")
+  tn = take_name()
+  eat("SET")
+  cn = take_name()
+  eat("=")
+  v = take_value()
+  conds = []
+  if cur() == "WHERE":
+    pos += 1
+    conds = parse_conds()
+  at_end()
+  t = get_table(tn)
+  si = col_index(t, cn)
+  cs = check_conds(t, conds)
+  check_value(t.types[si], v)
+  nv = norm(t.types[si], v)
+  n = 0
+  for r in 0..t.rows.len():
+    if row_ok(t.rows[r], t, cs):
+      t.rows[r][si] = nv
+      n += 1
+  tables[tn] = t
+  "updated {n}"
+
+fn do_delete() -> str:
+  eat("DELETE")
+  eat("FROM")
+  tn = take_name()
+  conds = []
+  if cur() == "WHERE":
+    pos += 1
+    conds = parse_conds()
+  at_end()
+  t = get_table(tn)
+  cs = check_conds(t, conds)
+  keep = []
+  n = 0
+  for row in t.rows:
+    if row_ok(row, t, cs):
+      n += 1
+    else:
+      keep.push(row)
+  t.rows = keep
+  tables[tn] = t
+  "deleted {n}"
+
+fn exec(line: str) -> str:
+  toks = tokenize(line)
+  pos = 0
+  first = cur()
+  if first == "CREATE": return do_create()
+  if first == "INSERT": return do_insert()
+  if first == "SELECT": return do_select()
+  if first == "UPDATE": return do_update()
+  if first == "DELETE": return do_delete()
+  fail("error: syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match exec(line):
+    Ok(s) => print(s)
+    Err(m) => print(m)

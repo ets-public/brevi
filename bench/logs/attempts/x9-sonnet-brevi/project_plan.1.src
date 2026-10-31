@@ -1,0 +1,187 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn lines_for(ts: [Task], st: [int]) -> [str]:
+  [("  {ts[i].name} {st[i]}-{st[i] + ts[i].days}") for i in 0..ts.len()]
+
+fn length_of(ts: [Task], st: [int]) -> int = max([st[i] + ts[i].days for i in 0..ts.len()])
+
+fn report(inp: Input):
+  ts = inp.tasks
+  order = topo(ts)
+  st = starts(ts, order)
+  print("unlimited")
+  for s in lines_for(ts, st): print(s)
+  print("length {length_of(ts, st)}")
+  ch = critical(ts, st, order)
+  print("critical " + " > ".join([ts[i].name for i in ch]))
+  print("workers {inp.k}")
+  s2 = plan(ts, order, inp.k)
+  for s in lines_for(ts, s2): print(s)
+  print("length {length_of(ts, s2)}")
+
+fn main():
+  match load(lines()):
+    Err(m) => print(m)
+    Ok(inp) => report(inp)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+type Input:
+  k: int
+  tasks: [Task]
+
+fn bad(n: int):
+  fail("line {n}: bad line")
+
+fn parse_task(line: str, n: int) -> Task:
+  w = line.words()
+  if w.len() < 2: bad(n)
+  if not w[0].re_full("\w+"): bad(n)
+  if not w[1].re_full("[0-9]+"): bad(n)
+  days = w[1].int()
+  if days < 1: bad(n)
+  deps = []
+  if w.len() > 2:
+    if w[2] != "after" or w.len() < 4: bad(n)
+    for p in w.slice(3).join(" ").split(","):
+      q = p.trim()
+      if not q.re_full("\w+"): bad(n)
+      deps.push(q)
+  Task(name: w[0], days: days, deps: deps)
+
+fn index_map(ts: [Task]) -> {str: int}:
+  m = {}
+  for i in 0..ts.len(): m[ts[i].name] = i
+  m
+
+fn topo(ts: [Task]) -> [int]:
+  n = ts.len()
+  indeg = [t.deps.len() for t in ts]
+  order = []
+  for i in 0..n:
+    if indeg[i] == 0: order.push(i)
+  qi = 0
+  while qi < order.len():
+    i = order[qi]
+    qi += 1
+    for j in 0..n:
+      for d in ts[j].deps:
+        if d == ts[i].name:
+          indeg[j] -= 1
+          if indeg[j] == 0: order.push(j)
+  order
+
+fn load(ls: [str]) -> Input:
+  k = 0
+  ts = []
+  seen = {}
+  first = true
+  n = 0
+  for line in ls:
+    n += 1
+    if line.trim().is_empty(): continue
+    if first:
+      first = false
+      w = line.words()
+      if w.len() != 2 or w[0] != "workers" or not w[1].re_full("[0-9]+"): bad(n)
+      k = w[1].int()
+      if k < 1: bad(n)
+      continue
+    t = parse_task(line, n)
+    if seen.has(t.name): fail("line {n}: duplicate {t.name}")
+    seen[t.name] = 1
+    ts.push(t)
+  if first: bad(1)
+  for t in ts:
+    for d in t.deps:
+      if not seen.has(d): fail("unknown {d}")
+  if topo(ts).len() < ts.len(): fail("cycle")
+  Input(k: k, tasks: ts)
+
+fn starts(ts: [Task], order: [int]) -> [int]:
+  idx = index_map(ts)
+  st = [0].repeat(ts.len())
+  for i in order:
+    s = 0
+    for d in ts[i].deps:
+      j = idx[d]
+      s = max(s, st[j] + ts[j].days)
+    st[i] = s
+  st
+
+fn critical(ts: [Task], st: [int], order: [int]) -> [int]:
+  n = ts.len()
+  L = max([st[i] + ts[i].days for i in 0..n])
+  can = [0].repeat(n)
+  for i in order.rev():
+    e = st[i] + ts[i].days
+    if e == L:
+      can[i] = 1
+    else:
+      for j in 0..n:
+        if ts[i].name in ts[j].deps and st[j] == e and can[j] == 1: can[i] = 1
+  chain = []
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and can[i] == 1: cur = i
+  while cur >= 0:
+    chain.push(cur)
+    e = st[cur] + ts[cur].days
+    nx = -1
+    if e < L:
+      for j in 0..n:
+        if nx < 0 and ts[cur].name in ts[j].deps and st[j] == e and can[j] == 1: nx = j
+    cur = nx
+  chain
+## schedule.bv
+use "graph.bv"
+
+fn tails(ts: [Task], order: [int]) -> [int]:
+  n = ts.len()
+  tl = [0].repeat(n)
+  for i in order.rev():
+    best = 0
+    for j in 0..n:
+      if ts[i].name in ts[j].deps: best = max(best, tl[j])
+    tl[i] = ts[i].days + best
+  tl
+
+fn plan(ts: [Task], order: [int], k: int) -> [int]:
+  n = ts.len()
+  idx = index_map(ts)
+  tl = tails(ts, order)
+  st = [-1].repeat(n)
+  fin = [0].repeat(n)
+  ndone = 0
+  free = k
+  t = 0
+  while ndone < n:
+    for i in 0..n:
+      if st[i] >= 0 and fin[i] == 0 and st[i] + ts[i].days == t:
+        fin[i] = 1
+        ndone += 1
+        free += 1
+    while free > 0:
+      bi = -1
+      for i in 0..n:
+        if st[i] < 0:
+          ready = true
+          for d in ts[i].deps:
+            if fin[idx[d]] == 0: ready = false
+          if ready and (bi < 0 or tl[i] > tl[bi]): bi = i
+      if bi < 0: break
+      st[bi] = t
+      free -= 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and fin[i] == 0:
+        e = st[i] + ts[i].days
+        if nt < 0 or e < nt: nt = e
+    if nt < 0: break
+    t = nt
+  st

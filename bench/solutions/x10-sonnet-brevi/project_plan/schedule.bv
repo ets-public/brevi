@@ -1,0 +1,37 @@
+use "graph.bv"
+
+fn make_schedule(tasks: [Task], k: int, tl: [int]) -> Plan:
+  n = tasks.len()
+  idx = index_of_names(tasks)
+  starts = [0].repeat(n)
+  ends = [0].repeat(n)
+  state = [0].repeat(n)
+  fin = 0
+  t = 0
+  while fin < n:
+    for i in 0..n:
+      if state[i] == 1 and ends[i] == t:
+        state[i] = 2
+        fin += 1
+    running = 0
+    for i in 0..n:
+      if state[i] == 1: running += 1
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if state[i] == 0:
+          rdy = true
+          for d in tasks[i].deps:
+            if state[idx[d]] != 2: rdy = false
+          if rdy and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0: break
+      state[best] = 1
+      starts[best] = t
+      ends[best] = t + tasks[best].days
+      running += 1
+    nt = -1
+    for i in 0..n:
+      if state[i] == 1 and (nt < 0 or ends[i] < nt): nt = ends[i]
+    if nt < 0: break
+    t = nt
+  Plan(starts, ends)

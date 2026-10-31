@@ -1,0 +1,236 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+tables = {}
+toks = []
+pos = 0
+TOKRE = "'(?:[^']|'')*'|-?\d+|[A-Za-z_]\w*|!=|<=|>=|[=<>(),*]"
+
+fn syn():
+  fail("error: syntax")
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  if pos >= toks.len(): syn()
+  t = toks[pos]
+  pos += 1
+  t
+
+fn expect(s: str):
+  if nxt() != s: syn()
+
+fn ident() -> str:
+  t = nxt()
+  if not t.re_full("[A-Za-z]\w*"): syn()
+  t
+
+fn value() -> str:
+  t = nxt()
+  if not (t.starts_with("'") or t.re_full("-?\d+")): syn()
+  t
+
+fn vtype(t: str) -> str = if t.starts_with("'"): "TEXT" else: "INT"
+
+fn vtext(t: str) -> str = if t.starts_with("'"): t.slice(1, -1).replace("''", "'") else: t.int().str()
+
+fn cmp(a: str, b: str, isint: bool) -> int:
+  if isint:
+    x = a.int()
+    y = b.int()
+    return if x < y: -1 elif x > y: 1 else: 0
+  if a < b: return -1
+  if a > b: return 1
+  0
+
+fn where() -> [(str, str, str)]:
+  conds = []
+  if peek() == "WHERE":
+    pos += 1
+    while true:
+      c = ident()
+      op = nxt()
+      if not (op in ["=", "!=", "<", ">", "<=", ">="]): syn()
+      v = value()
+      conds.push((c, op, v))
+      if peek() == "AND":
+        pos += 1
+      else:
+        break
+  conds
+
+fn done():
+  if pos < toks.len(): syn()
+
+fn gettable(n: str) -> Table:
+  if not tables.has(n): fail("error: no table {n}")
+  tables[n]
+
+fn colidx(t: Table, c: str) -> int:
+  i = t.cols.index_of(c)
+  if i < 0: fail("error: no column {c}")
+  i
+
+fn checkconds(t: Table, conds: [(str, str, str)]):
+  for cd in conds: colidx(t, cd.0)
+  for cd in conds:
+    i = colidx(t, cd.0)
+    if t.types[i] != vtype(cd.2): fail("error: type mismatch")
+
+fn rowok(t: Table, row: [str], conds: [(str, str, str)]) -> bool:
+  for cd in conds:
+    i = t.cols.index_of(cd.0)
+    c = cmp(row[i], vtext(cd.2), t.types[i] == "INT")
+    op = cd.1
+    ok = if op == "=": c == 0 elif op == "!=": c != 0 elif op == "<": c < 0 elif op == ">": c > 0 elif op == "<=": c <= 0 else: c >= 0
+    if not ok: return false
+  true
+
+fn run(line: str) -> int:
+  rest = line.re_sub(TOKRE, "")
+  if not rest.trim().is_empty(): syn()
+  toks = line.re_list(TOKRE)
+  pos = 0
+  k = nxt()
+  if k == "CREATE":
+    expect("TABLE")
+    n = ident()
+    expect("(")
+    cs = []
+    ts = []
+    while true:
+      cs.push(ident())
+      ty = nxt()
+      if ty != "INT" and ty != "TEXT": syn()
+      ts.push(ty)
+      s = nxt()
+      if s == ")": break
+      if s != ",": syn()
+    done()
+    if tables.has(n): fail("error: table {n} exists")
+    tables[n] = Table(cols: cs, types: ts, rows: [])
+    print("ok")
+  elif k == "INSERT":
+    expect("INTO")
+    n = ident()
+    expect("VALUES")
+    expect("(")
+    vs = []
+    while true:
+      vs.push(value())
+      s = nxt()
+      if s == ")": break
+      if s != ",": syn()
+    done()
+    t = gettable(n)
+    if vs.len() != t.cols.len(): fail("error: type mismatch")
+    for i in 0..vs.len():
+      if vtype(vs[i]) != t.types[i]: fail("error: type mismatch")
+    tables[n].rows.push([vtext(v) for v in vs])
+    print("ok")
+  elif k == "SELECT":
+    cols = []
+    cnt = false
+    if peek() == "COUNT":
+      pos += 1
+      expect("(")
+      expect("*")
+      expect(")")
+      cnt = true
+    elif peek() == "*":
+      pos += 1
+      cols = ["*"]
+    else:
+      while true:
+        cols.push(ident())
+        if peek() == ",":
+          pos += 1
+        else:
+          break
+    expect("FROM")
+    n = ident()
+    conds = where()
+    oc = ""
+    desc = false
+    lim = -1
+    if peek() == "ORDER":
+      pos += 1
+      expect("BY")
+      oc = ident()
+      if peek() == "DESC":
+        pos += 1
+        desc = true
+    if peek() == "LIMIT":
+      pos += 1
+      l = nxt()
+      if not l.re_full("\d+"): syn()
+      lim = l.int()
+    done()
+    if cnt and (oc != "" or lim >= 0): syn()
+    t = gettable(n)
+    if cols == ["*"]: cols = t.cols
+    for c in cols: colidx(t, c)
+    for cd in conds: colidx(t, cd.0)
+    if oc != "": colidx(t, oc)
+    checkconds(t, conds)
+    rows = [r for r in t.rows if rowok(t, r, conds)]
+    if cnt:
+      print(rows.len())
+      return 0
+    if oc != "":
+      oi = colidx(t, oc)
+      if t.types[oi] == "INT":
+        rows = rows.sort_by(r => r[oi].int(), desc)
+      else:
+        rows = rows.sort_by(r => r[oi], desc)
+    if lim >= 0: rows = rows.take(lim)
+    idx = [colidx(t, c) for c in cols]
+    print(" | ".join(cols))
+    for r in rows: print(" | ".join([r[i] for i in idx]))
+    print("({rows.len()} rows)")
+  elif k == "UPDATE":
+    n = ident()
+    expect("SET")
+    c = ident()
+    expect("=")
+    v = value()
+    conds = where()
+    done()
+    t = gettable(n)
+    ci = colidx(t, c)
+    for cd in conds: colidx(t, cd.0)
+    if t.types[ci] != vtype(v): fail("error: type mismatch")
+    checkconds(t, conds)
+    cnt = 0
+    nr = []
+    for r in t.rows:
+      if rowok(t, r, conds):
+        cnt += 1
+        r2 = r
+        r2[ci] = vtext(v)
+        nr.push(r2)
+      else:
+        nr.push(r)
+    tables[n].rows = nr
+    print("updated {cnt}")
+  elif k == "DELETE":
+    expect("FROM")
+    n = ident()
+    conds = where()
+    done()
+    t = gettable(n)
+    checkconds(t, conds)
+    keep = [r for r in t.rows if not rowok(t, r, conds)]
+    print("deleted {t.rows.len() - keep.len()}")
+    tables[n].rows = keep
+  else:
+    syn()
+  0
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => pos = 0
+    Err(m) => print(m)

@@ -1,0 +1,108 @@
+type Graph:
+  k: int
+  names: [str]
+  days: [int]
+  deps: [[int]]
+  dependents: [[int]]
+  order: [int]
+  st: [int]
+  en: [int]
+  total: int
+
+fn load(text: str) -> Graph:
+  k = 0
+  header = false
+  names = []
+  days = []
+  depnames = []
+  ln = 0
+  for raw in text.lines():
+    ln += 1
+    line = raw.trim()
+    if line.is_empty(): continue
+    if not header:
+      m = line.re_full("workers (\d+)")
+      if m.len() == 0 or m[1].int() < 1: fail("line {ln}: bad line")
+      k = m[1].int()
+      header = true
+    else:
+      m = line.re_full("(\w+) (\d+)(?: after (\w+(?:, \w+)*))?")
+      if m.len() == 0 or m[2].int() < 1: fail("line {ln}: bad line")
+      nm = m[1]
+      if names.contains(nm): fail("line {ln}: duplicate {nm}")
+      names.push(nm)
+      days.push(m[2].int())
+      ds = []
+      if m.len() > 3 and m[3] != "": ds = m[3].split(", ")
+      depnames.push(ds)
+  if not header: fail("line 1: bad line")
+  n = names.len()
+  for i in 0..n:
+    for d in depnames[i]:
+      if not names.contains(d): fail("unknown {d}")
+  deps = []
+  for i in 0..n:
+    row = []
+    for d in depnames[i]: row.push(names.index_of(d))
+    deps.push(row)
+  dependents = []
+  for i in 0..n: dependents.push([])
+  for i in 0..n:
+    for d in deps[i]:
+      dependents[d].push(i)
+  indeg = []
+  for i in 0..n: indeg.push(deps[i].len())
+  q = []
+  for i in 0..n:
+    if indeg[i] == 0: q.push(i)
+  order = []
+  head = 0
+  while head < q.len():
+    u = q[head]
+    head += 1
+    order.push(u)
+    for v in dependents[u]:
+      indeg[v] -= 1
+      if indeg[v] == 0: q.push(v)
+  if order.len() < n: fail("cycle")
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  for u in order:
+    s = 0
+    for d in deps[u]: s = max(s, en[d])
+    st[u] = s
+    en[u] = s + days[u]
+  total = 0
+  for i in 0..n: total = max(total, en[i])
+  return Graph(k: k, names: names, days: days, deps: deps, dependents: dependents, order: order, st: st, en: en, total: total)
+
+fn critical(g: Graph) -> [str]:
+  n = g.names.len()
+  if n == 0: return []
+  crit = [false].repeat(n)
+  for u in g.order.rev():
+    c = g.en[u] == g.total
+    for v in g.dependents[u]:
+      if g.st[v] == g.en[u] and crit[v]: c = true
+    crit[u] = c
+  start = -1
+  for i in 0..n:
+    if start < 0 and g.st[i] == 0 and crit[i]: start = i
+  chain = [start]
+  cur = start
+  while g.en[cur] != g.total:
+    nxt = -1
+    for v in g.dependents[cur]:
+      if g.st[v] == g.en[cur] and crit[v]:
+        if nxt < 0 or v < nxt: nxt = v
+    chain.push(nxt)
+    cur = nxt
+  return [g.names[i] for i in chain]
+
+fn unlimited_lines(g: Graph) -> [str]:
+  out = ["unlimited"]
+  for i in 0..g.names.len():
+    out.push("  {g.names[i]} {g.st[i]}-{g.en[i]}")
+  out.push("length {g.total}")
+  out.push("critical " + critical(g).join(" > "))
+  return out

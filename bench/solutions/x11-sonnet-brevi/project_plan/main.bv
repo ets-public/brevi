@@ -1,0 +1,22 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn report(g: Graph):
+  n = g.tasks.len()
+  st = starts(g)
+  ends = [st[i] + g.tasks[i].days for i in 0..n]
+  print("unlimited")
+  for i in 0..n: print("  {g.tasks[i].name} {st[i]}-{ends[i]}")
+  print("length {max(ends).or(0)}")
+  ch = critical(g, st)
+  print("critical " + " > ".join([g.tasks[c].name for c in ch]))
+  s2 = make_schedule(g)
+  e2 = [s2[i] + g.tasks[i].days for i in 0..n]
+  print("workers {g.workers}")
+  for i in 0..n: print("  {g.tasks[i].name} {s2[i]}-{e2[i]}")
+  print("length {max(e2).or(0)}")
+
+fn main():
+  match parse_input(lines()):
+    Ok(g) => report(g)
+    Err(m) => print(m)
