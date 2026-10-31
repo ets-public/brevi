@@ -1,0 +1,160 @@
+enum Expr:
+  Num(n: int)
+  Ref(c: int, r: int)
+  Neg(e: Expr)
+  Bin(op: str, a: Expr, b: Expr)
+  Call(f: str, c1: int, r1: int, c2: int, r2: int)
+
+toks = []
+pos = 0
+mc = 0
+mr = 0
+exprs = {}
+state = {}
+res = {}
+
+fn tokenize(s: str) -> [str]:
+  cs = s.replace(" ", "").chars()
+  ts = []
+  i = 0
+  while i < cs.len():
+    ch = cs[i]
+    if ch.is_digit():
+      j = i
+      while j < cs.len() and cs[j].is_digit(): j += 1
+      ts.push(cs[i:j].join(""))
+      i = j
+    elif ch.is_alpha():
+      j = i
+      while j < cs.len() and cs[j].is_alpha(): j += 1
+      while j < cs.len() and cs[j].is_digit(): j += 1
+      ts.push(cs[i:j].join(""))
+      i = j
+    else:
+      ts.push(ch)
+      i += 1
+  ts
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn cellref(t: str) -> (int, int):
+  g = t.re_full("([A-Z])(\d+)")
+  let c = g[1].code() - 65
+  let r = g[2].int()
+  mc = max(mc, c + 1)
+  mr = max(mr, r)
+  (c, r)
+
+fn parse_expr() -> Expr:
+  left = parse_term()
+  while peek() == "+" or peek() == "-":
+    op = peek()
+    pos += 1
+    right = parse_term()
+    left = Bin(op, left, right)
+  left
+
+fn parse_term() -> Expr:
+  left = parse_unary()
+  while peek() == "*" or peek() == "/":
+    op = peek()
+    pos += 1
+    right = parse_unary()
+    left = Bin(op, left, right)
+  left
+
+fn parse_unary() -> Expr:
+  if peek() == "-":
+    pos += 1
+    return Neg(parse_unary())
+  parse_atom()
+
+fn parse_atom() -> Expr:
+  t = peek()
+  pos += 1
+  if t == "(":
+    e = parse_expr()
+    pos += 1
+    return e
+  if t[0:1].is_digit(): return Num(t.int())
+  if peek() == "(":
+    pos += 1
+    a = cellref(toks[pos])
+    pos += 2
+    b = cellref(toks[pos])
+    pos += 2
+    return Call(t, min(a.0, b.0), min(a.1, b.1), max(a.0, b.0), max(a.1, b.1))
+  let (c, r) = cellref(t)
+  Ref(c, r)
+
+fn comb(a: int, b: int) -> int = max(a, b)
+
+fn ev(e: Expr) -> (int, int) = match e:
+  Num(n) => (0, n)
+  Ref(c, r) => cell(c, r)
+  Neg(x) =>
+    let (s, v) = ev(x)
+    (s, -v)
+  Bin(op, a, b) =>
+    let (s1, v1) = ev(a)
+    let (s2, v2) = ev(b)
+    s = comb(s1, s2)
+    if op == "+": (s, v1 + v2)
+    elif op == "-": (s, v1 - v2)
+    elif op == "*": (s, v1 * v2)
+    elif v2 == 0: (max(s, 1), 0)
+    else: (s, v1 / v2)
+  Call(f, c1, r1, c2, r2) =>
+    vals = []
+    st = 0
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        let (s, v) = cell(c, r)
+        st = max(st, s)
+        vals.push(v)
+    if f == "SUM": (st, vals.sum())
+    elif f == "MIN": (st, vals.min())
+    else: (st, vals.max())
+
+fn cell(c: int, r: int) -> (int, int):
+  k = (c, r)
+  if not exprs.has(k): return (0, 0)
+  stt = state.get_or(k, 0)
+  if stt == 1: return (2, 0)
+  if stt == 2: return res[k]
+  state[k] = 1
+  out = ev(exprs[k])
+  state[k] = 2
+  res[k] = out
+  out
+
+for line in lines():
+  i = line.find("=")
+  if i < 0: continue
+  name = line.slice(0, i).trim()
+  content = line.slice(i + 1).trim()
+  g = name.re_full("([A-Z])(\d+)")
+  if g.is_empty(): continue
+  c = g[1].code() - 65
+  r = g[2].int()
+  mc = max(mc, c + 1)
+  mr = max(mr, r)
+  if content.starts_with("="):
+    toks = tokenize(content.slice(1))
+    pos = 0
+    exprs[(c, r)] = parse_expr()
+  else:
+    exprs[(c, r)] = Num(content.int())
+
+hdr = ""
+for c in 0..mc: hdr = hdr + "\t" + (65 + c).char()
+print(hdr)
+for r in 1..mr + 1:
+  row = [str(r)]
+  for c in 0..mc:
+    if exprs.has((c, r)):
+      let (s, v) = cell(c, r)
+      row.push(if s == 2: "#CYCLE" elif s == 1: "#DIV0" else: str(v))
+    else:
+      row.push("")
+  print(row.join("\t"))

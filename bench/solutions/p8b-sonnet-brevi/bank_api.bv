@@ -1,0 +1,73 @@
+owners = {}
+bals = {}
+nxt = 1
+fn valid(b: str) -> bool = match json(b):
+  Ok(v) => True
+  Err(m) => False
+fn acct(id: int) = str({"id": id, "owner": owners[id], "balance": bals[id]})
+fn amt(j: Json) -> int = match j["amount"]:
+  Num(n) => if n > 0.0 and n == n.floor(): n.int() else: -1
+  _ => -1
+fn idv(j: Json) -> int = match j:
+  Num(n) => if n == n.floor(): n.int() else: -1
+  _ => -1
+fn handle(line: str) -> str:
+  sp = line.find(" ")
+  method = if sp < 0: line else: line.slice(0, sp)
+  rest = if sp < 0: "" else: line.slice(sp + 1)
+  sp2 = rest.find(" ")
+  path = if sp2 < 0: rest else: rest.slice(0, sp2)
+  body = if sp2 < 0: "" else: rest.slice(sp2 + 1).trim()
+  nf = "404 {\"error\":\"not found\"}"
+  noacc = "404 {\"error\":\"no such account\"}"
+  badamt = "400 {\"error\":\"bad amount\"}"
+  m = path.re_full("/accounts/(\d+)(/deposit|/withdraw)?")
+  if method == "GET" and path == "/accounts":
+    ids = bals.keys().sort_by(i => (-bals[i], i))
+    return "200 [" + ", ".join([acct(i) for i in ids]).replace(", ", ",") + "]"
+  if method == "GET" and m and m[2] == "":
+    id = m[1].int()
+    if not owners.has(id): return noacc
+    return "200 " + acct(id)
+  if method == "POST" and path == "/accounts":
+    if not valid(body): return "400 {\"error\":\"bad json\"}"
+    j = json(body)
+    o = match j["owner"]:
+      Str(s) => s
+      _ => ""
+    if o == "": return "400 {\"error\":\"owner required\"}"
+    id = nxt
+    nxt += 1
+    owners[id] = o
+    bals[id] = 0
+    return "201 " + acct(id)
+  if method == "POST" and m and m[2] != "":
+    if not valid(body): return "400 {\"error\":\"bad json\"}"
+    j = json(body)
+    id = m[1].int()
+    if not owners.has(id): return noacc
+    a = amt(j)
+    if a < 0: return badamt
+    if m[2] == "/withdraw":
+      if a > bals[id]: return "409 {\"error\":\"insufficient funds\"}"
+      bals[id] -= a
+    else:
+      bals[id] += a
+    return "200 " + acct(id)
+  if method == "POST" and path == "/transfer":
+    if not valid(body): return "400 {\"error\":\"bad json\"}"
+    j = json(body)
+    f = idv(j["from"])
+    t = idv(j["to"])
+    if not owners.has(f) or not owners.has(t): return noacc
+    if f == t: return "400 {\"error\":\"same account\"}"
+    a = amt(j)
+    if a < 0: return badamt
+    if a > bals[f]: return "409 {\"error\":\"insufficient funds\"}"
+    bals[f] -= a
+    bals[t] += a
+    return "200 " + str({"from": bals[f], "to": bals[t]})
+  nf
+for line in lines():
+  if line.trim() != "":
+    print(handle(line.trim()))

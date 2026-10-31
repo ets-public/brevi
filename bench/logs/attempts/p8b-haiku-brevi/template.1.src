@@ -1,0 +1,144 @@
+fn inner_of(s: str) -> str:
+  s.slice(2, s.len() - 2).trim()
+
+fn tokens(t: str) -> [(bool, str)]:
+  res = []
+  n = t.len()
+  i = 0
+  start = 0
+  while i < n:
+    if t.slice(i, i + 2) == "\{\{":
+      rel = t.slice(i + 2).find("}}")
+      if rel < 0: break
+      close = i + 2 + rel
+      if i > start: res.push((false, t.slice(start, i)))
+      res.push((true, t.slice(i, close + 2)))
+      i = close + 2
+      start = i
+    else:
+      i += 1
+  if start < n: res.push((false, t.slice(start)))
+  res
+
+fn has_key(v: Json, k: str) -> bool:
+  match v:
+    Obj(m) => m.has(k)
+    _ => false
+
+fn lookup_val(name: str, ctx: [Json], idxs: [int]) -> Json:
+  if name == "@index":
+    if idxs.is_empty(): return json("null")
+    return idxs[idxs.len() - 1].json()
+  if name == ".":
+    return ctx[ctx.len() - 1]
+  segs = name.split(".")
+  i = ctx.len() - 1
+  while i >= 0:
+    if has_key(ctx[i], segs[0]):
+      cur = ctx[i]
+      for sg in segs:
+        cur = cur[sg]
+      return cur
+    i -= 1
+  json("null")
+
+fn arr_items(v: Json) -> [Json]:
+  match v:
+    Arr(xs) => xs
+    _ => []
+
+fn truthy(v: Json) -> bool:
+  match v:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => s.len() > 0
+    Arr(xs) => xs.len() > 0
+    _ => true
+
+fn text_of(v: Json) -> str:
+  match v:
+    Str(s) => s
+    Null => ""
+    _ => str(v)
+
+fn is_missing(v: Json) -> bool:
+  match v:
+    Null => true
+    Str(s) => s.is_empty()
+    _ => false
+
+fn alen(v: Json) -> int:
+  match v:
+    Str(s) => s.len()
+    Arr(xs) => xs.len()
+    _ => 0
+
+fn apply(v: Json, f: str) -> Json:
+  if f == "upper": return text_of(v).upper().json()
+  if f == "lower": return text_of(v).lower().json()
+  if f == "len": return alen(v).json()
+  if f.starts_with("default:"):
+    if is_missing(v): return f.slice(8).json()
+    return v
+  v
+
+fn render(tk: [(bool, str)], pos: int, ctx: [Json], idxs: [int]) -> (str, int):
+  out = ""
+  p = pos
+  while p < tk.len():
+    tg = tk[p]
+    if not tg.0:
+      out += tg.1
+      p += 1
+    else:
+      inner = inner_of(tg.1)
+      if inner == "/each" or inner == "/if" or inner == "else":
+        return (out, p)
+      if inner.starts_with("#each "):
+        items = arr_items(lookup_val(inner.slice(6).trim(), ctx, idxs))
+        endp = p + 1
+        if items.is_empty():
+          endp = render(tk, p + 1, ctx + [json("null")], idxs + [0]).1
+        else:
+          for k in 0..items.len():
+            r = render(tk, p + 1, ctx + [items[k]], idxs + [k])
+            out += r.0
+            endp = r.1
+        p = endp + 1
+      elif inner.starts_with("#if "):
+        cond = truthy(lookup_val(inner.slice(4).trim(), ctx, idxs))
+        r1 = render(tk, p + 1, ctx, idxs)
+        q = r1.1
+        else_s = ""
+        if q < tk.len() and tk[q].0 and inner_of(tk[q].1) == "else":
+          r2 = render(tk, q + 1, ctx, idxs)
+          else_s = r2.0
+          q = r2.1
+        if cond:
+          out += r1.0
+        else:
+          out += else_s
+        p = q + 1
+      else:
+        parts = inner.split("|")
+        v = lookup_val(parts[0].trim(), ctx, idxs)
+        for fi in 1..parts.len():
+          v = apply(v, parts[fi].trim())
+        out += text_of(v)
+        p += 1
+  (out, p)
+
+full = stdin()
+nl = full.find("\n")
+first = full
+tpl = ""
+if nl >= 0:
+  first = full.slice(0, nl)
+  tpl = full.slice(nl + 1)
+data = json(first.trim())
+r = render(tokens(tpl), 0, [data], [])
+res = r.0
+if res.ends_with("\n"):
+  res = res.slice(0, res.len() - 1)
+print(res)

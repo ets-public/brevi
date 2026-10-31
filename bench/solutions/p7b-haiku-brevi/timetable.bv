@@ -1,0 +1,85 @@
+tnames = []
+stn = {}
+tm = {}
+bi = {"arr": 1000000, "cnt": 1000000, "found": 0}
+bs = {"str": ""}
+dest = ""
+
+fn to_min(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str:
+  if n < 10:
+    return "0" + str(n)
+  str(n)
+
+fn fmt_hm(m: int) -> str = pad(m / 60) + ":" + pad(m % 60)
+
+fn consider(arr: int, cnt: int, names: [str]):
+  joined = names.join(">")
+  if bi["found"] == 0 or arr < bi["arr"] or (arr == bi["arr"] and (cnt < bi["cnt"] or (cnt == bi["cnt"] and joined < bs["str"]))):
+    bi["found"] = 1
+    bi["arr"] = arr
+    bi["cnt"] = cnt
+    bs["str"] = joined
+
+fn search(x: str, earliest: int, cnt: int, names: [str], prev: str):
+  if earliest > bi["arr"]:
+    return
+  if earliest == bi["arr"] and cnt + 1 > bi["cnt"]:
+    return
+  for t in tnames:
+    if t == prev or not stn[t].contains(x):
+      continue
+    p = stn[t].index_of(x)
+    if tm[t][p] < earliest:
+      continue
+    for q in (p + 1)..(stn[t].len()):
+      y = stn[t][q]
+      ta = tm[t][q]
+      nn = names + [t]
+      if y == dest:
+        consider(ta, cnt + 1, nn)
+        break
+      search(y, ta + 5, cnt + 1, nn, t)
+
+sec = 0
+for line in lines():
+  if sec == 0:
+    if line.trim() == "---":
+      sec = 1
+    elif not line.trim().is_empty():
+      ws = line.words()
+      name = ws[0]
+      st = []
+      tt = []
+      k = 1
+      while k + 1 < ws.len():
+        st.push(ws[k])
+        tt.push(to_min(ws[k + 1]))
+        k += 2
+      stn[name] = st
+      tm[name] = tt
+      tnames.push(name)
+  else:
+    q = line.words()
+    if q.len() < 3:
+      continue
+    src = q[0]
+    dst = q[1]
+    qt = to_min(q[2])
+    if src == dst:
+      s = fmt_hm(qt)
+      print(src + " " + dst + " " + s + " via -")
+    else:
+      dest = dst
+      bi["arr"] = 1000000
+      bi["cnt"] = 1000000
+      bi["found"] = 0
+      bs["str"] = ""
+      search(src, qt, 0, [], "")
+      if bi["found"] == 1:
+        print(src + " " + dst + " " + fmt_hm(bi["arr"]) + " via " + bs["str"])
+      else:
+        print(src + " " + dst + " unreachable")

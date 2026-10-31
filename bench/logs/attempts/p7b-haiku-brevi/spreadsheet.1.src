@@ -1,0 +1,150 @@
+cst = {}
+vals = {}
+errs = {}
+forms = {}
+consts = {}
+allcells = []
+
+fn letter(c: int) -> str = (65 + c).char()
+
+fn col_of(s: str) -> int = s.slice(0, 1).code() - 65
+
+fn row_of(s: str) -> int = s.slice(1).int()
+
+fn is_cell(t: str) -> bool = not t.re_full("[A-Z][0-9]+").is_empty()
+
+fn tokenize(f: str) -> [str] = [m[0] for m in f.replace(" ", "").re_all("[A-Z]+[0-9]+|[0-9]+|[A-Z]+|[-+*/():,]")]
+
+fn join_err(a: str, b: str) -> str:
+  if a == "CYCLE" or b == "CYCLE":
+    return "CYCLE"
+  if a == "DIV0" or b == "DIV0":
+    return "DIV0"
+  ""
+
+fn arith(op: str, v: int, e: str, w: int, f: str) -> (int, str):
+  g = join_err(e, f)
+  if op == "/" and w == 0:
+    g = join_err(g, "DIV0")
+  if op == "+":
+    return (v + w, g)
+  if op == "-":
+    return (v - w, g)
+  if op == "*":
+    return (v * w, g)
+  if w == 0:
+    return (0, g)
+  (v / w, g)
+
+fn cell_value(key: str) -> (int, str):
+  if consts.has(key):
+    return (consts[key], "")
+  if not forms.has(key):
+    return (0, "")
+  if cst[key] == 1:
+    return (0, "CYCLE")
+  if cst[key] == 2:
+    return (vals[key], errs[key])
+  cst[key] = 1
+  v, e = eval_formula(forms[key])
+  cst[key] = 2
+  vals[key] = v
+  errs[key] = e
+  (v, e)
+
+fn range_eval(name: str, a: str, b: str) -> (int, str):
+  c1 = min(col_of(a), col_of(b))
+  c2 = max(col_of(a), col_of(b))
+  r1 = min(row_of(a), row_of(b))
+  r2 = max(row_of(a), row_of(b))
+  vs = []
+  g = ""
+  for c in c1..(c2 + 1):
+    for r in r1..(r2 + 1):
+      v, e = cell_value(letter(c) + str(r))
+      vs.push(v)
+      g = join_err(g, e)
+  if name == "SUM":
+    return (sum(vs), g)
+  if name == "MIN":
+    return (vs.min().or(0), g)
+  (vs.max().or(0), g)
+
+fn parse_primary(toks: [str], p: int) -> (int, str, int):
+  t = toks[p]
+  if t == "(":
+    v, e, q = parse_expr(toks, p + 1)
+    return (v, e, q + 1)
+  if t.slice(0, 1).digit() >= 0:
+    return (t.int(), "", p + 1)
+  if (t == "SUM" or t == "MIN" or t == "MAX") and toks[p + 1] == "(":
+    v, e = range_eval(t, toks[p + 2], toks[p + 4])
+    return (v, e, p + 6)
+  v, e = cell_value(t)
+  (v, e, p + 1)
+
+fn parse_unary(toks: [str], p: int) -> (int, str, int):
+  if toks[p] == "-":
+    v, e, q = parse_unary(toks, p + 1)
+    return (0 - v, e, q)
+  parse_primary(toks, p)
+
+fn parse_term(toks: [str], p: int) -> (int, str, int):
+  v, e, q = parse_unary(toks, p)
+  while q < toks.len() and (toks[q] == "*" or toks[q] == "/"):
+    op = toks[q]
+    w, f, q = parse_unary(toks, q + 1)
+    v, e = arith(op, v, e, w, f)
+  (v, e, q)
+
+fn parse_expr(toks: [str], p: int) -> (int, str, int):
+  v, e, q = parse_term(toks, p)
+  while q < toks.len() and (toks[q] == "+" or toks[q] == "-"):
+    op = toks[q]
+    w, f, q = parse_term(toks, q + 1)
+    v, e = arith(op, v, e, w, f)
+  (v, e, q)
+
+fn eval_formula(f: str) -> (int, str):
+  toks = tokenize(f)
+  v, e, q = parse_expr(toks, 0)
+  (v, e)
+
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  idx = line.find("=")
+  cell = line.slice(0, idx).trim()
+  content = line.slice(idx + 1).trim()
+  allcells.push(cell)
+  if content.starts_with("="):
+    forms[cell] = content.slice(1)
+    for t in tokenize(content.slice(1)):
+      if is_cell(t):
+        allcells.push(t)
+  else:
+    consts[cell] = content.int()
+
+maxc = 0
+maxr = 1
+for k in allcells:
+  maxc = max(maxc, col_of(k))
+  maxr = max(maxr, row_of(k))
+
+letters = []
+for c in 0..(maxc + 1):
+  letters.push(letter(c))
+print("\t" + letters.join("\t"))
+for r in 1..(maxr + 1):
+  cells = [str(r)]
+  for c in 0..(maxc + 1):
+    key = letter(c) + str(r)
+    if consts.has(key) or forms.has(key):
+      v, e = cell_value(key)
+      if e == "":
+        cells.push(str(v))
+      else:
+        cells.push("#" + e)
+    else:
+      cells.push("")
+  print(cells.join("\t"))

@@ -1,0 +1,74 @@
+fn isint(s: str) -> bool:
+  s.re_full("-?\d+").len() > 0
+
+kv = {}
+undo = []
+marks = []
+
+for raw in lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  parts = line.split(" ")
+  cmd = parts[0]
+  if cmd == "SET" and parts.len() == 3:
+    k = parts[1]
+    if marks.len() > 0: undo.push((k, kv.has(k), kv.get_or(k, "")))
+    kv[k] = parts[2]
+  elif cmd == "GET" and parts.len() == 2:
+    k = parts[1]
+    if kv.has(k):
+      print(kv[k])
+    else:
+      print("NULL")
+  elif cmd == "DEL" and parts.len() == 2:
+    k = parts[1]
+    if kv.has(k):
+      if marks.len() > 0: undo.push((k, true, kv[k]))
+      kv.remove(k)
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR" and parts.len() == 3:
+    k = parts[1]
+    cur = kv.get_or(k, "0")
+    if not isint(cur) or not isint(parts[2]):
+      print("ERR not an integer")
+    else:
+      nv = str(cur.int().or(0) + parts[2].int().or(0))
+      if marks.len() > 0: undo.push((k, kv.has(k), kv.get_or(k, "")))
+      kv[k] = nv
+      print(nv)
+  elif cmd == "COUNT" and parts.len() == 2:
+    c = 0
+    for v in kv.values():
+      if v == parts[1]: c += 1
+    print(c)
+  elif cmd == "KEYS" and parts.len() == 2:
+    ks = [x for x in kv.keys() if x.starts_with(parts[1])]
+    ks.sort()
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(ks.join(" "))
+  elif cmd == "BEGIN" and parts.len() == 1:
+    marks.push(undo.len())
+  elif cmd == "ROLLBACK" and parts.len() == 1:
+    if marks.is_empty():
+      print("NO TRANSACTION")
+    else:
+      start = marks.pop()
+      for i in (start..undo.len()).rev():
+        e = undo[i]
+        if e.1:
+          kv[e.0] = e.2
+        else:
+          kv.remove(e.0)
+      while undo.len() > start:
+        undo.pop()
+  elif cmd == "COMMIT" and parts.len() == 1:
+    if marks.is_empty():
+      print("NO TRANSACTION")
+    else:
+      marks = []
+      undo = []
+  else:
+    print("ERR unknown command")

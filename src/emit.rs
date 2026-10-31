@@ -45,6 +45,8 @@ pub struct Emitter {
     // Names first set inside a block that has ended, for a clearer "unknown name" error.
     block_only: HashSet<String>,
     fallible: bool,
+    // Inside a lambda that cannot return an error: a failing conversion stops the program.
+    must: bool,
     line: usize,
     pub diags: Vec<Diag>,
     // Names whose items are lists changed in place (`m[k].push(x)`), so an empty `m = {}` gets a partial type.
@@ -387,7 +389,12 @@ fn expr_reads_before_set(e: &Expr, n: &str) -> bool {
 
 fn sets_first(body: &str, n: &str) -> bool {
     let id = format!("Ident({n:?})");
-    body.find(&id).map_or(false, |i| body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")))
+    body.find(&id).map_or(false, |i| {
+        // `n = max(n, x)` reads n while setting it, so it is not set first.
+        let rest = &body[i + id.len()..];
+        let value = &rest[..rest.find(", line: ").unwrap_or(rest.len())];
+        body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")) && !value.contains(&id) && !value.contains(&format!("Move({n:?})"))
+    })
 }
 
 // Names used as `name[k].push(..)` (or pop, insert, remove) anywhere in a body.
@@ -469,6 +476,7 @@ impl Emitter {
             globals: HashMap::new(),
             block_only: HashSet::new(),
             fallible: false,
+            must: false,
             borrow_loops: false,
             nested: HashSet::new(),
             own_locals: HashSet::new(),
@@ -1354,11 +1362,16 @@ impl Emitter {
                             }
                             let params = if unpack && ps.len() > 1 { format!("({})", ps.join(", ")) } else { ps.join(", ") };
                             let out = if !tries {
-                                format!("(|{params}| {})", self.expr(body))
+                                let saved = std::mem::replace(&mut self.must, true);
+                                let b = self.expr(body);
+                                self.must = saved;
+                                format!("(|{params}| {b})")
                             } else {
                                 let saved = std::mem::replace(&mut self.fallible, true);
+                                let saved_must = std::mem::replace(&mut self.must, false);
                                 let b = self.expr(body);
                                 self.fallible = saved;
+                                self.must = saved_must;
                                 format!("(|{params}| -> R<_> {{ Ok({b}) }})")
                             };
                             self.locals = outer;
@@ -1389,10 +1402,19 @@ impl Emitter {
                 for p in params {
                     self.locals.insert(p.clone());
                 }
+                let saved = std::mem::replace(&mut self.must, true);
                 let out = format!("(|{}| {})", params.join(", "), self.expr(body));
+                self.must = saved;
                 self.locals = outer;
                 out
             }
+            Expr::Try(inner) if self.must => match inner.as_ref() {
+                Expr::Call(name, args, line) => {
+                    self.line = *line;
+                    format!("ax_must({})", self.call(name, args, true))
+                }
+                other => format!("ax_must(ax_q({}))", self.expr(other)),
+            },
             Expr::Try(inner) => {
                 if !self.fallible {
                     self.diag(self.line, "'?' used in a function that cannot fail", Some("add ! after the function's return type".into()));

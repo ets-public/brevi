@@ -1,0 +1,146 @@
+fn tokenize(t: str) -> [(str, str)]:
+  out = []
+  rest = t
+  while rest.len() > 0:
+    i = rest.find("{{")
+    if i < 0:
+      out.push(("text", rest))
+      break
+    j = rest.slice(i + 2).find("}}")
+    if j < 0:
+      out.push(("text", rest))
+      break
+    if i > 0:
+      out.push(("text", rest.slice(0, i)))
+    out.push(("tag", rest.slice(i + 2, i + 2 + j).trim()))
+    rest = rest.slice(i + 4 + j)
+  out
+
+fn has_key(j: Json, k: str) -> bool:
+  match j:
+    Obj(m) => m.has(k)
+    _ => false
+
+fn lookup(scopes: [Json], name: str) -> Json:
+  if name == ".":
+    return scopes[scopes.len() - 1]
+  segs = name.split(".")
+  k = scopes.len() - 1
+  while k > 0 and not has_key(scopes[k], segs[0]):
+    k -= 1
+  v = scopes[k]
+  for s in segs:
+    v = v[s]
+  v
+
+fn show(v: Json) -> str:
+  match v:
+    Str(s) => s
+    Num(n) => num_text(n)
+    Bool(b) => bool_text(b)
+    Null => ""
+    _ => str(v)
+
+fn num_text(n: f64) -> str:
+  if n == n.floor():
+    return str(n.int())
+  str(n)
+
+fn bool_text(b: bool) -> str:
+  if b:
+    return "true"
+  "false"
+
+fn truthy(v: Json) -> bool:
+  match v:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => s.len() > 0
+    Arr(xs) => xs.len() > 0
+    _ => true
+
+fn is_blank(v: Json) -> bool:
+  match v:
+    Null => true
+    Str(s) => s.len() == 0
+    _ => false
+
+fn len_of(v: Json) -> int:
+  match v:
+    Str(s) => s.len()
+    Arr(xs) => xs.len()
+    _ => 0
+
+fn items_of(v: Json) -> [Json]:
+  match v:
+    Arr(xs) => xs
+    _ => []
+
+fn apply(v: Json, f: str) -> Json:
+  if f == "upper":
+    return show(v).upper().json()
+  if f == "lower":
+    return show(v).lower().json()
+  if f == "len":
+    return len_of(v).json()
+  if f.starts_with("default:"):
+    if is_blank(v):
+      return f.slice(8).json()
+    return v
+  v
+
+fn show_tag(body: str, scopes: [Json], idx: int) -> str:
+  parts = body.split("|")
+  name = parts[0].trim()
+  if name == "@index":
+    return str(idx)
+  v = lookup(scopes, name)
+  for f in parts[1:]:
+    v = apply(v, f.trim())
+  show(v)
+
+fn render(toks: [(str, str)], start: int, scopes: [Json], idx: int) -> (str, int):
+  out = ""
+  i = start
+  while i < toks.len():
+    kind = toks[i].0
+    body = toks[i].1
+    if kind == "text":
+      out += body
+      i += 1
+    elif body == "else" or body == "/each" or body == "/if":
+      return (out, i)
+    elif body.starts_with("#each "):
+      items = items_of(lookup(scopes, body.slice(6).trim()))
+      dummy, stop = render(toks, i + 1, scopes, idx)
+      for k in 0..items.len():
+        part, dummy2 = render(toks, i + 1, scopes + [items[k]], k)
+        out += part
+      i = stop + 1
+    elif body.starts_with("#if "):
+      cond = truthy(lookup(scopes, body.slice(4).trim()))
+      then_s, stop = render(toks, i + 1, scopes, idx)
+      else_s = ""
+      fin = stop
+      if stop < toks.len() and toks[stop].0 == "tag" and toks[stop].1 == "else":
+        else_s, fin = render(toks, stop + 1, scopes, idx)
+      if cond:
+        out += then_s
+      else:
+        out += else_s
+      i = fin + 1
+    else:
+      out += show_tag(body, scopes, idx)
+      i += 1
+  (out, i)
+
+text = stdin()
+nl = text.find("\n")
+data = json(text.slice(0, nl))
+toks = tokenize(text.slice(nl + 1))
+out, stop = render(toks, 0, [data], 0)
+if out.ends_with("\n"):
+  print(out.slice(0, out.len() - 1))
+else:
+  print(out)

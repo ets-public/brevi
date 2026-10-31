@@ -1,0 +1,86 @@
+out = []
+toc = []
+used = {}
+kind = ""
+buf = []
+
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn inline(s: str) -> str:
+  e = esc(s)
+  codes = e.re_all("`([^`]+)`")
+  t = e.re_sub("`[^`]+`", "\0")
+  t = t.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*(.+?)\*", "<em>\1</em>")
+  t = t.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+  parts = t.split("\0")
+  r = parts[0]
+  for i in 1..parts.len():
+    r = r + "<code>" + codes[i - 1][1] + "</code>" + parts[i]
+  r
+
+fn flush():
+  if kind == "p":
+    out.push("<p>" + buf.join(" ") + "</p>")
+  elif kind == "ul" or kind == "ol":
+    out.push("<" + kind + ">")
+    for b in buf: out.push("<li>" + b + "</li>")
+    out.push("</" + kind + ">")
+  kind = ""
+  buf = []
+
+in_code = false
+code = []
+for line in lines():
+  if in_code:
+    if line == "```":
+      out.push("<pre><code>" + code.map(c => esc(c)).join("\n") + "</code></pre>")
+      in_code = false
+      code = []
+    else:
+      code.push(line)
+    continue
+  if line == "```":
+    flush()
+    in_code = true
+    continue
+  if line.trim().is_empty():
+    flush()
+    continue
+  h = line.re_full("(#{1,6}) (.*)")
+  if h:
+    flush()
+    lvl = h[1].len()
+    raw = h[2].trim()
+    base = raw.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    id = base
+    n = 2
+    while used.has(id):
+      id = base + "-" + str(n)
+      n += 1
+    used[id] = true
+    out.push("<h{lvl} id=\"{id}\">" + inline(raw) + "</h{lvl}>")
+    toc.push((id, esc(raw.replace("`", "").replace("*", ""))))
+    continue
+  if line.starts_with("- "):
+    if kind != "ul": flush()
+    kind = "ul"
+    buf.push(inline(line.slice(2)))
+    continue
+  o = line.re_full("\d+\. (.*)")
+  if o:
+    if kind != "ol": flush()
+    kind = "ol"
+    buf.push(inline(o[1]))
+    continue
+  if kind != "p": flush()
+  kind = "p"
+  buf.push(inline(line))
+flush()
+if in_code:
+  out.push("<pre><code>" + code.map(c => esc(c)).join("\n") + "</code></pre>")
+if toc.len() >= 2:
+  print("<nav>")
+  for t in toc: print("<a href=\"#{t.0}\">{t.1}</a>")
+  print("</nav>")
+for o in out: print(o)

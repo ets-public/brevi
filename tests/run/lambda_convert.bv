@@ -1,0 +1,10 @@
+codes = ["a", "b"]
+print("x<1>y".re_sub("<(\d+)>", g => codes[g[1].int()]))
+best = 0
+fn see(x: int):
+  best = max(best, x)
+see(3)
+see(2)
+print(best)
+d = json("{\"n\": 4}")
+print(d["n"].int().or(-1))

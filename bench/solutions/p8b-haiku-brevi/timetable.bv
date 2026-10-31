@@ -1,0 +1,87 @@
+names = []
+sts = []
+tms = []
+dest = ""
+memo2 = {}
+
+fn tm(s: str) -> int:
+  parts = s.split(":")
+  parts[0].int().or(0) * 60 + parts[1].int().or(0)
+
+fn pad2(n: int) -> str:
+  if n < 10: return "0" + str(n)
+  str(n)
+
+fn hm(n: int) -> str:
+  pad2(n // 60) + ":" + pad2(n % 60)
+
+fn pick(a: (int, int, str), b: (int, int, str)) -> (int, int, str):
+  if b < a: return b
+  a
+
+fn sub(y: int, j: int) -> (int, int, str):
+  key = str(y) + "|" + str(j)
+  if memo2.has(key): return memo2[key]
+  best = (100000, 0, "")
+  s = sts[y][j]
+  t0 = tms[y][j]
+  if s == dest:
+    best = (t0, 0, "")
+  else:
+    if j + 1 < sts[y].len():
+      best = pick(best, sub(y, j + 1))
+    for z in 0..names.len():
+      if z == y: continue
+      for m in 0..sts[z].len():
+        if sts[z][m] == s and tms[z][m] >= t0 + 5:
+          c = sub(z, m)
+          if c.0 < 100000:
+            jn = names[z]
+            if c.2 != "": jn = names[z] + ">" + c.2
+            best = pick(best, (c.0, c.1 + 1, jn))
+  memo2[key] = best
+  best
+
+ls = lines()
+sep = -1
+i = 0
+while sep < 0 and i < ls.len():
+  if ls[i].trim() == "---": sep = i
+  i += 1
+
+for i in 0..sep:
+  w = ls[i].words()
+  if w.is_empty(): continue
+  names.push(w[0])
+  st = []
+  tt = []
+  cnt = (w.len() - 1) // 2
+  for k in 0..cnt:
+    st.push(w[1 + 2 * k])
+    tt.push(tm(w[2 + 2 * k]))
+  sts.push(st)
+  tms.push(tt)
+
+for i in sep + 1..ls.len():
+  w = ls[i].words()
+  if w.len() < 3: continue
+  src = w[0]
+  dest = w[1]
+  t0 = tm(w[2])
+  if src == dest:
+    print("{src} {dest} {hm(t0)} via -")
+  else:
+    memo2 = {}
+    best = (100000, 0, "")
+    for x in 0..names.len():
+      for k in 0..sts[x].len():
+        if sts[x][k] == src and tms[x][k] >= t0:
+          c = sub(x, k)
+          if c.0 < 100000:
+            jn = names[x]
+            if c.2 != "": jn = names[x] + ">" + c.2
+            best = pick(best, (c.0, c.1 + 1, jn))
+    if best.0 >= 100000:
+      print("{src} {dest} unreachable")
+    else:
+      print("{src} {dest} {hm(best.0)} via {best.2}")

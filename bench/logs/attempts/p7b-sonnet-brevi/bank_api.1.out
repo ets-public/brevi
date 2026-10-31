@@ -1,0 +1,2 @@
+{"line":62,"msg":"no method named or found for type int: method not found in int","fix":"valid methods here: abs float int fmt sqrt round floor ceil"}
+{"line":63,"msg":"no method named or found for type int: method not found in int","fix":"valid methods here: abs float int fmt sqrt round floor ceil"}

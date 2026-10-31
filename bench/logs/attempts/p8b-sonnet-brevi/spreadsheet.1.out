@@ -1,0 +1,2 @@
+{"line":122,"msg":"unknown name 'maxc'","fix":"did you mean main?"}
+{"line":123,"msg":"unknown name 'maxr'","fix":"did you mean maxc?"}

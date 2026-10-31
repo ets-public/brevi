@@ -1,0 +1,77 @@
+names = []
+sts = []
+tms = []
+queries = []
+sect = 0
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+fn pad(n: int) -> str = ("0" + n.str()).slice(-2)
+fn hhmm(m: int) -> str = pad(m // 60) + ":" + pad(m % 60)
+for line in lines():
+  w = line.words()
+  if not w: continue
+  if w[0] == "---":
+    sect = 1
+  elif sect == 0:
+    names.push(w[0])
+    ss = []
+    ts = []
+    k = 1
+    while k + 1 < w.len():
+      ss.push(w[k])
+      ts.push(mins(w[k + 1]))
+      k += 2
+    sts.push(ss)
+    tms.push(ts)
+  else:
+    queries.push(w)
+events = []
+for t in 0..names.len():
+  for i in 0..(sts[t].len() - 1):
+    events.push((tms[t][i], t, i))
+events = events.sort()
+board = {}
+fn on_best(t: int, k: int) -> (int, str):
+  res = (999, "")
+  for i in 0..k:
+    if board.has((t, i)):
+      c = board[(t, i)]
+      if c < res: res = c
+  res
+for q in queries:
+  qf = q[0]
+  qt = q[1]
+  qm = mins(q[2])
+  if qf == qt:
+    print("{qf} {qt} {hhmm(qm)} via -")
+    continue
+  board = {}
+  for e in events:
+    if e.0 < qm: continue
+    t = e.1
+    i = e.2
+    s = sts[t][i]
+    cand = (999, "")
+    if s == qf: cand = (1, names[t])
+    for u in 0..names.len():
+      if u == t: continue
+      for k in 1..sts[u].len():
+        if sts[u][k] == s and tms[u][k] + 5 <= e.0:
+          c = on_best(u, k)
+          if c.0 < 999:
+            c2 = (c.0 + 1, c.1 + ">" + names[t])
+            if c2 < cand: cand = c2
+    if cand.0 < 999: board[(t, i)] = cand
+  best = (99999, 999, "")
+  for t in 0..names.len():
+    for k in 1..sts[t].len():
+      if sts[t][k] == qt:
+        c = on_best(t, k)
+        if c.0 < 999:
+          r = (tms[t][k], c.0, c.1)
+          if r < best: best = r
+  if best.0 == 99999:
+    print("{qf} {qt} unreachable")
+  else:
+    print("{qf} {qt} {hhmm(best.0)} via {best.2}")

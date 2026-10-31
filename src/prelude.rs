@@ -1647,6 +1647,13 @@ impl IntoR<Dec> for Dec {
         Ok(self)
     }
 }
+// A failure where no error can be passed on (inside a plain lambda) stops the program.
+pub fn ax_must<T>(x: R<T>) -> T {
+    match x {
+        Ok(v) => v,
+        Err(e) => panic!("{}", e.0),
+    }
+}
 pub fn ax_q<T, X: IntoR<T>>(x: X) -> R<T> {
     x.into_r()
 }
@@ -1660,6 +1667,15 @@ impl<T> AxOr<T> for R<T> {
         self.unwrap_or(d)
     }
 }
+// `.or(d)` after a step that cannot fail (`j["n"].int().or(0)`) keeps the value.
+macro_rules! ax_or_plain {
+    ($($t:ty),*) => {$(impl AxOr<$t> for $t {
+        fn ax_or(self, _d: $t) -> $t {
+            self
+        }
+    })*};
+}
+ax_or_plain!(i64, f64, bool, String, Dec);
 pub trait AxDigit {
     fn ax_digit(&self) -> i64;
 }

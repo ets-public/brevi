@@ -1,0 +1,120 @@
+text = stdin()
+nl = text.find("\n")
+data = json(text.slice(0, nl))
+tpl = text.slice(nl + 1)
+tk = []
+rest = tpl
+while rest != "":
+  i = rest.find("\{\{")
+  if i < 0:
+    tk.push(("t", rest))
+    rest = ""
+  else:
+    if i > 0: tk.push(("t", rest.slice(0, i)))
+    after = rest.slice(i + 2)
+    j = after.find("\}\}")
+    if j < 0:
+      tk.push(("t", rest.slice(i)))
+      rest = ""
+    else:
+      tk.push(("g", after.slice(0, j).trim()))
+      rest = after.slice(j + 2)
+fn tostr(v: Json) -> str = match v:
+  Str(s) => s
+  Num(n) => if n == n.floor(): n.int().str() else: str(v)
+  Bool(b) => if b: "true" else: "false"
+  Null => ""
+  _ => str(v)
+fn truthy(v: Json) -> bool = match v:
+  Null => False
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => s != ""
+  Arr(xs) => xs.len() > 0
+  _ => True
+fn lookup(name: str, ctxs: [(Json, int)]) -> Json:
+  if name == ".": return ctxs.last().0
+  if name == "@index": return ctxs.last().1.json()
+  segs = name.split(".")
+  n = ctxs.len()
+  for k in 0..n:
+    c = ctxs[n - 1 - k].0
+    if c.has(segs[0]):
+      v = c
+      for s in segs: v = v[s]
+      return v
+  json("null")
+fn evalx(body: str, ctxs: [(Json, int)]) -> Json:
+  parts = body.split("|")
+  v = lookup(parts[0].trim(), ctxs)
+  for f in parts.slice(1):
+    f = f.trim()
+    if f == "upper": v = tostr(v).upper().json()
+    elif f == "lower": v = tostr(v).lower().json()
+    elif f == "len":
+      v = match v:
+        Str(s) => s.len().json()
+        Arr(xs) => xs.len().json()
+        Obj(m) => m.len().json()
+        _ => 0.json()
+    elif f.starts_with("default:"):
+      if v.is_null() or tostr(v) == "" and not truthy(v) and (match v:
+        Str(s) => True
+        Null => True
+        _ => False):
+        v = f.slice(8).json()
+  v
+fn find_end(i: int) -> int:
+  depth = 1
+  j = i + 1
+  while j < tk.len():
+    if tk[j].0 == "g":
+      g = tk[j].1
+      if g.starts_with("#each") or g.starts_with("#if"): depth += 1
+      elif g == "/each" or g == "/if":
+        depth -= 1
+        if depth == 0: return j
+    j += 1
+  tk.len()
+fn find_else(i: int, e: int) -> int:
+  depth = 1
+  j = i + 1
+  while j < e:
+    if tk[j].0 == "g":
+      g = tk[j].1
+      if g.starts_with("#each") or g.starts_with("#if"): depth += 1
+      elif g == "/each" or g == "/if": depth -= 1
+      elif g == "else" and depth == 1: return j
+    j += 1
+  -1
+fn render(lo: int, hi: int, ctxs: [(Json, int)]) -> str:
+  out = ""
+  i = lo
+  while i < hi:
+    t = tk[i]
+    if t.0 == "t":
+      out += t.1
+      i += 1
+    elif t.1.starts_with("#each"):
+      e = find_end(i)
+      v = evalx(t.1.slice(5).trim(), ctxs)
+      k = 0
+      for x in v:
+        out += render(i + 1, e, ctxs + [(x, k)])
+        k += 1
+      i = e + 1
+    elif t.1.starts_with("#if"):
+      e = find_end(i)
+      el = find_else(i, e)
+      v = evalx(t.1.slice(3).trim(), ctxs)
+      if truthy(v):
+        out += render(i + 1, if el < 0: e else: el, ctxs)
+      elif el >= 0:
+        out += render(el + 1, e, ctxs)
+      i = e + 1
+    else:
+      out += tostr(evalx(t.1, ctxs))
+      i += 1
+  out
+res = render(0, tk.len(), [(data, 0)])
+print(if res.ends_with("\n"): res.slice(0, res.len() - 1) else: res)

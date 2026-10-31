@@ -1,0 +1,44 @@
+test 1 failed
+input:
+POST /accounts {}
+POST /accounts {"owner": ""}
+POST /accounts {"owner": 5}
+POST /accounts {"owner": "Cy Young"}
+POST /accounts/1/deposit {"amount": -5}
+POST /accounts/1/deposit {"amount": 2.5}
+POST /accounts/1/deposit {"amount": "7"}
+POST /accounts/1/deposit {oops}
+DELETE /accounts/1
+GET /accounts/x
+POST /transfer {"from": 1, "to": 1, "amount": 1}
+POST /transfer {"from": 1, "to": 9, "amount": 1}
+GET /accounts
+expected:
+400 {"error":"owner required"}
+400 {"error":"owner required"}
+400 {"error":"owner required"}
+201 {"id":1,"owner":"Cy Young","balance":0}
+400 {"error":"bad amount"}
+400 {"error":"bad amount"}
+400 {"error":"bad amount"}
+400 {"error":"bad json"}
+404 {"error":"not found"}
+404 {"error":"not found"}
+400 {"error":"same account"}
+404 {"error":"no such account"}
+200 [{"id":1,"owner":"Cy Young","balance":0}]
+got:
+400 {"error":"owner required"}
+400 {"error":"owner required"}
+201 {"id":1,"owner":"5","balance":0}
+201 {"id":2,"owner":"Cy Young","balance":0}
+400 {"error":"bad amount"}
+400 {"error":"bad amount"}
+400 {"error":"bad amount"}
+400 {"error":"bad json"}
+404 {"error":"not found"}
+404 {"error":"not found"}
+400 {"error":"same account"}
+404 {"error":"no such account"}
+200 [{"id":1,"owner":"5","balance":0},{"id":2,"owner":"Cy Young","balance":0}]
+passed 2/3

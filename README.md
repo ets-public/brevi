@@ -4,7 +4,7 @@ A programming language for AI models to write. Brevi compiles to Rust, so progra
 
 The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,251 tokens (exact count, Sonnet tokenizer).
 
-## Status: v0.12
+## Status: v0.13
 
 Works today:
 - Parser for the full core syntax in BREVI.md
@@ -22,6 +22,15 @@ Works today:
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Brevi line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
+
+Big tasks with more runs (v0.13, 31 Oct 2026, exact tokens, retries scored as patches). Six fresh Brevi runs (p3 to p8) and five Python runs (p1, p2, p5, p6, p7) per model:
+
+| Task set | Model | Brevi | Python | Brevi range | Python range |
+| --- | --- | --- | --- | --- | --- |
+| 8 big | Sonnet | 9,179 | **8,663** | 8,677 to 9,936 | 8,233 to 9,303 |
+| 8 big | Haiku | 10,931 | **10,507** | 10,143 to 12,233 | 9,099 to 11,612 |
+
+With more runs the big-task picture is a loss, not a tie: Brevi uses about 6% (Sonnet) and 4% (Haiku) more tokens than Python. Most of the gap is now the finished code, not retries: Brevi is shorter on access_report and kv_store, but longer on template, spreadsheet, bank_api and invoices, which read JSON and build small parsers. v0.13 adds direct JSON reads (`j.text()`, `j.int()`, `j.dec()`, `j.is_null()`, `for x in j`, `j == "gold"`, Json keys), `.or()` after steps that cannot fail, conversions inside plain lambdas, and fixes for globals updated as `n = max(n, x)`, lambda names leaking out and `.json()` results. All 807 old solutions print the same and all 168 recent Brevi solutions still pass.
 
 Exact tokens (v0.12, 31 Oct 2026), counted with Anthropic's count_tokens endpoint (Sonnet tokenizer). Each figure is code written plus errors read for the whole task set, averaged over 2 fresh runs; every task was solved in every run. Retries are counted as patches: the first check counts the whole file and each retry counts only the lines it changed (old plus new), the same for both languages, and subjects are told to edit only the lines that need it.
 

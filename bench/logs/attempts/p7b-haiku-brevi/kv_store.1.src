@@ -1,0 +1,68 @@
+fn is_int(s: str) -> bool:
+  match s.int():
+    Ok(_) => true
+    Err(_) => false
+
+fn record(mut txs: [[(str, bool, str)]], kv: {str: str}, k: str):
+  if txs.len() > 0:
+    top = txs.pop()
+    top.push((k, kv.has(k), kv.get_or(k, "")))
+    txs.push(top)
+
+kv = {}
+txs = []
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  parts = line.split(" ")
+  cmd = parts[0]
+  n = parts.len()
+  if cmd == "SET" and n == 3:
+    record(txs, kv, parts[1])
+    kv[parts[1]] = parts[2]
+  elif cmd == "GET" and n == 2:
+    print(kv.get_or(parts[1], "NULL"))
+  elif cmd == "DEL" and n == 2:
+    if kv.has(parts[1]):
+      record(txs, kv, parts[1])
+      kv.remove(parts[1])
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR" and n == 3:
+    cur = kv.get_or(parts[1], "0")
+    if not is_int(cur):
+      print("ERR not an integer")
+    else:
+      record(txs, kv, parts[1])
+      v = cur.int() + parts[2].int()
+      kv[parts[1]] = str(v)
+      print(str(v))
+  elif cmd == "COUNT" and n == 2:
+    target = parts[1]
+    print(str(kv.values().count(x => x == target)))
+  elif cmd == "KEYS" and n == 2:
+    pre = parts[1]
+    ks = kv.keys().filter(k => k.starts_with(pre)).sort()
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(ks.join(" "))
+  elif cmd == "BEGIN" and n == 1:
+    txs.push([])
+  elif cmd == "ROLLBACK" and n == 1:
+    if txs.len() == 0:
+      print("NO TRANSACTION")
+    else:
+      undo = txs.pop()
+      for e in undo.rev():
+        if e.1:
+          kv[e.0] = e.2
+        else:
+          kv.remove(e.0)
+  elif cmd == "COMMIT" and n == 1:
+    if txs.len() == 0:
+      print("NO TRANSACTION")
+    else:
+      txs = []
+  else:
+    print("ERR unknown command")

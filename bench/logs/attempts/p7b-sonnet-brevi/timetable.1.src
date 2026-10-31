@@ -1,0 +1,58 @@
+fn mins(t: str) -> int:
+  p = t.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn hhmm(m: int) -> str:
+  h = m // 60
+  mm = m % 60
+  (if h < 10: "0" else: "") + str(h) + ":" + (if mm < 10: "0" else: "") + str(mm)
+
+names = []
+stops = []
+at = {}
+queries = []
+second = false
+for line in lines():
+  w = line.words()
+  if line.trim() == "---":
+    second = true
+    continue
+  if w.is_empty(): continue
+  if second:
+    queries.push(w)
+  else:
+    ti = names.len()
+    names.push(w[0])
+    st = []
+    for i in 0..(w.len() - 1) // 2:
+      st.push((w[1 + 2 * i], mins(w[2 + 2 * i])))
+    stops.push(st)
+    for i in 0..st.len():
+      at[st[i].0].push((ti, i))
+
+for q in queries:
+  src = q[0]
+  dst = q[1]
+  qt = mins(q[2])
+  h = heap()
+  h.push((qt, 0, "", src, qt))
+  settled = {}
+  answer = ""
+  while h:
+    let (arr, cnt, key, stn, ready) = h.pop()
+    if settled.has(stn): continue
+    settled[stn] = true
+    if stn == dst:
+      answer = hhmm(arr) + " via " + (if key.is_empty(): "-" else: key)
+      break
+    for tp in at[stn]:
+      let (ti, si) = tp
+      st = stops[ti]
+      if st[si].1 < ready: continue
+      for j in si + 1..st.len():
+        nk = if key.is_empty(): names[ti] else: key + ">" + names[ti]
+        h.push((st[j].1, cnt + 1, nk, st[j].0, st[j].1 + 5))
+  if answer.is_empty():
+    print("{src} {dst} unreachable")
+  else:
+    print("{src} {dst} {answer}")

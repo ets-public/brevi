@@ -1,0 +1,76 @@
+owners = []
+bals = []
+
+fn acct(id: int) -> str = str({"id": id, "owner": owners[id - 1], "balance": bals[id - 1]})
+
+fn valid(body: str) -> bool = match json(body):
+  Ok(_) => true
+  Err(_) => false
+
+fn amount_ok(j: Json) -> bool = match j["amount"]:
+  Num(n) => n > 0.0 and n == n.floor()
+  _ => false
+
+fn exists(id: int) -> bool = id >= 1 and id <= owners.len()
+
+fn num_id(s: str) -> bool = not s.is_empty() and s.chars().all(c => c.is_digit())
+
+fn handle(line: str) -> str:
+  parts = line.split(" ")
+  method = parts[0]
+  path = if parts.len() > 1: parts[1] else: ""
+  body = if parts.len() > 2: parts.skip(2).join(" ") else: ""
+  segs = path.split("/")
+  nf = "404 \{\"error\":\"not found\"\}"
+  noacct = "404 \{\"error\":\"no such account\"\}"
+  badamt = "400 \{\"error\":\"bad amount\"\}"
+  if method == "POST" and path == "/accounts":
+    if not valid(body): return "400 \{\"error\":\"bad json\"\}"
+    j = json(body)
+    o = j["owner"]
+    ok = match o:
+      Str(s) => not s.is_empty()
+      _ => false
+    if not ok: return "400 \{\"error\":\"owner required\"\}"
+    owners.push(o.text())
+    bals.push(0)
+    return "201 " + acct(owners.len())
+  if method == "GET" and path == "/accounts":
+    ids = (1..owners.len() + 1).map(i => i)
+    sorted_ids = ids.sort_by(i => (-bals[i - 1], i))
+    return "200 [" + sorted_ids.map(i => acct(i)).join(",") + "]"
+  if method == "GET" and segs.len() == 3 and segs[1] == "accounts" and num_id(segs[2]):
+    id = segs[2].int()
+    if not exists(id): return noacct
+    return "200 " + acct(id)
+  if method == "POST" and segs.len() == 4 and segs[1] == "accounts" and num_id(segs[2]) and (segs[3] == "deposit" or segs[3] == "withdraw"):
+    if not valid(body): return "400 \{\"error\":\"bad json\"\}"
+    id = segs[2].int()
+    if not exists(id): return noacct
+    j = json(body)
+    if not amount_ok(j): return badamt
+    n = j["amount"].int()
+    if segs[3] == "deposit":
+      bals[id - 1] += n
+    else:
+      if n > bals[id - 1]: return "409 \{\"error\":\"insufficient funds\"\}"
+      bals[id - 1] -= n
+    return "200 " + acct(id)
+  if method == "POST" and path == "/transfer":
+    if not valid(body): return "400 \{\"error\":\"bad json\"\}"
+    j = json(body)
+    f = j["from"].int()
+    t = j["to"].int()
+    if not exists(f) or not exists(t): return noacct
+    if f == t: return "400 \{\"error\":\"same account\"\}"
+    if not amount_ok(j): return badamt
+    n = j["amount"].int()
+    if n > bals[f - 1]: return "409 \{\"error\":\"insufficient funds\"\}"
+    bals[f - 1] -= n
+    bals[t - 1] += n
+    return "200 " + str({"from": bals[f - 1], "to": bals[t - 1]})
+  nf
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  print(handle(line.trim()))

@@ -1,0 +1,148 @@
+cont = {}
+memo = {}
+busy = {}
+
+fn tokenize(s: str) -> [str]:
+  toks = []
+  i = 0
+  while i < s.len():
+    c = s.slice(i, i + 1)
+    if c == " ":
+      i += 1
+    elif c.re_full("[A-Za-z0-9]").len() > 0:
+      j = i
+      while j < s.len() and s.slice(j, j + 1).re_full("[A-Za-z0-9]").len() > 0:
+        j += 1
+      toks.push(s.slice(i, j))
+      i = j
+    else:
+      toks.push(c)
+      i += 1
+  toks
+
+fn arith(op: str, a: str, b: str) -> str:
+  if a == "#CYCLE" or b == "#CYCLE": return "#CYCLE"
+  if a == "#DIV0" or b == "#DIV0": return "#DIV0"
+  x = a.int().or(0)
+  y = b.int().or(0)
+  if op == "+": return str(x + y)
+  if op == "-": return str(x - y)
+  if op == "*": return str(x * y)
+  if y == 0: return "#DIV0"
+  str(x / y)
+
+fn agg(f: str, vals: [str]) -> str:
+  for v in vals:
+    if v == "#CYCLE": return "#CYCLE"
+  for v in vals:
+    if v == "#DIV0": return "#DIV0"
+  ns = [v.int().or(0) for v in vals]
+  if f == "SUM": return str(sum(ns))
+  if f == "MIN": return str(min(ns))
+  str(max(ns))
+
+fn range_vals(a: str, b: str) -> [str]:
+  c1 = a.slice(0, 1).code()
+  r1 = a.slice(1).int().or(0)
+  c2 = b.slice(0, 1).code()
+  r2 = b.slice(1).int().or(0)
+  clo = min(c1, c2)
+  chi = max(c1, c2) + 1
+  rlo = min(r1, r2)
+  rhi = max(r1, r2) + 1
+  out = []
+  for c in clo..chi:
+    for r in rlo..rhi:
+      out.push(cell_val(c.char() + str(r)))
+  out
+
+fn cell_val(name: str) -> str:
+  if memo.has(name): return memo[name]
+  if busy.has(name): return "#CYCLE"
+  if not cont.has(name): return "0"
+  busy[name] = true
+  c = cont[name]
+  r = ""
+  if c.starts_with("="):
+    pr = p_expr(tokenize(c.slice(1)), 0)
+    r = pr.0
+  else:
+    r = str(c.int().or(0))
+  busy.remove(name)
+  memo[name] = r
+  r
+
+fn p_factor(tk: [str], p: int) -> (str, int):
+  if p >= tk.len(): return ("0", p)
+  t = tk[p]
+  if t == "-":
+    r = p_factor(tk, p + 1)
+    return (arith("-", "0", r.0), r.1)
+  if t == "(":
+    r = p_expr(tk, p + 1)
+    return (r.0, r.1 + 1)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    a = tk[p + 2]
+    b = a
+    q = p + 3
+    if tk[q] == ":":
+      b = tk[q + 1]
+      q += 2
+    vals = range_vals(a, b)
+    return (agg(t, vals), q + 1)
+  if t.re_full("[0-9]+").len() > 0:
+    return (str(t.int().or(0)), p + 1)
+  if t.re_full("[A-Z][0-9]+").len() > 0:
+    return (cell_val(t), p + 1)
+  ("0", p + 1)
+
+fn p_term(tk: [str], p: int) -> (str, int):
+  r = p_factor(tk, p)
+  v = r.0
+  q = r.1
+  while q < tk.len() and (tk[q] == "*" or tk[q] == "/"):
+    op = tk[q]
+    r2 = p_factor(tk, q + 1)
+    v = arith(op, v, r2.0)
+    q = r2.1
+  (v, q)
+
+fn p_expr(tk: [str], p: int) -> (str, int):
+  r = p_term(tk, p)
+  v = r.0
+  q = r.1
+  while q < tk.len() and (tk[q] == "+" or tk[q] == "-"):
+    op = tk[q]
+    r2 = p_term(tk, q + 1)
+    v = arith(op, v, r2.0)
+    q = r2.1
+  (v, q)
+
+maxc = 64
+maxr = 0
+for ln in lines():
+  if ln.trim().is_empty(): continue
+  eq = ln.find("=")
+  name = ln.slice(0, eq).trim()
+  content = ln.slice(eq + 1).trim()
+  cont[name] = content
+  maxc = max(maxc, name.slice(0, 1).code())
+  maxr = max(maxr, name.slice(1).int().or(0))
+  if content.starts_with("="):
+    for t in tokenize(content.slice(1)):
+      if t.re_full("[A-Z][0-9]+").len() > 0:
+        maxc = max(maxc, t.slice(0, 1).code())
+        maxr = max(maxr, t.slice(1).int().or(0))
+
+chi = maxc + 1
+print("\t" + [c.char() for c in 65..chi].join("\t"))
+rhi = maxr + 1
+for r in 1..rhi:
+  row = [str(r)]
+  for c in 65..chi:
+    nm = c.char() + str(r)
+    if cont.has(nm):
+      row.push(cell_val(nm))
+    else:
+      row.push("")
+  print(row.join("\t"))

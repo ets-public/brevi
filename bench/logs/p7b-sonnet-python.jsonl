@@ -1,0 +1,8 @@
+{"run":"p7b-sonnet-python","lang":"python","task":"access_report","code_tok":790,"patch_tok":790,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p7b-sonnet-python","lang":"python","task":"bank_api","code_tok":1262,"patch_tok":1262,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p7b-sonnet-python","lang":"python","task":"invoices","code_tok":769,"patch_tok":769,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p7b-sonnet-python","lang":"python","task":"kv_store","code_tok":761,"patch_tok":761,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p7b-sonnet-python","lang":"python","task":"markdown","code_tok":1218,"patch_tok":1218,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p7b-sonnet-python","lang":"python","task":"spreadsheet","code_tok":1519,"patch_tok":1519,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p7b-sonnet-python","lang":"python","task":"template","code_tok":1315,"patch_tok":1315,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p7b-sonnet-python","lang":"python","task":"timetable","code_tok":751,"patch_tok":751,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

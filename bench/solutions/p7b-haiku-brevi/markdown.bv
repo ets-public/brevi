@@ -1,0 +1,97 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn inline(s: str) -> str:
+  t = esc(s)
+  t = t.re_sub("`([^`]*)`", g => "<code>" + g[1].replace("*", "&#42;").replace("[", "&#91;").replace("]", "&#93;") + "</code>")
+  t = t.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+  t = t.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*([^*]+)\*", "<em>\1</em>")
+  t.replace("&#42;", "*").replace("&#91;", "[").replace("&#93;", "]")
+
+fn slug(s: str) -> str = s.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+
+fn plain(s: str) -> str = esc(s.replace("`", "").replace("*", ""))
+
+fn unique_id(base: str, used: {str: bool}) -> str:
+  if not used.has(base):
+    return base
+  k = 2
+  while used.has(base + "-" + str(k)):
+    k += 1
+  base + "-" + str(k)
+
+fn is_head(l: str) -> bool = not l.re_full("^(#{1,6}) (.*)$").is_empty()
+
+fn starts_block(l: str) -> bool = l == "```" or l.starts_with("- ") or is_head(l) or not l.re_full("^\d+\. (.*)$").is_empty()
+
+fn item_of(l: str, ordered: bool) -> [str]:
+  if ordered:
+    m = l.re_full("^\d+\. (.*)$")
+    if m.is_empty():
+      return []
+    return [m[1]]
+  if l.starts_with("- "):
+    return [l.slice(2)]
+  []
+
+ls = lines()
+used = {}
+heads = []
+out = []
+i = 0
+while i < ls.len():
+  line = ls[i]
+  if line.trim().is_empty():
+    i += 1
+    continue
+  hm = line.re_full("^(#{1,6}) (.*)$")
+  if not hm.is_empty():
+    level = hm[1].len()
+    raw = hm[2]
+    hid = unique_id(slug(raw), used)
+    used[hid] = true
+    heads.push((level, plain(raw), hid))
+    out.push("<h" + str(level) + " id=\"" + hid + "\">" + inline(raw) + "</h" + str(level) + ">")
+    i += 1
+    continue
+  if line == "```":
+    code = []
+    i += 1
+    while i < ls.len() and ls[i] != "```":
+      code.push(esc(ls[i]))
+      i += 1
+    i += 1
+    out.push("<pre><code>" + code.join("\n") + "</code></pre>")
+    continue
+  if line.starts_with("- ") or not line.re_full("^\d+\. (.*)$").is_empty():
+    ordered = not line.starts_with("- ")
+    items = []
+    while i < ls.len():
+      got = item_of(ls[i], ordered)
+      if got.is_empty():
+        break
+      items.push(got[0])
+      i += 1
+    tag = "ul"
+    if ordered:
+      tag = "ol"
+    lis = []
+    for it in items:
+      lis.push("<li>" + inline(it) + "</li>")
+    out.push("<" + tag + ">\n" + lis.join("\n") + "\n</" + tag + ">")
+    continue
+  buf = []
+  while i < ls.len() and not ls[i].trim().is_empty() and not starts_block(ls[i]):
+    buf.push(ls[i])
+    i += 1
+  out.push("<p>" + inline(buf.join(" ")) + "</p>")
+
+res = []
+if heads.len() >= 2:
+  res.push("<nav>")
+  for h in heads:
+    res.push("<a href=\"#" + h.2 + "\">" + h.1 + "</a>")
+  res.push("</nav>")
+for b in out:
+  res.push(b)
+print(res.join("\n"))

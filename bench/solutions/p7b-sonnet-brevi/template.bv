@@ -1,0 +1,127 @@
+enum Node:
+  Text(s: str)
+  Var(path: str)
+  Each(path: str, body: [Node])
+  If(path: str, yes: [Node], no: [Node])
+
+toks = []
+tpos = 0
+
+fn parse_nodes() -> [Node]:
+  ns = []
+  while tpos < toks.len():
+    tk = toks[tpos]
+    if tk.0 == "t":
+      ns.push(Text(tk.1))
+      tpos += 1
+      continue
+    b = tk.1
+    if b == "/each" or b == "/if" or b == "else": return ns
+    tpos += 1
+    if b.starts_with("#each "):
+      body = parse_nodes()
+      tpos += 1
+      ns.push(Each(b.slice(6).trim(), body))
+    elif b.starts_with("#if "):
+      yes = parse_nodes()
+      no = []
+      if tpos < toks.len() and toks[tpos].1 == "else":
+        tpos += 1
+        no = parse_nodes()
+      tpos += 1
+      ns.push(If(b.slice(4).trim(), yes, no))
+    else:
+      ns.push(Var(b))
+  ns
+
+fn lookup(path: str, ctx: [Json], idx: [int]) -> Json:
+  nul = json("null")
+  if path == ".": return ctx[-1]
+  if path == "@index":
+    if idx: return idx[-1].json()
+    return nul
+  segs = path.split(".")
+  first = segs[0]
+  cur = nul
+  for i in 0..ctx.len():
+    k = ctx.len() - 1 - i
+    if ctx[k].has(first):
+      cur = ctx[k][first]
+      break
+  for sg in segs.skip(1):
+    cur = cur[sg]
+  cur
+
+fn show(j: Json) -> str = match j:
+  Null => ""
+  Str(s) => s
+  _ => str(j)
+
+fn truthy(j: Json) -> bool = match j:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => not s.is_empty()
+  Arr(a) => not a.is_empty()
+  _ => true
+
+fn jlen(j: Json) -> int = match j:
+  Str(s) => s.len()
+  Arr(a) => a.len()
+  _ => 0
+
+fn render(ns: [Node], ctx: [Json], idx: [int]) -> str:
+  out = ""
+  for n in ns:
+    out = out + match n:
+      Text(s) => s
+      Var(p) => value(p, ctx, idx)
+      Each(p, body) => each_out(p, body, ctx, idx)
+      If(p, yes, no) => if truthy(lookup(p, ctx, idx)): render(yes, ctx, idx) else: render(no, ctx, idx)
+  out
+
+fn each_out(p: str, body: [Node], ctx: [Json], idx: [int]) -> str:
+  res = ""
+  arr = lookup(p, ctx, idx)
+  match arr:
+    Arr(xs) =>
+      for i, x in xs.enumerate():
+        res = res + render(body, ctx + [x], idx + [i])
+    _ => res = res
+  res
+
+fn value(tag: str, ctx: [Json], idx: [int]) -> str:
+  parts = tag.split("|")
+  cur = lookup(parts[0].trim(), ctx, idx)
+  for f in parts.skip(1):
+    f = f.trim()
+    if f == "upper": cur = show(cur).upper().json()
+    elif f == "lower": cur = show(cur).lower().json()
+    elif f == "len": cur = jlen(cur).json()
+    elif f.starts_with("default:"):
+      empty = match cur:
+        Null => true
+        Str(s) => s.is_empty()
+        _ => false
+      if empty: cur = f.slice(8).json()
+  show(cur)
+
+text = stdin()
+nl = text.find("\n")
+root = json(text.slice(0, nl))
+tpl = text.slice(nl + 1)
+s = tpl
+while true:
+  i = s.find("{{")
+  if i < 0:
+    if not s.is_empty(): toks.push(("t", s))
+    break
+  if i > 0: toks.push(("t", s.slice(0, i)))
+  rest = s.slice(i + 2)
+  j = rest.find("}}")
+  toks.push(("g", rest.slice(0, j).trim()))
+  s = rest.slice(j + 2)
+nodes = parse_nodes()
+outp = render(nodes, [root], [])
+if outp.ends_with("\n"): outp = outp.slice(0, outp.len() - 1)
+print(outp)
