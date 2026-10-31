@@ -13,13 +13,13 @@ const METHODS: &[&str] = &[
     "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec",
+    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
 const PURE_METHODS: &[&str] = &[
-    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step",
+    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten",
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
