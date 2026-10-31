@@ -1,0 +1,130 @@
+enum Node:
+  Num(v: int)
+  Ref(c: str)
+  Neg(a: Node)
+  Bin(op: str, a: Node, b: Node)
+  Call(name: str, a: str, b: str)
+
+toks = []
+pos = 0
+asts = {}
+state = {}
+memo = {}
+maxc = 0
+maxr = 0
+
+fn note(c: str):
+  col = c.code() - 64
+  row = c.slice(1).int().or(0)
+  if col > maxc: maxc = col
+  if row > maxr: maxr = row
+
+fn factor() -> Node:
+  t = toks[pos]
+  pos += 1
+  if t == "-": return Neg(factor())
+  if t == "(":
+    e = expr()
+    pos += 1
+    return e
+  if t[0].is_digit(): return Num(t.int())
+  if pos < toks.len() and toks[pos] == "(":
+    pos += 1
+    a = toks[pos]
+    pos += 1
+    b = a
+    if toks[pos] == ":":
+      b = toks[pos + 1]
+      pos += 2
+    pos += 1
+    return Call(t, a, b)
+  Ref(t)
+
+fn term() -> Node:
+  left = factor()
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    r = factor()
+    left = Bin(op, left, r)
+  left
+
+fn expr() -> Node:
+  left = term()
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    r = term()
+    left = Bin(op, left, r)
+  left
+
+fn cell(c: str) -> (int, int):
+  if state[c] == 2: return memo[c]
+  if state[c] == 1: return (2, 0)
+  if not asts.has(c): return (0, 0)
+  state[c] = 1
+  r = ev(asts[c])
+  state[c] = 2
+  memo[c] = r
+  r
+
+fn ev(n: Node) -> (int, int):
+  match n:
+    Num(v) => (0, v)
+    Ref(c) => cell(c)
+    Neg(a) =>
+      let (s, v) = ev(a)
+      (s, -v)
+    Bin(op, a, b) =>
+      let (s1, v1) = ev(a)
+      let (s2, v2) = ev(b)
+      st = max(s1, s2)
+      if st > 0: return (st, 0)
+      if op == "+": return (0, v1 + v2)
+      if op == "-": return (0, v1 - v2)
+      if op == "*": return (0, v1 * v2)
+      if v2 == 0: return (1, 0)
+      (0, v1 / v2)
+    Call(name, a, b) =>
+      c1 = a.code()
+      c2 = b.code()
+      r1 = a.slice(1).int()
+      r2 = b.slice(1).int()
+      vals = []
+      st = 0
+      for c in min(c1, c2)..max(c1, c2) + 1:
+        for r in min(r1, r2)..max(r1, r2) + 1:
+          let (s, v) = cell(c.char() + str(r))
+          st = max(st, s)
+          vals.push(v)
+      if st > 0: return (st, 0)
+      if name == "SUM": return (0, vals.sum())
+      if name == "MIN": return (0, vals.min())
+      (0, vals.max())
+
+for line in lines():
+  if not line.trim(): continue
+  (c, _, rest) = line.partition("=")
+  c = c.trim()
+  note(c)
+  body = rest.trim()
+  if body.starts_with("="):
+    toks = body.slice(1).re_list('\d+|[A-Z]+\d*|[-+*/():,]|\S')
+    pos = 0
+    for t in toks:
+      if t.len() > 1 and t[0].is_alpha() and t[1].is_digit(): note(t)
+    asts[c] = expr()
+  else:
+    asts[c] = Num(body.int())
+
+print("\t" + "\t".join([(64 + i).char() for i in 1..maxc + 1]))
+for r in 1..maxr + 1:
+  row = [str(r)]
+  for i in 1..maxc + 1:
+    c = (64 + i).char() + str(r)
+    if not asts.has(c):
+      row.push("")
+    else:
+      let (s, v) = cell(c)
+      row.push(if s == 2: "#CYCLE" elif s == 1: "#DIV0" else: str(v))
+  print("\t".join(row))

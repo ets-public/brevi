@@ -1,0 +1,59 @@
+j = json(stdin())
+prods = j["products"]
+custs = j["customers"]
+out = []
+rev = 0.dec()
+for o in j["orders"]:
+  oid = o["id"].text()
+  cid = o["customer"].text()
+  if not custs.has(cid):
+    out.push('{"id":"{oid}","error":"unknown customer {cid}"}')
+    continue
+  bad = ""
+  for l in o["lines"]:
+    sku = l["sku"].text()
+    if bad == "" and not prods.has(sku):
+      bad = sku
+  if bad != "":
+    out.push('{"id":"{oid}","error":"unknown sku {bad}"}')
+    continue
+  cust = custs[cid]
+  tier = cust["tier"].text()
+  country = cust["country"].text()
+  name = cust["name"].text()
+  catq = {}
+  amts = []
+  cats = []
+  sub = 0.dec()
+  for l in o["lines"]:
+    p = prods[l["sku"].text()]
+    cat = p["category"].text()
+    q = l["qty"].int()
+    amt = p["price"].text().dec() * q
+    catq[cat] += q
+    amts.push(amt)
+    cats.push(cat)
+    sub += amt
+  cdisc = 0.dec()
+  for i in 0..amts.len():
+    if catq[cats[i]] >= 3:
+      cdisc += (amts[i] * "0.05".dec()).round(2)
+  tr = 0.dec()
+  if tier == "gold":
+    tr = "0.10".dec()
+  elif tier == "silver":
+    tr = "0.05".dec()
+  tdisc = ((sub - cdisc) * tr).round(2)
+  disc = cdisc + tdisc
+  after = sub - disc
+  tx = 0.dec()
+  if country == "UK":
+    tx = "0.20".dec()
+  elif country == "US":
+    tx = "0.0825".dec()
+  tax = (after * tx).round(2)
+  total = after + tax
+  rev += total
+  out.push('{"id":"{oid}","customer":"{name}","subtotal":"{sub.fmt(2)}","discount":"{disc.fmt(2)}","tax":"{tax.fmt(2)}","total":"{total.fmt(2)}"}')
+print("[" + out.join(",") + "]")
+print("revenue {rev.fmt(2)}")

@@ -1,0 +1,36 @@
+ok
+ok
+ok
+ok
+ok
+ok
+n | w
+1 | a
+1 | c, d
+2 | B
+3 | b
+3 | a
+(5 rows)
+n | w
+3 | b
+3 | a
+2 | B
+(3 rows)
+w
+B
+a
+a
+b
+c, d
+(5 rows)
+n
+1
+(1 rows)
+0
+n | w
+(0 rows)
+updated 2
+n | w
+0 | b
+0 | a
+(2 rows)

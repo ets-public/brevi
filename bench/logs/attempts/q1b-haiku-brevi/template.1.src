@@ -1,0 +1,97 @@
+fn getpath(j: Json, path: str) -> Json:
+  cur = j
+  for part in path.split("."):
+    cur = cur[part]
+  return cur
+fn look(name: str, el: Json, idx: int) -> Json:
+  if name == ".":
+    return el
+  if name == "@index":
+    return idx.json()
+  v = getpath(el, name)
+  if v.is_null():
+    v = getpath(root, name)
+  return v
+fn lenof(v: Json) -> int:
+  match v:
+    Str(s) => s.len()
+    Arr(xs) => xs.len()
+    _ => 0
+fn elems(a: Json) -> [Json]:
+  match a:
+    Arr(xs) => xs
+    _ => []
+fn tagval(tag: str, el: Json, idx: int) -> str:
+  parts = tag.split("|")
+  v = look(parts[0].trim(), el, idx)
+  for k in 1..parts.len():
+    f = parts[k].trim()
+    if f == "upper":
+      v = v.text().upper().json()
+    elif f == "lower":
+      v = v.text().lower().json()
+    elif f == "len":
+      v = lenof(v).json()
+    elif f.starts_with("default:"):
+      if v.text() == "":
+        v = f.slice(8).json()
+  return v.text()
+fn seq(el: Json, idx: int) -> str:
+  out = ""
+  while ip < nitems:
+    kind = items[ip][0]
+    v = items[ip][1]
+    if kind == "t":
+      out += v
+      ip += 1
+    elif v == "/each" or v == "/if" or v == "else":
+      return out
+    elif v.starts_with("#each "):
+      ip += 1
+      arr = look(v.slice(6).trim(), el, idx)
+      start = ip
+      seq(el, idx)
+      endp = ip
+      xs = elems(arr)
+      for k in 0..xs.len():
+        ip = start
+        out += seq(xs[k], k)
+      ip = endp + 1
+    elif v.starts_with("#if "):
+      ip += 1
+      cond = look(v.slice(4).trim(), el, idx)
+      t1 = seq(el, idx)
+      t2 = ""
+      if ip < nitems and items[ip][0] == "g" and items[ip][1] == "else":
+        ip += 1
+        t2 = seq(el, idx)
+      ip += 1
+      if cond:
+        out += t1
+      else:
+        out += t2
+    else:
+      out += tagval(v, el, idx)
+      ip += 1
+  return out
+all = stdin().lines()
+root = json(all[0])
+tpl = all[1:].join("\n")
+L = tpl.len()
+items = []
+q = 0
+while q < L:
+  o = tpl.find('{{', q)
+  if o < 0:
+    items.push(("t", tpl.slice(q, L)))
+    q = L
+  else:
+    if o > q:
+      items.push(("t", tpl.slice(q, o)))
+    e = tpl.find('}}', o + 2)
+    items.push(("g", tpl.slice(o + 2, e).trim()))
+    q = e + 2
+nitems = items.len()
+ip = 0
+top = json("null")
+print(seq(top, 0))

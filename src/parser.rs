@@ -164,13 +164,14 @@ impl Parser {
         let line = self.line();
         if self.eat_kw("fn") {
             let name = self.ident()?;
+            let name = if SHADOWABLE.contains(&name.as_str()) { format!("{name}_") } else { name };
             self.expect_sym("(")?;
             let mut params = Vec::new();
             while !self.is_sym(")") {
                 let is_mut = self.eat_kw("mut");
                 let pname = self.ident()?;
-                self.expect_sym(":")?;
-                let ty = self.ty()?;
+                // Without a type, the parameter takes the type of what the calls pass (see infer::returns).
+                let ty = if self.eat_sym(":") { self.ty()? } else { Ty::Named("?".into()) };
                 params.push(Param { name: pname, ty, is_mut });
                 if !self.eat_sym(",") {
                     break;
@@ -681,6 +682,7 @@ impl Parser {
                         "reversed" => Some("rev"),
                         "ord" => Some("code"),
                         "chr" => Some("char"),
+                        "unique" => Some("unique"),
                         _ => None,
                     };
                     // range(n), range(a, b) and range(a, b, step) are a..b.
@@ -700,6 +702,8 @@ impl Parser {
                     }
                     match m {
                         Some(m) if args.len() == 1 && args[0].0.is_none() && !self.user_fns.contains(&name) => Ok(Expr::Method(Box::new(args.remove(0).1), m.into(), vec![], line)),
+                        // A program's own function named like a built-in (`fn args(...)`) is its own.
+                        _ if self.user_fns.contains(&name) && SHADOWABLE.contains(&name.as_str()) => Ok(Expr::Call(format!("{name}_"), args, line)),
                         _ => Ok(Expr::Call(name, args, line)),
                     }
                 } else {
@@ -865,7 +869,7 @@ impl Parser {
                     lit.push('}');
                     i += 2;
                 }
-                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"' | '\'')) => {
+                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) => {
                     lit.push('{');
                     i += 1;
                 }
@@ -914,6 +918,9 @@ impl Parser {
 
 // A declared name like `MAX = 10` is a variable even though it is capitalised.
 // Python method names models write by habit, as the Brevi method they mean.
+// Built-in functions a program may define for itself; its own version gets a suffix in the Rust.
+const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
+
 fn python_method(name: &str, nargs: usize) -> Option<String> {
     Some(match (name, nargs) {
         ("append", 1) => "push",
@@ -929,6 +936,8 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("items", 0) => "pairs",
         ("index", 1) => "index_of",
         ("get", 2) => "get_or",
+        ("char_at" | "to_char" | "chr", 0) => "char",
+        ("find", 2) => "find_from",
         _ => return None,
     }
     .into())

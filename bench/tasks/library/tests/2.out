@@ -1,0 +1,13 @@
+added p
+welcome Mo
+loan m p due 2026-04-15
+refused m p: already has it
+added q
+loan m q due 2026-04-16
+returned m q fee 5.00
+returned m p fee 5.00
+refused m q: owes 10.00
+paid m owes 6.90
+refused m q: owes 6.90
+paid m owes 4.95
+m Mo owes 4.95 loans: -

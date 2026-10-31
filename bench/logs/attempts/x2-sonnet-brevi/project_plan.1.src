@@ -1,0 +1,153 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int], en: [int]):
+  for i in 0..tasks.len():
+    print("  {tasks[i].name} {st[i]}-{en[i]}")
+  print("length {max(en)}")
+
+match load(lines()):
+  Err(msg) => print(msg)
+  Ok(r) =>
+    let (k, tasks) = r
+    let (st, en) = plan(tasks)
+    print("unlimited")
+    show(tasks, st, en)
+    print("critical " + " > ".join(chain(tasks, st, en)))
+    print("workers {k}")
+    let (st2, en2) = schedule(tasks, k, en)
+    show(tasks, st2, en2)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn index_map(tasks: [Task]) -> {str: int}:
+  m: {str: int} = {}
+  for i in 0..tasks.len(): m[tasks[i].name] = i
+  m
+
+fn topo(tasks: [Task]) -> [int]:
+  idx = index_map(tasks)
+  n = tasks.len()
+  done = [0].repeat(n)
+  order = []
+  progress = true
+  while progress:
+    progress = false
+    for i in 0..n:
+      if done[i] == 0 and all(done[idx[d]] == 1 for d in tasks[i].deps):
+        done[i] = 1
+        order.push(i)
+        progress = true
+  order
+
+fn load(ls: [str]) -> (int, [Task]):
+  k = 0
+  have_hdr = false
+  tasks = []
+  seen: {str: int} = {}
+  for n, raw in enumerate(ls):
+    ln = n + 1
+    line = raw.replace("\r", "")
+    if line.trim().is_empty(): continue
+    if not have_hdr:
+      m = line.re_full("workers (\d+)")
+      if m.is_empty(): fail("line {ln}: bad line")
+      if m[1].int() < 1: fail("line {ln}: bad line")
+      k = m[1].int()
+      have_hdr = true
+      continue
+    m = line.re_full("(\w+) (\d+)(?: after (\w+(?:, \w+)*))?")
+    if m.is_empty(): fail("line {ln}: bad line")
+    days = m[2].int()
+    if days < 1: fail("line {ln}: bad line")
+    if seen.has(m[1]): fail("line {ln}: duplicate {m[1]}")
+    seen[m[1]] = 1
+    deps = if m[3]: m[3].split(", ") else: []
+    tasks.push(Task(name: m[1], days: days, deps: deps))
+  if not have_hdr: fail("line 1: bad line")
+  for t in tasks:
+    for d in t.deps:
+      if not seen.has(d): fail("unknown {d}")
+  if topo(tasks).len() < tasks.len(): fail("cycle")
+  (k, tasks)
+
+fn plan(tasks: [Task]) -> ([int], [int]):
+  idx = index_map(tasks)
+  n = tasks.len()
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  for i in topo(tasks):
+    s = 0
+    for d in tasks[i].deps: s = max(s, en[idx[d]])
+    st[i] = s
+    en[i] = s + tasks[i].days
+  (st, en)
+
+fn chain(tasks: [Task], st: [int], en: [int]) -> [str]:
+  n = tasks.len()
+  top = max(en)
+  good = [0].repeat(n)
+  ord = [i for i in 0..n].sort_by(i => -en[i])
+  for i in ord:
+    if en[i] == top:
+      good[i] = 1
+    else:
+      for j in 0..n:
+        if tasks[i].name in tasks[j].deps and st[j] == en[i] and good[j] == 1: good[i] = 1
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and good[i] == 1: cur = i
+  out = [tasks[cur].name]
+  while en[cur] != top:
+    nx = -1
+    for j in 0..n:
+      if nx < 0 and tasks[cur].name in tasks[j].deps and st[j] == en[cur] and good[j] == 1: nx = j
+    cur = nx
+    out.push(tasks[cur].name)
+  out
+## schedule.bv
+use "graph.bv"
+
+fn tails(tasks: [Task], en: [int]) -> [int]:
+  n = tasks.len()
+  idx = index_map(tasks)
+  tl = [0].repeat(n)
+  ord = [i for i in 0..n].sort_by(i => -en[i])
+  for i in ord:
+    tl[i] = tl[i] + tasks[i].days
+    for d in tasks[i].deps:
+      di = idx[d]
+      tl[di] = max(tl[di], tl[i])
+  tl
+
+fn schedule(tasks: [Task], k: int, en0: [int]) -> ([int], [int]):
+  n = tasks.len()
+  idx = index_map(tasks)
+  tl = tails(tasks, en0)
+  st = [-1].repeat(n)
+  en = [0].repeat(n)
+  fin = [0].repeat(n)
+  free = k
+  t = 0
+  while true:
+    for i in 0..n:
+      if st[i] >= 0 and fin[i] == 0 and en[i] == t:
+        fin[i] = 1
+        free += 1
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0 and all(fin[idx[d]] == 1 for d in tasks[i].deps):
+          if best < 0 or tl[i] > tl[best]: best = i
+      if best < 0: break
+      st[best] = t
+      en[best] = t + tasks[best].days
+      free -= 1
+    rs = [en[i] for i in 0..n if st[i] >= 0 and fin[i] == 0]
+    if not rs: break
+    t = min(rs)
+  (st, en)

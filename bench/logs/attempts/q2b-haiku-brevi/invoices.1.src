@@ -1,0 +1,69 @@
+fn tier_rate(t: str) -> dec = match t:
+  "gold" => "0.10".dec()
+  "silver" => "0.05".dec()
+  _ => 0.dec()
+
+fn tax_rate(c: str) -> dec:
+  if c == "UK": return "0.20".dec()
+  if c == "US": return "0.0825".dec()
+  return 0.dec()
+
+j = json(stdin())
+P = j["products"]
+C = j["customers"]
+out = []
+revenue = 0.dec()
+
+for o in j["orders"]:
+  oid = str(o["id"])
+  cid = o["customer"].text()
+  if not C.has(cid):
+    msg = "unknown customer " + cid
+    ej = str(msg.json())
+    out.push('{"id":{oid},"error":{ej}}')
+    continue
+  bad = ""
+  for ln in o["lines"]:
+    sku = ln["sku"].text()
+    if bad == "" and not P.has(sku):
+      bad = sku
+  if bad != "":
+    msg = "unknown sku " + bad
+    ej = str(msg.json())
+    out.push('{"id":{oid},"error":{ej}}')
+    continue
+
+  subtotal = 0.dec()
+  units = {}
+  amts = []
+  for ln in o["lines"]:
+    pr = P[ln["sku"].text()]
+    q = ln["qty"].int()
+    amt = pr["price"].text().dec() * q
+    cat = pr["category"].text()
+    amts.push((cat, amt))
+    units[cat] += q
+    subtotal += amt
+
+  cat_disc = 0.dec()
+  for t in amts:
+    if units[t.0] >= 3:
+      cat_disc += (t.1 * "0.05".dec()).round(2)
+
+  tier = tier_rate(C[cid]["tier"].text())
+  tier_disc = ((subtotal - cat_disc) * tier).round(2)
+  discount = cat_disc + tier_disc
+  net = subtotal - discount
+  tax = (net * tax_rate(C[cid]["country"].text())).round(2)
+  total = net + tax
+  revenue += total
+
+  nm = str(C[cid]["name"])
+  sub = subtotal.fmt(2)
+  dis = discount.fmt(2)
+  tx = tax.fmt(2)
+  tot = total.fmt(2)
+  out.push('{"id":{oid},"customer":{nm},"subtotal":"{sub}","discount":"{dis}","tax":"{tx}","total":"{tot}"}')
+
+print("[" + ",".join(out) + "]")
+print("revenue {revenue.fmt(2)}")

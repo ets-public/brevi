@@ -1,0 +1,81 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+fn emph(s: str) -> str:
+  t = s.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+  t = t.re_sub('\*\*(.+?)\*\*', '<strong>\1</strong>')
+  t = t.re_sub('\*(.+?)\*', '<em>\1</em>')
+  t
+fn inl(s: str) -> str:
+  pieces = esc(s).split("`")
+  res = ""
+  last = pieces.len() - 1
+  for i in 0..pieces.len():
+    pc = pieces[i]
+    if i % 2 == 1 and i < last:
+      res += "<code>" + pc + "</code>"
+    elif i % 2 == 1:
+      res += "`" + emph(pc)
+    else:
+      res += emph(pc)
+  res
+fn slug(s: str) -> str = s.lower().re_sub('[^a-z0-9]+', "-").re_sub('^-+|-+$', "")
+fn plain(s: str) -> str = esc(s.replace("`", "").replace("*", ""))
+fn kind(s: str) -> str:
+  if s.starts_with("- "):
+    return "ul"
+  if s.re_full('^[0-9]+\. .*$').is_empty():
+    return ""
+  return "ol"
+ls = stdin().lines()
+n = ls.len()
+out = []
+heads = []
+used = {}
+i = 0
+while i < n:
+  line = ls[i]
+  hm = line.re_full('^(#{1,6}) (.*)$')
+  if line == "```":
+    body = []
+    i += 1
+    while i < n and ls[i] != "```":
+      body.push(esc(ls[i]))
+      i += 1
+    i += 1
+    out.push("<pre><code>" + body.join("\n") + "</code></pre>")
+  elif line.trim().is_empty():
+    i += 1
+  elif not hm.is_empty():
+    lvl = hm[1].len()
+    txt = hm[2].trim()
+    base = slug(txt)
+    cand = base
+    k = 1
+    while used.has(cand):
+      k += 1
+      cand = base + "-" + str(k)
+    used[cand] = 1
+    heads.push((cand, txt))
+    out.push('<h{lvl} id="{cand}">{inl(txt)}</h{lvl}>')
+    i += 1
+  elif kind(line) != "":
+    k2 = kind(line)
+    lis = []
+    while i < n and kind(ls[i]) == k2:
+      it = ls[i].slice(2) if k2 == "ul" else ls[i].re_full('^[0-9]+\. (.*)$')[1]
+      lis.push("<li>" + inl(it) + "</li>")
+      i += 1
+    out.push("<" + k2 + ">\n" + lis.join("\n") + "\n</" + k2 + ">")
+  else:
+    para = []
+    while i < n and not ls[i].trim().is_empty() and ls[i] != "```" and ls[i].re_full('^#{1,6} .*$').is_empty() and kind(ls[i]) == "":
+      para.push(ls[i])
+      i += 1
+    out.push("<p>" + inl(para.join(" ")) + "</p>")
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads:
+    tx = plain(h.1)
+    print('<a href="#{h.0}">{tx}</a>')
+  print("</nav>")
+for b in out:
+  print(b)

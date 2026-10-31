@@ -1,0 +1,135 @@
+raw = {}
+memo = {}
+visiting = {}
+
+fn peek(toks: [str], p: int) -> str = toks[p] if p < toks.len() else ""
+
+fn range_val(fname: str, a: str, b: str) -> (int, int):
+  c1 = a.slice(0, 1).code() - 65
+  r1 = a.slice(1).int().or(1)
+  c2 = b.slice(0, 1).code() - 65
+  r2 = b.slice(1).int().or(1)
+  clo = min(c1, c2)
+  chi = max(c1, c2) + 1
+  rlo = min(r1, r2)
+  rhi = max(r1, r2) + 1
+  code = 0
+  vals = []
+  for cc in clo..chi:
+    for rr in rlo..rhi:
+      cv = cell_val((65 + cc).char() + str(rr))
+      code = max(code, cv.0)
+      vals.push(cv.1)
+  if code > 0: return (code, 0)
+  if fname == "SUM": return (0, sum(vals))
+  if fname == "MIN": return (0, min(vals))
+  return (0, max(vals))
+
+fn primary(toks: [str], mut p: int) -> (int, int):
+  t = toks[p]
+  if t == "(":
+    p += 1
+    c, v = expr(toks, p)
+    p += 1
+    return (c, v)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    a = toks[p + 2]
+    b = toks[p + 4]
+    p += 6
+    return range_val(t, a, b)
+  p += 1
+  if t.re_full('\d+').len() > 0:
+    return (0, t.int().or(0))
+  return cell_val(t)
+
+fn unary(toks: [str], mut p: int) -> (int, int):
+  if peek(toks, p) == "-":
+    p += 1
+    c, v = unary(toks, p)
+    return (c, -v)
+  c, v = primary(toks, p)
+  return (c, v)
+
+fn term(toks: [str], mut p: int) -> (int, int):
+  c, v = unary(toks, p)
+  while peek(toks, p) == "*" or peek(toks, p) == "/":
+    op = toks[p]
+    p += 1
+    c2, v2 = unary(toks, p)
+    c = max(c, c2)
+    if op == "*":
+      v = v * v2
+    elif v2 == 0:
+      c = max(c, 1)
+      v = 0
+    else:
+      v = v / v2
+  return (c, v)
+
+fn expr(toks: [str], mut p: int) -> (int, int):
+  c, v = term(toks, p)
+  while peek(toks, p) == "+" or peek(toks, p) == "-":
+    op = toks[p]
+    p += 1
+    c2, v2 = term(toks, p)
+    c = max(c, c2)
+    if op == "+":
+      v = v + v2
+    else:
+      v = v - v2
+  return (c, v)
+
+fn eval_formula(f: str) -> (int, int):
+  toks = f.replace(" ", "").re_list('\d+|[A-Z]+\d*|\S')
+  q = 0
+  c, v = expr(toks, q)
+  return (c, v)
+
+fn cell_val(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if not raw.has(name): return (0, 0)
+  if visiting.has(name): return (2, 0)
+  visiting[name] = 1
+  content = raw[name]
+  res = (0, 0)
+  if content.starts_with("="):
+    res = eval_formula(content.slice(1))
+  else:
+    res = (0, content.int().or(0))
+  visiting.remove(name)
+  memo[name] = res
+  return res
+
+fn show(name: str) -> str:
+  if not raw.has(name): return ""
+  r = cell_val(name)
+  if r.0 == 2: return "#CYCLE"
+  if r.0 == 1: return "#DIV0"
+  return str(r.1)
+
+for ln in stdin().lines():
+  if ln.trim() == "": continue
+  k = ln.find("=")
+  nm = ln.slice(0, k).trim()
+  raw[nm] = ln.slice(k + 1).trim()
+
+allnames = raw.keys()
+for nm in raw.keys():
+  allnames += raw[nm].re_list('[A-Z]\d+')
+maxc = 0
+maxr = 1
+for ref in allnames:
+  maxc = max(maxc, ref.slice(0, 1).code() - 65)
+  maxr = max(maxr, ref.slice(1).int().or(1))
+
+hic = maxc + 1
+hir = maxr + 1
+letters = []
+for c in 0..hic:
+  letters.push((65 + c).char())
+print("\t" + "\t".join(letters))
+for r in 1..hir:
+  cells = [str(r)]
+  for c in 0..hic:
+    cells.push(show((65 + c).char() + str(r)))
+  print("\t".join(cells))

@@ -1,0 +1,19 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  lib = new_lib()
+  for line in lines():
+    t = line.words()
+    if not t: continue
+    d = t[0]
+    expire(lib, d)
+    match t[1]:
+      "BOOK" => add_book(lib, t[2], t[3].int(), " ".join(t.slice(4)))
+      "MEMBER" => add_member(lib, t[2], t[3], " ".join(t.slice(4)))
+      "LOAN" => do_loan(lib, d, t[2], t[3])
+      "RETURN" => do_return(lib, d, t[2], t[3])
+      "RESERVE" => do_reserve(lib, t[2], t[3])
+      "PAY" => do_pay(lib, t[2], t[3].dec())
+      "STATUS" => do_status(lib, t[2])
+      _ => print("bad command")

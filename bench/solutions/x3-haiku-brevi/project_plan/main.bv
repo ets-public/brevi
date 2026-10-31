@@ -1,0 +1,59 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn main():
+  k = -1
+  tasks: [Task] = []
+  seen: {str: int} = {}
+  for n, raw in enumerate(lines()):
+    ln = n + 1
+    w = raw.trim().words()
+    if w.len() == 0: continue
+    if k < 0:
+      if w.len() == 2 and w[0] == "workers" and not w[1].re_full("[0-9]+").is_empty() and w[1].int().or(0) >= 1:
+        k = w[1].int().or(0)
+        continue
+      print("line {ln}: bad line")
+      return
+    bad = True
+    deps: [str] = []
+    if w.len() >= 2 and not w[0].re_full("[A-Za-z0-9_]+").is_empty() and not w[1].re_full("[0-9]+").is_empty() and w[1].int().or(0) >= 1:
+      if w.len() == 2:
+        bad = False
+      elif w.len() > 3 and w[2] == "after":
+        pd = parse_deps(" ".join(w[3:]))
+        if pd.1:
+          deps = pd.0
+          bad = False
+    if bad:
+      print("line {ln}: bad line")
+      return
+    nm = w[0]
+    if seen.has(nm):
+      print("line {ln}: duplicate {nm}")
+      return
+    seen[nm] = 1
+    tasks.push(Task(name: nm, days: w[1].int().or(0), deps: deps))
+  if k < 0: return
+  msg = unknown_dep(tasks)
+  if msg != "":
+    print(msg)
+    return
+  ids = dep_ids(tasks)
+  if has_cycle(ids):
+    print("cycle")
+    return
+  u = unlimited(tasks, ids)
+  ustarts = u.0
+  uends = u.1
+  print("unlimited")
+  for i, t in enumerate(tasks):
+    print("  {t.name} {ustarts[i]}-{uends[i]}")
+  print("length {makespan(uends)}")
+  chain = critical_chain(tasks, ids, ustarts, uends)
+  print("critical " + " > ".join(chain))
+  sc = schedule(tasks, ids, k)
+  print("workers {k}")
+  for i, t in enumerate(tasks):
+    print("  {t.name} {sc.0[i]}-{sc.1[i]}")
+  print("length {makespan(sc.1)}")

@@ -1,0 +1,42 @@
+type Book:
+  id: str
+  title: str
+  shelf: int
+  wait: [str]
+
+type Member:
+  id: str
+  tier: str
+  name: str
+  owes: dec
+  loans: [str]
+  dues: [str]
+
+type Hold:
+  member: str
+  book: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_lib() -> Lib:
+  bs: {str: Book} = {}
+  ms: {str: Member} = {}
+  hs: [Hold] = []
+  Lib(bs, ms, hs)
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str) -> str:
+  if lib.books.has(id): return "duplicate ID"
+  ws: [str] = []
+  lib.books[id] = Book(id, title, copies, ws)
+  "added {id}"
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str) -> str:
+  if lib.members.has(id): return "duplicate ID"
+  ls: [str] = []
+  ds: [str] = []
+  lib.members[id] = Member(id, tier, name, 0.dec(), ls, ds)
+  "welcome {name}"

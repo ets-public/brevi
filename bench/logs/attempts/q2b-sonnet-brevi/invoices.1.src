@@ -1,0 +1,45 @@
+j = json(stdin())
+prods = j["products"]
+custs = j["customers"]
+outs = []
+revenue = 0.dec()
+for o in j["orders"]:
+  id = o["id"]
+  cid = o["customer"].text()
+  if not custs.has(cid):
+    outs.push(str({"id": id, "error": "unknown customer " + cid}))
+    continue
+  bad = ""
+  for l in o["lines"]:
+    sku = l["sku"].text()
+    if bad.is_empty() and not prods.has(sku): bad = sku
+  if not bad.is_empty():
+    outs.push(str({"id": id, "error": "unknown sku " + bad}))
+    continue
+  c = custs[cid]
+  sub = 0.dec()
+  qty = {}
+  amtc = {}
+  for l in o["lines"]:
+    p = prods[l["sku"].text()]
+    q = l["qty"].int()
+    a = p["price"].text().dec() * q
+    cat = p["category"].text()
+    sub += a
+    qty[cat] += q
+    amtc[cat] += a
+  disc = 0.dec()
+  for cat, q in qty.pairs():
+    if q >= 3: disc += (amtc[cat] * "0.05".dec()).round(2)
+  tier = c["tier"].text()
+  rate = if tier == "gold": "0.10".dec() else: (if tier == "silver": "0.05".dec() else: 0.dec())
+  disc += ((sub - disc) * rate).round(2)
+  net = sub - disc
+  country = c["country"].text()
+  trate = if country == "UK": "0.20".dec() else: (if country == "US": "0.0825".dec() else: 0.dec())
+  tax = (net * trate).round(2)
+  total = net + tax
+  revenue += total
+  outs.push(str({"id": id, "customer": c["name"].text(), "subtotal": sub.fmt(2), "discount": disc.fmt(2), "tax": tax.fmt(2), "total": total.fmt(2)}))
+print("[" + ",".join(outs) + "]")
+print("revenue " + revenue.fmt(2))

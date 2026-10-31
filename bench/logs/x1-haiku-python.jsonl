@@ -1,0 +1,7 @@
+{"run":"x1-haiku-python","lang":"python","task":"order_book","code_tok":1745,"patch_tok":1745,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x1-haiku-python","lang":"python","task":"mini_sql","code_tok":3535,"patch_tok":3535,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x1-haiku-python","lang":"python","task":"calc_lang","code_tok":3099,"patch_tok":3099,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x1-haiku-python","lang":"python","task":"fifo_stock","code_tok":1793,"patch_tok":1793,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x1-haiku-python","lang":"python","task":"library","code_tok":2812,"patch_tok":2812,"out_tok":642,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"x1-haiku-python","lang":"python","task":"library","code_tok":2809,"patch_tok":87,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x1-haiku-python","lang":"python","task":"project_plan","code_tok":2349,"patch_tok":2349,"out_tok":7,"compiled":true,"pass":7,"total":7,"tok":"exact"}

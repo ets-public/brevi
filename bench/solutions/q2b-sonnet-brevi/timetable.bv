@@ -1,0 +1,66 @@
+fn tm(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+fn p2(n: int) -> str = if n < 10: "0" + str(n) else: str(n)
+names = []
+stops = []
+at = {}
+inq = false
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  if w[0] == "---":
+    inq = true
+    continue
+  if not inq:
+    u = names.len()
+    names.push(w[0])
+    st = []
+    k = 1
+    while k + 1 < w.len():
+      st.push((w[k], tm(w[k + 1])))
+      at[w[k]].push((u, st.len() - 1))
+      k += 2
+    stops.push(st)
+  else:
+    qf = w[0]
+    qt = w[1]
+    qtime = tm(w[2])
+    if qf == qt:
+      print("{qf} {qt} {p2(qtime // 60)}:{p2(qtime % 60)} via -")
+      continue
+    labels = {}
+    work = [(qf, "", qtime, 0, [""].skip(1))]
+    bt = -1
+    bc = 0
+    bp = [""].skip(1)
+    while work:
+      (s, tr, t, c, pl) = work.pop()
+      for ub in at[s]:
+        u = ub.0
+        if names[u] == tr: continue
+        d = stops[u][ub.1].1
+        need = if tr == "": t else: t + 5
+        if d < need: continue
+        for j in ub.1 + 1..stops[u].len():
+          ns = stops[u][j].0
+          nt = stops[u][j].1
+          nc = c + 1
+          np = pl + [names[u] + ">"]
+          key = ns + "|" + names[u]
+          dom = false
+          for l in labels[key]:
+            if l.0 <= nt and (l.1, l.2) <= (nc, np): dom = true
+          if dom: continue
+          labels[key].push((nt, nc, np))
+          if ns == qt:
+            if bt < 0 or (nt, nc, np) < (bt, bc, bp):
+              bt = nt
+              bc = nc
+              bp = np
+          work.push((ns, names[u], nt, nc, np))
+    if bt < 0:
+      print("{qf} {qt} unreachable")
+    else:
+      js = "".join(bp)
+      print("{qf} {qt} {p2(bt // 60)}:{p2(bt % 60)} via {js.slice(0, js.len() - 1)}")

@@ -1,0 +1,14 @@
+fn even(n) = if(n == 0, 1, odd(n - 1))
+fn odd(n) = if(n == 0, 0, even(n - 1))
+print even(10), odd(7)
+fn gcd(a, b) = if(b == 0, a, gcd(b, a % b))
+print gcd(1071, 462), gcd(17, 5)
+let r = gcd(84, 36)
+print r * r % 7
+fn add3(a, b, c) = a + b + c
+print add3(1, 2, 3), add3(1, 2)
+fn power(b, e) = if(e == 0, 1, b * power(b, e - 1))
+print power(2, 40), power(3, 3) - 30
+let x = 5
+fn usex(x) = x * 2
+print usex(1), x

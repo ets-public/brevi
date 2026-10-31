@@ -1,0 +1,214 @@
+## main.py
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import re
+from catalog import Library, Book, Member, TIERS, to_ord, money
+import rules
+
+
+def cents(t):
+    m = re.match(r'^(\d+)(?:\.(\d{1,2}))?$', t)
+    if not m:
+        return 0
+    return int(m.group(1)) * 100 + int((m.group(2) or '0').ljust(2, '0'))
+
+
+def main():
+    lib = Library()
+    out = []
+    for line in sys.stdin.read().split('\n'):
+        p = line.split()
+        if len(p) < 3:
+            continue
+        today = to_ord(p[0])
+        out.extend(rules.expire_holds(lib, today))
+        op = p[1]
+        if op == 'BOOK':
+            parts = line.split(None, 4)
+            if p[2] in lib.books:
+                out.append("duplicate ID")
+            else:
+                lib.books[p[2]] = Book(p[2], int(p[3]), parts[4] if len(parts) > 4 else "")
+                out.append("added " + p[2])
+        elif op == 'MEMBER':
+            parts = line.split(None, 4)
+            if p[2] in lib.members:
+                out.append("duplicate ID")
+            else:
+                name = parts[4] if len(parts) > 4 else ""
+                lib.members[p[2]] = Member(p[2], p[3], name)
+                out.append("welcome " + name)
+        elif op == 'LOAN':
+            out.append(rules.loan(lib, today, p[2], p[3]))
+        elif op == 'RETURN':
+            out.append(rules.give_back(lib, today, p[2], p[3]))
+        elif op == 'RESERVE':
+            out.append(rules.reserve(lib, today, p[2], p[3]))
+        elif op == 'PAY':
+            m = lib.members.get(p[2])
+            if m is None:
+                out.append("refused %s: unknown member" % p[2])
+            else:
+                m.owes -= cents(p[3])
+                out.append("paid %s owes %s" % (p[2], money(m.owes)))
+        elif op == 'STATUS':
+            m = lib.members.get(p[2])
+            if m is None:
+                out.append("refused %s: unknown member" % p[2])
+            else:
+                ls = " ".join(l[0] for l in m.loans) or "-"
+                out.append("%s %s owes %s loans: %s" % (m.id, m.name, money(m.owes), ls))
+    print("\n".join(out))
+
+
+main()
+## catalog.py
+import datetime
+
+TIERS = {'basic': (2, 14, 25), 'plus': (5, 28, 10)}
+
+
+class Book:
+    def __init__(self, bid, copies, title):
+        self.id = bid
+        self.shelf = copies
+        self.title = title
+        self.waiting = []
+
+
+class Member:
+    def __init__(self, mid, tier, name):
+        self.id = mid
+        self.tier = tier
+        self.name = name
+        self.owes = 0  # cents
+        self.loans = []  # [book_id, due_ordinal]
+
+    @property
+    def limit(self):
+        return TIERS[self.tier][0]
+
+    @property
+    def days(self):
+        return TIERS[self.tier][1]
+
+    @property
+    def daily(self):
+        return TIERS[self.tier][2]
+
+
+class Library:
+    def __init__(self):
+        self.books = {}
+        self.members = {}
+        self.holds = []  # [last_day_ordinal, book_id, member_id]
+
+
+def to_ord(s):
+    return datetime.date(int(s[:4]), int(s[5:7]), int(s[8:10])).toordinal()
+
+
+def from_ord(o):
+    return datetime.date.fromordinal(o).isoformat()
+
+
+def money(c):
+    s = "-" if c < 0 else ""
+    c = abs(c)
+    return "%s%d.%02d" % (s, c // 100, c % 100)
+## rules.py
+from catalog import from_ord, money
+
+
+def expire_holds(lib, today):
+    out = []
+    while True:
+        due = [h for h in lib.holds if h[0] < today]
+        if not due:
+            return out
+        h = min(due, key=lambda x: (x[0], x[1]))
+        lib.holds.remove(h)
+        out.append("hold expired %s %s" % (h[2], h[1]))
+        book = lib.books[h[1]]
+        if book.waiting:
+            nxt = book.waiting.pop(0)
+            lib.holds.append([h[0] + 4, h[1], nxt])
+        else:
+            book.shelf += 1
+
+
+def has_book(m, bid):
+    return any(l[0] == bid for l in m.loans)
+
+
+def loan(lib, today, mid, bid):
+    m = lib.members.get(mid)
+    if m is None:
+        return "refused %s %s: unknown member" % (mid, bid)
+    b = lib.books.get(bid)
+    if b is None:
+        return "refused %s %s: unknown book" % (mid, bid)
+    if m.owes > 200:
+        return "refused %s %s: owes %s" % (mid, bid, money(m.owes))
+    if len(m.loans) >= m.limit:
+        return "refused %s %s: limit" % (mid, bid)
+    if has_book(m, bid):
+        return "refused %s %s: already has it" % (mid, bid)
+    hold = None
+    for h in lib.holds:
+        if h[1] == bid and h[2] == mid:
+            hold = h
+            break
+    if hold is not None:
+        lib.holds.remove(hold)
+    elif b.shelf > 0:
+        b.shelf -= 1
+    else:
+        return "refused %s %s: none available" % (mid, bid)
+    due = today + m.days
+    m.loans.append([bid, due])
+    return "loan %s %s due %s" % (mid, bid, from_ord(due))
+
+
+def give_back(lib, today, mid, bid):
+    m = lib.members.get(mid)
+    ln = None
+    if m is not None:
+        for l in m.loans:
+            if l[0] == bid:
+                ln = l
+    if ln is None:
+        return "refused %s %s: not on loan" % (mid, bid)
+    m.loans.remove(ln)
+    fee = 0
+    if today > ln[1]:
+        fee = min(500, (today - ln[1]) * m.daily)
+    m.owes += fee
+    b = lib.books[bid]
+    if b.waiting:
+        nxt = b.waiting.pop(0)
+        lib.holds.append([today + 3, bid, nxt])
+    else:
+        b.shelf += 1
+    r = "returned %s %s" % (mid, bid)
+    if fee:
+        r += " fee " + money(fee)
+    return r
+
+
+def reserve(lib, today, mid, bid):
+    m = lib.members.get(mid)
+    if m is None:
+        return "refused %s %s: unknown member" % (mid, bid)
+    b = lib.books.get(bid)
+    if b is None:
+        return "refused %s %s: unknown book" % (mid, bid)
+    if has_book(m, bid):
+        return "refused %s %s: already has it" % (mid, bid)
+    if mid in b.waiting:
+        return "refused %s %s: already reserved" % (mid, bid)
+    if b.shelf > 0:
+        return "refused %s %s: copy available" % (mid, bid)
+    b.waiting.append(mid)
+    return "reserved %s %s position %d" % (mid, bid, len(b.waiting))

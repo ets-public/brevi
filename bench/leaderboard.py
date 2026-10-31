@@ -7,10 +7,12 @@ PY_BIG = ["p1b", "p2b", "p5b", "p6b", "p7b", "p8b"]
 SETS = [
     ("18 small tasks", "sonnet", {"brevi": ["s1", "s2"], "python": ["s1", "s2"]}),
     ("18 small tasks", "haiku", {"brevi": ["s1", "s2"], "python": ["s1", "s2"]}),
-    ("8 big tasks", "sonnet", {"brevi": ["p13b", "p14b", "p15b", "p16b", "p17b", "p18b"], "python": PY_BIG}),
-    ("8 big tasks", "haiku", {"brevi": ["p19b", "p20b"], "python": PY_BIG}),
+    ("8 big tasks", "sonnet", {"brevi": ["q1b", "q2b", "q3b"], "python": PY_BIG}),
+    ("8 big tasks", "haiku", {"brevi": ["q1b", "q2b"], "python": PY_BIG}),
     ("6 held-out big tasks", "sonnet", {"brevi": ["n1", "n2"], "python": ["n1", "n2"]}),
     ("6 held-out big tasks", "haiku", {"brevi": ["n1", "n2"], "python": ["n1", "n2"]}),
+    ("6 held-out XL tasks (2 multi-file)", "sonnet", {"brevi": ["x3", "x4"], "python": ["x1", "x2"]}),
+    ("6 held-out XL tasks (2 multi-file)", "haiku", {"brevi": ["x3", "x4"], "python": ["x1", "x2"]}),
 ]
 
 def score(run):
@@ -35,4 +37,4 @@ for name, model, langs in SETS:
     save = (p[0] - b[0]) / p[0] * 100
     best = lambda v, o: f"**{v:,.0f}**" if round(v) < round(o) else f"{v:,.0f}"
     print(f"| {name} | {model.capitalize()} | {best(b[0], p[0])} | {best(p[0], b[0])} | {save:.0f}% | {b[1]}/{b[3]} / {p[1]}/{p[3]} | {b[2]}/{b[3]} / {p[2]}/{p[3]} | {b[4]} / {p[4]} |")
-print("\nThe held-out tasks (`ref/gen_big2.py`) were written after the language was tuned and never used to change it. Single runs vary by up to 30%, so each figure averages two or more runs.")
+print("\nThe held-out tasks (`ref/gen_big2.py`) were written after the language was tuned and never used to change it. The XL tasks (`ref/gen_big3.py`, 150 to 400 lines, two of them split over several files) were held out until their first two runs (x1, x2); Brevi was then fixed for the gaps those runs showed and rerun (x3, x4). Single runs vary by up to 30%, so each figure averages two or more runs.")

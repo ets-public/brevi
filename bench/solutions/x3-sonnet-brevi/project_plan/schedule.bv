@@ -1,0 +1,39 @@
+use "graph.bv"
+
+fn limited(tasks: [Task], k: int) -> ([int], [int]):
+  n = tasks.len()
+  di = dep_idx(tasks)
+  us = users_of(tasks)
+  tail = [0].repeat(n)
+  for c in topo(tasks).rev():
+    best = 0
+    for u in us[c]: best = max(best, tail[u])
+    tail[c] = tasks[c].days + best
+  starts = [0].repeat(n)
+  ends = [0].repeat(n)
+  state = [0].repeat(n)
+  t = 0
+  running = 0
+  finished = 0
+  while finished < n:
+    for i in 0..n:
+      if state[i] == 1 and ends[i] == t:
+        state[i] = 2
+        running -= 1
+        finished += 1
+    while running < k:
+      pick = -1
+      for i in 0..n:
+        if state[i] == 0 and di[i].all(d => state[d] == 2):
+          if pick < 0 or tail[i] > tail[pick]: pick = i
+      if pick < 0: break
+      state[pick] = 1
+      starts[pick] = t
+      ends[pick] = t + tasks[pick].days
+      running += 1
+    if finished < n:
+      nt = -1
+      for i in 0..n:
+        if state[i] == 1 and (nt < 0 or ends[i] < nt): nt = ends[i]
+      t = nt
+  (starts, ends)

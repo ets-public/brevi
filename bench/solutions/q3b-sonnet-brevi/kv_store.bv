@@ -1,0 +1,53 @@
+store = {}
+undo = []
+marks = []
+
+fn put(k: str, v: str):
+  undo.push((k, store.has(k), store[k]))
+  store[k] = v
+
+for line in lines():
+  w = line.trim().split(" ")
+  cmd = w[0]
+  if cmd == "": continue
+  if cmd == "SET":
+    put(w[1], w[2])
+  elif cmd == "GET":
+    print(if store.has(w[1]): store[w[1]] else: "NULL")
+  elif cmd == "DEL":
+    if store.has(w[1]):
+      undo.push((w[1], True, store[w[1]]))
+      store.remove(w[1])
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR":
+    cur = if store.has(w[1]): store[w[1]] else: "0"
+    match cur.int():
+      Ok(c) =>
+        nv = c + w[2].int().or(0)
+        put(w[1], str(nv))
+        print(nv)
+      Err(e) => print("ERR not an integer")
+  elif cmd == "COUNT":
+    print(store.values().count(v => v == w[1]))
+  elif cmd == "KEYS":
+    ks = [k for k in store.keys() if k.starts_with(w[1])]
+    print(if ks: " ".join(ks) else: "(empty)")
+  elif cmd == "BEGIN":
+    marks.push(undo.len())
+  elif cmd == "ROLLBACK":
+    if not marks:
+      print("NO TRANSACTION")
+    else:
+      m = marks.pop()
+      while undo.len() > m:
+        e = undo.pop()
+        if e.1: store[e.0] = e.2
+        else: store.remove(e.0)
+  elif cmd == "COMMIT":
+    if not marks: print("NO TRANSACTION")
+    else:
+      marks = []
+      undo = []
+  else:
+    print("ERR unknown command")

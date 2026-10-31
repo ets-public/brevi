@@ -1,0 +1,44 @@
+# tail of each task: its days plus the largest tail among the tasks that depend on it
+fn tails(days: [int], deps: [[int]]) -> [int]:
+  n = days.len()
+  tl = days
+  for rnd in 0..n + 1:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if deps[j].contains(i) and tl[j] > best: best = tl[j]
+      tl[i] = days[i] + best
+  return tl
+
+# start day of every task with k workers
+fn run_sched(k: int, days: [int], deps: [[int]], tl: [int]) -> [int]:
+  n = days.len()
+  st = [-1].repeat(n)
+  en = [0].repeat(n)
+  fin = [false].repeat(n)
+  running = 0
+  left = n
+  t = 0
+  while left > 0:
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and en[i] == t:
+        fin[i] = true
+        running -= 1
+        left -= 1
+    more = true
+    while more and running < k:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0:
+          rdy = true
+          for d in deps[i]:
+            if not fin[d]: rdy = false
+          if rdy and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0:
+        more = false
+      else:
+        st[best] = t
+        en[best] = t + days[best]
+        running += 1
+    t += 1
+  return st

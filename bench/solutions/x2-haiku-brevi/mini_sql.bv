@@ -1,0 +1,422 @@
+fn tk_at(tk: [(str, str)], i: int) -> (str, str):
+  if i < tk.len(): return tk[i]
+  return ("", "")
+
+fn kw(tk: [(str, str)], i: int, text: str) -> bool:
+  t = tk_at(tk, i)
+  return t.0 == "w" and t.1 == text
+
+fn pn(tk: [(str, str)], i: int, text: str) -> bool:
+  t = tk_at(tk, i)
+  return t.0 == "p" and t.1 == text
+
+fn tokenize(s: str) -> [(str, str)]:
+  out = []
+  n = s.len()
+  i = 0
+  while i < n:
+    ch = s[i:i + 1]
+    if ch == " " or ch == "\t":
+      i += 1
+    elif ch == "'":
+      buf = ""
+      closed = false
+      i += 1
+      while i < n:
+        c2 = s[i:i + 1]
+        if c2 == "'":
+          if i + 1 < n and s[i + 1:i + 2] == "'":
+            buf += "'"
+            i += 2
+          else:
+            closed = true
+            i += 1
+            break
+        else:
+          buf += c2
+          i += 1
+      if closed:
+        out.push(("s", buf))
+      else:
+        out.push(("e", ""))
+    elif ch.is_alpha():
+      j = i
+      while j < n and (s[j:j + 1].is_alpha() or s[j:j + 1].is_digit() or s[j:j + 1] == "_"):
+        j += 1
+      out.push(("w", s[i:j]))
+      i = j
+    elif ch.is_digit() or (ch == "-" and i + 1 < n and s[i + 1:i + 2].is_digit()):
+      j = i + 1
+      while j < n and s[j:j + 1].is_digit():
+        j += 1
+      out.push(("n", s[i:j]))
+      i = j
+    elif ch == "!" and i + 1 < n and s[i + 1:i + 2] == "=":
+      out.push(("p", "!="))
+      i += 2
+    elif (ch == "<" or ch == ">") and i + 1 < n and s[i + 1:i + 2] == "=":
+      out.push(("p", ch + "="))
+      i += 2
+    elif ch == "(" or ch == ")" or ch == "," or ch == "*" or ch == "=" or ch == "<" or ch == ">":
+      out.push(("p", ch))
+      i += 1
+    else:
+      out.push(("e", ch))
+      i += 1
+  return out
+
+fn vals_of(tk: [(str, str)], start: int) -> [(str, str)]:
+  out = []
+  n = tk.len()
+  if not pn(tk, start, "(") or not pn(tk, n - 1, ")"):
+    return []
+  i = start + 1
+  while i < n - 1:
+    v = tk_at(tk, i)
+    if v.0 != "s" and v.0 != "n":
+      return []
+    out.push(v)
+    i += 1
+    if i < n - 1:
+      if not pn(tk, i, ","):
+        return []
+      i += 1
+      if i >= n - 1:
+        return []
+  return out
+
+fn conds_of(tk: [(str, str)], start: int) -> ([(str, str, str, str)], int):
+  out = []
+  i = start
+  while True:
+    c = tk_at(tk, i)
+    o = tk_at(tk, i + 1)
+    v = tk_at(tk, i + 2)
+    if c.0 != "w" or o.0 != "p" or o.1 not in ["=", "!=", "<", ">", "<=", ">="]:
+      return ([], -1)
+    if v.0 != "s" and v.0 != "n":
+      return ([], -1)
+    out.push((c.1, o.1, v.0, v.1))
+    i += 3
+    if kw(tk, i, "AND"):
+      i += 1
+    else:
+      break
+  return (out, i)
+
+fn stored(v: (str, str), num: bool) -> str:
+  txt = v.1
+  if num: return str(txt.int().or(0))
+  return txt
+
+fn ord_of(a: str, b: str, num: bool) -> int:
+  if num:
+    x = a.int().or(0)
+    y = b.int().or(0)
+    if x < y: return -1
+    if x > y: return 1
+    return 0
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn holds(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn row_ok(row: [str], conds: [(str, str, str, str)], cols: [str], types: [str]) -> bool:
+  for c in conds:
+    k = cols.index_of(c.0)
+    o = ord_of(row[k], c.3, types[k] == "INT")
+    if not holds(o, c.1): return false
+  return true
+
+fn cond_err(conds: [(str, str, str, str)], cols: [str], types: [str]) -> str:
+  for c in conds:
+    k = cols.index_of(c.0)
+    want = if types[k] == "INT": "n" else: "s"
+    if c.2 != want: return "error: type mismatch"
+  return ""
+
+fn first_missing(names: [str], cols: [str]) -> str:
+  for nm in names:
+    if not cols.contains(nm): return nm
+  return ""
+
+trows = {}
+tcols = {}
+ttypes = {}
+
+for raw in lines():
+  tk = tokenize(raw)
+  if tk.is_empty(): continue
+  nt = tk.len()
+  bad = false
+  for t0 in tk:
+    if t0.0 == "e": bad = true
+  if bad:
+    print("error: syntax")
+    continue
+
+  if kw(tk, 0, "CREATE"):
+    ok = kw(tk, 1, "TABLE") and tk_at(tk, 2).0 == "w" and pn(tk, 3, "(") and pn(tk, nt - 1, ")")
+    cols = []
+    types = []
+    i = 4
+    while ok and i < nt - 1:
+      a = tk_at(tk, i)
+      b = tk_at(tk, i + 1)
+      if a.0 != "w" or b.0 != "w":
+        ok = false
+      elif b.1 != "INT" and b.1 != "TEXT":
+        ok = false
+      else:
+        cols.push(a.1)
+        types.push(b.1)
+        i += 2
+        if i < nt - 1:
+          if pn(tk, i, ","):
+            i += 1
+            if i >= nt - 1: ok = false
+          else:
+            ok = false
+    if not ok or cols.is_empty():
+      print("error: syntax")
+      continue
+    tname = tk_at(tk, 2).1
+    if trows.has(tname):
+      print("error: table {tname} exists")
+      continue
+    trows[tname] = []
+    tcols[tname] = cols
+    ttypes[tname] = types
+    print("ok")
+    continue
+
+  if kw(tk, 0, "INSERT"):
+    ok = kw(tk, 1, "INTO") and tk_at(tk, 2).0 == "w" and kw(tk, 3, "VALUES")
+    if not ok:
+      print("error: syntax")
+      continue
+    vs = vals_of(tk, 4)
+    if vs.is_empty():
+      print("error: syntax")
+      continue
+    tname = tk_at(tk, 2).1
+    if not trows.has(tname):
+      print("error: no table {tname}")
+      continue
+    types = ttypes[tname]
+    if vs.len() != types.len():
+      print("error: type mismatch")
+      continue
+    bad = false
+    for k in 0..vs.len():
+      v = vs[k]
+      if types[k] == "INT":
+        if v.0 != "n": bad = true
+      elif v.0 != "s":
+        bad = true
+    if bad:
+      print("error: type mismatch")
+      continue
+    row = [stored(vs[k], types[k] == "INT") for k in 0..vs.len()]
+    trows[tname].push(row)
+    print("ok")
+    continue
+
+  if kw(tk, 0, "SELECT"):
+    ok = True
+    names = []
+    star = False
+    is_count = kw(tk, 1, "COUNT") and pn(tk, 2, "(") and pn(tk, 3, "*") and pn(tk, 4, ")")
+    j = 0
+    if is_count:
+      j = 5
+    elif pn(tk, 1, "*"):
+      star = True
+      j = 2
+    else:
+      j = 1
+      more = True
+      while more:
+        c = tk_at(tk, j)
+        if c.0 != "w":
+          ok = false
+          more = false
+        else:
+          names.push(c.1)
+          j += 1
+          if pn(tk, j, ","):
+            j += 1
+          else:
+            more = false
+    if not kw(tk, j, "FROM") or tk_at(tk, j + 1).0 != "w":
+      ok = false
+    tname = tk_at(tk, j + 1).1
+    j += 2
+    conds = []
+    if ok and kw(tk, j, "WHERE"):
+      cr = conds_of(tk, j + 1)
+      conds = cr.0
+      j = cr.1
+      if j < 0: ok = false
+    ob = ""
+    desc = false
+    lim = -1
+    if ok and not is_count and kw(tk, j, "ORDER") and kw(tk, j + 1, "BY") and tk_at(tk, j + 2).0 == "w":
+      ob = tk_at(tk, j + 2).1
+      j += 3
+      if kw(tk, j, "DESC"):
+        desc = true
+        j += 1
+    if ok and not is_count and kw(tk, j, "LIMIT") and tk_at(tk, j + 1).0 == "n":
+      lt = tk_at(tk, j + 1).1
+      lim = lt.int().or(0)
+      j += 2
+    if ok and j != nt: ok = false
+    if not ok:
+      print("error: syntax")
+      continue
+    if not trows.has(tname):
+      print("error: no table {tname}")
+      continue
+    cols = tcols[tname]
+    types = ttypes[tname]
+    if star: names = cols
+    refs = names + [c.0 for c in conds]
+    if ob != "": refs.push(ob)
+    miss = first_missing(refs, cols)
+    if miss != "":
+      print("error: no column {miss}")
+      continue
+    terr = cond_err(conds, cols, types)
+    if terr != "":
+      print(terr)
+      continue
+    matched = []
+    for row in trows[tname]:
+      if row_ok(row, conds, cols, types): matched.push(row)
+    if is_count:
+      print(matched.len())
+      continue
+    srows = matched
+    if ob != "":
+      oi = cols.index_of(ob)
+      ranks = []
+      if types[oi] == "INT":
+        kv = [r[oi].int().or(0) for r in matched]
+        u1 = kv.unique()
+        ranks = [u1.index_of(x) for x in kv]
+      else:
+        kv2 = [r[oi] for r in matched]
+        u2 = kv2.unique()
+        ranks = [u2.index_of(x) for x in kv2]
+      keyed = []
+      for k in 0..matched.len():
+        rk = ranks[k]
+        if desc: rk = -rk
+        keyed.push((rk, k))
+      keyed.sort()
+      srows = [matched[p[1]] for p in keyed]
+    if lim >= 0: srows = srows.take(lim)
+    if star: names = cols
+    pidx = [cols.index_of(nm) for nm in names]
+    print(names.join(" | "))
+    for row in srows:
+      vals = [row[q] for q in pidx]
+      print(vals.join(" | "))
+    print("({srows.len()} rows)")
+    continue
+
+  if kw(tk, 0, "UPDATE"):
+    ok = tk_at(tk, 1).0 == "w" and kw(tk, 2, "SET") and tk_at(tk, 3).0 == "w" and pn(tk, 4, "=") and (tk_at(tk, 5).0 == "s" or tk_at(tk, 5).0 == "n")
+    j = 6
+    conds = []
+    if ok and kw(tk, j, "WHERE"):
+      cr = conds_of(tk, j + 1)
+      conds = cr.0
+      j = cr.1
+      if j < 0: ok = false
+    if ok and j != nt: ok = false
+    if not ok:
+      print("error: syntax")
+      continue
+    tname = tk_at(tk, 1).1
+    if not trows.has(tname):
+      print("error: no table {tname}")
+      continue
+    cols = tcols[tname]
+    types = ttypes[tname]
+    setc = tk_at(tk, 3).1
+    setv = tk_at(tk, 5)
+    refs = [setc] + [c.0 for c in conds]
+    miss = first_missing(refs, cols)
+    if miss != "":
+      print("error: no column {miss}")
+      continue
+    ci = cols.index_of(setc)
+    terr = cond_err(conds, cols, types)
+    if terr != "":
+      print(terr)
+      continue
+    if (types[ci] == "INT") != (setv.0 == "n"):
+      print("error: type mismatch")
+      continue
+    newval = stored(setv, types[ci] == "INT")
+    count = 0
+    newrows = []
+    for row in trows[tname]:
+      if row_ok(row, conds, cols, types):
+        count += 1
+        newrows.push([newval if q == ci else row[q] for q in 0..cols.len()])
+      else:
+        newrows.push(row)
+    trows[tname] = newrows
+    print("updated {count}")
+    continue
+
+  if kw(tk, 0, "DELETE"):
+    ok = kw(tk, 1, "FROM") and tk_at(tk, 2).0 == "w"
+    j = 3
+    conds = []
+    if ok and kw(tk, j, "WHERE"):
+      cr = conds_of(tk, j + 1)
+      conds = cr.0
+      j = cr.1
+      if j < 0: ok = false
+    if ok and j != nt: ok = false
+    if not ok:
+      print("error: syntax")
+      continue
+    tname = tk_at(tk, 2).1
+    if not trows.has(tname):
+      print("error: no table {tname}")
+      continue
+    cols = tcols[tname]
+    types = ttypes[tname]
+    refs = [c.0 for c in conds]
+    miss = first_missing(refs, cols)
+    if miss != "":
+      print("error: no column {miss}")
+      continue
+    terr = cond_err(conds, cols, types)
+    if terr != "":
+      print(terr)
+      continue
+    count = 0
+    newrows = []
+    for row in trows[tname]:
+      if row_ok(row, conds, cols, types):
+        count += 1
+      else:
+        newrows.push(row)
+    trows[tname] = newrows
+    print("deleted {count}")
+    continue
+
+  print("error: syntax")

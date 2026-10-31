@@ -1,0 +1,159 @@
+## main.py
+import sys
+from graph import parse, unlimited
+from schedule import plan
+
+
+def main():
+    lines = sys.stdin.read().split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    k, tasks, err = parse(lines)
+    if err:
+        print(err)
+        return
+    out = ["unlimited"]
+    for t in tasks:
+        out.append("  %s %d-%d" % (t.name, t.start, t.end))
+    length, chain = unlimited(tasks)
+    out.append("length %d" % length)
+    out.append("critical " + " > ".join(chain))
+    starts, ends, L = plan(tasks, k)
+    out.append("workers %d" % k)
+    for t in tasks:
+        out.append("  %s %d-%d" % (t.name, starts[t.name], ends[t.name]))
+    out.append("length %d" % L)
+    print("\n".join(out))
+
+
+main()
+## graph.py
+import re
+
+NAME = r"[A-Za-z0-9_]+"
+R_TASK = re.compile(r"(%s) (\d+)(?: after (%s(?:, %s)*))?" % (NAME, NAME, NAME))
+R_WORKERS = re.compile(r"workers (\d+)")
+
+
+class Task:
+    def __init__(self, name, days, deps, idx):
+        self.name = name
+        self.days = days
+        self.deps = deps
+        self.idx = idx
+        self.start = 0
+        self.end = 0
+        self.users = []
+
+
+def parse(lines):
+    """Return (k, tasks, error)."""
+    if not lines:
+        return 0, [], "line 1: bad line"
+    m = R_WORKERS.fullmatch(lines[0].strip())
+    if not m or int(m.group(1)) < 1:
+        return 0, [], "line 1: bad line"
+    k = int(m.group(1))
+    tasks = []
+    byname = {}
+    for n, line in enumerate(lines[1:], 2):
+        s = line.strip()
+        if not s:
+            continue
+        m = R_TASK.fullmatch(s)
+        if not m or int(m.group(2)) < 1:
+            return k, tasks, "line %d: bad line" % n
+        name = m.group(1)
+        if name in byname:
+            return k, tasks, "line %d: duplicate %s" % (n, name)
+        deps = m.group(3).split(", ") if m.group(3) else []
+        t = Task(name, int(m.group(2)), deps, len(tasks))
+        byname[name] = t
+        tasks.append(t)
+    for t in tasks:
+        for d in t.deps:
+            if d not in byname:
+                return k, tasks, "unknown " + d
+    for t in tasks:
+        for d in t.deps:
+            byname[d].users.append(t)
+    state = {}
+    order = []
+
+    def visit(t):
+        stack = [(t, 0)]
+        while stack:
+            cur, i = stack.pop()
+            if i == 0:
+                if state.get(cur.name) == 2:
+                    continue
+                if state.get(cur.name) == 1:
+                    return False
+                state[cur.name] = 1
+            if i < len(cur.deps):
+                stack.append((cur, i + 1))
+                d = byname[cur.deps[i]]
+                if state.get(d.name) == 1:
+                    return False
+                if state.get(d.name) != 2:
+                    stack.append((d, 0))
+            else:
+                state[cur.name] = 2
+                order.append(cur)
+        return True
+
+    for t in tasks:
+        if not visit(t):
+            return k, tasks, "cycle"
+    for t in order:
+        t.start = max([byname[d].end for d in t.deps], default=0)
+        t.end = t.start + t.days
+    return k, tasks, None
+
+
+def unlimited(tasks):
+    length = max(t.end for t in tasks) if tasks else 0
+    reaches = {}
+    for t in sorted(tasks, key=lambda t: -t.end):
+        reaches[t.name] = t.end == length or any(
+            u.start == t.end and reaches[u.name] for u in t.users)
+    chain = []
+    cands = [t for t in tasks if t.start == 0 and reaches[t.name]]
+    cur = cands[0] if cands else None
+    while cur is not None:
+        chain.append(cur.name)
+        nxt = [u for u in cur.users if u.start == cur.end and reaches[u.name]]
+        cur = min(nxt, key=lambda u: u.idx) if nxt else None
+    return length, chain
+## schedule.py
+def tails(tasks):
+    tail = {}
+    for t in sorted(tasks, key=lambda t: -t.end):
+        tail[t.name] = t.days + max([tail[u.name] for u in t.users], default=0)
+    return tail
+
+
+def plan(tasks, k):
+    tail = tails(tasks)
+    by = {t.name: t for t in tasks}
+    starts = {}
+    ends = {}
+    running = []
+    T = 0
+    while len(ends) < len(tasks):
+        for t in [r for r in running if ends[r.name] == T]:
+            running.remove(t)
+        done = set(n for n in ends if ends[n] <= T)
+        ready = [t for t in tasks if t.name not in starts and all(d in done for d in t.deps)]
+        ready.sort(key=lambda t: (-tail[t.name], t.idx))
+        for t in ready:
+            if len(running) >= k:
+                break
+            starts[t.name] = T
+            ends[t.name] = T + t.days
+            running.append(t)
+        if not running:
+            break
+        T = min(ends[r.name] for r in running)
+    length = max(ends.values()) if ends else 0
+    return starts, ends, length

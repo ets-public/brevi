@@ -1,0 +1,264 @@
+fn tokenize(line: str) -> [str]:
+  cs = line.chars()
+  n = cs.len()
+  out: [str] = []
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == " " or c == "\t":
+      i += 1
+    elif c.is_digit():
+      j = i
+      while j < n and cs[j].is_digit():
+        j += 1
+      out.push("n" + "".join(cs[i:j]))
+      i = j
+    elif c.is_alpha():
+      j = i
+      while j < n and (cs[j].is_alpha() or cs[j].is_digit() or cs[j] == "_"):
+        j += 1
+      out.push("i" + "".join(cs[i:j]))
+      i = j
+    elif (c == "=" or c == "!" or c == "<" or c == ">") and i + 1 < n and cs[i + 1] == "=":
+      out.push("o" + c + "=")
+      i += 2
+    elif c in "+-*/%()<>=,":
+      out.push("o" + c)
+      i += 1
+    else:
+      out.push("x")
+      i += 1
+  return out
+
+fn tok_at(t: [str], p: int) -> str:
+  if p < t.len(): return t[p]
+  return ""
+
+fn ident_at(t: [str], i: int) -> str:
+  k = tok_at(t, i)
+  if k[:1] != "i": return ""
+  nm = k[1:]
+  if nm == "let" or nm == "fn" or nm == "print" or nm == "if": return ""
+  return nm
+
+fn parse_expr(t: [str], p: int, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  return parse_cmp(t, p, loc, ev, dp)
+
+fn parse_cmp(t: [str], p: int, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  r = parse_sum(t, p, loc, ev, dp)
+  a = r.0
+  q = r.1
+  op = tok_at(t, q)
+  if op == "o==" or op == "o!=" or op == "o<" or op == "o>" or op == "o<=" or op == "o>=":
+    r2 = parse_sum(t, q + 1, loc, ev, dp)
+    q = r2.1
+    if not ev: return (0, q)
+    b = r2.0
+    if op == "o==": return (1 if a == b else 0, q)
+    if op == "o!=": return (1 if a != b else 0, q)
+    if op == "o<": return (1 if a < b else 0, q)
+    if op == "o>": return (1 if a > b else 0, q)
+    if op == "o<=": return (1 if a <= b else 0, q)
+    return (1 if a >= b else 0, q)
+  return (a, q)
+
+fn parse_sum(t: [str], p: int, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  r = parse_term(t, p, loc, ev, dp)
+  acc = r.0
+  q = r.1
+  while tok_at(t, q) == "o+" or tok_at(t, q) == "o-":
+    op = tok_at(t, q)
+    r2 = parse_term(t, q + 1, loc, ev, dp)
+    q = r2.1
+    if ev:
+      if op == "o+":
+        acc = acc + r2.0
+      else:
+        acc = acc - r2.0
+  return (acc, q)
+
+fn parse_term(t: [str], p: int, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  r = parse_unary(t, p, loc, ev, dp)
+  acc = r.0
+  q = r.1
+  while tok_at(t, q) == "o*" or tok_at(t, q) == "o/" or tok_at(t, q) == "o%":
+    op = tok_at(t, q)
+    r2 = parse_unary(t, q + 1, loc, ev, dp)
+    q = r2.1
+    if ev:
+      if op == "o*":
+        acc = acc * r2.0
+      elif r2.0 == 0:
+        fail("division by zero")
+      elif op == "o/":
+        acc = acc / r2.0
+      else:
+        acc = acc % r2.0
+  return (acc, q)
+
+fn parse_unary(t: [str], p: int, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  if tok_at(t, p) == "o-":
+    r = parse_unary(t, p + 1, loc, ev, dp)
+    return (0 - r.0, r.1)
+  return parse_primary(t, p, loc, ev, dp)
+
+fn parse_primary(t: [str], p: int, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  k = tok_at(t, p)
+  c = k[:1]
+  if c == "n":
+    return (k[1:].int().or(0), p + 1)
+  if k == "o(":
+    r = parse_expr(t, p + 1, loc, ev, dp)
+    if tok_at(t, r.1) != "o)": fail("syntax")
+    return (r.0, r.1 + 1)
+  if c == "i":
+    nm = k[1:]
+    if nm == "let" or nm == "fn" or nm == "print": fail("syntax")
+    if tok_at(t, p + 1) == "o(": return parse_call(t, p, nm, loc, ev, dp)
+    if nm == "if": fail("syntax")
+    if not ev: return (0, p + 1)
+    if loc.has(nm): return (loc[nm], p + 1)
+    if globals.has(nm): return (globals[nm], p + 1)
+    fail("unknown name {nm}")
+  fail("syntax")
+  return (0, p)
+
+fn parse_if(t: [str], p: int, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  q = p + 2
+  cond = 0
+  ta = 0
+  fb = 0
+  cnt = 0
+  if tok_at(t, q) == "o)":
+    q += 1
+  else:
+    while True:
+      if cnt == 0:
+        r = parse_expr(t, q, loc, ev, dp)
+        cond = r.0
+      elif cnt == 1:
+        r = parse_expr(t, q, loc, ev and cond != 0, dp)
+        ta = r.0
+      elif cnt == 2:
+        r = parse_expr(t, q, loc, ev and cond == 0, dp)
+        fb = r.0
+      else:
+        r = parse_expr(t, q, loc, False, dp)
+      cnt += 1
+      q = r.1
+      if tok_at(t, q) == "o,":
+        q += 1
+      elif tok_at(t, q) == "o)":
+        q += 1
+        break
+      else:
+        fail("syntax")
+  if cnt != 3:
+    if ev: fail("if takes 3 arguments")
+    return (0, q)
+  if cond != 0: return (ta, q)
+  return (fb, q)
+
+fn parse_call(t: [str], p: int, name: str, loc: {str: int}, ev: bool, dp: int) -> (int, int):
+  if name == "if": return parse_if(t, p, loc, ev, dp)
+  if ev and not fparams.has(name): fail("unknown function {name}")
+  q = p + 2
+  args: [int] = []
+  if tok_at(t, q) == "o)":
+    q += 1
+  else:
+    while True:
+      r = parse_expr(t, q, loc, ev, dp)
+      args.push(r.0)
+      q = r.1
+      if tok_at(t, q) == "o,":
+        q += 1
+      elif tok_at(t, q) == "o)":
+        q += 1
+        break
+      else:
+        fail("syntax")
+  if not ev: return (0, q)
+  params = fparams[name]
+  if args.len() != params.len(): fail("{name} takes {params.len()} arguments")
+  if dp + 1 > 200: fail("too deep")
+  nl: {str: int} = {}
+  for i, pn in enumerate(params): nl[pn] = args[i]
+  r = parse_expr(fbody[name], 0, nl, True, dp + 1)
+  return (r.0, q)
+
+fn expr_end(t: [str], start: int, ev: bool) -> int:
+  emp: {str: int} = {}
+  r = parse_expr(t, start, emp, ev, 0)
+  if r.1 != t.len(): fail("syntax")
+  return r.0
+
+fn expr_list(t: [str], start: int, ev: bool) -> [int]:
+  emp: {str: int} = {}
+  vals: [int] = []
+  q = start
+  while True:
+    r = parse_expr(t, q, emp, ev, 0)
+    vals.push(r.0)
+    q = r.1
+    if tok_at(t, q) == "o,":
+      q += 1
+    else:
+      break
+  if q != t.len(): fail("syntax")
+  return vals
+
+fn exec_line(s: str) -> str:
+  t = tokenize(s)
+  k = tok_at(t, 0)
+  if k == "ilet":
+    nm = ident_at(t, 1)
+    if nm == "" or tok_at(t, 2) != "o=": fail("syntax")
+    expr_end(t, 3, False)
+    v = expr_end(t, 3, True)
+    globals[nm] = v
+    return ""
+  if k == "ifn":
+    nm = ident_at(t, 1)
+    if nm == "" or tok_at(t, 2) != "o(": fail("syntax")
+    params: [str] = []
+    q = 3
+    if tok_at(t, q) == "o)":
+      q += 1
+    else:
+      while True:
+        pn = ident_at(t, q)
+        if pn == "": fail("syntax")
+        params.push(pn)
+        q += 1
+        if tok_at(t, q) == "o,":
+          q += 1
+        elif tok_at(t, q) == "o)":
+          q += 1
+          break
+        else:
+          fail("syntax")
+    if tok_at(t, q) != "o=": fail("syntax")
+    body = t[q + 1:]
+    expr_end(body, 0, False)
+    fparams[nm] = params
+    fbody[nm] = body
+    return ""
+  if k == "iprint":
+    expr_list(t, 1, False)
+    vals = expr_list(t, 1, True)
+    return " ".join([str(v) for v in vals])
+  fail("syntax")
+  return ""
+
+globals: {str: int} = {}
+fparams: {str: [str]} = {}
+fbody: {str: [str]} = {}
+for n, raw in enumerate(lines()):
+  ln = n + 1
+  s = raw.trim()
+  if s.is_empty() or s.starts_with("#"): continue
+  match exec_line(s):
+    Ok(out) =>
+      if out != "": print(out)
+    Err(msg) => print("error line {ln}: {msg}")

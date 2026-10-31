@@ -1,0 +1,19 @@
+TRADE x c 5 9.50
+TRADE x a 5 10.00
+TRADE x b 2 10.00
+asks
+  10.00 3
+bids
+  -
+DROPPED y 3
+ERR line 7: bad command
+ERR line 8: bad command
+ERR line 9: bad command
+ERR line 10: bad command
+ERR line 11: bad command
+ERR line 12: bad command
+asks
+  10.00 3
+bids
+  -
+volume 12 value 117.50

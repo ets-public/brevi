@@ -1,0 +1,231 @@
+## main.py
+import datetime
+import sys
+
+import rules
+from catalog import Book, Member, Library
+
+
+def main():
+    lib = Library()
+    out = []
+    for raw in sys.stdin.read().split('\n'):
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split()
+        date = datetime.date.fromisoformat(parts[0])
+        out.extend(rules.expire_holds(lib, date))
+        cmd = parts[1]
+
+        if cmd == 'BOOK':
+            sp = line.split(None, 4)
+            bid = sp[2]
+            if bid in lib.books:
+                out.append('duplicate ID')
+            else:
+                title = sp[4] if len(sp) > 4 else ''
+                lib.books[bid] = Book(bid, title, int(sp[3]))
+                out.append('added %s' % bid)
+        elif cmd == 'MEMBER':
+            sp = line.split(None, 4)
+            mid, tier = sp[2], sp[3]
+            if mid in lib.members:
+                out.append('duplicate ID')
+            else:
+                name = sp[4] if len(sp) > 4 else ''
+                lib.members[mid] = Member(mid, name, tier)
+                out.append('welcome %s' % name)
+        elif cmd == 'LOAN':
+            out.append(rules.loan(lib, date, parts[2], parts[3]))
+        elif cmd == 'RETURN':
+            out.append(rules.return_book(lib, date, parts[2], parts[3]))
+        elif cmd == 'RESERVE':
+            out.append(rules.reserve(lib, date, parts[2], parts[3]))
+        elif cmd == 'PAY':
+            out.append(rules.pay(lib, parts[2], rules.to_cents(parts[3])))
+        elif cmd == 'STATUS':
+            out.append(rules.status(lib, parts[2]))
+    sys.stdout.write('\n'.join(out) + ('\n' if out else ''))
+
+
+main()
+## catalog.py
+TIERS = {
+    'basic': {'limit': 2, 'days': 14, 'rate': 25},   # rate in cents per day late
+    'plus': {'limit': 5, 'days': 28, 'rate': 10},
+}
+
+
+class Hold:
+    def __init__(self, member_id, last):
+        self.member_id = member_id
+        self.last = last  # last day (date) the copy can be collected
+
+
+class Book:
+    def __init__(self, bid, title, copies):
+        self.id = bid
+        self.title = title
+        self.copies = copies
+        self.shelf = copies      # copies on the shelf (not on loan, not held)
+        self.waitlist = []       # member IDs, first in line first
+        self.holds = []          # Hold objects, one per held copy
+
+
+class Member:
+    def __init__(self, mid, name, tier):
+        self.id = mid
+        self.name = name
+        self.tier = tier
+        self.owes = 0            # cents; may be negative (credit)
+        self.loans = []          # (book_id, due date), in lending order
+
+
+class Library:
+    def __init__(self):
+        self.books = {}
+        self.members = {}
+## rules.py
+import datetime
+
+from catalog import TIERS, Hold
+
+MAX_FEE = 500      # cents per loan
+HOLD_DAYS = 3      # a hold from day D can be collected through D + HOLD_DAYS
+OWES_LIMIT = 200   # cents
+
+
+def money(c):
+    sign = '-' if c < 0 else ''
+    c = abs(c)
+    return "%s%d.%02d" % (sign, c // 100, c % 100)
+
+
+def to_cents(s):
+    if '.' in s:
+        a, b = s.split('.')
+        b = (b + '00')[:2]
+    else:
+        a, b = s, '00'
+    return int(a) * 100 + int(b)
+
+
+def refuse(mid, bid, reason):
+    return "refused %s %s: %s" % (mid, bid, reason)
+
+
+def find_hold(book, mid):
+    for h in book.holds:
+        if h.member_id == mid:
+            return h
+    return None
+
+
+def expire_holds(lib, date):
+    """Expire every hold whose last day is before date, in (last day, book ID) order."""
+    out = []
+    while True:
+        best = None
+        for b in lib.books.values():
+            for h in b.holds:
+                if h.last < date:
+                    key = (h.last, b.id)
+                    if best is None or key < best[0]:
+                        best = (key, b, h)
+        if best is None:
+            break
+        _key, b, h = best
+        b.holds.remove(h)
+        out.append("hold expired %s %s" % (h.member_id, b.id))
+        if b.waitlist:
+            nxt = b.waitlist.pop(0)
+            b.holds.append(Hold(nxt, h.last + datetime.timedelta(days=HOLD_DAYS + 1)))
+        else:
+            b.shelf += 1
+    return out
+
+
+def loan(lib, date, mid, bid):
+    m = lib.members.get(mid)
+    if m is None:
+        return refuse(mid, bid, 'unknown member')
+    b = lib.books.get(bid)
+    if b is None:
+        return refuse(mid, bid, 'unknown book')
+    if m.owes > OWES_LIMIT:
+        return refuse(mid, bid, 'owes %s' % money(m.owes))
+    t = TIERS[m.tier]
+    if len(m.loans) >= t['limit']:
+        return refuse(mid, bid, 'limit')
+    if any(lb == bid for lb, _due in m.loans):
+        return refuse(mid, bid, 'already has it')
+    hold = find_hold(b, mid)
+    if hold is None and b.shelf <= 0:
+        return refuse(mid, bid, 'none available')
+    due = date + datetime.timedelta(days=t['days'])
+    if hold is not None:
+        b.holds.remove(hold)
+    else:
+        b.shelf -= 1
+    m.loans.append((bid, due))
+    return "loan %s %s due %s" % (mid, bid, due.isoformat())
+
+
+def return_book(lib, date, mid, bid):
+    m = lib.members.get(mid)
+    idx = None
+    if m is not None:
+        for i, (lb, _due) in enumerate(m.loans):
+            if lb == bid:
+                idx = i
+                break
+    if idx is None:
+        return refuse(mid, bid, 'not on loan')
+    _lb, due = m.loans.pop(idx)
+    out = "returned %s %s" % (mid, bid)
+    late = (date - due).days
+    if late > 0:
+        fee = min(late * TIERS[m.tier]['rate'], MAX_FEE)
+        m.owes += fee
+        out += " fee %s" % money(fee)
+    b = lib.books[bid]
+    if b.waitlist:
+        nxt = b.waitlist.pop(0)
+        b.holds.append(Hold(nxt, date + datetime.timedelta(days=HOLD_DAYS)))
+    else:
+        b.shelf += 1
+    return out
+
+
+def reserve(lib, date, mid, bid):
+    m = lib.members.get(mid)
+    if m is None:
+        return refuse(mid, bid, 'unknown member')
+    b = lib.books.get(bid)
+    if b is None:
+        return refuse(mid, bid, 'unknown book')
+    if any(lb == bid for lb, _due in m.loans):
+        return refuse(mid, bid, 'already has it')
+    if mid in b.waitlist or find_hold(b, mid) is not None:
+        return refuse(mid, bid, 'already reserved')
+    if b.shelf > 0:
+        return refuse(mid, bid, 'copy available')
+    b.waitlist.append(mid)
+    return "reserved %s %s position %d" % (mid, bid, len(b.waitlist))
+
+
+def pay(lib, mid, amount):
+    m = lib.members.get(mid)
+    if m is None:
+        return "refused %s: unknown member" % mid
+    m.owes -= amount
+    return "paid %s owes %s" % (mid, money(m.owes))
+
+
+def status(lib, mid):
+    m = lib.members.get(mid)
+    if m is None:
+        return "refused %s: unknown member" % mid
+    loans = ' '.join(lb for lb, _due in m.loans) or '-'
+    return "%s %s owes %s loans: %s" % (mid, m.name, money(m.owes), loans)

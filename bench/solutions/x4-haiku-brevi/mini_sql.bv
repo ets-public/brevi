@@ -1,0 +1,364 @@
+tk = []
+p = 0
+wc = []
+ccol = []
+ctyp = []
+vals = []
+scols = []
+
+fn tokenize(s: str) -> [str]:
+  out = []
+  i = 0
+  n = s.len()
+  while i < n:
+    c = s[i:i+1]
+    if c == " ":
+      i += 1
+    elif c == "'":
+      buf = "'"
+      j = i + 1
+      closed = False
+      while j < n and not closed:
+        ch = s[j:j+1]
+        if ch == "'":
+          if j + 1 < n and s[j+1:j+2] == "'":
+            buf += "'"
+            j += 2
+          else:
+            closed = True
+            j += 1
+        else:
+          buf += ch
+          j += 1
+      if closed:
+        out.push(buf)
+      else:
+        out.push("")
+      i = j
+    elif c.is_alpha():
+      j = i + 1
+      while j < n and (s[j:j+1].is_alpha() or s[j:j+1].is_digit() or s[j:j+1] == "_"):
+        j += 1
+      out.push(s[i:j])
+      i = j
+    elif c.is_digit() or c == "-":
+      j = i + 1
+      while j < n and s[j:j+1].is_digit():
+        j += 1
+      out.push(s[i:j])
+      i = j
+    elif c == "<" or c == ">" or c == "!" or c == "=":
+      if i + 1 < n and s[i+1:i+2] == "=":
+        out.push(s[i:i+2])
+        i += 2
+      else:
+        out.push(c)
+        i += 1
+    else:
+      out.push(c)
+      i += 1
+  out
+
+fn cur() -> str:
+  if p < tk.len(): return tk[p]
+  ""
+
+fn at(k: int) -> str:
+  j = p + k
+  if j < tk.len(): return tk[j]
+  ""
+
+fn eat(s: str) -> bool:
+  if cur() == s:
+    p += 1
+    return True
+  False
+
+fn word() -> str:
+  t = cur()
+  if t.is_empty(): return ""
+  if t[0:1].is_alpha():
+    p += 1
+    return t
+  ""
+
+fn is_num(t: str) -> bool:
+  s = t
+  if s.starts_with("-"): s = s[1:]
+  if s.is_empty(): return False
+  for c in s.chars():
+    if not c.is_digit(): return False
+  True
+
+fn value() -> str:
+  t = cur()
+  if t.is_empty(): return ""
+  if t.starts_with("'") or is_num(t):
+    p += 1
+    return t
+  ""
+
+fn coldefs() -> bool:
+  more = True
+  while more:
+    nm = word()
+    if nm == "": return False
+    ty = cur()
+    if ty != "INT" and ty != "TEXT": return False
+    p += 1
+    ccol.push(nm)
+    ctyp.push(ty)
+    more = eat(",")
+  True
+
+fn valist() -> bool:
+  more = True
+  while more:
+    v = value()
+    if v == "": return False
+    vals.push(v)
+    more = eat(",")
+  True
+
+fn collist() -> bool:
+  more = True
+  while more:
+    nm = word()
+    if nm == "": return False
+    scols.push(nm)
+    more = eat(",")
+  True
+
+fn condlist() -> bool:
+  more = True
+  while more:
+    c = word()
+    if c == "": return False
+    op = cur()
+    if op not in ["=", "!=", "<", ">", "<=", ">="]: return False
+    p += 1
+    v = value()
+    if v == "": return False
+    wc.push(c)
+    wc.push(op)
+    wc.push(v)
+    more = eat("AND")
+  True
+
+fn optwhere() -> bool:
+  if eat("WHERE"): return condlist()
+  True
+
+fn fits(v: str, ty: str) -> bool:
+  if ty == "TEXT": return v.starts_with("'")
+  is_num(v)
+
+fn cell(v: str) -> str:
+  if v.starts_with("'"): return v[1:]
+  v
+
+fn firstbad(names: [str], cols: [str]) -> str:
+  for c in cols:
+    if names.index_of(c) < 0: return c
+  ""
+
+fn cmpv(a: str, b: str, ty: str) -> int:
+  if ty == "INT":
+    x = a.int().or(0)
+    y = b.int().or(0)
+    if x < y: return -1
+    if x > y: return 1
+    return 0
+  if a < b: return -1
+  if a > b: return 1
+  0
+
+fn opok(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  c >= 0
+
+fn matches(row: [str], names: [str], types: [str], cs: [str]) -> bool:
+  for i in 0..(cs.len() / 3):
+    ci = names.index_of(cs[i * 3])
+    if not opok(cmpv(row[ci], cell(cs[i * 3 + 2]), types[ci]), cs[i * 3 + 1]): return False
+  True
+
+fn insert_pos(sidx: [int], trows: [[str]], r: int, ci: int, ty: str, desc: bool) -> int:
+  for k in 0..sidx.len():
+    c = cmpv(trows[r][ci], trows[sidx[k]][ci], ty)
+    if desc and c > 0: return k
+    if not desc and c < 0: return k
+  sidx.len()
+
+coln = {}
+colt = {}
+rows = {}
+lineno = 0
+for raw in lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  tk = tokenize(line)
+  p = 0
+  kind = ""
+  tname = ""
+  ccol = []
+  ctyp = []
+  vals = []
+  wc = []
+  scols = []
+  star = False
+  ocol = ""
+  odesc = False
+  lim = -1
+  limtok = ""
+  setcol = ""
+  setval = ""
+  ok = False
+  if at(0) == "CREATE" and at(1) == "TABLE":
+    p += 2
+    kind = "CREATE"
+    tname = word()
+    ok = tname != "" and eat("(") and coldefs() and eat(")")
+  elif at(0) == "INSERT" and at(1) == "INTO":
+    p += 2
+    kind = "INSERT"
+    tname = word()
+    ok = tname != "" and eat("VALUES") and eat("(") and valist() and eat(")")
+  elif at(0) == "SELECT" and at(1) == "COUNT":
+    p += 2
+    kind = "COUNT"
+    ok = eat("(") and eat("*") and eat(")") and eat("FROM")
+    tname = word()
+    ok = ok and tname != "" and optwhere()
+  elif at(0) == "SELECT":
+    p += 1
+    kind = "SELECT"
+    if eat("*"):
+      star = True
+      ok = True
+    else:
+      ok = collist()
+    ok = ok and eat("FROM")
+    tname = word()
+    ok = ok and tname != "" and optwhere()
+    if ok and eat("ORDER"):
+      ok = eat("BY")
+      ocol = word()
+      ok = ok and ocol != ""
+      if eat("DESC"): odesc = True
+    if ok and eat("LIMIT"):
+      limtok = value()
+      lim = limtok.int().or(-1)
+      ok = lim >= 0
+  elif at(0) == "UPDATE":
+    p += 1
+    kind = "UPDATE"
+    tname = word()
+    ok = tname != "" and eat("SET")
+    setcol = word()
+    ok = ok and setcol != "" and eat("=")
+    setval = value()
+    ok = ok and setval != "" and optwhere()
+  elif at(0) == "DELETE" and at(1) == "FROM":
+    p += 2
+    kind = "DELETE"
+    tname = word()
+    ok = tname != "" and optwhere()
+  ok = ok and p == tk.len()
+  lineno += 1
+  if not ok:
+    print("error: syntax")
+    continue
+  wcols = []
+  for i in 0..(wc.len() / 3):
+    wcols.push(wc[i * 3])
+  if kind == "CREATE":
+    if coln.has(tname):
+      print("error: table {tname} exists")
+    else:
+      coln[tname] = ccol
+      colt[tname] = ctyp
+      rows[tname] = []
+      print("ok")
+    continue
+  if not coln.has(tname):
+    print("error: no table {tname}")
+    continue
+  names = coln[tname]
+  types = colt[tname]
+  badc = ""
+  if kind == "SELECT": badc = firstbad(names, scols)
+  if kind == "UPDATE": badc = firstbad(names, [setcol])
+  if badc == "": badc = firstbad(names, wcols)
+  if badc == "" and ocol != "": badc = firstbad(names, [ocol])
+  if badc != "":
+    print("error: no column {badc}")
+    continue
+  bad = False
+  if kind == "INSERT":
+    if vals.len() != names.len():
+      bad = True
+    else:
+      for i in 0..names.len():
+        if not fits(vals[i], types[i]): bad = True
+  if kind == "UPDATE" and not fits(setval, types[names.index_of(setcol)]): bad = True
+  for i in 0..(wc.len() / 3):
+    if not fits(wc[i * 3 + 2], types[names.index_of(wc[i * 3])]): bad = True
+  if bad:
+    print("error: type mismatch")
+    continue
+  tabrows = rows[tname]
+  if kind == "INSERT":
+    cells = []
+    for v in vals: cells.push(cell(v))
+    tabrows.push(cells)
+    rows[tname] = tabrows
+    print("ok")
+    continue
+  idx = []
+  for i in 0..tabrows.len():
+    if matches(tabrows[i], names, types, wc): idx.push(i)
+  if kind == "COUNT":
+    print(idx.len())
+  elif kind == "UPDATE":
+    ci = names.index_of(setcol)
+    for i in idx:
+      rowc = tabrows[i]
+      rowc[ci] = cell(setval)
+      tabrows[i] = rowc
+    rows[tname] = tabrows
+    print("updated {idx.len()}")
+  elif kind == "DELETE":
+    keep = []
+    for i in 0..tabrows.len():
+      if i not in idx: keep.push(tabrows[i])
+    rows[tname] = keep
+    print("deleted {idx.len()}")
+  elif kind == "SELECT":
+    proj = []
+    if star:
+      for j in 0..names.len(): proj.push(j)
+    else:
+      for c in scols: proj.push(names.index_of(c))
+    sidx = []
+    for i in idx:
+      if ocol == "":
+        sidx.push(i)
+      else:
+        ci = names.index_of(ocol)
+        k = insert_pos(sidx, tabrows, i, ci, types[ci], odesc)
+        sidx.insert(k, i)
+    outidx = sidx
+    if lim >= 0: outidx = sidx.take(lim)
+    hdr = scols
+    if star: hdr = names
+    print(" | ".join(hdr))
+    for i in outidx:
+      line2 = []
+      for j in proj: line2.push(tabrows[i][j])
+      print(" | ".join(line2))
+    print("({outidx.len()} rows)")

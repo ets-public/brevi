@@ -1,0 +1,8 @@
+workers 2
+design 3
+db 4 after design
+api 5 after design
+ui 6 after design
+tests 2 after db, api
+docs 1
+launch 1 after tests, ui, docs

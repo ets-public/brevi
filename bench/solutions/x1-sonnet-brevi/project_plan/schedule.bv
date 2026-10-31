@@ -1,0 +1,28 @@
+use "graph.bv"
+
+fn schedule(ts: [Task], tl: [int], k: int) -> [int]:
+  n = ts.len()
+  st = [-1].repeat(n)
+  done = [false].repeat(n)
+  running: [(int, int)] = []
+  t = 0
+  while true:
+    rest: [(int, int)] = []
+    for r in running:
+      if r.0 == t:
+        done[r.1] = true
+      else:
+        rest.push(r)
+    running = rest
+    while running.len() < k:
+      best = -1
+      for i in 0..n:
+        if st[i] >= 0: continue
+        if not all(done[d] for d in ts[i].deps): continue
+        if best < 0 or tl[i] > tl[best]: best = i
+      if best < 0: break
+      st[best] = t
+      running.push((t + ts[best].days, best))
+    if running.is_empty(): break
+    t = min(r.0 for r in running)
+  st

@@ -1,0 +1,208 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn main():
+  k = -1
+  tasks: [Task] = []
+  seen: {str: int} = {}
+  for n, raw in enumerate(lines()):
+    ln = n + 1
+    w = raw.trim().words()
+    if w.len() == 0: continue
+    if k < 0:
+      if w.len() == 2 and w[0] == "workers" and not w[1].re_full("[0-9]+").is_empty() and w[1].int().or(0) >= 1:
+        k = w[1].int().or(0)
+        continue
+      print("line {ln}: bad line")
+      return
+    bad = True
+    deps: [str] = []
+    if w.len() >= 2 and not w[0].re_full("[A-Za-z0-9_]+").is_empty() and not w[1].re_full("[0-9]+").is_empty() and w[1].int().or(0) >= 1:
+      if w.len() == 2:
+        bad = False
+      elif w.len() > 3 and w[2] == "after":
+        pd = parse_deps(" ".join(w[3:]))
+        if pd.1:
+          deps = pd.0
+          bad = False
+    if bad:
+      print("line {ln}: bad line")
+      return
+    nm = w[0]
+    if seen.has(nm):
+      print("line {ln}: duplicate {nm}")
+      return
+    seen[nm] = 1
+    tasks.push(Task(name: nm, days: w[1].int().or(0), deps: deps))
+  if k < 0: return
+  msg = unknown_dep(tasks)
+  if msg != "":
+    print(msg)
+    return
+  ids = dep_ids(tasks)
+  if has_cycle(ids):
+    print("cycle")
+    return
+  u = unlimited(tasks, ids)
+  ustarts = u.0
+  uends = u.1
+  print("unlimited")
+  for i, t in enumerate(tasks):
+    print("  {t.name} {ustarts[i]}-{uends[i]}")
+  print("length {makespan(uends)}")
+  chain = critical_chain(tasks, ids, ustarts, uends)
+  print("critical " + " > ".join(chain))
+  sc = schedule(tasks, ids, k)
+  print("workers {k}")
+  for i, t in enumerate(tasks):
+    print("  {t.name} {sc.0[i]}-{sc.1[i]}")
+  print("length {makespan(sc.1)}")
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse_deps(s: str) -> ([str], bool):
+  out: [str] = []
+  for part in s.split(","):
+    nm = part.trim()
+    if nm.re_full("[A-Za-z0-9_]+").is_empty(): return (out, False)
+    out.push(nm)
+  return (out, True)
+
+fn index_of(tasks: [Task], nm: str) -> int:
+  for i, t in enumerate(tasks):
+    if t.name == nm: return i
+  return -1
+
+fn unknown_dep(tasks: [Task]) -> str:
+  for t in tasks:
+    for d in t.deps:
+      if index_of(tasks, d) < 0: return "unknown {d}"
+  return ""
+
+fn dep_ids(tasks: [Task]) -> [[int]]:
+  out: [[int]] = []
+  for t in tasks:
+    ids: [int] = []
+    for d in t.deps: ids.push(index_of(tasks, d))
+    out.push(ids)
+  return out
+
+fn has_cycle(deps: [[int]]) -> bool:
+  n = deps.len()
+  fin: [int] = []
+  for i in 0..n: fin.push(0)
+  progress = True
+  while progress:
+    progress = False
+    for i in 0..n:
+      if fin[i] == 0:
+        ok = True
+        for d in deps[i]:
+          if fin[d] == 0: ok = False
+        if ok:
+          fin[i] = 1
+          progress = True
+  for i in 0..n:
+    if fin[i] == 0: return True
+  return False
+
+fn makespan(ends: [int]) -> int:
+  m = 0
+  for e in ends:
+    if e > m: m = e
+  return m
+
+fn unlimited(tasks: [Task], deps: [[int]]) -> ([int], [int]):
+  n = tasks.len()
+  starts: [int] = []
+  ends: [int] = []
+  for i in 0..n:
+    starts.push(0)
+    ends.push(0)
+  for pass in 0..n:
+    for i in 0..n:
+      st = 0
+      for d in deps[i]:
+        if ends[d] > st: st = ends[d]
+      starts[i] = st
+      ends[i] = st + tasks[i].days
+  return (starts, ends)
+
+fn critical_chain(tasks: [Task], deps: [[int]], starts: [int], ends: [int]) -> [str]:
+  n = tasks.len()
+  top = makespan(ends)
+  cont: [bool] = []
+  for i in 0..n: cont.push(ends[i] == top)
+  for pass in 0..n:
+    for i in 0..n:
+      if not cont[i]:
+        for s in 0..n:
+          if cont[s] and starts[s] == ends[i] and i in deps[s]:
+            cont[i] = True
+  chain: [str] = []
+  first = -1
+  for i in 0..n:
+    if first < 0 and starts[i] == 0 and cont[i]: first = i
+  if first < 0: return chain
+  cur = first
+  chain.push(tasks[cur].name)
+  while ends[cur] != top:
+    nxt = -1
+    for s in 0..n:
+      if nxt < 0 and cont[s] and starts[s] == ends[cur] and cur in deps[s]: nxt = s
+    if nxt < 0: break
+    chain.push(tasks[nxt].name)
+    cur = nxt
+  return chain
+## schedule.bv
+use "graph.bv"
+
+fn schedule(tasks: [Task], deps: [[int]], k: int) -> ([int], [int]):
+  n = tasks.len()
+  tail: [int] = []
+  for i in 0..n: tail.push(tasks[i].days)
+  for pass in 0..n:
+    for i in 0..n:
+      best = 0
+      for s in 0..n:
+        if i in deps[s] and tail[s] > best: best = tail[s]
+      tail[i] = tasks[i].days + best
+  st: [int] = []
+  starts: [int] = []
+  ends: [int] = []
+  for i in 0..n:
+    st.push(0)
+    starts.push(0)
+    ends.push(0)
+  t = 0
+  busy = 0
+  done_n = 0
+  while done_n < n:
+    for i in 0..n:
+      if st[i] == 1 and ends[i] == t:
+        st[i] = 2
+        busy -= 1
+        done_n += 1
+    while busy < k:
+      bi = -1
+      for i in 0..n:
+        if st[i] == 0:
+          ready = True
+          for d in deps[i]:
+            if st[d] != 2: ready = False
+          if ready and (bi < 0 or tail[i] > tail[bi]): bi = i
+      if bi < 0: break
+      st[bi] = 1
+      starts[bi] = t
+      ends[bi] = t + tasks[bi].days
+      busy += 1
+    nt = -1
+    for i in 0..n:
+      if st[i] == 1 and (nt < 0 or ends[i] < nt): nt = ends[i]
+    if nt < 0: break
+    t = nt
+  return (starts, ends)

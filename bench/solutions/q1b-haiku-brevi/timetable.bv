@@ -1,0 +1,76 @@
+fn tm(s: str) -> int:
+  p = s.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+fn two(x: int) -> str:
+  if x < 10:
+    return "0" + str(x)
+  return str(x)
+fn hhmm(t: int) -> str:
+  return two(t // 60) + ":" + two(t % 60)
+ls = stdin().lines()
+sep = ls.index_of("---")
+sTr = []
+sStop = []
+sTime = []
+nxt = []
+for li in 0..sep:
+  w = ls[li].words()
+  if w.is_empty():
+    continue
+  tname = w[0]
+  first = sTr.len()
+  cnt = (w.len() - 1) // 2
+  for k in 0..cnt:
+    sTr.push(tname)
+    sStop.push(w[1 + 2 * k])
+    sTime.push(tm(w[2 + 2 * k]))
+    nxt.push(-1)
+  for k in 0..cnt - 1:
+    nxt[first + k] = first + k + 1
+S = sTr.len()
+qs = sep + 1
+nl = ls.len()
+for li in qs..nl:
+  w = ls[li].words()
+  if w.is_empty():
+    continue
+  fr = w[0]
+  to = w[1]
+  q = tm(w[2])
+  if fr == to:
+    print(fr + " " + to + " " + hhmm(q) + " via -")
+    continue
+  lab = []
+  for s in 0..S:
+    lab.push((99, []))
+  for s in 0..S:
+    if sStop[s] == fr and sTime[s] >= q:
+      lab[s] = (1, [sTr[s]])
+  changed = true
+  while changed:
+    changed = false
+    for s in 0..S:
+      if lab[s][0] == 99:
+        continue
+      n = nxt[s]
+      if n >= 0:
+        cand = lab[s]
+        if cand < lab[n]:
+          lab[n] = cand
+          changed = true
+      for u in 0..S:
+        if sStop[u] == sStop[s] and sTr[u] != sTr[s] and sTime[u] >= sTime[s] + 5:
+          cand = (lab[s][0] + 1, lab[s][1] + [sTr[u]])
+          if cand < lab[u]:
+            lab[u] = cand
+            changed = true
+  best = (999999, 99, [])
+  for s in 0..S:
+    if sStop[s] == to and lab[s][0] < 99:
+      cand = (sTime[s], lab[s][0], lab[s][1])
+      if cand < best:
+        best = cand
+  if best[0] == 999999:
+    print(fr + " " + to + " unreachable")
+  else:
+    print(fr + " " + to + " " + hhmm(best[0]) + " via " + best[2].join(">"))

@@ -24,6 +24,12 @@ const KEYWORDS: &[&str] = &[
     "true", "false", "mut", "test", "assert", "break", "continue", "and", "or", "not",
 ];
 
+// Names Rust's prelude gives to traits and types: a Brevi `type Ord` must not clash with them.
+const RUST_PRELUDE: &[&str] = &[
+    "Ord", "PartialOrd", "Eq", "PartialEq", "Clone", "Copy", "Default", "Debug", "Hash", "Iterator", "Drop", "Send",
+    "Sync", "Sized", "From", "Into", "Vec", "String", "Box", "Option", "ToString", "Fn", "FnMut", "FnOnce", "Display",
+];
+
 const RUST_KEYWORDS: &[&str] = &[
     "as", "async", "await", "box", "const", "crate", "dyn", "extern", "impl", "loop", "mod", "move", "priv", "pub", "ref",
     "self", "static", "struct", "super", "trait", "try", "typeof", "unsafe", "use", "where", "yield", "macro", "final",
@@ -34,7 +40,7 @@ const RUST_KEYWORDS: &[&str] = &[
 // and whether `}}` follows it.
 fn template_tag(chars: &[char], from: usize) -> Option<(usize, bool)> {
     let first = *chars.get(from)?;
-    let tag_start = matches!(first, '#' | '/');
+    let tag_start = matches!(first, '#' | '/' | '@' | '>' | '!');
     let mut j = from;
     while let Some(&c) = chars.get(j) {
         if c == '}' {
@@ -53,6 +59,23 @@ fn template_tag(chars: &[char], from: usize) -> Option<(usize, bool)> {
     }
     let text: String = chars[from..j].iter().collect();
     (tag_start || text == "else").then_some((j, true))
+}
+
+// Is the quote at `q` the start of a method's first argument: `.name(` just before it?
+fn method_arg_start(chars: &[char], q: usize) -> bool {
+    let mut j = q;
+    while j > 0 && chars[j - 1] == ' ' {
+        j -= 1;
+    }
+    if j == 0 || chars[j - 1] != '(' {
+        return false;
+    }
+    j -= 1;
+    let end = j;
+    while j > 0 && (chars[j - 1].is_alphanumeric() || chars[j - 1] == '_') {
+        j -= 1;
+    }
+    j < end && j > 0 && chars[j - 1] == '.'
 }
 
 // Does the `{` just before `from` close on this line (quoted strings inside skipped)?
@@ -244,6 +267,17 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             let mut inner_sq = false;
             // Just after `\\`: a `{` here is a regex's escaped brace (`"\\{(\\d+)\\}"`), never a value.
             let mut after_bs = false;
+            // `.split("{{")`, `.find("}}")`, `.push("{{" + p)`: a bare "{{" or "}}" handed straight to a method
+            // is two braces, the way template code means it.
+            let pair = matches!((chars.get(i), chars.get(i + 1), chars.get(i + 2)), (Some('{'), Some('{'), Some('"')) | (Some('}'), Some('}'), Some('"')));
+            if pair && method_arg_start(&chars, i - 1) {
+                let b = chars[i];
+                s.extend([b, b, b, b]);
+                i += 3;
+                col += 3;
+                push(&mut out, Tok::Str(s));
+                continue;
+            }
             loop {
                 let bs = std::mem::take(&mut after_bs);
                 if depth > 0 {
@@ -318,7 +352,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 2;
                         col += 2;
                     }
-                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
+                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
                         depth = 1;
                         s.push('{');
                         i += 1;
@@ -429,7 +463,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             match KEYWORDS.iter().find(|k| **k == word) {
                 Some(k) => push(&mut out, Tok::Kw(k)),
                 // Rust's own keywords are fine names in Brevi; they get a suffix in the generated Rust.
-                None if RUST_KEYWORDS.contains(&word.as_str()) => push(&mut out, Tok::Ident(format!("{word}_"))),
+                None if RUST_KEYWORDS.contains(&word.as_str()) || RUST_PRELUDE.contains(&word.as_str()) => push(&mut out, Tok::Ident(format!("{word}_"))),
                 None => push(&mut out, Tok::Ident(word)),
             }
             continue;

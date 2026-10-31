@@ -1,0 +1,95 @@
+fn lookup(name: str, ctx: [Json], idx: [int]) -> Json:
+  if name == ".": return ctx[-1]
+  if name == "@index": return (if idx: idx[-1] else: 0).json()
+  parts = name.split(".")
+  n = ctx.len()
+  for k in 0..n:
+    c = ctx[n - 1 - k]
+    if c.has(parts[0]):
+      v = c
+      for p in parts: v = v[p]
+      return v
+  json("null")
+fn show(j: Json) -> str = match j:
+  Null => ""
+  Str(s) => s
+  _ => str(j)
+fn jlen(j: Json) -> int = match j:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  Obj(m) => m.len()
+  _ => 0
+fn apply(tag: str, ctx: [Json], idx: [int]) -> str:
+  fs = tag.split("|")
+  cur = lookup(fs[0].trim(), ctx, idx)
+  for f in fs.skip(1):
+    g = f.trim()
+    if g == "upper": cur = show(cur).upper().json()
+    elif g == "lower": cur = show(cur).lower().json()
+    elif g == "len": cur = jlen(cur).json()
+    elif g.starts_with("default:"):
+      if cur.is_null() or show(cur) == "": cur = g.slice(8).json()
+  show(cur)
+fn blockend(toks: [(int, str)], i: int) -> (int, int):
+  depth = 1
+  elsep = -1
+  k = i + 1
+  while k < toks.len():
+    if toks[k].0 == 1:
+      t = toks[k].1.trim()
+      if t.starts_with("#each ") or t.starts_with("#if "): depth += 1
+      elif t == "/each" or t == "/if":
+        depth -= 1
+        if depth == 0: return (k, elsep)
+      elif t == "else" and depth == 1: elsep = k
+    k += 1
+  (toks.len(), elsep)
+fn render(toks: [(int, str)], lo: int, hi: int, ctx: [Json], idx: [int]) -> str:
+  res = ""
+  i = lo
+  while i < hi:
+    kind = toks[i].0
+    txt = toks[i].1
+    if kind == 0:
+      res += txt
+      i += 1
+      continue
+    t = txt.trim()
+    if t.starts_with("#each "):
+      e, _ = blockend(toks, i)
+      items = lookup(t.slice(6).trim(), ctx, idx)
+      k = 0
+      for x in items:
+        res += render(toks, i + 1, e, ctx + [x], idx + [k])
+        k += 1
+      i = e + 1
+    elif t.starts_with("#if "):
+      e, el = blockend(toks, i)
+      c = lookup(t.slice(4).trim(), ctx, idx)
+      if c:
+        res += render(toks, i + 1, if el >= 0: el else: e, ctx, idx)
+      elif el >= 0:
+        res += render(toks, el + 1, e, ctx, idx)
+      i = e + 1
+    else:
+      res += apply(t, ctx, idx)
+      i += 1
+  res
+ls = lines()
+data = json(ls[0])
+tpl = "\n".join(ls.skip(1))
+toks = []
+rest = tpl
+while true:
+  a = rest.find('{{')
+  if a < 0:
+    toks.push((0, rest))
+    break
+  b = rest.slice(a).find('}}')
+  if b < 0:
+    toks.push((0, rest))
+    break
+  toks.push((0, rest.slice(0, a)))
+  toks.push((1, rest.slice(a + 2, a + b)))
+  rest = rest.slice(a + b + 2)
+print(render(toks, 0, toks.len(), [data], []))

@@ -1,0 +1,181 @@
+ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+raw = {}
+vals = {}
+ecode = {}
+stat = {}
+err = ""
+toks = []
+pos = 0
+fn flag(code: str):
+  if code == "#CYCLE" or err == "":
+    err = code
+fn colof(t: str) -> int = ALPHA.find(t.slice(0, 1))
+fn rowof(t: str) -> int = t.slice(1).int().or(0)
+fn nameof(c: int, r: int) -> str = ALPHA.slice(c, c + 1) + str(r)
+fn tokenize(f: str) -> [str]:
+  cs = f.chars()
+  m = cs.len()
+  res = []
+  i = 0
+  while i < m:
+    c = cs[i]
+    if c.is_digit():
+      j = i
+      while j < m and cs[j].is_digit():
+        j += 1
+      res.push(f.slice(i, j))
+      i = j
+    elif c.is_alpha():
+      j = i
+      while j < m and cs[j].is_alpha():
+        j += 1
+      k = j
+      while k < m and cs[k].is_digit():
+        k += 1
+      res.push(f.slice(i, k).upper())
+      i = k
+    elif c == " ":
+      i += 1
+    else:
+      res.push(c)
+      i += 1
+  res
+fn peek() -> str:
+  if pos < toks.len():
+    return toks[pos]
+  return ""
+fn rng(kind: str, a: str, b: str) -> int:
+  cl = min(colof(a), colof(b))
+  ch = max(colof(a), colof(b)) + 1
+  rl = min(rowof(a), rowof(b))
+  rh = max(rowof(a), rowof(b)) + 1
+  acc = []
+  for c in cl..ch:
+    for r in rl..rh:
+      acc.push(cellval(nameof(c, r)))
+  if kind == "SUM":
+    return sum(acc)
+  if kind == "MIN":
+    return min(acc)
+  return max(acc)
+fn primary() -> int:
+  t = peek()
+  pos += 1
+  if t == "(":
+    v = expr()
+    pos += 1
+    return v
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    pos += 1
+    a = toks[pos]
+    pos += 2
+    b = toks[pos]
+    pos += 2
+    return rng(t, a, b)
+  if not t.re_full('^[0-9]+$').is_empty():
+    return t.int().or(0)
+  return cellval(t)
+fn unary() -> int:
+  if peek() == "-":
+    pos += 1
+    return 0 - unary()
+  return primary()
+fn term() -> int:
+  v = unary()
+  while peek() == "*" or peek() == "/":
+    op = peek()
+    pos += 1
+    w = unary()
+    if op == "*":
+      v = v * w
+    elif w == 0:
+      flag("#DIV0")
+      v = 0
+    else:
+      v = v / w
+  return v
+fn expr() -> int:
+  v = term()
+  while peek() == "+" or peek() == "-":
+    op = peek()
+    pos += 1
+    w = term()
+    if op == "+":
+      v = v + w
+    else:
+      v = v - w
+  return v
+fn evalf(f: str) -> int:
+  saved = toks
+  savedpos = pos
+  toks = tokenize(f)
+  pos = 0
+  v = expr()
+  toks = saved
+  pos = savedpos
+  return v
+fn cellval(name: str) -> int:
+  if not raw.has(name):
+    return 0
+  if stat.has(name):
+    if stat[name] == 1:
+      flag("#CYCLE")
+      return 0
+    if ecode[name] != "":
+      flag(ecode[name])
+    return vals[name]
+  stat[name] = 1
+  saved = err
+  err = ""
+  c = raw[name]
+  if c.starts_with("="):
+    v = evalf(c.slice(1))
+  else:
+    v = c.int().or(0)
+  ecode[name] = err
+  vals[name] = v
+  stat[name] = 2
+  err = saved
+  if ecode[name] != "":
+    flag(ecode[name])
+  return v
+for line in stdin().lines():
+  p = line.find("=")
+  if p < 0:
+    continue
+  nm = line.slice(0, p).trim()
+  raw[nm] = line.slice(p + 1).trim()
+maxc = 0
+maxr = 1
+for nm in raw.keys():
+  if colof(nm) > maxc:
+    maxc = colof(nm)
+  if rowof(nm) > maxr:
+    maxr = rowof(nm)
+  if raw[nm].starts_with("="):
+    for t in tokenize(raw[nm].slice(1)):
+      if not t.re_full('^[A-Z]+[0-9]+$').is_empty():
+        if colof(t) > maxc:
+          maxc = colof(t)
+        if rowof(t) > maxr:
+          maxr = rowof(t)
+for nm in raw.keys():
+  cellval(nm)
+mc = maxc + 1
+mr = maxr + 1
+hdr = ""
+for c in 0..mc:
+  hdr += "\t" + ALPHA.slice(c, c + 1)
+print(hdr)
+for r in 1..mr:
+  row = str(r)
+  for c in 0..mc:
+    nm = nameof(c, r)
+    if raw.has(nm):
+      if ecode[nm] != "":
+        row += "\t" + ecode[nm]
+      else:
+        row += "\t" + str(vals[nm])
+    else:
+      row += "\t"
+  print(row)

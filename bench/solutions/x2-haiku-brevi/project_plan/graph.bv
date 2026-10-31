@@ -1,0 +1,68 @@
+# parses one task line: NAME DAYS [after A, B, ...]
+fn parse_task(s: str) -> (bool, str, int, [str]):
+  m = s.re_full("([A-Za-z0-9_]+)\s+(\d+)(?:\s+after\s+([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*))?")
+  if m.is_empty(): return (false, "", 0, [])
+  d = m[2].int().or(0)
+  if d < 1: return (false, "", 0, [])
+  deps = []
+  if m.len() > 3 and m[3] != "":
+    for part in m[3].split(","):
+      deps.push(part.trim())
+  return (true, m[1], d, deps)
+
+# earliest start and end of every task with no worker limit; ok is false on a cycle
+fn plan_unlimited(days: [int], deps: [[int]]) -> (bool, [int], [int]):
+  n = days.len()
+  st = [-1].repeat(n)
+  en = [0].repeat(n)
+  for rnd in 0..n + 1:
+    for i in 0..n:
+      if st[i] < 0:
+        ready = true
+        best = 0
+        for d in deps[i]:
+          if st[d] < 0:
+            ready = false
+          elif en[d] > best:
+            best = en[d]
+        if ready:
+          st[i] = best
+          en[i] = best + days[i]
+  ok = true
+  for i in 0..n:
+    if st[i] < 0: ok = false
+  return (ok, st, en)
+
+# the longest chain of tasks with no gaps from a start at 0 to the overall end
+fn critical(names: [str], days: [int], deps: [[int]], st: [int], en: [int]) -> [str]:
+  n = days.len()
+  big = 0
+  for i in 0..n:
+    if en[i] > big: big = en[i]
+  ok = [en[i] == big for i in 0..n]
+  changed = true
+  while changed:
+    changed = false
+    for i in 0..n:
+      if not ok[i]:
+        for j in 0..n:
+          if not ok[i] and ok[j] and deps[j].contains(i) and st[j] == en[i]:
+            ok[i] = true
+            changed = true
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and ok[i]: cur = i
+  chain = []
+  if cur < 0: return chain
+  chain.push(names[cur])
+  more = true
+  while more:
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and ok[j] and deps[j].contains(cur) and st[j] == en[cur]: nxt = j
+    if nxt < 0:
+      more = false
+    else:
+      cur = nxt
+      chain.push(names[cur])
+  return chain

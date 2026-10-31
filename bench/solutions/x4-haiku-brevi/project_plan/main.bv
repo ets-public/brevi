@@ -1,0 +1,83 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn header_k(line: str) -> int:
+  tk = line.words()
+  if tk.len() != 2 or tk[0] != "workers": return 0
+  if not is_int(tk[1]): return 0
+  tk[1].int().or(0)
+
+fn main():
+  seen = {}
+  tasks = []
+  k = 0
+  have_header = False
+  lineno = 0
+  for raw in lines():
+    lineno += 1
+    line = raw.trim()
+    if line.is_empty(): continue
+    if not have_header:
+      have_header = True
+      k = header_k(line)
+      if k < 1:
+        print("line {lineno}: bad line")
+        return
+      continue
+    t = parse_task(line)
+    if t.name == "":
+      print("line {lineno}: bad line")
+      return
+    if seen.has(t.name):
+      print("line {lineno}: duplicate {t.name}")
+      return
+    seen[t.name] = 1
+    tasks.push(t)
+  if not have_header:
+    print("line 1: bad line")
+    return
+  n = tasks.len()
+  for t in tasks:
+    for d in t.deps:
+      if not seen.has(d):
+        print("unknown {d}")
+        return
+  idx = {}
+  names = []
+  days = []
+  for i in 0..n:
+    idx[tasks[i].name] = i
+    names.push(tasks[i].name)
+    days.push(tasks[i].days)
+  dep = []
+  for t in tasks:
+    dl = []
+    for d in t.deps:
+      dl.push(idx[d])
+    dep.push(dl)
+  st, en, ok = unlimited(dep, days)
+  if not ok:
+    print("cycle")
+    return
+  L = 0
+  for i in 0..n:
+    if en[i] > L: L = en[i]
+  print("unlimited")
+  for i in 0..n:
+    print("  {names[i]} {st[i]}-{en[i]}")
+  print("length {L}")
+  chain = critical(dep, st, en, L)
+  cn = []
+  for i in chain:
+    cn.push(names[i])
+  print("critical " + " > ".join(cn))
+  s2, e2 = plan(k, dep, days)
+  L2 = 0
+  for i in 0..n:
+    if e2[i] > L2: L2 = e2[i]
+  print("workers {k}")
+  for i in 0..n:
+    print("  {names[i]} {s2[i]}-{e2[i]}")
+  print("length {L2}")
+
+main()

@@ -1,0 +1,103 @@
+fn lookup(name: str, ctx: [Json]) -> Json:
+  if name == ".": return ctx.last()
+  parts = name.split(".")
+  cur = json("null")
+  found = false
+  for c in ctx.rev():
+    if not found and c.has(parts[0]):
+      cur = c[parts[0]]
+      found = true
+  for p in parts.skip(1): cur = cur[p]
+  cur
+
+fn show(v: Json) -> str:
+  match v:
+    Str(s) => s
+    Null => ""
+    _ => str(v)
+
+fn truthy(v: Json) -> bool:
+  match v:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => not s.is_empty()
+    Arr(xs) => not xs.is_empty()
+    Obj(m) => true
+
+fn flen(v: Json) -> int:
+  match v:
+    Str(s) => s.len()
+    Arr(xs) => xs.len()
+    Obj(m) => m.len()
+    _ => 0
+
+fn value(inner: str, ctx: [Json]) -> str:
+  fs = inner.split("|")
+  v = lookup(fs[0].trim(), ctx)
+  for f in fs.skip(1):
+    if f == "upper": v = show(v).upper().json()
+    elif f == "lower": v = show(v).lower().json()
+    elif f == "len": v = flen(v).json()
+    elif f.starts_with("default:"):
+      if not truthy(v) and (v.is_null() or show(v).is_empty()): v = f.slice(8).json()
+      elif show(v).is_empty(): v = f.slice(8).json()
+  show(v)
+
+fn find_end(toks: [str], i: int) -> int:
+  d = 0
+  for j in i..toks.len():
+    if toks[j].starts_with("{{#"): d += 1
+    elif toks[j].starts_with("{{/"): d -= 1
+    if d == 0: return j
+  toks.len()
+
+fn find_else(toks: [str], i: int, e: int) -> int:
+  d = 0
+  for j in (i + 1)..e:
+    if toks[j].starts_with("{{#"): d += 1
+    elif toks[j].starts_with("{{/"): d -= 1
+    elif toks[j] == "{{else}}" and d == 0: return j
+  -1
+
+fn render(toks: [str], ctx: [Json], idx: int) -> str:
+  out = ""
+  i = 0
+  while i < toks.len():
+    tk = toks[i]
+    if tk.starts_with("{{#each "):
+      e = find_end(toks, i)
+      inner = toks.slice(i + 1, e)
+      v = lookup(tk.slice(8, tk.len() - 2).trim(), ctx)
+      k = 0
+      for x in v:
+        out += render(inner, ctx + [x], k)
+        k += 1
+      i = e + 1
+    elif tk.starts_with("{{#if "):
+      e = find_end(toks, i)
+      el = find_else(toks, i, e)
+      v = lookup(tk.slice(6, tk.len() - 2).trim(), ctx)
+      if el < 0:
+        if truthy(v): out += render(toks.slice(i + 1, e), ctx, idx)
+      elif truthy(v):
+        out += render(toks.slice(i + 1, el), ctx, idx)
+      else:
+        out += render(toks.slice(el + 1, e), ctx, idx)
+      i = e + 1
+    elif tk == '{{@index}}':
+      out += str(idx)
+      i += 1
+    elif tk.starts_with('{{') and tk.ends_with('}}') and tk.len() >= 4:
+      out += value(tk.slice(2, tk.len() - 2), ctx)
+      i += 1
+    else:
+      out += tk
+      i += 1
+  out
+
+ls = lines()
+data = json(ls[0])
+text = "\n".join(ls.skip(1))
+toks = text.re_list('[{][{][^}]*[}][}]|[^{]+|[{]')
+print(render(toks, [data], 0))

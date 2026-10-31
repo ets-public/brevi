@@ -1,0 +1,20 @@
+asks
+  101.50 4
+  102.00 3
+bids
+  101.00 5
+  100.50 10
+TRADE b2 s3 5 101.00
+TRADE b1 s3 7 100.50
+asks
+  101.50 4
+  102.00 3
+bids
+  100.50 3
+TRADE m1 s2 4 101.50
+TRADE m1 s1 3 102.00
+DROPPED m1 3
+CANCELLED b3 2
+ERR line 11: unknown ID
+ERR line 12: duplicate ID
+volume 19 value 1920.50

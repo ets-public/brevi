@@ -1,0 +1,238 @@
+type FnDef:
+  params: [str]
+  body: [str]
+
+type Ctx:
+  tk: [str]
+  ps: [str]
+  vs: [int]
+  dp: int
+  ev: bool
+  gl: {str: int}
+  fs: {str: FnDef}
+
+fn tokens(s: str) -> [str]:
+  t = s.re_list("\d+|[A-Za-z]\w*|==|!=|<=|>=|[<>+\-*/%(),=]")
+  if "".join(t) != s.replace(" ", ""): fail("syntax")
+  return t
+
+fn is_kw(t: str) -> bool = t == "let" or t == "fn" or t == "print" or t == "if"
+
+fn is_name(t: str) -> bool = t.re_full("[A-Za-z]\w*").len() > 0 and not is_kw(t)
+
+fn tok_at(tk: [str], i: int) -> str = tk[i] if i < tk.len() else ""
+
+fn pk(c: Ctx, p: int) -> str = tok_at(c.tk, p)
+
+fn need(c: Ctx, mut p: int, t: str):
+  if pk(c, p) != t: fail("syntax")
+  p += 1
+
+fn bi(b: bool) -> int = 1 if b else 0
+
+fn sub(c: Ctx, ev: bool) -> Ctx = Ctx(tk: c.tk, ps: c.ps, vs: c.vs, dp: c.dp, ev: ev, gl: c.gl, fs: c.fs)
+
+fn ex_args(c: Ctx, mut p: int, mut vals: [int]) -> int:
+  if pk(c, p) == ")":
+    p += 1
+    return 0
+  n = 0
+  while True:
+    v = ex_cmp(c, p)
+    if c.ev: vals.push(v)
+    n += 1
+    if pk(c, p) == ",":
+      p += 1
+    else:
+      break
+  need(c, p, ")")
+  return n
+
+fn ex_call(c: Ctx, mut p: int, name: str) -> int:
+  if not c.ev:
+    dummy = []
+    ex_args(c, p, dummy)
+    return 0
+  q = p
+  cnt_ctx = sub(c, false)
+  scratch = []
+  k = ex_args(cnt_ctx, q, scratch)
+  if not c.fs.has(name): fail("unknown function " + name)
+  f = c.fs[name]
+  if f.params.len() != k: fail(name + " takes " + str(f.params.len()) + " arguments")
+  if c.dp >= 200: fail("too deep")
+  vals = []
+  ex_args(c, p, vals)
+  cc = Ctx(tk: f.body, ps: f.params, vs: vals, dp: c.dp + 1, ev: true, gl: c.gl, fs: c.fs)
+  r = 0
+  qb = 0
+  r = ex_cmp(cc, qb)
+  return r
+
+fn ex_if(c: Ctx, mut p: int) -> int:
+  cond = ex_cmp(c, p)
+  need(c, p, ",")
+  ta = c.ev and cond != 0
+  tb = c.ev and cond == 0
+  a = ex_cmp(sub(c, ta), p)
+  need(c, p, ",")
+  b = ex_cmp(sub(c, tb), p)
+  need(c, p, ")")
+  if ta: return a
+  if tb: return b
+  return 0
+
+fn ex_primary(c: Ctx, mut p: int) -> int:
+  t = pk(c, p)
+  if t == "(":
+    p += 1
+    v = ex_cmp(c, p)
+    need(c, p, ")")
+    return v
+  if t.re_full("\d+").len() > 0:
+    p += 1
+    if c.ev: return t.int().or(0)
+    return 0
+  if t == "if" and pk(c, p + 1) == "(":
+    p += 2
+    return ex_if(c, p)
+  if not is_name(t): fail("syntax")
+  p += 1
+  if pk(c, p) == "(":
+    p += 1
+    return ex_call(c, p, t)
+  if not c.ev: return 0
+  i = c.ps.index_of(t)
+  if i >= 0: return c.vs[i]
+  if c.gl.has(t): return c.gl[t]
+  fail("unknown name " + t)
+  return 0
+
+fn ex_unary(c: Ctx, mut p: int) -> int:
+  if pk(c, p) == "-":
+    p += 1
+    v = ex_unary(c, p)
+    return 0 - v
+  return ex_primary(c, p)
+
+fn ex_mul(c: Ctx, mut p: int) -> int:
+  v = ex_unary(c, p)
+  while pk(c, p) == "*" or pk(c, p) == "/" or pk(c, p) == "%":
+    op = pk(c, p)
+    p += 1
+    w = ex_unary(c, p)
+    if c.ev:
+      if op == "*":
+        v = v * w
+      elif op == "/":
+        if w == 0: fail("division by zero")
+        v = v / w
+      else:
+        if w == 0: fail("division by zero")
+        v = v % w
+  return v
+
+fn ex_add(c: Ctx, mut p: int) -> int:
+  v = ex_mul(c, p)
+  while pk(c, p) == "+" or pk(c, p) == "-":
+    op = pk(c, p)
+    p += 1
+    w = ex_mul(c, p)
+    if c.ev:
+      if op == "+":
+        v = v + w
+      else:
+        v = v - w
+  return v
+
+fn ex_cmp(c: Ctx, mut p: int) -> int:
+  a = ex_add(c, p)
+  op = pk(c, p)
+  if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=":
+    p += 1
+    b = ex_add(c, p)
+    if not c.ev: return 0
+    if op == "==": return bi(a == b)
+    if op == "!=": return bi(a != b)
+    if op == "<": return bi(a < b)
+    if op == ">": return bi(a > b)
+    if op == "<=": return bi(a <= b)
+    return bi(a >= b)
+  return a
+
+fn exec_line(s: str, mut globs: {str: int}, mut funcs: {str: FnDef}) -> str:
+  tk = tokens(s)
+  if tk.len() == 0: fail("syntax")
+  head = tk[0]
+  if head == "let":
+    if tk.len() < 4 or not is_name(tk[1]) or tk[2] != "=": fail("syntax")
+    cs = Ctx(tk: tk, ps: [], vs: [], dp: 0, ev: false, gl: globs, fs: funcs)
+    q = 3
+    ex_cmp(cs, q)
+    if q != tk.len(): fail("syntax")
+    ce = Ctx(tk: tk, ps: [], vs: [], dp: 0, ev: true, gl: globs, fs: funcs)
+    q2 = 3
+    v = ex_cmp(ce, q2)
+    globs[tk[1]] = v
+    return ""
+  if head == "print":
+    cs = Ctx(tk: tk, ps: [], vs: [], dp: 0, ev: false, gl: globs, fs: funcs)
+    q = 1
+    while True:
+      ex_cmp(cs, q)
+      if pk(cs, q) == ",":
+        q += 1
+      else:
+        break
+    if q != tk.len(): fail("syntax")
+    ce = Ctx(tk: tk, ps: [], vs: [], dp: 0, ev: true, gl: globs, fs: funcs)
+    q2 = 1
+    vals = []
+    while True:
+      v = ex_cmp(ce, q2)
+      vals.push(v)
+      if pk(ce, q2) == ",":
+        q2 += 1
+      else:
+        break
+    return " ".join([str(v) for v in vals])
+  if head == "fn":
+    if tk.len() < 5 or not is_name(tk[1]) or tk[2] != "(": fail("syntax")
+    params = []
+    q = 3
+    if tok_at(tk, q) != ")":
+      while True:
+        if not is_name(tok_at(tk, q)): fail("syntax")
+        params.push(tk[q])
+        q += 1
+        if tok_at(tk, q) == ",":
+          q += 1
+        else:
+          break
+    if tok_at(tk, q) != ")": fail("syntax")
+    q += 1
+    if tok_at(tk, q) != "=": fail("syntax")
+    q += 1
+    body = tk[q:]
+    cb = Ctx(tk: body, ps: params, vs: [], dp: 0, ev: false, gl: globs, fs: funcs)
+    qb = 0
+    ex_cmp(cb, qb)
+    if qb != body.len(): fail("syntax")
+    funcs[tk[1]] = FnDef(params: params, body: body)
+    return ""
+  fail("syntax")
+  return ""
+
+fn run_line(s: str, n: int, mut globs: {str: int}, mut funcs: {str: FnDef}) -> str = match exec_line(s, globs, funcs):
+  Ok(v) => v
+  Err(msg) => "error line " + str(n) + ": " + msg
+
+globs = {}
+funcs = {}
+n = 0
+for raw in stdin().lines():
+  n += 1
+  s = raw.trim()
+  if s == "" or s[0:1] == "#": continue
+  out = run_line(s, n, globs, funcs)
+  if out != "": print(out)

@@ -1,0 +1,118 @@
+fn money(c: int) -> str:
+  dollars = c // 100
+  pennies = c % 100
+  pad = if pennies < 10: "0" else: ""
+  "{dollars}.{pad}{pennies}"
+
+oside = {}
+oprice = {}
+oqty = {}
+oseq = {}
+used = {}
+allids = []
+seqn = 0
+vq = 0
+vv = 0
+
+for k, raw in enumerate(lines()):
+  t = raw.trim()
+  if t.is_empty(): continue
+  ws = t.words()
+  ln = k + 1
+  kind = ws[0]
+  n = ws.len()
+  is_lim = n == 4 and (kind == "BUY" or kind == "SELL")
+  is_mkt = n == 3 and (kind == "MBUY" or kind == "MSELL")
+  is_cancel = n == 2 and kind == "CANCEL"
+  is_book = n == 1 and kind == "BOOK"
+  if not (is_lim or is_mkt or is_cancel or is_book):
+    print("ERR line {ln}: bad command")
+    continue
+
+  if is_book:
+    print("asks")
+    levels = {}
+    for c in allids:
+      if oqty[c] > 0 and oside[c] == "S":
+        levels[oprice[c]] += oqty[c]
+    ks = levels.keys()
+    ks.sort()
+    if ks.is_empty(): print("  -")
+    for p in ks:
+      print("  {money(p)} {levels[p]}")
+    print("bids")
+    levels = {}
+    for c in allids:
+      if oqty[c] > 0 and oside[c] == "B":
+        levels[oprice[c]] += oqty[c]
+    ks = levels.keys()
+    ks.sort()
+    ks = ks.rev()
+    if ks.is_empty(): print("  -")
+    for p in ks:
+      print("  {money(p)} {levels[p]}")
+    continue
+
+  if is_cancel:
+    cid = ws[1]
+    if not (oqty.has(cid) and oqty[cid] > 0):
+      print("ERR line {ln}: unknown ID")
+      continue
+    print("CANCELLED {cid} {oqty[cid]}")
+    oqty[cid] = 0
+    continue
+
+  # limit or market order: validate
+  oid = ws[1]
+  qty_s = ws[2]
+  qok = qty_s.re_full("\d+").len() > 0 and qty_s.int().or(0) >= 1
+  qty = qty_s.int().or(0)
+  buy = kind == "BUY" or kind == "MBUY"
+  price = 0
+  valid = qok
+  if is_lim:
+    ps = ws[3]
+    parts = ps.split(".")
+    fr = if parts.len() > 1: parts[1] else: "0"
+    if fr.len() == 1: fr = fr + "0"
+    price = parts[0].int().or(0) * 100 + fr.int().or(0)
+    valid = valid and ps.re_full("\d+(\.\d{1,2})?").len() > 0 and price > 0
+  if not valid:
+    print("ERR line {ln}: bad command")
+    continue
+  if used.has(oid):
+    print("ERR line {ln}: duplicate ID")
+    continue
+
+  used[oid] = true
+  seqn += 1
+  opp = if buy: "S" else: "B"
+  cands = []
+  for c in allids:
+    if oqty[c] > 0 and oside[c] == opp:
+      if is_mkt or (oprice[c] <= price if buy else oprice[c] >= price):
+        cands.push(((oprice[c] if buy else -oprice[c]), oseq[c], c))
+  cands.sort()
+  rem = qty
+  for kk, ss, c in cands:
+    if rem == 0: break
+    fill = min(rem, oqty[c])
+    tp = oprice[c]
+    bu = oid if buy else c
+    su = c if buy else oid
+    print("TRADE {bu} {su} {fill} {money(tp)}")
+    oqty[c] -= fill
+    rem -= fill
+    vq += fill
+    vv += fill * tp
+
+  if is_mkt:
+    if rem > 0: print("DROPPED {oid} {rem}")
+  elif rem > 0:
+    oside[oid] = if buy: "B" else: "S"
+    oprice[oid] = price
+    oseq[oid] = seqn
+    oqty[oid] = rem
+    allids.push(oid)
+
+print("volume {vq} value {money(vv)}")

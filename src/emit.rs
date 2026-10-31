@@ -10,7 +10,7 @@ const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", 
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
-    "find", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
+    "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json",
@@ -46,6 +46,8 @@ pub struct Emitter {
     refs: HashSet<String>, // names bound to &mut (mut params, iter_mut loop vars)
     // Script-level variables that functions use: name -> (type, line of its let).
     globals: HashMap<String, (Ty, usize)>,
+    // Types of script-level names set so far, used or not, so `b = a + "x"` is known from `a`.
+    top_tys: HashMap<String, Ty>,
     // Names first set inside a block that has ended, for a clearer "unknown name" error.
     block_only: HashSet<String>,
     fallible: bool,
@@ -387,6 +389,16 @@ fn branch_sets(e: &Expr, out: &mut Vec<String>) {
             for st in stmts {
                 match st {
                     Stmt::Assign { target: Expr::Ident(t), op: "=", .. } if !out.contains(t) => out.push(t.clone()),
+                    // `(a, b) = f()` in a branch sets a and b.
+                    Stmt::Assign { target: Expr::Tuple(xs), op: "=", .. } => {
+                        for x in xs {
+                            if let Expr::Ident(t) = x {
+                                if !out.contains(t) {
+                                    out.push(t.clone());
+                                }
+                            }
+                        }
+                    }
                     Stmt::Expr { expr, .. } => branch_sets(expr, out),
                     _ => {}
                 }
@@ -410,7 +422,8 @@ fn branch_sets(e: &Expr, out: &mut Vec<String>) {
 // A plain local of function f: set at the top of its body before any read, read afterwards, and f does not call
 // itself (a recursive function may pass results through the shared name).
 fn owns(f: &str, body: &Expr, text: &str, n: &str) -> bool {
-    let top_set = matches!(body, Expr::Block(st, _) if st.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(t), op: "=", .. } if t == n)));
+    // Set before any read, at the top of the body or first inside a branch (`if c: n = line.slice(1)`), as Python makes it local.
+    let top_set = matches!(body, Expr::Block(..));
     // A recursive function shares its names across calls, unless it returns the name (an accumulator).
     let returned = text.contains(&format!("Return {{ value: Some(Ident({n:?}))")) || matches!(body, Expr::Block(_, Some(t)) if matches!(t.as_ref(), Expr::Ident(t) if t == n));
     top_set && (returned || !text.contains(&format!("Call({f:?}"))) && own_use(text, n)
@@ -420,7 +433,7 @@ fn owns(f: &str, body: &Expr, text: &str, n: &str) -> bool {
 // (A function that only assigns a name is writing shared state.)
 fn own_use(body: &str, n: &str) -> bool {
     let id = format!("Ident({n:?})");
-    sets_first(body, n) && body.matches(&id).count() > body.matches(&format!("target: {id}, op: \"=\"")).count()
+    sets_first(body, n) && body.matches(&id).count() + body.matches(&format!("Move({n:?})")).count() > body.matches(&format!("target: {id}, op: \"=\"")).count()
 }
 
 // Do the later statements read n before setting it? Blocks inside if, match and loops are checked on their own:
@@ -565,6 +578,7 @@ impl Emitter {
             locals: HashSet::new(),
             refs: HashSet::new(),
             globals: HashMap::new(),
+            top_tys: HashMap::new(),
             block_only: HashSet::new(),
             fallible: false,
             must: false,
@@ -694,6 +708,9 @@ impl Emitter {
             .collect();
         for (n, ty, value, line) in &decls {
             let (n, ty, value, line) = (n, ty, value, line);
+            if let Some(t) = ty.clone().or_else(|| self.infer_ty(value)) {
+                self.top_tys.entry(n.clone()).or_insert(t);
+            }
             {
                 // Used by name, and not a parameter or a local of the same name there.
                 let used = others.iter().any(|(ps, body, _, _)| {
@@ -738,7 +755,18 @@ impl Emitter {
             Expr::Float(_) => named("f64"),
             Expr::Bool(_) => named("bool"),
             Expr::Str(_) => named("str"),
+            Expr::Unary("!", _) => named("bool"),
             Expr::Unary(_, a) => self.infer_ty(a),
+            Expr::Ident(n) => self.globals.get(n).map(|g| g.0.clone()).or_else(|| self.top_tys.get(n).cloned()),
+            Expr::Binary(op, a, b) => match *op {
+                "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "in" => named("bool"),
+                "+" | "-" | "*" | "%" => {
+                    let (x, y) = (self.infer_ty(a), self.infer_ty(b));
+                    let is_f = |t: &Option<Ty>| matches!(t, Some(Ty::Named(n)) if n == "f64");
+                    if is_f(&x) || is_f(&y) { named("f64") } else { x.or(y) }
+                }
+                _ => None,
+            },
             Expr::List(xs) if !xs.is_empty() => Some(Ty::List(Box::new(self.infer_ty(&xs[0])?))),
             Expr::Map(ps) if !ps.is_empty() => Some(Ty::Map(Box::new(self.infer_ty(&ps[0].0)?), Box::new(self.infer_ty(&ps[0].1)?))),
             Expr::Tuple(xs) => Some(Ty::Tuple(xs.iter().map(|x| self.infer_ty(x)).collect::<Option<Vec<_>>>()?)),
@@ -764,7 +792,7 @@ impl Emitter {
                 _ => None,
             },
             Expr::Method(_, m, _, _) => match m.as_str() {
-                "len" | "count" | "find" | "index_of" | "digit" => named("int"),
+                "len" | "count" | "find" | "find_from" | "index_of" | "digit" => named("int"),
                 "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
                 "trim" | "lower" | "upper" | "join" | "replace" | "text" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
@@ -955,7 +983,7 @@ impl Emitter {
             let id = format!("Ident({n:?})");
             // Script code itself works on the top-level names.
             let script = !self.fn_texts.iter().any(|(f, _)| f == name);
-            if !script && owns(name, body, &text, &n) && !self.fn_texts.iter().any(|(f, t)| f != name && t.contains(&id) && !own_use(t, &n)) {
+            if !script && owns(name, body, &text, &n) && !self.fn_texts.iter().any(|(f, t)| f != name && t.contains(&id) && !own_use(t, &n) && !t.contains(&format!("Bind({n:?})"))) {
                 self.own_locals.insert(n);
                 continue;
             }

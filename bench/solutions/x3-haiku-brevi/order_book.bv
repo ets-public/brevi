@@ -1,0 +1,112 @@
+fn money(c: int) -> str:
+  frac = c % 100
+  f2 = frac.str()
+  if frac < 10: f2 = "0" + f2
+  return (c // 100).str() + "." + f2
+
+fn main():
+  resting = []
+  seen = {}
+  seq = 0
+  vol = 0
+  val = 0
+  for n, raw in enumerate(lines()):
+    ln = n + 1
+    line = raw.trim()
+    if line.is_empty(): continue
+    w = line.words()
+    kind = w[0]
+    if kind == "BOOK":
+      if len(w) != 1:
+        print("ERR line {ln}: bad command")
+        continue
+      askagg = {}
+      bidagg = {}
+      for r in resting:
+        if r.1 == "S":
+          askagg[r.3] += r.2
+        else:
+          bidagg[r.3] += r.2
+      print("asks")
+      if askagg.len() == 0: print("  -")
+      for p in sorted(askagg.keys()):
+        print("  " + money(p) + " " + str(askagg[p]))
+      print("bids")
+      if bidagg.len() == 0: print("  -")
+      for p in sorted(bidagg.keys()).rev():
+        print("  " + money(p) + " " + str(bidagg[p]))
+      continue
+    if kind == "CANCEL":
+      if len(w) != 2:
+        print("ERR line {ln}: bad command")
+        continue
+      cid = w[1]
+      ci = -1
+      for i, r in enumerate(resting):
+        if r.0 == cid: ci = i
+      if ci < 0:
+        print("ERR line {ln}: unknown ID")
+        continue
+      cq = resting[ci].2
+      print("CANCELLED {cid} {cq}")
+      resting.remove(ci)
+      continue
+    if kind == "BUY" or kind == "SELL" or kind == "MBUY" or kind == "MSELL":
+      mkt = kind.starts_with("M")
+      buy = kind == "BUY" or kind == "MBUY"
+      want = 3 if mkt else 4
+      ok = len(w) == want
+      if ok:
+        ok = not w[2].re_full("[1-9][0-9]*").is_empty()
+      lim = 0
+      if ok and not mkt:
+        ok = not w[3].re_full("[0-9]+(\.[0-9][0-9]?)?").is_empty()
+        if ok:
+          pp = w[3].split(".")
+          lim = pp[0].int().or(0) * 100
+          if pp.len() == 2: lim += (pp[1] + "00")[:2].int().or(0)
+          if lim <= 0: ok = False
+      if not ok:
+        print("ERR line {ln}: bad command")
+        continue
+      oid = w[1]
+      if seen.has(oid):
+        print("ERR line {ln}: duplicate ID")
+        continue
+      seen[oid] = 1
+      q = w[2].int().or(0)
+      seq += 1
+      sgn = 1 if buy else -1
+      opp = "S" if buy else "B"
+      side = "B" if buy else "S"
+      left = q
+      while left > 0:
+        best = -1
+        for i, r in enumerate(resting):
+          if r.1 != opp: continue
+          if not mkt and sgn * r.3 > sgn * lim: continue
+          if best < 0:
+            best = i
+          elif (sgn * r.3, r.4) < (sgn * resting[best].3, resting[best].4):
+            best = i
+        if best < 0: break
+        r = resting[best]
+        f = min(left, r.2)
+        a = oid if buy else r.0
+        b = r.0 if buy else oid
+        print("TRADE {a} {b} {f} {money(r.3)}")
+        vol += f
+        val += f * r.3
+        left -= f
+        if r.2 == f:
+          resting.remove(best)
+        else:
+          resting[best] = (r.0, r.1, r.2 - f, r.3, r.4)
+      if left > 0:
+        if mkt:
+          print("DROPPED {oid} {left}")
+        else:
+          resting.push((oid, side, left, lim, seq))
+      continue
+    print("ERR line {ln}: bad command")
+  print("volume {vol} value {money(val)}")

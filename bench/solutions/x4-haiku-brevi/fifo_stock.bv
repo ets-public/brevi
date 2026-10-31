@@ -1,0 +1,132 @@
+lotq: {str: [int]} = {}
+lotc: {str: [dec]} = {}
+skus = {}
+cogs = {}
+rev = {}
+prof = {}
+loss = {}
+mprof = {}
+mloss = {}
+mseen = {}
+tprof = 0.dec()
+tloss = 0.dec()
+last = ""
+lineno = 0
+
+fn is_int(s: str) -> bool:
+  if s.is_empty(): return False
+  for c in s.chars():
+    if not c.is_digit(): return False
+  True
+
+fn is_pdec(s: str) -> bool:
+  parts = s.split(".")
+  if parts.len() > 2: return False
+  if not is_int(parts[0]): return False
+  if parts.len() == 2 and (parts[1].len() < 1 or parts[1].len() > 2 or not is_int(parts[1])): return False
+  True
+
+fn is_date(s: str) -> bool:
+  if s.len() != 10: return False
+  if s[4:5] != "-" or s[7:8] != "-": return False
+  for i in 0..10:
+    if i != 4 and i != 7 and not s[i:i+1].is_digit(): return False
+  True
+
+fn on_hand(sku: str) -> int:
+  if not lotq.has(sku): return 0
+  sum(lotq[sku])
+
+fn take(sku: str, q: int) -> dec:
+  need = q
+  cost = 0.dec()
+  lq = lotq[sku]
+  lc = lotc[sku]
+  while need > 0:
+    t = min(need, lq[0])
+    cost += t * lc[0]
+    need -= t
+    lq[0] -= t
+    if lq[0] == 0:
+      lq.remove(0)
+      lc.remove(0)
+  lotq[sku] = lq
+  lotc[sku] = lc
+  cost
+
+for raw in lines():
+  lineno += 1
+  line = raw.trim()
+  if line.is_empty(): continue
+  tk = line.words()
+  n = tk.len()
+  bad = False
+  if n < 4:
+    bad = True
+  else:
+    d = tk[0]
+    op = tk[1]
+    sku = tk[2]
+    qs = tk[3]
+    if not is_date(d) or not is_int(qs) or qs.int().or(0) < 1: bad = True
+    if op == "RECEIVE" or op == "SHIP":
+      if n != 5 or not is_pdec(tk[4]): bad = True
+    elif op == "LOSS":
+      if n != 4: bad = True
+    else:
+      bad = True
+  if bad:
+    print("line {lineno}: bad line")
+    continue
+  if d < last:
+    print("line {lineno}: date out of order")
+    continue
+  q = qs.int().or(0)
+  m = d[0:7]
+  if op == "RECEIVE":
+    cost = tk[4].dec()
+    if not lotq.has(sku):
+      lotq[sku] = []
+      lotc[sku] = []
+    lq = lotq[sku]
+    lq.push(q)
+    lotq[sku] = lq
+    lc = lotc[sku]
+    lc.push(cost)
+    lotc[sku] = lc
+    skus[sku] = 1
+    last = d
+    continue
+  have = on_hand(sku)
+  if q > have:
+    print("line {lineno}: short {sku} need {q} have {have}")
+    continue
+  c = take(sku, q)
+  if op == "SHIP":
+    price = tk[4].dec()
+    rv = q * price
+    pr = rv - c
+    cogs[sku] += c
+    rev[sku] += rv
+    prof[sku] += pr
+    mprof[m] += pr
+    tprof += pr
+  else:
+    loss[sku] += c
+    mloss[m] += c
+    tloss += c
+  mseen[m] = 1
+  last = d
+
+for sku in sorted(skus.keys()):
+  lq = lotq[sku]
+  lc = lotc[sku]
+  v = 0.dec()
+  for i in 0..lq.len():
+    v += lq[i] * lc[i]
+  print("{sku} on_hand {on_hand(sku)} value {v.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {prof[sku].fmt(2)} loss {loss[sku].fmt(2)}")
+print("months")
+for m in sorted(mseen.keys()):
+  print("  {m} profit {mprof[m].fmt(2)} loss {mloss[m].fmt(2)}")
+net = tprof - tloss
+print("total profit {tprof.fmt(2)} loss {tloss.fmt(2)} net {net.fmt(2)}")

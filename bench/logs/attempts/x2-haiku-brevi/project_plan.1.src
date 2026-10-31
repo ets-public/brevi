@@ -1,0 +1,196 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn report(k: int, names: [str], days: [int], raw_deps: [[str]]):
+  n = names.len()
+  unk = ""
+  for i in 0..n:
+    for d in raw_deps[i]:
+      if unk == "" and not names.contains(d): unk = d
+  if unk != "":
+    print("unknown {unk}")
+  else:
+    deps = []
+    for dl in raw_deps:
+      row = []
+      for d in dl:
+        row.push(names.index_of(d))
+      deps.push(row)
+    pl = plan_unlimited(days, deps)
+    if not pl.0:
+      print("cycle")
+    else:
+      st = pl.1
+      en = pl.2
+      print("unlimited")
+      big = 0
+      for i in 0..n:
+        print("  {names[i]} {st[i]}-{en[i]}")
+        if en[i] > big: big = en[i]
+      print("length {big}")
+      chain = critical(names, days, deps, st, en)
+      cs = chain.join(" > ")
+      print("critical {cs}")
+      tl = tails(days, deps)
+      ss = run_sched(k, days, deps, tl)
+      print("workers {k}")
+      big2 = 0
+      for i in 0..n:
+        e = ss[i] + days[i]
+        print("  {names[i]} {ss[i]}-{e}")
+        if e > big2: big2 = e
+      print("length {big2}")
+
+fn main():
+  k = 0
+  have_k = false
+  names = []
+  days = []
+  raw_deps = []
+  seen = {}
+  bad = ""
+  lineno = 0
+  for raw in lines():
+    lineno += 1
+    s = raw.trim()
+    if s.is_empty(): continue
+    if not have_k:
+      m = s.re_full("workers\s+(\d+)")
+      if m.is_empty() or m[1].int().or(0) < 1:
+        bad = "line {lineno}: bad line"
+        break
+      k = m[1].int().or(0)
+      have_k = true
+      continue
+    r = parse_task(s)
+    if not r.0:
+      bad = "line {lineno}: bad line"
+      break
+    if seen.has(r.1):
+      bad = "line {lineno}: duplicate {r.1}"
+      break
+    seen[r.1] = true
+    names.push(r.1)
+    days.push(r.2)
+    raw_deps.push(r.3)
+  if bad == "" and not have_k:
+    bad = "line {lineno}: bad line"
+  if bad != "":
+    print(bad)
+  else:
+    report(k, names, days, raw_deps)
+## graph.bv
+# parses one task line: NAME DAYS [after A, B, ...]
+fn parse_task(s: str) -> (bool, str, int, [str]):
+  m = s.re_full("([A-Za-z0-9_]+)\s+(\d+)(?:\s+after\s+([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*))?")
+  if m.is_empty(): return (false, "", 0, [])
+  d = m[2].int().or(0)
+  if d < 1: return (false, "", 0, [])
+  deps = []
+  if m.len() > 3 and m[3] != "":
+    for part in m[3].split(","):
+      deps.push(part.trim())
+  return (true, m[1], d, deps)
+
+# earliest start and end of every task with no worker limit; ok is false on a cycle
+fn plan_unlimited(days: [int], deps: [[int]]) -> (bool, [int], [int]):
+  n = days.len()
+  st = [-1].repeat(n)
+  en = [0].repeat(n)
+  for rnd in 0..n + 1:
+    for i in 0..n:
+      if st[i] < 0:
+        ready = true
+        best = 0
+        for d in deps[i]:
+          if st[d] < 0:
+            ready = false
+          elif en[d] > best:
+            best = en[d]
+        if ready:
+          st[i] = best
+          en[i] = best + days[i]
+  ok = true
+  for i in 0..n:
+    if st[i] < 0: ok = false
+  return (ok, st, en)
+
+# the longest chain of tasks with no gaps from a start at 0 to the overall end
+fn critical(names: [str], days: [int], deps: [[int]], st: [int], en: [int]) -> [str]:
+  n = days.len()
+  big = 0
+  for i in 0..n:
+    if en[i] > big: big = en[i]
+  ok = [en[i] == big for i in 0..n]
+  changed = true
+  while changed:
+    changed = false
+    for i in 0..n:
+      if not ok[i]:
+        for j in 0..n:
+          if not ok[i] and ok[j] and deps[j].contains(i) and st[j] == en[i]:
+            ok[i] = true
+            changed = true
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and ok[i]: cur = i
+  chain = []
+  if cur < 0: return chain
+  chain.push(names[cur])
+  more = true
+  while more:
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and ok[j] and deps[j].contains(cur) and st[j] == en[cur]: nxt = j
+    if nxt < 0:
+      more = false
+    else:
+      cur = nxt
+      chain.push(names[cur])
+  return chain
+## schedule.bv
+# tail of each task: its days plus the largest tail among the tasks that depend on it
+fn tails(days: [int], deps: [[int]]) -> [int]:
+  n = days.len()
+  tl = days
+  for rnd in 0..n + 1:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if deps[j].contains(i) and tl[j] > best: best = tl[j]
+      tl[i] = days[i] + best
+  return tl
+
+# start day of every task with k workers
+fn run_sched(k: int, days: [int], deps: [[int]], tl: [int]) -> [int]:
+  n = days.len()
+  st = [-1].repeat(n)
+  en = [0].repeat(n)
+  fin = [false].repeat(n)
+  running = 0
+  left = n
+  t = 0
+  while left > 0:
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and en[i] == t:
+        fin[i] = true
+        running -= 1
+        left -= 1
+    more = true
+    while more and running < k:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0:
+          rdy = true
+          for d in deps[i]:
+            if not fin[d]: rdy = false
+          if rdy and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0:
+        more = false
+      else:
+        st[best] = t
+        en[best] = t + days[best]
+        running += 1
+    t += 1
+  return st

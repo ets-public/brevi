@@ -1,0 +1,9 @@
+workers 3
+s1 2
+s2 2
+s3 2
+s4 2
+m1 3 after s1, s2
+m2 1 after s3
+m3 4 after s4
+end 2 after m1, m2, m3

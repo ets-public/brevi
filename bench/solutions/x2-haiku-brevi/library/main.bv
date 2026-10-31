@@ -1,0 +1,32 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  books = {}
+  members = {}
+  holds = []
+  for raw in lines():
+    ws = raw.words()
+    if ws.is_empty(): continue
+    ds = ws[0]
+    now = date(ds).days
+    for msg in expire(books, holds, now):
+      print(msg)
+    if ws.len() < 2: continue
+    op = ws[1]
+    if op == "BOOK" and ws.len() >= 4:
+      rest = ws[4:]
+      print(add_book(books, ws[2], ws[3].int().or(1), rest.join(" ")))
+    elif op == "MEMBER" and ws.len() >= 4:
+      rest = ws[4:]
+      print(add_member(members, ws[2], ws[3], rest.join(" ")))
+    elif op == "LOAN" and ws.len() >= 4:
+      print(do_loan(books, members, holds, ws[2], ws[3], ds))
+    elif op == "RETURN" and ws.len() >= 4:
+      print(do_return(books, members, holds, ws[2], ws[3], ds))
+    elif op == "RESERVE" and ws.len() >= 4:
+      print(do_reserve(books, members, ws[2], ws[3]))
+    elif op == "PAY" and ws.len() >= 4:
+      print(do_pay(members, ws[2], cents(ws[3])))
+    elif op == "STATUS" and ws.len() >= 3:
+      print(do_status(members, ws[2]))

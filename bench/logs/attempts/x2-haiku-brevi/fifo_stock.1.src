@@ -1,0 +1,136 @@
+fn money(c: int) -> str:
+  neg = c < 0
+  a = abs(c)
+  d = a // 100
+  p = a % 100
+  pad = if p < 10: "0" else: ""
+  sg = if neg: "-" else: ""
+  "{sg}{d}.{pad}{p}"
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  fr = if parts.len() > 1: parts[1] else: "0"
+  if fr.len() == 1: fr = fr + "0"
+  return parts[0].int().or(0) * 100 + fr.int().or(0)
+
+fn stock_qty(lots: [(int, int)]) -> int:
+  t = 0
+  for lt in lots: t += lt[0]
+  return t
+
+fn stock_val(lots: [(int, int)]) -> int:
+  t = 0
+  for lt in lots: t += lt[0] * lt[1]
+  return t
+
+fn consume(lots: [(int, int)], q: int) -> ([(int, int)], int):
+  need = q
+  cost = 0
+  rest = []
+  for lt in lots:
+    take = min(need, lt[0])
+    cost += take * lt[1]
+    need -= take
+    if lt[0] - take > 0: rest.push((lt[0] - take, lt[1]))
+  return (rest, cost)
+
+lots = {}
+cogs_t = {}
+rev_t = {}
+prof_t = {}
+loss_t = {}
+mprof = {}
+mloss = {}
+months_seen = {}
+latest = ""
+
+for k, raw in enumerate(lines()):
+  ws = raw.words()
+  if ws.is_empty(): continue
+  ln = k + 1
+  n = ws.len()
+  dt = ws[0]
+  okdate = dt.re_full("\d{4}-\d{2}-\d{2}").len() > 0
+  kind = ""
+  sku = ""
+  q = 0
+  amt = 0
+  good = false
+  if okdate and n == 5 and (ws[1] == "RECEIVE" or ws[1] == "SHIP"):
+    kind = ws[1]
+    sku = ws[2]
+    good = ws[3].re_full("\d+").len() > 0 and ws[4].re_full("\d+(\.\d{1,2})?").len() > 0
+    if good:
+      q = ws[3].int().or(0)
+      amt = cents(ws[4])
+      good = q >= 1
+  elif okdate and n == 4 and ws[1] == "LOSS":
+    kind = "LOSS"
+    sku = ws[2]
+    good = ws[3].re_full("\d+").len() > 0
+    if good:
+      q = ws[3].int().or(0)
+      good = q >= 1
+  if not good:
+    print("line {ln}: bad line")
+    continue
+  if dt < latest:
+    print("line {ln}: date out of order")
+    continue
+
+  if kind == "RECEIVE":
+    if not lots.has(sku): lots[sku] = []
+    lots[sku].push((q, amt))
+    latest = dt
+    continue
+
+  cur = []
+  if lots.has(sku): cur = lots[sku]
+  have = stock_qty(cur)
+  if q > have:
+    print("line {ln}: short {sku} need {q} have {have}")
+    continue
+  res = consume(cur, q)
+  lots[sku] = res.0
+  latest = dt
+  mon = dt[0:7]
+  months_seen[mon] = true
+  if kind == "SHIP":
+    rev = q * amt
+    cogs_t[sku] = cogs_t.get(sku, 0) + res.1
+    rev_t[sku] = rev_t.get(sku, 0) + rev
+    prof_t[sku] = prof_t.get(sku, 0) + rev - res.1
+    mprof[mon] = mprof.get(mon, 0) + rev - res.1
+  else:
+    loss_t[sku] = loss_t.get(sku, 0) + res.1
+    mloss[mon] = mloss.get(mon, 0) + res.1
+
+skus = lots.keys()
+skus.sort()
+tp = 0
+tl = 0
+for s in skus:
+  cur = lots[s]
+  oh = stock_qty(cur)
+  val = money(stock_val(cur))
+  cg = money(cogs_t.get(s, 0))
+  rv = money(rev_t.get(s, 0))
+  pf = money(prof_t.get(s, 0))
+  ls = money(loss_t.get(s, 0))
+  print("{s} on_hand {oh} value {val} cogs {cg} revenue {rv} profit {pf} loss {ls}")
+  tp += prof_t.get(s, 0)
+  tl += loss_t.get(s, 0)
+
+print("months")
+mk = months_seen.keys()
+mk.sort()
+for mo in mk:
+  pr = money(mprof.get(mo, 0))
+  lo = money(mloss.get(mo, 0))
+  print("  {mo} profit {pr} loss {lo}")
+
+net = tp - tl
+tpm = money(tp)
+tlm = money(tl)
+nm = money(net)
+print("total profit {tpm} loss {tlm} net {nm}")

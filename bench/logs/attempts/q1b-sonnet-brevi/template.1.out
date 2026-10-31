@@ -1,0 +1,20 @@
+test 0 failed
+input:
+{"user": {"name": "ann", "city": "Oslo"}, "items": [{"n": "pen", "q": 2}, {"n": "ink", "q": 0}], "tags": ["a", "b"], "vip": true, "note": ""}
+Hello {{user.name|upper}} from {{user.city}}!
+{{#each items}}{{@index}}. {{n}}{{#if q}} x{{q}}{{else}} (out){{/if}}
+{{/each}}Tags: {{#each tags}}[{{.}}]{{/each}} ({{tags|len}})
+{{#if vip}}VIP{{/if}}{{#if note}}N{{else}}no note{{/if}} {{note|default:none}} {{missing|default:x|upper}}
+expected:
+Hello ANN from Oslo!
+0. pen x2
+1. ink (out)
+Tags: [a][b] (2)
+VIPno note none X
+got:
+Hello ANN from Oslo!
+. pen x2
+. ink (out)
+Tags: [a][b] (2)
+VIPno note none X
+passed 1/2

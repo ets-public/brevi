@@ -1,0 +1,19 @@
+asks
+  -
+bids
+  -
+DROPPED a 5
+TRADE big r 1 5.04
+TRADE big s 1 5.05
+TRADE big t 1 5.05
+TRADE big s2 4 5.05
+asks
+  -
+bids
+  5.05 3
+CANCELLED big 3
+asks
+  -
+bids
+  -
+volume 7 value 35.34

@@ -1,0 +1,6 @@
+{"line":102,"msg":"tq was first set inside a block that has ended","fix":"set tq before that block, e.g. tq = 0"}
+{"line":103,"msg":"tv was first set inside a block that has ended","fix":"set tv before that block, e.g. tv = 0"}
+{"line":103,"msg":"left was first set inside a block that has ended","fix":"set left before that block, e.g. left = 0"}
+{"line":106,"msg":"left was first set inside a block that has ended","fix":"set left before that block, e.g. left = 0"}
+{"line":108,"msg":"left was first set inside a block that has ended","fix":"set left before that block, e.g. left = 0"}
+{"line":110,"msg":"left was first set inside a block that has ended","fix":"set left before that block, e.g. left = 0"}

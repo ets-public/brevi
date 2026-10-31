@@ -1,0 +1,5 @@
+{"line":124,"msg":"mismatched types: expected &int, found &str","fix":"convert with .int(), .float() or str(x)"}
+{"line":125,"msg":"mismatched types: expected &int, found &str","fix":"convert with .int(), .float() or str(x)"}
+{"line":132,"msg":"mismatched types: expected &int, found &str","fix":"convert with .int(), .float() or str(x)"}
+{"line":182,"msg":"mismatched types: expected int, found str","fix":"convert with .int(), .float() or str(x)"}
+{"line":183,"msg":"mismatched types: expected int, found str","fix":"convert with .int(), .float() or str(x)"}

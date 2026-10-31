@@ -1,0 +1,103 @@
+type Task:
+  name: str
+  days: int
+  dn: [str]
+  deps: [int]
+
+fn parse_input(ls: [str]) -> (int, [Task]):
+  k = 0
+  ts: [Task] = []
+  seen: {str: int} = {}
+  hdr = false
+  for i in 0..ls.len():
+    s = ls[i].trim()
+    if s.is_empty(): continue
+    ln = i + 1
+    if not hdr:
+      h = s.re_full("workers (\d+)")
+      if h.is_empty(): fail("line {ln}: bad line")
+      if h[1].int() < 1: fail("line {ln}: bad line")
+      k = h[1].int()
+      hdr = true
+      continue
+    g = s.re_full("(\w+) (\d+)(?: after (\w+(?:, \w+)*))?")
+    if g.is_empty(): fail("line {ln}: bad line")
+    if g[2].int() < 1: fail("line {ln}: bad line")
+    if seen.has(g[1]): fail("line {ln}: duplicate {g[1]}")
+    seen[g[1]] = 1
+    dn: [str] = []
+    if g[3] != "": dn = g[3].split(", ")
+    ds: [int] = []
+    ts.push(Task(g[1], g[2].int(), dn, ds))
+  if not hdr: fail("line 1: bad line")
+  (k, ts)
+
+fn resolve(ts: [Task]) -> [Task]:
+  idx: {str: int} = {}
+  for i in 0..ts.len(): idx[ts[i].name] = i
+  out: [Task] = []
+  for t in ts:
+    ds: [int] = []
+    for d in t.dn:
+      if not idx.has(d): fail("unknown {d}")
+      ds.push(idx[d])
+    out.push(Task(t.name, t.days, t.dn, ds))
+  out
+
+fn topo(ts: [Task]) -> [int]:
+  n = ts.len()
+  indeg = [0].repeat(n)
+  kids: {int: [int]} = {}
+  for i in 0..n:
+    indeg[i] = ts[i].deps.len()
+    for d in ts[i].deps: kids[d].push(i)
+  q = [i for i in 0..n if indeg[i] == 0]
+  head = 0
+  while head < q.len():
+    u = q[head]
+    head += 1
+    for c in kids[u]:
+      indeg[c] = indeg[c] - 1
+      if indeg[c] == 0: q.push(c)
+  q
+
+fn load(ls: [str]) -> (int, [Task]):
+  r = parse_input(ls)
+  ts = resolve(r.1)
+  if topo(ts).len() < ts.len(): fail("cycle")
+  (r.0, ts)
+
+fn calc_starts(ts: [Task]) -> [int]:
+  st = [0].repeat(ts.len())
+  for u in topo(ts):
+    s = 0
+    for d in ts[u].deps: s = max(s, st[d] + ts[d].days)
+    st[u] = s
+  st
+
+fn calc_tails(ts: [Task]) -> [int]:
+  tl = [t.days for t in ts]
+  for u in topo(ts).rev():
+    for d in ts[u].deps: tl[d] = max(tl[d], ts[d].days + tl[u])
+  tl
+
+fn critical(ts: [Task], st: [int], tl: [int], total: int) -> [int]:
+  n = ts.len()
+  chain: [int] = []
+  cur = -1
+  for i in 0..n:
+    if st[i] == 0 and tl[i] == total:
+      cur = i
+      break
+  if cur < 0: return chain
+  chain.push(cur)
+  while st[cur] + ts[cur].days < total:
+    fin = st[cur] + ts[cur].days
+    nx = -1
+    for i in 0..n:
+      if cur in ts[i].deps and st[i] == fin and st[i] + tl[i] == total:
+        nx = i
+        break
+    chain.push(nx)
+    cur = nx
+  chain

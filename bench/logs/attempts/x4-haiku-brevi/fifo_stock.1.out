@@ -1,0 +1,2 @@
+{"line":1,"msg":"lotq is used inside a function, so it needs a type","fix":"write lotq: {str: int} = {} with the real type"}
+{"line":2,"msg":"lotc is used inside a function, so it needs a type","fix":"write lotc: {str: int} = {} with the real type"}

@@ -1,0 +1,48 @@
+use "graph.bv"
+use "schedule.bv"
+
+tasks = []
+seen = {}
+bad = ""
+k = 0
+hdr = false
+n = 0
+
+for raw in stdin().lines():
+  n += 1
+  line = raw.trim()
+  if line == "": continue
+  if not hdr:
+    g = line.re_full("workers (\d+)")
+    if g.len() == 0 or g[1].int().or(0) < 1:
+      bad = "line {n}: bad line"
+      break
+    k = g[1].int().or(0)
+    hdr = true
+    continue
+  g = line.re_full("([A-Za-z0-9_]+) (\d+)(?: after ([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*))?")
+  if g.len() == 0 or g[2].int().or(0) < 1:
+    bad = "line {n}: bad line"
+    break
+  if seen.has(g[1]):
+    bad = "line {n}: duplicate {g[1]}"
+    break
+  seen[g[1]] = true
+  deps = []
+  if g[3] != "":
+    deps = [d.trim() for d in g[3].split(",")]
+  tasks.push(Task(name: g[1], days: g[2].int().or(0), deps: deps))
+
+if bad != "":
+  print(bad)
+else:
+  unk = first_unknown(tasks)
+  if unk != "":
+    print("unknown " + unk)
+  elif topo(tasks).len() < tasks.len():
+    print("cycle")
+  else:
+    for out in plan_unlimited(tasks):
+      print(out)
+    for out in plan_workers(tasks, k):
+      print(out)

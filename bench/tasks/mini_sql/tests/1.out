@@ -1,0 +1,23 @@
+ok
+error: table t exists
+error: type mismatch
+error: type mismatch
+ok
+error: no table u
+error: no column c
+error: type mismatch
+error: no column zz
+error: syntax
+a | b
+-5 | neg
+(1 rows)
+error: type mismatch
+updated 1
+b
+it's
+(1 rows)
+deleted 1
+a | b
+(0 rows)
+error: no column q
+error: syntax

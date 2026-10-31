@@ -9,7 +9,7 @@ Brevi is a programming language for models to write. It reads like Python, compi
 
 ## Setup
 
-Check that `brevi --version` works. If it does not, install the compiler with `cargo install --git https://github.com/ets-public/brevi` (it needs a Rust toolchain, which provides `rustc`).
+Check that `brevi --version` works. If it does not, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
 
 ## Before writing code
 

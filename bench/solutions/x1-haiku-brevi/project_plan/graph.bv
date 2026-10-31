@@ -1,0 +1,91 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn index_of_tasks(tasks: [Task]) -> {str: int}:
+  idx = {}
+  for i in 0..tasks.len():
+    idx[tasks[i].name] = i
+  return idx
+
+fn first_unknown(tasks: [Task]) -> str:
+  names = index_of_tasks(tasks)
+  for t in tasks:
+    for d in t.deps:
+      if not names.has(d): return d
+  return ""
+
+fn successors(tasks: [Task], idx: {str: int}) -> {int: [int]}:
+  succ = {}
+  for i in 0..tasks.len():
+    succ[i] = []
+  for i in 0..tasks.len():
+    for d in tasks[i].deps:
+      succ[idx[d]].push(i)
+  return succ
+
+fn topo(tasks: [Task]) -> [int]:
+  n = tasks.len()
+  idx = index_of_tasks(tasks)
+  succ = successors(tasks, idx)
+  indeg = []
+  queue = []
+  for i in 0..n:
+    indeg.push(tasks[i].deps.len())
+    if tasks[i].deps.len() == 0: queue.push(i)
+  order = []
+  head = 0
+  while head < queue.len():
+    u = queue[head]
+    head += 1
+    order.push(u)
+    for v in succ[u]:
+      indeg[v] -= 1
+      if indeg[v] == 0: queue.push(v)
+  return order
+
+fn plan_unlimited(tasks: [Task]) -> [str]:
+  n = tasks.len()
+  idx = index_of_tasks(tasks)
+  order = topo(tasks)
+  st = []
+  en = []
+  for i in 0..n:
+    st.push(0)
+    en.push(0)
+  for u in order:
+    s = 0
+    for d in tasks[u].deps:
+      s = max(s, en[idx[d]])
+    st[u] = s
+    en[u] = s + tasks[u].days
+  L = 0
+  for i in 0..n:
+    L = max(L, en[i])
+  succ = successors(tasks, idx)
+  ba = []
+  for i in 0..n:
+    ba.push(false)
+  for u in order.rev():
+    ok = en[u] == L
+    for s in succ[u]:
+      if st[s] == en[u] and ba[s]: ok = true
+    ba[u] = ok
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and ba[i]: cur = i
+  chain = []
+  while cur >= 0:
+    chain.push(tasks[cur].name)
+    if en[cur] == L: break
+    nxt = -1
+    for s in succ[cur]:
+      if nxt < 0 and st[s] == en[cur] and ba[s]: nxt = s
+    cur = nxt
+  lines = ["unlimited"]
+  for i in 0..n:
+    lines.push("  {tasks[i].name} {st[i]}-{en[i]}")
+  lines.push("length " + str(L))
+  lines.push("critical " + " > ".join(chain))
+  return lines

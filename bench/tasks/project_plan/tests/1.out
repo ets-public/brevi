@@ -1,0 +1,13 @@
+unlimited
+  a 0-2
+  b 0-3
+  c 2-3
+  d 3-5
+length 5
+critical a > c > d
+workers 1
+  a 0-2
+  b 2-5
+  c 5-6
+  d 6-8
+length 8

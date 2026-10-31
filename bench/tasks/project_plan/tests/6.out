@@ -1,0 +1,21 @@
+unlimited
+  s1 0-2
+  s2 0-2
+  s3 0-2
+  s4 0-2
+  m1 2-5
+  m2 2-3
+  m3 2-6
+  end 6-8
+length 8
+critical s4 > m3 > end
+workers 3
+  s1 0-2
+  s2 0-2
+  s3 2-4
+  s4 0-2
+  m1 2-5
+  m2 4-5
+  m3 2-6
+  end 6-8
+length 8

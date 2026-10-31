@@ -1,0 +1,88 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub('\*\*(.+?)\*\*', '<strong>\1</strong>')
+  t = t.re_sub('\*(.+?)\*', '<em>\1</em>')
+  t.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+
+fn inline(s: str) -> str:
+  parts = esc(s).split("`")
+  if parts.len() % 2 == 0: return fmt_plain(parts.join("`"))
+  res = ""
+  for i, p in parts.enumerate():
+    res += if i % 2 == 1: "<code>" + p + "</code>" else: fmt_plain(p)
+  res
+
+fn flush(kind: str, buf: [str]) -> [str]:
+  if buf.is_empty(): return []
+  if kind == "p": return ["<p>" + " ".join(buf.map(l => inline(l))) + "</p>"]
+  tag = kind
+  r = ["<" + tag + ">"]
+  for l in buf: r.push("<li>" + inline(l) + "</li>")
+  r.push("</" + tag + ">")
+  r
+
+out = []
+heads = []
+used = {}
+kind = ""
+buf = []
+incode = false
+code = []
+for line in lines():
+  if incode:
+    if line == "```":
+      out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+      incode = false
+    else:
+      code.push(esc(line))
+    continue
+  h = line.re_full('(#{1,6}) (.*)')
+  ul = line.starts_with("- ")
+  ol = line.re_full('\d+\. (.*)')
+  if line.trim().is_empty():
+    out = out + flush(kind, buf)
+    kind = ""
+    buf = []
+  elif line == "```":
+    out = out + flush(kind, buf)
+    kind = ""
+    buf = []
+    incode = true
+    code = []
+  elif h:
+    out = out + flush(kind, buf)
+    kind = ""
+    buf = []
+    lvl = h[1].len()
+    txt = h[2]
+    base = txt.lower().re_sub('[^a-z0-9]+', '-').re_sub('^-+|-+$', '')
+    used[base] += 1
+    id = if used[base] > 1: base + "-" + str(used[base]) else: base
+    out.push("<h{lvl} id=\"{id}\">" + inline(txt) + "</h{lvl}>")
+    heads.push((id, esc(txt.replace("`", "").replace("*", ""))))
+  elif ul:
+    if kind != "ul":
+      out = out + flush(kind, buf)
+      buf = []
+    kind = "ul"
+    buf.push(line.slice(2))
+  elif ol:
+    if kind != "ol":
+      out = out + flush(kind, buf)
+      buf = []
+    kind = "ol"
+    buf.push(ol[1])
+  else:
+    if kind != "p":
+      out = out + flush(kind, buf)
+      buf = []
+    kind = "p"
+    buf.push(line)
+out = out + flush(kind, buf)
+if incode: out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+if heads.len() >= 2:
+  print("<nav>")
+  for id, t in heads: print("<a href=\"#{id}\">{t}</a>")
+  print("</nav>")
+for l in out: print(l)

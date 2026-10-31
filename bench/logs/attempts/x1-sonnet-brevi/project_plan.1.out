@@ -1,0 +1,51 @@
+test 0 failed
+input:
+workers 2
+design 3
+db 4 after design
+api 5 after design
+ui 6 after design
+tests 2 after db, api
+docs 1
+launch 1 after tests, ui, docs
+expected:
+unlimited
+  design 0-3
+  db 3-7
+  api 3-8
+  ui 3-9
+  tests 8-10
+  docs 0-1
+  launch 10-11
+length 11
+critical design > api > tests > launch
+workers 2
+  design 0-3
+  db 3-7
+  api 3-8
+  ui 7-13
+  tests 8-10
+  docs 0-1
+  launch 13-14
+length 14
+got:
+unlimited
+  design 0-3
+  db 3-7
+  api 3-8
+  ui 3-9
+  tests 8-10
+  docs 0-1
+  launch 10-11
+length 11
+true
+workers 2
+  design 0-3
+  db 3-7
+  api 3-8
+  ui 7-13
+  tests 8-10
+  docs 0-1
+  launch 13-14
+length 14
+passed 4/7

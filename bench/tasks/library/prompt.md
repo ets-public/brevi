@@ -1,0 +1,15 @@
+Run a lending library. Read commands from stdin, one per line (ignore blank lines). Every command starts with a date `YYYY-MM-DD`; dates never go backwards.
+
+- `DATE BOOK ID COPIES TITLE...`: add a book with COPIES copies (TITLE is the rest of the line). Prints `added ID`.
+- `DATE MEMBER ID TIER NAME...`: add a member; TIER is `basic` (at most 2 books at once, 14-day loans, late fee 0.25 a day) or `plus` (5 books, 28 days, 0.10 a day). Prints `welcome NAME`.
+- `DATE LOAN MEMBER BOOK`: lend a copy. Prints `loan MEMBER BOOK due DUE` (DUE = DATE plus the loan days).
+- `DATE RETURN MEMBER BOOK`: return the member's copy. If DATE is after the due date the fee is days late times the daily fee, at most 5.00 per loan, added to what the member owes. Prints `returned MEMBER BOOK` and, if there was a fee, ` fee F` on the same line (2 decimals).
+- `DATE RESERVE MEMBER BOOK`: join the book's waiting list. Prints `reserved MEMBER BOOK position P` (1 is first).
+- `DATE PAY MEMBER AMOUNT`: pay toward what the member owes (AMOUNT has at most 2 decimals; any extra is kept as credit, so what the member owes can go below 0). Prints `paid MEMBER owes O`.
+- `DATE STATUS MEMBER`: prints `MEMBER NAME owes O loans: B1 B2 ...` with the member's books in the order they were lent (`loans: -` when none).
+
+Holds: when a copy comes back and the book has a waiting list, the copy is held for the first member on the list instead of going back on the shelf. That member is taken off the list and prints nothing; the hold lasts 3 days (a return on day D can be collected through day D+3). Before each command, every hold whose last day is before the command's date expires and the copy goes to the next member on the list (a new 3-day hold from the day after the old hold's last day), or back on the shelf. Print `hold expired MEMBER BOOK` for each expired hold, in order of the hold's last day and then book ID.
+
+A LOAN is refused, printing `refused MEMBER BOOK: REASON`, with the first reason that applies in this order: `unknown member`, `unknown book`, `owes O` (the member owes more than 2.00), `limit` (already has the tier's number of books), `already has it`, `none available` (no copy on the shelf and no hold for this member). A hold for the member is used before a shelf copy. RESERVE is refused (same output form) with `unknown member`, `unknown book`, `already has it`, `already reserved`, or `copy available` when a copy is on the shelf. RETURN of a book the member does not have prints `refused MEMBER BOOK: not on loan`; PAY and STATUS for an unknown member print `refused MEMBER: unknown member`. A second BOOK or MEMBER with an existing ID prints `duplicate ID`.
+
+Write the program as 3 files in the folder you are given: `main`, `catalog`, `rules`. `main` is the entry point; each file imports what it needs from the others. `catalog` defines the book and member records and the library state that holds them; `rules` has the lending rules (loans, returns, fees, holds); `main` reads the commands and prints. Keep the state in `main` (or in values it creates) and pass it to the functions that need it.

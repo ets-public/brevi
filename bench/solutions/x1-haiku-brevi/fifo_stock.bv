@@ -1,0 +1,121 @@
+type Lot:
+  qty: int
+  cost: dec
+
+fn date_ok(s: str) -> bool = s.re_full("\d{4}-\d{2}-\d{2}").len() > 0
+
+fn money_ok(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0
+
+fn units(lots: [Lot]) -> int:
+  t = 0
+  for l in lots:
+    t += l.qty
+  return t
+
+fn stock_value(lots: [Lot]) -> dec:
+  t = 0.dec()
+  for l in lots:
+    t = t + l.cost * l.qty
+  return t
+
+fn take_fifo(mut lots: [Lot], n: int) -> dec:
+  need = n
+  cost = 0.dec()
+  while need > 0:
+    lot = lots[0]
+    t = min(need, lot.qty)
+    cost = cost + lot.cost * t
+    need -= t
+    if t == lot.qty: lots.remove(0)
+    else: lots[0] = Lot(qty: lot.qty - t, cost: lot.cost)
+  return cost
+
+n = 0
+latest = ""
+lots = {}
+cogs = {}
+rev = {}
+prof = {}
+loss = {}
+mprof = {}
+mloss = {}
+
+for raw in stdin().lines():
+  n += 1
+  line = raw.trim()
+  if line == "": continue
+  w = line.words()
+  ok = (w.len() == 4 or w.len() == 5) and date_ok(w[0]) and w[3].re_full("\d+").len() > 0 and w[3].int().or(0) >= 1
+  if ok:
+    op = w[1]
+    if op == "RECEIVE" or op == "SHIP":
+      ok = w.len() == 5 and money_ok(w[4])
+    elif op == "LOSS":
+      ok = w.len() == 4
+    else:
+      ok = false
+  if not ok:
+    print("line {n}: bad line")
+    continue
+  if latest != "" and w[0] < latest:
+    print("line {n}: date out of order")
+    continue
+  op = w[1]
+  sku = w[2]
+  qty = w[3].int().or(0)
+  have = units(lots[sku])
+  if op == "SHIP" or op == "LOSS":
+    if qty > have:
+      print("line {n}: short {sku} need {qty} have {have}")
+      continue
+  latest = w[0]
+  mon = w[0][0:7]
+  if op == "RECEIVE":
+    cost = w[4].dec().or(0.dec())
+    if not lots.has(sku):
+      lots[sku] = []
+      cogs[sku] = 0.dec()
+      rev[sku] = 0.dec()
+      prof[sku] = 0.dec()
+      loss[sku] = 0.dec()
+    lots[sku].push(Lot(qty: qty, cost: cost))
+  elif op == "SHIP":
+    price = w[4].dec().or(0.dec())
+    ls = lots[sku]
+    c = take_fifo(ls, qty)
+    lots[sku] = ls
+    rv = price * qty
+    pf = rv - c
+    cogs[sku] = cogs[sku] + c
+    rev[sku] = rev[sku] + rv
+    prof[sku] = prof[sku] + pf
+    if not mprof.has(mon):
+      mprof[mon] = 0.dec()
+      mloss[mon] = 0.dec()
+    mprof[mon] = mprof[mon] + pf
+  else:
+    ls = lots[sku]
+    c = take_fifo(ls, qty)
+    lots[sku] = ls
+    loss[sku] = loss[sku] + c
+    if not mprof.has(mon):
+      mprof[mon] = 0.dec()
+      mloss[mon] = 0.dec()
+    mloss[mon] = mloss[mon] + c
+
+skus = lots.keys().sort()
+tp = 0.dec()
+tl = 0.dec()
+for s in skus:
+  on = units(lots[s])
+  v = stock_value(lots[s])
+  print("{s} on_hand {on} value {v.fmt(2)} cogs {cogs[s].fmt(2)} revenue {rev[s].fmt(2)} profit {prof[s].fmt(2)} loss {loss[s].fmt(2)}")
+  tp = tp + prof[s]
+  tl = tl + loss[s]
+
+print("months")
+for m in mprof.keys().sort():
+  print("  {m} profit {mprof[m].fmt(2)} loss {mloss[m].fmt(2)}")
+
+net = tp - tl
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {net.fmt(2)}")

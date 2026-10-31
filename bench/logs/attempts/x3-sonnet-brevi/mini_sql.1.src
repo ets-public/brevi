@@ -1,0 +1,277 @@
+tnames = {}
+ttypes = {}
+trows = {}
+
+toks = []
+p = 0
+kind = ""
+tname = ""
+cols = []
+vals = []
+conds = []
+ordcol = ""
+desc = false
+limit = -1
+setcol = ""
+star = false
+cnt = false
+
+fn peek() -> str:
+  if p < toks.len(): toks[p] else: ""
+
+fn expect(s: str):
+  if peek() != s: fail("error: syntax")
+  p += 1
+
+fn ident() -> str:
+  t = peek()
+  if t.re_full("[A-Za-z][A-Za-z0-9_]*").is_empty(): fail("error: syntax")
+  p += 1
+  t
+
+fn value() -> str:
+  t = peek()
+  if t.re_full("-?\d+|'(?:[^']|'')*'").is_empty(): fail("error: syntax")
+  p += 1
+  t
+
+fn parse_conds():
+  conds = []
+  while true:
+    c = ident()
+    op = peek()
+    if op not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+    p += 1
+    v = value()
+    conds.push((c, op, v))
+    if peek() == "AND":
+      p += 1
+    else:
+      break
+
+fn parse(line: str):
+  toks = line.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z_][A-Za-z0-9_]*|!=|<=|>=|[(),=<>*]")
+  p = 0
+  conds = []
+  cols = []
+  vals = []
+  ordcol = ""
+  desc = false
+  limit = -1
+  star = false
+  cnt = false
+  w = peek()
+  kind = w
+  if w == "CREATE":
+    p += 1
+    expect("TABLE")
+    tname = ident()
+    expect("(")
+    while true:
+      cols.push(ident())
+      t = ident()
+      if t != "INT" and t != "TEXT": fail("error: syntax")
+      vals.push(t)
+      if peek() == ",":
+        p += 1
+      else:
+        break
+    expect(")")
+  elif w == "INSERT":
+    p += 1
+    expect("INTO")
+    tname = ident()
+    expect("VALUES")
+    expect("(")
+    while true:
+      vals.push(value())
+      if peek() == ",":
+        p += 1
+      else:
+        break
+    expect(")")
+  elif w == "SELECT":
+    p += 1
+    if peek() == "*":
+      star = true
+      p += 1
+    elif peek() == "COUNT":
+      p += 1
+      expect("(")
+      expect("*")
+      expect(")")
+      cnt = true
+    else:
+      while true:
+        cols.push(ident())
+        if peek() == ",":
+          p += 1
+        else:
+          break
+    expect("FROM")
+    tname = ident()
+    if peek() == "WHERE":
+      p += 1
+      parse_conds()
+    if not cnt:
+      if peek() == "ORDER":
+        p += 1
+        expect("BY")
+        ordcol = ident()
+        if peek() == "DESC":
+          desc = true
+          p += 1
+      if peek() == "LIMIT":
+        p += 1
+        t = peek()
+        if t.re_full("\d+").is_empty(): fail("error: syntax")
+        limit = t.int()
+        p += 1
+  elif w == "UPDATE":
+    p += 1
+    tname = ident()
+    expect("SET")
+    setcol = ident()
+    expect("=")
+    vals.push(value())
+    if peek() == "WHERE":
+      p += 1
+      parse_conds()
+  elif w == "DELETE":
+    p += 1
+    expect("FROM")
+    tname = ident()
+    if peek() == "WHERE":
+      p += 1
+      parse_conds()
+  else:
+    fail("error: syntax")
+  if p != toks.len(): fail("error: syntax")
+
+fn is_int(v: str) -> bool = v.re_full("-?\d+").len() > 0
+
+fn colidx(c: str) -> int:
+  i = tnames[tname].index_of(c)
+  if i < 0: fail("error: no column {c}")
+  i
+
+fn unq(v: str) -> str:
+  if v.starts_with("'"): v.slice(1, -1).replace("''", "'") else: v
+
+fn tyok(ty: str, v: str) -> bool = (ty == "INT") == is_int(v)
+
+fn norm(v: str) -> str:
+  if is_int(v): v.int().str() else: unq(v)
+
+fn cmp(a: str, b: str, ty: str) -> int:
+  if ty == "INT":
+    x = a.int()
+    y = b.int()
+    if x < y: -1 elif x > y: 1 else: 0
+  else:
+    if a < b: -1 elif a > b: 1 else: 0
+
+fn matches(row: [str], cc: [(int, str, str)]) -> bool:
+  for c in cc:
+    r = cmp(row[c.0], c.2, ttypes[tname][c.0])
+    ok = false
+    if c.1 == "=": ok = r == 0
+    elif c.1 == "!=": ok = r != 0
+    elif c.1 == "<": ok = r < 0
+    elif c.1 == ">": ok = r > 0
+    elif c.1 == "<=": ok = r <= 0
+    else: ok = r >= 0
+    if not ok: return false
+  true
+
+fn prep_conds() -> [(int, str, str)]:
+  res = []
+  for c in conds:
+    i = colidx(c.0)
+    res.push((i, c.1, c.2))
+  for c in res:
+    if not tyok(ttypes[tname][c.0], conds[0].2) and false: fail("x")
+  k = 0
+  for c in res:
+    if not tyok(ttypes[tname][c.0], conds[k].2): fail("error: type mismatch")
+    k += 1
+  out = []
+  for c in res:
+    out.push((c.0, c.1, norm(conds[out.len()].2)))
+  out
+
+fn exec() -> [str]:
+  out = []
+  if kind == "CREATE":
+    if tnames.has(tname): fail("error: table {tname} exists")
+    tnames[tname] = cols
+    ttypes[tname] = vals
+    trows[tname] = []
+    out.push("ok")
+    return out
+  if not tnames.has(tname): fail("error: no table {tname}")
+  if kind == "INSERT":
+    if vals.len() != tnames[tname].len(): fail("error: type mismatch")
+    for i in 0..vals.len():
+      if not tyok(ttypes[tname][i], vals[i]): fail("error: type mismatch")
+    trows[tname].push([norm(v) for v in vals])
+    out.push("ok")
+  elif kind == "SELECT":
+    idxs = []
+    if star:
+      idxs = (0..tnames[tname].len()).step(1)
+    else:
+      for c in cols: idxs.push(colidx(c))
+    oi = -1
+    if ordcol != "": oi = colidx(ordcol)
+    cc = prep_conds()
+    rows = [r for r in trows[tname] if matches(r, cc)]
+    if cnt:
+      out.push("{rows.len()}")
+      return out
+    if oi >= 0:
+      n = rows.len()
+      if ttypes[tname][oi] == "INT":
+        items = [(rows[i][oi].int(), if desc: -i else: i, i) for i in 0..n]
+      else:
+        items = [(rows[i][oi], if desc: -i else: i, i) for i in 0..n]
+      items = items.sort()
+      if desc: items = items.rev()
+      rows = [rows[t.2] for t in items]
+    if limit >= 0: rows = rows.take(limit)
+    out.push(" | ".join([tnames[tname][i] for i in idxs]))
+    for r in rows:
+      out.push(" | ".join([r[i] for i in idxs]))
+    out.push("({rows.len()} rows)")
+  elif kind == "UPDATE":
+    si = colidx(setcol)
+    cc = prep_conds()
+    if not tyok(ttypes[tname][si], vals[0]): fail("error: type mismatch")
+    nv = norm(vals[0])
+    n = 0
+    for i in 0..trows[tname].len():
+      if matches(trows[tname][i], cc):
+        trows[tname][i][si] = nv
+        n += 1
+    out.push("updated {n}")
+  else:
+    cc = prep_conds()
+    keep = []
+    n = 0
+    for r in trows[tname]:
+      if matches(r, cc): n += 1 else: keep.push(r)
+    trows[tname] = keep
+    out.push("deleted {n}")
+  out
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match parse(line):
+    Err(m) =>
+      print(m)
+      continue
+    Ok(_) => 0
+  match exec():
+    Err(m) => print(m)
+    Ok(o) =>
+      for s in o: print(s)

@@ -1,0 +1,2 @@
+{"line":8,"msg":"cd is used inside a function, so it needs a type","fix":"write cd: TYPE = ... with the real type"}
+{"line":9,"msg":"wc is used inside a function, so it needs a type","fix":"write wc: TYPE = ... with the real type"}
