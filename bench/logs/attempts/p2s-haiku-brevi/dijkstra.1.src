@@ -1,0 +1,39 @@
+ls = lines()
+ws = [l.words() for l in ls if l.trim() != ""]
+q = ws.last()
+edges = ws[0:ws.len() - 1]
+adj = {}
+for e in edges:
+  a = e[0]
+  b = e[1]
+  w = e[2].int().or(0)
+  adj[a].push((b, w))
+  adj[b].push((a, w))
+src = q[0]
+dst = q[1]
+h = heap()
+h.push((0, [src]))
+done = {}
+ok = false
+best_d = 0
+best_p = []
+while not h.is_empty():
+  top = h.pop()
+  d = top.0
+  path = top.1
+  v = path.last()
+  if done.has(v): continue
+  done[v] = true
+  if v == dst:
+    ok = true
+    best_d = d
+    best_p = path
+    break
+  for nb in adj[v]:
+    if not done.has(nb.0):
+      h.push((d + nb.1, path + [nb.0]))
+if ok:
+  print(best_d)
+  print("->".join(best_p))
+else:
+  print("none")

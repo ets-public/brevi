@@ -6,3 +6,5 @@
 {"run":"p1b-haiku-brevi","lang":"brevi","task":"spreadsheet","code_tok":2167,"patch_tok":2167,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
 {"run":"p1b-haiku-brevi","lang":"brevi","task":"template","code_tok":1770,"patch_tok":1770,"out_tok":89,"compiled":false,"pass":0,"total":0,"tok":"exact"}
 {"run":"p1b-haiku-brevi","lang":"brevi","task":"template","code_tok":1777,"patch_tok":6,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p1b-haiku-brevi","lang":"brevi","task":"timetable","code_tok":1167,"patch_tok":1167,"out_tok":208,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"p1b-haiku-brevi","lang":"brevi","task":"timetable","code_tok":1207,"patch_tok":72,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

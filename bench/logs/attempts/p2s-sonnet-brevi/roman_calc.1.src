@@ -1,0 +1,36 @@
+vals = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+nums = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+fn rv(s: str) -> int:
+  t = 0
+  cs = s.chars()
+  for i in 0..cs.len():
+    v = vals[cs[i]]
+    if i + 1 < cs.len() and vals[cs[i + 1]] > v:
+      t -= v
+    else:
+      t += v
+  return t
+fn tor(n: int) -> str:
+  r = ""
+  for i in 0..nums.len():
+    while n >= nums[i]:
+      r += syms[i]
+      n -= nums[i]
+  return r
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  t = rv(w[0])
+  i = 1
+  while i + 1 < w.len() + 1 and i < w.len():
+    if w[i] == "+":
+      t += rv(w[i + 1])
+    else:
+      t -= rv(w[i + 1])
+    i += 2
+  if t <= 0:
+    print("nulla")
+  else:
+    print(tor(t))

@@ -1,0 +1,50 @@
+dur = {}
+deps = {}
+names = []
+endt = {}
+starts = {}
+visiting = {}
+bad = false
+
+fn finish(nm: str) -> int:
+  if endt.has(nm): return endt[nm]
+  if visiting.has(nm):
+    bad = true
+    return 0
+  if not dur.has(nm):
+    bad = true
+    return 0
+  visiting[nm] = true
+  st = 0
+  for d in deps[nm]:
+    f = finish(d)
+    if f > st: st = f
+  e = st + dur[nm]
+  endt[nm] = e
+  starts[nm] = st
+  return e
+
+for line in lines():
+  p = line.words()
+  if p.len() < 2: continue
+  nm = p[0]
+  dur[nm] = p[1].int().or(0)
+  ds = []
+  if p.len() > 3 and p[2] == "after":
+    ds = p[3:]
+  deps[nm] = ds
+  names.push(nm)
+
+for nm in names:
+  finish(nm)
+
+if bad:
+  print("invalid")
+else:
+  rows = [(starts[nm], nm, endt[nm]) for nm in names]
+  rows.sort()
+  T = 0
+  for r in rows:
+    print("{r.1} {r.0} {r.2}")
+    if r.2 > T: T = r.2
+  print("total {T}")

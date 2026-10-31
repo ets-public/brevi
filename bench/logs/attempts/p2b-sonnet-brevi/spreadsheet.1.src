@@ -1,0 +1,118 @@
+cells: {str: str} = {}
+toks: [str] = []
+pos = 0
+cache: {str: (int, int)} = {}
+state: {str: int} = {}
+
+fn mx(a: int, b: int) -> int = if a > b: a else: b
+
+fn refpos(r: str) -> (int, int):
+  (r.slice(0, 1).code() - 65, r.slice(1).int())
+
+fn cellval(name: str) -> (int, int):
+  if state[name] == 2: return cache[name]
+  if state[name] == 1: return (0, 2)
+  c = cells.get_or(name, "")
+  if c.is_empty():
+    return (0, 0)
+  state[name] = 1
+  res = (0, 0)
+  if c.starts_with("="):
+    st = toks
+    sp = pos
+    toks = c.slice(1).replace(" ", "").re_all("[A-Z]+\d*|\d+|[-+*/():]").map(m => m[0])
+    pos = 0
+    res = expr()
+    toks = st
+    pos = sp
+  else:
+    res = (c.int(), 0)
+  state[name] = 2
+  cache[name] = res
+  res
+
+fn expr() -> (int, int):
+  a, e = term()
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    b, f = term()
+    e = mx(e, f)
+    if op == "+": a = a + b
+    else: a = a - b
+  (a, e)
+
+fn term() -> (int, int):
+  a, e = factor()
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    b, f = factor()
+    e = mx(e, f)
+    if op == "*": a = a * b
+    elif b == 0: e = mx(e, 1)
+    else: a = a / b
+  (a, e)
+
+fn factor() -> (int, int):
+  t = toks[pos]
+  pos += 1
+  if t == "-":
+    a, e = factor()
+    return (-a, e)
+  if t == "(":
+    a, e = expr()
+    pos += 1
+    return (a, e)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    pos += 1
+    r1 = toks[pos]
+    pos += 2
+    r2 = toks[pos]
+    pos += 2
+    p1 = refpos(r1)
+    p2 = refpos(r2)
+    vals = []
+    err = 0
+    for c in p1.0..p2.0 + 1:
+      for r in p1.1..p2.1 + 1:
+        v, e = cellval((c + 65).char() + r.str())
+        vals.push(v)
+        err = mx(err, e)
+    if t == "SUM": return (vals.sum(), err)
+    if t == "MIN": return (vals.min().or(0), err)
+    return (vals.max().or(0), err)
+  if t.slice(0, 1).is_alpha():
+    return cellval(t)
+  (t.int(), 0)
+
+maxc = 0
+maxr = 0
+for line in lines():
+  if line.trim().is_empty(): continue
+  p = line.split("=")
+  name = p[0].trim()
+  content = line.slice(line.find("=") + 1).trim()
+  cells[name] = content
+  rp = refpos(name)
+  maxc = mx(maxc, rp.0)
+  maxr = mx(maxr, rp.1)
+  for g in content.re_all("[A-Z]\d+"):
+    q = refpos(g[0])
+    maxc = mx(maxc, q.0)
+    maxr = mx(maxr, q.1)
+hdr = ""
+for c in 0..maxc + 1:
+  hdr += "\t" + (c + 65).char()
+print(hdr)
+for r in 1..maxr + 1:
+  row = r.str()
+  for c in 0..maxc + 1:
+    nm = (c + 65).char() + r.str()
+    row += "\t"
+    if cells.has(nm):
+      v, e = cellval(nm)
+      if e == 2: row += "#CYCLE"
+      elif e == 1: row += "#DIV0"
+      else: row += v.str()
+  print(row)

@@ -160,7 +160,8 @@ pub fn empty_types(items: &[Item]) -> (HashMap<(String, usize), (String, bool)>,
     // The script runs first, so its top-level names are known inside functions.
     let mut order: Vec<&Item> = items.iter().filter(|i| matches!(i, Item::Fn { script: true, .. })).collect();
     order.extend(items.iter().filter(|i| !matches!(i, Item::Fn { script: true, .. })));
-    for it in order {
+    // Twice: the second pass knows the top-level types the first found (a name filled from another's items).
+    for it in order.iter().chain(order.iter()) {
         let (params, ret, body, script) = match it {
             Item::Fn { params, ret, body, script, .. } => (params.as_slice(), from_ast(ret), body, *script),
             Item::Test { body, .. } => (&[][..], Unit, body, false),
@@ -665,7 +666,8 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
-            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "repeat" | "slice" if !matches!(r, List(_)) || m != "slice" => Str,
+            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" => Str,
+            "repeat" | "slice" if matches!(r, Str) => Str,
             "join" => Str,
             "words" | "lines" | "chars" | "split" => List(Box::new(Str)),
             "ints" => List(Box::new(Int)),

@@ -1,0 +1,117 @@
+test 0 failed
+input:
+{
+ "products": {
+  "p1": {
+   "name": "Pen",
+   "price": "1.20",
+   "category": "office"
+  },
+  "p2": {
+   "name": "Pad",
+   "price": "3.35",
+   "category": "office"
+  },
+  "t1": {
+   "name": "Tea",
+   "price": "4.99",
+   "category": "food"
+  }
+ },
+ "customers": {
+  "c1": {
+   "name": "Ann",
+   "tier": "gold",
+   "country": "UK"
+  },
+  "c2": {
+   "name": "Bob",
+   "tier": "basic",
+   "country": "US"
+  },
+  "c3": {
+   "name": "Cy",
+   "tier": "silver",
+   "country": "FR"
+  }
+ },
+ "orders": [
+  {
+   "id": "o1",
+   "customer": "c1",
+   "lines": [
+    {
+     "sku": "p1",
+     "qty": 2
+    },
+    {
+     "sku": "p2",
+     "qty": 1
+    },
+    {
+     "sku": "t1",
+     "qty": 1
+    }
+   ]
+  },
+  {
+   "id": "o2",
+   "customer": "c2",
+   "lines": [
+    {
+     "sku": "t1",
+     "qty": 3
+    }
+   ]
+  },
+  {
+   "id": "o3",
+   "customer": "c9",
+   "lines": [
+    {
+     "sku": "zz",
+     "qty": 1
+    }
+   ]
+  },
+  {
+   "id": "o4",
+   "customer": "c3",
+   "lines": [
+    {
+     "sku": "p1",
+     "qty": 1
+    },
+    {
+     "sku": "zz",
+     "qty": 1
+    },
+    {
+     "sku": "yy",
+     "qty": 1
+    }
+   ]
+  },
+  {
+   "id": "o5",
+   "customer": "c3",
+   "lines": [
+    {
+     "sku": "p2",
+     "qty": 5
+    }
+   ]
+  }
+ ]
+}
+expected:
+[{"id":"o1","customer":"Ann","subtotal":"10.74","discount":"1.33","tax":"1.88","total":"11.29"},{"id":"o2","customer":"Bob","subtotal":"14.97","discount":"0.75","tax":"1.17","total":"15.39"},{"id":"o3","error":"unknown customer c9"},{"id":"o4","error":"unknown sku zz"},{"id":"o5","customer":"Cy","subtotal":"16.75","discount":"1.64","tax":"0.00","total":"15.11"}]
+revenue 41.79
+got:
+{"id":"o1","customer":"Ann","subtotal":"10.74","discount":"1.33","tax":"1.88","total":"11.29}
+{"id":"o2","customer":"Bob","subtotal":"14.97","discount":"0.75","tax":"1.17","total":"15.39}
+{"id":"o3","error":"unknown customer c9"}
+{"id":"o4","error":"unknown sku zz"}
+{"id":"o5","customer":"Cy","subtotal":"16.75","discount":"1.64","tax":"0.00","total":"15.11}
+revenue 41.79
+passed 0/2

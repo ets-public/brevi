@@ -1,0 +1,1 @@
+{"line":132,"msg":"vals is used inside a function, so it needs a type","fix":"write vals: {str: int} = {} with the real type"}

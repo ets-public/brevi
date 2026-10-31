@@ -1,0 +1,24 @@
+adj = {}
+indeg = {}
+for line in lines():
+  parts = line.split("->")
+  if parts.len() < 2: continue
+  a = parts[0].trim()
+  b = parts[1].trim()
+  adj[a].push(b)
+  indeg[b] += 1
+  if not indeg.has(a): indeg[a] = 0
+h = heap()
+for n, d in indeg.pairs():
+  if d == 0: h.push(n)
+out = []
+while not h.is_empty():
+  n = h.pop()
+  out.push(n)
+  for m in adj[n]:
+    indeg[m] -= 1
+    if indeg[m] == 0: h.push(m)
+if out.len() < indeg.len():
+  print("cycle")
+else:
+  for n in out: print(n)

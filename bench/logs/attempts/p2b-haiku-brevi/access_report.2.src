@@ -1,0 +1,60 @@
+fn main():
+  P = "^(\S+) - - \[([^\]]+)\] \"(\S+) (\S+) (\S+)\" (\d{3}) (\d+|-) \"([^\"]*)\" \"([^\"]*)\"$"
+  requests = 0
+  malformed = 0
+  total = 0
+  ips = {}
+  status = {}
+  paths = {}
+  hours = {}
+  bots = 0
+  errs = {}
+  for line in lines():
+    m = line.re_full(P)
+    if not m:
+      malformed += 1
+      continue
+    requests += 1
+    ip = m[1]
+    ips[ip] += 1
+    c = m[6].slice(0, 1)
+    status[c] += 1
+    if m[7] != "-":
+      total += m[7].int()
+    pth = m[4].split("?")[0]
+    paths[pth] += 1
+    hour = m[2].split(":")[1]
+    hours[hour] += 1
+    if m[9].lower().contains("bot"):
+      bots += 1
+    if m[6].int() >= 400:
+      errs[ip] += 1
+  print("requests {requests}")
+  print("malformed {malformed}")
+  print("bytes {total}")
+  print("unique_ips {ips.len()}")
+  print("status")
+  for c in ["2", "3", "4", "5"]:
+    if status.has(c):
+      print("  {c}xx {status[c]}")
+  print("top_paths")
+  top = paths.pairs().sort_by(p => (-p.1, p.0))
+  for p in top[0:3]:
+    print("  {p.1} {p.0}")
+  print("hours")
+  hs = hours.pairs().sort_by(h => h.0)
+  mx = 0
+  for h in hs:
+    if h.1 > mx:
+      mx = h.1
+  for h in hs:
+    bl = (2 * h.1 * 20 + mx) // (2 * mx)
+    if bl < 1:
+      bl = 1
+    bar = "#".repeat(bl)
+    print("  {h.0} {h.1} {bar}")
+  print("bots {bots}")
+  print("errors_by_ip")
+  ev = errs.pairs().filter(p => p.1 >= 2)
+  for p in ev.sort_by(p => (-p.1, p.0)):
+    print("  {p.0} {p.1}")

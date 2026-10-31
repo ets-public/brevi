@@ -341,6 +341,18 @@ fn own_use(body: &str, n: &str) -> bool {
     sets_first(body, n) && body.matches(&id).count() > body.matches(&format!("target: {id}, op: \"=\"")).count()
 }
 
+// Is the first later statement that mentions n a plain `n = value` (at this level, not reading n)?
+fn stmts_set_first(rest: &[Stmt], n: &str) -> bool {
+    let mentions = |t: &str| t.contains(&format!("Ident({n:?})")) || t.contains(&format!("Move({n:?})"));
+    for s in rest {
+        if !mentions(&format!("{s:?}")) {
+            continue;
+        }
+        return matches!(s, Stmt::Assign { target: Expr::Ident(x), op: "=", value, .. } if x == n && !mentions(&format!("{value:?}")));
+    }
+    false
+}
+
 fn sets_first(body: &str, n: &str) -> bool {
     let id = format!("Ident({n:?})");
     body.find(&id).map_or(false, |i| body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")))
@@ -855,12 +867,13 @@ impl Emitter {
     // (Rust checks that every path sets it).
     fn hoist(&mut self, s: &Stmt, rest: &[Stmt], tail: Option<&Expr>) -> String {
         let mut out = String::new();
+        let rest_stmts = rest;
         if let Stmt::Expr { expr: e @ (Expr::If(..) | Expr::Match(..)), .. } = s {
             let mut names = Vec::new();
             branch_sets(e, &mut names);
             let rest = format!("{rest:?} {tail:?}");
             for n in names {
-                if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !sets_first(&rest, &n) {
+                if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !stmts_set_first(rest_stmts, &n) {
                     out.push_str(&format!("    let mut {n};\n"));
                     self.locals.insert(n);
                 }
@@ -1378,8 +1391,7 @@ impl Emitter {
                     {
                         format!("{}.ax_iter()", self.place(e))
                     }
-                    other if matches!(self.infer_ty(other), Some(Ty::Named(n)) if n == "str") => format!("{}.ax_chars()", self.expr(other)),
-                    other => self.expr(other),
+                    other => format!("AxEach::ax_each({})", self.expr(other)),
                 };
                 let outer = self.locals.clone();
                 self.bind_pat(p);

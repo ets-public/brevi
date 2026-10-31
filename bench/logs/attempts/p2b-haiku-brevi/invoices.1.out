@@ -1,0 +1,2 @@
+{"line":21,"msg":"match arms have incompatible types: expected {str: Json}, found ()"}
+{"line":24,"msg":"match arms have incompatible types: expected {str: Json}, found ()"}

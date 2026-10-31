@@ -1,0 +1,1 @@
+{"line":1,"msg":"top-level statements and fn main cannot both be used","fix":"move these statements into main, or delete fn main"}

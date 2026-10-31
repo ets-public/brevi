@@ -1,0 +1,17 @@
+fn check(line: str) -> str:
+  stack = []
+  pos = 0
+  for c in line.chars():
+    pos += 1
+    if c == "(" or c == "[" or c == "{":
+      stack.push(c)
+    elif c == ")" or c == "]" or c == "}":
+      if stack.is_empty(): return "error at " + pos.str()
+      top = stack.pop()
+      if (top == "(" and c != ")") or (top == "[" and c != "]") or (top == "{" and c != "}"):
+        return "error at " + pos.str()
+  if not stack.is_empty(): return "error at " + (line.len() + 1).str()
+  return "ok"
+
+for line in lines():
+  print(check(line))

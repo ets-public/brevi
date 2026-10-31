@@ -1,0 +1,5 @@
+{"line":36,"msg":"tsta is used inside a function, so it needs a type","fix":"write tsta: [int] = [] with the real type"}
+{"line":37,"msg":"tti is used inside a function, so it needs a type","fix":"write tti: [int] = [] with the real type"}
+{"line":20,"msg":"unknown name 'lab'","fix":"set it first: lab = ..."}
+{"line":21,"msg":"unknown name 'lab'","fix":"set it first: lab = ..."}
+{"line":23,"msg":"unknown name 'lab'","fix":"set it first: lab = ..."}

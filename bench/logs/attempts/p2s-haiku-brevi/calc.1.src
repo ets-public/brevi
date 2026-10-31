@@ -1,0 +1,71 @@
+toks = []
+pos = 0
+bad = false
+
+fn peek() -> str:
+  if pos < toks.len(): return toks[pos]
+  return ""
+
+fn parse_atom() -> int:
+  t = peek()
+  if t == "(":
+    pos += 1
+    v = parse_expr()
+    pos += 1
+    return v
+  if t == "-":
+    pos += 1
+    return 0 - parse_atom()
+  pos += 1
+  return t.int().or(0)
+
+fn parse_term() -> int:
+  v = parse_atom()
+  while pos < toks.len():
+    op = toks[pos]
+    if op != "*" and op != "/": break
+    pos += 1
+    r = parse_atom()
+    if op == "*":
+      v = v * r
+    else:
+      if r == 0:
+        bad = true
+        return 0
+      v = v / r
+  return v
+
+fn parse_expr() -> int:
+  v = parse_term()
+  while pos < toks.len():
+    op = toks[pos]
+    if op != "+" and op != "-": break
+    pos += 1
+    r = parse_term()
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+  return v
+
+for line in lines():
+  if line.trim() == "": continue
+  toks = []
+  pos = 0
+  bad = false
+  num = ""
+  for c in line:
+    if c.is_digit():
+      num += c
+    else:
+      if num != "":
+        toks.push(num)
+        num = ""
+      if c != " ":
+        toks.push(c)
+  if num != "": toks.push(num)
+  v = parse_expr()
+  if bad:
+    print("error")
+  else:
+    print(v)

@@ -125,6 +125,29 @@ impl<T: Clone> AxIter for Vec<T> {
         self.iter().cloned()
     }
 }
+// What a `for` loop walks over: list items, map pairs, or a string's characters.
+pub trait AxEach {
+    type It: Iterator;
+    fn ax_each(self) -> Self::It;
+}
+impl<T> AxEach for Vec<T> {
+    type It = std::vec::IntoIter<T>;
+    fn ax_each(self) -> Self::It {
+        self.into_iter()
+    }
+}
+impl<K: Hash + Eq + Ord, V> AxEach for AxM<K, V> {
+    type It = <AxM<K, V> as IntoIterator>::IntoIter;
+    fn ax_each(self) -> Self::It {
+        self.into_iter()
+    }
+}
+impl AxEach for String {
+    type It = std::vec::IntoIter<String>;
+    fn ax_each(self) -> Self::It {
+        self.chars().map(|c| c.to_string()).collect::<Vec<_>>().into_iter()
+    }
+}
 // A string read item by item is its list of characters, as in Python.
 pub trait AxStrSeq {
     fn ax_map<U>(&self, f: impl Fn(String) -> U) -> Vec<U>;

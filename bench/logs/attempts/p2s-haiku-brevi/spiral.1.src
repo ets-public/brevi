@@ -1,0 +1,39 @@
+ls = lines()
+hdr = ls[0].ints()
+R = hdr[0]
+C = hdr[1]
+M = [l.ints() for l in ls[1:1 + R]]
+out = []
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+while top <= bot and left <= right:
+  j = left
+  while j <= right:
+    out.push(M[top][j])
+    j += 1
+  top += 1
+  i = top
+  while i <= bot:
+    out.push(M[i][right])
+    i += 1
+  right -= 1
+  if top <= bot:
+    j = right
+    while j >= left:
+      out.push(M[bot][j])
+      j -= 1
+    bot -= 1
+  if left <= right:
+    i = bot
+    while i >= top:
+      out.push(M[i][left])
+      i -= 1
+    left += 1
+sums = [0].repeat(C)
+for r in range(R):
+  for c in range(C):
+    sums[c] += M[r][c]
+print(out.join(" "))
+print(sums.join(" "))

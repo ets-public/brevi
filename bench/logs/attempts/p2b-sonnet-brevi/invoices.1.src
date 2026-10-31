@@ -1,0 +1,74 @@
+fn tostr(j: Json) -> str:
+  match j:
+    Str(s) => s
+    Num(n) => n.int().str()
+    _ => ""
+
+fn objmap(j: Json) -> {str: Json}:
+  match j:
+    Obj(m) => m
+    _ => {}
+
+fn qtyof(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    _ => 0
+
+inp = json(stdin())
+prods = objmap(inp["products"])
+custs = objmap(inp["customers"])
+orders = []
+match inp["orders"]:
+  Arr(xs) => orders = xs
+  _ => orders = []
+outs = []
+revenue = 0.dec()
+for o in orders:
+  oid = str(tostr(o["id"]).json())
+  cid = tostr(o["customer"])
+  if not custs.has(cid):
+    outs.push("\{\"id\":{oid},\"error\":\"unknown customer {cid}\"}")
+    continue
+  items = []
+  match o["lines"]:
+    Arr(xs) => items = xs
+    _ => items = []
+  badsku = ""
+  for l in items:
+    s = tostr(l["sku"])
+    if not prods.has(s) and badsku.is_empty(): badsku = s
+  if not badsku.is_empty():
+    outs.push("\{\"id\":{oid},\"error\":\"unknown sku {badsku}\"}")
+    continue
+  sub = 0.dec()
+  catamt = {}
+  catqty = {}
+  for l in items:
+    p = prods[tostr(l["sku"])]
+    q = qtyof(l["qty"])
+    a = tostr(p["price"]).dec() * q
+    c = tostr(p["category"])
+    sub += a
+    catamt[c] += a
+    catqty[c] += q
+  disc = 0.dec()
+  for c, q in catqty.pairs():
+    if q >= 3:
+      disc += (catamt[c] * "0.05".dec()).round(2)
+  tier = tostr(custs[cid]["tier"])
+  rate = 0.dec()
+  if tier == "gold": rate = "0.10".dec()
+  elif tier == "silver": rate = "0.05".dec()
+  disc += ((sub - disc) * rate).round(2)
+  country = tostr(custs[cid]["country"])
+  trate = 0.dec()
+  if country == "UK": trate = "0.20".dec()
+  elif country == "US": trate = "0.0825".dec()
+  net = sub - disc
+  tax = (net * trate).round(2)
+  total = net + tax
+  revenue += total
+  name = str(tostr(custs[cid]["name"]).json())
+  outs.push("\{\"id\":{oid},\"customer\":{name},\"subtotal\":\"{sub.fmt(2)}\",\"discount\":\"{disc.fmt(2)}\",\"tax\":\"{tax.fmt(2)}\",\"total\":\"{total.fmt(2)}\"}")
+print("[" + outs.join(",") + "]")
+print("revenue {revenue.fmt(2)}")

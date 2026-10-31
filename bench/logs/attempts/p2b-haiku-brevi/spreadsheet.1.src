@@ -1,0 +1,171 @@
+fn prec(o: str) -> int:
+  if o == "u": return 3
+  if o == "*" or o == "/": return 2
+  return 1
+
+fn to_rpn(s: str) -> [str]:
+  out = []
+  ops = []
+  expect = true
+  j = 0
+  L = s.len()
+  while j < L:
+    ch = s[j]
+    if ch.is_digit():
+      k = j
+      while k < L and s[k].is_digit(): k += 1
+      out.push("n" + s.slice(j, k))
+      j = k
+      expect = false
+    elif ch.is_alpha():
+      fnm = s.slice(j, j + 3)
+      if fnm in ["SUM", "MIN", "MAX"] and j + 3 < L and s[j + 3] == "(":
+        rest = s.slice(j)
+        close = j + rest.find(")")
+        out.push("x" + fnm + ":" + s.slice(j + 4, close))
+        j = close + 1
+      else:
+        k = j + 1
+        while k < L and s[k].is_digit(): k += 1
+        out.push("c" + s.slice(j, k))
+        j = k
+      expect = false
+    elif ch == "(":
+      ops.push("(")
+      expect = true
+      j += 1
+    elif ch == ")":
+      while ops and ops.last() != "(":
+        out.push(ops.pop())
+      if ops: ops.pop()
+      expect = false
+      j += 1
+    else:
+      if ch == "-" and expect:
+        ops.push("u")
+      else:
+        while ops and ops.last() != "(" and prec(ops.last()) >= prec(ch):
+          out.push(ops.pop())
+        ops.push(ch)
+      expect = true
+      j += 1
+  while ops:
+    out.push(ops.pop())
+  return out
+
+fn worse(a: str, b: str) -> str:
+  if a == "#CYCLE" or b == "#CYCLE": return "#CYCLE"
+  if a == "#DIV0" or b == "#DIV0": return "#DIV0"
+  return a
+
+fn arith(op: str, x1: str, x2: str) -> str:
+  if x1 == "#CYCLE" or x2 == "#CYCLE": return "#CYCLE"
+  if x1 == "#DIV0" or x2 == "#DIV0": return "#DIV0"
+  p = x1.int()
+  q = x2.int()
+  if op == "+": return str(p + q)
+  if op == "-": return str(p - q)
+  if op == "*": return str(p * q)
+  if q == 0: return "#DIV0"
+  return str(p / q)
+
+fn range_val(tk: str) -> str:
+  fnm = tk.slice(1, 4)
+  ends = tk.slice(5).split(":")
+  p1 = ends[0]
+  p2 = ends[1]
+  ca = p1[0].code()
+  cb = p2[0].code()
+  ra = p1.slice(1).int()
+  rb = p2.slice(1).int()
+  lo_c = min(ca, cb)
+  hi_c = max(ca, cb)
+  lo_r = min(ra, rb)
+  hi_r = max(ra, rb)
+  err = ""
+  nums = []
+  for cc in lo_c..(hi_c + 1):
+    for rr in lo_r..(hi_r + 1):
+      nm = cc.char() + str(rr)
+      v = cell_val(nm)
+      if v.starts_with("#"):
+        err = worse(err, v)
+      else:
+        nums.push(v.int())
+  if err != "": return err
+  if fnm == "SUM": return str(sum(nums))
+  if fnm == "MIN": return str(min(nums))
+  return str(max(nums))
+
+fn run_rpn(seq: [str]) -> str:
+  st = []
+  for tk in seq:
+    if tk[0] == "n":
+      st.push(tk.slice(1))
+    elif tk[0] == "c":
+      st.push(cell_val(tk.slice(1)))
+    elif tk[0] == "x":
+      st.push(range_val(tk))
+    elif tk == "u":
+      a = st.pop()
+      st.push(a if a.starts_with("#") else str(0 - a.int()))
+    else:
+      b = st.pop()
+      a = st.pop()
+      st.push(arith(tk, a, b))
+  return st.pop()
+
+fn cell_val(cn: str) -> str:
+  if vals.has(cn): return vals[cn]
+  if busy.has(cn): return "#CYCLE"
+  if not raw.has(cn): return "0"
+  busy[cn] = true
+  if rpns.has(cn):
+    res = run_rpn(rpns[cn])
+  else:
+    res = str(raw[cn].int())
+  vals[cn] = res
+  return res
+
+raw = {}
+rpns = {}
+vals = {}
+busy = {}
+allc = []
+for line in lines():
+  if line.trim() == "": continue
+  eq = line.find("=")
+  nm0 = line.slice(0, eq).trim()
+  content = line.slice(eq + 1).trim()
+  raw[nm0] = content
+  allc.push(nm0)
+  if content.starts_with("="):
+    rp = to_rpn(content.slice(1).replace(" ", ""))
+    rpns[nm0] = rp
+    for tk in rp:
+      if tk[0] == "c":
+        allc.push(tk.slice(1))
+      elif tk[0] == "x":
+        ends = tk.slice(5).split(":")
+        allc.push(ends[0])
+        allc.push(ends[1])
+mc = 1
+mr = 1
+for nm2 in allc:
+  cc2 = nm2[0].code() - 64
+  rr2 = nm2.slice(1).int()
+  if cc2 > mc: mc = cc2
+  if rr2 > mr: mr = rr2
+cols = []
+for c in 1..(mc + 1):
+  cols.push((64 + c).char())
+print("\t" + cols.join("\t"))
+for r in 1..(mr + 1):
+  row = [str(r)]
+  for c in 1..(mc + 1):
+    nm3 = (64 + c).char() + str(r)
+    if raw.has(nm3):
+      row.push(cell_val(nm3))
+    else:
+      row.push("")
+  print(row.join("\t"))

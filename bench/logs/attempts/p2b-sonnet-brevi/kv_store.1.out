@@ -1,0 +1,1 @@
+{"line":2,"msg":"log is used inside a function, so it needs a type","fix":"write log: [int] = [] with the real type"}

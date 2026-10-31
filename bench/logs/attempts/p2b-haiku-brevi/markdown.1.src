@@ -1,0 +1,98 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn slug(s: str) -> str:
+  t = s.lower().re_sub("[^a-z0-9]+", "-")
+  return t.re_sub("^-+|-+$", "")
+
+fn emph(s: str) -> str:
+  t = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*(.+?)\*", "<em>\1</em>")
+  return t.re_sub("\[(.+?)\]\((.+?)\)", "<a href=\"\2\">\1</a>")
+
+fn inline(s: str) -> str:
+  parts = esc(s).split("`")
+  n = parts.len()
+  out = ""
+  for i in 0..n:
+    if i % 2 == 1:
+      if i < n - 1:
+        out += "<code>" + parts[i] + "</code>"
+      else:
+        out += "`" + emph(parts[i])
+    else:
+      out += emph(parts[i])
+  return out
+
+fn is_block(l: str) -> bool:
+  if l == "```": return true
+  if l.starts_with("- "): return true
+  if l.re_full("#{1,6} .*"): return true
+  if l.re_full("\d+\. .*"): return true
+  return false
+
+fn main():
+  ls = lines()
+  n = ls.len()
+  out = []
+  heads = []
+  used = {}
+  i = 0
+  while i < n:
+    line = ls[i]
+    if line.trim() == "":
+      i += 1
+      continue
+    if line == "```":
+      code = []
+      i += 1
+      while i < n and ls[i] != "```":
+        code.push(esc(ls[i]))
+        i += 1
+      i += 1
+      out.push("<pre><code>" + code.join("\n") + "</code></pre>")
+      continue
+    m = line.re_full("(#{1,6}) (.*)")
+    if m:
+      lvl = m[1].len()
+      raw = m[2]
+      plain = raw.replace("`", "").replace("*", "")
+      base = slug(plain)
+      cand = base
+      k = 2
+      while used.has(cand):
+        cand = base + "-" + str(k)
+        k += 1
+      used[cand] = true
+      heads.push((cand, esc(plain)))
+      out.push("<h" + str(lvl) + " id=\"" + cand + "\">" + inline(raw) + "</h" + str(lvl) + ">")
+      i += 1
+      continue
+    ul = line.starts_with("- ")
+    ol = line.re_full("\d+\. (.*)")
+    if ul or ol:
+      tag = "ul" if ul else "ol"
+      items = []
+      while i < n:
+        l2 = ls[i]
+        mm = l2.re_full("\d+\. (.*)")
+        if ul and l2.starts_with("- "):
+          items.push("<li>" + inline(l2.slice(2)) + "</li>")
+        elif not ul and mm:
+          items.push("<li>" + inline(mm[1]) + "</li>")
+        else:
+          break
+        i += 1
+      out.push("<" + tag + ">\n" + items.join("\n") + "\n</" + tag + ">")
+      continue
+    para = []
+    while i < n and ls[i].trim() != "" and not is_block(ls[i]):
+      para.push(ls[i])
+      i += 1
+    out.push("<p>" + inline(para.join(" ")) + "</p>")
+  if heads.len() >= 2:
+    body = ["<nav>"]
+    for h in heads:
+      body.push("<a href=\"#" + h.0 + "\">" + h.1 + "</a>")
+    body.push("</nav>")
+    out = body + out
+  print(out.join("\n"))

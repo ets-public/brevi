@@ -1,0 +1,10 @@
+# Set in both branches, then changed in a later block: still one variable.
+fn look(n: str) -> Json = Null
+for name in ["a", "b"]:
+  if name == "a":
+    v = Num(1.0)
+  else:
+    v = look(name)
+  if true:
+    v = look(name)
+  print(str(v))

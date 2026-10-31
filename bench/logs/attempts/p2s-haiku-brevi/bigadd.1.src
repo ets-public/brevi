@@ -1,0 +1,4 @@
+for line in lines():
+  parts = line.words()
+  if parts.len() < 2: continue
+  print((parts[0].big() + parts[1].big()).str())
