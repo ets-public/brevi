@@ -18,6 +18,7 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 toke
 - **Install:** `sh install.sh` fetches the Rust toolchain if it is missing, then downloads a prebuilt brevi for Linux, macOS or Windows from the latest GitHub release (built by `.github/workflows/release.yml`), or builds it with `cargo install` when no release fits (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
 - **Editor rules:** `skills/rules/` has ready-made Brevi rules for Cursor, Copilot, Windsurf and Cline, built from BREVI.md by `skills/gen_rules.py`.
 - **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.
+- **Changes:** [CHANGELOG.md](CHANGELOG.md), one section per release.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
 ## Status: v0.18
@@ -174,13 +175,13 @@ Needs `rustc` on the PATH.
 Brevi must never fall behind Rust or Python, and code that once passed must never silently break.
 
 - **Toolchains** (`.github/workflows/toolchains.yml`, daily, on pushes to main, and Rust stable only on PRs): builds Brevi and reruns
-  `tests/check.sh` plus `tools/compat.py check` (all 1,700+ saved Brevi, Python and Rust solutions that once passed)
+  `tests/check.sh` plus `tools/compat.py check` (all 1,900+ saved Brevi, Python and Rust solutions that once passed)
   on Rust stable, beta and nightly, the newest Python and the next Python pre-release. Beta and nightly also report
   deprecation and future-incompatibility warnings in generated Rust and the newest edition, about 6 to 12 weeks before
   they reach stable. A toolchain already tested at the same commit is skipped. Failures open a `toolchain` issue.
 - **Upstream releases** (`upstream.yml`, twice a week): one `upstream` issue per new Rust stable, Python release or
   newer crate pinned in tests/examples, listing the new language features and stabilized APIs with a review checklist.
-- **Auto-fix** (`auto-fix.yml`): Claude Code picks up `toolchain` and `upstream` issues and opens a PR. Needs an
+- **Auto-fix** (`auto-fix.yml`): Claude Code picks up `toolchain` and `upstream` issues and opens a PR, using the
   `ANTHROPIC_API_KEY` repository secret; a human reviews every PR.
 - **Dependabot**: Cargo dependencies and GitHub Actions versions, weekly.
 

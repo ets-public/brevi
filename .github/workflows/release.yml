@@ -89,6 +89,7 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -100,6 +101,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
+          # Release notes: this tag's section of CHANGELOG.md, then the install note.
+          python3 tools/release_notes.py "$TAG" > notes.md
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes "Prebuilt brevi compiler. brevi still needs rustc on the PATH to build programs (install.sh fetches it)."
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes-file notes.md
           gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
