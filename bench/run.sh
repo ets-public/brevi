@@ -1,5 +1,5 @@
 #!/bin/bash
-# usage: run.sh LANG TASK FILE   (LANG = axon | python | rust)
+# usage: run.sh LANG TASK FILE   (LANG = brevi | python | rust; axon is the old name)
 B=/home/claude/bench
 lang=$1; task=$2; file=$(readlink -f "$3")
 [ -d "$B/tasks/$task" ] || { echo "unknown task $task"; exit 2; }
@@ -7,7 +7,7 @@ dir=$(dirname "$file"); run=$(basename "$dir")
 bin=$(mktemp -d)/prog
 out=$(
   case $lang in
-    axon) $B/axon build "$file" -o "$bin" 2>&1 ;;
+    brevi|axon) $B/brevi build "$file" -o "$bin" 2>&1 ;;
     rust) rustc --edition 2021 -A warnings -o "$bin" "$file" 2>&1 ;;
     python) python3 -m py_compile "$file" 2>&1 ;;
   esac

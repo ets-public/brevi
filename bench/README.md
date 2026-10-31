@@ -5,7 +5,7 @@ A model solves each task in one language and checks it with `run.sh LANG TASK FI
 `python3 analyze.py "logs/round1/*.jsonl"` prints the summary.
 
 Token counts are estimates from `tokcount.py` (words, numbers and symbols), not a real tokenizer.
-Set `AXON=/path/to/axon` when running Axon tasks.
+Set `BREVI=/path/to/brevi` when running Brevi tasks (runs before the rename are named `-axon`).
 
 ## Editing benchmark (`edit/`)
 
@@ -17,4 +17,4 @@ Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}
 Four programs written the plain way in Axon, Python and Rust: word counts (2M words), Dijkstra on a 100k-node graph, a prime sieve to 5M, and grouping 1M records.
 `python3 perf/gen.py` makes the inputs; `perf/time.sh` builds everything and prints the best of 3 runs.
 
-`verify_axon.sh NEW_AXON` rebuilds every earlier Axon solution with a new compiler and checks it prints the same as before.
+`verify.sh NEW_BREVI` rebuilds every earlier solution with a new compiler and checks it prints the same as before.

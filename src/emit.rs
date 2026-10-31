@@ -1,4 +1,4 @@
-// Turns Axon items into one Rust source file. v0 ownership strategy: every value read is
+// Turns Brevi items into one Rust source file. v0 ownership strategy: every value read is
 // cloned and `mut` parameters become &mut, so generated code never hits borrow errors.
 use crate::ast::*;
 use crate::diag::Diag;

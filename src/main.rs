@@ -11,7 +11,7 @@ use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: axon <run|build|test|check|emit> FILE.ax [--release] [-o OUT] [-- ARGS...]";
+const USAGE: &str = "usage: brevi <run|build|test|check|emit> FILE.bv [--release] [-o OUT] [-- ARGS...]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -120,12 +120,12 @@ fn build_dir(file: &str) -> PathBuf {
     for b in abs.to_string_lossy().bytes() {
         h = (h ^ b as u64).wrapping_mul(1099511628211);
     }
-    let dir = std::env::temp_dir().join(format!("axon-{h:x}"));
+    let dir = std::env::temp_dir().join(format!("brevi-{h:x}"));
     std::fs::create_dir_all(&dir).ok();
     dir
 }
 
-// Compiles generated Rust. rustc errors are mapped back to Axon lines and printed as JSON.
+// Compiles generated Rust. rustc errors are mapped back to Brevi lines and printed as JSON.
 // Each version is (program, the same program without moves). The plain one is used if moving a value broke
 // the borrow rules. Errors are reported from the last version tried.
 fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, file: &str, extra: &[&str], link: bool) -> bool {
@@ -160,7 +160,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = Command::new("rustc");
-    c.args(["--edition", "2021", "--error-format=json", "--crate-name", "axon_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
+    c.args(["--edition", "2021", "--error-format=json", "--crate-name", "brevi_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
     c.args(extra);
     if link {
         c.arg("-o").arg(out);
@@ -179,7 +179,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
 }
 
 fn report(rust: &str, stderr: &str, file: &str) {
-    let line_map = axon_lines(rust);
+    let line_map = brevi_lines(rust);
     let mut seen = std::collections::HashSet::new();
     for l in stderr.lines() {
         let Some(j) = json::parse(l) else { continue };
@@ -201,7 +201,7 @@ fn report(rust: &str, stderr: &str, file: &str) {
             None => (0, String::new()),
         };
         let aline = line_map.get(rline.saturating_sub(1)).copied().unwrap_or(0);
-        let mut text = to_axon_words(msg);
+        let mut text = to_brevi_words(msg);
         if code == "E0596" || code == "E0384" {
             let name = msg.split_whitespace().skip_while(|w| *w != "borrow" && *w != "variable").nth(1).unwrap_or("it").replace('`', "");
             text = format!("cannot change {name}: it was declared with let");
@@ -209,7 +209,7 @@ fn report(rust: &str, stderr: &str, file: &str) {
             let name = msg.split('`').nth(1).unwrap_or("it");
             text = format!("{name} is not set on every path before this use");
         } else if !label.is_empty() && !text.contains(&label) {
-            text = format!("{text}: {}", to_axon_words(&label));
+            text = format!("{text}: {}", to_brevi_words(&label));
         }
         let mut fix = fix_for(code, &format!("{msg} {label}"));
         if let Some(opts) = valid_options(code, msg, rust) {
@@ -232,8 +232,8 @@ fn report(rust: &str, stderr: &str, file: &str) {
     }
 }
 
-// For each generated Rust line, the Axon line it came from (from /*@L..*/ markers).
-fn axon_lines(rust: &str) -> Vec<usize> {
+// For each generated Rust line, the Brevi line it came from (from /*@L..*/ markers).
+fn brevi_lines(rust: &str) -> Vec<usize> {
     let mut cur = 0;
     rust.lines()
         .map(|l| {
@@ -249,14 +249,14 @@ fn axon_lines(rust: &str) -> Vec<usize> {
         .collect()
 }
 
-// Rewrites Rust type names in rustc messages into Axon's.
-fn to_axon_words(s: &str) -> String {
+// Rewrites Rust type names in rustc messages into Brevi's.
+fn to_brevi_words(s: &str) -> String {
     let mut t = s
         .replace("alloc::string::String", "str")
         .replace("std::string::String", "str")
         .replace("alloc::vec::Vec", "Vec")
         .replace("std::collections::BTreeMap", "BTreeMap")
-        .replace("axon_prog::AxM", "AxM")
+        .replace("brevi_prog::AxM", "AxM")
         .replace("found for struct ", "found for ")
         .replace(" in the current scope", "")
         .replace("&mut ", "mut ")

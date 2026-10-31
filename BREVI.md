@@ -1,6 +1,6 @@
-# Axon language guide (for models)
+# Brevi language guide (for models)
 
-Axon compiles to Rust. Write one statement per line, no semicolons. Blocks are indented, like Python: a line ending in `:` opens a block of the more-indented lines below it, and a short block can follow the `:` on the same line. Comments start with `#`. Types are required only on function parameters and returns.
+Brevi compiles to Rust. Write one statement per line, no semicolons. Blocks are indented, like Python: a line ending in `:` opens a block of the more-indented lines below it, and a short block can follow the `:` on the same line. Comments start with `#`. Types are required only on function parameters and returns.
 A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables that other functions also use (`pos = 0`, `toks = []`). A function whose body starts by setting a name (`i = 0`) has its own local, unless another function reads that name without setting it.
 
 ```
@@ -90,5 +90,5 @@ test "area of unit circle":
 ```
 
 ## Commands
-`axon run f.ax`, `axon test f.ax`, `axon check f.ax`, `axon build f.ax -o app [--release]`, `axon emit f.ax` (shows the Rust).
+`brevi run f.bv`, `brevi test f.bv`, `brevi check f.bv`, `brevi build f.bv -o app [--release]`, `brevi emit f.bv` (shows the Rust).
 Errors are one JSON line each: `{"e":kind,"at":"file:line:col","msg":...,"fix":...}`. Apply the fix and rerun. Runtime errors print `{"e":"runtime","line":N,"msg":...}`.

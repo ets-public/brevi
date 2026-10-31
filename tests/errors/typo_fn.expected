@@ -1,1 +1,1 @@
-{"e":"check","at":"typo_fn.ax:3:1","msg":"unknown function totl()","fix":"did you mean total()?"}
+{"e":"check","at":"typo_fn.bv:3:1","msg":"unknown function totl()","fix":"did you mean total()?"}

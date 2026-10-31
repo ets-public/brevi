@@ -1,11 +1,11 @@
 // Runtime prelude pasted at the top of every generated Rust file.
-// Axon methods map to ax_-prefixed trait methods so Axon controls their names and int types.
+// Brevi methods map to ax_-prefixed trait methods so Brevi controls their names and int types.
 #![allow(warnings)]
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
 
-// Axon's map: a hash map (fast lookups) that always lists its entries sorted by key.
+// Brevi's map: a hash map (fast lookups) that always lists its entries sorted by key.
 #[derive(Default, Clone, Copy)]
 pub struct AxHasher(u64);
 impl Hasher for AxHasher {
@@ -167,7 +167,7 @@ impl<E: std::fmt::Display> From<E> for AxErr {
 }
 pub type R<T> = Result<T, AxErr>;
 
-// Current Axon line, so runtime errors can point at the source.
+// Current Brevi line, so runtime errors can point at the source.
 pub static AX_LINE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[inline(always)]
 pub fn ax_l(n: usize) {

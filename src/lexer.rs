@@ -280,7 +280,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             match KEYWORDS.iter().find(|k| **k == word) {
                 Some(k) => push(&mut out, Tok::Kw(k)),
-                // Rust's own keywords are fine names in Axon; they get a suffix in the generated Rust.
+                // Rust's own keywords are fine names in Brevi; they get a suffix in the generated Rust.
                 None if RUST_KEYWORDS.contains(&word.as_str()) => push(&mut out, Tok::Ident(format!("{word}_"))),
                 None => push(&mut out, Tok::Ident(word)),
             }
