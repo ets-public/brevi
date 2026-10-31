@@ -1,0 +1,11 @@
+Text before.
+### Deep start
+#### Child
+###### Too deep
+## Shallower
+```
+# not a heading
+```
+## Why? (and how!)
+##     Spaced    ##
+## ???

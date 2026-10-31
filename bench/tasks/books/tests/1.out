@@ -1,0 +1,13 @@
+line 3: duplicate account
+line 5: bad line
+tx on line 6: unbalanced by +0.01
+tx on line 9: needs two postings
+line 16: unknown account bonus
+line 21: bad line
+line 27: bad line
+trial balance
+cash asset 4.00
+sales income 4.00
+fees expense 0.00
+debits 4.00 credits 4.00
+2 transactions accepted, 4 rejected

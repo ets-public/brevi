@@ -1,0 +1,9 @@
+line 4: level jump
+  0.1 Deep start (#deep-start)
+    0.1.1 Child (#child)
+      0.1.1.1 Too deep (#too-deep)
+1 Shallower (#shallower)
+2 Why? (and how!) (#why-and-how)
+3 Spaced (#spaced)
+4 ??? (#section)
+7 headings, max depth 4

@@ -9,7 +9,8 @@ NEW = "sales_report route_planner ini_config stack_vm line_diff room_booking".sp
 XL = "order_book mini_sql calc_lang fifo_stock library project_plan".split()
 # Second held-out XL set, written after v0.18 (ref/gen_big4.py); tiny_cpu and parking are multi-file.
 XL2 = "grep_lite payroll league crafting tiny_cpu parking".split()
-tasks = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2}[size]
+XL3 = "books toc poker trains quiz warehouse".split()
+tasks = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3}[size]
 B = "/home/user/brevi/bench"; ext = {"brevi": "bv", "python": "py"}[lang]
 name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
 guide = f"First read the language guide /home/user/brevi/BREVI.md once. When you need details it points to, run {B}/guide.sh {run} WORD to print the guide lines about WORD; this is the only other command you may run. " if lang == "brevi" else ""

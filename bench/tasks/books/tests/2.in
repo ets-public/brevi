@@ -1,0 +1,15 @@
+  cash 10
+ACCOUNT a asset
+ACCOUNT b liability
+TX 2026-05-01
+  a 1
+  b -1
+TX 2026-05-01 ok
+  a 1
+REPORT extra
+  b -1
+TX 2026-05-01 later
+  a 2.5
+  b -2.5
+  a
+REPORT

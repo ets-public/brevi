@@ -1,0 +1,8 @@
+line 4: level jump
+  0.1 A (#a)
+  0.2 a (#a-1)
+  0.3 A-1 (#a-1)
+    0.3.1 Jump (#jump)
+    0.3.2 Back (#back)
+1 Last #tag (#last-tag)
+6 headings, max depth 3

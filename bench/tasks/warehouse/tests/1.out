@@ -1,0 +1,11 @@
+line 1: no date
+line 3: expired on arrival
+discard egg 12 2026-01-07
+discard milk 6 2026-01-07
+milk 6 in 1 lots
+line 9: date goes back
+ORDER a: shipped 3
+line 11: duplicate order
+line 12: bad line
+ORDER c: shipped 0 of 2
+shipped 3 units, backordered 2 units

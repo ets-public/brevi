@@ -1,0 +1,12 @@
+trial balance
+y asset 0.00
+x income 0.00
+z expense 0.00
+debits 0.00 credits 0.00
+line 15: date goes back
+trial balance
+y asset 64.25
+x income 84.25
+z expense 20.00
+debits 135.75 credits 135.75
+3 transactions accepted, 1 rejected

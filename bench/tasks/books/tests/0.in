@@ -1,0 +1,20 @@
+ACCOUNT cash asset
+ACCOUNT bank asset
+ACCOUNT sales income
+ACCOUNT rent expense
+ACCOUNT loan liability
+ACCOUNT capital equity
+TX 2026-01-02 owner puts money in
+  bank 5000
+  capital -5000
+TX 2026-01-05 cash sale
+  cash 120.50
+  sales -120.50
+TX 2026-01-06 pay rent
+  rent 800
+  bank -800
+REPORT
+TX 2026-01-07 take loan
+  bank 2000
+  loan -2000
+REPORT
