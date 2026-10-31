@@ -10,5 +10,5 @@ Everything here is ready for launch and nothing has been published yet.
 | npm | `packaging/npm/` | `npx brevi-lang mcp`. The wrapper downloads the matching release binary on first run into `~/.cache/brevi/VERSION`. |
 | Dataset | `tools/export_dataset.py` | Writes tasks, verified solutions and a Hugging Face README to `dist/dataset`. |
 
-Versions in `plugins/brevi/.claude-plugin/plugin.json`, `server.json` and `packaging/npm/package.json` must match `Cargo.toml` at release time. The PyPI version comes from Cargo.toml.
+Versions in `plugins/brevi/.claude-plugin/plugin.json`, `server.json` and `packaging/npm/package.json` must match `Cargo.toml` (CI checks this with `tools/version_sync.py`). The PyPI version comes from Cargo.toml.
 `skills/gen_rules.py` keeps the plugin's copy of the skill in step with `skills/brevi/SKILL.md`.
