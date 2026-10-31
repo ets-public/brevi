@@ -1,0 +1,3 @@
+xs = [1]
+ys = [*xs, 2]
+print(ys)

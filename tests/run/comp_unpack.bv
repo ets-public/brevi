@@ -1,0 +1,14 @@
+# Python 3.15 (PEP 798): *x in a comprehension joins the lists it yields.
+lists = [[1, 2], [3, 4], [5]]
+print([*L for L in lists])
+print([*L for L in lists if L.len() > 1])
+grid = [[1, 2, 3], [4, 5, 6]]
+print(sum(*row for row in grid))
+print(max(*[x * 10 for x in row] for row in grid))
+words = ["ab", "cd"]
+print([*w for w in words])
+m = {"a": [1], "b": [2, 3]}
+flat = [*v for k, v in m.pairs()]
+flat.push(4)
+print(flat)
+print([*[i, -i] for i in 0..3])

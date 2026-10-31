@@ -595,9 +595,17 @@ impl Parser {
                 }
                 _ => None,
             };
+            // `sum(*row for row in grid)` (Python 3.15) passes the joined lists.
+            let flat = self.eat_sym("*");
             let e = self.expr()?;
             // `min(x for x in xs)` passes the list the loop builds.
-            let e = if self.eat_kw("for") { self.comprehension(e)? } else { e };
+            let e = if self.eat_kw("for") {
+                self.flat_comprehension(e, flat)?
+            } else if flat {
+                return Err(self.err("expected for after *x").fix_hint("write sum(*xs for xs in xss)"));
+            } else {
+                e
+            };
             args.push((name, e));
             if !self.eat_sym(",") {
                 break;
@@ -632,6 +640,13 @@ impl Parser {
             e = Expr::Method(Box::new(e), "map".into(), vec![Expr::Lambda(names, Box::new(elem))], line);
         }
         Ok(e)
+    }
+
+    // `[*xs for xs in xss]` (Python 3.15) joins the lists, or the characters of strings.
+    fn flat_comprehension(&mut self, elem: Expr, flat: bool) -> R<Expr> {
+        let line = self.line();
+        let e = self.comprehension(elem)?;
+        Ok(if flat { Expr::Method(Box::new(e), "flatten".into(), vec![], line) } else { e })
     }
 
     // Is the '(' at the cursor the start of a lambda's parameter list?
@@ -728,12 +743,16 @@ impl Parser {
             Tok::Sym("[") => {
                 let mut items = Vec::new();
                 while !self.is_sym("]") {
+                    let flat = self.eat_sym("*");
                     let e = self.expr()?;
                     // `[f(x) for x in xs if c]`
                     if self.eat_kw("for") {
-                        let c = self.comprehension(e)?;
+                        let c = self.flat_comprehension(e, flat)?;
                         self.expect_sym("]")?;
                         return Ok(c);
+                    }
+                    if flat {
+                        return Err(self.err("expected for after *x").fix_hint("join lists with +: a + b"));
                     }
                     items.push(e);
                     if !self.eat_sym(",") {
