@@ -1,0 +1,6 @@
+# A crate from crates.io (fetched and built once, then cached).
+use sha2 "0.10"
+rust fn sha256(s: str) -> str:
+  use sha2::{Digest, Sha256};
+  format!("{:x}", Sha256::digest(s.as_bytes()))
+print(sha256("abc"))

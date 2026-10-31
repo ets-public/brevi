@@ -1,0 +1,4 @@
+rust fn twice(x: int) -> int:
+  let y = x * 2;
+  y.len()
+print(twice(2))

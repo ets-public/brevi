@@ -1,0 +1,1 @@
+fn times(a: int, k: int) -> int = a * k

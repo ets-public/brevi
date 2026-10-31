@@ -1,0 +1,8 @@
+use "units.bv"
+type Rect:
+  w: int
+  h: int
+fn area(b: Rect) -> int = b.w * b.h
+fn scaled(b: Rect, k: int) -> Rect = Rect(times(b.w, k), times(b.h, k))
+test "area":
+  assert area(Rect(2, 3)) == 6
