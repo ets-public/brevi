@@ -148,7 +148,7 @@ impl Walk<'_> {
             }
             Expr::Unary(_, a) | Expr::Try(a) => self.expr(a, true),
             Expr::Binary(op, a, b) => {
-                let v = !["==", "!=", "<", ">", "<=", ">="].contains(op);
+                let v = !["==", "!=", "<", ">", "<=", ">=", "in"].contains(op);
                 self.expr(a, v);
                 self.expr(b, v);
             }

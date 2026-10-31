@@ -193,7 +193,7 @@ impl Parser {
         }
         if self.eat_kw("test") {
             let name = match self.next() {
-                Tok::Str(s) => s,
+                Tok::Str(s) => s.replace("{{", "{").replace("}}", "}"),
                 _ => return Err(self.err("expected a test name in quotes")),
             };
             let body = self.block()?;
@@ -293,7 +293,7 @@ impl Parser {
         let line = self.line();
         if self.is_kw("let") || self.is_kw("var") {
             let mutable = self.next() == Tok::Kw("var");
-            let name = self.pat()?;
+            let name = bind_upper(self.pat()?);
             let ty = if self.eat_sym(":") { Some(self.ty()?) } else { None };
             self.expect_sym("=")?;
             self.skip_newlines();
@@ -302,7 +302,7 @@ impl Parser {
         }
         // `x: T = v` declares a typed variable, like `var x: T = v`.
         if matches!(self.peek(), Tok::Ident(_)) && matches!(self.peek_at(1), Tok::Sym(":")) {
-            let name = self.pat()?;
+            let name = bind_upper(self.pat()?);
             self.expect_sym(":")?;
             let ty = Some(self.ty()?);
             self.expect_sym("=")?;
@@ -323,7 +323,17 @@ impl Parser {
         if self.eat_kw("assert") {
             return Ok(Stmt::Assert { cond: self.expr()?, line });
         }
-        let e = self.expr()?;
+        let mut e = self.expr()?;
+        // `a, b = ...` assigns a tuple, like `(a, b) = ...`.
+        let mut bare = false;
+        if matches!(e, Expr::Ident(_)) && self.is_sym(",") && self.bare_targets() {
+            let mut xs = vec![e];
+            while self.eat_sym(",") {
+                xs.push(self.postfix()?);
+            }
+            e = Expr::Tuple(xs);
+            bare = true;
+        }
         for op in ["=", "+=", "-=", "*=", "/="] {
             if self.eat_sym(op) {
                 let op: &'static str = match op {
@@ -334,11 +344,30 @@ impl Parser {
                     _ => "/=",
                 };
                 self.skip_newlines();
-                let value = self.expr()?;
+                let mut value = self.expr()?;
+                if bare && self.is_sym(",") {
+                    let mut vs = vec![value];
+                    while self.eat_sym(",") {
+                        vs.push(self.expr()?);
+                    }
+                    value = Expr::Tuple(vs);
+                }
                 return Ok(Stmt::Assign { target: e, op, value, line });
             }
         }
         Ok(Stmt::Expr { expr: e, line })
+    }
+
+    // After a name: is this `, b, c =`?
+    fn bare_targets(&self) -> bool {
+        let mut k = 0;
+        loop {
+            match (self.peek_at(k), self.peek_at(k + 1)) {
+                (Tok::Sym(","), Tok::Ident(_)) => k += 2,
+                (Tok::Sym("="), _) => return k > 0,
+                _ => return false,
+            }
+        }
     }
 
     fn pat(&mut self) -> R<Pat> {
@@ -366,7 +395,7 @@ impl Parser {
                 Tok::Int(n) => Ok(Pat::Int(-n)),
                 _ => Err(self.err("expected a number after '-'")),
             },
-            Tok::Str(s) => Ok(Pat::Str(s)),
+            Tok::Str(s) => Ok(Pat::Str(s.replace("{{", "{").replace("}}", "}"))),
             Tok::Kw("true") => Ok(Pat::Bool(true)),
             Tok::Kw("false") => Ok(Pat::Bool(false)),
             Tok::Sym("(") => {
@@ -395,7 +424,7 @@ impl Parser {
         const LEVELS: &[&[&str]] = &[
             &["or"],
             &["and"],
-            &["==", "!=", "<", ">", "<=", ">=", "~="],
+            &["==", "!=", "<", ">", "<=", ">=", "~=", "in"],
             &[".."],
             &["+", "-"],
             &["*", "/", "%", "//"],
@@ -405,6 +434,11 @@ impl Parser {
         }
         let mut lhs = self.binary(level + 1)?;
         loop {
+            // `x not in xs` is `!(x in xs)`.
+            let negate = level == 2 && self.peek() == &Tok::Kw("not") && self.peek_at(1) == &Tok::Kw("in");
+            if negate {
+                self.next();
+            }
             let op = match self.peek() {
                 Tok::Sym(s) if LEVELS[level].contains(s) => *s,
                 Tok::Kw(k) if LEVELS[level].contains(k) => *k,
@@ -418,6 +452,9 @@ impl Parser {
             } else {
                 Expr::Binary(op, Box::new(lhs), Box::new(rhs))
             };
+            if negate {
+                lhs = Expr::Unary("!", Box::new(lhs));
+            }
         }
         Ok(lhs)
     }
@@ -467,9 +504,21 @@ impl Parser {
                     _ => return Err(self.err("expected a field or method name after '.'")),
                 }
             } else if self.eat_sym("[") {
-                let idx = self.expr()?;
-                self.expect_sym("]")?;
-                e = Expr::Index(Box::new(e), Box::new(idx));
+                // `xs[a:b]`, `xs[a:]`, `xs[:b]` slice like `slice(a, b)`.
+                let line = self.line();
+                let start = if self.is_sym(":") { None } else { Some(self.expr()?) };
+                if self.eat_sym(":") {
+                    let mut args = vec![start.unwrap_or(Expr::Int(0))];
+                    if !self.is_sym("]") {
+                        args.push(self.expr()?);
+                    }
+                    self.expect_sym("]")?;
+                    e = Expr::Method(Box::new(e), "slice".into(), args, line);
+                } else {
+                    self.expect_sym("]")?;
+                    let Some(idx) = start else { return Err(self.err("expected an index")) };
+                    e = Expr::Index(Box::new(e), Box::new(idx));
+                }
             } else if self.eat_sym("?") {
                 e = Expr::Try(Box::new(e));
             } else {
@@ -623,7 +672,15 @@ impl Parser {
                 Ok(Expr::Match(Box::new(subject), arms))
             }
             Tok::Kw("for") => {
-                let p = self.pat()?;
+                let mut p = self.pat()?;
+                // `for k, v in ...` unpacks like `for (k, v) in ...`.
+                if self.is_sym(",") {
+                    let mut ps = vec![p];
+                    while self.eat_sym(",") {
+                        ps.push(self.pat()?);
+                    }
+                    p = Pat::Tuple(ps);
+                }
                 if !self.eat_kw("in") {
                     return Err(self.err("expected 'in' after the loop variable"));
                 }
@@ -659,7 +716,7 @@ impl Parser {
                     lit.push('}');
                     i += 2;
                 }
-                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!')) => {
+                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"')) => {
                     lit.push('{');
                     i += 1;
                 }
@@ -703,5 +760,14 @@ impl Parser {
             parts.push(StrPart::Lit(lit));
         }
         Ok(parts)
+    }
+}
+
+// A declared name like `MAX = 10` is a variable even though it is capitalised.
+fn bind_upper(p: Pat) -> Pat {
+    match p {
+        Pat::Variant(n, args) if args.is_empty() => Pat::Bind(n),
+        Pat::Tuple(ps) => Pat::Tuple(ps.into_iter().map(bind_upper).collect()),
+        p => p,
     }
 }

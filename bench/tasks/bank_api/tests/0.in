@@ -1,0 +1,8 @@
+POST /accounts {"owner": "Ann"}
+POST /accounts {"owner": "Bob"}
+POST /accounts/1/deposit {"amount": 500}
+POST /accounts/1/withdraw {"amount": 800}
+POST /transfer {"from": 1, "to": 2, "amount": 200}
+GET /accounts
+GET /accounts/3
+GET /accounts/2

@@ -1,0 +1,83 @@
+fn obj_of(j: Json) -> {str: Json}:
+  match j:
+    Obj(m) => return m
+    _ => return {}
+
+fn arr_of(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => return xs
+    _ => return []
+
+fn str_of(j: Json) -> str:
+  match j:
+    Str(s) => return s
+    Num(n) => return str(n.int())
+    _ => return ""
+
+fn int_of(j: Json) -> int:
+  match j:
+    Num(n) => return n.int()
+    Str(s) => return s.int().or(0)
+    _ => return 0
+
+fn process(order: Json, prods: {str: Json}, custs: {str: Json}) -> (str, dec):
+  oid = str(order["id"])
+  ckey = str_of(order["customer"])
+  if not custs.has(ckey):
+    return ("{\"id\":" + oid + ",\"error\":\"unknown customer " + ckey + "\"}", 0.dec())
+  items = arr_of(order["lines"])
+  for ln in items:
+    sku = str_of(ln["sku"])
+    if not prods.has(sku):
+      return ("{\"id\":" + oid + ",\"error\":\"unknown sku " + sku + "\"}", 0.dec())
+  units = {}
+  amts = []
+  lcats = []
+  subtotal = 0.dec()
+  for ln in items:
+    p = prods[str_of(ln["sku"])]
+    price = str_of(p["price"]).dec().or(0.dec())
+    qty = int_of(ln["qty"])
+    cat = str_of(p["category"])
+    amt = price * qty
+    units[cat] = units.get_or(cat, 0) + qty
+    amts.push(amt)
+    lcats.push(cat)
+    subtotal += amt
+  cat_disc = 0.dec()
+  for idx in 0..amts.len():
+    if units[lcats[idx]] >= 3:
+      cat_disc += (amts[idx] * "0.05".dec()).fmt(2).dec()
+  cust = custs[ckey]
+  tier = str_of(cust["tier"])
+  pct = "0".dec()
+  if tier == "gold":
+    pct = "0.10".dec()
+  elif tier == "silver":
+    pct = "0.05".dec()
+  tier_disc = ((subtotal - cat_disc) * pct).fmt(2).dec()
+  discount = cat_disc + tier_disc
+  discounted = subtotal - discount
+  country = str_of(cust["country"])
+  rate = "0".dec()
+  if country == "UK":
+    rate = "0.20".dec()
+  elif country == "US":
+    rate = "0.0825".dec()
+  tax = (discounted * rate).fmt(2).dec()
+  total = discounted + tax
+  line = "{\"id\":" + oid + ",\"customer\":" + str(cust["name"]) + ",\"subtotal\":\"" + subtotal.fmt(2) + "\",\"discount\":\"" + discount.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"}"
+  return (line, total)
+
+fn main():
+  root = json(stdin())
+  prods = obj_of(root["products"])
+  custs = obj_of(root["customers"])
+  invs = []
+  rev = 0.dec()
+  for o in arr_of(root["orders"]):
+    (line, t) = process(o, prods, custs)
+    invs.push(line)
+    rev += t
+  print("[" + invs.join(",") + "]")
+  print("revenue " + rev.fmt(2))

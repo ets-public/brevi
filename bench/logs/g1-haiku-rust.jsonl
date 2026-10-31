@@ -1,0 +1,8 @@
+{"run":"g1-haiku-rust","lang":"rust","task":"kv_store","code_tok":1350,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-haiku-rust","lang":"rust","task":"bank_api","code_tok":4480,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-haiku-rust","lang":"rust","task":"spreadsheet","code_tok":3770,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-haiku-rust","lang":"rust","task":"markdown","code_tok":2768,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-haiku-rust","lang":"rust","task":"invoices","code_tok":4142,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-haiku-rust","lang":"rust","task":"access_report","code_tok":1986,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-haiku-rust","lang":"rust","task":"timetable","code_tok":1466,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-haiku-rust","lang":"rust","task":"template","code_tok":5087,"out_tok":4,"compiled":true,"pass":2,"total":2}

@@ -1,0 +1,6 @@
+SOH = 1.char()
+MAX: int = 3
+fn f() -> int:
+  MAX * 2
+print(f())
+print(SOH.len())

@@ -1,0 +1,138 @@
+body = []
+para = []
+lst = ""
+cbuf = []
+incode = false
+toc = []
+nh = 0
+used = {}
+
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmtx(s: str) -> str:
+  out = ""
+  i = 0
+  n = s.len()
+  while i < n:
+    rest = s.slice(i)
+    if rest.starts_with("["):
+      k = rest.find("](")
+      if k > 0:
+        after = rest.slice(k + 2)
+        cl = after.find(")")
+        if cl >= 0:
+          out += "<a href=\"" + after.slice(0, cl) + "\">" + fmtx(rest.slice(1, k)) + "</a>"
+          i += k + 2 + cl + 1
+          continue
+    if rest.starts_with("**"):
+      k = rest.slice(2).find("**")
+      if k > 0:
+        out += "<strong>" + fmtx(rest.slice(2, k + 2)) + "</strong>"
+        i += k + 4
+        continue
+    if rest.starts_with("*"):
+      k = rest.slice(1).find("*")
+      if k > 0:
+        out += "<em>" + fmtx(rest.slice(1, k + 1)) + "</em>"
+        i += k + 2
+        continue
+    out += rest.slice(0, 1)
+    i += 1
+  return out
+
+fn inl(s: str) -> str:
+  e = esc(s)
+  i = e.find("`")
+  if i < 0: return fmtx(e)
+  rest = e.slice(i + 1)
+  j = rest.find("`")
+  if j < 0: return fmtx(e)
+  return fmtx(e.slice(0, i)) + "<code>" + rest.slice(0, j) + "</code>" + inl(rest.slice(j + 1))
+
+fn slugify(s: str) -> str:
+  out = ""
+  for c in s.lower().chars():
+    k = c.code()
+    if (k >= 97 and k <= 122) or (k >= 48 and k <= 57):
+      out += c
+    elif !out.ends_with("-"):
+      out += "-"
+  while out.starts_with("-"): out = out.slice(1)
+  while out.ends_with("-"): out = out.slice(0, out.len() - 1)
+  return out
+
+fn uniq(base: str) -> str:
+  if !used.has(base):
+    used[base] = 1
+    return base
+  k = 2
+  while used.has(base + "-" + str(k)): k += 1
+  nid = base + "-" + str(k)
+  used[nid] = 1
+  return nid
+
+fn close_para():
+  if para.len() > 0:
+    body.push("<p>" + inl(para.join(" ")) + "</p>")
+    para = []
+
+fn close_list():
+  if lst != "":
+    body.push("</" + lst + ">")
+    lst = ""
+
+fn close_all():
+  close_para()
+  close_list()
+
+fn add_item(kind: str, content: str):
+  close_para()
+  if lst != kind:
+    close_list()
+    body.push("<" + kind + ">")
+    lst = kind
+  body.push("<li>" + inl(content) + "</li>")
+
+for line in lines():
+  t = line.trim()
+  if incode:
+    if t == "```":
+      body.push("<pre><code>" + cbuf.join("\n") + "</code></pre>")
+      incode = false
+      cbuf = []
+    else:
+      cbuf.push(esc(line))
+    continue
+  lvl = 0
+  while lvl < t.len() and t.slice(lvl, lvl + 1) == "#": lvl += 1
+  isdig = 0
+  while isdig < t.len() and t.slice(isdig, isdig + 1).is_digit(): isdig += 1
+  if t == "":
+    close_all()
+  elif t == "```":
+    close_all()
+    incode = true
+    cbuf = []
+  elif lvl >= 1 and lvl <= 6 and t.len() > lvl and t.slice(lvl, lvl + 1) == " ":
+    close_all()
+    text = t.slice(lvl + 1).trim()
+    hid = uniq(slugify(text))
+    body.push("<h" + str(lvl) + " id=\"" + hid + "\">" + inl(text) + "</h" + str(lvl) + ">")
+    toc.push("<a href=\"#" + hid + "\">" + esc(text.replace("`", "").replace("*", "")) + "</a>")
+    nh += 1
+  elif t.starts_with("- "):
+    add_item("ul", t.slice(2))
+  elif isdig > 0 and t.slice(isdig, isdig + 2) == ". ":
+    add_item("ol", t.slice(isdig + 2))
+  else:
+    close_list()
+    para.push(t)
+
+close_all()
+if incode:
+  body.push("<pre><code>" + cbuf.join("\n") + "</code></pre>")
+if nh >= 2:
+  print("<nav>")
+  for a in toc: print(a)
+  print("</nav>")
+for b in body: print(b)

@@ -1,0 +1,199 @@
+tpl: str = ""
+tlen = 0
+pos = 0
+stop = ""
+
+# Json objects in Axon are sorted maps, so key order is lost; work on raw JSON text instead.
+fn skip_ws(s: str, i: int) -> int:
+  j = i
+  while j < s.len() and s.slice(j, j + 1).is_space():
+    j += 1
+  return j
+
+fn value_end(s: str, i: int) -> int:
+  c = s.slice(i, i + 1)
+  if c == "\"":
+    j = i + 1
+    while j < s.len() and s.slice(j, j + 1) != "\"":
+      if s.slice(j, j + 1) == "\\": j += 1
+      j += 1
+    return j + 1
+  if c == "{" or c == "[":
+    depth = 0
+    j = i
+    while j < s.len():
+      d = s.slice(j, j + 1)
+      if d == "\"":
+        j = value_end(s, j)
+        continue
+      if d == "{" or d == "[":
+        depth += 1
+      elif d == "}" or d == "]":
+        depth -= 1
+        if depth == 0: return j + 1
+      j += 1
+    return s.len()
+  j = i
+  while j < s.len():
+    d = s.slice(j, j + 1)
+    if d == "," or d == "]" or d == "}" or d.is_space(): break
+    j += 1
+  return j
+
+fn member(raw: str, key: str) -> str:
+  if !raw.starts_with("{"): return ""
+  j = skip_ws(raw, 1)
+  while j < raw.len() and raw.slice(j, j + 1) != "}":
+    ke = value_end(raw, j)
+    k = raw.slice(j + 1, ke - 1)
+    j = skip_ws(raw, ke)
+    j = skip_ws(raw, j + 1)
+    ve = value_end(raw, j)
+    if k == key: return raw.slice(j, ve)
+    j = skip_ws(raw, ve)
+    if raw.slice(j, j + 1) == ",": j = skip_ws(raw, j + 1)
+  return ""
+
+fn elems(raw: str) -> [str]:
+  out = []
+  if !raw.starts_with("["): return out
+  j = skip_ws(raw, 1)
+  while j < raw.len() and raw.slice(j, j + 1) != "]":
+    ve = value_end(raw, j)
+    out.push(raw.slice(j, ve))
+    j = skip_ws(raw, ve)
+    if raw.slice(j, j + 1) == ",": j = skip_ws(raw, j + 1)
+  return out
+
+fn compact(s: str) -> str:
+  out = ""
+  i = 0
+  while i < s.len():
+    c = s.slice(i, i + 1)
+    if c == "\"":
+      e = value_end(s, i)
+      out += s.slice(i, e)
+      i = e
+    else:
+      if !c.is_space(): out += c
+      i += 1
+  return out
+
+fn unescape(s: str) -> str = s.replace("\\\"", "\"").replace("\\n", "\n").replace("\\\\", "\\")
+
+fn render_num(raw: str) -> str = match json(raw):
+  Num(n) => if n == n.floor(): str(n.int()) else: str(n)
+  Bool(b) => if b: "true" else: "false"
+  _ => raw
+
+fn render_raw(raw: str) -> str:
+  if raw == "" or raw == "null": return ""
+  c = raw.slice(0, 1)
+  if c == "\"": return unescape(raw.slice(1, raw.len() - 1))
+  if c == "{" or c == "[": return compact(raw)
+  return render_num(raw)
+
+fn truthy_raw(raw: str) -> bool:
+  if raw == "" or raw == "null" or raw == "false" or raw == "\"\"" or raw == "[]": return false
+  if raw.slice(0, 1) == "0" or raw.slice(0, 1) == "-":
+    return match json(raw):
+      Num(n) => n != 0.0
+      _ => true
+  return true
+
+fn lookup(scopes: [str], name: str) -> str:
+  if name == ".":
+    if scopes.len() > 0: return scopes[scopes.len() - 1]
+    return ""
+  k = scopes.len() - 1
+  while k >= 0:
+    cur = scopes[k]
+    for p in name.split("."):
+      cur = member(cur, p)
+    if cur != "": return cur
+    k -= 1
+  return ""
+
+fn eval_var(tag: str, scopes: [str], idx: int) -> str:
+  parts = tag.split("|")
+  name = parts[0].trim()
+  v = ""
+  s = ""
+  if name == "@index":
+    s = str(idx)
+  else:
+    v = lookup(scopes, name)
+    s = render_raw(v)
+  isdef = false
+  for fi in 1..parts.len():
+    f = parts[fi].trim()
+    if f.starts_with("default:"):
+      if s == "":
+        s = f.slice(8)
+        isdef = true
+    elif f == "upper":
+      s = s.upper()
+    elif f == "lower":
+      s = s.lower()
+    elif f == "len":
+      if !isdef and v.starts_with("["):
+        s = str(elems(v).len())
+      else:
+        s = str(s.len())
+  return s
+
+fn render(scopes: [str], idx: int, emit: bool) -> str:
+  out = ""
+  while pos < tlen:
+    tail = tpl.slice(pos)
+    k = tail.find("{{")
+    if k < 0:
+      if emit: out += tail
+      pos = tlen
+    else:
+      if k > 0 and emit: out += tail.slice(0, k)
+      tail2 = tail.slice(k + 2)
+      e = tail2.find("}}")
+      tag = tail2.slice(0, e).trim()
+      pos += k + 2 + e + 2
+      if tag == "/each" or tag == "/if" or tag == "else":
+        stop = tag
+        return out
+      elif tag.starts_with("#each "):
+        name = tag.slice(6).trim()
+        start = pos
+        items = elems(lookup(scopes, name))
+        if emit and items.len() > 0:
+          for i in 0..items.len():
+            pos = start
+            out += render(scopes + [items[i]], i, true)
+        else:
+          pos = start
+          render(scopes, idx, false)
+      elif tag.starts_with("#if "):
+        name = tag.slice(4).trim()
+        cond = truthy_raw(lookup(scopes, name))
+        thenpart = render(scopes, idx, emit and cond)
+        elsepart = ""
+        if stop == "else":
+          elsepart = render(scopes, idx, emit and !cond)
+        if emit:
+          if cond:
+            out += thenpart
+          else:
+            out += elsepart
+      else:
+        if emit: out += eval_var(tag, scopes, idx)
+  stop = ""
+  return out
+
+text = stdin()
+nl = text.find("\n")
+root = text.slice(0, nl).trim()
+tpl = text.slice(nl + 1)
+tlen = tpl.len()
+result = render([root], 0, true)
+if result.ends_with("\n"):
+  print(result.slice(0, result.len() - 1))
+else:
+  print(result)

@@ -1,0 +1,172 @@
+
+fn esc(s: str) -> str:
+  return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn ph(k: int) -> str:
+  return (1).char() + str(k) + (2).char()
+
+fn pair_sub(s: str, d: str, dl: int, o: str, c: str) -> str:
+  out = ""
+  rest = s
+  while true:
+    i = rest.find(d)
+    if i < 0:
+      break
+    after = rest.slice(i + dl)
+    j = after.find(d)
+    if j < 0:
+      break
+    out = out + rest.slice(0, i) + o + after.slice(0, j) + c
+    rest = after.slice(j + dl)
+  return out + rest
+
+fn links(s: str) -> str:
+  out = ""
+  rest = s
+  while true:
+    i = rest.find("[")
+    if i < 0:
+      break
+    after = rest.slice(i + 1)
+    j = after.find("]")
+    if j < 0:
+      break
+    tail = after.slice(j + 1)
+    if not tail.starts_with("("):
+      out = out + rest.slice(0, i + 1)
+      rest = after
+      continue
+    k = tail.find(")")
+    if k < 0:
+      break
+    text = after.slice(0, j)
+    url = tail.slice(1, k)
+    out = out + rest.slice(0, i) + "<a href=\"" + url + "\">" + text + "</a>"
+    rest = tail.slice(k + 1)
+  return out + rest
+
+fn inline(s: str) -> str:
+  t = esc(s)
+  parts = t.split("`")
+  n = parts.len()
+  codes = []
+  body = ""
+  for k in 0..n:
+    if k % 2 == 1 and k < n - 1:
+      codes.push(parts[k])
+      body = body + ph(codes.len() - 1)
+    else:
+      body = body + parts[k]
+      if k % 2 == 0 and k + 1 == n - 1:
+        body = body + "`"
+  body = pair_sub(body, "**", 2, "<strong>", "</strong>")
+  body = pair_sub(body, "*", 1, "<em>", "</em>")
+  body = links(body)
+  for k in 0..codes.len():
+    body = body.replace(ph(k), "<code>" + codes[k] + "</code>")
+  return body
+
+fn heading_level(line: str) -> int:
+  lv = 0
+  while lv < 7 and line.slice(lv, lv + 1) == "#":
+    lv += 1
+  if lv >= 1 and lv <= 6 and line.slice(lv, lv + 1) == " ":
+    return lv
+  return 0
+
+fn list_kind(line: str) -> int:
+  if line.starts_with("- "):
+    return 1
+  k = 0
+  while k < line.len() and line.slice(k, k + 1).is_digit():
+    k += 1
+  if k >= 1 and line.slice(k, k + 2) == ". ":
+    return 2
+  return 0
+
+fn item_off(line: str) -> int:
+  if line.starts_with("- "):
+    return 2
+  k = 0
+  while k < line.len() and line.slice(k, k + 1).is_digit():
+    k += 1
+  return k + 2
+
+fn make_id(s: str) -> str:
+  out = ""
+  inrun = false
+  for ch in s.lower().chars():
+    c = ch.code()
+    if (c >= 97 and c <= 122) or (c >= 48 and c <= 57):
+      out = out + ch
+      inrun = false
+    elif not inrun:
+      out = out + "-"
+      inrun = true
+  while out.starts_with("-"):
+    out = out.slice(1)
+  while out.ends_with("-"):
+    out = out.slice(0, out.len() - 1)
+  return out
+
+fn main():
+  ids = {}
+  ls = lines()
+  n = ls.len()
+  i = 0
+  out = []
+  heads = []
+  while i < n:
+    line = ls[i]
+    if line.trim().is_empty():
+      i += 1
+      continue
+    if line == "```":
+      code = []
+      i += 1
+      while i < n and ls[i] != "```":
+        code.push(esc(ls[i]))
+        i += 1
+      i += 1
+      out.push("<pre><code>" + code.join("\n") + "</code></pre>")
+      continue
+    lv = heading_level(line)
+    if lv > 0:
+      text = line.slice(lv + 1).trim()
+      base = make_id(text)
+      hid = base
+      if ids.has(base):
+        k = 2
+        while ids.has(base + "-" + str(k)):
+          k += 1
+        hid = base + "-" + str(k)
+      ids[hid] = 1
+      heads.push((hid, esc(text.replace("`", "").replace("*", ""))))
+      out.push("<h" + str(lv) + " id=\"" + hid + "\">" + inline(text) + "</h" + str(lv) + ">")
+      i += 1
+      continue
+    kind = list_kind(line)
+    if kind > 0:
+      items = []
+      while i < n and list_kind(ls[i]) == kind:
+        items.push("<li>" + inline(ls[i].slice(item_off(ls[i]))) + "</li>")
+        i += 1
+      tag = "ol"
+      if kind == 1:
+        tag = "ul"
+      out.push("<" + tag + ">\n" + items.join("\n") + "\n</" + tag + ">")
+      continue
+    para = []
+    while i < n and not ls[i].trim().is_empty() and heading_level(ls[i]) == 0 and list_kind(ls[i]) == 0 and ls[i] != "```":
+      para.push(ls[i])
+      i += 1
+    out.push("<p>" + inline(para.join(" ")) + "</p>")
+  if heads.len() >= 2:
+    nav = ["<nav>"]
+    for h in heads:
+      nav.push("<a href=\"#" + h.0 + "\">" + h.1 + "</a>")
+    nav.push("</nav>")
+    print(nav.join("\n"))
+  for b in out:
+    print(b)
+

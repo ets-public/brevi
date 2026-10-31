@@ -1,0 +1,4 @@
+x = "a{b"
+match x:
+  "a{b" => print("ok {x} }")
+  _ => print("no")

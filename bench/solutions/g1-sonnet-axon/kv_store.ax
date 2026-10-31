@@ -1,0 +1,37 @@
+fn is_int(s: str) -> bool:
+  t = if s.starts_with("-") or s.starts_with("+"): s.slice(1) else: s
+  !t.is_empty() and t.is_digit()
+
+db: {str: str} = {}
+stack: [{str: str}] = []
+for line in lines():
+  p = line.trim().split(" ").filter(w => !w.is_empty())
+  if p.is_empty(): continue
+  c = p[0]
+  if c == "SET" and p.len() >= 3:
+    db[p[1]] = p[2]
+  elif c == "GET" and p.len() >= 2:
+    if db.has(p[1]): print(db[p[1]]) else: print("NULL")
+  elif c == "DEL" and p.len() >= 2:
+    if db.has(p[1]): db.remove(p[1]) else: print("NOT FOUND")
+  elif c == "INCR" and p.len() >= 3:
+    cur = if db.has(p[1]): db[p[1]] else: "0"
+    if is_int(cur) and is_int(p[2]):
+      v = cur.int() + p[2].int()
+      db[p[1]] = str(v)
+      print(v)
+    else:
+      print("ERR not an integer")
+  elif c == "COUNT" and p.len() >= 2:
+    print(db.values().count(v => v == p[1]))
+  elif c == "KEYS" and p.len() >= 2:
+    ks = db.keys().filter(k => k.starts_with(p[1]))
+    if ks.is_empty(): print("(empty)") else: print(ks.join(" "))
+  elif c == "BEGIN":
+    stack.push(db)
+  elif c == "ROLLBACK":
+    if stack.is_empty(): print("NO TRANSACTION") else: db = stack.pop()
+  elif c == "COMMIT":
+    if stack.is_empty(): print("NO TRANSACTION") else: stack = []
+  else:
+    print("ERR unknown command")

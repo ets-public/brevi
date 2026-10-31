@@ -1,0 +1,144 @@
+toks: [str] = []
+pos = 0
+content: {str: str} = {}
+ftoks: {str: [str]} = {}
+state: {str: int} = {}
+res: {str: (int, int)} = {}
+maxc = 0
+maxr = 0
+
+fn tokenize(s: str) -> [str]:
+  out: [str] = []
+  cs = s.chars()
+  n = cs.len()
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c.is_space():
+      i += 1
+    elif c.is_alpha():
+      j = i
+      while j < n and cs[j].is_alpha(): j += 1
+      while j < n and cs[j].is_digit(): j += 1
+      out.push(cs.slice(i, j).join(""))
+      i = j
+    elif c.is_digit():
+      j = i
+      while j < n and cs[j].is_digit(): j += 1
+      out.push(cs.slice(i, j).join(""))
+      i = j
+    else:
+      out.push(c)
+      i += 1
+  out
+
+fn is_ref(t: str) -> bool = t.len() >= 2 and t.chars()[0].is_alpha() and t.chars()[t.len() - 1].is_digit()
+fn col_of(r: str) -> int = r.slice(0, 1).code() - 65
+fn row_of(r: str) -> int = r.slice(1).int().or(0)
+fn pk() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn note(r: str):
+  if col_of(r) + 1 > maxc: maxc = col_of(r) + 1
+  if row_of(r) > maxr: maxr = row_of(r)
+
+fn cellval(name: str) -> (int, int):
+  if !content.has(name): return (0, 0)
+  if state[name] == 2: return res[name]
+  if state[name] == 1: return (2, 0)
+  state[name] = 1
+  save = toks
+  sp = pos
+  c = content[name]
+  r = (0, 0)
+  if c.starts_with("="):
+    toks = ftoks[name]
+    pos = 0
+    r = expr()
+  else:
+    r = (0, c.int().or(0))
+  toks = save
+  pos = sp
+  state[name] = 2
+  res[name] = r
+  r
+
+fn factor() -> (int, int):
+  t = pk()
+  pos += 1
+  if t == "-":
+    (s, v) = factor()
+    return (s, -v)
+  if t == "(":
+    r = expr()
+    pos += 1
+    return r
+  if is_ref(t) and pk() != "(":
+    return cellval(t)
+  if t.chars()[0].is_digit():
+    return (0, t.int().or(0))
+  # function
+  a = toks[pos + 1]
+  b = toks[pos + 3]
+  pos += 5
+  c1 = min(col_of(a), col_of(b))
+  c2 = max(col_of(a), col_of(b))
+  r1 = min(row_of(a), row_of(b))
+  r2 = max(row_of(a), row_of(b))
+  st = 0
+  vals: [int] = []
+  for r in r1..r2 + 1:
+    for c in c1..c2 + 1:
+      (s, v) = cellval((c + 65).char() + str(r))
+      if s > st: st = s
+      vals.push(v)
+  if st > 0: return (st, 0)
+  if t == "SUM": return (0, vals.sum())
+  if t == "MIN": return (0, vals.min())
+  (0, vals.max())
+
+fn term() -> (int, int):
+  (s, v) = factor()
+  while pk() == "*" or pk() == "/":
+    op = pk()
+    pos += 1
+    (s2, v2) = factor()
+    s = max(s, s2)
+    if op == "*": v = v * v2
+    elif v2 == 0: s = max(s, 1)
+    else: v = v / v2
+  (s, v)
+
+fn expr() -> (int, int):
+  (s, v) = term()
+  while pk() == "+" or pk() == "-":
+    op = pk()
+    pos += 1
+    (s2, v2) = term()
+    s = max(s, s2)
+    if op == "+": v += v2 else: v -= v2
+  (s, v)
+
+for line in lines():
+  l = line.trim()
+  if l.is_empty(): continue
+  eq = l.find("=")
+  name = l.slice(0, eq).trim()
+  c = l.slice(eq + 1).trim()
+  content[name] = c
+  note(name)
+  if c.starts_with("="):
+    ts = tokenize(c.slice(1))
+    ftoks[name] = ts
+    for t in ts:
+      if is_ref(t): note(t)
+print("\t" + (0..maxc).map(c => (c + 65).char()).join("\t"))
+for r in 1..maxr + 1:
+  cells: [str] = []
+  for c in 0..maxc:
+    nm = (c + 65).char() + str(r)
+    if !content.has(nm) or content[nm].is_empty():
+      cells.push("")
+    else:
+      (s, v) = cellval(nm)
+      cells.push(if s == 2: "#CYCLE" elif s == 1: "#DIV0" else: str(v))
+  print(str(r) + "\t" + cells.join("\t"))

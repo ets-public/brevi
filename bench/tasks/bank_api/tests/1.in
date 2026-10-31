@@ -1,0 +1,13 @@
+POST /accounts {}
+POST /accounts {"owner": ""}
+POST /accounts {"owner": 5}
+POST /accounts {"owner": "Cy Young"}
+POST /accounts/1/deposit {"amount": -5}
+POST /accounts/1/deposit {"amount": 2.5}
+POST /accounts/1/deposit {"amount": "7"}
+POST /accounts/1/deposit {oops}
+DELETE /accounts/1
+GET /accounts/x
+POST /transfer {"from": 1, "to": 1, "amount": 1}
+POST /transfer {"from": 1, "to": 9, "amount": 1}
+GET /accounts

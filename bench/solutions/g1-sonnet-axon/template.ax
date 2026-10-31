@@ -1,0 +1,139 @@
+tk: [str] = []
+raw = stdin()
+
+fn has_key(c: Json, k: str) -> bool = match c:
+  Obj(m) => m.has(k)
+  _ => false
+
+fn lookup(path: str, ctx: [Json]) -> Json:
+  if path == ".": return ctx[ctx.len() - 1]
+  parts = path.split(".")
+  n = ctx.len()
+  for d in 0..n:
+    c = ctx[n - 1 - d]
+    if has_key(c, parts[0]):
+      cur = c[parts[0]]
+      for q in 1..parts.len(): cur = cur[parts[q]]
+      return cur
+  Null
+
+fn truthy(j: Json) -> bool = match j:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => !s.is_empty()
+  Arr(xs) => !xs.is_empty()
+  Obj(m) => true
+
+fn ser(j: Json) -> str = match j:
+  Arr(xs) => "[" + xs.map(x => ser(x)).join(",") + "]"
+  Obj(m) => ser_obj(m)
+  _ => str(j)
+
+fn ser_obj(m: {str: Json}) -> str:
+  ks = m.keys().sort_by(k => raw.find("\"" + k + "\""))
+  "{{" + ks.map(k => str(Str(k)) + ":" + ser(m[k])).join(",") + "}"
+
+fn text(j: Json) -> str = match j:
+  Null => ""
+  Str(s) => s
+  Arr(xs) => ser(j)
+  Obj(m) => ser(j)
+  _ => str(j)
+
+fn is_empty_val(j: Json) -> bool = match j:
+  Null => true
+  Str(s) => s.is_empty()
+  _ => false
+
+fn jlen(j: Json) -> int = match j:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  _ => 0
+
+fn is_open(g: str) -> bool = g.starts_with("#each ") or g.starts_with("#if ")
+fn is_close(g: str) -> bool = g == "/each" or g == "/if"
+fn tag_of(t: str) -> str = if t.starts_with("G"): t.slice(1).trim() else: ""
+
+fn match_end(start: int) -> int:
+  depth = 0
+  for p in start..tk.len():
+    g = tag_of(tk[p])
+    if is_open(g): depth += 1
+    elif is_close(g):
+      depth -= 1
+      if depth == 0: return p
+  tk.len() - 1
+
+fn else_pos(start: int, stop: int) -> int:
+  depth = 0
+  for p in start + 1..stop:
+    g = tag_of(tk[p])
+    if is_open(g): depth += 1
+    elif is_close(g): depth -= 1
+    elif g == "else" and depth == 0: return p
+  -1
+
+fn value(expr: str, ctx: [Json], idxs: [int]) -> str:
+  parts = expr.split("|")
+  name = parts[0].trim()
+  v = Null
+  if name == ".": v = ctx[ctx.len() - 1]
+  elif name == "@index": v = Num(idxs[idxs.len() - 1].float())
+  else: v = lookup(name, ctx)
+  for f in parts.skip(1):
+    ft = f.trim()
+    if ft == "upper": v = Str(text(v).upper())
+    elif ft == "lower": v = Str(text(v).lower())
+    elif ft == "len": v = Num(jlen(v).float())
+    elif ft.starts_with("default:"):
+      if is_empty_val(v): v = Str(ft.slice(8))
+  text(v)
+
+fn render(lo: int, hi: int, ctx: [Json], idxs: [int]) -> str:
+  out = ""
+  p = lo
+  while p < hi:
+    t = tk[p]
+    if t.starts_with("T"):
+      out += t.slice(1)
+      p += 1
+      continue
+    g = t.slice(1).trim()
+    if g.starts_with("#each "):
+      e = match_end(p)
+      arr = lookup(g.slice(6).trim(), ctx)
+      items = match arr:
+        Arr(xs) => xs
+        _ => []
+      for (n, it) in items.enumerate():
+        out += render(p + 1, e, ctx + [it], idxs + [n])
+      p = e + 1
+    elif g.starts_with("#if "):
+      e = match_end(p)
+      el = else_pos(p, e)
+      cond = truthy(lookup(g.slice(4).trim(), ctx))
+      if cond:
+        out += render(p + 1, if el >= 0: el else: e, ctx, idxs)
+      elif el >= 0:
+        out += render(el + 1, e, ctx, idxs)
+      p = e + 1
+    else:
+      out += value(g, ctx, idxs)
+      p += 1
+  out
+
+nl = raw.find("\n")
+data = json(raw.slice(0, nl))
+tpl = raw.slice(nl + 1)
+rest = tpl
+while true:
+  a = rest.find("{{")
+  if a < 0: break
+  b = rest.slice(a).find("}}")
+  if b < 0: break
+  if a > 0: tk.push("T" + rest.slice(0, a))
+  tk.push("G" + rest.slice(a + 2, a + b))
+  rest = rest.slice(a + b + 2)
+if !rest.is_empty(): tk.push("T" + rest)
+print(render(0, tk.len(), [data], [0]))

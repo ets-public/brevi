@@ -486,7 +486,7 @@ impl Cx<'_> {
                 }
             }
             Expr::Binary(op, a, b) => match *op {
-                "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "~=" | "&&" | "||" => Bool,
+                "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "~=" | "&&" | "||" | "in" => Bool,
                 _ => {
                     let (x, y) = (self.ty(a, env), self.ty(b, env));
                     match (&x, &y) {

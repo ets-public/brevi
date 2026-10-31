@@ -1,0 +1,5 @@
+Stdin defines spreadsheet cells, one per line as `CELL = CONTENT` (for example `B2 = =A1*2`). Cells are a column letter A to Z and a row number 1 to 99. CONTENT is either an integer, or `=` followed by a formula.
+
+Formulas use integers, cell references, `+ - * /` with the usual precedence (`*` and `/` before `+` and `-`, left to right), parentheses, unary minus, and the functions `SUM(range)`, `MIN(range)`, `MAX(range)` where a range is `A1:B3` (every cell in that rectangle). Spaces may appear anywhere in a formula. `/` is integer division rounding toward zero. An empty cell counts as 0.
+
+Print a grid covering columns A to the last column used and rows 1 to the last row used (counting both defined cells and cells mentioned in formulas). The first line is a header: a tab, then the column letters separated by tabs. Then one line per row: the row number, then each cell's value, all separated by tabs. Empty cells print as nothing. A cell in a reference cycle, or depending on one, prints `#CYCLE`. A cell that divides by zero, or depends on one that does, prints `#DIV0` (if a cell has both problems, `#CYCLE` wins).

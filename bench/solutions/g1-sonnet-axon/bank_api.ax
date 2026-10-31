@@ -1,0 +1,95 @@
+owners: [str] = []
+bals: [int] = []
+bad = false
+
+fn acct(i: int) -> str = "{{\"id\":{i + 1},\"owner\":\"{owners[i]}\",\"balance\":{bals[i]}}"
+fn err(code: int, m: str) -> str = "{code} {{\"error\":\"{m}\"}"
+fn ok(i: int) -> str = "200 " + acct(i)
+
+fn parse(body: str) -> Json:
+  bad = false
+  match json(body):
+    Ok(j) => j
+    Err(_) =>
+      bad = true
+      Null
+
+fn amt(j: Json) -> int = match j:
+  Num(n) => if n > 0.0 and n == n.floor(): n.int() else: 0
+  _ => 0
+
+fn idx(s: str) -> int:
+  if s.is_empty() or !s.is_digit(): return -1
+  n = s.int().or(0)
+  if n >= 1 and n <= owners.len(): n - 1 else: -1
+
+fn jid(j: Json) -> int = match j:
+  Num(n) => if n == n.floor(): idx(str(n.int())) else: -1
+  _ => -1
+
+fn handle(method: str, path: str, body: str) -> str:
+  seg = path.split("/")
+  if seg.len() < 2 or seg[0] != "" or seg[1] == "": return err(404, "not found")
+  top = seg[1]
+  if top == "accounts" and seg.len() == 2:
+    if method == "GET":
+      order = (0..owners.len()).map(i => i).sort_by(i => (-bals[i], i))
+      return "200 [" + order.map(i => acct(i)).join(",") + "]"
+    elif method == "POST":
+      j = parse(body)
+      if bad: return err(400, "bad json")
+      match j["owner"]:
+        Str(s) => if !s.is_empty():
+          owners.push(s)
+          bals.push(0)
+          return "201 " + acct(owners.len() - 1)
+        _ => 0
+      return err(400, "owner required")
+    return err(404, "not found")
+  if top == "accounts" and seg.len() == 3:
+    if method != "GET": return err(404, "not found")
+    if seg[2].is_empty() or !seg[2].is_digit(): return err(404, "not found")
+    i = idx(seg[2])
+    if i < 0: return err(404, "no such account")
+    return ok(i)
+  if top == "accounts" and seg.len() == 4 and (seg[3] == "deposit" or seg[3] == "withdraw"):
+    if method != "POST": return err(404, "not found")
+    if seg[2].is_empty() or !seg[2].is_digit(): return err(404, "not found")
+    j = parse(body)
+    if bad: return err(400, "bad json")
+    i = idx(seg[2])
+    if i < 0: return err(404, "no such account")
+    a = amt(j["amount"])
+    if a <= 0: return err(400, "bad amount")
+    if seg[3] == "deposit":
+      bals[i] += a
+    else:
+      if a > bals[i]: return err(409, "insufficient funds")
+      bals[i] -= a
+    return ok(i)
+  if top == "transfer" and seg.len() == 2:
+    if method != "POST": return err(404, "not found")
+    j = parse(body)
+    if bad: return err(400, "bad json")
+    f = jid(j["from"])
+    t = jid(j["to"])
+    if f < 0 or t < 0: return err(404, "no such account")
+    if f == t: return err(400, "same account")
+    a = amt(j["amount"])
+    if a <= 0: return err(400, "bad amount")
+    if a > bals[f]: return err(409, "insufficient funds")
+    bals[f] -= a
+    bals[t] += a
+    return "200 {{\"from\":{bals[f]},\"to\":{bals[t]}}"
+  err(404, "not found")
+
+for line in lines():
+  l = line.trim()
+  if l.is_empty(): continue
+  sp = l.find(" ")
+  method = if sp < 0: l else: l.slice(0, sp)
+  rest = if sp < 0: "" else: l.slice(sp + 1).trim()
+  sp2 = rest.find(" ")
+  path = if sp2 < 0: rest else: rest.slice(0, sp2)
+  body = if sp2 < 0: "" else: rest.slice(sp2 + 1).trim()
+  print(handle(method, path, body))

@@ -1,0 +1,57 @@
+fn is_int(s: str) -> bool:
+  t = s
+  if t.starts_with("-"): t = t.slice(1)
+  if t.is_empty(): return false
+  for c in t.chars():
+    if !c.is_digit(): return false
+  return true
+
+store = {}
+stack = []
+
+for raw in lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  parts = line.split(" ")
+  cmd = parts[0]
+  a1 = if parts.len() > 1: parts[1] else: ""
+  a2 = if parts.len() > 2: parts[2] else: ""
+  if cmd == "SET":
+    store[a1] = a2
+  elif cmd == "GET":
+    if store.has(a1): print(store[a1])
+    else: print("NULL")
+  elif cmd == "DEL":
+    if store.has(a1): store.remove(a1)
+    else: print("NOT FOUND")
+  elif cmd == "INCR":
+    cur = store.get_or(a1, "0")
+    if !is_int(cur):
+      print("ERR not an integer")
+    else:
+      old = cur.int().or(0)
+      delta = a2.int().or(0)
+      nv = old + delta
+      store[a1] = str(nv)
+      print("{nv}")
+  elif cmd == "COUNT":
+    c = 0
+    for v in store.values():
+      if v == a1: c += 1
+    print("{c}")
+  elif cmd == "KEYS":
+    ks = []
+    for k in store.keys():
+      if k.starts_with(a1): ks.push(k)
+    if ks.is_empty(): print("(empty)")
+    else: print(ks.join(" "))
+  elif cmd == "BEGIN":
+    stack.push(store)
+  elif cmd == "ROLLBACK":
+    if stack.is_empty(): print("NO TRANSACTION")
+    else: store = stack.pop()
+  elif cmd == "COMMIT":
+    if stack.is_empty(): print("NO TRANSACTION")
+    else: stack = []
+  else:
+    print("ERR unknown command")

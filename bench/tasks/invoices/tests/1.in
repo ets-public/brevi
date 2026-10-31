@@ -1,0 +1,1 @@
+{"products": {"a": {"name": "A", "price": "0.05", "category": "x"}}, "customers": {"k": {"name": "Kim", "tier": "silver", "country": "US"}}, "orders": [{"id": "1", "customer": "k", "lines": [{"sku": "a", "qty": 1}]}, {"id": "2", "customer": "k", "lines": [{"sku": "a", "qty": 3}]}, {"id": "3", "customer": "k", "lines": []}]}

@@ -1,0 +1,188 @@
+toks: [str] = []
+tp = 0
+cur_st = 0
+maxc = 0
+maxr = 1
+raw = {}
+vals = {}
+stats = {}
+fin = {}
+busy = {}
+
+fn tokenize(f: str) -> [str]:
+  out = []
+  i = 0
+  n = f.len()
+  while i < n:
+    c = f.slice(i, i + 1)
+    if c == " ":
+      i += 1
+    elif c.is_digit() or c.is_alpha():
+      j = i
+      while j < n and (f.slice(j, j + 1).is_digit() or f.slice(j, j + 1).is_alpha()):
+        j += 1
+      out.push(f.slice(i, j))
+      i = j
+    else:
+      out.push(c)
+      i += 1
+  return out
+
+fn is_ref(t: str) -> bool = t.len() >= 2 and t.slice(0, 1).is_alpha() and t.slice(1, 2).is_digit()
+
+fn note(name: str):
+  c = name.slice(0, 1).code() - 65
+  r = name.slice(1).int().or(0)
+  if c > maxc: maxc = c
+  if r > maxr: maxr = r
+
+fn peek() -> str = if tp < toks.len(): toks[tp] else: ""
+
+fn agg(kind: str, a: str, b: str) -> int:
+  c1 = a.slice(0, 1).code() - 65
+  c2 = b.slice(0, 1).code() - 65
+  r1 = a.slice(1).int().or(0)
+  r2 = b.slice(1).int().or(0)
+  lo_c = min(c1, c2)
+  hi_c = max(c1, c2)
+  lo_r = min(r1, r2)
+  hi_r = max(r1, r2)
+  isfirst = true
+  acc = 0
+  for c in lo_c..(hi_c + 1):
+    for r in lo_r..(hi_r + 1):
+      v = ref_val((65 + c).char() + str(r))
+      if isfirst:
+        acc = v
+        isfirst = false
+      elif kind == "SUM":
+        acc = acc + v
+      elif kind == "MIN":
+        acc = min(acc, v)
+      else:
+        acc = max(acc, v)
+  return acc
+
+fn parse_primary() -> int:
+  t = peek()
+  tp += 1
+  if t == "": return 0
+  if t == "(":
+    v = parse_expr()
+    tp += 1
+    return v
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    tp += 1
+    a = peek()
+    tp += 1
+    b = a
+    if peek() == ":":
+      tp += 1
+      b = peek()
+      tp += 1
+    tp += 1
+    return agg(t, a, b)
+  if t.slice(0, 1).is_digit():
+    return t.int().or(0)
+  return ref_val(t)
+
+fn parse_unary() -> int:
+  if peek() == "-":
+    tp += 1
+    return -parse_unary()
+  return parse_primary()
+
+fn parse_term() -> int:
+  v = parse_unary()
+  while peek() == "*" or peek() == "/":
+    op = peek()
+    tp += 1
+    r = parse_unary()
+    if op == "*":
+      v = v * r
+    elif r == 0:
+      cur_st = max(cur_st, 1)
+      v = 0
+    else:
+      v = v / r
+  return v
+
+fn parse_expr() -> int:
+  v = parse_term()
+  while peek() == "+" or peek() == "-":
+    op = peek()
+    tp += 1
+    r = parse_term()
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+  return v
+
+fn eval_cell(name: str):
+  if fin.has(name): return
+  if !raw.has(name):
+    fin[name] = true
+    vals[name] = 0
+    stats[name] = 0
+    return
+  busy[name] = true
+  saved_toks = toks
+  saved_tp = tp
+  saved_st = cur_st
+  cur_st = 0
+  c = raw[name]
+  v = 0
+  if c.starts_with("="):
+    toks = tokenize(c.slice(1))
+    tp = 0
+    v = parse_expr()
+  else:
+    v = c.int().or(0)
+  vals[name] = v
+  stats[name] = cur_st
+  cur_st = saved_st
+  toks = saved_toks
+  tp = saved_tp
+  fin[name] = true
+  busy.remove(name)
+
+fn ref_val(name: str) -> int:
+  if busy.has(name):
+    cur_st = max(cur_st, 2)
+    return 0
+  eval_cell(name)
+  cur_st = max(cur_st, stats[name])
+  return vals[name]
+
+fn show(nm: str) -> str:
+  if !raw.has(nm): return ""
+  s = stats[nm]
+  if s == 2: return "#CYCLE"
+  if s == 1: return "#DIV0"
+  return str(vals[nm])
+
+for line in lines():
+  t = line.trim()
+  if t.is_empty(): continue
+  eq = t.find("=")
+  name = t.slice(0, eq).trim()
+  content = t.slice(eq + 1).trim()
+  raw[name] = content
+  note(name)
+  if content.starts_with("="):
+    for tok in tokenize(content.slice(1)):
+      if is_ref(tok): note(tok)
+
+for name in raw.keys():
+  eval_cell(name)
+
+letters = []
+for c in 0..(maxc + 1):
+  letters.push((65 + c).char())
+print("\t" + letters.join("\t"))
+for r in 1..(maxr + 1):
+  row = [str(r)]
+  for c in 0..(maxc + 1):
+    row.push(show((65 + c).char() + str(r)))
+  print(row.join("\t"))

@@ -1,0 +1,61 @@
+reqs = 0
+bad = 0
+total = 0
+ips: {str: int} = {}
+classes: {str: int} = {}
+paths: {str: int} = {}
+hours: {str: int} = {}
+bots = 0
+errs: {str: int} = {}
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  parts = line.split("\"")
+  if parts.len() < 6:
+    bad += 1
+    continue
+  head = parts[0].words()
+  rq = parts[1].words()
+  tail = parts[2].words()
+  if head.len() != 5 or !head[4].ends_with("]") or head[1] != "-" or head[2] != "-" or rq.len() != 3 or tail.len() != 2:
+    bad += 1
+    continue
+  ts = head[3]
+  if !ts.starts_with("[") or ts.len() < 16 or ts.slice(12, 13) != ":" or !ts.slice(13, 15).is_digit():
+    bad += 1
+    continue
+  st = tail[0]
+  sz = tail[1]
+  if st.len() != 3 or !st.is_digit() or !(sz == "-" or sz.is_digit()):
+    bad += 1
+    continue
+  reqs += 1
+  ip = head[0]
+  ips[ip] += 1
+  if sz != "-": total += sz.int().or(0)
+  classes[st.slice(0, 1) + "xx"] += 1
+  path = rq[1]
+  q = path.find("?")
+  if q >= 0: path = path.slice(0, q)
+  paths[path] += 1
+  hours[ts.slice(13, 15)] += 1
+  if parts[5].lower().contains("bot"): bots += 1
+  if st.int().or(0) >= 400: errs[ip] += 1
+
+print("requests {reqs}")
+print("malformed {bad}")
+print("bytes {total}")
+print("unique_ips {ips.len()}")
+print("status")
+for (c, n) in classes.pairs(): print("  {c} {n}")
+print("top_paths")
+for (p, n) in paths.pairs().sort_by(x => (-x.1, x.0)).take(3): print("  {n} {p}")
+print("hours")
+mx = hours.values().max().or(1)
+for (h, n) in hours.pairs():
+  w = max(1, (n * 40 + mx) // (2 * mx))
+  bar = "#".repeat(w)
+  print("  {h} {n} {bar}")
+print("bots {bots}")
+print("errors_by_ip")
+for (ip, n) in errs.pairs().filter(x => x.1 >= 2).sort_by(x => (-x.1, x.0)): print("  {ip} {n}")

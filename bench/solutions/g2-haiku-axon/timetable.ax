@@ -1,0 +1,92 @@
+trn: [str] = []
+tsts: [[str]] = []
+ttm: [[int]] = []
+
+fn hm(s: str) -> int:
+  p = s.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn hhmm(m: int) -> str:
+  h = m // 60
+  mi = m % 60
+  hs = str(h)
+  ms = str(mi)
+  if h < 10: hs = "0" + hs
+  if mi < 10: ms = "0" + ms
+  return hs + ":" + ms
+
+fn solve(src: str, dst: str, qt: int) -> str:
+  if src == dst: return src + " " + dst + " " + hhmm(qt) + " via -"
+  bt = {}
+  bk = {}
+  bp = {}
+  bl = {}
+  bt[src] = qt
+  bk[src] = 0
+  bp[src] = ""
+  bl[src] = -1
+  changed = true
+  while changed:
+    changed = false
+    for ti in 0..trn.len():
+      stops = tsts[ti]
+      tms = ttm[ti]
+      nm = trn[ti]
+      for i in 0..stops.len():
+        st = stops[i]
+        if !bt.has(st): continue
+        if bl[st] == ti: continue
+        k = bk[st]
+        add = 0
+        if k > 0: add = 5
+        ready = bt[st] + add
+        if tms[i] < ready: continue
+        newk = k + 1
+        newp = nm
+        if k > 0: newp = bp[st] + ">" + nm
+        for j in (i + 1)..stops.len():
+          ct = tms[j]
+          cs = stops[j]
+          better = false
+          if !bt.has(cs):
+            better = true
+          elif ct < bt[cs]:
+            better = true
+          elif ct == bt[cs] and newk < bk[cs]:
+            better = true
+          elif ct == bt[cs] and newk == bk[cs] and newp < bp[cs]:
+            better = true
+          if better:
+            bt[cs] = ct
+            bk[cs] = newk
+            bp[cs] = newp
+            bl[cs] = ti
+            changed = true
+  if !bt.has(dst): return src + " " + dst + " unreachable"
+  return src + " " + dst + " " + hhmm(bt[dst]) + " via " + bp[dst]
+
+sec = 0
+qs = []
+for raw in lines():
+  line = raw.trim()
+  if sec == 0:
+    if line == "---":
+      sec = 1
+    elif !line.is_empty():
+      tok = line.words()
+      trn.push(tok[0])
+      sts = []
+      tms = []
+      i = 1
+      while i + 1 < tok.len():
+        sts.push(tok[i])
+        tms.push(hm(tok[i + 1]))
+        i += 2
+      tsts.push(sts)
+      ttm.push(tms)
+  elif !line.is_empty():
+    qs.push(line)
+
+for line in qs:
+  q = line.words()
+  print(solve(q[0], q[1], hm(q[2])))

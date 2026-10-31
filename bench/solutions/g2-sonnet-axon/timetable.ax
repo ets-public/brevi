@@ -1,0 +1,71 @@
+g_stat: [str] = []
+g_time: [int] = []
+g_trn: [str] = []
+
+fn tmin(s: str) -> int:
+  p = s.split(":")
+  p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn two(n: int) -> str = if n < 10: "0" + str(n) else: str(n)
+
+fn tstr(m: int) -> str = two(m // 60) + ":" + two(m % 60)
+
+fn solve(src: str, dst: str, t0: int) -> str:
+  n = g_stat.len()
+  lc = [0].repeat(n)
+  ll: [[str]] = []
+  for z in 0..n: ll.push([])
+  changed = true
+  while changed:
+    changed = false
+    for a in 0..n:
+      bc = lc[a]
+      bl = ll[a]
+      if g_stat[a] == src and g_time[a] >= t0:
+        if bc == 0 or (1, [g_trn[a]]) < (bc, bl):
+          bc = 1
+          bl = [g_trn[a]]
+      if a > 0 and g_trn[a - 1] == g_trn[a] and lc[a - 1] > 0:
+        if bc == 0 or (lc[a - 1], ll[a - 1]) < (bc, bl):
+          bc = lc[a - 1]
+          bl = ll[a - 1]
+      for u in 0..n:
+        if lc[u] > 0 and g_stat[u] == g_stat[a] and g_trn[u] != g_trn[a] and g_time[u] + 5 <= g_time[a]:
+          cc = lc[u] + 1
+          cl = ll[u] + [g_trn[a]]
+          if bc == 0 or (cc, cl) < (bc, bl):
+            bc = cc
+            bl = cl
+      if bc != lc[a] or bl != ll[a]:
+        lc[a] = bc
+        ll[a] = bl
+        changed = true
+  best = (100000, 0, [""])
+  found = false
+  for a in 0..n:
+    if g_stat[a] == dst and lc[a] > 0:
+      cand = (g_time[a], lc[a], ll[a])
+      if !found or cand < best:
+        best = cand
+        found = true
+  if !found: return "{src} {dst} unreachable"
+  "{src} {dst} " + tstr(best.0) + " via " + best.2.join(">")
+
+inq = false
+for line in lines():
+  l = line.trim()
+  if l.is_empty(): continue
+  if l == "---":
+    inq = true
+    continue
+  w = l.words()
+  if !inq:
+    k = 1
+    while k + 1 < w.len():
+      g_trn.push(w[0])
+      g_stat.push(w[k])
+      g_time.push(tmin(w[k + 1]))
+      k += 2
+  else:
+    if w[0] == w[1]: print("{w[0]} {w[1]} {w[2]} via -")
+    else: print(solve(w[0], w[1], tmin(w[2])))

@@ -1,7 +1,7 @@
 # Axon language guide (for models)
 
 Axon compiles to Rust. Write one statement per line, no semicolons. Blocks are indented, like Python: a line ending in `:` opens a block of the more-indented lines below it, and a short block can follow the `:` on the same line. Comments start with `#`. Types are required only on function parameters and returns.
-A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables (`pos = 0`; give a type when the value is not a literal: `toks: [str] = []`).
+A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables that other functions also use (`pos = 0`, `toks = []`). A function whose body starts by setting a name (`i = 0`) has its own local, unless another function reads that name without setting it.
 
 ```
 nums = stdin().ints()
@@ -44,28 +44,28 @@ Errors pass up automatically. `fail(msg)`, `read`, and conversions like `s.int()
 Handle a failure where it happens with `.or(default)` or `match f(x):` with arms `Ok(v) => ...` and `Err(msg) => ...`. An uncaught failure stops the program with a JSON error.
 
 ## Statements
-`x = 1` creates a variable or changes it (`let x = 1` makes one that cannot change, `x: [str] = []` gives a type), `(a, b) = pair` unpacks, `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
-`if c:` / `elif d:` / `else:`, `for x in xs:`, `for (k, v) in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
+`x = 1` creates a variable or changes it (`let x = 1` makes one that cannot change, `x: [str] = []` gives a type), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
+`if c:` / `elif d:` / `else:`, `for x in xs:`, `for k, v in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
 `if` and `match` are values: `y = if a > b: a else: b`. A variable first set inside a block ends with the block, so set it before the block if you need it after.
 Match arms are one expression or statement (`Num(n) => total += n`) or an indented block on the lines after `=>`. Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.
 
 ## Operators
-`+ - * / // %` (int `/` and `%` round toward zero, `//` rounds down), `== != < > <= >=`, `and` `or` `!` (also `&&` `||` `not`), `a ~= b` (float equal within 1e-6).
+`+ - * / // %` (int `/` and `%` round toward zero, `//` rounds down), `== != < > <= >=`, `x in xs` and `x not in xs` (list item, map key or substring), `and` `or` `!` (also `&&` `||` `not`), `a ~= b` (float equal within 1e-6).
 `+` joins strings and lists. int and f64 never mix: convert with `.float()` or `.int()`.
-Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followed by a letter, `(`, `-` or `!` starts an expression; any other `{` and `{{` are plain braces). No quotes inside `{}`.
-Escapes: `\n \t \r \0 \" \\`.
+Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followed by a letter, `(`, `-`, `!` or `"` starts an expression, and strings may appear inside: `"{m["k"]}"`). Any other `{` is a plain brace; `\{` and `{{` always are.
+Escapes: `\n \t \r \0 \" \\ \{ \}`.
 
 ## Collections
-`xs[0]`, `xs[-1]` (last), `xs[i] = v`, `m[k] = v`, `m[k] += 1`, `m[k].push(x)`. A missing map key reads as the type's zero (0, 0.0, "", [], dec 0); use `m.has(k)` to tell.
+`xs[0]`, `xs[-1]` (last), `xs[a:b]` `xs[1:]` `s[:3]` (slices, also on strings), `xs[i] = v`, `m[k] = v`, `m[k] += 1`, `m[k].push(x)`. A missing map key reads as the type's zero (0, 0.0, "", [], dec 0); use `m.has(k)` to tell.
 Empty values: `xs = []`, `m = {}`, `h = heap()`. Don't write their types: the compiler works them out from later use (add one like `m: {str: int} = {}` only if it asks).
 Lambdas: `x => x * 2`, `(a, b) => a + b`. In map/filter/any/all/count/sort_by, `(a, b) => b - a` unpacks a tuple item.
 
 ## Methods
 Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
-- str: `len words lines chars split(sep) slice(a, b) find(s) lower upper trim contains starts_with ends_with replace(a, b) repeat(n) is_empty is_digit is_alpha is_space code` (`"a".code()` is 97), and `int() float() ints() big() dec()` which can fail. `ints()` = all whitespace-separated ints
+- str: `len words lines chars split(sep) slice(a, b) find(s) lower upper trim contains starts_with ends_with replace(a, b) repeat(n) is_empty is_digit is_alpha is_space code` (`"a".code()` is 97), and `int() float() ints() big() dec()` which can fail (`s.int().or(-1)` to test). `ints()` = all whitespace-separated ints
 - list: `len is_empty push(x) pop insert(i, x) remove(i) first last slice(a, b) map(f) filter(f) any(f) all(f) count(f) fold(init, f) sort sort_by(f) rev take(n) skip(n) enumerate zip(ys) sum min max contains(x) index_of(x) join(sep) (any items) unique repeat(n) step(n)` (`[0].repeat(n)` is n zeros; `unique` sorts and drops repeats; `(0..10).step(3)` is [0, 3, 6, 9]; `(0..n).rev()` counts down)
 - map: `len is_empty has(k) get_or(k, default) remove(k) keys values pairs`
-- int and f64: `abs float int fmt(decimals)` (`2.5.fmt(2)` is "2.50"); f64 also `sqrt round floor ceil`; int also `big char` (`97.char()` is "a")
+- int and f64: `abs float int fmt(decimals)` (`2.5.fmt(2)` is "2.50"); f64 also `sqrt round floor ceil`, `round(n)` to n places; int also `big char` (`97.char()` is "a")
 `min` and `max` fail on an empty list (`xs.max().or(0)`). `a..b` excludes b. `slice` takes Python-style bounds (negatives count from the end); `s.slice(a)` runs to the end and `s.slice(i, i + 1)` is one character. `chars` gives a list of one-character strings. `first`, `last` and `pop` return the item itself and stop the program on an empty list. `find` and `index_of` return -1 when absent. `"7".digit()` is 7 (-1 if not a digit). `len` counts characters. `pop` and `remove(i)` return the removed item. `words` splits on any run of whitespace. `and`/`or` short-circuit.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 
@@ -75,11 +75,11 @@ Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert r
 `print(x)`, `str(x)`, `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
 
 ## Data formats
-- `json(text)` gives a `Json`: match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)` ({str: Json}), or index `j["key"][0]` (missing gives `Null`). `str(j)` writes JSON.
+- `json(text)` gives a `Json`: match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)` ({str: Json}, keys kept in input order), or index `j["key"][0]` (missing gives `Null`). `str(j)` writes compact JSON. Build values with `Str("x")`, `Num(1.0)`, `Arr([...])`.
 - `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
 - `date("2024-02-29")` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
 - `big` is an exact integer of any size: `"123...".big()`, `n.big()`, with `+ - *` and comparisons.
-- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, and ints mix in (`0 - p`, `p * 2`, `t += 1`, `p > 0`), `sum`, `fmt(2)` (rounds half to even), `float int round`.
+- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, and ints mix in (`0 - p`, `p * 2`, `t += 1`, `p > 0`), `sum`, `fmt(2)` (rounds half to even), `round(2)` (a dec rounded to cents), `float int round`.
 - `heap()` is a min-heap of any comparable values: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
 
 ## Tests

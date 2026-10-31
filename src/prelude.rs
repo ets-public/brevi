@@ -32,15 +32,20 @@ impl Hasher for AxHasher {
 #[derive(Clone, Debug)]
 pub struct AxM<K, V> {
     m: HashMap<K, V, BuildHasherDefault<AxHasher>>,
+    // Keys in insertion order, kept only for JSON objects, which list keys as written.
+    ord: Option<Vec<K>>,
 }
 impl<K, V> Default for AxM<K, V> {
     fn default() -> Self {
-        AxM { m: HashMap::default() }
+        AxM { m: HashMap::default(), ord: None }
     }
 }
 impl<K: Hash + Eq + Ord, V> AxM<K, V> {
     pub fn new() -> Self {
-        AxM { m: HashMap::default() }
+        AxM { m: HashMap::default(), ord: None }
+    }
+    pub fn ordered() -> Self {
+        AxM { m: HashMap::default(), ord: Some(Vec::new()) }
     }
     pub fn from<const N: usize>(xs: [(K, V); N]) -> Self {
         let mut m = AxM::new();
@@ -64,17 +69,38 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
     pub fn contains_key(&self, k: &K) -> bool {
         self.m.contains_key(k)
     }
-    pub fn insert(&mut self, k: K, v: V) -> Option<V> {
+    pub fn insert(&mut self, k: K, v: V) -> Option<V>
+    where
+        K: Clone,
+    {
+        if let Some(o) = &mut self.ord {
+            if !self.m.contains_key(&k) {
+                o.push(k.clone());
+            }
+        }
         self.m.insert(k, v)
     }
     pub fn remove(&mut self, k: &K) -> Option<V> {
+        if let Some(o) = &mut self.ord {
+            o.retain(|x| x != k);
+        }
         self.m.remove(k)
     }
     pub fn entry(&mut self, k: K) -> std::collections::hash_map::Entry<'_, K, V> {
         self.m.entry(k)
     }
-    // Entries sorted by key.
+    // Entries sorted by key (JSON objects: in insertion order).
     pub fn iter(&self) -> std::vec::IntoIter<(&K, &V)> {
+        if let Some(o) = &self.ord {
+            // Keys added another way (an entry) come after, in key order.
+            let mut v: Vec<(&K, &V)> = o.iter().filter_map(|k| self.m.get_key_value(k)).collect();
+            if v.len() < self.m.len() {
+                let mut rest: Vec<(&K, &V)> = self.m.iter().filter(|(k, _)| !o.contains(k)).collect();
+                rest.sort_unstable_by(|a, b| a.0.cmp(b.0));
+                v.extend(rest);
+            }
+            return v.into_iter();
+        }
         let mut v: Vec<(&K, &V)> = self.m.iter().collect();
         v.sort_unstable_by(|a, b| a.0.cmp(b.0));
         v.into_iter()
@@ -108,7 +134,14 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone> AxIter for AxM<K, V> {
 impl<K: Hash + Eq + Ord, V> IntoIterator for AxM<K, V> {
     type Item = (K, V);
     type IntoIter = std::vec::IntoIter<(K, V)>;
-    fn into_iter(self) -> Self::IntoIter {
+    fn into_iter(mut self) -> Self::IntoIter {
+        if let Some(o) = self.ord.take() {
+            let mut v: Vec<(K, V)> = o.into_iter().filter_map(|k| self.m.remove(&k).map(|v| (k, v))).collect();
+            let mut rest: Vec<(K, V)> = self.m.into_iter().collect();
+            rest.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            v.extend(rest);
+            return v.into_iter();
+        }
         let mut v: Vec<(K, V)> = self.m.into_iter().collect();
         v.sort_unstable_by(|a, b| a.0.cmp(&b.0));
         v.into_iter()
@@ -890,7 +923,7 @@ fn json_value(c: &[char], i: &mut usize) -> R<Json> {
     match c.get(*i) {
         Some('{') => {
             *i += 1;
-            let mut m = AxM::new();
+            let mut m = AxM::ordered();
             json_ws(c, i);
             if c.get(*i) == Some(&'}') {
                 *i += 1;
@@ -1698,3 +1731,38 @@ pub fn ax_gp<T>(p: *mut Option<T>, name: &str) -> &'static mut T {
     }
 }
 // ---- end of prelude ----
+
+// `x in xs`: a map key, a list item, or a substring.
+pub trait AxIn<X> {
+    fn ax_in(&self, x: &X) -> bool;
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxIn<K> for AxM<K, V> {
+    fn ax_in(&self, x: &K) -> bool {
+        self.contains_key(x)
+    }
+}
+impl<T: PartialEq> AxIn<T> for Vec<T> {
+    fn ax_in(&self, x: &T) -> bool {
+        self.iter().any(|y| y == x)
+    }
+}
+impl AxIn<String> for String {
+    fn ax_in(&self, x: &String) -> bool {
+        self.contains(x.as_str())
+    }
+}
+
+// `x.round(n)`: n decimal places, half to even.
+pub trait AxRoundTo {
+    fn ax_round_to(&self, n: i64) -> Self;
+}
+impl AxRoundTo for Dec {
+    fn ax_round_to(&self, n: i64) -> Dec {
+        Dec::parse(&self.ax_fmt(n)).unwrap()
+    }
+}
+impl AxRoundTo for f64 {
+    fn ax_round_to(&self, n: i64) -> f64 {
+        format!("{:.*}", n.clamp(0, 15) as usize, self).parse().unwrap_or(*self)
+    }
+}

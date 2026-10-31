@@ -1,0 +1,4 @@
+w = 3
+m = {"k": 5}
+print("bar {"#".repeat(w)} k={m["k"]} lit \{x\} and {{y}} done")
+print("plain { x } and {w}")

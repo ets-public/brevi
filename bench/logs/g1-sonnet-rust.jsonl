@@ -1,0 +1,9 @@
+{"run":"g1-sonnet-rust","lang":"rust","task":"kv_store","code_tok":987,"out_tok":482,"compiled":false,"pass":0,"total":0}
+{"run":"g1-sonnet-rust","lang":"rust","task":"kv_store","code_tok":991,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-rust","lang":"rust","task":"bank_api","code_tok":3646,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-rust","lang":"rust","task":"spreadsheet","code_tok":2875,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-rust","lang":"rust","task":"markdown","code_tok":2052,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-rust","lang":"rust","task":"invoices","code_tok":2830,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-sonnet-rust","lang":"rust","task":"access_report","code_tok":1685,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-sonnet-rust","lang":"rust","task":"timetable","code_tok":1582,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-sonnet-rust","lang":"rust","task":"template","code_tok":3678,"out_tok":4,"compiled":true,"pass":2,"total":2}

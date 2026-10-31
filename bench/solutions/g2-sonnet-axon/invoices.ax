@@ -1,0 +1,71 @@
+root = json(stdin())
+prods: Json = root["products"]
+custs: Json = root["customers"]
+orders = match root["orders"]:
+  Arr(xs) => xs
+  _ => []
+
+fn jstr(j: Json) -> str = match j:
+  Str(s) => s
+  Num(n) => str(n.int())
+  _ => ""
+
+fn jint(j: Json) -> int = match j:
+  Num(n) => n.int()
+  _ => 0
+
+fn rnd(x: dec) -> dec = x.fmt(2).dec()
+
+fn process(o: Json) -> (str, dec):
+  oid = str(o["id"])
+  cid = jstr(o["customer"])
+  cust = custs[cid]
+  lines_j = match o["lines"]:
+    Arr(xs) => xs
+    _ => []
+  isnull = match cust:
+    Null => true
+    _ => false
+  if isnull: return ("{\"id\":" + oid + ",\"error\":\"unknown customer " + cid + "\"}", 0.dec())
+  for ln in lines_j:
+    sku = jstr(ln["sku"])
+    pj = prods[sku]
+    pnull = match pj:
+      Null => true
+      _ => false
+    if pnull: return ("{\"id\":" + oid + ",\"error\":\"unknown sku " + sku + "\"}", 0.dec())
+  sub = 0.dec()
+  units: {str: int} = {}
+  csum: {str: dec} = {}
+  for ln in lines_j:
+    sku = jstr(ln["sku"])
+    pj = prods[sku]
+    price = jstr(pj["price"]).dec().or(0.dec())
+    q = jint(ln["qty"])
+    amt = price * q
+    cat = jstr(pj["category"])
+    sub += amt
+    units[cat] += q
+    csum[cat] += amt
+  cd = 0.dec()
+  for (cat, u) in units.pairs():
+    if u >= 3: cd += rnd(csum[cat] * "0.05".dec())
+  tier = jstr(cust["tier"])
+  rate = if tier == "gold": "0.10".dec() elif tier == "silver": "0.05".dec() else: 0.dec()
+  td = rnd((sub - cd) * rate)
+  disc = cd + td
+  dtotal = sub - disc
+  country = jstr(cust["country"])
+  trate = if country == "UK": "0.20".dec() elif country == "US": "0.0825".dec() else: 0.dec()
+  tax = rnd(dtotal * trate)
+  total = dtotal + tax
+  ("{\"id\":" + oid + ",\"customer\":" + str(cust["name"]) + ",\"subtotal\":\"" + sub.fmt(2) + "\",\"discount\":\"" + disc.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"}", total)
+
+results: [str] = []
+revenue = 0.dec()
+for o in orders:
+  r = process(o)
+  results.push(r.0)
+  revenue += r.1
+print("[" + results.join(",") + "]")
+print("revenue " + revenue.fmt(2))

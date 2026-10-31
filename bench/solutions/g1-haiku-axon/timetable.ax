@@ -1,0 +1,86 @@
+fn pad2(n: int) -> str:
+  if n < 10:
+    return "0" + str(n)
+  return str(n)
+
+fn hm(q: int) -> str:
+  return pad2(q // 60) + ":" + pad2(q % 60)
+
+fn to_min(s: str) -> int:
+  h = s.slice(0, 2).int().or(0)
+  m = s.slice(3, 5).int().or(0)
+  return h * 60 + m
+
+fn solve(tn: [str], ts: [[str]], tt: [[int]], fr: str, to: str, q: int) -> str:
+  if fr == to:
+    return fr + " " + to + " " + hm(q) + " via -"
+  bt = {}
+  bk = {}
+  br = {}
+  bl = {}
+  bt[fr] = q
+  bk[fr] = 0
+  br[fr] = ""
+  bl[fr] = ""
+  changed = true
+  while changed:
+    changed = false
+    for x in 0..tn.len():
+      stops = ts[x]
+      times = tt[x]
+      for i in 0..stops.len():
+        s0 = stops[i]
+        if not bt.has(s0):
+          continue
+        if bl[s0] == tn[x]:
+          continue
+        need = 5
+        if bl[s0] == "":
+          need = 0
+        if times[i] < bt[s0] + need:
+          continue
+        ck = bk[s0] + 1
+        cr = tn[x]
+        if br[s0] != "":
+          cr = br[s0] + ">" + tn[x]
+        for j in i + 1..stops.len():
+          s1 = stops[j]
+          tj = times[j]
+          if not bt.has(s1) or tj < bt[s1] or (tj == bt[s1] and (ck < bk[s1] or (ck == bk[s1] and cr < br[s1]))):
+            bt[s1] = tj
+            bk[s1] = ck
+            br[s1] = cr
+            bl[s1] = tn[x]
+            changed = true
+  if bt.has(to):
+    return fr + " " + to + " " + hm(bt[to]) + " via " + br[to]
+  return fr + " " + to + " unreachable"
+
+fn main():
+  tn = []
+  ts = []
+  tt = []
+  out = []
+  in_queries = false
+  for line in lines():
+    if not in_queries and line.trim() == "---":
+      in_queries = true
+      continue
+    if line.trim().is_empty():
+      continue
+    w = line.words()
+    if not in_queries:
+      stops = []
+      times = []
+      k = 1
+      while k + 1 < w.len():
+        stops.push(w[k])
+        times.push(to_min(w[k + 1]))
+        k += 2
+      tn.push(w[0])
+      ts.push(stops)
+      tt.push(times)
+    else:
+      out.push(solve(tn, ts, tt, w[0], w[1], to_min(w[2])))
+  for o in out:
+    print(o)

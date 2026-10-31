@@ -1,0 +1,13 @@
+400 {"error":"owner required"}
+400 {"error":"owner required"}
+400 {"error":"owner required"}
+201 {"id":1,"owner":"Cy Young","balance":0}
+400 {"error":"bad amount"}
+400 {"error":"bad amount"}
+400 {"error":"bad amount"}
+400 {"error":"bad json"}
+404 {"error":"not found"}
+404 {"error":"not found"}
+400 {"error":"same account"}
+404 {"error":"no such account"}
+200 [{"id":1,"owner":"Cy Young","balance":0}]

@@ -1,0 +1,12 @@
+{"run":"g2-haiku-axon","lang":"axon","task":"kv_store","code_tok":576,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g2-haiku-axon","lang":"axon","task":"bank_api","code_tok":1520,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g2-haiku-axon","lang":"axon","task":"spreadsheet","code_tok":1626,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g2-haiku-axon","lang":"axon","task":"markdown","code_tok":1494,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g2-haiku-axon","lang":"axon","task":"invoices","code_tok":910,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g2-haiku-axon","lang":"axon","task":"access_report","code_tok":1306,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g2-haiku-axon","lang":"axon","task":"timetable","code_tok":789,"out_tok":156,"compiled":false,"pass":0,"total":0}
+{"run":"g2-haiku-axon","lang":"axon","task":"timetable","code_tok":805,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g2-haiku-axon","lang":"axon","task":"template","code_tok":1229,"out_tok":77,"compiled":false,"pass":0,"total":0}
+{"run":"g2-haiku-axon","lang":"axon","task":"template","code_tok":1229,"out_tok":194,"compiled":true,"pass":1,"total":2}
+{"run":"g2-haiku-axon","lang":"axon","task":"template","code_tok":2070,"out_tok":303,"compiled":true,"pass":0,"total":2}
+{"run":"g2-haiku-axon","lang":"axon","task":"template","code_tok":2068,"out_tok":4,"compiled":true,"pass":2,"total":2}

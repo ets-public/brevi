@@ -24,6 +24,43 @@ const KEYWORDS: &[&str] = &[
     "true", "false", "mut", "test", "assert", "break", "continue", "and", "or", "not",
 ];
 
+const RUST_KEYWORDS: &[&str] = &[
+    "as", "async", "await", "box", "const", "crate", "dyn", "extern", "impl", "loop", "mod", "move", "priv", "pub", "ref",
+    "self", "static", "struct", "super", "trait", "try", "typeof", "unsafe", "use", "where", "yield", "macro", "final",
+    "override", "virtual", "become", "abstract", "do", "unsized",
+];
+
+// Does the `{` just before `from` close on this line (quoted strings inside skipped)?
+fn interp_closes(chars: &[char], from: usize) -> bool {
+    let (mut depth, mut in_str, mut i) = (1, false, from);
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '\n' => return false,
+            '\\' if in_str => i += 1,
+            // A quote right after a value ends the outer string, so this `{` was not an interpolation.
+            '"' if !in_str && chars[..i].iter().rev().find(|c| **c != ' ').map_or(false, |p| p.is_alphanumeric() || matches!(p, '_' | ')' | ']')) => return false,
+            '"' if in_str => {
+                in_str = false;
+                // After a string inside `{}` comes an operator or the closing brace, not more text.
+                if chars[i + 1..].iter().find(|c| **c != ' ').map_or(true, |c| c.is_alphanumeric() || matches!(c, ':' | '"' | '\n')) {
+                    return false;
+                }
+            }
+            '"' => in_str = true,
+            '{' if !in_str => depth += 1,
+            '}' if !in_str => {
+                depth -= 1;
+                if depth == 0 {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 // Longest symbols first so the scanner can take the first match.
 const SYMBOLS: &[&str] = &[
     "->", "=>", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
@@ -87,10 +124,79 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             let mut s = String::new();
             i += 1;
             col += 1;
+            // Inside `{...}` the text is kept as written (quotes included), to be lexed again as an expression.
+            let (mut depth, mut inner_str, mut esc_open, mut lone_open) = (0usize, false, 0usize, 0usize);
             loop {
+                if depth > 0 {
+                    match chars.get(i) {
+                        None | Some('\n') => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \"")),
+                        Some(&ch) => {
+                            if inner_str {
+                                if ch == '\\' {
+                                    s.push(ch);
+                                    if let Some(&n) = chars.get(i + 1) {
+                                        s.push(n);
+                                    }
+                                    i += 2;
+                                    col += 2;
+                                    continue;
+                                }
+                                if ch == '"' {
+                                    inner_str = false;
+                                }
+                            } else if ch == '"' {
+                                inner_str = true;
+                            } else if ch == '{' {
+                                depth += 1;
+                            } else if ch == '}' {
+                                depth -= 1;
+                            }
+                            s.push(ch);
+                            i += 1;
+                            col += 1;
+                            continue;
+                        }
+                    }
+                }
                 match chars.get(i) {
                     None | Some('\n') => {
                         return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \""));
+                    }
+                    Some('{') if chars.get(i + 1) == Some(&'{') => {
+                        s.push_str("{{");
+                        esc_open += 1;
+                        i += 2;
+                        col += 2;
+                    }
+                    // `}}` is one brace, unless it closes plain `{` braces opened earlier, as in JSON text.
+                    Some('}') if chars.get(i + 1) == Some(&'}') => {
+                        if esc_open > 0 || lone_open == 0 {
+                            esc_open = esc_open.saturating_sub(1);
+                            s.push_str("}}");
+                        } else {
+                            lone_open = lone_open.saturating_sub(2);
+                            s.push_str("}}}}");
+                        }
+                        i += 2;
+                        col += 2;
+                    }
+                    Some('{') if chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"')) && interp_closes(&chars, i + 1) => {
+                        depth = 1;
+                        s.push('{');
+                        i += 1;
+                        col += 1;
+                    }
+                    // Any other brace is literal; it is doubled so the string parser reads it that way.
+                    Some(&b @ ('{' | '}')) => {
+                        if b == '{' {
+                            lone_open += 1;
+                        } else {
+                            lone_open = lone_open.saturating_sub(1);
+                        }
+                        s.push(b);
+                        s.push(b);
+                        i += 1;
+                        col += 1;
                     }
                     Some('"') => {
                         i += 1;
@@ -99,6 +205,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     }
                     Some('\\') => {
                         let e = chars.get(i + 1).copied().unwrap_or(' ');
+                        if e == '{' || e == '}' {
+                            s.push(e);
+                        }
                         s.push(match e {
                             'n' => '\n',
                             't' => '\t',
@@ -106,9 +215,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                             '0' => '\0',
                             '"' => '"',
                             '\\' => '\\',
+                            // `\{` and `\}` are literal braces.
+                            '{' | '}' => e,
                             other => {
                                 return Err(Diag::new("lex", line, col, &format!("unknown escape \\{other}"))
-                                    .fix_hint("escapes are \\n \\t \\r \\0 \\\" \\\\"));
+                                    .fix_hint("escapes are \\n \\t \\r \\0 \\\" \\\\ \\{ \\}"));
                             }
                         });
                         i += 2;
@@ -163,6 +274,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             match KEYWORDS.iter().find(|k| **k == word) {
                 Some(k) => push(&mut out, Tok::Kw(k)),
+                // Rust's own keywords are fine names in Axon; they get a suffix in the generated Rust.
+                None if RUST_KEYWORDS.contains(&word.as_str()) => push(&mut out, Tok::Ident(format!("{word}_"))),
                 None => push(&mut out, Tok::Ident(word)),
             }
             continue;

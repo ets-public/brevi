@@ -1,0 +1,17 @@
+BEGIN
+SET x hello
+INCR x 1
+INCR y -3
+BEGIN
+SET user1 a
+SET user2 b
+SET usual c
+KEYS user
+KEYS us
+KEYS z
+COMMIT
+ROLLBACK
+GET y
+COUNT a
+FLY away
+GET user2

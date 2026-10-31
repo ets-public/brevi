@@ -1,0 +1,64 @@
+fn s(j: Json) -> str = match j:
+  Str(x) => x
+  _ => ""
+
+fn is_null(j: Json) -> bool = match j:
+  Null => true
+  _ => false
+
+fn items(j: Json) -> [Json] = match j:
+  Arr(xs) => xs
+  _ => []
+
+fn qty(j: Json) -> int = match j:
+  Num(n) => n.int()
+  _ => 0
+
+fn cents(d: dec) -> dec = d.fmt(2).dec()
+
+data = json(stdin())
+prods = data["products"]
+custs = data["customers"]
+results: [str] = []
+revenue = 0.dec()
+
+for o in items(data["orders"]):
+  oid = str(o["id"])
+  cid = s(o["customer"])
+  cu = custs[cid]
+  if is_null(cu):
+    results.push("{{\"id\":{oid},\"error\":\"unknown customer {cid}\"}")
+    continue
+  bad = ""
+  for ln in items(o["lines"]):
+    sku = s(ln["sku"])
+    if is_null(prods[sku]) and bad.is_empty(): bad = sku
+  if !bad.is_empty():
+    results.push("{{\"id\":{oid},\"error\":\"unknown sku {bad}\"}")
+    continue
+  sub = 0.dec()
+  catq: {str: int} = {}
+  cata: {str: dec} = {}
+  for ln in items(o["lines"]):
+    p = prods[s(ln["sku"])]
+    q = qty(ln["qty"])
+    amt = s(p["price"]).dec() * q
+    cat = s(p["category"])
+    sub += amt
+    catq[cat] += q
+    cata[cat] += amt
+  disc = 0.dec()
+  for (cat, n) in catq.pairs():
+    if n >= 3: disc += cents(cata[cat] * 5 / 100)
+  tier = s(cu["tier"])
+  pct = if tier == "gold": 10 elif tier == "silver": 5 else: 0
+  disc += cents((sub - disc) * pct / 100)
+  base = sub - disc
+  country = s(cu["country"])
+  tax = if country == "UK": cents(base * 20 / 100) elif country == "US": cents(base * 825 / 10000) else: 0.dec()
+  total = base + tax
+  cname = str(cu["name"])
+  revenue += total
+  results.push("{{\"id\":{oid},\"customer\":{cname},\"subtotal\":\"{sub.fmt(2)}\",\"discount\":\"{disc.fmt(2)}\",\"tax\":\"{tax.fmt(2)}\",\"total\":\"{total.fmt(2)}\"}")
+print("[" + results.join(",") + "]")
+print("revenue " + revenue.fmt(2))

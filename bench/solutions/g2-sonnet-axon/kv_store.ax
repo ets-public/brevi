@@ -1,0 +1,40 @@
+store: {str: str} = {}
+stack: [{str: str}] = []
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  cmd = w[0]
+  if cmd == "SET" and w.len() >= 3:
+    store[w[1]] = w[2]
+  elif cmd == "GET" and w.len() >= 2:
+    if store.has(w[1]): print(store[w[1]])
+    else: print("NULL")
+  elif cmd == "DEL" and w.len() >= 2:
+    if store.has(w[1]): store.remove(w[1])
+    else: print("NOT FOUND")
+  elif cmd == "INCR" and w.len() >= 3:
+    cur = if store.has(w[1]): store[w[1]] else: "0"
+    match cur.int():
+      Ok(a) =>
+        match w[2].int():
+          Ok(b) =>
+            store[w[1]] = str(a + b)
+            print(a + b)
+          Err(m) => print("ERR not an integer")
+      Err(m) => print("ERR not an integer")
+  elif cmd == "COUNT" and w.len() >= 2:
+    print(store.values().count(v => v == w[1]))
+  elif cmd == "KEYS" and w.len() >= 2:
+    ks = store.keys().filter(k => k.starts_with(w[1]))
+    if ks.is_empty(): print("(empty)")
+    else: print(ks.join(" "))
+  elif cmd == "BEGIN":
+    stack.push(store)
+  elif cmd == "ROLLBACK":
+    if stack.is_empty(): print("NO TRANSACTION")
+    else: store = stack.pop()
+  elif cmd == "COMMIT":
+    if stack.is_empty(): print("NO TRANSACTION")
+    else: stack = []
+  else:
+    print("ERR unknown command")

@@ -1,0 +1,21 @@
+requests 12
+malformed 1
+bytes 660
+unique_ips 4
+status
+  2xx 6
+  3xx 2
+  4xx 2
+  5xx 2
+top_paths
+  3 /p0
+  3 /p1
+  2 /p2
+hours
+  00 3 ############
+  01 2 ########
+  05 5 ####################
+  23 2 ########
+bots 0
+errors_by_ip
+  192.168.1.0 2

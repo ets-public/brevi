@@ -29,6 +29,7 @@ const ONE_ARG_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "sort
 struct FnSig {
     params: Vec<Param>,
     fallible: bool,
+    ret: Ty,
 }
 
 pub struct Emitter {
@@ -51,6 +52,8 @@ pub struct Emitter {
     own_locals: HashSet<String>,
     // Types for untyped empty values, by (name, line): (Rust type, complete).
     hints: HashMap<(String, usize), (String, bool)>,
+    // Debug text of every function and test body, by name, for finding which ones share a top-level name.
+    fn_texts: Vec<(String, String)>,
     // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
     pub borrow_loops: bool,
 }
@@ -278,6 +281,20 @@ fn first_assign<'a>(e: &'a Expr, n: &str) -> Option<&'a Expr> {
 }
 
 // True when the first mention of `n` in a function body (its Debug text) is `n = ...`.
+// A plain local of function f: set at the top of its body before any read, read afterwards, and f does not call
+// itself (a recursive function may pass results through the shared name).
+fn owns(f: &str, body: &Expr, text: &str, n: &str) -> bool {
+    let top_set = matches!(body, Expr::Block(st, _) if st.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(t), op: "=", .. } if t == n)));
+    top_set && !text.contains(&format!("Call({f:?}")) && own_use(text, n)
+}
+
+// A function's own use of a name: it sets it before any read, and reads it afterwards.
+// (A function that only assigns a name is writing shared state.)
+fn own_use(body: &str, n: &str) -> bool {
+    let id = format!("Ident({n:?})");
+    sets_first(body, n) && body.matches(&id).count() > body.matches(&format!("target: {id}, op: \"=\"")).count()
+}
+
 fn sets_first(body: &str, n: &str) -> bool {
     let id = format!("Ident({n:?})");
     body.find(&id).map_or(false, |i| body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")))
@@ -365,6 +382,14 @@ impl Emitter {
             borrow_loops: false,
             nested: HashSet::new(),
             own_locals: HashSet::new(),
+            fn_texts: items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Fn { name, body, script: false, .. } => Some((name.clone(), format!("{body:?}"))),
+                    Item::Test { name, body, .. } => Some((format!("test {name}"), format!("{body:?}"))),
+                    _ => None,
+                })
+                .collect(),
             hints: if hints { crate::infer::empty_types(items) } else { HashMap::new() },
             line: 0,
             diags: Vec::new(),
@@ -383,13 +408,13 @@ impl Emitter {
                         e.variants.insert(v.name.clone(), (name.clone(), v.fields.clone()));
                     }
                 }
-                Item::Fn { name, params, fallible, line, body, .. } => {
+                Item::Fn { name, params, fallible, line, body, ret, .. } => {
                     if e.fns.contains_key(name) {
                         e.diag(*line, &format!("function '{name}' is defined twice"), None);
                     }
                     // `!` is optional: a function that uses ? or fail() can fail.
                     let fallible = *fallible || can_fail(body);
-                    e.fns.insert(name.clone(), FnSig { params: params.clone(), fallible });
+                    e.fns.insert(name.clone(), FnSig { params: params.clone(), fallible, ret: ret.clone() });
                 }
                 Item::Test { .. } => {}
             }
@@ -407,11 +432,11 @@ impl Emitter {
             return;
         };
         // (parameter names, debug text of the body) for every function and test.
-        let others: Vec<(Vec<String>, String)> = items
+        let others: Vec<(Vec<String>, String, String, &Expr)> = items
             .iter()
             .filter_map(|i| match i {
-                Item::Fn { script: false, body, params, .. } => Some((params.iter().map(|p| p.name.clone()).collect(), format!("{body:?}"))),
-                Item::Test { body, .. } => Some((vec![], format!("{body:?}"))),
+                Item::Fn { script: false, body, params, name, .. } => Some((params.iter().map(|p| p.name.clone()).collect(), format!("{body:?}"), name.clone(), body)),
+                Item::Test { body, .. } => Some((vec![], format!("{body:?}"), String::new(), body)),
                 _ => None,
             })
             .collect();
@@ -427,7 +452,7 @@ impl Emitter {
             let (n, ty, value, line) = (n, ty, value, line);
             {
                 // Used by name, and not a parameter or a local of the same name there.
-                let used = others.iter().any(|(ps, body)| {
+                let used = others.iter().any(|(ps, body, _, _)| {
                     body.contains(&format!("Ident({n:?})")) && !ps.contains(n) && !body.contains(&format!("Bind({n:?})")) && !body.contains(&format!("{n:?}]"))
                 });
                 if !used || self.globals.contains_key(n) {
@@ -435,8 +460,9 @@ impl Emitter {
                 }
                 let hinted = self.hints.get(&(n.clone(), *line)).filter(|h| h.1).map(|h| Ty::Named(h.0.clone()));
                 let found = ty.clone().or(hinted).or_else(|| self.infer_ty(value));
-                // With no known type, a function that sets the name before reading it has its own local.
-                if found.is_none() && others.iter().all(|(ps, body)| ps.contains(n) || sets_first(body, n)) {
+                // A name every function sets before reading is each function's own local.
+                let id = format!("Ident({n:?})");
+                if others.iter().filter(|(_, b, _, _)| b.contains(&id)).all(|(ps, text, f, body)| ps.contains(n) || owns(f, body, text, n)) {
                     continue;
                 }
                 match found {
@@ -474,6 +500,9 @@ impl Emitter {
                 "lines" | "args" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
                 "stdin" | "input" | "str" => named("str"),
                 "csv" => Some(Ty::List(Box::new(Ty::List(Box::new(Ty::Named("str".into())))))),
+                "json" => named("Json"),
+                "date" => named("Date"),
+                n if self.fns.get(n).map_or(false, |f| !matches!(f.ret, Ty::Unit)) => Some(self.fns[n].ret.clone()),
                 n if self.structs.contains_key(n) => named(n),
                 n => self.variants.get(n).map(|(en, _)| Ty::Named(en.clone())),
             },
@@ -607,6 +636,14 @@ impl Emitter {
         let text = format!("{body:?}");
         let names: Vec<String> = self.globals.keys().filter(|n| sets_first(&text, n)).cloned().collect();
         for n in names {
+            // Set first here, and no other function reads it before setting it: a local that shares the name.
+            let id = format!("Ident({n:?})");
+            // Script code itself works on the top-level names.
+            let script = !self.fn_texts.iter().any(|(f, _)| f == name);
+            if !script && owns(name, body, &text, &n) && !self.fn_texts.iter().any(|(f, t)| f != name && t.contains(&id) && !own_use(t, &n)) {
+                self.own_locals.insert(n);
+                continue;
+            }
             let local_ty = first_assign(body, &n).and_then(|v| self.infer_ty(v));
             if let (Some(t), Some((g, _))) = (local_ty, self.globals.get(&n)) {
                 if rust_ty(&t) != rust_ty(g) {
@@ -982,13 +1019,14 @@ impl Emitter {
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
-                let (a, b) = if ["==", "!=", "<", ">", "<=", ">="].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
+                let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
                 match *op {
                     "+" => format!("Plus::plus({a}, {b})"),
                     "and" => format!("({a} && {b})"),
                     "or" => format!("({a} || {b})"),
                     "~=" => format!("ax_approx({a}, {b})"),
                     "//" => format!("ax_floordiv({a}, {b})"),
+                    "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     op => format!("({a} {op} {b})"),
                 }
             }
@@ -1050,6 +1088,8 @@ impl Emitter {
                 if name == "slice" && a.len() == 1 {
                     a.push("i64::MAX".into());
                 }
+                // `x.round(2)` rounds to decimal places.
+                let name = if name == "round" && a.len() == 1 { "round_to" } else { name.as_str() };
                 if tries {
                     format!("{{ ax_l({line}); {r}.ax_try_{name}({})? }}", a.join(", "))
                 } else {

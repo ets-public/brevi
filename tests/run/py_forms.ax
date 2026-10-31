@@ -1,0 +1,22 @@
+xs = [5, 1, 4, 2]
+print(xs[1:3])
+print(xs[:2])
+print(xs[2:])
+print("hello"[1:-1])
+m = {"a": 1}
+print("a" in m)
+print("b" not in m)
+print(4 in xs and 9 not in xs)
+print("ell" in "hello")
+a, b = 1, 2
+a, b = b, a + b
+print("{a} {b}")
+ps = [(1, "x"), (2, "y")]
+for n, s in ps:
+  print("{n}{s}")
+for i, (n, s) in ps.enumerate():
+  print("{i}{n}{s}")
+h = heap()
+h.push((3, "c"))
+d, u = h.pop()
+print(u)

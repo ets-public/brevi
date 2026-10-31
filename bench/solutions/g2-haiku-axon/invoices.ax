@@ -1,0 +1,83 @@
+fn jstr(j: Json) -> str = match j:
+  Str(s) => s
+  _ => ""
+
+fn jint(j: Json) -> int = match j:
+  Num(n) => n.int()
+  _ => 0
+
+fn known(j: Json) -> bool = match j:
+  Null => false
+  _ => true
+
+fn order_list(j: Json) -> [Json] = match j:
+  Arr(xs) => xs
+  _ => []
+
+fn money(x: dec) -> dec = x.fmt(2).dec()
+
+data = json(stdin())
+prods = data["products"]
+custs = data["customers"]
+outs = []
+revenue = "0.00".dec()
+r5 = "0.05".dec()
+r10 = "0.10".dec()
+zero = "0.00".dec()
+
+for o in order_list(data["orders"]):
+  oid = jstr(o["id"])
+  cid = jstr(o["customer"])
+  olines = order_list(o["lines"])
+  if !known(custs[cid]):
+    outs.push("{\"id\":\"" + oid + "\",\"error\":\"unknown customer " + cid + "\"}")
+    continue
+  badf = false
+  badsku = ""
+  units = {}
+  for ln in olines:
+    sku = jstr(ln["sku"])
+    p = prods[sku]
+    if !known(p):
+      if !badf:
+        badf = true
+        badsku = sku
+    else:
+      cat = jstr(p["category"])
+      units[cat] = units.get_or(cat, 0) + jint(ln["qty"])
+  if badf:
+    outs.push("{\"id\":\"" + oid + "\",\"error\":\"unknown sku " + badsku + "\"}")
+    continue
+  subtotal = zero
+  catdisc = zero
+  for ln in olines:
+    p = prods[jstr(ln["sku"])]
+    price = jstr(p["price"]).dec()
+    amt = price * jint(ln["qty"])
+    subtotal = subtotal + amt
+    cat = jstr(p["category"])
+    if units.get_or(cat, 0) >= 3:
+      catdisc = catdisc + money(amt * r5)
+  tier = jstr(custs[cid]["tier"])
+  tierdisc = zero
+  base = subtotal - catdisc
+  if tier == "gold":
+    tierdisc = money(base * r10)
+  elif tier == "silver":
+    tierdisc = money(base * r5)
+  discount = catdisc + tierdisc
+  discounted = subtotal - discount
+  ctry = jstr(custs[cid]["country"])
+  taxrate = zero
+  if ctry == "UK":
+    taxrate = "0.20".dec()
+  elif ctry == "US":
+    taxrate = "0.0825".dec()
+  tax = money(discounted * taxrate)
+  total = discounted + tax
+  revenue = revenue + total
+  nm = jstr(custs[cid]["name"])
+  outs.push("{\"id\":\"" + oid + "\",\"customer\":\"" + nm + "\",\"subtotal\":\"" + subtotal.fmt(2) + "\",\"discount\":\"" + discount.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"}")
+
+print("[" + outs.join(",") + "]")
+print("revenue " + revenue.fmt(2))

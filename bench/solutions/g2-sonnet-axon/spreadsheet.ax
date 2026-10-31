@@ -1,0 +1,135 @@
+content: {str: str} = {}
+memo: {str: (int, int)} = {}
+visiting: {str: bool} = {}
+maxc = 0
+maxr = 0
+
+fn note(c: int, r: int):
+  if c + 1 > maxc: maxc = c + 1
+  if r > maxr: maxr = r
+
+fn comb(a: int, b: int) -> int:
+  if a == 2 or b == 2: return 2
+  if a == 1 or b == 1: return 1
+  0
+
+fn cname(c: int, r: int) -> str = (65 + c).char() + str(r)
+
+fn cellval(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if visiting.has(name): return (2, 0)
+  if !content.has(name): return (0, 0)
+  c = content[name]
+  if !c.starts_with("="): return (0, c.int().or(0))
+  visiting[name] = true
+  cs = c.slice(1).replace(" ", "").chars()
+  p = 0
+  r = expr(cs, p)
+  visiting.remove(name)
+  memo[name] = r
+  r
+
+fn getref(cs: [str], mut p: int) -> (int, int):
+  col = cs[p].code() - 65
+  p += 1
+  row = 0
+  while p < cs.len() and cs[p].is_digit():
+    row = row * 10 + cs[p].digit()
+    p += 1
+  (col, row)
+
+fn expr(cs: [str], mut p: int) -> (int, int):
+  acc = term(cs, p)
+  while p < cs.len() and (cs[p] == "+" or cs[p] == "-"):
+    op = cs[p]
+    p += 1
+    b = term(cs, p)
+    st = comb(acc.0, b.0)
+    v = if op == "+": acc.1 + b.1 else: acc.1 - b.1
+    acc = (st, if st == 0: v else: 0)
+  acc
+
+fn term(cs: [str], mut p: int) -> (int, int):
+  acc = factor(cs, p)
+  while p < cs.len() and (cs[p] == "*" or cs[p] == "/"):
+    op = cs[p]
+    p += 1
+    b = factor(cs, p)
+    st = comb(acc.0, b.0)
+    v = 0
+    if st == 0:
+      if op == "*": v = acc.1 * b.1
+      elif b.1 == 0: st = 1
+      else: v = acc.1 / b.1
+    acc = (st, v)
+  acc
+
+fn factor(cs: [str], mut p: int) -> (int, int):
+  ch = cs[p]
+  if ch == "-":
+    p += 1
+    r = factor(cs, p)
+    return (r.0, -r.1)
+  if ch == "(":
+    p += 1
+    r = expr(cs, p)
+    p += 1
+    return r
+  if ch.is_digit():
+    v = 0
+    while p < cs.len() and cs[p].is_digit():
+      v = v * 10 + cs[p].digit()
+      p += 1
+    return (0, v)
+  if p + 1 < cs.len() and cs[p + 1].is_alpha():
+    fname = cs[p] + cs[p + 1] + cs[p + 2]
+    p += 4
+    a = getref(cs, p)
+    p += 1
+    b = getref(cs, p)
+    p += 1
+    st = 0
+    vals: [int] = []
+    for c in min(a.0, b.0)..max(a.0, b.0) + 1:
+      for r in min(a.1, b.1)..max(a.1, b.1) + 1:
+        x = cellval(cname(c, r))
+        st = comb(st, x.0)
+        vals.push(x.1)
+    if st != 0: return (st, 0)
+    v = if fname == "SUM": vals.sum() elif fname == "MIN": vals.min().or(0) else: vals.max().or(0)
+    return (0, v)
+  a = getref(cs, p)
+  cellval(cname(a.0, a.1))
+
+for line in lines():
+  i = line.find("=")
+  if i < 0: continue
+  name = line.slice(0, i).trim()
+  content[name] = line.slice(i + 1).trim()
+  cs = name.chars()
+  note(cs[0].code() - 65, name.slice(1).int().or(0))
+  body = line.slice(i + 1).trim()
+  if body.starts_with("="):
+    fc = body.replace(" ", "").chars()
+    for k in 0..fc.len() - 1:
+      if fc[k].is_alpha() and fc[k + 1].is_digit():
+        j = k + 1
+        r = 0
+        while j < fc.len() and fc[j].is_digit():
+          r = r * 10 + fc[j].digit()
+          j += 1
+        note(fc[k].code() - 65, r)
+
+hdr: [str] = []
+for c in 0..maxc: hdr.push((65 + c).char())
+print("\t" + hdr.join("\t"))
+for r in 1..maxr + 1:
+  row: [str] = [str(r)]
+  for c in 0..maxc:
+    nm = cname(c, r)
+    s = ""
+    if content.has(nm):
+      x = cellval(nm)
+      s = if x.0 == 2: "#CYCLE" elif x.0 == 1: "#DIV0" else: str(x.1)
+    row.push(s)
+  print(row.join("\t"))

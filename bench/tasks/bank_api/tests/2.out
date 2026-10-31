@@ -1,0 +1,10 @@
+201 {"id":1,"owner":"A","balance":0}
+201 {"id":2,"owner":"B","balance":0}
+201 {"id":3,"owner":"C","balance":0}
+200 {"id":2,"owner":"B","balance":300}
+200 {"id":3,"owner":"C","balance":300}
+200 {"id":1,"owner":"A","balance":100}
+409 {"error":"insufficient funds"}
+200 {"from":0,"to":400}
+404 {"error":"no such account"}
+200 [{"id":1,"owner":"A","balance":400},{"id":2,"owner":"B","balance":300},{"id":3,"owner":"C","balance":0}]

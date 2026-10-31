@@ -1,0 +1,21 @@
+requests 7
+malformed 1
+bytes 2955
+unique_ips 3
+status
+  2xx 2
+  3xx 1
+  4xx 3
+  5xx 1
+top_paths
+  3 /index.html
+  2 /about
+  2 /login
+hours
+  09 1 #####
+  13 2 ##########
+  14 4 ####################
+bots 2
+errors_by_ip
+  10.0.0.1 2
+  10.0.0.2 2

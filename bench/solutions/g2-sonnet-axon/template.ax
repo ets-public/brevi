@@ -1,0 +1,129 @@
+enum Node:
+  Text(s: str)
+  Var(path: str, filters: [str])
+  Each(path: str, body: [Node])
+  If(path: str, yes: [Node], no: [Node])
+
+fn parse_block(toks: [(str, str)], mut p: int) -> [Node]:
+  nodes: [Node] = []
+  while p < toks.len():
+    t = toks[p]
+    if t.0 == "t":
+      nodes.push(Text(t.1))
+      p += 1
+    else:
+      tag = t.1
+      if tag == "/each" or tag == "/if" or tag == "else": return nodes
+      p += 1
+      if tag.starts_with("#each "):
+        body = parse_block(toks, p)
+        p += 1
+        nodes.push(Each(tag.slice(6).trim(), body))
+      elif tag.starts_with("#if "):
+        yes = parse_block(toks, p)
+        no: [Node] = []
+        if p < toks.len() and toks[p].1 == "else":
+          p += 1
+          no = parse_block(toks, p)
+        p += 1
+        nodes.push(If(tag.slice(4).trim(), yes, no))
+      else:
+        parts = tag.split("|")
+        fs = parts.skip(1).map(f => f.trim())
+        nodes.push(Var(parts[0].trim(), fs))
+  nodes
+
+fn lookup(path: str, ctx: [Json], idx: [int]) -> Json:
+  if path == ".": return ctx.last()
+  if path == "@index":
+    if idx.is_empty(): return Null
+    return Num(idx.last().float())
+  segs = path.split(".")
+  for k in (0..ctx.len()).rev():
+    c = ctx[k]
+    hit = match c:
+      Obj(m) => m.has(segs[0])
+      _ => false
+    if hit:
+      v = c
+      for s in segs: v = v[s]
+      return v
+  Null
+
+raw_text: str = ""
+
+fn ser(j: Json) -> str = match j:
+  Obj(m) =>
+    ks = m.keys().sort_by(k => raw_text.find("\"" + k + "\""))
+    "{" + ks.map(k => str(Str(k)) + ":" + ser(m[k])).join(",") + "}"
+  Arr(xs) => "[" + xs.map(x => ser(x)).join(",") + "]"
+  _ => str(j)
+
+fn tostr(j: Json) -> str = match j:
+  Null => ""
+  Bool(b) => if b: "true" else: "false"
+  Str(s) => s
+  Num(n) => if n == n.floor(): str(n.int()) else: str(j)
+  _ => ser(j)
+
+fn truthy(j: Json) -> bool = match j:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => !s.is_empty()
+  Arr(xs) => !xs.is_empty()
+  _ => true
+
+fn apply(v: Json, filters: [str]) -> str:
+  cur = v
+  for f in filters:
+    if f == "upper": cur = Str(tostr(cur).upper())
+    elif f == "lower": cur = Str(tostr(cur).lower())
+    elif f == "len":
+      cur = match cur:
+        Arr(xs) => Str(str(xs.len()))
+        Obj(m) => Str(str(m.len()))
+        _ => Str(str(tostr(cur).len()))
+    elif f.starts_with("default:"):
+      e = tostr(cur).is_empty()
+      if e: cur = Str(f.slice(8))
+  tostr(cur)
+
+fn render(nodes: [Node], ctx: [Json], idx: [int]) -> str:
+  out = ""
+  for nd in nodes:
+    match nd:
+      Text(s) => out += s
+      Var(path, fs) => out += apply(lookup(path, ctx, idx), fs)
+      Each(path, body) =>
+        match lookup(path, ctx, idx):
+          Arr(xs) =>
+            for (i, x) in xs.enumerate():
+              out += render(body, ctx + [x], idx + [i])
+          _ => out += ""
+      If(path, yes, no) =>
+        if truthy(lookup(path, ctx, idx)): out += render(yes, ctx, idx)
+        else: out += render(no, ctx, idx)
+  out
+
+ls = stdin().split("\n")
+raw_text = ls[0]
+root = json(ls[0])
+tpl = ls.skip(1).join("\n")
+toks: [(str, str)] = []
+OPEN = "{" + "{"
+CLOSE = "}" + "}"
+pieces = tpl.split(OPEN)
+toks.push(("t", pieces[0]))
+for pc in pieces.skip(1):
+  e = pc.find(CLOSE)
+  if e < 0:
+    toks.push(("t", OPEN + pc))
+  else:
+    toks.push(("g", pc.slice(0, e).trim()))
+    toks.push(("t", pc.slice(e + 2)))
+tp = 0
+tree = parse_block(toks, tp)
+res = render(tree, [root], [])
+if res.ends_with("\n"): res = res.slice(0, res.len() - 1)
+print(res)

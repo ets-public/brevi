@@ -1,0 +1,10 @@
+ERR not an integer
+-3
+user1 user2
+user1 user2 usual
+(empty)
+NO TRANSACTION
+-3
+1
+ERR unknown command
+b

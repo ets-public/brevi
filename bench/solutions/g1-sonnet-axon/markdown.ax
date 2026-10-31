@@ -1,0 +1,112 @@
+out: [str] = []
+para: [str] = []
+items: [str] = []
+kind = ""
+hids: [str] = []
+htexts: [str] = []
+used: {str: int} = {}
+
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn inline(s: str) -> str:
+  cs = s.chars()
+  n = cs.len()
+  r = ""
+  i = 0
+  while i < n:
+    c = cs[i]
+    rest = cs.slice(i + 1).join("")
+    if c == "`" and rest.find("`") >= 0:
+      j = rest.find("`")
+      r += "<code>" + rest.slice(0, j) + "</code>"
+      i += j + 2
+    elif c == "*" and rest.starts_with("*") and rest.slice(1).find("**") >= 0:
+      j = rest.slice(1).find("**")
+      r += "<strong>" + inline(rest.slice(1, 1 + j)) + "</strong>"
+      i += j + 4
+    elif c == "*" and rest.find("*") > 0:
+      j = rest.find("*")
+      r += "<em>" + inline(rest.slice(0, j)) + "</em>"
+      i += j + 2
+    elif c == "[" and rest.find("](") >= 0 and rest.slice(rest.find("](") + 2).find(")") >= 0:
+      j = rest.find("](")
+      after = rest.slice(j + 2)
+      k = after.find(")")
+      r += "<a href=\"" + after.slice(0, k) + "\">" + inline(rest.slice(0, j)) + "</a>"
+      i += j + k + 4
+    else:
+      r += c
+      i += 1
+  r
+
+fn slug(s: str) -> str:
+  r = ""
+  for ch in s.lower().chars():
+    if (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9"):
+      r += ch
+    elif !r.is_empty() and !r.ends_with("-"):
+      r += "-"
+  while r.ends_with("-"): r = r.slice(0, r.len() - 1)
+  r
+
+fn flush():
+  if !para.is_empty():
+    out.push("<p>" + inline(esc(para.join(" "))) + "</p>")
+    para = []
+  if !items.is_empty():
+    out.push("<" + kind + ">")
+    for item in items: out.push("<li>" + inline(esc(item)) + "</li>")
+    out.push("</" + kind + ">")
+    items = []
+    kind = ""
+
+ls = lines()
+li = 0
+while li < ls.len():
+  line = ls[li]
+  li += 1
+  t = line.trim()
+  hl = 0
+  while hl < t.len() and t.slice(hl, hl + 1) == "#": hl += 1
+  dot = t.find(". ")
+  if t == "```":
+    flush()
+    body: [str] = []
+    while li < ls.len() and ls[li].trim() != "```":
+      body.push(esc(ls[li]))
+      li += 1
+    li += 1
+    out.push("<pre><code>" + body.join("\n") + "</code></pre>")
+  elif t.is_empty():
+    flush()
+  elif hl >= 1 and hl <= 6 and t.slice(hl).starts_with(" "):
+    flush()
+    txt = t.slice(hl).trim()
+    base = slug(txt)
+    id = base
+    cnt = 1
+    while used.has(id):
+      cnt += 1
+      id = base + "-" + str(cnt)
+    used[id] = 1
+    hids.push(id)
+    htexts.push(esc(txt.replace("`", "").replace("*", "")))
+    out.push("<h{hl} id=\"{id}\">" + inline(esc(txt)) + "</h{hl}>")
+  elif t.starts_with("- "):
+    if kind != "ul": flush()
+    kind = "ul"
+    items.push(t.slice(2))
+  elif dot > 0 and t.slice(0, dot).is_digit():
+    if kind != "ol": flush()
+    kind = "ol"
+    items.push(t.slice(dot + 2))
+  else:
+    if !items.is_empty(): flush()
+    para.push(t)
+flush()
+if hids.len() >= 2:
+  print("<nav>")
+  for hk in 0..hids.len():
+    print("<a href=\"#{hids[hk]}\">{htexts[hk]}</a>")
+  print("</nav>")
+for o in out: print(o)

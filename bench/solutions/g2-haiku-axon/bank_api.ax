@@ -1,0 +1,135 @@
+owners = []
+balances = []
+
+fn digits(s: str) -> bool:
+  if s.is_empty(): return false
+  for c in s.chars():
+    if !c.is_digit(): return false
+  return true
+
+fn exists(i: int) -> bool = i >= 1 and i <= owners.len()
+
+fn acct_json(i: int) -> str = "{\"id\":" + str(i + 1) + ",\"owner\":\"" + owners[i] + "\",\"balance\":" + str(balances[i]) + "}"
+
+fn valid_json(s: str) -> bool = match json(s):
+  Ok(v) => true
+  Err(e) => false
+
+fn owner_of(j: Json) -> str = match j["owner"]:
+  Str(s) => s
+  _ => ""
+
+fn amount_of(j: Json) -> int = match j["amount"]:
+  Num(n) => if n >= 1.0 and n.floor() == n: n.int() else: -1
+  _ => -1
+
+fn id_of(j: Json, key: str) -> int = match j[key]:
+  Num(n) => if n >= 1.0 and n.floor() == n: n.int() else: -1
+  _ => -1
+
+for raw in lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  sp = line.find(" ")
+  method = if sp == -1: line else: line.slice(0, sp)
+  rest = if sp == -1: "" else: line.slice(sp + 1)
+  sp2 = rest.find(" ")
+  path = if sp2 == -1: rest else: rest.slice(0, sp2)
+  body0 = if sp2 == -1: "" else: rest.slice(sp2 + 1)
+  body = if body0.is_empty(): "{}" else: body0
+  segs = path.split("/")
+  n = segs.len()
+  code = 404
+  resp = "{\"error\":\"not found\"}"
+  kind = ""
+  aid = 0
+  if method == "POST" and path == "/accounts":
+    kind = "create"
+  elif method == "GET" and path == "/accounts":
+    kind = "list"
+  elif method == "GET" and n == 3 and segs[1] == "accounts" and digits(segs[2]):
+    kind = "get"
+    aid = segs[2].int().or(0)
+  elif method == "POST" and n == 4 and segs[1] == "accounts" and digits(segs[2]) and (segs[3] == "deposit" or segs[3] == "withdraw"):
+    kind = segs[3]
+    aid = segs[2].int().or(0)
+  elif method == "POST" and path == "/transfer":
+    kind = "transfer"
+
+  if kind == "":
+    code = 404
+  elif !valid_json(body):
+    code = 400
+    resp = "{\"error\":\"bad json\"}"
+  else:
+    j = json(body)
+    if kind == "create":
+      owner = owner_of(j)
+      if owner.is_empty():
+        code = 400
+        resp = "{\"error\":\"owner required\"}"
+      else:
+        owners.push(owner)
+        balances.push(0)
+        code = 201
+        resp = acct_json(owners.len() - 1)
+    elif kind == "list":
+      order = []
+      for i in 0..owners.len():
+        order.push((-balances[i], i))
+      order = order.sort()
+      items = []
+      for p in order:
+        items.push(acct_json(p.1))
+      code = 200
+      resp = "[" + items.join(",") + "]"
+    elif kind == "get":
+      if exists(aid):
+        code = 200
+        resp = acct_json(aid - 1)
+      else:
+        code = 404
+        resp = "{\"error\":\"no such account\"}"
+    elif kind == "transfer":
+      fromid = id_of(j, "from")
+      toid = id_of(j, "to")
+      if !exists(fromid) or !exists(toid):
+        code = 404
+        resp = "{\"error\":\"no such account\"}"
+      elif fromid == toid:
+        code = 400
+        resp = "{\"error\":\"same account\"}"
+      else:
+        amt = amount_of(j)
+        if amt <= 0:
+          code = 400
+          resp = "{\"error\":\"bad amount\"}"
+        elif balances[fromid - 1] < amt:
+          code = 409
+          resp = "{\"error\":\"insufficient funds\"}"
+        else:
+          balances[fromid - 1] = balances[fromid - 1] - amt
+          balances[toid - 1] = balances[toid - 1] + amt
+          code = 200
+          resp = "{\"from\":" + str(balances[fromid - 1]) + ",\"to\":" + str(balances[toid - 1]) + "}"
+    else:
+      if !exists(aid):
+        code = 404
+        resp = "{\"error\":\"no such account\"}"
+      else:
+        amt = amount_of(j)
+        if amt <= 0:
+          code = 400
+          resp = "{\"error\":\"bad amount\"}"
+        elif kind == "deposit":
+          balances[aid - 1] = balances[aid - 1] + amt
+          code = 200
+          resp = acct_json(aid - 1)
+        elif balances[aid - 1] < amt:
+          code = 409
+          resp = "{\"error\":\"insufficient funds\"}"
+        else:
+          balances[aid - 1] = balances[aid - 1] - amt
+          code = 200
+          resp = acct_json(aid - 1)
+  print("{code} {resp}")

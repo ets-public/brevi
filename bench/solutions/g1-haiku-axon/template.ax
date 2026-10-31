@@ -1,0 +1,228 @@
+fn compact(s: str) -> str:
+  out = ""
+  instr = false
+  escp = false
+  for ch in s.chars():
+    if instr:
+      out = out + ch
+      if escp:
+        escp = false
+      elif ch == "\\":
+        escp = true
+      elif ch == "\"":
+        instr = false
+    elif ch == "\"":
+      instr = true
+      out = out + ch
+    elif ch != " " and ch != "\t" and ch != "\r" and ch != "\n":
+      out = out + ch
+  return out
+
+fn skip_value(cs: [str], i: int) -> int:
+  c = cs[i]
+  if c == "\"":
+    j = i + 1
+    while cs[j] != "\"":
+      if cs[j] == "\\":
+        j += 2
+      else:
+        j += 1
+    return j + 1
+  if c == "{" or c == "[":
+    depth = 0
+    j = i
+    while true:
+      d = cs[j]
+      if d == "\"":
+        j = skip_value(cs, j)
+        continue
+      if d == "{" or d == "[":
+        depth += 1
+      elif d == "}" or d == "]":
+        depth -= 1
+      j += 1
+      if depth == 0:
+        return j
+  j = i
+  while j < cs.len() and cs[j] != "," and cs[j] != "}" and cs[j] != "]":
+    j += 1
+  return j
+
+fn obj_items(cs: [str]) -> [(str, str)]:
+  items = []
+  i = 1
+  while i < cs.len() and cs[i] != "}":
+    e = skip_value(cs, i)
+    key = cs.slice(i + 1, e - 1).join("")
+    i = e + 1
+    ve = skip_value(cs, i)
+    items.push((key, cs.slice(i, ve).join("")))
+    i = ve
+    if i < cs.len() and cs[i] == ",":
+      i += 1
+  return items
+
+fn arr_items(cs: [str]) -> [str]:
+  items = []
+  i = 1
+  while i < cs.len() and cs[i] != "]":
+    e = skip_value(cs, i)
+    items.push(cs.slice(i, e).join(""))
+    i = e
+    if i < cs.len() and cs[i] == ",":
+      i += 1
+  return items
+
+fn elems(raw: str) -> [str]:
+  if not raw.starts_with("["):
+    return []
+  return arr_items(raw.chars())
+
+fn field(raw: str, key: str) -> str:
+  if not raw.starts_with("{"):
+    return ""
+  for (k, v) in obj_items(raw.chars()):
+    if k == key:
+      return v
+  return ""
+
+fn tokenize(s: str) -> [(int, str)]:
+  toks = []
+  rest = s
+  while true:
+    i = rest.find("{{")
+    if i < 0:
+      if not rest.is_empty():
+        toks.push((0, rest))
+      break
+    if i > 0:
+      toks.push((0, rest.slice(0, i)))
+    after = rest.slice(i + 2)
+    j = after.find("}}")
+    if j < 0:
+      toks.push((0, rest.slice(i)))
+      break
+    toks.push((1, after.slice(0, j).trim()))
+    rest = after.slice(j + 2)
+  return toks
+
+fn to_text(raw: str) -> str:
+  c = raw.slice(0, 1)
+  if c == "\"":
+    return raw.slice(1, raw.len() - 1)
+  if c == "n":
+    return ""
+  if c == "{" or c == "[" or c == "t" or c == "f":
+    return raw
+  if raw.contains("."):
+    f = raw.float().or(0.0)
+    if f == f.floor():
+      return str(f.int())
+    return str(f)
+  return raw
+
+fn truthy(raw: str) -> bool:
+  c = raw.slice(0, 1)
+  if c == "n" or c == "f":
+    return false
+  if c == "t" or c == "{":
+    return true
+  if c == "\"":
+    return raw.len() > 2
+  if c == "[":
+    return raw != "[]"
+  return raw.float().or(0.0) != 0.0
+
+fn is_missing(raw: str) -> bool:
+  return raw == "null" or raw == "\"\""
+
+fn length_of(raw: str) -> int:
+  c = raw.slice(0, 1)
+  if c == "[":
+    return arr_items(raw.chars()).len()
+  if c == "{":
+    return obj_items(raw.chars()).len()
+  if c == "\"":
+    return to_text(raw).len()
+  return 0
+
+fn lookup(name: str, stack: [str], idx: int) -> str:
+  if name == ".":
+    return stack[-1]
+  if name == "@index":
+    return str(idx)
+  segs = name.split(".")
+  base = ""
+  k = stack.len() - 1
+  while k >= 0 and base == "":
+    base = field(stack[k], segs[0])
+    k -= 1
+  if base == "":
+    base = "null"
+  for seg in segs.slice(1):
+    base = field(base, seg)
+    if base == "":
+      base = "null"
+  return base
+
+fn insert(c: str, stack: [str], idx: int) -> str:
+  parts = c.split("|")
+  v = lookup(parts[0].trim(), stack, idx)
+  for f in parts.slice(1):
+    g = f.trim()
+    if g == "upper":
+      v = "\"" + to_text(v).upper() + "\""
+    elif g == "lower":
+      v = "\"" + to_text(v).lower() + "\""
+    elif g == "len":
+      v = str(length_of(v))
+    elif g.starts_with("default:"):
+      if is_missing(v):
+        v = "\"" + g.slice(8) + "\""
+  return to_text(v)
+
+fn render(toks: [(int, str)], start: int, stack: [str], idx: int) -> (str, int):
+  out = ""
+  p = start
+  while p < toks.len():
+    kind = toks[p].0
+    c = toks[p].1
+    if kind == 0:
+      out = out + c
+      p += 1
+    elif c == "else" or c == "/each" or c == "/if":
+      return (out, p)
+    elif c.starts_with("#each "):
+      arr = elems(lookup(c.slice(6).trim(), stack, idx))
+      (s0, endp) = render(toks, p + 1, stack, idx)
+      for i in 0..arr.len():
+        (s1, e1) = render(toks, p + 1, stack + [arr[i]], i)
+        out = out + s1
+      p = endp + 1
+    elif c.starts_with("#if "):
+      cond = truthy(lookup(c.slice(4).trim(), stack, idx))
+      (a, q) = render(toks, p + 1, stack, idx)
+      b = ""
+      if q < toks.len() and toks[q].0 == 1 and toks[q].1 == "else":
+        (b, q) = render(toks, q + 1, stack, idx)
+      if cond:
+        out = out + a
+      else:
+        out = out + b
+      p = q + 1
+    else:
+      out = out + insert(c, stack, idx)
+      p += 1
+  return (out, p)
+
+fn main():
+  ls = lines()
+  root = compact(ls[0])
+  toks = tokenize(ls.slice(1).join("\n"))
+  out = ""
+  p = 0
+  while p < toks.len():
+    (s, q) = render(toks, p, [root], -1)
+    out = out + s
+    p = q + 1
+  print(out)

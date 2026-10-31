@@ -1,0 +1,129 @@
+owners = []
+bals = []
+NF = "404 {\"error\":\"not found\"}"
+NOACC = "404 {\"error\":\"no such account\"}"
+BADAMT = "400 {\"error\":\"bad amount\"}"
+
+fn acct_json(i: int) -> str:
+  return "{\"id\":" + str(i + 1) + ",\"owner\":\"" + owners[i] + "\",\"balance\":" + str(bals[i]) + "}"
+
+fn exists(id: int) -> bool = id >= 1 and id <= owners.len()
+
+fn owner_of(j: Json) -> str:
+  match j["owner"]:
+    Str(s) => return s
+    _ => return ""
+
+fn amount_of(j: Json) -> int:
+  match j["amount"]:
+    Num(n) =>
+      if n > 0.0 and n == n.floor():
+        return n.int()
+      return -1
+    _ => return -1
+
+fn id_of(j: Json, key: str) -> int:
+  match j[key]:
+    Num(n) =>
+      if n == n.floor():
+        return n.int()
+      return -1
+    _ => return -1
+
+fn create(body: str) -> str:
+  match json(body):
+    Ok(j) =>
+      name = owner_of(j)
+      if name == "":
+        return "400 {\"error\":\"owner required\"}"
+      owners.push(name)
+      bals.push(0)
+      return "201 " + acct_json(owners.len() - 1)
+    Err(m) => return "400 {\"error\":\"bad json\"}"
+
+fn get_acct(id: int) -> str:
+  if not exists(id):
+    return NOACC
+  return "200 " + acct_json(id - 1)
+
+fn move_money(id: int, body: str, withdraw: bool) -> str:
+  match json(body):
+    Ok(j) =>
+      if not exists(id):
+        return NOACC
+      amt = amount_of(j)
+      if amt < 0:
+        return BADAMT
+      if withdraw:
+        if amt > bals[id - 1]:
+          return "409 {\"error\":\"insufficient funds\"}"
+        bals[id - 1] = bals[id - 1] - amt
+      else:
+        bals[id - 1] = bals[id - 1] + amt
+      return "200 " + acct_json(id - 1)
+    Err(m) => return "400 {\"error\":\"bad json\"}"
+
+fn transfer(body: str) -> str:
+  match json(body):
+    Ok(j) =>
+      a = id_of(j, "from")
+      b = id_of(j, "to")
+      if not exists(a) or not exists(b):
+        return NOACC
+      if a == b:
+        return "400 {\"error\":\"same account\"}"
+      amt = amount_of(j)
+      if amt < 0:
+        return BADAMT
+      if amt > bals[a - 1]:
+        return "409 {\"error\":\"insufficient funds\"}"
+      bals[a - 1] = bals[a - 1] - amt
+      bals[b - 1] = bals[b - 1] + amt
+      return "200 {\"from\":" + str(bals[a - 1]) + ",\"to\":" + str(bals[b - 1]) + "}"
+    Err(m) => return "400 {\"error\":\"bad json\"}"
+
+fn list_all() -> str:
+  pairs = []
+  for i in 0..owners.len():
+    pairs.push((-bals[i], i + 1))
+  pairs = pairs.sort()
+  items = []
+  for p in pairs:
+    items.push(acct_json(p.1 - 1))
+  return "200 [" + items.join(",") + "]"
+
+fn handle(method: str, path: str, body: str) -> str:
+  segs = path.split("/")
+  if method == "POST" and path == "/accounts":
+    return create(body)
+  if method == "GET" and path == "/accounts":
+    return list_all()
+  if method == "POST" and path == "/transfer":
+    return transfer(body)
+  if method == "GET" and segs.len() == 3 and segs[1] == "accounts":
+    match segs[2].int():
+      Ok(id) => return get_acct(id)
+      Err(m) => return NF
+  if method == "POST" and segs.len() == 4 and segs[1] == "accounts":
+    match segs[2].int():
+      Ok(id) =>
+        if segs[3] == "deposit":
+          return move_money(id, body, false)
+        if segs[3] == "withdraw":
+          return move_money(id, body, true)
+        return NF
+      Err(m) => return NF
+  return NF
+
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  sp = line.split(" ")
+  method = sp[0]
+  path = ""
+  if sp.len() > 1:
+    path = sp[1]
+  body = ""
+  if sp.len() > 2:
+    body = sp.slice(2).join(" ")
+  print(handle(method, path, body))

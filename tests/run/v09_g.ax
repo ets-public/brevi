@@ -1,0 +1,14 @@
+out = []
+i = 0
+fn inline(s: str) -> str:
+  out = ""
+  i = 0
+  while i < s.len():
+    out = out + s.slice(i, i + 1).upper()
+    i += 1
+  out
+for ref in ["ab", "cd"]:
+  out.push(inline(ref))
+  i += 1
+print(out)
+print(i)

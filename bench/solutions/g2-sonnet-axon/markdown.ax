@@ -1,0 +1,121 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn inline(s: str) -> str:
+  out = ""
+  i = 0
+  n = s.len()
+  while i < n:
+    c = s.slice(i, i + 1)
+    if c == "`":
+      j = s.slice(i + 1).find("`")
+      if j >= 0:
+        out += "<code>" + s.slice(i + 1, i + 1 + j) + "</code>"
+        i += j + 2
+        continue
+    elif c == "*":
+      if s.slice(i, i + 2) == "**":
+        j = s.slice(i + 2).find("**")
+        if j > 0:
+          out += "<strong>" + inline(s.slice(i + 2, i + 2 + j)) + "</strong>"
+          i += j + 4
+          continue
+      j = s.slice(i + 1).find("*")
+      if j > 0:
+        out += "<em>" + inline(s.slice(i + 1, i + 1 + j)) + "</em>"
+        i += j + 2
+        continue
+    elif c == "[":
+      j = s.slice(i + 1).find("](")
+      if j >= 0:
+        k = s.slice(i + 1 + j + 2).find(")")
+        if k >= 0:
+          txt = s.slice(i + 1, i + 1 + j)
+          url = s.slice(i + 1 + j + 2, i + 1 + j + 2 + k)
+          out += "<a href=\"" + url + "\">" + inline(txt) + "</a>"
+          i = i + 1 + j + 2 + k + 1
+          continue
+    out += c
+    i += 1
+  out
+
+fn slug(s: str) -> str:
+  out = ""
+  dash = false
+  for ch in s.lower().chars():
+    if (ch >= "a" and ch <= "z") or (ch >= "0" and ch <= "9"):
+      out += ch
+      dash = false
+    elif !dash:
+      out += "-"
+      dash = true
+  while out.starts_with("-"): out = out.slice(1)
+  while out.ends_with("-"): out = out.slice(0, out.len() - 1)
+  out
+
+fn hlevel(l: str) -> int:
+  k = 0
+  while k < l.len() and l.slice(k, k + 1) == "#": k += 1
+  if k >= 1 and k <= 6 and l.slice(k, k + 1) == " ": k else: 0
+
+fn is_ul(l: str) -> bool = l.starts_with("- ")
+
+fn ol_pos(l: str) -> int:
+  k = l.find(". ")
+  if k > 0 and l.slice(0, k).is_digit(): k else: -1
+
+fn is_start(l: str) -> bool = l.trim().is_empty() or l == "```" or hlevel(l) > 0 or is_ul(l) or ol_pos(l) > 0
+
+ls = lines()
+gn = ls.len()
+gi = 0
+gout: [str] = []
+used: {str: bool} = {}
+toc: [str] = []
+while gi < gn:
+  gl = ls[gi]
+  if gl == "```":
+    gi += 1
+    body: [str] = []
+    while gi < gn and ls[gi] != "```":
+      body.push(esc(ls[gi]))
+      gi += 1
+    gi += 1
+    gout.push("<pre><code>" + body.join("\n") + "</code></pre>")
+  elif gl.trim().is_empty():
+    gi += 1
+  elif hlevel(gl) > 0:
+    lv = hlevel(gl)
+    raw = gl.slice(lv + 1).trim()
+    base = slug(raw)
+    cand = base
+    gk = 2
+    while used.has(cand):
+      cand = base + "-" + str(gk)
+      gk += 1
+    used[cand] = true
+    gout.push("<h{lv} id=\"{cand}\">" + inline(esc(raw)) + "</h{lv}>")
+    toc.push("<a href=\"#{cand}\">" + esc(raw.replace("`", "").replace("*", "")) + "</a>")
+    gi += 1
+  elif is_ul(gl):
+    gout.push("<ul>")
+    while gi < gn and is_ul(ls[gi]):
+      gout.push("<li>" + inline(esc(ls[gi].slice(2))) + "</li>")
+      gi += 1
+    gout.push("</ul>")
+  elif ol_pos(gl) > 0:
+    gout.push("<ol>")
+    while gi < gn and ol_pos(ls[gi]) > 0:
+      gout.push("<li>" + inline(esc(ls[gi].slice(ol_pos(ls[gi]) + 2))) + "</li>")
+      gi += 1
+    gout.push("</ol>")
+  else:
+    ps: [str] = []
+    while gi < gn and !is_start(ls[gi]):
+      ps.push(ls[gi].trim())
+      gi += 1
+    gout.push("<p>" + inline(esc(ps.join(" "))) + "</p>")
+if toc.len() >= 2:
+  print("<nav>")
+  for t in toc: print(t)
+  print("</nav>")
+for o in gout: print(o)

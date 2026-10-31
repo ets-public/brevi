@@ -1,0 +1,15 @@
+{"run":"g1-sonnet-axon","lang":"axon","task":"kv_store","code_tok":590,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-axon","lang":"axon","task":"bank_api","code_tok":1344,"out_tok":82,"compiled":false,"pass":0,"total":0}
+{"run":"g1-sonnet-axon","lang":"axon","task":"bank_api","code_tok":1344,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-axon","lang":"axon","task":"spreadsheet","code_tok":1560,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-axon","lang":"axon","task":"markdown","code_tok":1400,"out_tok":341,"compiled":true,"pass":0,"total":3}
+{"run":"g1-sonnet-axon","lang":"axon","task":"markdown","code_tok":1400,"out_tok":436,"compiled":true,"pass":1,"total":3}
+{"run":"g1-sonnet-axon","lang":"axon","task":"markdown","code_tok":1398,"out_tok":4,"compiled":true,"pass":3,"total":3}
+{"run":"g1-sonnet-axon","lang":"axon","task":"invoices","code_tok":809,"out_tok":66,"compiled":false,"pass":0,"total":0}
+{"run":"g1-sonnet-axon","lang":"axon","task":"invoices","code_tok":813,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-sonnet-axon","lang":"axon","task":"access_report","code_tok":779,"out_tok":66,"compiled":false,"pass":0,"total":0}
+{"run":"g1-sonnet-axon","lang":"axon","task":"access_report","code_tok":783,"out_tok":468,"compiled":true,"pass":0,"total":2}
+{"run":"g1-sonnet-axon","lang":"axon","task":"access_report","code_tok":798,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-sonnet-axon","lang":"axon","task":"timetable","code_tok":818,"out_tok":4,"compiled":true,"pass":2,"total":2}
+{"run":"g1-sonnet-axon","lang":"axon","task":"template","code_tok":1397,"out_tok":192,"compiled":true,"pass":1,"total":2}
+{"run":"g1-sonnet-axon","lang":"axon","task":"template","code_tok":1604,"out_tok":4,"compiled":true,"pass":2,"total":2}

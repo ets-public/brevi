@@ -1,0 +1,78 @@
+fn mins(t: str) -> int:
+  p = t.split(":")
+  p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn two(n: int) -> str = if n < 10: "0" + str(n) else: str(n)
+fn hhmm(m: int) -> str = two(m // 60) + ":" + two(m % 60)
+
+stn: [str] = []
+tm: [int] = []
+tr: [str] = []
+kk: [int] = []
+queries: [str] = []
+in_q = false
+for line in lines():
+  l = line.trim()
+  if l.is_empty(): continue
+  if l == "---":
+    in_q = true
+    continue
+  if in_q:
+    queries.push(l)
+  else:
+    w = l.words()
+    k = 0
+    while 1 + 2 * k + 1 < w.len():
+      stn.push(w[1 + 2 * k])
+      tm.push(mins(w[2 + 2 * k]))
+      tr.push(w[0])
+      kk.push(k)
+      k += 1
+
+ns = stn.len()
+order = (0..ns).map(i => i).sort_by(i => (tm[i], kk[i]))
+
+for q in queries:
+  w = q.words()
+  src = w[0]
+  dst = w[1]
+  qt = mins(w[2])
+  if src == dst:
+    print("{src} {dst} {hhmm(qt)} via -")
+    continue
+  bc = [0 - 1].repeat(ns)
+  bs = [""].repeat(ns)
+  for u in order:
+    c = -1
+    s = ""
+    if stn[u] == src and tm[u] >= qt:
+      c = 1
+      s = tr[u]
+    if kk[u] > 0 and bc[u - 1] >= 0:
+      c2 = bc[u - 1]
+      s2 = bs[u - 1]
+      if c < 0 or (c2, s2) < (c, s):
+        c = c2
+        s = s2
+    for v in order:
+      if v == u: break
+      if bc[v] >= 0 and stn[v] == stn[u] and tr[v] != tr[u] and tm[v] + 5 <= tm[u]:
+        c2 = bc[v] + 1
+        s2 = bs[v] + ">" + tr[u]
+        if c < 0 or (c2, s2) < (c, s):
+          c = c2
+          s = s2
+    bc[u] = c
+    bs[u] = s
+  found = false
+  bt = 0
+  bcc = 0
+  bss = ""
+  for u in 0..ns:
+    if stn[u] == dst and bc[u] >= 0:
+      if !found or (tm[u], bc[u], bs[u]) < (bt, bcc, bss):
+        found = true
+        bt = tm[u]
+        bcc = bc[u]
+        bss = bs[u]
+  if found: print("{src} {dst} {hhmm(bt)} via {bss}") else: print("{src} {dst} unreachable")

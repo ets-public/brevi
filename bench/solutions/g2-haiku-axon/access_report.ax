@@ -1,0 +1,118 @@
+fn digits(s: str) -> bool:
+  if s.is_empty(): return false
+  for c in s.chars():
+    if !c.is_digit(): return false
+  return true
+
+fn parse_line(line: str) -> [str]:
+  sp = line.find(" ")
+  if sp <= 0: return []
+  ip = line.slice(0, sp)
+  rest = line.slice(sp + 1)
+  if !rest.starts_with("- - ["): return []
+  rest = rest.slice(6)
+  rb = rest.find("]")
+  if rb < 0: return []
+  ts = rest.slice(0, rb)
+  colon = ts.find(":")
+  if colon < 0: return []
+  hr = ts.slice(colon + 1, colon + 3)
+  if hr.len() != 2 or !digits(hr): return []
+  rest = rest.slice(rb + 1)
+  if !rest.starts_with(" \""): return []
+  rest = rest.slice(2)
+  q = rest.find("\"")
+  if q < 0: return []
+  req = rest.slice(0, q)
+  rest = rest.slice(q + 1)
+  if !rest.starts_with(" "): return []
+  rp = req.split(" ")
+  if rp.len() != 3: return []
+  rest = rest.slice(1)
+  sp2 = rest.find(" ")
+  if sp2 <= 0: return []
+  st = rest.slice(0, sp2)
+  rest = rest.slice(sp2 + 1)
+  sp3 = rest.find(" ")
+  if sp3 <= 0: return []
+  sz = rest.slice(0, sp3)
+  rest = rest.slice(sp3 + 1)
+  if !rest.starts_with("\""): return []
+  rest = rest.slice(1)
+  q2 = rest.find("\"")
+  if q2 < 0: return []
+  rest = rest.slice(q2 + 1)
+  if rest.len() < 3 or !rest.starts_with(" \"") or !rest.ends_with("\""): return []
+  ua = rest.slice(2, rest.len() - 1)
+  if st.len() != 3 or !digits(st): return []
+  if sz != "-" and !digits(sz): return []
+  path = rp[1]
+  qm = path.find("?")
+  if qm >= 0: path = path.slice(0, qm)
+  return [ip, hr, rp[0], path, st, sz, ua]
+
+requests = 0
+malformed = 0
+tbytes = 0
+ips = {}
+classes = {}
+paths = {}
+hours = {}
+bots = 0
+errs = {}
+
+for raw in lines():
+  f = parse_line(raw)
+  if f.len() == 0:
+    malformed += 1
+    continue
+  requests += 1
+  ip = f[0]
+  hr = f[1]
+  pth = f[3]
+  st = f[4]
+  sz = f[5]
+  ua = f[6]
+  ips[ip] = 1
+  if sz != "-": tbytes += sz.int().or(0)
+  cl = st.slice(0, 1) + "xx"
+  classes[cl] = classes.get_or(cl, 0) + 1
+  paths[pth] = paths.get_or(pth, 0) + 1
+  hours[hr] = hours.get_or(hr, 0) + 1
+  if ua.lower().contains("bot"): bots += 1
+  if st.int().or(0) >= 400:
+    errs[ip] = errs.get_or(ip, 0) + 1
+
+print("requests {requests}")
+print("malformed {malformed}")
+print("bytes {tbytes}")
+print("unique_ips {ips.len()}")
+print("status")
+for c in ["2xx", "3xx", "4xx", "5xx"]:
+  if classes.has(c): print("  " + c + " " + str(classes[c]))
+print("top_paths")
+pl = []
+for (p, n) in paths.pairs():
+  pl.push((0 - n, p))
+pl = pl.sort()
+for i in 0..min(3, pl.len()):
+  e = pl[i]
+  print("  " + str(0 - e.0) + " " + e.1)
+print("hours")
+mx = 1
+for n in hours.values():
+  if n > mx: mx = n
+for h in hours.keys():
+  n = hours[h]
+  w = (n * 40 + mx) // (2 * mx)
+  if w < 1: w = 1
+  bar = "#".repeat(w)
+  print("  " + h + " " + str(n) + " " + bar)
+print("bots {bots}")
+print("errors_by_ip")
+el = []
+for (ip, n) in errs.pairs():
+  if n >= 2: el.push((0 - n, ip))
+el = el.sort()
+for e in el:
+  print("  " + e.1 + " " + str(0 - e.0))
