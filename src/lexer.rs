@@ -32,6 +32,11 @@ const RUST_KEYWORDS: &[&str] = &[
 
 // Does the `{` just before `from` close on this line (quoted strings inside skipped)?
 fn interp_closes(chars: &[char], from: usize) -> bool {
+    // `{3}` or `{2,4}` is a regex count, not a value.
+    let count: String = chars[from..].iter().take_while(|c| **c != '}' && **c != '"' && **c != '\n').collect();
+    if !count.is_empty() && count.chars().all(|c| c.is_ascii_digit() || c == ',') && chars.get(from + count.len()) == Some(&'}') {
+        return false;
+    }
     let (mut depth, mut in_str, mut i) = (1, false, from);
     while let Some(&c) = chars.get(i) {
         match c {
@@ -208,6 +213,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         if e == '{' || e == '}' {
                             s.push(e);
                         }
+                        // Any other escape keeps its backslash, as in Python (handy for regexes: "\\d+").
+                        if !"ntr0\"\\{}".contains(e) {
+                            s.push('\\');
+                        }
                         s.push(match e {
                             'n' => '\n',
                             't' => '\t',
@@ -217,10 +226,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                             '\\' => '\\',
                             // `\{` and `\}` are literal braces.
                             '{' | '}' => e,
-                            other => {
-                                return Err(Diag::new("lex", line, col, &format!("unknown escape \\{other}"))
-                                    .fix_hint("escapes are \\n \\t \\r \\0 \\\" \\\\ \\{ \\}"));
-                            }
+                            other => other,
                         });
                         i += 2;
                         col += 2;

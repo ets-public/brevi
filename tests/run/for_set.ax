@@ -1,0 +1,7 @@
+parts = "a, b ,c".split(",")
+for f in parts.skip(1):
+  f = f.trim()
+  print(f)
+for f in parts:
+  f = f.trim()
+  print(f)

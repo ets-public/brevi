@@ -11,7 +11,7 @@ print("total {nums.sum()}, mean {(nums.sum().float() / nums.len().float()).fmt(2
 ## Types
 `int` (64-bit), `f64`, `bool`, `str`, `[T]` list, `{K: V}` map (sorted by key), `(A, B)` tuple, `dec` exact decimal, `big` exact integer, `Date`, `Json`, `heap[T]` min-heap.
 No references or lifetimes: values act as copies. Local variables never need a type. A `mut` parameter edits the caller's variable (call it as `f(x)`); other parameters are local copies the function may change.
-Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`. `let (a, b) = t` destructures; `p.0` is a field.
+Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`. `let (a, b) = t` destructures; `p.0` is a field (`p[0]` also works when the items share a type).
 
 ```
 type Point:
@@ -46,7 +46,7 @@ Handle a failure where it happens with `.or(default)` or `match f(x):` with arms
 ## Statements
 `x = 1` creates a variable or changes it (`let x = 1` makes one that cannot change, `x: [str] = []` gives a type), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
 `if c:` / `elif d:` / `else:`, `for x in xs:`, `for k, v in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
-`if` and `match` are values: `y = if a > b: a else: b`. A variable first set inside a block ends with the block, so set it before the block if you need it after.
+`if` and `match` are values: `y = if a > b: a else: b`. A variable set in every branch of an `if`/`else` or `match` can be used after it; one first set inside a loop ends with the loop, so set it before the loop.
 Match arms are one expression or statement (`Num(n) => total += n`) or an indented block on the lines after `=>`. Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.
 
 ## Operators
@@ -75,11 +75,12 @@ Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert r
 `print(x)`, `str(x)`, `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
 
 ## Data formats
-- `json(text)` gives a `Json`: match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)` ({str: Json}, keys kept in input order), or index `j["key"][0]` (missing gives `Null`). `str(j)` writes compact JSON. Build values with `Str("x")`, `Num(1.0)`, `Arr([...])`.
+- `json(text)` gives a `Json`: match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)` ({str: Json}, keys kept in input order), or index `j["key"][0]` (missing gives `Null`). `str(j)` writes compact JSON. `x.json()` turns any value (int, str, list, map) into Json, so `str(xs.json())` writes it. A map literal whose values differ in type is a Json object with keys in written order: `str({"id": 1, "name": n})` gives `{"id":1,"name":"ann"}`.
+- Regexes (Python syntax: `\d \w \s . [a-z] [^x] * + ? {2,4} *? ( ) (?: ) | ^ $ \b`): `s.re_full(p)` (whole string) and `s.re_find(p)` (first match) give `[whole, group1, ...]`, or `[]` when there is no match; `s.re_all(p)` gives one such list per match; `s.re_sub(p, "<b>\1</b>")` or `s.re_sub(p, g => g[1].upper())`; `s.re_split(p)`. Write `"\d+"` (unknown escapes keep their backslash).
 - `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
 - `date("2024-02-29")` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
 - `big` is an exact integer of any size: `"123...".big()`, `n.big()`, with `+ - *` and comparisons.
-- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, and ints mix in (`0 - p`, `p * 2`, `t += 1`, `p > 0`), `sum`, `fmt(2)` (rounds half to even), `round(2)` (a dec rounded to cents), `float int round`.
+- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, and ints mix in (`0 - p`, `p * 2`, `t += 1`, `p > 0`), `sum`, `fmt(2)` and `round(2)` (round half to even), `float int round`.
 - `heap()` is a min-heap of any comparable values: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
 
 ## Tests

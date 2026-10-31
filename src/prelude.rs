@@ -759,6 +759,22 @@ impl<T> AxRef<i64, T> for Vec<T> {
         &self[ax_idx(*i, self.len())]
     }
 }
+// t[0] on a tuple whose items share a type, as Python allows.
+impl<T> AxRef<i64, T> for (T, T) {
+    fn ax_ref(&self, i: &i64) -> &T {
+        [&self.0, &self.1][ax_idx(*i, 2)]
+    }
+}
+impl<T> AxRef<i64, T> for (T, T, T) {
+    fn ax_ref(&self, i: &i64) -> &T {
+        [&self.0, &self.1, &self.2][ax_idx(*i, 3)]
+    }
+}
+impl<T> AxRef<i64, T> for (T, T, T, T) {
+    fn ax_ref(&self, i: &i64) -> &T {
+        [&self.0, &self.1, &self.2, &self.3][ax_idx(*i, 4)]
+    }
+}
 impl<T> AxMut<i64, T> for Vec<T> {
     fn ax_mut(&mut self, i: &i64) -> &mut T {
         let j = ax_idx(*i, self.len());
@@ -1764,5 +1780,438 @@ impl AxRoundTo for Dec {
 impl AxRoundTo for f64 {
     fn ax_round_to(&self, n: i64) -> f64 {
         format!("{:.*}", n.clamp(0, 15) as usize, self).parse().unwrap_or(*self)
+    }
+}
+
+// A boxed field, for types that contain themselves (an expression tree).
+#[derive(Clone, PartialEq, PartialOrd, Default)]
+pub struct AxB<T>(pub Box<T>);
+impl<T> AxB<T> {
+    pub fn new(x: T) -> Self {
+        AxB(Box::new(x))
+    }
+}
+impl<T> std::ops::Deref for AxB<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+impl<T> std::ops::DerefMut for AxB<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for AxB<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+// x.json(): any value as a Json value, so str(x.json()) writes it as compact JSON.
+pub trait AxToJson {
+    fn ax_json(&self) -> Json;
+}
+impl AxToJson for Json {
+    fn ax_json(&self) -> Json {
+        self.clone()
+    }
+}
+impl AxToJson for i64 {
+    fn ax_json(&self) -> Json {
+        Json::Num { v: *self as f64 }
+    }
+}
+impl AxToJson for f64 {
+    fn ax_json(&self) -> Json {
+        Json::Num { v: *self }
+    }
+}
+impl AxToJson for Dec {
+    fn ax_json(&self) -> Json {
+        Json::Num { v: self.ax_float() }
+    }
+}
+impl AxToJson for bool {
+    fn ax_json(&self) -> Json {
+        Json::Bool { v: *self }
+    }
+}
+impl AxToJson for String {
+    fn ax_json(&self) -> Json {
+        Json::Str { v: self.clone() }
+    }
+}
+impl AxToJson for &str {
+    fn ax_json(&self) -> Json {
+        Json::Str { v: self.to_string() }
+    }
+}
+impl<T: AxToJson> AxToJson for Vec<T> {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: self.iter().map(|x| x.ax_json()).collect() }
+    }
+}
+impl<T: AxToJson> AxToJson for Option<T> {
+    fn ax_json(&self) -> Json {
+        self.as_ref().map_or(Json::Null, |x| x.ax_json())
+    }
+}
+impl<K: Show + Hash + Eq + Ord + Clone, V: AxToJson> AxToJson for AxM<K, V> {
+    fn ax_json(&self) -> Json {
+        let mut m = AxM::ordered();
+        for (k, v) in self.iter() {
+            m.insert(k.show(), v.ax_json());
+        }
+        Json::Obj { v: m }
+    }
+}
+// A map literal whose values differ in type is a JSON object, keys in written order.
+pub fn ax_obj(xs: Vec<(String, Json)>) -> Json {
+    let mut m = AxM::ordered();
+    for (k, v) in xs {
+        m.insert(k, v);
+    }
+    Json::Obj { v: m }
+}
+
+// @regex: only included in programs that use regexes.
+// Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
+#[derive(Debug)]
+pub enum AxRx {
+    Char(char),
+    Any,
+    Class(Vec<(char, char)>, bool),
+    Start,
+    End,
+    WordB,
+    Group(Box<AxRx>, Option<usize>),
+    Alt(Vec<AxRx>),
+    Cat(Vec<AxRx>),
+    Rep(Box<AxRx>, usize, usize, bool),
+}
+struct AxRxP {
+    c: Vec<char>,
+    i: usize,
+    groups: usize,
+}
+fn ax_rx_class(e: char) -> Option<(Vec<(char, char)>, bool)> {
+    let d = vec![('0', '9')];
+    let w = vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')];
+    let s = vec![(' ', ' '), ('\t', '\t'), ('\n', '\n'), ('\r', '\r')];
+    Some(match e {
+        'd' => (d, false),
+        'D' => (d, true),
+        'w' => (w, false),
+        'W' => (w, true),
+        's' => (s, false),
+        'S' => (s, true),
+        _ => return None,
+    })
+}
+fn ax_rx_esc(e: char) -> char {
+    match e {
+        'n' => '\n',
+        't' => '\t',
+        'r' => '\r',
+        c => c,
+    }
+}
+impl AxRxP {
+    fn peek(&self) -> Option<char> {
+        self.c.get(self.i).copied()
+    }
+    fn alt(&mut self) -> AxRx {
+        let mut v = vec![self.cat()];
+        while self.peek() == Some('|') {
+            self.i += 1;
+            v.push(self.cat());
+        }
+        if v.len() == 1 { v.pop().unwrap() } else { AxRx::Alt(v) }
+    }
+    fn cat(&mut self) -> AxRx {
+        let mut v = Vec::new();
+        while let Some(c) = self.peek() {
+            if c == '|' || c == ')' {
+                break;
+            }
+            let a = self.atom();
+            v.push(self.quant(a));
+        }
+        AxRx::Cat(v)
+    }
+    fn num(&mut self) -> Option<usize> {
+        let s = self.i;
+        while self.peek().map_or(false, |c| c.is_ascii_digit()) {
+            self.i += 1;
+        }
+        self.c[s..self.i].iter().collect::<String>().parse().ok()
+    }
+    fn quant(&mut self, a: AxRx) -> AxRx {
+        let (lo, hi) = match self.peek() {
+            Some('*') => (0, usize::MAX),
+            Some('+') => (1, usize::MAX),
+            Some('?') => (0, 1),
+            Some('{') => {
+                let save = self.i;
+                self.i += 1;
+                let lo = self.num();
+                let hi = if self.peek() == Some(',') {
+                    self.i += 1;
+                    self.num().unwrap_or(usize::MAX)
+                } else {
+                    lo.unwrap_or(0)
+                };
+                match (lo, self.peek()) {
+                    (Some(lo), Some('}')) => (lo, hi),
+                    _ => {
+                        self.i = save;
+                        return a;
+                    }
+                }
+            }
+            _ => return a,
+        };
+        self.i += 1;
+        let lazy = self.peek() == Some('?');
+        if lazy {
+            self.i += 1;
+        }
+        let r = AxRx::Rep(Box::new(a), lo, hi, lazy);
+        self.quant(r)
+    }
+    fn atom(&mut self) -> AxRx {
+        let c = self.c[self.i];
+        self.i += 1;
+        match c {
+            '.' => AxRx::Any,
+            '^' => AxRx::Start,
+            '$' => AxRx::End,
+            '(' => {
+                let idx = if self.c[self.i..].starts_with(&['?', ':']) {
+                    self.i += 2;
+                    None
+                } else {
+                    self.groups += 1;
+                    Some(self.groups)
+                };
+                let inner = self.alt();
+                if self.peek() == Some(')') {
+                    self.i += 1;
+                }
+                AxRx::Group(Box::new(inner), idx)
+            }
+            '[' => {
+                let neg = self.peek() == Some('^');
+                if neg {
+                    self.i += 1;
+                }
+                let mut rs = Vec::new();
+                let mut first = true;
+                while let Some(c) = self.peek() {
+                    if c == ']' && !first {
+                        break;
+                    }
+                    first = false;
+                    self.i += 1;
+                    let lo = if c == '\\' {
+                        let e = self.c[self.i];
+                        self.i += 1;
+                        if let Some((cs, false)) = ax_rx_class(e) {
+                            rs.extend(cs);
+                            continue;
+                        }
+                        ax_rx_esc(e)
+                    } else {
+                        c
+                    };
+                    if self.peek() == Some('-') && self.c.get(self.i + 1).map_or(false, |&n| n != ']') {
+                        let mut hi = self.c[self.i + 1];
+                        self.i += 2;
+                        if hi == '\\' {
+                            hi = ax_rx_esc(self.c[self.i]);
+                            self.i += 1;
+                        }
+                        rs.push((lo, hi));
+                    } else {
+                        rs.push((lo, lo));
+                    }
+                }
+                self.i += 1;
+                AxRx::Class(rs, neg)
+            }
+            '\\' => {
+                let e = self.c[self.i];
+                self.i += 1;
+                if e == 'b' {
+                    return AxRx::WordB;
+                }
+                match ax_rx_class(e) {
+                    Some((cs, neg)) => AxRx::Class(cs, neg),
+                    None => AxRx::Char(ax_rx_esc(e)),
+                }
+            }
+            c => AxRx::Char(c),
+        }
+    }
+}
+type AxCaps = Vec<Option<(usize, usize)>>;
+fn ax_rx_word(s: &[char], i: usize) -> bool {
+    i < s.len() && (s[i].is_alphanumeric() || s[i] == '_')
+}
+fn ax_rx_m(n: &AxRx, s: &[char], i: usize, caps: &mut AxCaps, k: &mut dyn FnMut(usize, &mut AxCaps) -> bool) -> bool {
+    match n {
+        AxRx::Char(c) => i < s.len() && s[i] == *c && k(i + 1, caps),
+        AxRx::Any => i < s.len() && s[i] != '\n' && k(i + 1, caps),
+        AxRx::Class(rs, neg) => i < s.len() && rs.iter().any(|&(a, b)| a <= s[i] && s[i] <= b) != *neg && k(i + 1, caps),
+        AxRx::Start => i == 0 && k(i, caps),
+        AxRx::End => i == s.len() && k(i, caps),
+        AxRx::WordB => (i > 0 && ax_rx_word(s, i - 1)) != ax_rx_word(s, i) && k(i, caps),
+        AxRx::Cat(v) => ax_rx_seq(v, s, i, caps, k),
+        AxRx::Alt(v) => v.iter().any(|a| ax_rx_m(a, s, i, caps, k)),
+        AxRx::Group(inner, idx) => ax_rx_m(inner, s, i, caps, &mut |j, caps: &mut AxCaps| {
+            let Some(g) = idx else { return k(j, caps) };
+            let old = caps[*g];
+            caps[*g] = Some((i, j));
+            k(j, caps) || {
+                caps[*g] = old;
+                false
+            }
+        }),
+        AxRx::Rep(inner, lo, hi, lazy) => ax_rx_rep(inner, *lo, *hi, *lazy, 0, s, i, caps, k),
+    }
+}
+fn ax_rx_seq(v: &[AxRx], s: &[char], i: usize, caps: &mut AxCaps, k: &mut dyn FnMut(usize, &mut AxCaps) -> bool) -> bool {
+    match v.split_first() {
+        None => k(i, caps),
+        Some((a, rest)) => ax_rx_m(a, s, i, caps, &mut |j, caps: &mut AxCaps| ax_rx_seq(rest, s, j, caps, k)),
+    }
+}
+fn ax_rx_rep(n: &AxRx, lo: usize, hi: usize, lazy: bool, count: usize, s: &[char], i: usize, caps: &mut AxCaps, k: &mut dyn FnMut(usize, &mut AxCaps) -> bool) -> bool {
+    if lazy && count >= lo && k(i, caps) {
+        return true;
+    }
+    if count < hi && ax_rx_m(n, s, i, caps, &mut |j, caps: &mut AxCaps| (j != i || count < lo) && ax_rx_rep(n, lo, hi, lazy, count + 1, s, j, caps, k)) {
+        return true;
+    }
+    !lazy && count >= lo && k(i, caps)
+}
+thread_local! {
+    static AX_RX: std::cell::RefCell<HashMap<String, std::rc::Rc<(AxRx, usize)>>> = std::cell::RefCell::new(HashMap::new());
+}
+fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
+    AX_RX.with(|c| {
+        c.borrow_mut()
+            .entry(p.to_string())
+            .or_insert_with(|| {
+                let mut ps = AxRxP { c: p.chars().collect(), i: 0, groups: 0 };
+                let r = ps.alt();
+                std::rc::Rc::new((r, ps.groups))
+            })
+            .clone()
+    })
+}
+// The first match at or after `from`: (start, end, groups).
+fn ax_rx_search(p: &str, s: &[char], from: usize, full: bool) -> Option<(usize, AxCaps)> {
+    let rx = ax_rx(p);
+    for st in from..=s.len() {
+        let mut caps: AxCaps = vec![None; rx.1 + 1];
+        let mut end = None;
+        if ax_rx_m(&rx.0, s, st, &mut caps, &mut |j, c: &mut AxCaps| {
+            if full && j != s.len() {
+                return false;
+            }
+            c[0] = Some((st, j));
+            end = Some(j);
+            true
+        }) {
+            let _ = end;
+            return Some((st, caps));
+        }
+        if full {
+            break;
+        }
+    }
+    None
+}
+fn ax_rx_groups(s: &[char], caps: &AxCaps) -> Vec<String> {
+    caps.iter().map(|g| g.map_or(String::new(), |(a, b)| s[a..b].iter().collect())).collect()
+}
+pub trait AxRe {
+    fn ax_re_find(&self, p: String) -> Vec<String>;
+    fn ax_re_full(&self, p: String) -> Vec<String>;
+    fn ax_re_all(&self, p: String) -> Vec<Vec<String>>;
+    fn ax_re_sub(&self, p: String, r: String) -> String;
+    fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, f: F) -> String;
+    fn ax_re_split(&self, p: String) -> Vec<String>;
+}
+fn ax_rx_each(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps)) -> Vec<char> {
+    let cs: Vec<char> = s.chars().collect();
+    let mut from = 0;
+    while from <= cs.len() {
+        let Some((_, caps)) = ax_rx_search(p, &cs, from, false) else { break };
+        let (a, b) = caps[0].unwrap();
+        f(&cs, &caps);
+        from = if b > a { b } else { b + 1 };
+    }
+    cs
+}
+impl AxRe for String {
+    fn ax_re_find(&self, p: String) -> Vec<String> {
+        let cs: Vec<char> = self.chars().collect();
+        ax_rx_search(&p, &cs, 0, false).map_or(vec![], |(_, c)| ax_rx_groups(&cs, &c))
+    }
+    fn ax_re_full(&self, p: String) -> Vec<String> {
+        let cs: Vec<char> = self.chars().collect();
+        ax_rx_search(&p, &cs, 0, true).map_or(vec![], |(_, c)| ax_rx_groups(&cs, &c))
+    }
+    fn ax_re_all(&self, p: String) -> Vec<Vec<String>> {
+        let mut out = vec![];
+        ax_rx_each(self, &p, |cs, c| out.push(ax_rx_groups(cs, c)));
+        out
+    }
+    fn ax_re_sub(&self, p: String, r: String) -> String {
+        let rc: Vec<char> = r.chars().collect();
+        self.ax_re_sub_with(p, |g| {
+            let mut o = String::new();
+            let mut i = 0;
+            while i < rc.len() {
+                if rc[i] == '\\' && i + 1 < rc.len() && rc[i + 1].is_ascii_digit() {
+                    o.push_str(g.get(rc[i + 1] as usize - '0' as usize).map_or("", |s| s.as_str()));
+                    i += 2;
+                } else {
+                    o.push(rc[i]);
+                    i += 1;
+                }
+            }
+            o
+        })
+    }
+    fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, mut f: F) -> String {
+        let mut out = String::new();
+        let mut last = 0;
+        let cs = ax_rx_each(self, &p, |cs, c| {
+            let (a, b) = c[0].unwrap();
+            if a >= last {
+                out.extend(&cs[last..a]);
+                out.push_str(&f(ax_rx_groups(cs, c)));
+                last = b;
+            }
+        });
+        out.extend(&cs[last.min(cs.len())..]);
+        out
+    }
+    fn ax_re_split(&self, p: String) -> Vec<String> {
+        let mut out = vec![];
+        let mut last = 0;
+        let cs = ax_rx_each(self, &p, |cs, c| {
+            let (a, b) = c[0].unwrap();
+            if b > a {
+                out.push(cs[last..a].iter().collect());
+                last = b;
+            }
+        });
+        out.push(cs[last..].iter().collect());
+        out
     }
 }

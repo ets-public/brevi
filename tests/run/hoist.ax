@@ -1,0 +1,11 @@
+fn f(x: int) -> str:
+  if x > 1:
+    rest = "big"
+  elif x == 1:
+    rest = "one"
+  else:
+    rest = "small"
+  rest
+t = (3, 4)
+print(t[0] + t[1])
+print(f(2) + f(1) + f(0))

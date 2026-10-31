@@ -1,0 +1,22 @@
+enum E:
+  Num(v: int)
+  Add(a: E, b: E)
+  Neg(x: E)
+fn ev(e: E) -> int:
+  match e:
+    Num(v) => v
+    Add(a, b) => ev(a) + ev(b)
+    Neg(x) => 0 - ev(x)
+fn show(e: E) -> str:
+  match e:
+    Num(v) => "{v}"
+    Add(a, b) => "({show(a)} + {show(b)})"
+    Neg(x) => "-{show(x)}"
+e = Add(Num(2), Neg(Add(Num(3), Num(4))))
+print(show(e))
+print(ev(e))
+type Tree:
+  label: str
+  kids: [Tree]
+t = Tree("root", [Tree("a", []), Tree("b", [])])
+print(t.kids.len())

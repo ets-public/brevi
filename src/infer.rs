@@ -207,6 +207,18 @@ impl Cx<'_> {
     }
 
     fn stmts(&mut self, stmts: &[Stmt], env: &mut Env, top: bool) {
+        // Top-level names with a plain value (`nextid = 1`) are known inside functions too.
+        let mut globals = env.clone();
+        if top {
+            for st in stmts {
+                if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(n), value, .. } = st {
+                    let t = self.ty(value, &globals);
+                    if known(&t) && !globals.contains_key(n) {
+                        globals.insert(n.clone(), t);
+                    }
+                }
+            }
+        }
         for (i, st) in stmts.iter().enumerate() {
             let decl = match st {
                 Stmt::Let { name: Pat::Bind(n), ty: None, value, line, .. } => Some((n, value, *line)),
@@ -223,7 +235,8 @@ impl Cx<'_> {
                             if ps.iter().any(|p| &p.name == n) {
                                 continue;
                             }
-                            let mut fenv: Env = ps.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                            let mut fenv = globals.clone();
+                            fenv.extend(ps.iter().map(|p| (p.name.clone(), from_ast(&p.ty))));
                             fenv.insert(n.clone(), t.clone());
                             self.look_expr(n, body, &mut fenv, &mut t);
                         }
@@ -541,6 +554,11 @@ impl Cx<'_> {
                 }
             }
             Expr::Range(..) => List(Box::new(Int)),
+            Expr::Match(_, arms) => arms.iter().fold(Hole, |t, (p, b)| {
+                let mut inner = env.clone();
+                bind(p, Hole, &mut inner);
+                merge(t, self.ty(b, &inner))
+            }),
             Expr::Block(stmts, Some(tail)) => {
                 let mut inner = env.clone();
                 for st in stmts {

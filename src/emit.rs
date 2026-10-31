@@ -13,7 +13,8 @@ const METHODS: &[&str] = &[
     "find", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step",
+    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json",
+    "re_find", "re_full", "re_all", "re_sub", "re_split",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -54,6 +55,11 @@ pub struct Emitter {
     hints: HashMap<(String, usize), (String, bool)>,
     // Debug text of every function and test body, by name, for finding which ones share a top-level name.
     fn_texts: Vec<(String, String)>,
+    // Fields that hold their own type (directly or in a cycle) are boxed: (owner type, field), and the field names.
+    boxed: HashSet<(String, String)>,
+    boxed_names: HashSet<String>,
+    // Names bound to boxed fields in the pattern being emitted, unboxed at the start of the arm.
+    unbox: Vec<String>,
     // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
     pub borrow_loops: bool,
 }
@@ -280,12 +286,40 @@ fn first_assign<'a>(e: &'a Expr, n: &str) -> Option<&'a Expr> {
     }
 }
 
+// Names set with `=` in the branches of an if or match (not inside loops).
+fn branch_sets(e: &Expr, out: &mut Vec<String>) {
+    match e {
+        Expr::Block(stmts, tail) => {
+            for st in stmts {
+                match st {
+                    Stmt::Assign { target: Expr::Ident(t), op: "=", .. } if !out.contains(t) => out.push(t.clone()),
+                    Stmt::Expr { expr, .. } => branch_sets(expr, out),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                branch_sets(t, out);
+            }
+        }
+        Expr::If(_, t, f) => {
+            branch_sets(t, out);
+            if let Some(f) = f {
+                branch_sets(f, out);
+            }
+        }
+        Expr::Match(_, arms) => arms.iter().for_each(|(_, b)| branch_sets(b, out)),
+        _ => {}
+    }
+}
+
 // True when the first mention of `n` in a function body (its Debug text) is `n = ...`.
 // A plain local of function f: set at the top of its body before any read, read afterwards, and f does not call
 // itself (a recursive function may pass results through the shared name).
 fn owns(f: &str, body: &Expr, text: &str, n: &str) -> bool {
     let top_set = matches!(body, Expr::Block(st, _) if st.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(t), op: "=", .. } if t == n)));
-    top_set && !text.contains(&format!("Call({f:?}")) && own_use(text, n)
+    // A recursive function shares its names across calls, unless it returns the name (an accumulator).
+    let returned = text.contains(&format!("Return {{ value: Some(Ident({n:?}))")) || matches!(body, Expr::Block(_, Some(t)) if matches!(t.as_ref(), Expr::Ident(t) if t == n));
+    top_set && (returned || !text.contains(&format!("Call({f:?}"))) && own_use(text, n)
 }
 
 // A function's own use of a name: it sets it before any read, and reads it afterwards.
@@ -390,6 +424,9 @@ impl Emitter {
                     _ => None,
                 })
                 .collect(),
+            boxed: HashSet::new(),
+            boxed_names: HashSet::new(),
+            unbox: Vec::new(),
             hints: if hints { crate::infer::empty_types(items) } else { HashMap::new() },
             line: 0,
             diags: Vec::new(),
@@ -419,8 +456,54 @@ impl Emitter {
                 Item::Test { .. } => {}
             }
         }
+        e.find_boxed(items);
         e.find_globals(items);
         e
+    }
+
+    // A field whose type leads back to the type that holds it (Expr inside Expr) must be boxed in Rust.
+    fn find_boxed(&mut self, items: &[Item]) {
+        let mut fields: HashMap<String, Vec<(String, Ty)>> = HashMap::new();
+        for it in items {
+            match it {
+                Item::Type { name, fields: fs, .. } => fields.entry(name.clone()).or_default().extend(fs.iter().map(|f| (f.name.clone(), f.ty.clone()))),
+                Item::Enum { name, variants, .. } => {
+                    for v in variants {
+                        fields.entry(name.clone()).or_default().extend(v.fields.iter().map(|f| (f.name.clone(), f.ty.clone())));
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Types reachable through plain (unboxed, non-list) fields.
+        fn reaches(fields: &HashMap<String, Vec<(String, Ty)>>, from: &str, to: &str, seen: &mut HashSet<String>) -> bool {
+            if !seen.insert(from.to_string()) {
+                return false;
+            }
+            fields.get(from).map_or(false, |fs| fs.iter().any(|(_, t)| match t {
+                Ty::Named(n) => n == to || reaches(fields, n, to, seen),
+                Ty::Tuple(ts) => ts.iter().any(|t| matches!(t, Ty::Named(n) if n == to || reaches(fields, n, to, &mut seen.clone()))),
+                _ => false,
+            }))
+        }
+        for (owner, fs) in &fields {
+            for (f, t) in fs {
+                if let Ty::Named(n) = t {
+                    if fields.contains_key(n) && (n == owner || reaches(&fields, n, owner, &mut HashSet::new())) {
+                        self.boxed.insert((owner.clone(), f.clone()));
+                        self.boxed_names.insert(f.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    fn field_ty(&self, owner: &str, f: &Field) -> String {
+        if self.boxed.contains(&(owner.to_string(), f.name.clone())) {
+            format!("AxB<{}>", rust_ty(&f.ty))
+        } else {
+            rust_ty(&f.ty)
+        }
     }
 
     // A script-level `let`/`var` that a function or test mentions becomes a global.
@@ -525,6 +608,23 @@ impl Emitter {
         }
     }
 
+    // A map literal with string keys and values of different kinds becomes a JSON object.
+    fn mixed_map(&self, pairs: &[(Expr, Expr)]) -> bool {
+        if !pairs.iter().all(|(k, _)| matches!(k, Expr::Str(_))) {
+            return false;
+        }
+        let kinds: Vec<String> = pairs
+            .iter()
+            .filter_map(|(_, v)| match v {
+                Expr::Map(ps) if self.mixed_map(ps) => Some("Json".to_string()),
+                Expr::Call(n, args, _) if n == "Obj" || n == "Arr" || (n == "Str" || n == "Num") && args.len() == 1 => Some("Json".to_string()),
+                Expr::Method(_, m, _, _) if m == "json" => Some("Json".to_string()),
+                v => self.infer_ty(v).map(|t| rust_ty(&t)),
+            })
+            .collect();
+        kinds.iter().any(|k| k != &kinds[0])
+    }
+
     fn global(&self, n: &str) -> Option<String> {
         if self.locals.contains(n) || !self.globals.contains_key(n) || self.own_locals.contains(n) {
             return None;
@@ -539,7 +639,9 @@ impl Emitter {
     }
 
     pub fn program(&mut self, items: &[Item]) -> String {
-        let mut out = String::from(PRELUDE);
+        // The regex engine is left out of programs that do not use it, to keep builds fast.
+        let prelude = if format!("{items:?}").contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
+        let mut out = String::from(prelude);
         out.push('\n');
         let mut tests = String::new();
         let mut test_n = 0;
@@ -553,7 +655,7 @@ impl Emitter {
                 Item::Type { name, fields, line } => {
                     out.push_str(&format!("/*@L{line}*/#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]\npub struct {name} {{\n"));
                     for f in fields {
-                        out.push_str(&format!("    pub {}: {},\n", f.name, rust_ty(&f.ty)));
+                        out.push_str(&format!("    pub {}: {},\n", f.name, self.field_ty(name, f)));
                     }
                     out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n"));
                 }
@@ -563,7 +665,7 @@ impl Emitter {
                         if v.fields.is_empty() {
                             out.push_str(&format!("    {},\n", v.name));
                         } else {
-                            let fs: Vec<String> = v.fields.iter().map(|f| format!("{}: {}", f.name, rust_ty(&f.ty))).collect();
+                            let fs: Vec<String> = v.fields.iter().map(|f| format!("{}: {}", f.name, self.field_ty(name, f))).collect();
                             out.push_str(&format!("    {} {{ {} }},\n", v.name, fs.join(", ")));
                         }
                     }
@@ -675,7 +777,8 @@ impl Emitter {
             e => (&[], Some(e)),
         };
         let mut out = String::from("{\n");
-        for s in stmts {
+        for (i, s) in stmts.iter().enumerate() {
+            out.push_str(&self.hoist(s, &stmts[i + 1..], tail));
             out.push_str(&self.stmt(s));
         }
         match tail {
@@ -703,6 +806,24 @@ impl Emitter {
         out
     }
 
+    // A name first set inside an if or match and used after it is declared before it
+    // (Rust checks that every path sets it).
+    fn hoist(&mut self, s: &Stmt, rest: &[Stmt], tail: Option<&Expr>) -> String {
+        let mut out = String::new();
+        if let Stmt::Expr { expr: e @ (Expr::If(..) | Expr::Match(..)), .. } = s {
+            let mut names = Vec::new();
+            branch_sets(e, &mut names);
+            let rest = format!("{rest:?} {tail:?}");
+            for n in names {
+                if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !sets_first(&rest, &n) {
+                    out.push_str(&format!("    let mut {n};\n"));
+                    self.locals.insert(n);
+                }
+            }
+        }
+        out
+    }
+
     fn block(&mut self, e: &Expr) -> String {
         self.block_d(e, false)
     }
@@ -714,7 +835,8 @@ impl Emitter {
                 // Names declared in a block end with it.
                 let outer = self.locals.clone();
                 let mut out = String::from("{\n");
-                for s in stmts {
+                for (i, s) in stmts.iter().enumerate() {
+                    out.push_str(&self.hoist(s, &stmts[i + 1..], tail.as_deref()));
                     out.push_str(&self.stmt(s));
                 }
                 if let Some(t) = tail {
@@ -789,7 +911,16 @@ impl Emitter {
                         if args.len() != fields.len() {
                             self.diag(self.line, &format!("pattern {name} has {} fields, not {}", fields.len(), args.len()), Some(format!("write {name}({})", fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>().join(", "))));
                         }
-                        let parts: Vec<String> = fields.iter().zip(args).map(|(f, a)| format!("{}: {}", f.name, self.pat(a))).collect();
+                        let parts: Vec<String> = fields
+                            .iter()
+                            .zip(args)
+                            .map(|(f, a)| {
+                                if let (true, Pat::Bind(x)) = (self.boxed.contains(&(en.clone(), f.name.clone())), a) {
+                                    self.unbox.push(x.clone());
+                                }
+                                format!("{}: {}", f.name, self.pat(a))
+                            })
+                            .collect();
                         format!("{en}::{name} {{ {} }}", parts.join(", "))
                     }
                 }
@@ -829,7 +960,7 @@ impl Emitter {
             }
             // `x = v` for a new name declares it, like `var x = v`.
             Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. }
-                if !self.locals.contains(n) && (!self.globals.contains_key(n) || self.own_locals.contains(n)) && !self.fns.contains_key(n) && !self.variants.contains_key(n) =>
+                if !self.locals.contains(n) && (!self.globals.contains_key(n) || self.own_locals.contains(n)) && !self.variants.contains_key(n) =>
             {
                 let v = self.expr(value);
                 self.locals.insert(n.clone());
@@ -842,6 +973,22 @@ impl Emitter {
                 if names.iter().all(|n| self.locals.contains(n) && !self.globals.contains_key(n)) {
                     let ps: Vec<String> = names.iter().map(|n| if self.refs.contains(n) { format!("*{n}") } else { n.clone() }).collect();
                     format!("({}) = {v};", ps.join(", "))
+                } else if names.iter().any(|n| self.locals.contains(n) || self.global(n).is_some()) {
+                    // Some names exist already: declare only the new ones, then assign them all.
+                    let mut out = String::new();
+                    let mut ps = Vec::new();
+                    for n in &names {
+                        if let Some(g) = self.global(n) {
+                            ps.push(g);
+                        } else if self.locals.contains(n) {
+                            ps.push(if self.refs.contains(n) { format!("*{n}") } else { n.clone() });
+                        } else {
+                            out.push_str(&format!("let mut {n}; "));
+                            self.locals.insert(n.clone());
+                            ps.push(n.clone());
+                        }
+                    }
+                    format!("{out}({}) = {v};", ps.join(", "))
                 } else {
                     names.iter().for_each(|n| {
                         self.locals.insert(n.clone());
@@ -889,6 +1036,7 @@ impl Emitter {
                 self.check_ident(n);
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
             }
+            Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place_mut(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place_mut(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place_mut(b)),
             Expr::Index(b, i) => {
@@ -916,6 +1064,7 @@ impl Emitter {
             Expr::Ident(n) if self.locals.contains(n) => {
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
             }
+            Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
             Expr::Index(b, i) => {
@@ -1010,6 +1159,9 @@ impl Emitter {
             Expr::Map(pairs) => {
                 if pairs.is_empty() {
                     "AxM::new()".into()
+                } else if self.mixed_map(pairs) {
+                    let ps: Vec<String> = pairs.iter().map(|(k, v)| format!("(Show::show(&{}), AxToJson::ax_json(&{}))", self.expr(k), self.expr(v))).collect();
+                    format!("ax_obj(vec![{}])", ps.join(", "))
                 } else {
                     let ps: Vec<String> = pairs.iter().map(|(k, v)| format!("({}, {})", self.expr(k), self.expr(v))).collect();
                     format!("AxM::from([{}])", ps.join(", "))
@@ -1090,6 +1242,8 @@ impl Emitter {
                 }
                 // `x.round(2)` rounds to decimal places.
                 let name = if name == "round" && a.len() == 1 { "round_to" } else { name.as_str() };
+                // `s.re_sub(p, g => ...)` builds each replacement from the match groups.
+                let name = if name == "re_sub" && matches!(args.get(1), Some(Expr::Lambda(..))) { "re_sub_with" } else { name };
                 if tries {
                     format!("{{ ax_l({line}); {r}.ax_try_{name}({})? }}", a.join(", "))
                 } else {
@@ -1154,7 +1308,11 @@ impl Emitter {
                 };
                 let outer = self.locals.clone();
                 self.bind_pat(p);
-                let p = self.pat(p);
+                // A loop variable over a computed list is a fresh copy, so it may be set.
+                let p = match p {
+                    Pat::Bind(n) if assigns_to(body, n) => format!("mut {n}"),
+                    p => self.pat(p),
+                };
                 let b = self.block_d(body, true);
                 self.locals = outer;
                 format!("for {p} in {it} {b}")
@@ -1184,9 +1342,12 @@ impl Emitter {
         for (p, body) in arms {
             let outer = self.locals.clone();
             self.bind_pat(p);
+            self.unbox.clear();
             let p = self.pat(p);
+            let unbox: String = std::mem::take(&mut self.unbox).iter().map(|x| format!("let mut {x} = *{x}.0; ")).collect();
             let b = self.block_d(body, discard);
             self.locals = outer;
+            let b = if unbox.is_empty() { b } else { format!("{{ {unbox}{b} }}") };
             out.push_str(&format!("        {p} => {b},\n"));
         }
         out.push_str("    }");
@@ -1210,10 +1371,10 @@ impl Emitter {
             _ => {}
         }
         if let Some(fields) = self.structs.get(name).cloned() {
-            return self.construct(name, name, &fields, args, plain);
+            return self.construct(name, name, name, &fields, args, plain);
         }
         if let Some((en, fields)) = self.variants.get(name).cloned() {
-            return self.construct(&format!("{en}::{name}"), name, &fields, args, plain);
+            return self.construct(&format!("{en}::{name}"), name, &en, &fields, args, plain);
         }
         if let Some(sig) = self.fns.get(name) {
             let params = sig.params.clone();
@@ -1244,7 +1405,7 @@ impl Emitter {
 
     // Each field takes, in order of preference: an argument named after it (`total: t`), a plain
     // variable of the same name (`total`), the next plain argument, or the field's default.
-    fn construct(&mut self, path: &str, name: &str, fields: &[Field], args: &[(Option<String>, Expr)], plain: Vec<String>) -> String {
+    fn construct(&mut self, path: &str, name: &str, owner: &str, fields: &[Field], args: &[(Option<String>, Expr)], plain: Vec<String>) -> String {
         if fields.is_empty() && args.is_empty() {
             return path.to_string();
         }
@@ -1277,7 +1438,9 @@ impl Emitter {
         }
         let mut parts = Vec::new();
         for (f, s) in fields.iter().zip(&slot) {
+            let boxed = self.boxed.contains(&(owner.to_string(), f.name.clone()));
             match (s, &f.default) {
+                (Some(j), _) if boxed => parts.push(format!("{}: AxB::new({})", f.name, plain[*j])),
                 (Some(j), _) => parts.push(format!("{}: {}", f.name, plain[*j])),
                 (None, Some(d)) => {
                     let v = self.expr(d);

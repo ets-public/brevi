@@ -5,13 +5,15 @@ use crate::lexer::{lex, Tok, Token};
 pub struct Parser {
     toks: Vec<Token>,
     pos: usize,
+    // The function being parsed returns a map, so an arm `_ => {}` is an empty map.
+    ret_map: bool,
 }
 
 type R<T> = Result<T, Diag>;
 
 pub fn parse_program(src: &str) -> R<Vec<Item>> {
     let toks = crate::lexer::indent_blocks(lex(src)?);
-    let mut p = Parser { toks, pos: 0 };
+    let mut p = Parser { toks, pos: 0, ret_map: false };
     let mut items = Vec::new();
     // Statements outside any function form the program's main (script mode).
     let mut script = Vec::new();
@@ -154,6 +156,7 @@ impl Parser {
             self.expect_sym(")")?;
             let ret = if self.eat_sym("->") { self.ty()? } else { Ty::Unit };
             let fallible = self.eat_sym("!");
+            self.ret_map = matches!(ret, Ty::Map(..));
             let body = if self.eat_sym("=") {
                 self.skip_newlines();
                 self.expr()?
@@ -162,6 +165,7 @@ impl Parser {
             } else {
                 return Err(self.err("expected '=', ':' or '{' to start the function body"));
             };
+            self.ret_map = false;
             return Ok(Item::Fn { name, params, ret, fallible, body, line, script: false });
         }
         if self.eat_kw("type") {
@@ -656,7 +660,17 @@ impl Parser {
                     let p = self.pat()?;
                     self.expect_sym("=>")?;
                     self.skip_newlines();
-                    let body = if self.is_sym("{") {
+                    let next = self.toks.get(self.pos + 1).map(|t| t.tok.clone());
+                    let after = self.toks.get(self.pos + 2).map(|t| t.tok.clone());
+                    let map = self.is_sym("{")
+                        && match (&next, &after) {
+                            (Some(Tok::Sym("}")), _) => self.ret_map,
+                            (Some(Tok::Str(_) | Tok::Int(_) | Tok::Ident(_)), Some(Tok::Sym(":"))) => true,
+                            _ => false,
+                        };
+                    let body = if map {
+                        self.expr()?
+                    } else if self.is_sym("{") {
                         self.block()?
                     } else {
                         // An arm can also be one statement, such as `Num(n) => total += n`.
@@ -740,7 +754,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0 };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d

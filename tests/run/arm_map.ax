@@ -1,0 +1,6 @@
+fn f(x: int) -> {str: int}:
+  match x:
+    1 => {"a": 1}
+    _ => {}
+print(f(1))
+print(f(2).len())

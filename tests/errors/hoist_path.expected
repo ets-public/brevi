@@ -1,0 +1,1 @@
+{"e":"type","at":"hoist_path.ax:3:1","msg":"y is not set on every path before this use","fix":"set it before the if or match, so every path gives it a value","rust":"E0381"}

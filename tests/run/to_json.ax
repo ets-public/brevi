@@ -1,0 +1,6 @@
+o = "ann"
+print(str({"id": 1, "owner": o, "ok": true, "tags": ["a"]}))
+print(str({"error": "x"}.json()))
+print(str([1, 2].json()))
+xs = [{"id": 1, "n": "a"}, {"id": 2, "n": "b"}]
+print(str(xs.json()))

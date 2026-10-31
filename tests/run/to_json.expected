@@ -1,0 +1,5 @@
+{"id":1,"owner":"ann","ok":true,"tags":["a"]}
+{"error":"x"}
+[1,2]
+[{"id":1,"n":"a"},{"id":2,"n":"b"}]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

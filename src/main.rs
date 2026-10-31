@@ -205,6 +205,9 @@ fn report(rust: &str, stderr: &str, file: &str) {
         if code == "E0596" || code == "E0384" {
             let name = msg.split_whitespace().skip_while(|w| *w != "borrow" && *w != "variable").nth(1).unwrap_or("it").replace('`', "");
             text = format!("cannot change {name}: it was declared with let");
+        } else if code == "E0381" {
+            let name = msg.split('`').nth(1).unwrap_or("it");
+            text = format!("{name} is not set on every path before this use");
         } else if !label.is_empty() && !text.contains(&label) {
             text = format!("{text}: {}", to_axon_words(&label));
         }
@@ -356,7 +359,9 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
         return Some("this value can fail: add ? after the call that produced it".into());
     }
     match code {
-        "E0384" | "E0596" => Some("declare the variable with var instead of let, or mark the parameter mut".into()),
+        "E0384" | "E0596" => Some("write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))".into()),
+        "E0381" => Some("set it before the if or match, so every path gives it a value".into()),
+        "E0599" if msg.contains("ref") && msg.contains("tuple") => Some("read a tuple's items with t.0, t.1, not t[0]".into()),
         "E0308" if msg.contains("Result") || msg.contains("R<") => Some("a call that can fail needs ? after it".into()),
         "E0308" if msg.contains("mismatched") => Some("convert with .int(), .float() or str(x)".into()),
         "E0599" => Some("check the method name and the value's type".into()),

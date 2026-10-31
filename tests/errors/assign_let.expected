@@ -1,1 +1,1 @@
-{"e":"type","at":"assign_let.ax:3:1","msg":"cannot change n: it was declared with let","fix":"declare the variable with var instead of let, or mark the parameter mut","rust":"E0596"}
+{"e":"type","at":"assign_let.ax:3:1","msg":"cannot change n: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))","rust":"E0596"}

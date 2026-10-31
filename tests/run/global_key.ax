@@ -1,0 +1,10 @@
+accts = {}
+nextid = 1
+fn open(name: str) -> int:
+  id = nextid
+  nextid += 1
+  accts[id] = name
+  id
+print(open("x"))
+print(open("y"))
+print(accts.len())
