@@ -32,15 +32,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       next_python: ${{ steps.py.outputs.next }}
+      matrix: ${{ steps.m.outputs.matrix }}
     steps:
       - id: py
         name: Find the next Python release (pre-release)
+        # Never blocks the matrix: if the lookup fails, fall back to a guess.
         run: |
-          next=$(curl -fsSL https://endoflife.date/api/python.json | python3 -c '
+          next=$(curl -fsSL --retry 3 https://endoflife.date/api/python.json | python3 -c '
           import json, sys
           c = max(json.load(sys.stdin), key=lambda c: tuple(map(int, c["cycle"].split("."))))["cycle"]
-          a, b = c.split("."); print(f"{a}.{int(b) + 1}")')
-          echo "next=$next" >> "$GITHUB_OUTPUT"
+          a, b = c.split("."); print(f"{a}.{int(b) + 1}")') || next=3.16
+          echo "next=${next:-3.16}" >> "$GITHUB_OUTPUT"
+      - id: m
+        name: Pick toolchains
+        # Pull requests test Rust stable only, to save Actions minutes. The daily run, pushes to main
+        # and manual runs test the full matrix.
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            echo 'matrix=[{"rust":"stable","python":"3.x"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix=[{"rust":"stable","python":"3.x"},{"rust":"beta","python":"3.x"},{"rust":"nightly","python":"3.x"},{"rust":"stable","python":"next"}]' >> "$GITHUB_OUTPUT"
+          fi
 
   test:
     needs: versions
@@ -49,11 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { rust: stable, python: "3.x" }
-          - { rust: beta, python: "3.x" }
-          - { rust: nightly, python: "3.x" }
-          - { rust: stable, python: next }
+        include: ${{ fromJSON(needs.versions.outputs.matrix) }}
     name: rust ${{ matrix.rust }} / python ${{ matrix.python }}
     steps:
       - uses: actions/checkout@v4

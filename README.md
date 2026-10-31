@@ -154,7 +154,7 @@ Needs `rustc` on the PATH.
 
 Brevi must never fall behind Rust or Python, and code that once passed must never silently break.
 
-- **Toolchains** (`.github/workflows/toolchains.yml`, daily and on every push/PR): builds Brevi and reruns
+- **Toolchains** (`.github/workflows/toolchains.yml`, daily, on pushes to main, and Rust stable only on PRs): builds Brevi and reruns
   `tests/check.sh` plus `tools/compat.py check` (all 1,700+ saved Brevi, Python and Rust solutions that once passed)
   on Rust stable, beta and nightly, the newest Python and the next Python pre-release. Beta and nightly also report
   deprecation and future-incompatibility warnings in generated Rust and the newest edition, about 6 to 12 weeks before
