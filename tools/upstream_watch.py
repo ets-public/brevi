@@ -41,8 +41,13 @@ def open_issue(title, body):
     if issue_exists(title):
         print(f"already tracked: {title}")
         return
-    gh("issue", "create", "--title", title, "--body", body, "--label", LABEL)
-    print(f"opened: {title}")
+    url = gh("issue", "create", "--title", title, "--body", body, "--label", LABEL).strip()
+    print(f"opened: {title} {url}")
+    # Issues opened with the Actions token do not trigger other workflows, so start auto-fix directly.
+    try:
+        gh("workflow", "run", "auto-fix.yml", "-f", f"issue={url.rsplit('/', 1)[-1]}")
+    except subprocess.CalledProcessError as e:
+        print(f"could not start auto-fix: {e.stderr}")
 
 
 def part(section, heading):

@@ -55,4 +55,5 @@ jobs:
             For a release review: adopt only items that make Brevi programs shorter, faster or more correct,
             each with a test; explain in the PR why the others were skipped. Keep changes small.
             Open a pull request that says "Fixes #<issue>" and comment on the issue with what you did.
-          claude_args: "--max-turns 80"
+          # The runner is a throwaway VM, so let Claude build, test and use git/gh freely there.
+          claude_args: "--max-turns 80 --allowedTools Bash,Read,Edit,Write,Glob,Grep"
