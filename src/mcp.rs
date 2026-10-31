@@ -19,7 +19,7 @@ fn to_json(j: &J) -> String {
 }
 
 const TOOLS: &str = r#"[
-{"name":"guide","description":"The Brevi language guide. Read the core once (no word) before writing Brevi; with a word, only the lines about it from the core and the reference (sections: Strings, Json, Regex, Dates, Numbers, Python, Libraries).","inputSchema":{"type":"object","properties":{"word":{"type":"string","description":"A name or section, like re_list or Tests"}}}},
+{"name":"guide","description":"The Brevi language guide. Read the core once (no word) before writing Brevi; with a word, only the lines about it from the core and the reference (sections: Strings, Lists, Python, Libraries).","inputSchema":{"type":"object","properties":{"word":{"type":"string","description":"A name or section, like re_list or Tests"}}}},
 {"name":"check","description":"Compile a Brevi program without running it. Prints OK or one JSON error per line: {line, msg, fix}.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested rename and return the fixed program after the errors, below a --- line"}},"required":["code"]}},
 {"name":"run","description":"Compile and run a Brevi program with the given stdin. Prints its output, or the JSON errors.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["code"]}},
 {"name":"test","description":"Run the test blocks in a Brevi program.","inputSchema":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"]}},

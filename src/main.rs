@@ -59,8 +59,15 @@ pub fn guide_lookup(q: &str) -> String {
             before && after
         })
     };
+    // A reader of `brevi guide WORD` has read the core guide already, so when the reference or
+    // libraries mention the word, only those lines are shown.
+    let core = GUIDE.lines().filter(|l| l.starts_with("## ")).count() + 1;
+    let in_extra = secs[core..].iter().any(|(_, body)| body.lines().any(|l| !l.starts_with('#') && hit(l)));
     let mut out = String::new();
-    for (name, body) in &secs {
+    for (i, (name, body)) in secs.iter().enumerate() {
+        if in_extra && i < core {
+            continue;
+        }
         let lines: Vec<&str> = body.lines().filter(|l| !l.starts_with('#') && hit(l)).collect();
         if !lines.is_empty() {
             out.push_str(&format!("[{name}]\n"));

@@ -23,22 +23,6 @@ A missing map key reads as the type's zero (0, 0.0, "", [], dec 0). `print(a, b)
 ## Python
 Python spellings models write by habit are accepted: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `sorted(xs, key=f, reverse=True)`, `print(x, end="", sep=", ")`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `&& || !` for `and or not`.
 
-## Json
-`json(text)` gives a `Json`. Read it directly, no match needed: `j["key"][0]` (missing gives `Null`), `j.text()` (a string's text, `""` for null, other values as JSON), `j.int()`, `j.dec()`, `j.float()` (0 unless a JSON number, so `"7"` gives 0), `j.is_null()`, `j.has(k)`, `j.keys()`, `j.len()`, `for x in j["items"]:`, `if j["ok"]:` (null, false, 0, "" and [] are false), `j["tier"] == "gold"`, `m[j["id"]]`.
-To tell kinds apart, match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)`. `str(j)` writes compact JSON. `x.json()` turns any value into Json. A map literal whose values differ in type is a Json object with keys in written order: `str({"id": 1, "name": n})` gives `{"id":1,"name":"ann"}`.
-
-## Regex
-Python syntax: `\d \w \s . [a-z] [^x] * + ? {2,4} *? ( ) (?: ) | ^ $ \b`. Write `"\d+"` (unknown escapes keep their backslash).
-`s.re_full(p)` (whole string) and `s.re_find(p)` (first match) give `[whole, group1, ...]`, or `[]` when there is no match; `s.re_all(p)` gives one such list per match; `s.re_list(p)` gives each match's text (a tokenizer: `s.re_list("\d+|[A-Z]+\d*|\S")`); `s.re_sub(p, "<b>\1</b>")` or `s.re_sub(p, g => g[1].upper())`; `s.re_split(p)`.
-
-## Dates
-`date("2024-02-29")` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`. `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
-
-## Numbers
-`dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, and ints mix in (`0 - p`, `p * 2`, `t += 1`, `p > 0`), `sum`, `fmt(2)` and `round(2)` (round half to even), `float int round`.
-`big` is an exact integer of any size: `"123...".big()`, `n.big()`, with `+ - *` and comparisons.
-`heap()` is a min-heap of any comparable values: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
-
 ## Tools
 `brevi build f.bv -o app --release` builds an optimized binary. Runtime errors print `{"e":"runtime","line":N,"msg":...}`.
 `brevi emit f.bv` shows the Rust. `--explain` on any command adds the guide lines under each error. `brevi check f.bv --fast` skips rustc. `del fn name` in a patch file removes a function.

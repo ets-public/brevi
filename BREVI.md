@@ -2,7 +2,7 @@
 
 Brevi compiles to Rust. Write it like Python: one statement per line, indented blocks after a line ending in `:` (a short block can follow the `:`), `#` comments. Only function parameters need types.
 A file can be just statements or define `fn main()`. Top-level names are shared by every function, like Python globals without `global`; a function whose body starts by setting a name (`i = 0`) has its own local.
-`use "util.bv"` brings in another file's definitions. This guide is the core: `brevi guide WORD` prints every line about a name, and `brevi guide Strings`, `Json`, `Regex`, `Dates`, `Numbers`, `Python` or `Libraries` a section of details.
+`use "util.bv"` brings in another file's definitions. This guide is the core: `brevi guide WORD` prints every line about a name, and `brevi guide Strings`, `Lists`, `Python` or `Libraries` a section of details.
 
 ```
 nums = stdin().ints()
@@ -72,9 +72,13 @@ Python spellings work too (`range()`, `.append()`, `.items()`, `", ".join(xs)`, 
 `print(a, b)`, `str(x)`, `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
 
 ## Data formats
-- `json(text)` gives a `Json`, read directly: `j["key"][0]`, `j.text() j.int() j.dec() j.float() j.is_null() j.has(k) j.keys() j.len()`, `for x in j["items"]:`, `j["tier"] == "gold"`. `str(j)` writes compact JSON; `str({"id": 1, "name": n})` builds an object in written key order. `brevi guide Json`.
-- Regexes in Python syntax: `s.re_full(p)` and `s.re_find(p)` give `[whole, group1, ...]` or `[]`; also `re_all re_list re_sub re_split`. `brevi guide Regex`.
-- `csv(text)` gives `[[str]]`; `date("2024-02-29")` gives a `Date` (`brevi guide Dates`); `"19.99".dec()` is exact money and `"123".big()` an integer of any size (`brevi guide Numbers`); `heap()` has `push pop` (smallest first).
+- `json(text)` gives a `Json`. Read it directly, no match needed: `j["key"][0]` (missing gives `Null`), `j.text()` (a string's text, `""` for null, other values as JSON), `j.int()`, `j.dec()`, `j.float()` (0 unless a JSON number, so `"7"` gives 0), `j.is_null()`, `j.has(k)`, `j.keys()`, `j.len()`, `for x in j["items"]:`, `if j["ok"]:` (null, false, 0, "" and [] are false), `j["tier"] == "gold"`, `m[j["id"]]`. To tell kinds apart, match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)`. `str(j)` writes compact JSON. `x.json()` turns any value into Json. A map literal whose values differ in type is a Json object with keys in written order: `str({"id": 1, "name": n})` gives `{"id":1,"name":"ann"}`.
+- Regexes (Python syntax: `\d \w \s . [a-z] [^x] * + ? {2,4} *? ( ) (?: ) | ^ $ \b`): `s.re_full(p)` (whole string) and `s.re_find(p)` (first match) give `[whole, group1, ...]`, or `[]` when there is no match; `s.re_all(p)` gives one such list per match; `s.re_list(p)` gives each match's text (a tokenizer: `s.re_list("\d+|[A-Z]+\d*|\S")`); `s.re_sub(p, "<b>\1</b>")` or `s.re_sub(p, g => g[1].upper())`; `s.re_split(p)`. Write `"\d+"` (unknown escapes keep their backslash).
+- `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
+- `date("2024-02-29")` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
+- `big` is an exact integer of any size: `"123...".big()`, `n.big()`, with `+ - *` and comparisons.
+- `dec` is an exact decimal (9 places) for money: `"19.99".dec()`, `0.dec()`, `+ - * /`, unary `-`, and ints mix in (`0 - p`, `p * 2`, `t += 1`, `p > 0`), `sum`, `fmt(2)` and `round(2)` (round half to even), `float int round`.
+- `heap()` is a min-heap of any comparable values: `h.push(x)`, `h.pop()` (smallest; tuples compare in order), `first len is_empty`.
 
 ## Tests
 ```

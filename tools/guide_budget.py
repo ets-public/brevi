@@ -7,7 +7,7 @@ the check uses bytes, at 2.2 bytes per token, the ratio measured on BREVI.md.
 """
 import os, subprocess, sys
 
-TOKENS = 3000
+TOKENS = 3600
 BYTES_PER_TOKEN = 2.2
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 path = os.path.join(ROOT, "BREVI.md")
