@@ -1,0 +1,60 @@
+fn best_path(src: str, nbrs: {str: [(str, int)]}):
+  lab = {src: (0, 1, [src])}
+  changed = true
+  while changed:
+    changed = false
+    for u, lu in lab.pairs():
+      for e in nbrs[u]:
+        v = e.0
+        cand = (lu.0 + e.1, lu.1 + 1, lu.2 + [v])
+        if not lab.has(v) or cand < lab[v]:
+          lab[v] = cand
+          changed = true
+  lab
+
+w = {}
+known = {}
+qs = []
+edges_done = false
+for ln in stdin().lines():
+  t = ln.trim()
+  if not edges_done:
+    if t == "":
+      edges_done = true
+      continue
+    parts = t.words()
+    a = parts[0]
+    b = parts[1]
+    m = parts[2].int().or(0)
+    key = (a, b) if a < b else (b, a)
+    if not w.has(key) or m < w[key]:
+      w[key] = m
+    known[a] = true
+    known[b] = true
+  else:
+    if t == "":
+      continue
+    qs.push(t.words())
+
+nbrs = {}
+for k, m in w.pairs():
+  nbrs[k.0].push((k.1, m))
+  nbrs[k.1].push((k.0, m))
+
+for q in qs:
+  f = q[0]
+  to = q[1]
+  if not known.has(f):
+    print("unknown station {f}")
+  elif not known.has(to):
+    print("unknown station {to}")
+  elif f == to:
+    print("{f} (0 min)")
+  else:
+    lab = best_path(f, nbrs)
+    if not lab.has(to):
+      print("no route {f} {to}")
+    else:
+      r = lab[to]
+      path = " -> ".join(r.2)
+      print("{path} ({r.0} min)")

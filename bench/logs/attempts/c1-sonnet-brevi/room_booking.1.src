@@ -1,0 +1,40 @@
+days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+cap = {}
+bk = {}
+fn mins(t: str) -> int = t.slice(0, 2).int() * 60 + t.slice(3, 5).int()
+for l in lines():
+  w = l.words()
+  if w.is_empty(): continue
+  c = w[0]
+  if c == "ROOM":
+    cap[w[1]] = w[2].int()
+  elif c == "BOOK":
+    id = w[1]
+    s = mins(w[3])
+    e = mins(w[4])
+    best = ""
+    for r, cp in cap.pairs():
+      if cp < w[5].int(): continue
+      busy = false
+      for b in bk.values():
+        if b.0 == r and b.1 == w[2] and b.2 < e and s < b.3: busy = true
+      if busy: continue
+      if best == "" or cp < cap[best]: best = r
+    if best == "":
+      print("{id} rejected")
+    else:
+      bk[id] = (best, w[2], s, e, w[3], w[4], id)
+      print("{id} -> {best}")
+  elif c == "CANCEL":
+    if bk.has(w[1]):
+      bk.remove(w[1])
+      print("{w[1]} cancelled")
+    else:
+      print("{w[1]} not found")
+  elif c == "LIST":
+    print("{w[1]} {days[date(w[1]).weekday() - 1]}")
+    xs = [b for b in bk.values() if b.1 == w[1]]
+    if xs.is_empty():
+      print("  no bookings")
+    for b in xs.sort_by(b => (b.2, b.0)):
+      print("  {b.4}-{b.5} {b.0} {b.6}")

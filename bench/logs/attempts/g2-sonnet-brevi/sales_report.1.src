@@ -1,0 +1,41 @@
+fn valid_date(d: str) -> bool:
+  r = d.re_full("[0-9]{4}-[0-9]{2}-[0-9]{2}")
+  len(r) > 0
+
+rows = csv(stdin())
+n = 0
+skipped = 0
+reg = {}
+qtys = {}
+months = {}
+first = true
+for f in rows:
+  if first:
+    first = false
+    continue
+  if len(f) == 1 and f[0].trim().is_empty():
+    continue
+  if len(f) != 5:
+    skipped += 1
+    continue
+  ok = valid_date(f[0]) and len(f[3].re_full("[0-9]+")) > 0 and len(f[4].re_full("[0-9]+(\\.[0-9]{1,2})?")) > 0
+  if not ok:
+    skipped += 1
+    continue
+  rev = f[3].dec() * f[4].dec()
+  n += 1
+  reg[f[1]] += rev
+  qtys[f[2]] += f[3].int()
+  months[f[0].slice(0, 7)] += rev
+print("rows {n}")
+print("skipped {skipped}")
+if n > 0:
+  print("regions")
+  ps = reg.pairs().sort_by(p => (0 - p.1, p.0))
+  for p in ps:
+    print("  {p.0} {p.1.fmt(2)}")
+  qs = qtys.pairs().sort_by(p => (0 - p.1, p.0))
+  print("top_product {qs[0].0} {qs[0].1}")
+  print("months")
+  for p in months.pairs():
+    print("  {p.0} {p.1.fmt(2)}")

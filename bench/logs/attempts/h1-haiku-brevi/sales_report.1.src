@@ -1,0 +1,53 @@
+fn valid_date(s: str) -> bool:
+  return s.re_full('\d{4}-\d{2}-\d{2}').len() > 0
+
+fn valid_qty(s: str) -> bool:
+  return s.re_full('\d+').len() > 0
+
+fn valid_price(s: str) -> bool:
+  return s.re_full('\d+(\.\d{1,2})?').len() > 0
+
+valid = 0
+skipped = 0
+totals = {}
+qtys = {}
+months = {}
+header = true
+for r in csv(stdin()):
+  if r.len() == 0:
+    continue
+  if r.len() == 1 and r[0].trim() == "":
+    continue
+  if header:
+    header = false
+    continue
+  if r.len() != 5 or not valid_date(r[0]) or not valid_qty(r[3]) or not valid_price(r[4]):
+    skipped += 1
+    continue
+  valid += 1
+  q = r[3].int()
+  rev = r[3].dec() * r[4].dec()
+  totals[r[1]] += rev
+  qtys[r[2]] += q
+  months[r[0][0:7]] += rev
+
+print("rows {valid}")
+print("skipped {skipped}")
+if valid > 0:
+  print("regions")
+  ps = []
+  for k, v in totals.pairs():
+    ps.push((k, v))
+  ps = ps.sort_by(p => (-p.1, p.0))
+  for p in ps:
+    print("  {p.0} {p.1.fmt(2)}")
+  best = ""
+  bestq = -1
+  for k, v in qtys.pairs():
+    if v > bestq:
+      best = k
+      bestq = v
+  print("top_product {best} {bestq}")
+  print("months")
+  for k, v in months.pairs():
+    print("  {k} {v.fmt(2)}")

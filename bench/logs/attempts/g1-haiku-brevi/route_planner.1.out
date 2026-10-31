@@ -1,0 +1,33 @@
+test 0 failed
+input:
+A B 5
+B C 5
+A C 10
+C D 1
+B D 7
+X Y 2
+
+A D
+D A
+A A
+A Y
+Q A
+A Q
+B C
+expected:
+A -> C -> D (11 min)
+D -> C -> A (11 min)
+A (0 min)
+no route A Y
+unknown station Q
+unknown station Q
+B -> C (5 min)
+got:
+no route A D
+no route D A
+A (0 min)
+no route A Y
+unknown station Q
+unknown station Q
+no route B C
+passed 0/3

@@ -1,0 +1,92 @@
+secs = {}
+cur = "default"
+
+fn has_key(s: str, k: str) -> bool = secs.has(s) and secs[s].has(k)
+
+fn expand(sec: str, raw: str, stack: [(str, str)]) -> str:
+  out = ""
+  rest = raw
+  while True:
+    i = rest.find('${')
+    if i < 0:
+      out += rest
+      break
+    out += rest.slice(0, i)
+    after = rest.slice(i + 2)
+    j = after.find("}")
+    if j < 0:
+      out += rest.slice(i)
+      break
+    name = after.slice(0, j)
+    out += lookup(sec, name, stack)
+    rest = after.slice(j + 1)
+  return out
+
+fn fetch(s: str, k: str, stack: [(str, str)]) -> str:
+  if not has_key(s, k):
+    return ""
+  if (s, k) in stack:
+    fail("cycle")
+  return expand(s, secs[s][k], stack + [(s, k)])
+
+fn lookup(sec: str, name: str, stack: [(str, str)]) -> str:
+  if name.contains("."):
+    d = name.find(".")
+    return fetch(name.slice(0, d), name.slice(d + 1), stack)
+  if has_key(sec, name):
+    return fetch(sec, name, stack)
+  return fetch("default", name, stack)
+
+fn show(s: str, k: str) -> str:
+  match fetch(s, k, []):
+    Ok(v) => return v
+    Err(m) => return "<cycle>"
+
+in_q = false
+qs = []
+for ln in stdin().lines():
+  t = ln.trim()
+  if not in_q:
+    if t == "---":
+      in_q = true
+      continue
+    if t == "" or t.starts_with(";") or t.starts_with("#"):
+      continue
+    if t.starts_with("[") and t.ends_with("]"):
+      cur = t.slice(1, t.len() - 1).trim()
+      if not secs.has(cur):
+        secs[cur] = {}
+      continue
+    eq = t.find("=")
+    if eq < 0:
+      continue
+    if not secs.has(cur):
+      secs[cur] = {}
+    secs[cur][t.slice(0, eq).trim()] = t.slice(eq + 1).trim()
+  else:
+    if t != "":
+      qs.push(t)
+
+for q in qs:
+  if q == "sections":
+    names = [s for s in secs.keys() if secs[s].len() > 0]
+    names.sort()
+    print(" ".join(names))
+  elif q.ends_with(".*"):
+    s = q.slice(0, q.len() - 2)
+    if not secs.has(s):
+      print("<missing>")
+    else:
+      ks = secs[s].keys()
+      ks.sort()
+      for k in ks:
+        v = show(s, k)
+        print("{k}={v}")
+  else:
+    d = q.find(".")
+    if d < 0:
+      print("<missing>")
+    elif not has_key(q.slice(0, d), q.slice(d + 1)):
+      print("<missing>")
+    else:
+      print(show(q.slice(0, d), q.slice(d + 1)))

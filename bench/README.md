@@ -21,3 +21,15 @@ Four programs written the plain way in Axon, Python and Rust: word counts (2M wo
 `python3 perf/gen.py` makes the inputs; `perf/time.sh` builds everything and prints the best of 3 runs.
 
 `verify.sh OLD_BREVI [NEW_BREVI]` rebuilds every saved solution in `solutions/` with both compilers (in parallel; `JOBS=4`) and prints `OK`, `DIFF` or `BUILD` for each one the old compiler could build.
+
+## Guide size check (31 Oct 2026)
+
+`guide.sh RUN WORD` lets a subject look up guide lines; each lookup is logged as task `_guide` and counts as tokens read. Held-out big tasks (`new`), one or two runs each, patch totals:
+
+| Runs | Guide | Sonnet | Haiku | First try (Sonnet / Haiku) |
+| --- | --- | --- | --- | --- |
+| c1 | old full guide, 5,035 tokens (`guides/BREVI-v0.18-full.md`) | 4,027 | 4,849 | 5/6 / 6/6 |
+| g1, g2 | first trim, 2,889 tokens, data formats moved out | 5,993 | 6,025 | 9/12 / 11/12 |
+| h1 | final trim, 3,490 tokens, data formats kept | 4,443 | 4,886 | 4/6 / 5/6 |
+
+The first trim cost more: without the regex and JSON details models wrote longer code and looked up `dec` and dates every run. The final trim reads 1,545 fewer guide tokens per session (not part of the totals above) for a task total within run-to-run noise.

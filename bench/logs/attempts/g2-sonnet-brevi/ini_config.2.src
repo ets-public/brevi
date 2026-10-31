@@ -1,0 +1,98 @@
+vals = {}
+keys = {}
+cyc = [0]
+
+fn lookup(s: str, k: str) -> str:
+  if vals.has((s, k)):
+    return s
+  if vals.has(("default", k)):
+    return "default"
+  ""
+
+fn resolve(s: str, k: str, stack: [str]) -> str:
+  id = s + "\n" + k
+  if id in stack:
+    cyc[0] = 1
+    return ""
+  text = vals[(s, k)]
+  out = ""
+  i = 0
+  n = text.len()
+  while i < n:
+    j = text.slice(i, n).find("${")
+    if j < 0:
+      out += text.slice(i, n)
+      break
+    out += text.slice(i, i + j)
+    rest = text.slice(i + j + 2, n)
+    e = rest.find("}")
+    if e < 0:
+      out += text.slice(i + j, n)
+      break
+    ref = rest.slice(0, e)
+    i = i + j + 2 + e + 1
+    rs = ""
+    rk = ref
+    if "." in ref:
+      rs = ref.slice(0, ref.find("."))
+      rk = ref.slice(ref.find(".") + 1, ref.len())
+      if not vals.has((rs, rk)):
+        rs = ""
+    else:
+      rs = lookup(s, ref)
+    if not rs.is_empty():
+      out += resolve(rs, rk, stack + [id])
+      if cyc[0] == 1:
+        return ""
+  out
+
+fn full(s: str, k: str) -> str:
+  cyc[0] = 0
+  r = resolve(s, k, [])
+  if cyc[0] == 1:
+    cyc[0] = 0
+    return "<cycle>"
+  r
+
+cur = "default"
+inq = false
+for line in lines():
+  t = line.trim()
+  if inq:
+    if t.is_empty():
+      continue
+    if t == "sections":
+      names = [s for s in keys.keys() if keys[s]]
+      print(names.sort().join(" "))
+    elif t.ends_with(".*"):
+      s = t.slice(0, t.len() - 2)
+      if not keys.has(s):
+        print("<missing>")
+      else:
+        for k in keys[s].sort():
+          print("{k}={full(s, k)}")
+    else:
+      p = t.find(".")
+      s = t.slice(0, p)
+      k = t.slice(p + 1, t.len())
+      if p < 0 or not vals.has((s, k)):
+        print("<missing>")
+      else:
+        print(full(s, k))
+    continue
+  if t == "---":
+    inq = true
+    continue
+  if t.is_empty() or t.starts_with(";") or t.starts_with("#"):
+    continue
+  if t.starts_with("["):
+    cur = t.slice(1, t.len()).replace("]", "").trim()
+    continue
+  q = t.find("=")
+  if q < 0:
+    continue
+  k = t.slice(0, q).trim()
+  v = t.slice(q + 1, t.len()).trim()
+  if not vals.has((cur, k)):
+    keys[cur].push(k)
+  vals[(cur, k)] = v

@@ -1,0 +1,7 @@
+{"run":"h1-haiku-brevi","lang":"brevi","task":"sales_report","code_tok":599,"patch_tok":599,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"h1-haiku-brevi","lang":"brevi","task":"route_planner","code_tok":541,"patch_tok":541,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"h1-haiku-brevi","lang":"brevi","task":"ini_config","code_tok":1012,"patch_tok":1012,"out_tok":49,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"h1-haiku-brevi","lang":"brevi","task":"ini_config","code_tok":1022,"patch_tok":20,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"h1-haiku-brevi","lang":"brevi","task":"stack_vm","code_tok":1371,"patch_tok":1371,"out_tok":7,"compiled":true,"pass":8,"total":8,"tok":"exact"}
+{"run":"h1-haiku-brevi","lang":"brevi","task":"line_diff","code_tok":491,"patch_tok":491,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"h1-haiku-brevi","lang":"brevi","task":"room_booking","code_tok":761,"patch_tok":761,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

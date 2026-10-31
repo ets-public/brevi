@@ -1,0 +1,14 @@
+test 1 failed
+input:
+same
+lines
+=====
+same
+lines
+expected:
+no changes
+got:
+  same
+  lines
+no changes
+passed 4/5

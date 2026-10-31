@@ -1,0 +1,127 @@
+fn check(ops: [str], args: [str], lnos: [int], labels: {str: int}) -> str:
+  known = ["push", "pop", "dup", "swap", "add", "sub", "mul", "div", "mod", "jmp", "jz", "jnz", "call", "ret", "print", "halt"]
+  for i in 0..ops.len():
+    if not known.contains(ops[i]):
+      ln = lnos[i]
+      return "error line {ln}: unknown instruction {ops[i]}"
+  for i in 0..ops.len():
+    if ["jmp", "jz", "jnz", "call"].contains(ops[i]) and not labels.has(args[i]):
+      ln = lnos[i]
+      return "error line {ln}: unknown label {args[i]}"
+  return ""
+
+fn run(ops: [str], args: [str], lnos: [int], labels: {str: int}):
+  stack: [int] = []
+  calls: [int] = []
+  pc = 0
+  steps = 0
+  running = true
+  while running and pc < ops.len():
+    if steps == 10000:
+      print("error: step limit")
+      running = false
+      continue
+    steps += 1
+    op = ops[pc]
+    ln = lnos[pc]
+    need = 0
+    if ["swap", "add", "sub", "mul", "div", "mod"].contains(op):
+      need = 2
+    elif ["pop", "dup", "jz", "jnz", "print"].contains(op):
+      need = 1
+    if stack.len() < need:
+      print("error line {ln}: stack underflow")
+      running = false
+      continue
+    if op == "push":
+      stack.push(args[pc].int())
+      pc += 1
+    elif op == "pop":
+      stack.pop()
+      pc += 1
+    elif op == "dup":
+      stack.push(stack.last())
+      pc += 1
+    elif op == "swap":
+      x = stack.pop()
+      y = stack.pop()
+      stack.push(x)
+      stack.push(y)
+      pc += 1
+    elif ["add", "sub", "mul", "div", "mod"].contains(op):
+      b = stack.pop()
+      a = stack.pop()
+      if (op == "div" or op == "mod") and b == 0:
+        print("error line {ln}: division by zero")
+        running = false
+        continue
+      if op == "add":
+        stack.push(a + b)
+      elif op == "sub":
+        stack.push(a - b)
+      elif op == "mul":
+        stack.push(a * b)
+      elif op == "div":
+        stack.push(a / b)
+      else:
+        stack.push(a % b)
+      pc += 1
+    elif op == "jmp":
+      pc = labels[args[pc]]
+    elif op == "jz":
+      v = stack.pop()
+      if v == 0:
+        pc = labels[args[pc]]
+      else:
+        pc += 1
+    elif op == "jnz":
+      v = stack.pop()
+      if v != 0:
+        pc = labels[args[pc]]
+      else:
+        pc += 1
+    elif op == "call":
+      calls.push(pc + 1)
+      pc = labels[args[pc]]
+    elif op == "ret":
+      if calls.is_empty():
+        running = false
+      else:
+        pc = calls.pop()
+    elif op == "print":
+      v = stack.pop()
+      print(v)
+      pc += 1
+    else:
+      running = false
+
+ops = []
+args = []
+lnos = []
+labels = {}
+ln = 0
+for raw in lines():
+  ln += 1
+  code = raw
+  h = code.find("#")
+  if h >= 0:
+    code = code[0:h]
+  code = code.trim()
+  if code == "":
+    continue
+  if code.ends_with(":"):
+    labels[code[0:code.len()-1].trim()] = ops.len()
+    continue
+  parts = code.re_list('\S+')
+  arg = ""
+  if parts.len() > 1:
+    arg = parts[1]
+  ops.push(parts[0])
+  args.push(arg)
+  lnos.push(ln)
+
+err = check(ops, args, lnos, labels)
+if err != "":
+  print(err)
+else:
+  run(ops, args, lnos, labels)

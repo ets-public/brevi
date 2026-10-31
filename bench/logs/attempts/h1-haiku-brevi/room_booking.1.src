@@ -1,0 +1,61 @@
+names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+fn conflict(bk: {str: (str, str, str, str)}, room: str, date: str, s: str, e: str) -> bool:
+  for bid, b in bk.pairs():
+    if b.3 == room and b.0 == date and b.1 < e and s < b.2:
+      return true
+  return false
+
+fn pick(rm: {str: int}, bk: {str: (str, str, str, str)}, date: str, s: str, e: str, people: int) -> str:
+  cands = []
+  for name, cap in rm.pairs():
+    if cap >= people:
+      cands.push((cap, name))
+  cands = cands.sort()
+  for c in cands:
+    if not conflict(bk, c.1, date, s, e):
+      return c.1
+  return ""
+
+rm = {}
+bk = {}
+for line in lines():
+  p = line.re_list('\S+')
+  if p.is_empty():
+    continue
+  cmd = p[0]
+  if cmd == "ROOM":
+    rm[p[1]] = p[2].int()
+  elif cmd == "BOOK":
+    bid = p[1]
+    d = p[2]
+    s = p[3]
+    e = p[4]
+    people = p[5].int()
+    r = pick(rm, bk, d, s, e, people)
+    if r == "":
+      print("{bid} rejected")
+    else:
+      bk[bid] = (d, s, e, r)
+      print("{bid} -> {r}")
+  elif cmd == "CANCEL":
+    bid = p[1]
+    if bk.has(bid):
+      bk.remove(bid)
+      print("{bid} cancelled")
+    else:
+      print("{bid} not found")
+  elif cmd == "LIST":
+    d = p[1]
+    wd = date(d).weekday
+    wn = names[wd - 1]
+    print("{d} {wn}")
+    rows = []
+    for bid, b in bk.pairs():
+      if b.0 == d:
+        rows.push((b.1, b.3, bid, b.2))
+    rows = rows.sort()
+    if rows.is_empty():
+      print("  no bookings")
+    for x in rows:
+      print("  {x.0}-{x.3} {x.1} {x.2}")

@@ -1,0 +1,62 @@
+fn mins(s: str) -> int:
+  p = s.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+rooms = {}
+bookings = {}
+
+for ln in stdin().lines():
+  t = ln.trim()
+  if t == "":
+    continue
+  w = t.words()
+  c = w[0]
+  if c == "ROOM":
+    rooms[w[1]] = w[2].int().or(0)
+  elif c == "BOOK":
+    bid = w[1]
+    d = w[2]
+    s = mins(w[3])
+    e = mins(w[4])
+    people = w[5].int().or(0)
+    cands = []
+    for name, cap in rooms.pairs():
+      if cap >= people:
+        cands.push((cap, name))
+    cands.sort()
+    chosen = ""
+    for cp in cands:
+      room = cp.1
+      ok = True
+      for b in bookings.values():
+        if b.0 == d and b.3 == room and s < b.2 and b.1 < e:
+          ok = False
+      if ok:
+        chosen = room
+        break
+    if chosen == "":
+      print("{bid} rejected")
+    else:
+      bookings[bid] = (d, s, e, chosen, w[3], w[4])
+      print("{bid} -> {chosen}")
+  elif c == "CANCEL":
+    bid = w[1]
+    if bookings.has(bid):
+      bookings.remove(bid)
+      print("{bid} cancelled")
+    else:
+      print("{bid} not found")
+  elif c == "LIST":
+    d = w[1]
+    items = []
+    for bid, b in bookings.pairs():
+      if b.0 == d:
+        items.push((b.1, b.3, bid, b.4, b.5))
+    items.sort()
+    wd = DAYS[date(d).weekday - 1]
+    print("{d} {wd}")
+    if items.len() == 0:
+      print("  no bookings")
+    for it in items:
+      print("  {it.3}-{it.4} {it.1} {it.2}")

@@ -1,0 +1,53 @@
+adj = {}
+best = {}
+stations = {}
+in_edges = true
+for line in stdin().lines():
+  w = line.words()
+  if in_edges:
+    if w.len() == 0:
+      in_edges = false
+      continue
+    a = w[0]
+    b = w[1]
+    t = w[2].int()
+    stations[a] = 1
+    stations[b] = 1
+    k = (a, b)
+    if best.has(k) and best[k] <= t:
+      continue
+    best[k] = t
+    best[(b, a)] = t
+    continue
+  if w.len() < 2:
+    continue
+  src = w[0]
+  dst = w[1]
+  if not stations.has(src):
+    print("unknown station {src}")
+    continue
+  if not stations.has(dst):
+    print("unknown station {dst}")
+    continue
+  if src == dst:
+    print("{src} (0 min)")
+    continue
+  h = heap()
+  h.push((0, 1, [src], src))
+  done = {}
+  found = false
+  while not h.is_empty():
+    cur = h.pop()
+    node = cur.3
+    if done.has(node):
+      continue
+    done[node] = 1
+    if node == dst:
+      print("{cur.2.join(' -> ')} ({cur.0} min)")
+      found = true
+      break
+    for e in best.pairs():
+      if e[0][0] == node and not done.has(e[0][1]):
+        h.push((cur.0 + e.1, cur.1 + 1, cur.2 + [e[0][1]], e[0][1]))
+  if not found:
+    print("no route {src} {dst}")
