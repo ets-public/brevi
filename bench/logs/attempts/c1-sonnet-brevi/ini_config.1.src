@@ -1,0 +1,66 @@
+ls = lines()
+data = {}
+secs = {}
+flag = [0]
+stack = []
+cur = "default"
+i = 0
+while i < ls.len() and ls[i].trim() != "---":
+  l = ls[i].trim()
+  i += 1
+  if l.is_empty() or l.starts_with(";") or l.starts_with("#"): continue
+  if l.starts_with("[") and l.ends_with("]"):
+    cur = l.slice(1, l.len() - 1).trim()
+    continue
+  j = l.find("=")
+  if j < 0: continue
+  data[(cur, l.slice(0, j).trim())] = l.slice(j + 1).trim()
+  secs[cur] = 1
+fn resolve(sec: str, key: str) -> str:
+  id = sec + "\n" + key
+  if id in stack:
+    flag[0] = 1
+    return ""
+  stack.push(id)
+  r = data[(sec, key)].re_sub("\$\{([^}]*)\}", g => lookup(g[1], sec))
+  stack.pop()
+  r
+fn lookup(name: str, sec: str) -> str:
+  if "." in name:
+    k = name.find(".")
+    s2 = name.slice(0, k)
+    k2 = name.slice(k + 1)
+    if data.has((s2, k2)): return resolve(s2, k2)
+    return ""
+  if data.has((sec, name)): return resolve(sec, name)
+  if data.has(("default", name)): return resolve("default", name)
+  ""
+fn get(sec: str, key: str) -> str:
+  flag[0] = 0
+  r = resolve(sec, key)
+  if flag[0] == 1: return "<cycle>"
+  r
+i += 1
+while i < ls.len():
+  q = ls[i].trim()
+  i += 1
+  if q.is_empty(): continue
+  if q == "sections":
+    print(secs.keys().join(" "))
+    continue
+  k = q.find(".")
+  if k < 0:
+    print("<missing>")
+    continue
+  s = q.slice(0, k)
+  key = q.slice(k + 1)
+  if key == "*":
+    if not secs.has(s):
+      print("<missing>")
+    else:
+      for p in data.keys():
+        if p.0 == s: print("{p.1}={get(s, p.1)}")
+  elif data.has((s, key)):
+    print(get(s, key))
+  else:
+    print("<missing>")

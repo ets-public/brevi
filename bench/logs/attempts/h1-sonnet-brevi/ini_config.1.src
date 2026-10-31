@@ -1,0 +1,89 @@
+data = {}
+stk = []
+cyc = []
+
+fn expand(sec: str, val: str) -> str:
+  val.re_sub("\$\{([^}]*)\}", g => lookup(sec, g[1].trim()))
+
+fn lookup(sec: str, ref: str) -> str:
+  ts = sec
+  tk = ref
+  dot = ref.find(".")
+  if dot >= 0:
+    ts = ref.slice(0, dot)
+    tk = ref.slice(dot + 1, ref.len())
+  elif not (data.has(sec) and data[sec].has(ref)):
+    ts = "default"
+  if not (data.has(ts) and data[ts].has(tk)):
+    return ""
+  tid = ts + "." + tk
+  if tid in stk:
+    cyc.push(1)
+    return ""
+  stk.push(tid)
+  out = expand(ts, data[ts][tk])
+  stk.pop()
+  out
+
+fn resolve(sec: str, key: str) -> str:
+  stk.push(sec + "." + key)
+  r = expand(sec, data[sec][key])
+  stk.pop()
+  r
+
+cur = "default"
+in_q = false
+for raw in stdin().lines():
+  line = raw.trim()
+  if in_q:
+    if line == "":
+      continue
+    if line == "sections":
+      names = []
+      for p in data.pairs():
+        if p.1.len() > 0:
+          names.push(p.0)
+      print(names.sort().join(" "))
+      continue
+    qd = line.find(".")
+    if qd < 0:
+      continue
+    qs = line.slice(0, qd)
+    qk = line.slice(qd + 1, line.len())
+    if qk == "*":
+      if not data.has(qs):
+        print("<missing>")
+        continue
+      for key in data[qs].keys().sort():
+        stk = []
+        cyc = []
+        v = resolve(qs, key)
+        if cyc.len() > 0:
+          v = "<cycle>"
+        print("{key}={v}")
+      continue
+    if not (data.has(qs) and data[qs].has(qk)):
+      print("<missing>")
+      continue
+    stk = []
+    cyc = []
+    v = resolve(qs, qk)
+    if cyc.len() > 0:
+      v = "<cycle>"
+    print(v)
+    continue
+  if line == "---":
+    in_q = true
+    continue
+  if line == "" or line.starts_with(";") or line.starts_with("#"):
+    continue
+  if line.starts_with("["):
+    e = line.find("]")
+    if e < 0:
+      e = line.len()
+    cur = line.slice(1, e).trim()
+    continue
+  eq = line.find("=")
+  if eq < 0:
+    continue
+  data[cur][line.slice(0, eq).trim()] = line.slice(eq + 1, line.len()).trim()

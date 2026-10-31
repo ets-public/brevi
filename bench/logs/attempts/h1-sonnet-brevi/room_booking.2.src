@@ -1,0 +1,52 @@
+rooms = []
+books: {str: (str, str, str, str)} = {}
+days = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+for line in stdin().lines():
+  w = line.words()
+  if w.len() == 0:
+    continue
+  cmd = w[0]
+  if cmd == "ROOM":
+    rooms.push((w[2].int(), w[1]))
+  elif cmd == "BOOK":
+    id = w[1]
+    dt = w[2]
+    st = w[3]
+    en = w[4]
+    people = w[5].int()
+    best = ""
+    found = false
+    for r in rooms.sort():
+      if found or r.0 < people:
+        continue
+      free = true
+      for p in books.pairs():
+        b = p.1
+        if b.3 == r.1 and b.0 == dt and st < b.2 and b.1 < en:
+          free = false
+      if free:
+        best = r.1
+        found = true
+    if found:
+      books[id] = (dt, st, en, best)
+      print("{id} -> {best}")
+    else:
+      print("{id} rejected")
+  elif cmd == "CANCEL":
+    if books.has(w[1]):
+      books.remove(w[1])
+      print("{w[1]} cancelled")
+    else:
+      print("{w[1]} not found")
+  elif cmd == "LIST":
+    dt = w[1]
+    print("{dt} {days[date(dt).weekday()]}")
+    items = []
+    for p in books.pairs():
+      b = p.1
+      if b.0 == dt:
+        items.push((b.1, b.3, b.2, p.0))
+    if items.is_empty():
+      print("  no bookings")
+    for it in items.sort():
+      print("  {it.0}-{it.2} {it.1} {it.3}")

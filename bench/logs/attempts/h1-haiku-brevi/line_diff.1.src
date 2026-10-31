@@ -1,0 +1,56 @@
+old = []
+new = []
+seen = false
+for line in lines():
+  if seen:
+    new.push(line)
+  elif line == "=====":
+    seen = true
+  else:
+    old.push(line)
+
+n = old.len()
+m = new.len()
+Lm = {}
+for k in 0..n:
+  i = n - 1 - k
+  for k2 in 0..m:
+    j = m - 1 - k2
+    if old[i] == new[j]:
+      Lm[(i, j)] = Lm[(i + 1, j + 1)] + 1
+    else:
+      Lm[(i, j)] = max(Lm[(i + 1, j)], Lm[(i, j + 1)])
+
+out = []
+removed = 0
+added = 0
+i = 0
+j = 0
+while i < n and j < m:
+  if old[i] == new[j]:
+    out.push("  " + old[i])
+    i += 1
+    j += 1
+  elif Lm[(i + 1, j)] >= Lm[(i, j + 1)]:
+    out.push("- " + old[i])
+    i += 1
+    removed += 1
+  else:
+    out.push("+ " + new[j])
+    j += 1
+    added += 1
+while i < n:
+  out.push("- " + old[i])
+  i += 1
+  removed += 1
+while j < m:
+  out.push("+ " + new[j])
+  j += 1
+  added += 1
+
+if old == new:
+  print("no changes")
+else:
+  for o in out:
+    print(o)
+  print("@@ -{removed} +{added} @@")

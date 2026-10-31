@@ -10,7 +10,7 @@ XL = "order_book mini_sql calc_lang fifo_stock library project_plan".split()
 tasks = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL}[size]
 B = "/home/user/brevi/bench"; ext = {"brevi": "bv", "python": "py"}[lang]
 name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
-guide = f"First read the language guide /home/user/brevi/BREVI.md once. " if lang == "brevi" else ""
+guide = f"First read the language guide /home/user/brevi/BREVI.md once. When you need details it points to, run {B}/guide.sh {run} WORD to print the guide lines about WORD; this is the only other command you may run. " if lang == "brevi" else ""
 print(f"""You are writing small command-line programs in {name}. {guide}Solve these tasks in order: {", ".join(tasks)}.
 
 For each task TASK:
@@ -20,6 +20,6 @@ For each task TASK:
    It prints PASS, or the compiler error, or the first failing test.
 4. If it did not pass, edit only the lines that need to change (do not rewrite the whole file) and run the check again, up to 6 checks per task, then move on.
 
-Rules: run.sh is the only command you may run. Do not run or test code any other way, and do not read anything else under {B} or the compiler source (no other solutions, tests, logs or reference code). Write code directly, without long planning notes.
+Rules: run.sh{" and guide.sh are the only commands" if lang == "brevi" else " is the only command"} you may run. Do not run or test code any other way, and do not read anything else under {B} or the compiler source (no other solutions, tests, logs or reference code). Write code directly, without long planning notes.
 
 When done, reply with one line per task: TASK, PASS or FAIL, number of checks.""")

@@ -1,0 +1,68 @@
+test 0 failed
+input:
+; global
+name = demo
+root = /srv/${name}
+
+[paths]
+logs = ${root}/logs
+cache = ${default.root}/cache
+tmp = ${missing}/tmp
+ [ db ]
+host = localhost
+url = postgres://${host}:${port}/${name}
+port = 5432
+port = 6543
+# loop
+a = ${b}
+b = ${a}
+c = x${d}
+d = ok
+---
+paths.logs
+paths.cache
+paths.tmp
+db.url
+db.a
+db.c
+db.zz
+db.*
+nope.*
+sections
+default.root
+expected:
+/srv/demo/logs
+/srv/demo/cache
+/tmp
+postgres://localhost:6543/demo
+<cycle>
+xok
+<missing>
+a=<cycle>
+b=<cycle>
+c=xok
+d=ok
+host=localhost
+port=6543
+url=postgres://localhost:6543/demo
+<missing>
+db default paths
+/srv/demo
+got:
+/srv/demo/logs
+/srv/demo/cache
+/tmp
+postgres://localhost:6543/demo
+
+
+<missing>
+a=
+b=
+c=
+d=ok
+host=localhost
+port=6543
+url=
+<missing>
+db default paths
+passed 0/2

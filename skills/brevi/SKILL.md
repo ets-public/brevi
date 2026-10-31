@@ -13,7 +13,7 @@ Check that `brevi --version` works. If it does not, run the repository's `instal
 
 ## Before writing code
 
-Run `brevi guide` once and read the whole guide it prints. It is short and matches the installed compiler. Later, `brevi guide WORD` prints only the lines about one name, like `brevi guide re_list` or `brevi guide Tests`.
+Run `brevi guide` once and read the whole guide it prints. It is short and matches the installed compiler. Rare details are not in it: `brevi guide WORD` prints the lines about one name (`brevi guide partition`) and `brevi guide Strings` the full brace and format rules.
 
 ## Loop
 

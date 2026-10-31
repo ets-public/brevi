@@ -1,0 +1,39 @@
+ls = stdin().lines()
+idx = ls.index_of("=====")
+old = ls[0:idx]
+nw = ls[idx + 1:]
+na = old.len()
+nb = nw.len()
+L = {}
+for i in (0..na + 1).rev():
+  for j in (0..nb + 1).rev():
+    if i == na or j == nb:
+      L[(i, j)] = 0
+    elif old[i] == nw[j]:
+      L[(i, j)] = L[(i + 1, j + 1)] + 1
+    else:
+      L[(i, j)] = max(L[(i + 1, j)], L[(i, j + 1)])
+out = []
+rem = 0
+add = 0
+i = 0
+j = 0
+while i < na or j < nb:
+  if i < na and j < nb and old[i] == nw[j]:
+    out.push("  " + old[i])
+    i += 1
+    j += 1
+  elif i < na and (j == nb or L[(i + 1, j)] >= L[(i, j + 1)]):
+    out.push("- " + old[i])
+    rem += 1
+    i += 1
+  else:
+    out.push("+ " + nw[j])
+    add += 1
+    j += 1
+if rem == 0 and add == 0:
+  print("no changes")
+else:
+  for o in out:
+    print(o)
+  print("@@ -{rem} +{add} @@")

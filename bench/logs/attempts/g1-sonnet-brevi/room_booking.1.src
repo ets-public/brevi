@@ -1,0 +1,59 @@
+rooms = []
+books = []
+names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+fn mins(t: str) -> int:
+  p = t.split(":")
+  p[0].int() * 60 + p[1].int()
+
+for line in lines():
+  w = line.words()
+  if w.len() == 0:
+    continue
+  c = w[0]
+  if c == "ROOM":
+    rooms.push((w[2].int(), w[1]))
+  elif c == "BOOK":
+    id = w[1]
+    dt = w[2]
+    s = mins(w[3])
+    e = mins(w[4])
+    ppl = w[5].int()
+    cands = []
+    for r in rooms:
+      if r.0 < ppl:
+        continue
+      free = true
+      for b in books:
+        if b.1 == r.1 and b.2 == dt and s < b.4 and b.3 < e:
+          free = false
+      if free:
+        cands.push(r)
+    if cands.len() == 0:
+      print("{id} rejected")
+    else:
+      best = cands.sort()[0]
+      books.push((id, best.1, dt, s, e, w[3], w[4]))
+      print("{id} -> {best.1}")
+  elif c == "CANCEL":
+    idx = -1
+    for k in 0..books.len():
+      if books[k].0 == w[1]:
+        idx = k
+    if idx < 0:
+      print("{w[1]} not found")
+    else:
+      books.remove(idx)
+      print("{w[1]} cancelled")
+  elif c == "LIST":
+    dt = w[1]
+    print("{dt} {names[date(dt).weekday - 1]}")
+    day = []
+    for b in books:
+      if b.2 == dt:
+        day.push((b.3, b.1, b.0, b.5, b.6))
+    if day.len() == 0:
+      print("  no bookings")
+    else:
+      for x in day.sort():
+        print("  {x.3}-{x.4} {x.1} {x.2}")

@@ -1,0 +1,65 @@
+fn tomin(t: str) -> int:
+  p = t.split(":")
+  return p[0].int() * 60 + p[1].int()
+
+fn main():
+  rooms = {}
+  bks = []
+  names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  for raw in lines():
+    line = raw.trim()
+    if line == "":
+      continue
+    parts = [x for x in line.split(" ") if x != ""]
+    cmd = parts[0]
+    if cmd == "ROOM":
+      rooms[parts[1]] = parts[2].int()
+    elif cmd == "BOOK":
+      bid = parts[1]
+      bdate = parts[2]
+      sstr = parts[3]
+      estr = parts[4]
+      people = parts[5].int()
+      s = tomin(sstr)
+      e = tomin(estr)
+      chosen = ""
+      order = rooms.pairs().sort_by(p => (p.1, p.0))
+      for rp in order:
+        if rp.1 < people:
+          continue
+        conflict = false
+        for b in bks:
+          if b.1 == bdate and b.4 == rp.0 and b.2 < e and s < b.3:
+            conflict = true
+        if not conflict:
+          chosen = rp.0
+          break
+      if chosen == "":
+        print("{bid} rejected")
+      else:
+        bks.push((bid, bdate, s, e, chosen, sstr, estr))
+        print("{bid} -> {chosen}")
+    elif cmd == "CANCEL":
+      bid = parts[1]
+      found = -1
+      for idx in 0..bks.len():
+        cb = bks[idx]
+        if cb.0 == bid:
+          found = idx
+      if found < 0:
+        print("{bid} not found")
+      else:
+        bks.remove(found)
+        print("{bid} cancelled")
+    elif cmd == "LIST":
+      ldate = parts[1]
+      wd = date(ldate).weekday
+      wname = names[wd - 1]
+      print("{ldate} {wname}")
+      day = [b for b in bks if b.1 == ldate]
+      day2 = day.sort_by(b => (b.2, b.4))
+      if day2.len() == 0:
+        print("  no bookings")
+      for b in day2:
+        tr = b.5 + "-" + b.6
+        print("  {tr} {b.4} {b.0}")

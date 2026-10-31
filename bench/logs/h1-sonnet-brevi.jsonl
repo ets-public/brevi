@@ -1,0 +1,8 @@
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"sales_report","code_tok":495,"patch_tok":495,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"route_planner","code_tok":514,"patch_tok":514,"out_tok":24,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"route_planner","code_tok":517,"patch_tok":135,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"ini_config","code_tok":934,"patch_tok":934,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"stack_vm","code_tok":1096,"patch_tok":1096,"out_tok":7,"compiled":true,"pass":8,"total":8,"tok":"exact"}
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"line_diff","code_tok":446,"patch_tok":446,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"room_booking","code_tok":589,"patch_tok":589,"out_tok":101,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"h1-sonnet-brevi","lang":"brevi","task":"room_booking","code_tok":604,"patch_tok":67,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

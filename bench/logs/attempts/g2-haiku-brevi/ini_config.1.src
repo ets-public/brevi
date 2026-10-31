@@ -1,0 +1,98 @@
+fn expand(sec: str, v: str, stack: [(str, str)], data: {str: {str: str}}) -> str:
+  out = ""
+  rest = v
+  while true:
+    i = rest.find('${')
+    if i < 0:
+      return out + rest
+    out = out + rest.slice(0, i)
+    after = rest.slice(i + 2, rest.len())
+    j = after.find('}')
+    if j < 0:
+      return out + rest.slice(i, rest.len())
+    name = after.slice(0, j)
+    out = out + lookup(sec, name, stack, data)
+    rest = after.slice(j + 1, after.len())
+
+fn lookup(sec: str, name: str, stack: [(str, str)], data: {str: {str: str}}) -> str:
+  d = name.find('.')
+  if d >= 0:
+    s2 = name.slice(0, d)
+    k2 = name.slice(d + 1, name.len())
+  else:
+    k2 = name
+    s2 = "default"
+    if data.has(sec):
+      secm = data[sec]
+      if secm.has(k2):
+        s2 = sec
+  if not data.has(s2): return ""
+  secm2 = data[s2]
+  if not secm2.has(k2): return ""
+  return resolve(s2, k2, stack, data)
+
+fn resolve(sec: str, key: str, stack: [(str, str)], data: {str: {str: str}}) -> str:
+  if stack.contains((sec, key)):
+    fail("cycle")
+  secmap = data[sec]
+  raw = secmap[key]
+  return expand(sec, raw, stack + [(sec, key)], data)
+
+fn main():
+  data = {}
+  cur = "default"
+  in_queries = false
+  queries = []
+  for raw in lines():
+    line = raw.trim()
+    if in_queries:
+      if line != "":
+        queries.push(line)
+      continue
+    if line == "---":
+      in_queries = true
+      continue
+    if line == "":
+      continue
+    if line.starts_with(";") or line.starts_with("#"):
+      continue
+    if line.starts_with("[") and line.ends_with("]"):
+      cur = line.slice(1, line.len() - 1).trim()
+      continue
+    eq = line.find("=")
+    if eq < 0:
+      continue
+    k = line.slice(0, eq).trim()
+    v = line.slice(eq + 1, line.len()).trim()
+    if not data.has(cur):
+      data[cur] = {}
+    data[cur][k] = v
+  for q in queries:
+    if q == "sections":
+      print(" ".join(data.keys()))
+    elif q.ends_with(".*"):
+      sec = q.slice(0, q.len() - 2)
+      if not data.has(sec):
+        print("<missing>")
+      else:
+        for k in data[sec].keys():
+          match resolve(sec, k, [], data):
+            Ok(v) => print("{k}={v}")
+            Err(m) => print("{k}=<cycle>")
+    else:
+      d = q.find('.')
+      if d < 0:
+        print("<missing>")
+        continue
+      s2 = q.slice(0, d)
+      k2 = q.slice(d + 1, q.len())
+      if not data.has(s2):
+        print("<missing>")
+        continue
+      secm = data[s2]
+      if not secm.has(k2):
+        print("<missing>")
+        continue
+      match resolve(s2, k2, [], data):
+        Ok(v) => print(v)
+        Err(m) => print("<cycle>")

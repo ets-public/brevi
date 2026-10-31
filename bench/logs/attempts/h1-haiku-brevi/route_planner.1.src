@@ -1,0 +1,49 @@
+fn best_from(src: str, edges: [(str, str, int)]) -> {str: (int, int, [str])}:
+  best = {src: (0, 0, [src])}
+  changed = true
+  while changed:
+    changed = false
+    for e in edges:
+      for u, v in [(e.0, e.1), (e.1, e.0)]:
+        if best.has(u):
+          bu = best[u]
+          cand = (bu.0 + e.2, bu.1 + 1, bu.2 + [v])
+          if not best.has(v) or cand < best[v]:
+            best[v] = cand
+            changed = true
+  return best
+
+edges = []
+stations = {}
+queries = []
+in_edges = true
+for line in lines():
+  parts = line.re_list('\S+')
+  if in_edges:
+    if parts.is_empty():
+      in_edges = false
+      continue
+    edges.push((parts[0], parts[1], parts[2].int()))
+    stations[parts[0]] = true
+    stations[parts[1]] = true
+  elif not parts.is_empty():
+    queries.push((parts[0], parts[1]))
+
+for q in queries:
+  src = q.0
+  dst = q.1
+  if not stations.has(src):
+    print("unknown station {src}")
+  elif not stations.has(dst):
+    print("unknown station {dst}")
+  elif src == dst:
+    print("{src} (0 min)")
+  else:
+    res = best_from(src, edges)
+    if not res.has(dst):
+      print("no route {src} {dst}")
+    else:
+      r = res[dst]
+      path = r.2.join(" -> ")
+      t = r.0
+      print("{path} ({t} min)")

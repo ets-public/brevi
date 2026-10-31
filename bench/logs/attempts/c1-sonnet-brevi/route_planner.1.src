@@ -1,0 +1,49 @@
+ls = lines()
+adj = {}
+w = {}
+i = 0
+while i < ls.len() and not ls[i].trim().is_empty():
+  p = ls[i].words()
+  a = p[0]
+  b = p[1]
+  t = p[2].int()
+  if not w.has((a, b)) or t < w[(a, b)]:
+    w[(a, b)] = t
+    w[(b, a)] = t
+  i += 1
+for k, t in w.pairs():
+  adj[k.0].push((k.1, t))
+  if not adj.has(k.1): adj[k.1] = []
+fn route(src: str, dst: str):
+  h = heap()
+  h.push((0, 1, [src], src))
+  seen = {}
+  while h:
+    it = h.pop()
+    node = it.3
+    if seen.has(node): continue
+    seen[node] = true
+    if node == dst: return it
+    for e in adj[node]:
+      if not seen.has(e.0):
+        h.push((it.0 + e.1, it.1 + 1, it.2 + [e.0], e.0))
+  return (-1, 0, [], "")
+while i < ls.len():
+  l = ls[i].trim()
+  i += 1
+  if l.is_empty(): continue
+  q = l.words()
+  f = q[0]
+  g = q[1]
+  if not adj.has(f):
+    print("unknown station {f}")
+  elif not adj.has(g):
+    print("unknown station {g}")
+  elif f == g:
+    print("{f} (0 min)")
+  else:
+    r = route(f, g)
+    if r.0 < 0:
+      print("no route {f} {g}")
+    else:
+      print("{r.2.join(" -> ")} ({r.0} min)")

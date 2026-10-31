@@ -1,0 +1,44 @@
+fn valid_row(f: [str]) -> bool:
+  if f.len() != 5: return false
+  if not f[0].re_full('[0-9]{4}-[0-9]{2}-[0-9]{2}'): return false
+  if not f[3].re_full('[0-9]+'): return false
+  if not f[4].re_full('[0-9]+(\.[0-9]{1,2})?'): return false
+  return true
+
+fn main():
+  table = csv(stdin())
+  rows = 0
+  skipped = 0
+  regions = {}
+  products = {}
+  months = {}
+  for i in 1..table.len():
+    f = table[i]
+    if f.len() == 1 and f[0].trim() == "":
+      continue
+    if not valid_row(f):
+      skipped += 1
+      continue
+    rows += 1
+    qty = f[3].int()
+    rev = f[3].dec() * f[4].dec()
+    regions[f[1]] += rev
+    products[f[2]] += qty
+    months[f[0].slice(0, 7)] += rev
+  print("rows {rows}")
+  print("skipped {skipped}")
+  if rows == 0:
+    return
+  print("regions")
+  for p in regions.pairs().sort_by(p => (-p.1, p.0)):
+    print("  {p.0} {p.1.fmt(2)}")
+  best = ""
+  bq = -1
+  for name, q in products.pairs():
+    if q > bq:
+      best = name
+      bq = q
+  print("top_product {best} {bq}")
+  print("months")
+  for mo, rev in months.pairs():
+    print("  {mo} {rev.fmt(2)}")

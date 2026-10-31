@@ -5,7 +5,7 @@ FROM rust:1-slim AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src src
-COPY BREVI.md LIBRARIES.md ./
+COPY BREVI.md REFERENCE.md LIBRARIES.md ./
 RUN cargo build --release
 
 FROM rust:1-slim

@@ -1,0 +1,108 @@
+data = {}
+secs = {}
+cyc = []
+stack = []
+
+fn lookup(sec: str, key: str) -> str:
+  if (sec, key) in stack:
+    cyc.push(1)
+    return ""
+  stack.push((sec, key))
+  out = expand(sec, data[(sec, key)])
+  stack.pop()
+  out
+
+fn has_key(sec: str, key: str) -> bool = data.has((sec, key))
+
+fn expand(sec: str, s: str) -> str:
+  i = s.find("${")
+  if i < 0:
+    return s
+  rest = s.slice(i + 2, s.len())
+  j = rest.find("}")
+  if j < 0:
+    return s
+  name = rest.slice(0, j)
+  after = rest.slice(j + 1, rest.len())
+  val = ""
+  d = name.find(".")
+  if d >= 0:
+    s2 = name.slice(0, d)
+    k2 = name.slice(d + 1, name.len())
+    if has_key(s2, k2):
+      val = lookup(s2, k2)
+  elif has_key(sec, name):
+    val = lookup(sec, name)
+  elif has_key("default", name):
+    val = lookup("default", name)
+  s.slice(0, i) + val + expand(sec, after)
+
+fn resolved(sec: str, key: str) -> str:
+  while stack:
+    stack.pop()
+  while cyc:
+    cyc.pop()
+  v = lookup(sec, key)
+  if cyc:
+    return "<cycle>"
+  v
+
+cur = "default"
+querying = false
+for line in lines():
+  t = line.trim()
+  if querying:
+    if t == "":
+      continue
+    if t == "sections":
+      names = []
+      for sname, c in secs.pairs():
+        names.push(sname)
+      ok = []
+      for sname in names:
+        n = 0
+        for k, v in data.pairs():
+          if k.0 == sname:
+            n += 1
+        if n > 0:
+          ok.push(sname)
+      print(ok.sort().join(" "))
+      continue
+    d = t.find(".")
+    if d < 0:
+      print("<missing>")
+      continue
+    sname = t.slice(0, d)
+    kname = t.slice(d + 1, t.len())
+    if kname == "*":
+      if not secs.has(sname):
+        print("<missing>")
+      else:
+        ks = []
+        for k, v in data.pairs():
+          if k.0 == sname:
+            ks.push(k.1)
+        for k in ks.sort():
+          print("{k}={resolved(sname, k)}")
+    elif has_key(sname, kname):
+      print(resolved(sname, kname))
+    else:
+      print("<missing>")
+    continue
+  if t == "---":
+    querying = true
+    continue
+  if t == "" or t.starts_with(";") or t.starts_with("#"):
+    continue
+  if t.starts_with("["):
+    e = t.find("]")
+    if e < 0:
+      e = t.len()
+    cur = t.slice(1, e).trim()
+    secs[cur] = 1
+    continue
+  p = t.find("=")
+  if p < 0:
+    continue
+  secs["default"] = 1
+  data[(cur, t.slice(0, p).trim())] = t.slice(p + 1, t.len()).trim()

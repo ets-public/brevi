@@ -1,0 +1,122 @@
+fn main():
+  ops = []
+  args = []
+  lnos = []
+  labels = {}
+  valid = ["push", "pop", "dup", "swap", "add", "sub", "mul", "div", "mod", "jmp", "jz", "jnz", "call", "ret", "print", "halt"]
+  bad_line = 0
+  bad_op = ""
+  ln = 0
+  for raw in lines():
+    ln += 1
+    line = raw
+    h = line.find("#")
+    if h >= 0:
+      line = line.slice(0, h)
+    line = line.trim()
+    if line == "":
+      continue
+    if line.ends_with(":"):
+      labels[line.slice(0, line.len() - 1).trim()] = ops.len()
+      continue
+    parts = [x for x in line.split(" ") if x != ""]
+    op = parts[0]
+    arg = ""
+    if parts.len() > 1:
+      arg = parts[1]
+    if bad_line == 0 and not valid.contains(op):
+      bad_line = ln
+      bad_op = op
+    ops.push(op)
+    args.push(arg)
+    lnos.push(ln)
+  if bad_line > 0:
+    print("error line {bad_line}: unknown instruction {bad_op}")
+    return
+  n = ops.len()
+  for i in 0..n:
+    o = ops[i]
+    if o == "jmp" or o == "jz" or o == "jnz" or o == "call":
+      if not labels.has(args[i]):
+        bad_arg = args[i]
+        bad_ln = lnos[i]
+        print("error line {bad_ln}: unknown label {bad_arg}")
+        return
+  stack = []
+  calls = []
+  pc = 0
+  steps = 0
+  while pc < n:
+    if steps == 10000:
+      print("error: step limit")
+      return
+    steps += 1
+    o = ops[pc]
+    a = args[pc]
+    ln2 = lnos[pc]
+    pc += 1
+    if o == "push":
+      stack.push(a.int())
+    elif o == "pop":
+      if stack.len() < 1:
+        print("error line {ln2}: stack underflow")
+        return
+      stack.pop()
+    elif o == "dup":
+      if stack.len() < 1:
+        print("error line {ln2}: stack underflow")
+        return
+      stack.push(stack.last())
+    elif o == "swap":
+      if stack.len() < 2:
+        print("error line {ln2}: stack underflow")
+        return
+      t = stack.pop()
+      u = stack.pop()
+      stack.push(t)
+      stack.push(u)
+    elif o == "add" or o == "sub" or o == "mul" or o == "div" or o == "mod":
+      if stack.len() < 2:
+        print("error line {ln2}: stack underflow")
+        return
+      b = stack.pop()
+      x = stack.pop()
+      if (o == "div" or o == "mod") and b == 0:
+        print("error line {ln2}: division by zero")
+        return
+      if o == "add":
+        r = x + b
+      elif o == "sub":
+        r = x - b
+      elif o == "mul":
+        r = x * b
+      elif o == "div":
+        r = x / b
+      else:
+        r = x % b
+      stack.push(r)
+    elif o == "jmp":
+      pc = labels[a]
+    elif o == "jz" or o == "jnz":
+      if stack.len() < 1:
+        print("error line {ln2}: stack underflow")
+        return
+      v = stack.pop()
+      if o == "jz" and v == 0:
+        pc = labels[a]
+      if o == "jnz" and v != 0:
+        pc = labels[a]
+    elif o == "call":
+      calls.push(pc)
+      pc = labels[a]
+    elif o == "ret":
+      if calls.len() == 0:
+        return
+      pc = calls.pop()
+    elif o == "print":
+      if stack.len() < 1:
+        print("error line {ln2}: stack underflow")
+        return
+      print(stack.pop())
+    elif o == "halt":
+      return

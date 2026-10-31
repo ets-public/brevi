@@ -1,0 +1,109 @@
+fn go(src: [str]) -> str:
+  ops = []
+  args = []
+  lnos = []
+  texts = []
+  labels = {}
+  for i in 0..src.len():
+    t = src[i].split("#")[0].trim()
+    if t == "":
+      continue
+    if t.ends_with(":"):
+      labels[t.slice(0, t.len() - 1).trim()] = ops.len()
+      continue
+    w = t.words()
+    arg = ""
+    if w.len() > 1:
+      arg = w[1]
+    ops.push(w[0])
+    args.push(arg)
+    lnos.push(i + 1)
+    texts.push(t)
+  known = ["push", "pop", "dup", "swap", "add", "sub", "mul", "div", "mod", "jmp", "jz", "jnz", "call", "ret", "print", "halt"]
+  n = ops.len()
+  for i in 0..n:
+    if not known.contains(ops[i]):
+      return "error line {lnos[i]}: unknown instruction {ops[i]}"
+    if ops[i] == "push" and args[i].re_full("-?\d+").len() == 0:
+      return "error line {lnos[i]}: unknown instruction {texts[i]}"
+  for i in 0..n:
+    if ["jmp", "jz", "jnz", "call"].contains(ops[i]) and not labels.has(args[i]):
+      return "error line {lnos[i]}: unknown label {args[i]}"
+  st = []
+  cs = []
+  pc = 0
+  steps = 0
+  while pc < n:
+    if steps == 10000:
+      return "error: step limit"
+    steps += 1
+    o = ops[pc]
+    lno = lnos[pc]
+    nxt = pc + 1
+    if o == "push":
+      st.push(args[pc].int().or(0))
+    elif o == "pop":
+      if st.len() < 1:
+        return "error line {lno}: stack underflow"
+      st.pop()
+    elif o == "dup":
+      if st.len() < 1:
+        return "error line {lno}: stack underflow"
+      st.push(st.last())
+    elif o == "swap":
+      if st.len() < 2:
+        return "error line {lno}: stack underflow"
+      a = st.pop()
+      b = st.pop()
+      st.push(a)
+      st.push(b)
+    elif o == "add" or o == "sub" or o == "mul" or o == "div" or o == "mod":
+      if st.len() < 2:
+        return "error line {lno}: stack underflow"
+      r = st.pop()
+      l = st.pop()
+      if (o == "div" or o == "mod") and r == 0:
+        return "error line {lno}: division by zero"
+      if o == "add":
+        st.push(l + r)
+      elif o == "sub":
+        st.push(l - r)
+      elif o == "mul":
+        st.push(l * r)
+      elif o == "div":
+        st.push(l / r)
+      else:
+        st.push(l % r)
+    elif o == "jmp":
+      nxt = labels[args[pc]]
+    elif o == "jz":
+      if st.len() < 1:
+        return "error line {lno}: stack underflow"
+      v = st.pop()
+      if v == 0:
+        nxt = labels[args[pc]]
+    elif o == "jnz":
+      if st.len() < 1:
+        return "error line {lno}: stack underflow"
+      v = st.pop()
+      if v != 0:
+        nxt = labels[args[pc]]
+    elif o == "call":
+      cs.push(pc + 1)
+      nxt = labels[args[pc]]
+    elif o == "ret":
+      if cs.len() == 0:
+        return ""
+      nxt = cs.pop()
+    elif o == "print":
+      if st.len() < 1:
+        return "error line {lno}: stack underflow"
+      print(st.pop())
+    else:
+      return ""
+    pc = nxt
+  return ""
+
+err = go(stdin().lines())
+if err != "":
+  print(err)

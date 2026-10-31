@@ -8,7 +8,7 @@ Check that `brevi --version` works. If it does not, run the repository's `instal
 
 ## Before writing code
 
-Run `brevi guide` once and read the whole guide it prints. It is short and matches the installed compiler. Later, `brevi guide WORD` prints only the lines about one name, like `brevi guide re_list` or `brevi guide Tests`.
+Run `brevi guide` once and read the whole guide it prints. It is short and matches the installed compiler. Rare details are not in it: `brevi guide WORD` prints the lines about one name (`brevi guide partition`) and `brevi guide Strings` the full brace and format rules.
 
 ## Loop
 
@@ -22,4 +22,5 @@ Run `brevi guide` once and read the whole guide it prints. It is short and match
 
 - `brevi check NAME.bv --fast` runs only Brevi's own checks, in milliseconds, without rustc.
 - `brevi build NAME.bv -o app --release` makes a native binary.
+- When Brevi has no built-in for something (hashing, HTTP, a data science library), run `brevi guide Libraries`: write that one function as a `rust fn` (with `use CRATE "VERSION"`) or a `py fn`, and keep the rest in Brevi. Split big programs into files with `use "other.bv"`.
 - Python habits are accepted (`True`, `.append()`, `range()`, `", ".join(xs)`), so write what comes naturally and let the errors guide you.

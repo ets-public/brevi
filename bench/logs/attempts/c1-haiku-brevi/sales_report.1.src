@@ -1,0 +1,46 @@
+fn valid_date(s: str) -> bool = s.re_full("\d{4}-\d{2}-\d{2}").len() > 0
+fn valid_qty(s: str) -> bool = s.re_full("\d+").len() > 0
+fn valid_price(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0
+
+rows = csv(stdin())
+header = true
+valid = 0
+skipped = 0
+region_rev = {}
+product_qty = {}
+month_rev = {}
+for r in rows:
+  if r.len() == 0:
+    continue
+  if r.len() == 1 and r[0].trim() == "":
+    continue
+  if header:
+    header = false
+    continue
+  if r.len() != 5 or not valid_date(r[0]) or not valid_qty(r[3]) or not valid_price(r[4]):
+    skipped += 1
+    continue
+  valid += 1
+  qty = r[3].int().or(0)
+  rev = r[4].dec() * qty
+  region_rev[r[1]] += rev
+  product_qty[r[2]] += qty
+  month_rev[r[0].slice(0, 7)] += rev
+
+print("rows {valid}")
+print("skipped {skipped}")
+if valid > 0:
+  print("regions")
+  rps = region_rev.pairs()
+  rps.sort_by(p => (-p.1, p.0))
+  for p in rps:
+    line = p.1.fmt(2)
+    print("  {p.0} {line}")
+  pps = product_qty.pairs()
+  pps.sort_by(p => (-p.1, p.0))
+  top = pps.first()
+  print("top_product {top.0} {top.1}")
+  print("months")
+  for k in month_rev.keys().sort():
+    v = month_rev[k].fmt(2)
+    print("  {k} {v}")

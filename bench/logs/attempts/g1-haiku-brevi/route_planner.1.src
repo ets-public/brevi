@@ -1,0 +1,64 @@
+fn main():
+  adj = {}
+  stations = {}
+  in_edges = true
+  for line in lines():
+    s = line.trim()
+    if in_edges:
+      if s == "":
+        in_edges = false
+        continue
+      parts = s.split(" ").filter(p => p != "")
+      a = parts[0]
+      b = parts[1]
+      t = parts[2].int().or(0)
+      stations[a] = true
+      stations[b] = true
+      if not adj.has(a): adj[a] = {}
+      if not adj.has(b): adj[b] = {}
+      if not (adj[a].has(b) and adj[a][b] <= t):
+        adj[a][b] = t
+        adj[b][a] = t
+    else:
+      if s == "":
+        continue
+      q = s.split(" ").filter(p => p != "")
+      frm = q[0]
+      to = q[1]
+      if not stations.has(frm):
+        print("unknown station {frm}")
+      elif not stations.has(to):
+        print("unknown station {to}")
+      elif frm == to:
+        print("{frm} (0 min)")
+      else:
+        best = {}
+        best[frm] = (0, 0, [frm])
+        settled = {}
+        done = false
+        cur = ""
+        curlab = (0, 0, [""])
+        while not done:
+          found = false
+          for node, lab in best.pairs():
+            if settled.has(node): continue
+            if not found or lab < curlab:
+              found = true
+              cur = node
+              curlab = lab
+          if not found:
+            done = true
+          elif cur == to:
+            done = true
+          else:
+            settled[cur] = true
+            for nb, w in adj[cur].pairs():
+              if settled.has(nb): continue
+              cand = (curlab.0 + w, curlab.1 + 1, curlab.2 + [nb])
+              if not best.has(nb) or cand < best[nb]:
+                best[nb] = cand
+        if best.has(to) and settled.has(to):
+          rt = best[to]
+          print("{rt.2.join(" -> ")} ({rt.0} min)")
+        else:
+          print("no route {frm} {to}")

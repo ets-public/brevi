@@ -1,0 +1,65 @@
+fn main():
+  arcs = []
+  st = {}
+  queries = []
+  edges_done = false
+  for raw in lines():
+    line = raw.trim()
+    if not edges_done:
+      if line == "":
+        edges_done = true
+        continue
+      p = line.split(" ")
+      a = p[0]
+      b = p[1]
+      w = p[2].int()
+      st[a] = true
+      st[b] = true
+      arcs.push((a, b, w))
+      arcs.push((b, a, w))
+    else:
+      if line != "":
+        queries.push(line)
+  for q in queries:
+    p = q.split(" ")
+    f = p[0]
+    t = p[1]
+    if not st.has(f):
+      print("unknown station {f}")
+      continue
+    if not st.has(t):
+      print("unknown station {t}")
+      continue
+    if f == t:
+      print("{f} (0 min)")
+      continue
+    best = {f: (0, [f])}
+    changed = true
+    while changed:
+      changed = false
+      for e in arcs:
+        if best.has(e.0):
+          cur = best[e.0]
+          nt = cur.0 + e.2
+          np = cur.1 + [e.1]
+          better = false
+          if not best.has(e.1):
+            better = true
+          else:
+            old = best[e.1]
+            if nt < old.0:
+              better = true
+            elif nt == old.0:
+              if np.len() < old.1.len():
+                better = true
+              elif np.len() == old.1.len() and np < old.1:
+                better = true
+          if better:
+            best[e.1] = (nt, np)
+            changed = true
+    if not best.has(t):
+      print("no route {f} {t}")
+      continue
+    tm = best[t].0
+    s = " -> ".join(best[t].1)
+    print("{s} ({tm} min)")
