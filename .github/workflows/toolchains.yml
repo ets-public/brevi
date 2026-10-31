@@ -108,6 +108,10 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: sh tests/check.sh
 
+      - name: Core guide stays under its token budget
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tools/guide_budget.py
+
       - name: Every solution that ever passed still passes
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/compat.py check --report compat-report.md

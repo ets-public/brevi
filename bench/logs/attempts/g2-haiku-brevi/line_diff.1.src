@@ -1,0 +1,60 @@
+fn main():
+  ls = lines()
+  k = ls.len()
+  for idx in 0..ls.len():
+    if k == ls.len() and ls[idx] == "=====":
+      k = idx
+  old_l = ls.slice(0, k)
+  new_l = []
+  if k < ls.len():
+    new_l = ls.slice(k + 1, ls.len())
+  n = old_l.len()
+  m = new_l.len()
+  np1 = n + 1
+  mp1 = m + 1
+  L = []
+  for i in 0..np1:
+    row = []
+    for j in 0..mp1:
+      row.push(0)
+    L.push(row)
+  for ii in 0..n:
+    i = n - 1 - ii
+    for jj in 0..m:
+      j = m - 1 - jj
+      if old_l[i] == new_l[j]:
+        L[i][j] = L[i + 1][j + 1] + 1
+      else:
+        L[i][j] = max(L[i + 1][j], L[i][j + 1])
+  out = []
+  removed = 0
+  added = 0
+  i = 0
+  j = 0
+  while i < n and j < m:
+    if old_l[i] == new_l[j]:
+      out.push("  " + old_l[i])
+      i += 1
+      j += 1
+    elif L[i + 1][j] >= L[i][j + 1]:
+      out.push("- " + old_l[i])
+      removed += 1
+      i += 1
+    else:
+      out.push("+ " + new_l[j])
+      added += 1
+      j += 1
+  while i < n:
+    out.push("- " + old_l[i])
+    removed += 1
+    i += 1
+  while j < m:
+    out.push("+ " + new_l[j])
+    added += 1
+    j += 1
+  if removed == 0 and added == 0:
+    print("no changes")
+    return
+  for o in out:
+    print(o)
+  print("@@ -{removed} +{added} @@")

@@ -1,0 +1,92 @@
+fn has_key(s: str, k: str) -> bool:
+  return secs.has(s) and secs[s].has(k)
+
+fn fetch(ts: str, tk: str, stack: [str]) -> (bool, str):
+  id = "{ts}.{tk}"
+  if stack.contains(id):
+    return (false, "")
+  raw = secs[ts][tk]
+  return expand(ts, raw, stack + [id])
+
+fn ref_val(sec: str, name: str, stack: [str]) -> (bool, str):
+  d = name.find(".")
+  if d >= 0:
+    ts = name[0:d]
+    tk = name[d+1:]
+    if has_key(ts, tk):
+      return fetch(ts, tk, stack)
+    return (true, "")
+  if has_key(sec, name):
+    return fetch(sec, name, stack)
+  if has_key("default", name):
+    return fetch("default", name, stack)
+  return (true, "")
+
+fn expand(sec: str, raw: str, stack: [str]) -> (bool, str):
+  out = ""
+  rest = raw
+  while true:
+    i = rest.find("${")
+    if i < 0:
+      out += rest
+      break
+    out += rest[0:i]
+    tail = rest[i:]
+    j = tail.find("}")
+    name = tail[2:j]
+    rest = tail[j+1:]
+    got = ref_val(sec, name, stack)
+    if not got.0:
+      return (false, "")
+    out += got.1
+  return (true, out)
+
+secs = {}
+cur = "default"
+seen_sep = false
+queries = []
+for line in lines():
+  t = line.trim()
+  if seen_sep:
+    if t != "":
+      queries.push(t)
+  elif t == "---":
+    seen_sep = true
+  elif t == "" or t.starts_with(";") or t.starts_with("#"):
+    continue
+  elif t.starts_with("[") and t.ends_with("]"):
+    cur = t[1:t.len()-1].trim()
+  elif t.contains("="):
+    idx = t.find("=")
+    k = t[0:idx].trim()
+    v = t[idx+1:].trim()
+    inner = secs.get_or(cur, {})
+    inner[k] = v
+    secs[cur] = inner
+
+for q in queries:
+  if q == "sections":
+    print(secs.keys().join(" "))
+  elif q.ends_with(".*"):
+    sec = q[0:q.len()-2]
+    if not secs.has(sec):
+      print("<missing>")
+    else:
+      for k in secs[sec].keys():
+        got = fetch(sec, k, [])
+        if got.0:
+          print("{k}={got.1}")
+        else:
+          print("{k}=<cycle>")
+  else:
+    d = q.find(".")
+    if d < 0:
+      print("<missing>")
+    elif not has_key(q[0:d], q[d+1:]):
+      print("<missing>")
+    else:
+      got = fetch(q[0:d], q[d+1:], [])
+      if got.0:
+        print(got.1)
+      else:
+        print("<cycle>")

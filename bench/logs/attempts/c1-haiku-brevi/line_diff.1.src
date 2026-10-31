@@ -1,0 +1,53 @@
+all = stdin().lines()
+k = all.index_of("=====")
+old = all
+new = []
+if k >= 0:
+  old = all.slice(0, k)
+  new = all.slice(k + 1, all.len())
+n = old.len()
+m = new.len()
+
+tbl = []
+for i in 0..n + 1:
+  tbl.push([0].repeat(m + 1))
+for i in (0..n).rev():
+  for j in (0..m).rev():
+    if old[i] == new[j]:
+      tbl[i][j] = tbl[i + 1][j + 1] + 1
+    else:
+      tbl[i][j] = max(tbl[i + 1][j], tbl[i][j + 1])
+
+i = 0
+j = 0
+out = []
+ca = 0
+cb = 0
+while i < n or j < m:
+  if i >= n:
+    out.push("+ " + new[j])
+    cb += 1
+    j += 1
+  elif j >= m:
+    out.push("- " + old[i])
+    ca += 1
+    i += 1
+  elif old[i] == new[j]:
+    out.push("  " + old[i])
+    i += 1
+    j += 1
+  elif tbl[i + 1][j] >= tbl[i][j + 1]:
+    out.push("- " + old[i])
+    ca += 1
+    i += 1
+  else:
+    out.push("+ " + new[j])
+    cb += 1
+    j += 1
+
+if ca == 0 and cb == 0:
+  print("no changes")
+else:
+  for line in out:
+    print(line)
+  print("@@ -{ca} +{cb} @@")

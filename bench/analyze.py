@@ -3,7 +3,8 @@ rows = []
 for f in sorted(glob.glob(sys.argv[1] if len(sys.argv) > 1 else "logs/*.jsonl")):
     L = [json.loads(l) for l in open(f)]
     by = collections.OrderedDict()
-    for r in L: by.setdefault(r["task"], []).append(r)
+    for r in L:
+        if r["task"] != "_guide": by.setdefault(r["task"], []).append(r)  # guide lookups only add tokens read
     run = L[0]["run"]
     solved = sum(1 for t in by.values() if t[-1]["pass"] == t[-1]["total"] and t[-1]["total"] > 0)
     first = sum(1 for t in by.values() if t[0]["pass"] == t[0]["total"] and t[0]["total"] > 0)

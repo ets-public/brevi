@@ -1,0 +1,79 @@
+names = ["push", "pop", "dup", "swap", "add", "sub", "mul", "div", "mod", "jmp", "jz", "jnz", "call", "ret", "print", "halt"]
+ops = []
+labels = {}
+bad = ""
+n = 0
+for raw in lines():
+  n += 1
+  l = raw
+  h = l.find("#")
+  if h >= 0: l = l.slice(0, h)
+  l = l.trim()
+  if l.is_empty(): continue
+  if l.ends_with(":"):
+    labels[l.slice(0, l.len() - 1).trim()] = ops.len()
+    continue
+  w = l.words()
+  if w[0] not in names:
+    if bad == "": bad = "error line {n}: unknown instruction {w[0]}"
+  ops.push((w[0], if w.len() > 1: w[1] else: "", n))
+if bad == "":
+  for o in ops:
+    if o.0 in ["jmp", "jz", "jnz", "call"] and not labels.has(o.1):
+      bad = "error line {o.2}: unknown label {o.1}"
+      break
+if bad != "":
+  print(bad)
+else:
+  st = []
+  cs = []
+  pc = 0
+  steps = 0
+  err = ""
+  while pc < ops.len():
+    if steps >= 10000:
+      err = "error: step limit"
+      break
+    steps += 1
+    o = ops[pc]
+    op = o.0
+    pc += 1
+    need = 0
+    if op in ["pop", "dup", "jz", "jnz", "print"]: need = 1
+    if op in ["swap", "add", "sub", "mul", "div", "mod"]: need = 2
+    if st.len() < need:
+      err = "error line {o.2}: stack underflow"
+      break
+    if op == "push": st.push(o.1.int())
+    elif op == "pop": st.pop()
+    elif op == "dup": st.push(st[-1])
+    elif op == "swap":
+      b = st.pop()
+      a = st.pop()
+      st.push(b)
+      st.push(a)
+    elif op == "print": print(st.pop())
+    elif op == "jmp": pc = labels[o.1]
+    elif op == "jz":
+      if st.pop() == 0: pc = labels[o.1]
+    elif op == "jnz":
+      if st.pop() != 0: pc = labels[o.1]
+    elif op == "call":
+      cs.push(pc)
+      pc = labels[o.1]
+    elif op == "ret":
+      if cs.is_empty(): break
+      pc = cs.pop()
+    elif op == "halt": break
+    else:
+      b = st.pop()
+      a = st.pop()
+      if op == "add": st.push(a + b)
+      elif op == "sub": st.push(a - b)
+      elif op == "mul": st.push(a * b)
+      elif b == 0:
+        err = "error line {o.2}: division by zero"
+        break
+      elif op == "div": st.push(a / b)
+      else: st.push(a % b)
+  if err != "": print(err)

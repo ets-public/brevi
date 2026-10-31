@@ -1,0 +1,57 @@
+adj = {}
+best = {}
+inedges = true
+for line in lines():
+  t = line.trim()
+  if inedges:
+    if t.is_empty():
+      inedges = false
+      continue
+    w = t.words()
+    a = w[0]
+    b = w[1]
+    m = w[2].int()
+    k = (a, b)
+    if a > b:
+      k = (b, a)
+    if not best.has(k) or m < best[k]:
+      best[k] = m
+  else:
+    if t.is_empty():
+      continue
+    if not adj:
+      for p in best.pairs():
+        ka = p.0[0]
+        kb = p.0[1]
+        adj[ka].push((kb, p.1))
+        adj[kb].push((ka, p.1))
+    w = t.words()
+    src = w[0]
+    dst = w[1]
+    if not adj.has(src):
+      print("unknown station {src}")
+    elif not adj.has(dst):
+      print("unknown station {dst}")
+    elif src == dst:
+      print("{src} (0 min)")
+    else:
+      h = heap()
+      h.push((0, 1, [src]))
+      done = {}
+      res = (-1, 0, [])
+      while h:
+        cur = h.pop()
+        node = cur.2.last()
+        if done.has(node):
+          continue
+        done[node] = true
+        if node == dst:
+          res = cur
+          break
+        for e in adj[node]:
+          if not done.has(e.0):
+            h.push((cur.0 + e.1, cur.1 + 1, cur.2 + [e.0]))
+      if res.0 < 0:
+        print("no route {src} {dst}")
+      else:
+        print("{res.2.join(' -> ')} ({res.0} min)")

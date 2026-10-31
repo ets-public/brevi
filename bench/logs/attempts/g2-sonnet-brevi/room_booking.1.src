@@ -1,0 +1,49 @@
+rooms = []
+books = []
+days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  c = w[0]
+  if c == "ROOM":
+    rooms.push((w[2].int(), w[1]))
+  elif c == "BOOK":
+    id = w[1]
+    d = w[2]
+    s = w[3]
+    e = w[4]
+    p = w[5].int()
+    cands = rooms.filter(r => r.0 >= p).sort()
+    got = ""
+    for r in cands:
+      free = true
+      for b in books:
+        if b.1 == r.1 and b.2 == d and s < b.4 and b.3 < e:
+          free = false
+      if free:
+        got = r.1
+        break
+    if got.is_empty():
+      print("{id} rejected")
+    else:
+      books.push((id, got, d, s, e))
+      print("{id} -> {got}")
+  elif c == "CANCEL":
+    idx = -1
+    for i in 0..books.len():
+      if books[i].0 == w[1]:
+        idx = i
+    if idx < 0:
+      print("{w[1]} not found")
+    else:
+      books.remove(idx)
+      print("{w[1]} cancelled")
+  elif c == "LIST":
+    d = w[1]
+    print("{d} {days[date(d).weekday - 1]}")
+    on = books.filter(b => b.2 == d).sort_by(b => (b.3, b.1))
+    if on.is_empty():
+      print("  no bookings")
+    for b in on:
+      print("  {b.3}-{b.4} {b.1} {b.0}")

@@ -1,0 +1,104 @@
+ops = ["push", "pop", "dup", "swap", "add", "sub", "mul", "div", "mod", "jmp", "jz", "jnz", "call", "ret", "print", "halt"]
+prog = []
+labels = {}
+ln = 0
+for raw in lines():
+  ln += 1
+  t = raw.partition("#").0.trim()
+  if t == "":
+    continue
+  if t.ends_with(":"):
+    labels[t.slice(0, t.len() - 1).trim()] = prog.len()
+    continue
+  w = t.words()
+  arg = if w.len() > 1: w[1] else: ""
+  prog.push((ln, w[0], arg))
+
+bad = false
+for ins in prog:
+  if ins.1 not in ops:
+    print("error line {ins.0}: unknown instruction {ins.1}")
+    bad = true
+    break
+if not bad:
+  for ins in prog:
+    if ins.1 in ["jmp", "jz", "jnz", "call"] and not labels.has(ins.2):
+      print("error line {ins.0}: unknown label {ins.2}")
+      bad = true
+      break
+if not bad:
+  st = []
+  cs = []
+  pc = 0
+  steps = 0
+  while pc < prog.len():
+    if steps >= 10000:
+      print("error: step limit")
+      break
+    steps += 1
+    ins = prog[pc]
+    op = ins.1
+    pc += 1
+    if op == "push":
+      st.push(ins.2.int())
+    elif op == "pop":
+      if st.len() < 1:
+        print("error line {ins.0}: stack underflow")
+        break
+      st.pop()
+    elif op == "dup":
+      if st.len() < 1:
+        print("error line {ins.0}: stack underflow")
+        break
+      st.push(st[-1])
+    elif op == "swap":
+      if st.len() < 2:
+        print("error line {ins.0}: stack underflow")
+        break
+      a = st.pop()
+      b = st.pop()
+      st.push(a)
+      st.push(b)
+    elif op in ["add", "sub", "mul", "div", "mod"]:
+      if st.len() < 2:
+        print("error line {ins.0}: stack underflow")
+        break
+      r = st.pop()
+      l = st.pop()
+      if op == "add":
+        st.push(l + r)
+      elif op == "sub":
+        st.push(l - r)
+      elif op == "mul":
+        st.push(l * r)
+      else:
+        if r == 0:
+          print("error line {ins.0}: division by zero")
+          break
+        if op == "div":
+          st.push(l / r)
+        else:
+          st.push(l % r)
+    elif op == "jmp":
+      pc = labels[ins.2]
+    elif op == "jz" or op == "jnz":
+      if st.len() < 1:
+        print("error line {ins.0}: stack underflow")
+        break
+      v = st.pop()
+      if (op == "jz" and v == 0) or (op == "jnz" and v != 0):
+        pc = labels[ins.2]
+    elif op == "call":
+      cs.push(pc)
+      pc = labels[ins.2]
+    elif op == "ret":
+      if cs.len() == 0:
+        break
+      pc = cs.pop()
+    elif op == "print":
+      if st.len() < 1:
+        print("error line {ins.0}: stack underflow")
+        break
+      print(st.pop())
+    elif op == "halt":
+      break

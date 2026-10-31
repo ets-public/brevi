@@ -1,0 +1,47 @@
+fn all_digits(s: str) -> bool = s.len() > 0 and s.chars().all(c => c.is_digit())
+
+fn valid_date(d: str) -> bool:
+  d.re_full("[0-9]{4}-[0-9]{2}-[0-9]{2}") != []
+
+fn valid_price(p: str) -> bool:
+  p.re_full("[0-9]+(\\.[0-9]{1,2})?") != []
+
+rows = csv(stdin())
+n = 0
+skipped = 0
+reg = {}
+qtys = {}
+months = {}
+first = true
+for r in rows:
+  if first:
+    first = false
+    continue
+  if r.len() == 0 or (r.len() == 1 and r[0].trim() == ""):
+    continue
+  if r.len() != 5 or not valid_date(r[0]) or not all_digits(r[3]) or not valid_price(r[4]):
+    skipped += 1
+    continue
+  n += 1
+  q = r[3].dec()
+  rev = q * r[4].dec()
+  reg[r[1]] += rev
+  qtys[r[2]] += r[3].int()
+  months[r[0].slice(0, 7)] += rev
+print("rows {n}")
+print("skipped {skipped}")
+if n > 0:
+  print("regions")
+  ps = reg.pairs().sort_by(p => (0 - p.1, p.0))
+  for p in ps:
+    print("  {p.0} {p.1.fmt(2)}")
+  best = ""
+  bq = -1
+  for k, v in qtys.pairs():
+    if v > bq:
+      bq = v
+      best = k
+  print("top_product {best} {bq}")
+  print("months")
+  for k, v in months.pairs():
+    print("  {k} {v.fmt(2)}")

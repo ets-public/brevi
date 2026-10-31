@@ -19,7 +19,8 @@ for d in $O $S/out-run; do cp $S/icons/*.{svg,ico,png,webmanifest} $d/; done
 grep -v 'github.com/ets-public/brevi' $S/llms.txt | sed '/^## Tools$/{N;/\n$/d}' | cat -s > $O/llms.txt
 cp $R/BREVI.md $O/guide.md
 cp $R/LIBRARIES.md $O/libraries.md
+cp $R/REFERENCE.md $O/reference.md
 sed '1,/^---$/{/^---$/!d};1,/^---$/d' $R/skills/brevi/SKILL.md > $O/skill.md
 sed -n '/^## Status/,$p' $R/README.md > $O/bench.md
-{ cat $O/llms.txt; echo; cat $O/guide.md; echo; cat $O/libraries.md; echo; cat $O/skill.md; } > $O/llms-full.txt
+{ cat $O/llms.txt; echo; cat $O/guide.md; echo; cat $O/reference.md; echo; cat $O/libraries.md; echo; cat $O/skill.md; } > $O/llms-full.txt
 echo "built $(ls $O | wc -l) files in $O"

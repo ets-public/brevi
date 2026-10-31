@@ -1,0 +1,58 @@
+adj = {}
+best = {}
+reading = true
+for line in lines():
+  if reading:
+    if line.trim() == "":
+      reading = false
+      continue
+    w = line.words()
+    a = w[0]
+    b = w[1]
+    t = w[2].int()
+    k = if a < b: (a, b) else: (b, a)
+    if not best.has(k) or t < best[k]:
+      best[k] = t
+  else:
+    if line.trim() == "":
+      continue
+    w = line.words()
+    f = w[0]
+    g = w[1]
+    adj_has_f = false
+    adj_has_g = false
+    for k, t in best.pairs():
+      if k.0 == f or k.1 == f:
+        adj_has_f = true
+      if k.0 == g or k.1 == g:
+        adj_has_g = true
+    if not adj_has_f:
+      print("unknown station {f}")
+    elif not adj_has_g:
+      print("unknown station {g}")
+    elif f == g:
+      print("{f} (0 min)")
+    else:
+      nb = {}
+      for k, t in best.pairs():
+        nb[k.0].push((k.1, t))
+        nb[k.1].push((k.0, t))
+      done = {}
+      h = heap()
+      h.push((0, 1, [f]))
+      found = false
+      while not h.is_empty():
+        cur = h.pop()
+        node = cur.2[-1]
+        if done.has(node):
+          continue
+        done[node] = true
+        if node == g:
+          print("{cur.2.join(' -> ')} ({cur.0} min)")
+          found = true
+          break
+        for e in nb[node]:
+          if not done.has(e.0):
+            h.push((cur.0 + e.1, cur.1 + 1, cur.2 + [e.0]))
+      if not found:
+        print("no route {f} {g}")

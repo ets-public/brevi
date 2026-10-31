@@ -1,0 +1,101 @@
+fn resolve_key(secs: {str: {str: str}}, sec: str, key: str, stack: [str]) -> (bool, str):
+  k = "{sec}|{key}"
+  if k in stack: return (false, "")
+  raw = secs[sec][key]
+  return expand(secs, raw, stack + [k], sec)
+
+fn expand(secs: {str: {str: str}}, raw: str, stack: [str], sec: str) -> (bool, str):
+  out = ""
+  rest = raw
+  while rest.contains("${"):
+    idx = rest.find("${")
+    out += rest[0:idx]
+    after = rest[idx + 2:]
+    end = after.find("}")
+    if end < 0:
+      out += rest[idx:]
+      return (true, out)
+    name = after[0:end]
+    rest = after[end + 1:]
+    T = sec
+    K = name
+    exists = false
+    dotted = name.contains(".")
+    if dotted:
+      p = name.find(".")
+      T = name[0:p]
+      K = name[p + 1:]
+    if secs.has(T) and secs[T].has(K):
+      exists = true
+    elif not dotted and secs.has("default") and secs["default"].has(name):
+      T = "default"
+      exists = true
+    val = ""
+    if exists:
+      r = resolve_key(secs, T, K, stack)
+      if not r[0]: return (false, "")
+      val = r[1]
+    out += val
+  out += rest
+  return (true, out)
+
+fn main():
+  secs = {}
+  cur = "default"
+  in_ini = true
+  queries = []
+  for line in lines():
+    if in_ini:
+      if line.trim() == "---":
+        in_ini = false
+        continue
+      s = line.trim()
+      if s == "" or s.starts_with(";") or s.starts_with("#"):
+        continue
+      if s.starts_with("[") and s.ends_with("]"):
+        cur = s[1:s.len() - 1].trim()
+        if not secs.has(cur): secs[cur] = {}
+        continue
+      if not s.contains("="):
+        continue
+      p = s.find("=")
+      k = s[0:p].trim()
+      v = s[p + 1:].trim()
+      if not secs.has(cur): secs[cur] = {}
+      secs[cur][k] = v
+    else:
+      q = line.trim()
+      if q == "":
+        continue
+      if q == "sections":
+        names = []
+        for name, kv in secs.pairs():
+          if kv.len() > 0: names.push(name)
+        names.sort()
+        print(names.join(" "))
+      elif q.ends_with(".*"):
+        sec = q[0:q.len() - 2]
+        if not secs.has(sec):
+          print("<missing>")
+        else:
+          for k in secs[sec].keys():
+            r = resolve_key(secs, sec, k, [])
+            if r[0]:
+              print("{k}={r[1]}")
+            else:
+              print("{k}=<cycle>")
+      else:
+        if not q.contains(".") :
+          print("<missing>")
+        else:
+          p = q.find(".")
+          sec = q[0:p]
+          k = q[p + 1:]
+          if not secs.has(sec) or not secs[sec].has(k):
+            print("<missing>")
+          else:
+            r = resolve_key(secs, sec, k, [])
+            if r[0]:
+              print(r[1])
+            else:
+              print("<cycle>")

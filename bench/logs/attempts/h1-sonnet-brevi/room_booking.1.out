@@ -1,0 +1,2 @@
+{"line":2,"msg":"type annotations needed for {_: _}","fix":"give the empty value a type, e.g. m: {str: int} = {} or xs: [str] = []"}
+{"line":43,"msg":"no field weekday on type Date: unknown field","fix":"fields of Date: days"}

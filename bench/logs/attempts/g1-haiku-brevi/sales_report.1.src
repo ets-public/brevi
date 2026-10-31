@@ -1,0 +1,79 @@
+fn digits(s: str) -> bool:
+  if s.is_empty(): return false
+  for c in s.chars():
+    if not c.is_digit(): return false
+  return true
+
+fn valid_date(s: str) -> bool:
+  if s.len() != 10: return false
+  if s[4:5] != "-" or s[7:8] != "-": return false
+  return digits(s[0:4]) and digits(s[5:7]) and digits(s[8:10])
+
+fn price_cents(s: str) -> int:
+  parts = s.split(".")
+  if parts.len() == 1:
+    if not digits(parts[0]): return -1
+    return parts[0].int().or(0) * 100
+  if parts.len() != 2: return -1
+  if not digits(parts[0]): return -1
+  f = parts[1]
+  if f.len() < 1 or f.len() > 2 or not digits(f): return -1
+  if f.len() == 1: f = f + "0"
+  return parts[0].int().or(0) * 100 + f.int().or(0)
+
+fn money(c: int) -> str:
+  whole = c // 100
+  cents = c % 100
+  "{whole}.{cents:02d}"
+
+fn main():
+  rows = csv(stdin())
+  valid = 0
+  skipped = 0
+  totals = {}
+  qtys = {}
+  months = {}
+  first = true
+  for r in rows:
+    if r.len() == 0 or (r.len() == 1 and r[0].trim() == ""):
+      continue
+    if first:
+      first = false
+      continue
+    if r.len() != 5:
+      skipped += 1
+      continue
+    if not valid_date(r[0]) or not digits(r[3]):
+      skipped += 1
+      continue
+    pc = price_cents(r[4])
+    if pc < 0:
+      skipped += 1
+      continue
+    q = r[3].int().or(0)
+    rev = q * pc
+    mon = r[0][0:7]
+    valid += 1
+    totals[r[1]] += rev
+    qtys[r[2]] += q
+    months[mon] += rev
+  print("rows {valid}")
+  print("skipped {skipped}")
+  if valid > 0:
+    rl = []
+    for name, c in totals.pairs():
+      rl.push((name, c))
+    rl.sort_by(p => (-p.1, p.0))
+    print("regions")
+    for name, c in rl:
+      print("  {name} {money(c)}")
+    best = ""
+    bestq = -1
+    for name, q in qtys.pairs():
+      if q > bestq:
+        best = name
+        bestq = q
+    print("top_product {best} {bestq}")
+    print("months")
+    for m, c in months.pairs():
+      print("  {m} {money(c)}")

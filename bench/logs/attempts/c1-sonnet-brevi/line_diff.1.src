@@ -1,0 +1,35 @@
+ls = lines()
+k = ls.index_of("=====")
+old = ls[:k]
+new = ls[k + 1:]
+n = old.len()
+m = new.len()
+w = m + 1
+L = [0].repeat((n + 1) * w)
+for i in (0..n).rev():
+  for j in (0..m).rev():
+    if old[i] == new[j]:
+      L[i * w + j] = L[(i + 1) * w + j + 1] + 1
+    else:
+      L[i * w + j] = max(L[(i + 1) * w + j], L[i * w + j + 1])
+i = 0
+j = 0
+rem = 0
+add = 0
+while i < n or j < m:
+  if i < n and j < m and old[i] == new[j]:
+    print("  {old[i]}")
+    i += 1
+    j += 1
+  elif i < n and (j >= m or L[(i + 1) * w + j] >= L[i * w + j + 1]):
+    print("- {old[i]}")
+    rem += 1
+    i += 1
+  else:
+    print("+ {new[j]}")
+    add += 1
+    j += 1
+if rem + add == 0:
+  print("no changes")
+else:
+  print("@@ -{rem} +{add} @@")
