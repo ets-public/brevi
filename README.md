@@ -4,7 +4,7 @@ A programming language for AI models to write. Axon compiles to Rust, so program
 
 The guide a model reads before writing Axon is [AXON.md](AXON.md), about 2,700 tokens (estimated).
 
-## Status: v0.8
+## Status: v0.9
 
 Works today:
 - Parser for the full core syntax in AXON.md
@@ -12,12 +12,13 @@ Works today:
 - Emits Rust and builds it with `rustc`. rustc errors are mapped back to the Axon line and rewritten in Axon's type names
 - `run`, `test`, `check`, `build`, `emit`
 - Runtime prelude with strings, lists, maps (hash lookups, listed in key order), files, stdin, JSON, CSV, dates, big integers, exact decimals and a min-heap
+- JSON objects from map literals (`str({"id": 1, "name": n})`), `x.json()`, and Python-syntax regexes (`re_full`, `re_find`, `re_all`, `re_sub`, `re_split`)
 - Python-style indented blocks (`if x:` and an indented body), with braces still accepted
 - Empty lists, maps and heaps need no type: the compiler works it out from later use
 - Short syntax: `x = 1` declares, `x: [str] = []` gives a type, `(a, b) = pair`, errors pass up without `?`, field defaults and shorthand constructors
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Axon line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
-- Benchmarks in `bench/`: 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Axon, Python and Rust
+- Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Axon, Python and Rust
 
 Tokens per finished task set (18 tasks: code written plus errors read, average of 2 runs; Python from earlier runs of the same tasks):
 
@@ -26,7 +27,14 @@ Tokens per finished task set (18 tasks: code written plus errors read, average o
 | Sonnet | 4,309 | 4,363 | 4,021 | 36 of 36 |
 | Haiku | 4,987 | 5,631 | 5,266 | 35 of 36 |
 
-Axon now beats Python on tokens with Haiku and is 7% above it with Sonnet. Rust takes about 2.4 times as many tokens as Axon on the hard tasks.
+Axon now beats Python on tokens with Haiku and is 7% above it with Sonnet.
+
+On the 8 bigger tasks (v0.9, 2 runs each), finished code is close to Python's size, but retries still cost more:
+
+| Model | Axon finished code | Python finished code | Axon with retries | Python with retries | First try (Axon) |
+| --- | --- | --- | --- | --- | --- |
+| Sonnet | 7,786 | 7,418 | 11,121 | 7,450 | 14 of 16 |
+| Haiku | 9,705 | 9,751 | 17,107 | 10,634 | 9 of 16 | Rust takes about 2.4 times as many tokens as Axon on the hard tasks.
 
 Speed (best of 3, seconds):
 
