@@ -356,7 +356,7 @@ if __name__ == &quot;__main__&quot;:
           <div>
             <span class="fig">up to 21% fewer tokens</span>
             <h3>Less to write, less to read</h3>
-            <p>Counted end to end, including errors read and retries, models used fewer tokens in Brevi than in Python on seven of eight task sets, including tasks written after the language was tuned. On the largest programs the two are close to level.</p>
+            <p>Counted end to end, including errors read and retries, models used fewer tokens in Brevi than in Python on seven of ten task sets, including tasks written after the language was tuned. On the largest programs Python is still ahead, which is what the next versions work on.</p>
           </div>
           <div>
             <span class="fig">{"line":N,"msg":…,"fix":…}</span>
@@ -374,7 +374,7 @@ if __name__ == &quot;__main__&quot;:
             <p>Models write Python by reflex, so Brevi accepts the common spellings instead of rejecting them. Indented blocks, comprehensions, <code>len()</code>, <code>sorted()</code> and <code>", ".join(xs)</code> all work.</p>
           </div>
           <div>
-            <span class="fig">4,665 tokens</span>
+            <span class="fig">__GUIDE_TOKENS__ tokens</span>
             <h3>The whole language in one short guide</h3>
             <p>A model reads one page before writing Brevi. The guide is built into the compiler, and <code>brevi guide WORD</code> prints only the lines about one name.</p>
           </div>
@@ -465,9 +465,11 @@ print(<span class="s">"total: "</span> + n)</pre>
               <tr><td>18 small tasks</td><td>Haiku</td><td class="n win">5,306</td><td class="n">5,794</td><td class="n save">8%</td></tr>
               <tr><td>6 XL tasks, 2 multi-file</td><td>Sonnet</td><td class="n win">12,630</td><td class="n">13,128</td><td class="n save">4%</td></tr>
               <tr><td>6 XL tasks, 2 multi-file</td><td>Haiku</td><td class="n">15,908</td><td class="n">15,658</td><td class="n">&minus;2%</td></tr>
+              <tr><td>6 held-out XL tasks</td><td>Sonnet</td><td class="n">10,997</td><td class="n win">9,222</td><td class="n">&minus;19%</td></tr>
+              <tr><td>6 held-out XL tasks</td><td>Haiku</td><td class="n">11,851</td><td class="n win">11,426</td><td class="n">&minus;4%</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">Held-out tasks were written after the language was tuned and never used to change it. Big tasks are programs of 50 to 200 lines; XL tasks are 150 to 400 lines, two of them split over several files. Brevi was improved using the XL runs, and single runs vary by about 10%, so the XL rows are close to level. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
+          <p class="note" style="margin-top: 14px;">Held-out tasks were written after the language was tuned and never used to change it. Big tasks are programs of 50 to 200 lines; XL tasks are 150 to 400 lines, two of them split over several files. Brevi was improved using the XL runs, and single runs vary by about 10%, so the XL rows are close to level. The held-out XL set was written after that and shows where Brevi still trails. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
         </div>
         <div class="table-wrap">
           <table>

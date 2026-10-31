@@ -7,7 +7,11 @@ mkdir -p $O $S/out-run
 # The version shown in the header comes from Cargo.toml (major.minor), so it cannot go stale.
 V=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\).*/\1/p' $R/Cargo.toml | head -1)
 [ -n "$V" ] || { echo "no version in Cargo.toml"; exit 1; }
-sed "s/__VERSION__/$V/g" $S/index.html > $O/index.html
+# The guide's size is counted from BREVI.md (exact count, cached in bench/tokcache.json; a new text
+# needs BENCH_ANTHROPIC_KEY once).
+G=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import tokcount; print(f"{tokcount.count(open(sys.argv[2]).read()):,}")' $R/bench $R/BREVI.md) \
+  || { echo "could not count BREVI.md tokens (set BENCH_ANTHROPIC_KEY)"; exit 1; }
+sed "s/__VERSION__/$V/g; s/__GUIDE_TOKENS__/$G/g" $S/index.html > $O/index.html
 sed "s/__VERSION__/$V/g" $S/run/index.html > $S/out-run/index.html
 # Logo and favicons (favicon.svg is the source; node site/icons/make.js redraws the PNG and ICO sizes).
 for d in $O $S/out-run; do cp $S/icons/*.{svg,ico,png,webmanifest} $d/; done
