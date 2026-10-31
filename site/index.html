@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Brevi programming language</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Brevi is a programming language for AI models to write. It reads like Python, compiles to Rust, and reports each error as one short JSON line with a fix.">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500&display=swap">
+<style>
+/* Layout: a documentation-style page on a 12-column measure, text left, code and tables at full width, no cards. */
+:root {
+  --bg: #fbfbfa;
+  --panel: #f1f2f0;
+  --fg: #1b1e1d;
+  --muted: #5d6462;
+  --rule: #d9dcd9;
+  --accent: #1d5b4f;
+  --mark: #e8efe9;
+  --code-fg: #22302c;
+  --kw: #1d5b4f;
+  --str: #7a4a12;
+  --com: #7b827f;
+  --serif: "IBM Plex Serif", Georgia, serif;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230;
+    --accent: #7cc4b1; --mark: #1d2a26; --code-fg: #d6dcd9; --kw: #7cc4b1; --str: #e0b072; --com: #7d8683;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230;
+  --accent: #7cc4b1; --mark: #1d2a26; --code-fg: #d6dcd9; --kw: #7cc4b1; --str: #e0b072; --com: #7d8683;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.6 var(--sans);
+}
+.wrap {
+  max-width: 1080px; margin: 0 auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, pre { font-family: var(--mono); font-size: 0.9em; }
+:not(pre) > code { background: var(--panel); padding: 0.1em 0.35em; border-radius: 3px; }
+
+header.top { border-bottom: 1px solid var(--rule); }
+header.top .wrap { display: flex; align-items: center; gap: 24px; padding-block: 14px; flex-wrap: wrap; }
+.brand { font: 500 1.3rem/1 var(--serif); color: var(--fg); text-decoration: none; letter-spacing: -0.01em; }
+.brand span { font: 400 0.75rem var(--mono); color: var(--muted); margin-left: 8px; letter-spacing: 0; }
+nav { display: flex; gap: 20px; flex-wrap: wrap; margin-left: auto; font-size: 0.93rem; }
+nav a { color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--fg); }
+
+.intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; padding-block: 64px 56px; align-items: start; }
+.intro > * { min-width: 0; }
+h1 { font: 500 clamp(2rem, 4.2vw, 2.9rem)/1.12 var(--serif); letter-spacing: -0.015em; margin: 0 0 20px; text-wrap: balance; }
+.lede { font-size: 1.12rem; color: var(--muted); margin: 0 0 28px; max-width: 34em; }
+.lede strong { color: var(--fg); font-weight: 500; }
+.status { font: 0.85rem/1.5 var(--mono); color: var(--muted); border-left: 2px solid var(--accent); padding-left: 12px; margin: 0; }
+
+.term { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.term .bar { display: flex; justify-content: space-between; font: 0.78rem var(--mono); color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--rule); }
+.term pre { margin: 0; padding: 16px 18px; overflow-x: auto; line-height: 1.55; color: var(--code-fg); }
+.term pre + .bar { border-top: 1px solid var(--rule); }
+.k { color: var(--kw); font-weight: 500; }
+.s { color: var(--str); }
+.c { color: var(--com); }
+.out { color: var(--muted); }
+
+section { border-top: 1px solid var(--rule); padding-block: 56px; }
+.sec-head { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+.sec-head > * { min-width: 0; }
+.label { font: 500 0.78rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 6px 0 0; }
+h2 { font: 500 1.75rem/1.25 var(--serif); margin: 0 0 14px; letter-spacing: -0.01em; text-wrap: balance; }
+h3 { font: 600 1.02rem/1.35 var(--sans); margin: 0 0 6px; }
+p { margin: 0 0 14px; max-width: 40em; }
+.note { color: var(--muted); font-size: 0.92rem; }
+
+.benefits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 48px; margin-top: 28px; }
+.benefits > div { min-width: 0; }
+.benefits p { color: var(--muted); margin: 0; }
+.fig { font: 500 0.88rem var(--mono); color: var(--accent); display: block; margin-bottom: 4px; }
+
+.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 24px; }
+.compare > * { min-width: 0; }
+
+.table-wrap { overflow-x: auto; margin-top: 24px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font-weight: 500; color: var(--muted); font-size: 0.82rem; }
+td.n, th.n { text-align: right; padding-right: 20px; }
+td.win { font-weight: 600; }
+td.save { color: var(--accent); font-weight: 500; }
+.tables { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 48px; }
+.tables > * { min-width: 0; }
+
+.agent-list { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 0; }
+.agent-list li { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.agent-list li > * { min-width: 0; }
+.agent-list code { font-size: 0.86rem; }
+
+footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.88rem; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; padding-block: 28px 40px; }
+footer .end { margin-left: auto; }
+
+@media (max-width: 860px) {
+  .intro, .tables, .compare { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .intro { padding-block: 40px; }
+  .sec-head { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .benefits { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .agent-list li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  nav { margin-left: 0; width: 100%; }
+  footer .end { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/">Brevi<span>v0.16 preview</span></a>
+    <nav aria-label="Main">
+      <a href="#why">Why Brevi</a>
+      <a href="#benchmarks">Benchmarks</a>
+      <a href="#agents">For agents</a>
+      <a href="/guide.md">Language guide</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap intro">
+    <div>
+      <h1>A programming language for AI models to write.</h1>
+      <p class="lede">Brevi reads like Python and compiles to Rust. Models finish tasks in <strong>fewer tokens than in Python</strong>, the programs run at native speed, and every compiler error comes back as one short line the model can act on.</p>
+      <p class="status">Status: preview. The compiler, written in Rust, opens under the Apache-2.0 license with the first public release.</p>
+    </div>
+    <div class="term" aria-label="Example program and output">
+      <div class="bar"><span>top.bv</span><span>Brevi</span></div>
+<pre><span class="c"># Three most common words on stdin</span>
+counts = {}
+<span class="k">for</span> w <span class="k">in</span> stdin().lower().words():
+  counts[w] += 1
+top = counts.pairs().sort_by(p => (-p.1, p.0)).take(3)
+<span class="k">for</span> w, n <span class="k">in</span> top:
+  print(<span class="s">"{w}: {n}"</span>)</pre>
+      <div class="bar"><span>$ brevi run top.bv &lt; text.txt</span><span>native binary</span></div>
+<pre class="out">the: 3
+and: 2
+bat: 1</pre>
+    </div>
+  </div>
+
+  <section id="why">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">Why Brevi</p>
+        <div>
+          <h2>Built for the model in the loop, not for a person at a keyboard.</h2>
+          <p>Every language in use today was designed for people. When a model writes code, the cost that matters is different: the tokens it writes, the error text it has to read, and the retries it needs before the program works. Brevi is designed around those three numbers.</p>
+        </div>
+      </div>
+      <div class="sec-head">
+        <span></span>
+        <div class="benefits">
+          <div>
+            <span class="fig">up to 21% fewer tokens</span>
+            <h3>Less to write, less to read</h3>
+            <p>Counted end to end, including errors read and retries, models used fewer tokens in Brevi than in Python on five of six task sets and the same on the sixth, including tasks written after the language was tuned.</p>
+          </div>
+          <div>
+            <span class="fig">{"line":N,"msg":…,"fix":…}</span>
+            <h3>Errors a model can act on</h3>
+            <p>No file paths, columns or pages of notes. Each error is one JSON line with the Brevi line number and a suggested fix. Small typos of known names are fixed during the build.</p>
+          </div>
+          <div>
+            <span class="fig">2.90 s → 0.47 s</span>
+            <h3>Rust speed and safety underneath</h3>
+            <p>Brevi compiles to Rust and builds a native binary. The model never writes lifetimes, borrows or semicolons; ownership is worked out by the compiler.</p>
+          </div>
+          <div>
+            <span class="fig">True · .append() · range()</span>
+            <h3>Python habits are accepted</h3>
+            <p>Models write Python by reflex, so Brevi accepts the common spellings instead of rejecting them. Indented blocks, comprehensions, <code>len()</code>, <code>sorted()</code> and <code>", ".join(xs)</code> all work.</p>
+          </div>
+          <div>
+            <span class="fig">4,665 tokens</span>
+            <h3>The whole language in one short guide</h3>
+            <p>A model reads one page before writing Brevi. The guide is built into the compiler, and <code>brevi guide WORD</code> prints only the lines about one name.</p>
+          </div>
+          <div>
+            <span class="fig">JSON · CSV · dates · decimals · regex</span>
+            <h3>Batteries for everyday programs</h3>
+            <p>Strings, lists, maps, files, JSON, CSV, dates, big integers, exact decimals, a min-heap and Python-syntax regular expressions are built in. No package setup before the first line.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="errors">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">Errors</p>
+        <div>
+          <h2>One line per mistake, with the fix.</h2>
+          <p>Brevi runs its own checks before Rust sees the code, in about 3 ms. Anything Rust still rejects is mapped back to the Brevi line and rewritten in Brevi's own type names, so the model never reads generated Rust.</p>
+        </div>
+      </div>
+      <div class="sec-head">
+        <span></span>
+        <div class="compare">
+          <div class="term">
+            <div class="bar"><span>total.bv</span><span>Brevi</span></div>
+<pre>n = stdin().ints().sum()
+print(<span class="s">"total: "</span> + n)</pre>
+          </div>
+          <div class="term">
+            <div class="bar"><span>$ brevi run total.bv</span><span>1 line</span></div>
+<pre class="out" style="white-space: pre-wrap; word-break: break-word;">{"line":2,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or write \"{x}\""}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="benchmarks">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">Benchmarks</p>
+        <div>
+          <h2>Tokens per finished task, against Python.</h2>
+          <p>Each figure is everything a model spends to finish every task in a set: the code it writes, the error output it reads, and each retry counted as the lines it changed. Counts are exact, from Anthropic's token counter, averaged over two or more runs. Lower is better.</p>
+        </div>
+      </div>
+      <div class="tables">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Task set</th><th>Model</th><th class="n">Brevi</th><th class="n">Python</th><th class="n">Saved</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>6 held-out big tasks</td><td>Haiku</td><td class="n win">4,604</td><td class="n">5,847</td><td class="n save">21%</td></tr>
+              <tr><td>6 held-out big tasks</td><td>Sonnet</td><td class="n win">4,020</td><td class="n">4,220</td><td class="n save">5%</td></tr>
+              <tr><td>18 small tasks</td><td>Sonnet</td><td class="n win">4,488</td><td class="n">5,052</td><td class="n save">11%</td></tr>
+              <tr><td>18 small tasks</td><td>Haiku</td><td class="n win">5,306</td><td class="n">5,794</td><td class="n save">8%</td></tr>
+              <tr><td>8 big tasks</td><td>Haiku</td><td class="n win">10,382</td><td class="n">10,556</td><td class="n save">2%</td></tr>
+              <tr><td>8 big tasks</td><td>Sonnet</td><td class="n">8,721</td><td class="n">8,721</td><td class="n">level</td></tr>
+            </tbody>
+          </table>
+          <p class="note" style="margin-top: 14px;">Held-out tasks were written after the language was tuned and never used to change it. Big tasks are programs of 50 to 200 lines. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Run time, seconds</th><th class="n">Python</th><th class="n">Brevi</th><th class="n">Rust</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Word counts</td><td class="n">0.35</td><td class="n win">0.18</td><td class="n">0.09</td></tr>
+              <tr><td>Dijkstra</td><td class="n">2.90</td><td class="n win">0.47</td><td class="n">0.30</td></tr>
+              <tr><td>Prime sieve</td><td class="n">1.33</td><td class="n win">0.05</td><td class="n">0.02</td></tr>
+              <tr><td>Group records</td><td class="n">0.76</td><td class="n win">0.31</td><td class="n">0.12</td></tr>
+            </tbody>
+          </table>
+          <p class="note" style="margin-top: 14px;">Best of three runs. On the hard tasks, models spend about 2.4 times as many tokens writing Rust as writing Brevi.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="agents">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">For agents</p>
+        <div>
+          <h2>Ready for coding agents from the first call.</h2>
+          <p>The compiler ships with the pieces an agent needs to write, check and fix Brevi without a human setting anything up.</p>
+        </div>
+      </div>
+      <div class="sec-head">
+        <span></span>
+        <ul class="agent-list">
+          <li><h3>MCP server</h3><div><code>brevi mcp</code> serves <code>guide</code>, <code>check</code>, <code>run</code>, <code>test</code> and <code>patch</code> over stdio. Each tool takes the program as text, so the agent needs no files.</div></li>
+          <li><h3>Agent skill</h3><div>An Agent Skills package with setup and the write, check, fix loop: <a href="/skill.md">skill.md</a>.</div></li>
+          <li><h3>llms.txt</h3><div>Machine-readable entry points at <a href="/llms.txt">/llms.txt</a> and <a href="/llms-full.txt">/llms-full.txt</a>, with the guide as plain Markdown at <a href="/guide.md">/guide.md</a>.</div></li>
+          <li><h3>Edit by name</h3><div><code>brevi patch f.bv p.bv</code> replaces each function, type or test by name, so a fix costs only the lines that changed.</div></li>
+          <li><h3>Fast checks</h3><div><code>brevi check f.bv --fast</code> runs Brevi's own checks in about 3 ms without invoking rustc.</div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="hosted">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="label">Coming next</p>
+        <div>
+          <h2>brevi.run: compile, run and test in the cloud.</h2>
+          <p>A hosted service for agents that need to run Brevi without installing a Rust toolchain. Send a program, get the output or the error lines back. It opens after the public release of the compiler.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Brevi · Apache-2.0</span>
+    <a href="/llms.txt">llms.txt</a>
+    <a href="https://brevi.run">brevi.run</a>
+    <span class="end">Files end in <code>.bv</code></span>
+  </div>
+</footer>
+</body>
+</html>

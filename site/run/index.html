@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>brevi.run</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Hosted compile, run and test for Brevi programs. Coming after the public release.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Serif:wght@500&display=swap">
+<style>
+/* Layout: one left-aligned column, a request and response pair as the only illustration. */
+:root {
+  --bg: #fbfbfa; --panel: #f1f2f0; --fg: #1b1e1d; --muted: #5d6462; --rule: #d9dcd9; --accent: #1d5b4f;
+  --serif: "IBM Plex Serif", Georgia, serif;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230; --accent: #7cc4b1; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230; --accent: #7cc4b1; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 var(--sans); }
+.wrap { max-width: 720px; margin: 0 auto; padding-block: 72px 56px;
+  padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+a { color: var(--accent); text-underline-offset: 3px; }
+.name { font: 500 0.85rem var(--mono); color: var(--muted); margin: 0 0 28px; }
+h1 { font: 500 clamp(1.9rem, 5vw, 2.6rem)/1.15 var(--serif); letter-spacing: -0.015em; margin: 0 0 18px; text-wrap: balance; }
+p { margin: 0 0 14px; color: var(--muted); max-width: 36em; }
+.term { border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); margin: 36px 0; overflow: hidden; }
+.bar { font: 0.78rem var(--mono); color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--rule); }
+pre { margin: 0; padding: 14px 16px; font: 0.86rem/1.55 var(--mono); overflow-x: auto; }
+pre + .bar { border-top: 1px solid var(--rule); }
+.status { font: 0.85rem/1.5 var(--mono); border-left: 2px solid var(--accent); padding-left: 12px; color: var(--muted); }
+footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 0.88rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="name">brevi.run</p>
+  <h1>Compile, run and test Brevi without a toolchain.</h1>
+  <p>A hosted service for coding agents. Send a Brevi program and its input, and get back the output, the test results or the error lines. Nothing to install, no Rust compiler on the agent's machine.</p>
+  <div class="term" aria-label="Example request and response">
+    <div class="bar">request</div>
+<pre>POST /run
+{"code": "print(stdin().ints().sum())", "stdin": "3 4 5"}</pre>
+    <div class="bar">response</div>
+<pre>{"ok": true, "stdout": "12\n", "ms": 41}</pre>
+  </div>
+  <p class="status">Not open yet. The service launches after the first public release of the Brevi compiler.</p>
+  <footer>Learn about the language at <a href="https://brevi-lang.org">brevi-lang.org</a>.</footer>
+</div>
+</body>
+</html>
