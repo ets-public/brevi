@@ -1,0 +1,72 @@
+fn tmin(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn tstr(t: int) -> str:
+  h = t // 60
+  m = t % 60
+  "{h // 10}{h % 10}:{m // 10}{m % 10}"
+
+names = []
+stns = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  if line.trim() == "---":
+    second = true
+    continue
+  w = line.words()
+  if w.is_empty(): continue
+  if second:
+    queries.push(w)
+  else:
+    names.push(w[0])
+    ss = []
+    ts = []
+    k = 1
+    while k + 1 < w.len():
+      ss.push(w[k])
+      ts.push(tmin(w[k + 1]))
+      k += 2
+    stns.push(ss)
+    tms.push(ts)
+
+events = []
+for ti in 0..names.len():
+  for j in 0..stns[ti].len():
+    events.push((tms[ti][j], ti, j))
+events = events.sort()
+
+for q in queries:
+  src = q[0]
+  dst = q[1]
+  qt = tmin(q[2])
+  if src == dst:
+    print("{src} {dst} {q[2]} via -")
+    continue
+  best = {}
+  for idx in 0..events.len():
+    t, ti, j = events[idx]
+    stn = stns[ti][j]
+    cands = []
+    if j > 0 and best.has((ti, j - 1)): cands.push(best[(ti, j - 1)])
+    if stn == src and t >= qt: cands.push((1, [names[ti]]))
+    for k in 0..idx:
+      t2, tj, m = events[k]
+      if tj != ti and t2 + 5 <= t and stns[tj][m] == stn and best.has((tj, m)):
+        n, p = best[(tj, m)]
+        cands.push((n + 1, p + [names[ti]]))
+    if cands:
+      best[(ti, j)] = min(cands)
+  found = []
+  for idx in 0..events.len():
+    t, ti, j = events[idx]
+    if stns[ti][j] == dst and best.has((ti, j)):
+      n, p = best[(ti, j)]
+      found.push((t, n, p))
+  if found:
+    t, n, p = min(found)
+    print("{src} {dst} {tstr(t)} via {">".join(p)}")
+  else:
+    print("{src} {dst} unreachable")

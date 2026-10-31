@@ -1,0 +1,47 @@
+test 0 failed
+input:
+# Intro
+
+Some *simple* text
+over two lines with **bold**.
+
+## Use `x < y`
+
+- one
+- [two](http://a.b/c)
+
+1. first
+2. second
+expected:
+<nav>
+<a href="#intro">Intro</a>
+<a href="#use-x-y">Use x &lt; y</a>
+</nav>
+<h1 id="intro">Intro</h1>
+<p>Some <em>simple</em> text over two lines with <strong>bold</strong>.</p>
+<h2 id="use-x-y">Use <code>x &lt; y</code></h2>
+<ul>
+<li>one</li>
+<li><a href="http://a.b/c">two</a></li>
+</ul>
+<ol>
+<li>first</li>
+<li>second</li>
+</ol>
+got:
+<nav>
+<a href="#intro">Intro</a>
+<a href="#use-x-y">Use x &lt; y</a>
+</nav>
+<h1 id="intro">Intro</h1>
+<p>Some <em>simple</em> text over two lines with <strong>bold</strong>.</p>
+<h2 id="use-x-y">Use <code>x &lt; y</code></h2>
+<ul>
+<li>one</li>
+<li><a href="two">two</a></li>
+</ul>
+<ol>
+<li>first</li>
+<li>second</li>
+</ol>
+passed 2/3

@@ -1,0 +1,92 @@
+fn lookup(name: str, ctxs: [Json], idxs: [int]) -> Json:
+  if name == ".": return ctxs[-1]
+  if name == "@index": return idxs[-1].json()
+  segs = name.split(".")
+  k = ctxs.len() - 1
+  while k >= 0:
+    c = ctxs[k]
+    if c.has(segs[0]):
+      j = c
+      for s in segs: j = j[s]
+      return j
+    k -= 1
+  json("null")
+
+fn eval_tag(tag: str, ctxs: [Json], idxs: [int]) -> str:
+  parts = tag.split("|")
+  v = lookup(parts[0].trim(), ctxs, idxs)
+  for f in parts.skip(1):
+    f = f.trim()
+    if f == "upper": v = v.text().upper().json()
+    elif f == "lower": v = v.text().lower().json()
+    elif f == "len":
+      match v:
+        Arr(xs) => v = xs.len().json()
+        _ => v = v.text().len().json()
+    elif f.starts_with("default:"):
+      if v.is_null() or v.text() == "": v = f.slice(8).json()
+  v.text()
+
+fn render(toks: [(str, str)], lo: int, hi: int, ctxs: [Json], idxs: [int]) -> str:
+  out = ""
+  i = lo
+  while i < hi:
+    t = toks[i]
+    if t.0 == "T":
+      out += t.1
+      i += 1
+      continue
+    g = t.1.trim()
+    if g.starts_with("#each ") or g.starts_with("#if "):
+      isif = g.starts_with("#if ")
+      endname = if isif: "/if" else: "/each"
+      depth = 1
+      j = i + 1
+      elsepos = -1
+      while j < hi and depth > 0:
+        if toks[j].0 == "G":
+          h = toks[j].1.trim()
+          if h.starts_with("#each ") or h.starts_with("#if "): depth += 1
+          elif h == "/each" or h == "/if": depth -= 1
+          elif h == "else" and depth == 1 and elsepos < 0: elsepos = j
+        j += 1
+      endpos = j - 1
+      if isif:
+        v = lookup(g.slice(4).trim(), ctxs, idxs)
+        if v:
+          stop = if elsepos >= 0: elsepos else: endpos
+          out += render(toks, i + 1, stop, ctxs, idxs)
+        elif elsepos >= 0:
+          out += render(toks, elsepos + 1, endpos, ctxs, idxs)
+      else:
+        arr = lookup(g.slice(6).trim(), ctxs, idxs)
+        n = 0
+        for el in arr:
+          out += render(toks, i + 1, endpos, ctxs + [el], idxs + [n])
+          n += 1
+      i = j
+      continue
+    out += eval_tag(t.1, ctxs, idxs)
+    i += 1
+  out
+
+text = stdin()
+nl = text.find("\n")
+data = json(text[:nl])
+tpl = text.slice(nl + 1)
+if tpl.ends_with("\n"): tpl = tpl.slice(0, tpl.len() - 1)
+toks = []
+rest = tpl
+while rest:
+  a = rest.find('{{')
+  if a < 0:
+    toks.push(("T", rest))
+    break
+  b = rest.slice(a).find('}}')
+  if b < 0:
+    toks.push(("T", rest))
+    break
+  if a > 0: toks.push(("T", rest[:a]))
+  toks.push(("G", rest.slice(a + 2, a + b)))
+  rest = rest.slice(a + b + 2)
+print(render(toks, 0, toks.len(), [data], [0]))

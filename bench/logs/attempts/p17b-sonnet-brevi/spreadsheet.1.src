@@ -1,0 +1,119 @@
+content = {}
+merr = {}
+mval = {}
+visiting = {}
+toks = []
+pos = 0
+maxc = 0
+maxr = 0
+
+fn colof(r: str) -> int = r.slice(0, 1).code() - 65
+fn rowof(r: str) -> int = r.slice(1).int().or(0)
+fn refname(c: int, r: int) -> str = (65 + c).char() + str(r)
+fn isref(t: str) -> bool = not t.re_full("[A-Z]\d+").is_empty()
+fn isname(t: str) -> bool = not t.re_full("[A-Z]+").is_empty()
+fn isnum(t: str) -> bool = not t.re_full("\d+").is_empty()
+
+fn lookup(ref: str) -> (int, int):
+  if merr.has(ref): return (merr[ref], mval[ref])
+  if visiting[ref] == 1: return (2, 0)
+  if not content.has(ref): return (0, 0)
+  c = content[ref]
+  visiting[ref] = 1
+  res = (0, 0)
+  if c.starts_with("="):
+    sv_t = toks
+    sv_p = pos
+    toks = c.slice(1).replace(" ", "").re_list("[A-Z]\d+|\d+|[A-Z]+|\S")
+    pos = 0
+    res = expr()
+    toks = sv_t
+    pos = sv_p
+  else:
+    res = (0, c.int().or(0))
+  visiting[ref] = 0
+  merr[ref] = res.0
+  mval[ref] = res.1
+  res
+
+fn expr() -> (int, int):
+  e, v = term()
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    e2, v2 = term()
+    e = max(e, e2)
+    if op == "+": v += v2
+    else: v -= v2
+  (e, v)
+
+fn term() -> (int, int):
+  e, v = factor()
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    e2, v2 = factor()
+    e = max(e, e2)
+    if op == "*": v *= v2
+    elif v2 == 0:
+      e = max(e, 1)
+      v = 0
+    else: v = v / v2
+  (e, v)
+
+fn factor() -> (int, int):
+  t = toks[pos]
+  pos += 1
+  if t == "-":
+    e, v = factor()
+    return (e, -v)
+  if t == "(":
+    e, v = expr()
+    pos += 1
+    return (e, v)
+  if isnum(t): return (0, t.int())
+  if isref(t): return lookup(t)
+  # function
+  pos += 1
+  a = toks[pos]
+  pos += 2
+  b = toks[pos]
+  pos += 2
+  vals = []
+  e = 0
+  c1 = min(colof(a), colof(b))
+  c2 = max(colof(a), colof(b))
+  r1 = min(rowof(a), rowof(b))
+  r2 = max(rowof(a), rowof(b))
+  for c in c1..c2 + 1:
+    for r in r1..r2 + 1:
+      e2, v2 = lookup(refname(c, r))
+      e = max(e, e2)
+      vals.push(v2)
+  v = if t == "SUM": vals.sum() elif t == "MIN": vals.min().or(0) else: vals.max().or(0)
+  (e, v)
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  (k, _, b) = line.partition("=")
+  k = k.trim()
+  b = b.trim()
+  content[k] = b
+  maxc = max(maxc, colof(k) + 1)
+  maxr = max(maxr, rowof(k))
+  if b.starts_with("="):
+    for t in b.re_list("[A-Z]\d+"):
+      maxc = max(maxc, colof(t) + 1)
+      maxr = max(maxr, rowof(t))
+
+print("\t" + "\t".join([(65 + c).char() for c in 0..maxc]))
+for r in 1..maxr + 1:
+  cells = []
+  for c in 0..maxc:
+    ref = refname(c, r)
+    if not content.has(ref):
+      cells.push("")
+    else:
+      e, v = lookup(ref)
+      cells.push(if e == 2: "#CYCLE" elif e == 1: "#DIV0" else: str(v))
+  print(str(r) + "\t" + "\t".join(cells))

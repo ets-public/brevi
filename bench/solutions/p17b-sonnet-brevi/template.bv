@@ -1,0 +1,100 @@
+tkk = []
+tkv = []
+
+fn resolve(path: str, ctxs: [Json], idxs: [int]) -> Json:
+  if path == ".": return ctxs.last()
+  if path == "@index": return idxs.last().json()
+  segs = path.split(".")
+  i = ctxs.len() - 1
+  while i >= 0:
+    c = ctxs[i]
+    if c.has(segs[0]):
+      cur = c
+      for s in segs: cur = cur[s]
+      return cur
+    i -= 1
+  json("null")
+
+fn find_end(a: int) -> (int, int):
+  depth = 1
+  el = -1
+  i = a + 1
+  while i < tkk.len():
+    if tkk[i] == "g":
+      t = tkv[i]
+      if t.starts_with("#"): depth += 1
+      elif t.starts_with("/"):
+        depth -= 1
+        if depth == 0: return (i, el)
+      elif t == "else" and depth == 1: el = i
+    i += 1
+  (tkk.len(), el)
+
+fn eval_tag(tag: str, ctxs: [Json], idxs: [int]) -> str:
+  parts = tag.split("|")
+  v = resolve(parts[0].trim(), ctxs, idxs)
+  cur = v.text()
+  isorig = true
+  for f0 in parts.skip(1):
+    f = f0.trim()
+    if f == "upper": cur = cur.upper()
+    elif f == "lower": cur = cur.lower()
+    elif f == "len":
+      if isorig:
+        cur = match v:
+          Str(x) => str(x.len())
+          Arr(xs) => str(xs.len())
+          _ => "0"
+      else: cur = str(cur.len())
+    elif f.starts_with("default:"):
+      if cur.is_empty(): cur = f.slice(8)
+    isorig = false
+  cur
+
+fn render(a: int, b: int, ctxs: [Json], idxs: [int]) -> str:
+  out = ""
+  i = a
+  while i < b:
+    if tkk[i] == "t":
+      out += tkv[i]
+      i += 1
+      continue
+    tag = tkv[i]
+    if tag.starts_with("#each "):
+      e, el = find_end(i)
+      items = resolve(tag.slice(6).trim(), ctxs, idxs)
+      n = 0
+      for x in items:
+        out += render(i + 1, e, ctxs + [x], idxs + [n])
+        n += 1
+      i = e + 1
+    elif tag.starts_with("#if "):
+      e, el = find_end(i)
+      cond = resolve(tag.slice(4).trim(), ctxs, idxs)
+      if cond:
+        out += render(i + 1, if el >= 0: el else: e, ctxs, idxs)
+      elif el >= 0:
+        out += render(el + 1, e, ctxs, idxs)
+      i = e + 1
+    else:
+      out += eval_tag(tag, ctxs, idxs)
+      i += 1
+  out
+
+ls = lines()
+data = json(ls[0])
+tpl = "\n".join(ls.skip(1))
+parts = tpl.split('{{')
+tkk.push("t")
+tkv.push(parts[0])
+for p in parts.skip(1):
+  k = p.find('}}')
+  if k < 0:
+    tkk.push("t")
+    tkv.push('{{' + p)
+  else:
+    tkk.push("g")
+    tkv.push(p.slice(0, k).trim())
+    tkk.push("t")
+    tkv.push(p.slice(k + 2))
+print(render(0, tkk.len(), [data], [-1]))

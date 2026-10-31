@@ -1,0 +1,9 @@
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"access_report","code_tok":663,"patch_tok":663,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"bank_api","code_tok":1277,"patch_tok":1277,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"invoices","code_tok":730,"patch_tok":730,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"kv_store","code_tok":535,"patch_tok":535,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"markdown","code_tok":1176,"patch_tok":1176,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"spreadsheet","code_tok":1532,"patch_tok":1532,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1204,"patch_tok":1204,"out_tok":404,"compiled":true,"pass":0,"total":2,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1204,"patch_tok":74,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p17b-sonnet-brevi","lang":"brevi","task":"timetable","code_tok":815,"patch_tok":815,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

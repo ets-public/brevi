@@ -1,0 +1,97 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub('\*\*(.+?)\*\*', "<strong>\1</strong>")
+  t = t.re_sub('\*(.+?)\*', "<em>\1</em>")
+  t.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+
+fn inline(raw: str) -> str:
+  parts = esc(raw).split("`")
+  out = ""
+  n = parts.len()
+  for i in 0..n:
+    if i % 2 == 0: out += fmt_plain(parts[i])
+    elif i < n - 1: out += "<code>" + parts[i] + "</code>"
+    else: out += "`" + fmt_plain(parts[i])
+  out
+
+used = {}
+body = []
+heads = []
+
+fn make_id(text: str) -> str:
+  base = text.lower().re_sub('[^a-z0-9]+', "-")
+  while base.starts_with("-"): base = base.slice(1)
+  while base.ends_with("-"): base = base.slice(0, base.len() - 1)
+  id = base
+  k = 2
+  while used.has(id):
+    id = base + "-" + str(k)
+    k += 1
+  used[id] = 1
+  id
+
+para = []
+items = []
+listkind = ""
+incode = False
+code = []
+
+fn flush():
+  if para:
+    body.push("<p>" + " ".join([inline(p) for p in para]) + "</p>")
+    para = []
+  if items:
+    body.push("<" + listkind + ">")
+    for it in items: body.push("<li>" + inline(it) + "</li>")
+    body.push("</" + listkind + ">")
+    items = []
+    listkind = ""
+
+for line in lines():
+  if incode:
+    if line == "```":
+      body.push("<pre><code>" + "\n".join([esc(c) for c in code]) + "</code></pre>")
+      code = []
+      incode = False
+    else: code.push(line)
+    continue
+  if line == "```":
+    flush()
+    incode = True
+    continue
+  if line.trim().is_empty():
+    flush()
+    continue
+  h = line.re_full('(#{1,6}) (.*)')
+  if h:
+    flush()
+    text = h[2].trim()
+    id = make_id(text)
+    lv = h[1].len()
+    body.push('<h{lv} id="{id}">{inline(text)}</h{lv}>')
+    heads.push((id, text))
+    continue
+  if line.starts_with("- "):
+    if listkind != "ul": flush()
+    listkind = "ul"
+    items.push(line.slice(2))
+    continue
+  o = line.re_full('\d+\. (.*)')
+  if o:
+    if listkind != "ol": flush()
+    listkind = "ol"
+    items.push(o[1])
+    continue
+  if items: flush()
+  para.push(line.trim())
+flush()
+if incode:
+  body.push("<pre><code>" + "\n".join([esc(c) for c in code]) + "</code></pre>")
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads:
+    t = h.1.replace("`", "").replace("*", "")
+    print('<a href="#{h.0}">{esc(t)}</a>')
+  print("</nav>")
+for b in body: print(b)

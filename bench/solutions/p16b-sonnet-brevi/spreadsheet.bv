@@ -1,0 +1,116 @@
+contents = {}
+memo = {}
+active = {}
+
+fn colof(s: str) -> int = s[:1].code() - 65
+fn rowof(s: str) -> int = s.slice(1).int().or(0)
+
+fn comb(a: int, b: int) -> int = max(a, b)
+
+fn factor(toks: [str], mut p: int) -> (int, int):
+  t = toks[p]
+  p += 1
+  if t == "-":
+    r = factor(toks, p)
+    return (r.0, 0 - r.1)
+  if t == "(":
+    r = expr(toks, p)
+    p += 1
+    return r
+  if t[:1].is_digit(): return (0, t.int().or(0))
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    p += 1
+    rg = toks[p].split(":")
+    p += 2
+    a = rg[0]
+    b = rg[1]
+    c1 = min(colof(a), colof(b))
+    c2 = max(colof(a), colof(b))
+    r1 = min(rowof(a), rowof(b))
+    r2 = max(rowof(a), rowof(b))
+    st = 0
+    vals = []
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        v = cellval((65 + c).char() + str(r))
+        st = comb(st, v.0)
+        vals.push(v.1)
+    res = 0
+    if t == "SUM": res = vals.sum()
+    elif t == "MIN": res = vals.min().or(0)
+    else: res = vals.max().or(0)
+    return (st, res)
+  cellval(t)
+
+fn term(toks: [str], mut p: int) -> (int, int):
+  l = factor(toks, p)
+  st = l.0
+  v = l.1
+  while p < toks.len() and (toks[p] == "*" or toks[p] == "/"):
+    op = toks[p]
+    p += 1
+    r = factor(toks, p)
+    st = comb(st, r.0)
+    if op == "*": v = v * r.1
+    elif r.1 == 0:
+      st = comb(st, 1)
+      v = 0
+    else: v = v / r.1
+  (st, v)
+
+fn expr(toks: [str], mut p: int) -> (int, int):
+  l = term(toks, p)
+  st = l.0
+  v = l.1
+  while p < toks.len() and (toks[p] == "+" or toks[p] == "-"):
+    op = toks[p]
+    p += 1
+    r = term(toks, p)
+    st = comb(st, r.0)
+    if op == "+": v = v + r.1
+    else: v = v - r.1
+  (st, v)
+
+fn cellval(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if active.has(name): return (2, 0)
+  if not contents.has(name): return (0, 0)
+  active[name] = 1
+  c = contents[name]
+  res = (0, 0)
+  if c.starts_with("="):
+    toks = c.slice(1).replace(" ", "").re_list('[A-Z]\d+:[A-Z]\d+|[A-Z]\d+|[A-Z]+|\d+|[-+*/():]')
+    p = 0
+    res = expr(toks, p)
+  else: res = (0, c.int().or(0))
+  active.remove(name)
+  memo[name] = res
+  res
+
+maxc = 0
+maxr = 0
+for line in lines():
+  i = line.find("=")
+  if i < 0: continue
+  name = line[:i].trim()
+  c = line.slice(i + 1).trim()
+  contents[name] = c
+  maxc = max(maxc, colof(name))
+  maxr = max(maxr, rowof(name))
+  if c.starts_with("="):
+    for m in c.re_list('[A-Z]\d+'):
+      maxc = max(maxc, colof(m))
+      maxr = max(maxr, rowof(m))
+cols = [(65 + i).char() for i in 0..maxc + 1]
+print("\t" + "\t".join(cols))
+for r in 1..maxr + 1:
+  row = [str(r)]
+  for cl in cols:
+    n = cl + str(r)
+    if not contents.has(n): row.push("")
+    else:
+      v = cellval(n)
+      if v.0 == 2: row.push("#CYCLE")
+      elif v.0 == 1: row.push("#DIV0")
+      else: row.push(str(v.1))
+  print("\t".join(row))

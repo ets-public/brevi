@@ -1,0 +1,88 @@
+fn lookup(name: str, ctx: [Json], ix: int) -> Json:
+  if name == ".": return ctx.last()
+  if name == "@index": return ix.json()
+  parts = name.split(".")
+  cur = json("null")
+  k = ctx.len() - 1
+  found = false
+  while k >= 0 and not found:
+    if ctx[k].has(parts[0]):
+      cur = ctx[k][parts[0]]
+      found = true
+    k -= 1
+  for p in parts.skip(1):
+    cur = cur[p]
+  cur
+
+fn len_of(v: Json) -> int = match v:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  _ => 0
+
+fn truthy(v: Json) -> bool = match v:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => s != ""
+  Arr(xs) => xs.len() > 0
+  _ => true
+
+fn apply(inner: str, ctx: [Json], ix: int) -> str:
+  segs = inner.split("|")
+  v = lookup(segs[0].trim(), ctx, ix)
+  for fl in segs.skip(1):
+    f = fl.trim()
+    if f == "upper": v = v.text().upper().json()
+    elif f == "lower": v = v.text().lower().json()
+    elif f == "len": v = len_of(v).json()
+    elif f.starts_with("default:"):
+      if v.is_null() or v.text() == "": v = f.slice(8).json()
+  v.text()
+
+fn tag(t: str) -> str = if t.starts_with("{{") and t.ends_with("}}"): t.slice(2, -2).trim() else: ""
+
+fn render(ts: [str], lo: int, hi: int, ctx: [Json], ix: int) -> str:
+  res = ""
+  i = lo
+  while i < hi:
+    t = ts[i]
+    inner = tag(t)
+    if inner == "":
+      res += t
+      i += 1
+    elif inner.starts_with("#each ") or inner.starts_with("#if "):
+      depth = 1
+      j = i + 1
+      els = -1
+      while depth > 0 and j < hi:
+        x = tag(ts[j])
+        if x.starts_with("#each ") or x.starts_with("#if "): depth += 1
+        elif x == "/each" or x == "/if": depth -= 1
+        elif x == "else" and depth == 1: els = j
+        if depth > 0: j += 1
+      if inner.starts_with("#each "):
+        v = lookup(inner.slice(6).trim(), ctx, ix)
+        n = 0
+        for item in v:
+          res += render(ts, i + 1, j, ctx + [item], n)
+          n += 1
+      else:
+        v = lookup(inner.slice(4).trim(), ctx, ix)
+        if truthy(v):
+          e = if els >= 0: els else: j
+          res += render(ts, i + 1, e, ctx, ix)
+        elif els >= 0:
+          res += render(ts, els + 1, j, ctx, ix)
+      i = j + 1
+    elif inner.starts_with("/") or inner == "else":
+      i += 1
+    else:
+      res += apply(inner, ctx, ix)
+      i += 1
+  res
+
+ls = lines()
+root = json(ls[0])
+tpl = "\n".join(ls.skip(1))
+ts = tpl.re_list('\{\{[^}]*\}\}|[^{]+|\{')
+print(render(ts, 0, ts.len(), [root], 0))

@@ -4,7 +4,7 @@ A programming language for AI models to write. Brevi compiles to Rust, so progra
 
 The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,251 tokens (exact count, Sonnet tokenizer).
 
-## Status: v0.14
+## Status: v0.15
 
 Works today:
 - Parser for the full core syntax in BREVI.md
@@ -22,6 +22,14 @@ Works today:
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Brevi line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
+
+Sonnet on big tasks, v0.15 (31 Oct 2026, exact tokens, retries scored as patches): six fresh Brevi runs (p13 to p18) against all six Python runs.
+
+| Task set | Model | Brevi | Python | Brevi finished code | Python finished code | First try (Brevi / Python) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 8 big | Sonnet | 8,721 | 8,721 | **8,061** | 8,665 | 39 of 48 / 48 of 48 |
+
+Sonnet is now level with Python on big tasks (the last three runs, on the final v0.15 compiler, average 8,623). Brevi's finished code is 7% shorter; the retries after first-try failures use up that saving. v0.15 fixes the failures seen in runs p9 to p15: template tags in double-quoted strings (`"{{#each "`, `"{{/if}}"`, `"{{else}}"`) keep both braces, `'single quotes'` work inside `{...}` values, a function that ends in an if or match needs no return type, and a match can be written inside brackets. Of the 15 Sonnet first-try failures in runs p3 to p12, 12 now pass as written. All 829 old solutions print the same.
 
 Big tasks on v0.14 (31 Oct 2026, exact tokens, retries scored as patches). Brevi runs p9 to p12 on the v0.14 compiler; Python is all six of its runs:
 

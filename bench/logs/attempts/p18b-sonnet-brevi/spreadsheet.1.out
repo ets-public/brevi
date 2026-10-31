@@ -1,0 +1,18 @@
+test 0 failed
+input:
+A1 = 5
+A2 = 7
+A3 = =A1+A2*2
+B1 = =SUM(A1:A3)
+B2 = =(A1 + A2) * -2
+B3 = =MAX(A1:B2) - MIN(A1:A3)
+C1 = =B1/4
+expected:
+	A	B	C
+1	5	31	7
+2	7	-24	
+3	19	26	
+got:
+	A	B	C
+{"e":"runtime","line":86,"msg":"not an int: \"\""}
+passed 0/3
