@@ -1250,7 +1250,6 @@ impl Json {
     pub fn ax_int(&self) -> i64 {
         match self {
             Json::Num { v } => *v as i64,
-            Json::Str { v } => v.trim().parse::<f64>().map(|x| x as i64).unwrap_or(0),
             Json::Bool { v } => *v as i64,
             _ => 0,
         }
@@ -1258,7 +1257,6 @@ impl Json {
     pub fn ax_float(&self) -> f64 {
         match self {
             Json::Num { v } => *v,
-            Json::Str { v } => v.trim().parse::<f64>().unwrap_or(0.0),
             Json::Bool { v } => *v as i64 as f64,
             _ => 0.0,
         }

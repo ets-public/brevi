@@ -1,0 +1,11 @@
+# "{{" handed straight to a method is two braces; Json .int()/.float() read only numbers.
+t = 'Hi {{name}}, {{n}} left'
+parts = t.split("{{")
+print(parts.len())
+print(t.find("}}"))
+out = []
+out.push("{{" + "x")
+print(out[0])
+j = json('{"a": "7", "b": 2.5, "c": 3}')
+print(j["a"].float(), j["b"].float(), j["c"].int(), j["a"].int())
+print(65.char_at())

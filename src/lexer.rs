@@ -55,6 +55,23 @@ fn template_tag(chars: &[char], from: usize) -> Option<(usize, bool)> {
     (tag_start || text == "else").then_some((j, true))
 }
 
+// Is the quote at `q` the start of a method's first argument: `.name(` just before it?
+fn method_arg_start(chars: &[char], q: usize) -> bool {
+    let mut j = q;
+    while j > 0 && chars[j - 1] == ' ' {
+        j -= 1;
+    }
+    if j == 0 || chars[j - 1] != '(' {
+        return false;
+    }
+    j -= 1;
+    let end = j;
+    while j > 0 && (chars[j - 1].is_alphanumeric() || chars[j - 1] == '_') {
+        j -= 1;
+    }
+    j < end && j > 0 && chars[j - 1] == '.'
+}
+
 // Does the `{` just before `from` close on this line (quoted strings inside skipped)?
 fn interp_closes(chars: &[char], from: usize) -> bool {
     // `{3}` or `{2,4}` is a regex count, not a value.
@@ -244,6 +261,17 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             let mut inner_sq = false;
             // Just after `\\`: a `{` here is a regex's escaped brace (`"\\{(\\d+)\\}"`), never a value.
             let mut after_bs = false;
+            // `.split("{{")`, `.find("}}")`, `.push("{{" + p)`: a bare "{{" or "}}" handed straight to a method
+            // is two braces, the way template code means it.
+            let pair = matches!((chars.get(i), chars.get(i + 1), chars.get(i + 2)), (Some('{'), Some('{'), Some('"')) | (Some('}'), Some('}'), Some('"')));
+            if pair && method_arg_start(&chars, i - 1) {
+                let b = chars[i];
+                s.extend([b, b, b, b]);
+                i += 3;
+                col += 3;
+                push(&mut out, Tok::Str(s));
+                continue;
+            }
             loop {
                 let bs = std::mem::take(&mut after_bs);
                 if depth > 0 {
