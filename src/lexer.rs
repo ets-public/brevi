@@ -125,6 +125,84 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             continue;
         }
+        // 'text': quotes inside need no escape, and `{` is a value only before a name or `(` (`'{"id":{i}}'`).
+        if c == '\'' {
+            let mut s = String::new();
+            i += 1;
+            col += 1;
+            loop {
+                match chars.get(i) {
+                    None | Some('\n') => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing '")),
+                    Some('\'') => {
+                        i += 1;
+                        col += 1;
+                        break;
+                    }
+                    Some('{') if chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(')) && interp_closes(&chars, i + 1) => {
+                        // The value runs to its matching `}`; strings inside it are skipped.
+                        let (mut depth, mut inner) = (0usize, false);
+                        while let Some(&ch) = chars.get(i) {
+                            s.push(ch);
+                            i += 1;
+                            col += 1;
+                            if inner {
+                                if ch == '\\' {
+                                    if let Some(&n) = chars.get(i) {
+                                        s.push(n);
+                                        i += 1;
+                                        col += 1;
+                                    }
+                                } else if ch == '"' {
+                                    inner = false;
+                                }
+                            } else if ch == '"' {
+                                inner = true;
+                            } else if ch == '{' {
+                                depth += 1;
+                            } else if ch == '}' {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    Some(&b @ ('{' | '}')) => {
+                        s.push(b);
+                        s.push(b);
+                        i += 1;
+                        col += 1;
+                    }
+                    Some('\\') => {
+                        let e = chars.get(i + 1).copied().unwrap_or(' ');
+                        match e {
+                            'n' => s.push('\n'),
+                            't' => s.push('\t'),
+                            'r' => s.push('\r'),
+                            '0' => s.push('\0'),
+                            '\'' | '\\' => s.push(e),
+                            '{' | '}' => {
+                                s.push(e);
+                                s.push(e);
+                            }
+                            other => {
+                                s.push('\\');
+                                s.push(other);
+                            }
+                        }
+                        i += 2;
+                        col += 2;
+                    }
+                    Some(&ch) => {
+                        s.push(ch);
+                        i += 1;
+                        col += 1;
+                    }
+                }
+            }
+            push(&mut out, Tok::Str(s));
+            continue;
+        }
         if c == '"' {
             let mut s = String::new();
             i += 1;

@@ -502,6 +502,7 @@ pub trait AxStr {
     fn ax_lines(&self) -> Vec<String>;
     fn ax_chars(&self) -> Vec<String>;
     fn ax_split(&self, sep: String) -> Vec<String>;
+    fn ax_partition(&self, sep: String) -> (String, String, String);
     fn ax_lower(&self) -> String;
     fn ax_upper(&self) -> String;
     fn ax_trim(&self) -> String;
@@ -540,6 +541,13 @@ impl AxStr for String {
     }
     fn ax_chars(&self) -> Vec<String> {
         self.chars().map(String::from).collect()
+    }
+    // As in Python: text before the first sep, sep, and the rest; ("s", "", "") when sep is missing.
+    fn ax_partition(&self, sep: String) -> (String, String, String) {
+        match self.find(&sep) {
+            Some(i) => (self[..i].to_string(), sep.clone(), self[i + sep.len()..].to_string()),
+            None => (self.clone(), String::new(), String::new()),
+        }
     }
     fn ax_split(&self, sep: String) -> Vec<String> {
         self.split(sep.as_str()).map(String::from).collect()
@@ -2395,6 +2403,7 @@ pub trait AxRe {
     fn ax_re_find(&self, p: String) -> Vec<String>;
     fn ax_re_full(&self, p: String) -> Vec<String>;
     fn ax_re_all(&self, p: String) -> Vec<Vec<String>>;
+    fn ax_re_list(&self, p: String) -> Vec<String>;
     fn ax_re_sub(&self, p: String, r: String) -> String;
     fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, f: F) -> String;
     fn ax_re_split(&self, p: String) -> Vec<String>;
@@ -2423,6 +2432,10 @@ impl AxRe for String {
         let mut out = vec![];
         ax_rx_each(self, &p, |cs, c| out.push(ax_rx_groups(cs, c)));
         out
+    }
+    // The text of every match, like Python's re.findall without groups (tokenizing: `s.re_list("\\d+|\\S")`).
+    fn ax_re_list(&self, p: String) -> Vec<String> {
+        self.ax_re_all(p).into_iter().map(|mut g| g.swap_remove(0)).collect()
     }
     fn ax_re_sub(&self, p: String, r: String) -> String {
         let rc: Vec<char> = r.chars().collect();

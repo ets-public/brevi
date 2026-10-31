@@ -54,6 +54,7 @@ Match arms are one expression or statement (`Num(n) => total += n`) or an indent
 `+` joins strings and lists. int and f64 never mix: convert with `.float()` or `.int()` (a whole-number literal next to an f64 is an f64: `x * 2`, `area(2, 3.5)`).
 Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followed by a letter, `(`, `-`, `!` or `"` starts an expression, and strings may appear inside: `"{m["k"]}"`). Any other `{` is a plain brace; `\{` and `{{` always are.
 Escapes: `\n \t \r \0 \" \\ \{ \}`.
+`'single quotes'` need no `\"` and keep `{` plain unless a name or `(` follows, so JSON text is easy: `'{"id":{i},"error":"not found"}'`.
 
 ## Collections
 `xs[0]`, `xs[-1]` (last), `xs[a:b]` `xs[1:]` `s[:3]` (slices, also on strings), `xs[i] = v`, `m[k] = v`, `m[k] += 1`, `m[k].push(x)`. A missing map key reads as the type's zero (0, 0.0, "", [], dec 0); use `m.has(k)` to tell.
@@ -71,14 +72,14 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 
 Most methods return a new value (`ys = xs.sort()`); as a statement, `xs.sort()` sorts xs. `push pop insert remove` change the list in place.
-Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`.
+Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `(a, _, b) = s.partition("=")`.
 
 ## Built-in functions
 `print(x)` (`print(a, b)` puts a space between), `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
 
 ## Data formats
-- `json(text)` gives a `Json`: match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)` ({str: Json}, keys kept in input order), or index `j["key"][0]` (missing gives `Null`). Read values without a match: `j.text()` (string, `""` for null), `j.int()`, `j.dec()`, `j.float()`, `j.is_null()`, `j.has(k)`, `j.keys()`, `j.len()`, `for x in j["items"]:`, `if j["ok"]:`, `j["tier"] == "gold"`. `str(j)` writes compact JSON. `x.json()` turns any value (int, str, list, map) into Json, so `str(xs.json())` writes it. A map literal whose values differ in type is a Json object with keys in written order: `str({"id": 1, "name": n})` gives `{"id":1,"name":"ann"}`.
-- Regexes (Python syntax: `\d \w \s . [a-z] [^x] * + ? {2,4} *? ( ) (?: ) | ^ $ \b`): `s.re_full(p)` (whole string) and `s.re_find(p)` (first match) give `[whole, group1, ...]`, or `[]` when there is no match; `s.re_all(p)` gives one such list per match; `s.re_sub(p, "<b>\1</b>")` or `s.re_sub(p, g => g[1].upper())`; `s.re_split(p)`. Write `"\d+"` (unknown escapes keep their backslash).
+- `json(text)` gives a `Json`. Read it directly, no match needed: `j["key"][0]` (missing gives `Null`), `j.text()` (a string's text, `""` for null, other values as JSON), `j.int()`, `j.dec()`, `j.float()` (0 when not a number), `j.is_null()`, `j.has(k)`, `j.keys()`, `j.len()`, `for x in j["items"]:`, `if j["ok"]:` (null, false, 0, "" and [] are false), `j["tier"] == "gold"`, `m[j["id"]]`. To tell kinds apart, match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)`. `str(j)` writes compact JSON. `x.json()` turns any value into Json. A map literal whose values differ in type is a Json object with keys in written order: `str({"id": 1, "name": n})` gives `{"id":1,"name":"ann"}`.
+- Regexes (Python syntax: `\d \w \s . [a-z] [^x] * + ? {2,4} *? ( ) (?: ) | ^ $ \b`): `s.re_full(p)` (whole string) and `s.re_find(p)` (first match) give `[whole, group1, ...]`, or `[]` when there is no match; `s.re_all(p)` gives one such list per match; `s.re_list(p)` gives each match's text (a tokenizer: `s.re_list("\d+|[A-Z]+\d*|\S")`); `s.re_sub(p, "<b>\1</b>")` or `s.re_sub(p, g => g[1].upper())`; `s.re_split(p)`. Write `"\d+"` (unknown escapes keep their backslash).
 - `csv(text)` gives `[[str]]`, handling quoted fields and `""`.
 - `date("2024-02-29")` gives a `Date` with `days` (since 1970-01-01), `add_days(n)`, `year month day weekday` (1 = Monday); `str(d)` is `YYYY-MM-DD`.
 - `big` is an exact integer of any size: `"123...".big()`, `n.big()`, with `+ - *` and comparisons.

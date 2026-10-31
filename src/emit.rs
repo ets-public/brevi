@@ -14,7 +14,7 @@ const METHODS: &[&str] = &[
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json",
-    "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_sub", "re_split",
+    "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -93,7 +93,7 @@ fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a
 // `(a, b)` as `(mut a, mut b)` when every item is a plain name.
 fn mut_binds(ps: &[Pat], p: &str) -> String {
     if ps.iter().all(|p| matches!(p, Pat::Bind(_) | Pat::Wild)) {
-        let names: Vec<String> = ps.iter().map(|p| if let Pat::Bind(n) = p { format!("mut {n}") } else { "_".into() }).collect();
+        let names: Vec<String> = ps.iter().map(|p| match p { Pat::Bind(n) if n != "_" => format!("mut {n}"), _ => "_".into() }).collect();
         format!("({})", names.join(", "))
     } else {
         p.to_string()
@@ -1108,7 +1108,7 @@ impl Emitter {
                     names.iter().for_each(|n| {
                         self.locals.insert(n.clone());
                     });
-                    format!("let ({}) = {v};", names.iter().map(|n| format!("mut {n}")).collect::<Vec<_>>().join(", "))
+                    format!("let ({}) = {v};", names.iter().map(|n| if n == "_" { "_".to_string() } else { format!("mut {n}") }).collect::<Vec<_>>().join(", "))
                 }
             }
             Stmt::Assign { target, op, value, .. } => {

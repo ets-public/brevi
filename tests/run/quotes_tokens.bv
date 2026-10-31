@@ -1,0 +1,12 @@
+x = 3
+names = ["ann"]
+print('{"e":"a"} {x}')
+print("a" + 'b' + 'it\'s')
+print('{"id":{x},"owner":"{names[0]}","n":{x + 1}}')
+print('{{x}} \d+ {"k": 1}')
+print("{x}" == '{x}')
+(a, _, b) = "k = v = w".partition(" = ")
+print(a, b)
+print("SUM(A1:B2)+3*-x".re_list("\d+|[A-Z]+\d*|\S"))
+(h, s, t) = "abc".partition("z")
+print(h, s == "", t == "")
