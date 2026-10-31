@@ -1,0 +1,99 @@
+owners = []
+bal = []
+
+fn acct(i: int) -> str:
+  return '{"id":{i},"owner":"{owners[i - 1]}","balance":{bal[i - 1]}}'
+
+fn owner_of(j: Json) -> str:
+  match j["owner"]:
+    Str(s) => s
+    _ => ""
+
+fn amount_of(j: Json) -> int:
+  match j["amount"]:
+    Num(n) =>
+      if n > 0.0 and n == n.floor(): return n.int()
+      return 0
+    _ => 0
+
+fn id_of(v: Json) -> int:
+  match v:
+    Num(n) => n.int()
+    _ => 0
+
+for line in lines():
+  method, _, rest = line.partition(" ")
+  path, _, body = rest.partition(" ")
+  segs = path.split("/")
+  n = segs.len()
+  kind = "none"
+  acc = 0
+  if n == 3 and segs[1] == "accounts":
+    acc = segs[2].int().or(0)
+    if method == "GET": kind = "get"
+  elif n == 4 and segs[1] == "accounts" and method == "POST":
+    acc = segs[2].int().or(0)
+    if segs[3] == "deposit": kind = "deposit"
+    elif segs[3] == "withdraw": kind = "withdraw"
+  elif method == "POST" and path == "/accounts": kind = "create"
+  elif method == "GET" and path == "/accounts": kind = "list"
+  elif method == "POST" and path == "/transfer": kind = "transfer"
+  if kind != "none" and acc < 1 and kind != "create" and kind != "list" and kind != "transfer":
+    kind = "none"
+  if kind == "none":
+    print('404 {"error":"not found"}')
+    continue
+  j = json("null")
+  if kind in ["create", "deposit", "withdraw", "transfer"]:
+    j = json(body).or(json("null"))
+    if j.is_null():
+      print('400 {"error":"bad json"}')
+      continue
+  if kind == "create":
+    owner = owner_of(j)
+    if owner == "":
+      print('400 {"error":"owner required"}')
+    else:
+      owners.push(owner)
+      bal.push(0)
+      print("201 " + acct(owners.len()))
+  elif kind == "list":
+    keyed = [(-bal[i], i + 1) for i in range(0, owners.len())]
+    keyed.sort()
+    items = []
+    for t in keyed: items.push(acct(t.1))
+    print("200 [" + ",".join(items) + "]")
+  elif kind == "transfer":
+    src = id_of(j["from"])
+    dst = id_of(j["to"])
+    if src < 1 or src > owners.len() or dst < 1 or dst > owners.len():
+      print('404 {"error":"no such account"}')
+    elif src == dst:
+      print('400 {"error":"same account"}')
+    else:
+      amt = amount_of(j)
+      if amt == 0:
+        print('400 {"error":"bad amount"}')
+      elif bal[src - 1] < amt:
+        print('409 {"error":"insufficient funds"}')
+      else:
+        bal[src - 1] = bal[src - 1] - amt
+        bal[dst - 1] = bal[dst - 1] + amt
+        print('200 {"from":{bal[src - 1]},"to":{bal[dst - 1]}}')
+  else:
+    if acc > owners.len():
+      print('404 {"error":"no such account"}')
+    elif kind == "get":
+      print("200 " + acct(acc))
+    else:
+      amt = amount_of(j)
+      if amt == 0:
+        print('400 {"error":"bad amount"}')
+      elif kind == "deposit":
+        bal[acc - 1] = bal[acc - 1] + amt
+        print("200 " + acct(acc))
+      elif bal[acc - 1] < amt:
+        print('409 {"error":"insufficient funds"}')
+      else:
+        bal[acc - 1] = bal[acc - 1] - amt
+        print("200 " + acct(acc))

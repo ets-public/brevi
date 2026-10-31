@@ -921,7 +921,8 @@ impl Emitter {
             let rest = format!("{rest:?} {tail:?}");
             for n in names {
                 if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !stmts_set_first(rest_stmts, tail, &n) {
-                    out.push_str(&format!("    let mut {n};\n"));
+                    // A zero start value, as in Python a name set on only some paths can still be read after.
+                    out.push_str(&format!("    let mut {n} = Default::default();\n"));
                     self.locals.insert(n);
                 }
             }

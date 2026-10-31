@@ -1,0 +1,122 @@
+owners = []
+bals = []
+for line in lines():
+  sp = line.find(" ")
+  method = line
+  rest = ""
+  if sp >= 0:
+    method = line[:sp]
+    rest = line[sp + 1:]
+  sp2 = rest.find(" ")
+  path = rest
+  body = "{}"
+  if sp2 >= 0:
+    path = rest[:sp2]
+    body = rest[sp2 + 1:]
+  segs = path.split("/")
+  n = segs.len()
+  kind = ""
+  aid = 0
+  fr = 0
+  to = 0
+  if method == "POST" and path == "/accounts":
+    kind = "create"
+  elif method == "GET" and path == "/accounts":
+    kind = "list"
+  elif method == "POST" and path == "/transfer":
+    kind = "transfer"
+  elif method == "GET" and n == 3 and segs[1] == "accounts" and segs[2].re_full("[0-9]+").len() > 0:
+    kind = "get"
+    aid = segs[2].int()
+  elif method == "POST" and n == 4 and segs[1] == "accounts" and segs[2].re_full("[0-9]+").len() > 0 and (segs[3] == "deposit" or segs[3] == "withdraw"):
+    kind = segs[3]
+    aid = segs[2].int()
+  if kind == "":
+    print('404 {"error":"not found"}')
+    continue
+  bad = false
+  j = json("{}")
+  match json(body):
+    Ok(v) => j = v
+    Err(_) => bad = true
+  if bad:
+    print('400 {"error":"bad json"}')
+    continue
+  if kind == "create":
+    name = ""
+    isstr = false
+    match j["owner"]:
+      Str(s) =>
+        name = s
+        isstr = true
+      _ => isstr = false
+    if not isstr or name == "":
+      print('400 {"error":"owner required"}')
+      continue
+    owners.push(name)
+    bals.push(0)
+    print('201 {"id":{owners.len()},"owner":"{name}","balance":0}')
+    continue
+  if kind == "list":
+    rows = []
+    for i in 0..owners.len():
+      rows.push((-bals[i], i + 1))
+    rows.sort()
+    parts = []
+    for r in rows:
+      parts.push('{"id":{r.1},"owner":"{owners[r.1 - 1]}","balance":{bals[r.1 - 1]}}')
+    print("200 [" + ",".join(parts) + "]")
+    continue
+  if kind == "transfer":
+    fr = -1
+    to = -1
+    match j["from"]:
+      Num(x) => fr = x.int()
+      _ => fr = -1
+    match j["to"]:
+      Num(x) => to = x.int()
+      _ => to = -1
+    if fr < 1 or fr > owners.len() or to < 1 or to > owners.len():
+      print('404 {"error":"no such account"}')
+      continue
+    if fr == to:
+      print('400 {"error":"same account"}')
+      continue
+  if kind == "get":
+    if aid < 1 or aid > owners.len():
+      print('404 {"error":"no such account"}')
+      continue
+    print('200 {"id":{aid},"owner":"{owners[aid - 1]}","balance":{bals[aid - 1]}}')
+    continue
+  if kind == "deposit" or kind == "withdraw":
+    if aid < 1 or aid > owners.len():
+      print('404 {"error":"no such account"}')
+      continue
+  amt = 0
+  okamt = false
+  match j["amount"]:
+    Num(x) =>
+      if x >= 1.0 and x == x.floor():
+        amt = x.int()
+        okamt = true
+    _ => okamt = false
+  if not okamt:
+    print('400 {"error":"bad amount"}')
+    continue
+  if kind == "deposit":
+    bals[aid - 1] += amt
+    print('200 {"id":{aid},"owner":"{owners[aid - 1]}","balance":{bals[aid - 1]}}')
+    continue
+  if kind == "withdraw":
+    if amt > bals[aid - 1]:
+      print('409 {"error":"insufficient funds"}')
+      continue
+    bals[aid - 1] -= amt
+    print('200 {"id":{aid},"owner":"{owners[aid - 1]}","balance":{bals[aid - 1]}}')
+    continue
+  if amt > bals[fr - 1]:
+    print('409 {"error":"insufficient funds"}')
+    continue
+  bals[fr - 1] -= amt
+  bals[to - 1] += amt
+  print('200 {"from":{bals[fr - 1]},"to":{bals[to - 1]}}')

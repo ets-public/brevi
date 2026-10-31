@@ -1,0 +1,72 @@
+fn tm(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str:
+  s = n.str()
+  if s.len() < 2: "0" + s else: s
+
+trains = []
+stns = []
+times = []
+at = {}
+queries = []
+second = false
+for line in lines():
+  l = line.trim()
+  if l.is_empty(): continue
+  if l == "---":
+    second = true
+    continue
+  w = l.words()
+  if second:
+    queries.push(w)
+  else:
+    ti = trains.len()
+    trains.push(w[0])
+    ss = []
+    tt = []
+    k = 1
+    while k + 1 < w.len():
+      ss.push(w[k])
+      tt.push(tm(w[k + 1]))
+      k += 2
+    stns.push(ss)
+    times.push(tt)
+    for pos in 0..ss.len():
+      at[ss[pos]].push((ti, pos))
+
+fn solve(from: str, to: str, q: int) -> str:
+  if from == to: return "{from} {to} {pad(q // 60)}:{pad(q % 60)} via -"
+  labels = {}
+  labels[from] = [(q - 5, 0, "")]
+  work = [(from, q - 5, 0, "")]
+  while work:
+    cur = work.pop()
+    st = cur.0
+    arr = cur.1
+    nt = cur.2
+    lst = cur.3
+    if not labels[st].contains((arr, nt, lst)): continue
+    for sp in at[st]:
+      ti = sp.0
+      pos = sp.1
+      if times[ti][pos] < arr + 5: continue
+      nl = if lst == "": trains[ti] else: lst + ">" + trains[ti]
+      for k in pos + 1..stns[ti].len():
+        s2 = stns[ti][k]
+        a2 = times[ti][k]
+        dominated = false
+        for e in labels[s2]:
+          if e.0 <= a2 and (e.1, e.2) <= (nt + 1, nl): dominated = true
+        if dominated: continue
+        kept = labels[s2].filter(e => not (a2 <= e.0 and (nt + 1, nl) <= (e.1, e.2)))
+        kept.push((a2, nt + 1, nl))
+        labels[s2] = kept
+        work.push((s2, a2, nt + 1, nl))
+  if not labels.has(to) or labels[to].is_empty(): return "{from} {to} unreachable"
+  best = labels[to].sort()[0]
+  "{from} {to} {pad(best.0 // 60)}:{pad(best.0 % 60)} via {best.2}"
+
+for w in queries:
+  print(solve(w[0], w[1], tm(w[2])))

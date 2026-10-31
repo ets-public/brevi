@@ -1,0 +1,81 @@
+kv = {}
+frames = []
+for line in lines():
+  t = line.trim()
+  if t == "":
+    continue
+  parts = t.split(" ")
+  cmd = parts[0]
+  k = if parts.len() > 1: parts[1] else: ""
+  v = if parts.len() > 2: parts[2] else: ""
+  if cmd == "SET":
+    if frames.len() > 0:
+      frames[-1].push((k, kv.has(k), kv.get_or(k, "")))
+    kv[k] = v
+  elif cmd == "GET":
+    if kv.has(k):
+      print(kv[k])
+    else:
+      print("NULL")
+  elif cmd == "DEL":
+    if not kv.has(k):
+      print("NOT FOUND")
+    else:
+      if frames.len() > 0:
+        frames[-1].push((k, true, kv[k]))
+      kv.remove(k)
+  elif cmd == "INCR":
+    okn = true
+    n = 0
+    match v.int():
+      Ok(x) => n = x
+      Err(_) => okn = false
+    cur = kv.get_or(k, "0")
+    ok2 = true
+    c = 0
+    match cur.int():
+      Ok(x) => c = x
+      Err(_) => ok2 = false
+    if not okn or not ok2:
+      print("ERR not an integer")
+    else:
+      if frames.len() > 0:
+        frames[-1].push((k, kv.has(k), kv.get_or(k, "")))
+      kv[k] = str(c + n)
+      print(c + n)
+  elif cmd == "COUNT":
+    c = 0
+    for x in kv.values():
+      if x == k:
+        c += 1
+    print(c)
+  elif cmd == "KEYS":
+    ks = []
+    for x in kv.keys():
+      if x.starts_with(k):
+        ks.push(x)
+    ks.sort()
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(" ".join(ks))
+  elif cmd == "BEGIN":
+    frames.push([])
+  elif cmd == "ROLLBACK":
+    if frames.is_empty():
+      print("NO TRANSACTION")
+    else:
+      for e in frames.pop().rev():
+        kk, ex, old = e
+        if ex:
+          kv[kk] = old
+        else:
+          kv.remove(kk)
+  elif cmd == "COMMIT":
+    if frames.is_empty():
+      print("NO TRANSACTION")
+    else:
+      while frames:
+        frames.pop()
+  else:
+    print("ERR unknown command")

@@ -1,0 +1,118 @@
+fn tagof(t: str) -> str:
+  if t.starts_with("{{") and t.ends_with("}}") and t.len() >= 4:
+    return t.slice(2, -2).trim()
+  ""
+
+fn istag(t: str) -> bool = t.starts_with("{{") and t.ends_with("}}") and t.len() >= 4
+
+fn lookup(path: str, scopes: [Json]) -> Json:
+  if path == ".":
+    return scopes.last()
+  parts = path.split(".")
+  first = parts[0]
+  cur = json("null")
+  i = scopes.len() - 1
+  found = false
+  while i >= 0 and not found:
+    sc = scopes[i]
+    if sc.has(first):
+      cur = sc[first]
+      found = true
+    i -= 1
+  if not found:
+    return json("null")
+  for p in parts.slice(1):
+    cur = cur[p]
+  cur
+
+fn isblank(v: Json) -> bool = match v:
+  Null => true
+  Str(s) => s.is_empty()
+  _ => false
+
+fn truthy(v: Json) -> bool:
+  if v:
+    return true
+  false
+
+fn filt(v: Json, f: str) -> Json:
+  if f == "upper":
+    return v.text().upper().json()
+  if f == "lower":
+    return v.text().lower().json()
+  if f == "len":
+    return match v:
+      Null => 0.json()
+      Str(s) => s.len().json()
+      _ => v.len().json()
+  if f.starts_with("default:"):
+    if isblank(v):
+      return f.slice(8).json()
+  v
+
+fn render(ts: [str], scopes: [Json], idx: int) -> str:
+  r = ""
+  i = 0
+  while i < ts.len():
+    t = ts[i]
+    tg = tagof(t)
+    if not istag(t):
+      r += t
+      i += 1
+    elif tg.starts_with("#each "):
+      depth = 1
+      j = i + 1
+      while j < ts.len() and depth > 0:
+        g = tagof(ts[j])
+        if istag(ts[j]) and g.starts_with("#each "):
+          depth += 1
+        elif istag(ts[j]) and g == "/each":
+          depth -= 1
+        j += 1
+      body = ts.slice(i + 1, j - 1)
+      arr = lookup(tg.slice(6).trim(), scopes)
+      k = 0
+      for el in arr:
+        r += render(body, scopes + [el], k)
+        k += 1
+      i = j
+    elif tg.starts_with("#if "):
+      depth = 1
+      j = i + 1
+      elsepos = -1
+      while j < ts.len() and depth > 0:
+        g = tagof(ts[j])
+        if istag(ts[j]) and g.starts_with("#if "):
+          depth += 1
+        elif istag(ts[j]) and g == "/if":
+          depth -= 1
+        elif istag(ts[j]) and g == "else" and depth == 1:
+          elsepos = j
+        j += 1
+      end = j - 1
+      cond = truthy(lookup(tg.slice(4).trim(), scopes))
+      if cond:
+        stop = end
+        if elsepos >= 0:
+          stop = elsepos
+        r += render(ts.slice(i + 1, stop), scopes, idx)
+      elif elsepos >= 0:
+        r += render(ts.slice(elsepos + 1, end), scopes, idx)
+      i = j
+    elif tg == "@index":
+      r += str(idx)
+      i += 1
+    else:
+      fs = tg.split("|")
+      v = lookup(fs[0].trim(), scopes)
+      for f in fs.slice(1):
+        v = filt(v, f.trim())
+      r += v.text()
+      i += 1
+  r
+
+ls = lines()
+data = json(ls[0])
+tpl = ls.slice(1).join("\n")
+ts = tpl.re_list('[{][{][^}]*[}][}]|[^{]+|[{]')
+print(render(ts, [data], 0))

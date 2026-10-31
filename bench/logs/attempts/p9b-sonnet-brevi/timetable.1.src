@@ -1,0 +1,82 @@
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(x: int) -> str:
+  s = str(x)
+  if s.len() < 2:
+    return "0" + s
+  s
+
+fn hhmm(m: int) -> str = pad(m // 60) + ":" + pad(m % 60)
+
+trips = []
+queries = []
+sec = 0
+for line in lines():
+  if line.trim() == "---":
+    sec = 1
+    continue
+  w = line.words()
+  if w.is_empty():
+    continue
+  if sec == 0:
+    sts = []
+    tms = []
+    i = 1
+    while i + 1 < w.len():
+      sts.push(w[i])
+      tms.push(mins(w[i + 1]))
+      i += 2
+    trips.push((w[0], sts, tms))
+  else:
+    queries.push(w)
+
+for q in queries:
+  src = q[0]
+  dst = q[1]
+  t = mins(q[2])
+  if src == dst:
+    print("{src} {dst} {hhmm(t)} via -")
+    continue
+  frontier = [(src, t - 5, "")]
+  bestarr = {}
+  bestarr[src] = t - 5
+  found = false
+  resarr = 0
+  reskey = ""
+  while frontier:
+    cands = []
+    for lab in frontier:
+      for tr in trips:
+        for i in 0..tr.1.len():
+          if tr.1[i] == lab.0 and tr.2[i] >= lab.1 + 5:
+            key = tr.0
+            if lab.2 != "":
+              key = lab.2 + ">" + tr.0
+            for j in i + 1..tr.1.len():
+              cands.push((tr.1[j], tr.2[j], key))
+    cands = cands.sort()
+    nxt = []
+    minkey = {}
+    gotdst = false
+    for c in cands:
+      if bestarr.has(c.0) and c.1 >= bestarr[c.0]:
+        continue
+      if minkey.has(c.0) and c.2 >= minkey[c.0]:
+        continue
+      minkey[c.0] = c.2
+      nxt.push(c)
+      if c.0 == dst and not gotdst:
+        gotdst = true
+        found = true
+        resarr = c.1
+        reskey = c.2
+    for c in nxt:
+      if not bestarr.has(c.0) or c.1 < bestarr[c.0]:
+        bestarr[c.0] = c.1
+    frontier = nxt
+  if found:
+    print("{src} {dst} {hhmm(resarr)} via {reskey}")
+  else:
+    print("{src} {dst} unreachable")

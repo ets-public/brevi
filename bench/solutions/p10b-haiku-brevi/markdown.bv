@@ -1,0 +1,99 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn inl(s: str) -> str:
+  parts = esc(s).split("`")
+  out = []
+  for i in 0..parts.len():
+    p = parts[i]
+    if i % 2 == 1:
+      out.push("<code>" + p + "</code>")
+    else:
+      q = p.re_sub('\*\*(.+?)\*\*', '<strong>\1</strong>')
+      q = q.re_sub('\*([^*]+)\*', '<em>\1</em>')
+      q = q.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+      out.push(q)
+  return out.join("")
+
+fn slug(s: str) -> str:
+  r = s.lower().re_sub('[^a-z0-9]+', "-")
+  return r.re_sub('^-+|-+$', "")
+
+fn render(mode: str, buf: [str]) -> str:
+  if mode == "p":
+    return "<p>" + inl(" ".join(buf)) + "</p>"
+  if mode == "ul":
+    return "<ul>\n" + "\n".join(buf) + "\n</ul>"
+  if mode == "ol":
+    return "<ol>\n" + "\n".join(buf) + "\n</ol>"
+  return ""
+
+src = lines()
+blocks = []
+heads = []
+used = {}
+mode = ""
+buf = []
+i = 0
+while i < src.len():
+  line = src[i]
+  i += 1
+  if line.trim() == "":
+    blocks.push(render(mode, buf))
+    mode = ""
+    buf = []
+    continue
+  hm = line.re_full('^(#{1,6}) (.+)$')
+  if hm:
+    blocks.push(render(mode, buf))
+    mode = ""
+    buf = []
+    lvl = hm[1].len()
+    htxt = hm[2]
+    base = slug(htxt)
+    cand = base
+    nn = 1
+    while used.has(cand):
+      nn += 1
+      cand = base + "-" + str(nn)
+    used[cand] = true
+    heads.push((cand, htxt.replace("`", "").replace("*", "")))
+    blocks.push('<h{lvl} id="{cand}">{inl(htxt)}</h{lvl}>')
+  elif line == "```":
+    blocks.push(render(mode, buf))
+    mode = ""
+    buf = []
+    cl = []
+    while i < src.len() and src[i] != "```":
+      cl.push(esc(src[i]))
+      i += 1
+    i += 1
+    blocks.push("<pre><code>" + "\n".join(cl) + "</code></pre>")
+  elif line.starts_with("- "):
+    if mode != "ul":
+      blocks.push(render(mode, buf))
+      buf = []
+      mode = "ul"
+    buf.push("<li>" + inl(line[2:]) + "</li>")
+  else:
+    om = line.re_full('^[0-9]+\. (.+)$')
+    if om:
+      if mode != "ol":
+        blocks.push(render(mode, buf))
+        buf = []
+        mode = "ol"
+      buf.push("<li>" + inl(om[1]) + "</li>")
+    else:
+      if mode != "p":
+        blocks.push(render(mode, buf))
+        buf = []
+        mode = "p"
+      buf.push(line)
+blocks.push(render(mode, buf))
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads:
+    print('<a href="#{h.0}">{esc(h.1)}</a>')
+  print("</nav>")
+for b in blocks:
+  if b != "":
+    print(b)

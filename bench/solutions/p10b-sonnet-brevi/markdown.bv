@@ -1,0 +1,89 @@
+out = []
+para = []
+items = []
+listtype = ""
+heads = []
+used = {}
+
+fn esc(s: str) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub("\[([^\]]+)\]\(([^)]+)\)", '<a href="\2">\1</a>')
+  t = t.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t.re_sub("\*(.+?)\*", "<em>\1</em>")
+
+fn inline(s: str) -> str:
+  e = esc(s)
+  res = ""
+  for tok in e.re_list("`[^`]+`|[^`]+|`"):
+    if tok.len() > 2 and tok.starts_with("`") and tok.ends_with("`"):
+      res += "<code>" + tok.slice(1, -1) + "</code>"
+    else:
+      res += fmt_plain(tok)
+  res
+
+fn flush():
+  if para:
+    out.push("<p>" + inline(" ".join(para)) + "</p>")
+    para = []
+  if items:
+    out.push("<{listtype}>")
+    for it in items:
+      out.push("<li>" + inline(it) + "</li>")
+    out.push("</{listtype}>")
+    items = []
+
+incode = false
+code = []
+for raw in lines():
+  if incode:
+    if raw == "```":
+      out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+      code = []
+      incode = false
+    else:
+      code.push(esc(raw))
+    continue
+  line = raw.trim()
+  if raw == "```":
+    flush()
+    incode = true
+    continue
+  if line.is_empty():
+    flush()
+    continue
+  h = line.re_full("(#{1,6}) (.*)")
+  if h:
+    flush()
+    text = h[2].trim()
+    lvl = h[1].len()
+    base = text.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    cand = base
+    n = 1
+    while used.has(cand):
+      n += 1
+      cand = "{base}-{n}"
+    used[cand] = true
+    heads.push((cand, text))
+    out.push('<h{lvl} id="{cand}">' + inline(text) + "</h{lvl}>")
+  elif line.starts_with("- "):
+    if listtype != "ul" or not items: flush()
+    listtype = "ul"
+    items.push(line.slice(2))
+  elif line.re_full("\d+\. .*"):
+    if listtype != "ol" or not items: flush()
+    listtype = "ol"
+    items.push(line.re_full("\d+\. (.*)")[1])
+  else:
+    if items: flush()
+    para.push(line)
+if incode:
+  out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+flush()
+if heads.len() >= 2:
+  print("<nav>")
+  for hd in heads:
+    print('<a href="#{hd.0}">' + esc(hd.1.replace("`", "").replace("*", "")) + "</a>")
+  print("</nav>")
+for o in out:
+  print(o)

@@ -1,0 +1,130 @@
+fn field(j: Json, k: str) -> (bool, Json):
+  match j:
+    Obj(m) =>
+      if m.has(k):
+        return (true, m[k])
+      return (false, json("null"))
+    _ => return (false, json("null"))
+
+fn lookup(path: str, ctxs: [Json], idx: int) -> (bool, Json):
+  if path == ".":
+    return (true, ctxs[0])
+  if path == "@index":
+    return (idx >= 0, idx.json())
+  parts = path.split(".")
+  for c in ctxs:
+    ok, v = field(c, parts[0])
+    if ok:
+      for p in parts[1:]:
+        ok, v = field(v, p)
+        if not ok:
+          return (false, json("null"))
+      return (true, v)
+  return (false, json("null"))
+
+fn showtag(body: str, ctxs: [Json], idx: int) -> str:
+  segs = body.split("|")
+  ok, v = lookup(segs[0].trim(), ctxs, idx)
+  for f in segs[1:]:
+    fl = f.trim()
+    if fl == "upper":
+      v = v.text().upper().json()
+    elif fl == "lower":
+      v = v.text().lower().json()
+    elif fl == "len":
+      n = 0
+      match v:
+        Arr(xs) => n = xs.len()
+        Str(s) => n = s.len()
+        _ => n = 0
+      v = n.json()
+    elif fl.starts_with("default:"):
+      if not ok or v.text() == "":
+        v = fl[8:].json()
+        ok = true
+  return v.text()
+
+fn find_close(toks: [str], i: int) -> int:
+  depth = 0
+  j = i
+  while j < toks.len():
+    t = toks[j]
+    if t.starts_with("{{"):
+      body = t[2:t.len() - 2].trim()
+      if body.starts_with("#"):
+        depth += 1
+      elif body.starts_with("/"):
+        if depth == 0:
+          return j
+        depth -= 1
+    j += 1
+  return toks.len()
+
+fn find_else(toks: [str], i: int, close: int) -> int:
+  depth = 0
+  j = i
+  while j < close:
+    t = toks[j]
+    if t.starts_with("{{"):
+      body = t[2:t.len() - 2].trim()
+      if body.starts_with("#"):
+        depth += 1
+      elif body.starts_with("/"):
+        depth -= 1
+      elif body == "else" and depth == 0:
+        return j
+    j += 1
+  return -1
+
+fn render(toks: [str], a: int, b: int, ctxs: [Json], idx: int) -> str:
+  parts = []
+  i = a
+  while i < b:
+    t = toks[i]
+    if not t.starts_with("{{"):
+      parts.push(t)
+      i += 1
+    else:
+      body = t[2:t.len() - 2].trim()
+      if body.starts_with("#each "):
+        name = body[6:].trim()
+        close = find_close(toks, i + 1)
+        ok, av = lookup(name, ctxs, idx)
+        xs = []
+        if ok:
+          match av:
+            Arr(ys) => xs = ys
+            _ => xs = []
+        for k in 0..xs.len():
+          parts.push(render(toks, i + 1, close, [xs[k]] + ctxs, k))
+        i = close + 1
+      elif body.starts_with("#if "):
+        name = body[4:].trim()
+        close = find_close(toks, i + 1)
+        e = find_else(toks, i + 1, close)
+        endthen = close
+        if e >= 0:
+          endthen = e
+        ok, v = lookup(name, ctxs, idx)
+        truthy = false
+        if ok:
+          if v:
+            truthy = true
+        if truthy:
+          parts.push(render(toks, i + 1, endthen, ctxs, idx))
+        elif e >= 0:
+          parts.push(render(toks, e + 1, close, ctxs, idx))
+        i = close + 1
+      else:
+        parts.push(showtag(body, ctxs, idx))
+        i += 1
+  return "".join(parts)
+
+s = stdin()
+p = s.find("\n")
+if p < 0:
+  p = s.len()
+data = json(s[:p])
+tpl = s[p + 1:]
+toks = tpl.re_list('[{][{][^}]*[}][}]|[^{]+|[{]')
+print(render(toks, 0, toks.len(), [data], -1))

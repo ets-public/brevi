@@ -1,0 +1,107 @@
+fn lookup(name: str, scope: [Json]) -> Json:
+  if name == ".": return scope.last()
+  segs = name.split(".")
+  cur = Null
+  for i in (0..scope.len()).rev():
+    sc = scope[i]
+    if sc.has(segs[0]):
+      cur = sc[segs[0]]
+      break
+  for s in segs.skip(1):
+    cur = cur[s]
+  cur
+
+fn truthy(v: Json) -> bool = match v:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => not s.is_empty()
+  Arr(xs) => not xs.is_empty()
+  Obj(m) => true
+
+fn jlen(v: Json) -> int = match v:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  _ => 0
+
+fn is_open(t: str) -> bool = t.starts_with("#each ") or t.starts_with("#if ")
+fn is_close(t: str) -> bool = t == "/each" or t == "/if"
+
+fn find_end(toks: [(str, str)], i: int, hi: int) -> int:
+  depth = 0
+  for j in i..hi:
+    t = toks[j]
+    if t.0 == "g":
+      if is_open(t.1): depth += 1
+      elif is_close(t.1): depth -= 1
+      if depth == 0: return j
+  hi
+
+fn find_else(toks: [(str, str)], i: int, j: int) -> int:
+  depth = 0
+  for k in i + 1..j:
+    t = toks[k]
+    if t.0 == "g":
+      if is_open(t.1): depth += 1
+      elif is_close(t.1): depth -= 1
+      elif t.1 == "else" and depth == 0: return k
+  -1
+
+fn render(toks: [(str, str)], lo: int, hi: int, scope: [Json], idx: int) -> str:
+  res = ""
+  i = lo
+  while i < hi:
+    t = toks[i]
+    if t.0 == "t":
+      res += t.1
+      i += 1
+      continue
+    tag = t.1
+    if tag.starts_with("#each "):
+      j = find_end(toks, i, hi)
+      items = lookup(tag.slice(6).trim(), scope)
+      n = 0
+      for el in items:
+        res += render(toks, i + 1, j, scope + [el], n)
+        n += 1
+      i = j + 1
+    elif tag.starts_with("#if "):
+      j = find_end(toks, i, hi)
+      e = find_else(toks, i, j)
+      v = lookup(tag.slice(4).trim(), scope)
+      if truthy(v):
+        res += render(toks, i + 1, if e < 0: j else: e, scope, idx)
+      elif e >= 0:
+        res += render(toks, e + 1, j, scope, idx)
+      i = j + 1
+    elif tag == "@index":
+      res += idx.str()
+      i += 1
+    else:
+      fs = tag.split("|")
+      cur = lookup(fs[0].trim(), scope)
+      for f in fs.skip(1):
+        f = f.trim()
+        if f == "upper": cur = cur.text().upper().json()
+        elif f == "lower": cur = cur.text().lower().json()
+        elif f == "len": cur = jlen(cur).json()
+        elif f.starts_with("default:"):
+          if cur.is_null() or cur.text() == "":
+            cur = f.slice(8).json()
+      res += cur.text()
+      i += 1
+  res
+
+text = stdin()
+nl = text.find("\n")
+data = json(text.slice(0, nl))
+tmpl = text.slice(nl + 1)
+if tmpl.ends_with("\n"): tmpl = tmpl.slice(0, -1)
+parts = tmpl.split("{{")
+toks = []
+if parts[0] != "": toks.push(("t", parts[0]))
+for p in parts.skip(1):
+  k = p.find("}}")
+  toks.push(("g", p.slice(0, k).trim()))
+  if k + 2 < p.len(): toks.push(("t", p.slice(k + 2)))
+print(render(toks, 0, toks.len(), [data], -1))

@@ -1,1 +1,0 @@
-{"line":2,"msg":"best is not set on every path before this use","fix":"set it before the if or match, so every path gives it a value"}

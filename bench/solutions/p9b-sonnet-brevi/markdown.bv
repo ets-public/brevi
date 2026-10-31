@@ -1,0 +1,95 @@
+out = []
+buf = []
+mode = ""
+heads = []
+used = {}
+
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  a = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  b = a.re_sub("\*(.+?)\*", "<em>\1</em>")
+  b.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+
+fn inline(raw: str) -> str:
+  parts = esc(raw).split("`")
+  r = ""
+  for i in 0..parts.len():
+    if i % 2 == 1 and i < parts.len() - 1:
+      r += "<code>" + parts[i] + "</code>"
+    elif i % 2 == 1:
+      r += "`" + fmt_plain(parts[i])
+    else:
+      r += fmt_plain(parts[i])
+  r
+
+fn flush():
+  if mode == "p":
+    out.push("<p>" + inline(buf.join(" ")) + "</p>")
+  elif mode == "ul" or mode == "ol":
+    out.push("<" + mode + ">")
+    for b in buf:
+      out.push("<li>" + inline(b) + "</li>")
+    out.push("</" + mode + ">")
+  buf = []
+  mode = ""
+
+incode = false
+code = []
+for line in lines():
+  if incode:
+    if line == "```":
+      out.push("<pre><code>" + code.map(c => esc(c)).join("\n") + "</code></pre>")
+      incode = false
+      code = []
+    else:
+      code.push(line)
+    continue
+  if line == "```":
+    flush()
+    incode = true
+    continue
+  if line.trim() == "":
+    flush()
+    continue
+  h = line.re_full("(#+) (.*)")
+  ul = line.starts_with("- ")
+  ol = line.re_full("\d+\. (.*)")
+  if h and h[1].len() <= 6:
+    flush()
+    text = h[2].trim()
+    base = text.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    id = base
+    if used.has(base):
+      used[base] += 1
+      id = base + "-" + str(used[base])
+    else:
+      used[base] = 1
+    lvl = h[1].len()
+    out.push("<h{lvl} id=\"{id}\">" + inline(text) + "</h{lvl}>")
+    heads.push((id, esc(text.replace("`", "").replace("*", ""))))
+  elif ul:
+    if mode != "ul":
+      flush()
+      mode = "ul"
+    buf.push(line.slice(2))
+  elif ol:
+    if mode != "ol":
+      flush()
+      mode = "ol"
+    buf.push(ol[1])
+  else:
+    if mode != "p":
+      flush()
+      mode = "p"
+    buf.push(line)
+flush()
+if incode:
+  out.push("<pre><code>" + code.map(c => esc(c)).join("\n") + "</code></pre>")
+if heads.len() >= 2:
+  print("<nav>")
+  for hd in heads:
+    print("<a href=\"#{hd.0}\">{hd.1}</a>")
+  print("</nav>")
+for o in out:
+  print(o)

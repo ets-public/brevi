@@ -1,0 +1,165 @@
+toks = []
+pos = 0
+st = {}
+mc = {}
+mv = {}
+cell_formula = {}
+cell_num = {}
+
+fn ppeek() -> str:
+  if pos < toks.len():
+    return toks[pos]
+  return ""
+
+fn agg(f: str, a: str, b: str) -> (int, int):
+  c1 = min(a[:1].code(), b[:1].code())
+  c2 = max(a[:1].code(), b[:1].code())
+  r1 = min(a[1:].int(), b[1:].int())
+  r2 = max(a[1:].int(), b[1:].int())
+  code = 0
+  vals = []
+  for cc in c1..c2 + 1:
+    for rr in r1..r2 + 1:
+      name = cc.char() + str(rr)
+      c, v = getc(name)
+      code = max(code, c)
+      vals.push(v)
+  if code > 0:
+    return (code, 0)
+  if f == "SUM":
+    return (0, sum(vals))
+  if f == "MIN":
+    return (0, min(vals))
+  return (0, max(vals))
+
+fn pprim() -> (int, int):
+  t = ppeek()
+  if t == "(":
+    pos += 1
+    r = pexpr()
+    pos += 1
+    return r
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    pos += 2
+    a = toks[pos]
+    pos += 1
+    b = a
+    if ppeek() == ":":
+      pos += 1
+      b = toks[pos]
+      pos += 1
+    pos += 1
+    return agg(t, a, b)
+  if t.re_full('[A-Z]+[0-9]+').len() > 0:
+    pos += 1
+    return getc(t)
+  pos += 1
+  return (0, t.int())
+
+fn punary() -> (int, int):
+  if ppeek() == "-":
+    pos += 1
+    c, v = punary()
+    return (c, 0 - v)
+  return pprim()
+
+fn pterm() -> (int, int):
+  c, v = punary()
+  while ppeek() == "*" or ppeek() == "/":
+    op = ppeek()
+    pos += 1
+    c2, v2 = punary()
+    c = max(c, c2)
+    if op == "*":
+      v = v * v2
+    elif v2 == 0:
+      c = max(c, 1)
+      v = 0
+    else:
+      v = v / v2
+  return (c, v)
+
+fn pexpr() -> (int, int):
+  c, v = pterm()
+  while ppeek() == "+" or ppeek() == "-":
+    op = ppeek()
+    pos += 1
+    c2, v2 = pterm()
+    c = max(c, c2)
+    if op == "+":
+      v = v + v2
+    else:
+      v = v - v2
+  return (c, v)
+
+fn evalc(name: str) -> (int, int):
+  if st.has(name):
+    if st[name] == 1:
+      return (2, 0)
+    return (mc[name], mv[name])
+  st[name] = 1
+  r = (0, 0)
+  if cell_formula.has(name):
+    toks = cell_formula[name].replace(" ", "").re_list('[A-Z]+[0-9]+|[A-Z]+|[0-9]+|\S')
+    pos = 0
+    r = pexpr()
+  elif cell_num.has(name):
+    r = (0, cell_num[name])
+  st[name] = 2
+  mc[name] = r.0
+  mv[name] = r.1
+  return r
+
+fn getc(name: str) -> (int, int):
+  sv = toks
+  sp = pos
+  r = evalc(name)
+  toks = sv
+  pos = sp
+  return r
+
+for line in lines():
+  t = line.trim()
+  if t == "":
+    continue
+  p = t.find("=")
+  name = t[:p].trim()
+  content = t[p + 1:].trim()
+  if content.starts_with("="):
+    cell_formula[name] = content[1:]
+  else:
+    cell_num[name] = content.int()
+
+maxc = 0
+maxr = 0
+for name in cell_formula.keys():
+  maxc = max(maxc, name[:1].code() - 64)
+  maxr = max(maxr, name[1:].int())
+for name in cell_num.keys():
+  maxc = max(maxc, name[:1].code() - 64)
+  maxr = max(maxr, name[1:].int())
+for f in cell_formula.values():
+  for tk in f.replace(" ", "").re_list('[A-Z]+[0-9]+|[A-Z]+|[0-9]+|\S'):
+    if tk.re_full('[A-Z]+[0-9]+').len() > 0:
+      maxc = max(maxc, tk[:1].code() - 64)
+      maxr = max(maxr, tk[1:].int())
+
+letters = []
+for ci in 0..maxc:
+  letters.push((65 + ci).char())
+print("\t" + "\t".join(letters))
+for r in 1..maxr + 1:
+  row = [str(r)]
+  for ci in 0..maxc:
+    name = (65 + ci).char() + str(r)
+    if not (cell_formula.has(name) or cell_num.has(name)):
+      row.push("")
+      continue
+    c, v = evalc(name)
+    if c == 2:
+      row.push("#CYCLE")
+    elif c == 1:
+      row.push("#DIV0")
+    else:
+      row.push(str(v))
+  print("\t".join(row))

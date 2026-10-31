@@ -1,0 +1,142 @@
+content = {}
+state = {}
+memo = {}
+LET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+fn toks_of(f: str) -> [str]:
+  f.replace(" ", "").re_list("[A-Z]+[0-9]*|[0-9]+|[-+*/():]")
+
+fn expr(ts: [str], mut p: int) -> (int, int):
+  r = term(ts, p)
+  k = r.0
+  v = r.1
+  while p < ts.len() and (ts[p] == "+" or ts[p] == "-"):
+    op = ts[p]
+    p += 1
+    r2 = term(ts, p)
+    k = max(k, r2.0)
+    if op == "+":
+      v += r2.1
+    else:
+      v -= r2.1
+  (k, v)
+
+fn term(ts: [str], mut p: int) -> (int, int):
+  r = atom(ts, p)
+  k = r.0
+  v = r.1
+  while p < ts.len() and (ts[p] == "*" or ts[p] == "/"):
+    op = ts[p]
+    p += 1
+    r2 = atom(ts, p)
+    k = max(k, r2.0)
+    if op == "*":
+      v *= r2.1
+    elif r2.1 == 0:
+      k = max(k, 1)
+      v = 0
+    else:
+      v = v / r2.1
+  if k > 0:
+    v = 0
+  (k, v)
+
+fn atom(ts: [str], mut p: int) -> (int, int):
+  if p >= ts.len():
+    return (0, 0)
+  t = ts[p]
+  p += 1
+  if t == "-":
+    r = atom(ts, p)
+    return (r.0, -r.1)
+  if t == "(":
+    r = expr(ts, p)
+    p += 1
+    return r
+  if t[0].is_digit():
+    return (0, t.int().or(0))
+  if p < ts.len() and ts[p] == "(":
+    a = ts[p + 1]
+    b = ts[p + 3]
+    p += 5
+    c1 = min(LET.find(a.slice(0, 1)), LET.find(b.slice(0, 1)))
+    c2 = max(LET.find(a.slice(0, 1)), LET.find(b.slice(0, 1)))
+    r1 = min(a.slice(1).int().or(0), b.slice(1).int().or(0))
+    r2 = max(a.slice(1).int().or(0), b.slice(1).int().or(0))
+    k = 0
+    vals = []
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        x = cell(LET.slice(c, c + 1) + str(r))
+        k = max(k, x.0)
+        vals.push(x.1)
+    if k > 0:
+      return (k, 0)
+    if t == "SUM":
+      return (0, vals.sum())
+    if t == "MIN":
+      return (0, vals.min())
+    return (0, vals.max())
+  cell(t)
+
+fn cell(name: str) -> (int, int):
+  if not content.has(name):
+    return (0, 0)
+  if state[name] == 2:
+    return memo[name]
+  if state[name] == 1:
+    return (2, 0)
+  state[name] = 1
+  c = content[name]
+  res = (0, 0)
+  if c.starts_with("="):
+    ts = toks_of(c.slice(1))
+    res = expr(ts, 0)
+  else:
+    res = (0, c.int().or(0))
+  state[name] = 2
+  memo[name] = res
+  res
+
+maxc = 0
+maxr = 0
+fn note(ref: str):
+  g = ref.re_full("([A-Z])([0-9]+)")
+  if g:
+    ci = LET.find(g[1])
+    ri = g[2].int().or(0)
+    if ci + 1 > maxc:
+      maxc = ci + 1
+    if ri > maxr:
+      maxr = ri
+
+for line in lines():
+  i = line.find("=")
+  if i < 0:
+    continue
+  name = line.slice(0, i).trim()
+  content[name] = line.slice(i + 1).trim()
+for name, c in content.pairs():
+  note(name)
+  if c.starts_with("="):
+    for t in toks_of(c.slice(1)):
+      note(t)
+hdr = ""
+for c in 0..maxc:
+  hdr += "\t" + LET.slice(c, c + 1)
+print(hdr)
+for r in 1..maxr + 1:
+  row = str(r)
+  for c in 0..maxc:
+    nm = LET.slice(c, c + 1) + str(r)
+    cellv = ""
+    if content.has(nm):
+      x = cell(nm)
+      if x.0 == 2:
+        cellv = "#CYCLE"
+      elif x.0 == 1:
+        cellv = "#DIV0"
+      else:
+        cellv = str(x.1)
+    row += "\t" + cellv
+  print(row)

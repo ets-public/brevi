@@ -1,0 +1,108 @@
+content = {}
+state = {}
+memoe = {}
+memov = {}
+
+fn worse(a: int, b: int) -> int = if a > b: a else: b
+
+fn cellval(name: str) -> (int, int):
+  if not content.has(name): return (0, 0)
+  if state[name] == 2: return (memoe[name], memov[name])
+  if state[name] == 1: return (2, 0)
+  state[name] = 1
+  c = content[name]
+  res = (0, 0)
+  if c.starts_with("="):
+    ts = c.slice(1).replace(" ", "").re_list("\d+|[A-Z]+\d*|[-+*/():]")
+    p = 0
+    res = expr(ts, p)
+  else:
+    res = (0, c.int().or(0))
+  state[name] = 2
+  memoe[name] = res.0
+  memov[name] = res.1
+  res
+
+fn expr(ts: [str], mut p: int) -> (int, int):
+  l = term(ts, p)
+  while p < ts.len() and (ts[p] == "+" or ts[p] == "-"):
+    op = ts[p]
+    p += 1
+    r = term(ts, p)
+    v = if op == "+": l.1 + r.1 else: l.1 - r.1
+    l = (worse(l.0, r.0), v)
+  l
+
+fn term(ts: [str], mut p: int) -> (int, int):
+  l = factor(ts, p)
+  while p < ts.len() and (ts[p] == "*" or ts[p] == "/"):
+    op = ts[p]
+    p += 1
+    r = factor(ts, p)
+    e = worse(l.0, r.0)
+    if op == "*":
+      l = (e, l.1 * r.1)
+    elif r.1 == 0:
+      l = (worse(e, 1), 0)
+    else:
+      l = (e, l.1 / r.1)
+  l
+
+fn factor(ts: [str], mut p: int) -> (int, int):
+  tok = ts[p]
+  p += 1
+  if tok == "-":
+    f = factor(ts, p)
+    return (f.0, -f.1)
+  if tok == "(":
+    e = expr(ts, p)
+    p += 1
+    return e
+  if tok.is_digit(): return (0, tok.int())
+  if tok == "SUM" or tok == "MIN" or tok == "MAX":
+    p += 1
+    a = ts[p]
+    b = ts[p + 2]
+    p += 4
+    c1 = min(a.code(), b.code())
+    c2 = max(a.code(), b.code())
+    r1 = min(a.slice(1).int(), b.slice(1).int())
+    r2 = max(a.slice(1).int(), b.slice(1).int())
+    err = 0
+    vals = []
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        v = cellval(c.char() + r.str())
+        err = worse(err, v.0)
+        vals.push(v.1)
+    if tok == "SUM": return (err, vals.sum())
+    if tok == "MIN": return (err, vals.min())
+    return (err, vals.max())
+  cellval(tok)
+
+maxc = 0
+maxr = 0
+for line in lines():
+  i = line.find("=")
+  if i < 0: continue
+  name = line.slice(0, i).trim()
+  c = line.slice(i + 1).trim()
+  content[name] = c
+  refs = [name]
+  if c.starts_with("="):
+    refs = refs + c.re_list("[A-Z]\d+")
+  for r in refs:
+    maxc = max(maxc, r.code() - 64)
+    maxr = max(maxr, r.slice(1).int())
+hdr = [(64 + c).char() for c in 1..maxc + 1]
+print("\t" + "\t".join(hdr))
+for r in 1..maxr + 1:
+  cells = []
+  for c in 1..maxc + 1:
+    nm = (64 + c).char() + r.str()
+    if not content.has(nm):
+      cells.push("")
+    else:
+      v = cellval(nm)
+      cells.push(if v.0 == 2: "#CYCLE" elif v.0 == 1: "#DIV0" else: v.1.str())
+  print(r.str() + "\t" + "\t".join(cells))

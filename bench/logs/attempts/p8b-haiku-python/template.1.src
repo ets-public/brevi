@@ -1,0 +1,146 @@
+import json
+import re
+import sys
+
+TAG = re.compile(r"\{\{(.*?)\}\}")
+MISSING = object()
+
+
+def to_text(v):
+    if v is None or v is MISSING:
+        return ""
+    if v is True:
+        return "true"
+    if v is False:
+        return "false"
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)):
+        return json.dumps(v)
+    return json.dumps(v, separators=(",", ":"), ensure_ascii=False)
+
+
+def truthy(v):
+    if v is MISSING or v is None or v is False:
+        return False
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)) and v == 0:
+        return False
+    if isinstance(v, (str, list)) and len(v) == 0:
+        return False
+    return True
+
+
+def resolve(obj, parts):
+    cur = obj
+    for p in parts:
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return MISSING
+    return cur
+
+
+def lookup(name, frames):
+    if name == ".":
+        return frames[-1]["elem"]
+    if name == "@index":
+        return frames[-1].get("index", MISSING)
+    parts = name.split(".")
+    for fr in reversed(frames):
+        if isinstance(fr["elem"], dict):
+            v = resolve(fr["elem"], parts)
+            if v is not MISSING:
+                return v
+    return MISSING
+
+
+def apply_filter(val, f):
+    if f == "upper":
+        return to_text(val).upper()
+    if f == "lower":
+        return to_text(val).lower()
+    if f == "len":
+        if isinstance(val, (str, list, dict)):
+            return str(len(val))
+        return ""
+    if f.startswith("default:"):
+        if val is MISSING or val is None or val == "":
+            return f[len("default:"):]
+        return val
+    return val
+
+
+def eval_var(expr, frames):
+    pieces = expr.split("|")
+    val = lookup(pieces[0].strip(), frames)
+    for f in pieces[1:]:
+        val = apply_filter(val, f.strip())
+    return to_text(val)
+
+
+# Parse template into nodes
+def parse(text):
+    root = []
+    stack = []  # entries: (kind, node, current_list_owner)
+    cur = root
+    pos = 0
+    if_stack = []
+    for m in TAG.finditer(text):
+        if m.start() > pos:
+            cur.append(("text", text[pos:m.start()]))
+        pos = m.end()
+        tag = m.group(1).strip()
+        if tag.startswith("#each "):
+            node = ("each", tag[len("#each "):].strip(), [])
+            cur.append(node)
+            stack.append(("each", node))
+            cur = node[2]
+        elif tag.startswith("#if "):
+            node = ("if", tag[len("#if "):].strip(), [], [])
+            cur.append(node)
+            stack.append(("if", node))
+            cur = node[2]
+        elif tag == "else":
+            if stack and stack[-1][0] == "if":
+                cur = stack[-1][1][3]
+        elif tag == "/each" or tag == "/if":
+            if stack:
+                stack.pop()
+                cur = stack[-1][1][2] if stack else root
+                if stack and stack[-1][0] == "if" and stack[-1][1][3] is not None:
+                    pass
+                # restore to the branch we are in: if the popped was an if-else branch, parent list is still correct
+            # if parent is an if whose else-branch was entered, cur must stay in parent's branch
+        else:
+            cur.append(("var", tag))
+    if pos < len(text):
+        cur.append(("text", text[pos:]))
+    return root
+
+
+def render(nodes, frames):
+    out = []
+    for n in nodes:
+        k = n[0]
+        if k == "text":
+            out.append(n[1])
+        elif k == "var":
+            out.append(eval_var(n[1], frames))
+        elif k == "each":
+            items = lookup(n[1], frames)
+            if isinstance(items, list):
+                for i, el in enumerate(items):
+                    out.append(render(n[2], frames + [{"elem": el, "index": i}]))
+        elif k == "if":
+            v = lookup(n[1], frames)
+            out.append(render(n[2] if truthy(v) else n[3], frames))
+    return "".join(out)
+
+
+raw = sys.stdin.read()
+first, _, rest = raw.partition("\n")
+data = json.loads(first)
+tree = parse(rest)
+sys.stdout.write(render(tree, [{"elem": data}]))

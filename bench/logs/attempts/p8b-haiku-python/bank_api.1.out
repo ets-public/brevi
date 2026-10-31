@@ -1,0 +1,29 @@
+test 0 failed
+input:
+POST /accounts {"owner": "Ann"}
+POST /accounts {"owner": "Bob"}
+POST /accounts/1/deposit {"amount": 500}
+POST /accounts/1/withdraw {"amount": 800}
+POST /transfer {"from": 1, "to": 2, "amount": 200}
+GET /accounts
+GET /accounts/3
+GET /accounts/2
+expected:
+201 {"id":1,"owner":"Ann","balance":0}
+201 {"id":2,"owner":"Bob","balance":0}
+200 {"id":1,"owner":"Ann","balance":500}
+409 {"error":"insufficient funds"}
+200 {"from":300,"to":200}
+200 [{"id":1,"owner":"Ann","balance":300},{"id":2,"owner":"Bob","balance":200}]
+404 {"error":"no such account"}
+200 {"id":2,"owner":"Bob","balance":200}
+got:
+201 {"id":1,"owner":"Ann","balance":0}
+201 {"id":2,"owner":"Bob","balance":0}
+200 {"id":1,"owner":"Ann","balance":500}
+409 {"error":"insufficient funds"}
+200 {"from":300,"to":200}
+[{"id":1,"owner":"Ann","balance":300},{"id":2,"owner":"Bob","balance":200}]
+404 {"error":"no such account"}
+200 {"id":2,"owner":"Bob","balance":200}
+passed 0/3

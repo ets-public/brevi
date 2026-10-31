@@ -1,0 +1,79 @@
+fn esc(s: str) -> str:
+  return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn pick(g: [str]) -> str:
+  if g[0].starts_with("`"): return "<code>" + g[1] + "</code>"
+  if g[0].starts_with("**"): return "<strong>" + g[2] + "</strong>"
+  if g[0].starts_with("*"): return "<em>" + g[3] + "</em>"
+  return '<a href="' + g[5] + '">' + g[4] + "</a>"
+
+fn inl(s: str) -> str:
+  return esc(s).re_sub('`([^`]*)`|\*\*(.+?)\*\*|\*(.+?)\*|\[([^\]]*)\]\(([^)]*)\)', g => pick(g))
+
+fn slug(raw: str) -> str:
+  s = raw.lower().re_sub('[^a-z0-9]+', "-")
+  return s.re_sub('^-+|-+$', "")
+
+fn heading(line: str) -> [str]:
+  return line.re_full('(#{1,6}) (.*)')
+
+fn ol_item(line: str) -> [str]:
+  return line.re_full('\d+\. (.*)')
+
+L = lines()
+n = L.len()
+blocks = []
+heads = []
+used = {}
+i = 0
+while i < n:
+  line = L[i]
+  hm = heading(line)
+  if line.trim() == "":
+    i += 1
+  elif line == "```":
+    code = []
+    i += 1
+    while i < n and L[i] != "```":
+      code.push(esc(L[i]))
+      i += 1
+    i += 1
+    blocks.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+  elif not hm.is_empty():
+    raw = hm[2]
+    lvl = hm[1].len()
+    base = slug(raw)
+    hid = base
+    k = 2
+    while used.has(hid):
+      hid = base + "-" + str(k)
+      k += 1
+    used[hid] = 1
+    heads.push((hid, esc(raw.replace("`", "").replace("*", ""))))
+    blocks.push('<h{lvl} id="{hid}">{inl(raw)}</h{lvl}>')
+    i += 1
+  elif line.starts_with("- "):
+    items = []
+    while i < n and L[i].starts_with("- "):
+      items.push("<li>" + inl(L[i].slice(2)) + "</li>")
+      i += 1
+    blocks.push("<ul>\n" + "\n".join(items) + "\n</ul>")
+  elif not ol_item(line).is_empty():
+    items = []
+    while i < n and not ol_item(L[i]).is_empty():
+      items.push("<li>" + inl(ol_item(L[i])[1]) + "</li>")
+      i += 1
+    blocks.push("<ol>\n" + "\n".join(items) + "\n</ol>")
+  else:
+    ps = []
+    while i < n and L[i].trim() != "" and L[i] != "```" and heading(L[i]).is_empty() and not L[i].starts_with("- ") and ol_item(L[i]).is_empty():
+      ps.push(L[i])
+      i += 1
+    blocks.push("<p>" + inl(" ".join(ps)) + "</p>")
+final = []
+if heads.len() >= 2:
+  final.push("<nav>")
+  for h in heads: final.push('<a href="#{h.0}">{h.1}</a>')
+  final.push("</nav>")
+for b in blocks: final.push(b)
+print("\n".join(final))

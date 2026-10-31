@@ -1,0 +1,11 @@
+{"run":"p8b-haiku-python","lang":"python","task":"access_report","code_tok":828,"patch_tok":828,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"bank_api","code_tok":1419,"patch_tok":1419,"out_tok":512,"compiled":true,"pass":0,"total":3,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"bank_api","code_tok":1421,"patch_tok":88,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"invoices","code_tok":889,"patch_tok":889,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"kv_store","code_tok":624,"patch_tok":624,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"markdown","code_tok":1412,"patch_tok":1412,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"markdown","code_tok":1393,"patch_tok":69,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"spreadsheet","code_tok":2258,"patch_tok":2258,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"template","code_tok":1537,"patch_tok":1537,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"template","code_tok":1430,"patch_tok":195,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p8b-haiku-python","lang":"python","task":"timetable","code_tok":900,"patch_tok":900,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

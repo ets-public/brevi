@@ -1,0 +1,56 @@
+store = {}
+log = []
+depth = 0
+
+fn setk(k: str, v: str):
+  log.push((depth, k, store.has(k), store.get_or(k, "")))
+  store[k] = v
+
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  cmd = w[0]
+  if cmd == "SET":
+    setk(w[1], w[2])
+  elif cmd == "GET":
+    if store.has(w[1]): print(store[w[1]])
+    else: print("NULL")
+  elif cmd == "DEL":
+    if store.has(w[1]):
+      log.push((depth, w[1], true, store[w[1]]))
+      store.remove(w[1])
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR":
+    cur = store.get_or(w[1], "0")
+    if cur.re_full("-?\d+").is_empty():
+      print("ERR not an integer")
+    else:
+      nv = (cur.int() + w[2].int()).str()
+      setk(w[1], nv)
+      print(nv)
+  elif cmd == "COUNT":
+    print(store.values().count(v => v == w[1]))
+  elif cmd == "KEYS":
+    ks = store.keys().filter(k => k.starts_with(w[1]))
+    if ks: print(" ".join(ks))
+    else: print("(empty)")
+  elif cmd == "BEGIN":
+    depth += 1
+  elif cmd == "ROLLBACK":
+    if depth == 0:
+      print("NO TRANSACTION")
+    else:
+      while log and log.last().0 == depth:
+        e = log.pop()
+        if e.2: store[e.1] = e.3
+        else: store.remove(e.1)
+      depth -= 1
+  elif cmd == "COMMIT":
+    if depth == 0:
+      print("NO TRANSACTION")
+    else:
+      depth = 0
+      log = []
+  else:
+    print("ERR unknown command")

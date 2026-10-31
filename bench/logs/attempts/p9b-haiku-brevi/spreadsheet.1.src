@@ -1,0 +1,127 @@
+fn comb(a: int, b: int) -> int:
+  if a == 2 or b == 2: return 2
+  if a == 1 or b == 1: return 1
+  return 0
+
+fn tokenize(s: str) -> [str]:
+  return s.re_list('\d+|[A-Z]+\d*|\S')
+
+fn show(res: (int, int)) -> str:
+  if res.0 == 2: return "#CYCLE"
+  if res.0 == 1: return "#DIV0"
+  return str(res.1)
+
+fn ev_cell(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if state.has(name) and state[name] == 1: return (2, 0)
+  if not raw.has(name): return (0, 0)
+  state[name] = 1
+  c = raw[name]
+  res = (0, 0)
+  if c.starts_with("="):
+    toks = tokenize(c.slice(1))
+    r = p_expr(toks, 0)
+    res = (r.0, r.1)
+  else:
+    res = (0, c.int().or(0))
+  state[name] = 2
+  memo[name] = res
+  return res
+
+fn range_vals(a: str, b: str) -> (int, [int]):
+  c1 = a.slice(0, 1).code() - 65
+  c2 = b.slice(0, 1).code() - 65
+  r1 = a.slice(1).int().or(0)
+  r2 = b.slice(1).int().or(0)
+  st = 0
+  vals = []
+  for c in range(min(c1, c2), max(c1, c2) + 1):
+    for r in range(min(r1, r2), max(r1, r2) + 1):
+      res = ev_cell((65 + c).char() + str(r))
+      st = comb(st, res.0)
+      vals.push(res.1)
+  return (st, vals)
+
+fn p_factor(toks: [str], p: int) -> (int, int, int):
+  t = toks[p]
+  if t == "-":
+    r = p_factor(toks, p + 1)
+    return (r.0, 0 - r.1, r.2)
+  if t == "(":
+    r = p_expr(toks, p + 1)
+    return (r.0, r.1, r.2 + 1)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    rr = range_vals(toks[p + 2], toks[p + 4])
+    vals = rr.1
+    v = 0
+    if t == "SUM": v = sum(vals)
+    elif t == "MIN": v = min(vals)
+    else: v = max(vals)
+    return (rr.0, v, p + 6)
+  if not t.re_full('[A-Z]\d+').is_empty():
+    rv = ev_cell(t)
+    return (rv.0, rv.1, p + 1)
+  return (0, t.int().or(0), p + 1)
+
+fn p_term(toks: [str], p: int) -> (int, int, int):
+  r = p_factor(toks, p)
+  st = r.0
+  v = r.1
+  q = r.2
+  while q < toks.len() and (toks[q] == "*" or toks[q] == "/"):
+    op = toks[q]
+    r2 = p_factor(toks, q + 1)
+    st = comb(st, r2.0)
+    if op == "*":
+      v = v * r2.1
+    elif r2.1 == 0:
+      st = comb(st, 1)
+      v = 0
+    else:
+      v = v / r2.1
+    q = r2.2
+  return (st, v, q)
+
+fn p_expr(toks: [str], p: int) -> (int, int, int):
+  r = p_term(toks, p)
+  st = r.0
+  v = r.1
+  q = r.2
+  while q < toks.len() and (toks[q] == "+" or toks[q] == "-"):
+    op = toks[q]
+    r2 = p_term(toks, q + 1)
+    st = comb(st, r2.0)
+    if op == "+": v = v + r2.1
+    else: v = v - r2.1
+    q = r2.2
+  return (st, v, q)
+
+raw = {}
+for line in lines():
+  if line.trim() == "": continue
+  nm, _, ct = line.partition("=")
+  raw[nm.trim()] = ct.trim()
+memo = {}
+state = {}
+mentions = []
+for nm in raw.keys(): mentions.push(nm)
+for ct in raw.values():
+  if ct.starts_with("="):
+    for t in ct.re_list('[A-Z]\d+'): mentions.push(t)
+maxc = 0
+maxr = 0
+for nm in mentions:
+  cc = nm.slice(0, 1).code() - 65
+  rr = nm.slice(1).int().or(0)
+  if cc > maxc: maxc = cc
+  if rr > maxr: maxr = rr
+cols = []
+for c in range(0, maxc + 1): cols.push((65 + c).char())
+print("\t" + "\t".join(cols))
+for r in range(1, maxr + 1):
+  cells = []
+  for c in range(0, maxc + 1):
+    nm = (65 + c).char() + str(r)
+    if raw.has(nm): cells.push(show(ev_cell(nm)))
+    else: cells.push("")
+  print(str(r) + "\t" + "\t".join(cells))

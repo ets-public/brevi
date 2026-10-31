@@ -1,0 +1,46 @@
+test 0 failed
+input:
+SET a 10
+SET b 10
+COUNT 10
+GET a
+DEL c
+INCR a 5
+GET a
+COUNT 10
+BEGIN
+SET a 1
+BEGIN
+DEL b
+GET b
+ROLLBACK
+GET b
+GET a
+ROLLBACK
+GET a
+ROLLBACK
+expected:
+2
+10
+NOT FOUND
+15
+15
+1
+NULL
+10
+1
+15
+NO TRANSACTION
+got:
+0
+10
+NOT FOUND
+15
+15
+0
+NULL
+10
+1
+15
+NO TRANSACTION
+passed 1/3

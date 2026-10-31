@@ -1,0 +1,78 @@
+fn mins(s: str) -> int:
+  hm = s.split(":")
+  return hm[0].int() * 60 + hm[1].int()
+
+fn hhmm(t: int) -> str:
+  return (100 + t // 60).str()[1:] + ":" + (100 + t % 60).str()[1:]
+
+tst = {}
+ttm = {}
+tnames = []
+sec = 0
+for line in lines():
+  t = line.trim()
+  if t == "---":
+    sec = 1
+    continue
+  if t == "":
+    continue
+  p = t.split(" ")
+  if sec == 0:
+    sts = []
+    tms = []
+    for k in 0..(p.len() - 1) // 2:
+      sts.push(p[1 + 2 * k])
+      tms.push(mins(p[2 + 2 * k]))
+    tst[p[0]] = sts
+    ttm[p[0]] = tms
+    tnames.push(p[0])
+  else:
+    fr = p[0]
+    to = p[1]
+    qt = mins(p[2])
+    if fr == to:
+      print(fr + " " + to + " " + hhmm(qt) + " via -")
+      continue
+    best = {}
+    best[fr + "|"] = (qt, 0, [])
+    queue = [(fr, "", qt, 0, [])]
+    while queue.len() > 0:
+      cur = queue.pop()
+      s0 = cur.0
+      x0 = cur.1
+      t0 = cur.2
+      n0 = cur.3
+      l0 = cur.4
+      pen = 5
+      if x0 == "":
+        pen = 0
+      cands = []
+      if x0 != "":
+        for k in 0..tst[x0].len():
+          if tst[x0][k] == s0:
+            for k2 in range(k + 1, tst[x0].len()):
+              cands.push((tst[x0][k2], x0, ttm[x0][k2], n0, l0))
+      for y in tnames:
+        if y == x0:
+          continue
+        for j in 0..tst[y].len():
+          if tst[y][j] == s0 and ttm[y][j] >= t0 + pen:
+            for k2 in range(j + 1, tst[y].len()):
+              cands.push((tst[y][k2], y, ttm[y][k2], n0 + 1, l0 + [y]))
+      for c in cands:
+        key = c.0 + "|" + c.1
+        cand = (c.2, c.3, c.4)
+        if not best.has(key) or cand < best[key]:
+          best[key] = cand
+          queue.push(c)
+    found = false
+    bv = (0, 0, [])
+    for key, val in best.pairs():
+      if key.split("|")[0] == to:
+        if not found or val < bv:
+          bv = val
+          found = true
+    if found:
+      print(fr + " " + to + " " + hhmm(bv.0) + " via " + ">".join(bv.2))
+    else:
+      print(fr + " " + to + " unreachable")

@@ -1,0 +1,117 @@
+fn tokenize(s: str) -> [str]:
+  return s.re_list('[{][{].*?[}][}]|[^{]+|[{]')
+
+fn tagc(t: str) -> str:
+  if not t.starts_with("{{"): return ""
+  return t.slice(2, t.len() - 2).trim()
+
+fn items_of(v: Json) -> [Json]:
+  match v:
+    Arr(xs) => return xs
+    _ => return []
+
+fn truthy(v: Json) -> bool:
+  if v: return true
+  return false
+
+fn to_text(v: Json) -> str:
+  match v:
+    Null => return ""
+    Str(s) => return s
+    _ => return str(v)
+
+fn lookup(ctx: [Json], name: str) -> Json:
+  if name == ".": return ctx[-1]
+  parts = name.split(".")
+  for s in ctx.rev():
+    if s.has(parts[0]):
+      v = s[parts[0]]
+      for p in parts.slice(1):
+        v = v[p]
+      return v
+  return json("null")
+
+fn value_of(ctx: [Json], idx: int, name: str) -> Json:
+  if name == "@index": return idx.json()
+  return lookup(ctx, name)
+
+fn fup(v: Json) -> Json:
+  match v:
+    Str(s) => return s.upper().json()
+    _ => return v
+
+fn flow(v: Json) -> Json:
+  match v:
+    Str(s) => return s.lower().json()
+    _ => return v
+
+fn flen(v: Json) -> Json:
+  match v:
+    Str(s) => return s.len().json()
+    Arr(xs) => return xs.len().json()
+    _ => return json("null")
+
+fn fdef(v: Json, t: str) -> Json:
+  match v:
+    Null => return t.json()
+    Str(s) =>
+      if s == "": return t.json()
+      return v
+    _ => return v
+
+fn render_tag(c: str, ctx: [Json], idx: int) -> str:
+  parts = c.split("|")
+  v = value_of(ctx, idx, parts[0].trim())
+  for f in parts.slice(1):
+    ft = f.trim()
+    if ft == "upper": v = fup(v)
+    elif ft == "lower": v = flow(v)
+    elif ft == "len": v = flen(v)
+    elif ft.starts_with("default:"): v = fdef(v, ft.slice(8))
+  return to_text(v)
+
+fn render(toks: [str], i: int, ctx: [Json], idx: int) -> (str, int):
+  out = ""
+  k = i
+  while k < toks.len():
+    t = toks[k]
+    if not t.starts_with("{{"):
+      out += t
+      k += 1
+    else:
+      c = tagc(t)
+      if c == "/each" or c == "/if" or c == "else":
+        return (out, k)
+      elif c.starts_with("#each"):
+        coll = value_of(ctx, idx, c.slice(5).trim())
+        probe = render(toks, k + 1, ctx + [json("null")], -1)
+        end = probe.1
+        i2 = -1
+        for x in items_of(coll):
+          i2 += 1
+          out += render(toks, k + 1, ctx + [x], i2).0
+        k = end + 1
+      elif c.starts_with("#if"):
+        v = value_of(ctx, idx, c.slice(3).trim())
+        a = render(toks, k + 1, ctx, idx)
+        s1 = a.0
+        endi = a.1
+        s2 = ""
+        if endi < toks.len() and tagc(toks[endi]) == "else":
+          b = render(toks, endi + 1, ctx, idx)
+          s2 = b.0
+          endi = b.1
+        if truthy(v): out += s1
+        else: out += s2
+        k = endi + 1
+      else:
+        out += render_tag(c, ctx, idx)
+        k += 1
+  return (out, k)
+
+L = lines()
+data = json(L[0])
+tpl = "\n".join(L.slice(1))
+toks = tokenize(tpl)
+r = render(toks, 0, [data], -1)
+print(r.0)
