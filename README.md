@@ -13,6 +13,7 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,665 toke
 - **Guide on demand:** `brevi guide` prints the guide built into the compiler, `brevi guide WORD` only the lines about one name, and `--explain` on any command adds those lines under each error.
 - **Fast check:** `brevi check f.bv --fast` runs Brevi's own checks in about 3 ms, without rustc (a full check takes about 400 ms).
 - **Edit by name:** `brevi patch f.bv p.bv` replaces each `fn`, `type`, `enum` or `test` in p.bv by name, or adds it; `del fn name` removes one.
+- **Libraries:** [LIBRARIES.md](LIBRARIES.md) (`brevi guide Libraries`). `use "util.bv"` brings in another file's items. `use sha2 "0.10"` adds a crate from crates.io, and a `rust fn` with a Rust body and Brevi types calls it; programs with crates build through cargo, and each crate is compiled once and cached in `~/.cache/brevi`. A `py fn` has a Python body and runs in one Python process per program run, with values passed as JSON, so any installed Python package works.
 - **llms.txt:** `site/build.sh` builds llms.txt, llms-full.txt and .md pages for brevi-lang.org into site/out.
 - **Install:** `sh install.sh` fetches the Rust toolchain if it is missing and builds brevi with `cargo install` (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
 - **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.

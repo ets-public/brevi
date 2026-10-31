@@ -21,6 +21,8 @@ fn chunks(src: &str) -> Vec<String> {
 // The item's name, like "fn parse" or "test \"totals\"", or None for a script line.
 fn key(chunk: &str) -> Option<String> {
     let first = chunk.lines().next()?;
+    // `rust fn f` and `py fn f` are functions too: a patch may swap one kind for another.
+    let first = first.strip_prefix("rust ").or_else(|| first.strip_prefix("py ")).filter(|r| r.starts_with("fn ")).unwrap_or(first);
     let mut w = first.split(|c: char| c.is_whitespace() || c == '(' || c == ':' || c == '{' || c == '[' || c == '=');
     let kw = w.next()?;
     match kw {

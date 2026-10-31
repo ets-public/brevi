@@ -34,6 +34,10 @@ struct FnSig {
 }
 
 pub struct Emitter {
+    // Crates, rust fn and py fn code (see ffi.rs).
+    pub foreign: crate::ffi::Foreign,
+    // Files the program uses: (name, first line in the combined source, line count).
+    pub files: Vec<(String, usize, usize)>,
     structs: HashMap<String, Vec<Field>>,
     variants: HashMap<String, (String, Vec<Field>)>,
     fns: HashMap<String, FnSig>,
@@ -553,6 +557,8 @@ pub fn assigns_to(e: &Expr, name: &str) -> bool {
 impl Emitter {
     pub fn new(items: &[Item], hints: bool) -> Emitter {
         let mut e = Emitter {
+            foreign: Default::default(),
+            files: vec![],
             structs: HashMap::new(),
             variants: HashMap::new(),
             fns: HashMap::new(),
@@ -835,6 +841,11 @@ impl Emitter {
         let prelude = if format!("{items:?}").contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
         let mut out = String::from(prelude);
         out.push('\n');
+        let fs: Vec<String> = self.files.iter().map(|(f, a, n)| format!("({f:?}, {a}, {n})")).collect();
+        out.push_str(&format!("static AX_FILES: &[(&str, usize, usize)] = &[{}];\n", fs.join(", ")));
+        out.push_str(&self.foreign.rust_top);
+        out.push('\n');
+        let mut py_names: Vec<String> = vec![];
         let mut tests = String::new();
         let mut test_n = 0;
         let mut gs: Vec<_> = self.globals.iter().map(|(n, (t, _))| (n.clone(), rust_ty(t))).collect();
@@ -871,6 +882,13 @@ impl Emitter {
                 }
                 Item::Fn { name, params, ret, body, line, .. } => {
                     let fallible = self.fns.get(name).map_or(false, |f| f.fallible);
+                    if let Some((lang, code)) = crate::ffi::foreign_body(body) {
+                        out.push_str(&crate::ffi::rust_fn(name, params, ret, fallible, lang, code, *line, py_names.len()));
+                        if lang == "py" {
+                            py_names.push(name.clone());
+                        }
+                        continue;
+                    }
                     out.push_str(&self.function(name, params, ret, fallible, body, *line));
                 }
                 Item::Test { body, line, name } => {
@@ -882,9 +900,12 @@ impl Emitter {
                 }
             }
         }
+        if !py_names.is_empty() {
+            out.push_str(&crate::ffi::py_support(&crate::ffi::py_driver(&self.foreign, &py_names), items));
+        }
         match self.fns.get("main") {
             Some(sig) if sig.fallible => out.push_str(
-                "fn main() {\n    ax_init();\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",\\\"line\\\":{},\\\"msg\\\":{:?}}}\", AX_LINE.load(std::sync::atomic::Ordering::Relaxed), e.0);\n        std::process::exit(1);\n    }\n}\n",
+                "fn main() {\n    ax_init();\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",{},\\\"msg\\\":{:?}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), e.0);\n        std::process::exit(1);\n    }\n}\n",
             ),
             Some(_) => {}
             None => out.push_str("fn main() {}\n"),

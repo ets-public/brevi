@@ -1,0 +1,22 @@
+use sha2 "0.10"
+use base64 "0.22"
+rust fn sha256(s: str) -> str:
+  use sha2::{Digest, Sha256};
+  format!("{:x}", Sha256::digest(s.as_bytes()))
+rust fn b64(s: str) -> str:
+  use base64::Engine;
+  base64::engine::general_purpose::STANDARD.encode(s.as_bytes())
+rust fn unb64(s: str) -> str !:
+  use base64::Engine;
+  let bytes = base64::engine::general_purpose::STANDARD.decode(s.as_bytes())?;
+  Ok(String::from_utf8(bytes)?)
+n = 0
+for l in lines():
+  if not l.trim(): continue
+  n += 1
+  (op, _, t) = l.partition(" ")
+  if op == "sha256": print(sha256(t))
+  elif op == "b64": print(b64(t))
+  elif op == "unb64": print(unb64(t).or("error"))
+  else: print("unknown {op}")
+print("lines {n}")
