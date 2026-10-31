@@ -1,0 +1,89 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+# whole number of at least 1, -1 when bad
+fn pos_int(s: str) -> int:
+  if s.re_full("\d+").is_empty(): return -1
+  v = s.int().or(0)
+  if v < 1: return -1
+  return v
+
+fn parse_workers(t: [str], n: int) -> int:
+  if t.len() != 2 or t[0] != "workers": fail("line {n}: bad line")
+  k = pos_int(t[1])
+  if k < 0: fail("line {n}: bad line")
+  return k
+
+fn parse_task(t: [str], n: int) -> Task:
+  if t.len() < 2: fail("line {n}: bad line")
+  name = t[0]
+  if name.re_full("\w+").is_empty(): fail("line {n}: bad line")
+  days = pos_int(t[1])
+  if days < 0: fail("line {n}: bad line")
+  if t.len() == 2: return Task(name: name, days: days, deps: [])
+  if t.len() < 4 or t[2] != "after": fail("line {n}: bad line")
+  deps = []
+  for piece in " ".join(t[3:]).split(","):
+    d = piece.trim()
+    if d.re_full("\w+").is_empty(): fail("line {n}: bad line")
+    if not deps.contains(d): deps.push(d)
+  return Task(name: name, days: days, deps: deps)
+
+# task indexes in a order where every task comes after its dependencies
+fn topo(tasks: [Task]) -> [int]:
+  n = tasks.len()
+  indeg = []
+  for i in 0..n: indeg.push(tasks[i].deps.len())
+  ready = []
+  for i in 0..n:
+    if indeg[i] == 0: ready.push(i)
+  order = []
+  while not ready.is_empty():
+    i = ready.remove(0)
+    order.push(i)
+    for j in 0..n:
+      if tasks[j].deps.contains(tasks[i].name):
+        indeg[j] = indeg[j] - 1
+        if indeg[j] == 0: ready.push(j)
+  if order.len() < n: fail("cycle")
+  return order
+
+# earliest start and end of every task (no limit on workers)
+fn earliest(tasks: [Task], idx: {str: int}, order: [int]) -> ([int], [int]):
+  n = tasks.len()
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  for i in order:
+    s = 0
+    for d in tasks[i].deps:
+      e = en[idx[d]]
+      if e > s: s = e
+    st[i] = s
+    en[i] = s + tasks[i].days
+  return (st, en)
+
+# the chain of tasks, each starting when the one before ends, from day 0 to total
+fn critical(tasks: [Task], order: [int], st: [int], en: [int], total: int) -> [str]:
+  n = tasks.len()
+  canend = [false].repeat(n)
+  for i in order.rev():
+    ok = en[i] == total
+    if not ok:
+      for j in 0..n:
+        if canend[j] and st[j] == en[i] and tasks[j].deps.contains(tasks[i].name): ok = true
+    canend[i] = ok
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and canend[i]: cur = i
+  if cur < 0: return []
+  chain = [tasks[cur].name]
+  while en[cur] < total:
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and canend[j] and st[j] == en[cur] and tasks[j].deps.contains(tasks[cur].name): nxt = j
+    if nxt < 0: break
+    cur = nxt
+    chain.push(tasks[cur].name)
+  return chain

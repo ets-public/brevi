@@ -1,0 +1,36 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn block(tasks: [Task], st: [int], ends: [int]) -> [str]:
+  out = []
+  for i in 0..len(tasks):
+    out.push("  {tasks[i].name} {st[i]}-{ends[i]}")
+  return out
+
+fn run_all(raw: [str]) -> [str]:
+  (tasks, k) = read_input(raw)
+  (st, ends) = schedule_unlimited(tasks)
+  L = longest(ends)
+  chain = critical(tasks, st, ends, L)
+  names = []
+  for c in chain:
+    names.push(tasks[c].name)
+  crit = " > ".join(names)
+  out = ["unlimited"]
+  for line in block(tasks, st, ends):
+    out.push(line)
+  out.push("length {L}")
+  out.push("critical {crit}")
+  (wst, wends) = schedule_k(tasks, k)
+  out.push("workers {k}")
+  for line in block(tasks, wst, wends):
+    out.push(line)
+  out.push("length {longest(wends)}")
+  return out
+
+fn main():
+  match run_all(lines()):
+    Ok(out) =>
+      for o in out:
+        print(o)
+    Err(m) => print(m)

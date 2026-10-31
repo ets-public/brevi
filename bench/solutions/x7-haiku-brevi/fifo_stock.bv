@@ -1,0 +1,139 @@
+fn parse_money(s: str) -> int:
+  if not s.re_full("\d+(\.\d{1,2})?"):
+    return -1
+  parts = s.split(".")
+  frac = "0"
+  if parts.len() == 2:
+    frac = parts[1]
+  return parts[0].int() * 100 + (frac + "00").slice(0, 2).int()
+
+fn is_qty(s: str) -> bool:
+  if not s.re_full("\d+"):
+    return false
+  return s.int() >= 1
+
+fn good_date(s: str) -> bool:
+  if not s.re_full("\d{4}-\d{2}-\d{2}"):
+    return false
+  m = s[5:7].int()
+  d = s[8:10].int()
+  return m >= 1 and m <= 12 and d >= 1 and d <= 31
+
+fn parse_line(w: [str]) -> [str]:
+  if w.len() == 5 and (w[1] == "RECEIVE" or w[1] == "SHIP"):
+    if good_date(w[0]) and is_qty(w[3]) and parse_money(w[4]) >= 0:
+      return w
+  if w.len() == 4 and w[1] == "LOSS" and good_date(w[0]) and is_qty(w[3]):
+    return w
+  return []
+
+fn money(c: int) -> str:
+  if c < 0:
+    return "-" + money(0 - c)
+  w = c // 100
+  f = c % 100
+  return "{w}.{f:02d}"
+
+fn take(mut lots: [[int]], n: int) -> int:
+  cogs = 0
+  need = n
+  while need > 0:
+    lot = lots[0]
+    use_n = min(need, lot[0])
+    cogs += use_n * lot[1]
+    need -= use_n
+    if use_n == lot[0]:
+      lots.remove(0)
+    else:
+      lots[0] = [lot[0] - use_n, lot[1]]
+  return cogs
+
+fn qty_of(ls: [[int]]) -> int:
+  total = 0
+  for lot in ls:
+    total += lot[0]
+  return total
+
+fn main():
+  lots = {}
+  srev = {}
+  scogs = {}
+  sloss = {}
+  mprof = {}
+  mloss = {}
+  mseen = {}
+  last = ""
+  for i, raw in enumerate(lines()):
+    ln = i + 1
+    w = raw.words()
+    if w.is_empty():
+      continue
+    f = parse_line(w)
+    if f.is_empty():
+      print("line {ln}: bad line")
+      continue
+    date = f[0]
+    op = f[1]
+    sku = f[2]
+    qty = f[3].int()
+    if date < last:
+      print("line {ln}: date out of order")
+      continue
+    mon = date[0:7]
+    if op == "RECEIVE":
+      cost = parse_money(f[4])
+      ls = []
+      if lots.has(sku):
+        ls = lots[sku]
+      ls.push([qty, cost])
+      lots[sku] = ls
+      last = date
+    else:
+      have = 0
+      if lots.has(sku):
+        have = qty_of(lots[sku])
+      if qty > have:
+        print("line {ln}: short {sku} need {qty} have {have}")
+        continue
+      last = date
+      ls = lots[sku]
+      c = take(ls, qty)
+      lots[sku] = ls
+      mseen[mon] = true
+      if op == "SHIP":
+        rev = qty * parse_money(f[4])
+        srev[sku] += rev
+        scogs[sku] += c
+        mprof[mon] += rev - c
+      else:
+        sloss[sku] += c
+        mloss[mon] += c
+  tp = 0
+  tl = 0
+  for sku in sorted(lots.keys()):
+    ls = lots[sku]
+    oh = qty_of(ls)
+    val = 0
+    for lot in ls:
+      val += lot[0] * lot[1]
+    rv = srev[sku]
+    cg = scogs[sku]
+    pf = rv - cg
+    lv = sloss[sku]
+    tp += pf
+    tl += lv
+    vs = money(val)
+    cs = money(cg)
+    rs = money(rv)
+    ps = money(pf)
+    lss = money(lv)
+    print("{sku} on_hand {oh} value {vs} cogs {cs} revenue {rs} profit {ps} loss {lss}")
+  print("months")
+  for mon in sorted(mseen.keys()):
+    pm = money(mprof[mon])
+    lm = money(mloss[mon])
+    print("  {mon} profit {pm} loss {lm}")
+  tps = money(tp)
+  tls = money(tl)
+  nets = money(tp - tl)
+  print("total profit {tps} loss {tls} net {nets}")

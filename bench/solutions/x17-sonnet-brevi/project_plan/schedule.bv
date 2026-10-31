@@ -1,0 +1,46 @@
+use "graph.bv"
+
+fn tails(ts: [Task], en: [int]) -> [int]:
+  n = ts.len()
+  tl = [0].repeat(n)
+  for i in by_end_desc(en):
+    m = 0
+    for j in 0..n:
+      if ts[i].name in ts[j].deps: m = max(m, tl[j])
+    tl[i] = ts[i].days + m
+  tl
+
+fn with_workers(ts: [Task], k: int, tl: [int]) -> ([int], [int]):
+  n = ts.len()
+  idx = index_of_names(ts)
+  st = [0 - 1].repeat(n)
+  en = [0 - 1].repeat(n)
+  fin = [0].repeat(n)
+  t = 0
+  finished = 0
+  running = 0
+  while finished < n:
+    for i in 0..n:
+      if st[i] >= 0 and fin[i] == 0 and en[i] == t:
+        fin[i] = 1
+        finished += 1
+        running -= 1
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0:
+          ready = true
+          for d in ts[i].deps:
+            if fin[idx[d]] == 0: ready = false
+          if ready and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0: break
+      st[best] = t
+      en[best] = t + ts[best].days
+      running += 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and fin[i] == 0:
+        if nt < 0 or en[i] < nt: nt = en[i]
+    if nt < 0: break
+    t = nt
+  (st, en)

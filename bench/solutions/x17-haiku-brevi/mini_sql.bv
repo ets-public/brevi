@@ -1,0 +1,260 @@
+PAT = "'(?:[^']|'')*'|-?\d+|[A-Za-z]\w*|<=|>=|!=|[*(),=<>]"
+tnames: {str: [str]} = {}
+ttypes: {str: [str]} = {}
+trows: {str: [[str]]} = {}
+
+fn tok(tk: [str], p: int) -> str = tk[p] if p < len(tk) else ""
+
+fn expect(tk: [str], mut p: int, want: str):
+  if tok(tk, p) != want: fail("error: syntax")
+  p += 1
+
+fn ident(tk: [str], mut p: int) -> str:
+  t = tok(tk, p)
+  if not t.re_full("[A-Za-z]\w*"): fail("error: syntax")
+  p += 1
+  return t
+
+fn ctype(tk: [str], mut p: int) -> str:
+  t = tok(tk, p)
+  if t != "INT" and t != "TEXT": fail("error: syntax")
+  p += 1
+  return t
+
+fn lit(tk: [str], mut p: int) -> (str, str):
+  t = tok(tk, p)
+  if t.starts_with("'"):
+    p += 1
+    return ("s", t.slice(1, len(t) - 1).replace("''", "'"))
+  if t.re_full("-?\d+"):
+    p += 1
+    return ("i", str(t.int()))
+  fail("error: syntax")
+  return ("", "")
+
+fn sat(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn fits(ct: str, v: (str, str)) -> bool = (ct == "TEXT") == (v.0 == "s")
+
+fn at_end(tk: [str], p: int):
+  if p != len(tk): fail("error: syntax")
+
+fn cond_list(tk: [str], mut p: int, mut out: [(str, str, str, str)]):
+  c = ident(tk, p)
+  op = tok(tk, p)
+  if op not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+  p += 1
+  v = lit(tk, p)
+  out.push((c, op, v.0, v.1))
+  if tok(tk, p) == "AND":
+    p += 1
+    cond_list(tk, p, out)
+
+fn colidx(tn: str, c: str) -> int:
+  i = tnames[tn].index_of(c)
+  if i < 0: fail("error: no column {c}")
+  return i
+
+fn tcheck(tn: str):
+  if not tnames.has(tn): fail("error: no table {tn}")
+
+fn check_conds(tn: str, cw: [(str, str, str, str)]):
+  for j in 0..len(cw):
+    ci = colidx(tn, cw[j].0)
+    if not fits(ttypes[tn][ci], (cw[j].2, cw[j].3)): fail("error: type mismatch")
+
+fn row_ok(tn: str, row: [str], cw: [(str, str, str, str)]) -> bool:
+  for j in 0..len(cw):
+    cc, op, _, text = cw[j]
+    ci = colidx(tn, cc)
+    if ttypes[tn][ci] == "INT":
+      xi = row[ci].int()
+      yi = text.int()
+      c = -1 if xi < yi else (1 if xi > yi else 0)
+    else:
+      xs = row[ci]
+      c = -1 if xs < text else (1 if xs > text else 0)
+    if not sat(c, op): return False
+  return True
+
+fn runline(line: str) -> str:
+  if line.re_sub(PAT, "").replace(" ", "") != "": fail("error: syntax")
+  tk = line.re_list(PAT)
+  p = 0
+  first = tok(tk, 0)
+  if first == "CREATE":
+    expect(tk, p, "CREATE")
+    expect(tk, p, "TABLE")
+    tn = ident(tk, p)
+    expect(tk, p, "(")
+    cn = []
+    ct = []
+    cn.push(ident(tk, p))
+    ct.push(ctype(tk, p))
+    while tok(tk, p) == ",":
+      p += 1
+      cn.push(ident(tk, p))
+      ct.push(ctype(tk, p))
+    expect(tk, p, ")")
+    at_end(tk, p)
+    if tnames.has(tn): fail("error: table {tn} exists")
+    tnames[tn] = cn
+    ttypes[tn] = ct
+    trows[tn] = []
+    return "ok"
+  if first == "INSERT":
+    expect(tk, p, "INSERT")
+    expect(tk, p, "INTO")
+    tn = ident(tk, p)
+    expect(tk, p, "VALUES")
+    expect(tk, p, "(")
+    vals = []
+    vals.push(lit(tk, p))
+    while tok(tk, p) == ",":
+      p += 1
+      vals.push(lit(tk, p))
+    expect(tk, p, ")")
+    at_end(tk, p)
+    tcheck(tn)
+    ct = ttypes[tn]
+    if len(vals) != len(ct): fail("error: type mismatch")
+    row = []
+    for i in 0..len(ct):
+      if not fits(ct[i], vals[i]): fail("error: type mismatch")
+      row.push(vals[i].1)
+    trows[tn].push(row)
+    return "ok"
+  if first == "SELECT":
+    if tok(tk, 1) == "COUNT":
+      expect(tk, p, "SELECT")
+      expect(tk, p, "COUNT")
+      expect(tk, p, "(")
+      expect(tk, p, "*")
+      expect(tk, p, ")")
+      expect(tk, p, "FROM")
+      tn = ident(tk, p)
+      cw = []
+      if tok(tk, p) == "WHERE":
+        p += 1
+        cond_list(tk, p, cw)
+      at_end(tk, p)
+      tcheck(tn)
+      check_conds(tn, cw)
+      cnt = 0
+      for r in trows[tn]:
+        if row_ok(tn, r, cw): cnt += 1
+      return str(cnt)
+    expect(tk, p, "SELECT")
+    star = tok(tk, p) == "*"
+    scols = []
+    if star:
+      p += 1
+    else:
+      scols.push(ident(tk, p))
+      while tok(tk, p) == ",":
+        p += 1
+        scols.push(ident(tk, p))
+    expect(tk, p, "FROM")
+    tn = ident(tk, p)
+    cw = []
+    if tok(tk, p) == "WHERE":
+      p += 1
+      cond_list(tk, p, cw)
+    ocol = ""
+    desc = False
+    lim = -1
+    if tok(tk, p) == "ORDER":
+      expect(tk, p, "ORDER")
+      expect(tk, p, "BY")
+      ocol = ident(tk, p)
+      if tok(tk, p) == "DESC":
+        p += 1
+        desc = True
+    if tok(tk, p) == "LIMIT":
+      p += 1
+      lt = tok(tk, p)
+      if not lt.re_full("\d+"): fail("error: syntax")
+      lim = lt.int()
+      p += 1
+    at_end(tk, p)
+    tcheck(tn)
+    if star: scols = tnames[tn]
+    idxs = []
+    for c in scols:
+      idxs.push(colidx(tn, c))
+    check_conds(tn, cw)
+    filt = []
+    for r in trows[tn]:
+      if row_ok(tn, r, cw): filt.push(r)
+    if ocol != "":
+      oi = colidx(tn, ocol)
+      if ttypes[tn][oi] == "INT":
+        filt = filt.sort_by(r => r[oi].int(), desc)
+      else:
+        filt = filt.sort_by(r => r[oi], desc)
+    if lim >= 0: filt = filt.take(lim)
+    out = [scols.join(" | ")]
+    for r in filt:
+      rowtxt = [r[i] for i in idxs]
+      out.push(rowtxt.join(" | "))
+    out.push("({len(filt)} rows)")
+    return out.join("\n")
+  if first == "UPDATE":
+    expect(tk, p, "UPDATE")
+    tn = ident(tk, p)
+    expect(tk, p, "SET")
+    sc = ident(tk, p)
+    expect(tk, p, "=")
+    sv = lit(tk, p)
+    cw = []
+    if tok(tk, p) == "WHERE":
+      p += 1
+      cond_list(tk, p, cw)
+    at_end(tk, p)
+    tcheck(tn)
+    si = colidx(tn, sc)
+    if not fits(ttypes[tn][si], sv): fail("error: type mismatch")
+    check_conds(tn, cw)
+    newrows = []
+    cnt = 0
+    for r in trows[tn]:
+      if row_ok(tn, r, cw):
+        r2 = r
+        r2[si] = sv.1
+        newrows.push(r2)
+        cnt += 1
+      else:
+        newrows.push(r)
+    trows[tn] = newrows
+    return "updated {cnt}"
+  if first == "DELETE":
+    expect(tk, p, "DELETE")
+    expect(tk, p, "FROM")
+    tn = ident(tk, p)
+    cw = []
+    if tok(tk, p) == "WHERE":
+      p += 1
+      cond_list(tk, p, cw)
+    at_end(tk, p)
+    tcheck(tn)
+    check_conds(tn, cw)
+    keep = []
+    for r in trows[tn]:
+      if not row_ok(tn, r, cw): keep.push(r)
+    cnt = len(trows[tn]) - len(keep)
+    trows[tn] = keep
+    return "deleted {cnt}"
+  fail("error: syntax")
+  return ""
+
+for line in lines():
+  if line.trim() == "": continue
+  match runline(line):
+    Ok(s) => print(s)
+    Err(m) => print(m)

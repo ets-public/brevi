@@ -449,6 +449,123 @@ impl<T> Plus for Vec<T> {
     }
 }
 
+// Python format specs in strings: `{x:.2f}` `{n:03d}` `{s:<10}` `{v:>8,}`.
+pub trait AxSpec {
+    fn ax_spec(&self, spec: String) -> String;
+}
+fn ax_spec_parts(spec: &str) -> (Option<char>, bool, bool, usize, bool, Option<usize>, String) {
+    let mut s = spec;
+    let align = s.chars().next().filter(|c| matches!(c, '<' | '>' | '^'));
+    if align.is_some() {
+        s = &s[1..];
+    }
+    let plus = s.starts_with('+');
+    if plus {
+        s = &s[1..];
+    }
+    let zero = s.starts_with('0');
+    let w: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    s = &s[w.len()..];
+    let comma = s.starts_with(',');
+    if comma {
+        s = &s[1..];
+    }
+    let prec = s.strip_prefix('.').map(|r| {
+        let p: String = r.chars().take_while(|c| c.is_ascii_digit()).collect();
+        s = &r[p.len()..];
+        p.parse().unwrap_or(0)
+    });
+    (align, plus, zero, w.parse().unwrap_or(0), comma, prec, s.to_string())
+}
+fn ax_spec_pad(body: String, spec: &str, num: bool) -> String {
+    let (align, _, zero, width, _, _, _) = ax_spec_parts(spec);
+    let n = body.chars().count();
+    if n >= width {
+        return body;
+    }
+    let fill = width - n;
+    if zero && num && align.is_none() {
+        let (sign, digits) = if body.starts_with('-') || body.starts_with('+') { body.split_at(1) } else { ("", body.as_str()) };
+        return format!("{sign}{}{digits}", "0".repeat(fill));
+    }
+    match align.unwrap_or(if num { '>' } else { '<' }) {
+        '<' => format!("{body}{}", " ".repeat(fill)),
+        '^' => format!("{}{body}{}", " ".repeat(fill / 2), " ".repeat(fill - fill / 2)),
+        _ => format!("{}{body}", " ".repeat(fill)),
+    }
+}
+fn ax_commas(s: &str) -> String {
+    let (sign, rest) = if s.starts_with('-') { s.split_at(1) } else { ("", s) };
+    let (int, frac) = match rest.find('.') { Some(i) => rest.split_at(i), None => (rest, "") };
+    let mut out = String::new();
+    for (i, c) in int.chars().enumerate() {
+        if i > 0 && (int.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    format!("{sign}{out}{frac}")
+}
+fn ax_spec_num(v: f64, int: Option<i64>, spec: &str) -> String {
+    let (_, plus, _, _, comma, prec, ty) = ax_spec_parts(spec);
+    let mut body = match (ty.as_str(), int) {
+        ("x", Some(i)) => format!("{i:x}"),
+        ("%", _) => format!("{:.*}%", prec.unwrap_or(6), v * 100.0),
+        ("e", _) => format!("{:.*e}", prec.unwrap_or(6), v),
+        ("f", _) => format!("{:.*}", prec.unwrap_or(6), v),
+        (_, Some(i)) if prec.is_none() => i.to_string(),
+        _ => match prec {
+            Some(p) => format!("{v:.p$}"),
+            None => v.show(),
+        },
+    };
+    if comma {
+        body = ax_commas(&body);
+    }
+    if plus && v >= 0.0 {
+        body = format!("+{body}");
+    }
+    ax_spec_pad(body, spec, true)
+}
+impl AxSpec for i64 {
+    fn ax_spec(&self, spec: String) -> String {
+        ax_spec_num(*self as f64, Some(*self), &spec)
+    }
+}
+impl AxSpec for f64 {
+    fn ax_spec(&self, spec: String) -> String {
+        ax_spec_num(*self, None, &spec)
+    }
+}
+impl AxSpec for Dec {
+    fn ax_spec(&self, spec: String) -> String {
+        let (_, _, _, _, comma, prec, _) = ax_spec_parts(&spec);
+        let mut body = match prec {
+            Some(p) => self.ax_fmt(p as i64),
+            None => self.show(),
+        };
+        if comma {
+            body = ax_commas(&body);
+        }
+        ax_spec_pad(body, &spec, true)
+    }
+}
+impl AxSpec for String {
+    fn ax_spec(&self, spec: String) -> String {
+        let (_, _, _, _, _, prec, _) = ax_spec_parts(&spec);
+        let body: String = match prec {
+            Some(p) => self.chars().take(p).collect(),
+            None => self.clone(),
+        };
+        ax_spec_pad(body, &spec, false)
+    }
+}
+impl AxSpec for bool {
+    fn ax_spec(&self, spec: String) -> String {
+        ax_spec_pad(self.show(), &spec, false)
+    }
+}
+
 pub trait AxNum {
     fn ax_fmt(&self, decimals: i64) -> String;
     fn ax_abs(&self) -> Self;
@@ -652,6 +769,7 @@ pub trait AxList<T: Clone> {
     fn ax_count(&self, f: impl Fn(T) -> bool) -> i64;
     fn ax_fold<A>(&self, init: A, f: impl Fn(A, T) -> A) -> A;
     fn ax_sort_by<K: PartialOrd>(&self, f: impl Fn(T) -> K) -> Vec<T>;
+    fn ax_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> K, rev: bool) -> Vec<T>;
     fn ax_rev(&self) -> Vec<T>;
     fn ax_take(&self, n: i64) -> Vec<T>;
     fn ax_skip(&self, n: i64) -> Vec<T>;
@@ -709,6 +827,15 @@ impl<T: Clone> AxList<T> for Vec<T> {
         v.sort_by(|a, b| f(a.clone()).partial_cmp(&f(b.clone())).unwrap_or(std::cmp::Ordering::Equal));
         v
     }
+    fn ax_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> K, rev: bool) -> Vec<T> {
+        let mut v = self.clone();
+        v.sort_by(|a, b| {
+            let (x, y) = (f(a.clone()), f(b.clone()));
+            let o = if rev { y.partial_cmp(&x) } else { x.partial_cmp(&y) };
+            o.unwrap_or(std::cmp::Ordering::Equal)
+        });
+        v
+    }
     fn ax_rev(&self) -> Vec<T> {
         self.iter().rev().cloned().collect()
     }
@@ -737,6 +864,7 @@ pub trait AxTryList<T: Clone> {
     fn ax_try_count(&self, f: impl Fn(T) -> R<bool>) -> R<i64>;
     fn ax_try_fold<A>(&self, init: A, f: impl Fn(A, T) -> R<A>) -> R<A>;
     fn ax_try_sort_by<K: PartialOrd>(&self, f: impl Fn(T) -> R<K>) -> R<Vec<T>>;
+    fn ax_try_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> R<K>, rev: bool) -> R<Vec<T>>;
 }
 impl<T: Clone> AxTryList<T> for Vec<T> {
     fn ax_try_map<U>(&self, f: impl Fn(T) -> R<U>) -> R<Vec<U>> {
@@ -781,6 +909,11 @@ impl<T: Clone> AxTryList<T> for Vec<T> {
         let keyed: Vec<(K, T)> = self.iter().cloned().map(|x| Ok((f(x.clone())?, x))).collect::<R<_>>()?;
         let mut keyed = keyed;
         keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(keyed.into_iter().map(|(_, x)| x).collect())
+    }
+    fn ax_try_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> R<K>, rev: bool) -> R<Vec<T>> {
+        let mut keyed: Vec<(K, T)> = self.iter().cloned().map(|x| Ok((f(x.clone())?, x))).collect::<R<_>>()?;
+        keyed.sort_by(|a, b| if rev { b.0.partial_cmp(&a.0) } else { a.0.partial_cmp(&b.0) }.unwrap_or(std::cmp::Ordering::Equal));
         Ok(keyed.into_iter().map(|(_, x)| x).collect())
     }
 }

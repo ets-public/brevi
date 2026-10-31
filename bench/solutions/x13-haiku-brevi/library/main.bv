@@ -1,0 +1,44 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn rest_of(s: str, k: int) -> str:
+  cs = s.chars()
+  i = 0
+  for j in 0..k:
+    while i < cs.len() and cs[i] == " ": i += 1
+    while i < cs.len() and cs[i] != " ": i += 1
+  while i < cs.len() and cs[i] == " ": i += 1
+  return cs[i:].join("")
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str) -> str:
+  if lib.books.has(id): return "duplicate ID"
+  lib.books[id] = Book(id: id, title: title, shelf: copies, waitlist: [])
+  return "added {id}"
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str) -> str:
+  if lib.members.has(id): return "duplicate ID"
+  lib.members[id] = Member(id: id, name: name, tier: tier, owes: 0, loans: [])
+  return "welcome {name}"
+
+lib = Lib(books: {}, members: {}, holds: [])
+for line in lines():
+  t = line.trim()
+  if t.is_empty(): continue
+  ws = t.words()
+  d = ws[0]
+  for msg in expire(lib, d): print(msg)
+  op = ws[1]
+  if op == "BOOK":
+    print(add_book(lib, ws[2], ws[3].int().or(0), rest_of(t, 4)))
+  elif op == "MEMBER":
+    print(add_member(lib, ws[2], ws[3], rest_of(t, 4)))
+  elif op == "LOAN":
+    print(do_loan(lib, d, ws[2], ws[3]))
+  elif op == "RETURN":
+    print(do_return(lib, d, ws[2], ws[3]))
+  elif op == "RESERVE":
+    print(do_reserve(lib, d, ws[2], ws[3]))
+  elif op == "PAY":
+    print(do_pay(lib, ws[2], cents_of(ws[3])))
+  elif op == "STATUS":
+    print(do_status(lib, ws[2]))

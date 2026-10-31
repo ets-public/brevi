@@ -1,0 +1,1 @@
+{"line":3,"msg":"this operation will panic at runtime: index out of bounds: the length is 2 but the index is 2","fix":"this always panics when run: keep indexes in range, and window/chunk sizes above 0"}

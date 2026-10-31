@@ -1,0 +1,59 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn read_input(ls: [str]) -> (int, [Task]):
+  k = -1
+  tasks = []
+  seen = {}
+  n = 0
+  for raw in ls:
+    n += 1
+    t = raw.words()
+    if t.is_empty(): continue
+    if k < 0:
+      k = parse_workers(t, n)
+      continue
+    tk = parse_task(t, n)
+    if seen.has(tk.name): fail("line {n}: duplicate {tk.name}")
+    seen[tk.name] = true
+    tasks.push(tk)
+  if k < 0: fail("line 1: bad line")
+  return (k, tasks)
+
+fn plan(ls: [str]) -> [str]:
+  (k, tasks) = read_input(ls)
+  n = tasks.len()
+  idx = {}
+  for i in 0..n: idx[tasks[i].name] = i
+  for tk in tasks:
+    for d in tk.deps:
+      if not idx.has(d): fail("unknown {d}")
+  order = topo(tasks)
+  (st, en) = earliest(tasks, idx, order)
+  total = 0
+  for e in en:
+    if e > total: total = e
+  chain = critical(tasks, order, st, en, total)
+  out = ["unlimited"]
+  for i in 0..n: out.push("  {tasks[i].name} {st[i]}-{en[i]}")
+  out.push("length {total}")
+  if chain.is_empty():
+    out.push("critical -")
+  else:
+    out.push("critical " + " > ".join(chain))
+  tl = tails(tasks, order)
+  (s2, e2) = plan_workers(tasks, idx, tl, k)
+  out.push("workers {k}")
+  mx = 0
+  for i in 0..n:
+    out.push("  {tasks[i].name} {s2[i]}-{e2[i]}")
+    if e2[i] > mx: mx = e2[i]
+  out.push("length {mx}")
+  return out
+
+fn main():
+  match plan(lines()):
+    Ok(out) =>
+      for o in out:
+        print(o)
+    Err(m) => print(m)

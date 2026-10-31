@@ -1,0 +1,21 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int]):
+  big = 0
+  for i in 0..tasks.len():
+    e = st[i] + tasks[i].days
+    big = max(big, e)
+    print("  {tasks[i].name} {st[i]}-{e}")
+  print("length {big}")
+
+fn report(k: int, tasks: [Task]):
+  print("unlimited")
+  show(tasks, starts(tasks))
+  print("critical {critical(tasks).join(' > ')}")
+  print("workers {k}")
+  show(tasks, schedule(tasks, k))
+
+match load(lines()):
+  Ok(r) => report(r.0, r.1)
+  Err(m) => print(m)

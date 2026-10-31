@@ -1,0 +1,29 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn exec(mut lib: Lib, w: [str]) -> [str]:
+  d = date(w[0])
+  out = expire(lib, d.days)
+  op = w[1]
+  if op == "BOOK" and w.len() >= 4:
+    out.push(add_book(lib, w[2], w[3].int(), w.slice(4).join(" ")))
+  elif op == "MEMBER" and w.len() >= 4:
+    out.push(add_member(lib, w[2], w[3], w.slice(4).join(" ")))
+  elif op == "LOAN" and w.len() >= 4:
+    out.push(loan(lib, d, w[2], w[3]))
+  elif op == "RETURN" and w.len() >= 4:
+    out.push(give_back(lib, d, w[2], w[3]))
+  elif op == "RESERVE" and w.len() >= 4:
+    out.push(reserve(lib, w[2], w[3]))
+  elif op == "PAY" and w.len() >= 4:
+    out.push(pay(lib, w[2], w[3].dec()))
+  elif op == "STATUS" and w.len() >= 3:
+    out.push(status(lib, w[2]))
+  out
+
+fn main():
+  lib = new_lib()
+  for line in lines():
+    w = line.words()
+    if w.is_empty(): continue
+    for s in exec(lib, w): print(s)

@@ -1,0 +1,52 @@
+use "graph.bv"
+
+# longest time from each task to the end, the task included
+fn tails(tasks: [Task], order: [int]) -> [int]:
+  n = tasks.len()
+  tail = [0].repeat(n)
+  for i in order.rev():
+    m = 0
+    for j in 0..n:
+      if tasks[j].deps.contains(tasks[i].name) and tail[j] > m: m = tail[j]
+    tail[i] = tasks[i].days + m
+  return tail
+
+# every dependency of task i has finished by day t
+fn ready_at(tasks: [Task], idx: {str: int}, en: [int], started: [bool], i: int, t: int) -> bool:
+  for d in tasks[i].deps:
+    j = idx[d]
+    if not started[j] or en[j] > t: return false
+  return true
+
+fn plan_workers(tasks: [Task], idx: {str: int}, tail: [int], k: int) -> ([int], [int]):
+  n = tasks.len()
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  started = [false].repeat(n)
+  running = []
+  free = k
+  t = 0
+  while True:
+    keep = []
+    for i in running:
+      if en[i] > t:
+        keep.push(i)
+      else:
+        free += 1
+    running = keep
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if not started[i] and ready_at(tasks, idx, en, started, i, t):
+          if best < 0 or tail[i] > tail[best]: best = i
+      if best < 0: break
+      started[best] = true
+      st[best] = t
+      en[best] = t + tasks[best].days
+      running.push(best)
+      free -= 1
+    if running.is_empty(): break
+    t = en[running[0]]
+    for i in running:
+      if en[i] < t: t = en[i]
+  return (st, en)

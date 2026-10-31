@@ -1,0 +1,4 @@
+rust fn third() -> int:
+  let a = [1i64, 2];
+  a[2]
+print(third())

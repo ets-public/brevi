@@ -1,0 +1,62 @@
+type Book:
+  id: str
+  title: str
+  shelf: int
+  waitlist: [str]
+
+type Loan:
+  book: str
+  due: str
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Hold:
+  book: str
+  member: str
+  last: str
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn limit_of(tier: str) -> int:
+  if tier == "plus": return 5
+  return 2
+
+fn loan_days(tier: str) -> int:
+  if tier == "plus": return 28
+  return 14
+
+fn per_day(tier: str) -> int:
+  if tier == "plus": return 10
+  return 25
+
+fn fmt_cents(c: int) -> str:
+  if c < 0: return "-" + fmt_cents(0 - c)
+  whole = c // 100
+  frac = c % 100
+  return "{whole}.{frac:02d}"
+
+fn all_digits(s: str) -> bool:
+  if s.is_empty(): return false
+  for c in s.chars():
+    if not c.is_digit(): return false
+  return true
+
+# amount with at most 2 decimals in cents; -1 when not a valid amount
+fn cents_of(s: str) -> int:
+  parts = s.split(".")
+  if parts.len() > 2: return -1
+  if not all_digits(parts[0]): return -1
+  frac = "00"
+  if parts.len() == 2:
+    frac = parts[1]
+    if frac.len() == 1: frac = frac + "0"
+    if frac.len() != 2 or not all_digits(frac): return -1
+  return parts[0].int().or(0) * 100 + frac.int().or(0)

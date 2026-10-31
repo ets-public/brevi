@@ -305,6 +305,7 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     let (src, foreign) = ffi::split(src);
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
     ffi::attach(&mut items, &foreign);
+    used_consts_first(&mut items);
     infer::returns(&mut items)?;
     let errs = infer::check(&mut items);
     if !errs.is_empty() {
@@ -323,6 +324,23 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
         Ok(rust)
     } else {
         Err(em.diags)
+    }
+}
+
+// Names a used file sets at its top (`PAT = "..."`) are set before the main file's own statements run, as a
+// Python module's are on import.
+fn used_consts_first(items: &mut [ast::Item]) {
+    let Some(first) = SEGS.get().and_then(|s| s.get(1)).map(|s| s.start) else { return };
+    for it in items.iter_mut() {
+        if let ast::Item::Fn { script: true, body: ast::Expr::Block(stmts, _), .. } = it {
+            let line = |st: &ast::Stmt| match st {
+                ast::Stmt::Let { line, .. } | ast::Stmt::Assign { line, .. } => *line,
+                _ => 0,
+            };
+            let (mut used, own): (Vec<_>, Vec<_>) = std::mem::take(stmts).into_iter().partition(|st| line(st) >= first);
+            used.extend(own);
+            *stmts = used;
+        }
     }
 }
 
@@ -695,6 +713,10 @@ fn rust_help(j: &json::J, code: &str) -> Option<String> {
             continue;
         }
         let mut m = c.get("message").and_then(|v| v.str()).unwrap_or("").replace('`', "");
+        // "#[deny(lint)] on by default" says nothing about how to fix the code.
+        if m.starts_with("#[") && m.ends_with("on by default") {
+            continue;
+        }
         let reps: Vec<String> = c.get("spans").map(|s| s.arr()).unwrap_or(&[]).iter().filter_map(|s| s.get("suggested_replacement").and_then(|v| v.str()).map(|r| r.trim().to_string())).filter(|r| !r.is_empty()).collect();
         if !reps.is_empty() {
             m = format!("{m}: {}", reps.join(" | "));
@@ -720,6 +742,9 @@ fn rust_help(j: &json::J, code: &str) -> Option<String> {
 fn fix_for(code: &str, msg: &str) -> Option<String> {
     if msg.contains("Result<") || msg.contains("AxErr") {
         return Some("this value can fail: add ? after the call that produced it".into());
+    }
+    if msg.contains("will panic at runtime") {
+        return Some("this always panics when run: keep indexes in range, and window/chunk sizes above 0".into());
     }
     match code {
         "E0384" | "E0596" => Some("write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))".into()),

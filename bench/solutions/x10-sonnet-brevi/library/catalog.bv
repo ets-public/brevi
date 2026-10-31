@@ -1,0 +1,50 @@
+type Book:
+  id: str
+  title: str
+  shelf: int
+  waiting: [str]
+
+type Loan:
+  book: str
+  due: int
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+type Hold:
+  book: str
+  member: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_lib() -> Lib = Lib({}, {}, [])
+
+fn limit_of(tier: str) -> int = if tier == "basic": 2 else: 5
+
+fn days_of(tier: str) -> int = if tier == "basic": 14 else: 28
+
+fn fee_of(tier: str) -> dec = if tier == "basic": "0.25".dec() else: "0.10".dec()
+
+fn has_loan(m: Member, b: str) -> bool = m.loans.any(l => l.book == b)
+
+fn dstr(n: int) -> str = str(date("1970-01-01").add_days(n))
+
+fn refuse(m: str, b: str, why: str) -> str = "refused {m} {b}: {why}"
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str) -> str:
+  if lib.books.has(id): return "duplicate ID"
+  lib.books[id] = Book(id, title, copies, [])
+  "added {id}"
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str) -> str:
+  if lib.members.has(id): return "duplicate ID"
+  lib.members[id] = Member(id, name, tier, 0.dec(), [])
+  "welcome {name}"

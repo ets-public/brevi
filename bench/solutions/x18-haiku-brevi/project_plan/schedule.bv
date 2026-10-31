@@ -1,0 +1,43 @@
+use "graph.bv"
+
+fn tails(tasks: [Task]) -> [int]:
+  n = len(tasks)
+  tl = [0].repeat(n)
+  rounds = n + 1
+  for p in 0..rounds:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if tl[j] > best and tasks[j].deps.contains(tasks[i].name): best = tl[j]
+      tl[i] = tasks[i].days + best
+  return tl
+
+fn ready(tasks: [Task], i: int, done: [bool]) -> bool:
+  for d in tasks[i].deps:
+    if not done[idx(tasks, d)]: return False
+  return True
+
+fn schedule(tasks: [Task], k: int) -> ([int], [int]):
+  n = len(tasks)
+  tl = tails(tasks)
+  starts = [-1].repeat(n)
+  ends = [0].repeat(n)
+  done = [False].repeat(n)
+  free = k
+  t = 0
+  while done.contains(False):
+    for i in 0..n:
+      if starts[i] >= 0 and ends[i] == t and not done[i]:
+        done[i] = True
+        free += 1
+    while free > 0:
+      pick = -1
+      for i in 0..n:
+        if starts[i] < 0 and ready(tasks, i, done) and (pick < 0 or tl[i] > tl[pick]):
+          pick = i
+      if pick < 0: break
+      starts[pick] = t
+      ends[pick] = t + tasks[pick].days
+      free -= 1
+    t += 1
+  return (starts, ends)

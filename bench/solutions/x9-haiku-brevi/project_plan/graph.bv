@@ -1,0 +1,114 @@
+type Graph:
+  workers: int
+  names: [str]
+  days: [int]
+  deps: [[int]]
+  dependents: [[int]]
+  order: [int]
+
+type Plan:
+  starts: [int]
+  ends: [int]
+  length: int
+  critical: [str]
+
+fn topo(deps: [[int]]) -> [int]:
+  n = deps.len()
+  indeg = [0].repeat(n)
+  outs = []
+  for i in 0..n: outs.push([])
+  for i in 0..n:
+    for d in deps[i]:
+      indeg[i] = indeg[i] + 1
+      outs[d] = outs[d] + [i]
+  queue = []
+  for i in 0..n:
+    if indeg[i] == 0: queue.push(i)
+  head = 0
+  while head < queue.len():
+    c = queue[head]
+    head += 1
+    for t in outs[c]:
+      indeg[t] = indeg[t] - 1
+      if indeg[t] == 0: queue.push(t)
+  if queue.len() < n: fail("cycle")
+  queue
+
+fn read_graph(ls: [str]) -> Graph:
+  workers = -1
+  names = []
+  days = []
+  dnames = []
+  idx = {}
+  for k in 0..ls.len():
+    ln = k + 1
+    w = ls[k].words()
+    if w.is_empty(): continue
+    if workers < 0:
+      if w.len() == 2 and w[0] == "workers" and not w[1].re_full("[0-9]+").is_empty() and w[1].int() >= 1:
+        workers = w[1].int()
+        continue
+      fail("line {ln}: bad line")
+    text = " ".join(w)
+    if text.re_full("[A-Za-z0-9_]+ [0-9]+( after [A-Za-z0-9_]+(\s*,\s*[A-Za-z0-9_]+)*)?").is_empty():
+      fail("line {ln}: bad line")
+    d = w[1].int()
+    if d < 1: fail("line {ln}: bad line")
+    ds = []
+    if w.len() > 2:
+      ds = [x.trim() for x in " ".join(w[3:]).split(",")]
+    name = w[0]
+    if idx.has(name): fail("line {ln}: duplicate {name}")
+    idx[name] = names.len()
+    names.push(name)
+    days.push(d)
+    dnames.push(ds)
+  if workers < 0: fail("line 1: bad line")
+  deps = []
+  for i in 0..names.len():
+    row = []
+    for d2 in dnames[i]:
+      if not idx.has(d2): fail("unknown {d2}")
+      row.push(idx[d2])
+    deps.push(row)
+  order = topo(deps)
+  dependents = []
+  for i in 0..names.len(): dependents.push([])
+  for i in 0..names.len():
+    for d3 in deps[i]:
+      dependents[d3] = dependents[d3] + [i]
+  Graph(workers, names, days, deps, dependents, order)
+
+fn unlimited(g: Graph) -> Plan:
+  n = g.names.len()
+  starts = [0].repeat(n)
+  ends = [0].repeat(n)
+  for i in g.order:
+    s = 0
+    for d in g.deps[i]:
+      if ends[d] > s: s = ends[d]
+    starts[i] = s
+    ends[i] = s + g.days[i]
+  fe = [0].repeat(n)
+  for i in g.order.rev():
+    best = 0
+    for t in g.dependents[i]:
+      v = g.days[t] + fe[t]
+      if v > best: best = v
+    fe[i] = best
+  total = ends.max().or(0)
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and starts[i] == 0 and ends[i] + fe[i] == total: cur = i
+  chain = []
+  if cur >= 0:
+    chain.push(cur)
+    while ends[cur] != total:
+      nxt = -1
+      for t in 0..n:
+        if nxt < 0 and cur in g.deps[t] and starts[t] == ends[cur] and ends[t] + fe[t] == total: nxt = t
+      if nxt < 0: break
+      chain.push(nxt)
+      cur = nxt
+  crit = [g.names[i] for i in chain]
+  Plan(starts, ends, total, crit)

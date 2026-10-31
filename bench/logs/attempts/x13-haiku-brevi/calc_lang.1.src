@@ -1,0 +1,220 @@
+type Fn:
+  params: [str]
+  body: [str]
+
+gvars = {}
+fns = {}
+depth = 0
+
+fn tokenize(s: str) -> [str]:
+  cs = s.chars()
+  out = []
+  i = 0
+  while i < cs.len():
+    c = cs[i]
+    if c == " " or c == "\t":
+      i += 1
+    elif c.is_alpha() or c.is_digit() or c == "_":
+      j = i + 1
+      while j < cs.len() and (cs[j].is_alpha() or cs[j].is_digit() or cs[j] == "_"):
+        j += 1
+      out.push(cs[i:j].join(""))
+      i = j
+    elif (c == "=" or c == "!" or c == "<" or c == ">") and i + 1 < cs.len() and cs[i + 1] == "=":
+      out.push(c + "=")
+      i += 2
+    elif c == "=" or c == "<" or c == ">" or c == "+" or c == "-" or c == "*" or c == "/" or c == "%" or c == "(" or c == ")" or c == ",":
+      out.push(c)
+      i += 1
+    else:
+      fail("syntax")
+  return out
+
+fn is_num(t: str) -> bool:
+  if t.is_empty(): return false
+  for c in t.chars():
+    if not c.is_digit(): return false
+  return true
+
+fn is_name(t: str) -> bool:
+  if t.is_empty() or not t[0].is_alpha(): return false
+  for c in t.chars():
+    if not (c.is_alpha() or c.is_digit() or c == "_"): return false
+  return true
+
+fn is_kw(t: str) -> bool:
+  return t == "let" or t == "fn" or t == "print" or t == "if"
+
+fn is_cmp(t: str) -> bool:
+  return t == "==" or t == "!=" or t == "<" or t == ">" or t == "<=" or t == ">="
+
+fn at(ts: [str], p: int) -> str:
+  if p < ts.len(): return ts[p]
+  return ""
+
+fn cmp_res(a: int, b: int, op: str) -> bool:
+  if op == "==": return a == b
+  if op == "!=": return a != b
+  if op == "<": return a < b
+  if op == ">": return a > b
+  if op == "<=": return a <= b
+  return a >= b
+
+# Returns the start position of each argument and the position after ")".
+# Arguments are only parsed here (no evaluation).
+fn scan_args(ts: [str], q: int, env: {str: int}) -> ([int], int):
+  starts = []
+  if at(ts, q) == ")": return (starts, q + 1)
+  while True:
+    starts.push(q)
+    (_, r) = ex(ts, q, env, false)
+    q = r
+    if at(ts, q) != ",": break
+    q += 1
+  if at(ts, q) != ")": fail("syntax")
+  return (starts, q + 1)
+
+fn call(ts: [str], p: int, env: {str: int}, live: bool) -> (int, int):
+  t = at(ts, p)
+  if is_kw(t) and t != "if": fail("syntax")
+  (starts, q) = scan_args(ts, p + 2, env)
+  if not live: return (0, q)
+  if t == "if":
+    if starts.len() != 3: fail("if takes 3 arguments")
+    (c, _) = ex(ts, starts[0], env, true)
+    if c != 0:
+      (a, _) = ex(ts, starts[1], env, true)
+      return (a, q)
+    (b, _) = ex(ts, starts[2], env, true)
+    return (b, q)
+  if not fns.has(t): fail("unknown function " + t)
+  f = fns[t]
+  if starts.len() != f.params.len(): fail(t + " takes " + f.params.len().str() + " arguments")
+  if depth >= 200: fail("too deep")
+  argv = {}
+  for i in 0..starts.len():
+    (v, _) = ex(ts, starts[i], env, true)
+    argv[f.params[i]] = v
+  depth += 1
+  (r, _) = ex(f.body, 0, argv, true)
+  depth -= 1
+  return (r, q)
+
+fn e_prim(ts: [str], p: int, env: {str: int}, live: bool) -> (int, int):
+  t = at(ts, p)
+  if t == "": fail("syntax")
+  if t == "(":
+    (v, q) = ex(ts, p + 1, env, live)
+    if at(ts, q) != ")": fail("syntax")
+    return (v, q + 1)
+  if is_num(t):
+    return (t.int().or(0), p + 1)
+  if not is_name(t): fail("syntax")
+  if at(ts, p + 1) == "(":
+    return call(ts, p, env, live)
+  if is_kw(t): fail("syntax")
+  if not live: return (0, p + 1)
+  if env.has(t): return (env[t], p + 1)
+  if gvars.has(t): return (gvars[t], p + 1)
+  fail("unknown name " + t)
+
+fn e_un(ts: [str], p: int, env: {str: int}, live: bool) -> (int, int):
+  if at(ts, p) == "-":
+    (v, q) = e_un(ts, p + 1, env, live)
+    return (0 - v, q)
+  return e_prim(ts, p, env, live)
+
+fn e_mul(ts: [str], p: int, env: {str: int}, live: bool) -> (int, int):
+  (v, q) = e_un(ts, p, env, live)
+  while at(ts, q) == "*" or at(ts, q) == "/" or at(ts, q) == "%":
+    op = at(ts, q)
+    (w, r) = e_un(ts, q + 1, env, live)
+    if live:
+      if op == "*":
+        v = v * w
+      elif w == 0:
+        fail("division by zero")
+      elif op == "/":
+        v = v / w
+      else:
+        v = v % w
+    q = r
+  return (v, q)
+
+fn e_add(ts: [str], p: int, env: {str: int}, live: bool) -> (int, int):
+  (v, q) = e_mul(ts, p, env, live)
+  while at(ts, q) == "+" or at(ts, q) == "-":
+    op = at(ts, q)
+    (w, r) = e_mul(ts, q + 1, env, live)
+    if live:
+      if op == "+":
+        v = v + w
+      else:
+        v = v - w
+    q = r
+  return (v, q)
+
+fn ex(ts: [str], p: int, env: {str: int}, live: bool) -> (int, int):
+  (a, q) = e_add(ts, p, env, live)
+  op = at(ts, q)
+  if not is_cmp(op): return (a, q)
+  (b, r) = e_add(ts, q + 1, env, live)
+  if is_cmp(at(ts, r)): fail("syntax")
+  v = 0
+  if live and cmp_res(a, b, op): v = 1
+  return (v, r)
+
+fn check_end(ts: [str], p: int):
+  (_, e) = ex(ts, p, {}, false)
+  if e != ts.len(): fail("syntax")
+
+fn run_line(s: str) -> [str]:
+  depth = 0
+  ts = tokenize(s)
+  if ts.is_empty(): fail("syntax")
+  h = ts[0]
+  if h == "let":
+    if ts.len() < 4 or not is_name(ts[1]) or is_kw(ts[1]) or ts[2] != "=": fail("syntax")
+    check_end(ts, 3)
+    (v, _) = ex(ts, 3, {}, true)
+    gvars[ts[1]] = v
+    return []
+  if h == "fn":
+    if ts.len() < 4 or not is_name(ts[1]) or is_kw(ts[1]) or ts[2] != "(": fail("syntax")
+    ps = []
+    q = 3
+    if at(ts, q) != ")":
+      while True:
+        if not is_name(at(ts, q)) or is_kw(at(ts, q)): fail("syntax")
+        ps.push(at(ts, q))
+        q += 1
+        if at(ts, q) != ",": break
+        q += 1
+    if at(ts, q) != ")" or at(ts, q + 1) != "=": fail("syntax")
+    body = ts[q + 2:]
+    check_end(body, 0)
+    fns[ts[1]] = Fn(params: ps, body: body)
+    return []
+  if h == "print":
+    if ts.len() < 2: fail("syntax")
+    check_end(ts, 1)
+    vals = []
+    q = 1
+    while True:
+      (v, r) = ex(ts, q, {}, true)
+      vals.push(v.str())
+      q = r
+      if at(ts, q) != ",": break
+      q += 1
+    return [vals.join(" ")]
+  fail("syntax")
+
+n = 0
+for line in lines():
+  n += 1
+  s = line.trim()
+  if s.is_empty() or s.starts_with("#"): continue
+  match run_line(s):
+    Ok(v) =>
+      for x in v: print(x)
+    Err(m) => print("error line {n}: {m}")

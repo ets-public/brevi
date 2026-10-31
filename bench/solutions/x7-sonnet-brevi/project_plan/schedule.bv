@@ -1,0 +1,41 @@
+use "graph.bv"
+
+fn tails(tasks: [Task]) -> [int]:
+  deps = dep_idx(tasks)
+  tl = [0].repeat(tasks.len())
+  for i in topo(deps).rev():
+    best = 0
+    for j in 0..tasks.len():
+      if i in deps[j]: best = max(best, tl[j])
+    tl[i] = tasks[i].days + best
+  tl
+
+fn plan_workers(tasks: [Task], k: int) -> [int]:
+  n = tasks.len()
+  deps = dep_idx(tasks)
+  tl = tails(tasks)
+  st = [-1].repeat(n)
+  en = [0].repeat(n)
+  started = 0
+  t = 0
+  while started < n:
+    busy = 0
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > t: busy += 1
+    while busy < k:
+      pick = -1
+      for i in 0..n:
+        if st[i] < 0 and all(st[d] >= 0 and en[d] <= t for d in deps[i]):
+          if pick < 0 or tl[i] > tl[pick]: pick = i
+      if pick < 0: break
+      st[pick] = t
+      en[pick] = t + tasks[pick].days
+      started += 1
+      busy += 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > t:
+        if nt < 0 or en[i] < nt: nt = en[i]
+    if nt < 0: break
+    t = nt
+  st

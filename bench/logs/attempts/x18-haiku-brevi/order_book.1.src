@@ -1,0 +1,122 @@
+type Order:
+  oid: str
+  side: str
+  price: int
+  qty: int
+  seq: int
+
+fn money(c: int) -> str:
+  q = c // 100
+  r = c % 100
+  return "{q}.{r:02d}"
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  frac = 0
+  if len(parts) > 1:
+    f = parts[1]
+    if len(f) == 1:
+      frac = f.int() * 10
+    else:
+      frac = f.int()
+  return parts[0].int() * 100 + frac
+
+fn is_id(s: str) -> bool = len(s.re_full("\w+")) > 0
+
+fn is_qty(s: str) -> bool = len(s.re_full("\d+")) > 0 and s.int().or(0) >= 1
+
+fn is_price(s: str) -> bool = len(s.re_full("\d+(\.\d{1,2})?")) > 0 and cents(s) > 0
+
+fn best(book: {str: Order}, opp: str, limit: int, market: bool) -> str:
+  cands = [o for o in book.values() if o.side == opp and (market or (opp == "S" and o.price <= limit) or (opp == "B" and o.price >= limit))]
+  if cands.is_empty(): return ""
+  if opp == "S":
+    cands.sort_by(o => (o.price, o.seq))
+  else:
+    cands.sort_by(o => (-o.price, o.seq))
+  return cands[0].oid
+
+fn show():
+  asks = {}
+  bids = {}
+  for o in book.values():
+    if o.side == "S":
+      asks[o.price] += o.qty
+    else:
+      bids[o.price] += o.qty
+  print("asks")
+  if asks.is_empty(): print("  -")
+  for p in sorted(asks.keys()):
+    print("  {money(p)} {asks[p]}")
+  print("bids")
+  if bids.is_empty(): print("  -")
+  for p in sorted(bids.keys()).rev():
+    print("  {money(p)} {bids[p]}")
+
+fn submit(oid: str, side: str, qty: int, price: int, market: bool):
+  opp = "S"
+  if side == "S":
+    opp = "B"
+  left = qty
+  while left > 0:
+    rid = best(book, opp, price, market)
+    if rid == "":
+      break
+    r = book[rid]
+    fill = min(left, r.qty)
+    if side == "B":
+      print("TRADE {oid} {rid} {fill} {money(r.price)}")
+    else:
+      print("TRADE {rid} {oid} {fill} {money(r.price)}")
+    vqty += fill
+    vval += fill * r.price
+    left -= fill
+    book[rid].qty -= fill
+    if book[rid].qty == 0:
+      book.remove(rid)
+  if left > 0:
+    if market:
+      print("DROPPED {oid} {left}")
+    else:
+      seq += 1
+      book[oid] = Order(oid: oid, side: side, price: price, qty: left, seq: seq)
+
+book = {}
+seen = {}
+seq = 0
+vqty = 0
+vval = 0
+n = 0
+for raw in lines():
+  n += 1
+  w = raw.words()
+  if w.is_empty(): continue
+  cmd = w[0]
+  if cmd == "BOOK" and len(w) == 1:
+    show()
+  elif (cmd == "BUY" or cmd == "SELL") and len(w) == 4 and is_id(w[1]) and is_qty(w[2]) and is_price(w[3]):
+    if seen.has(w[1]):
+      print("ERR line {n}: duplicate ID")
+    else:
+      seen[w[1]] = 1
+      sd = "B"
+      if cmd == "SELL": sd = "S"
+      submit(w[1], sd, w[2].int(), cents(w[3]), False)
+  elif (cmd == "MBUY" or cmd == "MSELL") and len(w) == 3 and is_id(w[1]) and is_qty(w[2]):
+    if seen.has(w[1]):
+      print("ERR line {n}: duplicate ID")
+    else:
+      seen[w[1]] = 1
+      sd = "B"
+      if cmd == "MSELL": sd = "S"
+      submit(w[1], sd, w[2].int(), 0, True)
+  elif cmd == "CANCEL" and len(w) == 2 and is_id(w[1]):
+    oid = w[1]
+    if book.has(oid):
+      print("CANCELLED {oid} {book[oid].qty}")
+      book.remove(oid)
+    else:
+      print("ERR line {n}: unknown ID")
+  else:
+    print("ERR line {n}: bad command")
+print("volume {vqty} value {money(vval)}")

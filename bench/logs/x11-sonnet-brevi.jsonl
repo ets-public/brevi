@@ -1,0 +1,11 @@
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"order_book","code_tok":1550,"patch_tok":1550,"out_tok":467,"compiled":true,"pass":0,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"order_book","code_tok":1553,"patch_tok":41,"out_tok":481,"compiled":true,"pass":0,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"order_book","code_tok":1550,"patch_tok":75,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"mini_sql","code_tok":2786,"patch_tok":2786,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"calc_lang","code_tok":2174,"patch_tok":2174,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"fifo_stock","code_tok":1444,"patch_tok":1444,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"library","code_tok":2588,"patch_tok":2588,"out_tok":391,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"library","code_tok":2574,"patch_tok":54,"out_tok":642,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"library","code_tok":2574,"patch_tok":0,"out_tok":642,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"library","code_tok":2574,"patch_tok":56,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x11-sonnet-brevi","lang":"brevi","task":"project_plan","code_tok":2091,"patch_tok":2091,"out_tok":7,"compiled":true,"pass":7,"total":7,"tok":"exact"}

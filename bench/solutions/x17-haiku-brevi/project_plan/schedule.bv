@@ -1,0 +1,44 @@
+use "graph.bv"
+
+fn schedule(tasks: [Task], dep_ix: [[int]], tl: [int], k: int) -> ([int], [int], int):
+  n = len(tasks)
+  st = []
+  en = []
+  started = []
+  done = []
+  for i in 0..n:
+    st.push(0)
+    en.push(0)
+    started.push(False)
+    done.push(False)
+  free = k
+  now = 0
+  finished = 0
+  while finished < n:
+    for i in 0..n:
+      if started[i] and not done[i] and en[i] <= now:
+        done[i] = True
+        free += 1
+        finished += 1
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if not started[i]:
+          ok = True
+          for j in dep_ix[i]:
+            if not done[j]: ok = False
+          if ok and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0: break
+      started[best] = True
+      st[best] = now
+      en[best] = now + tasks[best].days
+      free -= 1
+    nt = -1
+    for i in 0..n:
+      if started[i] and not done[i] and (nt < 0 or en[i] < nt): nt = en[i]
+    if nt < 0: break
+    now = nt
+  total = 0
+  for e in en:
+    if e > total: total = e
+  return (st, en, total)

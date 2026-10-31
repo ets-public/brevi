@@ -1,0 +1,167 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn report(g: Graph):
+  n = g.tasks.len()
+  st = starts(g)
+  ends = [st[i] + g.tasks[i].days for i in 0..n]
+  print("unlimited")
+  for i in 0..n: print("  {g.tasks[i].name} {st[i]}-{ends[i]}")
+  print("length {max(ends).or(0)}")
+  ch = critical(g, st)
+  print("critical " + " > ".join([g.tasks[c].name for c in ch]))
+  s2 = make_schedule(g)
+  e2 = [s2[i] + g.tasks[i].days for i in 0..n]
+  print("workers {g.workers}")
+  for i in 0..n: print("  {g.tasks[i].name} {s2[i]}-{e2[i]}")
+  print("length {max(e2).or(0)}")
+
+fn main():
+  match parse_input(lines()):
+    Ok(g) => report(g)
+    Err(m) => print(m)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [int]
+
+type Graph:
+  workers: int
+  tasks: [Task]
+  order: [int]
+
+fn parse_input(ls: [str]) -> Graph:
+  workers = 0
+  names = []
+  days = []
+  depnames = []
+  idx = {}
+  header = false
+  for i in 0..ls.len():
+    ln = i + 1
+    t = ls[i].trim()
+    if t.is_empty(): continue
+    if not header:
+      m = t.re_full("workers (\d+)")
+      if m.is_empty() or m[1].int() < 1: fail("line {ln}: bad line")
+      workers = m[1].int()
+      header = true
+      continue
+    m = t.re_full("([A-Za-z0-9_]+) (\d+)( after (.+))?")
+    if m.is_empty() or m[2].int() < 1: fail("line {ln}: bad line")
+    ds = []
+    if not m[4].is_empty():
+      for p in m[4].split(","):
+        q = p.trim()
+        if q.re_full("[A-Za-z0-9_]+").is_empty(): fail("line {ln}: bad line")
+        ds.push(q)
+    if idx.has(m[1]): fail("line {ln}: duplicate {m[1]}")
+    idx[m[1]] = names.len()
+    names.push(m[1])
+    days.push(m[2].int())
+    depnames.push(ds)
+  if not header: fail("line 1: bad line")
+  tasks = []
+  for i in 0..names.len():
+    ds = []
+    for d in depnames[i]:
+      if not idx.has(d): fail("unknown {d}")
+      ds.push(idx[d])
+    tasks.push(Task(names[i], days[i], ds))
+  n = tasks.len()
+  indeg = [0].repeat(n)
+  outs = [[] for i in 0..n]
+  for i in 0..n:
+    for d in tasks[i].deps:
+      indeg[i] += 1
+      outs[d].push(i)
+  order = []
+  q = [i for i in 0..n if indeg[i] == 0]
+  qi = 0
+  while qi < q.len():
+    x = q[qi]
+    qi += 1
+    order.push(x)
+    for y in outs[x]:
+      indeg[y] -= 1
+      if indeg[y] == 0: q.push(y)
+  if order.len() < n: fail("cycle")
+  Graph(workers, tasks, order)
+
+fn starts(g: Graph) -> [int]:
+  st = [0].repeat(g.tasks.len())
+  for x in g.order:
+    s = 0
+    for d in g.tasks[x].deps:
+      s = max(s, st[d] + g.tasks[d].days)
+    st[x] = s
+  st
+
+fn critical(g: Graph, st: [int]) -> [int]:
+  n = g.tasks.len()
+  ends = [st[i] + g.tasks[i].days for i in 0..n]
+  total = max(ends)
+  good = [false].repeat(n)
+  for k in 0..n:
+    x = g.order[n - 1 - k]
+    if ends[x] == total: good[x] = true
+    for j in 0..n:
+      if good[j] and st[j] == ends[x] and x in g.tasks[j].deps: good[x] = true
+  chain = []
+  cur = -1
+  for i in 0..n:
+    if st[i] == 0 and good[i]:
+      cur = i
+      break
+  while cur >= 0:
+    chain.push(cur)
+    nxt = -1
+    for j in 0..n:
+      if good[j] and st[j] == ends[cur] and cur in g.tasks[j].deps:
+        nxt = j
+        break
+    cur = nxt
+  chain
+## schedule.bv
+use "graph.bv"
+
+fn make_schedule(g: Graph) -> [int]:
+  n = g.tasks.len()
+  tail = [0].repeat(n)
+  for k in 0..n:
+    x = g.order[n - 1 - k]
+    best = 0
+    for j in 0..n:
+      if x in g.tasks[j].deps: best = max(best, tail[j])
+    tail[x] = g.tasks[x].days + best
+  st = [-1].repeat(n)
+  en = [-1].repeat(n)
+  running = 0
+  finished = 0
+  t = 0
+  while finished < n:
+    for i in 0..n:
+      if st[i] >= 0 and en[i] == t:
+        running -= 1
+        finished += 1
+    while running < g.workers:
+      pick = -1
+      for i in 0..n:
+        if st[i] >= 0: continue
+        ok = true
+        for d in g.tasks[i].deps:
+          if st[d] < 0 or en[d] > t: ok = false
+        if not ok: continue
+        if pick < 0 or tail[i] > tail[pick]: pick = i
+      if pick < 0: break
+      st[pick] = t
+      en[pick] = t + g.tasks[pick].days
+      running += 1
+    if finished >= n: break
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > t and (nt < 0 or en[i] < nt): nt = en[i]
+    t = nt
+  st

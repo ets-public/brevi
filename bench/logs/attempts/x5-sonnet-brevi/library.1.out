@@ -1,0 +1,6 @@
+{"file":"rules.bv","line":7,"msg":"cannot change data: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"file":"rules.bv","line":54,"msg":"cannot change data: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"file":"rules.bv","line":55,"msg":"cannot change data: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"file":"rules.bv","line":64,"msg":"cannot change data: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"file":"rules.bv","line":65,"msg":"cannot change data: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"file":"rules.bv","line":86,"msg":"cannot change data: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}

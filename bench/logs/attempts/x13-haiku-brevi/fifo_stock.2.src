@@ -1,0 +1,142 @@
+type Lot:
+  qty: int
+  cost: int
+
+latest = ""
+lots = {}
+cogs = {}
+rev = {}
+loss = {}
+mprof = {}
+mloss = {}
+
+fn fmt_cents(c: int) -> str:
+  if c < 0: return "-" + fmt_cents(0 - c)
+  whole = c // 100
+  frac = c % 100
+  return "{whole}.{frac:02d}"
+
+fn all_digits(s: str) -> bool:
+  if s.is_empty(): return false
+  for c in s.chars():
+    if not c.is_digit(): return false
+  return true
+
+# amount with at most 2 decimals, in cents; -1 when not a valid amount
+fn cents_of(s: str) -> int:
+  parts = s.split(".")
+  if parts.len() > 2: return -1
+  if not all_digits(parts[0]): return -1
+  frac = "00"
+  if parts.len() == 2:
+    frac = parts[1]
+    if frac.len() == 1: frac = frac + "0"
+    if frac.len() != 2 or not all_digits(frac): return -1
+  return parts[0].int().or(0) * 100 + frac.int().or(0)
+
+fn qty_of(s: str) -> int:
+  if not all_digits(s): return -1
+  n = s.int().or(0)
+  if n < 1: return -1
+  return n
+
+fn valid_date(d: str) -> bool:
+  if d.len() != 10 or d[4] != "-" or d[7] != "-": return false
+  for i in [0, 1, 2, 3, 5, 6, 8, 9]:
+    if not d[i].is_digit(): return false
+  m = d.slice(5, 7).int().or(0)
+  dd = d.slice(8, 10).int().or(0)
+  return m >= 1 and m <= 12 and dd >= 1 and dd <= 31
+
+fn onhand_units(sku: str) -> int:
+  if not lots.has(sku): return 0
+  total = 0
+  for lot in lots[sku]:
+    total += lot.qty
+  return total
+
+# removes q units oldest first and returns their cost (stock is known to be enough)
+fn consume(sku: str, q: int) -> int:
+  need = q
+  total = 0
+  while need > 0:
+    head = lots[sku].first()
+    take = min(need, head.qty)
+    total += take * head.cost
+    need -= take
+    lots[sku].remove(0)
+    if head.qty > take:
+      lots[sku].insert(0, Lot(qty: head.qty - take, cost: head.cost))
+  return total
+
+fn apply(t: [str]) -> str:
+  if t.len() < 4: fail("bad line")
+  d = t[0]
+  op = t[1]
+  sku = t[2]
+  q = qty_of(t[3])
+  if not valid_date(d) or q < 0: fail("bad line")
+  price = 0
+  if op == "RECEIVE" or op == "SHIP":
+    if t.len() != 5: fail("bad line")
+    price = cents_of(t[4])
+    if price < 0: fail("bad line")
+  elif op == "LOSS":
+    if t.len() != 4: fail("bad line")
+  else:
+    fail("bad line")
+  if d < latest: fail("date out of order")
+  if op != "RECEIVE":
+    have = onhand_units(sku)
+    if have < q: fail("short {sku} need {q} have {have}")
+  latest = d
+  if op == "RECEIVE":
+    if not lots.has(sku): lots[sku] = []
+    lots[sku].push(Lot(qty: q, cost: price))
+    return ""
+  mon = d.slice(0, 7)
+  cost_sum = consume(sku, q)
+  if op == "SHIP":
+    rev_amt = q * price
+    cogs[sku] += cost_sum
+    rev[sku] += rev_amt
+    mprof[mon] += rev_amt - cost_sum
+    mloss[mon] += 0
+  else:
+    loss[sku] += cost_sum
+    mloss[mon] += cost_sum
+    mprof[mon] += 0
+  return ""
+
+fn check_apply(t: [str]) -> str:
+  match apply(t):
+    Ok(v) => return v
+    Err(m) => return m
+
+n = 0
+for line in lines():
+  n += 1
+  t = line.words()
+  if t.is_empty(): continue
+  msg = check_apply(t)
+  if msg != "": print("line {n}: {msg}")
+
+for sku in lots.keys():
+  onq = 0
+  onv = 0
+  for lot in lots[sku]:
+    onq += lot.qty
+    onv += lot.qty * lot.cost
+  c = cogs[sku]
+  r = rev[sku]
+  l = loss[sku]
+  print("{sku} on_hand {onq} value {fmt_cents(onv)} cogs {fmt_cents(c)} revenue {fmt_cents(r)} profit {fmt_cents(r - c)} loss {fmt_cents(l)}")
+
+print("months")
+tp = 0
+tl = 0
+for m in mprof.keys():
+  tp += mprof[m]
+  tl += mloss[m]
+  print("  {m} profit {fmt_cents(mprof[m])} loss {fmt_cents(mloss[m])}")
+print("total profit {fmt_cents(tp)} loss {fmt_cents(tl)} net {fmt_cents(tp - tl)}")

@@ -1,0 +1,274 @@
+tcols = {}
+ttypes = {}
+trows = {}
+
+fn isid(s: str) -> bool = s.re_full("[A-Za-z]\w*").len() > 0
+fn isval(s: str) -> bool = s.re_full("-?\d+|'(?:[^']|'')*'").len() > 0
+fn isop(s: str) -> bool = s in ["=", "!=", "<", ">", "<=", ">="]
+fn norm(s: str) -> str = if s.starts_with("'"): s.slice(1, s.len() - 1).replace("''", "'") else: s
+fn isint_tok(s: str) -> bool = !s.starts_with("'")
+
+fn parse_where(t: [str], i0: int) -> (bool, [(str, str, str)], int):
+  conds = []
+  i = i0
+  while true:
+    if i + 3 > t.len(): return (false, [], i)
+    if not isid(t[i]) or not isop(t[i + 1]) or not isval(t[i + 2]): return (false, [], i)
+    conds.push((t[i], t[i + 1], t[i + 2]))
+    i += 3
+    if i < t.len() and t[i] == "AND":
+      i += 1
+    else:
+      break
+  (true, conds, i)
+
+fn tail_where(t: [str], i: int) -> (bool, [(str, str, str)], int):
+  if i < t.len() and t[i] == "WHERE": return parse_where(t, i + 1)
+  (true, [], i)
+
+fn holds(a: str, op: str, v: str, isint: bool) -> bool:
+  lt = false
+  eq = false
+  if isint:
+    lt = a.int() < v.int()
+    eq = a.int() == v.int()
+  else:
+    lt = a < v
+    eq = a == v
+  if op == "=": return eq
+  if op == "!=": return !eq
+  if op == "<": return lt
+  if op == ">": return !lt and !eq
+  if op == "<=": return lt or eq
+  !lt
+
+fn matches(conds: [(str, str, str)], cols: [str], types: [str], row: [str]) -> bool:
+  for c in conds:
+    ci = cols.index_of(c.0)
+    if not holds(row[ci], c.1, norm(c.2), types[ci] == "INT"): return false
+  true
+
+fn first_unknown(names: [str], cols: [str]) -> str:
+  for n in names:
+    if n not in cols: return n
+  ""
+
+fn types_ok(conds: [(str, str, str)], cols: [str], types: [str]) -> bool:
+  for c in conds:
+    ci = cols.index_of(c.0)
+    if (types[ci] == "INT") != isint_tok(c.2): return false
+  true
+
+fn do_create(t: [str]):
+  n = (t.len() - 5 + 1) // 3
+  ok = t.len() >= 7 and t[1] == "TABLE" and isid(t[2]) and t[3] == "(" and t[-1] == ")" and (t.len() - 5 + 1) % 3 == 0
+  if not ok:
+    print("error: syntax")
+    return 0
+  cols = []
+  types = []
+  for j in 0..n:
+    b = 4 + j * 3
+    if not isid(t[b]) or t[b + 1] not in ["INT", "TEXT"]:
+      print("error: syntax")
+      return 0
+    if j < n - 1 and t[b + 2] != ",":
+      print("error: syntax")
+      return 0
+    cols.push(t[b])
+    types.push(t[b + 1])
+  if tcols.has(t[2]):
+    print("error: table {t[2]} exists")
+    return 0
+  tcols[t[2]] = cols
+  ttypes[t[2]] = types
+  trows[t[2]] = []
+  print("ok")
+  0
+
+fn do_insert(t: [str]):
+  ok = t.len() >= 6 and t[1] == "INTO" and isid(t[2]) and t[3] == "VALUES" and t[4] == "(" and t[-1] == ")" and (t.len() - 6 + 1) % 2 == 0
+  if not ok:
+    print("error: syntax")
+    return 0
+  n = (t.len() - 6 + 1) // 2
+  vals = []
+  for j in 0..n:
+    b = 5 + j * 2
+    if not isval(t[b]):
+      print("error: syntax")
+      return 0
+    if j < n - 1 and t[b + 1] != ",":
+      print("error: syntax")
+      return 0
+    vals.push(t[b])
+  if not tcols.has(t[2]):
+    print("error: no table {t[2]}")
+    return 0
+  types = ttypes[t[2]]
+  if vals.len() != types.len():
+    print("error: type mismatch")
+    return 0
+  for j in 0..n:
+    if (types[j] == "INT") != isint_tok(vals[j]):
+      print("error: type mismatch")
+      return 0
+  trows[t[2]].push([norm(v) for v in vals])
+  print("ok")
+  0
+
+fn do_select(t: [str]):
+  fi = t.index_of("FROM")
+  if fi < 2 or fi + 1 >= t.len() or not isid(t[fi + 1]):
+    print("error: syntax")
+    return 0
+  star = fi == 2 and t[1] == "*"
+  cnt = fi == 5 and t[1] == "COUNT" and t[2] == "(" and t[3] == "*" and t[4] == ")"
+  names = []
+  if not star and not cnt:
+    if (fi - 1) % 2 == 0:
+      print("error: syntax")
+      return 0
+    for j in 1..fi:
+      if (j - 1) % 2 == 0:
+        if not isid(t[j]):
+          print("error: syntax")
+          return 0
+        names.push(t[j])
+      elif t[j] != ",":
+        print("error: syntax")
+        return 0
+  tn = t[fi + 1]
+  let (ok, conds, i0) = tail_where(t, fi + 2)
+  if not ok:
+    print("error: syntax")
+    return 0
+  i = i0
+  ocol = ""
+  desc = false
+  lim = -1
+  if not cnt:
+    if i < t.len() and t[i] == "ORDER":
+      if i + 2 >= t.len() or t[i + 1] != "BY" or not isid(t[i + 2]):
+        print("error: syntax")
+        return 0
+      ocol = t[i + 2]
+      i += 3
+      if i < t.len() and t[i] == "DESC":
+        desc = true
+        i += 1
+    if i < t.len() and t[i] == "LIMIT":
+      if i + 1 >= t.len() or t[i + 1].re_full("\d+").len() == 0:
+        print("error: syntax")
+        return 0
+      lim = t[i + 1].int()
+      i += 2
+  if i != t.len():
+    print("error: syntax")
+    return 0
+  if not tcols.has(tn):
+    print("error: no table {tn}")
+    return 0
+  cols = tcols[tn]
+  types = ttypes[tn]
+  chk = names + [c.0 for c in conds]
+  if ocol != "": chk.push(ocol)
+  u = first_unknown(chk, cols)
+  if u != "":
+    print("error: no column {u}")
+    return 0
+  if not types_ok(conds, cols, types):
+    print("error: type mismatch")
+    return 0
+  rows = [r for r in trows[tn] if matches(conds, cols, types, r)]
+  if cnt:
+    print(rows.len())
+    return 0
+  if ocol != "":
+    oi = cols.index_of(ocol)
+    if types[oi] == "INT": rows = rows.sort_by(r => r[oi].int(), desc)
+    else: rows = rows.sort_by(r => r[oi], desc)
+  if lim >= 0: rows = rows.take(lim)
+  idx = if star: (0..cols.len()).map(x => x) else: names.map(n => cols.index_of(n))
+  print(" | ".join(idx.map(k => cols[k])))
+  for r in rows: print(" | ".join(idx.map(k => r[k])))
+  print("({rows.len()} rows)")
+  0
+
+fn do_update(t: [str]):
+  ok = t.len() >= 6 and isid(t[1]) and t[2] == "SET" and isid(t[3]) and t[4] == "=" and isval(t[5])
+  if not ok:
+    print("error: syntax")
+    return 0
+  let (ok2, conds, i) = tail_where(t, 6)
+  if not ok2 or i != t.len():
+    print("error: syntax")
+    return 0
+  tn = t[1]
+  if not tcols.has(tn):
+    print("error: no table {tn}")
+    return 0
+  cols = tcols[tn]
+  types = ttypes[tn]
+  u = first_unknown([t[3]] + [c.0 for c in conds], cols)
+  if u != "":
+    print("error: no column {u}")
+    return 0
+  si = cols.index_of(t[3])
+  if (types[si] == "INT") != isint_tok(t[5]) or not types_ok(conds, cols, types):
+    print("error: type mismatch")
+    return 0
+  rs = trows[tn]
+  n = 0
+  for j in 0..rs.len():
+    if matches(conds, cols, types, rs[j]):
+      row = rs[j]
+      row[si] = norm(t[5])
+      rs[j] = row
+      n += 1
+  trows[tn] = rs
+  print("updated {n}")
+  0
+
+fn do_delete(t: [str]):
+  ok = t.len() >= 3 and t[1] == "FROM" and isid(t[2])
+  if not ok:
+    print("error: syntax")
+    return 0
+  let (ok2, conds, i) = tail_where(t, 3)
+  if not ok2 or i != t.len():
+    print("error: syntax")
+    return 0
+  tn = t[2]
+  if not tcols.has(tn):
+    print("error: no table {tn}")
+    return 0
+  cols = tcols[tn]
+  types = ttypes[tn]
+  u = first_unknown([c.0 for c in conds], cols)
+  if u != "":
+    print("error: no column {u}")
+    return 0
+  if not types_ok(conds, cols, types):
+    print("error: type mismatch")
+    return 0
+  keep = [r for r in trows[tn] if not matches(conds, cols, types, r)]
+  print("deleted {trows[tn].len() - keep.len()}")
+  trows[tn] = keep
+  0
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  p = "'(?:[^']|'')*'|-?\d+|[A-Za-z_]\w*|!=|<=|>=|[=<>(),*]"
+  rest = line.re_sub(p, "").replace(" ", "")
+  t = line.re_list(p)
+  if rest != "" or t.is_empty():
+    print("error: syntax")
+    continue
+  c = t[0]
+  if c == "CREATE": do_create(t)
+  elif c == "INSERT": do_insert(t)
+  elif c == "SELECT": do_select(t)
+  elif c == "UPDATE": do_update(t)
+  elif c == "DELETE": do_delete(t)
+  else: print("error: syntax")

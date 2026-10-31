@@ -1,0 +1,110 @@
+resting = []
+side_of = {}
+price_of = {}
+seq_of = {}
+qty_of = {}
+used = {}
+seq = 0
+total_qty = 0
+total_val = 0.dec()
+
+fn best(bside: str, blim: dec, bmarket: bool) -> str:
+  opp = "SELL" if bside == "BUY" else "BUY"
+  found = []
+  for r in resting:
+    if side_of[r] == opp:
+      rp = price_of[r]
+      ok = bmarket or (bside == "BUY" and rp <= blim) or (bside == "SELL" and rp >= blim)
+      if ok: found.push(r)
+  if found.is_empty(): return ""
+  if bside == "BUY":
+    found = found.sort_by(r => (price_of[r], seq_of[r]))
+  else:
+    found = found.sort_by(r => (-price_of[r], seq_of[r]))
+  return found.first()
+
+fn take(tid: str, tside: str, tq: int, tlim: dec, tmarket: bool) -> int:
+  tleft = tq
+  while tleft > 0:
+    r = best(tside, tlim, tmarket)
+    if r == "": break
+    tn = min(tleft, qty_of[r])
+    tp = price_of[r]
+    if tside == "BUY":
+      print("TRADE {tid} {r} {tn} {tp.fmt(2)}")
+    else:
+      print("TRADE {r} {tid} {tn} {tp.fmt(2)}")
+    total_qty += tn
+    total_val += tn * tp
+    tleft -= tn
+    qty_of[r] -= tn
+    if qty_of[r] == 0:
+      qty_of.remove(r)
+      resting = [x for x in resting if x != r]
+  return tleft
+
+fn print_book():
+  print("asks")
+  aps = [price_of[r] for r in resting if side_of[r] == "SELL"].unique()
+  if aps.is_empty(): print("  -")
+  for ap in aps:
+    at = sum([qty_of[r] for r in resting if side_of[r] == "SELL" and price_of[r] == ap])
+    print("  {ap.fmt(2)} {at}")
+  print("bids")
+  bps = [price_of[r] for r in resting if side_of[r] == "BUY"].unique().rev()
+  if bps.is_empty(): print("  -")
+  for bp in bps:
+    bt = sum([qty_of[r] for r in resting if side_of[r] == "BUY" and price_of[r] == bp])
+    print("  {bp.fmt(2)} {bt}")
+
+for i, raw in enumerate(stdin().lines()):
+  ln = i + 1
+  line = raw.trim()
+  if line.is_empty(): continue
+  lim_m = line.re_full("(BUY|SELL) (\S+) (\d+) (\d+(?:\.\d{1,2})?)")
+  mkt_m = line.re_full("(MBUY|MSELL) (\S+) (\d+)")
+  can_m = line.re_full("CANCEL (\S+)")
+  if line == "BOOK":
+    print_book()
+  elif not can_m.is_empty():
+    cid = can_m[1]
+    if qty_of.has(cid):
+      print("CANCELLED {cid} {qty_of[cid]}")
+      qty_of.remove(cid)
+      resting = [x for x in resting if x != cid]
+    else:
+      print("ERR line {ln}: unknown ID")
+  elif not lim_m.is_empty() or not mkt_m.is_empty():
+    is_mkt = lim_m.is_empty()
+    if is_mkt:
+      osd = mkt_m[1]
+      oid = mkt_m[2]
+      oq = mkt_m[3].int().or(0)
+      oprice = 0.dec()
+    else:
+      osd = lim_m[1]
+      oid = lim_m[2]
+      oq = lim_m[3].int().or(0)
+      oprice = lim_m[4].dec().or(0.dec())
+    if oq < 1 or (not is_mkt and oprice <= 0.dec()):
+      print("ERR line {ln}: bad command")
+    elif used.has(oid):
+      print("ERR line {ln}: duplicate ID")
+    else:
+      used[oid] = true
+      oside = "BUY" if osd.contains("BUY") else "SELL"
+      oleft = take(oid, oside, oq, oprice, is_mkt)
+      if oleft > 0:
+        if is_mkt:
+          print("DROPPED {oid} {oleft}")
+        else:
+          seq += 1
+          side_of[oid] = oside
+          price_of[oid] = oprice
+          seq_of[oid] = seq
+          qty_of[oid] = oleft
+          resting.push(oid)
+  else:
+    print("ERR line {ln}: bad command")
+
+print("volume {total_qty} value {total_val.fmt(2)}")

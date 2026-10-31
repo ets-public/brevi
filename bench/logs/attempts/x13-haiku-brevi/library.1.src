@@ -1,0 +1,219 @@
+## main.bv
+use "catalog.bv"
+use "rules.bv"
+
+fn rest_of(s: str, k: int) -> str:
+  cs = s.chars()
+  i = 0
+  for j in 0..k:
+    while i < cs.len() and cs[i] == " ": i += 1
+    while i < cs.len() and cs[i] != " ": i += 1
+  while i < cs.len() and cs[i] == " ": i += 1
+  return cs[i:].join("")
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str) -> str:
+  if lib.books.has(id): return "duplicate ID"
+  lib.books[id] = Book(id: id, title: title, shelf: copies, waitlist: [])
+  return "added {id}"
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str) -> str:
+  if lib.members.has(id): return "duplicate ID"
+  lib.members[id] = Member(id: id, name: name, tier: tier, owes: 0, loans: [])
+  return "welcome {name}"
+
+lib = Lib(books: {}, members: {}, holds: [])
+for line in lines():
+  t = line.trim()
+  if t.is_empty(): continue
+  ws = t.words()
+  d = ws[0]
+  for msg in expire(lib, d): print(msg)
+  op = ws[1]
+  if op == "BOOK":
+    print(add_book(lib, ws[2], ws[3].int().or(0), rest_of(t, 4)))
+  elif op == "MEMBER":
+    print(add_member(lib, ws[2], ws[3], rest_of(t, 4)))
+  elif op == "LOAN":
+    print(do_loan(lib, d, ws[2], ws[3]))
+  elif op == "RETURN":
+    print(do_return(lib, d, ws[2], ws[3]))
+  elif op == "RESERVE":
+    print(do_reserve(lib, d, ws[2], ws[3]))
+  elif op == "PAY":
+    print(do_pay(lib, ws[2], cents_of(ws[3])))
+  elif op == "STATUS":
+    print(do_status(lib, ws[2]))
+## catalog.bv
+type Book:
+  id: str
+  title: str
+  shelf: int
+  waitlist: [str]
+
+type Loan:
+  book: str
+  due: str
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Hold:
+  book: str
+  member: str
+  last: str
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn limit_of(tier: str) -> int:
+  if tier == "plus": return 5
+  return 2
+
+fn loan_days(tier: str) -> int:
+  if tier == "plus": return 28
+  return 14
+
+fn per_day(tier: str) -> int:
+  if tier == "plus": return 10
+  return 25
+
+fn fmt_cents(c: int) -> str:
+  if c < 0: return "-" + fmt_cents(0 - c)
+  whole = c // 100
+  frac = c % 100
+  return "{whole}.{frac:02d}"
+
+fn all_digits(s: str) -> bool:
+  if s.is_empty(): return false
+  for c in s.chars():
+    if not c.is_digit(): return false
+  return true
+
+# amount with at most 2 decimals in cents; -1 when not a valid amount
+fn cents_of(s: str) -> int:
+  parts = s.split(".")
+  if parts.len() > 2: return -1
+  if not all_digits(parts[0]): return -1
+  frac = "00"
+  if parts.len() == 2:
+    frac = parts[1]
+    if frac.len() == 1: frac = frac + "0"
+    if frac.len() != 2 or not all_digits(frac): return -1
+  return parts[0].int().or(0) * 100 + frac.int().or(0)
+## rules.bv
+use "catalog.bv"
+
+fn has_loan(m: Member, bid: str) -> bool:
+  for ln in m.loans:
+    if ln.book == bid: return true
+  return false
+
+fn loan_index(m: Member, bid: str) -> int:
+  for i in 0..m.loans.len():
+    if m.loans[i].book == bid: return i
+  return -1
+
+fn find_hold(lib: Lib, mid: str, bid: str) -> int:
+  for i in 0..lib.holds.len():
+    if lib.holds[i].member == mid and lib.holds[i].book == bid: return i
+  return -1
+
+# index of the expired hold with the earliest last day (then book ID), or -1
+fn next_expired(lib: Lib, d: str) -> int:
+  best = -1
+  for i in 0..lib.holds.len():
+    h = lib.holds[i]
+    if h.last < d:
+      if best < 0:
+        best = i
+      elif h.last < lib.holds[best].last:
+        best = i
+      elif h.last == lib.holds[best].last and h.book < lib.holds[best].book:
+        best = i
+  return best
+
+fn expire(mut lib: Lib, d: str) -> [str]:
+  out = []
+  while True:
+    i = next_expired(lib, d)
+    if i < 0: break
+    h = lib.holds[i]
+    lib.holds.remove(i)
+    out.push("hold expired {h.member} {h.book}")
+    if lib.books[h.book].waitlist.is_empty():
+      lib.books[h.book].shelf += 1
+    else:
+      nm = lib.books[h.book].waitlist.first()
+      lib.books[h.book].waitlist.remove(0)
+      lib.holds.push(Hold(book: h.book, member: nm, last: date(h.last).add_days(3).str()))
+  return out
+
+fn do_loan(mut lib: Lib, d: str, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid} {bid}: unknown member"
+  if not lib.books.has(bid): return "refused {mid} {bid}: unknown book"
+  mem = lib.members[mid]
+  if mem.owes > 200: return "refused {mid} {bid}: owes {fmt_cents(mem.owes)}"
+  if mem.loans.len() >= limit_of(mem.tier): return "refused {mid} {bid}: limit"
+  if has_loan(mem, bid): return "refused {mid} {bid}: already has it"
+  hi = find_hold(lib, mid, bid)
+  if hi < 0 and lib.books[bid].shelf < 1: return "refused {mid} {bid}: none available"
+  if hi >= 0:
+    lib.holds.remove(hi)
+  else:
+    lib.books[bid].shelf -= 1
+  due = date(d).add_days(loan_days(mem.tier)).str()
+  lib.members[mid].loans.push(Loan(book: bid, due: due))
+  return "loan {mid} {bid} due {due}"
+
+fn do_return(mut lib: Lib, d: str, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid} {bid}: not on loan"
+  mem = lib.members[mid]
+  li = loan_index(mem, bid)
+  if li < 0: return "refused {mid} {bid}: not on loan"
+  due = mem.loans[li].due
+  lib.members[mid].loans.remove(li)
+  fee = 0
+  if d > due:
+    fee = (date(d).days - date(due).days) * per_day(mem.tier)
+    if fee > 500: fee = 500
+    lib.members[mid].owes += fee
+  if lib.books[bid].waitlist.is_empty():
+    lib.books[bid].shelf += 1
+  else:
+    nm = lib.books[bid].waitlist.first()
+    lib.books[bid].waitlist.remove(0)
+    lib.holds.push(Hold(book: bid, member: nm, last: date(d).add_days(3).str()))
+  if fee > 0: return "returned {mid} {bid} fee {fmt_cents(fee)}"
+  return "returned {mid} {bid}"
+
+fn do_reserve(mut lib: Lib, d: str, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid} {bid}: unknown member"
+  if not lib.books.has(bid): return "refused {mid} {bid}: unknown book"
+  if has_loan(lib.members[mid], bid): return "refused {mid} {bid}: already has it"
+  if lib.books[bid].waitlist.contains(mid) or find_hold(lib, mid, bid) >= 0:
+    return "refused {mid} {bid}: already reserved"
+  if lib.books[bid].shelf > 0: return "refused {mid} {bid}: copy available"
+  lib.books[bid].waitlist.push(mid)
+  pos = lib.books[bid].waitlist.len()
+  return "reserved {mid} {bid} position {pos}"
+
+fn do_pay(mut lib: Lib, mid: str, amt: int) -> str:
+  if not lib.members.has(mid): return "refused {mid}: unknown member"
+  lib.members[mid].owes -= amt
+  o = lib.members[mid].owes
+  return "paid {mid} owes {fmt_cents(o)}"
+
+fn do_status(lib: Lib, mid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid}: unknown member"
+  mem = lib.members[mid]
+  names = []
+  for ln in mem.loans: names.push(ln.book)
+  bl = "-"
+  if not names.is_empty(): bl = names.join(" ")
+  return "{mid} {mem.name} owes {fmt_cents(mem.owes)} loans: {bl}"

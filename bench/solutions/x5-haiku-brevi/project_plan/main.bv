@@ -1,0 +1,93 @@
+use "graph.bv"
+use "schedule.bv"
+
+RX_DEP = "(\w+) (\d+) after (\w+(?:, \w+)*)"
+RX_PLAIN = "(\w+) (\d+)"
+
+problem = ""
+k = 0
+header = false
+names = []
+days = []
+depnames = []
+idx = {}
+ln = 0
+
+for i, raw in enumerate(stdin().lines()):
+  ln = i + 1
+  line = raw.trim()
+  if line.is_empty(): continue
+  if not header:
+    g = line.re_full("workers (\d+)")
+    if g.is_empty() or g[1].int().or(0) < 1:
+      problem = "line {ln}: bad line"
+      break
+    k = g[1].int().or(0)
+    header = true
+    continue
+  nm = ""
+  dd = 0
+  dl = []
+  gd = line.re_full(RX_DEP)
+  gp = line.re_full(RX_PLAIN)
+  if not gd.is_empty():
+    nm = gd[1]
+    dd = gd[2].int().or(0)
+    dl = gd[3].split(", ")
+  elif not gp.is_empty():
+    nm = gp[1]
+    dd = gp[2].int().or(0)
+  if nm == "" or dd < 1:
+    problem = "line {ln}: bad line"
+    break
+  if idx.has(nm):
+    problem = "line {ln}: duplicate {nm}"
+    break
+  idx[nm] = names.len()
+  names.push(nm)
+  days.push(dd)
+  depnames.push(dl)
+
+n = names.len()
+if problem == "":
+  unk = find_unknown(depnames, idx)
+  if unk != "": problem = "unknown {unk}"
+
+deps = []
+dependents = []
+order = []
+if problem == "":
+  deps = [[idx[d] for d in dl] for dl in depnames]
+  for i in range(0, n):
+    dependents.push([])
+  for i in range(0, n):
+    for d in deps[i]:
+      dependents[d].push(i)
+  order = topo_order(deps, dependents)
+  if order.len() < n: problem = "cycle"
+
+if problem != "":
+  print(problem)
+else:
+  st = earliest(order, deps, days)
+  ends = [st[i] + days[i] for i in range(0, n)]
+  total = 0
+  for e in ends:
+    if e > total: total = e
+  print("unlimited")
+  for i in range(0, n):
+    print("  {names[i]} {st[i]}-{ends[i]}")
+  print("length {total}")
+  chain = critical(order, deps, dependents, st, ends, total)
+  print("critical " + " > ".join([names[c] for c in chain]))
+
+  tl = tails(order, dependents, days)
+  sst = make_schedule(k, deps, days, tl)
+  sends = [sst[i] + days[i] for i in range(0, n)]
+  stotal = 0
+  for e in sends:
+    if e > stotal: stotal = e
+  print("workers {k}")
+  for i in range(0, n):
+    print("  {names[i]} {sst[i]}-{sends[i]}")
+  print("length {stotal}")

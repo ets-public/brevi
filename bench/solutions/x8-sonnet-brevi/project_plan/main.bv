@@ -1,0 +1,21 @@
+use "graph.bv"
+use "schedule.bv"
+
+let (err, k, tasks) = parse_input(lines())
+if err != "":
+  print(err)
+else:
+  e2 = check(tasks)
+  if e2 != "":
+    print(e2)
+  else:
+    let (ok, st, en) = unlimited(tasks)
+    print("unlimited")
+    for i in 0..tasks.len(): print("  {tasks[i].name} {st[i]}-{en[i]}")
+    print("length {max(en)}")
+    ch = critical(tasks, st, en)
+    print("critical " + " > ".join([tasks[i].name for i in ch]))
+    let (s2, e3) = schedule(tasks, k, tails(tasks, en))
+    print("workers {k}")
+    for i in 0..tasks.len(): print("  {tasks[i].name} {s2[i]}-{e3[i]}")
+    print("length {max(e3)}")

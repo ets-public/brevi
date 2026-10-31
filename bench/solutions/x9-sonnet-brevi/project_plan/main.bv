@@ -1,0 +1,26 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn lines_for(ts: [Task], st: [int]) -> [str]:
+  [("  {ts[i].name} {st[i]}-{st[i] + ts[i].days}") for i in 0..ts.len()]
+
+fn length_of(ts: [Task], st: [int]) -> int = max([st[i] + ts[i].days for i in 0..ts.len()])
+
+fn report(inp: Input):
+  ts = inp.tasks
+  order = topo(ts)
+  st = starts(ts, order)
+  print("unlimited")
+  for s in lines_for(ts, st): print(s)
+  print("length {length_of(ts, st)}")
+  ch = critical(ts, st, order)
+  print("critical " + " > ".join([ts[i].name for i in ch]))
+  print("workers {inp.k}")
+  s2 = plan(ts, order, inp.k)
+  for s in lines_for(ts, s2): print(s)
+  print("length {length_of(ts, s2)}")
+
+fn main():
+  match load(lines()):
+    Err(m) => print(m)
+    Ok(inp) => report(inp)

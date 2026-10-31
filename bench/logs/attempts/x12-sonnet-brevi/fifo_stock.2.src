@@ -1,0 +1,111 @@
+lots = {}
+cogs = {}
+rev = {}
+lossv = {}
+mprofit = {}
+mloss = {}
+latest = ""
+
+fn fm(c: int) -> str:
+  s = if c < 0: "-" else: ""
+  a = abs(c)
+  "{s}{a // 100}.{a % 100:02d}"
+
+fn cents(s: str) -> int:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): fail("bad line")
+  parts = s.split(".")
+  c = parts[0].int() * 100
+  if parts.len() > 1:
+    f = parts[1]
+    if f.len() == 1: f = f + "0"
+    c += f.int()
+  c
+
+fn good_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return false
+  y = s.slice(0, 4).int()
+  m = s.slice(5, 7).int()
+  d = s.slice(8, 10).int()
+  if m < 1 or m > 12 or d < 1: return false
+  dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+  if m == 2 and (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)): dim = 29
+  d <= dim
+
+fn have(sku: str) -> int:
+  n = 0
+  for l in lots[sku]: n += l[0]
+  n
+
+fn take(sku: str, q: int) -> int:
+  ls = lots[sku]
+  rest = q
+  cost = 0
+  out = []
+  for l in ls:
+    if rest == 0:
+      out.push(l)
+    else:
+      t = min(rest, l[0])
+      cost += t * l[1]
+      rest -= t
+      if l[0] > t: out.push([l[0] - t, l[1]])
+  lots[sku] = out
+  cost
+
+fn run(line: str, latest0: str):
+  w = line.words()
+  if w.len() < 4: fail("bad line")
+  op = w[1]
+  sku = w[2]
+  if not ((op == "RECEIVE" or op == "SHIP") and w.len() == 5 or op == "LOSS" and w.len() == 4): fail("bad line")
+  if not good_date(w[0]): fail("bad line")
+  if sku.re_full("\w+").is_empty(): fail("bad line")
+  if w[3].re_full("\d+").is_empty(): fail("bad line")
+  q = w[3].int()
+  if q < 1: fail("bad line")
+  price = 0
+  if op != "LOSS": price = cents(w[4])
+  if w[0] < latest0: fail("date out of order")
+  mo = w[0].slice(0, 7)
+  if op == "RECEIVE":
+    ls = lots[sku]
+    ls.push([q, price])
+    lots[sku] = ls
+  else:
+    h = if lots.has(sku): have(sku) else: 0
+    if q > h: fail("short {sku} need {q} have {h}")
+    c = take(sku, q)
+    if op == "SHIP":
+      r = q * price
+      cogs[sku] += c
+      rev[sku] += r
+      mprofit[mo] += r - c
+      mloss[mo] += 0
+    else:
+      lossv[sku] += c
+      mloss[mo] += c
+      mprofit[mo] += 0
+  latest = w[0]
+
+ls = lines()
+for i in 0..ls.len():
+  if ls[i].trim().is_empty(): continue
+  match run(ls[i], latest):
+    Ok(_) => continue
+    Err(m) => print("line {i + 1}: {m}")
+tp = 0
+tl = 0
+for sku in lots.keys():
+  v = 0
+  n = 0
+  for lt in lots[sku]:
+    n += lt[0]
+    v += lt[0] * lt[1]
+  p = rev[sku] - cogs[sku]
+  print("{sku} on_hand {n} value {fm(v)} cogs {fm(cogs[sku])} revenue {fm(rev[sku])} profit {fm(p)} loss {fm(lossv[sku])}")
+  tp += p
+  tl += lossv[sku]
+print("months")
+for mo in mprofit.keys():
+  print("  {mo} profit {fm(mprofit[mo])} loss {fm(mloss[mo])}")
+print("total profit {fm(tp)} loss {fm(tl)} net {fm(tp - tl)}")

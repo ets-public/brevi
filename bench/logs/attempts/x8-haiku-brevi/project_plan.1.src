@@ -1,0 +1,180 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn report(g: Graph):
+  names = [t.name for t in g.tasks]
+  print("unlimited")
+  for i in range(len(names)):
+    print("  {names[i]} {g.st[i]}-{g.en[i]}")
+  print("length {g.length}")
+  chain_names = [names[i] for i in g.chain]
+  cs = chain_names.join(" > ")
+  print("critical {cs}")
+  s2, e2, l2 = schedule(g)
+  print("workers {g.k}")
+  for i in range(len(names)):
+    print("  {names[i]} {s2[i]}-{e2[i]}")
+  print("length {l2}")
+
+fn main():
+  lines = stdin().lines()
+  match check(lines):
+    Ok(g) => report(g)
+    Err(msg) => print(msg)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+type Graph:
+  k: int
+  tasks: [Task]
+  deps: [[int]]
+  st: [int]
+  en: [int]
+  length: int
+  chain: [int]
+
+fn check(lines: [str]) -> Graph:
+  k = 0
+  got_head = False
+  tasks = []
+  names = {}
+  for li in range(len(lines)):
+    ln = li + 1
+    s = lines[li].trim()
+    if s.is_empty(): continue
+    if not got_head:
+      if not s.re_full('workers\s+\d+'): fail("line {ln}: bad line")
+      hw = s.words()
+      k = hw[1].int()
+      if k < 1: fail("line {ln}: bad line")
+      got_head = True
+      continue
+    if not s.re_full('[A-Za-z0-9_]+\s+\d+(\s+after\s+[A-Za-z0-9_]+(\s*,\s*[A-Za-z0-9_]+)*)?'): fail("line {ln}: bad line")
+    w = s.words()
+    days = w[1].int()
+    if days < 1: fail("line {ln}: bad line")
+    name = w[0]
+    if name in names: fail("line {ln}: duplicate {name}")
+    names[name] = len(tasks)
+    deps = []
+    if len(w) > 2:
+      deps = [d.trim() for d in w[3:].join(" ").split(",")]
+    tasks.push(Task(name, days, deps))
+  if not got_head: fail("line 1: bad line")
+  for t in tasks:
+    for d in t.deps:
+      if d not in names: fail("unknown {d}")
+  n = len(tasks)
+  dep = []
+  for t in tasks:
+    dep.push([names[d] for d in t.deps])
+  indeg = [len(dep[i]) for i in range(n)]
+  dependents = [[] for i in range(n)]
+  for j in range(n):
+    for d in dep[j]:
+      dd = dependents[d]
+      dd.push(j)
+      dependents[d] = dd
+  queue = [i for i in range(n) if indeg[i] == 0]
+  order = []
+  head = 0
+  while head < len(queue):
+    i = queue[head]
+    head += 1
+    order.push(i)
+    for j in dependents[i]:
+      indeg[j] = indeg[j] - 1
+      if indeg[j] == 0: queue.push(j)
+  if len(order) < n: fail("cycle")
+  st = [0 for i in range(n)]
+  en = [0 for i in range(n)]
+  for i in order:
+    s0 = 0
+    for d in dep[i]:
+      if en[d] > s0: s0 = en[d]
+    st[i] = s0
+    en[i] = s0 + tasks[i].days
+  L = 0
+  for i in range(n):
+    if en[i] > L: L = en[i]
+  good = [en[i] == L for i in range(n)]
+  changed = True
+  while changed:
+    changed = False
+    for j in range(n):
+      if good[j]:
+        for d in dep[j]:
+          if en[d] == st[j] and not good[d]:
+            good[d] = True
+            changed = True
+  chain = []
+  cur = -1
+  for i in range(n):
+    if cur < 0 and good[i] and st[i] == 0: cur = i
+  while cur >= 0:
+    chain.push(cur)
+    nxt = -1
+    for j in range(n):
+      if nxt < 0 and good[j] and st[j] == en[cur] and cur in dep[j]: nxt = j
+    cur = nxt
+  Graph(k, tasks, dep, st, en, L, chain)
+## schedule.bv
+use "graph.bv"
+
+fn schedule(g: Graph) -> ([int], [int], int):
+  n = len(g.tasks)
+  dependents = [[] for i in range(n)]
+  for j in range(n):
+    for d in g.deps[j]:
+      dd = dependents[d]
+      dd.push(j)
+      dependents[d] = dd
+  tail = [0 for i in range(n)]
+  changed = True
+  while changed:
+    changed = False
+    for i in range(n):
+      m = 0
+      for j in dependents[i]:
+        if tail[j] > m: m = tail[j]
+      nt = g.tasks[i].days + m
+      if nt != tail[i]:
+        tail[i] = nt
+        changed = True
+  started = [False for i in range(n)]
+  fin = [False for i in range(n)]
+  st = [0 for i in range(n)]
+  en = [0 for i in range(n)]
+  T = 0
+  count = 0
+  while count < n:
+    for i in range(n):
+      if started[i] and not fin[i] and en[i] <= T: fin[i] = True
+    busy = 0
+    for i in range(n):
+      if started[i] and not fin[i]: busy += 1
+    while busy < g.k:
+      best = -1
+      for i in range(n):
+        if not started[i] and all(fin[d] for d in g.deps[i]):
+          if best < 0 or tail[i] > tail[best]: best = i
+      if best < 0: break
+      started[best] = True
+      st[best] = T
+      en[best] = T + g.tasks[best].days
+      count += 1
+      busy += 1
+    nxt = -1
+    for i in range(n):
+      if started[i] and not fin[i]:
+        if nxt < 0 or en[i] < nxt: nxt = en[i]
+    if nxt < 0: break
+    T = nxt
+  L = 0
+  for i in range(n):
+    if en[i] > L: L = en[i]
+  (st, en, L)

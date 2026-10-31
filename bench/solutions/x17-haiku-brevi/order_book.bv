@@ -1,0 +1,123 @@
+type Order:
+  oid: str
+  side: str
+  price: int
+  qty: int
+  seq: int
+
+fn money(c: int) -> str:
+  if c % 100 < 10: return "{c // 100}.0{c % 100}"
+  return "{c // 100}.{c % 100}"
+
+fn parse_price(s: str) -> int:
+  if not s.re_full("\d+(\.\d{1,2})?"): return 0
+  parts = s.split(".")
+  f = "00"
+  if len(parts) == 2: f = (parts[1] + "0").slice(0, 2)
+  return parts[0].int() * 100 + f.int()
+
+fn is_qty(s: str) -> bool:
+  if not s.re_full("\d+"): return False
+  return s.int() > 0
+
+ls = lines()
+rest: [Order] = []
+used = {}
+seqn = 0
+vq = 0
+vv = 0
+for i in 0..len(ls):
+  ws = ls[i].words()
+  n = i + 1
+  if len(ws) == 0: continue
+  cmd = ws[0]
+  if cmd == "BUY" or cmd == "SELL" or cmd == "MBUY" or cmd == "MSELL":
+    market = cmd.starts_with("M")
+    buy = cmd == "BUY" or cmd == "MBUY"
+    bad = len(ws) != (3 if market else 4) or not is_qty(ws[2])
+    if not market and not bad: bad = parse_price(ws[3]) == 0
+    if bad:
+      print("ERR line {n}: bad command")
+    elif used.has(ws[1]):
+      print("ERR line {n}: duplicate ID")
+    else:
+      used[ws[1]] = True
+      seqn += 1
+      iid = ws[1]
+      q0 = ws[2].int()
+      if market:
+        lim = 1000000000000000 if buy else 0
+      else:
+        lim = parse_price(ws[3])
+      sgn = 1 if buy else -1
+      want = "S" if buy else "B"
+      side = "B" if buy else "S"
+      lm = lim * sgn
+      left = q0
+      while left > 0:
+        best = -1
+        bk = (0, 0)
+        for j in 0..len(rest):
+          o = rest[j]
+          if o.side != want: continue
+          pr = o.price * sgn
+          if pr > lm: continue
+          k = (pr, o.seq)
+          if best < 0 or k < bk:
+            best = j
+            bk = k
+        if best < 0: break
+        o = rest[best]
+        t = min(left, o.qty)
+        if buy:
+          print("TRADE {iid} {o.oid} {t} {money(o.price)}")
+        else:
+          print("TRADE {o.oid} {iid} {t} {money(o.price)}")
+        vq += t
+        vv += t * o.price
+        left -= t
+        rest[best].qty -= t
+        if rest[best].qty == 0: rest.remove(best)
+      if left > 0:
+        if market:
+          print("DROPPED {iid} {left}")
+        else:
+          rest.push(Order(oid: iid, side: side, price: lim, qty: left, seq: seqn))
+  elif cmd == "CANCEL":
+    if len(ws) != 2:
+      print("ERR line {n}: bad command")
+    else:
+      found = -1
+      for j in 0..len(rest):
+        if rest[j].oid == ws[1]: found = j
+      if found < 0:
+        print("ERR line {n}: unknown ID")
+      else:
+        print("CANCELLED {ws[1]} {rest[found].qty}")
+        rest.remove(found)
+  elif cmd == "BOOK":
+    if len(ws) != 1:
+      print("ERR line {n}: bad command")
+    else:
+      ak = {}
+      bk2 = {}
+      for o in rest:
+        if o.side == "S":
+          ak[o.price] += o.qty
+        else:
+          bk2[o.price] += o.qty
+      print("asks")
+      aks = ak.keys()
+      aks.sort()
+      if len(aks) == 0: print("  -")
+      for p in aks:
+        print("  {money(p)} {ak[p]}")
+      print("bids")
+      bks = bk2.keys()
+      bks.sort()
+      if len(bks) == 0: print("  -")
+      for p in bks.rev():
+        print("  {money(p)} {bk2[p]}")
+  else:
+    print("ERR line {n}: bad command")
+print("volume {vq} value {money(vv)}")

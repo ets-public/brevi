@@ -1,0 +1,275 @@
+NAME = '[A-Za-z][A-Za-z0-9_]*'
+
+toks = []
+pos = 0
+frame = {}
+depth = 0
+gvars = {}
+funcs = {}
+bodies = {}
+
+fn isw(c: str) -> bool = c.is_alpha() or c.is_digit() or c == "_"
+
+fn isname(t: str) -> bool = t.re_full(NAME).len() > 0 and not (t in ["let", "fn", "print", "if"])
+
+fn tokenize(s: str) -> [str]:
+  out = []
+  i = 0
+  n = s.len()
+  while i < n:
+    c = s[i]
+    if c == " ":
+      i += 1
+    elif c.is_digit():
+      j = i
+      while j < n and s[j].is_digit(): j += 1
+      out.push(s[i:j])
+      i = j
+    elif c.is_alpha():
+      j = i
+      while j < n and isw(s[j]): j += 1
+      out.push(s[i:j])
+      i = j
+    elif c == "=" or c == "!" or c == "<" or c == ">":
+      if i + 1 < n and s[i + 1] == "=":
+        out.push(c + "=")
+        i += 2
+      elif c == "!":
+        fail("syntax")
+      else:
+        out.push(c)
+        i += 1
+    elif c in ["+", "-", "*", "/", "%", "(", ")", ","]:
+      out.push(c)
+      i += 1
+    else:
+      fail("syntax")
+  out
+
+fn at(k: int) -> str:
+  r = ""
+  if k < toks.len(): r = toks[k]
+  r
+
+fn expect(s: str):
+  if at(pos) == s: pos += 1
+  else: fail("syntax")
+
+fn cmpres(a: int, op: str, b: int) -> int:
+  r = false
+  if op == "==": r = (a == b)
+  elif op == "!=": r = (a != b)
+  elif op == "<": r = (a < b)
+  elif op == ">": r = (a > b)
+  elif op == "<=": r = (a <= b)
+  else: r = (a >= b)
+  y = 0
+  if r: y = 1
+  y
+
+fn e_args(ev: bool) -> [int]:
+  vs = []
+  if at(pos) == ")":
+    pos += 1
+    return vs
+  more = true
+  while more:
+    vs.push(e_cmp(ev))
+    if at(pos) == ",": pos += 1
+    else: more = false
+  expect(")")
+  vs
+
+fn e_if(ev: bool) -> int:
+  n = 0
+  c = 0
+  a = 0
+  b = 0
+  if at(pos) != ")":
+    more = true
+    while more:
+      flag = ev
+      if n == 1: flag = ev and c != 0
+      if n == 2: flag = ev and c == 0
+      if n >= 3: flag = false
+      v = e_cmp(flag)
+      if n == 0: c = v
+      elif n == 1: a = v
+      elif n == 2: b = v
+      n += 1
+      if at(pos) == ",": pos += 1
+      else: more = false
+  expect(")")
+  if ev and n != 3: fail("if takes 3 arguments")
+  r = b
+  if c != 0: r = a
+  r
+
+fn e_call(name: str, ev: bool) -> int:
+  if ev and not funcs.has(name): fail("unknown function {name}")
+  vs = e_args(ev)
+  if not ev: return 0
+  ps = funcs[name]
+  if vs.len() != ps.len(): fail("{name} takes {ps.len()} arguments")
+  if depth >= 200: fail("too deep")
+  nf = {}
+  for i in 0..ps.len(): nf[ps[i]] = vs[i]
+  st = toks
+  sp = pos
+  sf = frame
+  toks = bodies[name]
+  pos = 0
+  frame = nf
+  depth += 1
+  r = e_cmp(true)
+  depth -= 1
+  toks = st
+  pos = sp
+  frame = sf
+  r
+
+fn e_primary(ev: bool) -> int:
+  t = at(pos)
+  if t == "": fail("syntax")
+  if t == "(":
+    pos += 1
+    v = e_cmp(ev)
+    expect(")")
+    return v
+  if t[0].is_digit():
+    pos += 1
+    return t.int()
+  if t[0].is_alpha():
+    if t == "let" or t == "fn" or t == "print": fail("syntax")
+    pos += 1
+    if at(pos) == "(":
+      pos += 1
+      if t == "if": return e_if(ev)
+      return e_call(t, ev)
+    if t == "if": fail("syntax")
+    if not ev: return 0
+    if frame.has(t): return frame[t]
+    if gvars.has(t): return gvars[t]
+    fail("unknown name {t}")
+  fail("syntax")
+
+fn e_unary(ev: bool) -> int:
+  if at(pos) == "-":
+    pos += 1
+    v = e_unary(ev)
+    return -v
+  e_primary(ev)
+
+fn e_mul(ev: bool) -> int:
+  a = e_unary(ev)
+  while at(pos) == "*" or at(pos) == "/" or at(pos) == "%":
+    op = at(pos)
+    pos += 1
+    b = e_unary(ev)
+    if ev:
+      if op == "*": a = a * b
+      else:
+        if b == 0: fail("division by zero")
+        if op == "/": a = a / b
+        else: a = a % b
+  a
+
+fn e_add(ev: bool) -> int:
+  a = e_mul(ev)
+  while at(pos) == "+" or at(pos) == "-":
+    op = at(pos)
+    pos += 1
+    b = e_mul(ev)
+    if ev:
+      if op == "+": a = a + b
+      else: a = a - b
+  a
+
+fn e_cmp(ev: bool) -> int:
+  a = e_add(ev)
+  op = at(pos)
+  if op in ["==", "!=", "<", ">", "<=", ">="]:
+    pos += 1
+    b = e_add(ev)
+    if at(pos) in ["==", "!=", "<", ">", "<=", ">="]: fail("syntax")
+    if ev: return cmpres(a, op, b)
+    return 0
+  a
+
+fn do_let() -> str:
+  nm = at(1)
+  if not isname(nm) or at(2) != "=": fail("syntax")
+  pos = 3
+  e_cmp(false)
+  if pos != toks.len(): fail("syntax")
+  pos = 3
+  v = e_cmp(true)
+  gvars[nm] = v
+  ""
+
+fn do_fn() -> str:
+  nm = at(1)
+  if not isname(nm): fail("syntax")
+  if at(2) != "(": fail("syntax")
+  params = []
+  pos = 3
+  if at(pos) == ")":
+    pos += 1
+  else:
+    more = true
+    while more:
+      p = at(pos)
+      if not isname(p): fail("syntax")
+      params.push(p)
+      pos += 1
+      if at(pos) == ",": pos += 1
+      else: more = false
+    expect(")")
+  expect("=")
+  body = toks[pos:]
+  toks = body
+  pos = 0
+  e_cmp(false)
+  if pos != toks.len(): fail("syntax")
+  funcs[nm] = params
+  bodies[nm] = body
+  ""
+
+fn do_print() -> str:
+  pos = 1
+  e_cmp(false)
+  while at(pos) == ",":
+    pos += 1
+    e_cmp(false)
+  if pos != toks.len(): fail("syntax")
+  pos = 1
+  parts = []
+  parts.push(e_cmp(true).str())
+  while at(pos) == ",":
+    pos += 1
+    parts.push(e_cmp(true).str())
+  print(" ".join(parts))
+  ""
+
+fn run_stmt(s: str) -> str:
+  toks = tokenize(s)
+  kw = at(0)
+  if kw == "let": return do_let()
+  if kw == "fn": return do_fn()
+  if kw == "print": return do_print()
+  fail("syntax")
+
+fn try_run(s: str) -> str = match run_stmt(s):
+  Ok(_) => ""
+  Err(msg) => msg
+
+ls = lines()
+for k in 0..ls.len():
+  s = ls[k].trim()
+  if s != "" and not s.starts_with("#"):
+    toks = []
+    pos = 0
+    frame = {}
+    depth = 0
+    m = try_run(s)
+    if m != "": print("error line {k + 1}: {m}")

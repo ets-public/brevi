@@ -1,0 +1,137 @@
+RE_R = '(\d{4}-\d{2}-\d{2}) RECEIVE (\S+) (\d+) (\d+(?:\.\d{1,2})?)'
+RE_S = '(\d{4}-\d{2}-\d{2}) SHIP (\S+) (\d+) (\d+(?:\.\d{1,2})?)'
+RE_L = '(\d{4}-\d{2}-\d{2}) LOSS (\S+) (\d+)'
+
+lots = {}
+cogs_s = {}
+rev_s = {}
+loss_s = {}
+mprofit = {}
+mloss = {}
+months = []
+tprofit = 0
+tloss = 0
+latest = ""
+
+fn cents(s: str) -> int:
+  (a, _, b) = s.partition(".")
+  frac = (b + "00")[:2]
+  a.int() * 100 + frac.int()
+
+fn fmtm(c: int) -> str:
+  if c < 0: return "-" + fmtm(0 - c)
+  r = c % 100
+  f = r.str()
+  if r < 10: f = "0" + f
+  (c // 100).str() + "." + f
+
+fn qty_of(sku: str) -> int:
+  t = 0
+  if lots.has(sku):
+    for lq, lc in lots[sku]: t += lq
+  t
+
+fn val_of(sku: str) -> int:
+  t = 0
+  if lots.has(sku):
+    for lq, lc in lots[sku]: t += lq * lc
+  t
+
+fn consume(sku: str, need: int) -> int:
+  left = need
+  cost = 0
+  keep = []
+  for lq, lc in lots[sku]:
+    take = min(left, lq)
+    cost += take * lc
+    left -= take
+    if lq > take: keep.push((lq - take, lc))
+  lots[sku] = keep
+  cost
+
+fn addmonth(mk: str, p: int, l: int):
+  if not months.contains(mk): months.push(mk)
+  mprofit[mk] += p
+  mloss[mk] += l
+
+fn receive(sku: str, q: int, cost: int):
+  if not lots.has(sku): lots[sku] = []
+  lots[sku].push((q, cost))
+
+fn ship(dt: str, sku: str, q: int, price: int):
+  cost = consume(sku, q)
+  rev = q * price
+  profit = rev - cost
+  cogs_s[sku] += cost
+  rev_s[sku] += rev
+  addmonth(dt[:7], profit, 0)
+  tprofit += profit
+
+fn lose(dt: str, sku: str, q: int):
+  cost = consume(sku, q)
+  loss_s[sku] += cost
+  addmonth(dt[:7], 0, cost)
+  tloss += cost
+
+fn process(ln: int, t: str):
+  r = t.re_full(RE_R)
+  s = t.re_full(RE_S)
+  l = t.re_full(RE_L)
+  op = ""
+  if r and r[3].int() >= 1: op = "R"
+  elif s and s[3].int() >= 1: op = "S"
+  elif l and l[3].int() >= 1: op = "L"
+  if op == "":
+    print("line {ln}: bad line")
+  else:
+    m = []
+    if op == "R": m = r
+    elif op == "S": m = s
+    else: m = l
+    dt = m[1]
+    sku = m[2]
+    q = m[3].int()
+    if dt < latest:
+      print("line {ln}: date out of order")
+    elif op == "R":
+      latest = dt
+      receive(sku, q, cents(m[4]))
+    elif op == "S":
+      have = qty_of(sku)
+      if q > have:
+        print("line {ln}: short {sku} need {q} have {have}")
+      else:
+        latest = dt
+        ship(dt, sku, q, cents(m[4]))
+    else:
+      have = qty_of(sku)
+      if q > have:
+        print("line {ln}: short {sku} need {q} have {have}")
+      else:
+        latest = dt
+        lose(dt, sku, q)
+
+fn report():
+  ks = lots.keys()
+  ks.sort()
+  for sku in ks:
+    oh = qty_of(sku)
+    v = val_of(sku)
+    cg = cogs_s[sku]
+    rv = rev_s[sku]
+    ls2 = loss_s[sku]
+    pf = rv - cg
+    print("{sku} on_hand {oh} value {fmtm(v)} cogs {fmtm(cg)} revenue {fmtm(rv)} profit {fmtm(pf)} loss {fmtm(ls2)}")
+  print("months")
+  for mk in months:
+    mp = mprofit[mk]
+    ml = mloss[mk]
+    print("  {mk} profit {fmtm(mp)} loss {fmtm(ml)}")
+  net = tprofit - tloss
+  print("total profit {fmtm(tprofit)} loss {fmtm(tloss)} net {fmtm(net)}")
+
+ls = lines()
+for k in 0..ls.len():
+  t = ls[k].trim()
+  if t != "": process(k + 1, t)
+report()

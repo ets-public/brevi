@@ -1,0 +1,19 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn run():
+  inp = parse_input(lines())
+  p = plan(inp.tasks)
+  print("unlimited")
+  for l in fmt_plan(inp.tasks, p): print(l)
+  print("length {p.ends.max().or(0)}")
+  print("critical " + " > ".join(critical(inp.tasks, p)))
+  s = make_schedule(inp.tasks, inp.k, tails(inp.tasks, p.ends))
+  print("workers {inp.k}")
+  for l in fmt_plan(inp.tasks, s): print(l)
+  print("length {s.ends.max().or(0)}")
+
+okc = 0
+match run():
+  Ok(_) => okc += 1
+  Err(m) => print(m)

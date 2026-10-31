@@ -1,0 +1,23 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn run(ls: [str]) -> [str]:
+  (k, tasks) = parse_all(ls)
+  g = build(tasks)
+  out = ["unlimited"]
+  (st, en) = unlimited(g)
+  for u in 0..tasks.len():
+    out.push("  {tasks[u].name} {st[u]}-{en[u]}")
+  out.push("length {max_end(en)}")
+  out.push("critical {critical(g, st, en)}")
+  out.push("workers {k}")
+  (s2, e2) = schedule(g, k)
+  for u in 0..tasks.len():
+    out.push("  {tasks[u].name} {s2[u]}-{e2[u]}")
+  out.push("length {max_end(e2)}")
+  return out
+
+match run(lines()):
+  Ok(v) =>
+    for x in v: print(x)
+  Err(m) => print(m)

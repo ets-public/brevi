@@ -1,0 +1,125 @@
+type Sku:
+  lots: [(int, int)]
+  cogs: int
+  rev: int
+  profit: int
+  loss: int
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  frac = parts[1] if parts.len() > 1 else ""
+  padded = frac + "00"
+  return parts[0].int() * 100 + padded[0:2].int()
+
+fn money(c: int) -> str:
+  sign = "-" if c < 0 else ""
+  a = abs(c)
+  return "{sign}{a // 100}.{a % 100:02d}"
+
+fn is_qty(s: str) -> bool = s.re_full("\d+").len() > 0 and s.int() >= 1
+
+fn is_money(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0
+
+fn valid_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}-\d{2}").len() == 0: return false
+  y = s[0:4].int()
+  mo = s[5:7].int()
+  d = s[8:10].int()
+  if mo < 1 or mo > 12: return false
+  leap = y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
+  dim = 31
+  if mo == 2:
+    dim = 29 if leap else 28
+  elif mo == 4 or mo == 6 or mo == 9 or mo == 11:
+    dim = 30
+  return d >= 1 and d <= dim
+
+fn onhand(lots: [(int, int)]) -> int:
+  n = 0
+  for (q, c) in lots: n += q
+  return n
+
+fn stockval(lots: [(int, int)]) -> int:
+  v = 0
+  for (q, c) in lots: v += q * c
+  return v
+
+fn consume(lots: [(int, int)], need: int) -> (int, [(int, int)]):
+  cost = 0
+  left = need
+  out = []
+  for (q, c) in lots:
+    if left == 0:
+      out.push((q, c))
+    elif q <= left:
+      cost += q * c
+      left -= q
+    else:
+      cost += left * c
+      out.push((q - left, c))
+      left = 0
+  return (cost, out)
+
+skus = {}
+last = ""
+tp = 0
+tl = 0
+mp = {}
+ml = {}
+mk = {}
+lineno = 0
+
+for raw in lines():
+  lineno += 1
+  t = raw.words()
+  if t.is_empty(): continue
+  ok = false
+  if t.len() == 5 and t[1] in ["RECEIVE", "SHIP"] and is_qty(t[3]) and is_money(t[4]): ok = true
+  if t.len() == 4 and t[1] == "LOSS" and is_qty(t[3]): ok = true
+  if not ok or not valid_date(t[0]):
+    print("line {lineno}: bad line")
+    continue
+  dt = t[0]
+  op = t[1]
+  sku = t[2]
+  qty = t[3].int()
+  if dt < last:
+    print("line {lineno}: date out of order")
+    continue
+  s = skus[sku] if skus.has(sku) else Sku(lots: [], cogs: 0, rev: 0, profit: 0, loss: 0)
+  if op == "RECEIVE":
+    s.lots = s.lots + [(qty, cents(t[4]))]
+    skus[sku] = s
+    last = dt
+    continue
+  have = onhand(s.lots)
+  if have < qty:
+    print("line {lineno}: short {sku} need {qty} have {have}")
+    continue
+  cost, rest = consume(s.lots, qty)
+  m = dt[0:7]
+  mk[m] = true
+  last = dt
+  if op == "SHIP":
+    rev = qty * cents(t[4])
+    profit = rev - cost
+    s.cogs += cost
+    s.rev += rev
+    s.profit += profit
+    mp[m] += profit
+    tp += profit
+  else:
+    s.loss += cost
+    ml[m] += cost
+    tl += cost
+  s.lots = rest
+  skus[sku] = s
+
+for nm in skus.keys().sort():
+  s = skus[nm]
+  print("{nm} on_hand {onhand(s.lots)} value {money(stockval(s.lots))} cogs {money(s.cogs)} revenue {money(s.rev)} profit {money(s.profit)} loss {money(s.loss)}")
+
+print("months")
+for m in mk.keys().sort():
+  print("  {m} profit {money(mp[m])} loss {money(ml[m])}")
+print("total profit {money(tp)} loss {money(tl)} net {money(tp - tl)}")

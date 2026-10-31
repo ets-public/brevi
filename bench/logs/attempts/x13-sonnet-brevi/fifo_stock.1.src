@@ -1,0 +1,99 @@
+type Lot:
+  qty: int
+  cost: dec
+
+lots = {}
+cogs = {}
+rev = {}
+loss = {}
+mprofit = {}
+mloss = {}
+mset = {}
+latest = ""
+
+fn valid_date(s: str) -> bool:
+  if s.re_full("\d\d\d\d-\d\d-\d\d").is_empty(): return false
+  match date(s):
+    Ok(_) => true
+    Err(_) => false
+
+fn valid_price(s: str) -> bool = not s.re_full("\d+(?:\.\d\d?)?").is_empty()
+
+fn onhand(sku: str) -> int:
+  if not lots.has(sku): return 0
+  lots[sku].map(l => l.qty).sum()
+
+fn take(sku: str, q: int) -> dec:
+  cost = 0.dec()
+  left = q
+  ls = lots[sku]
+  while left > 0:
+    n = min(left, ls[0].qty)
+    cost += ls[0].cost * n
+    left -= n
+    if n == ls[0].qty: ls.remove(0)
+    else: ls[0].qty -= n
+  lots[sku] = ls
+  cost
+
+fn run(w: [str]) -> int:
+  if w.len() < 4: fail("bad line")
+  op = w[1]
+  sku = w[2]
+  if not valid_date(w[0]): fail("bad line")
+  if sku.re_full("\S+").is_empty(): fail("bad line")
+  if w[3].re_full("\d+").is_empty(): fail("bad line")
+  q = w[3].int()
+  if q < 1: fail("bad line")
+  if op == "RECEIVE" or op == "SHIP":
+    if w.len() != 5: fail("bad line")
+    if not valid_price(w[4]): fail("bad line")
+  elif op == "LOSS":
+    if w.len() != 4: fail("bad line")
+  else:
+    fail("bad line")
+  if w[0] < latest: fail("date out of order")
+  mon = w[0].slice(0, 7)
+  if op == "RECEIVE":
+    lots[sku].push(Lot(qty: q, cost: w[4].dec()))
+    latest = w[0]
+  else:
+    have = onhand(sku)
+    if q > have: fail("short {sku} need {q} have {have}")
+    latest = w[0]
+    c = take(sku, q)
+    mset[mon] = 1
+    if op == "SHIP":
+      r = w[4].dec() * q
+      cogs[sku] += c
+      rev[sku] += r
+      mprofit[mon] += r - c
+    else:
+      loss[sku] += c
+      mloss[mon] += c
+  0
+
+n = 0
+for line in lines():
+  n += 1
+  w = line.words()
+  if w.is_empty(): continue
+  match run(w):
+    Ok(_) => n += 0
+    Err(m) => print("line {n}: {m}")
+
+tp = 0.dec()
+tl = 0.dec()
+for sku in lots.keys():
+  value = 0.dec()
+  for l in lots[sku]: value += l.cost * l.qty
+  c = cogs[sku]
+  r = rev[sku]
+  ls = loss[sku]
+  print("{sku} on_hand {onhand(sku)} value {value.fmt(2)} cogs {c.fmt(2)} revenue {r.fmt(2)} profit {(r - c).fmt(2)} loss {ls.fmt(2)}")
+  tp += r - c
+  tl += ls
+print("months")
+for mon in mset.keys():
+  print("  {mon} profit {mprofit[mon].fmt(2)} loss {mloss[mon].fmt(2)}")
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")

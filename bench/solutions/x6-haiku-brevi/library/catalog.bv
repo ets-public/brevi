@@ -1,0 +1,52 @@
+type Hold:
+  member: str
+  last: int
+
+type Loan:
+  book: str
+  due: int
+
+type Book:
+  id: str
+  title: str
+  copies: int
+  out: int
+  holds: [Hold]
+  waits: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Library:
+  books: {str: Book}
+  members: {str: Member}
+
+fn cents(s: str) -> int:
+  (a, _, b) = s.partition(".")
+  frac = (b + "00")[:2]
+  a.int() * 100 + frac.int()
+
+fn fmtm(c: int) -> str:
+  if c < 0: return "-" + fmtm(0 - c)
+  r = c % 100
+  f = r.str()
+  if r < 10: f = "0" + f
+  (c // 100).str() + "." + f
+
+fn do_book(mut lib: Library, bid: str, copies: int, title: str):
+  if lib.books.has(bid):
+    print("duplicate ID")
+  else:
+    lib.books[bid] = Book(bid, title, copies, 0, [], [])
+    print("added {bid}")
+
+fn do_member(mut lib: Library, mid: str, tier: str, name: str):
+  if lib.members.has(mid):
+    print("duplicate ID")
+  else:
+    lib.members[mid] = Member(mid, name, tier, 0, [])
+    print("welcome {name}")

@@ -1,0 +1,321 @@
+type Cond:
+  col: str
+  op: str
+  val: str
+
+type Stmt:
+  kind: str
+  table: str
+  cols: [str]
+  types: [str]
+  vals: [str]
+  conds: [Cond]
+  order: str
+  desc: bool
+  limit: int
+
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+fn is_name(s: str) -> bool:
+  if s.re_full("[A-Za-z][A-Za-z0-9_]*"): return True
+  False
+
+fn is_int(s: str) -> bool:
+  if s.re_full("-?\d+"): return True
+  False
+
+fn is_str(s: str) -> bool:
+  if s.re_full("'(?:[^']|'')*'"): return True
+  False
+
+fn is_val(s: str) -> bool:
+  if is_int(s): return True
+  is_str(s)
+
+fn expect(t: [str], mut p: int, w: str):
+  if p >= len(t) or t[p] != w: fail("syntax")
+  p += 1
+
+fn read_name(t: [str], mut p: int) -> str:
+  if p >= len(t) or not is_name(t[p]): fail("syntax")
+  p += 1
+  t[p - 1]
+
+fn read_val(t: [str], mut p: int) -> str:
+  if p >= len(t) or not is_val(t[p]): fail("syntax")
+  p += 1
+  t[p - 1]
+
+fn read_typ(t: [str], mut p: int) -> str:
+  if p >= len(t) or (t[p] != "INT" and t[p] != "TEXT"): fail("syntax")
+  p += 1
+  t[p - 1]
+
+fn read_op(t: [str], mut p: int) -> str:
+  if p >= len(t) or t[p] not in ["=", "!=", "<", "<=", ">", ">="]: fail("syntax")
+  p += 1
+  t[p - 1]
+
+fn read_conds(t: [str], mut p: int) -> [Cond]:
+  out = []
+  while True:
+    c = read_name(t, p)
+    o = read_op(t, p)
+    v = read_val(t, p)
+    out.push(Cond(c, o, v))
+    if p < len(t) and t[p] == "AND":
+      p += 1
+    else:
+      break
+  out
+
+fn parse(t: [str]) -> Stmt:
+  p = 0
+  if t.is_empty(): fail("syntax")
+  if t[0] == "CREATE":
+    expect(t, p, "CREATE")
+    expect(t, p, "TABLE")
+    tn = read_name(t, p)
+    expect(t, p, "(")
+    cols = []
+    types = []
+    c = read_name(t, p)
+    cols.push(c)
+    ty = read_typ(t, p)
+    types.push(ty)
+    while p < len(t) and t[p] == ",":
+      p += 1
+      c = read_name(t, p)
+      cols.push(c)
+      ty = read_typ(t, p)
+      types.push(ty)
+    expect(t, p, ")")
+    if p != len(t): fail("syntax")
+    return Stmt("CREATE", tn, cols, types, [], [], "", False, -1)
+  if t[0] == "INSERT":
+    expect(t, p, "INSERT")
+    expect(t, p, "INTO")
+    tn = read_name(t, p)
+    expect(t, p, "VALUES")
+    expect(t, p, "(")
+    vals = []
+    v = read_val(t, p)
+    vals.push(v)
+    while p < len(t) and t[p] == ",":
+      p += 1
+      v = read_val(t, p)
+      vals.push(v)
+    expect(t, p, ")")
+    if p != len(t): fail("syntax")
+    return Stmt("INSERT", tn, [], [], vals, [], "", False, -1)
+  if t[0] == "UPDATE":
+    expect(t, p, "UPDATE")
+    tn = read_name(t, p)
+    expect(t, p, "SET")
+    c = read_name(t, p)
+    expect(t, p, "=")
+    v = read_val(t, p)
+    conds = []
+    if p < len(t) and t[p] == "WHERE":
+      p += 1
+      conds = read_conds(t, p)
+    if p != len(t): fail("syntax")
+    return Stmt("UPDATE", tn, [c], [], [v], conds, "", False, -1)
+  if t[0] == "DELETE":
+    expect(t, p, "DELETE")
+    expect(t, p, "FROM")
+    tn = read_name(t, p)
+    conds = []
+    if p < len(t) and t[p] == "WHERE":
+      p += 1
+      conds = read_conds(t, p)
+    if p != len(t): fail("syntax")
+    return Stmt("DELETE", tn, [], [], [], conds, "", False, -1)
+  if t[0] == "SELECT" and len(t) > 1 and t[1] == "COUNT":
+    expect(t, p, "SELECT")
+    expect(t, p, "COUNT")
+    expect(t, p, "(")
+    expect(t, p, "*")
+    expect(t, p, ")")
+    expect(t, p, "FROM")
+    tn = read_name(t, p)
+    conds = []
+    if p < len(t) and t[p] == "WHERE":
+      p += 1
+      conds = read_conds(t, p)
+    if p != len(t): fail("syntax")
+    return Stmt("COUNT", tn, [], [], [], conds, "", False, -1)
+  if t[0] == "SELECT":
+    expect(t, p, "SELECT")
+    cols = []
+    if p < len(t) and t[p] == "*":
+      p += 1
+      cols.push("*")
+    else:
+      c = read_name(t, p)
+      cols.push(c)
+      while p < len(t) and t[p] == ",":
+        p += 1
+        c = read_name(t, p)
+        cols.push(c)
+    expect(t, p, "FROM")
+    tn = read_name(t, p)
+    conds = []
+    if p < len(t) and t[p] == "WHERE":
+      p += 1
+      conds = read_conds(t, p)
+    order = ""
+    desc = False
+    if p < len(t) and t[p] == "ORDER":
+      p += 1
+      expect(t, p, "BY")
+      order = read_name(t, p)
+      if p < len(t) and t[p] == "DESC":
+        p += 1
+        desc = True
+    limit = -1
+    if p < len(t) and t[p] == "LIMIT":
+      p += 1
+      if p >= len(t) or not is_int(t[p]): fail("syntax")
+      limit = t[p].int()
+      p += 1
+    if p != len(t): fail("syntax")
+    return Stmt("SELECT", tn, cols, [], [], conds, order, desc, limit)
+  fail("syntax")
+
+fn unq(raw: str) -> str:
+  if raw.starts_with("'"): return raw[1:-1].replace("''", "'")
+  str(raw.int())
+
+fn fits(ty: str, raw: str) -> bool:
+  if ty == "TEXT": return raw.starts_with("'")
+  not raw.starts_with("'")
+
+fn colidx(cols: [str], c: str) -> int:
+  for i in range(len(cols)):
+    if cols[i] == c: return i
+  -1
+
+fn cmp_i(a: int, b: int) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  0
+
+fn cmp_s(a: str, b: str) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  0
+
+fn holds(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == "<=": return c <= 0
+  if op == ">": return c > 0
+  c >= 0
+
+fn matches(row: [str], tb: Table, conds: [Cond]) -> bool:
+  for cd in conds:
+    ci = colidx(tb.cols, cd.col)
+    c = 0
+    if tb.types[ci] == "INT":
+      c = cmp_i(row[ci].int().or(0), cd.val.int().or(0))
+    else:
+      c = cmp_s(row[ci], unq(cd.val))
+    if not holds(c, cd.op): return False
+  True
+
+fn run(st: Stmt, mut tables: {str: Table}) -> str:
+  if st.kind == "CREATE":
+    if st.table in tables: return "error: table {st.table} exists"
+    tables[st.table] = Table(st.cols, st.types, [])
+    return "ok"
+  if st.table not in tables: return "error: no table {st.table}"
+  tb = tables[st.table]
+  names = []
+  for c in st.cols:
+    if c != "*": names.push(c)
+  for cd in st.conds: names.push(cd.col)
+  if st.order != "": names.push(st.order)
+  for c in names:
+    if colidx(tb.cols, c) < 0: return "error: no column {c}"
+  if st.kind == "INSERT":
+    if len(st.vals) != len(tb.cols): return "error: type mismatch"
+    for i in range(len(tb.cols)):
+      if not fits(tb.types[i], st.vals[i]): return "error: type mismatch"
+    rows = tb.rows
+    rows.push([unq(v) for v in st.vals])
+    tables[st.table] = Table(tb.cols, tb.types, rows)
+    return "ok"
+  if st.kind == "UPDATE":
+    if not fits(tb.types[colidx(tb.cols, st.cols[0])], st.vals[0]): return "error: type mismatch"
+  for cd in st.conds:
+    if not fits(tb.types[colidx(tb.cols, cd.col)], cd.val): return "error: type mismatch"
+  if st.kind == "COUNT":
+    n = 0
+    for r in tb.rows:
+      if matches(r, tb, st.conds): n += 1
+    return str(n)
+  rows = tb.rows
+  if st.kind == "UPDATE":
+    ci = colidx(tb.cols, st.cols[0])
+    n = 0
+    for i in range(len(rows)):
+      if matches(rows[i], tb, st.conds):
+        r = rows[i]
+        r[ci] = unq(st.vals[0])
+        rows[i] = r
+        n += 1
+    tables[st.table] = Table(tb.cols, tb.types, rows)
+    return "updated {n}"
+  if st.kind == "DELETE":
+    keep = []
+    n = 0
+    for r in rows:
+      if matches(r, tb, st.conds): n += 1
+      else: keep.push(r)
+    tables[st.table] = Table(tb.cols, tb.types, keep)
+    return "deleted {n}"
+  sel = []
+  for i in range(len(rows)):
+    if matches(rows[i], tb, st.conds): sel.push(i)
+  if st.order != "":
+    oi = colidx(tb.cols, st.order)
+    if tb.types[oi] == "INT":
+      ki = [(rows[i][oi].int().or(0), i) for i in sel]
+      ki.sort_by(p => p.0, st.desc)
+      sel = [p.1 for p in ki]
+    else:
+      ks = [(rows[i][oi], i) for i in sel]
+      ks.sort_by(p => p.0, st.desc)
+      sel = [p.1 for p in ks]
+  if st.limit >= 0: sel = sel.take(st.limit)
+  cols_out = st.cols
+  if st.cols[0] == "*": cols_out = tb.cols
+  idx = [colidx(tb.cols, c) for c in cols_out]
+  out = [cols_out.join(" | ")]
+  for i in sel:
+    line_vals = [rows[i][j] for j in idx]
+    out.push(line_vals.join(" | "))
+  out.push("({len(sel)} rows)")
+  out.join("\n")
+
+fn main():
+  tables = {}
+  for raw in stdin().lines():
+    line = raw.replace("\r", "")
+    if line.trim().is_empty(): continue
+    bare = line.re_sub("'(?:[^']|'')*'", "Q")
+    if line.starts_with(" ") or line.ends_with(" ") or bare.contains("  "):
+      print("error: syntax")
+      continue
+    t = line.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z][A-Za-z0-9_]*|!=|<=|>=|[=<>(),*]")
+    if "".join(t).replace(" ", "") != line.replace(" ", ""):
+      print("error: syntax")
+      continue
+    match parse(t):
+      Ok(st) => print(run(st, tables))
+      Err(msg) => print("error: syntax")

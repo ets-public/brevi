@@ -1,0 +1,131 @@
+type Ord:
+  id: str
+  qty: int
+  price: int
+  seq: int
+
+asks = []
+bids = []
+used = {}
+vol = 0
+val = 0
+seqn = 0
+
+fn parse_price(s: str) -> int:
+  if not (s.replace(".", "").is_digit()): return -1
+  parts = s.split(".")
+  if parts.len() > 2: return -1
+  if parts[0].is_empty(): return -1
+  whole = parts[0].int().or(-1)
+  if parts.len() == 1: return whole * 100
+  f = parts[1]
+  if f.len() == 0 or f.len() > 2: return -1
+  if f.len() == 1: f = f + "0"
+  whole * 100 + f.int().or(0)
+
+fn pr(c: int) -> str:
+  r = c % 100
+  rs = if r < 10: "0{r}" else: "{r}"
+  "{c // 100}.{rs}"
+
+fn trade(buy: bool, id: str, q: int, limit: int, market: bool) -> int:
+  rem = q
+  while rem > 0:
+    if buy:
+      if asks.is_empty(): break
+      best = 0
+      for i in 0..asks.len():
+        a = asks[i]
+        b = asks[best]
+        if a.price < b.price or (a.price == b.price and a.seq < b.seq): best = i
+      o = asks[best]
+      if not market and o.price > limit: break
+      f = min(rem, o.qty)
+      print("TRADE {id} {o.id} {f} {pr(o.price)}")
+      vol += f
+      val += f * o.price
+      rem -= f
+      if f == o.qty: asks.remove(best)
+      else: asks[best].qty -= f
+    else:
+      if bids.is_empty(): break
+      best = 0
+      for i in 0..bids.len():
+        a = bids[i]
+        b = bids[best]
+        if a.price > b.price or (a.price == b.price and a.seq < b.seq): best = i
+      o = bids[best]
+      if not market and o.price < limit: break
+      f = min(rem, o.qty)
+      print("TRADE {o.id} {id} {f} {pr(o.price)}")
+      vol += f
+      val += f * o.price
+      rem -= f
+      if f == o.qty: bids.remove(best)
+      else: bids[best].qty -= f
+  rem
+
+fn show(side: [Ord], desc: bool):
+  m = {}
+  for o in side: m[o.price] += o.qty
+  ps = m.keys()
+  if desc: ps = ps.rev()
+  if ps.is_empty(): print("  -")
+  for p in ps: print("  {pr(p)} {m[p]}")
+
+lineno = 0
+for line in lines():
+  lineno += 1
+  w = line.words()
+  if w.is_empty(): continue
+  cmd = w[0]
+  ok = false
+  if (cmd == "BUY" or cmd == "SELL") and w.len() == 4:
+    q = w[2].int().or(0)
+    p = parse_price(w[3])
+    if w[2].is_digit() and q >= 1 and p > 0:
+      if used.has(w[1]):
+        print("ERR line {lineno}: duplicate ID")
+      else:
+        used[w[1]] = 1
+        seqn += 1
+        isb = cmd == "BUY"
+        rem = trade(isb, w[1], q, p, false)
+        if rem > 0:
+          o = Ord(w[1], rem, p, seqn)
+          if isb: bids.push(o)
+          else: asks.push(o)
+      ok = true
+  elif (cmd == "MBUY" or cmd == "MSELL") and w.len() == 3:
+    q = w[2].int().or(0)
+    if w[2].is_digit() and q >= 1:
+      if used.has(w[1]):
+        print("ERR line {lineno}: duplicate ID")
+      else:
+        used[w[1]] = 1
+        seqn += 1
+        rem = trade(cmd == "MBUY", w[1], q, 0, true)
+        if rem > 0: print("DROPPED {w[1]} {rem}")
+      ok = true
+  elif cmd == "CANCEL" and w.len() == 2:
+    ok = true
+    found = false
+    for i in 0..asks.len():
+      if not found and asks[i].id == w[1]:
+        print("CANCELLED {w[1]} {asks[i].qty}")
+        asks.remove(i)
+        found = true
+    for i in 0..bids.len():
+      if not found and bids[i].id == w[1]:
+        print("CANCELLED {w[1]} {bids[i].qty}")
+        bids.remove(i)
+        found = true
+    if not found: print("ERR line {lineno}: unknown ID")
+  elif cmd == "BOOK" and w.len() == 1:
+    ok = true
+    print("asks")
+    show(asks, false)
+    print("bids")
+    show(bids, true)
+  if not ok: print("ERR line {lineno}: bad command")
+print("volume {vol} value {pr(val)}")

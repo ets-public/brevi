@@ -1,0 +1,98 @@
+lots = {}
+cogs = {}
+rev = {}
+loss = {}
+mp = {}
+ml = {}
+last = ""
+
+fn dim(y: int, m: int) -> int:
+  if m == 2:
+    if (y % 4 == 0 and y % 100 != 0) or y % 400 == 0: return 29
+    return 28
+  if m in [4, 6, 9, 11]: return 30
+  31
+
+fn good_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}-\d{2}").len() == 0: return false
+  y = s.slice(0, 4).int()
+  m = s.slice(5, 7).int()
+  d = s.slice(8, 10).int()
+  m >= 1 and m <= 12 and d >= 1 and d <= dim(y, m)
+
+fn is_qty(s: str) -> bool = s.re_full("\d+").len() > 0 and s.int() >= 1
+fn is_price(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0
+fn is_sku(s: str) -> bool = s.re_full("\w+").len() > 0
+
+fn onhand(sku: str) -> int:
+  t = 0
+  for l in lots[sku]: t += l.0
+  t
+
+fn take(sku: str, q0: int) -> dec:
+  q = q0
+  cost = 0.dec()
+  ls = lots[sku]
+  while q > 0:
+    l = ls[0]
+    t = min(q, l.0)
+    cost += l.1 * t
+    q -= t
+    if t == l.0: ls.remove(0)
+    else: ls[0] = (l.0 - t, l.1)
+  lots[sku] = ls
+  cost
+
+n = 0
+for line in lines():
+  n += 1
+  w = line.words()
+  if w.is_empty(): continue
+  ok = false
+  if w.len() >= 4 and good_date(w[0]) and is_sku(w[2]) and is_qty(w[3]):
+    if w[1] == "LOSS" and w.len() == 4: ok = true
+    if (w[1] == "RECEIVE" or w[1] == "SHIP") and w.len() == 5 and is_price(w[4]): ok = true
+  if not ok:
+    print("line {n}: bad line")
+    continue
+  if w[0] < last:
+    print("line {n}: date out of order")
+    continue
+  sku = w[2]
+  q = w[3].int()
+  op = w[1]
+  mo = w[0].slice(0, 7)
+  if op == "RECEIVE":
+    last = w[0]
+    lots[sku].push((q, w[4].dec()))
+    continue
+  have = if lots.has(sku): onhand(sku) else: 0
+  if q > have:
+    print("line {n}: short {sku} need {q} have {have}")
+    continue
+  last = w[0]
+  c = take(sku, q)
+  if op == "SHIP":
+    r = w[4].dec() * q
+    rev[sku] += r
+    cogs[sku] += c
+    mp[mo] += r - c
+    ml[mo] += 0.dec()
+  else:
+    loss[sku] += c
+    ml[mo] += c
+    mp[mo] += 0.dec()
+
+tp = 0.dec()
+tl = 0.dec()
+for sku in lots.keys():
+  v = 0.dec()
+  for l in lots[sku]: v += l.1 * l.0
+  p = rev[sku] - cogs[sku]
+  tp += p
+  tl += loss[sku]
+  print("{sku} on_hand {onhand(sku)} value {v.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {p.fmt(2)} loss {loss[sku].fmt(2)}")
+print("months")
+for m in mp.keys():
+  print("  {m} profit {mp[m].fmt(2)} loss {ml[m].fmt(2)}")
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")

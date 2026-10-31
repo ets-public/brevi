@@ -1,0 +1,373 @@
+toks = []
+pos = 0
+tname = ""
+cnames = []
+ctypes = []
+vals = []
+conds = []
+ocol = ""
+odesc = False
+haslim = False
+lim = 0
+star = False
+is_count = False
+setc = ""
+setv = ""
+colnames = {}
+coltypes = {}
+rowsof = {}
+
+fn tokenize(line: str) -> [str]:
+  cs = line.chars()
+  ntok = cs.len()
+  toklist = []
+  i = 0
+  while i < ntok:
+    c = cs[i]
+    if c == " ":
+      if i == 0 or i == ntok - 1: fail("error: syntax")
+      if cs[i + 1] == " " or cs[i + 1] == ")" or cs[i + 1] == "," or cs[i - 1] == "(": fail("error: syntax")
+      i += 1
+    elif c == "'":
+      s = "'"
+      j = i + 1
+      closed = False
+      while j < ntok and not closed:
+        if cs[j] == "'":
+          if j + 1 < ntok and cs[j + 1] == "'":
+            s += "'"
+            j += 2
+          else:
+            closed = True
+            j += 1
+        else:
+          s += cs[j]
+          j += 1
+      if not closed: fail("error: syntax")
+      toklist.push(s)
+      i = j
+    elif c == "<" or c == ">" or c == "!":
+      if i + 1 < ntok and cs[i + 1] == "=":
+        toklist.push(c + "=")
+        i += 2
+      elif c == "!":
+        fail("error: syntax")
+      else:
+        toklist.push(c)
+        i += 1
+    elif c == "=" or c == "(" or c == ")" or c == "," or c == "*":
+      toklist.push(c)
+      i += 1
+    elif c.is_alpha():
+      tok = ""
+      while i < ntok and (cs[i].is_alpha() or cs[i].is_digit() or cs[i] == "_"):
+        tok += cs[i]
+        i += 1
+      toklist.push(tok)
+    elif c == "-" or c.is_digit():
+      tok = ""
+      if c == "-":
+        tok = "-"
+        i += 1
+      nd = 0
+      while i < ntok and cs[i].is_digit():
+        tok += cs[i]
+        i += 1
+        nd += 1
+      if nd == 0: fail("error: syntax")
+      toklist.push(tok)
+    else:
+      fail("error: syntax")
+  return toklist
+
+fn peek() -> str:
+  if pos < len(toks): return toks[pos]
+  return ""
+
+fn grab() -> str:
+  if pos >= len(toks): fail("error: syntax")
+  t = toks[pos]
+  pos += 1
+  return t
+
+fn want(s: str):
+  if grab() != s: fail("error: syntax")
+
+fn is_num(t: str) -> bool:
+  return t[0:1] == "-" or t[0:1].is_digit()
+
+fn is_str(t: str) -> bool:
+  return t[0:1] == "'"
+
+fn want_name() -> str:
+  t = grab()
+  if not t[0:1].is_alpha(): fail("error: syntax")
+  return t
+
+fn want_val() -> str:
+  t = grab()
+  if not (is_num(t) or is_str(t)): fail("error: syntax")
+  return t
+
+fn want_type() -> str:
+  t = grab()
+  if t != "INT" and t != "TEXT": fail("error: syntax")
+  return t
+
+fn want_op() -> str:
+  t = grab()
+  if t not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+  return t
+
+fn want_int() -> int:
+  t = grab()
+  if not (is_num(t)): fail("error: syntax")
+  return t.int().or(0)
+
+fn parse_where():
+  if peek() == "WHERE":
+    grab()
+    parse_cond()
+    while peek() == "AND":
+      grab()
+      parse_cond()
+
+fn parse_cond():
+  cc = want_name()
+  op = want_op()
+  cv = want_val()
+  conds.push((cc, op, cv))
+
+fn reset():
+  tname = ""
+  cnames = []
+  ctypes = []
+  vals = []
+  conds = []
+  ocol = ""
+  odesc = False
+  haslim = False
+  lim = 0
+  star = False
+  is_count = False
+  setc = ""
+  setv = ""
+
+fn val_ok(ctype: str, t: str) -> bool:
+  if ctype == "INT": return is_num(t)
+  return is_str(t)
+
+fn value_text(t: str) -> str:
+  if is_str(t): return t[1:]
+  return t
+
+fn test_op(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn cmp_ok(a: str, op: str, b: str, isnum: bool) -> bool:
+  c = 0
+  if isnum:
+    x = a.int().or(0)
+    y = b.int().or(0)
+    if x < y:
+      c = -1
+    elif x > y:
+      c = 1
+  else:
+    if a < b:
+      c = -1
+    elif a > b:
+      c = 1
+  return test_op(c, op)
+
+fn row_ok(r: [str]) -> bool:
+  names = colnames[tname]
+  ctys = coltypes[tname]
+  for cd in conds:
+    ci = names.index_of(cd.0)
+    if not cmp_ok(r[ci], cd.1, value_text(cd.2), ctys[ci] == "INT"): return False
+  return True
+
+fn check_cond_cols(names: [str]):
+  for cd in conds:
+    cc = cd.0
+    if names.index_of(cc) < 0: fail("error: no column {cc}")
+
+fn check_cond_types(names: [str], ctys: [str]):
+  for cd in conds:
+    ci = names.index_of(cd.0)
+    if not val_ok(ctys[ci], cd.2): fail("error: type mismatch")
+
+fn do_create() -> str:
+  if colnames.has(tname): return "error: table {tname} exists"
+  colnames[tname] = cnames
+  coltypes[tname] = ctypes
+  rowsof[tname] = []
+  return "ok"
+
+fn do_insert() -> str:
+  if not colnames.has(tname): fail("error: no table {tname}")
+  ctys = coltypes[tname]
+  nc = ctys.len()
+  if vals.len() != nc: fail("error: type mismatch")
+  for i in 0..nc:
+    if not val_ok(ctys[i], vals[i]): fail("error: type mismatch")
+  row = [value_text(v) for v in vals]
+  rowsof[tname].push(row)
+  return "ok"
+
+fn do_select() -> str:
+  if not colnames.has(tname): fail("error: no table {tname}")
+  names = colnames[tname]
+  ctys = coltypes[tname]
+  for c in cnames:
+    if names.index_of(c) < 0: fail("error: no column {c}")
+  check_cond_cols(names)
+  if ocol != "" and names.index_of(ocol) < 0: fail("error: no column {ocol}")
+  check_cond_types(names, ctys)
+  rows = [r for r in rowsof[tname] if row_ok(r)]
+  nr = rows.len()
+  if is_count: return "{nr}"
+  if ocol != "":
+    oi = names.index_of(ocol)
+    if ctys[oi] == "INT":
+      rows = rows.sort_by(r => r[oi].int().or(0), odesc)
+    else:
+      rows = rows.sort_by(r => r[oi], odesc)
+  if haslim: rows = rows.take(lim)
+  cout = cnames
+  if star: cout = names
+  idx = [names.index_of(c) for c in cout]
+  out_lines = [cout.join(" | ")]
+  for r in rows:
+    vo = [r[i] for i in idx]
+    out_lines.push(vo.join(" | "))
+  nshown = rows.len()
+  out_lines.push("({nshown} rows)")
+  return out_lines.join("\n")
+
+fn do_update() -> str:
+  if not colnames.has(tname): fail("error: no table {tname}")
+  names = colnames[tname]
+  ctys = coltypes[tname]
+  si = names.index_of(setc)
+  if si < 0: fail("error: no column {setc}")
+  check_cond_cols(names)
+  if not val_ok(ctys[si], setv): fail("error: type mismatch")
+  check_cond_types(names, ctys)
+  newrows = []
+  nu = 0
+  for r in rowsof[tname]:
+    if row_ok(r):
+      r2 = r
+      r2[si] = value_text(setv)
+      newrows.push(r2)
+      nu += 1
+    else:
+      newrows.push(r)
+  rowsof[tname] = newrows
+  return "updated {nu}"
+
+fn do_delete() -> str:
+  if not colnames.has(tname): fail("error: no table {tname}")
+  names = colnames[tname]
+  ctys = coltypes[tname]
+  check_cond_cols(names)
+  check_cond_types(names, ctys)
+  kept = []
+  nd = 0
+  for r in rowsof[tname]:
+    if row_ok(r):
+      nd += 1
+    else:
+      kept.push(r)
+  rowsof[tname] = kept
+  return "deleted {nd}"
+
+fn run(line: str) -> str:
+  toks = tokenize(line)
+  pos = 0
+  reset()
+  k = grab()
+  if k == "CREATE":
+    want("TABLE")
+    tname = want_name()
+    want("(")
+    cnames.push(want_name())
+    ctypes.push(want_type())
+    while peek() == ",":
+      want(",")
+      cnames.push(want_name())
+      ctypes.push(want_type())
+    want(")")
+  elif k == "INSERT":
+    want("INTO")
+    tname = want_name()
+    want("VALUES")
+    want("(")
+    vals.push(want_val())
+    while peek() == ",":
+      want(",")
+      vals.push(want_val())
+    want(")")
+  elif k == "SELECT":
+    if peek() == "COUNT":
+      want("COUNT")
+      want("(")
+      want("*")
+      want(")")
+      is_count = True
+    elif peek() == "*":
+      grab()
+      star = True
+    else:
+      cnames.push(want_name())
+      while peek() == ",":
+        want(",")
+        cnames.push(want_name())
+    want("FROM")
+    tname = want_name()
+    parse_where()
+    if not is_count:
+      if peek() == "ORDER":
+        want("ORDER")
+        want("BY")
+        ocol = want_name()
+        if peek() == "DESC":
+          grab()
+          odesc = True
+      if peek() == "LIMIT":
+        grab()
+        haslim = True
+        lim = want_int()
+  elif k == "UPDATE":
+    tname = want_name()
+    want("SET")
+    setc = want_name()
+    want("=")
+    setv = want_val()
+    parse_where()
+  elif k == "DELETE":
+    want("FROM")
+    tname = want_name()
+    parse_where()
+  else:
+    fail("error: syntax")
+  if pos < len(toks): fail("error: syntax")
+  if k == "CREATE": return do_create()
+  if k == "INSERT": return do_insert()
+  if k == "SELECT": return do_select()
+  if k == "UPDATE": return do_update()
+  return do_delete()
+
+fn main():
+  for line in lines():
+    if line.trim().is_empty(): continue
+    match run(line):
+      Ok(s) => print(s)
+      Err(m) => print(m)

@@ -1,0 +1,133 @@
+type Order:
+  id: str
+  buy: bool
+  qty: int
+  price: int
+
+# price text to cents, -1 when bad
+fn parse_price(s: str) -> int:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): return -1
+  (whole, _, frac) = s.partition(".")
+  f = frac.int().or(0)
+  if frac.len() == 1: f = f * 10
+  c = whole.int().or(0) * 100 + f
+  if c <= 0: return -1
+  return c
+
+# qty text to int, -1 when bad
+fn qty_of(s: str) -> int:
+  if s.re_full("\d+").is_empty(): return -1
+  q = s.int().or(0)
+  if q < 1: return -1
+  return q
+
+fn money(c: int) -> str:
+  a = c // 100
+  b = c % 100
+  return "{a}.{b:02d}"
+
+fn find_idx(orders: [Order], id: str) -> int:
+  for i in 0..orders.len():
+    if orders[i].id == id: return i
+  return -1
+
+fn show(orders: [Order]):
+  sells = {}
+  buys = {}
+  for o in orders:
+    if o.buy:
+      buys[o.price] += o.qty
+    else:
+      sells[o.price] += o.qty
+  print("asks")
+  if sells.is_empty(): print("  -")
+  for p in sorted(sells.keys()):
+    print("  {money(p)} {sells[p]}")
+  print("bids")
+  if buys.is_empty(): print("  -")
+  for p in sorted(buys.keys()).rev():
+    print("  {money(p)} {buys[p]}")
+
+fn main():
+  orders = []
+  seen = {}
+  vol = 0
+  value = 0
+  n = 0
+  for raw in lines():
+    n += 1
+    t = raw.words()
+    if t.is_empty(): continue
+    cmd = t[0]
+    if cmd == "BOOK" and t.len() == 1:
+      show(orders)
+      continue
+    if cmd == "CANCEL" and t.len() == 2:
+      i = find_idx(orders, t[1])
+      if i < 0:
+        print("ERR line {n}: unknown ID")
+      else:
+        o = orders.remove(i)
+        print("CANCELLED {o.id} {o.qty}")
+      continue
+    market = cmd == "MBUY" or cmd == "MSELL"
+    limit = cmd == "BUY" or cmd == "SELL"
+    if not (market or limit):
+      print("ERR line {n}: bad command")
+      continue
+    price = -1
+    if market and t.len() == 3: price = 0
+    if limit and t.len() == 4: price = parse_price(t[3])
+    qty = -1
+    if t.len() >= 3: qty = qty_of(t[2])
+    if price < 0 or qty < 0:
+      print("ERR line {n}: bad command")
+      continue
+    id = t[1]
+    if seen.has(id):
+      print("ERR line {n}: duplicate ID")
+      continue
+    seen[id] = true
+    buy = cmd == "BUY" or cmd == "MBUY"
+    lim = price
+    if market and buy: lim = 1000000000000000
+    left = qty
+    while left > 0:
+      best = -1
+      for i in 0..orders.len():
+        o = orders[i]
+        ok = o.buy != buy
+        if ok:
+          if buy:
+            ok = o.price <= lim
+          else:
+            ok = o.price >= lim
+        if ok:
+          if best < 0:
+            best = i
+          else:
+            bp = orders[best].price
+            if buy and o.price < bp: best = i
+            if not buy and o.price > bp: best = i
+      if best < 0: break
+      r = orders[best]
+      f = min(left, r.qty)
+      bid = id
+      sid = r.id
+      if not buy:
+        bid = r.id
+        sid = id
+      print("TRADE {bid} {sid} {f} {money(r.price)}")
+      vol += f
+      value += f * r.price
+      left -= f
+      if f == r.qty:
+        orders.remove(best)
+      else:
+        orders[best].qty = r.qty - f
+    if left > 0:
+      if market:
+        print("DROPPED {id} {left}")
+      else:
+        orders.push(Order(id: id, buy: buy, qty: left, price: lim))
+  print("volume {vol} value {money(value)}")

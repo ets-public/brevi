@@ -12,7 +12,7 @@ print("total {nums.sum()}, mean {(nums.sum().float() / nums.len().float()).fmt(2
 ## Types
 `int` (64-bit), `f64`, `bool`, `str`, `[T]` list, `{K: V}` map (sorted by key), `(A, B)` tuple, `dec` exact decimal, `big` exact integer, `Date`, `Json`, `heap[T]` min-heap.
 No references or lifetimes: values act as copies. Local variables never need a type. A `mut` parameter edits the caller's variable (call it as `f(x)`); other parameters are local copies the function may change.
-Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`. `let (a, b) = t` destructures; `p.0` is a field (`p[0]` also works when the items share a type).
+Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`; `xs.sort_by(f, desc)` sorts largest first when `desc` is true, keeping ties in order (as `sorted(xs, key=f, reverse=desc)`). `let (a, b) = t` destructures; `p.0` is a field (`p[0]` also works when the items share a type).
 
 ```
 type Point:
@@ -42,10 +42,10 @@ fn bump(mut xs: [int]):
 fn double(x: int) = x * 2              # return type worked out; write -> T if asked
 ```
 Errors pass up automatically. `fail(msg)`, `read`, and conversions like `s.int()` can fail; a function that uses any of them can fail, and so can its callers. No `?` is needed (writing it is allowed).
-Handle a failure where it happens with `.or(default)` or `match f(x):` with arms `Ok(v) => ...` and `Err(msg) => ...`. An uncaught failure stops the program with a JSON error.
+Handle a failure where it happens with `.or(default)` or `match f(x):` with arms `Ok(v) => ...` and `Err(msg) => ...`. `fail` works like Python's raise: deep inside a parser or command handler, `fail("error: syntax")` stops every caller, and one `match run(line):` at the top prints `Err(m)`, so there is no need to print and return at each check. An uncaught failure stops the program with a JSON error.
 
 ## Statements
-`x = 1` creates a variable or changes it (`x: [str] = []` gives a type), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
+`x = 1` creates a variable or changes it (`x: [str] = []` gives a type; a name set at the top of the file is shared by every function, which can change it like a Python global without `global`), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
 `if c:` / `elif d:` / `else:` (conditions use Python truth: `if xs:`, `if not s:`, `while q:` test for non-empty, and 0 is false), `for x in xs:`, `for k, v in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
 `if` and `match` are values: `y = if a > b: a else: b`. A variable set in every branch of an `if`/`else` or `match` can be used after it; one first set inside a loop ends with the loop, so set it before the loop.
 Match arms are one expression or statement (`Num(n) => total += n`) or an indented block on the lines after `=>`. Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.
@@ -54,11 +54,12 @@ Match arms are one expression or statement (`Num(n) => total += n`) or an indent
 `+ - * / // %` (int `/` and `%` round toward zero, `//` rounds down), `== != < > <= >=`, `x in xs` and `x not in xs` (list item, map key or substring), `and` `or` `!` (also `&&` `||` `not`), `a ~= b` (float equal within 1e-6).
 `+` joins strings and lists. int and f64 never mix: convert with `.float()` or `.int()` (a whole-number literal next to an f64 is an f64: `x * 2`, `area(2, 3.5)`).
 Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followed by a letter, `(`, `-`, `!` or `"` starts an expression, and strings may appear inside: `"{m["k"]}"`). Any other `{` is a plain brace; `\{` and `{{` always are, so `"{{"` is ONE brace (write `'{{'` for two); template tags such as `"{{#each "`, `"{{/if}}"` and `"{{else}}"` keep both braces.
+Python format specs work inside `{}`: `"{x:.2f} {n:03d} {name:<10} {total:>8,}"`.
 Escapes: `\n \t \r \0 \" \\ \{ \}`.
 `'single quotes'` need no `\"` and keep `{` plain unless a name or `(` follows (`{{` is two braces), so JSON and template text is easy: `'{"id":{i},"error":"not found"}'`, `t.starts_with('{{#each ')`.
 
 ## Collections
-`xs[0]`, `xs[-1]` (last), `xs[a:b]` `xs[1:]` `s[:3]` (slices, also on strings), `xs[i] = v`, `m[k] = v`, `m[k] += 1`, `m[k].push(x)`. A missing map key reads as the type's zero (0, 0.0, "", [], dec 0); use `m.has(k)` to tell.
+`xs[0]`, `xs[-1]` (last), `xs[a:b]` `xs[1:]` `s[:3]` (slices, also on strings), `xs[i] = v`, `m[k] = v`, `m[k] += 1`, `m[k].push(x)`, `books[id].shelf -= 1` (these change the stored item; `b = books[id]` is a copy). A missing map key reads as the type's zero (0, 0.0, "", [], dec 0); use `m.has(k)` to tell.
 Empty values: `xs = []`, `m = {}`, `h = heap()`. Don't write their types: the compiler works them out from later use (add one like `m: {str: int} = {}` only if it asks).
 Comprehensions: `[x * 2 for x in xs if x > 0]`, `[k for k, v in m.pairs() if v > 1]`, `[*xs for xs in xss]` joins lists, and in calls `min(d for d in ds)`. `len(x)`, `sum(xs)`, `min(xs)`, `max(xs)`, `sorted(xs)`, `any(...)`, `all(...)` work as in Python. Map keys can be tuples: `dist[(x, y)]`.
 Lambdas: `x => x * 2`, `(a, b) => a + b`. In map/filter/any/all/count/sort_by, `(a, b) => b - a` unpacks a tuple item.
@@ -73,7 +74,7 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 
 Most methods return a new value (`ys = xs.sort()`); as a statement, `xs.sort()` sorts xs. `push pop insert remove` change the list in place.
-Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `(a, _, b) = s.partition("=")`.
+Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `print(x, end="")`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `(a, _, b) = s.partition("=")`.
 
 ## Built-in functions
 `print(x)` (`print(a, b)` puts a space between), `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.

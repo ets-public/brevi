@@ -1,0 +1,37 @@
+use "catalog.bv"
+use "rules.bv"
+
+lib = Library()
+for raw in lines():
+  ws = raw.words()
+  if len(ws) < 2: continue
+  d = ws[0]
+  expire(lib, d)
+  cmd = ws[1]
+  if cmd == "BOOK":
+    bid = ws[2]
+    if lib.books.has(bid):
+      print("duplicate ID")
+    else:
+      title = ws.slice(4, len(ws)).join(" ")
+      lib.books[bid] = Book(id: bid, title: title, copies: ws[3].int(), out: 0, waits: [])
+      print("added {bid}")
+  elif cmd == "MEMBER":
+    mid = ws[2]
+    if lib.members.has(mid):
+      print("duplicate ID")
+    else:
+      tier = "plus" if ws[3] == "plus" else "basic"
+      nm = ws.slice(4, len(ws)).join(" ")
+      lib.members[mid] = Member(id: mid, name: nm, tier: tier, owes: 0, loans: [])
+      print("welcome {nm}")
+  elif cmd == "LOAN":
+    loan(lib, d, ws[2], ws[3])
+  elif cmd == "RETURN":
+    ret(lib, d, ws[2], ws[3])
+  elif cmd == "RESERVE":
+    reserve(lib, ws[2], ws[3])
+  elif cmd == "PAY":
+    pay(lib, ws[2], cents(ws[3]))
+  elif cmd == "STATUS":
+    status(lib, ws[2])

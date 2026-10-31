@@ -1,0 +1,183 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+tables = {}
+out = []
+
+fn is_name(s: str) -> bool:
+  s.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0
+
+# value parse: returns (type, text)  type "INT" or "TEXT"
+fn parse_val(s: str) -> (str, str):
+  if s.re_full("-?\d+").len() > 0: return ("INT", s)
+  if s.len() >= 2 and s[0] == "'" and s[-1] == "'":
+    inner = s[1:-1]
+    if inner.replace("''", "").contains("'"): fail("error: syntax")
+    return ("TEXT", inner.replace("''", "'"))
+  fail("error: syntax")
+
+# split on commas outside quotes
+fn split_vals(s: str) -> [str]:
+  res = []
+  cur = ""
+  inq = false
+  for c in s.chars():
+    if c == "'": inq = not inq
+    if c == "," and not inq:
+      res.push(cur.trim())
+      cur = ""
+    else:
+      cur += c
+  if inq: fail("error: syntax")
+  res.push(cur.trim())
+  res
+
+fn cmp_ok(a: str, t: str, op: str, v: str) -> bool:
+  c = 0
+  if t == "INT":
+    x = a.int()
+    y = v.int()
+    c = if x < y: -1 else: (if x > y: 1 else: 0)
+  else:
+    c = if a < v: -1 else: (if a > v: 1 else: 0)
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  c >= 0
+
+# conds: list of (colidx, op, val); validates syntax first, then columns
+fn parse_conds(tb: Table, s: str) -> [(int, str, str)]:
+  res = []
+  parsed = []
+  for part in s.split(" AND "):
+    m = part.re_full("([A-Za-z][A-Za-z0-9_]*) (=|!=|<=|>=|<|>) (.+)")
+    if m.is_empty(): fail("error: syntax")
+    pv = parse_val(m[3])
+    parsed.push((m[1], m[2], pv))
+  for p in parsed:
+    idx = tb.cols.index_of(p.0)
+    if idx < 0: fail("error: no column {p.0}")
+    pv = p.2
+    if pv.0 != tb.types[idx]: fail("error: type mismatch")
+    res.push((idx, p.1, pv.1))
+  res
+
+fn matches(tb: Table, row: [str], conds: [(int, str, str)]) -> bool:
+  for c in conds:
+    if not cmp_ok(row[c.0], tb.types[c.0], c.1, c.2): return false
+  true
+
+fn get_table(name: str) -> Table:
+  if not tables.has(name): fail("error: no table {name}")
+  tables[name]
+
+fn run(line: str):
+  m = line.re_full("CREATE TABLE ([A-Za-z][A-Za-z0-9_]*) \((.*)\)")
+  if m:
+    name = m[1]
+    cols = []
+    types = []
+    for d in m[2].split(", "):
+      p = d.re_full("([A-Za-z][A-Za-z0-9_]*) (INT|TEXT)")
+      if p.is_empty(): fail("error: syntax")
+      cols.push(p[1])
+      types.push(p[2])
+    if tables.has(name): fail("error: table {name} exists")
+    tables[name] = Table(cols, types, [])
+    out.push("ok")
+    return 0
+  m = line.re_full("INSERT INTO ([A-Za-z][A-Za-z0-9_]*) VALUES \((.*)\)")
+  if m:
+    vals = split_vals(m[2])
+    pvs = [parse_val(v) for v in vals]
+    tb = get_table(m[1])
+    if pvs.len() != tb.cols.len(): fail("error: type mismatch")
+    row = []
+    for i in 0..pvs.len():
+      if pvs[i].0 != tb.types[i]: fail("error: type mismatch")
+      row.push(pvs[i].1)
+    tables[m[1]].rows.push(row)
+    out.push("ok")
+    return 0
+  m = line.re_full("SELECT COUNT\(\*\) FROM ([A-Za-z][A-Za-z0-9_]*)( WHERE (.+))?")
+  if m:
+    tb = get_table(m[1])
+    conds = if m[3].is_empty(): [] else: parse_conds(tb, m[3])
+    n = 0
+    for r in tb.rows:
+      if matches(tb, r, conds): n += 1
+    out.push("{n}")
+    return 0
+  m = line.re_full("SELECT (.+?) FROM ([A-Za-z][A-Za-z0-9_]*)( WHERE (.+?))?( ORDER BY ([A-Za-z][A-Za-z0-9_]*)( DESC)?)?( LIMIT (\d+))?")
+  if m:
+    tb = get_table(m[2])
+    sel = []
+    if m[1] == "*":
+      sel = tb.cols
+    else:
+      for c in m[1].split(", "):
+        if not is_name(c): fail("error: syntax")
+        sel.push(c)
+    conds = if m[4].is_empty(): [] else: parse_conds(tb, m[4])
+    idxs = []
+    for c in sel:
+      i = tb.cols.index_of(c)
+      if i < 0: fail("error: no column {c}")
+      idxs.push(i)
+    oi = -1
+    if not m[6].is_empty():
+      oi = tb.cols.index_of(m[6])
+      if oi < 0: fail("error: no column {m[6]}")
+    rows = [r for r in tb.rows if matches(tb, r, conds)]
+    if oi >= 0:
+      desc = not m[7].is_empty()
+      if tb.types[oi] == "INT":
+        rows = rows.sort_by(r => r[oi].int(), desc)
+      else:
+        rows = rows.sort_by(r => r[oi], desc)
+    if not m[9].is_empty():
+      rows = rows.take(m[9].int())
+    out.push(" | ".join(sel))
+    for r in rows:
+      out.push(" | ".join([r[i] for i in idxs]))
+    out.push("({rows.len()} rows)")
+    return 0
+  m = line.re_full("UPDATE ([A-Za-z][A-Za-z0-9_]*) SET ([A-Za-z][A-Za-z0-9_]*) = (.+?)( WHERE (.+))?")
+  if m:
+    tb = get_table(m[1])
+    pv = parse_val(m[3])
+    ci = tb.cols.index_of(m[2])
+    if ci < 0: fail("error: no column {m[2]}")
+    conds = if m[5].is_empty(): [] else: parse_conds(tb, m[5])
+    if pv.0 != tb.types[ci]: fail("error: type mismatch")
+    n = 0
+    for i in 0..tb.rows.len():
+      if matches(tb, tb.rows[i], conds):
+        tables[m[1]].rows[i][ci] = pv.1
+        n += 1
+    out.push("updated {n}")
+    return 0
+  m = line.re_full("DELETE FROM ([A-Za-z][A-Za-z0-9_]*)( WHERE (.+))?")
+  if m:
+    tb = get_table(m[1])
+    conds = if m[3].is_empty(): [] else: parse_conds(tb, m[3])
+    keep = []
+    n = 0
+    for r in tb.rows:
+      if matches(tb, r, conds): n += 1
+      else: keep.push(r)
+    tables[m[1]].rows = keep
+    out.push("deleted {n}")
+    return 0
+  fail("error: syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => n = 0
+    Err(m) => out.push(m)
+for l in out: print(l)

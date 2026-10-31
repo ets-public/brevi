@@ -1,0 +1,49 @@
+use "graph.bv"
+
+fn tails(g: Graph) -> [int]:
+  n = g.names.len()
+  tail = [0].repeat(n)
+  for u in g.order.rev():
+    m = 0
+    for v in g.dependents[u]: m = max(m, tail[v])
+    tail[u] = g.days[u] + m
+  return tail
+
+fn ready(i: int, t: int, deps: [[int]], en: [int]) -> bool:
+  for d in deps[i]:
+    if en[d] < 0 or en[d] > t: return false
+  return true
+
+fn schedule_lines(g: Graph) -> [str]:
+  n = g.names.len()
+  tail = tails(g)
+  st = [-1].repeat(n)
+  en = [-1].repeat(n)
+  running = []
+  t = 0
+  started = 0
+  while started < n:
+    running = [i for i in running if en[i] > t]
+    free = g.k - running.len()
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0 and ready(i, t, g.deps, en):
+          if best < 0 or tail[i] > tail[best]: best = i
+      if best < 0: break
+      st[best] = t
+      en[best] = t + g.days[best]
+      running.push(best)
+      started += 1
+      free -= 1
+    if started < n:
+      nt = en[running[0]]
+      for i in running: nt = min(nt, en[i])
+      t = nt
+  out = ["workers {g.k}"]
+  for i in 0..n:
+    out.push("  {g.names[i]} {st[i]}-{en[i]}")
+  total = 0
+  for i in 0..n: total = max(total, en[i])
+  out.push("length {total}")
+  return out

@@ -1,0 +1,27 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn build(ls: [str]) -> [str]:
+  k, tasks = load(ls)
+  dep_ix = dep_index(tasks)
+  st, en, total = starts(tasks, dep_ix)
+  tl = tails(tasks, dep_ix)
+  chain = critical_chain(dep_ix, st, en, tl, total)
+  out = ["unlimited"]
+  for i in 0..len(tasks):
+    out.push("  {tasks[i].name} {st[i]}-{en[i]}")
+  out.push("length {total}")
+  names = [tasks[i].name for i in chain]
+  out.push("critical " + names.join(" > "))
+  s2, e2, total2 = schedule(tasks, dep_ix, tl, k)
+  out.push("workers {k}")
+  for i in 0..len(tasks):
+    out.push("  {tasks[i].name} {s2[i]}-{e2[i]}")
+  out.push("length {total2}")
+  return out
+
+ls = lines()
+match build(ls):
+  Ok(out) =>
+    for x in out: print(x)
+  Err(m) => print(m)

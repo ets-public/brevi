@@ -1,0 +1,127 @@
+# amounts are cents (ints)
+
+fn money(c: int) -> str:
+  s = ""
+  if c < 0: s = "-"
+  a = abs(c)
+  w = a // 100
+  f = a % 100
+  return "{s}{w}.{f:02d}"
+
+# "12", "12.5" or "12.50" to cents, -1 when bad (zero allowed)
+fn cents_of(s: str) -> int:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): return -1
+  (w, _, f) = s.partition(".")
+  fr = f.int().or(0)
+  if f.len() == 1: fr = fr * 10
+  return w.int().or(0) * 100 + fr
+
+# quantity of at least 1, -1 when bad
+fn qty_of(s: str) -> int:
+  if s.re_full("\d+").is_empty(): return -1
+  q = s.int().or(0)
+  if q < 1: return -1
+  return q
+
+# YYYY-MM-DD to days, -1 when bad
+fn parse_day(s: str) -> int:
+  if s.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return -1
+  match date(s):
+    Ok(d) => d.days
+    Err(m) => -1
+
+# takes need units from the oldest lots: (cost of units taken, lots left)
+fn consume(lots: [(int, int)], need: int) -> (int, [(int, int)]):
+  cogs = 0
+  left = need
+  rest = lots
+  while left > 0:
+    f = rest[0]
+    take = min(left, f.0)
+    cogs += take * f.1
+    left -= take
+    if take == f.0:
+      rest.remove(0)
+    else:
+      rest[0] = (f.0 - take, f.1)
+  return (cogs, rest)
+
+fn main():
+  lotsm = {}
+  seen = {}
+  cg = {}
+  rv = {}
+  pf = {}
+  ls = {}
+  mpr = {}
+  mls = {}
+  hit = {}
+  tot_p = 0
+  tot_l = 0
+  last = -10000000000
+  n = 0
+  for raw in lines():
+    n += 1
+    t = raw.words()
+    if t.is_empty(): continue
+    want = 4
+    if t.len() >= 2 and (t[1] == "RECEIVE" or t[1] == "SHIP"): want = 5
+    op = ""
+    if t.len() >= 2: op = t[1]
+    if op not in ["RECEIVE", "SHIP", "LOSS"] or t.len() != want:
+      print("line {n}: bad line")
+      continue
+    day = parse_day(t[0])
+    sku = t[2]
+    qty = qty_of(t[3])
+    price = 0
+    if want == 5: price = cents_of(t[4])
+    if day < 0 or qty < 0 or price < 0:
+      print("line {n}: bad line")
+      continue
+    if day < last:
+      print("line {n}: date out of order")
+      continue
+    m = t[0].slice(0, 7)
+    cur = lotsm.get_or(sku, [])
+    if op == "RECEIVE":
+      cur.push((qty, price))
+      lotsm[sku] = cur
+      seen[sku] = true
+      last = day
+      continue
+    have = 0
+    for lot in cur: have += lot.0
+    if qty > have:
+      print("line {n}: short {sku} need {qty} have {have}")
+      continue
+    last = day
+    res = consume(cur, qty)
+    cogs = res.0
+    lotsm[sku] = res.1
+    if op == "SHIP":
+      rev = qty * price
+      prof = rev - cogs
+      cg[sku] += cogs
+      rv[sku] += rev
+      pf[sku] += prof
+      mpr[m] += prof
+      hit[m] = true
+      tot_p += prof
+    else:
+      ls[sku] += cogs
+      mls[m] += cogs
+      hit[m] = true
+      tot_l += cogs
+  for sku in sorted(seen.keys()):
+    cur = lotsm[sku]
+    q = 0
+    v = 0
+    for lot in cur:
+      q += lot.0
+      v += lot.0 * lot.1
+    print("{sku} on_hand {q} value {money(v)} cogs {money(cg[sku])} revenue {money(rv[sku])} profit {money(pf[sku])} loss {money(ls[sku])}")
+  print("months")
+  for m in sorted(hit.keys()):
+    print("  {m} profit {money(mpr[m])} loss {money(mls[m])}")
+  print("total profit {money(tot_p)} loss {money(tot_l)} net {money(tot_p - tot_l)}")

@@ -1,0 +1,233 @@
+enum E:
+  Num(v: int)
+  Var(n: str)
+  Neg(e: E)
+  Bin(op: str, a: E, b: E)
+  Call(n: str, args: [E])
+
+gvars = {}
+fparams = {}
+fbody = {}
+toks = []
+pos = 0
+bad = false
+err = ""
+depth = 0
+
+fn tk() -> str:
+  if pos < toks.len(): toks[pos] else: ""
+
+fn is_name(s: str) -> bool:
+  s.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0 and s not in ["let", "fn", "print", "if"]
+
+fn is_cmp(s: str) -> bool = s in ["==", "!=", "<", ">", "<=", ">="]
+
+fn parse_expr() -> E:
+  l = parse_add()
+  if is_cmp(tk()):
+    op = tk()
+    pos += 1
+    r = parse_add()
+    l = Bin(op, l, r)
+    if is_cmp(tk()): bad = true
+  l
+
+fn parse_add() -> E:
+  l = parse_mul()
+  while tk() == "+" or tk() == "-":
+    op = tk()
+    pos += 1
+    r = parse_mul()
+    l = Bin(op, l, r)
+  l
+
+fn parse_mul() -> E:
+  l = parse_un()
+  while tk() == "*" or tk() == "/" or tk() == "%":
+    op = tk()
+    pos += 1
+    r = parse_un()
+    l = Bin(op, l, r)
+  l
+
+fn parse_un() -> E:
+  if tk() == "-":
+    pos += 1
+    e = parse_un()
+    return Neg(e)
+  parse_prim()
+
+fn parse_prim() -> E:
+  t = tk()
+  if bad or t == "":
+    bad = true
+    return Num(0)
+  if t.re_full("\d+").len() > 0:
+    pos += 1
+    return Num(t.int().or(0))
+  if t == "(":
+    pos += 1
+    e = parse_expr()
+    if tk() == ")": pos += 1
+    else: bad = true
+    return e
+  if t.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0 and t not in ["let", "fn", "print"]:
+    pos += 1
+    if tk() == "(":
+      pos += 1
+      args = []
+      if tk() == ")":
+        pos += 1
+      else:
+        while not bad:
+          a = parse_expr()
+          args.push(a)
+          if tk() == ",": pos += 1
+          elif tk() == ")":
+            pos += 1
+            break
+          else: bad = true
+      return Call(t, args)
+    if t == "if":
+      bad = true
+      return Num(0)
+    return Var(t)
+  bad = true
+  Num(0)
+
+fn ev(e: E, env: {str: int}) -> int:
+  if err != "": return 0
+  match e:
+    Num(v) => v
+    Var(n):
+      if env.has(n): return env[n]
+      if gvars.has(n): return gvars[n]
+      err = "unknown name {n}"
+      0
+    Neg(x) => 0 - ev(x, env)
+    Bin(op, a, b):
+      x = ev(a, env)
+      y = ev(b, env)
+      if err != "": return 0
+      if op == "+": return x + y
+      if op == "-": return x - y
+      if op == "*": return x * y
+      if op == "/" or op == "%":
+        if y == 0:
+          err = "division by zero"
+          return 0
+        if op == "/": return x / y
+        return x % y
+      r = if op == "==": x == y elif op == "!=": x != y elif op == "<": x < y elif op == ">": x > y elif op == "<=": x <= y else: x >= y
+      if r: 1 else: 0
+    Call(n, args):
+      if n == "if":
+        if args.len() != 3:
+          err = "if takes 3 arguments"
+          return 0
+        c = ev(args[0], env)
+        if err != "": return 0
+        if c != 0: return ev(args[1], env)
+        return ev(args[2], env)
+      if not fbody.has(n):
+        err = "unknown function {n}"
+        return 0
+      ps = fparams[n]
+      if ps.len() != args.len():
+        err = "{n} takes {ps.len()} arguments"
+        return 0
+      ne = {}
+      for i in 0..args.len():
+        ne[ps[i]] = ev(args[i], env)
+      if err != "": return 0
+      depth += 1
+      if depth > 200:
+        err = "too deep"
+        return 0
+      r = ev(fbody[n], ne)
+      depth -= 1
+      r
+
+fn run(line: str, no: int):
+  toks = line.re_list("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%<>(),=]")
+  pos = 0
+  bad = false
+  err = ""
+  depth = 0
+  rest = line.re_sub("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%<>(),=]", "")
+  if rest.replace(" ", "").replace("\t", "") != "": bad = true
+  w = tk()
+  pos += 1
+  if w == "let":
+    n = tk()
+    pos += 1
+    if not is_name(n): bad = true
+    if tk() == "=": pos += 1
+    else: bad = true
+    e = parse_expr()
+    if tk() != "": bad = true
+    if bad:
+      print("error line {no}: syntax")
+      return
+    v = ev(e, {})
+    if err != "":
+      print("error line {no}: {err}")
+      return
+    gvars[n] = v
+  elif w == "fn":
+    n = tk()
+    pos += 1
+    if not is_name(n): bad = true
+    if tk() == "(": pos += 1
+    else: bad = true
+    ps = []
+    if tk() == ")":
+      pos += 1
+    else:
+      while not bad:
+        p = tk()
+        pos += 1
+        if not is_name(p):
+          bad = true
+          break
+        ps.push(p)
+        if tk() == ",": pos += 1
+        elif tk() == ")":
+          pos += 1
+          break
+        else: bad = true
+    if tk() == "=": pos += 1
+    else: bad = true
+    e = parse_expr()
+    if tk() != "": bad = true
+    if bad:
+      print("error line {no}: syntax")
+      return
+    fparams[n] = ps
+    fbody[n] = e
+  elif w == "print":
+    es = []
+    while not bad:
+      es.push(parse_expr())
+      if tk() == ",": pos += 1
+      else: break
+    if tk() != "": bad = true
+    if bad:
+      print("error line {no}: syntax")
+      return
+    out = []
+    for e in es:
+      out.push(ev(e, {}))
+    if err != "":
+      print("error line {no}: {err}")
+      return
+    print(" ".join([str(x) for x in out]))
+  else:
+    print("error line {no}: syntax")
+
+no = 0
+for line in lines():
+  no += 1
+  t = line.trim()
+  if t.is_empty() or t.starts_with("#"): continue
+  run(line, no)

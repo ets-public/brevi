@@ -1,0 +1,129 @@
+DATE = "(\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01]))"
+RX_RC = DATE + " RECEIVE (\S+) (\d+) (\d+(?:\.\d{1,2})?)"
+RX_SH = DATE + " SHIP (\S+) (\d+) (\d+(?:\.\d{1,2})?)"
+RX_LS = DATE + " LOSS (\S+) (\d+)"
+lq = {}
+lc = {}
+seen = {}
+cogs_of = {}
+rev_of = {}
+prof_of = {}
+loss_of = {}
+mprof = {}
+mloss = {}
+mhas = {}
+latest = ""
+tot_prof = 0.dec()
+tot_loss = 0.dec()
+
+fn on_hand(s: str) -> int:
+  if not seen.has(s): return 0
+  return sum(lq[s])
+
+fn stock_value(s: str) -> dec:
+  v = 0.dec()
+  if not seen.has(s): return v
+  ql = lq[s]
+  cl = lc[s]
+  for i in range(0, ql.len()):
+    v += ql[i] * cl[i]
+  return v
+
+fn do_receive(s: str, q: int, c: dec):
+  if not seen.has(s):
+    seen[s] = true
+    lq[s] = []
+    lc[s] = []
+  lq[s].push(q)
+  lc[s].push(c)
+
+fn consume(s: str, q: int) -> dec:
+  ql = lq[s]
+  cl = lc[s]
+  need = q
+  cost = 0.dec()
+  while need > 0:
+    take = min(need, ql[0])
+    cost += take * cl[0]
+    need -= take
+    if take == ql[0]:
+      ql.remove(0)
+      cl.remove(0)
+    else:
+      ql[0] = ql[0] - take
+  lq[s] = ql
+  lc[s] = cl
+  return cost
+
+fn do_ship(s: str, q: int, price: dec, m: str):
+  cost = consume(s, q)
+  rev = q * price
+  profit = rev - cost
+  cogs_of[s] += cost
+  rev_of[s] += rev
+  prof_of[s] += profit
+  mprof[m] += profit
+  mhas[m] = true
+  tot_prof += profit
+
+fn do_loss(s: str, q: int, m: str):
+  cost = consume(s, q)
+  loss_of[s] += cost
+  mloss[m] += cost
+  mhas[m] = true
+  tot_loss += cost
+
+for i, raw in enumerate(stdin().lines()):
+  ln = i + 1
+  line = raw.trim()
+  if line.is_empty(): continue
+  rc = line.re_full(RX_RC)
+  sh = line.re_full(RX_SH)
+  ls = line.re_full(RX_LS)
+  kind = ""
+  gi = []
+  if not rc.is_empty():
+    kind = "R"
+    gi = rc
+  elif not sh.is_empty():
+    kind = "S"
+    gi = sh
+  elif not ls.is_empty():
+    kind = "L"
+    gi = ls
+  if kind == "":
+    print("line {ln}: bad line")
+  else:
+    dt = gi[1]
+    sku = gi[2]
+    q = gi[3].int().or(0)
+    amt = 0.dec()
+    if kind != "L": amt = gi[4].dec().or(0.dec())
+    if q < 1:
+      print("line {ln}: bad line")
+    elif dt < latest:
+      print("line {ln}: date out of order")
+    elif kind == "R":
+      latest = dt
+      do_receive(sku, q, amt)
+    else:
+      have = on_hand(sku)
+      if q > have:
+        print("line {ln}: short {sku} need {q} have {have}")
+      else:
+        latest = dt
+        m = dt[0:7]
+        if kind == "S":
+          do_ship(sku, q, amt, m)
+        else:
+          do_loss(sku, q, m)
+
+skus = seen.keys().sort()
+for s in skus:
+  print("{s} on_hand {on_hand(s)} value {stock_value(s).fmt(2)} cogs {cogs_of[s].fmt(2)} revenue {rev_of[s].fmt(2)} profit {prof_of[s].fmt(2)} loss {loss_of[s].fmt(2)}")
+print("months")
+months = mhas.keys().sort()
+for m in months:
+  print("  {m} profit {mprof[m].fmt(2)} loss {mloss[m].fmt(2)}")
+net = tot_prof - tot_loss
+print("total profit {tot_prof.fmt(2)} loss {tot_loss.fmt(2)} net {net.fmt(2)}")

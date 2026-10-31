@@ -1,0 +1,42 @@
+use "graph.bv"
+
+type Sched:
+  start: [int]
+  end: [int]
+
+fn ready(g: Graph, st: [int], en: [int], i: int, now: int) -> bool:
+  for d in g.deps[i]:
+    if st[d] < 0 or en[d] > now: return false
+  true
+
+fn make_schedule(g: Graph, k: int) -> Sched:
+  n = g.names.len()
+  st = []
+  en = []
+  for i in 0..n:
+    st.push(-1)
+    en.push(-1)
+  now = 0
+  started = 0
+  while started < n:
+    running = 0
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > now: running += 1
+    free = k - running
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0 and ready(g, st, en, i, now):
+          if best < 0 or g.tail[i] > g.tail[best]: best = i
+      if best < 0: break
+      st[best] = now
+      en[best] = now + g.days[best]
+      free -= 1
+      started += 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > now:
+        if nt < 0 or en[i] < nt: nt = en[i]
+    if nt < 0: break
+    now = nt
+  Sched(st, en)

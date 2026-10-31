@@ -1,0 +1,55 @@
+use "graph.bv"
+
+fn schedule(g: Graph) -> ([int], [int], int):
+  n = len(g.tasks)
+  dependents = [[] for i in range(n)]
+  for j in range(n):
+    for d in g.deps[j]:
+      dd = dependents[d]
+      dd.push(j)
+      dependents[d] = dd
+  tail = [0 for i in range(n)]
+  changed = True
+  while changed:
+    changed = False
+    for i in range(n):
+      m = 0
+      for j in dependents[i]:
+        if tail[j] > m: m = tail[j]
+      nt = g.tasks[i].days + m
+      if nt != tail[i]:
+        tail[i] = nt
+        changed = True
+  started = [False for i in range(n)]
+  fin = [False for i in range(n)]
+  st = [0 for i in range(n)]
+  en = [0 for i in range(n)]
+  T = 0
+  count = 0
+  while count < n:
+    for i in range(n):
+      if started[i] and not fin[i] and en[i] <= T: fin[i] = True
+    busy = 0
+    for i in range(n):
+      if started[i] and not fin[i]: busy += 1
+    while busy < g.k:
+      best = -1
+      for i in range(n):
+        if not started[i] and all(fin[d] for d in g.deps[i]):
+          if best < 0 or tail[i] > tail[best]: best = i
+      if best < 0: break
+      started[best] = True
+      st[best] = T
+      en[best] = T + g.tasks[best].days
+      count += 1
+      busy += 1
+    nxt = -1
+    for i in range(n):
+      if started[i] and not fin[i]:
+        if nxt < 0 or en[i] < nxt: nxt = en[i]
+    if nxt < 0: break
+    T = nxt
+  L = 0
+  for i in range(n):
+    if en[i] > L: L = en[i]
+  (st, en, L)

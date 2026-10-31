@@ -1,0 +1,304 @@
+PAT = "'(?:[^']|'')*'|-?\d+|[A-Za-z_][A-Za-z0-9_]*|!=|<=|>=|[=<>(),*]"
+tcols = {}
+tint = {}
+trows = {}
+ts = []
+pos = 0
+perr = false
+
+fn tok() -> str = if pos < ts.len(): ts[pos] else: ""
+fn isident(t: str) -> bool = t.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0
+fn isval(t: str) -> bool = t.starts_with("'") or t.re_full("-?\d+").len() > 0
+fn cell(t: str) -> (int, str):
+  if t.starts_with("'"):
+    (0, t.slice(1, -1).replace("''", "'"))
+  else:
+    (t.int(), "")
+
+fn expect(s: str):
+  if tok() == s:
+    pos += 1
+  else:
+    perr = true
+
+fn ident() -> str:
+  t = tok()
+  if not isident(t):
+    perr = true
+    return ""
+  pos += 1
+  t
+
+fn value() -> str:
+  t = tok()
+  if not isval(t):
+    perr = true
+    return ""
+  pos += 1
+  t
+
+fn where_clause() -> [(str, str, str)]:
+  cs = []
+  if tok() == "WHERE":
+    pos += 1
+    while True:
+      c = ident()
+      op = tok()
+      pos += 1
+      v = value()
+      if op not in ["=", "!=", "<", ">", "<=", ">="]: perr = true
+      cs.push((c, op, v))
+      if perr or tok() != "AND": break
+      pos += 1
+  cs
+
+fn matches(t: str, conds: [(str, str, str)], r: [(int, str)]) -> bool:
+  for c in conds:
+    ci = tcols[t].index_of(c.0)
+    cv = cell(c.2)
+    x = r[ci]
+    op = c.1
+    ok = false
+    if op == "=": ok = x == cv
+    elif op == "!=": ok = x != cv
+    elif op == "<": ok = x < cv
+    elif op == ">": ok = x > cv
+    elif op == "<=": ok = x <= cv
+    else: ok = x >= cv
+    if not ok: return false
+  true
+
+fn cond_col_err(t: str, conds: [(str, str, str)]) -> str:
+  for c in conds:
+    if tcols[t].index_of(c.0) < 0: return "error: no column {c.0}"
+  ""
+
+fn cond_type_err(t: str, conds: [(str, str, str)]) -> bool:
+  for c in conds:
+    ci = tcols[t].index_of(c.0)
+    if tint[t][ci] == c.2.starts_with("'"): return true
+  false
+
+fn show(r: [(int, str)], t: str, idxs: [int]) -> str:
+  parts = [if tint[t][i]: str(r[i].0) else: r[i].1 for i in idxs]
+  parts.join(" | ")
+
+fn do_create():
+  expect("TABLE")
+  t = ident()
+  expect("(")
+  names = []
+  types = []
+  while True:
+    c = ident()
+    ty = ident()
+    if ty != "INT" and ty != "TEXT": perr = true
+    names.push(c)
+    types.push(ty == "INT")
+    if perr or tok() != ",": break
+    pos += 1
+  expect(")")
+  if pos != ts.len(): perr = true
+  if perr:
+    print("error: syntax")
+    return
+  if tcols.has(t):
+    print("error: table {t} exists")
+    return
+  tcols[t] = names
+  tint[t] = types
+  trows[t] = []
+  print("ok")
+
+fn do_insert():
+  expect("INTO")
+  t = ident()
+  expect("VALUES")
+  expect("(")
+  vs = []
+  while True:
+    vs.push(value())
+    if perr or tok() != ",": break
+    pos += 1
+  expect(")")
+  if pos != ts.len(): perr = true
+  if perr:
+    print("error: syntax")
+    return
+  if not tcols.has(t):
+    print("error: no table {t}")
+    return
+  if vs.len() != tcols[t].len():
+    print("error: type mismatch")
+    return
+  for i in 0..vs.len():
+    if tint[t][i] == vs[i].starts_with("'"):
+      print("error: type mismatch")
+      return
+  trows[t].push([cell(v) for v in vs])
+  print("ok")
+
+fn do_select():
+  scols = []
+  star = false
+  cnt = false
+  if tok() == "*":
+    star = true
+    pos += 1
+  elif tok() == "COUNT":
+    pos += 1
+    expect("(")
+    expect("*")
+    expect(")")
+    cnt = true
+  else:
+    while True:
+      scols.push(ident())
+      if perr or tok() != ",": break
+      pos += 1
+  expect("FROM")
+  t = ident()
+  conds = where_clause()
+  ordcol = ""
+  desc = false
+  limit = -1
+  if tok() == "ORDER":
+    pos += 1
+    expect("BY")
+    ordcol = ident()
+    if tok() == "DESC":
+      desc = true
+      pos += 1
+  if tok() == "LIMIT":
+    pos += 1
+    l = value()
+    if l.re_full("\d+").len() == 0:
+      perr = true
+    else:
+      limit = l.int()
+  if pos != ts.len(): perr = true
+  if perr:
+    print("error: syntax")
+    return
+  if not tcols.has(t):
+    print("error: no table {t}")
+    return
+  idxs = []
+  if star:
+    idxs = (0..tcols[t].len()).map(i => i)
+  for c in scols:
+    ci = tcols[t].index_of(c)
+    if ci < 0:
+      print("error: no column {c}")
+      return
+    idxs.push(ci)
+  e = cond_col_err(t, conds)
+  if e != "":
+    print(e)
+    return
+  oi = -1
+  if ordcol != "":
+    oi = tcols[t].index_of(ordcol)
+    if oi < 0:
+      print("error: no column {ordcol}")
+      return
+  if cond_type_err(t, conds):
+    print("error: type mismatch")
+    return
+  rs = [r for r in trows[t] if matches(t, conds, r)]
+  if cnt:
+    print(rs.len())
+    return
+  if oi >= 0:
+    rs = rs.sort_by(r => r[oi], desc)
+  if limit >= 0:
+    rs = rs.take(limit)
+  print([tcols[t][i] for i in idxs].join(" | "))
+  for r in rs:
+    print(show(r, t, idxs))
+  print("({rs.len()} rows)")
+
+fn do_update():
+  t = ident()
+  expect("SET")
+  sc = ident()
+  expect("=")
+  sv = value()
+  conds = where_clause()
+  if pos != ts.len(): perr = true
+  if perr:
+    print("error: syntax")
+    return
+  if not tcols.has(t):
+    print("error: no table {t}")
+    return
+  si = tcols[t].index_of(sc)
+  if si < 0:
+    print("error: no column {sc}")
+    return
+  e = cond_col_err(t, conds)
+  if e != "":
+    print(e)
+    return
+  if tint[t][si] == sv.starts_with("'") or cond_type_err(t, conds):
+    print("error: type mismatch")
+    return
+  nc = cell(sv)
+  out = []
+  n = 0
+  for r in trows[t]:
+    if matches(t, conds, r):
+      n += 1
+      out.push([if j == si: nc else: r[j] for j in 0..r.len()])
+    else:
+      out.push(r)
+  trows[t] = out
+  print("updated {n}")
+
+fn do_delete():
+  expect("FROM")
+  t = ident()
+  conds = where_clause()
+  if pos != ts.len(): perr = true
+  if perr:
+    print("error: syntax")
+    return
+  if not tcols.has(t):
+    print("error: no table {t}")
+    return
+  e = cond_col_err(t, conds)
+  if e != "":
+    print(e)
+    return
+  if cond_type_err(t, conds):
+    print("error: type mismatch")
+    return
+  out = []
+  n = 0
+  for r in trows[t]:
+    if matches(t, conds, r):
+      n += 1
+    else:
+      out.push(r)
+  trows[t] = out
+  print("deleted {n}")
+
+fn run():
+  c = ts[0]
+  pos += 1
+  if c == "CREATE": do_create()
+  elif c == "INSERT": do_insert()
+  elif c == "SELECT": do_select()
+  elif c == "UPDATE": do_update()
+  elif c == "DELETE": do_delete()
+  else: print("error: syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  ts = line.re_list(PAT)
+  pos = 0
+  perr = false
+  if not line.re_sub(PAT, "").trim().is_empty() or ts.is_empty():
+    print("error: syntax")
+  else:
+    run()

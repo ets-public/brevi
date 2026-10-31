@@ -1,0 +1,244 @@
+type Val:
+  isint: bool
+  n: int
+  s: str
+
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[Val]]
+
+tables = {}
+toks = []
+pos = 0
+pat = "'(?:[^']|'')*'|-?[0-9]+|[A-Za-z][A-Za-z0-9_]*|!=|<=|>=|[=<>(),*]"
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  t = peek()
+  pos += 1
+  t
+
+fn expect(w: str):
+  if nxt() != w: fail("error: syntax")
+
+fn ident() -> str:
+  t = nxt()
+  if t.re_full("[A-Za-z][A-Za-z0-9_]*").is_empty(): fail("error: syntax")
+  t
+
+fn value() -> Val:
+  t = nxt()
+  if t.starts_with("'"): return Val(false, 0, t.slice(1, -1).replace("''", "'"))
+  if not t.re_full("-?[0-9]+").is_empty(): return Val(true, t.int(), "")
+  fail("error: syntax")
+  Val(true, 0, "")
+
+fn parse_where() -> [(str, str, Val)]:
+  conds = []
+  if peek() == "WHERE":
+    nxt()
+    while true:
+      c = ident()
+      op = nxt()
+      if op not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+      v = value()
+      conds.push((c, op, v))
+      if peek() == "AND":
+        nxt()
+      else:
+        break
+  conds
+
+fn get_table(name: str) -> Table:
+  if not tables.has(name): fail("error: no table {name}")
+  tables[name]
+
+fn chk_cols(t: Table, cs: [str]):
+  for c in cs:
+    if c not in t.cols: fail("error: no column {c}")
+
+fn chk_type(t: Table, c: str, v: Val):
+  i = t.cols.index_of(c)
+  if (t.types[i] == "INT") != v.isint: fail("error: type mismatch")
+
+fn cmp(a: Val, b: Val) -> int:
+  if a.isint:
+    if a.n < b.n: return -1
+    if a.n > b.n: return 1
+    return 0
+  if a.s < b.s: return -1
+  if a.s > b.s: return 1
+  0
+
+fn matches(t: Table, row: [Val], conds: [(str, str, Val)]) -> bool:
+  for c in conds:
+    i = t.cols.index_of(c.0)
+    k = cmp(row[i], c.2)
+    ok = false
+    if c.1 == "=": ok = k == 0
+    elif c.1 == "!=": ok = k != 0
+    elif c.1 == "<": ok = k < 0
+    elif c.1 == ">": ok = k > 0
+    elif c.1 == "<=": ok = k <= 0
+    else: ok = k >= 0
+    if not ok: return false
+  true
+
+fn show(v: Val) -> str = if v.isint: str(v.n) else: v.s
+
+fn do_create():
+  expect("TABLE")
+  name = ident()
+  expect("(")
+  cols = []
+  types = []
+  while true:
+    cols.push(ident())
+    ty = nxt()
+    if ty != "INT" and ty != "TEXT": fail("error: syntax")
+    types.push(ty)
+    sep = nxt()
+    if sep == ")": break
+    if sep != ",": fail("error: syntax")
+  expect_end()
+  if tables.has(name): fail("error: table {name} exists")
+  tables[name] = Table(cols, types, [])
+  print("ok")
+
+fn expect_end():
+  if pos < toks.len(): fail("error: syntax")
+
+fn do_insert():
+  expect("INTO")
+  name = ident()
+  expect("VALUES")
+  expect("(")
+  vals = []
+  while true:
+    vals.push(value())
+    sep = nxt()
+    if sep == ")": break
+    if sep != ",": fail("error: syntax")
+  expect_end()
+  t = get_table(name)
+  if vals.len() != t.cols.len(): fail("error: type mismatch")
+  for i in 0..vals.len():
+    if (t.types[i] == "INT") != vals[i].isint: fail("error: type mismatch")
+  tables[name].rows.push(vals)
+  print("ok")
+
+fn do_select():
+  count = false
+  star = false
+  cols = []
+  if peek() == "COUNT":
+    nxt()
+    expect("(")
+    expect("*")
+    expect(")")
+    count = true
+  elif peek() == "*":
+    nxt()
+    star = true
+  else:
+    while true:
+      cols.push(ident())
+      if peek() == ",":
+        nxt()
+      else:
+        break
+  expect("FROM")
+  name = ident()
+  conds = parse_where()
+  ocol = ""
+  desc = false
+  limit = -1
+  if peek() == "ORDER":
+    nxt()
+    expect("BY")
+    ocol = ident()
+    if peek() == "DESC":
+      nxt()
+      desc = true
+  if peek() == "LIMIT":
+    nxt()
+    lt = nxt()
+    if lt.re_full("[0-9]+").is_empty(): fail("error: syntax")
+    limit = lt.int()
+  expect_end()
+  t = get_table(name)
+  if star: cols = t.cols
+  chk_cols(t, cols)
+  chk_cols(t, [c.0 for c in conds])
+  if ocol != "": chk_cols(t, [ocol])
+  for c in conds: chk_type(t, c.0, c.2)
+  rows = [r for r in t.rows if matches(t, r, conds)]
+  if count:
+    print(rows.len())
+  else:
+    if ocol != "":
+      oi = t.cols.index_of(ocol)
+      if t.types[oi] == "INT":
+        rows = rows.sort_by(r => r[oi].n, desc)
+      else:
+        rows = rows.sort_by(r => r[oi].s, desc)
+    if limit >= 0: rows = rows.take(limit)
+    idx = [t.cols.index_of(c) for c in cols]
+    print(" | ".join(cols))
+    for r in rows: print(" | ".join([show(r[i]) for i in idx]))
+    print("({rows.len()} rows)")
+
+fn do_update():
+  name = ident()
+  expect("SET")
+  col = ident()
+  expect("=")
+  v = value()
+  conds = parse_where()
+  expect_end()
+  t = get_table(name)
+  chk_cols(t, [col])
+  chk_cols(t, [c.0 for c in conds])
+  chk_type(t, col, v)
+  for c in conds: chk_type(t, c.0, c.2)
+  ci = t.cols.index_of(col)
+  n = 0
+  for i in 0..t.rows.len():
+    if matches(t, t.rows[i], conds):
+      tables[name].rows[i][ci] = v
+      n += 1
+  print("updated {n}")
+
+fn do_delete():
+  expect("FROM")
+  name = ident()
+  conds = parse_where()
+  expect_end()
+  t = get_table(name)
+  chk_cols(t, [c.0 for c in conds])
+  for c in conds: chk_type(t, c.0, c.2)
+  keep = [r for r in t.rows if not matches(t, r, conds)]
+  n = t.rows.len() - keep.len()
+  tables[name].rows = keep
+  print("deleted {n}")
+
+fn run(line: str) -> int:
+  if not line.re_sub(pat, "").trim().is_empty(): fail("error: syntax")
+  toks = line.re_list(pat)
+  pos = 0
+  cmd = nxt()
+  if cmd == "CREATE": do_create()
+  elif cmd == "INSERT": do_insert()
+  elif cmd == "SELECT": do_select()
+  elif cmd == "UPDATE": do_update()
+  elif cmd == "DELETE": do_delete()
+  else: fail("error: syntax")
+  0
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => pos = 0
+    Err(m) => print(m)

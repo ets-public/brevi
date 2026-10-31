@@ -10,7 +10,7 @@ Lower is better. Each figure is the total tokens a model spends to finish every 
 | 8 big tasks | Haiku | **9,398** | 10,556 | 11% | 15/16 / 45/48 | 16/16 / 48/48 | 2 / 6 |
 | 6 held-out big tasks | Sonnet | **4,020** | 4,220 | 5% | 11/12 / 12/12 | 12/12 / 12/12 | 2 / 2 |
 | 6 held-out big tasks | Haiku | **4,604** | 5,847 | 21% | 10/12 / 10/12 | 12/12 / 12/12 | 2 / 2 |
-| 6 held-out XL tasks (2 multi-file) | Sonnet | 13,959 | **12,944** | -8% | 7/12 / 10/12 | 12/12 / 12/12 | 2 / 2 |
-| 6 held-out XL tasks (2 multi-file) | Haiku | 17,595 | **15,564** | -13% | 5/12 / 10/12 | 12/12 / 12/12 | 2 / 2 |
+| 6 XL tasks (2 multi-file) | Sonnet | **12,630** | 13,128 | 4% | 11/12 / 20/24 | 12/12 / 24/24 | 2 / 4 |
+| 6 XL tasks (2 multi-file) | Haiku | 15,908 | **15,658** | -2% | 9/12 / 21/24 | 12/12 / 24/24 | 2 / 4 |
 
-The held-out tasks (`ref/gen_big2.py`) were written after the language was tuned and never used to change it. The XL tasks (`ref/gen_big3.py`, 150 to 400 lines, two of them split over several files) were held out until their first two runs (x1, x2); Brevi was then fixed for the gaps those runs showed and rerun (x3, x4). Single runs vary by up to 30%, so each figure averages two or more runs.
+The held-out tasks (`ref/gen_big2.py`) were written after the language was tuned and never used to change it. The XL tasks (`ref/gen_big3.py`, 150 to 400 lines, two of them split over several files) were held out until their first two runs (x1, x2); Brevi was then improved over six rounds for the gaps the runs showed (x3 to x18, so the XL set is no longer held out); the figures are the latest round (x17, x18) against four Python runs (x1, x2, x15, x16). Single runs vary by up to 30%, so each figure averages two or more runs.

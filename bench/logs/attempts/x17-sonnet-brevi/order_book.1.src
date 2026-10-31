@@ -1,0 +1,112 @@
+type Ord:
+  id: str
+  buy: bool
+  qty: int
+  px: int
+  seq: int
+
+orders: [Ord] = []
+seen: {str: int} = {}
+vol = 0
+value = 0
+seq = 0
+
+fn cents(s: str) -> int:
+  g = s.re_full("(\d+)(?:\.(\d{1,2}))?")
+  if g.is_empty(): return -1
+  fr = g[2]
+  f = if fr.len() == 0: 0 elif fr.len() == 1: fr.int() * 10 else: fr.int()
+  g[1].int() * 100 + f
+
+fn money(c: int) -> str = "{c // 100}.{(c % 100):02d}"
+
+fn posint(s: str) -> int:
+  if s.re_full("\d+").is_empty(): return -1
+  s.int()
+
+fn fill(buy: bool, id: str, q: int, limit: int, market: bool) -> int:
+  qty = q
+  while qty > 0:
+    best = -1
+    for i in 0..orders.len():
+      o = orders[i]
+      if o.buy != buy:
+        ok = market or (buy and o.px <= limit) or (not buy and o.px >= limit)
+        if ok:
+          if best < 0:
+            best = i
+          elif buy and o.px < orders[best].px:
+            best = i
+          elif not buy and o.px > orders[best].px:
+            best = i
+    if best < 0: break
+    r = orders[best]
+    f = min(qty, r.qty)
+    px = r.px
+    if buy: print("TRADE {id} {r.id} {f} {money(px)}")
+    else: print("TRADE {r.id} {id} {f} {money(px)}")
+    vol += f
+    value += f * px
+    orders[best].qty -= f
+    qty -= f
+    if orders[best].qty == 0: orders.remove(best)
+  qty
+
+fn book():
+  print("asks")
+  a = {}
+  for o in orders:
+    if not o.buy: a[o.px] += o.qty
+  if a.is_empty(): print("  -")
+  for k, v in a.pairs(): print("  {money(k)} {v}")
+  print("bids")
+  b = {}
+  for o in orders:
+    if o.buy: b[o.px] += o.qty
+  if b.is_empty(): print("  -")
+  for k, v in b.pairs().rev(): print("  {money(k)} {v}")
+
+fn handle(w: [str]) -> int:
+  c = w[0]
+  n = w.len()
+  if c == "BOOK" and n == 1:
+    book()
+    return 0
+  if c == "CANCEL" and n == 2:
+    for i in 0..orders.len():
+      if orders[i].id == w[1]:
+        print("CANCELLED {w[1]} {orders[i].qty}")
+        orders.remove(i)
+        return 0
+    fail("unknown ID")
+  isbuy = c == "BUY" or c == "MBUY"
+  market = c == "MBUY" or c == "MSELL"
+  if not (isbuy or c == "SELL" or market): fail("bad command")
+  if market and n != 3: fail("bad command")
+  if not market and n != 4: fail("bad command")
+  q = posint(w[2])
+  if q < 1: fail("bad command")
+  px = 0
+  if not market:
+    px = cents(w[3])
+    if px <= 0: fail("bad command")
+  id = w[1]
+  if seen.has(id): fail("duplicate ID")
+  seen[id] = 1
+  left = fill(isbuy, id, q, px, market)
+  if left > 0:
+    if market:
+      print("DROPPED {id} {left}")
+    else:
+      seq += 1
+      orders.push(Ord(id: id, buy: isbuy, qty: left, px: px, seq: seq))
+  0
+
+ls = lines()
+for i in 0..ls.len():
+  w = ls[i].words()
+  if w.is_empty(): continue
+  match handle(w):
+    Ok(_) => seq += 0
+    Err(m) => print("ERR line {i + 1}: {m}")
+print("volume {vol} value {money(value)}")
