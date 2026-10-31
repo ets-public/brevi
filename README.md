@@ -4,7 +4,7 @@ A programming language for AI models to write. Brevi compiles to Rust, so progra
 
 The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), about 2,700 tokens (estimated).
 
-## Status: v0.9
+## Status: v0.10
 
 Works today:
 - Parser for the full core syntax in BREVI.md
@@ -27,7 +27,7 @@ Tokens per finished task set (18 tasks: code written plus errors read, average o
 | Sonnet | 4,309 | 4,363 | 4,021 | 36 of 36 |
 | Haiku | 4,987 | 5,631 | 5,266 | 35 of 36 |
 
-Brevi now beats Python on tokens with Haiku and is 7% above it with Sonnet.
+With v0.10 (Python truth, comprehensions, len/sum/sorted/any/all, optional return types), Sonnet's 18-task total is 4,074 tokens over 3 runs against Python's 4,021, with 54 of 54 tasks passing on the first try. Haiku was already below Python.
 
 On the 8 bigger tasks (v0.9, 2 runs each), finished code is close to Python's size, but retries still cost more:
 
