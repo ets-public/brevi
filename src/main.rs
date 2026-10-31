@@ -695,6 +695,10 @@ fn rust_help(j: &json::J, code: &str) -> Option<String> {
             continue;
         }
         let mut m = c.get("message").and_then(|v| v.str()).unwrap_or("").replace('`', "");
+        // "#[deny(lint)] on by default" says nothing about how to fix the code.
+        if m.starts_with("#[") && m.ends_with("on by default") {
+            continue;
+        }
         let reps: Vec<String> = c.get("spans").map(|s| s.arr()).unwrap_or(&[]).iter().filter_map(|s| s.get("suggested_replacement").and_then(|v| v.str()).map(|r| r.trim().to_string())).filter(|r| !r.is_empty()).collect();
         if !reps.is_empty() {
             m = format!("{m}: {}", reps.join(" | "));
@@ -720,6 +724,9 @@ fn rust_help(j: &json::J, code: &str) -> Option<String> {
 fn fix_for(code: &str, msg: &str) -> Option<String> {
     if msg.contains("Result<") || msg.contains("AxErr") {
         return Some("this value can fail: add ? after the call that produced it".into());
+    }
+    if msg.contains("will panic at runtime") {
+        return Some("this always panics when run: keep indexes in range, and window/chunk sizes above 0".into());
     }
     match code {
         "E0384" | "E0596" => Some("write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))".into()),
