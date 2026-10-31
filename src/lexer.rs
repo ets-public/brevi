@@ -215,6 +215,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             col += 1;
             // Inside `{...}` the text is kept as written (quotes included), to be lexed again as an expression.
             let (mut depth, mut inner_str, mut esc_open, mut lone_open) = (0usize, false, 0usize, 0usize);
+            // Inside a value, a 'single-quoted' string is skipped whole ("{'#'.repeat(n)}").
+            let mut inner_sq = false;
             // Just after `\\`: a `{` here is a regex's escaped brace (`"\\{(\\d+)\\}"`), never a value.
             let mut after_bs = false;
             loop {
@@ -223,6 +225,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     match chars.get(i) {
                         None | Some('\n') => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \"")),
                         Some(&ch) => {
+                            if inner_sq || (!inner_str && ch == '\'') {
+                                inner_sq = !(inner_sq && ch == '\'');
+                                s.push(ch);
+                                i += 1;
+                                col += 1;
+                                continue;
+                            }
                             if inner_str {
                                 if ch == '\\' {
                                     s.push(ch);
@@ -272,7 +281,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 2;
                         col += 2;
                     }
-                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"')) && interp_closes(&chars, i + 1) => {
+                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
                         depth = 1;
                         s.push('{');
                         i += 1;

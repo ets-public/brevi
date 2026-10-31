@@ -52,7 +52,7 @@ Match arms are one expression or statement (`Num(n) => total += n`) or an indent
 ## Operators
 `+ - * / // %` (int `/` and `%` round toward zero, `//` rounds down), `== != < > <= >=`, `x in xs` and `x not in xs` (list item, map key or substring), `and` `or` `!` (also `&&` `||` `not`), `a ~= b` (float equal within 1e-6).
 `+` joins strings and lists. int and f64 never mix: convert with `.float()` or `.int()` (a whole-number literal next to an f64 is an f64: `x * 2`, `area(2, 3.5)`).
-Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followed by a letter, `(`, `-`, `!` or `"` starts an expression, and strings may appear inside: `"{m["k"]}"`). Any other `{` is a plain brace; `\{` and `{{` always are.
+Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followed by a letter, `(`, `-`, `!` or `"` starts an expression, and strings may appear inside: `"{m["k"]}"`). Any other `{` is a plain brace; `\{` and `{{` always are, so `"{{"` is ONE brace (write `'{{'` for two).
 Escapes: `\n \t \r \0 \" \\ \{ \}`.
 `'single quotes'` need no `\"` and keep `{` plain unless a name or `(` follows (`{{` is two braces), so JSON and template text is easy: `'{"id":{i},"error":"not found"}'`, `t.starts_with('{{#each ')`.
 

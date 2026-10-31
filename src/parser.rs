@@ -838,7 +838,7 @@ impl Parser {
                     lit.push('}');
                     i += 2;
                 }
-                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"')) => {
+                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"' | '\'')) => {
                     lit.push('{');
                     i += 1;
                 }

@@ -12,3 +12,6 @@ print("SUM(A1:B2)+3*-x".re_list("\d+|[A-Z]+\d*|\S"))
 print(h, s == "", t == "")
 x = 1
 print('{{#each {x}}}', '{{x}}', "{{")
+k = 3
+print("  {k} {'#'.repeat(k)}")
+print("{'x'}")
