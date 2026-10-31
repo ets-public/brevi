@@ -101,6 +101,10 @@ fn main() {
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
     let mut items = parser::parse_program(src).map_err(|d| vec![d])?;
     infer::returns(&mut items)?;
+    let errs = infer::check(&mut items);
+    if !errs.is_empty() {
+        return Err(errs);
+    }
     emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items, hints);
     if moves {
@@ -361,6 +365,7 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
     }
     match code {
         "E0384" | "E0596" => Some("write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))".into()),
+        "E0609" if msg.contains("on type [") || msg.contains("on type str") => Some("read list items with xs[0], not xs.0 (that is for tuples)".into()),
         "E0381" => Some("set it before the if or match, so every path gives it a value".into()),
         "E0599" if msg.contains("ref") && msg.contains("tuple") => Some("read a tuple's items with t.0, t.1, not t[0]".into()),
         "E0308" if msg.contains("Result") || msg.contains("R<") => Some("a call that can fail needs ? after it".into()),

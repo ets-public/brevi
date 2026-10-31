@@ -1,0 +1,5 @@
+fn f(n: int) -> int = n * 2
+x = 0
+x = "s"
+y = "a" + 3
+print(f("q"))

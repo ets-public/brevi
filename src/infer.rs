@@ -320,9 +320,10 @@ impl Cx<'_> {
             }
             Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| self.scan_maps(x, env)),
             Expr::Call(_, args, _) => args.iter().for_each(|(_, a)| self.scan_maps(a, env)),
-            Expr::Method(r, _, args, _) => {
+            Expr::Method(r, m, args, _) => {
                 self.scan_maps(r, env);
-                let et = elem(&self.ty(r, env));
+                let each = ["map", "filter", "any", "all", "count", "sort_by"].contains(&m.as_str());
+                let et = if each { elem(&self.ty(r, env)) } else { Hole };
                 for a in args {
                     match a {
                         Expr::Lambda(ps, b) if ps.len() == 1 => {
@@ -954,4 +955,320 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
         }
     }
     Ok(())
+}
+
+// ---- Brevi's own type check: clear mistakes get a Brevi message before rustc runs ----
+
+fn show_t(t: &T) -> String {
+    match t {
+        Hole => "_".into(),
+        Int => "int".into(),
+        F64 => "f64".into(),
+        Bool => "bool".into(),
+        Str => "str".into(),
+        Dec => "dec".into(),
+        Big => "big".into(),
+        Date => "Date".into(),
+        Json => "Json".into(),
+        Named(n) => n.clone(),
+        List(e) => format!("[{}]", show_t(e)),
+        Map(k, v) => format!("{{{}: {}}}", show_t(k), show_t(v)),
+        Tuple(ts) => format!("({})", ts.iter().map(show_t).collect::<Vec<_>>().join(", ")),
+        Heap(e) => format!("heap[{}]", show_t(e)),
+        Unit => "nothing".into(),
+    }
+}
+
+// Two fully known types that cannot be the same value (int literals mix into dec and big).
+fn clash(a: &T, b: &T) -> bool {
+    if !known(a) || !known(b) || matches!(a, Unit) || matches!(b, Unit) {
+        return false;
+    }
+    match (a, b) {
+        (Int, Dec | Big) | (Dec | Big, Int) => false,
+        (Named(x), Named(y)) => x != y,
+        (List(x), List(y)) | (Heap(x), Heap(y)) => clash(x, y),
+        (Map(k1, v1), Map(k2, v2)) => clash(k1, k2) || clash(v1, v2),
+        (Tuple(x), Tuple(y)) => x.len() != y.len() || x.iter().zip(y).any(|(a, b)| clash(a, b)),
+        (a, b) => std::mem::discriminant(a) != std::mem::discriminant(b),
+    }
+}
+
+fn float_lit(e: &mut Expr) {
+    match e {
+        Expr::Int(n) => *e = Expr::Float(*n as f64),
+        Expr::Unary("-", x) => float_lit(x),
+        _ => {}
+    }
+}
+
+struct Ck<'a, 'b> {
+    cx: &'a Cx<'b>,
+    line: usize,
+    errs: Vec<crate::diag::Diag>,
+    // Where each local was first set, for messages.
+    set_at: HashMap<String, usize>,
+}
+
+impl Ck<'_, '_> {
+    fn err(&mut self, msg: String, fix: String) {
+        if self.errs.iter().any(|d| d.line == self.line) {
+            return;
+        }
+        let mut d = crate::diag::Diag::new("type", self.line, 1, &msg);
+        d.fix = Some(fix);
+        self.errs.push(d);
+    }
+
+    fn block(&mut self, stmts: &mut [Stmt], tail: &mut Option<Box<Expr>>, env: &mut Env) {
+        for st in stmts.iter_mut() {
+            match st {
+                Stmt::Let { name, ty, value, line, .. } => {
+                    self.line = *line;
+                    self.expr(value, env);
+                    let t = ty.as_ref().map(from_ast).unwrap_or_else(|| self.cx.ty(value, env));
+                    if let Pat::Bind(n) = name {
+                        self.set_at.insert(n.clone(), *line);
+                    }
+                    bind(name, t, env);
+                }
+                Stmt::Assign { target, op, value, line } => {
+                    self.line = *line;
+                    self.expr(value, env);
+                    if !matches!(target, Expr::Ident(_)) {
+                        self.expr(target, env);
+                    }
+                    match (target, *op) {
+                        (Expr::Ident(n), "=") => {
+                            let t = self.cx.ty(value, env);
+                            match env.get(n) {
+                                Some(old) if clash(old, &t) => {
+                                    let at = self.set_at.get(n).copied().unwrap_or(0);
+                                    let msg = format!("{n} holds {} (set on line {at}) but is set to {} here", show_t(old), show_t(&t));
+                                    self.err(msg, format!("use a new name for the {} value", show_t(&t)));
+                                }
+                                Some(Hole) | None => {
+                                    self.set_at.entry(n.clone()).or_insert(*line);
+                                    env.insert(n.clone(), t);
+                                }
+                                _ => {}
+                            }
+                        }
+                        (Expr::Tuple(xs), "=") => {
+                            let t = self.cx.ty(value, env);
+                            for (k, x) in xs.iter().enumerate() {
+                                if let Expr::Ident(n) = x {
+                                    if !env.contains_key(n) {
+                                        let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                                        env.insert(n.clone(), et);
+                                    }
+                                }
+                            }
+                        }
+                        (Expr::Ident(n), "+=") => {
+                            let (a, b) = (env.get(n).cloned().unwrap_or(Hole), self.cx.ty(value, env));
+                            self.arith("+", &a, &b);
+                        }
+                        _ => {}
+                    }
+                }
+                Stmt::Expr { expr, line } => {
+                    self.line = *line;
+                    self.expr(expr, env);
+                }
+                Stmt::Return { value: Some(v), line } => {
+                    self.line = *line;
+                    self.expr(v, env);
+                }
+                Stmt::Assert { cond, line } => {
+                    self.line = *line;
+                    self.expr(cond, env);
+                }
+                _ => {}
+            }
+        }
+        if let Some(t) = tail {
+            self.expr(t, env);
+        }
+    }
+
+    fn arith(&mut self, op: &str, a: &T, b: &T) {
+        let word = match op {
+            "+" => "add",
+            "-" => "subtract",
+            "*" => "multiply",
+            "/" | "//" => "divide",
+            _ => "combine",
+        };
+        match (a, b) {
+            (Str, Int | F64 | Bool | Dec) | (Int | F64 | Bool | Dec, Str) if op == "+" => {
+                let msg = format!("cannot {word} {} and {}", show_t(a), show_t(b));
+                self.err(msg, "turn the number into text with str(x), or write \"{x}\"".into())
+            }
+            (Int, F64) | (F64, Int) => {
+                let msg = format!("cannot {word} int and f64");
+                self.err(msg, "int and f64 never mix: convert with .float() or .int()".into())
+            }
+            _ => {}
+        }
+    }
+
+    fn expr(&mut self, e: &mut Expr, env: &mut Env) {
+        // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
+        let fix = match &*e {
+            Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
+                (Tuple(_), Expr::Int(k)) if *k >= 0 => Some(Expr::TupleField(b.clone(), *k as usize)),
+                _ => None,
+            },
+            Expr::TupleField(b, k) => match self.cx.ty(b, env) {
+                List(_) | Str => Some(Expr::Index(b.clone(), Box::new(Expr::Int(*k as i64)))),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(f) = fix {
+            *e = f;
+        }
+        match e {
+            Expr::Block(stmts, tail) => {
+                let mut inner = env.clone();
+                self.block(stmts, tail, &mut inner);
+            }
+            Expr::If(c, a, b) => {
+                self.expr(c, env);
+                self.expr(a, &mut env.clone());
+                if let Some(b) = b {
+                    self.expr(b, &mut env.clone());
+                }
+            }
+            Expr::Match(s, arms) => {
+                self.expr(s, env);
+                let st = self.cx.ty(s, env);
+                for (p, a) in arms {
+                    let mut inner = env.clone();
+                    bind_arm(p, &st, &mut inner);
+                    self.expr(a, &mut inner);
+                }
+            }
+            Expr::For(p, it, body) => {
+                self.expr(it, env);
+                let mut inner = env.clone();
+                bind(p, elem(&self.cx.ty(it, env)), &mut inner);
+                self.expr(body, &mut inner);
+            }
+            Expr::While(c, body) => {
+                self.expr(c, env);
+                self.expr(body, &mut env.clone());
+            }
+            Expr::Binary(op, a, b) => {
+                self.expr(a, env);
+                self.expr(b, env);
+                // A whole-number literal next to an f64 is that f64 (`x * 2`, `w > 0`).
+                if ["+", "-", "*", "/", "%", "==", "!=", "<", ">", "<=", ">="].contains(op) {
+                    if self.cx.ty(a, env) == F64 {
+                        float_lit(b);
+                    } else if self.cx.ty(b, env) == F64 {
+                        float_lit(a);
+                    }
+                }
+                if ["+", "-", "*", "/", "//", "%"].contains(op) {
+                    let (x, y) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                    self.arith(op, &x, &y);
+                }
+            }
+            Expr::Call(n, args, line) => {
+                self.line = *line;
+                for (_, a) in args.iter_mut() {
+                    self.expr(a, env);
+                }
+                if let Some((ps, _)) = self.cx.fns.get(n.as_str()) {
+                    if args.iter().all(|(name, _)| name.is_none()) && args.len() == ps.len() {
+                        for ((_, pt), (_, a)) in ps.iter().zip(args.iter_mut()) {
+                            if *pt == F64 {
+                                float_lit(a);
+                            }
+                        }
+                        for ((pn, pt), (_, a)) in ps.iter().zip(args.iter()) {
+                            let at = self.cx.ty(a, env);
+                            if clash(pt, &at) {
+                                let msg = format!("{n}() takes {pn}: {}, but gets {} here", show_t(pt), show_t(&at));
+                                self.err(msg, format!("pass {pn} as {}", show_t(pt)));
+                            }
+                        }
+                    }
+                }
+            }
+            Expr::Method(r, m, args, line) => {
+                self.line = *line;
+                self.expr(r, env);
+                // Only these methods pass each item to their lambda.
+                let each = ["map", "filter", "any", "all", "count", "sort_by"].contains(&m.as_str());
+                let et = if each { elem(&self.cx.ty(r, env)) } else { Hole };
+                for a in args.iter_mut() {
+                    match a {
+                        Expr::Lambda(ps, body) => {
+                            let mut inner = env.clone();
+                            bind_params(ps, &et, &mut inner);
+                            self.expr(body, &mut inner);
+                        }
+                        a => self.expr(a, env),
+                    }
+                }
+            }
+            Expr::List(xs) | Expr::Tuple(xs) => xs.iter_mut().for_each(|x| self.expr(x, env)),
+            Expr::Map(ps) => ps.iter_mut().for_each(|(k, v)| {
+                self.expr(k, env);
+                self.expr(v, env);
+            }),
+            Expr::Unary(_, a) | Expr::Try(a) | Expr::Field(a, _) | Expr::TupleField(a, _) => self.expr(a, env),
+            Expr::Index(a, b) | Expr::Range(a, b) => {
+                self.expr(a, env);
+                self.expr(b, env);
+            }
+            Expr::Str(parts) => {
+                for p in parts {
+                    if let StrPart::Interp(x) = p {
+                        self.expr(x, env);
+                    }
+                }
+            }
+            Expr::Lambda(_, b) => self.expr(b, &mut env.clone()),
+            _ => {}
+        }
+    }
+}
+
+// Checks every function and fixes the forms that have one obvious meaning.
+pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
+    for it in items.iter() {
+        match it {
+            Item::Fn { name, params, ret, .. } => {
+                cx.fns.insert(name.clone(), (params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect(), from_ast(ret)));
+            }
+            Item::Type { name, fields, .. } => {
+                cx.structs.insert(name.clone(), fields.iter().map(|f| (f.name.clone(), from_ast(&f.ty))).collect());
+            }
+            Item::Enum { name, variants, .. } => {
+                for v in variants {
+                    cx.variants.insert(v.name.clone(), name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut errs = Vec::new();
+    for it in items.iter_mut() {
+        let (params, body, line): (&[Param], &mut Expr, usize) = match it {
+            Item::Fn { params, body, line, .. } => (params.as_slice(), body, *line),
+            Item::Test { body, line, .. } => (&[][..], body, *line),
+            _ => continue,
+        };
+        let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new() };
+        ck.expr(body, &mut env);
+        errs.extend(ck.errs);
+    }
+    errs.sort_by_key(|d| d.line);
+    errs
 }

@@ -1,0 +1,3 @@
+{"e":"type","at":"own_check.bv:3:1","msg":"x holds int (set on line 2) but is set to str here","fix":"use a new name for the str value"}
+{"e":"type","at":"own_check.bv:4:1","msg":"cannot add str and int","fix":"turn the number into text with str(x), or write \"{x}\""}
+{"e":"type","at":"own_check.bv:5:1","msg":"f() takes n: int, but gets str here","fix":"pass n as int"}
