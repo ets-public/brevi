@@ -4,11 +4,12 @@ A programming language for AI models to write. Brevi compiles to Rust, so progra
 
 The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), about 2,700 tokens (estimated).
 
-## Status: v0.10
+## Status: v0.11
 
 Works today:
 - Parser for the full core syntax in BREVI.md
 - Front-end checks with short JSON errors: unknown names and methods with "did you mean" hints, wrong argument counts, names used outside their block
+- Brevi's own type check before rustc: a name changing type, `str + int`, int/f64 mixing and wrong argument types get plain one-line errors with the line where the name was set. `t[1]` on a tuple, `xs.1` on a list and whole-number literals next to an f64 are fixed silently
 - Emits Rust and builds it with `rustc`. rustc errors are mapped back to the Brevi line and rewritten in Brevi's type names
 - `run`, `test`, `check`, `build`, `emit`
 - Runtime prelude with strings, lists, maps (hash lookups, listed in key order), files, stdin, JSON, CSV, dates, big integers, exact decimals and a min-heap
@@ -34,7 +35,9 @@ On the 8 bigger tasks (v0.9, 2 runs each), finished code is close to Python's si
 | Model | Brevi finished code | Python finished code | Brevi with retries | Python with retries | First try (Brevi) |
 | --- | --- | --- | --- | --- | --- |
 | Sonnet | 7,786 | 7,418 | 11,121 | 7,450 | 14 of 16 |
-| Haiku | 9,705 | 9,751 | 17,107 | 10,634 | 9 of 16 | Rust takes about 2.4 times as many tokens as Brevi on the hard tasks.
+| Haiku | 9,705 | 9,751 | 17,107 | 10,634 | 9 of 16 |
+
+Rust takes about 2.4 times as many tokens as Brevi on the hard tasks.
 
 Speed (best of 3, seconds):
 
@@ -46,7 +49,7 @@ Speed (best of 3, seconds):
 | Group records | 0.76 | 0.31 | 0.12 |
 
 Not done yet:
-- Brevi's own type inference. Type errors currently come from rustc, translated
+- Full type inference: the check covers the common mistakes, and rarer type errors still come from rustc, translated
 - Edit-by-name patches and compact output printing
 
 ## Build and try
