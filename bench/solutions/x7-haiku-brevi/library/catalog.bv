@@ -1,0 +1,21 @@
+type Book:
+  id: str
+  copies: int
+  shelf: int
+  waitlist: [str]
+
+type Loan:
+  book: str
+  due: int
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Hold:
+  book: str
+  member: str
+  last: int

@@ -1,0 +1,128 @@
+fn date_ok(s: str) -> bool:
+  if s.re_full('\d{4}-\d{2}-\d{2}'): return True
+  False
+
+fn qty_ok(s: str) -> bool:
+  if not s.re_full('\d+'): return False
+  s.int().or(0) >= 1
+
+fn price_ok(s: str) -> bool:
+  if s.re_full('\d+(\.\d{1,2})?'): return True
+  False
+
+fn parse_cents(s: str) -> int:
+  parts = s.split(".")
+  w = parts[0].int()
+  f = 0
+  if len(parts) == 2:
+    d = parts[1]
+    if len(d) == 1: d = d + "0"
+    f = d.int()
+  w * 100 + f
+
+fn fmt(c: int) -> str:
+  sign = ""
+  if c < 0: sign = "-"
+  a = abs(c)
+  whole = a // 100
+  frac = a % 100
+  "{sign}{whole}.{frac:02d}"
+
+fn onhand(lots: [(int, int)]) -> int:
+  total = 0
+  for lot in lots:
+    total += lot[0]
+  total
+
+fn value(lots: [(int, int)]) -> int:
+  total = 0
+  for lot in lots:
+    total += lot[0] * lot[1]
+  total
+
+fn consume(lots: [(int, int)], q: int) -> (int, [(int, int)]):
+  need = q
+  cost = 0
+  out = []
+  for lot in lots:
+    take = min(need, lot[0])
+    need -= take
+    cost += take * lot[1]
+    if lot[0] - take > 0: out.push((lot[0] - take, lot[1]))
+  (cost, out)
+
+fn main():
+  lots = {}
+  cogs = {}
+  revs = {}
+  profs = {}
+  losses = {}
+  mprofit = {}
+  mloss = {}
+  latest = ""
+  n = 0
+  for raw in stdin().lines():
+    n += 1
+    w = raw.trim().words()
+    if w.is_empty(): continue
+    good = False
+    if len(w) == 5 and w[1] in ["RECEIVE", "SHIP"]:
+      good = date_ok(w[0]) and qty_ok(w[3]) and price_ok(w[4])
+    elif len(w) == 4 and w[1] == "LOSS":
+      good = date_ok(w[0]) and qty_ok(w[3])
+    if not good:
+      print("line {n}: bad line")
+      continue
+    d = w[0]
+    op = w[1]
+    sku = w[2]
+    q = w[3].int()
+    if d < latest:
+      print("line {n}: date out of order")
+      continue
+    if op == "RECEIVE":
+      cost = parse_cents(w[4])
+      if sku not in lots: lots[sku] = []
+      lots[sku].push((q, cost))
+      latest = d
+      continue
+    have = 0
+    if sku in lots: have = onhand(lots[sku])
+    if have < q:
+      print("line {n}: short {sku} need {q} have {have}")
+      continue
+    latest = d
+    cg, rest = consume(lots[sku], q)
+    lots[sku] = rest
+    mo = d[0:7]
+    if mo not in mprofit: mprofit[mo] = 0
+    if mo not in mloss: mloss[mo] = 0
+    if op == "SHIP":
+      price = parse_cents(w[4])
+      rev = q * price
+      prof = rev - cg
+      cogs[sku] = cogs[sku] + cg
+      revs[sku] = revs[sku] + rev
+      profs[sku] = profs[sku] + prof
+      mprofit[mo] = mprofit[mo] + prof
+    else:
+      losses[sku] = losses[sku] + cg
+      mloss[mo] = mloss[mo] + cg
+  for sku, cur in lots.pairs():
+    oh = onhand(cur)
+    val = fmt(value(cur))
+    cg = fmt(cogs[sku])
+    rv = fmt(revs[sku])
+    pf = fmt(profs[sku])
+    ls = fmt(losses[sku])
+    print("{sku} on_hand {oh} value {val} cogs {cg} revenue {rv} profit {pf} loss {ls}")
+  print("months")
+  tp = 0
+  tl = 0
+  for mo, pv in mprofit.pairs():
+    lv = mloss[mo]
+    tp += pv
+    tl += lv
+    print("  {mo} profit {fmt(pv)} loss {fmt(lv)}")
+  net = tp - tl
+  print("total profit {fmt(tp)} loss {fmt(tl)} net {fmt(net)}")

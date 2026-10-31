@@ -1,0 +1,102 @@
+lotq: {str: [int]} = {}
+lotc: {str: [dec]} = {}
+cogs: {str: dec} = {}
+rev: {str: dec} = {}
+loss: {str: dec} = {}
+mprofit: {str: dec} = {}
+mloss: {str: dec} = {}
+mseen: {str: int} = {}
+latest = ""
+
+fn validdate(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}-\d{2}").len() == 0: return false
+  match date(s):
+    Ok(d) => str(d) == s
+    Err(m) => false
+
+fn goodq(s: str) -> bool = s.re_full("\d+").len() > 0 and s.int() >= 1
+fn goodp(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0
+
+fn onhand(sku: str) -> int:
+  t = 0
+  for q in lotq[sku]: t += q
+  t
+
+fn take(sku: str, q: int) -> dec:
+  qs = lotq[sku]
+  cs = lotc[sku]
+  need = q
+  cost = 0.dec()
+  while need > 0:
+    f = min(need, qs[0])
+    cost += cs[0] * f
+    need -= f
+    if f == qs[0]:
+      qs.remove(0)
+      cs.remove(0)
+    else:
+      qs[0] = qs[0] - f
+  lotq[sku] = qs
+  lotc[sku] = cs
+  cost
+
+fn handle(n: int, w: [str]):
+  k = w.len()
+  ok = false
+  if k >= 4 and validdate(w[0]) and w[2].re_full("\w+").len() > 0 and goodq(w[3]):
+    if (w[1] == "RECEIVE" or w[1] == "SHIP") and k == 5 and goodp(w[4]): ok = true
+    elif w[1] == "LOSS" and k == 4: ok = true
+  if not ok:
+    print("line {n}: bad line")
+    return
+  d = w[0]
+  if latest != "" and d < latest:
+    print("line {n}: date out of order")
+    return
+  op = w[1]
+  sku = w[2]
+  q = w[3].int()
+  if op == "RECEIVE":
+    latest = d
+    if not lotq.has(sku):
+      lotq[sku] = []
+      lotc[sku] = []
+    lotq[sku].push(q)
+    lotc[sku].push(w[4].dec())
+    return
+  have = if lotq.has(sku): onhand(sku) else: 0
+  if q > have:
+    print("line {n}: short {sku} need {q} have {have}")
+    return
+  latest = d
+  m = d.slice(0, 7)
+  mseen[m] = 1
+  c = take(sku, q)
+  if op == "SHIP":
+    r = w[4].dec() * q
+    cogs[sku] += c
+    rev[sku] += r
+    mprofit[m] += r - c
+  else:
+    loss[sku] += c
+    mloss[m] += c
+
+n = 0
+for line in lines():
+  n += 1
+  w = line.words()
+  if w.is_empty(): continue
+  handle(n, w)
+tp = 0.dec()
+tl = 0.dec()
+for sku in lotq.keys():
+  val = 0.dec()
+  for i in 0..lotq[sku].len(): val += lotc[sku][i] * lotq[sku][i]
+  pr = rev[sku] - cogs[sku]
+  tp += pr
+  tl += loss[sku]
+  print("{sku} on_hand {onhand(sku)} value {val.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {pr.fmt(2)} loss {loss[sku].fmt(2)}")
+print("months")
+for m in mseen.keys():
+  print("  {m} profit {mprofit[m].fmt(2)} loss {mloss[m].fmt(2)}")
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")

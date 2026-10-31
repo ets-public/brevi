@@ -1,0 +1,284 @@
+fn tokenize(s: str) -> [str]:
+  toks = []
+  cs = s.chars()
+  n = cs.len()
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == " " or c == "\t":
+      i += 1
+    elif c.is_digit():
+      buf = ""
+      while i < n and cs[i].is_digit():
+        buf += cs[i]
+        i += 1
+      toks.push(buf)
+    elif c.is_alpha() or c == "_":
+      buf = ""
+      while i < n and (cs[i].is_alpha() or cs[i].is_digit() or cs[i] == "_"):
+        buf += cs[i]
+        i += 1
+      toks.push(buf)
+    elif c == "=" or c == "<" or c == ">" or c == "!":
+      if i + 1 < n and cs[i + 1] == "=":
+        toks.push(c + "=")
+        i += 2
+      elif c == "!":
+        return ["#bad"]
+      else:
+        toks.push(c)
+        i += 1
+    elif c in ["+", "-", "*", "/", "%", "(", ")", ","]:
+      toks.push(c)
+      i += 1
+    else:
+      return ["#bad"]
+  return toks
+
+fn is_name(x: str) -> bool:
+  if x.is_empty():
+    return false
+  if not x[0].is_alpha():
+    return false
+  return x != "let" and x != "fn" and x != "print" and x != "if"
+
+fn at(t: [str], p: int) -> str:
+  if p < t.len():
+    return t[p]
+  return ""
+
+fn cmp_val(a: int, op: str, b: int) -> int:
+  r = false
+  if op == "==":
+    r = a == b
+  elif op == "!=":
+    r = a != b
+  elif op == "<":
+    r = a < b
+  elif op == ">":
+    r = a > b
+  elif op == "<=":
+    r = a <= b
+  else:
+    r = a >= b
+  if r:
+    return 1
+  return 0
+
+fn ev_cmp(t: [str], pos: int, env: {str: int}, gv: {str: int}, fp: {str: [str]}, fb: {str: [str]}, depth: int, live: bool) -> (int, int):
+  a, p = ev_add(t, pos, env, gv, fp, fb, depth, live)
+  op = at(t, p)
+  if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=":
+    b, q = ev_add(t, p + 1, env, gv, fp, fb, depth, live)
+    if not live:
+      return (0, q)
+    return (cmp_val(a, op, b), q)
+  return (a, p)
+
+fn ev_add(t: [str], pos: int, env: {str: int}, gv: {str: int}, fp: {str: [str]}, fb: {str: [str]}, depth: int, live: bool) -> (int, int):
+  a, p = ev_mul(t, pos, env, gv, fp, fb, depth, live)
+  op = at(t, p)
+  while op == "+" or op == "-":
+    b, q = ev_mul(t, p + 1, env, gv, fp, fb, depth, live)
+    if live:
+      if op == "+":
+        a = a + b
+      else:
+        a = a - b
+    p = q
+    op = at(t, p)
+  return (a, p)
+
+fn ev_mul(t: [str], pos: int, env: {str: int}, gv: {str: int}, fp: {str: [str]}, fb: {str: [str]}, depth: int, live: bool) -> (int, int):
+  a, p = ev_unary(t, pos, env, gv, fp, fb, depth, live)
+  op = at(t, p)
+  while op == "*" or op == "/" or op == "%":
+    b, q = ev_unary(t, p + 1, env, gv, fp, fb, depth, live)
+    if live:
+      if op == "*":
+        a = a * b
+      else:
+        if b == 0:
+          fail("division by zero")
+        if op == "/":
+          a = a / b
+        else:
+          a = a % b
+    p = q
+    op = at(t, p)
+  return (a, p)
+
+fn ev_unary(t: [str], pos: int, env: {str: int}, gv: {str: int}, fp: {str: [str]}, fb: {str: [str]}, depth: int, live: bool) -> (int, int):
+  if at(t, pos) == "-":
+    v, p = ev_unary(t, pos + 1, env, gv, fp, fb, depth, live)
+    if live:
+      return (0 - v, p)
+    return (0, p)
+  return ev_prim(t, pos, env, gv, fp, fb, depth, live)
+
+fn ev_prim(t: [str], pos: int, env: {str: int}, gv: {str: int}, fp: {str: [str]}, fb: {str: [str]}, depth: int, live: bool) -> (int, int):
+  tok = at(t, pos)
+  if tok == "(":
+    v, p = ev_cmp(t, pos + 1, env, gv, fp, fb, depth, live)
+    if at(t, p) != ")":
+      fail("syntax")
+    return (v, p + 1)
+  if tok.re_full("\d+"):
+    return (tok.int(), pos + 1)
+  if tok == "if" and at(t, pos + 1) == "(":
+    return ev_if(t, pos + 2, env, gv, fp, fb, depth, live)
+  if is_name(tok):
+    if at(t, pos + 1) == "(":
+      return ev_call(t, tok, pos + 2, env, gv, fp, fb, depth, live)
+    if not live:
+      return (0, pos + 1)
+    if env.has(tok):
+      return (env[tok], pos + 1)
+    if gv.has(tok):
+      return (gv[tok], pos + 1)
+    fail("unknown name {tok}")
+  fail("syntax")
+
+fn ev_if(t: [str], pos: int, env: {str: int}, gv: {str: int}, fp: {str: [str]}, fb: {str: [str]}, depth: int, live: bool) -> (int, int):
+  starts = []
+  p = pos
+  more = at(t, p) != ")"
+  if not more:
+    p += 1
+  while more:
+    starts.push(p)
+    dv, p = ev_cmp(t, p, env, gv, fp, fb, depth, false)
+    if at(t, p) == ",":
+      p += 1
+    elif at(t, p) == ")":
+      p += 1
+      more = false
+    else:
+      fail("syntax")
+  if not live:
+    return (0, p)
+  if starts.len() != 3:
+    fail("if takes 3 arguments")
+  c, dq = ev_cmp(t, starts[0], env, gv, fp, fb, depth, true)
+  if c != 0:
+    v, dq = ev_cmp(t, starts[1], env, gv, fp, fb, depth, true)
+  else:
+    v, dq = ev_cmp(t, starts[2], env, gv, fp, fb, depth, true)
+  return (v, p)
+
+fn ev_call(t: [str], name: str, pos: int, env: {str: int}, gv: {str: int}, fp: {str: [str]}, fb: {str: [str]}, depth: int, live: bool) -> (int, int):
+  if live and not fb.has(name):
+    fail("unknown function {name}")
+  vals = []
+  p = pos
+  more = at(t, p) != ")"
+  if not more:
+    p += 1
+  while more:
+    v, p = ev_cmp(t, p, env, gv, fp, fb, depth, live)
+    vals.push(v)
+    if at(t, p) == ",":
+      p += 1
+    elif at(t, p) == ")":
+      p += 1
+      more = false
+    else:
+      fail("syntax")
+  if not live:
+    return (0, p)
+  ps = fp[name]
+  k = ps.len()
+  if vals.len() != k:
+    fail("{name} takes {k} arguments")
+  if depth >= 200:
+    fail("too deep")
+  e2 = {}
+  for i in 0..k:
+    e2[ps[i]] = vals[i]
+  body = fb[name]
+  r, dq = ev_cmp(body, 0, e2, gv, fp, fb, depth + 1, true)
+  return (r, p)
+
+fn exec_stmt(t: [str], mut gv: {str: int}, mut fp: {str: [str]}, mut fb: {str: [str]}, live: bool):
+  if t.is_empty():
+    fail("syntax")
+  kw = t[0]
+  env0 = {}
+  if kw == "let":
+    if t.len() < 4 or not is_name(t[1]) or t[2] != "=":
+      fail("syntax")
+    v, p = ev_cmp(t, 3, env0, gv, fp, fb, 0, live)
+    if p != t.len():
+      fail("syntax")
+    if live:
+      gv[t[1]] = v
+  elif kw == "fn":
+    if t.len() < 5 or not is_name(t[1]) or t[2] != "(":
+      fail("syntax")
+    ps = []
+    p = 3
+    if at(t, p) != ")":
+      more = true
+      while more:
+        if not is_name(at(t, p)):
+          fail("syntax")
+        ps.push(t[p])
+        p += 1
+        if at(t, p) == ",":
+          p += 1
+        else:
+          more = false
+    if at(t, p) != ")":
+      fail("syntax")
+    p += 1
+    if at(t, p) != "=":
+      fail("syntax")
+    p += 1
+    body = t[p:]
+    if body.is_empty():
+      fail("syntax")
+    dv, q = ev_cmp(body, 0, env0, gv, fp, fb, 0, false)
+    if q != body.len():
+      fail("syntax")
+    if live:
+      fp[t[1]] = ps
+      fb[t[1]] = body
+  elif kw == "print":
+    vals = []
+    p = 1
+    more = true
+    while more:
+      v, p = ev_cmp(t, p, env0, gv, fp, fb, 0, live)
+      vals.push(v)
+      if at(t, p) == ",":
+        p += 1
+      else:
+        more = false
+    if p != t.len():
+      fail("syntax")
+    if live:
+      parts = []
+      for pv in vals:
+        parts.push(str(pv))
+      print(" ".join(parts))
+  else:
+    fail("syntax")
+
+fn run_stmt(s: str, mut gv: {str: int}, mut fp: {str: [str]}, mut fb: {str: [str]}) -> int:
+  t = tokenize(s)
+  exec_stmt(t, gv, fp, fb, false)
+  exec_stmt(t, gv, fp, fb, true)
+  return 1
+
+fn main():
+  gv = {}
+  fp = {}
+  fb = {}
+  for i, line in enumerate(lines()):
+    s = line.trim()
+    if s.is_empty() or s.starts_with("#"):
+      continue
+    ln = i + 1
+    match run_stmt(s, gv, fp, fb):
+      Ok(v) => v
+      Err(msg) => print("error line {ln}: {msg}")

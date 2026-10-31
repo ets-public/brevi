@@ -769,6 +769,8 @@ impl Cx<'_> {
                 bind_params(ps, et, &mut inner);
                 self.ty(body, &inner)
             }
+            // `xs.map(decode)`: a function passed by name gives its return type.
+            Some(Expr::Ident(f)) if !env.contains_key(f) => self.fns.get(f).map(|(_, r)| r.clone()).unwrap_or(Hole),
             _ => Hole,
         };
         match m {

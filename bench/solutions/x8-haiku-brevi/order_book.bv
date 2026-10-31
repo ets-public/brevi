@@ -1,0 +1,128 @@
+type Order:
+  side: str
+  price: int
+  seq: int
+  oid: str
+  qty: int
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  whole = parts[0].int()
+  frac = 0
+  if len(parts) == 2:
+    f = parts[1]
+    if len(f) == 1: f = f + "0"
+    frac = f.int()
+  whole * 100 + frac
+
+fn pfmt(p: int) -> str:
+  whole = p // 100
+  frac = p % 100
+  "{whole}.{frac:02d}"
+
+fn qty_ok(s: str) -> bool:
+  if not s.re_full('\d+'): return False
+  s.int().or(0) >= 1
+
+fn price_ok(s: str) -> bool:
+  if not s.re_full('\d+(\.\d{1,2})?'): return False
+  cents(s) > 0
+
+fn main():
+  lines = stdin().lines()
+  resting = []
+  seen = {}
+  seq = 0
+  volume = 0
+  value = 0
+  n = 0
+  for raw in lines:
+    n += 1
+    w = raw.trim().words()
+    if w.is_empty(): continue
+    cmd = w[0]
+    if cmd == "BOOK" and len(w) == 1:
+      print("asks")
+      lv = {}
+      bl = {}
+      for o in resting:
+        if o.side == "S": lv[o.price] += o.qty
+        else: bl[o.price] += o.qty
+      if lv.is_empty(): print("  -")
+      for p, q in lv.pairs(): print("  {pfmt(p)} {q}")
+      print("bids")
+      if bl.is_empty(): print("  -")
+      for p in bl.keys().rev(): print("  {pfmt(p)} {bl[p]}")
+      continue
+    if cmd == "CANCEL" and len(w) == 2:
+      idx = -1
+      for i in range(len(resting)):
+        if resting[i].oid == w[1]: idx = i
+      if idx < 0:
+        print("ERR line {n}: unknown ID")
+      else:
+        print("CANCELLED {w[1]} {resting[idx].qty}")
+        resting.remove(idx)
+      continue
+    side = ""
+    if cmd == "BUY" or cmd == "MBUY": side = "B"
+    if cmd == "SELL" or cmd == "MSELL": side = "S"
+    is_market = cmd.starts_with("M")
+    good = False
+    if side != "":
+      if is_market:
+        good = len(w) == 3 and qty_ok(w[2])
+      else:
+        good = len(w) == 4 and qty_ok(w[2]) and price_ok(w[3])
+    if not good:
+      print("ERR line {n}: bad command")
+      continue
+    oid = w[1]
+    if oid in seen:
+      print("ERR line {n}: duplicate ID")
+      continue
+    seen[oid] = True
+    seq += 1
+    myseq = seq
+    qty = w[2].int()
+    price = 0
+    limit = 0
+    if is_market:
+      limit = 100000000000000 if side == "B" else 0
+    else:
+      price = cents(w[3])
+      limit = price
+    left = qty
+    while left > 0:
+      best = -1
+      bestk = (0, 0)
+      for i in range(len(resting)):
+        o = resting[i]
+        if o.side == side: continue
+        if side == "B":
+          if o.price > limit: continue
+          k = (o.price, o.seq)
+        else:
+          if o.price < limit: continue
+          k = (-o.price, o.seq)
+        if best < 0 or k < bestk:
+          best = i
+          bestk = k
+      if best < 0: break
+      o = resting[best]
+      q = min(left, o.qty)
+      bid = oid
+      sid = o.oid
+      if side == "S":
+        bid = o.oid
+        sid = oid
+      print("TRADE {bid} {sid} {q} {pfmt(o.price)}")
+      volume += q
+      value += q * o.price
+      left -= q
+      if q == o.qty: resting.remove(best)
+      else: resting[best] = Order(o.side, o.price, o.seq, o.oid, o.qty - q)
+    if left > 0:
+      if is_market: print("DROPPED {oid} {left}")
+      else: resting.push(Order(side, price, myseq, oid, left))
+  print("volume {volume} value {pfmt(value)}")

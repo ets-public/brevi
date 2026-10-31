@@ -1,0 +1,23 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn report(g: Graph):
+  names = [t.name for t in g.tasks]
+  print("unlimited")
+  for i in range(len(names)):
+    print("  {names[i]} {g.st[i]}-{g.en[i]}")
+  print("length {g.length}")
+  chain_names = [names[i] for i in g.chain]
+  cs = chain_names.join(" > ")
+  print("critical {cs}")
+  s2, e2, l2 = schedule(g)
+  print("workers {g.k}")
+  for i in range(len(names)):
+    print("  {names[i]} {s2[i]}-{e2[i]}")
+  print("length {l2}")
+
+fn main():
+  lines = stdin().lines()
+  match check(lines):
+    Ok(g) => report(g)
+    Err(msg) => print(msg)

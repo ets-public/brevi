@@ -1,0 +1,31 @@
+type Book:
+  id: str
+  title: str
+  shelf: int
+  waiting: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [str]
+  dues: [int]
+
+type Hold:
+  last: int
+  book: str
+  member: str
+
+type Lib:
+  books: {str: Book} = {}
+  members: {str: Member} = {}
+  holds: [Hold] = []
+
+fn new_book(id: str, title: str, copies: int) -> Book = Book(id: id, title: title, shelf: copies, waiting: [])
+fn new_member(id: str, name: str, tier: str) -> Member = Member(id: id, name: name, tier: tier, owes: 0.dec(), loans: [], dues: [])
+
+fn limit_of(tier: str) -> int = if tier == "plus": 5 else: 2
+fn days_of(tier: str) -> int = if tier == "plus": 28 else: 14
+fn rate_of(tier: str) -> dec = if tier == "plus": "0.10".dec() else: "0.25".dec()
+fn dstr(d: int) -> str = str(date("1970-01-01").add_days(d))

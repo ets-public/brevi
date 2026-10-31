@@ -1,0 +1,33 @@
+use "graph.bv"
+
+fn schedule(tasks: [Task], k: int, tl: [int]) -> ([int], [int]):
+  n = tasks.len()
+  names = [t.name for t in tasks]
+  start = [0].repeat(n)
+  end = [0].repeat(n)
+  state = [0].repeat(n)
+  running = []
+  fin = 0
+  t = 0
+  while fin < n:
+    for i in running:
+      if end[i] == t:
+        state[i] = 2
+        fin += 1
+    running = [i for i in running if state[i] == 1]
+    while running.len() < k:
+      best = -1
+      for i in 0..n:
+        if state[i] != 0: continue
+        ready = true
+        for d in tasks[i].deps:
+          if state[names.index_of(d)] != 2: ready = false
+        if ready and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0: break
+      state[best] = 1
+      start[best] = t
+      end[best] = t + tasks[best].days
+      running.push(best)
+    if running.is_empty(): break
+    t = min(end[i] for i in running)
+  (start, end)

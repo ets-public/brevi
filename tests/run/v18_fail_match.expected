@@ -1,0 +1,6 @@
+ok a
+error: syntax
+error: no table y
+Book { id: "a", shelf: 2, wait: ["m"] } -3
+true true
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

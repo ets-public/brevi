@@ -543,6 +543,15 @@ fn root_name(e: &Expr) -> Option<&str> {
 }
 
 // True when the block sets `name` or calls a method that changes it, like `name.sort()`.
+// `m[k]`, `m[k].f`, `xs[i].0.f`: a place inside a list or map.
+fn through_index(e: &Expr) -> bool {
+    match e {
+        Expr::Index(..) => true,
+        Expr::Field(b, _) | Expr::TupleField(b, _) => through_index(b),
+        _ => false,
+    }
+}
+
 fn changes(e: &Expr, name: &str) -> bool {
     if assigns_to(e, name) {
         return true;
@@ -1482,7 +1491,7 @@ impl Emitter {
                         }
                         other => format!("({})", self.expr(other)),
                     }
-                } else if MUTATING_METHODS.contains(&name.as_str()) && matches!(recv.as_ref(), Expr::Index(..)) {
+                } else if MUTATING_METHODS.contains(&name.as_str()) && through_index(recv) {
                     self.place_mut(recv)
                 } else {
                     self.place(recv)

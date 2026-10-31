@@ -1,0 +1,112 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn is_name(s: str) -> bool = s.re_full("\w+").len() > 0
+
+fn parse_task(line: str) -> (bool, Task):
+  w = line.words()
+  bad = Task("", 0, [])
+  if w.len() < 2: return (false, bad)
+  if not is_name(w[0]) or w[1].re_full("\d+").len() == 0: return (false, bad)
+  d = w[1].int()
+  if d < 1: return (false, bad)
+  if w.len() == 2: return (true, Task(w[0], d, []))
+  if w[2] != "after" or w.len() < 4: return (false, bad)
+  deps = []
+  for part in w.skip(3).join(" ").split(","):
+    s = part.trim()
+    if not is_name(s): return (false, bad)
+    deps.push(s)
+  (true, Task(w[0], d, deps))
+
+fn parse_input(ls: [str]) -> (str, int, [Task]):
+  tasks = []
+  names = {}
+  k = 0
+  first = true
+  n = 0
+  for line in ls:
+    n += 1
+    if line.trim().is_empty(): continue
+    if first:
+      first = false
+      w = line.words()
+      if w.len() != 2 or w[0] != "workers" or w[1].re_full("\d+").len() == 0 or w[1].int() < 1:
+        return ("line {n}: bad line", 0, tasks)
+      k = w[1].int()
+      continue
+    r = parse_task(line)
+    if not r.0: return ("line {n}: bad line", 0, tasks)
+    t = r.1
+    if names.has(t.name): return ("line {n}: duplicate {t.name}", 0, tasks)
+    names[t.name] = 1
+    tasks.push(t)
+  if first: return ("line 1: bad line", 0, tasks)
+  ("", k, tasks)
+
+fn dep_idx(tasks: [Task]) -> [[int]]:
+  idx = {}
+  for i in 0..tasks.len(): idx[tasks[i].name] = i
+  out = []
+  for t in tasks: out.push([idx[d] for d in t.deps if idx.has(d)])
+  out
+
+fn topo(deps: [[int]]) -> [int]:
+  n = deps.len()
+  placed = [0].repeat(n)
+  order = []
+  while true:
+    prog = false
+    for i in 0..n:
+      if placed[i] == 0 and all(placed[d] == 1 for d in deps[i]):
+        placed[i] = 1
+        order.push(i)
+        prog = true
+    if not prog: break
+  order
+
+fn check(tasks: [Task]) -> str:
+  names = {}
+  for t in tasks: names[t.name] = 1
+  for t in tasks:
+    for d in t.deps:
+      if not names.has(d): return "unknown {d}"
+  if topo(dep_idx(tasks)).len() < tasks.len(): return "cycle"
+  ""
+
+fn starts(tasks: [Task]) -> [int]:
+  deps = dep_idx(tasks)
+  st = [0].repeat(tasks.len())
+  for i in topo(deps):
+    s = 0
+    for d in deps[i]: s = max(s, st[d] + tasks[d].days)
+    st[i] = s
+  st
+
+fn critical(tasks: [Task], st: [int]) -> [str]:
+  n = tasks.len()
+  deps = dep_idx(tasks)
+  len_all = 0
+  for i in 0..n: len_all = max(len_all, st[i] + tasks[i].days)
+  good = [0].repeat(n)
+  for i in topo(deps).rev():
+    e = st[i] + tasks[i].days
+    if e == len_all:
+      good[i] = 1
+    else:
+      for j in 0..n:
+        if i in deps[j] and st[j] == e and good[j] == 1: good[i] = 1
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and good[i] == 1: cur = i
+  out = []
+  while cur >= 0:
+    out.push(tasks[cur].name)
+    e = st[cur] + tasks[cur].days
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and cur in deps[j] and st[j] == e and good[j] == 1: nxt = j
+    cur = nxt
+  out

@@ -1,0 +1,28 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  books = {}
+  members = {}
+  holds = []
+  for raw in lines():
+    w = raw.words()
+    if w.is_empty():
+      continue
+    day = dnum(w[0])
+    expire_holds(books, holds, day)
+    op = w[1]
+    if op == "BOOK":
+      add_book(books, w[2], w[3].int())
+    elif op == "MEMBER":
+      add_member(members, w[2], w[3], " ".join(w[4:]))
+    elif op == "LOAN":
+      do_loan(books, members, holds, day, w[2], w[3])
+    elif op == "RETURN":
+      do_return(books, members, holds, day, w[2], w[3])
+    elif op == "RESERVE":
+      do_reserve(books, members, w[2], w[3])
+    elif op == "PAY":
+      do_pay(members, w[2], parse_money(w[3]))
+    elif op == "STATUS":
+      do_status(members, w[2])

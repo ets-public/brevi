@@ -489,8 +489,14 @@ impl Parser {
             self.next();
             self.skip_newlines();
             let rhs = self.binary(level + 1)?;
+            let empty = |e: &Expr| matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(m) if m.is_empty());
             lhs = if op == ".." {
                 Expr::Range(Box::new(lhs), Box::new(rhs))
+            } else if (op == "==" || op == "!=") && (empty(&lhs) || empty(&rhs)) {
+                // `xs == []` and `m != {}` test for empty.
+                let x = if empty(&rhs) { lhs } else { rhs };
+                let t = Expr::Method(Box::new(x), "is_empty".into(), vec![], self.line());
+                if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
             } else {
                 Expr::Binary(op, Box::new(lhs), Box::new(rhs))
             };
@@ -861,6 +867,11 @@ impl Parser {
                     self.skip_seps();
                 }
                 self.expect_sym("}")?;
+                // `match run(x):` with only an `Err(m)` arm: success needs nothing done.
+                let has = |n: &str| arms.iter().any(|(p, _)| matches!(p, Pat::Variant(v, _) if v == n));
+                if has("Err") && !has("Ok") && !arms.iter().any(|(p, _)| matches!(p, Pat::Wild | Pat::Bind(_))) {
+                    arms.push((Pat::Variant("Ok".into(), vec![Pat::Wild]), Expr::Block(vec![], None)));
+                }
                 Ok(Expr::Match(Box::new(subject), arms))
             }
             Tok::Kw("for") => {

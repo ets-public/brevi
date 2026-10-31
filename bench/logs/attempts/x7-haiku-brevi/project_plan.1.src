@@ -1,0 +1,227 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn main():
+  (err, k, names, days, dnames) = parse_input(lines())
+  if err != "":
+    print(err)
+    return
+  n = names.len()
+  (rerr, deps) = resolve(names, dnames)
+  if rerr != "":
+    print(rerr)
+    return
+  order = topo_order(n, deps)
+  if order.len() < n:
+    print("cycle")
+    return
+  succ = succs(n, deps)
+  (st, en) = unlimited(n, order, days, deps)
+  big = 0
+  for e in en:
+    if e > big:
+      big = e
+  print("unlimited")
+  for i in 0..n:
+    nm = names[i]
+    a = st[i]
+    b = en[i]
+    print("  {nm} {a}-{b}")
+  print("length {big}")
+  chain = critical(n, st, en, succ, big)
+  if chain.is_empty():
+    print("critical")
+  else:
+    cn = []
+    for c in chain:
+      cn.push(names[c])
+    cs = " > ".join(cn)
+    print("critical {cs}")
+  tl = tails(n, order, days, succ)
+  (ss, se) = make_schedule(k, n, days, deps, tl)
+  print("workers {k}")
+  top = 0
+  for i in 0..n:
+    nm = names[i]
+    a = ss[i]
+    b = se[i]
+    if b > top:
+      top = b
+    print("  {nm} {a}-{b}")
+  print("length {top}")
+## graph.bv
+fn parse_input(ls: [str]) -> (str, int, [str], [int], [[str]]):
+  k = 0
+  have_k = false
+  names = []
+  days = []
+  dnames = []
+  seen = {}
+  for i, raw in enumerate(ls):
+    ln = i + 1
+    s = raw.trim()
+    if s.is_empty():
+      continue
+    if not have_k:
+      m = s.re_full("workers\s+(\d+)")
+      if m.is_empty() or m[1].int() < 1:
+        return ("line {ln}: bad line", 0, [], [], [])
+      k = m[1].int()
+      have_k = true
+    else:
+      m = s.re_full("(\w+)\s+(\d+)")
+      deps_here = []
+      if m.is_empty():
+        m = s.re_full("(\w+)\s+(\d+)\s+after\s+(.+)")
+        if m.is_empty():
+          return ("line {ln}: bad line", 0, [], [], [])
+        for p in m[3].split(","):
+          dn = p.trim()
+          if not dn.re_full("\w+"):
+            return ("line {ln}: bad line", 0, [], [], [])
+          deps_here.push(dn)
+      if m[2].int() < 1:
+        return ("line {ln}: bad line", 0, [], [], [])
+      nm = m[1]
+      if seen.has(nm):
+        return ("line {ln}: duplicate {nm}", 0, [], [], [])
+      seen[nm] = true
+      names.push(nm)
+      days.push(m[2].int())
+      dnames.push(deps_here)
+  if not have_k:
+    return ("line 1: bad line", 0, [], [], [])
+  return ("", k, names, days, dnames)
+
+fn resolve(names: [str], dnames: [[str]]) -> (str, [[int]]):
+  idx = {}
+  for i in 0..names.len():
+    idx[names[i]] = i
+  for dl in dnames:
+    for dn in dl:
+      if not idx.has(dn):
+        return ("unknown {dn}", [])
+  deps = []
+  for dl in dnames:
+    deps.push([idx[dn] for dn in dl])
+  return ("", deps)
+
+fn succs(n: int, deps: [[int]]) -> [[int]]:
+  out = []
+  for i in 0..n:
+    out.push([])
+  for i in 0..n:
+    for d in deps[i]:
+      ls = out[d]
+      ls.push(i)
+      out[d] = ls
+  return out
+
+fn topo_order(n: int, deps: [[int]]) -> [int]:
+  succ = succs(n, deps)
+  indeg = []
+  for i in 0..n:
+    indeg.push(deps[i].len())
+  order = []
+  for i in 0..n:
+    if indeg[i] == 0:
+      order.push(i)
+  h = 0
+  while h < order.len():
+    cur = order[h]
+    h += 1
+    for s in succ[cur]:
+      indeg[s] = indeg[s] - 1
+      if indeg[s] == 0:
+        order.push(s)
+  return order
+
+fn unlimited(n: int, order: [int], days: [int], deps: [[int]]) -> ([int], [int]):
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  for i in order:
+    s0 = 0
+    for d in deps[i]:
+      if en[d] > s0:
+        s0 = en[d]
+    st[i] = s0
+    en[i] = s0 + days[i]
+  return (st, en)
+
+fn critical(n: int, st: [int], en: [int], succ: [[int]], big: int) -> [int]:
+  reach = [false].repeat(n)
+  for pass_i in 0..n:
+    for i in 0..n:
+      if not reach[i]:
+        if en[i] == big:
+          reach[i] = true
+        else:
+          for s in succ[i]:
+            if st[s] == en[i] and reach[s]:
+              reach[i] = true
+  cur = -1
+  for i in 0..n:
+    if st[i] == 0 and reach[i]:
+      cur = i
+      break
+  chain = []
+  if cur < 0:
+    return chain
+  chain.push(cur)
+  more = true
+  while more:
+    nxt = -1
+    for s in succ[cur]:
+      if st[s] == en[cur] and reach[s]:
+        nxt = s
+        break
+    if nxt < 0:
+      more = false
+    else:
+      chain.push(nxt)
+      cur = nxt
+  return chain
+
+fn tails(n: int, order: [int], days: [int], succ: [[int]]) -> [int]:
+  tl = [0].repeat(n)
+  for i in order.rev():
+    best = 0
+    for s in succ[i]:
+      if tl[s] > best:
+        best = tl[s]
+    tl[i] = days[i] + best
+  return tl
+## schedule.bv
+fn make_schedule(k: int, n: int, days: [int], deps: [[int]], tl: [int]) -> ([int], [int]):
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  started = [false].repeat(n)
+  done = [false].repeat(n)
+  running = 0
+  count_done = 0
+  t = 0
+  while count_done < n:
+    for i in 0..n:
+      if started[i] and not done[i] and en[i] == t:
+        done[i] = true
+        running -= 1
+        count_done += 1
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if not started[i]:
+          ready = true
+          for d in deps[i]:
+            if not done[d]:
+              ready = false
+          if ready and (best < 0 or tl[i] > tl[best]):
+            best = i
+      if best < 0:
+        break
+      started[best] = true
+      st[best] = t
+      en[best] = t + days[best]
+      running += 1
+    t += 1
+  return (st, en)
