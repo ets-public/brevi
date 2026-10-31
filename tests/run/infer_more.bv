@@ -1,0 +1,33 @@
+# Empty values typed from a later loop or if, branch-set names, value matches with `_ => {}`,
+# mut parameters given a literal, Json maps returned from functions, and top-level code beside fn main.
+P = "\\{(\\w+)\\}"
+owners = []
+bals = []
+fn acct(i: int) = {"id": i, "owner": owners[i - 1], "balance": bals[i - 1]}
+fn bump(mut n: int) -> int:
+  n += 1
+  n
+fn pick(k: str) -> str:
+  if k == "a":
+    r = "x"
+  else:
+    r = "y"
+  memo[k] = r
+  r
+memo = {}
+fn main():
+  for line in ["c ann", "c bob", "l"]:
+    w = line.words()
+    if w[0] == "l":
+      pairs = []
+      for i in 0..owners.len():
+        pairs.push((-bals[i], i))
+      print(pairs.sort())
+    else:
+      owners.push(w[1])
+      bals.push(owners.len())
+  print(str(acct(1)), bump(41), pick("a"), pick("b"), memo)
+  m = match json("[1]"):
+    Obj(o) => o
+    _ => {}
+  print(m.len(), "\{ab\}".re_full(P))

@@ -131,7 +131,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             col += 1;
             // Inside `{...}` the text is kept as written (quotes included), to be lexed again as an expression.
             let (mut depth, mut inner_str, mut esc_open, mut lone_open) = (0usize, false, 0usize, 0usize);
+            // Just after `\\`: a `{` here is a regex's escaped brace (`"\\{(\\d+)\\}"`), never a value.
+            let mut after_bs = false;
             loop {
+                let bs = std::mem::take(&mut after_bs);
                 if depth > 0 {
                     match chars.get(i) {
                         None | Some('\n') => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \"")),
@@ -185,7 +188,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 2;
                         col += 2;
                     }
-                    Some('{') if chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"')) && interp_closes(&chars, i + 1) => {
+                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '-' | '!' | '"')) && interp_closes(&chars, i + 1) => {
                         depth = 1;
                         s.push('{');
                         i += 1;
@@ -210,6 +213,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     }
                     Some('\\') => {
                         let e = chars.get(i + 1).copied().unwrap_or(' ');
+                        after_bs = e == '\\';
                         if e == '{' || e == '}' {
                             s.push(e);
                         }

@@ -379,6 +379,7 @@ fn expr_reads_before_set(e: &Expr, n: &str) -> bool {
         }),
         Expr::For(_, it, body) => mentions(&format!("{it:?}")) || block(body),
         Expr::While(c, body) => mentions(&format!("{c:?}")) || block(body),
+        Expr::Match(subj, arms) => mentions(&format!("{subj:?}")) || arms.iter().any(|(_, a)| block(a)),
         Expr::Block(..) => block(e),
         other => mentions(&format!("{other:?}")),
     }
@@ -613,6 +614,8 @@ impl Emitter {
                     Some(t) => {
                         self.globals.insert(n.clone(), (t, *line));
                     }
+                    // No type known: functions that set the name before reading it have their own local, as in Python.
+                    None if others.iter().filter(|(_, b, _, _)| b.contains(&id)).all(|(ps, _, _, body)| ps.contains(n) || !expr_reads_before_set(body, n)) => {}
                     None => {
                         let example = match value {
                             Expr::List(_) => "[int] = []",
@@ -657,6 +660,7 @@ impl Emitter {
                 Expr::Call(n, _, _) if n == "read" => named("str"),
                 Expr::Call(n, _, _) if n == "json" => named("Json"),
                 Expr::Call(n, _, _) if n == "date" => named("Date"),
+                Expr::Call(..) => self.infer_ty(inner),
                 _ => None,
             },
             Expr::Method(_, m, _, _) => match m.as_str() {
@@ -721,7 +725,10 @@ impl Emitter {
             let core = |s: &str| s.trim_matches(|c| c == '.' || c == '(').to_string();
             let (a, b) = (core(&old), core(&new));
             let mut d = d.with_edit(&old, &new);
-            d.sure = edit_distance(&a, &b) <= if a.chars().count() >= 6 { 2 } else { 1 } || a.to_lowercase() == b.to_lowercase();
+            // Short names are too close to each other to guess (`a` is one letter from `m`).
+            let len = a.chars().count();
+            let allowed = if len >= 6 { 2 } else if len >= 4 { 1 } else { 0 };
+            d.sure = edit_distance(&a, &b) <= allowed || a.to_lowercase() == b.to_lowercase();
             self.diags.push(d);
         }
     }
@@ -1052,7 +1059,8 @@ impl Emitter {
                 let p = if let Pat::Tuple(ps) = name { mut_binds(ps, &p) } else { p };
                 format!("let {}{p}{t} = {v};", if *mutable || matches!(name, Pat::Bind(_)) { "mut " } else { "" })
             }
-            Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) => {
+            // Setting a top-level name works even before the script's own line has set it.
+            Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) || self.global(n).is_some() => {
                 let v = self.expr(value);
                 format!("unsafe {{ AXG_{n} = Some({v}); }}")
             }
@@ -1463,7 +1471,11 @@ impl Emitter {
             self.unbox.clear();
             let p = self.pat(p);
             let unbox: String = std::mem::take(&mut self.unbox).iter().map(|x| format!("let mut {x} = *{x}.0; ")).collect();
-            let b = self.block_d(body, discard);
+            // `_ => {}` in a match that gives a value is that value's empty or zero form.
+            let b = match body {
+                Expr::Block(st, None) if st.is_empty() && !discard => "{ Default::default() }".to_string(),
+                body => self.block_d(body, discard),
+            };
             self.locals = outer;
             let b = if unbox.is_empty() { b } else { format!("{{ {unbox}{b} }}") };
             out.push_str(&format!("        {p} => {b},\n"));
@@ -1507,6 +1519,8 @@ impl Emitter {
             for (i, p) in params.iter().enumerate() {
                 let found = args.iter().position(|(n, _)| n.as_deref() == Some(p.name.as_str())).or(if args.get(i).map_or(false, |(n, _)| n.is_none()) { Some(i) } else { None });
                 match found {
+                    // A value that is not a variable (`f(0)`) is passed as a fresh copy the function may change.
+                    Some(j) if p.is_mut && !matches!(args[j].1, Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleField(..)) => ordered.push(format!("&mut ({})", plain[j])),
                     Some(j) if p.is_mut => ordered.push(format!("&mut {}", self.place_mut(&args[j].1))),
                     Some(j) => ordered.push(plain[j].clone()),
                     None => {}

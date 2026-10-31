@@ -42,9 +42,26 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         }
     }
     if !script.is_empty() {
-        if items.iter().any(|i| matches!(i, Item::Fn { name, .. } if name == "main")) {
-            return Err(Diag::new("parse", script_line, 1, "top-level statements and fn main cannot both be used")
-                .fix_hint("move these statements into main, or delete fn main"));
+        // Top-level statements beside fn main run first, then main, as in a Python file that ends with main().
+        let mut script = script;
+        if let Some(Item::Fn { name, params, .. }) = items.iter_mut().find(|i| matches!(i, Item::Fn { name, .. } if name == "main")) {
+            if !params.is_empty() {
+                return Err(Diag::new("parse", script_line, 1, "main takes no parameters").fix_hint("use args() to read command line arguments"));
+            }
+            *name = "main_".into();
+            let calls = |st: &Stmt| matches!(st, Stmt::Expr { expr: Expr::Call(f, a, _), .. } if f == "main" && a.is_empty());
+            if script.iter().any(|st| calls(st)) {
+                for st in script.iter_mut() {
+                    if let Stmt::Expr { expr: Expr::Call(f, a, _), .. } = st {
+                        if f == "main" && a.is_empty() {
+                            *f = "main_".into();
+                        }
+                    }
+                }
+            } else {
+                let line = script.last().map_or(script_line, |_| script_line);
+                script.push(Stmt::Expr { expr: Expr::Call("main_".into(), vec![], line), line });
+            }
         }
         items.push(Item::Fn {
             name: "main".into(),

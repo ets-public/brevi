@@ -190,7 +190,7 @@ impl Cx<'_> {
         match e {
             Expr::Block(stmts, tail) => {
                 let mut inner = env.clone();
-                self.stmts(stmts, &mut inner, top);
+                self.stmts(stmts, tail.as_deref(), &mut inner, top);
                 if let Some(t) = tail {
                     self.walk(t, &mut inner, false);
                 }
@@ -228,7 +228,7 @@ impl Cx<'_> {
         }
     }
 
-    fn stmts(&mut self, stmts: &[Stmt], env: &mut Env, top: bool) {
+    fn stmts(&mut self, stmts: &[Stmt], tail: Option<&Expr>, env: &mut Env, top: bool) {
         // Top-level names with a plain value (`nextid = 1`) are known inside functions too.
         let mut globals = env.clone();
         if top {
@@ -250,7 +250,14 @@ impl Cx<'_> {
             if let Some((n, value, line)) = decl {
                 if let Some(base) = empty_kind(value) {
                     let mut t = base.clone();
-                    self.look(n, &stmts[i + 1..], &mut env.clone(), &mut t);
+                    {
+                        // The block's last expression (often a loop or an if) is part of what follows.
+                        let mut later = env.clone();
+                        self.look(n, &stmts[i + 1..], tail, &mut later, &mut t);
+                        if let Some(tl) = tail {
+                            self.look_expr(n, tl, &mut later, &mut t);
+                        }
+                    }
                     if top {
                         // A top-level name may be filled inside functions.
                         for (ps, body) in self.others.clone() {
@@ -348,8 +355,8 @@ impl Cx<'_> {
     }
 
     // ---- look ahead: what do later statements put into `n`? ----
-    fn look(&mut self, n: &str, stmts: &[Stmt], env: &mut Env, acc: &mut T) {
-        for st in stmts {
+    fn look(&mut self, n: &str, stmts: &[Stmt], tail: Option<&Expr>, env: &mut Env, acc: &mut T) {
+        for (i, st) in stmts.iter().enumerate() {
             match st {
                 Stmt::Let { name, ty, value, .. } => {
                     self.look_expr(n, value, env, acc);
@@ -384,6 +391,17 @@ impl Cx<'_> {
                             self.look_expr(n, b, env, acc);
                             self.look_expr(n, k, env, acc);
                         }
+                        // Another empty value declared on the way: work out its type from the lines after it first.
+                        (Expr::Ident(m), "=") if !env.contains_key(m) && empty_kind(value).is_some() && m != n => {
+                            let mut mt = empty_kind(value).unwrap();
+                            let mut later = env.clone();
+                            later.insert(m.clone(), mt.clone());
+                            self.look(m, &stmts[i + 1..], tail, &mut later, &mut mt);
+                            if let Some(tl) = tail {
+                                self.look_expr(m, tl, &mut later, &mut mt);
+                            }
+                            env.insert(m.clone(), mt);
+                        }
                         (Expr::Ident(m), "=") if !env.contains_key(m) => {
                             env.insert(m.clone(), vt);
                         }
@@ -400,7 +418,17 @@ impl Cx<'_> {
                         (t, _) => self.look_expr(n, t, env, acc),
                     }
                 }
-                Stmt::Expr { expr, .. } => self.look_expr(n, expr, env, acc),
+                Stmt::Expr { expr, .. } => {
+                    self.look_expr(n, expr, env, acc);
+                    // A name set in the branches of an if or match is known after it.
+                    let mut sets = Vec::new();
+                    self.branch_sets(expr, env, &mut sets);
+                    for (m, t) in sets {
+                        if m != n && !env.contains_key(&m) && known(&t) {
+                            env.insert(m, t);
+                        }
+                    }
+                }
                 Stmt::Return { value: Some(v), .. } => {
                     if matches!(v, Expr::Ident(m) if m == n) {
                         *acc = merge(acc.clone(), self.ret.clone());
@@ -411,6 +439,30 @@ impl Cx<'_> {
                 _ => {}
             }
             env.insert(n.to_string(), acc.clone());
+        }
+    }
+
+    fn branch_sets(&self, e: &Expr, env: &Env, out: &mut Vec<(String, T)>) {
+        let block = |b: &Expr, out: &mut Vec<(String, T)>| {
+            if let Expr::Block(st, _) = b {
+                for s in st {
+                    if let Stmt::Assign { target: Expr::Ident(m), op: "=", value, .. } = s {
+                        out.push((m.clone(), self.ty(value, env)));
+                    }
+                }
+            }
+        };
+        match e {
+            Expr::If(_, a, b) => {
+                block(a, out);
+                match b.as_deref() {
+                    Some(i @ Expr::If(..)) => self.branch_sets(i, env, out),
+                    Some(b) => block(b, out),
+                    None => {}
+                }
+            }
+            Expr::Match(_, arms) => arms.iter().for_each(|(_, a)| block(a, out)),
+            _ => {}
         }
     }
 
@@ -484,7 +536,7 @@ impl Cx<'_> {
             }
             Expr::Block(stmts, tail) => {
                 let mut inner = env.clone();
-                self.look(n, stmts, &mut inner, acc);
+                self.look(n, stmts, tail.as_deref(), &mut inner, acc);
                 if let Some(t) = tail {
                     self.look_expr(n, t, &mut inner, acc);
                 }
@@ -669,7 +721,8 @@ impl Cx<'_> {
             "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" => Str,
             "repeat" | "slice" if matches!(r, Str) => Str,
             "join" => Str,
-            "words" | "lines" | "chars" | "split" => List(Box::new(Str)),
+            "words" | "lines" | "chars" | "split" | "re_full" | "re_find" | "re_split" => List(Box::new(Str)),
+            "re_all" => List(Box::new(List(Box::new(Str)))),
             "ints" => List(Box::new(Int)),
             "is_empty" | "is_digit" | "is_alpha" | "is_space" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
             "first" | "last" | "pop" | "min" | "max" | "sum" => match &r {
@@ -882,8 +935,10 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     if !open(items) {
         return Ok(());
     }
+    // Map literals whose values differ in type are Json objects, also as return values.
+    let (_, mixed) = empty_types(items);
     for round in 0..4 {
-        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: mixed.clone(), genv: Env::new() };
         for it in items.iter() {
             match it {
                 Item::Fn { name, params, ret, .. } => {
