@@ -34,7 +34,7 @@ const RUST_KEYWORDS: &[&str] = &[
 // and whether `}}` follows it.
 fn template_tag(chars: &[char], from: usize) -> Option<(usize, bool)> {
     let first = *chars.get(from)?;
-    let tag_start = matches!(first, '#' | '/');
+    let tag_start = matches!(first, '#' | '/' | '@' | '>' | '!');
     let mut j = from;
     while let Some(&c) = chars.get(j) {
         if c == '}' {

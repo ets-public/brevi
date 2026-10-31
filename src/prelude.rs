@@ -516,6 +516,7 @@ pub trait AxStr {
     fn ax_ints(&self) -> R<Vec<i64>>;
     fn ax_slice(&self, a: i64, b: i64) -> String;
     fn ax_find(&self, s: String) -> i64;
+    fn ax_find_from(&self, s: String, start: i64) -> i64;
     fn ax_is_digit(&self) -> bool;
     fn ax_is_alpha(&self) -> bool;
     fn ax_is_space(&self) -> bool;
@@ -590,6 +591,16 @@ impl AxStr for String {
     fn ax_find(&self, s: String) -> i64 {
         match self.find(s.as_str()) {
             Some(i) => self[..i].chars().count() as i64,
+            None => -1,
+        }
+    }
+    // Python's s.find(sub, start): the index in the whole string, searching from start.
+    fn ax_find_from(&self, s: String, start: i64) -> i64 {
+        let n = self.chars().count() as i64;
+        let st = if start < 0 { (n + start).max(0) } else { start.min(n) } as usize;
+        let off: usize = self.char_indices().nth(st).map_or(self.len(), |(b, _)| b);
+        match self[off..].find(s.as_str()) {
+            Some(i) => (st + self[off..off + i].chars().count()) as i64,
             None => -1,
         }
     }

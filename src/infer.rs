@@ -752,7 +752,7 @@ impl Cx<'_> {
             _ => Hole,
         };
         match m {
-            "len" | "count" | "find" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" => Int,
+            "len" | "count" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,

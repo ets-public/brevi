@@ -10,7 +10,7 @@ const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", 
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
-    "find", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
+    "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json",
@@ -758,7 +758,7 @@ impl Emitter {
                 _ => None,
             },
             Expr::Method(_, m, _, _) => match m.as_str() {
-                "len" | "count" | "find" | "index_of" | "digit" => named("int"),
+                "len" | "count" | "find" | "find_from" | "index_of" | "digit" => named("int"),
                 "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
                 "trim" | "lower" | "upper" | "join" | "replace" | "text" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),

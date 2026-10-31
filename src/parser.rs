@@ -930,6 +930,7 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("index", 1) => "index_of",
         ("get", 2) => "get_or",
         ("char_at" | "to_char" | "chr", 0) => "char",
+        ("find", 2) => "find_from",
         _ => return None,
     }
     .into())
