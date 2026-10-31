@@ -1,0 +1,38 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  members = {}
+  books = {}
+  for line in lines():
+    ws = line.words()
+    if ws.is_empty(): continue
+    today = dnum(ws[0])
+    for msg in expire_holds(books, today):
+      print(msg)
+    cmd = ws[1]
+    if cmd == "BOOK":
+      bid = ws[2]
+      if books.has(bid):
+        print("duplicate ID")
+      else:
+        books[bid] = Book(bid, ws[4:].join(" "), ws[3].int().or(0), 0, [], [])
+        print("added {bid}")
+    elif cmd == "MEMBER":
+      mid = ws[2]
+      if members.has(mid):
+        print("duplicate ID")
+      else:
+        name = ws[4:].join(" ")
+        members[mid] = Member(mid, name, ws[3], "0.00".dec(), [])
+        print("welcome {name}")
+    elif cmd == "LOAN":
+      print(do_loan(members, books, today, ws[2], ws[3]))
+    elif cmd == "RETURN":
+      print(do_return(members, books, today, ws[2], ws[3]))
+    elif cmd == "RESERVE":
+      print(do_reserve(members, books, today, ws[2], ws[3]))
+    elif cmd == "PAY":
+      print(do_pay(members, ws[2], ws[3].dec()))
+    elif cmd == "STATUS":
+      print(do_status(members, ws[2]))

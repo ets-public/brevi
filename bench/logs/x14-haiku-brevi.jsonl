@@ -1,0 +1,6 @@
+{"run":"x14-haiku-brevi","lang":"brevi","task":"order_book","code_tok":1609,"patch_tok":1609,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x14-haiku-brevi","lang":"brevi","task":"mini_sql","code_tok":3960,"patch_tok":3960,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x14-haiku-brevi","lang":"brevi","task":"calc_lang","code_tok":2526,"patch_tok":2526,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x14-haiku-brevi","lang":"brevi","task":"fifo_stock","code_tok":1831,"patch_tok":1831,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x14-haiku-brevi","lang":"brevi","task":"library","code_tok":2691,"patch_tok":2691,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x14-haiku-brevi","lang":"brevi","task":"project_plan","code_tok":2521,"patch_tok":2521,"out_tok":7,"compiled":true,"pass":7,"total":7,"tok":"exact"}

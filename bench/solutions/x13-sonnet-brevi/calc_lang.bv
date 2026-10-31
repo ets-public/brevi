@@ -1,0 +1,194 @@
+enum Ex:
+  Num(n: int)
+  Var(name: str)
+  Bin(op: str, a: Ex, b: Ex)
+  Neg(a: Ex)
+  Call(name: str, args: [Ex])
+
+type Func:
+  params: [str]
+  body: Ex
+
+toks = []
+pos = 0
+vars = {}
+funcs = {}
+depth = 0
+
+fn peek() = if pos < toks.len(): toks[pos] else: ""
+
+fn expect(t: str):
+  if peek() != t: fail("syntax")
+  pos += 1
+
+fn is_name(t: str) -> bool = not t.re_full("[A-Za-z][A-Za-z0-9_]*").is_empty()
+
+fn ident() -> str:
+  t = peek()
+  if not is_name(t) or t in ["let", "fn", "print", "if"]: fail("syntax")
+  pos += 1
+  t
+
+fn parse_cmp() -> Ex:
+  a = parse_add()
+  if peek() in ["==", "!=", "<", ">", "<=", ">="]:
+    op = toks[pos]
+    pos += 1
+    b = parse_add()
+    a = Bin(op: op, a: a, b: b)
+    if peek() in ["==", "!=", "<", ">", "<=", ">="]: fail("syntax")
+  a
+
+fn parse_add() -> Ex:
+  a = parse_mul()
+  while peek() == "+" or peek() == "-":
+    op = toks[pos]
+    pos += 1
+    b = parse_mul()
+    a = Bin(op: op, a: a, b: b)
+  a
+
+fn parse_mul() -> Ex:
+  a = parse_unary()
+  while peek() == "*" or peek() == "/" or peek() == "%":
+    op = toks[pos]
+    pos += 1
+    b = parse_unary()
+    a = Bin(op: op, a: a, b: b)
+  a
+
+fn parse_unary() -> Ex:
+  if peek() == "-":
+    pos += 1
+    return Neg(a: parse_unary())
+  parse_prim()
+
+fn parse_prim() -> Ex:
+  t = peek()
+  if t.is_empty(): fail("syntax")
+  if not t.re_full("\d+").is_empty():
+    pos += 1
+    return Num(n: t.int())
+  if t == "(":
+    pos += 1
+    e = parse_cmp()
+    expect(")")
+    return e
+  if not is_name(t) or t in ["let", "fn", "print"]: fail("syntax")
+  pos += 1
+  if peek() == "(":
+    pos += 1
+    args = []
+    if peek() == ")":
+      pos += 1
+    else:
+      while true:
+        args.push(parse_cmp())
+        if peek() == ",":
+          pos += 1
+        elif peek() == ")":
+          pos += 1
+          break
+        else:
+          fail("syntax")
+    return Call(name: t, args: args)
+  if t == "if": fail("syntax")
+  Var(name: t)
+
+fn binop(op: str, x: int, y: int) -> int:
+  if op == "+": return x + y
+  if op == "-": return x - y
+  if op == "*": return x * y
+  if op == "/" or op == "%":
+    if y == 0: fail("division by zero")
+    if op == "/": return x / y
+    return x % y
+  r = if op == "==": x == y elif op == "!=": x != y elif op == "<": x < y elif op == ">": x > y elif op == "<=": x <= y else: x >= y
+  if r: 1 else: 0
+
+fn ev(e: Ex, loc: {str: int}) -> int = match e:
+  Num(n) => n
+  Var(name) =>
+    if not loc.has(name) and not vars.has(name): fail("unknown name {name}")
+    if loc.has(name): loc[name] else: vars[name]
+  Neg(a) => 0 - ev(a, loc)
+  Bin(op, a, b) =>
+    x = ev(a, loc)
+    y = ev(b, loc)
+    binop(op, x, y)
+  Call(name, args) =>
+    if name == "if":
+      if args.len() != 3: fail("if takes 3 arguments")
+      c = ev(args[0], loc)
+      if c != 0: ev(args[1], loc) else: ev(args[2], loc)
+    else:
+      if not funcs.has(name): fail("unknown function {name}")
+      f = funcs[name]
+      if args.len() != f.params.len(): fail("{name} takes {f.params.len()} arguments")
+      vals = [ev(a, loc) for a in args]
+      depth += 1
+      if depth > 200: fail("too deep")
+      nl = {}
+      for i in 0..vals.len(): nl[f.params[i]] = vals[i]
+      r = ev(f.body, nl)
+      depth -= 1
+      r
+
+fn finish():
+  if pos < toks.len(): fail("syntax")
+
+fn do_line(line: str) -> int:
+  toks = line.re_list("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%<>(),=]|\S")
+  pos = 0
+  depth = 0
+  kw = toks[0]
+  if kw == "let":
+    pos = 1
+    name = ident()
+    expect("=")
+    e = parse_cmp()
+    finish()
+    v = ev(e, {})
+    vars[name] = v
+  elif kw == "fn":
+    pos = 1
+    name = ident()
+    expect("(")
+    params = []
+    if peek() == ")":
+      pos += 1
+    else:
+      while true:
+        params.push(ident())
+        if peek() == ",":
+          pos += 1
+        elif peek() == ")":
+          pos += 1
+          break
+        else:
+          fail("syntax")
+    expect("=")
+    body = parse_cmp()
+    finish()
+    funcs[name] = Func(params: params, body: body)
+  elif kw == "print":
+    pos = 1
+    es = [parse_cmp()]
+    while peek() == ",":
+      pos += 1
+      es.push(parse_cmp())
+    finish()
+    vals = [ev(x, {}) for x in es]
+    print(vals.join(" "))
+  else:
+    fail("syntax")
+  0
+
+n = 0
+for line in lines():
+  n += 1
+  s = line.trim()
+  if s.is_empty() or s.starts_with("#"): continue
+  match do_line(s):
+    Ok(_) => n += 0
+    Err(m) => print("error line {n}: {m}")

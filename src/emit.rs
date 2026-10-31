@@ -1610,7 +1610,9 @@ impl Emitter {
             Expr::For(p, iter, body) => {
                 // Assigning to the loop variable edits the list in place.
                 if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..)) = (p, iter.as_ref()) {
-                    if changes(body, n) && root_name(iter).is_some() {
+                    // (Not when the body also reads the list's owner: it then works on a copy of each row.)
+                    let root_read = root_name(iter).map_or(false, |r| { let t = format!("{body:?}"); t.contains(&format!("Ident({r:?})")) || t.contains(&format!("Move({r:?})")) });
+                    if changes(body, n) && root_name(iter).is_some() && !root_read {
                         let it = self.place_mut(iter);
                         self.locals.insert(n.clone());
                         self.refs.insert(n.clone());
@@ -1698,6 +1700,14 @@ impl Emitter {
                     return format!("ax_obj(vec![{}]).show()", ps.join(", "));
                 }
             }
+        }
+        // Python's print(a, b, sep=", ", end=""): written as text, with the given separator and ending.
+        if name == "print" && args.iter().any(|(n, _)| matches!(n.as_deref(), Some("end" | "sep"))) {
+            let named = |k: &str| args.iter().find(|(n, _)| n.as_deref() == Some(k)).map(|(_, a)| a.clone());
+            let sep = named("sep").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "String::from(\" \")".to_string());
+            let end = named("end").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "\"\\n\"".to_string());
+            let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.expr(a))).collect();
+            return format!("{{ use std::io::Write; let __s = [{}].join(&{sep}); print!(\"{{}}{{}}\", __s, {end}); let _ = std::io::stdout().flush(); }}", items.join(", "));
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
         match name {

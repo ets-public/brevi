@@ -1,0 +1,125 @@
+type Order:
+  id: str
+  qty: int
+  price: int
+
+asks = []
+bids = []
+seen = {}
+vol = 0
+val = 0
+
+fn money(c: int) = "{c // 100}.{c % 100:02d}"
+
+fn parse_price(s: str) -> int:
+  m = s.re_full("(\d+)(?:\.(\d{1,2}))?")
+  if m.is_empty(): return -1
+  frac = (m[2] + "00").slice(0, 2)
+  c = m[1].int() * 100 + frac.int()
+  if c <= 0: return -1
+  c
+
+fn parse_qty(s: str) -> int:
+  if s.re_full("\d+").is_empty(): return -1
+  q = s.int()
+  if q < 1: return -1
+  q
+
+fn best(book: [Order], low: bool) -> int:
+  bi = -1
+  for i in 0..book.len():
+    if bi < 0 or (low and book[i].price < book[bi].price) or (not low and book[i].price > book[bi].price): bi = i
+  bi
+
+fn match_order(isbuy: bool, id: str, qty: int, limit: int, market: bool) -> int:
+  left = qty
+  while left > 0:
+    book = if isbuy: asks else: bids
+    i = best(book, isbuy)
+    if i < 0: break
+    p = book[i].price
+    if not market:
+      if isbuy and p > limit: break
+      if not isbuy and p < limit: break
+    q = min(left, book[i].qty)
+    rid = book[i].id
+    if isbuy: print("TRADE {id} {rid} {q} {money(p)}")
+    else: print("TRADE {rid} {id} {q} {money(p)}")
+    vol += q
+    val += q * p
+    left -= q
+    if isbuy:
+      if q == asks[i].qty: asks.remove(i)
+      else: asks[i].qty -= q
+    else:
+      if q == bids[i].qty: bids.remove(i)
+      else: bids[i].qty -= q
+  left
+
+fn rest(isbuy: bool, id: str, qty: int, price: int):
+  if isbuy: bids.push(Order(id: id, qty: qty, price: price))
+  else: asks.push(Order(id: id, qty: qty, price: price))
+
+fn show(book: [Order], low: bool):
+  m = {}
+  for o in book: m[o.price] += o.qty
+  if m.is_empty():
+    print("  -")
+  else:
+    ps = m.pairs()
+    if not low: ps = ps.rev()
+    for p, q in ps: print("  {money(p)} {q}")
+
+fn run(w: [str]) -> int:
+  cmd = w[0]
+  if cmd == "BUY" or cmd == "SELL":
+    if w.len() != 4: fail("bad command")
+    if w[1].re_full("\w+").is_empty(): fail("bad command")
+    q = parse_qty(w[2])
+    p = parse_price(w[3])
+    if q < 0 or p < 0: fail("bad command")
+    if seen.has(w[1]): fail("duplicate ID")
+    seen[w[1]] = 1
+    isbuy = cmd == "BUY"
+    left = match_order(isbuy, w[1], q, p, false)
+    if left > 0: rest(isbuy, w[1], left, p)
+  elif cmd == "MBUY" or cmd == "MSELL":
+    if w.len() != 3: fail("bad command")
+    if w[1].re_full("\w+").is_empty(): fail("bad command")
+    q = parse_qty(w[2])
+    if q < 0: fail("bad command")
+    if seen.has(w[1]): fail("duplicate ID")
+    seen[w[1]] = 1
+    left = match_order(cmd == "MBUY", w[1], q, 0, true)
+    if left > 0: print("DROPPED {w[1]} {left}")
+  elif cmd == "CANCEL":
+    if w.len() != 2: fail("bad command")
+    found = false
+    for i in 0..asks.len():
+      if not found and asks[i].id == w[1]:
+        print("CANCELLED {w[1]} {asks[i].qty}")
+        asks.remove(i)
+        found = true
+    for i in 0..bids.len():
+      if not found and bids[i].id == w[1]:
+        print("CANCELLED {w[1]} {bids[i].qty}")
+        bids.remove(i)
+        found = true
+    if not found: fail("unknown ID")
+  elif cmd == "BOOK":
+    if w.len() != 1: fail("bad command")
+    print("asks")
+    show(asks, true)
+    print("bids")
+    show(bids, false)
+  else:
+    fail("bad command")
+  0
+
+for n, line in lines().enumerate():
+  w = line.words()
+  if w.is_empty(): continue
+  match run(w):
+    Ok(_) => print("", end: "")
+    Err(m) => print("ERR line {n + 1}: {m}")
+print("volume {vol} value {money(val)}")

@@ -1,0 +1,121 @@
+type Order:
+  id: str
+  side: str
+  qty: int
+  price: int
+
+book = []
+used = {}
+vol = 0
+val = 0
+ln = 0
+
+fn money(c: int) = "{c // 100}.{c % 100:02d}"
+
+fn best(side: str, limit: int, market: bool) -> int:
+  bi = -1
+  for i in 0..book.len():
+    o = book[i]
+    if o.side != side: continue
+    if not market:
+      if side == "S" and o.price > limit: continue
+      if side == "B" and o.price < limit: continue
+    if bi < 0:
+      bi = i
+    else:
+      b = book[bi]
+      better = if side == "S": o.price < b.price else: o.price > b.price
+      if better: bi = i
+  bi
+
+fn trade(id: str, isbuy: bool, qty: int, limit: int, market: bool) -> int:
+  rem = qty
+  oside = if isbuy: "S" else: "B"
+  while rem > 0:
+    i = best(oside, limit, market)
+    if i < 0: break
+    o = book[i]
+    q = min(rem, o.qty)
+    if isbuy:
+      print("TRADE {id} {o.id} {q} {money(o.price)}")
+    else:
+      print("TRADE {o.id} {id} {q} {money(o.price)}")
+    vol += q
+    val += q * o.price
+    rem -= q
+    if q == o.qty:
+      book.remove(i)
+    else:
+      book[i].qty -= q
+  rem
+
+fn side_lines(side: str, desc: bool):
+  m = {}
+  for o in book:
+    if o.side == side: m[o.price] += o.qty
+  ks = m.keys()
+  if desc: ks = ks.rev()
+  if ks.is_empty(): print("  -")
+  for k in ks: print("  {money(k)} {m[k]}")
+
+fn cents(p: str) -> int:
+  if p.re_full("[0-9]+(\.[0-9]{1,2})?").is_empty(): fail("bad command")
+  parts = p.split(".")
+  whole = parts[0].int()
+  frac = if parts.len() > 1: (parts[1] + "0")[:2].int() else: 0
+  c = whole * 100 + frac
+  if c <= 0: fail("bad command")
+  c
+
+fn qtyof(s: str) -> int:
+  if s.re_full("[0-9]+").is_empty(): fail("bad command")
+  q = s.int()
+  if q < 1: fail("bad command")
+  q
+
+fn newid(s: str):
+  if s.re_full("\w+").is_empty(): fail("bad command")
+
+fn handle(line: str) -> int:
+  w = line.words()
+  if w.is_empty(): return 0
+  cmd = w[0]
+  n = w.len()
+  if cmd == "BOOK" and n == 1:
+    print("asks")
+    side_lines("S", false)
+    print("bids")
+    side_lines("B", true)
+  elif cmd == "CANCEL" and n == 2:
+    idx = -1
+    for i in 0..book.len():
+      if book[i].id == w[1]: idx = i
+    if idx < 0: fail("unknown ID")
+    print("CANCELLED {w[1]} {book[idx].qty}")
+    book.remove(idx)
+  elif (cmd == "BUY" or cmd == "SELL") and n == 4:
+    newid(w[1])
+    q = qtyof(w[2])
+    p = cents(w[3])
+    if used.has(w[1]): fail("duplicate ID")
+    used[w[1]] = 1
+    isbuy = cmd == "BUY"
+    rem = trade(w[1], isbuy, q, p, false)
+    if rem > 0: book.push(Order(w[1], if isbuy: "B" else: "S", rem, p))
+  elif (cmd == "MBUY" or cmd == "MSELL") and n == 3:
+    newid(w[1])
+    q = qtyof(w[2])
+    if used.has(w[1]): fail("duplicate ID")
+    used[w[1]] = 1
+    rem = trade(w[1], cmd == "MBUY", q, 0, true)
+    if rem > 0: print("DROPPED {w[1]} {rem}")
+  else:
+    fail("bad command")
+  0
+
+for line in lines():
+  ln += 1
+  match handle(line):
+    Ok(_) => ln = ln
+    Err(m) => print("ERR line {ln}: {m}")
+print("volume {vol} value {money(val)}")

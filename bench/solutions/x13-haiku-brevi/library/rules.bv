@@ -1,0 +1,110 @@
+use "catalog.bv"
+
+fn has_loan(m: Member, bid: str) -> bool:
+  for ln in m.loans:
+    if ln.book == bid: return true
+  return false
+
+fn loan_index(m: Member, bid: str) -> int:
+  for i in 0..m.loans.len():
+    if m.loans[i].book == bid: return i
+  return -1
+
+fn find_hold(lib: Lib, mid: str, bid: str) -> int:
+  for i in 0..lib.holds.len():
+    if lib.holds[i].member == mid and lib.holds[i].book == bid: return i
+  return -1
+
+# index of the expired hold with the earliest last day (then book ID), or -1
+fn next_expired(lib: Lib, d: str) -> int:
+  best = -1
+  for i in 0..lib.holds.len():
+    h = lib.holds[i]
+    if h.last < d:
+      if best < 0:
+        best = i
+      elif h.last < lib.holds[best].last:
+        best = i
+      elif h.last == lib.holds[best].last and h.book < lib.holds[best].book:
+        best = i
+  return best
+
+fn expire(mut lib: Lib, d: str) -> [str]:
+  out = []
+  while True:
+    i = next_expired(lib, d)
+    if i < 0: break
+    h = lib.holds[i]
+    lib.holds.remove(i)
+    out.push("hold expired {h.member} {h.book}")
+    if lib.books[h.book].waitlist.is_empty():
+      lib.books[h.book].shelf += 1
+    else:
+      nm = lib.books[h.book].waitlist.first()
+      lib.books[h.book].waitlist.remove(0)
+      lib.holds.push(Hold(book: h.book, member: nm, last: date(h.last).add_days(3).str()))
+  return out
+
+fn do_loan(mut lib: Lib, d: str, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid} {bid}: unknown member"
+  if not lib.books.has(bid): return "refused {mid} {bid}: unknown book"
+  mem = lib.members[mid]
+  if mem.owes > 200: return "refused {mid} {bid}: owes {fmt_cents(mem.owes)}"
+  if mem.loans.len() >= limit_of(mem.tier): return "refused {mid} {bid}: limit"
+  if has_loan(mem, bid): return "refused {mid} {bid}: already has it"
+  hi = find_hold(lib, mid, bid)
+  if hi < 0 and lib.books[bid].shelf < 1: return "refused {mid} {bid}: none available"
+  if hi >= 0:
+    lib.holds.remove(hi)
+  else:
+    lib.books[bid].shelf -= 1
+  due = date(d).add_days(loan_days(mem.tier)).str()
+  lib.members[mid].loans.push(Loan(book: bid, due: due))
+  return "loan {mid} {bid} due {due}"
+
+fn do_return(mut lib: Lib, d: str, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid} {bid}: not on loan"
+  mem = lib.members[mid]
+  li = loan_index(mem, bid)
+  if li < 0: return "refused {mid} {bid}: not on loan"
+  due = mem.loans[li].due
+  lib.members[mid].loans.remove(li)
+  fee = 0
+  if d > due:
+    fee = (date(d).days - date(due).days) * per_day(mem.tier)
+    if fee > 500: fee = 500
+    lib.members[mid].owes += fee
+  if lib.books[bid].waitlist.is_empty():
+    lib.books[bid].shelf += 1
+  else:
+    nm = lib.books[bid].waitlist.first()
+    lib.books[bid].waitlist.remove(0)
+    lib.holds.push(Hold(book: bid, member: nm, last: date(d).add_days(3).str()))
+  if fee > 0: return "returned {mid} {bid} fee {fmt_cents(fee)}"
+  return "returned {mid} {bid}"
+
+fn do_reserve(mut lib: Lib, d: str, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid} {bid}: unknown member"
+  if not lib.books.has(bid): return "refused {mid} {bid}: unknown book"
+  if has_loan(lib.members[mid], bid): return "refused {mid} {bid}: already has it"
+  if lib.books[bid].waitlist.contains(mid) or find_hold(lib, mid, bid) >= 0:
+    return "refused {mid} {bid}: already reserved"
+  if lib.books[bid].shelf > 0: return "refused {mid} {bid}: copy available"
+  lib.books[bid].waitlist.push(mid)
+  pos = lib.books[bid].waitlist.len()
+  return "reserved {mid} {bid} position {pos}"
+
+fn do_pay(mut lib: Lib, mid: str, amt: int) -> str:
+  if not lib.members.has(mid): return "refused {mid}: unknown member"
+  lib.members[mid].owes -= amt
+  o = lib.members[mid].owes
+  return "paid {mid} owes {fmt_cents(o)}"
+
+fn do_status(lib: Lib, mid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid}: unknown member"
+  mem = lib.members[mid]
+  names = []
+  for ln in mem.loans: names.push(ln.book)
+  bl = "-"
+  if not names.is_empty(): bl = names.join(" ")
+  return "{mid} {mem.name} owes {fmt_cents(mem.owes)} loans: {bl}"

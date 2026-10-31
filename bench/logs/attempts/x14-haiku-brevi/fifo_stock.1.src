@@ -1,0 +1,153 @@
+type Lot:
+  qty: int
+  unit: dec
+
+lots = {}
+s_cogs = {}
+s_rev = {}
+s_loss = {}
+s_seen = {}
+m_profit = {}
+m_loss = {}
+mset = {}
+latest = ""
+
+fn qty_ok(s: str) -> bool:
+  if not s.re_full("\d+"): return False
+  return s.int().or(0) >= 1
+
+fn money_ok(s: str) -> bool:
+  if not s.re_full("\d+(\.\d{1,2})?"): return False
+  return True
+
+fn is_date(s: str) -> bool:
+  if not s.re_full("\d{4}-\d{2}-\d{2}"): return False
+  yr = s[0:4].int().or(0)
+  mo = s[5:7].int().or(0)
+  dd = s[8:10].int().or(0)
+  if mo < 1 or mo > 12 or dd < 1: return False
+  md = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  top = md[mo - 1]
+  if mo == 2 and yr % 4 == 0 and (yr % 100 != 0 or yr % 400 == 0): top = 29
+  return dd <= top
+
+fn money(x: dec) -> str:
+  return x.fmt(2)
+
+fn stock(sku: str) -> int:
+  n = 0
+  if not lots.has(sku): return 0
+  for lt in lots[sku]:
+    n += lt.qty
+  return n
+
+fn stock_value(sku: str) -> dec:
+  v = 0.dec()
+  if lots.has(sku):
+    for lt in lots[sku]:
+      v += lt.unit * lt.qty
+  return v
+
+fn consume(sku: str, qty: int) -> dec:
+  ls = lots[sku]
+  need = qty
+  cost = 0.dec()
+  while need > 0:
+    lt = ls[0]
+    t = min(need, lt.qty)
+    cost += lt.unit * t
+    if t == lt.qty:
+      ls.remove(0)
+    else:
+      ls[0] = Lot(lt.qty - t, lt.unit)
+    need -= t
+  lots[sku] = ls
+  return cost
+
+fn handle(ws: [str]) -> str:
+  ln = ws.len()
+  if ln < 4: fail("bad line")
+  d = ws[0]
+  op = ws[1]
+  sku = ws[2]
+  if not is_date(d): fail("bad line")
+  if not qty_ok(ws[3]): fail("bad line")
+  qty = ws[3].int().or(0)
+  if op == "LOSS":
+    if ln != 4: fail("bad line")
+    if d < latest: fail("date out of order")
+    have = stock(sku)
+    if have < qty: fail("short {sku} need {qty} have {have}")
+    lc = consume(sku, qty)
+    s_loss[sku] += lc
+    mo = d[0:7]
+    m_loss[mo] += lc
+    mset[mo] = True
+    latest = d
+    return ""
+  if op == "RECEIVE" or op == "SHIP":
+    if ln != 5 or not money_ok(ws[4]): fail("bad line")
+    if d < latest: fail("date out of order")
+    if op == "RECEIVE":
+      if not lots.has(sku): lots[sku] = []
+      ls = lots[sku]
+      ls.push(Lot(qty, ws[4].dec()))
+      lots[sku] = ls
+      s_seen[sku] = True
+      latest = d
+      return ""
+    have = stock(sku)
+    if have < qty: fail("short {sku} need {qty} have {have}")
+    price = ws[4].dec()
+    cogs = consume(sku, qty)
+    rev = price * qty
+    s_cogs[sku] += cogs
+    s_rev[sku] += rev
+    mo = d[0:7]
+    m_profit[mo] += rev - cogs
+    mset[mo] = True
+    latest = d
+    return ""
+  fail("bad line")
+  return ""
+
+fn report():
+  skus = sorted(s_seen.keys())
+  tot_p = 0.dec()
+  tot_l = 0.dec()
+  for sku in skus:
+    oh = stock(sku)
+    vs = money(stock_value(sku))
+    cg = s_cogs[sku]
+    rv = s_rev[sku]
+    pf = rv - cg
+    lo = s_loss[sku]
+    tot_p += pf
+    tot_l += lo
+    cs = money(cg)
+    rs = money(rv)
+    ps = money(pf)
+    lss = money(lo)
+    print("{sku} on_hand {oh} value {vs} cogs {cs} revenue {rs} profit {ps} loss {lss}")
+  print("months")
+  for mo in sorted(mset.keys()):
+    mps = money(m_profit[mo])
+    mls = money(m_loss[mo])
+    print("  {mo} profit {mps} loss {mls}")
+  net = tot_p - tot_l
+  tps = money(tot_p)
+  tls = money(tot_l)
+  nts = money(net)
+  print("total profit {tps} loss {tls} net {nts}")
+
+fn main():
+  n = 0
+  for line in lines():
+    n += 1
+    ws = line.words()
+    if ws.is_empty(): continue
+    match handle(ws):
+      Ok(s) =>
+        if s != "": print(s)
+      Err(m) => print("line {n}: {m}")
+  report()

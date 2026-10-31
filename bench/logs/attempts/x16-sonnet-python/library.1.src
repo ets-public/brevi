@@ -1,0 +1,218 @@
+## main.py
+import sys
+import datetime
+from catalog import Library
+import rules
+
+
+def handle(lib, line):
+    t = line.split(None, 4)
+    if len(t) < 2:
+        return []
+    try:
+        day = datetime.date.fromisoformat(t[0]).toordinal()
+    except ValueError:
+        return []
+    out = rules.expire_holds(lib, day)
+    op = t[1]
+    a = t[2:]
+    if op == 'BOOK' and len(a) >= 3:
+        out += rules.add_book(lib, a[0], int(a[1]), a[2])
+    elif op == 'MEMBER' and len(a) >= 3:
+        out += rules.add_member(lib, a[0], a[1], a[2])
+    elif op == 'LOAN' and len(a) >= 2:
+        out += rules.loan(lib, day, a[0], a[1])
+    elif op == 'RETURN' and len(a) >= 2:
+        out += rules.give_back(lib, day, a[0], a[1])
+    elif op == 'RESERVE' and len(a) >= 2:
+        out += rules.reserve(lib, a[0], a[1])
+    elif op == 'PAY' and len(a) >= 2:
+        out += rules.pay(lib, a[0], a[1])
+    elif op == 'STATUS' and len(a) >= 1:
+        out += rules.status(lib, a[0])
+    return out
+
+
+def main():
+    lib = Library()
+    out = []
+    for line in sys.stdin.read().split('\n'):
+        if line.strip():
+            out += handle(lib, line)
+    print('\n'.join(out))
+
+
+main()
+## catalog.py
+TIERS = {
+    'basic': {'max': 2, 'days': 14, 'fee': 25},
+    'plus': {'max': 5, 'days': 28, 'fee': 10},
+}
+
+
+class Book:
+    def __init__(self, bid, copies, title):
+        self.id = bid
+        self.title = title
+        self.shelf = copies
+        self.waiting = []  # member ids
+        self.holds = []    # [member id, last day (date ordinal)]
+
+
+class Member:
+    def __init__(self, mid, tier, name):
+        self.id = mid
+        self.tier = tier
+        self.name = name
+        self.owes = 0  # cents
+        self.loans = []  # [book id, due date]
+
+
+class Library:
+    def __init__(self):
+        self.books = {}
+        self.members = {}
+
+
+def cents(s):
+    if '.' in s:
+        a, b = s.split('.', 1)
+        b = (b + '00')[:2]
+    else:
+        a, b = s, '00'
+    return int(a or '0') * 100 + int(b)
+
+
+def fmt(c):
+    sign = '-' if c < 0 else ''
+    c = abs(c)
+    return "%s%d.%02d" % (sign, c // 100, c % 100)
+## rules.py
+import datetime
+from catalog import TIERS, Book, Member, fmt, cents
+
+
+def add_book(lib, bid, copies, title):
+    if bid in lib.books:
+        return ["duplicate ID"]
+    lib.books[bid] = Book(bid, copies, title)
+    return ["added " + bid]
+
+
+def add_member(lib, mid, tier, name):
+    if mid in lib.members:
+        return ["duplicate ID"]
+    lib.members[mid] = Member(mid, tier, name)
+    return ["welcome " + name]
+
+
+def give_copy(book, day):
+    """A copy becomes free on `day`: hold it for the first waiting member or shelve it."""
+    if book.waiting:
+        m = book.waiting.pop(0)
+        book.holds.append([m, day + 3])
+    else:
+        book.shelf += 1
+
+
+def expire_holds(lib, today):
+    out = []
+    while True:
+        best = None
+        for b in lib.books.values():
+            for h in b.holds:
+                if h[1] < today and (best is None or (h[1], b.id) < (best[0][1], best[1].id)):
+                    best = (h, b)
+        if best is None:
+            return out
+        h, b = best
+        b.holds.remove(h)
+        out.append("hold expired %s %s" % (h[0], b.id))
+        give_copy(b, h[1] + 1)
+
+
+def loan(lib, day, mid, bid):
+    m = lib.members.get(mid)
+    if m is None:
+        return ["refused %s %s: unknown member" % (mid, bid)]
+    b = lib.books.get(bid)
+    if b is None:
+        return ["refused %s %s: unknown book" % (mid, bid)]
+    t = TIERS[m.tier]
+    if m.owes > 200:
+        reason = "owes " + fmt(m.owes)
+    elif len(m.loans) >= t['max']:
+        reason = "limit"
+    elif any(l[0] == bid for l in m.loans):
+        reason = "already has it"
+    else:
+        hold = None
+        for h in b.holds:
+            if h[0] == mid:
+                hold = h
+                break
+        if hold is not None:
+            b.holds.remove(hold)
+        elif b.shelf > 0:
+            b.shelf -= 1
+        else:
+            return ["refused %s %s: none available" % (mid, bid)]
+        due = day + t['days']
+        m.loans.append([bid, due])
+        return ["loan %s %s due %s" % (mid, bid, datetime.date.fromordinal(due).isoformat())]
+    return ["refused %s %s: %s" % (mid, bid, reason)]
+
+
+def give_back(lib, day, mid, bid):
+    m = lib.members.get(mid)
+    loan_rec = None
+    if m is not None:
+        for l in m.loans:
+            if l[0] == bid:
+                loan_rec = l
+                break
+    if loan_rec is None:
+        return ["refused %s %s: not on loan" % (mid, bid)]
+    m.loans.remove(loan_rec)
+    fee = 0
+    if day > loan_rec[1]:
+        fee = min(500, (day - loan_rec[1]) * TIERS[m.tier]['fee'])
+        m.owes += fee
+    give_copy(lib.books[bid], day)
+    s = "returned %s %s" % (mid, bid)
+    if fee:
+        s += " fee " + fmt(fee)
+    return [s]
+
+
+def reserve(lib, mid, bid):
+    m = lib.members.get(mid)
+    if m is None:
+        return ["refused %s %s: unknown member" % (mid, bid)]
+    b = lib.books.get(bid)
+    if b is None:
+        return ["refused %s %s: unknown book" % (mid, bid)]
+    if any(l[0] == bid for l in m.loans):
+        return ["refused %s %s: already has it" % (mid, bid)]
+    if mid in b.waiting or any(h[0] == mid for h in b.holds):
+        return ["refused %s %s: already reserved" % (mid, bid)]
+    if b.shelf > 0:
+        return ["refused %s %s: copy available" % (mid, bid)]
+    b.waiting.append(mid)
+    return ["reserved %s %s position %d" % (mid, bid, len(b.waiting))]
+
+
+def pay(lib, mid, amount):
+    m = lib.members.get(mid)
+    if m is None:
+        return ["refused %s: unknown member" % mid]
+    m.owes -= cents(amount)
+    return ["paid %s owes %s" % (mid, fmt(m.owes))]
+
+
+def status(lib, mid):
+    m = lib.members.get(mid)
+    if m is None:
+        return ["refused %s: unknown member" % mid]
+    ls = ' '.join(l[0] for l in m.loans) or '-'
+    return ["%s %s owes %s loans: %s" % (mid, m.name, fmt(m.owes), ls)]

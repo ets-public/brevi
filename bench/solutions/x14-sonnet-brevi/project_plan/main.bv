@@ -1,0 +1,20 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn report(ls: [str]) -> int:
+  k, tasks = parse(ls)
+  st = unlimited(tasks)
+  n = tasks.len()
+  print("unlimited")
+  for i in 0..n: print("  {tasks[i].name} {st[i]}-{st[i] + tasks[i].days}")
+  print("length {max([st[i] + tasks[i].days for i in 0..n])}")
+  print("critical {" > ".join(critical(tasks, st))}")
+  s2 = schedule(tasks, k)
+  print("workers {k}")
+  for i in 0..n: print("  {tasks[i].name} {s2[i]}-{s2[i] + tasks[i].days}")
+  print("length {max([s2[i] + tasks[i].days for i in 0..n])}")
+  0
+
+match report(lines()):
+  Ok(_) => done = 0
+  Err(m) => print(m)

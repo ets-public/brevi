@@ -74,7 +74,7 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 
 Most methods return a new value (`ys = xs.sort()`); as a statement, `xs.sort()` sorts xs. `push pop insert remove` change the list in place.
-Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `(a, _, b) = s.partition("=")`.
+Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `print(x, end="")`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `(a, _, b) = s.partition("=")`.
 
 ## Built-in functions
 `print(x)` (`print(a, b)` puts a space between), `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.

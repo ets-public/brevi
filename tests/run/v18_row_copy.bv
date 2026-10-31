@@ -1,0 +1,14 @@
+type Table:
+  cols: [str]
+  rows: [[str]]
+
+fn ok(r: [str], t: Table) -> bool = r[0] in t.cols or r[0] == "b"
+
+t = Table(["a"], [["a", "1"], ["b", "2"], ["c", "3"]])
+out = []
+for r in t.rows:
+  if ok(r, t): r[1] = "x"
+  out.push(r)
+print(out)
+for r in t.rows: r[1] = "y"
+print(t.rows)

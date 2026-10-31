@@ -1,0 +1,234 @@
+type Node:
+  kind: str
+  val: int
+  name: str
+  a: int
+  b: int
+  args: [int]
+
+nodes = []
+gvars = {}
+fparams = {}
+fbody = {}
+ctoks = []
+cpos = 0
+depth = 0
+
+fn tokenize(line: str) -> [str]:
+  cs = line.chars()
+  nn = cs.len()
+  res = []
+  i = 0
+  while i < nn:
+    c = cs[i]
+    if c == " ":
+      i += 1
+    elif c.is_digit():
+      tok = ""
+      while i < nn and cs[i].is_digit():
+        tok += cs[i]
+        i += 1
+      res.push(tok)
+    elif c.is_alpha():
+      tok = ""
+      while i < nn and (cs[i].is_alpha() or cs[i].is_digit() or cs[i] == "_"):
+        tok += cs[i]
+        i += 1
+      res.push(tok)
+    elif c == "=" or c == "!" or c == "<" or c == ">":
+      if i + 1 < nn and cs[i + 1] == "=":
+        res.push(c + "=")
+        i += 2
+      elif c == "!":
+        fail("syntax")
+      else:
+        res.push(c)
+        i += 1
+    elif c in ["+", "-", "*", "/", "%", "(", ")", ","]:
+      res.push(c)
+      i += 1
+    else:
+      fail("syntax")
+  return res
+
+fn cur() -> str:
+  if cpos < len(ctoks): return ctoks[cpos]
+  return ""
+
+fn adv() -> str:
+  t = cur()
+  if t == "": fail("syntax")
+  cpos += 1
+  return t
+
+fn expect(s: str):
+  if cur() != s: fail("syntax")
+  cpos += 1
+
+fn check_end():
+  if cpos < len(ctoks): fail("syntax")
+
+fn mk(kind: str, v: int, name: str, a: int, b: int, args: [int]) -> int:
+  nodes.push(Node(kind, v, name, a, b, args))
+  return nodes.len() - 1
+
+fn p_name() -> str:
+  t = adv()
+  if (not t[0:1].is_alpha()) or t in ["let", "fn", "print", "if"]: fail("syntax")
+  return t
+
+fn p_primary() -> int:
+  t = adv()
+  if t[0:1].is_digit(): return mk("num", t.int().or(0), "", 0, 0, [])
+  if t == "(":
+    e = p_expr()
+    expect(")")
+    return e
+  if not t[0:1].is_alpha(): fail("syntax")
+  if t in ["let", "fn", "print"] or (t == "if" and cur() != "("): fail("syntax")
+  if cur() == "(":
+    cpos += 1
+    args = []
+    if cur() != ")":
+      args.push(p_expr())
+      while cur() == ",":
+        cpos += 1
+        args.push(p_expr())
+    expect(")")
+    return mk("call", 0, t, 0, 0, args)
+  return mk("var", 0, t, 0, 0, [])
+
+fn p_unary() -> int:
+  if cur() == "-":
+    cpos += 1
+    inner = p_unary()
+    return mk("neg", 0, "", inner, 0, [])
+  return p_primary()
+
+fn p_mul() -> int:
+  left = p_unary()
+  while cur() in ["*", "/", "%"]:
+    op = adv()
+    right = p_unary()
+    left = mk("bin", 0, op, left, right, [])
+  return left
+
+fn p_add() -> int:
+  left = p_mul()
+  while cur() == "+" or cur() == "-":
+    op = adv()
+    right = p_mul()
+    left = mk("bin", 0, op, left, right, [])
+  return left
+
+fn p_expr() -> int:
+  left = p_add()
+  op = cur()
+  if op in ["==", "!=", "<", ">", "<=", ">="]:
+    cpos += 1
+    right = p_add()
+    return mk("bin", 0, op, left, right, [])
+  return left
+
+fn binop(op: str, x: int, y: int) -> int:
+  if op == "+": return x + y
+  if op == "-": return x - y
+  if op == "*": return x * y
+  if op == "/" or op == "%":
+    if y == 0: fail("division by zero")
+    if op == "/": return x / y
+    return x % y
+  if op == "==" and x == y: return 1
+  if op == "!=" and x != y: return 1
+  if op == "<" and x < y: return 1
+  if op == ">" and x > y: return 1
+  if op == "<=" and x <= y: return 1
+  if op == ">=" and x >= y: return 1
+  return 0
+
+fn ev(n: int, env: {str: int}) -> int:
+  nd = nodes[n]
+  if nd.kind == "num": return nd.val
+  if nd.kind == "var":
+    vn = nd.name
+    if env.has(vn): return env[vn]
+    if gvars.has(vn): return gvars[vn]
+    fail("unknown name {vn}")
+    return 0
+  if nd.kind == "neg":
+    x = ev(nd.a, env)
+    return -x
+  if nd.kind == "bin":
+    x = ev(nd.a, env)
+    y = ev(nd.b, env)
+    return binop(nd.name, x, y)
+  fname = nd.name
+  if fname == "if":
+    if nd.args.len() != 3: fail("if takes 3 arguments")
+    c = ev(nd.args[0], env)
+    if c != 0: return ev(nd.args[1], env)
+    return ev(nd.args[2], env)
+  if not fparams.has(fname): fail("unknown function {fname}")
+  ps = fparams[fname]
+  k = ps.len()
+  if nd.args.len() != k: fail("{fname} takes {k} arguments")
+  newenv = {}
+  for i in 0..k:
+    newenv[ps[i]] = ev(nd.args[i], env)
+  if depth >= 200: fail("too deep")
+  depth += 1
+  r = ev(fbody[fname], newenv)
+  depth -= 1
+  return r
+
+fn run_line(line: str) -> str:
+  ctoks = tokenize(line)
+  cpos = 0
+  depth = 0
+  noenv = {}
+  head = adv()
+  if head == "let":
+    nm = p_name()
+    expect("=")
+    e = p_expr()
+    check_end()
+    v = ev(e, noenv)
+    gvars[nm] = v
+    return ""
+  if head == "fn":
+    nm = p_name()
+    expect("(")
+    ps = []
+    if cur() != ")":
+      ps.push(p_name())
+      while cur() == ",":
+        cpos += 1
+        ps.push(p_name())
+    expect(")")
+    expect("=")
+    body = p_expr()
+    check_end()
+    fparams[nm] = ps
+    fbody[nm] = body
+    return ""
+  if head == "print":
+    es = [p_expr()]
+    while cur() == ",":
+      cpos += 1
+      es.push(p_expr())
+    check_end()
+    strs = [str(ev(e, noenv)) for e in es]
+    return strs.join(" ")
+  fail("syntax")
+  return ""
+
+fn main():
+  n = 0
+  for line in lines():
+    n += 1
+    t = line.trim()
+    if t.is_empty() or t.starts_with("#"): continue
+    match run_line(line):
+      Ok(s) =>
+        if s != "": print(s)
+      Err(m) => print("error line {n}: {m}")
