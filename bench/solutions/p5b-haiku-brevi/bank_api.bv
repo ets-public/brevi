@@ -1,0 +1,100 @@
+owners = []
+bals = []
+
+fn isnum(s: str) -> bool = not s.re_full("[0-9]+").is_empty()
+
+fn amt(j: Json) -> int:
+  match j:
+    Num(n) =>
+      if n >= 1.0 and n == n.floor(): return n.int()
+      return -1
+    _ => return -1
+
+fn owner_of(j: Json) -> str:
+  match j["owner"]:
+    Str(s) => return s
+    _ => return ""
+
+fn parsebody(body: str) -> (bool, Json):
+  if body.is_empty(): return (true, json("{}"))
+  match json(body):
+    Ok(j) => return (true, j)
+    Err(e) => return (false, Null)
+
+fn acct_json(i: int) -> str:
+  return "\{\"id\":{i},\"owner\":\"{owners[i - 1]}\",\"balance\":{bals[i - 1]}\}"
+
+fn create(body: str) -> str:
+  ok, j = parsebody(body)
+  if not ok: return "400 {\"error\":\"bad json\"}"
+  name = owner_of(j)
+  if name == "": return "400 {\"error\":\"owner required\"}"
+  owners.push(name)
+  bals.push(0)
+  return "201 " + acct_json(owners.len())
+
+fn get_one(id: int) -> str:
+  if id < 1 or id > owners.len(): return "404 {\"error\":\"no such account\"}"
+  return "200 " + acct_json(id)
+
+fn deposit(id: int, body: str) -> str:
+  ok, j = parsebody(body)
+  if not ok: return "400 {\"error\":\"bad json\"}"
+  if id < 1 or id > owners.len(): return "404 {\"error\":\"no such account\"}"
+  amount = amt(j["amount"])
+  if amount < 1: return "400 {\"error\":\"bad amount\"}"
+  bals[id - 1] += amount
+  return "200 " + acct_json(id)
+
+fn withdraw(id: int, body: str) -> str:
+  ok, j = parsebody(body)
+  if not ok: return "400 {\"error\":\"bad json\"}"
+  if id < 1 or id > owners.len(): return "404 {\"error\":\"no such account\"}"
+  amount = amt(j["amount"])
+  if amount < 1: return "400 {\"error\":\"bad amount\"}"
+  if amount > bals[id - 1]: return "409 {\"error\":\"insufficient funds\"}"
+  bals[id - 1] -= amount
+  return "200 " + acct_json(id)
+
+fn transfer(body: str) -> str:
+  ok, j = parsebody(body)
+  if not ok: return "400 {\"error\":\"bad json\"}"
+  from_id = amt(j["from"])
+  to_id = amt(j["to"])
+  if from_id < 1 or from_id > owners.len() or to_id < 1 or to_id > owners.len(): return "404 {\"error\":\"no such account\"}"
+  if from_id == to_id: return "400 {\"error\":\"same account\"}"
+  amount = amt(j["amount"])
+  if amount < 1: return "400 {\"error\":\"bad amount\"}"
+  if amount > bals[from_id - 1]: return "409 {\"error\":\"insufficient funds\"}"
+  bals[from_id - 1] -= amount
+  bals[to_id - 1] += amount
+  return "200 \{\"from\":{bals[from_id - 1]},\"to\":{bals[to_id - 1]}\}"
+
+fn list_accounts() -> str:
+  items = [(-bals[i], i + 1) for i in 0..owners.len()]
+  items.sort()
+  parts = [acct_json(t.1) for t in items]
+  return "200 [" + ",".join(parts) + "]"
+
+fn handle(method: str, path: str, body: str) -> str:
+  segs = path.split("/")
+  n = segs.len()
+  if n == 2 and method == "GET" and segs[1] == "accounts": return list_accounts()
+  if n == 2 and method == "POST" and segs[1] == "accounts": return create(body)
+  if n == 3 and method == "GET" and segs[1] == "accounts" and isnum(segs[2]):
+    return get_one(segs[2].int().or(0))
+  if n == 4 and method == "POST" and segs[1] == "accounts" and isnum(segs[2]) and segs[3] == "deposit":
+    return deposit(segs[2].int().or(0), body)
+  if n == 4 and method == "POST" and segs[1] == "accounts" and isnum(segs[2]) and segs[3] == "withdraw":
+    return withdraw(segs[2].int().or(0), body)
+  if n == 2 and method == "POST" and segs[1] == "transfer": return transfer(body)
+  return "404 {\"error\":\"not found\"}"
+
+for ln in lines():
+  sp = ln.find(" ")
+  mth = ln if sp < 0 else ln.slice(0, sp)
+  rest = "" if sp < 0 else ln.slice(sp + 1)
+  sp2 = rest.find(" ")
+  pth = rest if sp2 < 0 else rest.slice(0, sp2)
+  bdy = "" if sp2 < 0 else rest.slice(sp2 + 1)
+  print(handle(mth, pth, bdy))

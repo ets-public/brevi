@@ -1,0 +1,2 @@
+{"line":52,"msg":"mismatched types: expected (int, int, str), found (int, int, [_])","fix":"convert with .int(), .float() or str(x)"}
+{"line":54,"msg":"mismatched types: expected (int, int, [_]), found (int, int, str)","fix":"convert with .int(), .float() or str(x)"}

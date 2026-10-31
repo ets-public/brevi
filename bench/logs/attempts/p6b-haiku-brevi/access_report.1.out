@@ -1,0 +1,4 @@
+{"line":52,"msg":"cannot find value n in this scope"}
+{"line":53,"msg":"cannot find value n in this scope"}
+{"line":54,"msg":"cannot find value n in this scope"}
+{"line":22,"msg":"type annotations needed for mut _","fix":"give the empty value a type, e.g. m: {str: int} = {} or xs: [str] = []"}

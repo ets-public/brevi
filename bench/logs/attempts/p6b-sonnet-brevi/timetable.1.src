@@ -1,0 +1,62 @@
+fn tmin(t: str) -> int = t.slice(0, 2).int() * 60 + t.slice(3).int()
+
+fn tstr(m: int) -> str:
+  h = m // 60
+  r = m % 60
+  hs = if h < 10: "0{h}" else: "{h}"
+  rs = if r < 10: "0{r}" else: "{r}"
+  "{hs}:{rs}"
+
+names: [str] = []
+stops: [[(str, int)]] = []
+queries: [[str]] = []
+second = false
+for line in lines():
+  if line.trim() == "---":
+    second = true
+    continue
+  w = line.words()
+  if w.is_empty(): continue
+  if second:
+    queries.push(w)
+  else:
+    names.push(w[0])
+    ss = []
+    for i in 0..(w.len() - 1) // 2:
+      ss.push((w[1 + 2 * i], tmin(w[2 + 2 * i])))
+    stops.push(ss)
+
+for q in queries:
+  from = q[0]
+  to = q[1]
+  qt = tmin(q[2])
+  if from == to:
+    print("{from} {to} {tstr(qt)} via -")
+    continue
+  cur = {}
+  cur[from] = (qt, "")
+  bestt = -1
+  bests = ""
+  for k in 1..names.len() + 1:
+    nxt = {}
+    for st, info in cur.pairs():
+      minb = if k == 1: qt else: info.0 + 5
+      for ti in 0..names.len():
+        ss = stops[ti]
+        for i in 0..ss.len():
+          if ss[i].0 == st and ss[i].1 >= minb:
+            for j in i + 1..ss.len():
+              x = ss[j]
+              lst = if info.1 == "": names[ti] else: info.1 + ">" + names[ti]
+              cand = (x.1, lst)
+              if not nxt.has(x.0) or cand < nxt[x.0]:
+                nxt[x.0] = cand
+    if nxt.has(to):
+      if bestt < 0 or nxt[to].0 < bestt:
+        bestt = nxt[to].0
+        bests = nxt[to].1
+    cur = nxt
+  if bestt < 0:
+    print("{from} {to} unreachable")
+  else:
+    print("{from} {to} {tstr(bestt)} via {bests}")

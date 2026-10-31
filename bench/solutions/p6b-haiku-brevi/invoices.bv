@@ -1,0 +1,106 @@
+fn jget(j: Json, key: str) -> Json:
+  match j:
+    Obj(m) => m.get_or(key, Null)
+    _ => Null
+
+fn jstr(j: Json) -> str:
+  match j:
+    Str(s) => s
+    _ => ""
+
+fn jnum(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    _ => 0
+
+fn key_of(j: Json) -> str:
+  match j:
+    Str(s) => s
+    Num(n) => str(n.int())
+    _ => ""
+
+fn obj_pairs(j: Json) -> [(str, Json)]:
+  match j:
+    Obj(m) => m.pairs()
+    _ => []
+
+fn arr(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn tier_rate(t: str) -> dec:
+  if t == "gold":
+    return "0.10".dec()
+  if t == "silver":
+    return "0.05".dec()
+  return 0.dec()
+
+fn tax_rate(c: str) -> dec:
+  if c == "UK":
+    return "0.20".dec()
+  if c == "US":
+    return "0.0825".dec()
+  return 0.dec()
+
+pprice = {}
+pcat = {}
+cname = {}
+ctier = {}
+cctry = {}
+
+root = json(stdin())
+for sku, pj in obj_pairs(jget(root, "products")):
+  pprice[sku] = jstr(jget(pj, "price")).dec()
+  pcat[sku] = jstr(jget(pj, "category"))
+for k, cj in obj_pairs(jget(root, "customers")):
+  cname[k] = jstr(jget(cj, "name"))
+  ctier[k] = jstr(jget(cj, "tier"))
+  cctry[k] = jstr(jget(cj, "country"))
+
+out = []
+revenue = 0.dec()
+for o in arr(jget(root, "orders")):
+  oid = key_of(jget(o, "id"))
+  cid = key_of(jget(o, "customer"))
+  if not cname.has(cid):
+    out.push("{\"id\":" + str(oid.json()) + ",\"error\":\"unknown customer " + cid + "\"}")
+    continue
+  lns = arr(jget(o, "lines"))
+  found = false
+  badsku = ""
+  for ln in lns:
+    sku = jstr(jget(ln, "sku"))
+    if not found and not pprice.has(sku):
+      found = true
+      badsku = sku
+  if found:
+    out.push("{\"id\":" + str(oid.json()) + ",\"error\":\"unknown sku " + badsku + "\"}")
+    continue
+  catqty = {}
+  catsum = {}
+  subtotal = 0.dec()
+  for ln in lns:
+    sku = jstr(jget(ln, "sku"))
+    q = jnum(jget(ln, "qty"))
+    cat = pcat[sku]
+    amt = pprice[sku] * q
+    catqty[cat] += q
+    catsum[cat] += amt
+    subtotal += amt
+  disc = 0.dec()
+  for cat, units in catqty.pairs():
+    if units >= 3:
+      disc += (catsum[cat] * "0.05".dec()).round(2)
+  base = subtotal - disc
+  tdisc = (base * tier_rate(ctier[cid])).round(2)
+  disc += tdisc
+  discounted = subtotal - disc
+  tax = (discounted * tax_rate(cctry[cid])).round(2)
+  total = subtotal - disc + tax
+  revenue += total
+  line = "{\"id\":" + str(oid.json()) + ",\"customer\":" + str(cname[cid].json()) + ",\"subtotal\":\"" + subtotal.fmt(2) + "\",\"discount\":\"" + disc.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"}"
+  out.push(line)
+
+print("[" + ",".join(out) + "]")
+print("revenue " + revenue.fmt(2))

@@ -102,6 +102,7 @@ fn elem(t: &T) -> T {
         List(e) | Heap(e) => *e.clone(),
         Map(k, v) => Tuple(vec![*k.clone(), *v.clone()]),
         Str => Str,
+        Json => Json,
         _ => Hole,
     }
 }
@@ -718,13 +719,15 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
-            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" => Str,
+            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "text" => Str,
+            "list" => List(Box::new(Json)),
             "repeat" | "slice" if matches!(r, Str) => Str,
             "join" => Str,
             "words" | "lines" | "chars" | "split" | "re_full" | "re_find" | "re_split" => List(Box::new(Str)),
             "re_all" => List(Box::new(List(Box::new(Str)))),
             "ints" => List(Box::new(Int)),
-            "is_empty" | "is_digit" | "is_alpha" | "is_space" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
+            "json" => Json,
+            "is_null" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
             "first" | "last" | "pop" | "min" | "max" | "sum" => match &r {
                 Map(_, v) if m == "pop" => *v.clone(),
                 _ => elem(&r),
@@ -741,10 +744,12 @@ impl Cx<'_> {
             "zip" => List(Box::new(Tuple(vec![elem(&r), elem(&a(0))]))),
             "keys" => match &r {
                 Map(k, _) => List(k.clone()),
+                Json => List(Box::new(Str)),
                 _ => Hole,
             },
             "values" => match &r {
                 Map(_, v) => List(v.clone()),
+                Json => List(Box::new(Json)),
                 _ => Hole,
             },
             "pairs" => match &r {

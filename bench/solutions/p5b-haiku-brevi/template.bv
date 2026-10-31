@@ -1,0 +1,127 @@
+fn to_text(j: Json) -> str:
+  match j:
+    Str(s) => return s
+    Num(n) =>
+      if n == n.floor(): return str(n.int())
+      return str(n)
+    Bool(b) =>
+      if b: return "true"
+      return "false"
+    Null => return ""
+    _ => return str(j)
+
+fn truthy(j: Json) -> bool:
+  match j:
+    Null => return false
+    Bool(b) => return b
+    Num(n) => return n != 0.0
+    Str(s) => return not s.is_empty()
+    Arr(xs) => return not xs.is_empty()
+    _ => return true
+
+fn is_missing(j: Json) -> bool:
+  match j:
+    Null => return true
+    Str(s) => return s.is_empty()
+    _ => return false
+
+fn isnull(j: Json) -> bool:
+  match j:
+    Null => return true
+    _ => return false
+
+fn arr_of(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => return xs
+    _ => return []
+
+fn pathof(j: Json, name: str) -> Json:
+  cur = j
+  for p in name.split("."):
+    match cur:
+      Obj(m) => cur = m.get_or(p, Null)
+      _ => return Null
+  return cur
+
+fn lookup(scopes: [Json], name: str, index: int) -> Json:
+  if name == ".": return scopes[0]
+  if name == "@index":
+    if index < 0: return Null
+    return Num(index.float())
+  for s in scopes:
+    v = pathof(s, name)
+    if not isnull(v): return v
+  return Null
+
+fn len_of(j: Json) -> Json:
+  match j:
+    Str(s) => return Num(s.len().float())
+    Arr(xs) => return Num(xs.len().float())
+    _ => return Null
+
+fn eval_tag(inner: str, scopes: [Json], index: int) -> str:
+  parts = inner.split("|")
+  v = lookup(scopes, parts[0].trim(), index)
+  for f in parts.slice(1):
+    g = f.trim()
+    if g == "upper":
+      v = Str(to_text(v).upper())
+    elif g == "lower":
+      v = Str(to_text(v).lower())
+    elif g == "len":
+      v = len_of(v)
+    elif g.starts_with("default:"):
+      if is_missing(v): v = Str(g.slice(8))
+  return to_text(v)
+
+fn inner_of(t: str) -> str:
+  if t.starts_with("{{"): return t.slice(2, t.len() - 2).trim()
+  return ""
+
+fn render(toks: [str], i0: int, scopes: [Json], index: int) -> (str, int):
+  out = ""
+  i = i0
+  n = toks.len()
+  while i < n:
+    t = toks[i]
+    if not t.starts_with("{{"):
+      out += t
+      i += 1
+    else:
+      inner = inner_of(t)
+      if inner == "/each" or inner == "/if" or inner == "else":
+        return (out, i)
+      if inner.starts_with("#each "):
+        arr = lookup(scopes, inner.slice(6).trim(), index)
+        dummy, j = render(toks, i + 1, scopes, index)
+        k = 0
+        for el in arr_of(arr):
+          body, dd = render(toks, i + 1, [el] + scopes, k)
+          out += body
+          k += 1
+        i = j + 1
+      elif inner.starts_with("#if "):
+        cond = lookup(scopes, inner.slice(4).trim(), index)
+        thenp, j = render(toks, i + 1, scopes, index)
+        elsep = ""
+        if j < n and inner_of(toks[j]) == "else":
+          elsep, j = render(toks, j + 1, scopes, index)
+        if truthy(cond): out += thenp
+        else: out += elsep
+        i = j + 1
+      else:
+        out += eval_tag(inner, scopes, index)
+        i += 1
+  return (out, i)
+
+full = stdin()
+k = full.find("\n")
+head = full if k < 0 else full.slice(0, k)
+tmpl = "" if k < 0 else full.slice(k + 1)
+root = json(head)
+toks = [m[0] for m in tmpl.re_all("\{\{[^{}]*\}\}|[^{]+|\{")]
+rendered, endi = render(toks, 0, [root], -1)
+if rendered.ends_with("\n"):
+  print(rendered.slice(0, rendered.len() - 1))
+else:
+  print(rendered)

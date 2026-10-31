@@ -1,0 +1,85 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*(.+?)\*", "<em>\1</em>")
+  t.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+
+fn inl(s: str) -> str:
+  e = esc(s)
+  pieces = e.split("`")
+  out = ""
+  for i in 0..pieces.len():
+    p = pieces[i]
+    if i % 2 == 1 and i < pieces.len() - 1:
+      out += "<code>" + p + "</code>"
+    elif i % 2 == 1:
+      out += "`" + fmt_plain(p)
+    else:
+      out += fmt_plain(p)
+  out
+
+fn is_heading(l: str) -> bool = not l.re_full("(#\{1,6\}) (.*)").is_empty()
+
+fn is_ol(l: str) -> bool = not l.re_full("\d+\. (.*)").is_empty()
+
+fn starts_block(l: str) -> bool = l == "```" or is_heading(l) or l.starts_with("- ") or is_ol(l)
+
+L = lines()
+n = L.len()
+outs = []
+heads = []
+used = {}
+i = 0
+while i < n:
+  l = L[i]
+  if l == "```":
+    i += 1
+    code = []
+    while i < n and L[i] != "```":
+      code.push(esc(L[i]))
+      i += 1
+    i += 1
+    outs.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+  elif l.trim().is_empty():
+    i += 1
+  elif is_heading(l):
+    m = l.re_full("(#\{1,6\}) (.*)")
+    raw = m[2].trim()
+    lvl = m[1].len()
+    base = raw.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    cand = base
+    k = 1
+    while used.has(cand):
+      k += 1
+      cand = base + "-" + str(k)
+    used[cand] = 1
+    outs.push("<h{lvl} id=\"{cand}\">{inl(raw)}</h{lvl}>")
+    heads.push((cand, esc(raw.replace("`", "").replace("*", ""))))
+    i += 1
+  elif l.starts_with("- "):
+    outs.push("<ul>")
+    while i < n and L[i].starts_with("- "):
+      outs.push("<li>" + inl(L[i].slice(2)) + "</li>")
+      i += 1
+    outs.push("</ul>")
+  elif is_ol(l):
+    outs.push("<ol>")
+    while i < n and is_ol(L[i]):
+      mm = L[i].re_full("\d+\. (.*)")
+      outs.push("<li>" + inl(mm[1]) + "</li>")
+      i += 1
+    outs.push("</ol>")
+  else:
+    para = []
+    while i < n and not L[i].trim().is_empty() and not starts_block(L[i]):
+      para.push(L[i])
+      i += 1
+    outs.push("<p>" + inl(" ".join(para)) + "</p>")
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads:
+    print("<a href=\"#{h.0}\">{h.1}</a>")
+  print("</nav>")
+for o in outs:
+  print(o)

@@ -1,0 +1,76 @@
+fn sv(j: Json) -> str:
+  match j:
+    Str(s) => s
+    Num(n) => n.int().str()
+    _ => ""
+
+fn iv(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    _ => 0
+
+fn isnull(j: Json) -> bool:
+  match j:
+    Null => true
+    _ => false
+
+fn items(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+root = json(stdin())
+products = root["products"]
+customers = root["customers"]
+outs = []
+revenue = 0.dec()
+for o in items(root["orders"]):
+  oid = str(o["id"])
+  cid = sv(o["customer"])
+  cust = customers[cid]
+  if isnull(cust):
+    outs.push("\{\"id\":{oid},\"error\":\"unknown customer {cid}\"\}")
+    continue
+  bad = ""
+  for l in items(o["lines"]):
+    sku = sv(l["sku"])
+    if isnull(products[sku]):
+      bad = sku
+      break
+  if bad != "":
+    outs.push("\{\"id\":{oid},\"error\":\"unknown sku {bad}\"\}")
+    continue
+  catqty = {}
+  catamt = {}
+  subtotal = 0.dec()
+  for l in items(o["lines"]):
+    p = products[sv(l["sku"])]
+    q = iv(l["qty"])
+    amtl = sv(p["price"]).dec() * q
+    cat = sv(p["category"])
+    catqty[cat] += q
+    catamt[cat] += amtl
+    subtotal += amtl
+  disc = 0.dec()
+  for k, v in catamt.pairs():
+    if catqty[k] >= 3:
+      disc += (v * 5 / 100).round(2)
+  base = subtotal - disc
+  tier = sv(cust["tier"])
+  if tier == "gold":
+    disc += (base * 10 / 100).round(2)
+  elif tier == "silver":
+    disc += (base * 5 / 100).round(2)
+  net = subtotal - disc
+  country = sv(cust["country"])
+  tax = 0.dec()
+  if country == "UK":
+    tax = (net * 20 / 100).round(2)
+  elif country == "US":
+    tax = (net * 825 / 10000).round(2)
+  total = net + tax
+  revenue += total
+  nm = str(sv(cust["name"]).json())
+  outs.push("\{\"id\":{oid},\"customer\":{nm},\"subtotal\":\"{subtotal.fmt(2)}\",\"discount\":\"{disc.fmt(2)}\",\"tax\":\"{tax.fmt(2)}\",\"total\":\"{total.fmt(2)}\"\}")
+print("[" + ",".join(outs) + "]")
+print("revenue {revenue.fmt(2)}")

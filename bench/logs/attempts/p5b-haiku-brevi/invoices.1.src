@@ -1,0 +1,90 @@
+pprice = {}
+pcat = {}
+cname = {}
+ctier = {}
+ccountry = {}
+
+fn js(j: Json) -> str:
+  match j:
+    Str(s) => return s
+    _ => return ""
+
+fn jint(j: Json) -> int:
+  match j:
+    Num(n) => return n.int()
+    _ => return 0
+
+fn jkey(j: Json) -> str:
+  match j:
+    Str(s) => return s
+    Num(n) => return str(n.int())
+    _ => return ""
+
+fn pairs_of(j: Json) -> [(str, Json)]:
+  match j:
+    Obj(m) => return m.pairs()
+    _ => return []
+
+fn arr_of(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => return xs
+    _ => return []
+
+fn tier_rate(t: str) -> dec:
+  if t == "gold": return "0.10".dec()
+  if t == "silver": return "0.05".dec()
+  return 0.dec()
+
+fn tax_rate(c: str) -> dec:
+  if c == "UK": return "0.20".dec()
+  if c == "US": return "0.0825".dec()
+  return 0.dec()
+
+doc = json(stdin())
+
+for sku, p in pairs_of(doc["products"]):
+  pprice[sku] = js(p["price"]).dec()
+  pcat[sku] = js(p["category"])
+
+for cid, c in pairs_of(doc["customers"]):
+  cname[cid] = js(c["name"])
+  ctier[cid] = js(c["tier"])
+  ccountry[cid] = js(c["country"])
+
+total_rev = 0.dec()
+outs = []
+
+for o in arr_of(doc["orders"]):
+  oid = js(o["id"])
+  idj = str(oid.json())
+  cid = jkey(o["customer"])
+  if not cname.has(cid):
+    outs.push("\{\"id\":{idj},\"error\":\"unknown customer {cid}\"\}")
+    continue
+  ls = [(js(ln["sku"]), jint(ln["qty"])) for ln in arr_of(o["lines"])]
+  badsku = ""
+  for sku, q in ls:
+    if not pprice.has(sku) and badsku == "": badsku = sku
+  if badsku != "":
+    outs.push("\{\"id\":{idj},\"error\":\"unknown sku {badsku}\"\}")
+    continue
+  catq = {}
+  for sku, q in ls: catq[pcat[sku]] += q
+  subtotal = 0.dec()
+  cdisc = 0.dec()
+  for sku, q in ls:
+    line_amt = pprice[sku] * q
+    subtotal += line_amt
+    if catq[pcat[sku]] >= 3:
+      cdisc += (line_amt * "0.05".dec()).round(2)
+  tdisc = ((subtotal - cdisc) * tier_rate(ctier[cid])).round(2)
+  disc = cdisc + tdisc
+  net = subtotal - disc
+  tax = (net * tax_rate(ccountry[cid])).round(2)
+  total = net + tax
+  total_rev += total
+  cn = str(cname[cid].json())
+  outs.push("\{\"id\":{idj},\"customer\":{cn},\"subtotal\":\"{subtotal.fmt(2)}\",\"discount\":\"{disc.fmt(2)}\",\"tax\":\"{tax.fmt(2)}\",\"total\":\"{total.fmt(2)}\"\}")
+
+print("[" + ",".join(outs) + "]")
+print("revenue {total_rev.fmt(2)}")

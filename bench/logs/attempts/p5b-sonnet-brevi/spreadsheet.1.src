@@ -1,0 +1,134 @@
+content = {}
+memo = {}
+visiting = {}
+
+fn tokenize(f: str) -> [str]:
+  cs = f.replace(" ", "").chars()
+  toks = []
+  i = 0
+  while i < cs.len():
+    c = cs[i]
+    if c.is_digit():
+      j = i
+      while j < cs.len() and cs[j].is_digit(): j += 1
+      toks.push("".join(cs[i:j]))
+      i = j
+    elif c.is_alpha():
+      j = i
+      while j < cs.len() and cs[j].is_alpha(): j += 1
+      while j < cs.len() and cs[j].is_digit(): j += 1
+      toks.push("".join(cs[i:j]))
+      i = j
+    else:
+      toks.push(c)
+      i += 1
+  toks
+
+fn is_ref(s: str) -> bool = s.re_full("[A-Z]\d+").len() > 0
+fn colof(s: str) -> int = s[:1].code() - 65
+fn rowof(s: str) -> int = s.slice(1).int().or(0)
+fn name_of(c: int, r: int) -> str = (65 + c).char() + str(r)
+
+fn factor(t: [str], mut p: int) -> (int, int):
+  if p >= t.len(): return (0, 0)
+  tok = t[p]
+  if tok == "-":
+    p += 1
+    let (e, v) = factor(t, p)
+    return (e, -v)
+  if tok == "(":
+    p += 1
+    let (e, v) = expr(t, p)
+    p += 1
+    return (e, v)
+  if tok.is_digit():
+    p += 1
+    return (0, tok.int().or(0))
+  if tok == "SUM" or tok == "MIN" or tok == "MAX":
+    a = t[p + 2]
+    b = t[p + 4]
+    p += 6
+    c1 = min(colof(a), colof(b))
+    c2 = max(colof(a), colof(b))
+    r1 = min(rowof(a), rowof(b))
+    r2 = max(rowof(a), rowof(b))
+    err = 0
+    vals = []
+    for r in r1..r2 + 1:
+      for c in c1..c2 + 1:
+        let (e, v) = cellval(name_of(c, r))
+        err = max(err, e)
+        vals.push(v)
+    res = if tok == "SUM": vals.sum() else: if tok == "MIN": vals.min().or(0) else: vals.max().or(0)
+    return (err, res)
+  p += 1
+  return cellval(tok)
+
+fn term(t: [str], mut p: int) -> (int, int):
+  let (e, v) = factor(t, p)
+  while p < t.len() and (t[p] == "*" or t[p] == "/"):
+    op = t[p]
+    p += 1
+    let (e2, v2) = factor(t, p)
+    e = max(e, e2)
+    if op == "*": v = v * v2
+    elif v2 == 0:
+      e = max(e, 1)
+      v = 0
+    else: v = v / v2
+  return (e, v)
+
+fn expr(t: [str], mut p: int) -> (int, int):
+  let (e, v) = term(t, p)
+  while p < t.len() and (t[p] == "+" or t[p] == "-"):
+    op = t[p]
+    p += 1
+    let (e2, v2) = term(t, p)
+    e = max(e, e2)
+    if op == "+": v += v2
+    else: v -= v2
+  return (e, v)
+
+fn cellval(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if !content.has(name): return (0, 0)
+  if visiting.has(name): return (2, 0)
+  visiting[name] = 1
+  s = content[name]
+  res = (0, 0)
+  if s.starts_with("="):
+    t = tokenize(s.slice(1))
+    res = expr(t, 0)
+  else:
+    res = (0, s.int().or(0))
+  visiting.remove(name)
+  memo[name] = res
+  return res
+
+maxc = 0
+maxr = 0
+for line in lines():
+  i = line.find("=")
+  if i < 0: continue
+  name = line[:i].trim()
+  content[name] = line[i + 1:].trim()
+  maxc = max(maxc, colof(name))
+  maxr = max(maxr, rowof(name))
+for name, s in content.pairs():
+  if s.starts_with("="):
+    for tk in tokenize(s.slice(1)):
+      if is_ref(tk):
+        maxc = max(maxc, colof(tk))
+        maxr = max(maxr, rowof(tk))
+hdr = [""]
+for c in 0..maxc + 1: hdr.push((65 + c).char())
+print("\t".join(hdr))
+for r in 1..maxr + 1:
+  row = [str(r)]
+  for c in 0..maxc + 1:
+    n = name_of(c, r)
+    if !content.has(n): row.push("")
+    else:
+      let (e, v) = cellval(n)
+      row.push(if e == 2: "#CYCLE" else: if e == 1: "#DIV0" else: str(v))
+  print("\t".join(row))

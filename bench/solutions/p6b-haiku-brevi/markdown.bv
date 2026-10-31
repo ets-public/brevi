@@ -1,0 +1,123 @@
+ls = lines()
+nl = ls.len()
+out = []
+heads = []
+used = {}
+inlist = ""
+
+fn is_alnum(c: str) -> bool:
+  return c.is_digit() or (c >= "a" and c <= "z")
+
+fn slugify(t: str) -> str:
+  res = ""
+  dash = false
+  for c in t.lower():
+    if is_alnum(c):
+      if dash and not res.is_empty():
+        res += "-"
+      res += c
+      dash = false
+    else:
+      dash = true
+  return res
+
+fn unique_id(bid: str) -> str:
+  if not used.has(bid):
+    used[bid] = 1
+    return bid
+  cnt = used[bid] + 1
+  cand = bid + "-" + str(cnt)
+  while used.has(cand):
+    cnt += 1
+    cand = bid + "-" + str(cnt)
+  used[bid] = cnt
+  used[cand] = 1
+  return cand
+
+fn esc(s: str) -> str:
+  return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_inline(raw: str) -> str:
+  s = esc(raw)
+  parts = s.split("`")
+  res = ""
+  last = parts.len() - 1
+  for k in 0..parts.len():
+    p = parts[k]
+    if k % 2 == 1 and k < last:
+      res += "<code>" + p + "</code>"
+    else:
+      p = p.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+      p = p.re_sub("\*(.+?)\*", "<em>\1</em>")
+      p = p.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+      res += p
+  return res
+
+fn heading_level(line: str) -> int:
+  for lv in 1..7:
+    if line.starts_with("#".repeat(lv) + " "):
+      return lv
+  return 0
+
+fn is_break(line: str) -> bool:
+  if line.trim().is_empty() or line == "```" or heading_level(line) > 0 or line.starts_with("- "):
+    return true
+  return not line.re_full("\d+\. .*").is_empty()
+
+i = 0
+while i < nl:
+  line = ls[i]
+  ul_item = line.starts_with("- ")
+  om = line.re_full("(\d+)\. (.*)")
+  ol_item = not om.is_empty()
+  if inlist != "" and not (ul_item and inlist == "ul") and not (ol_item and inlist == "ol"):
+    out.push("</" + inlist + ">")
+    inlist = ""
+  if ul_item and inlist == "":
+    out.push("<ul>")
+    inlist = "ul"
+  if ol_item and inlist == "":
+    out.push("<ol>")
+    inlist = "ol"
+  if ul_item:
+    out.push("<li>" + fmt_inline(line.slice(2)) + "</li>")
+    i += 1
+    continue
+  if ol_item:
+    out.push("<li>" + fmt_inline(om[2]) + "</li>")
+    i += 1
+    continue
+  if line.trim().is_empty():
+    i += 1
+  elif line == "```":
+    body = []
+    i += 1
+    while i < nl and ls[i] != "```":
+      body.push(esc(ls[i]))
+      i += 1
+    i += 1
+    out.push("<pre><code>" + "\n".join(body) + "</code></pre>")
+  elif heading_level(line) > 0:
+    hl = heading_level(line)
+    htext = line.slice(hl + 1).trim()
+    hid = unique_id(slugify(htext))
+    out.push("<h" + str(hl) + " id=\"" + hid + "\">" + fmt_inline(htext) + "</h" + str(hl) + ">")
+    heads.push((hl, esc(htext.replace("`", "").replace("*", "")), hid))
+    i += 1
+  else:
+    buf = []
+    while i < nl and not is_break(ls[i]):
+      buf.push(ls[i])
+      i += 1
+    out.push("<p>" + fmt_inline(buf.join(" ")) + "</p>")
+
+if inlist != "":
+  out.push("</" + inlist + ">")
+
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads:
+    print("<a href=\"#" + h.2 + "\">" + h.1 + "</a>")
+  print("</nav>")
+for o in out:
+  print(o)

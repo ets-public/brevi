@@ -1,0 +1,98 @@
+fn esc_html(s: str) -> str:
+  return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*(.+?)\*", "<em>\1</em>")
+  t = t.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+  return t
+
+fn inline(s: str) -> str:
+  parts = esc_html(s).split("`")
+  last = parts.len() - 1
+  res = ""
+  for k in 0..parts.len():
+    seg = parts[k]
+    if k % 2 == 1:
+      if k < last:
+        res += "<code>" + seg + "</code>"
+      else:
+        res += "`" + fmt_plain(seg)
+    else:
+      res += fmt_plain(seg)
+  return res
+
+fn slug(t: str) -> str:
+  return t.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+
+fn plain_title(t: str) -> str:
+  return esc_html(t.replace("`", "").replace("*", ""))
+
+fn is_block_start(l: str) -> bool:
+  if l.trim().is_empty() or l == "```": return true
+  if not l.re_full("(#{1,6}) (.*)").is_empty(): return true
+  if not l.re_full("- (.*)").is_empty(): return true
+  if not l.re_full("[0-9]+\. (.*)").is_empty(): return true
+  return false
+
+ls = lines()
+n = ls.len()
+out = []
+heads = []
+used = {}
+i = 0
+while i < n:
+  line = ls[i]
+  hm = line.re_full("(#{1,6}) (.*)")
+  ul = line.re_full("- (.*)")
+  ol = line.re_full("[0-9]+\. (.*)")
+  if line.trim().is_empty():
+    i += 1
+  elif line == "```":
+    code = []
+    i += 1
+    while i < n and ls[i] != "```":
+      code.push(esc_html(ls[i]))
+      i += 1
+    i += 1
+    out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+  elif not hm.is_empty():
+    h = hm[1].len()
+    text = hm[2].trim()
+    base = slug(text)
+    hid = base
+    if used.has(base):
+      k = 2
+      while used.has(base + "-" + str(k)): k += 1
+      hid = base + "-" + str(k)
+    used[hid] = true
+    heads.push((hid, plain_title(text)))
+    out.push("<h{h} id=\"{hid}\">{inline(text)}</h{h}>")
+    i += 1
+  elif not ul.is_empty() or not ol.is_empty():
+    ordered = not ol.is_empty()
+    tag = "ol" if ordered else "ul"
+    pat = "[0-9]+\. (.*)" if ordered else "- (.*)"
+    out.push("<" + tag + ">")
+    while i < n:
+      mm = ls[i].re_full(pat)
+      if mm.is_empty(): break
+      out.push("<li>" + inline(mm[1]) + "</li>")
+      i += 1
+    out.push("</" + tag + ">")
+  else:
+    para = []
+    while i < n and not is_block_start(ls[i]):
+      para.push(ls[i].trim())
+      i += 1
+    out.push("<p>" + inline(" ".join(para)) + "</p>")
+
+nav = []
+if heads.len() >= 2:
+  nav.push("<nav>")
+  for hid, pt in heads:
+    nav.push("<a href=\"#{hid}\">{pt}</a>")
+  nav.push("</nav>")
+
+allb = nav + out
+if not allb.is_empty(): print("\n".join(allb))

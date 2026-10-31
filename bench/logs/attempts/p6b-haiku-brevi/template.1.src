@@ -1,0 +1,168 @@
+fn jget(j: Json, key: str) -> Json:
+  match j:
+    Obj(m) => m.get_or(key, Null)
+    _ => Null
+
+fn is_null(j: Json) -> bool:
+  match j:
+    Null => true
+    _ => false
+
+fn is_missing(j: Json) -> bool:
+  match j:
+    Null => true
+    Str(s) => s.is_empty()
+    _ => false
+
+fn arr_of(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn truthy(j: Json) -> bool:
+  match j:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => not s.is_empty()
+    Arr(xs) => not xs.is_empty()
+    _ => true
+
+fn bool_text(b: bool) -> str:
+  if b:
+    return "true"
+  return "false"
+
+fn num_text(n: f64, j: Json) -> str:
+  if n == n.floor():
+    return str(n.int())
+  return str(j)
+
+fn show(j: Json) -> str:
+  match j:
+    Null => ""
+    Str(s) => s
+    Bool(b) => bool_text(b)
+    Num(n) => num_text(n, j)
+    _ => str(j)
+
+fn len_of(j: Json) -> Json:
+  match j:
+    Str(s) => s.len().json()
+    Arr(xs) => xs.len().json()
+    Obj(m) => m.len().json()
+    _ => Null
+
+fn lookup_in(f: Json, path: str) -> Json:
+  cur = f
+  for seg in path.split("."):
+    cur = jget(cur, seg)
+  return cur
+
+fn resolve(path: str, frames: [Json]) -> Json:
+  for f in frames.rev():
+    v = lookup_in(f, path)
+    if not is_null(v):
+      return v
+  return Null
+
+fn eval_var(arg: str, frames: [Json], idxs: [int]) -> Json:
+  parts = arg.split("|")
+  name = parts[0].trim()
+  cur = Null
+  if name == "@index":
+    if not idxs.is_empty():
+      cur = idxs[-1].json()
+  elif name == ".":
+    cur = frames[-1]
+  else:
+    cur = resolve(name, frames)
+  for k in 1..parts.len():
+    f = parts[k].trim()
+    if f == "upper":
+      cur = show(cur).upper().json()
+    elif f == "lower":
+      cur = show(cur).lower().json()
+    elif f == "len":
+      cur = len_of(cur)
+    elif f.starts_with("default:"):
+      if is_missing(cur):
+        cur = f.slice(8).json()
+  return cur
+
+fn classify(tag: str) -> (str, str):
+  if tag.starts_with("#each "):
+    return ("E", tag.slice(6).trim())
+  if tag == "/each":
+    return ("/E", "")
+  if tag.starts_with("#if "):
+    return ("I", tag.slice(4).trim())
+  if tag == "else":
+    return ("L", "")
+  if tag == "/if":
+    return ("/I", "")
+  return ("V", tag)
+
+fn tokenize(t: str) -> [(str, str)]:
+  res = []
+  rest = t
+  while true:
+    k = rest.find("{{")
+    if k < 0:
+      if not rest.is_empty():
+        res.push(("T", rest))
+      break
+    if k > 0:
+      res.push(("T", rest.slice(0, k)))
+    e = rest.find("}}")
+    res.push(classify(rest.slice(k + 2, e).trim()))
+    rest = rest.slice(e + 2)
+  return res
+
+fn render(tk: [(str, str)], start: int, frames: [Json], idxs: [int]) -> (str, int):
+  out = ""
+  i = start
+  while i < tk.len():
+    (kind, arg) = tk[i]
+    if kind == "/E" or kind == "/I" or kind == "L":
+      return (out, i)
+    if kind == "T":
+      out += arg
+      i += 1
+    elif kind == "V":
+      out += show(eval_var(arg, frames, idxs))
+      i += 1
+    elif kind == "E":
+      xs = arr_of(resolve(arg, frames))
+      if xs.is_empty():
+        (piece, endi) = render(tk, i + 1, frames + [Null], idxs + [0])
+      else:
+        endi = i + 1
+        for k in 0..xs.len():
+          (piece, endi) = render(tk, i + 1, frames + [xs[k]], idxs + [k])
+          out += piece
+      i = endi + 1
+    elif kind == "I":
+      cond = truthy(resolve(arg, frames))
+      (ptrue, endi) = render(tk, i + 1, frames, idxs)
+      pfalse = ""
+      k2 = "END"
+      if endi < tk.len():
+        k2 = tk[endi][0]
+      if k2 == "L":
+        (pfalse, endi) = render(tk, endi + 1, frames, idxs)
+      if cond:
+        out += ptrue
+      else:
+        out += pfalse
+      i = endi + 1
+    else:
+      i += 1
+  return (out, i)
+
+ls = lines()
+data = json(ls[0])
+tmpl = "\n".join(ls.slice(1))
+toks = tokenize(tmpl)
+final = render(toks, 0, [data], [])
+print(final.0)

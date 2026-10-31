@@ -965,6 +965,28 @@ impl AxRef<i64, Json> for Json {
         }
     }
 }
+// j[k] with a Json key: a string looks up an object field, a number an array item.
+impl AxRef<Json, Json> for Json {
+    fn ax_ref(&self, k: &Json) -> &Json {
+        match k {
+            Json::Str { v } => self.ax_ref(v),
+            Json::Num { v } => self.ax_ref(&(*v as i64)),
+            _ => &AX_NULL,
+        }
+    }
+}
+impl AxIndex<Json, Json> for Json {
+    fn ax_at(&self, k: Json) -> Json {
+        self.ax_ref(&k).clone()
+    }
+    fn ax_set(&mut self, k: Json, x: Json) {
+        match k {
+            Json::Str { v } => self.ax_set(v, x),
+            Json::Num { v } => self.ax_set(v as i64, x),
+            _ => {}
+        }
+    }
+}
 impl<T: Clone> AxIndex<i64, T> for Vec<T> {
     fn ax_at(&self, i: i64) -> T {
         self[ax_idx(i, self.len())].clone()
@@ -1016,6 +1038,17 @@ pub enum Json {
     Str { v: String },
     Arr { v: Vec<Json> },
     Obj { v: AxM<String, Json> },
+}
+// A Json value equals a string when it is that JSON string: `j["tier"] == "gold"`.
+impl PartialEq<String> for Json {
+    fn eq(&self, o: &String) -> bool {
+        matches!(self, Json::Str { v } if v == o)
+    }
+}
+impl PartialEq<Json> for String {
+    fn eq(&self, o: &Json) -> bool {
+        o == self
+    }
 }
 impl Default for Json {
     fn default() -> Json {
@@ -1193,6 +1226,95 @@ impl AxIndex<i64, Json> for Json {
             let j = ax_idx(i, v.len());
             v[j] = x;
         }
+    }
+}
+
+
+// Reading Json values directly: j.text(), j.int(), j.list(), j.is_null(), `for x in j`.
+impl Json {
+    pub fn ax_text(&self) -> String {
+        match self {
+            Json::Str { v } => v.clone(),
+            Json::Null => String::new(),
+            other => other.show(),
+        }
+    }
+    pub fn ax_int(&self) -> i64 {
+        match self {
+            Json::Num { v } => *v as i64,
+            Json::Str { v } => v.trim().parse::<f64>().map(|x| x as i64).unwrap_or(0),
+            Json::Bool { v } => *v as i64,
+            _ => 0,
+        }
+    }
+    pub fn ax_float(&self) -> f64 {
+        match self {
+            Json::Num { v } => *v,
+            Json::Str { v } => v.trim().parse::<f64>().unwrap_or(0.0),
+            Json::Bool { v } => *v as i64 as f64,
+            _ => 0.0,
+        }
+    }
+    pub fn ax_dec(&self) -> Dec {
+        match self {
+            Json::Num { v } => Dec::parse(&v.to_string()).unwrap_or_default(),
+            Json::Str { v } => Dec::parse(v.trim()).unwrap_or_default(),
+            _ => Dec::default(),
+        }
+    }
+    pub fn ax_bool(&self) -> bool {
+        self.ax_truth()
+    }
+    pub fn ax_is_null(&self) -> bool {
+        matches!(self, Json::Null)
+    }
+    pub fn ax_list(&self) -> Vec<Json> {
+        match self {
+            Json::Arr { v } => v.clone(),
+            _ => vec![],
+        }
+    }
+    pub fn ax_len(&self) -> i64 {
+        match self {
+            Json::Str { v } => v.chars().count() as i64,
+            Json::Arr { v } => v.len() as i64,
+            Json::Obj { v } => v.m.len() as i64,
+            _ => 0,
+        }
+    }
+    pub fn ax_is_empty(&self) -> bool {
+        self.ax_len() == 0
+    }
+    pub fn ax_has(&self, k: &String) -> bool {
+        match self {
+            Json::Obj { v } => v.get(k).is_some(),
+            _ => false,
+        }
+    }
+    pub fn ax_keys(&self) -> Vec<String> {
+        match self {
+            Json::Obj { v } => v.iter().map(|(k, _)| k.clone()).collect(),
+            _ => vec![],
+        }
+    }
+    pub fn ax_values(&self) -> Vec<Json> {
+        match self {
+            Json::Obj { v } => v.iter().map(|(_, x)| x.clone()).collect(),
+            Json::Arr { v } => v.clone(),
+            _ => vec![],
+        }
+    }
+}
+impl AxEach for Json {
+    type It = std::vec::IntoIter<Json>;
+    fn ax_each(self) -> Self::It {
+        self.ax_list().into_iter()
+    }
+}
+impl AxIter for Json {
+    type I<'a> = std::vec::IntoIter<Json>;
+    fn ax_iter<'a>(&'a self) -> Self::I<'a> {
+        self.ax_list().into_iter()
     }
 }
 

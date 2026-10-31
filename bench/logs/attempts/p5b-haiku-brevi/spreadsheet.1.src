@@ -1,0 +1,135 @@
+raw = {}
+state = {}
+vals = {}
+errs = {}
+
+fn tokenize(s: str) -> [str]:
+  return [m[0] for m in s.re_all("[A-Z]+[0-9]*|[0-9]+|[-+*/():]")]
+
+fn comb(a: str, b: str) -> str:
+  if a == "CYCLE" or b == "CYCLE": return "CYCLE"
+  if a == "DIV0" or b == "DIV0": return "DIV0"
+  return ""
+
+fn cell_value(c: str) -> (int, str):
+  st = state.get_or(c, 0)
+  if st == 2: return (vals.get_or(c, 0), errs.get_or(c, ""))
+  if st == 1: return (0, "CYCLE")
+  if not raw.has(c): return (0, "")
+  state[c] = 1
+  v, e = eval_content(raw[c])
+  state[c] = 2
+  vals[c] = v
+  errs[c] = e
+  return (v, e)
+
+fn cellstr(name: str) -> str:
+  if not raw.has(name): return ""
+  v, e = cell_value(name)
+  if e != "": return "#" + e
+  return str(v)
+
+fn eval_content(s: str) -> (int, str):
+  if s.starts_with("="):
+    t = tokenize(s.slice(1))
+    v, p, e = parse_expr(t, 0)
+    return (v, e)
+  return (s.int().or(0), "")
+
+fn parse_expr(t: [str], p: int) -> (int, int, str):
+  v, p, e = parse_term(t, p)
+  while p < t.len() and (t[p] == "+" or t[p] == "-"):
+    op = t[p]
+    b, p, e2 = parse_term(t, p + 1)
+    if op == "+":
+      v += b
+    else:
+      v -= b
+    e = comb(e, e2)
+  return (v, p, e)
+
+fn parse_term(t: [str], p: int) -> (int, int, str):
+  v, p, e = parse_unary(t, p)
+  while p < t.len() and (t[p] == "*" or t[p] == "/"):
+    op = t[p]
+    b, p, e2 = parse_unary(t, p + 1)
+    e = comb(e, e2)
+    if op == "*":
+      v = v * b
+    elif b == 0:
+      e = comb(e, "DIV0")
+      v = 0
+    else:
+      v = v / b
+  return (v, p, e)
+
+fn parse_unary(t: [str], p: int) -> (int, int, str):
+  if p < t.len() and t[p] == "-":
+    v, p2, e = parse_unary(t, p + 1)
+    return (-v, p2, e)
+  return parse_primary(t, p)
+
+fn parse_primary(t: [str], p: int) -> (int, int, str):
+  if p >= t.len(): return (0, p, "")
+  tok = t[p]
+  if tok == "(":
+    v, p2, e = parse_expr(t, p + 1)
+    if p2 < t.len() and t[p2] == ")": p2 += 1
+    return (v, p2, e)
+  if tok == "SUM" or tok == "MIN" or tok == "MAX":
+    c1 = t[p + 2]
+    c2 = t[p + 4]
+    x1 = c1.slice(0, 1).code() - 65
+    x2 = c2.slice(0, 1).code() - 65
+    r1 = c1.slice(1).int().or(1)
+    r2 = c2.slice(1).int().or(1)
+    lo_c = min(x1, x2)
+    hi_c = max(x1, x2) + 1
+    lo_r = min(r1, r2)
+    hi_r = max(r1, r2) + 1
+    vs = []
+    e = ""
+    for cc in lo_c..hi_c:
+      for rr in lo_r..hi_r:
+        cv, ce = cell_value((cc + 65).char() + str(rr))
+        vs.push(cv)
+        e = comb(e, ce)
+    res = 0
+    if tok == "SUM": res = sum(vs)
+    elif tok == "MIN": res = min(vs)
+    else: res = max(vs)
+    return (res, p + 6, e)
+  if not tok.re_full("[0-9]+").is_empty(): return (tok.int().or(0), p + 1, "")
+  if not tok.re_full("[A-Z][0-9]+").is_empty():
+    cv, ce = cell_value(tok)
+    return (cv, p + 1, ce)
+  return (0, p + 1, "")
+
+maxc = 0
+maxr = 1
+for ln in lines():
+  if ln.trim().is_empty(): continue
+  k = ln.find("=")
+  if k < 0: continue
+  name = ln.slice(0, k).trim()
+  content = ln.slice(k + 1).trim()
+  if content.is_empty(): continue
+  raw[name] = content
+  maxc = max(maxc, name.slice(0, 1).code() - 65)
+  maxr = max(maxr, name.slice(1).int().or(1))
+  if content.starts_with("="):
+    for tk2 in tokenize(content.slice(1)):
+      if not tk2.re_full("[A-Z][0-9]+").is_empty():
+        maxc = max(maxc, tk2.slice(0, 1).code() - 65)
+        maxr = max(maxr, tk2.slice(1).int().or(1))
+
+lastc1 = maxc + 1
+lastr1 = maxr + 1
+letters = [(65 + k).char() for k in 0..lastc1]
+out = ["\t" + "\t".join(letters)]
+for r in 1..lastr1:
+  row = str(r)
+  for k in 0..lastc1:
+    row += "\t" + cellstr((65 + k).char() + str(r))
+  out.push(row)
+print("\n".join(out))

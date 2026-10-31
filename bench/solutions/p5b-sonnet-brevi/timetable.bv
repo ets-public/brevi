@@ -1,0 +1,62 @@
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int().or(0) * 60 + p[1].int().or(0)
+fn hhmm(m: int) -> str:
+  h = m // 60
+  mm = m % 60
+  (if h < 10: "0{h}" else: "{h}") + ":" + (if mm < 10: "0{mm}" else: "{mm}")
+
+trains = []
+queries = []
+sec = 0
+for line in lines():
+  if line.trim() == "---":
+    sec = 1
+    continue
+  if line.trim().is_empty(): continue
+  if sec == 0: trains.push(line.words())
+  else: queries.push(line.words())
+
+for q in queries:
+  src = q[0]
+  dst = q[1]
+  t0 = mins(q[2])
+  if src == dst:
+    print("{src} {dst} {q[2]} via -")
+    continue
+  prev = {}
+  prev[src] = (t0, [])
+  best = (100000, 0, "")
+  found = false
+  k = 1
+  while k <= trains.len() and !prev.is_empty():
+    cur = {}
+    buf = if k == 1: 0 else: 5
+    for tr in trains:
+      name = tr[0]
+      n = (tr.len() - 1) // 2
+      for i in 0..n:
+        s = tr[1 + 2 * i]
+        d = mins(tr[2 + 2 * i])
+        if !prev.has(s): continue
+        let (arr, lst) = prev[s]
+        if arr + buf > d: continue
+        nl = lst + [name]
+        for j in i + 1..n:
+          s2 = tr[1 + 2 * j]
+          t2 = mins(tr[2 + 2 * j])
+          cand = (t2, nl)
+          if !cur.has(s2) or cand < cur[s2]: cur[s2] = cand
+    if cur.has(dst):
+      let (a, l) = cur[dst]
+      c = (a, k, ">".join(l))
+      if !found or c < best:
+        best = c
+        found = true
+    prev = cur
+    k += 1
+  if found:
+    let (a, kk, l) = best
+    print("{src} {dst} {hhmm(a)} via {l}")
+  else:
+    print("{src} {dst} unreachable")

@@ -1,0 +1,73 @@
+BIG = 100000
+tnames = []
+tstops = []
+ttimes = []
+
+fn parse_time(t: str) -> int:
+  p = t.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn two(n: int) -> str:
+  if n < 10:
+    return "0" + str(n)
+  return str(n)
+
+fn hhmm(m: int) -> str = two(m // 60) + ":" + two(m % 60)
+
+fn explore(s: str, a: int, last: str, route: [str], visited: [str], target: str, qtime: int) -> (int, int, str):
+  best = (BIG, 0, "")
+  for ti in 0..tnames.len():
+    if tnames[ti] == last:
+      continue
+    stops = tstops[ti]
+    times = ttimes[ti]
+    for j in 0..stops.len():
+      if stops[j] != s:
+        continue
+      d = times[j]
+      if route.is_empty():
+        if d < qtime:
+          continue
+      elif d < a + 5:
+        continue
+      nr = route + [tnames[ti]]
+      for k in (j + 1)..stops.len():
+        x = stops[k]
+        tk = times[k]
+        if x == target:
+          best = min(best, (tk, nr.len(), nr.join(">")))
+        elif not visited.contains(x):
+          sub = explore(x, tk, tnames[ti], nr, visited + [x], target, qtime)
+          best = min(best, sub)
+  return best
+
+mode = 0
+for line in lines():
+  t = line.trim()
+  if t == "---":
+    mode = 1
+  elif t.is_empty():
+    continue
+  elif mode == 0:
+    w = t.words()
+    tnames.push(w[0])
+    st = []
+    tm = []
+    for k in range(1, w.len() - 1, 2):
+      st.push(w[k])
+      tm.push(parse_time(w[k + 1]))
+    tstops.push(st)
+    ttimes.push(tm)
+  else:
+    w = t.words()
+    f = w[0]
+    to = w[1]
+    qt = parse_time(w[2])
+    if f == to:
+      print("{f} {to} {hhmm(qt)} via -")
+    else:
+      best = explore(f, qt, "", [], [f], to, qt)
+      if best[0] == BIG:
+        print("{f} {to} unreachable")
+      else:
+        print("{f} {to} {hhmm(best[0])} via {best[2]}")

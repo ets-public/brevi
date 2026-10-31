@@ -1,0 +1,61 @@
+kv = {}
+logs = []
+
+fn rec(k: str):
+  if not logs.is_empty():
+    logs[-1].push((k, kv.has(k), kv.get_or(k, "")))
+
+for ln in lines():
+  if ln.trim().is_empty(): continue
+  parts = ln.split(" ")
+  cmd = parts[0]
+  a = parts[1] if parts.len() > 1 else ""
+  b = parts[2] if parts.len() > 2 else ""
+  if cmd == "SET":
+    rec(a)
+    kv[a] = b
+  elif cmd == "GET":
+    print(kv.get_or(a, "NULL"))
+  elif cmd == "DEL":
+    if kv.has(a):
+      rec(a)
+      kv.remove(a)
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR":
+    cur = kv.get_or(a, "0")
+    match cur.int():
+      Ok(v) =>
+        nv = v + b.int().or(0)
+        rec(a)
+        kv[a] = str(nv)
+        print(nv)
+      Err(e) => print("ERR not an integer")
+  elif cmd == "COUNT":
+    print(len([k for k, x in kv.pairs() if x == a]))
+  elif cmd == "KEYS":
+    ks = sorted([k for k in kv.keys() if k.starts_with(a)])
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(" ".join(ks))
+  elif cmd == "BEGIN":
+    logs.push([])
+  elif cmd == "ROLLBACK":
+    if logs.is_empty():
+      print("NO TRANSACTION")
+    else:
+      lg = logs.pop()
+      for e in lg.rev():
+        if e.1:
+          kv[e.0] = e.2
+        elif kv.has(e.0):
+          kv.remove(e.0)
+  elif cmd == "COMMIT":
+    if logs.is_empty():
+      print("NO TRANSACTION")
+    else:
+      while not logs.is_empty():
+        logs.pop()
+  else:
+    print("ERR unknown command")

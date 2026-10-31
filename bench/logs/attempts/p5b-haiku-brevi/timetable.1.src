@@ -1,0 +1,86 @@
+tname = []
+tstops = []
+ttimes = []
+
+fn tmin(s: str) -> int:
+  parts = s.split(":")
+  return parts[0].int().or(0) * 60 + parts[1].int().or(0)
+
+fn pad2(n: int) -> str:
+  if n < 10: return "0" + str(n)
+  return str(n)
+
+fn hm(x: int) -> str:
+  h = x // 60
+  m = x % 60
+  return pad2(h) + ":" + pad2(m)
+
+fn solve(frm: str, to: str, q: int) -> (bool, (int, int, str)):
+  best = {}
+  best[(0, frm)] = (q, "")
+  nt = tname.len()
+  front = [(frm, q, "")]
+  k = 1
+  while not front.is_empty() and k <= nt + 1:
+    for S, a, s in front:
+      avail = q if k == 1 else a + 5
+      for ti in 0..nt:
+        stops = tstops[ti]
+        times = ttimes[ti]
+        cnt = stops.len()
+        for i in 0..cnt:
+          if stops[i] != S or times[i] < avail: continue
+          ns = tname[ti] if s == "" else s + ">" + tname[ti]
+          st2 = i + 1
+          for j in st2..cnt:
+            key = (k, stops[j])
+            cand = (times[j], ns)
+            if not best.has(key) or cand < best[key]:
+              best[key] = cand
+    front = []
+    for key, v in best.pairs():
+      if key.0 == k: front.push((key.1, v.0, v.1))
+    k += 1
+  found = false
+  bc = (0, 0, "")
+  for key, v in best.pairs():
+    if key.1 == to and key.0 >= 1:
+      cand = (v.0, key.0, v.1)
+      if not found or cand < bc:
+        bc = cand
+        found = true
+  return (found, bc)
+
+sec = 0
+queries = []
+for ln in lines():
+  if ln.trim() == "---":
+    sec = 1
+  elif sec == 0:
+    ws = ln.words()
+    if ws.is_empty(): continue
+    tname.push(ws[0])
+    st = []
+    tm = []
+    np = (ws.len() - 1) // 2
+    for m in 0..np:
+      st.push(ws[1 + 2 * m])
+      tm.push(tmin(ws[2 + 2 * m]))
+    tstops.push(st)
+    ttimes.push(tm)
+  else:
+    ws = ln.words()
+    if ws.len() >= 3: queries.push((ws[0], ws[1], tmin(ws[2])))
+
+for qr in queries:
+  frm = qr.0
+  dest = qr.1
+  q = qr.2
+  if frm == dest:
+    print("{frm} {dest} {hm(q)} via -")
+  else:
+    ok, bc = solve(frm, dest, q)
+    if ok:
+      print("{frm} {dest} {hm(bc.0)} via {bc.2}")
+    else:
+      print("{frm} {dest} unreachable")

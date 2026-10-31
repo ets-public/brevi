@@ -1,0 +1,127 @@
+fn show(j: Json) -> str = match j:
+  Str(s) => s
+  Null => ""
+  _ => str(j)
+
+fn truthy(j: Json) -> bool = match j:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => !s.is_empty()
+  Arr(xs) => !xs.is_empty()
+  _ => true
+
+fn isnull(j: Json) -> bool = match j:
+  Null => true
+  _ => false
+
+fn items(j: Json) -> [Json] = match j:
+  Arr(xs) => xs
+  _ => []
+
+fn walk(j: Json, path: [str]) -> Json:
+  cur = j
+  for k in path: cur = cur[k]
+  cur
+
+fn lookup(name: str, scopes: [Json], idx: int) -> Json:
+  if name == "@index": return idx.json()
+  if name == ".": return scopes.last()
+  path = name.split(".")
+  k = scopes.len() - 1
+  while k >= 0:
+    v = walk(scopes[k], path)
+    if !isnull(v): return v
+    k -= 1
+  return walk(json("null"), [])
+
+fn apply(v: Json, f: str) -> Json:
+  if f == "upper": return show(v).upper().json()
+  if f == "lower": return show(v).lower().json()
+  if f == "len":
+    return match v:
+      Str(s) => s.len().json()
+      Arr(xs) => xs.len().json()
+      _ => 0.json()
+  if f.starts_with("default:"):
+    d = f.slice(8)
+    if isnull(v) or show(v) == "" and !truthy(v): return d.json()
+    match v:
+      Str(s) => return (if s.is_empty(): d else: s).json()
+      _ => return v
+  return v
+
+fn evaltag(tag: str, scopes: [Json], idx: int) -> str:
+  parts = tag.split("|")
+  v = lookup(parts[0].trim(), scopes, idx)
+  for f in parts.skip(1):
+    v = apply(v, f.trim())
+  show(v)
+
+fn endof(toks: [(int, str)], i: int, b: int) -> (int, int):
+  depth = 0
+  els = -1
+  j = i + 1
+  while j < b:
+    let (k, s) = toks[j]
+    if k == 1:
+      t = s.trim()
+      if t.starts_with("#each ") or t.starts_with("#if "): depth += 1
+      elif t == "/each" or t == "/if":
+        if depth == 0: return (j, els)
+        depth -= 1
+      elif t == "else" and depth == 0: els = j
+    j += 1
+  return (b, els)
+
+fn render(toks: [(int, str)], a: int, b: int, scopes: [Json], idx: int) -> str:
+  out = ""
+  i = a
+  while i < b:
+    let (k, s) = toks[i]
+    if k == 0:
+      out += s
+      i += 1
+      continue
+    t = s.trim()
+    if t.starts_with("#each "):
+      let (e, el) = endof(toks, i, b)
+      name = t.slice(6).trim()
+      xs = items(lookup(name, scopes, idx))
+      for n, x in xs.enumerate():
+        out += render(toks, i + 1, e, scopes + [x], n)
+      i = e + 1
+    elif t.starts_with("#if "):
+      let (e, el) = endof(toks, i, b)
+      v = lookup(t.slice(4).trim(), scopes, idx)
+      if truthy(v):
+        out += render(toks, i + 1, if el >= 0: el else: e, scopes, idx)
+      elif el >= 0:
+        out += render(toks, el + 1, e, scopes, idx)
+      i = e + 1
+    else:
+      out += evaltag(t, scopes, idx)
+      i += 1
+  out
+
+text = stdin()
+nl = text.find("\n")
+data = json(text[:nl])
+rest = text[nl + 1:]
+toks = []
+while true:
+  i = rest.find("{{")
+  if i < 0:
+    toks.push((0, rest))
+    break
+  after = rest[i + 2:]
+  j = after.find("}}")
+  if j < 0:
+    toks.push((0, rest))
+    break
+  toks.push((0, rest[:i]))
+  toks.push((1, after[:j]))
+  rest = after[j + 2:]
+res = render(toks, 0, toks.len(), [data], 0)
+if res.ends_with("\n"): res = res[:-1]
+print(res)

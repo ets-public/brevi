@@ -1,0 +1,8 @@
+{"run":"p5b-haiku-python","lang":"python","task":"access_report","code_tok":938,"patch_tok":938,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p5b-haiku-python","lang":"python","task":"bank_api","code_tok":1541,"patch_tok":1541,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p5b-haiku-python","lang":"python","task":"invoices","code_tok":940,"patch_tok":940,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p5b-haiku-python","lang":"python","task":"kv_store","code_tok":915,"patch_tok":915,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p5b-haiku-python","lang":"python","task":"markdown","code_tok":1332,"patch_tok":1332,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p5b-haiku-python","lang":"python","task":"spreadsheet","code_tok":3115,"patch_tok":3115,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p5b-haiku-python","lang":"python","task":"template","code_tok":1631,"patch_tok":1631,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p5b-haiku-python","lang":"python","task":"timetable","code_tok":1144,"patch_tok":1144,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

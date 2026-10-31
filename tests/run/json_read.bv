@@ -1,0 +1,19 @@
+fn qty(l: Json) -> int = l["qty"].int()
+
+d = json("{\"orders\":[{\"id\":\"A\",\"lines\":[{\"sku\":\"x\",\"qty\":3,\"price\":\"1.25\"}]}],\"c\":{\"bob\":{\"tier\":\"gold\"}},\"n\":null}")
+for o in d["orders"]:
+  print(o["id"].text())
+  for l in o["lines"]:
+    print("{l["sku"].text()} {qty(l)} {l["price"].dec() * l["qty"].int()} {l["qty"].float()}")
+print(d["n"].is_null(), d["c"].has("bob"), d["c"].has("al"), d["c"]["bob"]["tier"].text())
+print(d["c"].keys(), d["orders"].len(), d["orders"].list().len())
+xs = d["orders"]
+for o in xs:
+  print(o["lines"][0]["qty"])
+if d["n"]: print("bad")
+d = json("{\"o\":{\"c\":\"bob\",\"i\":1},\"c\":{\"bob\":{\"tier\":\"gold\"}},\"a\":[5,6]}")
+print(d["c"][d["o"]["c"]]["tier"].text(), d["a"][d["o"]["i"]])
+d = json("{\"t\":\"gold\",\"n\":2}")
+if d["t"] == "gold": print("yes")
+t = "gold"
+print(d["t"] != t, t == d["t"])

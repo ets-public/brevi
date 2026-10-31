@@ -1,0 +1,84 @@
+kv = {}
+logs: [[(str, bool, str)]] = []
+
+fn is_int(s: str) -> bool:
+  t = s
+  if t.starts_with("-") or t.starts_with("+"):
+    t = t.slice(1)
+  if t.is_empty():
+    return false
+  for c in t:
+    if not c.is_digit():
+      return false
+  return true
+
+fn record(k: str):
+  if not logs.is_empty():
+    top = logs.pop()
+    top.push((k, kv.has(k), kv[k]))
+    logs.push(top)
+
+fn put(k: str, v: str):
+  record(k)
+  kv[k] = v
+
+fn delkey(k: str):
+  record(k)
+  kv.remove(k)
+
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  parts = line.split(" ")
+  cmd = parts[0]
+  a = if parts.len() > 1: parts[1] else: ""
+  b = if parts.len() > 2: parts[2] else: ""
+  if cmd == "SET":
+    put(a, b)
+  elif cmd == "GET":
+    if kv.has(a):
+      print(kv[a])
+    else:
+      print("NULL")
+  elif cmd == "DEL":
+    if kv.has(a):
+      delkey(a)
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR":
+    cur = "0"
+    if kv.has(a):
+      cur = kv[a]
+    if not is_int(cur):
+      print("ERR not an integer")
+    else:
+      nv = cur.int().or(0) + b.int().or(0)
+      put(a, str(nv))
+      print(nv)
+  elif cmd == "COUNT":
+    print(len([x for x in kv.values() if x == a]))
+  elif cmd == "KEYS":
+    ks = sorted([k for k in kv.keys() if k.starts_with(a)])
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(ks.join(" "))
+  elif cmd == "BEGIN":
+    logs.push([])
+  elif cmd == "ROLLBACK":
+    if logs.is_empty():
+      print("NO TRANSACTION")
+    else:
+      entries = logs.pop()
+      for e in entries.rev():
+        if e.1:
+          kv[e.0] = e.2
+        else:
+          kv.remove(e.0)
+  elif cmd == "COMMIT":
+    if logs.is_empty():
+      print("NO TRANSACTION")
+    else:
+      logs = []
+  else:
+    print("ERR unknown command")

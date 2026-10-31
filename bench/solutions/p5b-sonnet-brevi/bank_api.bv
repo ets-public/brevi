@@ -1,0 +1,83 @@
+owners = []
+bals = []
+
+fn acct(id: int) -> str = str({"id": id, "owner": owners[id - 1], "balance": bals[id - 1]})
+fn exists(id: int) -> bool = id >= 1 and id <= owners.len()
+fn amt_ok(j: Json) -> bool = match j["amount"]:
+  Num(n) => n > 0.0 and n.floor() == n
+  _ => false
+fn amt(j: Json) -> int = match j["amount"]:
+  Num(n) => n.int()
+  _ => 0
+fn idof(j: Json, k: str) -> int = match j[k]:
+  Num(n) => n.int()
+  _ => -1
+fn owner_ok(j: Json) -> bool = match j["owner"]:
+  Str(s) => !s.is_empty()
+  _ => false
+fn owner_of(j: Json) -> str = match j["owner"]:
+  Str(s) => s
+  _ => ""
+fn numid(s: str) -> bool = !s.is_empty() and s.is_digit()
+
+fn handle(method: str, path: str, body: str) -> str:
+  segs = path.split("/")
+  n = segs.len()
+  kind = ""
+  if method == "GET" and path == "/accounts": kind = "list"
+  elif method == "POST" and path == "/accounts": kind = "create"
+  elif method == "POST" and path == "/transfer": kind = "transfer"
+  elif method == "GET" and n == 3 and segs[0] == "" and segs[1] == "accounts" and numid(segs[2]): kind = "get"
+  elif method == "POST" and n == 4 and segs[0] == "" and segs[1] == "accounts" and numid(segs[2]) and segs[3] == "deposit": kind = "deposit"
+  elif method == "POST" and n == 4 and segs[0] == "" and segs[1] == "accounts" and numid(segs[2]) and segs[3] == "withdraw": kind = "withdraw"
+  if kind == "":
+    return "404 " + str({"error": "not found"})
+  if kind == "list":
+    ids = (1..owners.len() + 1).map(i => i).sort_by(i => (-bals[i - 1], i))
+    return "200 [" + ",".join(ids.map(i => acct(i))) + "]"
+  if kind == "get":
+    id = segs[2].int()
+    if !exists(id): return "404 " + str({"error": "no such account"})
+    return "200 " + acct(id)
+  j = json("{}")
+  ok = true
+  match json(body):
+    Ok(v) => j = v
+    Err(m) => ok = false
+  if !ok: return "400 " + str({"error": "bad json"})
+  if kind == "create":
+    if !owner_ok(j): return "400 " + str({"error": "owner required"})
+    owners.push(owner_of(j))
+    bals.push(0)
+    return "201 " + acct(owners.len())
+  if kind == "transfer":
+    a = idof(j, "from")
+    b = idof(j, "to")
+    if !exists(a) or !exists(b): return "404 " + str({"error": "no such account"})
+    if a == b: return "400 " + str({"error": "same account"})
+    if !amt_ok(j): return "400 " + str({"error": "bad amount"})
+    x = amt(j)
+    if x > bals[a - 1]: return "409 " + str({"error": "insufficient funds"})
+    bals[a - 1] -= x
+    bals[b - 1] += x
+    return "200 " + str({"from": bals[a - 1], "to": bals[b - 1]})
+  id = segs[2].int()
+  if !exists(id): return "404 " + str({"error": "no such account"})
+  if !amt_ok(j): return "400 " + str({"error": "bad amount"})
+  x = amt(j)
+  if kind == "withdraw":
+    if x > bals[id - 1]: return "409 " + str({"error": "insufficient funds"})
+    bals[id - 1] -= x
+  else:
+    bals[id - 1] += x
+  "200 " + acct(id)
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  i = line.find(" ")
+  method = line[:i]
+  rest = line[i + 1:]
+  j = rest.find(" ")
+  path = if j < 0: rest else: rest[:j]
+  body = if j < 0: "" else: rest[j + 1:]
+  print(handle(method, path, body))

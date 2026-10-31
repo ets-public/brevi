@@ -14,7 +14,7 @@ const METHODS: &[&str] = &[
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json",
-    "re_find", "re_full", "re_all", "re_sub", "re_split",
+    "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_sub", "re_split",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -666,7 +666,8 @@ impl Emitter {
             Expr::Method(_, m, _, _) => match m.as_str() {
                 "len" | "count" | "find" | "index_of" | "digit" => named("int"),
                 "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
-                "trim" | "lower" | "upper" | "join" | "replace" => named("str"),
+                "trim" | "lower" | "upper" | "join" | "replace" | "text" => named("str"),
+                "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
                 _ => None,
             },
             _ => None,
@@ -699,7 +700,7 @@ impl Emitter {
             Expr::Bool(_) => true,
             Expr::Binary(op, ..) => ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op),
             Expr::Unary(op, _) => *op == "!",
-            Expr::Method(_, m, _, _) => ["has", "is_empty", "contains", "starts_with", "ends_with", "any", "all", "is_digit", "is_alpha"].contains(&m.as_str()),
+            Expr::Method(_, m, _, _) => ["has", "is_empty", "contains", "starts_with", "ends_with", "any", "all", "is_digit", "is_alpha", "is_null", "bool"].contains(&m.as_str()),
             e => self.infer_ty(e).map_or(false, |t| matches!(&t, Ty::Named(n) if n == "bool")),
         };
         let e = self.expr(c);
@@ -1346,17 +1347,22 @@ impl Emitter {
                     .map(|(k, a)| match a {
                         a if k == 0 && ref_arg => self.arg_ref(a),
                         Expr::Lambda(ps, body) => {
+                            // Lambda parameters end with the lambda.
+                            let outer = self.locals.clone();
                             for p in ps {
                                 self.locals.insert(p.clone());
                             }
                             let params = if unpack && ps.len() > 1 { format!("({})", ps.join(", ")) } else { ps.join(", ") };
-                            if !tries {
-                                return format!("(|{params}| {})", self.expr(body));
-                            }
-                            let saved = std::mem::replace(&mut self.fallible, true);
-                            let b = self.expr(body);
-                            self.fallible = saved;
-                            format!("(|{params}| -> R<_> {{ Ok({b}) }})")
+                            let out = if !tries {
+                                format!("(|{params}| {})", self.expr(body))
+                            } else {
+                                let saved = std::mem::replace(&mut self.fallible, true);
+                                let b = self.expr(body);
+                                self.fallible = saved;
+                                format!("(|{params}| -> R<_> {{ Ok({b}) }})")
+                            };
+                            self.locals = outer;
+                            out
                         }
                         other => self.expr(other),
                     })
@@ -1379,10 +1385,13 @@ impl Emitter {
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
             Expr::Index(..) => format!("{}.clone()", self.place(e)),
             Expr::Lambda(params, body) => {
+                let outer = self.locals.clone();
                 for p in params {
                     self.locals.insert(p.clone());
                 }
-                format!("(|{}| {})", params.join(", "), self.expr(body))
+                let out = format!("(|{}| {})", params.join(", "), self.expr(body));
+                self.locals = outer;
+                out
             }
             Expr::Try(inner) => {
                 if !self.fallible {
