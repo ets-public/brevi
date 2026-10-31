@@ -1430,6 +1430,12 @@ impl Emitter {
                 self.check_ident(n);
                 if self.locals.contains(n) {
                     format!("{}.clone()", self.place(e))
+                } else if let Some(sig) = self.fns.get(n).filter(|f| !f.fallible && n != "main") {
+                    // A function used as a value (`ops = {"add": add, "mul": mul}`) is a fn pointer, so
+                    // different functions with the same signature fit in one list or map.
+                    let ps: Vec<String> = sig.params.iter().map(|p| rust_ty(&p.ty)).collect();
+                    let ret = if matches!(sig.ret, Ty::Unit) { String::new() } else { format!(" -> {}", rust_ty(&sig.ret)) };
+                    format!("({n} as fn({}){ret})", ps.join(", "))
                 } else {
                     n.clone()
                 }
@@ -1469,6 +1475,10 @@ impl Emitter {
                 if c.starts_with("(return") { c } else { format!("{{ ax_l({line}); {c} }}") }
             }
             // `x.str()` is `str(x)`.
+            Expr::Method(recv, name, args, _) if name == "__call" => {
+                let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
+                format!("({})({})", self.expr(recv), a.join(", "))
+            }
             Expr::Method(recv, name, args, line) if name == "str" && args.is_empty() => {
                 self.line = *line;
                 format!("Show::show(&{})", self.operand(recv))

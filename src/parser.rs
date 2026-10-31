@@ -592,6 +592,11 @@ impl Parser {
                     let Some(idx) = start else { return Err(self.err("expected an index")) };
                     e = Expr::Index(Box::new(e), Box::new(idx));
                 }
+            } else if self.is_sym("(") && matches!(e, Expr::Index(..) | Expr::Field(..) | Expr::TupleField(..)) {
+                // `ops[1](3, 4)`: call a function value taken from a list, tuple or field.
+                self.eat_sym("(");
+                let args = self.args()?.into_iter().map(|(_, a)| a).collect();
+                e = Expr::Method(Box::new(e), "__call".into(), args, line);
             } else if self.eat_sym("?") {
                 e = Expr::Try(Box::new(e));
             } else {
