@@ -1,0 +1,34 @@
+fn sq(s: str) -> (int, int):
+  return (s[0].code() - 97, s[1:].int() - 1)
+
+fn knight(n: int, src: (int, int), dst: (int, int)) -> int:
+  if src == dst:
+    return 0
+  moves = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+  dist: {(int, int): int} = {}
+  dist[src] = 0
+  q = [src]
+  head = 0
+  while head < q.len():
+    cur = q[head]
+    head += 1
+    for m in moves:
+      nx = cur.0 + m.0
+      ny = cur.1 + m.1
+      if nx >= 0 and nx < n and ny >= 0 and ny < n:
+        nb = (nx, ny)
+        if not dist.has(nb):
+          dist[nb] = dist[cur] + 1
+          if nb == dst:
+            return dist[nb]
+          q.push(nb)
+  return -1
+
+fn main():
+  ls = lines()
+  n = ls[0].trim().int()
+  for line in ls.skip(1):
+    parts = line.words()
+    if parts.len() < 2:
+      continue
+    print(knight(n, sq(parts[0]), sq(parts[1])))

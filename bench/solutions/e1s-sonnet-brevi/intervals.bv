@@ -1,0 +1,15 @@
+ps = []
+for l in lines():
+  w = l.ints()
+  if w.len() >= 2: ps.push((w[0], w[1]))
+ps = ps.sort()
+res = []
+for p in ps:
+  if res and p.0 <= res[-1].1:
+    if p.1 > res[-1].1: res[-1] = (res[-1].0, p.1)
+  else: res.push(p)
+tot = 0
+for r in res:
+  print(r.0, r.1)
+  tot += r.1 - r.0
+print("total {tot}")

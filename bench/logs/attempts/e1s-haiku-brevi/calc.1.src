@@ -1,0 +1,64 @@
+fn tokenize(s: str) -> [str]:
+  toks = []
+  i = 0
+  while i < s.len():
+    c = s[i:i + 1]
+    if c.is_digit():
+      j = i
+      while j < s.len() and s[j:j + 1].is_digit():
+        j += 1
+      toks.push(s[i:j])
+      i = j
+    else:
+      if c != " ": toks.push(c)
+      i += 1
+  toks
+
+fn parse_expr(toks: [str], mut pos: [int]) -> int:
+  v = parse_term(toks, pos)
+  while pos[0] < toks.len() and (toks[pos[0]] == "+" or toks[pos[0]] == "-"):
+    op = toks[pos[0]]
+    pos[0] += 1
+    r = parse_term(toks, pos)
+    if op == "+": v = v + r
+    else: v = v - r
+  v
+
+fn parse_term(toks: [str], mut pos: [int]) -> int:
+  v = parse_unary(toks, pos)
+  while pos[0] < toks.len() and (toks[pos[0]] == "*" or toks[pos[0]] == "/"):
+    op = toks[pos[0]]
+    pos[0] += 1
+    r = parse_unary(toks, pos)
+    if op == "*": v = v * r
+    else:
+      if r == 0: fail("div0")
+      v = v / r
+  v
+
+fn parse_unary(toks: [str], mut pos: [int]) -> int:
+  if toks[pos[0]] == "-":
+    pos[0] += 1
+    return 0 - parse_unary(toks, pos)
+  parse_atom(toks, pos)
+
+fn parse_atom(toks: [str], mut pos: [int]) -> int:
+  t = toks[pos[0]]
+  pos[0] += 1
+  if t == "(":
+    v = parse_expr(toks, pos)
+    pos[0] += 1
+    return v
+  t.int()
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  toks = tokenize(line)
+  pos = [0]
+  match run_line(toks):
+    Ok(v) => print(str(v))
+    Err(m) => print("error")
+
+fn run_line(toks: [str]) -> int:
+  p = [0]
+  parse_expr(toks, p)

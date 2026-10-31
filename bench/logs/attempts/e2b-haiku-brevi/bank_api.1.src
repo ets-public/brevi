@@ -1,0 +1,115 @@
+owners = []
+bals = []
+
+fn exists(i: int) -> bool = i >= 1 and i <= owners.len()
+
+fn valid_id(s: str) -> bool = s.len() > 0 and s.chars().all(c => c.is_digit())
+
+fn valid_json(text: str) -> bool = match json(text):
+  Ok(_) => true
+  Err(_) => false
+
+fn owner_of(b: Json) -> str = match b["owner"]:
+  Str(s) => s
+  _ => ""
+
+fn amount_of(b: Json) -> int = match b["amount"]:
+  Num(n) => if n >= 1.0 and n == n.floor(): n.int() else: -1
+  _ => -1
+
+fn int_of(j: Json) -> int = match j:
+  Num(n) => if n == n.floor(): n.int() else: -1
+  _ => -1
+
+fn acct_json(i: int) -> str = "{\"id\":" + (i + 1).str() + ",\"owner\":\"" + owners[i] + "\",\"balance\":" + bals[i].str() + "}"
+
+fn create_account(b: Json) -> str:
+  nm = owner_of(b)
+  if nm.is_empty():
+    return "400 {\"error\":\"owner required\"}"
+  owners.push(nm)
+  bals.push(0)
+  return "201 " + acct_json(owners.len() - 1)
+
+fn get_account(aid: int) -> str:
+  if not exists(aid):
+    return "404 {\"error\":\"no such account\"}"
+  return "200 " + acct_json(aid - 1)
+
+fn deposit(aid: int, b: Json) -> str:
+  if not exists(aid):
+    return "404 {\"error\":\"no such account\"}"
+  amt = amount_of(b)
+  if amt < 0:
+    return "400 {\"error\":\"bad amount\"}"
+  bals[aid - 1] += amt
+  return "200 " + acct_json(aid - 1)
+
+fn withdraw(aid: int, b: Json) -> str:
+  if not exists(aid):
+    return "404 {\"error\":\"no such account\"}"
+  amt = amount_of(b)
+  if amt < 0:
+    return "400 {\"error\":\"bad amount\"}"
+  if amt > bals[aid - 1]:
+    return "409 {\"error\":\"insufficient funds\"}"
+  bals[aid - 1] -= amt
+  return "200 " + acct_json(aid - 1)
+
+fn transfer(b: Json) -> str:
+  src = int_of(b["from"])
+  dst = int_of(b["to"])
+  if not exists(src) or not exists(dst):
+    return "404 {\"error\":\"no such account\"}"
+  if src == dst:
+    return "400 {\"error\":\"same account\"}"
+  amt = amount_of(b)
+  if amt < 0:
+    return "400 {\"error\":\"bad amount\"}"
+  if amt > bals[src - 1]:
+    return "409 {\"error\":\"insufficient funds\"}"
+  bals[src - 1] -= amt
+  bals[dst - 1] += amt
+  return "200 {\"from\":" + bals[src - 1].str() + ",\"to\":" + bals[dst - 1].str() + "}"
+
+fn list_accounts() -> str:
+  order = []
+  for i in 0..owners.len():
+    order.push((-bals[i], i))
+  order = order.sort()
+  items = []
+  for ord in order:
+    items.push(acct_json(ord.1))
+  return "200 [" + items.join(",") + "]"
+
+fn handle(line: str) -> str:
+  i = line.find(" ")
+  method = if i < 0: line else: line[:i]
+  after = if i < 0: "" else: line[i + 1:]
+  j = after.find(" ")
+  path = if j < 0: after else: after[:j]
+  body = if j < 0: "" else: after[j + 1:]
+  parts = path.split("/")
+  if method == "GET" and path == "/accounts":
+    return list_accounts()
+  if method == "GET" and parts.len() == 3 and parts[1] == "accounts" and valid_id(parts[2]):
+    return get_account(parts[2].int())
+  is_acct_route = parts.len() == 4 and parts[1] == "accounts" and valid_id(parts[2]) and (parts[3] == "deposit" or parts[3] == "withdraw")
+  if method == "POST" and (path == "/accounts" or path == "/transfer" or is_acct_route):
+    if not valid_json(body):
+      return "400 {\"error\":\"bad json\"}"
+    b = json(body)
+    if path == "/accounts":
+      return create_account(b)
+    if path == "/transfer":
+      return transfer(b)
+    aid = parts[2].int()
+    if parts[3] == "deposit":
+      return deposit(aid, b)
+    return withdraw(aid, b)
+  return "404 {\"error\":\"not found\"}"
+
+for line in lines():
+  if line.is_empty():
+    continue
+  print(handle(line))

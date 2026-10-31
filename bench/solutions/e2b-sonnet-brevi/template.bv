@@ -1,0 +1,130 @@
+fn isnull(j: Json) -> bool:
+  match j:
+    Null => true
+    _ => false
+
+fn lookup(path: str, scopes: [Json], cur: Json, idx: int) -> Json:
+  if path == ".": return cur
+  if path == "@index": return idx.float().json()
+  segs = path.split(".")
+  start = Null
+  k = scopes.len() - 1
+  while k >= 0:
+    v = scopes[k][segs[0]]
+    if not isnull(v):
+      start = v
+      break
+    k -= 1
+  res = start
+  for s in segs.skip(1): res = res[s]
+  res
+
+fn tostr(j: Json) -> str:
+  match j:
+    Null => ""
+    Str(s) => s
+    _ => str(j)
+
+fn truthy(j: Json) -> bool:
+  match j:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => not s.is_empty()
+    Arr(xs) => not xs.is_empty()
+    _ => true
+
+fn applyf(v: Json, f: str) -> Json:
+  if f == "upper": return Str(tostr(v).upper())
+  if f == "lower": return Str(tostr(v).lower())
+  if f == "len":
+    n = match v:
+      Str(s) => s.len()
+      Arr(xs) => xs.len()
+      _ => 0
+    return Str(str(n))
+  if f.starts_with("default:"):
+    empty = match v:
+      Null => true
+      Str(s) => s.is_empty()
+      _ => false
+    if empty: return Str(f.slice(8))
+  v
+
+fn items(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn find_end(toks: [(int, str)], lo: int, hi: int) -> (int, int):
+  depth = 1
+  elsepos = -1
+  i = lo
+  while i < hi:
+    t = toks[i]
+    if t.0 == 1:
+      c = t.1
+      if c.starts_with("#if") or c.starts_with("#each"): depth += 1
+      elif c == "/if" or c == "/each":
+        depth -= 1
+        if depth == 0: return (i, elsepos)
+      elif c == "else" and depth == 1: elsepos = i
+    i += 1
+  (hi, elsepos)
+
+fn render(toks: [(int, str)], lo: int, hi: int, scopes: [Json], cur: Json, idx: int) -> str:
+  r = ""
+  i = lo
+  while i < hi:
+    t = toks[i]
+    if t.0 == 0:
+      r += t.1
+      i += 1
+      continue
+    c = t.1
+    if c.starts_with("#each "):
+      e = find_end(toks, i + 1, hi)
+      name = c.slice(6).trim()
+      k = 0
+      for el in items(lookup(name, scopes, cur, idx)):
+        r += render(toks, i + 1, e.0, scopes + [el], el, k)
+        k += 1
+      i = e.0 + 1
+    elif c.starts_with("#if "):
+      e = find_end(toks, i + 1, hi)
+      name = c.slice(4).trim()
+      if truthy(lookup(name, scopes, cur, idx)):
+        stop = if e.1 >= 0: e.1 else: e.0
+        r += render(toks, i + 1, stop, scopes, cur, idx)
+      elif e.1 >= 0:
+        r += render(toks, e.1 + 1, e.0, scopes, cur, idx)
+      i = e.0 + 1
+    else:
+      parts = c.split("|")
+      v = lookup(parts[0].trim(), scopes, cur, idx)
+      for f in parts.skip(1): v = applyf(v, f.trim())
+      r += tostr(v)
+      i += 1
+  r
+
+text = stdin()
+nl = text.find("\n")
+root = json(text.slice(0, nl))
+tpl = text.slice(nl + 1)
+toks = []
+rest = tpl
+while rest:
+  a = rest.find("{{")
+  if a < 0:
+    toks.push((0, rest))
+    break
+  b = rest.slice(a).find("}}")
+  if b < 0:
+    toks.push((0, rest))
+    break
+  if a > 0: toks.push((0, rest.slice(0, a)))
+  toks.push((1, rest.slice(a + 2, a + b).trim()))
+  rest = rest.slice(a + b + 2)
+out = render(toks, 0, toks.len(), [root], root, 0)
+if out.ends_with("\n"): out = out.slice(0, out.len() - 1)
+print(out)

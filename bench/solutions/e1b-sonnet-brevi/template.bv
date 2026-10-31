@@ -1,0 +1,110 @@
+fn isnull(j: Json) -> bool = match j:
+  Null => true
+  _ => false
+
+fn isobj(j: Json) -> bool = match j:
+  Obj(_) => true
+  _ => false
+
+fn j2s(j: Json) -> str = match j:
+  Null => ""
+  Bool(b) => if b: "true" else: "false"
+  Str(s) => s
+  _ => str(j)
+
+fn truthy(j: Json) -> bool = match j:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => not s.is_empty()
+  Arr(xs) => not xs.is_empty()
+  _ => true
+
+fn lookup(name: str, scopes: [Json], idx: int) -> Json:
+  if name == ".": return scopes.last()
+  if name == "@index": return idx.json()
+  segs = name.split(".")
+  for k in 0..scopes.len():
+    sc = scopes[scopes.len() - 1 - k]
+    if isobj(sc):
+      cur = sc[segs[0]]
+      if not isnull(cur):
+        for s in segs.skip(1): cur = cur[s]
+        return cur
+  json("null")
+
+fn isopen(s: str) -> bool = s.starts_with("#each ") or s.starts_with("#if ")
+
+fn render(toks: [(bool, str)], lo: int, hi: int, scopes: [Json], idx: int) -> str:
+  out = ""
+  i = lo
+  while i < hi:
+    t = toks[i]
+    if not t.0:
+      out += t.1
+      i += 1
+      continue
+    tag = t.1.trim()
+    if isopen(tag):
+      depth = 1
+      j = i + 1
+      els = -1
+      while depth > 0:
+        tg = toks[j]
+        if tg.0:
+          s = tg.1.trim()
+          if isopen(s): depth += 1
+          elif s == "/each" or s == "/if": depth -= 1
+          elif s == "else" and depth == 1: els = j
+        j += 1
+      close = j - 1
+      if tag.starts_with("#each "):
+        v = lookup(tag.slice(6).trim(), scopes, idx)
+        match v:
+          Arr(xs) =>
+            for n, x in xs.enumerate():
+              out += render(toks, i + 1, close, scopes + [x], n)
+          _ => out += ""
+      else:
+        v = lookup(tag.slice(4).trim(), scopes, idx)
+        if truthy(v):
+          out += render(toks, i + 1, if els >= 0: els else: close, scopes, idx)
+        elif els >= 0:
+          out += render(toks, els + 1, close, scopes, idx)
+      i = j
+      continue
+    parts = tag.split("|")
+    v = lookup(parts[0].trim(), scopes, idx)
+    for f in parts.skip(1):
+      f = f.trim()
+      if f == "upper": v = j2s(v).upper().json()
+      elif f == "lower": v = j2s(v).lower().json()
+      elif f == "len":
+        v = match v:
+          Str(s) => s.len().json()
+          Arr(xs) => xs.len().json()
+          _ => 0.json()
+      elif f.starts_with("default:"):
+        miss = isnull(v) or j2s(v) == "" and not isobj(v)
+        if miss: v = f.slice(8).json()
+    out += j2s(v)
+    i += 1
+  out
+
+all = stdin()
+nl = all.find("\n")
+data = json(all.slice(0, nl))
+tpl = all.slice(nl + 1)
+toks = []
+rest = tpl
+while true:
+  i = rest.find("{{")
+  if i < 0:
+    toks.push((false, rest))
+    break
+  toks.push((false, rest.slice(0, i)))
+  r2 = rest.slice(i + 2)
+  j = r2.find("}}")
+  toks.push((true, r2.slice(0, j)))
+  rest = r2.slice(j + 2)
+print(render(toks, 0, toks.len(), [data], 0))

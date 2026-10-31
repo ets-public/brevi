@@ -1,0 +1,1 @@
+{"e":"type","at":"/home/user/brevi/bench/work/e1b-haiku-brevi/bank_api.bv:22:1","msg":"type annotations needed for [_]","fix":"give the empty value a type, e.g. m: {str: int} = {} or xs: [str] = []","rust":"E0282"}

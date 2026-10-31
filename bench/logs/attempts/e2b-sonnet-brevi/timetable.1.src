@@ -1,0 +1,73 @@
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str = if n < 10: "0" + str(n) else: str(n)
+
+fn tstr(m: int) -> str = pad(m // 60) + ":" + pad(m % 60)
+
+names = []
+sts = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  if w[0] == "---":
+    second = true
+    continue
+  if second:
+    queries.push(w)
+  else:
+    names.push(w[0])
+    s = []
+    t = []
+    k = 1
+    while k + 1 < w.len():
+      s.push(w[k])
+      t.push(mins(w[k + 1]))
+      k += 2
+    sts.push(s)
+    tms.push(t)
+
+none = (999, "")
+for q in queries:
+  from = q[0]
+  to = q[1]
+  qt = mins(q[2])
+  if from == to:
+    print("{from} {to} {tstr(qt)} via -")
+    continue
+  rd = []
+  for T in 0..names.len(): rd.push([none for x in sts[T]])
+  changed = true
+  while changed:
+    changed = false
+    for T in 0..names.len():
+      run = none
+      for i in 0..sts[T].len():
+        b = none
+        st = sts[T][i]
+        dep = tms[T][i]
+        if st == from and dep >= qt: b = (1, names[T])
+        for U in 0..names.len():
+          if U != T:
+            for j in 1..sts[U].len():
+              if sts[U][j] == st and tms[U][j] + 5 <= dep and rd[U][j].0 < 999:
+                c = (rd[U][j].0 + 1, rd[U][j].1 + ">" + names[T])
+                if c < b: b = c
+        if b < run: run = b
+        if rd[T][i] != run:
+          rd[T][i] = run
+          changed = true
+  bestt = 99999
+  bestl = none
+  for T in 0..names.len():
+    for j in 1..sts[T].len():
+      if sts[T][j] == to and rd[T][j].0 < 999:
+        if tms[T][j] < bestt or (tms[T][j] == bestt and rd[T][j] < bestl):
+          bestt = tms[T][j]
+          bestl = rd[T][j]
+  if bestl.0 == 999: print("{from} {to} unreachable")
+  else: print("{from} {to} {tstr(bestt)} via {bestl.1}")

@@ -1,0 +1,44 @@
+fn rval(c: str) -> int = match c:
+  "I" => 1
+  "V" => 5
+  "X" => 10
+  "L" => 50
+  "C" => 100
+  "D" => 500
+  "M" => 1000
+  _ => 0
+
+fn rparse(s: str) -> int:
+  vals = s.chars().map(c => rval(c))
+  total = 0
+  for i in 0..vals.len():
+    if i + 1 < vals.len() and vals[i] < vals[i + 1]:
+      total -= vals[i]
+    else:
+      total += vals[i]
+  total
+
+fn to_roman(n: int) -> str:
+  pairs = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+  out = ""
+  rest = n
+  for p in pairs:
+    while rest >= p.0:
+      out += p.1
+      rest -= p.0
+  out
+
+for line in lines():
+  p = line.words()
+  if len(p) == 0: continue
+  acc = rparse(p[0])
+  i = 1
+  while i + 1 < p.len():
+    v = rparse(p[i + 1])
+    if p[i] == "+": acc += v
+    else: acc -= v
+    i += 2
+  if acc <= 0:
+    print("nulla")
+  else:
+    print(to_roman(acc))

@@ -1,0 +1,17 @@
+seen = {}
+groups = {}
+for w0 in stdin().words():
+  w = w0.lower()
+  if seen.has(w): continue
+  seen[w] = true
+  key = sorted(w.chars()).join("")
+  groups[key] = groups.get_or(key, []) + [w]
+
+rows = []
+for g in groups.values():
+  if g.len() < 2: continue
+  s = g.sort()
+  rows.push((0 - s.len(), s.first(), s.join(" ")))
+rows = rows.sort()
+for r in rows:
+  print(r.2)

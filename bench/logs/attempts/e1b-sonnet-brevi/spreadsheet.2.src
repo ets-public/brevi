@@ -1,0 +1,107 @@
+src = {}
+memo = {}
+busy = {}
+maxc = 0
+maxr = 0
+
+fn colof(a: str) -> int = a.slice(0, 1).code() - 65
+fn rowof(a: str) -> int = a.slice(1).int().or(0)
+fn isref(t: str) -> bool = not t.re_full("[A-Z]\d+").is_empty()
+
+fn cellval(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if not src.has(name): return (0, 0)
+  if busy.has(name): return (2, 0)
+  busy[name] = 1
+  c = src[name]
+  r = (0, 0)
+  if c.starts_with("="):
+    toks = [m[0] for m in c.slice(1).replace(" ", "").re_all("[A-Z]+\d+|[A-Z]+|\d+|[-+*/():]")]
+    pos = 0
+    r = expr(toks, pos)
+  else:
+    r = (0, c.int().or(0))
+  memo[name] = r
+  r
+
+fn expr(toks: [str], mut pos: int) -> (int, int):
+  k, v = term(toks, pos)
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    let (k2, v2) = term(toks, pos)
+    k = max(k, k2)
+    v = if op == "+": v + v2 else: v - v2
+  (k, v)
+
+fn term(toks: [str], mut pos: int) -> (int, int):
+  k, v = factor(toks, pos)
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    let (k2, v2) = factor(toks, pos)
+    k = max(k, k2)
+    if op == "*":
+      v = v * v2
+    elif v2 == 0:
+      k = max(k, 1)
+      v = 0
+    else:
+      v = v / v2
+  (k, v)
+
+fn factor(toks: [str], mut pos: int) -> (int, int):
+  tok = toks[pos]
+  pos += 1
+  if tok == "-":
+    let (k, v) = factor(toks, pos)
+    return (k, -v)
+  if tok == "(":
+    let (k, v) = expr(toks, pos)
+    pos += 1
+    return (k, v)
+  if tok.is_digit(): return (0, tok.int())
+  if isref(tok): return cellval(tok)
+  # function
+  pos += 1
+  a = toks[pos]
+  pos += 2
+  b = toks[pos]
+  pos += 2
+  vals = []
+  k = 0
+  for c in min(colof(a), colof(b))..max(colof(a), colof(b)) + 1:
+    for r in min(rowof(a), rowof(b))..max(rowof(a), rowof(b)) + 1:
+      let (k2, v2) = cellval((65 + c).char() + r.str())
+      k = max(k, k2)
+      vals.push(v2)
+  v = 0
+  if vals.is_empty(): return (k, 0)
+  if tok == "SUM": v = vals.sum()
+  elif tok == "MIN": v = vals.min()
+  else: v = vals.max()
+  (k, v)
+
+for line in lines():
+  i = line.find("=")
+  if i < 0: continue
+  name = line.slice(0, i).trim()
+  content = line.slice(i + 1).trim()
+  src[name] = content
+  for m in ("{name} {content}").re_all("[A-Z]\d+"):
+    maxc = max(maxc, colof(m[0]))
+    maxr = max(maxr, rowof(m[0]))
+
+hdr = [""]
+for c in 0..maxc + 1: hdr.push((65 + c).char())
+print(hdr.join("\t"))
+for r in 1..maxr + 1:
+  row = [r.str()]
+  for c in 0..maxc + 1:
+    name = (65 + c).char() + r.str()
+    if not src.has(name):
+      row.push("")
+    else:
+      let (k, v) = cellval(name)
+      row.push(if k == 2: "#CYCLE" elif k == 1: "#DIV0" else: v.str())
+  print(row.join("\t"))

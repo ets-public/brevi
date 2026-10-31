@@ -1,0 +1,33 @@
+cap = 0
+vals = {}
+stamp = {}
+clock = 0
+first = true
+for line in lines():
+  p = line.words()
+  if len(p) == 0: continue
+  if first:
+    cap = p[0].int().or(1)
+    first = false
+    continue
+  clock += 1
+  if p[0] == "put":
+    k = p[1]
+    if not vals.has(k) and vals.len() >= cap:
+      oldest = ""
+      best = -1
+      for kk, t in stamp.pairs():
+        if best < 0 or t < best:
+          best = t
+          oldest = kk
+      vals.remove(oldest)
+      stamp.remove(oldest)
+    vals[k] = p[2]
+    stamp[k] = clock
+  else:
+    k = p[1]
+    if vals.has(k):
+      stamp[k] = clock
+      print(vals[k])
+    else:
+      print("-1")

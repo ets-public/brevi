@@ -1,0 +1,94 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt(s: str) -> str:
+  t = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*(.+?)\*", "<em>\1</em>")
+  t.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+
+fn inline(raw: str) -> str:
+  parts = esc(raw).split("`")
+  if parts.len() % 2 == 0:
+    last = parts.pop()
+    prev = parts.pop()
+    parts.push(prev + "`" + last)
+  res = ""
+  for i in 0..parts.len():
+    if i % 2 == 1:
+      res += "<code>" + parts[i] + "</code>"
+    else:
+      res += fmt(parts[i])
+  res
+
+out = []
+toc = []
+used = {}
+para = []
+items = []
+kind = ""
+incode = false
+code = []
+
+fn flush():
+  if para:
+    out.push("<p>" + para.map(l => inline(l)).join(" ") + "</p>")
+    para = []
+  if items:
+    out.push("<" + kind + ">")
+    for it in items: out.push("<li>" + inline(it) + "</li>")
+    out.push("</" + kind + ">")
+    items = []
+
+for line in lines():
+  if incode:
+    if line == "```":
+      out.push("<pre><code>" + code.map(l => esc(l)).join("\n") + "</code></pre>")
+      code = []
+      incode = false
+    else:
+      code.push(line)
+    continue
+  if line == "```":
+    flush()
+    incode = true
+    continue
+  if line.trim().is_empty():
+    flush()
+    continue
+  h = line.re_full("(#{1,6}) (.*)")
+  if h:
+    flush()
+    txt = h[2]
+    base = txt.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    cand = base
+    n = 2
+    while used.has(cand):
+      cand = base + "-" + n.str()
+      n += 1
+    used[cand] = 1
+    lvl = h[1].len()
+    out.push("<h{lvl} id=\"{cand}\">" + inline(txt) + "</h{lvl}>")
+    toc.push("<a href=\"#" + cand + "\">" + esc(txt.replace("`", "").replace("*", "")) + "</a>")
+    continue
+  if line.starts_with("- "):
+    if kind != "ul" and items: flush()
+    if para: flush()
+    kind = "ul"
+    items.push(line.slice(2))
+    continue
+  o = line.re_full("\d+\. (.*)")
+  if o:
+    if kind != "ol" and items: flush()
+    if para: flush()
+    kind = "ol"
+    items.push(o[1])
+    continue
+  if items: flush()
+  para.push(line)
+flush()
+if incode:
+  out.push("<pre><code>" + code.map(l => esc(l)).join("\n") + "</code></pre>")
+if toc.len() >= 2:
+  print("<nav>")
+  for t in toc: print(t)
+  print("</nav>")
+for l in out: print(l)

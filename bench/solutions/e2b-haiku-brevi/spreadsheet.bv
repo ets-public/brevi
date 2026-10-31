@@ -1,0 +1,194 @@
+cells: {str: str} = {}
+seen: {str: int} = {}
+memo: {str: (int, bool, bool)} = {}
+state: {str: int} = {}
+src: str = ""
+pos: int = 0
+
+fn col(i: int) -> str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(i, i + 1)
+
+fn ch() -> str = if pos < src.len(): src[pos:pos + 1] else: ""
+
+fn dig() -> int = if pos < src.len(): src[pos:pos + 1].digit() else: -1
+
+fn is_upper(c: str) -> bool = c.len() == 1 and c.code() >= 65 and c.code() <= 90
+
+fn show(v: (int, bool, bool)) -> str:
+  if v.1:
+    return "#CYCLE"
+  if v.2:
+    return "#DIV0"
+  x = v.0
+  return x.str()
+
+fn combine(op: str, l: (int, bool, bool), r: (int, bool, bool)) -> (int, bool, bool):
+  cyc = l.1 or r.1
+  dv = l.2 or r.2
+  if op == "/" and r.0 == 0:
+    dv = true
+  if cyc or dv:
+    return (0, cyc, dv)
+  if op == "+":
+    return (l.0 + r.0, false, false)
+  if op == "-":
+    return (l.0 - r.0, false, false)
+  if op == "*":
+    return (l.0 * r.0, false, false)
+  return (l.0 / r.0, false, false)
+
+fn read_ref() -> str:
+  nm = ch()
+  pos += 1
+  while dig() >= 0:
+    nm += ch()
+    pos += 1
+  return nm
+
+fn ref_val(name: str) -> (int, bool, bool):
+  seen[name] = 1
+  if memo.has(name):
+    return memo[name]
+  if state.has(name) and state[name] == 1:
+    return (0, true, false)
+  if not cells.has(name):
+    return (0, false, false)
+  state[name] = 1
+  r = eval_cell(name)
+  state[name] = 2
+  memo[name] = r
+  return r
+
+fn eval_cell(name: str) -> (int, bool, bool):
+  c = cells[name]
+  if c.starts_with("="):
+    saved_src = src
+    saved_pos = pos
+    src = c[1:].replace(" ", "")
+    pos = 0
+    r = parse_expr()
+    src = saved_src
+    pos = saved_pos
+    return r
+  return (c.int(), false, false)
+
+fn range_fn(f: str, ra: str, rb: str) -> (int, bool, bool):
+  letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  c1 = letters.find(ra.slice(0, 1))
+  c2 = letters.find(rb.slice(0, 1))
+  r1 = ra[1:].int()
+  r2 = rb[1:].int()
+  clo = min(c1, c2)
+  chi = max(c1, c2) + 1
+  rlo = min(r1, r2)
+  rhi = max(r1, r2) + 1
+  cyc = false
+  dv = false
+  vals = []
+  for ci in clo..chi:
+    for ri in rlo..rhi:
+      v = ref_val(col(ci) + ri.str())
+      if v.1:
+        cyc = true
+      if v.2:
+        dv = true
+      vals.push(v.0)
+  if cyc:
+    return (0, true, dv)
+  if dv:
+    return (0, false, true)
+  if f == "SUM":
+    return (sum(vals), false, false)
+  if f == "MIN":
+    return (min(vals), false, false)
+  return (max(vals), false, false)
+
+fn parse_primary() -> (int, bool, bool):
+  c = ch()
+  if c == "(":
+    pos += 1
+    v = parse_expr()
+    pos += 1
+    return v
+  if dig() >= 0:
+    n = 0
+    while dig() >= 0:
+      n = n * 10 + dig()
+      pos += 1
+    return (n, false, false)
+  if is_upper(c):
+    start = pos
+    while is_upper(ch()):
+      pos += 1
+    if ch() == "(":
+      word = src[start:pos]
+      pos += 1
+      ra = read_ref()
+      pos += 1
+      rb = read_ref()
+      pos += 1
+      return range_fn(word, ra, rb)
+    pos = start
+    return ref_val(read_ref())
+  return (0, false, false)
+
+fn parse_unary() -> (int, bool, bool):
+  if ch() == "-":
+    pos += 1
+    v = parse_unary()
+    return (-v.0, v.1, v.2)
+  return parse_primary()
+
+fn parse_term() -> (int, bool, bool):
+  l = parse_unary()
+  while ch() == "*" or ch() == "/":
+    op = ch()
+    pos += 1
+    r = parse_unary()
+    l = combine(op, l, r)
+  return l
+
+fn parse_expr() -> (int, bool, bool):
+  l = parse_term()
+  while ch() == "+" or ch() == "-":
+    op = ch()
+    pos += 1
+    r = parse_term()
+    l = combine(op, l, r)
+  return l
+
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  idx = line.find("=")
+  left = line[:idx].replace(" ", "").trim()
+  right = line[idx + 1:].trim()
+  cells[left] = right
+  seen[left] = 1
+
+for nm in cells.keys():
+  ref_val(nm)
+
+maxc = 0
+maxr = 1
+for nm in seen.keys():
+  cc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(nm.slice(0, 1))
+  rw = nm[1:].int()
+  if cc > maxc:
+    maxc = cc
+  if rw > maxr:
+    maxr = rw
+
+hdr = []
+for cc in 0..maxc + 1:
+  hdr.push(col(cc))
+print("\t" + hdr.join("\t"))
+last = maxr + 1
+for rr in 1..last:
+  row = [rr.str()]
+  for cc in 0..maxc + 1:
+    nm = col(cc) + rr.str()
+    if cells.has(nm):
+      row.push(show(ref_val(nm)))
+    else:
+      row.push("")
+  print(row.join("\t"))

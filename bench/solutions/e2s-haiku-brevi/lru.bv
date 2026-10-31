@@ -1,0 +1,30 @@
+fn main():
+  ls = lines()
+  cap = ls[0].trim().int()
+  vals: {str: str} = {}
+  stamp: {str: int} = {}
+  tick = 0
+  for line in ls.skip(1):
+    parts = line.words()
+    if parts.is_empty():
+      continue
+    tick += 1
+    k = parts[1]
+    if parts[0] == "get":
+      if vals.has(k):
+        stamp[k] = tick
+        print(vals[k])
+      else:
+        print(-1)
+    else:
+      if not vals.has(k) and vals.len() >= cap:
+        oldk = ""
+        oldt = -1
+        for kk, t in stamp.pairs():
+          if oldk == "" or t < oldt:
+            oldk = kk
+            oldt = t
+        vals.remove(oldk)
+        stamp.remove(oldk)
+      vals[k] = parts[2]
+      stamp[k] = tick

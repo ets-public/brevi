@@ -1,0 +1,55 @@
+toks = []
+pos = 0
+bad = false
+fn peek() = if pos < toks.len(): toks[pos] else: ""
+fn expr() -> int:
+  v = term()
+  while peek() == "+" or peek() == "-":
+    op = toks[pos]
+    pos += 1
+    r = term()
+    if op == "+": v += r
+    else: v -= r
+  v
+fn term() -> int:
+  v = unary()
+  while peek() == "*" or peek() == "/":
+    op = toks[pos]
+    pos += 1
+    r = unary()
+    if op == "*": v *= r
+    else:
+      if r == 0:
+        bad = true
+      else: v = v / r
+  v
+fn unary() -> int:
+  t = peek()
+  if t == "-":
+    pos += 1
+    return 0 - unary()
+  if t == "(":
+    pos += 1
+    v = expr()
+    pos += 1
+    return v
+  pos += 1
+  t.int()
+for line in lines():
+  if line.trim().is_empty(): continue
+  toks = []
+  cur = ""
+  for c in line.chars():
+    if c.is_digit():
+      cur = cur + c
+    else:
+      if cur != "":
+        toks.push(cur)
+        cur = ""
+      if c != " " and c != "\r": toks.push(c)
+  if cur != "": toks.push(cur)
+  pos = 0
+  bad = false
+  v = expr()
+  if bad: print("error")
+  else: print(v)

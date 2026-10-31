@@ -1,0 +1,28 @@
+ls = lines()
+n = ls[0].trim().int()
+fn px(s: str) -> int = s[0:1].code() - 97
+fn py(s: str) -> int = s.slice(1).int() - 1
+dx = [1, 2, 2, 1, -1, -2, -2, -1]
+dy = [2, 1, -1, -2, -2, -1, 1, 2]
+for l in ls.skip(1):
+  w = l.words()
+  if w.len() < 2: continue
+  sx = px(w[0])
+  sy = py(w[0])
+  tx = px(w[1])
+  ty = py(w[1])
+  dist = {}
+  dist[(sx, sy)] = 0
+  q = [(sx, sy)]
+  qi = 0
+  while qi < q.len():
+    c = q[qi]
+    qi += 1
+    for k in 0..8:
+      nx = c.0 + dx[k]
+      ny = c.1 + dy[k]
+      if nx < 0 or ny < 0 or nx >= n or ny >= n: continue
+      if dist.has((nx, ny)): continue
+      dist[(nx, ny)] = dist[c] + 1
+      q.push((nx, ny))
+  if dist.has((tx, ty)): print(dist[(tx, ty)]) else: print(-1)

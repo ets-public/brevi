@@ -1,0 +1,79 @@
+fn two(n: int) -> str = if n < 10: "0" + n.str() else: n.str()
+fn tmin(s: str) -> int = s.slice(0, 2).int() * 60 + s.slice(3, 5).int()
+
+names = []
+sstation = []
+stime = []
+snext = []
+strain = []
+queries = []
+inq = false
+for line in lines():
+  if line.trim() == "---":
+    inq = true
+    continue
+  w = line.words()
+  if w.is_empty(): continue
+  if inq:
+    queries.push(w)
+  else:
+    ti = names.len()
+    names.push(w[0])
+    k = (w.len() - 1) / 2
+    for i in 0..k:
+      id = sstation.len()
+      sstation.push(w[1 + 2 * i])
+      stime.push(tmin(w[2 + 2 * i]))
+      strain.push(ti)
+      snext.push(if i < k - 1: id + 1 else: -1)
+
+N = sstation.len()
+order = [i for i in 0..N].sort_by(i => (stime[i], i))
+bystation = {}
+for i in 0..N: bystation[sstation[i]].push(i)
+INF = 1000000
+
+for q in queries:
+  from = q[0]
+  to = q[1]
+  qt = tmin(q[2])
+  if from == to:
+    print("{from} {to} {two(qt / 60)}:{two(qt % 60)} via -")
+    continue
+  bn = [INF].repeat(N)
+  bp = [""].repeat(N)
+  for s in bystation[from]:
+    if stime[s] >= qt and snext[s] >= 0:
+      bn[s] = 1
+      bp[s] = names[strain[s]]
+  for s in order:
+    if bn[s] >= INF: continue
+    nx = snext[s]
+    if nx >= 0:
+      if bn[s] < bn[nx] or bn[s] == bn[nx] and bp[s] < bp[nx]:
+        bn[nx] = bn[s]
+        bp[nx] = bp[s]
+      for t in bystation[sstation[s]]:
+        if snext[t] >= 0 and strain[t] != strain[s] and stime[t] >= stime[s] + 5:
+          cn = bn[s] + 1
+          cp = bp[s] + ">" + names[strain[t]]
+          if cn < bn[t] or cn == bn[t] and cp < bp[t]:
+            bn[t] = cn
+            bp[t] = cp
+    else:
+      for t in bystation[sstation[s]]:
+        if snext[t] >= 0 and strain[t] != strain[s] and stime[t] >= stime[s] + 5:
+          cn = bn[s] + 1
+          cp = bp[s] + ">" + names[strain[t]]
+          if cn < bn[t] or cn == bn[t] and cp < bp[t]:
+            bn[t] = cn
+            bp[t] = cp
+  best = (INF, INF, "")
+  for s in bystation[to]:
+    if bn[s] < INF:
+      cand = (stime[s], bn[s], bp[s])
+      if cand < best: best = cand
+  if best.0 >= INF:
+    print("{from} {to} unreachable")
+  else:
+    print("{from} {to} {two(best.0 / 60)}:{two(best.0 % 60)} via {best.2}")

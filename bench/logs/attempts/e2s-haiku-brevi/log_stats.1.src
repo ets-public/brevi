@@ -1,0 +1,22 @@
+fn main():
+  times: {str: [int]} = {}
+  errs: {str: int} = {}
+  for line in lines():
+    parts = line.words()
+    if parts.len() < 4:
+      continue
+    path = parts[1]
+    status = parts[2].int()
+    ms = parts[3].int()
+    times[path].push(ms)
+    if status >= 500:
+      errs[path] = errs.get_or(path, 0) + 1
+  for path in times.keys().sort():
+    xs = times[path].sort()
+    n = xs.len()
+    avg = xs.sum().float() / n.float()
+    k = (9 * n + 9) // 10
+    p90 = xs[k - 1]
+    e = errs.get_or(path, 0)
+    pct = e.float() * 100.0 / n.float()
+    print("{path} {n} {avg.fmt(1)} {p90} {pct.fmt(1)}%")

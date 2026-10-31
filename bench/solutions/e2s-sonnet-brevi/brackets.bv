@@ -1,0 +1,17 @@
+for l in lines():
+  st = []
+  bad = 0
+  cs = l.chars()
+  for i in 0..cs.len():
+    c = cs[i]
+    if c == "(" or c == "[" or c == "{":
+      st.push(c)
+    elif c == ")" or c == "]" or c == "}":
+      want = if c == ")": "(" elif c == "]": "[" else: "{"
+      if st and st[-1] == want:
+        st.pop()
+      else:
+        bad = i + 1
+        break
+  if bad == 0 and st: bad = cs.len() + 1
+  if bad == 0: print("ok") else: print("error at {bad}")

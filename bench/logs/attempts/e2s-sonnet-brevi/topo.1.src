@@ -1,0 +1,26 @@
+adj = {}
+indeg = {}
+nodes = {}
+for l in lines():
+  w = l.words()
+  if w.len() >= 3:
+    a = w[0]
+    b = w[2]
+    adj[a].push(b)
+    indeg[b] += 1
+    nodes[a] = true
+    nodes[b] = true
+h = heap()
+for n in nodes.keys():
+  if indeg[n] == 0: h.push(n)
+out = []
+while h:
+  u = h.pop()
+  out.push(u)
+  for v in adj[u]:
+    indeg[v] -= 1
+    if indeg[v] == 0: h.push(v)
+if out.len() < nodes.len():
+  print("cycle")
+else:
+  for u in out: print(u)

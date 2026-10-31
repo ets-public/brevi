@@ -1,0 +1,9 @@
+fn walk(j: Json) -> f64 = match j:
+  Num(n) => n
+  Arr(xs) => sum(walk(x) for x in xs)
+  Obj(m) => if any(is_red(v) for v in m.values()): 0.0 else: sum(walk(v) for v in m.values())
+  _ => 0.0
+fn is_red(j: Json) -> bool = match j:
+  Str(s) => s == "red"
+  _ => false
+print(walk(json(stdin())).int())

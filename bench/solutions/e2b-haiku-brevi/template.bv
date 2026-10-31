@@ -1,0 +1,172 @@
+toks: [(int, str)] = []
+tp: int = 0
+outbuf: str = ""
+ctx: [Json] = []
+cidx: [int] = []
+
+fn items(j: Json) -> [Json] = match j:
+  Arr(xs) => xs
+  _ => []
+
+fn is_null(j: Json) -> bool = match j:
+  Null => true
+  _ => false
+
+fn is_empty_val(j: Json) -> bool = match j:
+  Null => true
+  Str(s) => s.is_empty()
+  _ => false
+
+fn truthy(j: Json) -> bool = match j:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => s.len() > 0
+  Arr(xs) => xs.len() > 0
+  _ => true
+
+fn show_val(j: Json) -> str = match j:
+  Null => ""
+  Str(s) => s
+  Bool(b) => if b: "true" else: "false"
+  Num(n) => if n == n.floor(): n.int().str() else: str(j)
+  _ => str(j)
+
+fn resolve(v: Json, segs: [str]) -> Json:
+  cur = v
+  for s in segs:
+    cur = cur[s]
+  return cur
+
+fn lookup(path: str) -> Json:
+  if path == "@index":
+    return cidx.last().json()
+  if path == ".":
+    return ctx.last()
+  segs = path.split(".")
+  k = ctx.len() - 1
+  while k >= 0:
+    v = resolve(ctx[k], segs)
+    if not is_null(v):
+      return v
+    k -= 1
+  return json("null")
+
+fn apply(v: Json, f: str) -> Json:
+  if f == "upper":
+    return match v:
+      Str(s) => s.upper().json()
+      _ => v
+  if f == "lower":
+    return match v:
+      Str(s) => s.lower().json()
+      _ => v
+  if f == "len":
+    return match v:
+      Str(s) => s.len().json()
+      Arr(xs) => xs.len().json()
+      _ => v
+  if f.starts_with("default:"):
+    if is_empty_val(v):
+      dflt = f[8:]
+      return dflt.json()
+    return v
+  return v
+
+fn eval_expr(e: str) -> Json:
+  parts = e.split("|")
+  v = lookup(parts[0].trim())
+  k = 1
+  while k < parts.len():
+    v = apply(v, parts[k].trim())
+    k += 1
+  return v
+
+fn render_until():
+  while tp < toks.len():
+    cur = toks[tp]
+    k = cur.0
+    if k == 4 or k == 5 or k == 6:
+      break
+    if k == 0:
+      outbuf += cur.1
+      tp += 1
+    elif k == 1:
+      outbuf += show_val(eval_expr(cur.1))
+      tp += 1
+    elif k == 2:
+      each_block(cur.1)
+    else:
+      if_block(cur.1)
+
+fn each_block(name: str):
+  tp += 1
+  start = tp
+  arr = items(lookup(name))
+  for k in 0..arr.len():
+    ctx.push(arr[k])
+    cidx.push(k)
+    tp = start
+    render_until()
+    ctx.pop()
+    cidx.pop()
+  saved = outbuf
+  tp = start
+  render_until()
+  outbuf = saved
+  tp += 1
+
+fn if_block(name: str):
+  tp += 1
+  if truthy(lookup(name)):
+    render_until()
+    if toks[tp].0 == 4:
+      tp += 1
+      saved = outbuf
+      render_until()
+      outbuf = saved
+  else:
+    saved = outbuf
+    render_until()
+    outbuf = saved
+    if toks[tp].0 == 4:
+      tp += 1
+      render_until()
+  tp += 1
+
+text = stdin()
+nl = text.find("\n")
+head = if nl < 0: text else: text[:nl]
+tmpl = if nl < 0: "" else: text[nl + 1:]
+
+rest = tmpl
+while rest.len() > 0:
+  i = rest.find("{{")
+  if i < 0:
+    toks.push((0, rest))
+    rest = ""
+  else:
+    if i > 0:
+      toks.push((0, rest[:i]))
+    j = rest.find("}}")
+    tag = rest[i + 2:j].trim()
+    rest = rest[j + 2:]
+    if tag.starts_with("#each "):
+      toks.push((2, tag[6:].trim()))
+    elif tag.starts_with("#if "):
+      toks.push((3, tag[4:].trim()))
+    elif tag == "else":
+      toks.push((4, ""))
+    elif tag == "/each":
+      toks.push((5, ""))
+    elif tag == "/if":
+      toks.push((6, ""))
+    else:
+      toks.push((1, tag))
+
+ctx.push(json(head))
+cidx.push(-1)
+render_until()
+if outbuf.ends_with("\n"):
+  outbuf = outbuf[:outbuf.len() - 1]
+print(outbuf)

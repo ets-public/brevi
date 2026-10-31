@@ -1,0 +1,54 @@
+fn dijkstra(adj: {str: [(str, int)]}, src: str) -> {str: int}:
+  dist = {}
+  dist[src] = 0
+  h = heap()
+  h.push((0, src))
+  while not h.is_empty():
+    cur = h.pop()
+    d = cur.0
+    u = cur.1
+    if dist[u] < d:
+      continue
+    for e in adj.get_or(u, []):
+      v = e.0
+      nd = d + e.1
+      if not dist.has(v) or nd < dist[v]:
+        dist[v] = nd
+        h.push((nd, v))
+  return dist
+
+fn main():
+  rows = []
+  for line in lines():
+    parts = line.words()
+    if not parts.is_empty():
+      rows.push(parts)
+  last = rows.pop()
+  src = last[0]
+  dst = last[1]
+  adj = {}
+  for parts in rows:
+    a = parts[0]
+    b = parts[1]
+    w = parts[2].int()
+    adj[a].push((b, w))
+    adj[b].push((a, w))
+  df = dijkstra(adj, src)
+  if not df.has(dst):
+    print("none")
+    return
+  dt = dijkstra(adj, dst)
+  total = df[dst]
+  path = [src]
+  cur = src
+  while cur != dst:
+    best = ""
+    for e in adj.get_or(cur, []):
+      v = e.0
+      if dt.has(v) and e.1 + dt[v] == dt[cur]:
+        if best == "" or v < best:
+          best = v
+    path.push(best)
+    cur = best
+  print(total)
+  print(path.join("->"))

@@ -1,0 +1,13 @@
+test 0 failed
+input:
+a b 1
+b c 2
+a c 5
+a c
+expected:
+3
+a->b->c
+got:
+3
+a -> b -> c
+passed 1/3

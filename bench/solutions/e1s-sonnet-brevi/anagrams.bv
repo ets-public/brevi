@@ -1,0 +1,7 @@
+ws = stdin().words().map(w => w.lower()).unique()
+g = {}
+for w in ws:
+  g[w.chars().sort().join("")].push(w)
+gs = [v for v in g.values() if v.len() > 1]
+gs = gs.sort_by(v => (0 - v.len(), v[0]))
+for v in gs: print(v.join(" "))

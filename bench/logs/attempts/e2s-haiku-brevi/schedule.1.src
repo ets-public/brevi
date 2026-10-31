@@ -1,0 +1,60 @@
+fn main():
+  names: [str] = []
+  durs: {str: int} = {}
+  deps: {str: [str]} = {}
+  for line in lines():
+    parts = line.words()
+    if parts.is_empty():
+      continue
+    name = parts[0]
+    names.push(name)
+    durs[name] = parts[1].int()
+    ds: [str] = []
+    if parts.len() > 3:
+      for d in parts.skip(3):
+        ds.push(d)
+    deps[name] = ds
+  for n in names:
+    for d in deps[n]:
+      if not durs.has(d):
+        print("invalid")
+        return
+  indeg: {str: int} = {}
+  adj: {str: [str]} = {}
+  for n in names:
+    indeg[n] = deps[n].len()
+    for d in deps[n]:
+      adj[d].push(n)
+  best: {str: int} = {}
+  ready = heap()
+  for n in names:
+    best[n] = 0
+    if indeg[n] == 0:
+      ready.push(n)
+  starts: {str: int} = {}
+  count = 0
+  while not ready.is_empty():
+    u = ready.pop()
+    count += 1
+    starts[u] = best[u]
+    fin = best[u] + durs[u]
+    for v in adj.get_or(u, []):
+      if fin > best[v]:
+        best[v] = fin
+      indeg[v] -= 1
+      if indeg[v] == 0:
+        ready.push(v)
+  if count < names.len():
+    print("invalid")
+    return
+  rows = []
+  total = 0
+  for n in names:
+    s = best[n]
+    e = s + durs[n]
+    rows.push((s, n, e))
+    total = max(total, e)
+  rows = rows.sort()
+  for r in rows:
+    print("{r.1} {r.0} {r.2}")
+  print("total {total}")

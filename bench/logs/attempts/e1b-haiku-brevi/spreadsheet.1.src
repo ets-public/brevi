@@ -1,0 +1,219 @@
+fn p_unary(t: [str], p: int) -> (int, int, bool):
+  if t[p] == "-":
+    r = p_unary(t, p + 1)
+    return (-r.0, r.1, r.2)
+  if t[p] == "(":
+    r = p_expr(t, p + 1)
+    return (r.0, r.1 + 1, r.2)
+  (t[p].slice(1).int().or(0), p + 1, true)
+
+fn p_term(t: [str], p: int) -> (int, int, bool):
+  a = p_unary(t, p)
+  v = a.0
+  q = a.1
+  ok = a.2
+  while q < t.len() and (t[q] == "*" or t[q] == "/"):
+    op = t[q]
+    b = p_unary(t, q + 1)
+    if op == "*":
+      v = v * b.0
+    elif b.0 == 0:
+      ok = false
+    else:
+      v = v / b.0
+    ok = ok and b.2
+    q = b.1
+  (v, q, ok)
+
+fn p_expr(t: [str], p: int) -> (int, int, bool):
+  a = p_term(t, p)
+  v = a.0
+  q = a.1
+  ok = a.2
+  while q < t.len() and (t[q] == "+" or t[q] == "-"):
+    op = t[q]
+    b = p_term(t, q + 1)
+    if op == "+":
+      v = v + b.0
+    else:
+      v = v - b.0
+    ok = ok and b.2
+    q = b.1
+  (v, q, ok)
+
+fn read_cell(f: str, k: int) -> (str, int):
+  e = k + 1
+  while e < f.len() and f.slice(e, e + 1).is_digit():
+    e += 1
+  (f.slice(k, e), e)
+
+fn rng_cells(a: str, b: str) -> [str]:
+  c1 = a.slice(0, 1).code() - 65
+  c2 = b.slice(0, 1).code() - 65
+  r1 = a.slice(1).int().or(0)
+  r2 = b.slice(1).int().or(0)
+  clo = min(c1, c2)
+  chi = max(c1, c2) + 1
+  rlo = min(r1, r2)
+  rhi = max(r1, r2) + 1
+  out: [str] = []
+  for c in clo..chi:
+    for r in rlo..rhi:
+      out.push((65 + c).char() + str(r))
+  out
+
+fn deps_of(f: str) -> [str]:
+  out: [str] = []
+  for m in f.re_all("[A-Z][0-9]+(:[A-Z][0-9]+)?"):
+    ref = m[0]
+    if ref.contains(":"):
+      parts = ref.split(":")
+      for x in rng_cells(parts[0], parts[1]):
+        out.push(x)
+    else:
+      out.push(ref)
+  out
+
+fn tokenize(f: str, val: {str: int}) -> [str]:
+  toks: [str] = []
+  n = f.len()
+  alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  i = 0
+  while i < n:
+    ch = f.slice(i, i + 1)
+    if ch.is_digit():
+      j = i
+      while j < n and f.slice(j, j + 1).is_digit():
+        j += 1
+      toks.push("#" + f.slice(i, j))
+      i = j
+    elif alpha.contains(ch):
+      j = i
+      while j < n and alpha.contains(f.slice(j, j + 1)):
+        j += 1
+      if j < n and f.slice(j, j + 1) == "(":
+        fname = f.slice(i, j)
+        r1 = read_cell(f, j + 1)
+        r2 = read_cell(f, r1.1 + 1)
+        vals = [val.get_or(x, 0) for x in rng_cells(r1.0, r2.0)]
+        v = 0
+        if fname == "SUM":
+          v = sum(vals)
+        elif fname == "MIN":
+          v = min(vals)
+        else:
+          v = max(vals)
+        toks.push("#" + str(v))
+        i = r2.1 + 1
+      else:
+        r = read_cell(f, i)
+        toks.push("#" + str(val.get_or(r.0, 0)))
+        i = r.1
+    else:
+      toks.push(ch)
+      i += 1
+  toks
+
+fn calc(formula: str, val: {str: int}) -> (int, int, bool):
+  toks = tokenize(formula.replace(" ", ""), val)
+  p_expr(toks, 0)
+
+fn reach(start: str, deps: {str: [str]}) -> {str: int}:
+  seen: {str: int} = {}
+  stack: [str] = [start]
+  while not stack.is_empty():
+    c = stack.pop()
+    if deps.has(c):
+      for d in deps[c]:
+        if not seen.has(d):
+          seen[d] = 1
+          stack.push(d)
+  seen
+
+fn main():
+  raw: {str: str} = {}
+  for line in lines():
+    if line.trim().is_empty():
+      continue
+    eq = line.find("=")
+    name = line.slice(0, eq).trim()
+    raw[name] = line.slice(eq + 1).trim()
+  val: {str: int} = {}
+  form: {str: str} = {}
+  fcells: [str] = []
+  for name in raw.keys():
+    c = raw[name]
+    if c.starts_with("="):
+      form[name] = c.slice(1)
+      fcells.push(name)
+    else:
+      val[name] = c.int().or(0)
+  deps: {str: [str]} = {}
+  names: [str] = raw.keys()
+  for c in fcells:
+    d = deps_of(form[c].replace(" ", ""))
+    deps[c] = d
+    for x in d:
+      names.push(x)
+  maxc = 1
+  maxr = 1
+  for nm in names:
+    maxc = max(maxc, nm.slice(0, 1).code() - 64)
+    maxr = max(maxr, nm.slice(1).int().or(0))
+  oncyc: {str: int} = {}
+  for c in fcells:
+    if reach(c, deps).has(c):
+      oncyc[c] = 1
+  cy: {str: int} = {}
+  for c in fcells:
+    for d in reach(c, deps).keys():
+      if oncyc.has(d):
+        cy[c] = 1
+  fin: {str: int} = {}
+  for k in val.keys():
+    fin[k] = 1
+  dv: {str: int} = {}
+  changed = true
+  while changed:
+    changed = false
+    for c in fcells:
+      if fin.has(c) or cy.has(c):
+        continue
+      ready = true
+      div = false
+      for d in deps[c]:
+        if raw.has(d) and not fin.has(d):
+          ready = false
+        if dv.has(d):
+          div = true
+      if not ready:
+        continue
+      fin[c] = 1
+      changed = true
+      if div:
+        dv[c] = 1
+      else:
+        r = calc(form[c], val)
+        if r.2:
+          val[c] = r.0
+        else:
+          dv[c] = 1
+  chi = maxc + 1
+  rhi = maxr + 1
+  hdr = ""
+  for k in 1..chi:
+    hdr += "\t" + (64 + k).char()
+  print(hdr)
+  for r in 1..rhi:
+    row = str(r)
+    for k in 1..chi:
+      cname = (64 + k).char() + str(r)
+      cell = ""
+      if cy.has(cname):
+        cell = "#CYCLE"
+      elif dv.has(cname):
+        cell = "#DIV0"
+      elif val.has(cname):
+        cell = str(val[cname])
+      row += "\t" + cell
+    print(row)

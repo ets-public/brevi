@@ -1,0 +1,28 @@
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:43:1","msg":"unknown variant T"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:43:1","msg":"unknown name 'T'","fix":"did you mean q?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:47:1","msg":"unknown variant T"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:49:1","msg":"unknown name 'T'","fix":"did you mean q?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:51:1","msg":"unknown name 'T'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:52:1","msg":"unknown name 'T'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:53:1","msg":"unknown name 'T'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:54:1","msg":"unknown variant U"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:54:1","msg":"unknown name 'U'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:54:1","msg":"unknown name 'T'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:56:1","msg":"unknown name 'U'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:56:1","msg":"unknown name 'U'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:56:1","msg":"unknown name 'U'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:56:1","msg":"unknown name 'U'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:58:1","msg":"unknown name 'U'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:58:1","msg":"unknown name 'U'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:58:1","msg":"unknown name 'T'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:60:1","msg":"unknown name 'T'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:62:1","msg":"unknown name 'T'","fix":"did you mean b?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:66:1","msg":"unknown variant T"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:67:1","msg":"unknown name 'T'","fix":"did you mean q?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:67:1","msg":"unknown name 'T'","fix":"did you mean j?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:67:1","msg":"unknown name 'T'","fix":"did you mean j?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:67:1","msg":"unknown name 'T'","fix":"did you mean j?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:67:1","msg":"unknown name 'T'","fix":"did you mean j?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:67:1","msg":"unknown name 'T'","fix":"did you mean j?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:70:1","msg":"unknown name 'T'","fix":"did you mean j?"}
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-sonnet-brevi/timetable.bv:71:1","msg":"unknown name 'T'","fix":"did you mean j?"}

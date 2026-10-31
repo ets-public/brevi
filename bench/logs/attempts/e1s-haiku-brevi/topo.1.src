@@ -1,0 +1,33 @@
+succ = {}
+indeg = {}
+nodes = {}
+for line in lines():
+  p = line.words()
+  if len(p) < 3: continue
+  a = p[0]
+  b = p[2]
+  nodes[a] = true
+  nodes[b] = true
+  succ[a] = succ.get_or(a, []) + [b]
+  indeg[b] = indeg.get_or(b, 0) + 1
+  if not indeg.has(a): indeg[a] = 0
+
+h = heap()
+for n in nodes.keys():
+  if indeg.get_or(n, 0) == 0:
+    h.push(n)
+
+out = []
+while not h.is_empty():
+  u = h.pop()
+  out.push(u)
+  for v in succ.get_or(u, []):
+    indeg[v] -= 1
+    if indeg[v] == 0:
+      h.push(v)
+
+if out.len() < nodes.len():
+  print("cycle")
+else:
+  for u in out:
+    print(u)

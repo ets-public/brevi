@@ -1,0 +1,4822 @@
+[
+{
+"file": "edit/solutions/e1-haiku-axon/cancel_twice.ax",
+"est": 1022,
+"exact": 1224
+},
+{
+"file": "edit/solutions/e1-haiku-axon/customer.ax",
+"est": 1113,
+"exact": 1331
+},
+{
+"file": "edit/solutions/e1-haiku-axon/discount.ax",
+"est": 1012,
+"exact": 1211
+},
+{
+"file": "edit/solutions/e1-haiku-axon/top.ax",
+"est": 1185,
+"exact": 1414
+},
+{
+"file": "edit/solutions/e1-haiku-python/cancel_twice.py",
+"est": 855,
+"exact": 1085
+},
+{
+"file": "edit/solutions/e1-haiku-python/customer.py",
+"est": 931,
+"exact": 1171
+},
+{
+"file": "edit/solutions/e1-haiku-python/discount.py",
+"est": 847,
+"exact": 1072
+},
+{
+"file": "edit/solutions/e1-haiku-python/top.py",
+"est": 979,
+"exact": 1229
+},
+{
+"file": "edit/solutions/e1-haiku-rust/cancel_twice.rs",
+"est": 1351,
+"exact": 1557
+},
+{
+"file": "edit/solutions/e1-haiku-rust/customer.rs",
+"est": 1478,
+"exact": 1687
+},
+{
+"file": "edit/solutions/e1-haiku-rust/discount.rs",
+"est": 1341,
+"exact": 1548
+},
+{
+"file": "edit/solutions/e1-haiku-rust/top.rs",
+"est": 1578,
+"exact": 1815
+},
+{
+"file": "edit/solutions/e1-sonnet-axon/cancel_twice.ax",
+"est": 1022,
+"exact": 1224
+},
+{
+"file": "edit/solutions/e1-sonnet-axon/customer.ax",
+"est": 1111,
+"exact": 1319
+},
+{
+"file": "edit/solutions/e1-sonnet-axon/discount.ax",
+"est": 1009,
+"exact": 1207
+},
+{
+"file": "edit/solutions/e1-sonnet-axon/top.ax",
+"est": 1154,
+"exact": 1368
+},
+{
+"file": "edit/solutions/e1-sonnet-python/cancel_twice.py",
+"est": 855,
+"exact": 1085
+},
+{
+"file": "edit/solutions/e1-sonnet-python/customer.py",
+"est": 927,
+"exact": 1165
+},
+{
+"file": "edit/solutions/e1-sonnet-python/discount.py",
+"est": 847,
+"exact": 1072
+},
+{
+"file": "edit/solutions/e1-sonnet-python/top.py",
+"est": 976,
+"exact": 1226
+},
+{
+"file": "edit/solutions/e1-sonnet-rust/cancel_twice.rs",
+"est": 1351,
+"exact": 1557
+},
+{
+"file": "edit/solutions/e1-sonnet-rust/customer.rs",
+"est": 1464,
+"exact": 1678
+},
+{
+"file": "edit/solutions/e1-sonnet-rust/discount.rs",
+"est": 1338,
+"exact": 1544
+},
+{
+"file": "edit/solutions/e1-sonnet-rust/top.rs",
+"est": 1578,
+"exact": 1812
+},
+{
+"file": "edit/solutions/e2-haiku-axon/cancel_twice.ax",
+"est": 1022,
+"exact": 1224
+},
+{
+"file": "edit/solutions/e2-haiku-axon/customer.ax",
+"est": 1113,
+"exact": 1331
+},
+{
+"file": "edit/solutions/e2-haiku-axon/discount.ax",
+"est": 1009,
+"exact": 1207
+},
+{
+"file": "edit/solutions/e2-haiku-axon/top.ax",
+"est": 1184,
+"exact": 1410
+},
+{
+"file": "edit/solutions/e2-haiku-python/cancel_twice.py",
+"est": 855,
+"exact": 1085
+},
+{
+"file": "edit/solutions/e2-haiku-python/customer.py",
+"est": 936,
+"exact": 1177
+},
+{
+"file": "edit/solutions/e2-haiku-python/discount.py",
+"est": 847,
+"exact": 1072
+},
+{
+"file": "edit/solutions/e2-haiku-python/top.py",
+"est": 970,
+"exact": 1223
+},
+{
+"file": "edit/solutions/e2-haiku-rust/cancel_twice.rs",
+"est": 1351,
+"exact": 1557
+},
+{
+"file": "edit/solutions/e2-haiku-rust/customer.rs",
+"est": 1469,
+"exact": 1681
+},
+{
+"file": "edit/solutions/e2-haiku-rust/discount.rs",
+"est": 1338,
+"exact": 1544
+},
+{
+"file": "edit/solutions/e2-haiku-rust/top.rs",
+"est": 1578,
+"exact": 1812
+},
+{
+"file": "edit/solutions/e2-sonnet-axon/cancel_twice.ax",
+"est": 1022,
+"exact": 1224
+},
+{
+"file": "edit/solutions/e2-sonnet-axon/customer.ax",
+"est": 1111,
+"exact": 1316
+},
+{
+"file": "edit/solutions/e2-sonnet-axon/discount.ax",
+"est": 1009,
+"exact": 1207
+},
+{
+"file": "edit/solutions/e2-sonnet-axon/top.ax",
+"est": 1154,
+"exact": 1371
+},
+{
+"file": "edit/solutions/e2-sonnet-python/cancel_twice.py",
+"est": 855,
+"exact": 1085
+},
+{
+"file": "edit/solutions/e2-sonnet-python/customer.py",
+"est": 932,
+"exact": 1171
+},
+{
+"file": "edit/solutions/e2-sonnet-python/discount.py",
+"est": 847,
+"exact": 1072
+},
+{
+"file": "edit/solutions/e2-sonnet-python/top.py",
+"est": 976,
+"exact": 1226
+},
+{
+"file": "edit/solutions/e2-sonnet-rust/cancel_twice.rs",
+"est": 1351,
+"exact": 1557
+},
+{
+"file": "edit/solutions/e2-sonnet-rust/customer.rs",
+"est": 1462,
+"exact": 1672
+},
+{
+"file": "edit/solutions/e2-sonnet-rust/discount.rs",
+"est": 1338,
+"exact": 1544
+},
+{
+"file": "edit/solutions/e2-sonnet-rust/top.rs",
+"est": 1578,
+"exact": 1809
+},
+{
+"file": "edit/solutions/e3-haiku-axon/cancel_twice.ax",
+"est": 1022,
+"exact": 1224
+},
+{
+"file": "edit/solutions/e3-haiku-axon/customer.ax",
+"est": 1113,
+"exact": 1329
+},
+{
+"file": "edit/solutions/e3-haiku-axon/discount.ax",
+"est": 1012,
+"exact": 1211
+},
+{
+"file": "edit/solutions/e3-haiku-axon/top.ax",
+"est": 1189,
+"exact": 1414
+},
+{
+"file": "edit/solutions/e3-haiku-python/cancel_twice.py",
+"est": 855,
+"exact": 1085
+},
+{
+"file": "edit/solutions/e3-haiku-python/customer.py",
+"est": 936,
+"exact": 1177
+},
+{
+"file": "edit/solutions/e3-haiku-python/discount.py",
+"est": 847,
+"exact": 1072
+},
+{
+"file": "edit/solutions/e3-haiku-python/top.py",
+"est": 979,
+"exact": 1229
+},
+{
+"file": "edit/solutions/e3-haiku-rust/cancel_twice.rs",
+"est": 1351,
+"exact": 1557
+},
+{
+"file": "edit/solutions/e3-haiku-rust/customer.rs",
+"est": 1478,
+"exact": 1687
+},
+{
+"file": "edit/solutions/e3-haiku-rust/discount.rs",
+"est": 1338,
+"exact": 1544
+},
+{
+"file": "edit/solutions/e3-haiku-rust/top.rs",
+"est": 1579,
+"exact": 1814
+},
+{
+"file": "edit/solutions/e3-sonnet-axon/cancel_twice.ax",
+"est": 1022,
+"exact": 1224
+},
+{
+"file": "edit/solutions/e3-sonnet-axon/customer.ax",
+"est": 1111,
+"exact": 1320
+},
+{
+"file": "edit/solutions/e3-sonnet-axon/discount.ax",
+"est": 1009,
+"exact": 1207
+},
+{
+"file": "edit/solutions/e3-sonnet-axon/top.ax",
+"est": 1158,
+"exact": 1376
+},
+{
+"file": "edit/solutions/e3-sonnet-python/cancel_twice.py",
+"est": 855,
+"exact": 1085
+},
+{
+"file": "edit/solutions/e3-sonnet-python/customer.py",
+"est": 930,
+"exact": 1166
+},
+{
+"file": "edit/solutions/e3-sonnet-python/discount.py",
+"est": 847,
+"exact": 1072
+},
+{
+"file": "edit/solutions/e3-sonnet-python/top.py",
+"est": 981,
+"exact": 1225
+},
+{
+"file": "edit/solutions/e3-sonnet-rust/cancel_twice.rs",
+"est": 1351,
+"exact": 1557
+},
+{
+"file": "edit/solutions/e3-sonnet-rust/customer.rs",
+"est": 1460,
+"exact": 1673
+},
+{
+"file": "edit/solutions/e3-sonnet-rust/discount.rs",
+"est": 1338,
+"exact": 1544
+},
+{
+"file": "edit/solutions/e3-sonnet-rust/top.rs",
+"est": 1575,
+"exact": 1807
+},
+{
+"file": "edit/solutions/f1-haiku-axon/cancel_twice.ax",
+"est": 1014,
+"exact": 1211
+},
+{
+"file": "edit/solutions/f1-haiku-axon/customer.ax",
+"est": 1112,
+"exact": 1326
+},
+{
+"file": "edit/solutions/f1-haiku-axon/discount.ax",
+"est": 1002,
+"exact": 1195
+},
+{
+"file": "edit/solutions/f1-haiku-axon/top.ax",
+"est": 1177,
+"exact": 1393
+},
+{
+"file": "edit/solutions/f1-sonnet-axon/cancel_twice.ax",
+"est": 1014,
+"exact": 1211
+},
+{
+"file": "edit/solutions/f1-sonnet-axon/customer.ax",
+"est": 1103,
+"exact": 1307
+},
+{
+"file": "edit/solutions/f1-sonnet-axon/discount.ax",
+"est": 1001,
+"exact": 1194
+},
+{
+"file": "edit/solutions/f1-sonnet-axon/top.ax",
+"est": 1146,
+"exact": 1355
+},
+{
+"file": "edit/solutions/f2-haiku-axon/cancel_twice.ax",
+"est": 1014,
+"exact": 1211
+},
+{
+"file": "edit/solutions/f2-haiku-axon/customer.ax",
+"est": 1105,
+"exact": 1318
+},
+{
+"file": "edit/solutions/f2-haiku-axon/discount.ax",
+"est": 1001,
+"exact": 1194
+},
+{
+"file": "edit/solutions/f2-haiku-axon/top.ax",
+"est": 1156,
+"exact": 1369
+},
+{
+"file": "edit/solutions/f2-sonnet-axon/cancel_twice.ax",
+"est": 1014,
+"exact": 1211
+},
+{
+"file": "edit/solutions/f2-sonnet-axon/customer.ax",
+"est": 1098,
+"exact": 1297
+},
+{
+"file": "edit/solutions/f2-sonnet-axon/discount.ax",
+"est": 1001,
+"exact": 1194
+},
+{
+"file": "edit/solutions/f2-sonnet-axon/top.ax",
+"est": 1146,
+"exact": 1355
+},
+{
+"file": "edit/solutions/f3-haiku-axon/cancel_twice.ax",
+"est": 1014,
+"exact": 1211
+},
+{
+"file": "edit/solutions/f3-haiku-axon/customer.ax",
+"est": 1109,
+"exact": 1323
+},
+{
+"file": "edit/solutions/f3-haiku-axon/discount.ax",
+"est": 1003,
+"exact": 1197
+},
+{
+"file": "edit/solutions/f3-haiku-axon/top.ax",
+"est": 1170,
+"exact": 1392
+},
+{
+"file": "edit/solutions/f3-sonnet-axon/cancel_twice.ax",
+"est": 1014,
+"exact": 1211
+},
+{
+"file": "edit/solutions/f3-sonnet-axon/customer.ax",
+"est": 1106,
+"exact": 1309
+},
+{
+"file": "edit/solutions/f3-sonnet-axon/discount.ax",
+"est": 1001,
+"exact": 1194
+},
+{
+"file": "edit/solutions/f3-sonnet-axon/top.ax",
+"est": 1150,
+"exact": 1365
+},
+{
+"file": "solutions/b1-haiku-axon/anagrams.ax",
+"est": 181,
+"exact": 206
+},
+{
+"file": "solutions/b1-haiku-axon/bigadd.ax",
+"est": 57,
+"exact": 58
+},
+{
+"file": "solutions/b1-haiku-axon/brackets.ax",
+"est": 259,
+"exact": 289
+},
+{
+"file": "solutions/b1-haiku-axon/calc.ax",
+"est": 540,
+"exact": 629
+},
+{
+"file": "solutions/b1-haiku-axon/date_diff.ax",
+"est": 63,
+"exact": 68
+},
+{
+"file": "solutions/b1-haiku-axon/dijkstra.ax",
+"est": 501,
+"exact": 598
+},
+{
+"file": "solutions/b1-haiku-axon/intervals.ax",
+"est": 210,
+"exact": 234
+},
+{
+"file": "solutions/b1-haiku-axon/inventory.ax",
+"est": 187,
+"exact": 217
+},
+{
+"file": "solutions/b1-haiku-axon/json_sum.ax",
+"est": 190,
+"exact": 210
+},
+{
+"file": "solutions/b1-haiku-axon/knight.ax",
+"est": 424,
+"exact": 499
+},
+{
+"file": "solutions/b1-haiku-axon/ledger.ax",
+"est": 352,
+"exact": 430
+},
+{
+"file": "solutions/b1-haiku-axon/log_stats.ax",
+"est": 259,
+"exact": 292
+},
+{
+"file": "solutions/b1-haiku-axon/lru.ax",
+"est": 263,
+"exact": 322
+},
+{
+"file": "solutions/b1-haiku-axon/roman_calc.ax",
+"est": 482,
+"exact": 566
+},
+{
+"file": "solutions/b1-haiku-axon/schedule.ax",
+"est": 450,
+"exact": 535
+},
+{
+"file": "solutions/b1-haiku-axon/spiral.ax",
+"est": 365,
+"exact": 426
+},
+{
+"file": "solutions/b1-haiku-axon/topo.ax",
+"est": 320,
+"exact": 376
+},
+{
+"file": "solutions/b1-haiku-axon/wrap.ax",
+"est": 256,
+"exact": 308
+},
+{
+"file": "solutions/b1-sonnet-axon/anagrams.ax",
+"est": 154,
+"exact": 160
+},
+{
+"file": "solutions/b1-sonnet-axon/bigadd.ax",
+"est": 52,
+"exact": 52
+},
+{
+"file": "solutions/b1-sonnet-axon/brackets.ax",
+"est": 226,
+"exact": 243
+},
+{
+"file": "solutions/b1-sonnet-axon/calc.ax",
+"est": 468,
+"exact": 546
+},
+{
+"file": "solutions/b1-sonnet-axon/date_diff.ax",
+"est": 54,
+"exact": 57
+},
+{
+"file": "solutions/b1-sonnet-axon/dijkstra.ax",
+"est": 390,
+"exact": 433
+},
+{
+"file": "solutions/b1-sonnet-axon/intervals.ax",
+"est": 188,
+"exact": 223
+},
+{
+"file": "solutions/b1-sonnet-axon/inventory.ax",
+"est": 125,
+"exact": 138
+},
+{
+"file": "solutions/b1-sonnet-axon/json_sum.ax",
+"est": 159,
+"exact": 173
+},
+{
+"file": "solutions/b1-sonnet-axon/knight.ax",
+"est": 353,
+"exact": 421
+},
+{
+"file": "solutions/b1-sonnet-axon/ledger.ax",
+"est": 292,
+"exact": 342
+},
+{
+"file": "solutions/b1-sonnet-axon/log_stats.ax",
+"est": 231,
+"exact": 264
+},
+{
+"file": "solutions/b1-sonnet-axon/lru.ax",
+"est": 231,
+"exact": 273
+},
+{
+"file": "solutions/b1-sonnet-axon/roman_calc.ax",
+"est": 434,
+"exact": 512
+},
+{
+"file": "solutions/b1-sonnet-axon/schedule.ax",
+"est": 384,
+"exact": 454
+},
+{
+"file": "solutions/b1-sonnet-axon/spiral.ax",
+"est": 333,
+"exact": 390
+},
+{
+"file": "solutions/b1-sonnet-axon/topo.ax",
+"est": 281,
+"exact": 335
+},
+{
+"file": "solutions/b1-sonnet-axon/wrap.ax",
+"est": 221,
+"exact": 263
+},
+{
+"file": "solutions/b2-haiku-axon/anagrams.ax",
+"est": 190,
+"exact": 207
+},
+{
+"file": "solutions/b2-haiku-axon/bigadd.ax",
+"est": 72,
+"exact": 84
+},
+{
+"file": "solutions/b2-haiku-axon/brackets.ax",
+"est": 275,
+"exact": 306
+},
+{
+"file": "solutions/b2-haiku-axon/calc.ax",
+"est": 720,
+"exact": 865
+},
+{
+"file": "solutions/b2-haiku-axon/date_diff.ax",
+"est": 76,
+"exact": 91
+},
+{
+"file": "solutions/b2-haiku-axon/dijkstra.ax",
+"est": 446,
+"exact": 550
+},
+{
+"file": "solutions/b2-haiku-axon/intervals.ax",
+"est": 224,
+"exact": 262
+},
+{
+"file": "solutions/b2-haiku-axon/inventory.ax",
+"est": 221,
+"exact": 251
+},
+{
+"file": "solutions/b2-haiku-axon/json_sum.ax",
+"est": 870,
+"exact": 1021
+},
+{
+"file": "solutions/b2-haiku-axon/knight.ax",
+"est": 471,
+"exact": 568
+},
+{
+"file": "solutions/b2-haiku-axon/ledger.ax",
+"est": 377,
+"exact": 462
+},
+{
+"file": "solutions/b2-haiku-axon/log_stats.ax",
+"est": 272,
+"exact": 318
+},
+{
+"file": "solutions/b2-haiku-axon/lru.ax",
+"est": 298,
+"exact": 379
+},
+{
+"file": "solutions/b2-haiku-axon/roman_calc.ax",
+"est": 506,
+"exact": 599
+},
+{
+"file": "solutions/b2-haiku-axon/schedule.ax",
+"est": 497,
+"exact": 625
+},
+{
+"file": "solutions/b2-haiku-axon/spiral.ax",
+"est": 369,
+"exact": 432
+},
+{
+"file": "solutions/b2-haiku-axon/topo.ax",
+"est": 359,
+"exact": 451
+},
+{
+"file": "solutions/b2-haiku-axon/wrap.ax",
+"est": 340,
+"exact": 418
+},
+{
+"file": "solutions/b2-sonnet-axon/anagrams.ax",
+"est": 154,
+"exact": 160
+},
+{
+"file": "solutions/b2-sonnet-axon/bigadd.ax",
+"est": 49,
+"exact": 49
+},
+{
+"file": "solutions/b2-sonnet-axon/brackets.ax",
+"est": 237,
+"exact": 273
+},
+{
+"file": "solutions/b2-sonnet-axon/calc.ax",
+"est": 441,
+"exact": 522
+},
+{
+"file": "solutions/b2-sonnet-axon/date_diff.ax",
+"est": 54,
+"exact": 57
+},
+{
+"file": "solutions/b2-sonnet-axon/dijkstra.ax",
+"est": 381,
+"exact": 418
+},
+{
+"file": "solutions/b2-sonnet-axon/intervals.ax",
+"est": 199,
+"exact": 213
+},
+{
+"file": "solutions/b2-sonnet-axon/inventory.ax",
+"est": 133,
+"exact": 151
+},
+{
+"file": "solutions/b2-sonnet-axon/json_sum.ax",
+"est": 149,
+"exact": 161
+},
+{
+"file": "solutions/b2-sonnet-axon/knight.ax",
+"est": 354,
+"exact": 425
+},
+{
+"file": "solutions/b2-sonnet-axon/ledger.ax",
+"est": 288,
+"exact": 326
+},
+{
+"file": "solutions/b2-sonnet-axon/log_stats.ax",
+"est": 219,
+"exact": 247
+},
+{
+"file": "solutions/b2-sonnet-axon/lru.ax",
+"est": 227,
+"exact": 271
+},
+{
+"file": "solutions/b2-sonnet-axon/roman_calc.ax",
+"est": 430,
+"exact": 505
+},
+{
+"file": "solutions/b2-sonnet-axon/schedule.ax",
+"est": 382,
+"exact": 439
+},
+{
+"file": "solutions/b2-sonnet-axon/spiral.ax",
+"est": 333,
+"exact": 371
+},
+{
+"file": "solutions/b2-sonnet-axon/topo.ax",
+"est": 277,
+"exact": 330
+},
+{
+"file": "solutions/b2-sonnet-axon/wrap.ax",
+"est": 221,
+"exact": 263
+},
+{
+"file": "solutions/g1-haiku-axon/access_report.ax",
+"est": 1269,
+"exact": 1526
+},
+{
+"file": "solutions/g1-haiku-axon/bank_api.ax",
+"est": 1383,
+"exact": 1626
+},
+{
+"file": "solutions/g1-haiku-axon/invoices.ax",
+"est": 1052,
+"exact": 1223
+},
+{
+"file": "solutions/g1-haiku-axon/kv_store.ax",
+"est": 455,
+"exact": 570
+},
+{
+"file": "solutions/g1-haiku-axon/markdown.ax",
+"est": 1790,
+"exact": 2036
+},
+{
+"file": "solutions/g1-haiku-axon/spreadsheet.ax",
+"est": 1601,
+"exact": 1906
+},
+{
+"file": "solutions/g1-haiku-axon/template.ax",
+"est": 2220,
+"exact": 2492
+},
+{
+"file": "solutions/g1-haiku-axon/timetable.ax",
+"est": 827,
+"exact": 968
+},
+{
+"file": "solutions/g1-haiku-python/access_report.py",
+"est": 896,
+"exact": 1051
+},
+{
+"file": "solutions/g1-haiku-python/bank_api.py",
+"est": 1313,
+"exact": 1608
+},
+{
+"file": "solutions/g1-haiku-python/invoices.py",
+"est": 842,
+"exact": 1055
+},
+{
+"file": "solutions/g1-haiku-python/kv_store.py",
+"est": 842,
+"exact": 1063
+},
+{
+"file": "solutions/g1-haiku-python/markdown.py",
+"est": 1248,
+"exact": 1387
+},
+{
+"file": "solutions/g1-haiku-python/spreadsheet.py",
+"est": 2285,
+"exact": 2700
+},
+{
+"file": "solutions/g1-haiku-python/template.py",
+"est": 1363,
+"exact": 1647
+},
+{
+"file": "solutions/g1-haiku-python/timetable.py",
+"est": 1024,
+"exact": 1218
+},
+{
+"file": "solutions/g1-haiku-rust/access_report.rs",
+"est": 1986,
+"exact": 2394
+},
+{
+"file": "solutions/g1-haiku-rust/bank_api.rs",
+"est": 4480,
+"exact": 5036
+},
+{
+"file": "solutions/g1-haiku-rust/invoices.rs",
+"est": 4142,
+"exact": 4689
+},
+{
+"file": "solutions/g1-haiku-rust/kv_store.rs",
+"est": 1350,
+"exact": 1646
+},
+{
+"file": "solutions/g1-haiku-rust/markdown.rs",
+"est": 2768,
+"exact": 2974
+},
+{
+"file": "solutions/g1-haiku-rust/spreadsheet.rs",
+"est": 3770,
+"exact": 4515
+},
+{
+"file": "solutions/g1-haiku-rust/template.rs",
+"est": 5087,
+"exact": 5730
+},
+{
+"file": "solutions/g1-haiku-rust/timetable.rs",
+"est": 1466,
+"exact": 1768
+},
+{
+"file": "solutions/g1-sonnet-axon/access_report.ax",
+"est": 798,
+"exact": 891
+},
+{
+"file": "solutions/g1-sonnet-axon/bank_api.ax",
+"est": 1344,
+"exact": 1496
+},
+{
+"file": "solutions/g1-sonnet-axon/invoices.ax",
+"est": 813,
+"exact": 945
+},
+{
+"file": "solutions/g1-sonnet-axon/kv_store.ax",
+"est": 590,
+"exact": 656
+},
+{
+"file": "solutions/g1-sonnet-axon/markdown.ax",
+"est": 1398,
+"exact": 1513
+},
+{
+"file": "solutions/g1-sonnet-axon/spreadsheet.ax",
+"est": 1560,
+"exact": 1742
+},
+{
+"file": "solutions/g1-sonnet-axon/template.ax",
+"est": 1604,
+"exact": 1873
+},
+{
+"file": "solutions/g1-sonnet-axon/timetable.ax",
+"est": 818,
+"exact": 972
+},
+{
+"file": "solutions/g1-sonnet-python/access_report.py",
+"est": 663,
+"exact": 752
+},
+{
+"file": "solutions/g1-sonnet-python/bank_api.py",
+"est": 1009,
+"exact": 1174
+},
+{
+"file": "solutions/g1-sonnet-python/invoices.py",
+"est": 661,
+"exact": 778
+},
+{
+"file": "solutions/g1-sonnet-python/kv_store.py",
+"est": 515,
+"exact": 619
+},
+{
+"file": "solutions/g1-sonnet-python/markdown.py",
+"est": 1123,
+"exact": 1192
+},
+{
+"file": "solutions/g1-sonnet-python/spreadsheet.py",
+"est": 1315,
+"exact": 1550
+},
+{
+"file": "solutions/g1-sonnet-python/template.py",
+"est": 1171,
+"exact": 1395
+},
+{
+"file": "solutions/g1-sonnet-python/timetable.py",
+"est": 810,
+"exact": 891
+},
+{
+"file": "solutions/g1-sonnet-rust/access_report.rs",
+"est": 1685,
+"exact": 1856
+},
+{
+"file": "solutions/g1-sonnet-rust/bank_api.rs",
+"est": 3646,
+"exact": 3948
+},
+{
+"file": "solutions/g1-sonnet-rust/invoices.rs",
+"est": 2830,
+"exact": 3076
+},
+{
+"file": "solutions/g1-sonnet-rust/kv_store.rs",
+"est": 991,
+"exact": 1077
+},
+{
+"file": "solutions/g1-sonnet-rust/markdown.rs",
+"est": 2052,
+"exact": 2160
+},
+{
+"file": "solutions/g1-sonnet-rust/spreadsheet.rs",
+"est": 2875,
+"exact": 3291
+},
+{
+"file": "solutions/g1-sonnet-rust/template.rs",
+"est": 3678,
+"exact": 3963
+},
+{
+"file": "solutions/g1-sonnet-rust/timetable.rs",
+"est": 1582,
+"exact": 1769
+},
+{
+"file": "solutions/g2-haiku-axon/access_report.ax",
+"est": 1306,
+"exact": 1582
+},
+{
+"file": "solutions/g2-haiku-axon/bank_api.ax",
+"est": 1520,
+"exact": 1820
+},
+{
+"file": "solutions/g2-haiku-axon/invoices.ax",
+"est": 910,
+"exact": 1139
+},
+{
+"file": "solutions/g2-haiku-axon/kv_store.ax",
+"est": 576,
+"exact": 689
+},
+{
+"file": "solutions/g2-haiku-axon/markdown.ax",
+"est": 1494,
+"exact": 1698
+},
+{
+"file": "solutions/g2-haiku-axon/spreadsheet.ax",
+"est": 1626,
+"exact": 1933
+},
+{
+"file": "solutions/g2-haiku-axon/template.ax",
+"est": 2068,
+"exact": 2429
+},
+{
+"file": "solutions/g2-haiku-axon/timetable.ax",
+"est": 805,
+"exact": 1017
+},
+{
+"file": "solutions/g2-haiku-python/access_report.py",
+"est": 917,
+"exact": 1062
+},
+{
+"file": "solutions/g2-haiku-python/bank_api.py",
+"est": 1504,
+"exact": 1831
+},
+{
+"file": "solutions/g2-haiku-python/invoices.py",
+"est": 811,
+"exact": 1022
+},
+{
+"file": "solutions/g2-haiku-python/kv_store.py",
+"est": 735,
+"exact": 907
+},
+{
+"file": "solutions/g2-haiku-python/markdown.py",
+"est": 1309,
+"exact": 1442
+},
+{
+"file": "solutions/g2-haiku-python/spreadsheet.py",
+"est": 2178,
+"exact": 2542
+},
+{
+"file": "solutions/g2-haiku-python/template.py",
+"est": 1354,
+"exact": 1547
+},
+{
+"file": "solutions/g2-haiku-python/timetable.py",
+"est": 880,
+"exact": 1052
+},
+{
+"file": "solutions/g2-sonnet-axon/access_report.ax",
+"est": 782,
+"exact": 857
+},
+{
+"file": "solutions/g2-sonnet-axon/bank_api.ax",
+"est": 1186,
+"exact": 1333
+},
+{
+"file": "solutions/g2-sonnet-axon/invoices.ax",
+"est": 909,
+"exact": 1079
+},
+{
+"file": "solutions/g2-sonnet-axon/kv_store.ax",
+"est": 528,
+"exact": 621
+},
+{
+"file": "solutions/g2-sonnet-axon/markdown.ax",
+"est": 1526,
+"exact": 1749
+},
+{
+"file": "solutions/g2-sonnet-axon/spreadsheet.ax",
+"est": 1548,
+"exact": 1785
+},
+{
+"file": "solutions/g2-sonnet-axon/template.ax",
+"est": 1494,
+"exact": 1750
+},
+{
+"file": "solutions/g2-sonnet-axon/timetable.ax",
+"est": 862,
+"exact": 999
+},
+{
+"file": "solutions/g2-sonnet-python/access_report.py",
+"est": 720,
+"exact": 810
+},
+{
+"file": "solutions/g2-sonnet-python/bank_api.py",
+"est": 1132,
+"exact": 1258
+},
+{
+"file": "solutions/g2-sonnet-python/invoices.py",
+"est": 654,
+"exact": 774
+},
+{
+"file": "solutions/g2-sonnet-python/kv_store.py",
+"est": 509,
+"exact": 600
+},
+{
+"file": "solutions/g2-sonnet-python/markdown.py",
+"est": 1081,
+"exact": 1128
+},
+{
+"file": "solutions/g2-sonnet-python/spreadsheet.py",
+"est": 1700,
+"exact": 1873
+},
+{
+"file": "solutions/g2-sonnet-python/template.py",
+"est": 1120,
+"exact": 1284
+},
+{
+"file": "solutions/g2-sonnet-python/timetable.py",
+"est": 652,
+"exact": 723
+},
+{
+"file": "solutions/h1-haiku-axon/anagrams.ax",
+"est": 160,
+"exact": 176
+},
+{
+"file": "solutions/h1-haiku-axon/brackets.ax",
+"est": 244,
+"exact": 270
+},
+{
+"file": "solutions/h1-haiku-axon/knight.ax",
+"est": 435,
+"exact": 552
+},
+{
+"file": "solutions/h1-haiku-axon/ledger.ax",
+"est": 321,
+"exact": 407
+},
+{
+"file": "solutions/h1-haiku-axon/log_stats.ax",
+"est": 253,
+"exact": 289
+},
+{
+"file": "solutions/h1-haiku-axon/roman_calc.ax",
+"est": 482,
+"exact": 583
+},
+{
+"file": "solutions/h1-haiku-axon/schedule.ax",
+"est": 395,
+"exact": 470
+},
+{
+"file": "solutions/h1-haiku-axon/spiral.ax",
+"est": 354,
+"exact": 404
+},
+{
+"file": "solutions/h1-haiku-python/anagrams.py",
+"est": 173,
+"exact": 198
+},
+{
+"file": "solutions/h1-haiku-python/brackets.py",
+"est": 208,
+"exact": 244
+},
+{
+"file": "solutions/h1-haiku-python/knight.py",
+"est": 391,
+"exact": 464
+},
+{
+"file": "solutions/h1-haiku-python/ledger.py",
+"est": 393,
+"exact": 465
+},
+{
+"file": "solutions/h1-haiku-python/log_stats.py",
+"est": 314,
+"exact": 423
+},
+{
+"file": "solutions/h1-haiku-python/roman_calc.py",
+"est": 424,
+"exact": 510
+},
+{
+"file": "solutions/h1-haiku-python/schedule.py",
+"est": 490,
+"exact": 596
+},
+{
+"file": "solutions/h1-haiku-python/spiral.py",
+"est": 353,
+"exact": 402
+},
+{
+"file": "solutions/h1-sonnet-axon/anagrams.ax",
+"est": 168,
+"exact": 184
+},
+{
+"file": "solutions/h1-sonnet-axon/brackets.ax",
+"est": 230,
+"exact": 259
+},
+{
+"file": "solutions/h1-sonnet-axon/knight.ax",
+"est": 415,
+"exact": 528
+},
+{
+"file": "solutions/h1-sonnet-axon/ledger.ax",
+"est": 297,
+"exact": 350
+},
+{
+"file": "solutions/h1-sonnet-axon/log_stats.ax",
+"est": 220,
+"exact": 251
+},
+{
+"file": "solutions/h1-sonnet-axon/roman_calc.ax",
+"est": 425,
+"exact": 502
+},
+{
+"file": "solutions/h1-sonnet-axon/schedule.ax",
+"est": 379,
+"exact": 442
+},
+{
+"file": "solutions/h1-sonnet-axon/spiral.ax",
+"est": 297,
+"exact": 342
+},
+{
+"file": "solutions/h1-sonnet-python/anagrams.py",
+"est": 119,
+"exact": 140
+},
+{
+"file": "solutions/h1-sonnet-python/brackets.py",
+"est": 159,
+"exact": 171
+},
+{
+"file": "solutions/h1-sonnet-python/knight.py",
+"est": 313,
+"exact": 328
+},
+{
+"file": "solutions/h1-sonnet-python/ledger.py",
+"est": 256,
+"exact": 324
+},
+{
+"file": "solutions/h1-sonnet-python/log_stats.py",
+"est": 191,
+"exact": 221
+},
+{
+"file": "solutions/h1-sonnet-python/roman_calc.py",
+"est": 351,
+"exact": 362
+},
+{
+"file": "solutions/h1-sonnet-python/schedule.py",
+"est": 304,
+"exact": 358
+},
+{
+"file": "solutions/h1-sonnet-python/spiral.py",
+"est": 294,
+"exact": 307
+},
+{
+"file": "solutions/h2-haiku-axon/anagrams.ax",
+"est": 201,
+"exact": 223
+},
+{
+"file": "solutions/h2-haiku-axon/brackets.ax",
+"est": 273,
+"exact": 315
+},
+{
+"file": "solutions/h2-haiku-axon/knight.ax",
+"est": 449,
+"exact": 551
+},
+{
+"file": "solutions/h2-haiku-axon/ledger.ax",
+"est": 354,
+"exact": 410
+},
+{
+"file": "solutions/h2-haiku-axon/log_stats.ax",
+"est": 263,
+"exact": 301
+},
+{
+"file": "solutions/h2-haiku-axon/roman_calc.ax",
+"est": 471,
+"exact": 563
+},
+{
+"file": "solutions/h2-haiku-axon/schedule.ax",
+"est": 416,
+"exact": 490
+},
+{
+"file": "solutions/h2-haiku-axon/spiral.ax",
+"est": 345,
+"exact": 395
+},
+{
+"file": "solutions/h2-haiku-python/anagrams.py",
+"est": 122,
+"exact": 143
+},
+{
+"file": "solutions/h2-haiku-python/brackets.py",
+"est": 175,
+"exact": 227
+},
+{
+"file": "solutions/h2-haiku-python/knight.py",
+"est": 432,
+"exact": 530
+},
+{
+"file": "solutions/h2-haiku-python/ledger.py",
+"est": 343,
+"exact": 430
+},
+{
+"file": "solutions/h2-haiku-python/log_stats.py",
+"est": 276,
+"exact": 346
+},
+{
+"file": "solutions/h2-haiku-python/roman_calc.py",
+"est": 405,
+"exact": 487
+},
+{
+"file": "solutions/h2-haiku-python/schedule.py",
+"est": 387,
+"exact": 484
+},
+{
+"file": "solutions/h2-haiku-python/spiral.py",
+"est": 318,
+"exact": 361
+},
+{
+"file": "solutions/h2-sonnet-axon/anagrams.ax",
+"est": 155,
+"exact": 157
+},
+{
+"file": "solutions/h2-sonnet-axon/brackets.ax",
+"est": 216,
+"exact": 246
+},
+{
+"file": "solutions/h2-sonnet-axon/knight.ax",
+"est": 400,
+"exact": 499
+},
+{
+"file": "solutions/h2-sonnet-axon/ledger.ax",
+"est": 300,
+"exact": 359
+},
+{
+"file": "solutions/h2-sonnet-axon/log_stats.ax",
+"est": 222,
+"exact": 246
+},
+{
+"file": "solutions/h2-sonnet-axon/roman_calc.ax",
+"est": 439,
+"exact": 514
+},
+{
+"file": "solutions/h2-sonnet-axon/schedule.ax",
+"est": 371,
+"exact": 431
+},
+{
+"file": "solutions/h2-sonnet-axon/spiral.ax",
+"est": 301,
+"exact": 348
+},
+{
+"file": "solutions/h2-sonnet-python/anagrams.py",
+"est": 114,
+"exact": 130
+},
+{
+"file": "solutions/h2-sonnet-python/brackets.py",
+"est": 190,
+"exact": 198
+},
+{
+"file": "solutions/h2-sonnet-python/knight.py",
+"est": 333,
+"exact": 354
+},
+{
+"file": "solutions/h2-sonnet-python/ledger.py",
+"est": 247,
+"exact": 309
+},
+{
+"file": "solutions/h2-sonnet-python/log_stats.py",
+"est": 181,
+"exact": 208
+},
+{
+"file": "solutions/h2-sonnet-python/roman_calc.py",
+"est": 349,
+"exact": 363
+},
+{
+"file": "solutions/h2-sonnet-python/schedule.py",
+"est": 287,
+"exact": 327
+},
+{
+"file": "solutions/h2-sonnet-python/spiral.py",
+"est": 294,
+"exact": 293
+},
+{
+"file": "solutions/haiku-axon/anagrams.ax",
+"est": 229,
+"exact": 269
+},
+{
+"file": "solutions/haiku-axon/bank.ax",
+"est": 213,
+"exact": 258
+},
+{
+"file": "solutions/haiku-axon/brackets.ax",
+"est": 240,
+"exact": 267
+},
+{
+"file": "solutions/haiku-axon/csv_avg.ax",
+"est": 251,
+"exact": 301
+},
+{
+"file": "solutions/haiku-axon/fizzbuzz.ax",
+"est": 99,
+"exact": 128
+},
+{
+"file": "solutions/haiku-axon/grades.ax",
+"est": 263,
+"exact": 322
+},
+{
+"file": "solutions/haiku-axon/grid_path.ax",
+"est": 391,
+"exact": 488
+},
+{
+"file": "solutions/haiku-axon/reverse_words.ax",
+"est": 61,
+"exact": 62
+},
+{
+"file": "solutions/haiku-axon/rle.ax",
+"est": 374,
+"exact": 437
+},
+{
+"file": "solutions/haiku-axon/roman.ax",
+"est": 213,
+"exact": 246
+},
+{
+"file": "solutions/haiku-axon/sum_numbers.ax",
+"est": 62,
+"exact": 71
+},
+{
+"file": "solutions/haiku-axon/word_freq.ax",
+"est": 138,
+"exact": 153
+},
+{
+"file": "solutions/haiku-python/anagrams.py",
+"est": 97,
+"exact": 119
+},
+{
+"file": "solutions/haiku-python/bank.py",
+"est": 258,
+"exact": 331
+},
+{
+"file": "solutions/haiku-python/brackets.py",
+"est": 130,
+"exact": 154
+},
+{
+"file": "solutions/haiku-python/csv_avg.py",
+"est": 140,
+"exact": 189
+},
+{
+"file": "solutions/haiku-python/fizzbuzz.py",
+"est": 121,
+"exact": 142
+},
+{
+"file": "solutions/haiku-python/grades.py",
+"est": 138,
+"exact": 164
+},
+{
+"file": "solutions/haiku-python/grid_path.py",
+"est": 326,
+"exact": 387
+},
+{
+"file": "solutions/haiku-python/reverse_words.py",
+"est": 36,
+"exact": 39
+},
+{
+"file": "solutions/haiku-python/rle.py",
+"est": 260,
+"exact": 288
+},
+{
+"file": "solutions/haiku-python/roman.py",
+"est": 194,
+"exact": 206
+},
+{
+"file": "solutions/haiku-python/sum_numbers.py",
+"est": 37,
+"exact": 46
+},
+{
+"file": "solutions/haiku-python/word_freq.py",
+"est": 83,
+"exact": 101
+},
+{
+"file": "solutions/haiku-rust/anagrams.rs",
+"est": 279,
+"exact": 331
+},
+{
+"file": "solutions/haiku-rust/bank.rs",
+"est": 371,
+"exact": 443
+},
+{
+"file": "solutions/haiku-rust/brackets.rs",
+"est": 236,
+"exact": 267
+},
+{
+"file": "solutions/haiku-rust/csv_avg.rs",
+"est": 348,
+"exact": 412
+},
+{
+"file": "solutions/haiku-rust/fizzbuzz.rs",
+"est": 216,
+"exact": 233
+},
+{
+"file": "solutions/haiku-rust/grades.rs",
+"est": 391,
+"exact": 441
+},
+{
+"file": "solutions/haiku-rust/grid_path.rs",
+"est": 658,
+"exact": 750
+},
+{
+"file": "solutions/haiku-rust/reverse_words.rs",
+"est": 95,
+"exact": 97
+},
+{
+"file": "solutions/haiku-rust/rle.rs",
+"est": 456,
+"exact": 509
+},
+{
+"file": "solutions/haiku-rust/roman.rs",
+"est": 303,
+"exact": 321
+},
+{
+"file": "solutions/haiku-rust/sum_numbers.rs",
+"est": 132,
+"exact": 152
+},
+{
+"file": "solutions/haiku-rust/word_freq.rs",
+"est": 229,
+"exact": 253
+},
+{
+"file": "solutions/i1-haiku-axon/anagrams.ax",
+"est": 164,
+"exact": 170
+},
+{
+"file": "solutions/i1-haiku-axon/bigadd.ax",
+"est": 55,
+"exact": 54
+},
+{
+"file": "solutions/i1-haiku-axon/brackets.ax",
+"est": 229,
+"exact": 233
+},
+{
+"file": "solutions/i1-haiku-axon/calc.ax",
+"est": 492,
+"exact": 572
+},
+{
+"file": "solutions/i1-haiku-axon/date_diff.ax",
+"est": 61,
+"exact": 64
+},
+{
+"file": "solutions/i1-haiku-axon/dijkstra.ax",
+"est": 419,
+"exact": 477
+},
+{
+"file": "solutions/i1-haiku-axon/intervals.ax",
+"est": 195,
+"exact": 209
+},
+{
+"file": "solutions/i1-haiku-axon/inventory.ax",
+"est": 185,
+"exact": 196
+},
+{
+"file": "solutions/i1-haiku-axon/json_sum.ax",
+"est": 221,
+"exact": 260
+},
+{
+"file": "solutions/i1-haiku-axon/knight.ax",
+"est": 441,
+"exact": 496
+},
+{
+"file": "solutions/i1-haiku-axon/ledger.ax",
+"est": 297,
+"exact": 345
+},
+{
+"file": "solutions/i1-haiku-axon/log_stats.ax",
+"est": 255,
+"exact": 284
+},
+{
+"file": "solutions/i1-haiku-axon/lru.ax",
+"est": 223,
+"exact": 257
+},
+{
+"file": "solutions/i1-haiku-axon/roman_calc.ax",
+"est": 433,
+"exact": 515
+},
+{
+"file": "solutions/i1-haiku-axon/schedule.ax",
+"est": 561,
+"exact": 649
+},
+{
+"file": "solutions/i1-haiku-axon/spiral.ax",
+"est": 319,
+"exact": 372
+},
+{
+"file": "solutions/i1-haiku-axon/topo.ax",
+"est": 285,
+"exact": 333
+},
+{
+"file": "solutions/i1-haiku-axon/wrap.ax",
+"est": 295,
+"exact": 333
+},
+{
+"file": "solutions/i1-sonnet-axon/anagrams.ax",
+"est": 138,
+"exact": 132
+},
+{
+"file": "solutions/i1-sonnet-axon/bigadd.ax",
+"est": 49,
+"exact": 43
+},
+{
+"file": "solutions/i1-sonnet-axon/brackets.ax",
+"est": 196,
+"exact": 195
+},
+{
+"file": "solutions/i1-sonnet-axon/calc.ax",
+"est": 387,
+"exact": 428
+},
+{
+"file": "solutions/i1-sonnet-axon/date_diff.ax",
+"est": 51,
+"exact": 48
+},
+{
+"file": "solutions/i1-sonnet-axon/dijkstra.ax",
+"est": 372,
+"exact": 395
+},
+{
+"file": "solutions/i1-sonnet-axon/intervals.ax",
+"est": 181,
+"exact": 207
+},
+{
+"file": "solutions/i1-sonnet-axon/inventory.ax",
+"est": 118,
+"exact": 130
+},
+{
+"file": "solutions/i1-sonnet-axon/json_sum.ax",
+"est": 155,
+"exact": 166
+},
+{
+"file": "solutions/i1-sonnet-axon/knight.ax",
+"est": 322,
+"exact": 373
+},
+{
+"file": "solutions/i1-sonnet-axon/ledger.ax",
+"est": 281,
+"exact": 323
+},
+{
+"file": "solutions/i1-sonnet-axon/log_stats.ax",
+"est": 215,
+"exact": 233
+},
+{
+"file": "solutions/i1-sonnet-axon/lru.ax",
+"est": 208,
+"exact": 243
+},
+{
+"file": "solutions/i1-sonnet-axon/roman_calc.ax",
+"est": 425,
+"exact": 477
+},
+{
+"file": "solutions/i1-sonnet-axon/schedule.ax",
+"est": 343,
+"exact": 385
+},
+{
+"file": "solutions/i1-sonnet-axon/spiral.ax",
+"est": 290,
+"exact": 338
+},
+{
+"file": "solutions/i1-sonnet-axon/topo.ax",
+"est": 265,
+"exact": 302
+},
+{
+"file": "solutions/i1-sonnet-axon/wrap.ax",
+"est": 202,
+"exact": 233
+},
+{
+"file": "solutions/i2-haiku-axon/anagrams.ax",
+"est": 149,
+"exact": 155
+},
+{
+"file": "solutions/i2-haiku-axon/bigadd.ax",
+"est": 55,
+"exact": 54
+},
+{
+"file": "solutions/i2-haiku-axon/brackets.ax",
+"est": 233,
+"exact": 239
+},
+{
+"file": "solutions/i2-haiku-axon/calc.ax",
+"est": 498,
+"exact": 572
+},
+{
+"file": "solutions/i2-haiku-axon/date_diff.ax",
+"est": 61,
+"exact": 64
+},
+{
+"file": "solutions/i2-haiku-axon/dijkstra.ax",
+"est": 407,
+"exact": 467
+},
+{
+"file": "solutions/i2-haiku-axon/intervals.ax",
+"est": 190,
+"exact": 212
+},
+{
+"file": "solutions/i2-haiku-axon/inventory.ax",
+"est": 177,
+"exact": 198
+},
+{
+"file": "solutions/i2-haiku-axon/json_sum.ax",
+"est": 623,
+"exact": 757
+},
+{
+"file": "solutions/i2-haiku-axon/knight.ax",
+"est": 389,
+"exact": 455
+},
+{
+"file": "solutions/i2-haiku-axon/ledger.ax",
+"est": 317,
+"exact": 374
+},
+{
+"file": "solutions/i2-haiku-axon/log_stats.ax",
+"est": 250,
+"exact": 277
+},
+{
+"file": "solutions/i2-haiku-axon/lru.ax",
+"est": 225,
+"exact": 247
+},
+{
+"file": "solutions/i2-haiku-axon/roman_calc.ax",
+"est": 430,
+"exact": 517
+},
+{
+"file": "solutions/i2-haiku-axon/schedule.ax",
+"est": 443,
+"exact": 518
+},
+{
+"file": "solutions/i2-haiku-axon/spiral.ax",
+"est": 326,
+"exact": 396
+},
+{
+"file": "solutions/i2-haiku-axon/topo.ax",
+"est": 287,
+"exact": 351
+},
+{
+"file": "solutions/i2-haiku-axon/wrap.ax",
+"est": 285,
+"exact": 315
+},
+{
+"file": "solutions/i2-sonnet-axon/anagrams.ax",
+"est": 143,
+"exact": 142
+},
+{
+"file": "solutions/i2-sonnet-axon/bigadd.ax",
+"est": 50,
+"exact": 47
+},
+{
+"file": "solutions/i2-sonnet-axon/brackets.ax",
+"est": 214,
+"exact": 219
+},
+{
+"file": "solutions/i2-sonnet-axon/calc.ax",
+"est": 387,
+"exact": 433
+},
+{
+"file": "solutions/i2-sonnet-axon/date_diff.ax",
+"est": 52,
+"exact": 52
+},
+{
+"file": "solutions/i2-sonnet-axon/dijkstra.ax",
+"est": 307,
+"exact": 312
+},
+{
+"file": "solutions/i2-sonnet-axon/intervals.ax",
+"est": 179,
+"exact": 207
+},
+{
+"file": "solutions/i2-sonnet-axon/inventory.ax",
+"est": 127,
+"exact": 137
+},
+{
+"file": "solutions/i2-sonnet-axon/json_sum.ax",
+"est": 158,
+"exact": 166
+},
+{
+"file": "solutions/i2-sonnet-axon/knight.ax",
+"est": 330,
+"exact": 393
+},
+{
+"file": "solutions/i2-sonnet-axon/ledger.ax",
+"est": 280,
+"exact": 326
+},
+{
+"file": "solutions/i2-sonnet-axon/log_stats.ax",
+"est": 222,
+"exact": 240
+},
+{
+"file": "solutions/i2-sonnet-axon/lru.ax",
+"est": 221,
+"exact": 249
+},
+{
+"file": "solutions/i2-sonnet-axon/roman_calc.ax",
+"est": 431,
+"exact": 490
+},
+{
+"file": "solutions/i2-sonnet-axon/schedule.ax",
+"est": 369,
+"exact": 412
+},
+{
+"file": "solutions/i2-sonnet-axon/spiral.ax",
+"est": 322,
+"exact": 358
+},
+{
+"file": "solutions/i2-sonnet-axon/topo.ax",
+"est": 265,
+"exact": 302
+},
+{
+"file": "solutions/i2-sonnet-axon/wrap.ax",
+"est": 236,
+"exact": 272
+},
+{
+"file": "solutions/r10-haiku-axon/bigadd.ax",
+"est": 74,
+"exact": 79
+},
+{
+"file": "solutions/r10-haiku-axon/calc.ax",
+"est": 671,
+"exact": 804
+},
+{
+"file": "solutions/r10-haiku-axon/date_diff.ax",
+"est": 80,
+"exact": 89
+},
+{
+"file": "solutions/r10-haiku-axon/dijkstra.ax",
+"est": 507,
+"exact": 579
+},
+{
+"file": "solutions/r10-haiku-axon/intervals.ax",
+"est": 221,
+"exact": 247
+},
+{
+"file": "solutions/r10-haiku-axon/inventory.ax",
+"est": 219,
+"exact": 255
+},
+{
+"file": "solutions/r10-haiku-axon/json_sum.ax",
+"est": 205,
+"exact": 230
+},
+{
+"file": "solutions/r10-haiku-axon/lru.ax",
+"est": 262,
+"exact": 306
+},
+{
+"file": "solutions/r10-haiku-axon/topo.ax",
+"est": 335,
+"exact": 412
+},
+{
+"file": "solutions/r10-haiku-axon/wrap.ax",
+"est": 342,
+"exact": 413
+},
+{
+"file": "solutions/r10-sonnet-axon/bigadd.ax",
+"est": 53,
+"exact": 52
+},
+{
+"file": "solutions/r10-sonnet-axon/calc.ax",
+"est": 406,
+"exact": 479
+},
+{
+"file": "solutions/r10-sonnet-axon/date_diff.ax",
+"est": 55,
+"exact": 57
+},
+{
+"file": "solutions/r10-sonnet-axon/dijkstra.ax",
+"est": 435,
+"exact": 499
+},
+{
+"file": "solutions/r10-sonnet-axon/intervals.ax",
+"est": 203,
+"exact": 224
+},
+{
+"file": "solutions/r10-sonnet-axon/inventory.ax",
+"est": 122,
+"exact": 137
+},
+{
+"file": "solutions/r10-sonnet-axon/json_sum.ax",
+"est": 162,
+"exact": 173
+},
+{
+"file": "solutions/r10-sonnet-axon/lru.ax",
+"est": 234,
+"exact": 276
+},
+{
+"file": "solutions/r10-sonnet-axon/topo.ax",
+"est": 280,
+"exact": 331
+},
+{
+"file": "solutions/r10-sonnet-axon/wrap.ax",
+"est": 222,
+"exact": 271
+},
+{
+"file": "solutions/r11-haiku-axon/bigadd.ax",
+"est": 57,
+"exact": 57
+},
+{
+"file": "solutions/r11-haiku-axon/calc.ax",
+"est": 555,
+"exact": 673
+},
+{
+"file": "solutions/r11-haiku-axon/date_diff.ax",
+"est": 63,
+"exact": 67
+},
+{
+"file": "solutions/r11-haiku-axon/dijkstra.ax",
+"est": 528,
+"exact": 588
+},
+{
+"file": "solutions/r11-haiku-axon/intervals.ax",
+"est": 253,
+"exact": 307
+},
+{
+"file": "solutions/r11-haiku-axon/inventory.ax",
+"est": 197,
+"exact": 213
+},
+{
+"file": "solutions/r11-haiku-axon/json_sum.ax",
+"est": 715,
+"exact": 866
+},
+{
+"file": "solutions/r11-haiku-axon/lru.ax",
+"est": 243,
+"exact": 283
+},
+{
+"file": "solutions/r11-haiku-axon/topo.ax",
+"est": 316,
+"exact": 382
+},
+{
+"file": "solutions/r11-haiku-axon/wrap.ax",
+"est": 288,
+"exact": 345
+},
+{
+"file": "solutions/r11-sonnet-axon/bigadd.ax",
+"est": 53,
+"exact": 52
+},
+{
+"file": "solutions/r11-sonnet-axon/calc.ax",
+"est": 455,
+"exact": 527
+},
+{
+"file": "solutions/r11-sonnet-axon/date_diff.ax",
+"est": 55,
+"exact": 57
+},
+{
+"file": "solutions/r11-sonnet-axon/dijkstra.ax",
+"est": 379,
+"exact": 422
+},
+{
+"file": "solutions/r11-sonnet-axon/intervals.ax",
+"est": 186,
+"exact": 221
+},
+{
+"file": "solutions/r11-sonnet-axon/inventory.ax",
+"est": 173,
+"exact": 188
+},
+{
+"file": "solutions/r11-sonnet-axon/json_sum.ax",
+"est": 155,
+"exact": 167
+},
+{
+"file": "solutions/r11-sonnet-axon/lru.ax",
+"est": 231,
+"exact": 274
+},
+{
+"file": "solutions/r11-sonnet-axon/topo.ax",
+"est": 274,
+"exact": 325
+},
+{
+"file": "solutions/r11-sonnet-axon/wrap.ax",
+"est": 224,
+"exact": 259
+},
+{
+"file": "solutions/r12-haiku-axon/bigadd.ax",
+"est": 62,
+"exact": 63
+},
+{
+"file": "solutions/r12-haiku-axon/calc.ax",
+"est": 657,
+"exact": 753
+},
+{
+"file": "solutions/r12-haiku-axon/date_diff.ax",
+"est": 71,
+"exact": 76
+},
+{
+"file": "solutions/r12-haiku-axon/dijkstra.ax",
+"est": 408,
+"exact": 483
+},
+{
+"file": "solutions/r12-haiku-axon/intervals.ax",
+"est": 199,
+"exact": 227
+},
+{
+"file": "solutions/r12-haiku-axon/inventory.ax",
+"est": 197,
+"exact": 219
+},
+{
+"file": "solutions/r12-haiku-axon/json_sum.ax",
+"est": 279,
+"exact": 339
+},
+{
+"file": "solutions/r12-haiku-axon/lru.ax",
+"est": 226,
+"exact": 264
+},
+{
+"file": "solutions/r12-haiku-axon/topo.ax",
+"est": 299,
+"exact": 363
+},
+{
+"file": "solutions/r12-haiku-axon/wrap.ax",
+"est": 299,
+"exact": 362
+},
+{
+"file": "solutions/r12-sonnet-axon/bigadd.ax",
+"est": 52,
+"exact": 52
+},
+{
+"file": "solutions/r12-sonnet-axon/calc.ax",
+"est": 407,
+"exact": 472
+},
+{
+"file": "solutions/r12-sonnet-axon/date_diff.ax",
+"est": 54,
+"exact": 57
+},
+{
+"file": "solutions/r12-sonnet-axon/dijkstra.ax",
+"est": 314,
+"exact": 326
+},
+{
+"file": "solutions/r12-sonnet-axon/intervals.ax",
+"est": 188,
+"exact": 230
+},
+{
+"file": "solutions/r12-sonnet-axon/inventory.ax",
+"est": 163,
+"exact": 180
+},
+{
+"file": "solutions/r12-sonnet-axon/json_sum.ax",
+"est": 159,
+"exact": 173
+},
+{
+"file": "solutions/r12-sonnet-axon/lru.ax",
+"est": 238,
+"exact": 282
+},
+{
+"file": "solutions/r12-sonnet-axon/topo.ax",
+"est": 289,
+"exact": 343
+},
+{
+"file": "solutions/r12-sonnet-axon/wrap.ax",
+"est": 251,
+"exact": 286
+},
+{
+"file": "solutions/r13-haiku-axon/bigadd.ax",
+"est": 57,
+"exact": 59
+},
+{
+"file": "solutions/r13-haiku-axon/calc.ax",
+"est": 520,
+"exact": 622
+},
+{
+"file": "solutions/r13-haiku-axon/date_diff.ax",
+"est": 66,
+"exact": 71
+},
+{
+"file": "solutions/r13-haiku-axon/dijkstra.ax",
+"est": 478,
+"exact": 554
+},
+{
+"file": "solutions/r13-haiku-axon/intervals.ax",
+"est": 216,
+"exact": 254
+},
+{
+"file": "solutions/r13-haiku-axon/inventory.ax",
+"est": 204,
+"exact": 243
+},
+{
+"file": "solutions/r13-haiku-axon/json_sum.ax",
+"est": 190,
+"exact": 222
+},
+{
+"file": "solutions/r13-haiku-axon/lru.ax",
+"est": 241,
+"exact": 278
+},
+{
+"file": "solutions/r13-haiku-axon/topo.ax",
+"est": 332,
+"exact": 415
+},
+{
+"file": "solutions/r13-haiku-axon/wrap.ax",
+"est": 317,
+"exact": 369
+},
+{
+"file": "solutions/r13-sonnet-axon/bigadd.ax",
+"est": 51,
+"exact": 48
+},
+{
+"file": "solutions/r13-sonnet-axon/calc.ax",
+"est": 453,
+"exact": 543
+},
+{
+"file": "solutions/r13-sonnet-axon/date_diff.ax",
+"est": 53,
+"exact": 54
+},
+{
+"file": "solutions/r13-sonnet-axon/dijkstra.ax",
+"est": 319,
+"exact": 334
+},
+{
+"file": "solutions/r13-sonnet-axon/intervals.ax",
+"est": 208,
+"exact": 223
+},
+{
+"file": "solutions/r13-sonnet-axon/inventory.ax",
+"est": 167,
+"exact": 189
+},
+{
+"file": "solutions/r13-sonnet-axon/json_sum.ax",
+"est": 154,
+"exact": 168
+},
+{
+"file": "solutions/r13-sonnet-axon/lru.ax",
+"est": 220,
+"exact": 253
+},
+{
+"file": "solutions/r13-sonnet-axon/topo.ax",
+"est": 294,
+"exact": 348
+},
+{
+"file": "solutions/r13-sonnet-axon/wrap.ax",
+"est": 223,
+"exact": 262
+},
+{
+"file": "solutions/r2-haiku-axon/anagrams.ax",
+"est": 146,
+"exact": 179
+},
+{
+"file": "solutions/r2-haiku-axon/bank.ax",
+"est": 199,
+"exact": 243
+},
+{
+"file": "solutions/r2-haiku-axon/brackets.ax",
+"est": 208,
+"exact": 229
+},
+{
+"file": "solutions/r2-haiku-axon/csv_avg.ax",
+"est": 160,
+"exact": 175
+},
+{
+"file": "solutions/r2-haiku-axon/fizzbuzz.ax",
+"est": 85,
+"exact": 110
+},
+{
+"file": "solutions/r2-haiku-axon/grades.ax",
+"est": 224,
+"exact": 260
+},
+{
+"file": "solutions/r2-haiku-axon/grid_path.ax",
+"est": 359,
+"exact": 463
+},
+{
+"file": "solutions/r2-haiku-axon/reverse_words.ax",
+"est": 49,
+"exact": 50
+},
+{
+"file": "solutions/r2-haiku-axon/rle.ax",
+"est": 298,
+"exact": 388
+},
+{
+"file": "solutions/r2-haiku-axon/roman.ax",
+"est": 183,
+"exact": 206
+},
+{
+"file": "solutions/r2-haiku-axon/sum_numbers.ax",
+"est": 19,
+"exact": 21
+},
+{
+"file": "solutions/r2-haiku-axon/word_freq.ax",
+"est": 135,
+"exact": 169
+},
+{
+"file": "solutions/r2-sonnet-axon/anagrams.ax",
+"est": 127,
+"exact": 134
+},
+{
+"file": "solutions/r2-sonnet-axon/bank.ax",
+"est": 176,
+"exact": 188
+},
+{
+"file": "solutions/r2-sonnet-axon/brackets.ax",
+"est": 197,
+"exact": 208
+},
+{
+"file": "solutions/r2-sonnet-axon/csv_avg.ax",
+"est": 157,
+"exact": 172
+},
+{
+"file": "solutions/r2-sonnet-axon/fizzbuzz.ax",
+"est": 81,
+"exact": 97
+},
+{
+"file": "solutions/r2-sonnet-axon/grades.ax",
+"est": 198,
+"exact": 216
+},
+{
+"file": "solutions/r2-sonnet-axon/grid_path.ax",
+"est": 345,
+"exact": 424
+},
+{
+"file": "solutions/r2-sonnet-axon/reverse_words.ax",
+"est": 27,
+"exact": 25
+},
+{
+"file": "solutions/r2-sonnet-axon/rle.ax",
+"est": 232,
+"exact": 281
+},
+{
+"file": "solutions/r2-sonnet-axon/roman.ax",
+"est": 175,
+"exact": 199
+},
+{
+"file": "solutions/r2-sonnet-axon/sum_numbers.ax",
+"est": 19,
+"exact": 21
+},
+{
+"file": "solutions/r2-sonnet-axon/word_freq.ax",
+"est": 88,
+"exact": 90
+},
+{
+"file": "solutions/r3-haiku-axon/bigadd.ax",
+"est": 297,
+"exact": 330
+},
+{
+"file": "solutions/r3-haiku-axon/calc.ax",
+"est": 592,
+"exact": 734
+},
+{
+"file": "solutions/r3-haiku-axon/date_diff.ax",
+"est": 225,
+"exact": 267
+},
+{
+"file": "solutions/r3-haiku-axon/dijkstra.ax",
+"est": 646,
+"exact": 803
+},
+{
+"file": "solutions/r3-haiku-axon/intervals.ax",
+"est": 229,
+"exact": 282
+},
+{
+"file": "solutions/r3-haiku-axon/inventory.ax",
+"est": 472,
+"exact": 579
+},
+{
+"file": "solutions/r3-haiku-axon/json_sum.ax",
+"est": 728,
+"exact": 988
+},
+{
+"file": "solutions/r3-haiku-axon/lru.ax",
+"est": 274,
+"exact": 317
+},
+{
+"file": "solutions/r3-haiku-axon/topo.ax",
+"est": 329,
+"exact": 412
+},
+{
+"file": "solutions/r3-haiku-axon/wrap.ax",
+"est": 325,
+"exact": 391
+},
+{
+"file": "solutions/r3-haiku-python/bigadd.py",
+"est": 114,
+"exact": 122
+},
+{
+"file": "solutions/r3-haiku-python/calc.py",
+"est": 714,
+"exact": 822
+},
+{
+"file": "solutions/r3-haiku-python/date_diff.py",
+"est": 129,
+"exact": 149
+},
+{
+"file": "solutions/r3-haiku-python/dijkstra.py",
+"est": 444,
+"exact": 545
+},
+{
+"file": "solutions/r3-haiku-python/intervals.py",
+"est": 187,
+"exact": 210
+},
+{
+"file": "solutions/r3-haiku-python/inventory.py",
+"est": 327,
+"exact": 390
+},
+{
+"file": "solutions/r3-haiku-python/json_sum.py",
+"est": 150,
+"exact": 191
+},
+{
+"file": "solutions/r3-haiku-python/lru.py",
+"est": 309,
+"exact": 381
+},
+{
+"file": "solutions/r3-haiku-python/topo.py",
+"est": 289,
+"exact": 380
+},
+{
+"file": "solutions/r3-haiku-python/wrap.py",
+"est": 258,
+"exact": 324
+},
+{
+"file": "solutions/r3-haiku-rust/bigadd.rs",
+"est": 552,
+"exact": 579
+},
+{
+"file": "solutions/r3-haiku-rust/calc.rs",
+"est": 1060,
+"exact": 1292
+},
+{
+"file": "solutions/r3-haiku-rust/date_diff.rs",
+"est": 478,
+"exact": 555
+},
+{
+"file": "solutions/r3-haiku-rust/dijkstra.rs",
+"est": 1462,
+"exact": 1721
+},
+{
+"file": "solutions/r3-haiku-rust/intervals.rs",
+"est": 371,
+"exact": 399
+},
+{
+"file": "solutions/r3-haiku-rust/inventory.rs",
+"est": 1108,
+"exact": 1252
+},
+{
+"file": "solutions/r3-haiku-rust/json_sum.rs",
+"est": 1186,
+"exact": 1379
+},
+{
+"file": "solutions/r3-haiku-rust/lru.rs",
+"est": 615,
+"exact": 696
+},
+{
+"file": "solutions/r3-haiku-rust/topo.rs",
+"est": 590,
+"exact": 692
+},
+{
+"file": "solutions/r3-haiku-rust/wrap.rs",
+"est": 626,
+"exact": 722
+},
+{
+"file": "solutions/r3-sonnet-axon/bigadd.ax",
+"est": 259,
+"exact": 273
+},
+{
+"file": "solutions/r3-sonnet-axon/calc.ax",
+"est": 545,
+"exact": 662
+},
+{
+"file": "solutions/r3-sonnet-axon/date_diff.ax",
+"est": 271,
+"exact": 320
+},
+{
+"file": "solutions/r3-sonnet-axon/dijkstra.ax",
+"est": 427,
+"exact": 490
+},
+{
+"file": "solutions/r3-sonnet-axon/intervals.ax",
+"est": 218,
+"exact": 263
+},
+{
+"file": "solutions/r3-sonnet-axon/inventory.ax",
+"est": 466,
+"exact": 531
+},
+{
+"file": "solutions/r3-sonnet-axon/json_sum.ax",
+"est": 723,
+"exact": 927
+},
+{
+"file": "solutions/r3-sonnet-axon/lru.ax",
+"est": 253,
+"exact": 286
+},
+{
+"file": "solutions/r3-sonnet-axon/topo.ax",
+"est": 320,
+"exact": 384
+},
+{
+"file": "solutions/r3-sonnet-axon/wrap.ax",
+"est": 267,
+"exact": 307
+},
+{
+"file": "solutions/r3-sonnet-python/bigadd.py",
+"est": 45,
+"exact": 49
+},
+{
+"file": "solutions/r3-sonnet-python/calc.py",
+"est": 451,
+"exact": 488
+},
+{
+"file": "solutions/r3-sonnet-python/date_diff.py",
+"est": 77,
+"exact": 85
+},
+{
+"file": "solutions/r3-sonnet-python/dijkstra.py",
+"est": 332,
+"exact": 342
+},
+{
+"file": "solutions/r3-sonnet-python/intervals.py",
+"est": 126,
+"exact": 132
+},
+{
+"file": "solutions/r3-sonnet-python/inventory.py",
+"est": 139,
+"exact": 157
+},
+{
+"file": "solutions/r3-sonnet-python/json_sum.py",
+"est": 134,
+"exact": 155
+},
+{
+"file": "solutions/r3-sonnet-python/lru.py",
+"est": 166,
+"exact": 189
+},
+{
+"file": "solutions/r3-sonnet-python/topo.py",
+"est": 223,
+"exact": 264
+},
+{
+"file": "solutions/r3-sonnet-python/wrap.py",
+"est": 200,
+"exact": 221
+},
+{
+"file": "solutions/r3-sonnet-rust/bigadd.rs",
+"est": 355,
+"exact": 343
+},
+{
+"file": "solutions/r3-sonnet-rust/calc.rs",
+"est": 734,
+"exact": 744
+},
+{
+"file": "solutions/r3-sonnet-rust/date_diff.rs",
+"est": 278,
+"exact": 288
+},
+{
+"file": "solutions/r3-sonnet-rust/dijkstra.rs",
+"est": 653,
+"exact": 678
+},
+{
+"file": "solutions/r3-sonnet-rust/intervals.rs",
+"est": 275,
+"exact": 278
+},
+{
+"file": "solutions/r3-sonnet-rust/inventory.rs",
+"est": 734,
+"exact": 726
+},
+{
+"file": "solutions/r3-sonnet-rust/json_sum.rs",
+"est": 872,
+"exact": 868
+},
+{
+"file": "solutions/r3-sonnet-rust/lru.rs",
+"est": 320,
+"exact": 314
+},
+{
+"file": "solutions/r3-sonnet-rust/topo.rs",
+"est": 489,
+"exact": 522
+},
+{
+"file": "solutions/r3-sonnet-rust/wrap.rs",
+"est": 394,
+"exact": 416
+},
+{
+"file": "solutions/r4-haiku-axon/bigadd.ax",
+"est": 102,
+"exact": 108
+},
+{
+"file": "solutions/r4-haiku-axon/calc.ax",
+"est": 770,
+"exact": 891
+},
+{
+"file": "solutions/r4-haiku-axon/date_diff.ax",
+"est": 104,
+"exact": 113
+},
+{
+"file": "solutions/r4-haiku-axon/dijkstra.ax",
+"est": 461,
+"exact": 536
+},
+{
+"file": "solutions/r4-haiku-axon/intervals.ax",
+"est": 228,
+"exact": 260
+},
+{
+"file": "solutions/r4-haiku-axon/inventory.ax",
+"est": 331,
+"exact": 382
+},
+{
+"file": "solutions/r4-haiku-axon/json_sum.ax",
+"est": 181,
+"exact": 199
+},
+{
+"file": "solutions/r4-haiku-axon/lru.ax",
+"est": 273,
+"exact": 315
+},
+{
+"file": "solutions/r4-haiku-axon/topo.ax",
+"est": 338,
+"exact": 419
+},
+{
+"file": "solutions/r4-haiku-axon/wrap.ax",
+"est": 323,
+"exact": 394
+},
+{
+"file": "solutions/r4-sonnet-axon/bigadd.ax",
+"est": 65,
+"exact": 67
+},
+{
+"file": "solutions/r4-sonnet-axon/calc.ax",
+"est": 536,
+"exact": 628
+},
+{
+"file": "solutions/r4-sonnet-axon/date_diff.ax",
+"est": 71,
+"exact": 75
+},
+{
+"file": "solutions/r4-sonnet-axon/dijkstra.ax",
+"est": 428,
+"exact": 484
+},
+{
+"file": "solutions/r4-sonnet-axon/intervals.ax",
+"est": 194,
+"exact": 238
+},
+{
+"file": "solutions/r4-sonnet-axon/inventory.ax",
+"est": 251,
+"exact": 289
+},
+{
+"file": "solutions/r4-sonnet-axon/json_sum.ax",
+"est": 140,
+"exact": 142
+},
+{
+"file": "solutions/r4-sonnet-axon/lru.ax",
+"est": 263,
+"exact": 299
+},
+{
+"file": "solutions/r4-sonnet-axon/topo.ax",
+"est": 295,
+"exact": 354
+},
+{
+"file": "solutions/r4-sonnet-axon/wrap.ax",
+"est": 225,
+"exact": 260
+},
+{
+"file": "solutions/r5-haiku-axon/bigadd.ax",
+"est": 95,
+"exact": 93
+},
+{
+"file": "solutions/r5-haiku-axon/calc.ax",
+"est": 571,
+"exact": 663
+},
+{
+"file": "solutions/r5-haiku-axon/date_diff.ax",
+"est": 129,
+"exact": 146
+},
+{
+"file": "solutions/r5-haiku-axon/dijkstra.ax",
+"est": 512,
+"exact": 571
+},
+{
+"file": "solutions/r5-haiku-axon/intervals.ax",
+"est": 239,
+"exact": 281
+},
+{
+"file": "solutions/r5-haiku-axon/inventory.ax",
+"est": 242,
+"exact": 275
+},
+{
+"file": "solutions/r5-haiku-axon/json_sum.ax",
+"est": 209,
+"exact": 248
+},
+{
+"file": "solutions/r5-haiku-axon/lru.ax",
+"est": 277,
+"exact": 332
+},
+{
+"file": "solutions/r5-haiku-axon/topo.ax",
+"est": 310,
+"exact": 378
+},
+{
+"file": "solutions/r5-haiku-axon/wrap.ax",
+"est": 335,
+"exact": 404
+},
+{
+"file": "solutions/r5-sonnet-axon/bigadd.ax",
+"est": 66,
+"exact": 67
+},
+{
+"file": "solutions/r5-sonnet-axon/calc.ax",
+"est": 537,
+"exact": 625
+},
+{
+"file": "solutions/r5-sonnet-axon/date_diff.ax",
+"est": 68,
+"exact": 72
+},
+{
+"file": "solutions/r5-sonnet-axon/dijkstra.ax",
+"est": 424,
+"exact": 474
+},
+{
+"file": "solutions/r5-sonnet-axon/intervals.ax",
+"est": 210,
+"exact": 229
+},
+{
+"file": "solutions/r5-sonnet-axon/inventory.ax",
+"est": 157,
+"exact": 176
+},
+{
+"file": "solutions/r5-sonnet-axon/json_sum.ax",
+"est": 136,
+"exact": 139
+},
+{
+"file": "solutions/r5-sonnet-axon/lru.ax",
+"est": 239,
+"exact": 281
+},
+{
+"file": "solutions/r5-sonnet-axon/topo.ax",
+"est": 286,
+"exact": 343
+},
+{
+"file": "solutions/r5-sonnet-axon/wrap.ax",
+"est": 240,
+"exact": 282
+},
+{
+"file": "solutions/r6-haiku-axon/bigadd.ax",
+"est": 66,
+"exact": 67
+},
+{
+"file": "solutions/r6-haiku-axon/calc.ax",
+"est": 510,
+"exact": 595
+},
+{
+"file": "solutions/r6-haiku-axon/date_diff.ax",
+"est": 68,
+"exact": 72
+},
+{
+"file": "solutions/r6-haiku-axon/dijkstra.ax",
+"est": 449,
+"exact": 526
+},
+{
+"file": "solutions/r6-haiku-axon/intervals.ax",
+"est": 204,
+"exact": 220
+},
+{
+"file": "solutions/r6-haiku-axon/inventory.ax",
+"est": 203,
+"exact": 228
+},
+{
+"file": "solutions/r6-haiku-axon/json_sum.ax",
+"est": 204,
+"exact": 244
+},
+{
+"file": "solutions/r6-haiku-axon/lru.ax",
+"est": 236,
+"exact": 272
+},
+{
+"file": "solutions/r6-haiku-axon/topo.ax",
+"est": 315,
+"exact": 375
+},
+{
+"file": "solutions/r6-haiku-axon/wrap.ax",
+"est": 253,
+"exact": 314
+},
+{
+"file": "solutions/r6-haiku-python/bigadd.py",
+"est": 89,
+"exact": 96
+},
+{
+"file": "solutions/r6-haiku-python/calc.py",
+"est": 635,
+"exact": 726
+},
+{
+"file": "solutions/r6-haiku-python/date_diff.py",
+"est": 104,
+"exact": 124
+},
+{
+"file": "solutions/r6-haiku-python/dijkstra.py",
+"est": 390,
+"exact": 481
+},
+{
+"file": "solutions/r6-haiku-python/intervals.py",
+"est": 201,
+"exact": 230
+},
+{
+"file": "solutions/r6-haiku-python/inventory.py",
+"est": 231,
+"exact": 285
+},
+{
+"file": "solutions/r6-haiku-python/json_sum.py",
+"est": 177,
+"exact": 213
+},
+{
+"file": "solutions/r6-haiku-python/lru.py",
+"est": 228,
+"exact": 274
+},
+{
+"file": "solutions/r6-haiku-python/topo.py",
+"est": 251,
+"exact": 323
+},
+{
+"file": "solutions/r6-haiku-python/wrap.py",
+"est": 240,
+"exact": 276
+},
+{
+"file": "solutions/r6-haiku-rust/bigadd.rs",
+"est": 518,
+"exact": 583
+},
+{
+"file": "solutions/r6-haiku-rust/calc.rs",
+"est": 1006,
+"exact": 1202
+},
+{
+"file": "solutions/r6-haiku-rust/date_diff.rs",
+"est": 483,
+"exact": 579
+},
+{
+"file": "solutions/r6-haiku-rust/dijkstra.rs",
+"est": 1077,
+"exact": 1282
+},
+{
+"file": "solutions/r6-haiku-rust/intervals.rs",
+"est": 391,
+"exact": 451
+},
+{
+"file": "solutions/r6-haiku-rust/inventory.rs",
+"est": 974,
+"exact": 1117
+},
+{
+"file": "solutions/r6-haiku-rust/json_sum.rs",
+"est": 1444,
+"exact": 1683
+},
+{
+"file": "solutions/r6-haiku-rust/lru.rs",
+"est": 636,
+"exact": 757
+},
+{
+"file": "solutions/r6-haiku-rust/topo.rs",
+"est": 758,
+"exact": 935
+},
+{
+"file": "solutions/r6-haiku-rust/wrap.rs",
+"est": 528,
+"exact": 612
+},
+{
+"file": "solutions/r6-sonnet-axon/bigadd.ax",
+"est": 65,
+"exact": 67
+},
+{
+"file": "solutions/r6-sonnet-axon/calc.ax",
+"est": 481,
+"exact": 573
+},
+{
+"file": "solutions/r6-sonnet-axon/date_diff.ax",
+"est": 67,
+"exact": 72
+},
+{
+"file": "solutions/r6-sonnet-axon/dijkstra.ax",
+"est": 329,
+"exact": 349
+},
+{
+"file": "solutions/r6-sonnet-axon/intervals.ax",
+"est": 198,
+"exact": 240
+},
+{
+"file": "solutions/r6-sonnet-axon/inventory.ax",
+"est": 189,
+"exact": 208
+},
+{
+"file": "solutions/r6-sonnet-axon/json_sum.ax",
+"est": 132,
+"exact": 139
+},
+{
+"file": "solutions/r6-sonnet-axon/lru.ax",
+"est": 241,
+"exact": 281
+},
+{
+"file": "solutions/r6-sonnet-axon/topo.ax",
+"est": 287,
+"exact": 340
+},
+{
+"file": "solutions/r6-sonnet-axon/wrap.ax",
+"est": 223,
+"exact": 256
+},
+{
+"file": "solutions/r6-sonnet-python/bigadd.py",
+"est": 45,
+"exact": 49
+},
+{
+"file": "solutions/r6-sonnet-python/calc.py",
+"est": 467,
+"exact": 504
+},
+{
+"file": "solutions/r6-sonnet-python/date_diff.py",
+"est": 77,
+"exact": 84
+},
+{
+"file": "solutions/r6-sonnet-python/dijkstra.py",
+"est": 300,
+"exact": 338
+},
+{
+"file": "solutions/r6-sonnet-python/intervals.py",
+"est": 152,
+"exact": 158
+},
+{
+"file": "solutions/r6-sonnet-python/inventory.py",
+"est": 138,
+"exact": 154
+},
+{
+"file": "solutions/r6-sonnet-python/json_sum.py",
+"est": 137,
+"exact": 160
+},
+{
+"file": "solutions/r6-sonnet-python/lru.py",
+"est": 176,
+"exact": 200
+},
+{
+"file": "solutions/r6-sonnet-python/topo.py",
+"est": 231,
+"exact": 274
+},
+{
+"file": "solutions/r6-sonnet-python/wrap.py",
+"est": 203,
+"exact": 224
+},
+{
+"file": "solutions/r6-sonnet-rust/bigadd.rs",
+"est": 344,
+"exact": 330
+},
+{
+"file": "solutions/r6-sonnet-rust/calc.rs",
+"est": 705,
+"exact": 701
+},
+{
+"file": "solutions/r6-sonnet-rust/date_diff.rs",
+"est": 278,
+"exact": 287
+},
+{
+"file": "solutions/r6-sonnet-rust/dijkstra.rs",
+"est": 730,
+"exact": 735
+},
+{
+"file": "solutions/r6-sonnet-rust/intervals.rs",
+"est": 275,
+"exact": 274
+},
+{
+"file": "solutions/r6-sonnet-rust/inventory.rs",
+"est": 682,
+"exact": 683
+},
+{
+"file": "solutions/r6-sonnet-rust/json_sum.rs",
+"est": 915,
+"exact": 903
+},
+{
+"file": "solutions/r6-sonnet-rust/lru.rs",
+"est": 307,
+"exact": 298
+},
+{
+"file": "solutions/r6-sonnet-rust/topo.rs",
+"est": 489,
+"exact": 521
+},
+{
+"file": "solutions/r6-sonnet-rust/wrap.rs",
+"est": 371,
+"exact": 383
+},
+{
+"file": "solutions/r7-haiku-axon/bigadd.ax",
+"est": 61,
+"exact": 61
+},
+{
+"file": "solutions/r7-haiku-axon/calc.ax",
+"est": 531,
+"exact": 620
+},
+{
+"file": "solutions/r7-haiku-axon/date_diff.ax",
+"est": 68,
+"exact": 72
+},
+{
+"file": "solutions/r7-haiku-axon/dijkstra.ax",
+"est": 629,
+"exact": 750
+},
+{
+"file": "solutions/r7-haiku-axon/intervals.ax",
+"est": 221,
+"exact": 256
+},
+{
+"file": "solutions/r7-haiku-axon/inventory.ax",
+"est": 240,
+"exact": 264
+},
+{
+"file": "solutions/r7-haiku-axon/json_sum.ax",
+"est": 192,
+"exact": 217
+},
+{
+"file": "solutions/r7-haiku-axon/lru.ax",
+"est": 263,
+"exact": 318
+},
+{
+"file": "solutions/r7-haiku-axon/topo.ax",
+"est": 312,
+"exact": 360
+},
+{
+"file": "solutions/r7-haiku-axon/wrap.ax",
+"est": 297,
+"exact": 349
+},
+{
+"file": "solutions/r7-haiku-python/bigadd.py",
+"est": 48,
+"exact": 60
+},
+{
+"file": "solutions/r7-haiku-python/calc.py",
+"est": 525,
+"exact": 606
+},
+{
+"file": "solutions/r7-haiku-python/date_diff.py",
+"est": 97,
+"exact": 108
+},
+{
+"file": "solutions/r7-haiku-python/dijkstra.py",
+"est": 339,
+"exact": 418
+},
+{
+"file": "solutions/r7-haiku-python/intervals.py",
+"est": 160,
+"exact": 187
+},
+{
+"file": "solutions/r7-haiku-python/inventory.py",
+"est": 158,
+"exact": 196
+},
+{
+"file": "solutions/r7-haiku-python/json_sum.py",
+"est": 138,
+"exact": 165
+},
+{
+"file": "solutions/r7-haiku-python/lru.py",
+"est": 223,
+"exact": 271
+},
+{
+"file": "solutions/r7-haiku-python/topo.py",
+"est": 249,
+"exact": 329
+},
+{
+"file": "solutions/r7-haiku-python/wrap.py",
+"est": 235,
+"exact": 298
+},
+{
+"file": "solutions/r7-haiku-rust/bigadd.rs",
+"est": 529,
+"exact": 583
+},
+{
+"file": "solutions/r7-haiku-rust/calc.rs",
+"est": 1080,
+"exact": 1329
+},
+{
+"file": "solutions/r7-haiku-rust/date_diff.rs",
+"est": 491,
+"exact": 596
+},
+{
+"file": "solutions/r7-haiku-rust/dijkstra.rs",
+"est": 1268,
+"exact": 1494
+},
+{
+"file": "solutions/r7-haiku-rust/intervals.rs",
+"est": 422,
+"exact": 477
+},
+{
+"file": "solutions/r7-haiku-rust/inventory.rs",
+"est": 1034,
+"exact": 1208
+},
+{
+"file": "solutions/r7-haiku-rust/json_sum.rs",
+"est": 1402,
+"exact": 1629
+},
+{
+"file": "solutions/r7-haiku-rust/lru.rs",
+"est": 650,
+"exact": 763
+},
+{
+"file": "solutions/r7-haiku-rust/topo.rs",
+"est": 697,
+"exact": 845
+},
+{
+"file": "solutions/r7-haiku-rust/wrap.rs",
+"est": 642,
+"exact": 773
+},
+{
+"file": "solutions/r7-sonnet-axon/bigadd.ax",
+"est": 65,
+"exact": 67
+},
+{
+"file": "solutions/r7-sonnet-axon/calc.ax",
+"est": 463,
+"exact": 554
+},
+{
+"file": "solutions/r7-sonnet-axon/date_diff.ax",
+"est": 67,
+"exact": 72
+},
+{
+"file": "solutions/r7-sonnet-axon/dijkstra.ax",
+"est": 420,
+"exact": 474
+},
+{
+"file": "solutions/r7-sonnet-axon/intervals.ax",
+"est": 198,
+"exact": 240
+},
+{
+"file": "solutions/r7-sonnet-axon/inventory.ax",
+"est": 236,
+"exact": 263
+},
+{
+"file": "solutions/r7-sonnet-axon/json_sum.ax",
+"est": 164,
+"exact": 189
+},
+{
+"file": "solutions/r7-sonnet-axon/lru.ax",
+"est": 247,
+"exact": 291
+},
+{
+"file": "solutions/r7-sonnet-axon/topo.ax",
+"est": 296,
+"exact": 355
+},
+{
+"file": "solutions/r7-sonnet-axon/wrap.ax",
+"est": 234,
+"exact": 273
+},
+{
+"file": "solutions/r7-sonnet-python/bigadd.py",
+"est": 45,
+"exact": 49
+},
+{
+"file": "solutions/r7-sonnet-python/calc.py",
+"est": 381,
+"exact": 446
+},
+{
+"file": "solutions/r7-sonnet-python/date_diff.py",
+"est": 77,
+"exact": 85
+},
+{
+"file": "solutions/r7-sonnet-python/dijkstra.py",
+"est": 293,
+"exact": 308
+},
+{
+"file": "solutions/r7-sonnet-python/intervals.py",
+"est": 130,
+"exact": 137
+},
+{
+"file": "solutions/r7-sonnet-python/inventory.py",
+"est": 150,
+"exact": 167
+},
+{
+"file": "solutions/r7-sonnet-python/json_sum.py",
+"est": 134,
+"exact": 155
+},
+{
+"file": "solutions/r7-sonnet-python/lru.py",
+"est": 180,
+"exact": 201
+},
+{
+"file": "solutions/r7-sonnet-python/topo.py",
+"est": 222,
+"exact": 264
+},
+{
+"file": "solutions/r7-sonnet-python/wrap.py",
+"est": 189,
+"exact": 206
+},
+{
+"file": "solutions/r7-sonnet-rust/bigadd.rs",
+"est": 340,
+"exact": 328
+},
+{
+"file": "solutions/r7-sonnet-rust/calc.rs",
+"est": 746,
+"exact": 759
+},
+{
+"file": "solutions/r7-sonnet-rust/date_diff.rs",
+"est": 278,
+"exact": 288
+},
+{
+"file": "solutions/r7-sonnet-rust/dijkstra.rs",
+"est": 705,
+"exact": 707
+},
+{
+"file": "solutions/r7-sonnet-rust/intervals.rs",
+"est": 275,
+"exact": 271
+},
+{
+"file": "solutions/r7-sonnet-rust/inventory.rs",
+"est": 717,
+"exact": 721
+},
+{
+"file": "solutions/r7-sonnet-rust/json_sum.rs",
+"est": 1013,
+"exact": 992
+},
+{
+"file": "solutions/r7-sonnet-rust/lru.rs",
+"est": 380,
+"exact": 376
+},
+{
+"file": "solutions/r7-sonnet-rust/topo.rs",
+"est": 457,
+"exact": 484
+},
+{
+"file": "solutions/r7-sonnet-rust/wrap.rs",
+"est": 382,
+"exact": 395
+},
+{
+"file": "solutions/r8-haiku-axon/bigadd.ax",
+"est": 59,
+"exact": 61
+},
+{
+"file": "solutions/r8-haiku-axon/calc.ax",
+"est": 532,
+"exact": 644
+},
+{
+"file": "solutions/r8-haiku-axon/date_diff.ax",
+"est": 68,
+"exact": 74
+},
+{
+"file": "solutions/r8-haiku-axon/dijkstra.ax",
+"est": 500,
+"exact": 581
+},
+{
+"file": "solutions/r8-haiku-axon/intervals.ax",
+"est": 213,
+"exact": 239
+},
+{
+"file": "solutions/r8-haiku-axon/inventory.ax",
+"est": 222,
+"exact": 266
+},
+{
+"file": "solutions/r8-haiku-axon/json_sum.ax",
+"est": 201,
+"exact": 238
+},
+{
+"file": "solutions/r8-haiku-axon/lru.ax",
+"est": 254,
+"exact": 300
+},
+{
+"file": "solutions/r8-haiku-axon/topo.ax",
+"est": 310,
+"exact": 383
+},
+{
+"file": "solutions/r8-haiku-axon/wrap.ax",
+"est": 329,
+"exact": 393
+},
+{
+"file": "solutions/r8-sonnet-axon/bigadd.ax",
+"est": 53,
+"exact": 52
+},
+{
+"file": "solutions/r8-sonnet-axon/calc.ax",
+"est": 431,
+"exact": 509
+},
+{
+"file": "solutions/r8-sonnet-axon/date_diff.ax",
+"est": 55,
+"exact": 57
+},
+{
+"file": "solutions/r8-sonnet-axon/dijkstra.ax",
+"est": 417,
+"exact": 469
+},
+{
+"file": "solutions/r8-sonnet-axon/intervals.ax",
+"est": 189,
+"exact": 228
+},
+{
+"file": "solutions/r8-sonnet-axon/inventory.ax",
+"est": 132,
+"exact": 149
+},
+{
+"file": "solutions/r8-sonnet-axon/json_sum.ax",
+"est": 162,
+"exact": 174
+},
+{
+"file": "solutions/r8-sonnet-axon/lru.ax",
+"est": 229,
+"exact": 257
+},
+{
+"file": "solutions/r8-sonnet-axon/topo.ax",
+"est": 275,
+"exact": 325
+},
+{
+"file": "solutions/r8-sonnet-axon/wrap.ax",
+"est": 224,
+"exact": 259
+},
+{
+"file": "solutions/r9-haiku-axon/bigadd.ax",
+"est": 53,
+"exact": 52
+},
+{
+"file": "solutions/r9-haiku-axon/calc.ax",
+"est": 510,
+"exact": 600
+},
+{
+"file": "solutions/r9-haiku-axon/date_diff.ax",
+"est": 66,
+"exact": 70
+},
+{
+"file": "solutions/r9-haiku-axon/dijkstra.ax",
+"est": 489,
+"exact": 563
+},
+{
+"file": "solutions/r9-haiku-axon/intervals.ax",
+"est": 197,
+"exact": 215
+},
+{
+"file": "solutions/r9-haiku-axon/inventory.ax",
+"est": 203,
+"exact": 232
+},
+{
+"file": "solutions/r9-haiku-axon/json_sum.ax",
+"est": 640,
+"exact": 810
+},
+{
+"file": "solutions/r9-haiku-axon/lru.ax",
+"est": 273,
+"exact": 321
+},
+{
+"file": "solutions/r9-haiku-axon/topo.ax",
+"est": 291,
+"exact": 356
+},
+{
+"file": "solutions/r9-haiku-axon/wrap.ax",
+"est": 280,
+"exact": 352
+},
+{
+"file": "solutions/r9-sonnet-axon/bigadd.ax",
+"est": 52,
+"exact": 52
+},
+{
+"file": "solutions/r9-sonnet-axon/calc.ax",
+"est": 452,
+"exact": 546
+},
+{
+"file": "solutions/r9-sonnet-axon/date_diff.ax",
+"est": 54,
+"exact": 57
+},
+{
+"file": "solutions/r9-sonnet-axon/dijkstra.ax",
+"est": 390,
+"exact": 432
+},
+{
+"file": "solutions/r9-sonnet-axon/intervals.ax",
+"est": 183,
+"exact": 225
+},
+{
+"file": "solutions/r9-sonnet-axon/inventory.ax",
+"est": 169,
+"exact": 185
+},
+{
+"file": "solutions/r9-sonnet-axon/json_sum.ax",
+"est": 159,
+"exact": 169
+},
+{
+"file": "solutions/r9-sonnet-axon/lru.ax",
+"est": 227,
+"exact": 269
+},
+{
+"file": "solutions/r9-sonnet-axon/topo.ax",
+"est": 276,
+"exact": 334
+},
+{
+"file": "solutions/r9-sonnet-axon/wrap.ax",
+"est": 252,
+"exact": 303
+},
+{
+"file": "solutions/sonnet-axon/anagrams.ax",
+"est": 169,
+"exact": 180
+},
+{
+"file": "solutions/sonnet-axon/bank.ax",
+"est": 187,
+"exact": 212
+},
+{
+"file": "solutions/sonnet-axon/brackets.ax",
+"est": 218,
+"exact": 223
+},
+{
+"file": "solutions/sonnet-axon/csv_avg.ax",
+"est": 253,
+"exact": 289
+},
+{
+"file": "solutions/sonnet-axon/fizzbuzz.ax",
+"est": 91,
+"exact": 112
+},
+{
+"file": "solutions/sonnet-axon/grades.ax",
+"est": 220,
+"exact": 255
+},
+{
+"file": "solutions/sonnet-axon/grid_path.ax",
+"est": 387,
+"exact": 475
+},
+{
+"file": "solutions/sonnet-axon/reverse_words.ax",
+"est": 39,
+"exact": 39
+},
+{
+"file": "solutions/sonnet-axon/rle.ax",
+"est": 261,
+"exact": 302
+},
+{
+"file": "solutions/sonnet-axon/roman.ax",
+"est": 190,
+"exact": 219
+},
+{
+"file": "solutions/sonnet-axon/sum_numbers.ax",
+"est": 62,
+"exact": 71
+},
+{
+"file": "solutions/sonnet-axon/word_freq.ax",
+"est": 98,
+"exact": 102
+},
+{
+"file": "solutions/sonnet-python/anagrams.py",
+"est": 90,
+"exact": 97
+},
+{
+"file": "solutions/sonnet-python/bank.py",
+"est": 159,
+"exact": 172
+},
+{
+"file": "solutions/sonnet-python/brackets.py",
+"est": 146,
+"exact": 153
+},
+{
+"file": "solutions/sonnet-python/csv_avg.py",
+"est": 86,
+"exact": 96
+},
+{
+"file": "solutions/sonnet-python/fizzbuzz.py",
+"est": 58,
+"exact": 68
+},
+{
+"file": "solutions/sonnet-python/grades.py",
+"est": 149,
+"exact": 158
+},
+{
+"file": "solutions/sonnet-python/grid_path.py",
+"est": 287,
+"exact": 301
+},
+{
+"file": "solutions/sonnet-python/reverse_words.py",
+"est": 27,
+"exact": 32
+},
+{
+"file": "solutions/sonnet-python/rle.py",
+"est": 173,
+"exact": 184
+},
+{
+"file": "solutions/sonnet-python/roman.py",
+"est": 167,
+"exact": 171
+},
+{
+"file": "solutions/sonnet-python/sum_numbers.py",
+"est": 24,
+"exact": 29
+},
+{
+"file": "solutions/sonnet-python/word_freq.py",
+"est": 69,
+"exact": 78
+},
+{
+"file": "solutions/sonnet-rust/anagrams.rs",
+"est": 214,
+"exact": 228
+},
+{
+"file": "solutions/sonnet-rust/bank.rs",
+"est": 310,
+"exact": 318
+},
+{
+"file": "solutions/sonnet-rust/brackets.rs",
+"est": 214,
+"exact": 204
+},
+{
+"file": "solutions/sonnet-rust/csv_avg.rs",
+"est": 244,
+"exact": 242
+},
+{
+"file": "solutions/sonnet-rust/fizzbuzz.rs",
+"est": 141,
+"exact": 140
+},
+{
+"file": "solutions/sonnet-rust/grades.rs",
+"est": 345,
+"exact": 338
+},
+{
+"file": "solutions/sonnet-rust/grid_path.rs",
+"est": 558,
+"exact": 553
+},
+{
+"file": "solutions/sonnet-rust/reverse_words.rs",
+"est": 97,
+"exact": 92
+},
+{
+"file": "solutions/sonnet-rust/rle.rs",
+"est": 336,
+"exact": 330
+},
+{
+"file": "solutions/sonnet-rust/roman.rs",
+"est": 240,
+"exact": 227
+},
+{
+"file": "solutions/sonnet-rust/sum_numbers.rs",
+"est": 100,
+"exact": 90
+},
+{
+"file": "solutions/sonnet-rust/word_freq.rs",
+"est": 204,
+"exact": 212
+},
+{
+"file": "solutions/v4-haiku-axon/anagrams.ax",
+"est": 170,
+"exact": 179
+},
+{
+"file": "solutions/v4-haiku-axon/bigadd.ax",
+"est": 51,
+"exact": 49
+},
+{
+"file": "solutions/v4-haiku-axon/brackets.ax",
+"est": 202,
+"exact": 210
+},
+{
+"file": "solutions/v4-haiku-axon/calc.ax",
+"est": 556,
+"exact": 666
+},
+{
+"file": "solutions/v4-haiku-axon/date_diff.ax",
+"est": 61,
+"exact": 64
+},
+{
+"file": "solutions/v4-haiku-axon/dijkstra.ax",
+"est": 451,
+"exact": 500
+},
+{
+"file": "solutions/v4-haiku-axon/intervals.ax",
+"est": 199,
+"exact": 216
+},
+{
+"file": "solutions/v4-haiku-axon/inventory.ax",
+"est": 180,
+"exact": 208
+},
+{
+"file": "solutions/v4-haiku-axon/json_sum.ax",
+"est": 152,
+"exact": 157
+},
+{
+"file": "solutions/v4-haiku-axon/knight.ax",
+"est": 388,
+"exact": 459
+},
+{
+"file": "solutions/v4-haiku-axon/ledger.ax",
+"est": 309,
+"exact": 371
+},
+{
+"file": "solutions/v4-haiku-axon/log_stats.ax",
+"est": 262,
+"exact": 290
+},
+{
+"file": "solutions/v4-haiku-axon/lru.ax",
+"est": 237,
+"exact": 268
+},
+{
+"file": "solutions/v4-haiku-axon/roman_calc.ax",
+"est": 469,
+"exact": 538
+},
+{
+"file": "solutions/v4-haiku-axon/schedule.ax",
+"est": 437,
+"exact": 514
+},
+{
+"file": "solutions/v4-haiku-axon/spiral.ax",
+"est": 318,
+"exact": 363
+},
+{
+"file": "solutions/v4-haiku-axon/topo.ax",
+"est": 294,
+"exact": 340
+},
+{
+"file": "solutions/v4-haiku-axon/wrap.ax",
+"est": 296,
+"exact": 344
+},
+{
+"file": "solutions/v4-sonnet-axon/anagrams.ax",
+"est": 139,
+"exact": 134
+},
+{
+"file": "solutions/v4-sonnet-axon/bigadd.ax",
+"est": 47,
+"exact": 42
+},
+{
+"file": "solutions/v4-sonnet-axon/brackets.ax",
+"est": 203,
+"exact": 220
+},
+{
+"file": "solutions/v4-sonnet-axon/calc.ax",
+"est": 407,
+"exact": 464
+},
+{
+"file": "solutions/v4-sonnet-axon/date_diff.ax",
+"est": 52,
+"exact": 50
+},
+{
+"file": "solutions/v4-sonnet-axon/dijkstra.ax",
+"est": 382,
+"exact": 417
+},
+{
+"file": "solutions/v4-sonnet-axon/intervals.ax",
+"est": 181,
+"exact": 207
+},
+{
+"file": "solutions/v4-sonnet-axon/inventory.ax",
+"est": 122,
+"exact": 132
+},
+{
+"file": "solutions/v4-sonnet-axon/json_sum.ax",
+"est": 160,
+"exact": 167
+},
+{
+"file": "solutions/v4-sonnet-axon/knight.ax",
+"est": 339,
+"exact": 400
+},
+{
+"file": "solutions/v4-sonnet-axon/ledger.ax",
+"est": 274,
+"exact": 310
+},
+{
+"file": "solutions/v4-sonnet-axon/log_stats.ax",
+"est": 210,
+"exact": 232
+},
+{
+"file": "solutions/v4-sonnet-axon/lru.ax",
+"est": 215,
+"exact": 248
+},
+{
+"file": "solutions/v4-sonnet-axon/roman_calc.ax",
+"est": 424,
+"exact": 485
+},
+{
+"file": "solutions/v4-sonnet-axon/schedule.ax",
+"est": 378,
+"exact": 421
+},
+{
+"file": "solutions/v4-sonnet-axon/spiral.ax",
+"est": 279,
+"exact": 306
+},
+{
+"file": "solutions/v4-sonnet-axon/topo.ax",
+"est": 257,
+"exact": 293
+},
+{
+"file": "solutions/v4-sonnet-axon/wrap.ax",
+"est": 238,
+"exact": 275
+},
+{
+"file": "solutions/v5-haiku-axon/anagrams.ax",
+"est": 197,
+"exact": 214
+},
+{
+"file": "solutions/v5-haiku-axon/bigadd.ax",
+"est": 59,
+"exact": 58
+},
+{
+"file": "solutions/v5-haiku-axon/brackets.ax",
+"est": 241,
+"exact": 245
+},
+{
+"file": "solutions/v5-haiku-axon/calc.ax",
+"est": 509,
+"exact": 590
+},
+{
+"file": "solutions/v5-haiku-axon/date_diff.ax",
+"est": 61,
+"exact": 63
+},
+{
+"file": "solutions/v5-haiku-axon/dijkstra.ax",
+"est": 464,
+"exact": 526
+},
+{
+"file": "solutions/v5-haiku-axon/intervals.ax",
+"est": 217,
+"exact": 231
+},
+{
+"file": "solutions/v5-haiku-axon/inventory.ax",
+"est": 178,
+"exact": 202
+},
+{
+"file": "solutions/v5-haiku-axon/json_sum.ax",
+"est": 181,
+"exact": 197
+},
+{
+"file": "solutions/v5-haiku-axon/knight.ax",
+"est": 401,
+"exact": 469
+},
+{
+"file": "solutions/v5-haiku-axon/ledger.ax",
+"est": 343,
+"exact": 399
+},
+{
+"file": "solutions/v5-haiku-axon/log_stats.ax",
+"est": 316,
+"exact": 366
+},
+{
+"file": "solutions/v5-haiku-axon/lru.ax",
+"est": 230,
+"exact": 287
+},
+{
+"file": "solutions/v5-haiku-axon/roman_calc.ax",
+"est": 439,
+"exact": 505
+},
+{
+"file": "solutions/v5-haiku-axon/schedule.ax",
+"est": 437,
+"exact": 515
+},
+{
+"file": "solutions/v5-haiku-axon/spiral.ax",
+"est": 339,
+"exact": 384
+},
+{
+"file": "solutions/v5-haiku-axon/topo.ax",
+"est": 298,
+"exact": 340
+},
+{
+"file": "solutions/v5-haiku-axon/wrap.ax",
+"est": 220,
+"exact": 248
+},
+{
+"file": "solutions/v5-sonnet-axon/anagrams.ax",
+"est": 143,
+"exact": 139
+},
+{
+"file": "solutions/v5-sonnet-axon/bigadd.ax",
+"est": 50,
+"exact": 47
+},
+{
+"file": "solutions/v5-sonnet-axon/brackets.ax",
+"est": 218,
+"exact": 234
+},
+{
+"file": "solutions/v5-sonnet-axon/calc.ax",
+"est": 413,
+"exact": 483
+},
+{
+"file": "solutions/v5-sonnet-axon/date_diff.ax",
+"est": 55,
+"exact": 52
+},
+{
+"file": "solutions/v5-sonnet-axon/dijkstra.ax",
+"est": 301,
+"exact": 313
+},
+{
+"file": "solutions/v5-sonnet-axon/intervals.ax",
+"est": 192,
+"exact": 198
+},
+{
+"file": "solutions/v5-sonnet-axon/inventory.ax",
+"est": 127,
+"exact": 138
+},
+{
+"file": "solutions/v5-sonnet-axon/json_sum.ax",
+"est": 158,
+"exact": 170
+},
+{
+"file": "solutions/v5-sonnet-axon/knight.ax",
+"est": 342,
+"exact": 425
+},
+{
+"file": "solutions/v5-sonnet-axon/ledger.ax",
+"est": 279,
+"exact": 316
+},
+{
+"file": "solutions/v5-sonnet-axon/log_stats.ax",
+"est": 210,
+"exact": 231
+},
+{
+"file": "solutions/v5-sonnet-axon/lru.ax",
+"est": 215,
+"exact": 249
+},
+{
+"file": "solutions/v5-sonnet-axon/roman_calc.ax",
+"est": 436,
+"exact": 490
+},
+{
+"file": "solutions/v5-sonnet-axon/schedule.ax",
+"est": 346,
+"exact": 380
+},
+{
+"file": "solutions/v5-sonnet-axon/spiral.ax",
+"est": 295,
+"exact": 332
+},
+{
+"file": "solutions/v5-sonnet-axon/topo.ax",
+"est": 258,
+"exact": 290
+},
+{
+"file": "solutions/v5-sonnet-axon/wrap.ax",
+"est": 236,
+"exact": 272
+},
+{
+"file": "solutions/v6-haiku-axon/anagrams.ax",
+"est": 164,
+"exact": 178
+},
+{
+"file": "solutions/v6-haiku-axon/bigadd.ax",
+"est": 55,
+"exact": 51
+},
+{
+"file": "solutions/v6-haiku-axon/brackets.ax",
+"est": 225,
+"exact": 235
+},
+{
+"file": "solutions/v6-haiku-axon/calc.ax",
+"est": 522,
+"exact": 608
+},
+{
+"file": "solutions/v6-haiku-axon/date_diff.ax",
+"est": 65,
+"exact": 66
+},
+{
+"file": "solutions/v6-haiku-axon/dijkstra.ax",
+"est": 401,
+"exact": 448
+},
+{
+"file": "solutions/v6-haiku-axon/intervals.ax",
+"est": 193,
+"exact": 226
+},
+{
+"file": "solutions/v6-haiku-axon/inventory.ax",
+"est": 156,
+"exact": 177
+},
+{
+"file": "solutions/v6-haiku-axon/json_sum.ax",
+"est": 160,
+"exact": 183
+},
+{
+"file": "solutions/v6-haiku-axon/knight.ax",
+"est": 389,
+"exact": 463
+},
+{
+"file": "solutions/v6-haiku-axon/ledger.ax",
+"est": 265,
+"exact": 326
+},
+{
+"file": "solutions/v6-haiku-axon/log_stats.ax",
+"est": 248,
+"exact": 275
+},
+{
+"file": "solutions/v6-haiku-axon/lru.ax",
+"est": 215,
+"exact": 247
+},
+{
+"file": "solutions/v6-haiku-axon/roman_calc.ax",
+"est": 428,
+"exact": 488
+},
+{
+"file": "solutions/v6-haiku-axon/schedule.ax",
+"est": 453,
+"exact": 518
+},
+{
+"file": "solutions/v6-haiku-axon/spiral.ax",
+"est": 324,
+"exact": 369
+},
+{
+"file": "solutions/v6-haiku-axon/topo.ax",
+"est": 246,
+"exact": 283
+},
+{
+"file": "solutions/v6-haiku-axon/wrap.ax",
+"est": 243,
+"exact": 288
+},
+{
+"file": "solutions/v6-sonnet-axon/anagrams.ax",
+"est": 132,
+"exact": 128
+},
+{
+"file": "solutions/v6-sonnet-axon/bigadd.ax",
+"est": 50,
+"exact": 47
+},
+{
+"file": "solutions/v6-sonnet-axon/brackets.ax",
+"est": 213,
+"exact": 219
+},
+{
+"file": "solutions/v6-sonnet-axon/calc.ax",
+"est": 388,
+"exact": 431
+},
+{
+"file": "solutions/v6-sonnet-axon/date_diff.ax",
+"est": 52,
+"exact": 52
+},
+{
+"file": "solutions/v6-sonnet-axon/dijkstra.ax",
+"est": 362,
+"exact": 397
+},
+{
+"file": "solutions/v6-sonnet-axon/intervals.ax",
+"est": 173,
+"exact": 199
+},
+{
+"file": "solutions/v6-sonnet-axon/inventory.ax",
+"est": 114,
+"exact": 126
+},
+{
+"file": "solutions/v6-sonnet-axon/json_sum.ax",
+"est": 155,
+"exact": 162
+},
+{
+"file": "solutions/v6-sonnet-axon/knight.ax",
+"est": 338,
+"exact": 401
+},
+{
+"file": "solutions/v6-sonnet-axon/ledger.ax",
+"est": 255,
+"exact": 301
+},
+{
+"file": "solutions/v6-sonnet-axon/log_stats.ax",
+"est": 197,
+"exact": 215
+},
+{
+"file": "solutions/v6-sonnet-axon/lru.ax",
+"est": 219,
+"exact": 275
+},
+{
+"file": "solutions/v6-sonnet-axon/roman_calc.ax",
+"est": 430,
+"exact": 497
+},
+{
+"file": "solutions/v6-sonnet-axon/schedule.ax",
+"est": 352,
+"exact": 401
+},
+{
+"file": "solutions/v6-sonnet-axon/spiral.ax",
+"est": 285,
+"exact": 317
+},
+{
+"file": "solutions/v6-sonnet-axon/topo.ax",
+"est": 239,
+"exact": 275
+},
+{
+"file": "solutions/v6-sonnet-axon/wrap.ax",
+"est": 195,
+"exact": 223
+},
+{
+"file": "solutions/v7-haiku-axon/anagrams.ax",
+"est": 157,
+"exact": 176
+},
+{
+"file": "solutions/v7-haiku-axon/bigadd.ax",
+"est": 48,
+"exact": 46
+},
+{
+"file": "solutions/v7-haiku-axon/brackets.ax",
+"est": 222,
+"exact": 236
+},
+{
+"file": "solutions/v7-haiku-axon/calc.ax",
+"est": 536,
+"exact": 610
+},
+{
+"file": "solutions/v7-haiku-axon/date_diff.ax",
+"est": 61,
+"exact": 64
+},
+{
+"file": "solutions/v7-haiku-axon/dijkstra.ax",
+"est": 371,
+"exact": 414
+},
+{
+"file": "solutions/v7-haiku-axon/intervals.ax",
+"est": 207,
+"exact": 235
+},
+{
+"file": "solutions/v7-haiku-axon/inventory.ax",
+"est": 140,
+"exact": 151
+},
+{
+"file": "solutions/v7-haiku-axon/json_sum.ax",
+"est": 178,
+"exact": 210
+},
+{
+"file": "solutions/v7-haiku-axon/knight.ax",
+"est": 392,
+"exact": 447
+},
+{
+"file": "solutions/v7-haiku-axon/ledger.ax",
+"est": 261,
+"exact": 299
+},
+{
+"file": "solutions/v7-haiku-axon/log_stats.ax",
+"est": 223,
+"exact": 244
+},
+{
+"file": "solutions/v7-haiku-axon/lru.ax",
+"est": 214,
+"exact": 248
+},
+{
+"file": "solutions/v7-haiku-axon/roman_calc.ax",
+"est": 422,
+"exact": 478
+},
+{
+"file": "solutions/v7-haiku-axon/schedule.ax",
+"est": 352,
+"exact": 425
+},
+{
+"file": "solutions/v7-haiku-axon/spiral.ax",
+"est": 325,
+"exact": 377
+},
+{
+"file": "solutions/v7-haiku-axon/topo.ax",
+"est": 231,
+"exact": 273
+},
+{
+"file": "solutions/v7-haiku-axon/wrap.ax",
+"est": 234,
+"exact": 274
+},
+{
+"file": "solutions/v7-sonnet-axon/anagrams.ax",
+"est": 140,
+"exact": 136
+},
+{
+"file": "solutions/v7-sonnet-axon/bigadd.ax",
+"est": 50,
+"exact": 47
+},
+{
+"file": "solutions/v7-sonnet-axon/brackets.ax",
+"est": 198,
+"exact": 198
+},
+{
+"file": "solutions/v7-sonnet-axon/calc.ax",
+"est": 453,
+"exact": 517
+},
+{
+"file": "solutions/v7-sonnet-axon/date_diff.ax",
+"est": 55,
+"exact": 52
+},
+{
+"file": "solutions/v7-sonnet-axon/dijkstra.ax",
+"est": 362,
+"exact": 384
+},
+{
+"file": "solutions/v7-sonnet-axon/intervals.ax",
+"est": 193,
+"exact": 208
+},
+{
+"file": "solutions/v7-sonnet-axon/inventory.ax",
+"est": 120,
+"exact": 133
+},
+{
+"file": "solutions/v7-sonnet-axon/json_sum.ax",
+"est": 155,
+"exact": 162
+},
+{
+"file": "solutions/v7-sonnet-axon/knight.ax",
+"est": 337,
+"exact": 410
+},
+{
+"file": "solutions/v7-sonnet-axon/ledger.ax",
+"est": 267,
+"exact": 306
+},
+{
+"file": "solutions/v7-sonnet-axon/log_stats.ax",
+"est": 210,
+"exact": 229
+},
+{
+"file": "solutions/v7-sonnet-axon/lru.ax",
+"est": 219,
+"exact": 251
+},
+{
+"file": "solutions/v7-sonnet-axon/roman_calc.ax",
+"est": 427,
+"exact": 491
+},
+{
+"file": "solutions/v7-sonnet-axon/schedule.ax",
+"est": 373,
+"exact": 424
+},
+{
+"file": "solutions/v7-sonnet-axon/spiral.ax",
+"est": 306,
+"exact": 335
+},
+{
+"file": "solutions/v7-sonnet-axon/topo.ax",
+"est": 256,
+"exact": 296
+},
+{
+"file": "solutions/v7-sonnet-axon/wrap.ax",
+"est": 203,
+"exact": 235
+}
+]

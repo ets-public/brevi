@@ -1,0 +1,16 @@
+fn main():
+  rows = csv(stdin())
+  totals = {}
+  for r in rows.skip(1):
+    if r.len() < 3:
+      continue
+    item = r[0].trim()
+    qty = r[1].trim().int()
+    price = r[2].trim().dec()
+    totals[item] = totals.get_or(item, 0.dec()) + price * qty
+  pairs = []
+  for item, v in totals.pairs():
+    pairs.push((v, item))
+  pairs = pairs.sort_by(p => (-p.0, p.1))
+  for p in pairs:
+    print("{p.1}: {p.0.fmt(2)}")

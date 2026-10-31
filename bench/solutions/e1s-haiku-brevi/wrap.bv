@@ -1,0 +1,31 @@
+lines_in = lines()
+w = lines_in[0].trim().int().or(80)
+paras = []
+cur = []
+for line in lines_in.skip(1):
+  if line.trim().is_empty():
+    if not cur.is_empty():
+      paras.push(cur)
+      cur = []
+  else:
+    cur = cur + line.words()
+if not cur.is_empty():
+  paras.push(cur)
+
+outs = []
+for ws in paras:
+  rows = []
+  line = ""
+  for word in ws:
+    if line.is_empty():
+      line = word
+    elif line.len() + 1 + word.len() <= w:
+      line = line + " " + word
+    else:
+      rows.push(line)
+      line = word
+  rows.push(line)
+  outs.push(rows.join("\n"))
+
+if outs.len() > 0:
+  print(outs.join("\n\n"))

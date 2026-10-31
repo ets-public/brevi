@@ -1,0 +1,18 @@
+fn main():
+  seen: {str: int} = {}
+  groups: {str: [str]} = {}
+  for w in stdin().words():
+    lw = w.lower()
+    if seen.has(lw):
+      continue
+    seen[lw] = 1
+    key = lw.chars().sort().join("")
+    groups[key].push(lw)
+  out = []
+  for k, ws in groups.pairs():
+    if ws.len() >= 2:
+      s = ws.sort()
+      out.push((-s.len(), s.first(), s.join(" ")))
+  out = out.sort()
+  for o in out:
+    print(o.2)

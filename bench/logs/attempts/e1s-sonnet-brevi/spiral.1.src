@@ -1,0 +1,27 @@
+a = stdin().ints()
+r = a[0]
+c = a[1]
+g = a.skip(2)
+res = []
+top = 0
+bot = r - 1
+lf = 0
+rt = c - 1
+while top <= bot and lf <= rt:
+  for j in lf..rt + 1: res.push(g[top * c + j])
+  top += 1
+  for i in top..bot + 1: res.push(g[i * c + rt])
+  rt -= 1
+  if top <= bot:
+    for j in (lf..rt + 1).rev(): res.push(g[bot * c + j])
+    bot -= 1
+  if lf <= rt:
+    for i in (top..bot + 1).rev(): res.push(g[i * c + lf])
+    lf += 1
+print(res.join(" "))
+cs = []
+for j in 0..c:
+  s = 0
+  for i in 0..r: s += g[i * c + j]
+  cs.push(s)
+print(cs.join(" "))

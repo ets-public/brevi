@@ -1,0 +1,129 @@
+fn err(msg: str) -> str = "\{\"error\":\"" + msg + "\"\}"
+
+fn acct(i: int, owner: str, bal: int) -> str = str({"id": i, "owner": owner, "balance": bal})
+
+fn int_of(v: Json) -> int:
+  match v:
+    Num(n) => if n == n.floor(): n.int() else: -1
+    _ => -1
+
+fn owner_of(j: Json) -> str:
+  match j["owner"]:
+    Str(s) => s
+    _ => ""
+
+fn is_json(body: str) -> bool:
+  match json(body):
+    Ok(_) => true
+    Err(_) => false
+
+fn main():
+  owners: [str] = []
+  bals: [int] = []
+  for line in lines():
+    sp = line.find(" ")
+    method = line
+    rest = ""
+    if sp >= 0:
+      method = line.slice(0, sp)
+      rest = line.slice(sp + 1)
+    path = rest
+    body = ""
+    sp2 = rest.find(" ")
+    if sp2 >= 0:
+      path = rest.slice(0, sp2)
+      body = rest.slice(sp2 + 1)
+    seg = path.split("/")
+    aid = -1
+    if seg.len() >= 3 and seg[1] == "accounts":
+      aid = seg[2].int().or(-1)
+    kind = ""
+    if method == "GET" and path == "/accounts":
+      kind = "list"
+    elif method == "POST" and path == "/accounts":
+      kind = "create"
+    elif method == "POST" and path == "/transfer":
+      kind = "transfer"
+    elif method == "GET" and seg.len() == 3 and seg[1] == "accounts" and aid >= 0:
+      kind = "show"
+    elif method == "POST" and seg.len() == 4 and seg[1] == "accounts" and aid >= 0 and seg[3] == "deposit":
+      kind = "deposit"
+    elif method == "POST" and seg.len() == 4 and seg[1] == "accounts" and aid >= 0 and seg[3] == "withdraw":
+      kind = "withdraw"
+    code = 404
+    out = err("not found")
+    if kind == "list":
+      pairs = []
+      for i in 0..owners.len():
+        pairs.push((-bals[i], i + 1))
+      pairs = sorted(pairs)
+      items = []
+      for p in pairs:
+        items.push(acct(p.1, owners[p.1 - 1], bals[p.1 - 1]))
+      code = 200
+      out = "[" + items.join(",") + "]"
+    elif kind == "show":
+      if aid < 1 or aid > owners.len():
+        code = 404
+        out = err("no such account")
+      else:
+        code = 200
+        out = acct(aid, owners[aid - 1], bals[aid - 1])
+    elif kind != "":
+      if not is_json(body):
+        code = 400
+        out = err("bad json")
+      else:
+        j = json(body)
+        if kind == "create":
+          name = owner_of(j)
+          if name == "":
+            code = 400
+            out = err("owner required")
+          else:
+            owners.push(name)
+            bals.push(0)
+            code = 201
+            out = acct(owners.len(), name, 0)
+        elif kind == "transfer":
+          src = int_of(j["from"])
+          dst = int_of(j["to"])
+          amt = int_of(j["amount"])
+          if src < 1 or src > owners.len() or dst < 1 or dst > owners.len():
+            code = 404
+            out = err("no such account")
+          elif src == dst:
+            code = 400
+            out = err("same account")
+          elif amt <= 0:
+            code = 400
+            out = err("bad amount")
+          elif bals[src - 1] < amt:
+            code = 409
+            out = err("insufficient funds")
+          else:
+            bals[src - 1] -= amt
+            bals[dst - 1] += amt
+            code = 200
+            out = "\{\"from\":" + str(bals[src - 1]) + ",\"to\":" + str(bals[dst - 1]) + "\}"
+        else:
+          if aid < 1 or aid > owners.len():
+            code = 404
+            out = err("no such account")
+          else:
+            amt = int_of(j["amount"])
+            if amt <= 0:
+              code = 400
+              out = err("bad amount")
+            elif kind == "deposit":
+              bals[aid - 1] += amt
+              code = 200
+              out = acct(aid, owners[aid - 1], bals[aid - 1])
+            elif bals[aid - 1] < amt:
+              code = 409
+              out = err("insufficient funds")
+            else:
+              bals[aid - 1] -= amt
+              code = 200
+              out = acct(aid, owners[aid - 1], bals[aid - 1])
+    print(str(code) + " " + out)

@@ -1,0 +1,69 @@
+fn tokenize(s: str) -> [str]:
+  out = []
+  num = ""
+  for c in s.chars():
+    if c.is_digit():
+      num += c
+    else:
+      if num != "":
+        out.push(num)
+        num = ""
+      if c != " " and c != "\t":
+        out.push(c)
+  if num != "":
+    out.push(num)
+  return out
+
+fn parse_atom(t: [str], p: int) -> (int, int):
+  if t[p] == "(":
+    v, q = parse_expr(t, p + 1)
+    return (v, q + 1)
+  return (t[p].int(), p + 1)
+
+fn parse_unary(t: [str], p: int) -> (int, int):
+  if t[p] == "-":
+    v, q = parse_unary(t, p + 1)
+    return (-v, q)
+  return parse_atom(t, p)
+
+fn parse_term(t: [str], p: int) -> (int, int):
+  v, q = parse_unary(t, p)
+  while q < t.len() and (t[q] == "*" or t[q] == "/"):
+    op = t[q]
+    r, q2 = parse_unary(t, q + 1)
+    if op == "*":
+      v = v * r
+    else:
+      if r == 0:
+        fail("division by zero")
+      v = v / r
+    q = q2
+  return (v, q)
+
+fn parse_expr(t: [str], p: int) -> (int, int):
+  v, q = parse_term(t, p)
+  while q < t.len() and (t[q] == "+" or t[q] == "-"):
+    op = t[q]
+    r, q2 = parse_term(t, q + 1)
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+    q = q2
+  return (v, q)
+
+fn evaluate(s: str) -> int:
+  t = tokenize(s)
+  v, q = parse_expr(t, 0)
+  return v
+
+fn calc_line(s: str) -> str:
+  match evaluate(s):
+    Ok(v) => str(v)
+    Err(m) => "error"
+
+fn main():
+  for line in lines():
+    if line.trim().is_empty():
+      continue
+    print(calc_line(line))

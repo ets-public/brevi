@@ -1,0 +1,29 @@
+test 0 failed
+input:
+R1 A 08:00 B 08:30 C 09:00
+R2 B 08:40 D 09:10
+R3 A 08:10 D 09:30
+R4 C 09:04 D 09:05
+R5 C 09:05 D 09:08
+---
+A D 07:00
+A C 08:00
+B D 08:31
+D A 08:00
+C C 12:00
+A D 08:05
+expected:
+A D 09:08 via R1>R5
+A C 09:00 via R1
+B D 09:10 via R2
+D A unreachable
+C C 12:00 via -
+A D 09:30 via R3
+got:
+A D 09:10 via R1>R2
+A C 09:00 via R1
+B D 09:10 via R2
+D A unreachable
+C C 12:00 via -
+A D 09:30 via R3
+passed 1/2

@@ -1,0 +1,108 @@
+lc: [int] = []
+lr: [[str]] = []
+
+fn tmin(t: str) -> int:
+  p = t.split(":")
+  return p[0].int() * 60 + p[1].int()
+
+fn hhmm(m: int) -> str:
+  h = m // 60
+  mi = m % 60
+  hs = h.str()
+  ms = mi.str()
+  if h < 10:
+    hs = "0" + hs
+  if mi < 10:
+    ms = "0" + ms
+  return hs + ":" + ms
+
+fn offer(node: int, c: int, r: [str]) -> bool:
+  if lc[node] < 0 or c < lc[node] or (c == lc[node] and r < lr[node]):
+    lc[node] = c
+    lr[node] = r
+    return true
+  return false
+
+ls = lines()
+sep = ls.index_of("---")
+if sep < 0:
+  sep = ls.len()
+ntrain = []
+nst = []
+ntime = []
+nnext = []
+for i in 0..sep:
+  w = ls[i].words()
+  if w.len() < 3:
+    continue
+  name = w[0]
+  base = ntrain.len()
+  stops = (w.len() - 1) // 2
+  for j in 0..stops:
+    ntrain.push(name)
+    nst.push(w[1 + 2 * j])
+    ntime.push(tmin(w[2 + 2 * j]))
+    if j + 1 < stops:
+      nnext.push(base + j + 1)
+    else:
+      nnext.push(-1)
+
+N = ntrain.len()
+out = []
+for qi in sep + 1..ls.len():
+  qw = ls[qi].words()
+  if qw.len() < 3:
+    continue
+  fromst = qw[0]
+  tost = qw[1]
+  qt = tmin(qw[2])
+  if fromst == tost:
+    out.push(fromst + " " + tost + " " + hhmm(qt) + " via -")
+    continue
+  lc = []
+  lr = []
+  for n in 0..N:
+    lc.push(-1)
+    lr.push([])
+  for n in 0..N:
+    if nst[n] == fromst and ntime[n] >= qt:
+      offer(n, 1, [ntrain[n]])
+  changed = true
+  while changed:
+    changed = false
+    for n in 0..N:
+      if lc[n] >= 0:
+        if nnext[n] >= 0:
+          if offer(nnext[n], lc[n], lr[n]):
+            changed = true
+        for m in 0..N:
+          if ntrain[m] != ntrain[n] and nst[m] == nst[n] and ntime[m] >= ntime[n] + 5:
+            if offer(m, lc[n] + 1, lr[n] + [ntrain[m]]):
+              changed = true
+  found = false
+  bt = 0
+  bc = 0
+  br = []
+  for n in 0..N:
+    if lc[n] >= 0 and nst[n] == tost:
+      better = false
+      if not found:
+        better = true
+      elif ntime[n] < bt:
+        better = true
+      elif ntime[n] == bt:
+        if lc[n] < bc:
+          better = true
+        elif lc[n] == bc and lr[n] < br:
+          better = true
+      if better:
+        found = true
+        bt = ntime[n]
+        bc = lc[n]
+        br = lr[n]
+  if found:
+    out.push(fromst + " " + tost + " " + hhmm(bt) + " via " + br.join(">"))
+  else:
+    out.push(fromst + " " + tost + " unreachable")
+for o in out:
+  print(o)

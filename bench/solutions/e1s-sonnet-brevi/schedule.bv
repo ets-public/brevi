@@ -1,0 +1,36 @@
+dur = {}
+deps = {}
+names = []
+for l in lines():
+  w = l.words()
+  if w.len() < 2: continue
+  names.push(w[0])
+  dur[w[0]] = w[1].int()
+  deps[w[0]] = if w.len() > 3: w.skip(3) else: []
+ok = true
+for n in names:
+  for d in deps[n]:
+    if not dur.has(d): ok = false
+st = {}
+en = {}
+progress = true
+while ok and progress:
+  progress = false
+  for n in names:
+    if en.has(n): continue
+    if all(en.has(d) for d in deps[n]):
+      s = 0
+      for d in deps[n]:
+        if en[d] > s: s = en[d]
+      st[n] = s
+      en[n] = s + dur[n]
+      progress = true
+if not ok or en.len() < dur.len(): print("invalid")
+else:
+  order = dur.keys().map(n => (st[n], n)).sort()
+  tot = 0
+  for p in order:
+    e = en[p.1]
+    print("{p.1} {p.0} {e}")
+    if e > tot: tot = e
+  print("total {tot}")

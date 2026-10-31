@@ -1,0 +1,33 @@
+rows = csv(stdin())
+months = {}
+bal = {}
+for r in rows:
+  if r.len() < 3: continue
+  if r[0].trim() == "date": continue
+  m = r[0].trim().slice(0, 7)
+  acct = r[1].trim()
+  amt = r[2].trim().dec()
+  if not months.has(m):
+    months[m] = [0.dec(), 0.dec()]
+  cur = months[m]
+  if amt > 0.dec():
+    cur[0] = cur[0] + amt
+  elif amt < 0.dec():
+    cur[1] = cur[1] + (0.dec() - amt)
+  months[m] = cur
+  bal[acct] = bal.get_or(acct, 0.dec()) + amt
+
+for m in months.keys().sorted():
+  io = months[m]
+  print("{m} {io[0].fmt(2)} {io[1].fmt(2)} {(io[0] - io[1]).fmt(2)}")
+
+top = ""
+topv = 0.dec()
+first = true
+for a in bal.keys():
+  v = bal[a]
+  if first or v > topv:
+    top = a
+    topv = v
+    first = false
+print("top {top} {topv.fmt(2)}")

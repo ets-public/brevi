@@ -1,0 +1,29 @@
+fn main():
+  rows = csv(stdin())
+  months: {str: int} = {}
+  ins: {str: dec} = {}
+  outs: {str: dec} = {}
+  acct: {str: dec} = {}
+  for r in rows.skip(1):
+    if r.len() < 3:
+      continue
+    m = r[0].trim()[:7]
+    acc = r[1].trim()
+    amt = r[2].trim().dec()
+    months[m] = 1
+    if amt > 0.dec():
+      ins[m] = ins.get_or(m, 0.dec()) + amt
+    elif amt < 0.dec():
+      outs[m] = outs.get_or(m, 0.dec()) - amt
+    acct[acc] = acct.get_or(acc, 0.dec()) + amt
+  for m in months.keys().sort():
+    i = ins.get_or(m, 0.dec())
+    o = outs.get_or(m, 0.dec())
+    print("{m} {i.fmt(2)} {o.fmt(2)} {(i - o).fmt(2)}")
+  best = ""
+  bestv = 0.dec()
+  for a, b in acct.pairs():
+    if best == "" or b > bestv or (b == bestv and a < best):
+      best = a
+      bestv = b
+  print("top {best} {bestv.fmt(2)}")

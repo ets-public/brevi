@@ -1,0 +1,96 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn emph(s: str) -> str:
+  t = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*([^*]+)\*", "<em>\1</em>")
+  t.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+
+fn inline(s: str) -> str:
+  parts = esc(s).split("`")
+  n = parts.len()
+  out = ""
+  for i in 0..n:
+    if i % 2 == 0:
+      out += emph(parts[i])
+    elif i + 1 < n:
+      out += "<code>" + parts[i] + "</code>"
+    else:
+      out += "`" + emph(parts[i])
+  out
+
+fn kind(ln: str) -> int:
+  if ln.trim().is_empty():
+    return 0
+  if ln == "```":
+    return 1
+  if not ln.re_full("#{1,6} .*").is_empty():
+    return 2
+  if ln.starts_with("- "):
+    return 3
+  if not ln.re_full("[0-9]+\. .*").is_empty():
+    return 4
+  return 5
+
+fn main():
+  ls = lines()
+  n = ls.len()
+  blocks: [str] = []
+  heads: [(str, str)] = []
+  seen: {str: int} = {}
+  i = 0
+  while i < n:
+    ln = ls[i]
+    k = kind(ln)
+    if k == 0:
+      i += 1
+    elif k == 1:
+      body: [str] = []
+      i += 1
+      while i < n and ls[i] != "```":
+        body.push(esc(ls[i]))
+        i += 1
+      i += 1
+      blocks.push("<pre><code>" + body.join("\n") + "</code></pre>")
+    elif k == 2:
+      hm = ln.re_full("(#{1,6}) (.*)")
+      level = hm[1].len()
+      text = hm[2]
+      base = text.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+      cand = base
+      c = 2
+      while seen.has(cand):
+        cand = base + "-" + str(c)
+        c += 1
+      seen[cand] = 1
+      heads.push((cand, text))
+      blocks.push("<h" + str(level) + " id=\"" + cand + "\">" + inline(text) + "</h" + str(level) + ">")
+      i += 1
+    elif k == 3 or k == 4:
+      items: [str] = []
+      while i < n and kind(ls[i]) == k:
+        if k == 3:
+          items.push("<li>" + inline(ls[i].slice(2)) + "</li>")
+        else:
+          om = ls[i].re_full("[0-9]+\. (.*)")
+          items.push("<li>" + inline(om[1]) + "</li>")
+        i += 1
+      tag = "ul"
+      if k == 4:
+        tag = "ol"
+      blocks.push("<" + tag + ">\n" + items.join("\n") + "\n</" + tag + ">")
+    else:
+      para: [str] = []
+      while i < n and kind(ls[i]) == 5:
+        para.push(ls[i])
+        i += 1
+      blocks.push("<p>" + inline(para.join(" ")) + "</p>")
+  out: [str] = []
+  if heads.len() >= 2:
+    out.push("<nav>")
+    for h in heads:
+      t = h.1.replace("`", "").replace("*", "")
+      out.push("<a href=\"#" + h.0 + "\">" + esc(t) + "</a>")
+    out.push("</nav>")
+  for b in blocks:
+    out.push(b)
+  print(out.join("\n"))

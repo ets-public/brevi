@@ -1,0 +1,28 @@
+rows = lines()
+n = rows[0].trim().int().or(8)
+
+fn sq(s: str) -> (int, int):
+  (s[0:1].code() - 97, s.slice(1).trim().int().or(1) - 1)
+
+fn bfs(n: int, a: (int, int), b: (int, int)) -> int:
+  dist = {a: 0}
+  q = [a]
+  head = 0
+  while head < q.len():
+    cur = q[head]
+    head += 1
+    if cur == b: return dist[cur]
+    for d in [(1, 2), (2, 1), (2, -1), (1, -2), (-1, -2), (-2, -1), (-2, 1), (-1, 2)]:
+      nx = cur.0 + d.0
+      ny = cur.1 + d.1
+      if nx >= 0 and ny >= 0 and nx < n and ny < n:
+        nb = (nx, ny)
+        if not dist.has(nb):
+          dist[nb] = dist[cur] + 1
+          q.push(nb)
+  -1
+
+for line in rows.skip(1):
+  p = line.words()
+  if len(p) < 2: continue
+  print(str(bfs(n, sq(p[0]), sq(p[1]))))

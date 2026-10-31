@@ -1,0 +1,85 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*([^*]+?)\*", "<em>\1</em>")
+  return t.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+
+fn inline(s: str) -> str:
+  parts = esc(s).split("`")
+  out = ""
+  k = 0
+  for seg in parts:
+    if k % 2 == 1:
+      out += "<code>" + seg + "</code>"
+    else:
+      out += fmt_plain(seg)
+    k += 1
+  return out
+
+fn slug(raw: str) -> str = raw.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+
+fn starts_block(t: str) -> bool = t == "```" or not t.re_full("^#{1,6} .*$").is_empty() or not t.re_full("^- .*$").is_empty() or not t.re_full("^\d+\. .*$").is_empty()
+
+ls = lines()
+n = ls.len()
+i = 0
+blocks = []
+heads = []
+used: {str: int} = {}
+while i < n:
+  line = ls[i]
+  h = line.re_full("^(#{1,6}) (.*)$")
+  u = line.re_full("^- (.*)$")
+  o = line.re_full("^\d+\. (.*)$")
+  if line.trim().is_empty():
+    i += 1
+  elif line == "```":
+    codes = []
+    i += 1
+    while i < n and ls[i] != "```":
+      codes.push(esc(ls[i]))
+      i += 1
+    i += 1
+    blocks.push("<pre><code>" + codes.join("\n") + "</code></pre>")
+  elif not h.is_empty():
+    raw = h[2]
+    lvl = h[1].len().str()
+    sid = slug(raw)
+    cand = sid
+    nn = 1
+    while used.has(cand):
+      nn += 1
+      cand = sid + "-" + nn.str()
+    used[cand] = 1
+    heads.push((cand, esc(raw.replace("`", "").replace("*", ""))))
+    blocks.push("<h" + lvl + " id=\"" + cand + "\">" + inline(raw) + "</h" + lvl + ">")
+    i += 1
+  elif not u.is_empty():
+    items = []
+    while i < n and not ls[i].re_full("^- (.*)$").is_empty():
+      items.push(ls[i].re_full("^- (.*)$")[1])
+      i += 1
+    body = items.map(t => "<li>" + inline(t) + "</li>").join("\n")
+    blocks.push("<ul>\n" + body + "\n</ul>")
+  elif not o.is_empty():
+    items = []
+    while i < n and not ls[i].re_full("^\d+\. (.*)$").is_empty():
+      items.push(ls[i].re_full("^\d+\. (.*)$")[1])
+      i += 1
+    body = items.map(t => "<li>" + inline(t) + "</li>").join("\n")
+    blocks.push("<ol>\n" + body + "\n</ol>")
+  else:
+    para = []
+    while i < n and not ls[i].trim().is_empty() and not starts_block(ls[i]):
+      para.push(ls[i])
+      i += 1
+    blocks.push("<p>" + inline(para.join(" ")) + "</p>")
+
+if heads.len() >= 2:
+  print("<nav>")
+  for hd in heads:
+    print("<a href=\"#" + hd.0 + "\">" + hd.1 + "</a>")
+  print("</nav>")
+for b in blocks:
+  print(b)

@@ -1,0 +1,50 @@
+names = []
+dur = {}
+deps = {}
+for line in lines():
+  p = line.words()
+  if len(p) < 2: continue
+  nm = p[0]
+  names.push(nm)
+  dur[nm] = p[1].int().or(0)
+  if len(p) > 3 and p[2] == "after":
+    deps[nm] = p[3:]
+  else:
+    deps[nm] = []
+
+bad = false
+for nm in names:
+  for d in deps[nm]:
+    if not dur.has(d): bad = true
+
+start = {}
+end = {}
+progress = true
+while progress and not bad:
+  progress = false
+  for nm in names:
+    if end.has(nm): continue
+    ready = true
+    s = 0
+    for d in deps[nm]:
+      if not end.has(d):
+        ready = false
+      elif end[d] > s:
+        s = end[d]
+    if ready:
+      start[nm] = s
+      end[nm] = s + dur[nm]
+      progress = true
+
+if bad or end.len() < names.len():
+  print("invalid")
+else:
+  rows = []
+  total = 0
+  for nm in names:
+    rows.push((start[nm], nm, end[nm]))
+    if end[nm] > total: total = end[nm]
+  rows = rows.sort()
+  for r in rows:
+    print("{r.1} {r.0} {r.2}")
+  print("total {total}")

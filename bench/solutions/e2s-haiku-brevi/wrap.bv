@@ -1,0 +1,38 @@
+fn wrap_words(ws: [str], width: int) -> [str]:
+  out = []
+  cur = ""
+  for word in ws:
+    if cur == "":
+      cur = word
+    elif cur.len() + 1 + word.len() <= width:
+      cur = cur + " " + word
+    else:
+      out.push(cur)
+      cur = word
+  if cur != "":
+    out.push(cur)
+  return out
+
+fn main():
+  ls = lines()
+  width = ls[0].trim().int()
+  paras: [[str]] = []
+  cur_words: [str] = []
+  for line in ls.skip(1):
+    ws = line.words()
+    if ws.is_empty():
+      if not cur_words.is_empty():
+        paras.push(cur_words)
+        cur_words = []
+    else:
+      for word in ws:
+        cur_words.push(word)
+  if not cur_words.is_empty():
+    paras.push(cur_words)
+  first = true
+  for p in paras:
+    if not first:
+      print("")
+    first = false
+    for l in wrap_words(p, width):
+      print(l)

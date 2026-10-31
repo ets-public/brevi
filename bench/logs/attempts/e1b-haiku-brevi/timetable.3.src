@@ -1,0 +1,95 @@
+fn hm(s: str) -> int:
+  parts = s.split(":")
+  parts[0].int().or(0) * 60 + parts[1].int().or(0)
+
+fn pad(n: int) -> str:
+  if n < 10:
+    return "0" + str(n)
+  str(n)
+
+fn fmt(m: int) -> str = pad(m / 60) + ":" + pad(m % 60)
+
+fn relax(mut lab: {str: (int, str)}, key: str, cand: (int, str)) -> bool:
+  if lab.has(key) and not (cand < lab[key]):
+    return false
+  lab[key] = cand
+  true
+
+fn main():
+  tn: [str] = []
+  ts: [[str]] = []
+  tt: [[int]] = []
+  queries: [str] = []
+  after = false
+  for line in lines():
+    if line.trim() == "---":
+      after = true
+      continue
+    if line.trim().is_empty():
+      continue
+    if after:
+      queries.push(line)
+    else:
+      ws = line.words()
+      tn.push(ws[0])
+      stn: [str] = []
+      tms: [int] = []
+      k = 1
+      while k + 1 < ws.len():
+        stn.push(ws[k])
+        tms.push(hm(ws[k + 1]))
+        k += 2
+      ts.push(stn)
+      tt.push(tms)
+  nt = tn.len()
+  lab: {str: (int, str)} = {}
+  for qline in queries:
+    qw = qline.words()
+    frm = qw[0]
+    dst = qw[1]
+    q = hm(qw[2])
+    if frm == dst:
+      print(frm + " " + dst + " " + fmt(q) + " via -")
+      continue
+    lab = {}
+    for t in 0..nt:
+      nst = ts[t].len()
+      for j in 0..nst - 1:
+        if ts[t][j] == frm and tt[t][j] >= q:
+          relax(lab, str(t) + ":" + str(j), (1, tn[t]))
+    changed = true
+    while changed:
+      changed = false
+      for t in 0..nt:
+        nst = ts[t].len()
+        for j in 0..nst:
+          key = str(t) + ":" + str(j)
+          if not lab.has(key):
+            continue
+          cur = lab[key]
+          if j + 1 < nst:
+            if relax(lab, str(t) + ":" + str(j + 1), cur):
+              changed = true
+          stn = ts[t][j]
+            tm = tt[t][j]
+            for x in 0..nt:
+              if x == t:
+                continue
+              xn = ts[x].len()
+              for k in 0..xn - 1:
+                if ts[x][k] == stn and tt[x][k] >= tm + 5:
+                  if relax(lab, str(x) + ":" + str(k), (cur.0 + 1, cur.1 + ">" + tn[x])):
+                    changed = true
+    cands: [(int, int, str)] = []
+    for key in lab.keys():
+      pr = key.split(":")
+      t = pr[0].int().or(0)
+      j = pr[1].int().or(0)
+      if ts[t][j] == dst:
+        cands.push((tt[t][j], lab[key].0, lab[key].1))
+    if cands.is_empty():
+      print(frm + " " + dst + " unreachable")
+    else:
+      bs = sorted(cands)
+      best = bs[0]
+      print(frm + " " + dst + " " + fmt(best.0) + " via " + best.2)

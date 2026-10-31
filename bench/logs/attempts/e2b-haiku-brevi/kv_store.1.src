@@ -1,0 +1,78 @@
+data = {}
+frames = []
+
+fn rec(k: str):
+  if not frames.is_empty():
+    top = frames.pop()
+    if data.has(k):
+      top.push((k, true, data[k]))
+    else:
+      top.push((k, false, ""))
+    frames.push(top)
+
+fn undo():
+  top = frames.pop()
+  for e in top.rev():
+    if e.1:
+      data[e.0] = e.2
+    else:
+      data.remove(e.0)
+
+for line in lines():
+  if line.is_empty():
+    continue
+  w = line.split(" ")
+  cmd = w[0]
+  if cmd == "SET" and w.len() == 3:
+    rec(w[1])
+    data[w[1]] = w[2]
+  elif cmd == "GET" and w.len() == 2:
+    if data.has(w[1]):
+      print(data[w[1]])
+    else:
+      print("NULL")
+  elif cmd == "DEL" and w.len() == 2:
+    if data.has(w[1]):
+      rec(w[1])
+      data.remove(w[1])
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR" and w.len() == 3:
+    k = w[1]
+    n = w[2].int()
+    cur = if data.has(k): data[k] else: "0"
+    match cur.int():
+      Ok(v) =>
+        rec(k)
+        data[k] = (v + n).str()
+        print((v + n).str())
+      Err(_) => print("ERR not an integer")
+  elif cmd == "COUNT" and w.len() == 2:
+    cnt = 0
+    for val in data.values():
+      if val == w[1]:
+        cnt += 1
+    print(cnt)
+  elif cmd == "KEYS" and w.len() == 2:
+    hits = []
+    for kk in sorted(data.keys()):
+      if kk.starts_with(w[1]):
+        hits.push(kk)
+    if hits.is_empty():
+      print("(empty)")
+    else:
+      print(hits.join(" "))
+  elif cmd == "BEGIN" and w.len() == 1:
+    frames.push([])
+  elif cmd == "ROLLBACK" and w.len() == 1:
+    if frames.is_empty():
+      print("NO TRANSACTION")
+    else:
+      undo()
+  elif cmd == "COMMIT" and w.len() == 1:
+    if frames.is_empty():
+      print("NO TRANSACTION")
+    while not frames.is_empty():
+      frames.pop()
+  else:
+    print("ERR unknown command")

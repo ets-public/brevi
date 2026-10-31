@@ -1,0 +1,68 @@
+fn s(j: Json) -> str = match j:
+  Str(x) => x
+  Num(n) => n.int().str()
+  _ => ""
+
+fn isnull(j: Json) -> bool = match j:
+  Null => true
+  _ => false
+
+fn qtyof(j: Json) -> int = match j:
+  Num(n) => n.int()
+  _ => 0
+
+fn lines_of(j: Json) -> [Json] = match j:
+  Arr(xs) => xs
+  _ => []
+
+d = json(stdin())
+products = d["products"]
+customers = d["customers"]
+revenue = 0.dec()
+out = []
+for o in lines_of(d["orders"]):
+  idj = str(o["id"])
+  cid = s(o["customer"])
+  cust = customers[cid]
+  if isnull(cust):
+    out.push("\{\"id\":" + idj + ",\"error\":\"unknown customer " + cid + "\"\}")
+    continue
+  bad = ""
+  sub = 0.dec()
+  catsub = {}
+  catqty = {}
+  for l in lines_of(o["lines"]):
+    sku = s(l["sku"])
+    p = products[sku]
+    if isnull(p):
+      bad = sku
+      break
+    q = qtyof(l["qty"])
+    amount = s(p["price"]).dec() * q
+    sub += amount
+    cat = s(p["category"])
+    catsub[cat] += amount
+    catqty[cat] += q
+  if bad != "":
+    out.push("\{\"id\":" + idj + ",\"error\":\"unknown sku " + bad + "\"\}")
+    continue
+  disc = 0.dec()
+  for c, q in catqty.pairs():
+    if q >= 3:
+      disc += (catsub[c] * "0.05".dec()).round(2)
+  tier = s(cust["tier"])
+  rate = "0".dec()
+  if tier == "gold": rate = "0.10".dec()
+  elif tier == "silver": rate = "0.05".dec()
+  disc += ((sub - disc) * rate).round(2)
+  net = sub - disc
+  country = s(cust["country"])
+  trate = "0".dec()
+  if country == "UK": trate = "0.20".dec()
+  elif country == "US": trate = "0.0825".dec()
+  tax = (net * trate).round(2)
+  total = net + tax
+  revenue += total
+  out.push("\{\"id\":" + idj + ",\"customer\":" + str(s(cust["name"]).json()) + ",\"subtotal\":\"" + sub.fmt(2) + "\",\"discount\":\"" + disc.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"\}")
+print("[" + out.join(",") + "]")
+print("revenue " + revenue.fmt(2))

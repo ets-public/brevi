@@ -1,0 +1,106 @@
+owners = []
+bals = []
+
+fn acct(i: int) -> str = "{{\"id\":{i + 1},\"owner\":\"{owners[i]}\",\"balance\":{bals[i]}}"
+
+fn amt(j: Json) -> int:
+  match j["amount"]:
+    Num(n) => if n > 0.0 and n.floor() == n: n.int() else: -1
+    _ => -1
+
+fn isid(s: str) -> bool = s.is_digit()
+
+fn exists(s: str) -> bool:
+  if not s.is_digit(): return false
+  k = s.int()
+  k >= 1 and k <= owners.len()
+
+fn handle(method: str, path: str, body: str, hasbody: bool) -> str:
+  parts = path.split("/")
+  # parts[0] is "" for leading slash
+  route = ""
+  idstr = ""
+  if parts.len() < 2 or parts[0] != "": return "404 {{\"error\":\"not found\"}"
+  if parts.len() == 2 and parts[1] == "accounts" and method == "POST": route = "create"
+  elif parts.len() == 2 and parts[1] == "accounts" and method == "GET": route = "list"
+  elif parts.len() == 2 and parts[1] == "transfer" and method == "POST": route = "transfer"
+  elif parts.len() == 3 and parts[1] == "accounts" and method == "GET" and parts[2].is_digit():
+    route = "get"
+    idstr = parts[2]
+  elif parts.len() == 4 and parts[1] == "accounts" and method == "POST" and parts[2].is_digit() and (parts[3] == "deposit" or parts[3] == "withdraw"):
+    route = parts[3]
+    idstr = parts[2]
+  if route == "": return "404 {{\"error\":\"not found\"}"
+  j = Null
+  if route == "create" or route == "deposit" or route == "withdraw" or route == "transfer":
+    if not hasbody: return "400 {{\"error\":\"bad json\"}"
+    j = match json(body):
+      Ok(v) => v
+      Err(m) => Str("\0bad")
+    bad = match j:
+      Str(s) => s == "\0bad"
+      _ => false
+    if bad: return "400 {{\"error\":\"bad json\"}"
+  if route == "list":
+    idx = (0..owners.len()).collect_sorted()
+    return "200"
+  if route == "create":
+    name = match j["owner"]:
+      Str(s) => s
+      _ => ""
+    if name.is_empty(): return "400 {{\"error\":\"owner required\"}"
+    owners.push(name)
+    bals.push(0)
+    return "201 " + acct(owners.len() - 1)
+  if route == "get":
+    if not exists(idstr): return "404 {{\"error\":\"no such account\"}"
+    return "200 " + acct(idstr.int() - 1)
+  if route == "deposit" or route == "withdraw":
+    if not exists(idstr): return "404 {{\"error\":\"no such account\"}"
+    a = amt(j)
+    if a < 0: return "400 {{\"error\":\"bad amount\"}"
+    i = idstr.int() - 1
+    if route == "withdraw":
+      if a > bals[i]: return "409 {{\"error\":\"insufficient funds\"}"
+      bals[i] -= a
+    else:
+      bals[i] += a
+    return "200 " + acct(i)
+  # transfer
+  fs = match j["from"]:
+    Num(n) => n.int()
+    _ => -1
+  ts = match j["to"]:
+    Num(n) => n.int()
+    _ => -1
+  if fs < 1 or fs > owners.len() or ts < 1 or ts > owners.len(): return "404 {{\"error\":\"no such account\"}"
+  if fs == ts: return "400 {{\"error\":\"same account\"}"
+  a = amt(j)
+  if a < 0: return "400 {{\"error\":\"bad amount\"}"
+  if a > bals[fs - 1]: return "409 {{\"error\":\"insufficient funds\"}"
+  bals[fs - 1] -= a
+  bals[ts - 1] += a
+  "200 {{\"from\":{bals[fs - 1]},\"to\":{bals[ts - 1]}}"
+
+for line in lines():
+  t = line.trim()
+  if t.is_empty(): continue
+  sp = t.find(" ")
+  method = t
+  rest = ""
+  if sp >= 0:
+    method = t.slice(0, sp)
+    rest = t.slice(sp + 1).trim()
+  sp2 = rest.find(" ")
+  path = rest
+  body = ""
+  hasbody = false
+  if sp2 >= 0:
+    path = rest.slice(0, sp2)
+    body = rest.slice(sp2 + 1).trim()
+    hasbody = true
+  if method == "GET" and path == "/accounts":
+    ids = (0..owners.len()).map(i => (-bals[i], i)).sort()
+    print("200 [" + ids.map(p => acct(p.1)).join(",") + "]")
+  else:
+    print(handle(method, path, body, hasbody))

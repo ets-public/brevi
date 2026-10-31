@@ -1,0 +1,1 @@
+{"e":"type","at":"/home/user/brevi/bench/work/e2s-haiku-brevi/lru.bv:4:1","msg":"type annotations needed for {str: _}","fix":"give the empty value a type, e.g. m: {str: int} = {} or xs: [str] = []","rust":"E0282"}

@@ -1,0 +1,53 @@
+adj = {}
+ws = {}
+src = ""
+dst = ""
+for line in lines():
+  p = line.words()
+  if len(p) == 0: continue
+  if len(p) == 3:
+    a = p[0]
+    b = p[1]
+    w = p[2].int().or(1)
+    adj[a] = adj.get_or(a, []) + [b]
+    adj[b] = adj.get_or(b, []) + [a]
+    ws[(a, b)] = w
+    ws[(b, a)] = w
+  else:
+    src = p[0]
+    dst = p[1]
+
+fn dists(adj: {str: [str]}, ws: {(str, str): int}, start: str) -> {str: int}:
+  dist = {start: 0}
+  done = {}
+  h = heap()
+  h.push((0, start))
+  while not h.is_empty():
+    cur = h.pop()
+    d = cur.0
+    u = cur.1
+    if done.has(u): continue
+    done[u] = true
+    for v in adj.get_or(u, []):
+      nd = d + ws[(u, v)]
+      if not dist.has(v) or nd < dist[v]:
+        dist[v] = nd
+        h.push((nd, v))
+  dist
+
+dt = dists(adj, ws, dst)
+if not dt.has(src):
+  print("none")
+else:
+  path = [src]
+  cur = src
+  while cur != dst:
+    nxt = ""
+    for v in sorted(adj.get_or(cur, [])):
+      if dt.has(v) and ws[(cur, v)] + dt[v] == dt[cur]:
+        nxt = v
+        break
+    cur = nxt
+    path.push(cur)
+  print(str(dt[src]))
+  print(path.join("->"))

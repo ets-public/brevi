@@ -1,0 +1,51 @@
+fn parse(line: str) -> [str] = line.re_full("(\S+) - - \[[^:\]]*:(\d\d):[^\]]*\] \"(\S+) (\S+) (\S+)\" (\d+) (\d+|-) \"[^\"]*\" \"([^\"]*)\"")
+
+fn main():
+  requests = 0
+  malformed = 0
+  total = 0
+  ips = {}
+  classes = {}
+  paths = {}
+  hours = {}
+  bots = 0
+  errs = {}
+  for line in lines():
+    m = parse(line)
+    if m.is_empty():
+      malformed += 1
+      continue
+    requests += 1
+    ip = m[1]
+    total += m[7].int().or(0)
+    ips[ip] = 1
+    classes[m[6].slice(0, 1) + "xx"] += 1
+    paths[m[4].split("?").first()] += 1
+    hours[m[2]] += 1
+    if m[8].lower().contains("bot"):
+      bots += 1
+    if m[6].int().or(0) >= 400:
+      errs[ip] += 1
+  print("requests {requests}")
+  print("malformed {malformed}")
+  print("bytes {total}")
+  print("unique_ips {ips.len()}")
+  print("status")
+  for c in ["2xx", "3xx", "4xx", "5xx"]:
+    if classes.has(c):
+      print("  {c} {classes[c]}")
+  print("top_paths")
+  top = sorted([(-v, k) for k, v in paths.pairs()])
+  for t in top.take(3):
+    print("  {-t.0} {t.1}")
+  print("hours")
+  mx = hours.values().max().or(0)
+  for h in sorted(hours.keys()):
+    n = hours[h]
+    bar = max(1, (40 * n + mx) // (2 * mx))
+    print("  " + h + " " + str(n) + " " + "#".repeat(bar))
+  print("bots {bots}")
+  print("errors_by_ip")
+  bad = sorted([(-v, k) for k, v in errs.pairs() if v >= 2])
+  for b in bad:
+    print("  {b.1} {-b.0}")

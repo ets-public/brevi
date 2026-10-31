@@ -1,0 +1,183 @@
+fn obj(j: Json) -> {str: Json}:
+  match j:
+    Obj(m) => m
+    _ => {}
+
+fn items_of(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn txt(j: Json) -> str:
+  match j:
+    Null => ""
+    Bool(b) => if b: "true" else: "false"
+    Num(n) => if n == n.floor(): str(n.int()) else: str(n)
+    Str(s) => s
+    _ => str(j)
+
+fn truthy(j: Json) -> bool:
+  match j:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => not s.is_empty()
+    Arr(xs) => not xs.is_empty()
+    _ => true
+
+fn resolve(j: Json, parts: [str]) -> Json:
+  cur = j
+  for k in 1..parts.len():
+    m = obj(cur)
+    if not m.has(parts[k]):
+      return Null
+    cur = m[parts[k]]
+  cur
+
+fn lookup(name: str, scopes: [Json]) -> Json:
+  parts = name.split(".")
+  i = scopes.len() - 1
+  while i >= 0:
+    m = obj(scopes[i])
+    if m.has(parts[0]):
+      return resolve(m[parts[0]], parts)
+    i -= 1
+  Null
+
+fn value_of(name: str, scopes: [Json], idx: int) -> Json:
+  if name == "@index":
+    return idx.json()
+  if name == ".":
+    return scopes[-1]
+  lookup(name, scopes)
+
+fn length(v: Json) -> Json:
+  match v:
+    Str(s) => s.len().json()
+    Arr(xs) => xs.len().json()
+    _ => 0.json()
+
+fn is_missing(v: Json) -> bool:
+  match v:
+    Null => true
+    Str(s) => s.is_empty()
+    _ => false
+
+fn apply(f: str, v: Json) -> Json:
+  if f == "upper":
+    return txt(v).upper().json()
+  if f == "lower":
+    return txt(v).lower().json()
+  if f == "len":
+    return length(v)
+  if f.starts_with("default:"):
+    if is_missing(v):
+      return f.slice(8).json()
+    return v
+  v
+
+fn each_end(s: str) -> int:
+  op = "\{\{#each"
+  cl = "\{\{/each\}\}"
+  pos = 0
+  depth = 0
+  while pos < s.len():
+    r = s.slice(pos)
+    a = r.find(op)
+    b = r.find(cl)
+    if b < 0:
+      return -1
+    if a >= 0 and a < b:
+      depth += 1
+      pos += a + op.len()
+    else:
+      if depth == 0:
+        return pos + b
+      depth -= 1
+      pos += b + cl.len()
+  -1
+
+fn if_parts(s: str) -> (int, int):
+  op = "\{\{#if"
+  cl = "\{\{/if\}\}"
+  el = "\{\{else\}\}"
+  pos = 0
+  depth = 0
+  els = -1
+  while pos < s.len():
+    r = s.slice(pos)
+    a = r.find(op)
+    b = r.find(cl)
+    e = r.find(el)
+    if b < 0:
+      return (els, -1)
+    if a >= 0 and a < b and (e < 0 or a < e):
+      depth += 1
+      pos += a + op.len()
+    elif e >= 0 and e < b:
+      if depth == 0 and els < 0:
+        els = pos + e
+      pos += e + el.len()
+    else:
+      if depth == 0:
+        return (els, pos + b)
+      depth -= 1
+      pos += b + cl.len()
+  (els, -1)
+
+fn render(t: str, scopes: [Json], idx: int) -> str:
+  out = ""
+  rest = t
+  while not rest.is_empty():
+    o = rest.find("\{\{")
+    if o < 0:
+      out += rest
+      rest = ""
+    else:
+      out += rest.slice(0, o)
+      after = rest.slice(o + 2)
+      c = after.find("\}\}")
+      tag = after.slice(0, c).trim()
+      rest = after.slice(c + 2)
+      if tag.starts_with("#each "):
+        name = tag.slice(6).trim()
+        cle = "\{\{/each\}\}"
+        e = each_end(rest)
+        body = rest.slice(0, e)
+        rest = rest.slice(e + cle.len())
+        its = items_of(lookup(name, scopes))
+        for k in 0..its.len():
+          out += render(body, scopes + [its[k]], k)
+      elif tag.starts_with("#if "):
+        name = tag.slice(4).trim()
+        pr = if_parts(rest)
+        els = pr.0
+        endp = pr.1
+        cli = "\{\{/if\}\}"
+        ell = "\{\{else\}\}"
+        thenp = rest.slice(0, endp)
+        elsep = ""
+        if els >= 0:
+          thenp = rest.slice(0, els)
+          elsep = rest.slice(els + ell.len(), endp)
+        rest = rest.slice(endp + cli.len())
+        if truthy(lookup(name, scopes)):
+          out += render(thenp, scopes, idx)
+        else:
+          out += render(elsep, scopes, idx)
+      else:
+        parts = tag.split("|")
+        v = value_of(parts[0].trim(), scopes, idx)
+        for q in 1..parts.len():
+          v = apply(parts[q].trim(), v)
+        out += txt(v)
+  out
+
+fn main():
+  text = stdin()
+  nl = text.find("\n")
+  data = json(text.slice(0, nl))
+  tpl = text.slice(nl + 1)
+  if tpl.ends_with("\n"):
+    tpl = tpl.slice(0, tpl.len() - 1)
+  print(render(tpl, [data], -1))

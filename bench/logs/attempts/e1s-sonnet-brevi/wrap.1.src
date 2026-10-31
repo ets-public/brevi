@@ -1,0 +1,25 @@
+ls = lines()
+w = ls[0].trim().int()
+paras = []
+cur = []
+for l in ls.skip(1):
+  ws = l.words()
+  if ws.is_empty():
+    if cur:
+      paras.push(cur)
+      cur = []
+  else:
+    cur = cur + ws
+if cur: paras.push(cur)
+first = true
+for p in paras:
+  if not first: print("")
+  first = false
+  line = ""
+  for x in p:
+    if line == "": line = x
+    elif line.len() + 1 + x.len() <= w: line = line + " " + x
+    else:
+      print(line)
+      line = x
+  print(line)

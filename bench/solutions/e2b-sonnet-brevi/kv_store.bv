@@ -1,0 +1,40 @@
+store = {}
+stack = []
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  c = w[0]
+  n = w.len()
+  if c == "SET" and n == 3:
+    store[w[1]] = w[2]
+  elif c == "GET" and n == 2:
+    if store.has(w[1]): print(store[w[1]])
+    else: print("NULL")
+  elif c == "DEL" and n == 2:
+    if store.has(w[1]): store.remove(w[1])
+    else: print("NOT FOUND")
+  elif c == "INCR" and n == 3:
+    cur = if store.has(w[1]): store[w[1]] else: "0"
+    a = cur.int().or(-999999999999)
+    b = w[2].int().or(-999999999999)
+    if a == -999999999999 or b == -999999999999:
+      print("ERR not an integer")
+    else:
+      store[w[1]] = str(a + b)
+      print(a + b)
+  elif c == "COUNT" and n == 2:
+    print(store.values().count(v => v == w[1]))
+  elif c == "KEYS" and n == 2:
+    ks = store.keys().filter(k => k.starts_with(w[1]))
+    if ks.is_empty(): print("(empty)")
+    else: print(ks.sort().join(" "))
+  elif c == "BEGIN" and n == 1:
+    stack.push(store)
+  elif c == "ROLLBACK" and n == 1:
+    if stack.is_empty(): print("NO TRANSACTION")
+    else: store = stack.pop()
+  elif c == "COMMIT" and n == 1:
+    if stack.is_empty(): print("NO TRANSACTION")
+    else: stack = []
+  else:
+    print("ERR unknown command")

@@ -1,0 +1,71 @@
+pat = "^(\S+) - - \[([^\]]+)\] \"(\S+) (\S+) (\S+)\" (\d{3}) (\d+|-) \"[^\"]*\" \"([^\"]*)\"$"
+requests = 0
+malformed = 0
+total = 0
+ips = []
+classes = {}
+paths = {}
+hours = {}
+bots = 0
+errs = {}
+for line in lines():
+  m = line.re_full(pat)
+  if m.is_empty():
+    malformed += 1
+  else:
+    requests += 1
+    ip = m[1]
+    ts = m[2]
+    path = m[4].split("?").first()
+    status = m[6].int()
+    size = m[7]
+    ua = m[8]
+    if size != "-":
+      total += size.int()
+    cls = (status / 100).str() + "xx"
+    classes[cls] += 1
+    paths[path] += 1
+    hours[ts.split(":")[1]] += 1
+    ips.push(ip)
+    if ua.lower().contains("bot"):
+      bots += 1
+    if status >= 400:
+      errs[ip] += 1
+nuniq = ips.unique().len()
+print("requests {requests}")
+print("malformed {malformed}")
+print("bytes {total}")
+print("unique_ips {nuniq}")
+print("status")
+for code in ["2xx", "3xx", "4xx", "5xx"]:
+  if classes.has(code):
+    cv = classes[code]
+    print("  " + code + " " + cv.str())
+ranked = []
+for pk, pv in paths.pairs():
+  ranked.push((-pv, pk))
+ranked = ranked.sort()
+print("top_paths")
+for rk in ranked.take(3):
+  rn = -rk.0
+  print("  " + rn.str() + " " + rk.1)
+hk = sorted(hours.keys())
+hv = hours.values()
+mx = hv.max().or(1)
+print("hours")
+for hr in hk:
+  hn = hours[hr]
+  bar = (hn * 40 + mx) // (2 * mx)
+  if bar < 1:
+    bar = 1
+  print("  " + hr + " " + hn.str() + " " + "#".repeat(bar))
+print("bots {bots}")
+print("errors_by_ip")
+ek = []
+for ik, iv in errs.pairs():
+  if iv >= 2:
+    ek.push((-iv, ik))
+ek = ek.sort()
+for ej in ek:
+  en = -ej.0
+  print("  " + ej.1 + " " + en.str())

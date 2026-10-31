@@ -1,0 +1,15 @@
+rows = csv(stdin())
+totals = {}
+for r in rows:
+  if r.len() < 3: continue
+  if r[0] == "item": continue
+  name = r[0].trim()
+  q = r[1].trim().int().or(0)
+  p = r[2].trim().dec()
+  totals[name] = totals.get_or(name, 0.dec()) + p * q
+pairs = []
+for kv in totals.pairs():
+  pairs.push((0 - kv.1, kv.0))
+pairs = pairs.sort()
+for pr in pairs:
+  print("{pr.1}: {(0 - pr.0).fmt(2)}")

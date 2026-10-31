@@ -1,0 +1,80 @@
+fn text(j: Json) -> str:
+  match j:
+    Str(s) => s
+    Num(n) => str(n)
+    _ => ""
+
+fn cust_key(j: Json) -> str:
+  match j:
+    Num(n) => str(n.int())
+    _ => text(j)
+
+fn int_of(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    _ => 0
+
+fn obj(j: Json) -> {str: Json}:
+  match j:
+    Obj(m) => m
+    _ => {}
+
+fn items(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn main():
+  data = json(stdin())
+  pm = obj(data["products"])
+  cm = obj(data["customers"])
+  revenue = 0.dec()
+  out: [str] = []
+  for o in items(data["orders"]):
+    oid = str(o["id"])
+    ckey = cust_key(o["customer"])
+    if not cm.has(ckey):
+      out.push("\{\"id\":" + oid + ",\"error\":\"unknown customer " + ckey + "\"\}")
+      continue
+    ls = items(o["lines"])
+    bad = ""
+    for l in ls:
+      if bad == "" and not pm.has(text(l["sku"])):
+        bad = text(l["sku"])
+    if bad != "":
+      out.push("\{\"id\":" + oid + ",\"error\":\"unknown sku " + bad + "\"\}")
+      continue
+    cq: {str: int} = {}
+    for l in ls:
+      cat = text(pm[text(l["sku"])]["category"])
+      cq[cat] += int_of(l["qty"])
+    sub = 0.dec()
+    cat_disc = 0.dec()
+    for l in ls:
+      sku = text(l["sku"])
+      line_amt = text(pm[sku]["price"]).dec() * int_of(l["qty"])
+      sub += line_amt
+      cat = text(pm[sku]["category"])
+      if cq[cat] >= 3:
+        cat_disc += (line_amt * "0.05".dec()).round(2)
+    tier = text(cm[ckey]["tier"])
+    rate = "0".dec()
+    if tier == "gold":
+      rate = "0.10".dec()
+    elif tier == "silver":
+      rate = "0.05".dec()
+    tier_disc = ((sub - cat_disc) * rate).round(2)
+    disc = cat_disc + tier_disc
+    pre = sub - disc
+    country = text(cm[ckey]["country"])
+    tax_rate = "0".dec()
+    if country == "UK":
+      tax_rate = "0.20".dec()
+    elif country == "US":
+      tax_rate = "0.0825".dec()
+    tax = (pre * tax_rate).round(2)
+    total = pre + tax
+    revenue += total
+    out.push("\{\"id\":" + oid + ",\"customer\":" + str(cm[ckey]["name"]) + ",\"subtotal\":\"" + sub.fmt(2) + "\",\"discount\":\"" + disc.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"\}")
+  print("[" + out.join(",") + "]")
+  print("revenue " + revenue.fmt(2))

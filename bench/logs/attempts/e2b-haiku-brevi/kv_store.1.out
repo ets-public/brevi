@@ -1,0 +1,1 @@
+{"e":"check","at":"/home/user/brevi/bench/work/e2b-haiku-brevi/kv_store.bv:2:1","msg":"frames is used inside a function, so it needs a type","fix":"write frames: [int] = [] with the real type"}

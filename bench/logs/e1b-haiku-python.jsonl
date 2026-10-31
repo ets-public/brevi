@@ -1,0 +1,8 @@
+{"run":"e1b-haiku-python","lang":"python","task":"access_report","code_tok":870,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"e1b-haiku-python","lang":"python","task":"bank_api","code_tok":1321,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"e1b-haiku-python","lang":"python","task":"invoices","code_tok":968,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"e1b-haiku-python","lang":"python","task":"kv_store","code_tok":870,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"e1b-haiku-python","lang":"python","task":"markdown","code_tok":1420,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"e1b-haiku-python","lang":"python","task":"spreadsheet","code_tok":1981,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"e1b-haiku-python","lang":"python","task":"template","code_tok":1392,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"e1b-haiku-python","lang":"python","task":"timetable","code_tok":812,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

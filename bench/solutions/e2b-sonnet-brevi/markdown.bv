@@ -1,0 +1,89 @@
+out = []
+para = []
+lst = []
+lt = ""
+heads = []
+used = []
+
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt(p: str) -> str:
+  a = p.re_sub("\[([^\]]+)\]\(([^)]+)\)", "<a href=\"\2\">\1</a>")
+  b = a.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  b.re_sub("\*(.+?)\*", "<em>\1</em>")
+
+fn inline(s: str) -> str:
+  parts = esc(s).split("`")
+  r = ""
+  for i in 0..parts.len():
+    p = parts[i]
+    if i % 2 == 1 and i < parts.len() - 1: r += "<code>" + p + "</code>"
+    elif i % 2 == 1: r += "`" + p
+    else: r += fmt(p)
+  r
+
+fn flush():
+  if para:
+    out.push("<p>" + para.join(" ") + "</p>")
+    para = []
+  if lst:
+    out.push("<" + lt + ">")
+    for it in lst: out.push("<li>" + it + "</li>")
+    out.push("</" + lt + ">")
+    lst = []
+    lt = ""
+
+incode = false
+code = []
+for line in lines():
+  if incode:
+    if line == "```":
+      out.push("<pre><code>" + code.join("\n") + "</code></pre>")
+      code = []
+      incode = false
+    else:
+      code.push(esc(line))
+    continue
+  if line == "```":
+    flush()
+    incode = true
+    continue
+  if line.trim().is_empty():
+    flush()
+    continue
+  h = line.re_full("(#{1,6}) (.*)")
+  if h:
+    flush()
+    lvl = h[1].len()
+    txt = h[2].trim()
+    base = txt.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    id = base
+    n = 2
+    while id in used:
+      id = base + "-" + str(n)
+      n += 1
+    used.push(id)
+    raw = esc(txt.replace("`", "").replace("*", ""))
+    heads.push("<a href=\"#{id}\">{raw}</a>")
+    out.push("<h{lvl} id=\"{id}\">{inline(txt)}</h{lvl}>")
+    continue
+  if line.starts_with("- "):
+    if lt != "ul": flush()
+    lt = "ul"
+    lst.push(inline(line.slice(2)))
+    continue
+  o = line.re_full("\d+\. (.*)")
+  if o:
+    if lt != "ol": flush()
+    lt = "ol"
+    lst.push(inline(o[1]))
+    continue
+  if lst: flush()
+  para.push(inline(line))
+if incode: out.push("<pre><code>" + code.join("\n") + "</code></pre>")
+flush()
+if heads.len() >= 2:
+  print("<nav>")
+  for hh in heads: print(hh)
+  print("</nav>")
+for l in out: print(l)

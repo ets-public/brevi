@@ -1,0 +1,27 @@
+nums = stdin().ints()
+R = nums[0]
+C = nums[1]
+g = nums.skip(2)
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+out = []
+while top <= bot and left <= right:
+  for j in left..right + 1: out.push(g[top * C + j])
+  top += 1
+  for i in top..bot + 1: out.push(g[i * C + right])
+  right -= 1
+  if top <= bot:
+    for j in (left..right + 1).rev(): out.push(g[bot * C + j])
+    bot -= 1
+  if left <= right:
+    for i in (top..bot + 1).rev(): out.push(g[i * C + left])
+    left += 1
+print(out.join(" "))
+cols = []
+for j in 0..C:
+  s = 0
+  for i in 0..R: s += g[i * C + j]
+  cols.push(s)
+print(cols.join(" "))

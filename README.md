@@ -2,7 +2,7 @@
 
 A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one JSON line with a suggested fix.
 
-The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), about 2,700 tokens (estimated).
+The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,081 tokens (exact count, Sonnet tokenizer).
 
 ## Status: v0.11
 
@@ -21,7 +21,18 @@ Works today:
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
 
-Tokens per finished task set (18 tasks: code written plus errors read, average of 2 runs; Python from earlier runs of the same tasks):
+Exact tokens (v0.11, 31 Oct 2026). Counted with Anthropic's count_tokens endpoint (Sonnet tokenizer) instead of the old estimate. Average of 2 fresh runs per model and language, code written plus errors read, all tasks solved in every run:
+
+| Task set | Model | Brevi with retries | Python with retries | Brevi finished code | Python finished code | First try (Brevi / Python) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18 small | Sonnet | 4,712 | 4,453 | 4,586 | 4,327 | 36 / 36 of 36 |
+| 18 small | Haiku | 7,341 | 6,882 | 5,889 | 6,756 | 32 / 36 of 36 |
+| 8 big | Sonnet | 12,461 | 8,697 | 8,923 | 8,641 | 13 / 16 of 16 |
+| 8 big | Haiku | 14,821 | 10,613 | 11,002 | 10,014 | 12 / 15 of 16 |
+
+Python wins all four on total tokens. Finished Brevi code is 3 to 10% larger than Python except Haiku's small tasks, where it is 13% smaller; retries are the larger cost, because a failed check means rewriting the whole file. Brevi errors also print the full file path (about 25 tokens a line), an easy saving. The old estimate undercounted every language (Brevi by 16%, Python by 19%, Rust by 12%, over 964 saved solutions), so earlier gaps were close to right. The figures below are estimates.
+
+Tokens per finished task set (estimated; 18 tasks: code written plus errors read, average of 2 runs; Python from earlier runs of the same tasks):
 
 | Model | Brevi v0.8 | Brevi v0.7 | Python | First try (Brevi v0.8) |
 | --- | --- | --- | --- | --- |

@@ -1,0 +1,61 @@
+fn is_int(s: str) -> bool:
+  match s.int():
+    Ok(_) => true
+    Err(_) => false
+
+fn main():
+  store: {str: str} = {}
+  stack: [{str: str}] = []
+  for raw in lines():
+    line = raw.trim()
+    if line.is_empty():
+      continue
+    parts = line.split(" ")
+    cmd = parts[0]
+    if cmd == "SET":
+      store[parts[1]] = parts[2]
+    elif cmd == "GET":
+      if store.has(parts[1]):
+        print(store[parts[1]])
+      else:
+        print("NULL")
+    elif cmd == "DEL":
+      if store.has(parts[1]):
+        store.remove(parts[1])
+      else:
+        print("NOT FOUND")
+    elif cmd == "INCR":
+      k = parts[1]
+      cur = store.get_or(k, "0")
+      if not is_int(cur):
+        print("ERR not an integer")
+      else:
+        nv = cur.int().or(0) + parts[2].int().or(0)
+        store[k] = str(nv)
+        print(str(nv))
+    elif cmd == "COUNT":
+      c = 0
+      for x in store.values():
+        if x == parts[1]:
+          c += 1
+      print(str(c))
+    elif cmd == "KEYS":
+      ks = sorted([k for k in store.keys() if k.starts_with(parts[1])])
+      if ks.is_empty():
+        print("(empty)")
+      else:
+        print(ks.join(" "))
+    elif cmd == "BEGIN":
+      stack.push(store)
+    elif cmd == "ROLLBACK":
+      if stack.is_empty():
+        print("NO TRANSACTION")
+      else:
+        store = stack.pop()
+    elif cmd == "COMMIT":
+      if stack.is_empty():
+        print("NO TRANSACTION")
+      else:
+        stack = []
+    else:
+      print("ERR unknown command")
