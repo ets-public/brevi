@@ -21,6 +21,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: write
 
 concurrency:
   group: toolchains-${{ github.ref }}
@@ -31,15 +32,27 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       next_python: ${{ steps.py.outputs.next }}
+      matrix: ${{ steps.m.outputs.matrix }}
     steps:
       - id: py
         name: Find the next Python release (pre-release)
+        # Never blocks the matrix: if the lookup fails, fall back to a guess.
         run: |
-          next=$(curl -fsSL https://endoflife.date/api/python.json | python3 -c '
+          next=$(curl -fsSL --retry 3 https://endoflife.date/api/python.json | python3 -c '
           import json, sys
           c = max(json.load(sys.stdin), key=lambda c: tuple(map(int, c["cycle"].split("."))))["cycle"]
-          a, b = c.split("."); print(f"{a}.{int(b) + 1}")')
-          echo "next=$next" >> "$GITHUB_OUTPUT"
+          a, b = c.split("."); print(f"{a}.{int(b) + 1}")') || next=3.16
+          echo "next=${next:-3.16}" >> "$GITHUB_OUTPUT"
+      - id: m
+        name: Pick toolchains
+        # Pull requests test Rust stable only, to save Actions minutes. The daily run, pushes to main
+        # and manual runs test the full matrix.
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            echo 'matrix=[{"rust":"stable","python":"3.x"}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix=[{"rust":"stable","python":"3.x"},{"rust":"beta","python":"3.x"},{"rust":"nightly","python":"3.x"},{"rust":"stable","python":"next"}]' >> "$GITHUB_OUTPUT"
+          fi
 
   test:
     needs: versions
@@ -48,11 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { rust: stable, python: "3.x" }
-          - { rust: beta, python: "3.x" }
-          - { rust: nightly, python: "3.x" }
-          - { rust: stable, python: next }
+        include: ${{ fromJSON(needs.versions.outputs.matrix) }}
     name: rust ${{ matrix.rust }} / python ${{ matrix.python }}
     steps:
       - uses: actions/checkout@v4
@@ -137,4 +146,10 @@ jobs:
           } > body.md
           gh label create toolchain --color B60205 --description "Breakage on a new Rust or Python release" 2>/dev/null || true
           n=$(gh issue list --state open --label toolchain --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
-          if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label toolchain --body-file body.md; fi
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file body.md
+          else
+            n=$(gh issue create --title "$title" --label toolchain --body-file body.md | sed 's#.*/##')
+            # Issues opened with the Actions token do not trigger other workflows, so start auto-fix directly.
+            gh workflow run auto-fix.yml -f issue="$n" || echo "could not start auto-fix"
+          fi
