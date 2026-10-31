@@ -63,7 +63,7 @@ if __name__ == "__main__":
     bad, slow, t0 = [], [], time.time()
     with multiprocessing.Pool() as pool:
         for f, err, dt in pool.imap_unordered(check, files):
-            name = f.relative_to(ROOT) if f.is_absolute() else f
+            name = f.relative_to(ROOT) if f.is_relative_to(ROOT) else f
             if err:
                 bad.append(f)
                 print(f"{name}: {err}", flush=True)

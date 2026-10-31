@@ -16,7 +16,7 @@ binary ::= unary (ws binop ws n ws unary)*
 binop ::= "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" ws "in" | ".." | "+" | "-" | "*" | "/" | "%" | "//"
 unary ::= ("-" | "!" | "not") ws unary | postfix
 postfix ::= primary (ws trailer)*
-trailer ::= (t-nl)? ws "." ws (t-name | t-int | "or") (ws call)? | "[" ws n ws slice ws n ws "]" | "?"
+trailer ::= (t-nl)? ws "." ws (t-name | t-int | "or") (ws call)? | "[" ws n ws slice ws n ws "]" | "?" | call
 slice ::= expr | (expr)? ws ":" (ws expr)?
 call ::= "(" ws n (ws arg (ws "," ws n ws arg)* (ws ",")?)? ws n ws ")"
 arg ::= (t-name ws ("=" | ":"))? (ws "*")? ws expr (ws comp)?
@@ -33,7 +33,7 @@ sep ::= "," | t-nl
 t-name ::= [A-Za-z_] [A-Za-z0-9_]*
 t-int ::= [0-9] [0-9_]*
 t-float ::= [0-9] [0-9_]* "." [0-9]+ ([eE] [+-]? [0-9]+)? | [0-9] [0-9_]* [eE] [+-]? [0-9]+
-t-string ::= "\"" ([^"\\\n{] | "\\" [^\n] | "{" [^}"\n]* ("\"" [^"\n]* "\"" [^}"\n]*)* "}" | "{")* "\"" | "'" ([^'\\\n{] | "\\" [^\n] | "{" [^}'\n]* ("'" [^'\n]* "'" [^}'\n]*)* "}" | "{")* "'"
+t-string ::= [fF]? "\"" ([^"\\\n{] | "\\" [^\n] | "{" [^}"\n]* ("\"" [^"\n]* "\"" [^}"\n]*)* "}" | "{")* "\"" | [fF]? "'" ([^'\\\n{] | "\\" [^\n] | "{" [^}'\n]* ("'" [^'\n]* "'" [^}'\n]*)* "}" | "{")* "'"
 t-assign ::= "=" | "+=" | "-=" | "*=" | "/="
 t-nl ::= ("\r"? "\n" [ \t]* (("#" | "//") [^\n]*)?)+
 ws ::= ([ \t\f] | "#" [^\n]* | "//" [^\n]*)*
