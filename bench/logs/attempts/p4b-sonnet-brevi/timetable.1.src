@@ -1,0 +1,66 @@
+fn tm(s: str) -> int = s.slice(0, 2).int() * 60 + s.slice(3, 5).int()
+fn pad(n: int) -> str = if n < 10: "0" + n.str() else: n.str()
+fn hhmm(t: int) -> str = pad(t // 60) + ":" + pad(t % 60)
+ls = lines()
+trains = []
+stations = []
+times = []
+sep = 0
+for i, l in enumerate(ls):
+  if l.trim() == "---":
+    sep = i
+    break
+for l in ls.slice(0, sep):
+  w = l.words()
+  if w.len() < 3: continue
+  trains.push(w[0])
+  sts = []
+  tms = []
+  for p in 0..(w.len() - 1) // 2:
+    sts.push(w[1 + 2 * p])
+    tms.push(tm(w[2 + 2 * p]))
+  stations.push(sts)
+  times.push(tms)
+states = []
+by_station = {}
+for ti in 0..trains.len():
+  for k in 0..stations[ti].len():
+    states.push((times[ti][k], k, ti))
+    by_station[stations[ti][k]].push((ti, k))
+states = states.sort()
+for l in ls.slice(sep + 1):
+  w = l.words()
+  if w.len() < 3: continue
+  from = w[0]
+  to = w[1]
+  qt = tm(w[2])
+  if from == to:
+    print("{from} {to} {hhmm(qt)} via -")
+    continue
+  lab = {}
+  bt = -1
+  bc = 0
+  bl = []
+  for s in states:
+    time = s.0
+    k = s.1
+    ti = s.2
+    st = stations[ti][k]
+    cands = []
+    if k < stations[ti].len() - 1:
+      if time >= qt and st == from: cands.push((1, [trains[ti]]))
+      for o in by_station[st]:
+        if o.0 != ti and times[o.0][o.1] + 5 <= time and lab.has(o):
+          c = lab[o]
+          cands.push((c.0 + 1, c.1 + [trains[ti]]))
+    if k > 0 and lab.has((ti, k - 1)): cands.push(lab[(ti, k - 1)])
+    if cands:
+      best = cands.sort()[0]
+      lab[(ti, k)] = best
+      if st == to:
+        if bt < 0 or time < bt or (time == bt and (best.0 < bc or (best.0 == bc and best.1 < bl))):
+          bt = time
+          bc = best.0
+          bl = best.1
+  if bt < 0: print("{from} {to} unreachable")
+  else: print("{from} {to} {hhmm(bt)} via {bl.join(">")}")

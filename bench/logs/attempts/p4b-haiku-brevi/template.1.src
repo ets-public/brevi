@@ -1,0 +1,129 @@
+NULLJ = json("null")
+
+fn has_key(j: Json, k: str) -> bool = match j:
+  Obj(m) => m.has(k)
+  _ => false
+
+fn arr_items(j: Json):
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn walk(j: Json, segs: [str]) -> Json:
+  cur = j
+  for sg in segs:
+    cur = cur[sg]
+  return cur
+
+fn lookup(ctxs: [Json], name: str) -> Json:
+  if name == ".": return ctxs[ctxs.len() - 1]
+  segs = name.split(".")
+  k = ctxs.len() - 1
+  while k >= 0:
+    if has_key(ctxs[k], segs[0]): return walk(ctxs[k], segs)
+    k -= 1
+  return NULLJ
+
+fn show(v: Json) -> str = match v:
+  Null => ""
+  Bool(b) => if b: "true" else: "false"
+  Num(n) => if n == n.floor(): str(n.int()) else: str(n)
+  Str(s) => s
+  Arr(xs) => str(v)
+  Obj(m) => str(v)
+
+fn truthy(v: Json) -> bool = match v:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => not s.is_empty()
+  Arr(xs) => not xs.is_empty()
+  Obj(m) => true
+
+fn flen(v: Json) -> Json = match v:
+  Str(s) => s.len().json()
+  Arr(xs) => xs.len().json()
+  _ => 0.json()
+
+fn fdef(v: Json, t: str) -> Json = match v:
+  Null => t.json()
+  Str(s) => if s.is_empty(): t.json() else: v
+  _ => v
+
+fn apply_filter(v: Json, f: str) -> Json:
+  if f == "upper": return show(v).upper().json()
+  if f == "lower": return show(v).lower().json()
+  if f == "len": return flen(v)
+  if f.starts_with("default:"): return fdef(v, f.slice(8))
+  return v
+
+fn insert(ctxs: [Json], s: str) -> str:
+  parts = s.split("|")
+  v = lookup(ctxs, parts[0].trim())
+  for f in parts.slice(1):
+    v = apply_filter(v, f.trim())
+  return show(v)
+
+fn tokenize(s: str) -> [(int, str)]:
+  toks = []
+  rest = s
+  while True:
+    o = rest.find("{{")
+    if o < 0:
+      if not rest.is_empty(): toks.push((0, rest))
+      break
+    if o > 0: toks.push((0, rest.slice(0, o)))
+    c = rest.slice(o + 2).find("}}") + o + 2
+    toks.push((1, rest.slice(o + 2, c).trim()))
+    rest = rest.slice(c + 2)
+  return toks
+
+fn render(toks: [(int, str)], start: int, ctxs: [Json], idx: int) -> (int, str):
+  out = ""
+  p = start
+  while p < toks.len():
+    kind = toks[p].0
+    s = toks[p].1
+    if kind == 0:
+      out += s
+      p += 1
+    elif s.starts_with("/") or s == "else":
+      return (p, out)
+    elif s.starts_with("#each "):
+      arr = arr_items(lookup(ctxs, s.slice(6).trim()))
+      first = render(toks, p + 1, ctxs, 0)
+      body = ""
+      for ix in 0..arr.len():
+        body += render(toks, p + 1, ctxs + [arr[ix]], ix).1
+      out += body
+      p = first.0 + 1
+    elif s.starts_with("#if "):
+      cond = truthy(lookup(ctxs, s.slice(4).trim()))
+      r1 = render(toks, p + 1, ctxs, idx)
+      q = r1.0
+      yes = r1.1
+      no = ""
+      if toks[q].1 == "else":
+        r2 = render(toks, q + 1, ctxs, idx)
+        q = r2.0
+        no = r2.1
+      if cond:
+        out += yes
+      else:
+        out += no
+      p = q + 1
+    else:
+      if s == "@index":
+        out += str(idx)
+      else:
+        out += insert(ctxs, s)
+      p += 1
+  return (p, out)
+
+all = stdin()
+nl = all.find("\n")
+data = json(all.slice(0, nl))
+tpl = all.slice(nl + 1)
+if tpl.ends_with("\n"):
+  tpl = tpl.slice(0, tpl.len() - 1)
+print(render(tokenize(tpl), 0, [data], 0).1)

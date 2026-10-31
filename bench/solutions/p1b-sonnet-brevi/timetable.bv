@@ -1,0 +1,72 @@
+fn tm(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str = if n < 10: "0" + n.str() else: n.str()
+
+names = []
+sts = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  l = line.trim()
+  if l == "---":
+    second = true
+    continue
+  if not l: continue
+  w = l.words()
+  if second: queries.push(w)
+  else:
+    names.push(w[0])
+    ss = []
+    ts = []
+    k = 1
+    while k + 1 < w.len():
+      ss.push(w[k])
+      ts.push(tm(w[k + 1]))
+      k += 2
+    sts.push(ss)
+    tms.push(ts)
+
+for q in queries:
+  from = q[0]
+  to = q[1]
+  qt = tm(q[2])
+  if from == to:
+    print("{from} {to} {pad(qt // 60)}:{pad(qt % 60)} via -")
+    continue
+  best: {(int, int): (int, str)} = {}
+  for t in 0..names.len():
+    for k in 0..sts[t].len() - 1:
+      if sts[t][k] == from and tms[t][k] >= qt:
+        cand = (1, names[t])
+        if not best.has((t, k)) or cand < best[(t, k)]: best[(t, k)] = cand
+  changed = true
+  while changed:
+    changed = false
+    for key, val in best.pairs():
+      t, k = key
+      if k + 1 < sts[t].len():
+        nk = (t, k + 1)
+        if not best.has(nk) or val < best[nk]:
+          best[nk] = val
+          changed = true
+      s = sts[t][k]
+      x = tms[t][k]
+      for u in 0..names.len():
+        if u == t: continue
+        for m in 0..sts[u].len() - 1:
+          if sts[u][m] == s and tms[u][m] >= x + 5:
+            cand = (val.0 + 1, val.1 + ">" + names[u])
+            if not best.has((u, m)) or cand < best[(u, m)]:
+              best[(u, m)] = cand
+              changed = true
+  cands = []
+  for key, val in best.pairs():
+    t, k = key
+    if sts[t][k] == to: cands.push((tms[t][k], val.0, val.1))
+  if cands.is_empty(): print("{from} {to} unreachable")
+  else:
+    r = cands.min()
+    print("{from} {to} {pad(r.0 // 60)}:{pad(r.0 % 60)} via {r.2}")

@@ -1,0 +1,51 @@
+fn main():
+  data: {str: str} = {}
+  stack: [{str: str}] = []
+  for line in lines():
+    if line.trim() == "":
+      continue
+    parts = line.trim().split(" ")
+    cmd = parts[0]
+    if cmd == "SET":
+      data[parts[1]] = parts[2]
+    elif cmd == "GET":
+      if parts[1] in data:
+        print(data[parts[1]])
+      else:
+        print("NULL")
+    elif cmd == "DEL":
+      if parts[1] in data:
+        data.remove(parts[1])
+      else:
+        print("NOT FOUND")
+    elif cmd == "INCR":
+      k = parts[1]
+      cur = data[k] if k in data else "0"
+      match cur.int():
+        Ok(v) =>
+          data[k] = str(v + parts[2].int())
+          print(data[k])
+        Err(e) => print("ERR not an integer")
+    elif cmd == "COUNT":
+      print(data.values().count(x => x == parts[1]))
+    elif cmd == "KEYS":
+      ks = [x for x in data.keys() if x.starts_with(parts[1])]
+      ks.sort()
+      if ks.is_empty():
+        print("(empty)")
+      else:
+        print(" ".join(ks))
+    elif cmd == "BEGIN":
+      stack.push(data)
+    elif cmd == "ROLLBACK":
+      if stack.is_empty():
+        print("NO TRANSACTION")
+      else:
+        data = stack.pop()
+    elif cmd == "COMMIT":
+      if stack.is_empty():
+        print("NO TRANSACTION")
+      else:
+        stack = []
+    else:
+      print("ERR unknown command")

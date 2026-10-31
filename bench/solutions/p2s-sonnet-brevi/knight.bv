@@ -1,0 +1,30 @@
+ls = lines()
+n = ls[0].trim().int()
+moves = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+fn sq(s: str) -> (int, int) = (s.code() - 97, s.slice(1).int() - 1)
+fn inb(p: (int, int)) -> bool = p.0 >= 0 and p.0 < n and p.1 >= 0 and p.1 < n
+for line in ls[1:]:
+  w = line.words()
+  if w.len() != 2:
+    continue
+  a = sq(w[0])
+  b = sq(w[1])
+  if not inb(a) or not inb(b):
+    print(-1)
+    continue
+  dist = {}
+  dist[a] = 0
+  q = [a]
+  head = 0
+  while head < q.len():
+    c = q[head]
+    head += 1
+    for mv in moves:
+      nx = (c.0 + mv.0, c.1 + mv.1)
+      if inb(nx) and not dist.has(nx):
+        dist[nx] = dist[c] + 1
+        q.push(nx)
+  if dist.has(b):
+    print(dist[b])
+  else:
+    print(-1)

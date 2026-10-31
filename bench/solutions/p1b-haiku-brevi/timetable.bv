@@ -1,0 +1,95 @@
+lab: {str: (int, int, str, str, int, int)} = {}
+
+fn tm(s: str) -> int:
+  p = s.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn hm(m: int) -> str:
+  h = m // 60
+  mm = m % 60
+  hs = str(h)
+  ms = str(mm)
+  if h < 10:
+    hs = "0" + hs
+  if mm < 10:
+    ms = "0" + ms
+  return hs + ":" + ms
+
+fn better(t: int, n: int, j: str, old: (int, int, str, str, int, int)) -> bool:
+  return (t, n, j) < (old.0, old.1, old.2)
+
+fn offer(key: str, t: int, n: int, j: str, s: str, xi: int, pos: int) -> bool:
+  if lab.has(key):
+    if not better(t, n, j, lab[key]):
+      return false
+  lab[key] = (t, n, j, s, xi, pos)
+  return true
+
+fn ride(xi: int, k: int, n: int, j: str) -> bool:
+  ch = false
+  for m in (k + 1)..tsta[xi].len():
+    if offer(tsta[xi][m] + "|" + tnames[xi], tti[xi][m], n, j, tsta[xi][m], xi, m):
+      ch = true
+  return ch
+
+ls = lines()
+sep = ls.index_of("---")
+tnames: [str] = []
+tsta: [[str]] = []
+tti: [[int]] = []
+for line in ls[0:sep]:
+  if line.trim().is_empty():
+    continue
+  tk = line.trim().split(" ")
+  tnames.push(tk[0])
+  sts = []
+  ts = []
+  i = 1
+  while i + 1 < tk.len():
+    sts.push(tk[i])
+    ts.push(tm(tk[i + 1]))
+    i += 2
+  tsta.push(sts)
+  tti.push(ts)
+for line in ls[sep + 1:]:
+  if line.trim().is_empty():
+    continue
+  q = line.trim().split(" ")
+  frm = q[0]
+  dst = q[1]
+  qt = tm(q[2])
+  if frm == dst:
+    print(frm + " " + dst + " " + hm(qt) + " via -")
+    continue
+  lab = {}
+  for xi in 0..tnames.len():
+    for k in 0..tsta[xi].len():
+      if tsta[xi][k] == frm and tti[xi][k] >= qt:
+        ride(xi, k, 1, tnames[xi])
+  changed = true
+  while changed:
+    changed = false
+    for L in lab.values():
+      if ride(L.4, L.5, L.1, L.2):
+        changed = true
+      for yi in 0..tnames.len():
+        if yi != L.4:
+          for k2 in 0..tsta[yi].len():
+            if tsta[yi][k2] == L.3 and tti[yi][k2] >= L.0 + 5:
+              if ride(yi, k2, L.1 + 1, L.2 + ">" + tnames[yi]):
+                changed = true
+  found = false
+  bt = 0
+  bn = 0
+  bj = ""
+  for L in lab.values():
+    if L.3 == dst:
+      if not found or (L.0, L.1, L.2) < (bt, bn, bj):
+        found = true
+        bt = L.0
+        bn = L.1
+        bj = L.2
+  if found:
+    print(frm + " " + dst + " " + hm(bt) + " via " + bj)
+  else:
+    print(frm + " " + dst + " unreachable")

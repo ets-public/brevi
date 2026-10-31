@@ -1,0 +1,103 @@
+defs: {str: str} = {}
+state: {str: int} = {}
+memo: {str: (int, int)} = {}
+maxc = 0
+maxr = 0
+fn track(ref: str):
+  c = ref.code() - 64
+  r = ref.slice(1).int()
+  if c > maxc: maxc = c
+  if r > maxr: maxr = r
+fn is_ref(t: str) -> bool = not t.re_full("[A-Z]\d+").is_empty()
+fn primary(toks: [str], mut pos: int) -> (int, int):
+  t = toks[pos]
+  pos += 1
+  if t == "(":
+    v, f = expr(toks, pos)
+    pos += 1
+    return (v, f)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    pos += 1
+    a = toks[pos]
+    pos += 2
+    b = toks[pos]
+    pos += 2
+    c1 = min(a.code(), b.code())
+    c2 = max(a.code(), b.code())
+    r1 = min(a.slice(1).int(), b.slice(1).int())
+    r2 = max(a.slice(1).int(), b.slice(1).int())
+    vals = []
+    f = 0
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        v, g = cellval(c.char() + r.str())
+        vals.push(v)
+        f = max(f, g)
+    if t == "SUM": return (vals.sum(), f)
+    if t == "MIN": return (vals.min(), f)
+    return (vals.max(), f)
+  if is_ref(t): return cellval(t)
+  (t.int(), 0)
+fn unary(toks: [str], mut pos: int) -> (int, int):
+  if toks[pos] == "-":
+    pos += 1
+    v, f = unary(toks, pos)
+    return (-v, f)
+  primary(toks, pos)
+fn term(toks: [str], mut pos: int) -> (int, int):
+  v, f = unary(toks, pos)
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    w, g = unary(toks, pos)
+    f = max(f, g)
+    if op == "*": v = v * w
+    elif w == 0:
+      f = max(f, 1)
+      v = 0
+    else: v = v / w
+  (v, f)
+fn expr(toks: [str], mut pos: int) -> (int, int):
+  v, f = term(toks, pos)
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    w, g = term(toks, pos)
+    f = max(f, g)
+    v = if op == "+": v + w else: v - w
+  (v, f)
+fn cellval(name: str) -> (int, int):
+  if not defs.has(name): return (0, 0)
+  if memo.has(name): return memo[name]
+  if state[name] == 1: return (0, 2)
+  state[name] = 1
+  content = defs[name]
+  res = (0, 0)
+  if content.starts_with("="):
+    toks = [m[0] for m in content.slice(1).replace(" ", "").re_all("[A-Z]+\d+|[A-Z]+|\d+|[-+*/():]")]
+    res = expr(toks, 0)
+  else:
+    res = (content.trim().int(), 0)
+  memo[name] = res
+  state[name] = 2
+  res
+for line in lines():
+  m = line.re_full(" *([A-Z]\d+) *= *(.*)")
+  if m.is_empty(): continue
+  key = m[1]
+  defs[key] = m[2]
+  track(m[1])
+  if m[2].starts_with("="):
+    for r in m[2].re_all("[A-Z]\d+"): track(r[0])
+cols = [(c + 65).char() for c in 0..maxc]
+print("\t" + cols.join("\t"))
+for r in 1..maxr + 1:
+  row = [r.str()]
+  for c in cols:
+    name = c + r.str()
+    if not defs.has(name):
+      row.push("")
+    else:
+      v, f = cellval(name)
+      row.push(if f == 2: "#CYCLE" elif f == 1: "#DIV0" else: v.str())
+  print(row.join("\t"))

@@ -1,0 +1,129 @@
+fn isnull(v: Json) -> bool = match v:
+  Null => True
+  _ => False
+
+fn is_missing(v: Json) -> bool = match v:
+  Null => True
+  Str(s) => s == ""
+  _ => False
+
+fn truthy(v: Json) -> bool = match v:
+  Null => False
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => s != ""
+  Arr(xs) => xs.len() > 0
+  Obj(m) => True
+
+fn arrlist(v: Json) -> [Json] = match v:
+  Arr(xs) => xs
+  _ => []
+
+fn getk(v: Json, k: str) -> Json = match v:
+  Obj(m) => m.get_or(k, json("null"))
+  _ => json("null")
+
+fn show(v: Json) -> str = match v:
+  Null => ""
+  Bool(b) => if b: "true" else: "false"
+  Num(n) => if n == n.floor(): str(n.int()) else: str(n)
+  Str(s) => s
+  _ => str(v)
+
+fn lenof(v: Json) -> int = match v:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  _ => 0
+
+fn lookup(chain: [Json], name: str) -> Json:
+  if name == ".":
+    return chain[0]
+  segs = name.split(".")
+  for fr in chain:
+    cur = fr
+    for sg in segs:
+      cur = getk(cur, sg)
+    if not isnull(cur):
+      return cur
+  return json("null")
+
+fn filt(v: Json, f: str) -> Json:
+  if f == "upper":
+    return show(v).upper().json()
+  if f == "lower":
+    return show(v).lower().json()
+  if f == "len":
+    return lenof(v).json()
+  if f.starts_with("default:"):
+    if is_missing(v):
+      return f[8:].json()
+    return v
+  return v
+
+fn render_var(tg: str, chain: [Json], idx: int) -> str:
+  parts = tg.split("|")
+  base = parts[0].trim()
+  v = json("null")
+  if base == "@index":
+    v = idx.json()
+  else:
+    v = lookup(chain, base)
+  for k in 1..parts.len():
+    v = filt(v, parts[k].trim())
+  return show(v)
+
+fn tokenize(t: str) -> [(str, str)]:
+  pieces = t.re_split("[{][{].*?[}][}]")
+  tags = t.re_all("[{][{](.*?)[}][}]")
+  out: [(str, str)] = []
+  for i in 0..tags.len():
+    if pieces[i] != "":
+      out.push(("T", pieces[i]))
+    out.push(("G", tags[i][1].trim()))
+  if pieces[tags.len()] != "":
+    out.push(("T", pieces[tags.len()]))
+  return out
+
+fn run(tk: [(str, str)], i: int, chain: [Json], idx: int) -> (str, int):
+  out = ""
+  j = i
+  while j < tk.len():
+    kind = tk[j].0
+    tg = tk[j].1
+    if kind == "T":
+      out += tg
+      j += 1
+    elif tg.starts_with("/") or tg == "else":
+      return (out, j)
+    elif tg.starts_with("#each "):
+      items = arrlist(lookup(chain, tg[6:].trim()))
+      endp = -1
+      for k in 0..items.len():
+        res = run(tk, j + 1, [items[k]] + chain, k)
+        out += res.0
+        endp = res.1
+      if items.len() == 0:
+        endp = run(tk, j + 1, chain, idx).1
+      j = endp + 1
+    elif tg.starts_with("#if "):
+      v = lookup(chain, tg[4:].trim())
+      r1 = run(tk, j + 1, chain, idx)
+      r2 = ("", r1.1)
+      if r1.1 < tk.len() and tk[r1.1].0 == "G" and tk[r1.1].1 == "else":
+        r2 = run(tk, r1.1 + 1, chain, idx)
+      if truthy(v):
+        out += r1.0
+      else:
+        out += r2.0
+      j = r2.1 + 1
+    else:
+      out += render_var(tg, chain, idx)
+      j += 1
+  return (out, j)
+
+text = stdin()
+nl = text.find("\n")
+data = json(text[:nl])
+template = text[nl + 1:]
+res = run(tokenize(template), 0, [data], -1)
+print(res.0)

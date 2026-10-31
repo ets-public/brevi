@@ -5,6 +5,7 @@ A model solves each task in one language and checks it with `run.sh LANG TASK FI
 `python3 analyze.py "logs/round1/*.jsonl"` prints the summary.
 
 Token counts are exact: `tokcount.py` asks Anthropic's count_tokens endpoint (Sonnet tokenizer, `claude-sonnet-5-5`) and caches results by content hash in `tokcache.json`. It needs `BENCH_ANTHROPIC_KEY`. Logs marked `"tok":"exact"` use it; older logs (runs before `e1`) hold estimates from `esttok.py` (words, numbers and symbols), which undercount by 12 to 19%.
+Each check also logs `patch_tok`: for a retry, the tokens of the lines changed since the last check (removed plus added, never more than the file), from `patchtok.py`. `analyze.py` prints both `loop_total` (every check counts the whole file) and `patch_total` (retries count as patches). `retro_patch.py RUN...` scores older runs the patch way from their saved attempts.
 `python3 recount.py` counts every saved solution and error output both ways and writes `logs/recount.json`.
 `run.sh` uses `../target/release/brevi` unless `BREVI` is set (runs before the rename are named `-axon`).
 `python3 subject_prompt.py RUN LANG small|big` prints the prompt given to a test-subject model; subjects may only run code through `run.sh`.
@@ -19,4 +20,4 @@ Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}
 Four programs written the plain way in Axon, Python and Rust: word counts (2M words), Dijkstra on a 100k-node graph, a prime sieve to 5M, and grouping 1M records.
 `python3 perf/gen.py` makes the inputs; `perf/time.sh` builds everything and prints the best of 3 runs.
 
-`verify.sh NEW_BREVI` rebuilds every earlier solution with a new compiler and checks it prints the same as before.
+`verify.sh OLD_BREVI [NEW_BREVI]` rebuilds every saved solution in `solutions/` with both compilers (in parallel; `JOBS=4`) and prints `OK`, `DIFF` or `BUILD` for each one the old compiler could build.

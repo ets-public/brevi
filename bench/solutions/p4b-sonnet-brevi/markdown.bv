@@ -1,0 +1,74 @@
+fn esc(s: str) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+fn fmt1(s: str) = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>").re_sub("\*(.+?)\*", "<em>\1</em>").re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+fn inline(raw: str) -> str:
+  parts = esc(raw).split("`")
+  n = parts.len()
+  res = ""
+  for i, part in enumerate(parts):
+    if i % 2 == 1 and i < n - 1: res += "<code>" + part + "</code>"
+    elif i % 2 == 1: res += "`" + fmt1(part)
+    else: res += fmt1(part)
+  res
+out = []
+heads = []
+used = {}
+kind = ""
+buf = []
+incode = false
+code = []
+for line in lines() + [""]:
+  if incode:
+    if line == "```":
+      out.push("<pre><code>" + code.join("\n") + "</code></pre>")
+      incode = false
+      code = []
+    else:
+      code.push(esc(line))
+    continue
+  t = "blank"
+  data = ""
+  hm = line.re_full("(#{1,6}) (.*)")
+  om = line.re_full("\d+\. (.*)")
+  if line == "```": t = "fence"
+  elif not hm.is_empty(): t = "h"
+  elif line.starts_with("- "):
+    t = "ul"
+    data = line.slice(2)
+  elif not om.is_empty():
+    t = "ol"
+    data = om[1]
+  elif line.trim() != "":
+    t = "p"
+    data = line
+  if kind != "" and t != kind:
+    if kind == "p":
+      out.push("<p>" + inline(buf.join(" ")) + "</p>")
+    else:
+      out.push("<{kind}>")
+      for it in buf: out.push("<li>" + inline(it) + "</li>")
+      out.push("</{kind}>")
+    kind = ""
+    buf = []
+  if t == "p" or t == "ul" or t == "ol":
+    kind = t
+    buf.push(data)
+  elif t == "fence":
+    incode = true
+  elif t == "h":
+    lvl = hm[1].len()
+    txt = hm[2]
+    base = txt.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    cand = base
+    k = 1
+    while used.has(cand):
+      k += 1
+      cand = base + "-" + k.str()
+    used[cand] = 1
+    heads.push((cand, txt))
+    out.push("<h{lvl} id=\"{cand}\">" + inline(txt) + "</h{lvl}>")
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads:
+    print("<a href=\"#{h.0}\">" + esc(h.1.replace("`", "").replace("*", "")) + "</a>")
+  print("</nav>")
+for o in out: print(o)

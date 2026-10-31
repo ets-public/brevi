@@ -1,0 +1,115 @@
+owners = []
+bal = []
+NF = "404 {\"error\":\"not found\"}"
+BADJ = "400 {\"error\":\"bad json\"}"
+NOACC = "404 {\"error\":\"no such account\"}"
+BADAMT = "400 {\"error\":\"bad amount\"}"
+INSUF = "409 {\"error\":\"insufficient funds\"}"
+OWNER_REQ = "400 {\"error\":\"owner required\"}"
+SAME = "400 {\"error\":\"same account\"}"
+
+fn acct(i: int) -> str = str({"id": i + 1, "owner": owners[i], "balance": bal[i]})
+
+fn valid_id(s: str) -> bool = s.len() > 0 and s.chars().all(c => c.is_digit())
+
+fn amount_of(j: Json) -> int:
+  match j["amount"]:
+    Num(n) => if n > 0.0 and n < 1e15 and n.floor() == n: n.int() else: -1
+    _ => -1
+
+fn id_of(j: Json) -> int:
+  match j:
+    Num(n) => if n > 0.0 and n < 1e15 and n.floor() == n: n.int() else: -1
+    _ => -1
+
+fn new_account(j: Json) -> str:
+  o = match j["owner"]:
+    Str(s) => s
+    _ => ""
+  if o.is_empty(): return OWNER_REQ
+  owners.push(o)
+  bal.push(0)
+  return "201 " + acct(owners.len() - 1)
+
+fn create(body: str) -> str = match json(body):
+  Ok(j) => new_account(j)
+  Err(e) => BADJ
+
+fn get_acct(aid: int) -> str:
+  if aid < 1 or aid > bal.len(): return NOACC
+  return "200 " + acct(aid - 1)
+
+fn do_money(aid: int, j: Json, sign: int) -> str:
+  if aid < 1 or aid > bal.len(): return NOACC
+  amt = amount_of(j)
+  if amt < 1: return BADAMT
+  if sign < 0 and amt > bal[aid - 1]: return INSUF
+  bal[aid - 1] += sign * amt
+  return "200 " + acct(aid - 1)
+
+fn deposit(aid: int, body: str) -> str = match json(body):
+  Ok(j) => do_money(aid, j, 1)
+  Err(e) => BADJ
+
+fn withdraw(aid: int, body: str) -> str = match json(body):
+  Ok(j) => do_money(aid, j, -1)
+  Err(e) => BADJ
+
+fn do_transfer(j: Json) -> str:
+  f = id_of(j["from"])
+  t = id_of(j["to"])
+  if f < 1 or f > bal.len() or t < 1 or t > bal.len(): return NOACC
+  if f == t: return SAME
+  amt = amount_of(j)
+  if amt < 1: return BADAMT
+  if amt > bal[f - 1]: return INSUF
+  bal[f - 1] -= amt
+  bal[t - 1] += amt
+  return "200 {\"from\":" + str(bal[f - 1]) + ",\"to\":" + str(bal[t - 1]) + "}"
+
+fn transfer(body: str) -> str = match json(body):
+  Ok(j) => do_transfer(j)
+  Err(e) => BADJ
+
+fn list_all() -> str:
+  pairs = []
+  for i in 0..bal.len():
+    pairs.push((-bal[i], i))
+  pairs.sort()
+  parts = []
+  for p in pairs:
+    parts.push(acct(p.1))
+  return "200 [" + ",".join(parts) + "]"
+
+fn handle(t: str) -> str:
+  sp = t.find(" ")
+  if sp < 0: return NF
+  method = t.slice(0, sp)
+  rest = t.slice(sp + 1)
+  sp2 = rest.find(" ")
+  path = rest
+  body = ""
+  if sp2 >= 0:
+    path = rest.slice(0, sp2)
+    body = rest.slice(sp2 + 1)
+  segs = path.split("/")
+  if path == "/accounts":
+    if method == "GET": return list_all()
+    if method == "POST": return create(body)
+    return NF
+  if path == "/transfer":
+    if method == "POST": return transfer(body)
+    return NF
+  if segs.len() == 3 and segs[0] == "" and segs[1] == "accounts" and valid_id(segs[2]):
+    if method == "GET": return get_acct(segs[2].int().or(0))
+    return NF
+  if segs.len() == 4 and segs[0] == "" and segs[1] == "accounts" and valid_id(segs[2]) and method == "POST":
+    aid = segs[2].int().or(0)
+    if segs[3] == "deposit": return deposit(aid, body)
+    if segs[3] == "withdraw": return withdraw(aid, body)
+  return NF
+
+for line in lines():
+  t = line.trim()
+  if t.is_empty(): continue
+  print(handle(t))

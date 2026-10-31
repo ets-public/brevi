@@ -1,0 +1,79 @@
+owners = []
+bals = []
+
+fn acct(i: int) -> Json = {"id": i, "owner": owners[i - 1], "balance": bals[i - 1]}
+
+fn amt(j: Json) -> int:
+  match j["amount"]:
+    Num(n) => if n > 0.0 and n == n.floor(): n.int() else: -1
+    _ => -1
+
+fn idof(j: Json, k: str) -> int:
+  match j[k]:
+    Num(n) => if n == n.floor(): n.int() else: -1
+    _ => -1
+
+fn exists(i: int) = i >= 1 and i <= owners.len()
+
+fn handle(line: str) -> str:
+  sp = line.find(" ")
+  head = if sp < 0: line else: line.slice(0, sp)
+  rest = if sp < 0: "" else: line.slice(sp + 1).trim()
+  parts = rest.split(" ")
+  path = parts[0]
+  body = rest.slice(path.len()).trim()
+  segs = path.split("/")
+  route = ""
+  id = 0
+  if segs.len() < 2 or segs[0] != "": return "404 " + str({"error": "not found"})
+  if head == "GET" and path == "/accounts": route = "list"
+  elif head == "POST" and path == "/accounts": route = "create"
+  elif head == "POST" and path == "/transfer": route = "transfer"
+  elif segs.len() == 3 and segs[1] == "accounts" and segs[2].is_digit() and head == "GET":
+    route = "get"
+    id = segs[2].int()
+  elif segs.len() == 4 and segs[1] == "accounts" and segs[2].is_digit() and head == "POST" and (segs[3] == "deposit" or segs[3] == "withdraw"):
+    route = segs[3]
+    id = segs[2].int()
+  else: return "404 " + str({"error": "not found"})
+  if route == "list":
+    ids = (1..owners.len() + 1).sort_by(i => (-bals[i - 1], i))
+    return "200 " + str([acct(i) for i in ids].json())
+  j = json("{}")
+  if route != "get":
+    if body:
+      match json(body):
+        Ok(v) => j = v
+        Err(m) => return "400 " + str({"error": "bad json"})
+  if route == "create":
+    match j["owner"]:
+      Str(s) =>
+        if s.is_empty(): return "400 " + str({"error": "owner required"})
+        owners.push(s)
+        bals.push(0)
+        return "201 " + str(acct(owners.len()))
+      _ => return "400 " + str({"error": "owner required"})
+  if route == "transfer":
+    a = idof(j, "from")
+    b = idof(j, "to")
+    if not exists(a) or not exists(b): return "404 " + str({"error": "no such account"})
+    if a == b: return "400 " + str({"error": "same account"})
+    n = amt(j)
+    if n < 0: return "400 " + str({"error": "bad amount"})
+    if n > bals[a - 1]: return "409 " + str({"error": "insufficient funds"})
+    bals[a - 1] -= n
+    bals[b - 1] += n
+    return "200 " + str({"from": bals[a - 1], "to": bals[b - 1]})
+  if not exists(id): return "404 " + str({"error": "no such account"})
+  if route == "get": return "200 " + str(acct(id))
+  n = amt(j)
+  if n < 0: return "400 " + str({"error": "bad amount"})
+  if route == "withdraw":
+    if n > bals[id - 1]: return "409 " + str({"error": "insufficient funds"})
+    bals[id - 1] -= n
+  else: bals[id - 1] += n
+  "200 " + str(acct(id))
+
+for line in lines():
+  l = line.trim()
+  if l: print(handle(l))

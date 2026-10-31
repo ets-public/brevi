@@ -1,0 +1,31 @@
+db: {str: str} = {}
+snaps: [{str: str}] = []
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  c = w[0]
+  if c == "SET": db[w[1]] = w[2]
+  elif c == "GET": print(if db.has(w[1]): db[w[1]] else: "NULL")
+  elif c == "DEL":
+    if db.has(w[1]): db.remove(w[1])
+    else: print("NOT FOUND")
+  elif c == "INCR":
+    cur = if db.has(w[1]): db[w[1]] else: "0"
+    match cur.int():
+      Ok(v) =>
+        nv = v + w[2].int()
+        db[w[1]] = nv.str()
+        print(nv)
+      Err(m) => print("ERR not an integer")
+  elif c == "COUNT": print(db.values().count(v => v == w[1]))
+  elif c == "KEYS":
+    ks = [k for k in db.keys() if k.starts_with(w[1])]
+    print(if ks: ks.join(" ") else: "(empty)")
+  elif c == "BEGIN": snaps.push(db)
+  elif c == "ROLLBACK":
+    if snaps: db = snaps.pop()
+    else: print("NO TRANSACTION")
+  elif c == "COMMIT":
+    if snaps: snaps = []
+    else: print("NO TRANSACTION")
+  else: print("ERR unknown command")

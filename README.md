@@ -1,17 +1,19 @@
 # Brevi
 
-A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one JSON line with a suggested fix.
+A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one short JSON line with a suggested fix.
 
-The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,081 tokens (exact count, Sonnet tokenizer).
+The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,251 tokens (exact count, Sonnet tokenizer).
 
-## Status: v0.11
+## Status: v0.12
 
 Works today:
 - Parser for the full core syntax in BREVI.md
 - Front-end checks with short JSON errors: unknown names and methods with "did you mean" hints, wrong argument counts, names used outside their block
 - Brevi's own type check before rustc: a name changing type, `str + int`, int/f64 mixing and wrong argument types get plain one-line errors with the line where the name was set. `t[1]` on a tuple, `xs.1` on a list and whole-number literals next to an f64 are fixed silently
 - Emits Rust and builds it with `rustc`. rustc errors are mapped back to the Brevi line and rewritten in Brevi's type names
-- `run`, `test`, `check`, `build`, `emit`
+- `run`, `test`, `check`, `build`, `emit`, and `fix`, which writes every suggested rename into the file
+- Errors are `{"line":N,"msg":...,"fix":...}`: no file path, column, kind or rustc code. A small typo of a known name (`totl` for `total`) is fixed during the build without an error
+- Python spellings models write by habit are accepted: `True`/`False`, `a if c else b`, `range()`, `for c in s`, `enumerate()`, `int()`, `ord()`, `chr()`, `.append()`, `.strip()`, `.split()`, `.items()`, `.get(k, d)`, `", ".join(xs)` and more. `let` names can be changed, and `xs.sort()` as a statement sorts xs
 - Runtime prelude with strings, lists, maps (hash lookups, listed in key order), files, stdin, JSON, CSV, dates, big integers, exact decimals and a min-heap
 - JSON objects from map literals (`str({"id": 1, "name": n})`), `x.json()`, and Python-syntax regexes (`re_full`, `re_find`, `re_all`, `re_sub`, `re_split`)
 - Python-style indented blocks (`if x:` and an indented body), with braces still accepted
@@ -21,16 +23,21 @@ Works today:
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
 
-Exact tokens (v0.11, 31 Oct 2026). Counted with Anthropic's count_tokens endpoint (Sonnet tokenizer) instead of the old estimate. Average of 2 fresh runs per model and language, code written plus errors read, all tasks solved in every run:
+Exact tokens (v0.12, 31 Oct 2026), counted with Anthropic's count_tokens endpoint (Sonnet tokenizer). Each figure is code written plus errors read for the whole task set, averaged over 2 fresh runs; every task was solved in every run. Retries are counted as patches: the first check counts the whole file and each retry counts only the lines it changed (old plus new), the same for both languages, and subjects are told to edit only the lines that need it.
 
-| Task set | Model | Brevi with retries | Python with retries | Brevi finished code | Python finished code | First try (Brevi / Python) |
+| Task set | Model | Brevi | Python | Brevi finished code | Python finished code | First try (Brevi / Python) |
 | --- | --- | --- | --- | --- | --- | --- |
-| 18 small | Sonnet | 4,712 | 4,453 | 4,586 | 4,327 | 36 / 36 of 36 |
-| 18 small | Haiku | 7,341 | 6,882 | 5,889 | 6,756 | 32 / 36 of 36 |
-| 8 big | Sonnet | 12,461 | 8,697 | 8,923 | 8,641 | 13 / 16 of 16 |
-| 8 big | Haiku | 14,821 | 10,613 | 11,002 | 10,014 | 12 / 15 of 16 |
+| 18 small | Sonnet | **4,654** | 5,016 | 4,487 | 4,890 | 35 / 36 of 36 |
+| 18 small | Haiku | **5,307** | 5,671 | 5,125 | 5,545 | 34 / 36 of 36 |
+| 8 big | Sonnet | **8,833** | 9,141 | 8,597 | 9,085 | 13 / 16 of 16 |
+| 8 big | Haiku | **11,161** | 11,259 | 10,214 | 10,620 | 12 / 14 of 16 |
 
-Python wins all four on total tokens. Finished Brevi code is 3 to 10% larger than Python except Haiku's small tasks, where it is 13% smaller; retries are the larger cost, because a failed check means rewriting the whole file. Brevi errors also print the full file path (about 25 tokens a line), an easy saving. The old estimate undercounted every language (Brevi by 16%, Python by 19%, Rust by 12%, over 964 saved solutions), so earlier gaps were close to right. The figures below are estimates.
+Brevi now uses fewer tokens than Python on all four: 7% fewer on the small tasks for both models, 3% (Sonnet) and 1% (Haiku) fewer on the big ones. The big-task lead is smaller than run-to-run noise, so call those two a tie for now. The big-task Brevi figures are from 2 fresh runs on the final v0.12 compiler (runs p3, p4); the small-task and Python figures are from runs p1 and p2. Python still passes first time more often on big tasks, and 5 of the 7 failed first tries left are empty lists or maps whose type the compiler could not work out, the next thing to fix.
+Counted the old way, with every retry rewriting the whole file, big tasks stay behind Python (Sonnet 11,051 vs 9,141, Haiku 14,592 vs 12,688), so the patch-style retries matter as much as the compiler fixes.
+
+What changed since v0.11: shorter error lines, typo fixes applied during the build, `brevi fix`, the Python spellings above, and fixes for every other first-try failure seen in runs p1 and p2 (8 of those 14 failed first attempts now pass as written). All 795 saved solutions that the v0.11 compiler builds print the same with v0.12.
+
+Older results (v0.11, exact tokens, every retry counted as a whole file): small Sonnet 4,712 vs Python 4,453, small Haiku 7,341 vs 6,882, big Sonnet 12,461 vs 8,697, big Haiku 14,821 vs 10,613. Python's own totals moved between the two sessions (small Sonnet 4,453 then 5,016 on the same tasks), so compare languages within a session. Scored as patches, those same v0.11 runs give small Sonnet 4,712 vs 4,453, small Haiku 6,331 vs 6,882, big Sonnet 10,868 vs 8,697 and big Haiku 11,516 vs 10,184.
 
 Tokens per finished task set (estimated; 18 tasks: code written plus errors read, average of 2 runs; Python from earlier runs of the same tasks):
 
@@ -61,6 +68,7 @@ Speed (best of 3, seconds):
 
 Not done yet:
 - Full type inference: the check covers the common mistakes, and rarer type errors still come from rustc, translated
+- Type inference for empty lists and maps that are only filled inside functions from values of unknown type
 - Edit-by-name patches and compact output printing
 
 ## Build and try

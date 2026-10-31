@@ -1,0 +1,9 @@
+fn isred(v: Json) -> bool = match v:
+  Str(s) => s == "red"
+  _ => false
+fn sm(j: Json) -> f64 = match j:
+  Num(n) => n
+  Arr(xs) => sum(sm(x) for x in xs)
+  Obj(m) => if any(isred(v) for v in m.values()): 0.0 else: sum(sm(v) for v in m.values())
+  _ => 0.0
+print(sm(json(stdin())).int())

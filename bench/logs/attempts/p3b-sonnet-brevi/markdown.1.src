@@ -1,0 +1,76 @@
+fn esc(t: str) = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+fn fmt(t: str) -> str:
+  r = t.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  r = r.re_sub("\*(.+?)\*", "<em>\1</em>")
+  r.re_sub("\[([^\]]+)\]\(([^)]+)\)", "<a href=\"\2\">\1</a>")
+fn inline(t: str) -> str:
+  parts = esc(t).split("`")
+  res = ""
+  n = parts.len()
+  for i in 0..n:
+    if i % 2 == 0: res += fmt(parts[i])
+    elif i == n - 1: res += "`" + parts[i]
+    else: res += "<code>" + parts[i] + "</code>"
+  res
+toks = []
+code = []
+incode = false
+for line in lines():
+  if incode:
+    if line == "```":
+      toks.push(("code", code.map(c => esc(c)).join("\n"), 0))
+      incode = false
+    else: code.push(line)
+    continue
+  hm = line.re_full("(#{1,6}) (.*)")
+  om = line.re_full("(\d+)\. (.*)")
+  if line == "```":
+    incode = true
+    code = []
+  elif line.trim().is_empty(): toks.push(("blank", "", 0))
+  elif hm: toks.push(("h", hm[2], hm[1].len()))
+  elif line.starts_with("- "): toks.push(("ul", line.slice(2), 0))
+  elif om: toks.push(("ol", om[2], 0))
+  else: toks.push(("p", line, 0))
+if incode: toks.push(("code", code.map(c => esc(c)).join("\n"), 0))
+out = []
+toc = []
+used = {}
+i = 0
+while i < toks.len():
+  k = toks[i].0
+  if k == "h":
+    raw = toks[i].1
+    lv = toks[i].2
+    id = raw.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    cand = id
+    if used.has(id):
+      d = 2
+      while used.has(id + "-" + d.str()): d += 1
+      cand = id + "-" + d.str()
+    used[cand] = 1
+    used[id] = 1
+    out.push("<h{lv} id=\"{cand}\">{inline(raw)}</h{lv}>")
+    toc.push("<a href=\"#{cand}\">{esc(raw.replace("`", "").replace("*", ""))}</a>")
+    i += 1
+  elif k == "code":
+    out.push("<pre><code>" + toks[i].1 + "</code></pre>")
+    i += 1
+  elif k == "blank": i += 1
+  else:
+    j = i
+    items = []
+    while j < toks.len() and toks[j].0 == k:
+      items.push(toks[j].1)
+      j += 1
+    if k == "p": out.push("<p>" + " ".join(items.map(x => inline(x))) + "</p>")
+    else:
+      out.push("<{k}>")
+      for x in items: out.push("<li>" + inline(x) + "</li>")
+      out.push("</{k}>")
+    i = j
+if toc.len() >= 2:
+  print("<nav>")
+  for t in toc: print(t)
+  print("</nav>")
+for o in out: print(o)

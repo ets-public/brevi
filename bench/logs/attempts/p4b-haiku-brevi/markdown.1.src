@@ -1,0 +1,87 @@
+used = {}
+
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt(s: str) -> str:
+  r = s.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  r = r.re_sub("\*(.+?)\*", "<em>\1</em>")
+  return r.re_sub("\[([^\]]+)\]\(([^)]+)\)", "<a href=\"\2\">\1</a>")
+
+fn inl(s: str) -> str:
+  sg = esc(s).split("`")
+  ns = sg.len()
+  r = fmt(sg[0])
+  for jj in 1..ns:
+    if jj % 2 == 1 and jj < ns - 1:
+      r += "<code>" + sg[jj] + "</code>"
+    elif jj % 2 == 1:
+      r += "`" + fmt(sg[jj])
+    else:
+      r += fmt(sg[jj])
+  return r
+
+fn slug(s: str) -> str:
+  r = s.lower().re_sub("[^a-z0-9]+", "-")
+  return r.re_sub("^-+|-+$", "")
+
+fn plain(s: str) -> str = s.replace("`", "").replace("*", "")
+
+fn uniq(base: str) -> str:
+  cand = base
+  kk = 2
+  while used.has(cand):
+    cand = base + "-" + str(kk)
+    kk += 1
+  used[cand] = 1
+  return cand
+
+fn special(s: str) -> bool = s.trim() == "" or s == "```" or s.starts_with("- ") or not s.re_full("(#{1,6}) (.+)").is_empty() or not s.re_full("(\d+)\. (.*)").is_empty()
+
+src = lines()
+n = src.len()
+blocks = []
+toc = []
+i = 0
+while i < n:
+  line = src[i]
+  hm = line.re_full("(#{1,6}) (.+)")
+  om = line.re_full("(\d+)\. (.*)")
+  if line.trim() == "":
+    i += 1
+  elif line == "```":
+    body = []
+    i += 1
+    while i < n and src[i] != "```":
+      body.push(esc(src[i]))
+      i += 1
+    i += 1
+    blocks.push("<pre><code>" + "\n".join(body) + "</code></pre>")
+  elif not hm.is_empty():
+    raw = hm[2].trim()
+    lv = hm[1].len()
+    hid = uniq(slug(raw))
+    blocks.push("<h" + str(lv) + " id=\"" + hid + "\">" + inl(raw) + "</h" + str(lv) + ">")
+    toc.push("<a href=\"#" + hid + "\">" + esc(plain(raw)) + "</a>")
+    i += 1
+  elif line.starts_with("- "):
+    items = []
+    while i < n and src[i].starts_with("- "):
+      items.push("<li>" + inl(src[i].slice(2)) + "</li>")
+      i += 1
+    blocks.push("<ul>\n" + "\n".join(items) + "\n</ul>")
+  elif not om.is_empty():
+    items = []
+    while i < n and not src[i].re_full("(\d+)\. (.*)").is_empty():
+      items.push("<li>" + inl(src[i].re_full("(\d+)\. (.*)")[2]) + "</li>")
+      i += 1
+    blocks.push("<ol>\n" + "\n".join(items) + "\n</ol>")
+  else:
+    para = []
+    while i < n and not special(src[i]):
+      para.push(src[i].trim())
+      i += 1
+    blocks.push("<p>" + inl(" ".join(para)) + "</p>")
+
+if toc.len() >= 2:
+  blocks = ["<nav>\n" + "\n".join(toc) + "\n</nav>"] + blocks
+print("\n".join(blocks))

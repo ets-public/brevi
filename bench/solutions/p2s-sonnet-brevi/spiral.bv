@@ -1,0 +1,33 @@
+ls = lines()
+rc = ls[0].ints()
+R = rc[0]
+C = rc[1]
+flat = []
+for line in ls[1:]:
+  flat = flat + line.ints()
+out = []
+top = 0
+bot = R - 1
+left = 0
+right = C - 1
+while top <= bot and left <= right:
+  for j in left..right + 1:
+    out.push(flat[top * C + j])
+  top += 1
+  for i in top..bot + 1:
+    out.push(flat[i * C + right])
+  right -= 1
+  if top <= bot:
+    for j in (left..right + 1).rev():
+      out.push(flat[bot * C + j])
+    bot -= 1
+  if left <= right:
+    for i in (top..bot + 1).rev():
+      out.push(flat[i * C + left])
+    left += 1
+print(out.join(" "))
+cols = [0].repeat(C)
+for i in 0..R:
+  for j in 0..C:
+    cols[j] += flat[i * C + j]
+print(cols.join(" "))

@@ -1,0 +1,48 @@
+pat = "(\S+) - - \[[^\]:]+:(\d\d):\d\d:\d\d [^\]]*\] \"(\S+) (\S+) (\S+)\" (\d\d\d) (\d+|-) \"([^\"]*)\" \"([^\"]*)\""
+good = 0
+bad = 0
+total = 0
+ips = {}
+classes = {}
+paths = {}
+hours = {}
+bots = 0
+errs = {}
+for line in lines():
+  g = line.trim().re_full(pat)
+  if g.is_empty():
+    bad += 1
+    continue
+  good += 1
+  ip = g[1]
+  if g[7] != "-": total += g[7].int()
+  ips[ip] = 1
+  st = g[6].int()
+  classes[st // 100] += 1
+  p = g[4].split("?")[0]
+  paths[p] += 1
+  hours[g[2]] += 1
+  if "bot" in g[9].lower(): bots += 1
+  if st >= 400: errs[ip] += 1
+print("requests {good}")
+print("malformed {bad}")
+print("bytes {total}")
+print("unique_ips {ips.len()}")
+print("status")
+for c, n in classes.pairs():
+  print("  {c}xx {n}")
+print("top_paths")
+tp = paths.pairs().sort_by(p => (-p.1, p.0)).take(3)
+for p, n in tp:
+  print("  {n} {p}")
+print("hours")
+mx = hours.values().max().or(1)
+for h, n in hours.pairs():
+  k = (n * 40 + mx) // (2 * mx)
+  if k < 1: k = 1
+  print("  {h} {n} {"#".repeat(k)}")
+print("bots {bots}")
+print("errors_by_ip")
+ep = errs.pairs().filter(p => p.1 >= 2).sort_by(p => (-p.1, p.0))
+for p, n in ep:
+  print("  {p} {n}")

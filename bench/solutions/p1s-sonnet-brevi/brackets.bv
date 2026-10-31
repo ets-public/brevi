@@ -1,0 +1,16 @@
+for line in lines():
+  st = []
+  err = 0
+  i = 0
+  for c in line.chars():
+    i += 1
+    if c in "([{": st.push(c)
+    elif c in ")]}":
+      want = if c == ")": "(" elif c == "]": "[" else: "{"
+      if st.is_empty() or st[-1] != want:
+        err = i
+        break
+      st.pop()
+  if err == 0 and st: err = line.len() + 1
+  if err == 0: print("ok")
+  else: print("error at {err}")

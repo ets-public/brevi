@@ -1,0 +1,55 @@
+cs = []
+pos = 0
+bad = false
+fn expr() -> int:
+  v = term()
+  while pos < cs.len() and (cs[pos] == "+" or cs[pos] == "-"):
+    op = cs[pos]
+    pos += 1
+    r = term()
+    if op == "+":
+      v += r
+    else:
+      v -= r
+  return v
+fn term() -> int:
+  v = factor()
+  while pos < cs.len() and (cs[pos] == "*" or cs[pos] == "/"):
+    op = cs[pos]
+    pos += 1
+    r = factor()
+    if op == "*":
+      v *= r
+    elif r == 0:
+      bad = true
+    else:
+      v = v / r
+  return v
+fn factor() -> int:
+  if pos >= cs.len():
+    return 0
+  c = cs[pos]
+  if c == "-":
+    pos += 1
+    return -factor()
+  if c == "(":
+    pos += 1
+    v = expr()
+    pos += 1
+    return v
+  n = 0
+  while pos < cs.len() and cs[pos].is_digit():
+    n = n * 10 + cs[pos].digit()
+    pos += 1
+  return n
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  cs = line.replace(" ", "").chars()
+  pos = 0
+  bad = false
+  v = expr()
+  if bad:
+    print("error")
+  else:
+    print(v)

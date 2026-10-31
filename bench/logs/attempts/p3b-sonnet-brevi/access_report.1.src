@@ -1,0 +1,45 @@
+requests = 0
+malformed = 0
+total = 0
+ips = {}
+classes = {}
+paths = {}
+hours = {}
+bots = 0
+errs = {}
+for line in lines():
+  g = line.re_full("(\S+) - - \[[^\]:]*:(\d\d):\d\d:\d\d [^\]]*\] \"(\S+) (\S+) (\S+)\" (\d{3}) (\d+|-) \"([^\"]*)\" \"([^\"]*)\"")
+  if g.is_empty():
+    malformed += 1
+    continue
+  requests += 1
+  if g[7] != "-": total += g[7].int()
+  ips[g[1]] += 1
+  st = g[6].int()
+  classes[g[6][:1]] += 1
+  p = g[4].split("?")[0]
+  paths[p] += 1
+  hours[g[2]] += 1
+  if "bot" in g[9].lower(): bots += 1
+  if st >= 400: errs[g[1]] += 1
+print("requests {requests}")
+print("malformed {malformed}")
+print("bytes {total}")
+print("unique_ips {ips.len()}")
+print("status")
+for k, v in classes.pairs():
+  print("  {k}xx {v}")
+print("top_paths")
+tp = paths.pairs().sort_by(p => (-p.1, p.0)).take(3)
+for k, v in tp:
+  print("  {v} {k}")
+print("hours")
+mx = max(hours.values())
+for k, v in hours.pairs():
+  n = max((40 * v + mx) // (2 * mx), 1)
+  print("  {k} {v} {"#".repeat(n)}")
+print("bots {bots}")
+print("errors_by_ip")
+ep = errs.pairs().filter(p => p.1 >= 2).sort_by(p => (-p.1, p.0))
+for k, v in ep:
+  print("  {k} {v}")

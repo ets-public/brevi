@@ -1,0 +1,135 @@
+fn split_first(s: str) -> (str, str):
+  i = s.find(" ")
+  if i < 0: return (s, "")
+  return (s.slice(0, i), s.slice(i + 1))
+
+fn field(j: Json, key: str) -> Json:
+  match j:
+    Obj(m) => if m.has(key): m[key] else: Null
+    _ => Null
+
+fn posint(v: Json) -> int:
+  match v:
+    Num(n) => if n >= 1.0 and n == n.floor(): n.int() else: 0
+    _ => 0
+
+fn acct(names: [str], bals: [int], i: int) -> str:
+  return "{{\"id\":{i},\"owner\":\"{names[i - 1]}\",\"balance\":{bals[i - 1]}\}"
+
+fn main():
+  names: [str] = []
+  bals: [int] = []
+  not_found = "{\"error\":\"not found\"}"
+  no_acct = "{\"error\":\"no such account\"}"
+  bad_amt = "{\"error\":\"bad amount\"}"
+  ins = "{\"error\":\"insufficient funds\"}"
+  same = "{\"error\":\"same account\"}"
+  owner_req = "{\"error\":\"owner required\"}"
+  bad_json = "{\"error\":\"bad json\"}"
+  for line in lines():
+    if line.trim() == "": continue
+    method, rest = split_first(line)
+    path, body = split_first(rest)
+    parts = path.split("/")
+    n = parts.len()
+    kind = ""
+    aid = 0
+    if method == "GET" and path == "/accounts":
+      kind = "list"
+    elif method == "POST" and path == "/accounts":
+      kind = "create"
+    elif method == "POST" and path == "/transfer":
+      kind = "transfer"
+    elif method == "GET" and n == 3 and parts[1] == "accounts":
+      aid = parts[2].int().or(0)
+      if aid > 0: kind = "get"
+    elif method == "POST" and n == 4 and parts[1] == "accounts" and (parts[3] == "deposit" or parts[3] == "withdraw"):
+      aid = parts[2].int().or(0)
+      if aid > 0: kind = parts[3]
+    code = 404
+    resp = not_found
+    bad = false
+    j = Null
+    if kind == "create" or kind == "transfer" or kind == "deposit" or kind == "withdraw":
+      if body.trim() != "":
+        match json(body):
+          Ok(v) => j = v
+          Err(e) => bad = true
+    if kind == "":
+      code = 404
+      resp = not_found
+    elif bad:
+      code = 400
+      resp = bad_json
+    elif kind == "list":
+      keys = []
+      for i in 0..names.len():
+        keys.push((-bals[i], i + 1))
+      keys.sort()
+      items = []
+      for k in keys:
+        items.push(acct(names, bals, k.1))
+      code = 200
+      resp = "[" + items.join(",") + "]"
+    elif kind == "create":
+      name = match field(j, "owner"):
+        Str(s) => s
+        _ => ""
+      if name == "":
+        code = 400
+        resp = owner_req
+      else:
+        names.push(name)
+        bals.push(0)
+        code = 201
+        resp = acct(names, bals, names.len())
+    elif kind == "get":
+      if aid > names.len():
+        code = 404
+        resp = no_acct
+      else:
+        code = 200
+        resp = acct(names, bals, aid)
+    elif kind == "deposit" or kind == "withdraw":
+      if aid > names.len():
+        code = 404
+        resp = no_acct
+      else:
+        amt = posint(field(j, "amount"))
+        if amt == 0:
+          code = 400
+          resp = bad_amt
+        elif kind == "deposit":
+          bals[aid - 1] += amt
+          code = 200
+          resp = acct(names, bals, aid)
+        elif bals[aid - 1] < amt:
+          code = 409
+          resp = ins
+        else:
+          bals[aid - 1] -= amt
+          code = 200
+          resp = acct(names, bals, aid)
+    elif kind == "transfer":
+      fid = posint(field(j, "from"))
+      tid = posint(field(j, "to"))
+      if fid == 0 or fid > names.len() or tid == 0 or tid > names.len():
+        code = 404
+        resp = no_acct
+      elif fid == tid:
+        code = 400
+        resp = same
+      else:
+        amt = posint(field(j, "amount"))
+        if amt == 0:
+          code = 400
+          resp = bad_amt
+        elif bals[fid - 1] < amt:
+          code = 409
+          resp = ins
+        else:
+          bals[fid - 1] -= amt
+          bals[tid - 1] += amt
+          code = 200
+          resp = "{\"from\":{bals[fid - 1]},\"to\":{bals[tid - 1]}\}"
+    print("{code} {resp}")

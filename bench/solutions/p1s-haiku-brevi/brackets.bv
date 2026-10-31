@@ -1,0 +1,20 @@
+pairs = {")": "(", "]": "[", "}": "{"}
+for line in lines():
+  stack = []
+  bad = 0
+  i = 0
+  for c in line.chars():
+    i += 1
+    if c == "(" or c == "[" or c == "{":
+      stack.push(c)
+    elif pairs.has(c):
+      if stack.is_empty() or stack[-1] != pairs[c]:
+        bad = i
+        break
+      stack.pop()
+  if bad > 0:
+    print("error at {bad}")
+  elif not stack.is_empty():
+    print("error at {line.len() + 1}")
+  else:
+    print("ok")

@@ -1,0 +1,58 @@
+fn tmin(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+fn pad(n: int) = if n < 10: "0" + n.str() else: n.str()
+fn hhmm(t: int) = pad(t // 60) + ":" + pad(t % 60)
+names = []
+stns = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  w = line.words()
+  if line.trim() == "---":
+    second = true
+    continue
+  if w.is_empty(): continue
+  if second:
+    queries.push(w)
+  else:
+    names.push(w[0])
+    ss = []
+    ts = []
+    for i in 0..(w.len() - 1) // 2:
+      ss.push(w[1 + 2 * i])
+      ts.push(tmin(w[2 + 2 * i]))
+    stns.push(ss)
+    tms.push(ts)
+for qw in queries:
+  src = qw[0]
+  dst = qw[1]
+  q = tmin(qw[2])
+  if src == dst:
+    print("{src} {dst} {hhmm(q)} via -")
+    continue
+  best: {str: (int, int, str)} = {}
+  changed = true
+  while changed:
+    changed = false
+    for t in 0..names.len():
+      ss = stns[t]
+      ts = tms[t]
+      for i in 0..ss.len() - 1:
+        base = []
+        if ss[i] == src and ts[i] >= q: base.push((0, ""))
+        if best.has(ss[i]):
+          b = best[ss[i]]
+          if b.0 + 5 <= ts[i]: base.push((b.1, b.2))
+        for bb in base:
+          lst = if bb.1 == "": names[t] else: bb.1 + ">" + names[t]
+          for j in i + 1..ss.len():
+            cand = (ts[j], bb.0 + 1, lst)
+            if not best.has(ss[j]) or cand < best[ss[j]]:
+              best[ss[j]] = cand
+              changed = true
+  if best.has(dst):
+    b = best[dst]
+    print("{src} {dst} {hhmm(b.0)} via {b.2}")
+  else: print("{src} {dst} unreachable")

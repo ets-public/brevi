@@ -341,16 +341,47 @@ fn own_use(body: &str, n: &str) -> bool {
     sets_first(body, n) && body.matches(&id).count() > body.matches(&format!("target: {id}, op: \"=\"")).count()
 }
 
-// Is the first later statement that mentions n a plain `n = value` (at this level, not reading n)?
-fn stmts_set_first(rest: &[Stmt], n: &str) -> bool {
+// Do the later statements read n before setting it? Blocks inside if, match and loops are checked on their own:
+// a block that sets n first does not need the outer value.
+fn stmts_set_first(rest: &[Stmt], tail: Option<&Expr>, n: &str) -> bool {
+    !reads_before_set(rest, tail, n)
+}
+
+fn reads_before_set(stmts: &[Stmt], tail: Option<&Expr>, n: &str) -> bool {
     let mentions = |t: &str| t.contains(&format!("Ident({n:?})")) || t.contains(&format!("Move({n:?})"));
-    for s in rest {
+    for s in stmts {
         if !mentions(&format!("{s:?}")) {
             continue;
         }
-        return matches!(s, Stmt::Assign { target: Expr::Ident(x), op: "=", value, .. } if x == n && !mentions(&format!("{value:?}")));
+        match s {
+            Stmt::Assign { target: Expr::Ident(x), op: "=", value, .. } if x == n => return mentions(&format!("{value:?}")),
+            Stmt::Expr { expr, .. } => {
+                if expr_reads_before_set(expr, n) {
+                    return true;
+                }
+            }
+            _ => return true,
+        }
     }
-    false
+    tail.map_or(false, |t| mentions(&format!("{t:?}")))
+}
+
+fn expr_reads_before_set(e: &Expr, n: &str) -> bool {
+    let mentions = |t: &str| t.contains(&format!("Ident({n:?})")) || t.contains(&format!("Move({n:?})"));
+    let block = |b: &Expr| match b {
+        Expr::Block(st, t) => reads_before_set(st, t.as_deref(), n),
+        other => mentions(&format!("{other:?}")),
+    };
+    match e {
+        Expr::If(c, a, b) => mentions(&format!("{c:?}")) || block(a) || b.as_deref().map_or(false, |b| match b {
+            Expr::If(..) => expr_reads_before_set(b, n),
+            b => block(b),
+        }),
+        Expr::For(_, it, body) => mentions(&format!("{it:?}")) || block(body),
+        Expr::While(c, body) => mentions(&format!("{c:?}")) || block(body),
+        Expr::Block(..) => block(e),
+        other => mentions(&format!("{other:?}")),
+    }
 }
 
 fn sets_first(body: &str, n: &str) -> bool {
@@ -873,7 +904,7 @@ impl Emitter {
             branch_sets(e, &mut names);
             let rest = format!("{rest:?} {tail:?}");
             for n in names {
-                if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !stmts_set_first(rest_stmts, &n) {
+                if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !stmts_set_first(rest_stmts, tail, &n) {
                     out.push_str(&format!("    let mut {n};\n"));
                     self.locals.insert(n);
                 }

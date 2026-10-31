@@ -1,0 +1,90 @@
+fn jtext(j: Json) -> str:
+  match j:
+    Str(s) => s
+    Num(n) => n.int().str()
+    _ => ""
+
+fn jq(s: str) -> str = str(s.json())
+
+fn items(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn objof(j: Json) -> {str: Json}:
+  match j:
+    Obj(m) => m
+    _ => {}
+
+fn qty_of(l: Json) -> int:
+  match l["qty"]:
+    Num(n) => n.int()
+    _ => 0
+
+fn main():
+  doc = json(stdin())
+  pm = objof(doc["products"])
+  cm = objof(doc["customers"])
+  ol = items(doc["orders"])
+  prices = {}
+  cats = {}
+  for sku, pj in pm.pairs():
+    prices[sku] = jtext(pj["price"]).dec()
+    cats[sku] = jtext(pj["category"])
+  rev = "0".dec()
+  outs = []
+  for o in ol:
+    oid = jtext(o["id"])
+    cid = jtext(o["customer"])
+    lines_j = items(o["lines"])
+    if not cm.has(cid):
+      msg = "unknown customer " + cid
+      outs.push("{{\"id\":{jq(oid)},\"error\":{jq(msg)}\}")
+      continue
+    unk = ""
+    for l in lines_j:
+      sku = jtext(l["sku"])
+      if unk == "" and not prices.has(sku):
+        unk = sku
+    if unk != "":
+      msg = "unknown sku " + unk
+      outs.push("{{\"id\":{jq(oid)},\"error\":{jq(msg)}\}")
+      continue
+    catq = {}
+    for l in lines_j:
+      sku = jtext(l["sku"])
+      catq[cats[sku]] += qty_of(l)
+    sub = "0".dec()
+    cdisc = "0".dec()
+    for l in lines_j:
+      sku = jtext(l["sku"])
+      amt = prices[sku] * qty_of(l)
+      sub += amt
+      if catq[cats[sku]] >= 3:
+        cdisc += (amt * "0.05".dec()).round(2)
+    after = sub - cdisc
+    tier = jtext(cm[cid]["tier"])
+    rate = "0".dec()
+    if tier == "gold":
+      rate = "0.10".dec()
+    elif tier == "silver":
+      rate = "0.05".dec()
+    tdisc = (after * rate).round(2)
+    disc = cdisc + tdisc
+    country = jtext(cm[cid]["country"])
+    trate = "0".dec()
+    if country == "UK":
+      trate = "0.20".dec()
+    elif country == "US":
+      trate = "0.0825".dec()
+    tax = ((after - tdisc) * trate).round(2)
+    total = after - tdisc + tax
+    rev += total
+    name = jtext(cm[cid]["name"])
+    ss = sub.fmt(2)
+    ds = disc.fmt(2)
+    ts = tax.fmt(2)
+    tt = total.fmt(2)
+    outs.push("{{\"id\":{jq(oid)},\"customer\":{jq(name)},\"subtotal\":\"{ss}\",\"discount\":\"{ds}\",\"tax\":\"{ts}\",\"total\":\"{tt}\"\}")
+  print("[" + outs.join(",") + "]")
+  print("revenue {rev.fmt(2)}")

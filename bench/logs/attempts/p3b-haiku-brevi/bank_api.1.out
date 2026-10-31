@@ -1,0 +1,1 @@
+{"line":19,"msg":"type annotations needed for [_]","fix":"give the empty value a type, e.g. m: {str: int} = {} or xs: [str] = []"}

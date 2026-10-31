@@ -1,0 +1,105 @@
+fn has_key(j: Json, k: str) -> bool = match j:
+  Obj(m) => m.has(k)
+  _ => false
+fn lookup(name: str, ctx: [Json]) -> Json:
+  if name == ".": return ctx.last()
+  segs = name.split(".")
+  i = ctx.len() - 1
+  while i >= 0:
+    if has_key(ctx[i], segs[0]):
+      cur = ctx[i]
+      for s in segs: cur = cur[s]
+      return cur
+    i -= 1
+  Null
+fn truthy(j: Json) -> bool = match j:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => s != ""
+  Arr(xs) => xs.len() > 0
+  Obj(m) => true
+fn text(j: Json) -> str = match j:
+  Null => ""
+  Str(s) => s
+  Bool(b) => if b: "true" else: "false"
+  _ => str(j)
+fn alen(j: Json) -> int = match j:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  Obj(m) => m.len()
+  _ => 0
+fn value(tag: str, ctx: [Json], idxs: [int]) -> str:
+  parts = tag.split("|")
+  name = parts[0].trim()
+  cur = Null
+  if name == "@index": cur = idxs.last().json()
+  else: cur = lookup(name, ctx)
+  for p in parts.slice(1):
+    f = p.trim()
+    if f == "upper": cur = text(cur).upper().json()
+    elif f == "lower": cur = text(cur).lower().json()
+    elif f == "len": cur = alen(cur).json()
+    elif f.starts_with("default:"):
+      if text(cur) == "": cur = f.slice(8).json()
+  text(cur)
+fn render(toks: [str], a: int, b: int, ctx: [Json], idxs: [int]) -> str:
+  out = ""
+  i = a
+  while i < b:
+    t = toks[i]
+    if t.starts_with("T"):
+      out += t.slice(1)
+      i += 1
+      continue
+    tag = t.slice(1).trim()
+    if tag.starts_with("#each "):
+      depth = 1
+      j = i + 1
+      while depth > 0:
+        u = toks[j]
+        if u.starts_with("G"):
+          g = u.slice(1).trim()
+          if g.starts_with("#each "): depth += 1
+          elif g == "/each": depth -= 1
+        j += 1
+      arrj = lookup(tag.slice(6).trim(), ctx)
+      items = match arrj:
+        Arr(xs) => xs
+        _ => []
+      for k, it in enumerate(items):
+        out += render(toks, i + 1, j - 1, ctx + [it], idxs + [k])
+      i = j
+    elif tag.starts_with("#if "):
+      depth = 1
+      j = i + 1
+      els = -1
+      while depth > 0:
+        u = toks[j]
+        if u.starts_with("G"):
+          g = u.slice(1).trim()
+          if g.starts_with("#if "): depth += 1
+          elif g == "/if": depth -= 1
+          elif g == "else" and depth == 1: els = j
+        j += 1
+      if truthy(lookup(tag.slice(4).trim(), ctx)):
+        out += render(toks, i + 1, if els >= 0: els else: j - 1, ctx, idxs)
+      elif els >= 0:
+        out += render(toks, els + 1, j - 1, ctx, idxs)
+      i = j
+    else:
+      out += value(tag, ctx, idxs)
+      i += 1
+  out
+all = stdin()
+nl = all.find("\n")
+data = json(all.slice(0, nl))
+tpl = all.slice(nl + 1)
+texts = tpl.re_split("\{\{.*?\}\}")
+tags = [m[0] for m in tpl.re_all("\{\{(.*?)\}\}")]
+toks = []
+for i, tx in enumerate(texts):
+  toks.push("T" + tx)
+  if i < tags.len(): toks.push("G" + tags[i].slice(2, -2))
+res = render(toks, 0, toks.len(), [data], [0])
+print(res)

@@ -1,0 +1,90 @@
+fn hm(x: int) -> str:
+  h = x // 60
+  m = x % 60
+  hs = str(h)
+  ms = str(m)
+  if h < 10: hs = "0" + hs
+  if m < 10: ms = "0" + ms
+  return hs + ":" + ms
+
+fn parse_t(s: str) -> int:
+  p = s.split(":")
+  return p[0].int() * 60 + p[1].int()
+
+fn offer(mut lab: {str: (int, str)}, mut info: {str: (str, str, int)}, sta: str, tn: str, tm: int, n: int, p: str) -> bool:
+  key = sta + "|" + tn + "|" + str(tm)
+  if lab.has(key):
+    if (n, p) < lab[key]:
+      lab[key] = (n, p)
+      return true
+    return false
+  lab[key] = (n, p)
+  info[key] = (sta, tn, tm)
+  return true
+
+fn solve(names: [str], trs: {str: [str]}, tms: {str: [int]}, src: str, dst: str, t0: int) -> str:
+  if src == dst:
+    return src + " " + dst + " " + hm(t0) + " via -"
+  lab: {str: (int, str)} = {}
+  info: {str: (str, str, int)} = {}
+  for tn in names:
+    st = trs[tn]
+    tt = tms[tn]
+    for q in 0..(st.len() - 1):
+      if st[q] == src and tt[q] >= t0:
+        offer(lab, info, src, tn, tt[q], 1, tn)
+  changed = true
+  while changed:
+    changed = false
+    for key in lab.keys():
+      inf = info[key]
+      lb = lab[key]
+      s0 = inf.0
+      t1 = inf.1
+      a0 = inf.2
+      n0 = lb.0
+      p0 = lb.1
+      st = trs[t1]
+      tt = tms[t1]
+      ci = st.index_of(s0)
+      for j in (ci + 1)..st.len():
+        if offer(lab, info, st[j], t1, tt[j], n0, p0): changed = true
+      for un in names:
+        if un != t1:
+          su = trs[un]
+          tu = tms[un]
+          for k in 0..(su.len() - 1):
+            if su[k] == s0 and tu[k] >= a0 + 5:
+              if offer(lab, info, s0, un, tu[k], n0 + 1, p0 + ">" + un): changed = true
+  best = []
+  for key in lab.keys():
+    inf = info[key]
+    if inf.0 == dst:
+      lb = lab[key]
+      best.push((inf.2, lb.0, lb.1))
+  if best.is_empty(): return src + " " + dst + " unreachable"
+  b = min(best)
+  return src + " " + dst + " " + hm(b.0) + " via " + b.2
+
+fn main():
+  ls = lines()
+  sep = ls.index_of("---")
+  names = []
+  trs: {str: [str]} = {}
+  tms: {str: [int]} = {}
+  for ln in ls.slice(0, sep):
+    ws = ln.words()
+    if ws.is_empty(): continue
+    tn = ws[0]
+    st = []
+    tt = []
+    for q in 0..((ws.len() - 1) // 2):
+      st.push(ws[1 + 2 * q])
+      tt.push(parse_t(ws[2 + 2 * q]))
+    names.push(tn)
+    trs[tn] = st
+    tms[tn] = tt
+  for ln in ls.slice(sep + 1, ls.len()):
+    ws = ln.words()
+    if ws.is_empty(): continue
+    print(solve(names, trs, tms, ws[0], ws[1], parse_t(ws[2])))

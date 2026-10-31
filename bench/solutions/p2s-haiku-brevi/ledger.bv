@@ -1,0 +1,30 @@
+rows = csv(stdin())
+ins = {}
+outs = {}
+months = {}
+bal = {}
+for r in rows[1:]:
+  if r.len() < 3: continue
+  mo = r[0].trim().slice(0, 7)
+  acc = r[1].trim()
+  amt = r[2].trim().dec()
+  months[mo] = true
+  bal[acc] += amt
+  if amt > 0:
+    ins[mo] += amt
+  else:
+    outs[mo] += 0.dec() - amt
+ms = months.keys().sort()
+for mo in ms:
+  i_tot = ins[mo]
+  o_tot = outs[mo]
+  net = i_tot - o_tot
+  print("{mo} {i_tot.fmt(2)} {o_tot.fmt(2)} {net.fmt(2)}")
+top = ""
+topb = 0.dec()
+for acc, b in bal.pairs():
+  if top == "" or b > topb or (b == topb and acc < top):
+    top = acc
+    topb = b
+if top != "":
+  print("top {top} {topb.fmt(2)}")

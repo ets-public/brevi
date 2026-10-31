@@ -1,0 +1,29 @@
+ls = lines()
+W = ls[0].trim().int().or(80)
+pw = []
+cur_words = []
+for line in ls[1:]:
+  if line.trim().is_empty():
+    if cur_words.len() > 0:
+      pw.push(cur_words)
+      cur_words = []
+  else:
+    cur_words = cur_words + line.words()
+if cur_words.len() > 0:
+  pw.push(cur_words)
+
+first = true
+for para in pw:
+  if not first:
+    print("")
+  first = false
+  buf = ""
+  for w in para:
+    if buf == "":
+      buf = w
+    elif buf.len() + 1 + w.len() <= W:
+      buf = buf + " " + w
+    else:
+      print(buf)
+      buf = w
+  print(buf)

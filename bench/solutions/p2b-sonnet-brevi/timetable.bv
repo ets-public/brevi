@@ -1,0 +1,75 @@
+fn tmin(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str = if n < 10: "0" + n.str() else: n.str()
+
+fn fmtt(t: int) -> str = pad(t // 60) + ":" + pad(t % 60)
+
+names = []
+stns = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  l = line.trim()
+  if l == "---":
+    second = true
+    continue
+  if l.is_empty(): continue
+  w = l.words()
+  if not second:
+    names.push(w[0])
+    ss = []
+    ts = []
+    k = 1
+    while k + 1 < w.len():
+      ss.push(w[k])
+      ts.push(tmin(w[k + 1]))
+      k += 2
+    stns.push(ss)
+    tms.push(ts)
+  else:
+    queries.push(w)
+for q in queries:
+  fr = q[0]
+  to = q[1]
+  t0 = tmin(q[2])
+  if fr == to:
+    print("{fr} {to} {q[2]} via -")
+    continue
+  best: {(int, int): (int, [str])} = {}
+  for k in 0..names.len():
+    for i in 0..stns[k].len():
+      if stns[k][i] == fr and tms[k][i] >= t0:
+        best[(k, i)] = (1, [names[k]])
+  changed = true
+  while changed:
+    changed = false
+    for key, lab in best.pairs():
+      k = key.0
+      i = key.1
+      if i + 1 < stns[k].len():
+        nk = (k, i + 1)
+        if not best.has(nk) or lab < best[nk]:
+          best[nk] = lab
+          changed = true
+      arr = tms[k][i]
+      x = stns[k][i]
+      for u in 0..names.len():
+        if u != k:
+          for j in 0..stns[u].len():
+            if stns[u][j] == x and tms[u][j] >= arr + 5:
+              cand = (lab.0 + 1, lab.1 + [names[u]])
+              if not best.has((u, j)) or cand < best[(u, j)]:
+                best[(u, j)] = cand
+                changed = true
+  res = []
+  for key, lab in best.pairs():
+    if stns[key.0][key.1] == to:
+      res.push((tms[key.0][key.1], lab.0, lab.1))
+  if res.is_empty():
+    print("{fr} {to} unreachable")
+  else:
+    r = res.min()
+    print("{fr} {to} {fmtt(r.0)} via {">".join(r.2)}")

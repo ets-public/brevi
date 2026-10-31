@@ -1,0 +1,65 @@
+data = {}
+log = []
+marks = []
+for line in lines():
+  if line.trim() == "": continue
+  p = line.split(" ")
+  cmd = p[0]
+  if cmd == "SET":
+    k = p[1]
+    if marks: log.push((k, data.has(k), data.get_or(k, "")))
+    data[k] = p[2]
+  elif cmd == "GET":
+    print(data.get_or(p[1], "NULL"))
+  elif cmd == "DEL":
+    k = p[1]
+    if not data.has(k):
+      print("NOT FOUND")
+    else:
+      if marks: log.push((k, true, data[k]))
+      data.remove(k)
+  elif cmd == "INCR":
+    k = p[1]
+    match data.get_or(k, "0").int():
+      Ok(cur) =>
+        nv = cur + p[2].int()
+        if marks: log.push((k, data.has(k), data.get_or(k, "")))
+        data[k] = str(nv)
+        print(nv)
+      Err(e) => print("ERR not an integer")
+  elif cmd == "COUNT":
+    c = 0
+    for x in data.values():
+      if x == p[1]: c += 1
+    print(c)
+  elif cmd == "KEYS":
+    pre = p[1] if p.len() > 1 else ""
+    ks = []
+    for k in data.keys():
+      if k.starts_with(pre): ks.push(k)
+    ks.sort()
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(ks.join(" "))
+  elif cmd == "BEGIN":
+    marks.push(log.len())
+  elif cmd == "ROLLBACK":
+    if marks.is_empty():
+      print("NO TRANSACTION")
+    else:
+      m = marks.pop()
+      while log.len() > m:
+        e = log.pop()
+        if e.1:
+          data[e.0] = e.2
+        elif data.has(e.0):
+          data.remove(e.0)
+  elif cmd == "COMMIT":
+    if marks.is_empty():
+      print("NO TRANSACTION")
+    else:
+      marks = []
+      log = []
+  else:
+    print("ERR unknown command")

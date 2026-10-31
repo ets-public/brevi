@@ -1,0 +1,138 @@
+raw = {}
+memo = {}
+inprog = {}
+
+fn comb(a: int, b: int) -> int:
+  if a == 2 or b == 2: return 2
+  if a == 1 or b == 1: return 1
+  return 0
+
+fn pack(e: int, v: int, q: int) -> (int, int, int):
+  if e != 0: return (e, 0, q)
+  return (e, v, q)
+
+fn read_ref(s: str, p: int) -> (str, int):
+  q = p
+  while q < s.len() and s.slice(q, q + 1).is_alpha(): q += 1
+  while q < s.len() and s.slice(q, q + 1).is_digit(): q += 1
+  return (s.slice(p, q), q)
+
+fn cellval(c: str) -> (int, int):
+  if memo.has(c): return memo[c]
+  if inprog.has(c): return (2, 0)
+  if not raw.has(c): return (0, 0)
+  content = raw[c]
+  if not content.starts_with("="): return (0, content.int().or(0))
+  inprog[c] = 1
+  e, v, q = p_expr(content.slice(1), 0)
+  inprog.remove(c)
+  vv = v
+  if e != 0: vv = 0
+  memo[c] = (e, vv)
+  return (e, vv)
+
+fn p_func(s: str, name: str, p: int) -> (int, int, int):
+  a, q = read_ref(s, p)
+  b, q3 = read_ref(s, q + 1)
+  ac = a.slice(0, 1).code() - 65
+  bc = b.slice(0, 1).code() - 65
+  ar = a.slice(1).int().or(0)
+  br = b.slice(1).int().or(0)
+  e = 0
+  vals = []
+  for ci in min(ac, bc)..max(ac, bc) + 1:
+    for ri in min(ar, br)..max(ar, br) + 1:
+      ce, cv = cellval((ci + 65).char() + str(ri))
+      e = comb(e, ce)
+      vals.push(cv)
+  if e != 0: return (e, 0, q3 + 1)
+  if name == "SUM": return (0, vals.sum(), q3 + 1)
+  if name == "MIN": return (0, vals.min().or(0), q3 + 1)
+  return (0, vals.max().or(0), q3 + 1)
+
+fn p_primary(s: str, p: int) -> (int, int, int):
+  c = s.slice(p, p + 1)
+  if c == "(":
+    e, v, q = p_expr(s, p + 1)
+    return pack(e, v, q + 1)
+  if c.is_digit():
+    q = p
+    while q < s.len() and s.slice(q, q + 1).is_digit(): q += 1
+    return (0, s.slice(p, q).int().or(0), q)
+  if c.is_alpha():
+    w, q = read_ref(s, p)
+    if s.slice(q, q + 1) == "(":
+      return p_func(s, w, q + 1)
+    ce, cv = cellval(w)
+    return pack(ce, cv, q)
+  return (0, 0, p)
+
+fn p_unary(s: str, p: int) -> (int, int, int):
+  if s.slice(p, p + 1) == "-":
+    e, v, q = p_unary(s, p + 1)
+    return pack(e, -v, q)
+  return p_primary(s, p)
+
+fn p_term(s: str, p: int) -> (int, int, int):
+  e, v, q = p_unary(s, p)
+  while q < s.len() and (s.slice(q, q + 1) == "*" or s.slice(q, q + 1) == "/"):
+    op = s.slice(q, q + 1)
+    e2, v2, q = p_unary(s, q + 1)
+    if op == "*":
+      v = v * v2
+    elif v2 == 0:
+      e = comb(e, 1)
+    else:
+      v = v / v2
+    e = comb(e, e2)
+  return pack(e, v, q)
+
+fn p_expr(s: str, p: int) -> (int, int, int):
+  e, v, q = p_term(s, p)
+  while q < s.len() and (s.slice(q, q + 1) == "+" or s.slice(q, q + 1) == "-"):
+    op = s.slice(q, q + 1)
+    e2, v2, q = p_term(s, q + 1)
+    if op == "+":
+      v = v + v2
+    else:
+      v = v - v2
+    e = comb(e, e2)
+  return pack(e, v, q)
+
+for line in lines():
+  t = line.trim()
+  if t.is_empty(): continue
+  k = t.find("=")
+  name = t.slice(0, k).trim()
+  raw[name] = t.slice(k + 1).replace(" ", "")
+
+refs = []
+for key in raw.keys():
+  refs.push(key)
+  for m in raw[key].re_all("[A-Z][0-9]+"):
+    refs.push(m[0])
+maxc = 0
+maxr = 0
+for rf in refs:
+  maxc = max(maxc, rf.slice(0, 1).code() - 64)
+  maxr = max(maxr, rf.slice(1).int().or(0))
+
+hdr = []
+for c in 1..maxc + 1:
+  hdr.push((64 + c).char())
+print("\t" + "\t".join(hdr))
+for r in 1..maxr + 1:
+  cells = [str(r)]
+  for c in 1..maxc + 1:
+    key = (64 + c).char() + str(r)
+    if raw.has(key):
+      ce, cv = cellval(key)
+      if ce == 2:
+        cells.push("#CYCLE")
+      elif ce == 1:
+        cells.push("#DIV0")
+      else:
+        cells.push(str(cv))
+    else:
+      cells.push("")
+  print("\t".join(cells))

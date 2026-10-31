@@ -1,0 +1,91 @@
+fn q(s: str) -> str = str(s.json())
+
+fn sval(j: Json) -> str = match j:
+  Str(s) => s
+  Num(n) => str(n.int())
+  _ => ""
+
+fn ival(j: Json) -> int = match j:
+  Num(n) => n.int()
+  Str(s) => s.int().or(0)
+  _ => 0
+
+fn obj_pairs(j: Json):
+  match j:
+    Obj(m) => m.pairs()
+    _ => []
+
+fn arr_items(j: Json):
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+inp = json(stdin())
+pname = {}
+pprice = {}
+pcat = {}
+for sku, v in obj_pairs(inp["products"]):
+  pname[sku] = sval(v["name"])
+  pprice[sku] = sval(v["price"]).dec()
+  pcat[sku] = sval(v["category"])
+cname = {}
+ctier = {}
+ccountry = {}
+for cid, v in obj_pairs(inp["customers"]):
+  cname[cid] = sval(v["name"])
+  ctier[cid] = sval(v["tier"])
+  ccountry[cid] = sval(v["country"])
+
+out = []
+revenue = 0.dec()
+for o in arr_items(inp["orders"]):
+  oid = sval(o["id"])
+  cid = sval(o["customer"])
+  ls = arr_items(o["lines"])
+  if not cname.has(cid):
+    out.push("{\"id\":" + q(oid) + ",\"error\":" + q("unknown customer " + cid) + "}")
+    continue
+  bad = ""
+  for it in ls:
+    sku = sval(it["sku"])
+    if bad == "" and not pname.has(sku):
+      bad = sku
+  if bad != "":
+    out.push("{\"id\":" + q(oid) + ",\"error\":" + q("unknown sku " + bad) + "}")
+    continue
+  catq = {}
+  for it in ls:
+    sku = sval(it["sku"])
+    catq[pcat[sku]] += ival(it["qty"])
+  sub = 0.dec()
+  disc = 0.dec()
+  after = 0.dec()
+  for it in ls:
+    sku = sval(it["sku"])
+    amt = pprice[sku] * ival(it["qty"])
+    sub += amt
+    cd = 0.dec()
+    if catq[pcat[sku]] >= 3:
+      cd = (amt * "0.05".dec()).round(2)
+    disc += cd
+    after += amt - cd
+  tr = "0".dec()
+  if ctier[cid] == "gold":
+    tr = "0.10".dec()
+  elif ctier[cid] == "silver":
+    tr = "0.05".dec()
+  td = (after * tr).round(2)
+  disc += td
+  taxable = sub - disc
+  rate = "0".dec()
+  if ccountry[cid] == "UK":
+    rate = "0.20".dec()
+  elif ccountry[cid] == "US":
+    rate = "0.0825".dec()
+  tax = (taxable * rate).round(2)
+  total = taxable + tax
+  revenue += total
+  out.push("{\"id\":" + q(oid) + ",\"customer\":" + q(cname[cid]) + ",\"subtotal\":" + q(sub.fmt(2)) + ",\"discount\":" + q(disc.fmt(2)) + ",\"tax\":" + q(tax.fmt(2)) + ",\"total\":" + q(total.fmt(2)) + "}")
+
+print("[" + ",".join(out) + "]")
+print("revenue " + revenue.fmt(2))

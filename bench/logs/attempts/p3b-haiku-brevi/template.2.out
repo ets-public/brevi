@@ -1,0 +1,1 @@
+{"line":128,"msg":"res is used inside a function, so it needs a type","fix":"write res: TYPE = ... with the real type"}

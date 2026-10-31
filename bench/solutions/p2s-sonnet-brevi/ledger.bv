@@ -1,0 +1,29 @@
+rows = csv(stdin())
+inn = {}
+outt = {}
+bal = {}
+for r in rows[1:]:
+  if r.len() < 3:
+    continue
+  mo = r[0].slice(0, 7)
+  a = r[2].dec()
+  if not inn.has(mo):
+    inn[mo] = 0.dec()
+    outt[mo] = 0.dec()
+  if a > 0:
+    inn[mo] += a
+  else:
+    outt[mo] += -a
+  bal[r[1]] += a
+for mo in inn.keys():
+  net = inn[mo] - outt[mo]
+  print("{mo} {inn[mo].fmt(2)} {outt[mo].fmt(2)} {net.fmt(2)}")
+best = ""
+bv = 0.dec()
+first = true
+for k in bal.keys():
+  if first or bal[k] > bv:
+    best = k
+    bv = bal[k]
+    first = false
+print("top {best} {bv.fmt(2)}")

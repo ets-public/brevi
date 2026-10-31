@@ -1,0 +1,40 @@
+rv = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+nums = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+
+fn roman_val(s: str) -> int:
+  total = 0
+  n = s.len()
+  for j in 0..n:
+    v = rv[s.slice(j, j + 1)]
+    if j + 1 < n and v < rv[s.slice(j + 1, j + 2)]:
+      total -= v
+    else:
+      total += v
+  total
+
+fn to_roman(x: int) -> str:
+  out = ""
+  m = x
+  for j in 0..nums.len():
+    while m >= nums[j]:
+      out += syms[j]
+      m -= nums[j]
+  out
+
+for line in lines():
+  p = line.words()
+  if p.len() > 0:
+    result = roman_val(p[0])
+    k = 1
+    while k + 1 < p.len():
+      v = roman_val(p[k + 1])
+      if p[k] == "+":
+        result += v
+      else:
+        result -= v
+      k += 2
+    if result <= 0:
+      print("nulla")
+    else:
+      print(to_roman(result))

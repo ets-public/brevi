@@ -1,0 +1,110 @@
+fn acct(id: int, owner: str, bal: int) -> str = "{\"id\":" + str(id) + ",\"owner\":\"" + owner + "\",\"balance\":" + str(bal) + "}"
+
+fn isnum(s: str) -> bool = s != "" and s.chars().all(c => c.is_digit())
+
+fn str_of(v: Json) -> str = match v:
+  Str(s) => s
+  _ => ""
+
+fn amount_of(v: Json) -> int = match v:
+  Num(n) => if n.int().float() == n and n >= 1.0: n.int() else: -1
+  _ => -1
+
+fn id_of(v: Json) -> int = match v:
+  Num(n) => if n.int().float() == n: n.int() else: -1
+  _ => -1
+
+fn main():
+  owners: [str] = []
+  bals: [int] = []
+  for line in lines():
+    if line == "":
+      continue
+    sp1 = line.find(" ")
+    method = line if sp1 < 0 else line[:sp1]
+    rest = "" if sp1 < 0 else line[sp1 + 1:]
+    sp2 = rest.find(" ")
+    path = rest if sp2 < 0 else rest[:sp2]
+    body = "" if sp2 < 0 else rest[sp2 + 1:]
+    parts = path.split("/")
+    n = owners.len()
+    kind = "none"
+    if method == "POST" and path == "/accounts":
+      kind = "create"
+    elif method == "POST" and path == "/transfer":
+      kind = "transfer"
+    elif method == "GET" and path == "/accounts":
+      kind = "list"
+    elif method == "GET" and parts.len() == 3 and parts[1] == "accounts" and isnum(parts[2]):
+      kind = "get"
+    elif method == "POST" and parts.len() == 4 and parts[1] == "accounts" and isnum(parts[2]):
+      if parts[3] == "deposit":
+        kind = "deposit"
+      elif parts[3] == "withdraw":
+        kind = "withdraw"
+    if kind == "none":
+      print("404 {\"error\":\"not found\"}")
+      continue
+    j = json("null")
+    bad = False
+    if kind == "create" or kind == "transfer" or kind == "deposit" or kind == "withdraw":
+      match json(body):
+        Ok(v) => j = v
+        Err(e) => bad = True
+      if bad:
+        print("400 {\"error\":\"bad json\"}")
+        continue
+    if kind == "list":
+      pairs = []
+      for i in 0..n:
+        pairs.push((-bals[i], i))
+      pairs.sort()
+      items = [acct(p.1 + 1, owners[p.1], bals[p.1]) for p in pairs]
+      print("200 [" + ",".join(items) + "]")
+    elif kind == "create":
+      ow = str_of(j["owner"])
+      if ow == "":
+        print("400 {\"error\":\"owner required\"}")
+      else:
+        owners.push(ow)
+        bals.push(0)
+        print("201 " + acct(owners.len(), ow, 0))
+    elif kind == "get":
+      aid = parts[2].int()
+      if aid < 1 or aid > n:
+        print("404 {\"error\":\"no such account\"}")
+      else:
+        print("200 " + acct(aid, owners[aid - 1], bals[aid - 1]))
+    elif kind == "deposit" or kind == "withdraw":
+      aid = parts[2].int()
+      if aid < 1 or aid > n:
+        print("404 {\"error\":\"no such account\"}")
+      else:
+        amt = amount_of(j["amount"])
+        if amt < 0:
+          print("400 {\"error\":\"bad amount\"}")
+        elif kind == "deposit":
+          bals[aid - 1] += amt
+          print("200 " + acct(aid, owners[aid - 1], bals[aid - 1]))
+        elif bals[aid - 1] < amt:
+          print("409 {\"error\":\"insufficient funds\"}")
+        else:
+          bals[aid - 1] -= amt
+          print("200 " + acct(aid, owners[aid - 1], bals[aid - 1]))
+    elif kind == "transfer":
+      fa = id_of(j["from"])
+      ta = id_of(j["to"])
+      if fa < 1 or fa > n or ta < 1 or ta > n:
+        print("404 {\"error\":\"no such account\"}")
+      elif fa == ta:
+        print("400 {\"error\":\"same account\"}")
+      else:
+        amt = amount_of(j["amount"])
+        if amt < 0:
+          print("400 {\"error\":\"bad amount\"}")
+        elif bals[fa - 1] < amt:
+          print("409 {\"error\":\"insufficient funds\"}")
+        else:
+          bals[fa - 1] -= amt
+          bals[ta - 1] += amt
+          print("200 {\"from\":" + str(bals[fa - 1]) + ",\"to\":" + str(bals[ta - 1]) + "}")

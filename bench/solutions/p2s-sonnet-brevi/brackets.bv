@@ -1,0 +1,20 @@
+close = {")": "(", "]": "[", "}": "{"}
+for line in lines():
+  stack = []
+  err = 0
+  cs = line.chars()
+  for i in 0..cs.len():
+    c = cs[i]
+    if c in "([{":
+      stack.push(c)
+    elif c in ")]}":
+      if stack.is_empty() or stack[-1] != close[c]:
+        err = i + 1
+        break
+      stack.pop()
+  if err == 0 and stack:
+    err = cs.len() + 1
+  if err == 0:
+    print("ok")
+  else:
+    print("error at {err}")

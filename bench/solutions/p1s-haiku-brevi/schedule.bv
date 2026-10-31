@@ -1,0 +1,47 @@
+names = []
+jobs = {}
+for line in lines():
+  p = line.words()
+  if p.len() >= 2:
+    deps = []
+    if p.len() > 3:
+      deps = p.slice(3, p.len())
+    names.push(p[0])
+    jobs[p[0]] = (p[1].int().or(0), deps)
+
+ok = true
+for n in names:
+  for d in jobs[n].1:
+    if not jobs.has(d):
+      ok = false
+
+start = {}
+end = {}
+progress = true
+while ok and progress:
+  progress = false
+  for n in names:
+    if not end.has(n):
+      ready = true
+      s = 0
+      for d in jobs[n].1:
+        if not end.has(d):
+          ready = false
+        elif end[d] > s:
+          s = end[d]
+      if ready:
+        start[n] = s
+        end[n] = s + jobs[n].0
+        progress = true
+
+if not ok or end.len() < names.len():
+  print("invalid")
+else:
+  rows = [(start[n], n, end[n]) for n in names]
+  rows.sort()
+  total = 0
+  for r in rows:
+    print("{r.1} {r.0} {r.2}")
+    if r.2 > total:
+      total = r.2
+  print("total {total}")

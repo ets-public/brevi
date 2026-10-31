@@ -1,0 +1,70 @@
+fn s(j: Json) -> str:
+  match j:
+    Str(x) => x
+    Num(n) => n.int().str()
+    _ => ""
+fn objm(j: Json) -> {str: Json}:
+  match j:
+    Obj(m) => m
+    _ => {}
+fn arr(j: Json) -> [Json]:
+  match j:
+    Arr(x) => x
+    _ => []
+fn q(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    _ => 0
+root = json(stdin())
+prices = {}
+cats = {}
+for k, v in objm(root["products"]).pairs():
+  prices[k] = s(v["price"]).dec()
+  cats[k] = s(v["category"])
+cname = {}
+ctier = {}
+ccountry = {}
+for k, v in objm(root["customers"]).pairs():
+  cname[k] = s(v["name"])
+  ctier[k] = s(v["tier"])
+  ccountry[k] = s(v["country"])
+out = []
+revenue = 0.dec()
+for o in arr(root["orders"]):
+  oid = str(o["id"])
+  cid = s(o["customer"])
+  if not cname.has(cid):
+    out.push("\{\"id\":{oid},\"error\":\"unknown customer {cid}\"\}")
+    continue
+  bad = ""
+  for l in arr(o["lines"]):
+    sk = s(l["sku"])
+    if bad == "" and not prices.has(sk): bad = sk
+  if bad != "":
+    out.push("\{\"id\":{oid},\"error\":\"unknown sku {bad}\"\}")
+    continue
+  sub = 0.dec()
+  catamt = {}
+  catqty = {}
+  for l in arr(o["lines"]):
+    sk = s(l["sku"])
+    n = q(l["qty"])
+    a = prices[sk] * n
+    sub += a
+    catamt[cats[sk]] += a
+    catqty[cats[sk]] += n
+  disc = 0.dec()
+  for c, a in catamt.pairs():
+    if catqty[c] >= 3: disc += (a * "0.05".dec()).round(2)
+  tier = ctier[cid]
+  rate = if tier == "gold": "0.10".dec() elif tier == "silver": "0.05".dec() else: 0.dec()
+  disc += ((sub - disc) * rate).round(2)
+  net = sub - disc
+  ctry = ccountry[cid]
+  trate = if ctry == "UK": "0.2".dec() elif ctry == "US": "0.0825".dec() else: 0.dec()
+  tax = (net * trate).round(2)
+  total = net + tax
+  revenue += total
+  out.push("\{\"id\":{oid},\"customer\":{str(o["customer"]) if false else cname[cid].json().str()},\"subtotal\":\"{sub.fmt(2)}\",\"discount\":\"{disc.fmt(2)}\",\"tax\":\"{tax.fmt(2)}\",\"total\":\"{total.fmt(2)}\"\}")
+print("[" + ",".join(out) + "]")
+print("revenue {revenue.fmt(2)}")

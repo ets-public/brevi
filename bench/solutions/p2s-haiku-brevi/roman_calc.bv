@@ -1,0 +1,49 @@
+numerals = [(1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
+
+fn rval(c: str) -> int = match c:
+  "I" => 1
+  "V" => 5
+  "X" => 10
+  "L" => 50
+  "C" => 100
+  "D" => 500
+  "M" => 1000
+  _ => 0
+
+fn rom_val(s: str) -> int:
+  acc = 0
+  cs = s.chars()
+  for i in 0..cs.len():
+    v = rval(cs[i])
+    if i + 1 < cs.len() and rval(cs[i + 1]) > v:
+      acc -= v
+    else:
+      acc += v
+  return acc
+
+fn to_roman(n: int) -> str:
+  out = ""
+  rest = n
+  for p in numerals:
+    while rest >= p.0:
+      out += p.1
+      rest -= p.0
+  return out
+
+for line in lines():
+  p = line.words()
+  if p.len() == 0: continue
+  total = rom_val(p[0])
+  i = 1
+  while i + 1 < p.len():
+    op = p[i]
+    v = rom_val(p[i + 1])
+    if op == "+":
+      total += v
+    else:
+      total -= v
+    i += 2
+  if total <= 0:
+    print("nulla")
+  else:
+    print(to_roman(total))

@@ -1,0 +1,72 @@
+kv = {}
+flat = []
+marks = []
+
+fn rec(k: str):
+  if marks.len() > 0:
+    flat.push((k, kv.has(k), kv.get_or(k, "")))
+
+fn is_int(s: str) -> bool:
+  match s.int():
+    Ok(_) => return true
+    Err(_) => return false
+
+for line in lines():
+  t = line.trim()
+  if t.is_empty():
+    continue
+  parts = t.split(" ")
+  cmd = parts[0]
+  if cmd == "SET":
+    rec(parts[1])
+    kv[parts[1]] = parts[2]
+  elif cmd == "GET":
+    if kv.has(parts[1]):
+      print(kv[parts[1]])
+    else:
+      print("NULL")
+  elif cmd == "DEL":
+    if kv.has(parts[1]):
+      rec(parts[1])
+      kv.remove(parts[1])
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR":
+    k = parts[1]
+    cur = kv.get_or(k, "0")
+    if not is_int(cur):
+      print("ERR not an integer")
+    else:
+      nv = cur.int().or(0) + parts[2].int().or(0)
+      rec(k)
+      kv[k] = str(nv)
+      print(str(nv))
+  elif cmd == "COUNT":
+    print(str(kv.values().count(x => x == parts[1])))
+  elif cmd == "KEYS":
+    ks = sorted([k for k in kv.keys() if k.starts_with(parts[1])])
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(ks.join(" "))
+  elif cmd == "BEGIN":
+    marks.push(flat.len())
+  elif cmd == "ROLLBACK":
+    if marks.is_empty():
+      print("NO TRANSACTION")
+    else:
+      m = marks.pop()
+      while flat.len() > m:
+        e = flat.pop()
+        if e.1:
+          kv[e.0] = e.2
+        else:
+          kv.remove(e.0)
+  elif cmd == "COMMIT":
+    if marks.is_empty():
+      print("NO TRANSACTION")
+    else:
+      marks = []
+      flat = []
+  else:
+    print("ERR unknown command")

@@ -1,0 +1,166 @@
+raw: {str: str} = {}
+cval: {str: int} = {}
+cerr: {str: str} = {}
+busy: {str: bool} = {}
+
+fn worse(a: str, b: str) -> str:
+  if a == "CYCLE" or b == "CYCLE":
+    return "CYCLE"
+  if a == "DIV0" or b == "DIV0":
+    return "DIV0"
+  return ""
+
+fn ref_at(f: str, p: int) -> (str, int):
+  q = p + 1
+  while q < f.len() and f[q].is_digit():
+    q += 1
+  return (f[p:q], q)
+
+fn expr(f: str, p: int) -> (int, str, int):
+  r = term(f, p)
+  v = r.0
+  e = r.1
+  q = r.2
+  while q < f.len() and (f[q] == "+" or f[q] == "-"):
+    op = f[q]
+    r2 = term(f, q + 1)
+    if op == "+":
+      v = v + r2.0
+    else:
+      v = v - r2.0
+    e = worse(e, r2.1)
+    q = r2.2
+  return (v, e, q)
+
+fn term(f: str, p: int) -> (int, str, int):
+  r = unary(f, p)
+  v = r.0
+  e = r.1
+  q = r.2
+  while q < f.len() and (f[q] == "*" or f[q] == "/"):
+    op = f[q]
+    r2 = unary(f, q + 1)
+    e = worse(e, r2.1)
+    if op == "*":
+      v = v * r2.0
+    elif r2.0 == 0:
+      e = worse(e, "DIV0")
+      v = 0
+    else:
+      v = v / r2.0
+    q = r2.2
+  return (v, e, q)
+
+fn unary(f: str, p: int) -> (int, str, int):
+  if f[p] == "-":
+    r = unary(f, p + 1)
+    return (0 - r.0, r.1, r.2)
+  return primary(f, p)
+
+fn primary(f: str, p: int) -> (int, str, int):
+  c = f[p]
+  if c == "(":
+    r = expr(f, p + 1)
+    return (r.0, r.1, r.2 + 1)
+  if f[p:p + 4] == "SUM(" or f[p:p + 4] == "MIN(" or f[p:p + 4] == "MAX(":
+    fnm = f[p:p + 3]
+    a = ref_at(f, p + 4)
+    b = ref_at(f, a.1 + 1)
+    ca = a.0[0].code()
+    cb = b.0[0].code()
+    ra = a.0[1:].int()
+    rb = b.0[1:].int()
+    lo_c = min(ca, cb)
+    hi_c = max(ca, cb)
+    lo_r = min(ra, rb)
+    hi_r = max(ra, rb)
+    vals: [int] = []
+    e = ""
+    for cc in lo_c..hi_c + 1:
+      for rr in lo_r..hi_r + 1:
+        x = cell(cc.char() + str(rr))
+        vals.push(x.0)
+        e = worse(e, x.1)
+    if fnm == "SUM":
+      v = sum(vals)
+    elif fnm == "MIN":
+      v = min(vals)
+    else:
+      v = max(vals)
+    return (v, e, b.1 + 1)
+  if f[p].is_digit():
+    q = p
+    while q < f.len() and f[q].is_digit():
+      q += 1
+    return (f[p:q].int(), "", q)
+  r = ref_at(f, p)
+  x = cell(r.0)
+  return (x.0, x.1, r.1)
+
+fn formula(src: str) -> (int, str):
+  f = src.replace(" ", "")
+  r = expr(f, 0)
+  return (r.0, r.1)
+
+fn cell(name: str) -> (int, str):
+  if name in cval:
+    return (cval[name], cerr[name])
+  if busy.get_or(name, False):
+    return (0, "CYCLE")
+  if name not in raw:
+    return (0, "")
+  busy[name] = True
+  c = raw[name]
+  r = (0, "")
+  if c == "":
+    r = (0, "")
+  elif c[0] == "=":
+    r = formula(c[1:])
+  else:
+    r = (c.int().or(0), "")
+  busy[name] = False
+  cval[name] = r.0
+  cerr[name] = r.1
+  return r
+
+for ln in lines():
+  if ln.trim() == "":
+    continue
+  eq = ln.find("=")
+  nm = ln[:eq].trim()
+  raw[nm] = ln[eq + 1:].trim()
+
+allnames: [str] = []
+for nm, c in raw.pairs():
+  allnames.push(nm)
+  if c != "" and c[0] == "=":
+    for m in c.re_all("[A-Z][0-9]+"):
+      allnames.push(m[0])
+
+maxc = 0
+maxr = 1
+for nm in allnames:
+  cc = nm[0].code() - 65
+  rr = nm[1:].int()
+  if cc > maxc:
+    maxc = cc
+  if rr > maxr:
+    maxr = rr
+
+hdr = [(65 + k).char() for k in 0..maxc + 1]
+print("\t" + "\t".join(hdr))
+for rr in 1..maxr + 1:
+  cols: [str] = []
+  for k in 0..maxc + 1:
+    nm2 = (65 + k).char() + str(rr)
+    if nm2 not in raw or raw[nm2] == "":
+      cols.push("")
+    else:
+      x = cell(nm2)
+      if x.1 == "CYCLE":
+        cols.push("#CYCLE")
+      elif x.1 == "DIV0":
+        cols.push("#DIV0")
+      else:
+        cols.push(str(x.0))
+  print(str(rr) + "\t" + "\t".join(cols))

@@ -1,0 +1,29 @@
+fn knight(n: int, a: str, b: str) -> int:
+  sx = a.code() - 97
+  sy = a.slice(1).int().or(1) - 1
+  tx = b.code() - 97
+  ty = b.slice(1).int().or(1) - 1
+  moves = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+  dist = {}
+  dist[(sx, sy)] = 0
+  q = [(sx, sy)]
+  head = 0
+  while head < q.len():
+    cur = q[head]
+    head += 1
+    if cur == (tx, ty):
+      return dist[cur]
+    for dx, dy in moves:
+      nx = cur.0 + dx
+      ny = cur.1 + dy
+      if nx >= 0 and nx < n and ny >= 0 and ny < n and not dist.has((nx, ny)):
+        dist[(nx, ny)] = dist[cur] + 1
+        q.push((nx, ny))
+  return -1
+
+ls = lines()
+n = ls[0].trim().int().or(8)
+for line in ls[1:]:
+  p = line.words()
+  if p.len() >= 2:
+    print(str(knight(n, p[0], p[1])))

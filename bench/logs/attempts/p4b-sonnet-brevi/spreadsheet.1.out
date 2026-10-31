@@ -1,0 +1,2 @@
+{"line":1,"msg":"defs is used inside a function, so it needs a type","fix":"write defs: {str: int} = {} with the real type"}
+{"line":78,"msg":"this expression cannot be assigned to","fix":"assign to a variable, field or index"}

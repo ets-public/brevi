@@ -1,0 +1,86 @@
+fn tmin(s: str) -> int:
+  p = s.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn two(n: int) -> str = if n < 10: "0" + str(n) else: str(n)
+
+fn fmt_hm(t: int) -> str = two(t // 60) + ":" + two(t % 60)
+
+fn key(m: int, s: int) -> str = str(m) + ":" + str(s)
+
+fn offer_ls(k: str, c: (int, str)) -> bool:
+  if LS.has(k) and not (c < LS[k]): return false
+  LS[k] = c
+  return true
+
+fn offer_la(k: str, c: (int, str)) -> bool:
+  if LA.has(k) and not (c < LA[k]): return false
+  LA[k] = c
+  return true
+
+tl = lines()
+sep = tl.index_of("---")
+tn = []
+tst = []
+tt = []
+for line in tl.slice(0, sep):
+  w = line.words()
+  if w.is_empty(): continue
+  tn.push(w[0])
+  ss = []
+  ts = []
+  k = 1
+  while k + 1 < w.len():
+    ss.push(w[k])
+    ts.push(tmin(w[k + 1]))
+    k += 2
+  tst.push(ss)
+  tt.push(ts)
+ntr = tn.len()
+
+for line in tl.slice(sep + 1):
+  w = line.words()
+  if w.is_empty(): continue
+  frm = w[0]
+  dst = w[1]
+  qt = tmin(w[2])
+  if frm == dst:
+    print("{frm} {dst} {fmt_hm(qt)} via -")
+    continue
+  LS = {}
+  LA = {}
+  for m in 0..ntr:
+    for s in 0..tst[m].len():
+      if tst[m][s] == frm and tt[m][s] >= qt:
+        offer_ls(key(m, s), (1, tn[m]))
+  changed = true
+  while changed:
+    changed = false
+    for m in 0..ntr:
+      for j in 0..tst[m].len() - 1:
+        if LS.has(key(m, j)):
+          if offer_la(key(m, j + 1), LS[key(m, j)]): changed = true
+        if LA.has(key(m, j)):
+          if offer_la(key(m, j + 1), LA[key(m, j)]): changed = true
+    for m in 0..ntr:
+      for j in 0..tst[m].len():
+        if LA.has(key(m, j)):
+          lab = LA[key(m, j)]
+          t = tt[m][j]
+          stn = tst[m][j]
+          for m2 in 0..ntr:
+            if m2 != m:
+              for s2 in 0..tst[m2].len():
+                if tst[m2][s2] == stn and tt[m2][s2] >= t + 5:
+                  if offer_ls(key(m2, s2), (lab.0 + 1, lab.1 + ">" + tn[m2])): changed = true
+  cands = []
+  for m in 0..ntr:
+    for j in 0..tst[m].len():
+      if tst[m][j] == dst and LA.has(key(m, j)):
+        lab = LA[key(m, j)]
+        cands.push((tt[m][j], lab.0, lab.1))
+  if cands.is_empty():
+    print("{frm} {dst} unreachable")
+  else:
+    b = cands.min()
+    print("{frm} {dst} {fmt_hm(b.0)} via {b.2}")

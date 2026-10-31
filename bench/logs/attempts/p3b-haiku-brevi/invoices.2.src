@@ -1,0 +1,90 @@
+fn key_of(v: Json) -> str = match v:
+  Str(s) => s
+  Num(n) => str(n.int())
+  _ => ""
+
+fn str_of(v: Json) -> str = match v:
+  Str(s) => s
+  _ => ""
+
+fn int_of(v: Json) -> int = match v:
+  Num(n) => n.int()
+  _ => 0
+
+fn objmap(v: Json) -> {str: Json} = match v:
+  Obj(m) => m
+  _ => {}
+
+fn arrlist(v: Json) -> [Json] = match v:
+  Arr(xs) => xs
+  _ => []
+
+fn main():
+  doc = json(stdin())
+  pprice: {str: dec} = {}
+  pcat: {str: str} = {}
+  for sku, v in objmap(doc["products"]).pairs():
+    pprice[sku] = str_of(v["price"]).dec()
+    pcat[sku] = str_of(v["category"])
+  cname: {str: str} = {}
+  ctier: {str: str} = {}
+  ccty: {str: str} = {}
+  for cid, v in objmap(doc["customers"]).pairs():
+    cname[cid] = str_of(v["name"])
+    ctier[cid] = str_of(v["tier"])
+    ccty[cid] = str_of(v["country"])
+  out: [str] = []
+  revenue = "0".dec()
+  for o in arrlist(doc["orders"]):
+    cid = key_of(o["customer"])
+    if cid not in cname:
+      out.push("{\"id\":" + str(o["id"]) + ",\"error\":\"unknown customer " + cid + "\"}")
+      continue
+    skus: [str] = []
+    qtys: [int] = []
+    bad = ""
+    for l in arrlist(o["lines"]):
+      sku = str_of(l["sku"])
+      if sku not in pprice and bad == "":
+        bad = sku
+      skus.push(sku)
+      qtys.push(int_of(l["qty"]))
+    if bad != "":
+      out.push("{\"id\":" + str(o["id"]) + ",\"error\":\"unknown sku " + bad + "\"}")
+      continue
+    n = skus.len()
+    catq: {str: int} = {}
+    for i in 0..n:
+      catq[pcat[skus[i]]] += qtys[i]
+    subtotal = "0".dec()
+    catdisc = "0".dec()
+    base = "0".dec()
+    for i in 0..n:
+      c = pcat[skus[i]]
+      amt = pprice[skus[i]] * qtys[i]
+      subtotal += amt
+      d = "0".dec()
+      if catq[c] >= 3:
+        d = (amt * "0.05".dec()).round(2)
+      catdisc += d
+      base += amt - d
+    rate = "0".dec()
+    t = ctier[cid]
+    if t == "gold":
+      rate = "0.10".dec()
+    elif t == "silver":
+      rate = "0.05".dec()
+    tierdisc = (base * rate).round(2)
+    discount = catdisc + tierdisc
+    net = subtotal - discount
+    tr = "0".dec()
+    if ccty[cid] == "UK":
+      tr = "0.20".dec()
+    elif ccty[cid] == "US":
+      tr = "0.0825".dec()
+    tax = (net * tr).round(2)
+    total = net + tax
+    revenue += total
+    out.push("{\"id\":" + str(o["id"]) + ",\"customer\":" + str(cname[cid].json()) + ",\"subtotal\":\"" + subtotal.fmt(2) + "\",\"discount\":\"" + discount.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"}")
+  print("[" + ",".join(out) + "]")
+  print("revenue " + revenue.fmt(2))

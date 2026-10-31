@@ -1,0 +1,28 @@
+ls = lines()
+cap = ls[0].trim().int().or(1)
+vals = {}
+stamp = {}
+tick = 0
+for line in ls[1:]:
+  p = line.words()
+  if p.len() < 2: continue
+  tick += 1
+  k = p[1]
+  if p[0] == "get":
+    if vals.has(k):
+      stamp[k] = tick
+      print(vals[k])
+    else:
+      print(-1)
+  else:
+    if not vals.has(k) and vals.len() >= cap:
+      least = ""
+      lt = 0
+      for kk, t in stamp.pairs():
+        if least == "" or t < lt:
+          least = kk
+          lt = t
+      vals.remove(least)
+      stamp.remove(least)
+    vals[k] = p[2]
+    stamp[k] = tick

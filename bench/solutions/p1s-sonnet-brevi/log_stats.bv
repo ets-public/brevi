@@ -1,0 +1,14 @@
+ms = {}
+errs = {}
+for l in lines():
+  w = l.words()
+  if w.len() < 4: continue
+  ms[w[1]].push(w[3].int())
+  if w[2].int() >= 500: errs[w[1]] += 1
+for p in ms.keys():
+  v = ms[p].sort()
+  n = v.len()
+  avg = v.sum().float() / n.float()
+  k = (9 * n + 9) // 10
+  e = errs[p].float() * 100.0 / n.float()
+  print("{p} {n} {avg.fmt(1)} {v[k - 1]} {e.fmt(1)}%")

@@ -1,0 +1,15 @@
+ps = []
+for l in lines():
+  w = l.ints()
+  if w.len() == 2: ps.push((w[0], w[1]))
+ps = ps.sort()
+out = []
+for p in ps:
+  if out and p.0 <= out[-1].1:
+    if p.1 > out[-1].1: out[-1] = (out[-1].0, p.1)
+  else: out.push(p)
+total = 0
+for p in out:
+  print(p.0, p.1)
+  total += p.1 - p.0
+print("total {total}")

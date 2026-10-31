@@ -1,0 +1,74 @@
+fn tomin(t: str) -> int:
+  p = t.split(":")
+  return p[0].int() * 60 + p[1].int()
+
+fn hhmm(m: int) -> str:
+  h = m // 60
+  mi = m % 60
+  hs = str(h) if h >= 10 else "0" + str(h)
+  ms = str(mi) if mi >= 10 else "0" + str(mi)
+  return hs + ":" + ms
+
+fn dfs(s: str, ready: int, path: [str], last: int, target: str):
+  for k in 0..tn.len():
+    if k == last:
+      continue
+    nst = tst[k].len()
+    for i in 0..nst:
+      if tst[k][i] != s or ttm[k][i] < ready:
+        continue
+      for j in i + 1..nst:
+        arr = ttm[k][j]
+        if not res.is_empty() and arr > res[0].0:
+          break
+        np = path + [tn[k]]
+        if tst[k][j] == target:
+          cand = (arr, np.len(), ">".join(np))
+          if res.is_empty():
+            res.push(cand)
+          elif cand < res[0]:
+            res[0] = cand
+        else:
+          dfs(tst[k][j], arr + 5, np, k, target)
+
+tn: [str] = []
+tst: [[str]] = []
+ttm: [[int]] = []
+res: [(int, int, str)] = []
+
+ls = lines()
+sep = ls.index_of("---")
+trips = ls[:sep]
+qs = ls[sep + 1:]
+
+for ln in trips:
+  if ln.trim() == "":
+    continue
+  w = ln.words()
+  tn.push(w[0])
+  st: [str] = []
+  tm: [int] = []
+  m2 = (w.len() - 1) // 2
+  for i in 0..m2:
+    st.push(w[1 + 2 * i])
+    tm.push(tomin(w[2 + 2 * i]))
+  tst.push(st)
+  ttm.push(tm)
+
+for ln in qs:
+  if ln.trim() == "":
+    continue
+  q = ln.words()
+  frm = q[0]
+  to = q[1]
+  t0 = tomin(q[2])
+  if frm == to:
+    print("{frm} {to} {hhmm(t0)} via -")
+  else:
+    while res:
+      res.pop()
+    dfs(frm, t0, [], -1, to)
+    if res.is_empty():
+      print("{frm} {to} unreachable")
+    else:
+      print("{frm} {to} {hhmm(res[0].0)} via {res[0].2}")

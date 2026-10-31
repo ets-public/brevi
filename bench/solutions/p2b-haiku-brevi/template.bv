@@ -1,0 +1,167 @@
+fn items(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn is_null(v: Json) -> bool:
+  match v:
+    Null => true
+    _ => false
+
+fn is_nullish(v: Json) -> bool:
+  match v:
+    Null => true
+    Str(s) => s == ""
+    _ => false
+
+fn truthy(v: Json) -> bool:
+  match v:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => s != ""
+    Arr(xs) => xs.len() > 0
+    _ => true
+
+fn to_text(v: Json) -> str:
+  match v:
+    Null => ""
+    Bool(b) =>
+      if b: return "true"
+      return "false"
+    Num(n) =>
+      if n == n.floor(): return n.int().str()
+      return str(v)
+    Str(s) => s
+    _ => str(v)
+
+fn len_of(v: Json) -> int:
+  match v:
+    Str(s) => s.len()
+    Arr(xs) => xs.len()
+    _ => 0
+
+fn walk(j: Json, path: [str]) -> Json:
+  cur = j
+  for seg in path:
+    match cur:
+      Obj(m) =>
+        if m.has(seg):
+          cur = m[seg]
+        else:
+          cur = json("null")
+      _ => cur = json("null")
+  return cur
+
+fn lookup(nm: str, cx: [Json], ix: [int]) -> Json:
+  if nm == ".":
+    if cx.len() > 0: return cx[cx.len() - 1]
+    return json("null")
+  if nm == "@index":
+    if ix.len() > 0: return ix[ix.len() - 1].json()
+    return json("null")
+  path = nm.split(".")
+  q = cx.len() - 1
+  while q >= 0:
+    v = walk(cx[q], path)
+    if not is_null(v): return v
+    q -= 1
+  return json("null")
+
+fn apply_filter(v: Json, f: str) -> Json:
+  if f == "upper": return to_text(v).upper().json()
+  if f == "lower": return to_text(v).lower().json()
+  if f == "len": return len_of(v).json()
+  if f.starts_with("default:"):
+    if is_nullish(v): return f.slice(8).json()
+    return v
+  return v
+
+fn eval_expr(ex: str, cx: [Json], ix: [int]) -> Json:
+  parts = ex.split("|")
+  v = lookup(parts[0].trim(), cx, ix)
+  for fi in 1..parts.len():
+    v = apply_filter(v, parts[fi].trim())
+  return v
+
+fn tag_token(tg: str) -> str:
+  if tg.starts_with("#each "): return "E" + tg.slice(6).trim()
+  if tg == "/each": return "/E"
+  if tg.starts_with("#if "): return "I" + tg.slice(4).trim()
+  if tg == "else": return "L"
+  if tg == "/if": return "/I"
+  return "V" + tg
+
+fn tokenize(t: str) -> [str]:
+  toks = []
+  rest = t
+  while rest.len() > 0:
+    k = rest.find("\{\{")
+    if k < 0:
+      toks.push("T" + rest)
+      rest = ""
+    else:
+      if k > 0: toks.push("T" + rest.slice(0, k))
+      after = rest.slice(k + 2)
+      e = after.find("\}\}")
+      if e < 0:
+        toks.push("T" + rest.slice(k))
+        rest = ""
+      else:
+        toks.push(tag_token(after.slice(0, e).trim()))
+        rest = after.slice(e + 2)
+  return toks
+
+fn render(tk: [str], i: int, cx: [Json], ix: [int], emit: bool) -> (str, int):
+  out = ""
+  k = i
+  while k < tk.len():
+    t = tk[k]
+    if t == "/E" or t == "L" or t == "/I":
+      break
+    if t[0] == "T":
+      if emit: out += t.slice(1)
+      k += 1
+    elif t[0] == "V":
+      if emit: out += to_text(eval_expr(t.slice(1), cx, ix))
+      k += 1
+    elif t[0] == "E":
+      xs = items(lookup(t.slice(1), cx, ix))
+      body_end = k + 1
+      if emit and xs.len() > 0:
+        for idx in 0..xs.len():
+          r = render(tk, k + 1, cx + [xs[idx]], ix + [idx], true)
+          out += r.0
+          body_end = r.1
+      else:
+        r = render(tk, k + 1, cx, ix, false)
+        body_end = r.1
+      k = body_end + 1
+    elif t[0] == "I":
+      tv = truthy(lookup(t.slice(1), cx, ix))
+      r1 = render(tk, k + 1, cx, ix, emit and tv)
+      out += r1.0
+      end_i = r1.1
+      if end_i < tk.len() and tk[end_i] == "L":
+        r2 = render(tk, end_i + 1, cx, ix, emit and not tv)
+        out += r2.0
+        end_i = r2.1
+      k = end_i + 1
+    else:
+      k += 1
+  return (out, k)
+
+fn main():
+  text = stdin()
+  nl = text.find("\n")
+  head = text
+  tmpl = ""
+  if nl >= 0:
+    head = text.slice(0, nl)
+    tmpl = text.slice(nl + 1)
+  root = json(head)
+  tk = tokenize(tmpl)
+  r = render(tk, 0, [root], [], true)
+  out = r.0
+  if out.ends_with("\n"): out = out.slice(0, out.len() - 1)
+  print(out)

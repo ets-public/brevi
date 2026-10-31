@@ -1,0 +1,102 @@
+contents = {}
+mst = {}
+mval = {}
+visiting = {}
+maxc = 0
+maxr = 0
+fn comb(a: int, b: int) = max(a, b)
+fn cell(name: str) -> (int, int):
+  if mst.has(name): return (mst[name], mval[name])
+  if visiting.has(name): return (2, 0)
+  if not contents.has(name): return (0, 0)
+  src = contents[name]
+  visiting[name] = 1
+  res = (0, 0)
+  if src.starts_with("="):
+    tk = [m[0] for m in src.slice(1).re_all("[A-Z]\d+|[A-Z]+|\d+|[^\s]")]
+    let (s1, v1, p1) = expr(tk, 0)
+    res = (s1, v1)
+  else:
+    res = (0, src.int())
+  visiting.remove(name)
+  mst[name] = res.0
+  mval[name] = res.1
+  res
+fn refcell(t: str) -> (int, int):
+  cell(t)
+fn expr(tk: [str], p: int) -> (int, int, int):
+  let (st, v, pos) = term(tk, p)
+  while pos < tk.len() and (tk[pos] == "+" or tk[pos] == "-"):
+    op = tk[pos]
+    let (s2, v2, p2) = term(tk, pos + 1)
+    st = comb(st, s2)
+    if op == "+": v += v2
+    else: v -= v2
+    pos = p2
+  (st, v, pos)
+fn term(tk: [str], p: int) -> (int, int, int):
+  let (st, v, pos) = unary(tk, p)
+  while pos < tk.len() and (tk[pos] == "*" or tk[pos] == "/"):
+    op = tk[pos]
+    let (s2, v2, p2) = unary(tk, pos + 1)
+    st = comb(st, s2)
+    if op == "*": v *= v2
+    elif v2 == 0:
+      st = comb(st, 1)
+      v = 0
+    else: v = v / v2
+    pos = p2
+  (st, v, pos)
+fn unary(tk: [str], p: int) -> (int, int, int):
+  if p < tk.len() and tk[p] == "-":
+    let (s1, v1, p1) = unary(tk, p + 1)
+    return (s1, -v1, p1)
+  primary(tk, p)
+fn primary(tk: [str], p: int) -> (int, int, int):
+  t = tk[p]
+  if t == "(":
+    let (s1, v1, p1) = expr(tk, p + 1)
+    return (s1, v1, p1 + 1)
+  if t.is_digit(): return (0, t.int(), p + 1)
+  if t.len() >= 2 and t[:1].is_alpha() and t.slice(1).is_digit():
+    let (s1, v1) = cell(t)
+    return (s1, v1, p + 1)
+  # function: NAME ( A1 : B2 )
+  a = tk[p + 2]
+  b = tk[p + 4]
+  c1 = min(a.code(), b.code()) - 65
+  c2 = max(a.code(), b.code()) - 65
+  r1 = min(a.slice(1).int(), b.slice(1).int())
+  r2 = max(a.slice(1).int(), b.slice(1).int())
+  st = 0
+  vals = []
+  for c in c1..c2 + 1:
+    for r in r1..r2 + 1:
+      let (s1, v1) = cell((65 + c).char() + r.str())
+      st = comb(st, s1)
+      vals.push(v1)
+  v = 0
+  if t == "SUM": v = vals.sum()
+  elif t == "MIN": v = vals.min()
+  else: v = vals.max()
+  (st, v, p + 6)
+for line in lines():
+  if line.trim().is_empty(): continue
+  eq = line.find("=")
+  name = line[:eq].trim()
+  src = line.slice(eq + 1).trim().replace(" ", "")
+  contents[name] = src
+  refs = [name] + [m[0] for m in src.re_all("[A-Z]\d+")]
+  for r in refs:
+    maxc = max(maxc, r.code() - 64)
+    maxr = max(maxr, r.slice(1).int())
+print("\t" + "\t".join([(65 + c).char() for c in 0..maxc]))
+for r in 1..maxr + 1:
+  row = [r.str()]
+  for c in 0..maxc:
+    nm = (65 + c).char() + r.str()
+    if not contents.has(nm): row.push("")
+    else:
+      let (s1, v1) = cell(nm)
+      row.push(if s1 == 2: "#CYCLE" elif s1 == 1: "#DIV0" else: v1.str())
+  print("\t".join(row))

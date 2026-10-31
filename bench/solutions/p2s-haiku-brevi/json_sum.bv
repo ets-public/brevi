@@ -1,0 +1,27 @@
+fn is_red(j: Json) -> bool = match j:
+  Str(s) => s == "red"
+  _ => false
+
+fn has_red(m: {str: Json}) -> bool:
+  for v in m.values():
+    if is_red(v): return true
+  return false
+
+fn list_sum(xs: [Json]) -> f64:
+  total = 0.0
+  for x in xs: total += walk(x)
+  return total
+
+fn obj_sum(m: {str: Json}) -> f64:
+  if has_red(m): return 0.0
+  total = 0.0
+  for v in m.values(): total += walk(v)
+  return total
+
+fn walk(j: Json) -> f64 = match j:
+  Num(n) => n
+  Arr(xs) => list_sum(xs)
+  Obj(m) => obj_sum(m)
+  _ => 0.0
+
+print(walk(json(stdin())).int())

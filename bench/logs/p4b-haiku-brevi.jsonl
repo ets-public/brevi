@@ -1,0 +1,9 @@
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"access_report","code_tok":743,"patch_tok":743,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"bank_api","code_tok":1706,"patch_tok":1706,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"invoices","code_tok":1225,"patch_tok":1225,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"kv_store","code_tok":819,"patch_tok":819,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"markdown","code_tok":1334,"patch_tok":1334,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"spreadsheet","code_tok":1936,"patch_tok":1936,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"template","code_tok":1593,"patch_tok":1593,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"timetable","code_tok":1168,"patch_tok":1168,"out_tok":203,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"p4b-haiku-brevi","lang":"brevi","task":"timetable","code_tok":1180,"patch_tok":11,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

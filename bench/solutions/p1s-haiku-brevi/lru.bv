@@ -1,0 +1,27 @@
+ls = lines()
+cap = ls[0].trim().int().or(1)
+vals = {}
+order = []
+for line in ls[1:]:
+  p = line.words()
+  if p.len() == 0:
+    continue
+  k = p[1]
+  if p[0] == "put":
+    v = p[2]
+    idx = order.index_of(k)
+    if idx >= 0:
+      order.remove(idx)
+    elif vals.len() >= cap:
+      old = order.remove(0)
+      vals.remove(old)
+    order.push(k)
+    vals[k] = v
+  else:
+    if vals.has(k):
+      idx = order.index_of(k)
+      order.remove(idx)
+      order.push(k)
+      print(vals[k])
+    else:
+      print("-1")

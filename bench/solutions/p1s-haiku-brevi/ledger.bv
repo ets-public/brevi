@@ -1,0 +1,25 @@
+rows = csv(stdin())
+months = {}
+ins = {}
+outs = {}
+bal = {}
+for r in rows[1:]:
+  if r.len() >= 3:
+    m = r[0].slice(0, 7)
+    amt = r[2].dec()
+    months[m] = true
+    if amt > 0:
+      ins[m] += amt
+    elif amt < 0:
+      outs[m] += 0 - amt
+    bal[r[1]] += amt
+
+for m in sorted(months.keys()):
+  i = ins[m]
+  o = outs[m]
+  print("{m} {i.fmt(2)} {o.fmt(2)} {(i - o).fmt(2)}")
+
+bp = [(b, a) for a, b in bal.pairs()]
+bp.sort_by(p => (-p.0, p.1))
+top = bp[0]
+print("top {top.1} {top.0.fmt(2)}")

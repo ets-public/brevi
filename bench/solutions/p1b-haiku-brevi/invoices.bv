@@ -1,0 +1,86 @@
+fn obj_of(j: Json) -> {str: Json}:
+  match j:
+    Obj(m) => m
+    _ => {}
+
+fn arr(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn jstr(j: Json) -> str:
+  match j:
+    Str(s) => s
+    Num(n) => str(n.int())
+    _ => ""
+
+fn jint(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    Str(s) => s.int().or(0)
+    _ => 0
+
+j = json(stdin().trim())
+prices = {}
+cats = {}
+for sku, v in obj_of(j["products"]).pairs():
+  prices[sku] = jstr(v["price"]).dec()
+  cats[sku] = jstr(v["category"])
+cust_name = {}
+cust_tier = {}
+cust_country = {}
+for cid, v in obj_of(j["customers"]).pairs():
+  cust_name[cid] = jstr(v["name"])
+  cust_tier[cid] = jstr(v["tier"])
+  cust_country[cid] = jstr(v["country"])
+parts = []
+rev = "0".dec()
+for o in arr(j["orders"]):
+  oid = jstr(o["id"])
+  cid = jstr(o["customer"])
+  ls = arr(o["lines"])
+  if not cust_name.has(cid):
+    parts.push("{\"id\":\"" + oid + "\",\"error\":\"unknown customer " + cid + "\"}")
+    continue
+  have = false
+  unk = ""
+  for l in ls:
+    sku = jstr(l["sku"])
+    if not have and not prices.has(sku):
+      have = true
+      unk = sku
+  if have:
+    parts.push("{\"id\":\"" + oid + "\",\"error\":\"unknown sku " + unk + "\"}")
+    continue
+  units = {}
+  for l in ls:
+    units[cats[jstr(l["sku"])]] += jint(l["qty"])
+  sub = "0".dec()
+  disc_cat = "0".dec()
+  for l in ls:
+    sku = jstr(l["sku"])
+    amt = prices[sku] * jint(l["qty"])
+    sub += amt
+    if units[cats[sku]] >= 3:
+      disc_cat += (amt * "0.05".dec()).round(2)
+  tier = cust_tier[cid]
+  rate = "0".dec()
+  if tier == "gold":
+    rate = "0.10".dec()
+  elif tier == "silver":
+    rate = "0.05".dec()
+  tier_disc = ((sub - disc_cat) * rate).round(2)
+  disc = disc_cat + tier_disc
+  net = sub - disc
+  country = cust_country[cid]
+  trate = "0".dec()
+  if country == "UK":
+    trate = "0.20".dec()
+  elif country == "US":
+    trate = "0.0825".dec()
+  tax = (net * trate).round(2)
+  total = net + tax
+  rev += total
+  parts.push("{\"id\":\"" + oid + "\",\"customer\":\"" + cust_name[cid] + "\",\"subtotal\":\"" + sub.fmt(2) + "\",\"discount\":\"" + disc.fmt(2) + "\",\"tax\":\"" + tax.fmt(2) + "\",\"total\":\"" + total.fmt(2) + "\"}")
+print("[" + ",".join(parts) + "]")
+print("revenue " + rev.fmt(2))

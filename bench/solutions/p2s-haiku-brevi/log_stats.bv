@@ -1,0 +1,20 @@
+times = {}
+errs = {}
+for line in lines():
+  p = line.words()
+  if p.len() < 4: continue
+  path = p[1]
+  st = p[2].int().or(0)
+  ms = p[3].int().or(0)
+  times[path].push(ms)
+  if st >= 500:
+    errs[path] += 1
+for path in times.keys().sort():
+  xs = times[path].sort()
+  n = xs.len()
+  total = sum(xs)
+  avg = total.float() / n.float()
+  k = (9 * n + 9) // 10
+  p90 = xs[k - 1]
+  errpct = errs[path].float() * 100.0 / n.float()
+  print("{path} {n} {avg.fmt(1)} {p90} {errpct.fmt(1)}%")
