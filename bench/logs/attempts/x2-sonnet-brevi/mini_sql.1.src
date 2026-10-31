@@ -1,0 +1,233 @@
+tcols = {}
+ttypes = {}
+trows = {}
+
+rv = "(?:-?\d+|'(?:[^']|'')*')"
+rn = "[A-Za-z][A-Za-z0-9_]*"
+rop = "(?:=|!=|<=|>=|<|>)"
+rcond = rn + " " + rop + " " + rv + "(?: AND " + rn + " " + rop + " " + rv + ")*"
+r_create = "CREATE TABLE " + rn + " \(" + rn + " (?:INT|TEXT)(?:, " + rn + " (?:INT|TEXT))*\)"
+r_insert = "INSERT INTO " + rn + " VALUES \(" + rv + "(?:, " + rv + ")*\)"
+r_select = "SELECT (?:\*|" + rn + "(?:, " + rn + ")*) FROM " + rn + "(?: WHERE " + rcond + ")?(?: ORDER BY " + rn + "(?: DESC)?)?(?: LIMIT \d+)?"
+r_count = "SELECT COUNT\(\*\) FROM " + rn + "(?: WHERE " + rcond + ")?"
+r_update = "UPDATE " + rn + " SET " + rn + " = " + rv + "(?: WHERE " + rcond + ")?"
+r_delete = "DELETE FROM " + rn + "(?: WHERE " + rcond + ")?"
+tokre = "'(?:[^']|'')*'|-?\d+|[A-Za-z][A-Za-z0-9_]*|!=|<=|>=|[=<>(),*]"
+
+fn is_text(t: str) -> bool = t.starts_with("'")
+
+fn unq(t: str) -> str:
+  if t.starts_with("'"): return t.slice(1, -1).replace("''", "'")
+  t.int().or(0).str()
+
+fn where_cols_err(t: str, wt: [str]) -> str:
+  i = 0
+  while i < wt.len():
+    if tcols[t].index_of(wt[i]) < 0: return "error: no column " + wt[i]
+    i += 4
+  ""
+
+fn where_type_err(t: str, wt: [str]) -> str:
+  i = 0
+  while i < wt.len():
+    ci = tcols[t].index_of(wt[i])
+    if (ttypes[t][ci] == "TEXT") != is_text(wt[i + 2]): return "error: type mismatch"
+    i += 4
+  ""
+
+fn cmp_ok(a: str, op: str, b: str, isint: bool) -> bool:
+  c = 0
+  if isint:
+    x = a.int().or(0)
+    y = b.int().or(0)
+    if x < y: c = -1
+    elif x > y: c = 1
+  else:
+    if a < b: c = -1
+    elif a > b: c = 1
+  match op:
+    "=" => c == 0
+    "!=" => c != 0
+    "<" => c < 0
+    ">" => c > 0
+    "<=" => c <= 0
+    _ => c >= 0
+
+fn row_ok(t: str, row: [str], wt: [str]) -> bool:
+  i = 0
+  while i < wt.len():
+    ci = tcols[t].index_of(wt[i])
+    if not cmp_ok(row[ci], wt[i + 1], unq(wt[i + 2]), ttypes[t][ci] == "INT"): return false
+    i += 4
+  true
+
+fn do_select(toks: [str]):
+  fi = toks.index_of("FROM")
+  t = toks[fi + 1]
+  if not tcols.has(t):
+    print("error: no table {t}")
+    return
+  wi = toks.index_of("WHERE")
+  oi = toks.index_of("ORDER")
+  li = toks.index_of("LIMIT")
+  wt = []
+  if wi >= 0:
+    e = toks.len()
+    if oi >= 0: e = oi
+    elif li >= 0: e = li
+    wt = [x for x in toks[wi + 1:e] if x != "AND"]
+  cols = [x for x in toks[1:fi] if x != ","]
+  if cols == ["*"]: cols = tcols[t]
+  for c in cols:
+    if tcols[t].index_of(c) < 0:
+      print("error: no column {c}")
+      return
+  e1 = where_cols_err(t, wt)
+  if e1:
+    print(e1)
+    return
+  ocol = ""
+  desc = false
+  if oi >= 0:
+    ocol = toks[oi + 2]
+    desc = toks[oi + 3:] == ["DESC"] or (li >= 0 and toks[oi + 3:li] == ["DESC"])
+    if tcols[t].index_of(ocol) < 0:
+      print("error: no column {ocol}")
+      return
+  e2 = where_type_err(t, wt)
+  if e2:
+    print(e2)
+    return
+  rows = [r for r in trows[t] if row_ok(t, r, wt)]
+  if oi >= 0:
+    ci = tcols[t].index_of(ocol)
+    order = []
+    if ttypes[t][ci] == "INT":
+      if desc:
+        ks = [(-r[ci].int().or(0), i) for i, r in enumerate(rows)]
+        order = [k.1 for k in ks.sort()]
+      else:
+        ks = [(r[ci].int().or(0), i) for i, r in enumerate(rows)]
+        order = [k.1 for k in ks.sort()]
+    else:
+      if desc:
+        ks = [([-ch.code() for ch in r[ci].chars()] + [1000000], i) for i, r in enumerate(rows)]
+        order = [k.1 for k in ks.sort()]
+      else:
+        ks = [(r[ci], i) for i, r in enumerate(rows)]
+        order = [k.1 for k in ks.sort()]
+    rows = [rows[i] for i in order]
+  if li >= 0: rows = rows.take(toks[li + 1].int().or(0))
+  print(" | ".join(cols))
+  for r in rows:
+    print(" | ".join([r[tcols[t].index_of(c)] for c in cols]))
+  print("({rows.len()} rows)")
+
+fn handle(line: str):
+  toks = line.re_list(tokre)
+  if line.re_full(r_create):
+    t = toks[2]
+    if tcols.has(t):
+      print("error: table {t} exists")
+      return
+    cs = []
+    ts = []
+    i = 4
+    while i < toks.len():
+      cs.push(toks[i])
+      ts.push(toks[i + 1])
+      i += 3
+    tcols[t] = cs
+    ttypes[t] = ts
+    trows[t] = []
+    print("ok")
+  elif line.re_full(r_insert):
+    t = toks[2]
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    vals = [x for x in toks[5:] if x != "," and x != ")"]
+    if vals.len() != tcols[t].len():
+      print("error: type mismatch")
+      return
+    for i in 0..vals.len():
+      if (ttypes[t][i] == "TEXT") != is_text(vals[i]):
+        print("error: type mismatch")
+        return
+    trows[t].push([unq(v) for v in vals])
+    print("ok")
+  elif line.re_full(r_count):
+    t = toks[5]
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    wt = [x for x in toks[7:] if x != "AND"]
+    e1 = where_cols_err(t, wt)
+    if e1:
+      print(e1)
+      return
+    e2 = where_type_err(t, wt)
+    if e2:
+      print(e2)
+      return
+    print(trows[t].filter(r => row_ok(t, r, wt)).len())
+  elif line.re_full(r_select):
+    do_select(toks)
+  elif line.re_full(r_update):
+    t = toks[1]
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    sc = toks[3]
+    ci = tcols[t].index_of(sc)
+    if ci < 0:
+      print("error: no column {sc}")
+      return
+    wt = [x for x in toks[7:] if x != "AND"]
+    e1 = where_cols_err(t, wt)
+    if e1:
+      print(e1)
+      return
+    if (ttypes[t][ci] == "TEXT") != is_text(toks[5]):
+      print("error: type mismatch")
+      return
+    e2 = where_type_err(t, wt)
+    if e2:
+      print(e2)
+      return
+    nv = unq(toks[5])
+    n = 0
+    nr = []
+    for r in trows[t]:
+      if row_ok(t, r, wt):
+        r2 = r
+        r2[ci] = nv
+        nr.push(r2)
+        n += 1
+      else: nr.push(r)
+    trows[t] = nr
+    print("updated {n}")
+  elif line.re_full(r_delete):
+    t = toks[2]
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    wt = [x for x in toks[4:] if x != "AND"]
+    e1 = where_cols_err(t, wt)
+    if e1:
+      print(e1)
+      return
+    e2 = where_type_err(t, wt)
+    if e2:
+      print(e2)
+      return
+    keep = [r for r in trows[t] if not row_ok(t, r, wt)]
+    n = trows[t].len() - keep.len()
+    trows[t] = keep
+    print("deleted {n}")
+  else:
+    print("error: syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  handle(line)

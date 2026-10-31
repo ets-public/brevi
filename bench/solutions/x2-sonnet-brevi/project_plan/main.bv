@@ -1,0 +1,19 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int], en: [int]):
+  for i in 0..tasks.len():
+    print("  {tasks[i].name} {st[i]}-{en[i]}")
+  print("length {max(en)}")
+
+match load(lines()):
+  Err(msg) => print(msg)
+  Ok(r) =>
+    let (k, tasks) = r
+    let (st, en) = plan(tasks)
+    print("unlimited")
+    show(tasks, st, en)
+    print("critical " + " > ".join(chain(tasks, st, en)))
+    print("workers {k}")
+    let (st2, en2) = schedule(tasks, k, en)
+    show(tasks, st2, en2)

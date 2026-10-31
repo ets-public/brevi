@@ -1,0 +1,105 @@
+defs = {}
+busy = {}
+done = {}
+dv = {}
+de = {}
+fn colof(n: str) -> int = n.slice(0, 1).code() - 65
+fn rowof(n: str) -> int = n.slice(1).int()
+fn cellname(c: int, r: int) -> str = (c + 65).char().upper() + str(r)
+fn isref(s: str) -> bool = not s.re_full('[A-Z]\d+').is_empty()
+fn cellval(name: str) -> (int, int):
+  if done.has(name): return (dv[name], de[name])
+  if busy.has(name): return (0, 2)
+  if not defs.has(name): return (0, 0)
+  busy[name] = 1
+  c = defs[name]
+  v = 0
+  e = 0
+  if c.starts_with("="):
+    toks = c.slice(1).replace(" ", "").re_list('SUM|MIN|MAX|[A-Z]\d+|\d+|\S')
+    v, e, q = expr(toks, 0)
+  else:
+    v = c.replace(" ", "").int().or(0)
+  busy.remove(name)
+  done[name] = 1
+  dv[name] = v
+  de[name] = e
+  (v, e)
+fn expr(t: [str], p0: int) -> (int, int, int):
+  v, e, p = term(t, p0)
+  while p < t.len() and (t[p] == "+" or t[p] == "-"):
+    op = t[p]
+    v2, e2, q = term(t, p + 1)
+    if op == "+": v += v2
+    else: v -= v2
+    e = max(e, e2)
+    p = q
+  (v, e, p)
+fn term(t: [str], p0: int) -> (int, int, int):
+  v, e, p = factor(t, p0)
+  while p < t.len() and (t[p] == "*" or t[p] == "/"):
+    op = t[p]
+    v2, e2, q = factor(t, p + 1)
+    e = max(e, e2)
+    if op == "*": v *= v2
+    elif v2 == 0:
+      if e == 0: e = 1
+      v = 0
+    else: v = v / v2
+    p = q
+  (v, e, p)
+fn factor(t: [str], p: int) -> (int, int, int):
+  if p >= t.len(): return (0, 0, p)
+  s = t[p]
+  if s == "-":
+    v, e, q = factor(t, p + 1)
+    return (0 - v, e, q)
+  if s == "(":
+    v, e, q = expr(t, p + 1)
+    return (v, e, q + 1)
+  if s == "SUM" or s == "MIN" or s == "MAX":
+    a = t[p + 2]
+    b = t[p + 4]
+    c1 = min(colof(a), colof(b))
+    c2 = max(colof(a), colof(b))
+    r1 = min(rowof(a), rowof(b))
+    r2 = max(rowof(a), rowof(b))
+    vals = []
+    e = 0
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        x, ex = cellval(cellname(c, r))
+        vals.push(x)
+        e = max(e, ex)
+    res = if s == "SUM": vals.sum() else: (if s == "MIN": vals.min() else: vals.max())
+    return (res, e, p + 6)
+  if isref(s):
+    v, e = cellval(s)
+    return (v, e, p + 1)
+  (s.int().or(0), 0, p + 1)
+maxc = 0
+maxr = 0
+fn bump(n: str):
+  if colof(n) > maxc: maxc = colof(n)
+  if rowof(n) > maxr: maxr = rowof(n)
+for line in lines():
+  if line.trim().is_empty(): continue
+  a, _, b = line.partition("=")
+  name = a.trim()
+  defs[name] = b.trim()
+  bump(name)
+  for tk in b.replace(" ", "").re_list('[A-Z]\d+'):
+    bump(tk)
+rows = []
+hdr = [""]
+for c in 0..maxc + 1: hdr.push((c + 65).char().upper())
+print("\t".join(hdr))
+for r in 1..maxr + 1:
+  cells = [str(r)]
+  for c in 0..maxc + 1:
+    n = cellname(c, r)
+    if defs.has(n):
+      v, e = cellval(n)
+      cells.push(if e == 2: "#CYCLE" else: (if e == 1: "#DIV0" else: str(v)))
+    else: cells.push("")
+  print("\t".join(cells))

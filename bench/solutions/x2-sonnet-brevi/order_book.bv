@@ -1,0 +1,109 @@
+asks = []
+bids = []
+seen = {}
+seq = 0
+vol = 0
+val = 0.dec()
+
+fn good_qty(s: str) -> bool = s.is_digit() and s.int().or(0) >= 1
+fn good_price(s: str) -> bool:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): return false
+  s.dec().or(0.dec()) > 0
+
+fn buy_match(id: str, qty: int, limit: dec, market: bool) -> int:
+  left = qty
+  while left > 0 and asks:
+    bi = 0
+    for i in 1..asks.len():
+      if asks[i].0 < asks[bi].0 or (asks[i].0 == asks[bi].0 and asks[i].1 < asks[bi].1): bi = i
+    a = asks[bi]
+    if not market and a.0 > limit: break
+    q = min(left, a.3)
+    pr = a.0.fmt(2)
+    print("TRADE {id} {a.2} {q} {pr}")
+    vol += q
+    val += a.0 * q
+    left -= q
+    if q == a.3: asks.remove(bi)
+    else: asks[bi] = (a.0, a.1, a.2, a.3 - q)
+  left
+
+fn sell_match(id: str, qty: int, limit: dec, market: bool) -> int:
+  left = qty
+  while left > 0 and bids:
+    bi = 0
+    for i in 1..bids.len():
+      if bids[i].0 > bids[bi].0 or (bids[i].0 == bids[bi].0 and bids[i].1 < bids[bi].1): bi = i
+    a = bids[bi]
+    if not market and a.0 < limit: break
+    q = min(left, a.3)
+    pr = a.0.fmt(2)
+    print("TRADE {a.2} {id} {q} {pr}")
+    vol += q
+    val += a.0 * q
+    left -= q
+    if q == a.3: bids.remove(bi)
+    else: bids[bi] = (a.0, a.1, a.2, a.3 - q)
+  left
+
+fn show(side: [(dec, int, str, int)], desc: bool):
+  ps = [x.0 for x in side].unique()
+  if desc: ps = ps.rev()
+  if not ps:
+    print("  -")
+  for p in ps:
+    t = sum(x.3 for x in side if x.0 == p)
+    pr = p.fmt(2)
+    print("  {pr} {t}")
+
+for n, line in enumerate(lines()):
+  ln = n + 1
+  w = line.words()
+  if not w: continue
+  c = w[0]
+  ok = false
+  if (c == "BUY" or c == "SELL") and w.len() == 4: ok = good_qty(w[2]) and good_price(w[3])
+  elif (c == "MBUY" or c == "MSELL") and w.len() == 3: ok = good_qty(w[2])
+  elif c == "CANCEL" and w.len() == 2: ok = true
+  elif c == "BOOK" and w.len() == 1: ok = true
+  if not ok:
+    print("ERR line {ln}: bad command")
+    continue
+  if c == "BOOK":
+    print("asks")
+    show(asks, false)
+    print("bids")
+    show(bids, true)
+  elif c == "CANCEL":
+    id = w[1]
+    found = false
+    for i in 0..asks.len():
+      if not found and asks[i].2 == id:
+        print("CANCELLED {id} {asks[i].3}")
+        asks.remove(i)
+        found = true
+    for i in 0..bids.len():
+      if not found and bids[i].2 == id:
+        print("CANCELLED {id} {bids[i].3}")
+        bids.remove(i)
+        found = true
+    if not found: print("ERR line {ln}: unknown ID")
+  else:
+    id = w[1]
+    if seen.has(id):
+      print("ERR line {ln}: duplicate ID")
+      continue
+    seen[id] = 1
+    qty = w[2].int()
+    market = c == "MBUY" or c == "MSELL"
+    limit = if market: 0.dec() else: w[3].dec()
+    isbuy = c == "BUY" or c == "MBUY"
+    left = if isbuy: buy_match(id, qty, limit, market) else: sell_match(id, qty, limit, market)
+    if left > 0:
+      if market: print("DROPPED {id} {left}")
+      else:
+        seq += 1
+        if isbuy: bids.push((limit, seq, id, left))
+        else: asks.push((limit, seq, id, left))
+vs = val.fmt(2)
+print("volume {vol} value {vs}")

@@ -1,0 +1,41 @@
+use "graph.bv"
+
+fn make_plan(tasks: [Task], k: int, en0: [int]) -> ([int], [int]):
+  n = tasks.len()
+  idx = {}
+  for i in 0..n: idx[tasks[i].name] = i
+  tail = [0 for _ in tasks]
+  order = (0..n).sort_by(i => (0 - en0[i], i))
+  for i in order:
+    t = 0
+    for j in 0..n:
+      if tasks[i].name in tasks[j].deps: t = max(t, tail[j])
+    tail[i] = tasks[i].days + t
+  st = [0 for _ in tasks]
+  en = [0 for _ in tasks]
+  state = [0 for _ in tasks]
+  T = 0
+  free = k
+  left = n
+  while left > 0:
+    for i in 0..n:
+      if state[i] == 1 and en[i] == T:
+        state[i] = 2
+        free += 1
+        left -= 1
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if state[i] == 0 and all(state[idx[d]] == 2 for d in tasks[i].deps):
+          if best < 0 or tail[i] > tail[best]: best = i
+      if best < 0: break
+      state[best] = 1
+      st[best] = T
+      en[best] = T + tasks[best].days
+      free -= 1
+    if left > 0:
+      nt = -1
+      for i in 0..n:
+        if state[i] == 1 and (nt < 0 or en[i] < nt): nt = en[i]
+      T = nt
+  (st, en)

@@ -1,0 +1,88 @@
+sells = []
+buys = []
+rem = {}
+seen = {}
+seq = 0
+vol = 0
+val = 0.dec()
+
+fn fill(id: str, buy: bool, q: int, lim: dec, haslim: bool) -> int:
+  left = q
+  book = if buy: sells.sort() else: buys.sort_by(e => (0 - e.0, e.1))
+  for e in book:
+    if left == 0: break
+    p = e.0
+    if haslim:
+      if buy and p > lim: break
+      if !buy and p < lim: break
+    n = min(left, rem[e.2])
+    if buy: print("TRADE {id} {e.2} {n} {p.fmt(2)}")
+    else: print("TRADE {e.2} {id} {n} {p.fmt(2)}")
+    left -= n
+    rem[e.2] = rem[e.2] - n
+    vol += n
+    val += p * n
+  sells = [e for e in sells if rem[e.2] > 0]
+  buys = [e for e in buys if rem[e.2] > 0]
+  left
+
+fn show(book: [(dec, int, str)]):
+  agg = []
+  for e in book:
+    q = rem[e.2]
+    if agg and agg[-1].0 == e.0: agg[-1] = (e.0, agg[-1].1 + q)
+    else: agg.push((e.0, q))
+  if not agg: print("  -")
+  for a in agg: print("  {a.0.fmt(2)} {a.1}")
+
+ln = 0
+for line in lines():
+  ln += 1
+  t = line.words()
+  if not t: continue
+  cmd = t[0]
+  ok = false
+  if (cmd == "BUY" or cmd == "SELL") and t.len() == 4:
+    ok = t[2].re_full("[0-9]+").len() > 0 and t[2].int() >= 1 and t[3].re_full("[0-9]+(\.[0-9]{1,2})?").len() > 0 and t[3].dec() > 0
+  elif (cmd == "MBUY" or cmd == "MSELL") and t.len() == 3:
+    ok = t[2].re_full("[0-9]+").len() > 0 and t[2].int() >= 1
+  elif cmd == "CANCEL" and t.len() == 2: ok = true
+  elif cmd == "BOOK" and t.len() == 1: ok = true
+  if not ok:
+    print("ERR line {ln}: bad command")
+    continue
+  if cmd == "BOOK":
+    print("asks")
+    show(sells.sort())
+    print("bids")
+    show(buys.sort_by(e => (0 - e.0, e.1)))
+  elif cmd == "CANCEL":
+    id = t[1]
+    if rem.has(id) and rem[id] > 0:
+      print("CANCELLED {id} {rem[id]}")
+      rem[id] = 0
+      sells = [e for e in sells if rem[e.2] > 0]
+      buys = [e for e in buys if rem[e.2] > 0]
+    else: print("ERR line {ln}: unknown ID")
+  else:
+    id = t[1]
+    if seen.has(id):
+      print("ERR line {ln}: duplicate ID")
+      continue
+    seen[id] = 1
+    q = t[2].int()
+    isbuy = cmd == "BUY" or cmd == "MBUY"
+    haslim = cmd == "BUY" or cmd == "SELL"
+    lim = if haslim: t[3].dec() else: 0.dec()
+    rem[id] = q
+    left = fill(id, isbuy, q, lim, haslim)
+    seq += 1
+    if left > 0:
+      if haslim:
+        rem[id] = left
+        if isbuy: buys.push((lim, seq, id))
+        else: sells.push((lim, seq, id))
+      else:
+        rem[id] = 0
+        print("DROPPED {id} {left}")
+print("volume {vol} value {val.fmt(2)}")

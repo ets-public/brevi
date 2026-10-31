@@ -1,0 +1,126 @@
+type Order:
+  id: str
+  side: str
+  qty: int
+  price: int
+  seq: int
+
+resting = []
+used = {}
+seq = 0
+volume = 0
+value = 0
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  if len(parts) == 1:
+    return parts[0].int() * 100
+  f = parts[1]
+  if len(f) == 1: f = f + "0"
+  parts[0].int() * 100 + f.int()
+
+fn money(c: int) -> str:
+  r = c % 100
+  pad = if r < 10: "0" else: ""
+  "{c // 100}.{pad}{r}"
+
+fn valid_price(s: str) -> bool:
+  s.re_full("\d+(\.\d{1,2})?").len() > 0 and cents(s) > 0
+
+fn valid_qty(s: str) -> bool:
+  s.re_full("\d+").len() > 0 and s.int() >= 1
+
+fn match_order(id: str, side: str, qty: int, limit: int, market: bool):
+  left = qty
+  while left > 0:
+    best = -1
+    for i in 0..resting.len():
+      o = resting[i]
+      if o.side == side: continue
+      if not market:
+        if side == "B" and o.price > limit: continue
+        if side == "S" and o.price < limit: continue
+      if best < 0:
+        best = i
+      else:
+        b = resting[best]
+        better = false
+        if side == "B":
+          better = o.price < b.price or (o.price == b.price and o.seq < b.seq)
+        else:
+          better = o.price > b.price or (o.price == b.price and o.seq < b.seq)
+        if better: best = i
+    if best < 0: break
+    o = resting[best]
+    q = min(left, o.qty)
+    if side == "B":
+      print("TRADE {id} {o.id} {q} {money(o.price)}")
+    else:
+      print("TRADE {o.id} {id} {q} {money(o.price)}")
+    volume += q
+    value += q * o.price
+    left -= q
+    if q == o.qty:
+      resting.remove(best)
+    else:
+      resting[best].qty -= q
+  if left > 0:
+    if market:
+      print("DROPPED {id} {left}")
+    else:
+      resting.push(Order(id: id, side: side, qty: left, price: limit, seq: seq))
+
+fn show(side: str, asc: bool):
+  m = {}
+  for o in resting:
+    if o.side == side: m[o.price] += o.qty
+  ps = m.keys()
+  if not asc: ps = ps.rev()
+  if ps.is_empty():
+    print("  -")
+  for p in ps:
+    print("  {money(p)} {m[p]}")
+
+n = 0
+for line in lines():
+  n += 1
+  w = line.words()
+  if w.is_empty(): continue
+  cmd = w[0]
+  ok = false
+  if (cmd == "BUY" or cmd == "SELL") and w.len() == 4:
+    ok = valid_qty(w[2]) and valid_price(w[3])
+  elif (cmd == "MBUY" or cmd == "MSELL") and w.len() == 3:
+    ok = valid_qty(w[2])
+  elif cmd == "CANCEL" and w.len() == 2:
+    ok = true
+  elif cmd == "BOOK" and w.len() == 1:
+    ok = true
+  if not ok:
+    print("ERR line {n}: bad command")
+    continue
+  if cmd == "BOOK":
+    print("asks")
+    show("S", true)
+    print("bids")
+    show("B", false)
+  elif cmd == "CANCEL":
+    idx = -1
+    for i in 0..resting.len():
+      if resting[i].id == w[1]: idx = i
+    if idx < 0:
+      print("ERR line {n}: unknown ID")
+    else:
+      print("CANCELLED {w[1]} {resting[idx].qty}")
+      resting.remove(idx)
+  else:
+    if used.has(w[1]):
+      print("ERR line {n}: duplicate ID")
+      continue
+    used[w[1]] = 1
+    seq += 1
+    side = if cmd == "BUY" or cmd == "MBUY": "B" else: "S"
+    market = cmd.starts_with("M")
+    limit = if market: 0 else: cents(w[3])
+    match_order(w[1], side, w[2].int(), limit, market)
+print("volume {volume} value {money(value)}")

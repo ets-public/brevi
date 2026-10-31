@@ -1,0 +1,417 @@
+fn tokenize(line: str) -> (bool, [str]):
+  cs = line.chars()
+  n = cs.len()
+  toks = []
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == " ":
+      i += 1
+    elif c == "'":
+      s = ""
+      i += 1
+      closed = False
+      while i < n and not closed:
+        if cs[i] == "'":
+          if i + 1 < n and cs[i + 1] == "'":
+            s += "'"
+            i += 2
+          else:
+            closed = True
+            i += 1
+        else:
+          s += cs[i]
+          i += 1
+      if not closed: return (False, [])
+      toks.push("s" + s)
+    elif c.is_alpha():
+      j = i
+      while j < n and (cs[j].is_alpha() or cs[j].is_digit() or cs[j] == "_"):
+        j += 1
+      toks.push("w" + "".join(cs[i:j]))
+      i = j
+    elif c.is_digit() or (c == "-" and i + 1 < n and cs[i + 1].is_digit()):
+      j = i + 1
+      while j < n and cs[j].is_digit():
+        j += 1
+      toks.push("n" + "".join(cs[i:j]))
+      i = j
+    elif c == "<" or c == ">" or c == "=" or c == "!":
+      if i + 1 < n and cs[i + 1] == "=":
+        toks.push("p" + c + "=")
+        i += 2
+      elif c == "!":
+        return (False, [])
+      else:
+        toks.push("p" + c)
+        i += 1
+    elif c in "(),*":
+      toks.push("p" + c)
+      i += 1
+    else:
+      return (False, [])
+  return (True, toks)
+
+fn is_value(tok: str) -> bool:
+  c = tok[:1]
+  return c == "n" or c == "s"
+
+fn parse_cond(t: [str], p: int, mut conds: [(str, str, str)]) -> int:
+  if p < 0 or p + 2 >= t.len(): return -1
+  if t[p][:1] != "w": return -1
+  if t[p + 1] not in ["p=", "p!=", "p<", "p>", "p<=", "p>="]: return -1
+  if not is_value(t[p + 2]): return -1
+  conds.push((t[p][1:], t[p + 1][1:], t[p + 2]))
+  return p + 3
+
+fn parse_conds(t: [str], p: int, mut conds: [(str, str, str)]) -> int:
+  q = parse_cond(t, p, conds)
+  while q >= 0 and q < t.len() and t[q] == "wAND":
+    q = parse_cond(t, q + 1, conds)
+  return q
+
+fn parse_create(t: [str]) -> (bool, str, [str], [str]):
+  bad = (False, "", [], [])
+  n = t.len()
+  if n < 6: return bad
+  if t[0] != "wCREATE" or t[1] != "wTABLE" or t[2][:1] != "w" or t[3] != "p(": return bad
+  cols = []
+  types = []
+  p = 4
+  while True:
+    if p + 1 >= n: return bad
+    if t[p][:1] != "w" or (t[p + 1] != "wINT" and t[p + 1] != "wTEXT"): return bad
+    cols.push(t[p][1:])
+    types.push(t[p + 1][1:])
+    p += 2
+    if p >= n: return bad
+    if t[p] == "p,":
+      p += 1
+    elif t[p] == "p)":
+      p += 1
+      break
+    else:
+      return bad
+  if p != n: return bad
+  return (True, t[2][1:], cols, types)
+
+fn parse_insert(t: [str]) -> (bool, str, [str]):
+  bad = (False, "", [])
+  n = t.len()
+  if n < 7: return bad
+  if t[0] != "wINSERT" or t[1] != "wINTO" or t[2][:1] != "w" or t[3] != "wVALUES" or t[4] != "p(": return bad
+  vals = []
+  p = 5
+  while True:
+    if p >= n or not is_value(t[p]): return bad
+    vals.push(t[p])
+    p += 1
+    if p >= n: return bad
+    if t[p] == "p,":
+      p += 1
+    elif t[p] == "p)":
+      p += 1
+      break
+    else:
+      return bad
+  if p != n: return bad
+  return (True, t[2][1:], vals)
+
+fn parse_select(t: [str]) -> (bool, str, str, [str], [(str, str, str)], str, bool, int):
+  bad = (False, "", "", [], [], "", False, -1)
+  n = t.len()
+  if n < 4 or t[0] != "wSELECT": return bad
+  cols = []
+  kind = "rows"
+  p = 1
+  if t[1] == "wCOUNT":
+    if n < 7 or t[2] != "p(" or t[3] != "p*" or t[4] != "p)": return bad
+    kind = "count"
+    p = 5
+  elif t[1] == "p*":
+    p = 2
+  else:
+    while True:
+      if p >= n or t[p][:1] != "w": return bad
+      cols.push(t[p][1:])
+      p += 1
+      if p < n and t[p] == "p,":
+        p += 1
+      else:
+        break
+  if p >= n or t[p] != "wFROM": return bad
+  p += 1
+  if p >= n or t[p][:1] != "w": return bad
+  tb = t[p][1:]
+  p += 1
+  conds = []
+  if p < n and t[p] == "wWHERE":
+    p = parse_conds(t, p + 1, conds)
+    if p < 0: return bad
+  ocol = ""
+  odesc = False
+  limit = -1
+  if kind == "rows" and p < n and t[p] == "wORDER":
+    if p + 2 >= n or t[p + 1] != "wBY" or t[p + 2][:1] != "w": return bad
+    ocol = t[p + 2][1:]
+    p += 3
+    if p < n and t[p] == "wDESC":
+      odesc = True
+      p += 1
+  if kind == "rows" and p < n and t[p] == "wLIMIT":
+    if p + 1 >= n or t[p + 1][:1] != "n": return bad
+    limit = t[p + 1][1:].int().or(-1)
+    if limit < 0: return bad
+    p += 2
+  if p != n: return bad
+  return (True, kind, tb, cols, conds, ocol, odesc, limit)
+
+fn parse_update(t: [str]) -> (bool, str, str, str, [(str, str, str)]):
+  bad = (False, "", "", "", [])
+  n = t.len()
+  if n < 6 or t[0] != "wUPDATE" or t[1][:1] != "w" or t[2] != "wSET" or t[3][:1] != "w" or t[4] != "p=": return bad
+  if not is_value(t[5]): return bad
+  conds = []
+  p = 6
+  if p < n:
+    if t[p] != "wWHERE": return bad
+    p = parse_conds(t, p + 1, conds)
+  if p != n: return bad
+  return (True, t[1][1:], t[3][1:], t[5], conds)
+
+fn parse_delete(t: [str]) -> (bool, str, [(str, str, str)]):
+  bad = (False, "", [])
+  n = t.len()
+  if n < 3 or t[0] != "wDELETE" or t[1] != "wFROM" or t[2][:1] != "w": return bad
+  conds = []
+  p = 3
+  if p < n:
+    if t[p] != "wWHERE": return bad
+    p = parse_conds(t, p + 1, conds)
+  if p != n: return bad
+  return (True, t[2][1:], conds)
+
+fn col_index(cl: [str], name: str) -> int:
+  for i, c in enumerate(cl):
+    if c == name: return i
+  return -1
+
+fn first_unknown(cl: [str], names: [str]) -> str:
+  for nm in names:
+    if col_index(cl, nm) < 0: return nm
+  return ""
+
+fn value_fits(v: str, ty: str) -> bool:
+  if ty == "INT": return v[:1] == "n"
+  return v[:1] == "s"
+
+fn store_text(v: str, ty: str) -> str:
+  if ty == "INT": return v[1:].int().or(0).str()
+  return v[1:]
+
+fn make_conds(cl: [str], ty: [str], conds: [(str, str, str)]) -> (str, [(int, str, str, bool)]):
+  out = []
+  for cd in conds:
+    i = col_index(cl, cd.0)
+    num = ty[i] == "INT"
+    isnum = cd.2[:1] == "n"
+    if num != isnum: return ("error: type mismatch", [])
+    vv = cd.2[1:]
+    out.push((i, cd.1, vv, num))
+  return ("", out)
+
+fn cmp_res(a: str, b: str, num: bool) -> int:
+  if num:
+    x = a.int().or(0)
+    y = b.int().or(0)
+    if x < y: return -1
+    if x > y: return 1
+    return 0
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn holds(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn row_ok(row: [str], conds: [(int, str, str, bool)]) -> bool:
+  for cd in conds:
+    if not holds(cmp_res(row[cd.0], cd.2, cd.3), cd.1): return False
+  return True
+
+fn main():
+  cols_of = {}
+  types_of = {}
+  rows_of = {}
+  for raw in lines():
+    line = raw.trim()
+    if line.is_empty(): continue
+    tk = tokenize(line)
+    if not tk.0:
+      print("error: syntax")
+      continue
+    t = tk.1
+    if t[0] == "wCREATE":
+      pc = parse_create(t)
+      if not pc.0:
+        print("error: syntax")
+        continue
+      tb = pc.1
+      if cols_of.has(tb):
+        print("error: table {tb} exists")
+        continue
+      cols_of[tb] = pc.2
+      types_of[tb] = pc.3
+      rows_of[tb] = []
+      print("ok")
+    elif t[0] == "wINSERT":
+      pi = parse_insert(t)
+      if not pi.0:
+        print("error: syntax")
+        continue
+      tb = pi.1
+      if not cols_of.has(tb):
+        print("error: no table {tb}")
+        continue
+      ty = types_of[tb]
+      vals = pi.2
+      fits = vals.len() == ty.len()
+      if fits:
+        for i, v in enumerate(vals):
+          if not value_fits(v, ty[i]): fits = False
+      if not fits:
+        print("error: type mismatch")
+        continue
+      newrow = []
+      for i, v in enumerate(vals):
+        newrow.push(store_text(v, ty[i]))
+      rows_of[tb].push(newrow)
+      print("ok")
+    elif t[0] == "wSELECT":
+      ps = parse_select(t)
+      if not ps.0:
+        print("error: syntax")
+        continue
+      kind = ps.1
+      tb = ps.2
+      if not cols_of.has(tb):
+        print("error: no table {tb}")
+        continue
+      cl = cols_of[tb]
+      ty = types_of[tb]
+      names = []
+      for c in ps.3: names.push(c)
+      for cd in ps.4: names.push(cd.0)
+      if ps.5 != "": names.push(ps.5)
+      bc = first_unknown(cl, names)
+      if bc != "":
+        print("error: no column {bc}")
+        continue
+      mc = make_conds(cl, ty, ps.4)
+      if mc.0 != "":
+        print(mc.0)
+        continue
+      cc = mc.1
+      sel = []
+      for row in rows_of[tb]:
+        if row_ok(row, cc): sel.push(row)
+      if kind == "count":
+        print(str(sel.len()))
+        continue
+      ordered = []
+      if ps.5 != "":
+        oi = col_index(cl, ps.5)
+        onum = ty[oi] == "INT"
+        dr = -1 if ps.6 else 1
+        for row in sel:
+          pos = ordered.len()
+          while pos > 0 and cmp_res(ordered[pos - 1][oi], row[oi], onum) * dr > 0:
+            pos -= 1
+          ordered.insert(pos, row)
+      else:
+        ordered = sel
+      if ps.7 >= 0:
+        ordered = ordered[:ps.7]
+      outc = ps.3
+      if outc.len() == 0: outc = cl
+      idx = []
+      for c in outc: idx.push(col_index(cl, c))
+      print(" | ".join(outc))
+      for row in ordered:
+        print(" | ".join([row[i] for i in idx]))
+      nrows = ordered.len()
+      print("({nrows} rows)")
+    elif t[0] == "wUPDATE":
+      pu = parse_update(t)
+      if not pu.0:
+        print("error: syntax")
+        continue
+      tb = pu.1
+      if not cols_of.has(tb):
+        print("error: no table {tb}")
+        continue
+      cl = cols_of[tb]
+      ty = types_of[tb]
+      names = [pu.2]
+      for cd in pu.4: names.push(cd.0)
+      bc = first_unknown(cl, names)
+      if bc != "":
+        print("error: no column {bc}")
+        continue
+      ci = col_index(cl, pu.2)
+      if not value_fits(pu.3, ty[ci]):
+        print("error: type mismatch")
+        continue
+      mc = make_conds(cl, ty, pu.4)
+      if mc.0 != "":
+        print(mc.0)
+        continue
+      cc = mc.1
+      newv = store_text(pu.3, ty[ci])
+      out = []
+      cnt = 0
+      for row in rows_of[tb]:
+        if row_ok(row, cc):
+          row[ci] = newv
+          cnt += 1
+        out.push(row)
+      rows_of[tb] = out
+      print("updated {cnt}")
+    elif t[0] == "wDELETE":
+      pd = parse_delete(t)
+      if not pd.0:
+        print("error: syntax")
+        continue
+      tb = pd.1
+      if not cols_of.has(tb):
+        print("error: no table {tb}")
+        continue
+      cl = cols_of[tb]
+      ty = types_of[tb]
+      names = []
+      for cd in pd.2: names.push(cd.0)
+      bc = first_unknown(cl, names)
+      if bc != "":
+        print("error: no column {bc}")
+        continue
+      mc = make_conds(cl, ty, pd.2)
+      if mc.0 != "":
+        print(mc.0)
+        continue
+      cc = mc.1
+      out = []
+      cnt = 0
+      for row in rows_of[tb]:
+        if row_ok(row, cc):
+          cnt += 1
+        else:
+          out.push(row)
+      rows_of[tb] = out
+      print("deleted {cnt}")
+    else:
+      print("error: syntax")

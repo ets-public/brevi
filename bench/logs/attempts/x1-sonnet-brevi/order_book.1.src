@@ -1,0 +1,116 @@
+type Order:
+  id: str
+  buy: bool
+  qty: int
+  price: dec
+  seq: int
+
+book = []
+used = {}
+seq = 0
+vol = 0
+val = 0.dec()
+
+fn best(incoming_buy: bool, haslim: bool, limit: dec) -> int:
+  bi = -1
+  for i in 0..book.len():
+    o = book[i]
+    if o.buy == incoming_buy: continue
+    if haslim:
+      if incoming_buy and o.price > limit: continue
+      if not incoming_buy and o.price < limit: continue
+    if bi < 0:
+      bi = i
+    else:
+      b = book[bi]
+      better = false
+      if incoming_buy:
+        better = o.price < b.price or (o.price == b.price and o.seq < b.seq)
+      else:
+        better = o.price > b.price or (o.price == b.price and o.seq < b.seq)
+      if better: bi = i
+  bi
+
+fn submit(oid: str, isbuy: bool, q: int, haslim: bool, px: dec):
+  rem = q
+  seq += 1
+  myseq = seq
+  while rem > 0:
+    j = best(isbuy, haslim, px)
+    if j < 0: break
+    r = book[j]
+    t = min(rem, r.qty)
+    buyid = if isbuy: oid else: r.id
+    sellid = if isbuy: r.id else: oid
+    print("TRADE {buyid} {sellid} {t} {r.price.fmt(2)}")
+    vol += t
+    val += r.price * t
+    rem -= t
+    if t == r.qty:
+      book.remove(j)
+    else:
+      book[j] = Order(r.id, r.buy, r.qty - t, r.price, r.seq)
+  if rem > 0:
+    if haslim:
+      book.push(Order(oid, isbuy, rem, px, myseq))
+    else:
+      print("DROPPED {oid} {rem}")
+
+fn okq(s: str) -> bool = s.is_digit() and s.int().or(0) >= 1
+
+fn okp(s: str) -> bool = len(s.re_full("\d+(\.\d{1,2})?")) > 0 and s.dec().or(0.dec()) > 0
+
+fn show(isbuy: bool):
+  ps = [o.price for o in book if o.buy == isbuy].unique()
+  if not isbuy: ps = ps
+  else: ps = ps.rev()
+  if ps.is_empty():
+    print("  -")
+  for p in ps:
+    tot = sum(o.qty for o in book if o.buy == isbuy and o.price == p)
+    print("  {p.fmt(2)} {tot}")
+
+for idx, line in enumerate(lines()):
+  ln = idx + 1
+  w = line.words()
+  if w.is_empty(): continue
+  c = w[0]
+  bad = true
+  if (c == "BUY" or c == "SELL") and w.len() == 4:
+    if okq(w[2]) and okp(w[3]): bad = false
+  elif (c == "MBUY" or c == "MSELL") and w.len() == 3:
+    if okq(w[2]): bad = false
+  elif c == "CANCEL" and w.len() == 2:
+    bad = false
+  elif c == "BOOK" and w.len() == 1:
+    bad = false
+  if bad:
+    print("ERR line {ln}: bad command")
+  elif c == "BOOK":
+    print("asks")
+    show(false)
+    print("bids")
+    show(true)
+  elif c == "CANCEL":
+    k = -1
+    for i in 0..book.len():
+      if book[i].id == w[1]: k = i
+    if k < 0:
+      print("ERR line {ln}: unknown ID")
+    else:
+      print("CANCELLED {w[1]} {book[k].qty}")
+      book.remove(k)
+  elif used.has(w[1]):
+    print("ERR line {ln}: duplicate ID")
+  else:
+    used[w[1]] = 1
+    if c == "BUY":
+      submit(w[1], true, w[2].int(), true, w[3].dec())
+    elif c == "SELL":
+      submit(w[1], false, w[2].int(), true, w[3].dec())
+    elif c == "MBUY":
+      submit(w[1], true, w[2].int(), false, 0.dec())
+    else:
+      submit(w[1], false, w[2].int(), false, 0.dec())
+
+print("volume {vol} value {val.fmt(2)}")

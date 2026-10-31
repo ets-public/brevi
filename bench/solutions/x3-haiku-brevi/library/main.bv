@@ -1,0 +1,43 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  books: {str: Book} = {}
+  members: {str: Member} = {}
+  holds: [Hold] = []
+  for raw in lines():
+    w = raw.trim().words()
+    if w.len() == 0: continue
+    dt = date(w[0])
+    for msg in expire(books, holds, dt.days):
+      print(msg)
+    op = w[1]
+    if op == "BOOK":
+      bid = w[2]
+      if books.has(bid):
+        print("duplicate ID")
+      else:
+        copies = w[3].int().or(1)
+        books[bid] = Book(title: " ".join(w[4:]), copies: copies, shelf: copies, waits: [])
+        print("added {bid}")
+    elif op == "MEMBER":
+      mid = w[2]
+      if members.has(mid):
+        print("duplicate ID")
+      else:
+        name = " ".join(w[4:])
+        members[mid] = Member(name: name, tier: w[3], owes: 0, loans: [])
+        print("welcome {name}")
+    elif op == "LOAN":
+      print(loan(books, members, holds, w[2], w[3], dt))
+    elif op == "RETURN":
+      print(give_back(books, members, holds, w[2], w[3], dt))
+    elif op == "RESERVE":
+      print(reserve(books, members, holds, w[2], w[3]))
+    elif op == "PAY":
+      amt = cents_of(w[3])
+      print(pay(members, w[2], amt))
+    elif op == "STATUS":
+      print(status(members, w[2]))
+    else:
+      print("refused {w[2]}: bad command")

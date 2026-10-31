@@ -1,0 +1,81 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn report(k: int, names: [str], days: [int], raw_deps: [[str]]):
+  n = names.len()
+  unk = ""
+  for i in 0..n:
+    for d in raw_deps[i]:
+      if unk == "" and not names.contains(d): unk = d
+  if unk != "":
+    print("unknown {unk}")
+  else:
+    deps = []
+    for dl in raw_deps:
+      row = []
+      for d in dl:
+        row.push(names.index_of(d))
+      deps.push(row)
+    pl = plan_unlimited(days, deps)
+    if not pl.0:
+      print("cycle")
+    else:
+      st = pl.1
+      en = pl.2
+      print("unlimited")
+      big = 0
+      for i in 0..n:
+        print("  {names[i]} {st[i]}-{en[i]}")
+        if en[i] > big: big = en[i]
+      print("length {big}")
+      chain = critical(names, days, deps, st, en)
+      cs = chain.join(" > ")
+      print("critical {cs}")
+      tl = tails(days, deps)
+      ss = run_sched(k, days, deps, tl)
+      print("workers {k}")
+      big2 = 0
+      for i in 0..n:
+        e = ss[i] + days[i]
+        print("  {names[i]} {ss[i]}-{e}")
+        if e > big2: big2 = e
+      print("length {big2}")
+
+fn main():
+  k = 0
+  have_k = false
+  names = []
+  days = []
+  raw_deps = []
+  seen = {}
+  bad = ""
+  lineno = 0
+  for raw in lines():
+    lineno += 1
+    s = raw.trim()
+    if s.is_empty(): continue
+    if not have_k:
+      m = s.re_full("workers\s+(\d+)")
+      if m.is_empty() or m[1].int().or(0) < 1:
+        bad = "line {lineno}: bad line"
+        break
+      k = m[1].int().or(0)
+      have_k = true
+      continue
+    r = parse_task(s)
+    if not r.0:
+      bad = "line {lineno}: bad line"
+      break
+    if seen.has(r.1):
+      bad = "line {lineno}: duplicate {r.1}"
+      break
+    seen[r.1] = true
+    names.push(r.1)
+    days.push(r.2)
+    raw_deps.push(r.3)
+  if bad == "" and not have_k:
+    bad = "line {lineno}: bad line"
+  if bad != "":
+    print(bad)
+  else:
+    report(k, names, days, raw_deps)

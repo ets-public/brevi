@@ -1,0 +1,114 @@
+type Order:
+  id: str
+  qty: int
+  price: dec
+
+fn is_qty(s: str) -> bool = s.re_full("\d+").len() > 0 and s.int().or(0) >= 1
+
+fn is_price(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0 and s.dec().or(0.dec()) > 0.dec()
+
+fn is_order(parts: [str]) -> bool:
+  if parts.len() == 4 and (parts[0] == "BUY" or parts[0] == "SELL"): return is_qty(parts[2]) and is_price(parts[3])
+  if parts.len() == 3 and (parts[0] == "MBUY" or parts[0] == "MSELL"): return is_qty(parts[2])
+  return false
+
+fn add_rest(mut book: {dec: [Order]}, o: Order):
+  if not book.has(o.price): book[o.price] = []
+  book[o.price].push(o)
+
+fn cancel_order(mut book: {dec: [Order]}, oid: str) -> int:
+  for p in book.keys():
+    q = book[p]
+    for i in 0..q.len():
+      if q[i].id == oid:
+        n = q[i].qty
+        q.remove(i)
+        if q.is_empty(): book.remove(p)
+        else: book[p] = q
+        return n
+  return 0
+
+fn match_order(mut book: {dec: [Order]}, is_buy: bool, id: str, qty: int, limit: dec, market: bool):
+  left = qty
+  tq = 0
+  tv = 0.dec()
+  keys = book.keys().sort()
+  if not is_buy: keys = keys.rev()
+  for p in keys:
+    if left <= 0: break
+    if not market:
+      if is_buy and p > limit: break
+      if not is_buy and p < limit: break
+    q = book[p]
+    while left > 0 and q.len() > 0:
+      r = q[0]
+      take = min(left, r.qty)
+      if is_buy: print("TRADE {id} {r.id} {take} {p.fmt(2)}")
+      else: print("TRADE {r.id} {id} {take} {p.fmt(2)}")
+      tq += take
+      tv = tv + p * take
+      left -= take
+      if take == r.qty: q.remove(0)
+      else: q[0] = Order(id: r.id, qty: r.qty - take, price: r.price)
+    if q.is_empty(): book.remove(p)
+    else: book[p] = q
+  return (left, tq, tv)
+
+bids = {}
+asks = {}
+seen = {}
+seq = 0
+volume = 0
+value = 0.dec()
+
+for raw in stdin().lines():
+  seq += 1
+  line = raw.trim()
+  if line == "": continue
+  parts = line.words()
+  cmd = parts[0]
+  if cmd == "BOOK" and parts.len() == 1:
+    print("asks")
+    if asks.is_empty(): print("  -")
+    for p in asks.keys().sort():
+      tot = sum([o.qty for o in asks[p]])
+      print("  {p.fmt(2)} {tot}")
+    print("bids")
+    if bids.is_empty(): print("  -")
+    for p in bids.keys().sort().rev():
+      tot = sum([o.qty for o in bids[p]])
+      print("  {p.fmt(2)} {tot}")
+  elif cmd == "CANCEL" and parts.len() == 2:
+    oid = parts[1]
+    n = cancel_order(bids, oid)
+    if n == 0: n = cancel_order(asks, oid)
+    if n == 0: print("ERR line {seq}: unknown ID")
+    else: print("CANCELLED {oid} {n}")
+  elif is_order(parts):
+    oid = parts[1]
+    if seen.has(oid):
+      print("ERR line {seq}: duplicate ID")
+    else:
+      seen[oid] = true
+      is_buy = parts[0] == "BUY" or parts[0] == "MBUY"
+      market = parts[0] == "MBUY" or parts[0] == "MSELL"
+      q = parts[2].int().or(0)
+      lim = 0.dec()
+      if not market: lim = parts[3].dec().or(0.dec())
+      if is_buy:
+        (left, tq, tv) = match_order(asks, true, oid, q, lim, market)
+      else:
+        (left, tq, tv) = match_order(bids, false, oid, q, lim, market)
+      volume += tq
+      value = value + tv
+      if left > 0:
+        if market:
+          print("DROPPED {oid} {left}")
+        elif is_buy:
+          add_rest(bids, Order(id: oid, qty: left, price: lim))
+        else:
+          add_rest(asks, Order(id: oid, qty: left, price: lim))
+  else:
+    print("ERR line {seq}: bad command")
+
+print("volume {volume} value {value.fmt(2)}")

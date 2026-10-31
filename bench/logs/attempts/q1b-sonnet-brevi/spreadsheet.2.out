@@ -1,0 +1,22 @@
+test 1 failed
+input:
+A1 = =B1+1
+B1 = =A1+1
+C1 = =A1*0
+A2 = 10
+B2 = =A2/0
+C2 = =B2+1
+D2 = =-7/2
+C3 = =SUM(A2:A2)+E4
+expected:
+	A	B	C	D	E
+1	#CYCLE	#CYCLE	#CYCLE		
+2	10	#DIV0	#DIV0	-3	
+3			10		
+4					
+got:
+	A	B	C	D	E
+1	#CYCLE	#CYCLE	#CYCLE		
+2	10	#DIV0	#DIV0	-3	
+{"e":"runtime","line":66,"msg":"index 8 out of range for length 8"}
+passed 1/3

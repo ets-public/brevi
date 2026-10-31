@@ -1,0 +1,70 @@
+data = {}
+logs = []
+fn save(k: str):
+  if logs.len() > 0:
+    had = data.has(k)
+    logs[-1].push((k, had, data.get_or(k, "")))
+for line in stdin().lines():
+  if line.trim().is_empty(): continue
+  parts = line.trim().split(" ")
+  cmd = parts[0]
+  if cmd == "SET":
+    k = parts[1]
+    save(k)
+    data[k] = parts[2]
+  elif cmd == "GET":
+    k = parts[1]
+    if data.has(k):
+      print(data[k])
+    else:
+      print("NULL")
+  elif cmd == "DEL":
+    k = parts[1]
+    if data.has(k):
+      save(k)
+      data.remove(k)
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR":
+    k = parts[1]
+    cur = data.get_or(k, "0")
+    if cur.re_full('^-?\d+$').is_empty():
+      print("ERR not an integer")
+    else:
+      nv = cur.int().or(0) + parts[2].int().or(0)
+      save(k)
+      data[k] = str(nv)
+      print(nv)
+  elif cmd == "COUNT":
+    v = parts[1]
+    c = 0
+    for k2, x in data.pairs():
+      if x == v:
+        c += 1
+    print(c)
+  elif cmd == "KEYS":
+    p = parts[1]
+    ks = sorted([k2 for k2 in data.keys() if k2.starts_with(p)])
+    if ks.is_empty():
+      print("(empty)")
+    else:
+      print(ks.join(" "))
+  elif cmd == "BEGIN":
+    logs.push([])
+  elif cmd == "ROLLBACK":
+    if logs.is_empty():
+      print("NO TRANSACTION")
+    else:
+      top = logs.pop()
+      for e in top.rev():
+        if e.1:
+          data[e.0] = e.2
+        else:
+          data.remove(e.0)
+  elif cmd == "COMMIT":
+    if logs.is_empty():
+      print("NO TRANSACTION")
+    else:
+      logs = []
+  else:
+    print("ERR unknown command")

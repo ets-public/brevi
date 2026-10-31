@@ -1,0 +1,178 @@
+NAME = '[A-Za-z]\w*'
+VALP = "(?:-?\d+|'(?:[^']|'')*')"
+OPP = '(?:=|!=|<=|>=|<|>)'
+CMP = NAME + ' ' + OPP + ' ' + VALP
+COND = CMP + '(?: AND ' + CMP + ')*'
+CMPG = '(' + NAME + ') (' + OPP + ') (' + VALP + ')'
+RX_CREATE = 'CREATE TABLE (' + NAME + ') \((.+)\)'
+RX_INSERT = 'INSERT INTO (' + NAME + ') VALUES \((' + VALP + '(?:, ' + VALP + ')*)\)'
+RX_COUNT = 'SELECT COUNT\(\*\) FROM (' + NAME + ')(?: WHERE (' + COND + '))?'
+RX_SEL = 'SELECT (\*|' + NAME + '(?:, ' + NAME + ')*) FROM (' + NAME + ')(?: WHERE (' + COND + '))?(?: ORDER BY (' + NAME + ')( DESC)?)?(?: LIMIT (\d+))?'
+RX_UPD = 'UPDATE (' + NAME + ') SET (' + NAME + ') = (' + VALP + ')(?: WHERE (' + COND + '))?'
+RX_DEL = 'DELETE FROM (' + NAME + ')(?: WHERE (' + COND + '))?'
+
+tbl_cols = {}
+tbl_types = {}
+tbl_rows = {}
+
+fn pv(v: str):
+  if v.starts_with("'"):
+    (false, v.slice(1, -1).replace("''", "'"))
+  else:
+    (true, v.int().str())
+
+fn colidx(t: str, c: str) -> int:
+  i = tbl_cols[t].index_of(c)
+  if i < 0: fail("no column {c}")
+  i
+
+fn mkconds(t: str, cond: str):
+  out = []
+  for g in cond.re_all(CMPG):
+    i = colidx(t, g[1])
+    p = pv(g[3])
+    out.push((i, g[2], p.1, p.0))
+  out
+
+fn chk(t: str, cc: [(int, str, str, bool)]):
+  for c in cc:
+    if (tbl_types[t][c.0] == "INT") != c.3: fail("type mismatch")
+
+fn opi(op: str, a: int, b: int) -> bool = match op:
+  "=" => a == b
+  "!=" => a != b
+  "<" => a < b
+  ">" => a > b
+  "<=" => a <= b
+  _ => a >= b
+
+fn ops(op: str, a: str, b: str) -> bool = match op:
+  "=" => a == b
+  "!=" => a != b
+  "<" => a < b
+  ">" => a > b
+  "<=" => a <= b
+  _ => a >= b
+
+fn rowok(r: [str], cc: [(int, str, str, bool)]) -> bool:
+  for c in cc:
+    good = false
+    if c.3:
+      good = opi(c.1, r[c.0].int(), c.2.int())
+    else:
+      good = ops(c.1, r[c.0], c.2)
+    if not good: return false
+  true
+
+fn need(t: str):
+  if not tbl_cols.has(t): fail("no table {t}")
+
+fn keyneg(s: str) = [-c.code() for c in s.chars()] + [1]
+
+fn exec(line: str) -> [str]:
+  out = []
+  m = line.re_full(RX_CREATE)
+  if m:
+    defs = m[2].split(", ")
+    names = []
+    tys = []
+    for d in defs:
+      g = d.re_full('(' + NAME + ') (INT|TEXT)')
+      if g.is_empty(): fail("syntax")
+      names.push(g[1])
+      tys.push(g[2])
+    if tbl_cols.has(m[1]): fail("table {m[1]} exists")
+    tbl_cols[m[1]] = names
+    tbl_types[m[1]] = tys
+    tbl_rows[m[1]] = []
+    out.push("ok")
+    return out
+  m = line.re_full(RX_INSERT)
+  if m:
+    t = m[1]
+    need(t)
+    vals = m[2].re_list(VALP)
+    if vals.len() != tbl_cols[t].len(): fail("type mismatch")
+    row = []
+    for i in 0..vals.len():
+      p = pv(vals[i])
+      if (tbl_types[t][i] == "INT") != p.0: fail("type mismatch")
+      row.push(p.1)
+    tbl_rows[t].push(row)
+    out.push("ok")
+    return out
+  m = line.re_full(RX_COUNT)
+  if m:
+    t = m[1]
+    need(t)
+    cc = mkconds(t, m[2])
+    chk(t, cc)
+    n = 0
+    for r in tbl_rows[t]:
+      if rowok(r, cc): n += 1
+    out.push("{n}")
+    return out
+  m = line.re_full(RX_SEL)
+  if m:
+    t = m[2]
+    need(t)
+    cn = if m[1] == "*": tbl_cols[t] else: m[1].split(", ")
+    cis = []
+    for c in cn: cis.push(colidx(t, c))
+    cc = mkconds(t, m[3])
+    oi = -1
+    if m[4]: oi = colidx(t, m[4])
+    chk(t, cc)
+    sel = [r for r in tbl_rows[t] if rowok(r, cc)]
+    if oi >= 0:
+      desc = m[5] != ""
+      if tbl_types[t][oi] == "INT":
+        if desc: sel = sel.sort_by(r => -r[oi].int())
+        else: sel = sel.sort_by(r => r[oi].int())
+      else:
+        if desc: sel = sel.sort_by(r => keyneg(r[oi]))
+        else: sel = sel.sort_by(r => r[oi])
+    if m[6]: sel = sel.take(m[6].int())
+    out.push(cn.join(" | "))
+    for r in sel:
+      out.push([r[i] for i in cis].join(" | "))
+    out.push("({sel.len()} rows)")
+    return out
+  m = line.re_full(RX_UPD)
+  if m:
+    t = m[1]
+    need(t)
+    ci = colidx(t, m[2])
+    cc = mkconds(t, m[4])
+    p = pv(m[3])
+    if (tbl_types[t][ci] == "INT") != p.0: fail("type mismatch")
+    chk(t, cc)
+    n = 0
+    for i in 0..tbl_rows[t].len():
+      r = tbl_rows[t][i]
+      if rowok(r, cc):
+        r[ci] = p.1
+        tbl_rows[t][i] = r
+        n += 1
+    out.push("updated {n}")
+    return out
+  m = line.re_full(RX_DEL)
+  if m:
+    t = m[1]
+    need(t)
+    cc = mkconds(t, m[2])
+    chk(t, cc)
+    keep = [r for r in tbl_rows[t] if not rowok(r, cc)]
+    n = tbl_rows[t].len() - keep.len()
+    tbl_rows[t] = keep
+    out.push("deleted {n}")
+    return out
+  fail("syntax")
+  out
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match exec(line):
+    Ok(res) =>
+      for s in res: print(s)
+    Err(msg) => print("error: {msg}")

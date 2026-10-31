@@ -1,0 +1,46 @@
+type Loan:
+  book: str
+  due: Date
+
+type Book:
+  title: str
+  copies: int
+  shelf: int
+  waits: [str]
+
+type Member:
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Hold:
+  member: str
+  book: str
+  last: int
+
+fn money(c: int) -> str:
+  if c < 0: return "-" + money(0 - c)
+  frac = c % 100
+  f2 = frac.str()
+  if frac < 10: f2 = "0" + f2
+  return (c // 100).str() + "." + f2
+
+fn cents_of(s: str) -> int:
+  if s.re_full("[0-9]+(\\.[0-9][0-9]?)?").is_empty(): return -1
+  pp = s.split(".")
+  c = pp[0].int().or(0) * 100
+  if pp.len() == 2: c += (pp[1] + "00")[:2].int().or(0)
+  return c
+
+fn tier_limit(tier: str) -> int:
+  if tier == "plus": return 5
+  return 2
+
+fn tier_days(tier: str) -> int:
+  if tier == "plus": return 28
+  return 14
+
+fn tier_fee(tier: str) -> int:
+  if tier == "plus": return 10
+  return 25

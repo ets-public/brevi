@@ -1,0 +1,87 @@
+out = []
+para = []
+items = []
+ltype = ""
+toc = []
+used = {}
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub('\*\*(.+?)\*\*', "<strong>\1</strong>")
+  t = t.re_sub('\*(.+?)\*', "<em>\1</em>")
+  t.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+fn inline(s: str) -> str:
+  parts = esc(s).split("`")
+  res = ""
+  n = parts.len()
+  for i in 0..n:
+    if i % 2 == 1 and i < n - 1: res += "<code>" + parts[i] + "</code>"
+    elif i % 2 == 1: res += "`" + parts[i]
+    else: res += fmt_plain(parts[i])
+  res
+fn flush_para():
+  if para:
+    out.push("<p>" + " ".join([inline(x) for x in para]) + "</p>")
+    para = []
+fn flush_list():
+  if items:
+    out.push("<" + ltype + ">")
+    for it in items: out.push("<li>" + inline(it) + "</li>")
+    out.push("</" + ltype + ">")
+    items = []
+ls = lines()
+i = 0
+while i < ls.len():
+  line = ls[i]
+  i += 1
+  if line == "```":
+    flush_para()
+    flush_list()
+    code = []
+    while i < ls.len() and ls[i] != "```":
+      code.push(esc(ls[i]))
+      i += 1
+    i += 1
+    out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+    continue
+  if line.trim().is_empty():
+    flush_para()
+    flush_list()
+    continue
+  h = line.re_full('(#{1,6}) (.*)')
+  if h:
+    flush_para()
+    flush_list()
+    lvl = h[1].len()
+    raw = h[2]
+    base = raw.lower().re_sub('[^a-z0-9]+', "-").re_sub('^-+|-+$', "")
+    cand = base
+    k = 2
+    while used.has(cand):
+      cand = base + "-" + str(k)
+      k += 1
+    used[cand] = 1
+    toc.push("<a href=\"#{cand}\">" + esc(raw.replace("`", "").replace("*", "")) + "</a>")
+    out.push("<h{lvl} id=\"{cand}\">" + inline(raw) + "</h{lvl}>")
+    continue
+  if line.starts_with("- "):
+    flush_para()
+    if ltype != "ul": flush_list()
+    ltype = "ul"
+    items.push(line.slice(2))
+    continue
+  o = line.re_full('\d+\. (.*)')
+  if o:
+    flush_para()
+    if ltype != "ol": flush_list()
+    ltype = "ol"
+    items.push(o[1])
+    continue
+  flush_list()
+  para.push(line)
+flush_para()
+flush_list()
+if toc.len() >= 2:
+  print("<nav>")
+  for t in toc: print(t)
+  print("</nav>")
+for l in out: print(l)

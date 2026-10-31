@@ -1,0 +1,107 @@
+fn money(c: int) -> str:
+  if c < 0: return "-" + money(0 - c)
+  frac = c % 100
+  f2 = frac.str()
+  if frac < 10: f2 = "0" + f2
+  return (c // 100).str() + "." + f2
+
+fn cents_of(s: str) -> int:
+  if s.re_full("[0-9]+(\\.[0-9][0-9]?)?").is_empty(): return -1
+  pp = s.split(".")
+  c = pp[0].int().or(0) * 100
+  if pp.len() == 2: c += (pp[1] + "00")[:2].int().or(0)
+  return c
+
+fn qty_of(s: str) -> int:
+  if s.re_full("[0-9]+").is_empty(): return -1
+  q = s.int().or(0)
+  if q < 1: return -1
+  return q
+
+fn main():
+  lq: {str: [int]} = {}
+  lc: {str: [int]} = {}
+  cogs_m: {str: int} = {}
+  rev_m: {str: int} = {}
+  prof_m: {str: int} = {}
+  loss_m: {str: int} = {}
+  mp: {str: int} = {}
+  ml: {str: int} = {}
+  mset: {str: int} = {}
+  tot_p = 0
+  tot_l = 0
+  last = ""
+  for n, raw in enumerate(lines()):
+    ln = n + 1
+    s = raw.trim()
+    if s.is_empty(): continue
+    w = s.words()
+    nw = len(w)
+    dt = w[0]
+    okd = not dt.re_full("[0-9]{4}-[0-9]{2}-[0-9]{2}").is_empty()
+    op = w[1] if nw > 1 else ""
+    sku = w[2] if nw > 2 else ""
+    q = qty_of(w[3]) if nw > 3 else -1
+    pr = cents_of(w[4]) if nw == 5 else -1
+    valid = okd and q > 0 and (((op == "RECEIVE" or op == "SHIP") and nw == 5 and pr >= 0) or (op == "LOSS" and nw == 4))
+    if not valid:
+      print("line {ln}: bad line")
+      continue
+    if dt < last:
+      print("line {ln}: date out of order")
+      continue
+    if op == "RECEIVE":
+      if not lq.has(sku):
+        lq[sku] = []
+        lc[sku] = []
+      lq[sku].push(q)
+      lc[sku].push(pr)
+      last = dt
+      continue
+    have = sum(lq[sku]) if lq.has(sku) else 0
+    if have < q:
+      print("line {ln}: short {sku} need {q} have {have}")
+      continue
+    qs = lq[sku]
+    cs = lc[sku]
+    need = q
+    cogs = 0
+    while need > 0:
+      take = min(need, qs[0])
+      cogs += take * cs[0]
+      need -= take
+      if take == qs[0]:
+        qs.remove(0)
+        cs.remove(0)
+      else:
+        qs[0] = qs[0] - take
+    lq[sku] = qs
+    lc[sku] = cs
+    mon = dt[:7]
+    mset[mon] = 1
+    if op == "SHIP":
+      rev = q * pr
+      prof = rev - cogs
+      cogs_m[sku] += cogs
+      rev_m[sku] += rev
+      prof_m[sku] += prof
+      mp[mon] += prof
+      tot_p += prof
+    else:
+      loss_m[sku] += cogs
+      ml[mon] += cogs
+      tot_l += cogs
+    last = dt
+  skus = sorted(lq.keys())
+  for sku in skus:
+    qs = lq[sku]
+    cs = lc[sku]
+    onhand = sum(qs)
+    val = 0
+    for i, qq in enumerate(qs):
+      val += qq * cs[i]
+    print("{sku} on_hand {onhand} value {money(val)} cogs {money(cogs_m[sku])} revenue {money(rev_m[sku])} profit {money(prof_m[sku])} loss {money(loss_m[sku])}")
+  print("months")
+  for mo in sorted(mset.keys()):
+    print("  {mo} profit {money(mp[mo])} loss {money(ml[mo])}")
+  print("total profit {money(tot_p)} loss {money(tot_l)} net {money(tot_p - tot_l)}")

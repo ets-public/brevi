@@ -1,0 +1,93 @@
+text = stdin()
+nl = text.find("\n")
+data = json(text.slice(0, nl))
+tpl = text.slice(nl + 1)
+if tpl.ends_with("\n"): tpl = tpl.slice(0, tpl.len() - 1)
+
+toks = []
+rest = tpl
+while true:
+  j = rest.find("{{")
+  if j < 0:
+    toks.push((False, rest))
+    break
+  k = rest.find("}}")
+  if k < 0:
+    toks.push((False, rest))
+    break
+  if j > 0: toks.push((False, rest.slice(0, j)))
+  toks.push((True, rest.slice(j + 2, k)))
+  rest = rest.slice(k + 2)
+
+fn lookup(name: str, items: [Json]) -> Json:
+  if name == ".": return items.last()
+  parts = name.split(".")
+  cur = json("null")
+  for k in (0..items.len()).rev():
+    if items[k].has(parts[0]):
+      cur = items[k][parts[0]]
+      break
+  for p in parts[1:]:
+    cur = cur[p]
+  cur
+
+fn evalexpr(e: str, items: [Json], idx: int) -> str:
+  fs = e.split("|")
+  name = fs[0].trim()
+  cur = if name == "@index": idx.json() else: lookup(name, items)
+  for f in fs[1:]:
+    f = f.trim()
+    if f == "upper": cur = cur.text().upper().json()
+    elif f == "lower": cur = cur.text().lower().json()
+    elif f == "len":
+      cur = (match cur:
+        Str(s) => s.len()
+        Arr(xs) => xs.len()
+        _ => cur.len()).json()
+    elif f.starts_with("default:"):
+      if cur.text() == "": cur = f.slice(8).json()
+  cur.text()
+
+fn render(a: int, b: int, items: [Json], idx: int) -> str:
+  out = ""
+  i = a
+  while i < b:
+    (is_tag, s) = toks[i]
+    if not is_tag:
+      out += s
+      i += 1
+      continue
+    t = s.trim()
+    if t.starts_with("#each ") or t.starts_with("#if "):
+      depth = 1
+      e = i + 1
+      el = -1
+      while e < b:
+        (g, s2) = toks[e]
+        if g:
+          t2 = s2.trim()
+          if t2.starts_with("#each ") or t2.starts_with("#if "): depth += 1
+          elif t2 == "/each" or t2 == "/if":
+            depth -= 1
+            if depth == 0: break
+          elif t2 == "else" and depth == 1: el = e
+        e += 1
+      if t.starts_with("#each "):
+        v = lookup(t.slice(6).trim(), items)
+        k = 0
+        for x in v:
+          out += render(i + 1, e, items + [x], k)
+          k += 1
+      else:
+        v = lookup(t.slice(4).trim(), items)
+        if v:
+          out += render(i + 1, if el >= 0: el else: e, items, idx)
+        elif el >= 0:
+          out += render(el + 1, e, items, idx)
+      i = e + 1
+    else:
+      out += evalexpr(t, items, idx)
+      i += 1
+  out
+
+print(render(0, toks.len(), [data], 0))

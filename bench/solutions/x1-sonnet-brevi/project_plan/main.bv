@@ -1,0 +1,24 @@
+use "graph.bv"
+use "schedule.bv"
+
+match load(lines()):
+  Err(msg) => print(msg)
+  Ok(r) =>
+    k = r.0
+    ts = r.1
+    st = calc_starts(ts)
+    tl = calc_tails(ts)
+    total = max([st[i] + ts[i].days for i in 0..ts.len()].max().or(0), 0)
+    print("unlimited")
+    for i in 0..ts.len():
+      print("  {ts[i].name} {st[i]}-{st[i] + ts[i].days}")
+    print("length {total}")
+    ch = critical(ts, st, tl, total)
+    names = [ts[i].name for i in ch]
+    print("critical " + names.join(" > "))
+    s2 = schedule(ts, tl, k)
+    print("workers {k}")
+    for i in 0..ts.len():
+      print("  {ts[i].name} {s2[i]}-{s2[i] + ts[i].days}")
+    l2 = [s2[i] + ts[i].days for i in 0..ts.len()].max().or(0)
+    print("length {l2}")

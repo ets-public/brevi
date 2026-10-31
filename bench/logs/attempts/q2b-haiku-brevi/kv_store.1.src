@@ -1,0 +1,69 @@
+kv = {}
+txs = []
+
+fn note(k: str):
+  if txs:
+    txs[-1].push((k, kv.has(k), kv.get_or(k, "")))
+
+fn put(k: str, v: str):
+  note(k)
+  kv[k] = v
+
+fn erase(k: str):
+  note(k)
+  kv.remove(k)
+
+fn is_int(s: str) -> bool = s.re_full('-?\d+').len() > 0
+
+for line in stdin().lines():
+  w = line.words()
+  if not w: continue
+  cmd = w[0]
+  if cmd == "SET" and w.len() == 3:
+    put(w[1], w[2])
+  elif cmd == "GET" and w.len() == 2:
+    if kv.has(w[1]):
+      print(kv[w[1]])
+    else:
+      print("NULL")
+  elif cmd == "DEL" and w.len() == 2:
+    if kv.has(w[1]):
+      erase(w[1])
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR" and w.len() == 3:
+    cur = kv.get_or(w[1], "0")
+    if not is_int(cur) or not is_int(w[2]):
+      print("ERR not an integer")
+    else:
+      nv = str(cur.int() + w[2].int())
+      put(w[1], nv)
+      print(nv)
+  elif cmd == "COUNT" and w.len() == 2:
+    c = kv.values().count(x => x == w[1])
+    print(c)
+  elif cmd == "KEYS" and w.len() == 2:
+    ks = sorted([x for x in kv.keys() if x.starts_with(w[1])])
+    if ks:
+      print(ks.join(" "))
+    else:
+      print("(empty)")
+  elif cmd == "BEGIN" and w.len() == 1:
+    txs.push([])
+  elif cmd == "ROLLBACK" and w.len() == 1:
+    if not txs:
+      print("NO TRANSACTION")
+    else:
+      log = txs.pop()
+      for e in log.rev():
+        if e.1:
+          kv[e.0] = e.2
+        else:
+          kv.remove(e.0)
+  elif cmd == "COMMIT" and w.len() == 1:
+    if not txs:
+      print("NO TRANSACTION")
+    else:
+      txs = []
+  else:
+    print("ERR unknown command")

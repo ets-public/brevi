@@ -1,0 +1,7 @@
+{"run":"x2-sonnet-python","lang":"python","task":"order_book","code_tok":1378,"patch_tok":1378,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x2-sonnet-python","lang":"python","task":"mini_sql","code_tok":2541,"patch_tok":2541,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x2-sonnet-python","lang":"python","task":"calc_lang","code_tok":2434,"patch_tok":2434,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x2-sonnet-python","lang":"python","task":"fifo_stock","code_tok":1279,"patch_tok":1279,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x2-sonnet-python","lang":"python","task":"library","code_tok":2549,"patch_tok":2549,"out_tok":642,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"x2-sonnet-python","lang":"python","task":"library","code_tok":2549,"patch_tok":48,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x2-sonnet-python","lang":"python","task":"project_plan","code_tok":1893,"patch_tok":1893,"out_tok":7,"compiled":true,"pass":7,"total":7,"tok":"exact"}

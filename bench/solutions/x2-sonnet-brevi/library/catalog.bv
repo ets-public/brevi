@@ -1,0 +1,43 @@
+type Book:
+  id: str
+  title: str
+  copies: int
+  waiting: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [(str, int)]
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [(int, str, str)]
+
+fn new_lib() -> Lib = Lib(books: {}, members: {}, holds: [])
+
+fn tier_limit(t: str) -> int = if t == "plus": 5 else: 2
+fn tier_days(t: str) -> int = if t == "plus": 28 else: 14
+fn tier_rate(t: str) -> dec = if t == "plus": "0.10".dec() else: "0.25".dec()
+fn dstr(days: int) -> str = str(date("1970-01-01").add_days(days))
+
+fn has_loan(m: Member, bid: str) -> bool:
+  for l in m.loans:
+    if l.0 == bid: return true
+  false
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str):
+  if lib.books.has(id):
+    print("duplicate ID")
+    return
+  lib.books[id] = Book(id: id, title: title, copies: copies, waiting: [])
+  print("added {id}")
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str):
+  if lib.members.has(id):
+    print("duplicate ID")
+    return
+  lib.members[id] = Member(id: id, name: name, tier: tier, owes: 0.dec(), loans: [])
+  print("welcome {name}")

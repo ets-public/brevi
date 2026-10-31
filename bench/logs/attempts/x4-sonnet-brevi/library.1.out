@@ -1,0 +1,2 @@
+{"file":"rules.bv","line":97,"msg":"cannot work out what do_pay returns","fix":"write the return type: fn do_pay(...) -> TYPE"}
+{"file":"rules.bv","line":104,"msg":"cannot work out what do_status returns","fix":"write the return type: fn do_status(...) -> TYPE"}

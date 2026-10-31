@@ -1,0 +1,81 @@
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str = if n < 10: "0" + str(n) else: str(n)
+
+fn hhmm(m: int) -> str = pad(m // 60) + ":" + pad(m % 60)
+
+names = []
+sts = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  if line.trim() == "---":
+    second = true
+    continue
+  if second:
+    queries.push(w)
+  else:
+    names.push(w[0])
+    sts.push([w[i] for i in 1..w.len() if i % 2 == 1])
+    tms.push([mins(w[i]) for i in 1..w.len() if i % 2 == 0])
+
+stops = []
+for t in 0..names.len():
+  for j in 0..sts[t].len(): stops.push((tms[t][j], j, t))
+stops = stops.sort()
+
+for q in queries:
+  fr = q[0]
+  to = q[1]
+  qt = mins(q[2])
+  if fr == to:
+    print("{fr} {to} {hhmm(qt)} via -")
+    continue
+  lab = {}
+  arr = {}
+  for s in stops:
+    d = s.0
+    j = s.1
+    t = s.2
+    st = sts[t][j]
+    best = (999, "")
+    ok = false
+    if j > 0 and lab.has((t, j - 1)):
+      best = lab[(t, j - 1)]
+      ok = true
+    if j < sts[t].len() - 1:
+      cand = (999, "")
+      cok = false
+      if st == fr and d >= qt:
+        cand = (1, names[t])
+        cok = true
+      if arr.has(st):
+        for a in arr[st]:
+          if a.1 != t and a.0 + 5 <= d:
+            l = lab[(a.1, a.2)]
+            c2 = (l.0 + 1, l.1 + ">" + names[t])
+            if not cok or c2 < cand:
+              cand = c2
+              cok = true
+      if cok and (not ok or cand < best):
+        best = cand
+        ok = true
+    if ok:
+      lab[(t, j)] = best
+      if not arr.has(st): arr[st] = []
+      arr[st].push((d, t, j))
+  res = (99999, 999, "")
+  found = false
+  for k, l in lab.pairs():
+    if sts[k.0][k.1] == to:
+      c = (tms[k.0][k.1], l.0, l.1)
+      if not found or c < res:
+        res = c
+        found = true
+  if found: print("{fr} {to} {hhmm(res.0)} via {res.2}")
+  else: print("{fr} {to} unreachable")

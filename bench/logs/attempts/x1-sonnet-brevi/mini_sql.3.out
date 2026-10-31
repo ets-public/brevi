@@ -1,0 +1,7 @@
+{"line":6,"msg":"CMPG is used inside a function, so it needs a type","fix":"write CMPG: TYPE = ... with the real type"}
+{"line":7,"msg":"RX_CREATE is used inside a function, so it needs a type","fix":"write RX_CREATE: TYPE = ... with the real type"}
+{"line":8,"msg":"RX_INSERT is used inside a function, so it needs a type","fix":"write RX_INSERT: TYPE = ... with the real type"}
+{"line":9,"msg":"RX_COUNT is used inside a function, so it needs a type","fix":"write RX_COUNT: TYPE = ... with the real type"}
+{"line":10,"msg":"RX_SEL is used inside a function, so it needs a type","fix":"write RX_SEL: TYPE = ... with the real type"}
+{"line":11,"msg":"RX_UPD is used inside a function, so it needs a type","fix":"write RX_UPD: TYPE = ... with the real type"}
+{"line":12,"msg":"RX_DEL is used inside a function, so it needs a type","fix":"write RX_DEL: TYPE = ... with the real type"}

@@ -1,0 +1,277 @@
+fn ctok(s: str) -> [str]:
+  out = []
+  n = s.len()
+  i = 0
+  while i < n:
+    ch = s[i:i + 1]
+    if ch == " " or ch == "\t":
+      i += 1
+    elif ch.is_digit():
+      j = i
+      while j < n and s[j:j + 1].is_digit():
+        j += 1
+      out.push(s[i:j])
+      i = j
+    elif ch.is_alpha():
+      j = i
+      while j < n and (s[j:j + 1].is_alpha() or s[j:j + 1].is_digit() or s[j:j + 1] == "_"):
+        j += 1
+      out.push(s[i:j])
+      i = j
+    elif (ch == "=" or ch == "!" or ch == "<" or ch == ">") and i + 1 < n and s[i + 1:i + 2] == "=":
+      out.push(s[i:i + 2])
+      i += 2
+    elif "+-*/%()=,<>".contains(ch):
+      out.push(ch)
+      i += 1
+    else:
+      out.push("?")
+      i += 1
+  return out
+
+fn peek(tk: [str], pos: int) -> str:
+  if pos < tk.len(): return tk[pos]
+  return ""
+
+fn is_name(t: str) -> bool:
+  if t == "" or t == "let" or t == "fn" or t == "print" or t == "if": return false
+  return t[0:1].is_alpha()
+
+fn cmp_val(a: int, op: str, b: int) -> int:
+  ok = false
+  if op == "==": ok = a == b
+  elif op == "!=": ok = a != b
+  elif op == "<": ok = a < b
+  elif op == ">": ok = a > b
+  elif op == "<=": ok = a <= b
+  else: ok = a >= b
+  if ok: return 1
+  return 0
+
+# every e_* function returns (next position, error message or "", value)
+# live = false only checks syntax (no names, calls or divisions are evaluated)
+
+fn e_prim(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, int):
+  t = peek(tk, pos)
+  if t == "":
+    return (pos, "syntax", 0)
+  if t == "(":
+    r = e_cmp(tk, pos + 1, live, env, depth)
+    if r.1 != "": return r
+    if peek(tk, r.0) != ")": return (r.0, "syntax", 0)
+    return (r.0 + 1, "", r.2)
+  if t[0:1].is_digit():
+    v = 0
+    if live: v = t.int().or(0)
+    return (pos + 1, "", v)
+  if t == "if" and peek(tk, pos + 1) == "(":
+    return e_call(tk, pos, live, env, depth)
+  if is_name(t):
+    if peek(tk, pos + 1) == "(":
+      return e_call(tk, pos, live, env, depth)
+    if live:
+      if env.has(t): return (pos + 1, "", env[t])
+      if gvars.has(t): return (pos + 1, "", gvars[t])
+      return (pos + 1, "unknown name {t}", 0)
+    return (pos + 1, "", 0)
+  return (pos, "syntax", 0)
+
+fn e_unary(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, int):
+  if peek(tk, pos) == "-":
+    r = e_unary(tk, pos + 1, live, env, depth)
+    if r.1 != "": return r
+    return (r.0, "", 0 - r.2)
+  return e_prim(tk, pos, live, env, depth)
+
+fn e_mul(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, int):
+  r = e_unary(tk, pos, live, env, depth)
+  if r.1 != "": return r
+  p = r.0
+  acc = r.2
+  more = true
+  while more:
+    op = peek(tk, p)
+    if op == "*" or op == "/" or op == "%":
+      r2 = e_unary(tk, p + 1, live, env, depth)
+      if r2.1 != "": return r2
+      p = r2.0
+      if live:
+        if op != "*" and r2.2 == 0:
+          return (p, "division by zero", 0)
+        if op == "*":
+          acc = acc * r2.2
+        elif op == "/":
+          acc = acc / r2.2
+        else:
+          acc = acc % r2.2
+    else:
+      more = false
+  return (p, "", acc)
+
+fn e_add(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, int):
+  r = e_mul(tk, pos, live, env, depth)
+  if r.1 != "": return r
+  p = r.0
+  acc = r.2
+  more = true
+  while more:
+    op = peek(tk, p)
+    if op == "+" or op == "-":
+      r2 = e_mul(tk, p + 1, live, env, depth)
+      if r2.1 != "": return r2
+      p = r2.0
+      if live:
+        if op == "+":
+          acc = acc + r2.2
+        else:
+          acc = acc - r2.2
+    else:
+      more = false
+  return (p, "", acc)
+
+fn e_cmp(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, int):
+  r = e_add(tk, pos, live, env, depth)
+  if r.1 != "": return r
+  op = peek(tk, r.0)
+  if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=":
+    r2 = e_add(tk, r.0 + 1, live, env, depth)
+    if r2.1 != "": return r2
+    v = 0
+    if live: v = cmp_val(r.2, op, r2.2)
+    return (r2.0, "", v)
+  return r
+
+# parses comma-separated expressions up to a closing paren (pos is just after "(")
+fn e_args(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, [int]):
+  vals = []
+  p = pos
+  if peek(tk, p) == ")": return (p + 1, "", vals)
+  more = true
+  while more:
+    r = e_cmp(tk, p, live, env, depth)
+    if r.1 != "": return (r.0, r.1, [])
+    vals.push(r.2)
+    p = r.0
+    if peek(tk, p) == ",":
+      p += 1
+    elif peek(tk, p) == ")":
+      return (p + 1, "", vals)
+    else:
+      return (p, "syntax", [])
+  return (p, "syntax", [])
+
+# comma-separated expressions up to the end of the tokens (for print)
+fn e_list(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, [int]):
+  vals = []
+  p = pos
+  more = true
+  while more:
+    r = e_cmp(tk, p, live, env, depth)
+    if r.1 != "": return (r.0, r.1, [])
+    vals.push(r.2)
+    p = r.0
+    if peek(tk, p) == ",":
+      p += 1
+    else:
+      more = false
+  return (p, "", vals)
+
+fn e_call(tk: [str], pos: int, live: bool, env: {str: int}, depth: int) -> (int, str, int):
+  name = tk[pos]
+  if name == "if":
+    cnt = e_args(tk, pos + 2, false, env, depth)
+    if cnt.1 != "": return (cnt.0, cnt.1, 0)
+    if cnt.2.len() != 3: return (cnt.0, "if takes 3 arguments", 0)
+    r1 = e_cmp(tk, pos + 2, live, env, depth)
+    if r1.1 != "": return (r1.0, r1.1, 0)
+    cond = r1.2
+    ra = e_cmp(tk, r1.0 + 1, live and cond != 0, env, depth)
+    if ra.1 != "": return (ra.0, ra.1, 0)
+    rb = e_cmp(tk, ra.0 + 1, live and cond == 0, env, depth)
+    if rb.1 != "": return (rb.0, rb.1, 0)
+    endp = rb.0 + 1
+    if cond != 0: return (endp, "", ra.2)
+    return (endp, "", rb.2)
+  args = e_args(tk, pos + 2, live, env, depth)
+  if args.1 != "": return (args.0, args.1, 0)
+  endp = args.0
+  if not live: return (endp, "", 0)
+  if not fbody.has(name): return (endp, "unknown function {name}", 0)
+  params = fparams[name]
+  avals = args.2
+  if params.len() != avals.len(): return (endp, "{name} takes {params.len()} arguments", 0)
+  if depth >= 200: return (endp, "too deep", 0)
+  newenv = {}
+  for q in 0..params.len():
+    newenv[params[q]] = avals[q]
+  r = e_cmp(fbody[name], 0, true, newenv, depth + 1)
+  return (endp, r.1, r.2)
+
+gvars = {}
+fbody = {}
+fparams = {}
+
+for k, raw in enumerate(lines()):
+  ln = k + 1
+  s = raw.trim()
+  if s.is_empty() or s[0:1] == "#": continue
+  tk = ctok(s)
+  head = peek(tk, 0)
+  if head == "let" and is_name(peek(tk, 1)) and peek(tk, 2) == "=":
+    chk = e_cmp(tk, 3, false, {}, 0)
+    if chk.1 != "" or chk.0 != tk.len():
+      print("error line {ln}: syntax")
+      continue
+    r = e_cmp(tk, 3, true, {}, 0)
+    if r.1 != "":
+      print("error line {ln}: {r.1}")
+      continue
+    gvars[peek(tk, 1)] = r.2
+  elif head == "fn" and is_name(peek(tk, 1)) and peek(tk, 2) == "(":
+    fname = peek(tk, 1)
+    params = []
+    p = 3
+    okp = true
+    if peek(tk, p) == ")":
+      p += 1
+    else:
+      more = true
+      while more:
+        if is_name(peek(tk, p)):
+          params.push(peek(tk, p))
+          p += 1
+        else:
+          okp = false
+          more = false
+        if okp:
+          if peek(tk, p) == ",":
+            p += 1
+          elif peek(tk, p) == ")":
+            p += 1
+            more = false
+          else:
+            okp = false
+            more = false
+    if not okp or peek(tk, p) != "=":
+      print("error line {ln}: syntax")
+      continue
+    body = tk[p + 1:]
+    chk = e_cmp(body, 0, false, {}, 0)
+    if body.is_empty() or chk.1 != "" or chk.0 != body.len():
+      print("error line {ln}: syntax")
+      continue
+    fbody[fname] = body
+    fparams[fname] = params
+  elif head == "print" and tk.len() > 1:
+    chk = e_list(tk, 1, false, {}, 0)
+    if chk.1 != "" or chk.0 != tk.len():
+      print("error line {ln}: syntax")
+      continue
+    r = e_list(tk, 1, true, {}, 0)
+    if r.1 != "":
+      print("error line {ln}: {r.1}")
+      continue
+    strs = [str(x) for x in r.2]
+    print(strs.join(" "))
+  else:
+    print("error line {ln}: syntax")

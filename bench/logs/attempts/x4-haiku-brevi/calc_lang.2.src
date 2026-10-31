@@ -1,0 +1,252 @@
+gv = {}
+fbody = {}
+fparams = {}
+depth = 0
+lineno = 0
+
+fn lex(s: str) -> [str]:
+  out = []
+  i = 0
+  n = s.len()
+  while i < n:
+    c = s[i:i+1]
+    if c == " " or c == "\t" or c == "\r":
+      i += 1
+    elif c.is_digit():
+      j = i
+      while j < n and s[j:j+1].is_digit():
+        j += 1
+      out.push(s[i:j])
+      i = j
+    elif c.is_alpha():
+      j = i
+      while j < n and (s[j:j+1].is_alpha() or s[j:j+1].is_digit() or s[j:j+1] == "_"):
+        j += 1
+      out.push(s[i:j])
+      i = j
+    elif c == "=" or c == "!" or c == "<" or c == ">":
+      if i + 1 < n and s[i+1:i+2] == "=":
+        out.push(s[i:i+2])
+        i += 2
+      else:
+        out.push(c)
+        i += 1
+    elif c == "+" or c == "-" or c == "*" or c == "/" or c == "%" or c == "(" or c == ")" or c == ",":
+      out.push(c)
+      i += 1
+    else:
+      out.push("?")
+      i += 1
+  out
+
+fn isname(t: str) -> bool:
+  if t.is_empty(): return False
+  if not t[0:1].is_alpha(): return False
+  not (t == "let" or t == "fn" or t == "print" or t == "if")
+
+fn bi(b: bool) -> int:
+  if b: return 1
+  0
+
+fn want(ts: [str], j: int, s: str) -> int:
+  if j < ts.len() and ts[j] == s: return j + 1
+  fail("syntax")
+
+fn argl(ts: [str], j: int, env: {str: int}, ev: bool) -> ([int], int):
+  out = []
+  pos = j
+  if pos < ts.len() and ts[pos] == ")": return (out, pos + 1)
+  more = True
+  while more:
+    r = ex(ts, pos, env, ev)
+    out.push(r.0)
+    pos = r.1
+    if pos < ts.len() and ts[pos] == ",":
+      pos += 1
+    else:
+      more = False
+  pos = want(ts, pos, ")")
+  (out, pos)
+
+fn exprs(ts: [str], j: int, env: {str: int}, ev: bool) -> ([int], int):
+  out = []
+  pos = j
+  more = True
+  while more:
+    r = ex(ts, pos, env, ev)
+    out.push(r.0)
+    pos = r.1
+    if pos < ts.len() and ts[pos] == ",":
+      pos += 1
+    else:
+      more = False
+  (out, pos)
+
+fn ifcall(ts: [str], j: int, env: {str: int}, ev: bool) -> (int, int):
+  c = ex(ts, j, env, ev)
+  cond = c.0 != 0
+  p1 = want(ts, c.1, ",")
+  a = ex(ts, p1, env, ev and cond)
+  p2 = want(ts, a.1, ",")
+  b = ex(ts, p2, env, ev and (not cond))
+  p3 = want(ts, b.1, ")")
+  if not ev: return (0, p3)
+  if cond: return (a.0, p3)
+  (b.0, p3)
+
+fn call(ts: [str], i: int, env: {str: int}, ev: bool) -> (int, int):
+  name = ts[i]
+  if name == "if": return ifcall(ts, i + 2, env, ev)
+  if ev and not fbody.has(name): fail("unknown function {name}")
+  r = argl(ts, i + 2, env, ev)
+  if not ev: return (0, r.1)
+  ps = fparams[name]
+  if r.0.len() != ps.len(): fail("{name} takes {ps.len()} arguments")
+  if depth >= 200: fail("too deep")
+  newenv = {}
+  for k in 0..ps.len():
+    newenv[ps[k]] = r.0[k]
+  depth += 1
+  v = ex(fbody[name], 0, newenv, True)
+  depth -= 1
+  (v.0, r.1)
+
+fn pr(ts: [str], i: int, env: {str: int}, ev: bool) -> (int, int):
+  if i >= ts.len(): fail("syntax")
+  t = ts[i]
+  if t[0:1].is_digit():
+    return (t.int().or(0), i + 1)
+  if t == "(":
+    r = ex(ts, i + 1, env, ev)
+    if r.1 >= ts.len() or ts[r.1] != ")": fail("syntax")
+    return (r.0, r.1 + 1)
+  if i + 1 < ts.len() and ts[i + 1] == "(" and (t == "if" or isname(t)):
+    return call(ts, i, env, ev)
+  if isname(t):
+    if not ev: return (0, i + 1)
+    if env.has(t): return (env[t], i + 1)
+    if gv.has(t): return (gv[t], i + 1)
+    fail("unknown name {t}")
+  fail("syntax")
+
+fn un(ts: [str], i: int, env: {str: int}, ev: bool) -> (int, int):
+  if i < ts.len() and ts[i] == "-":
+    r = un(ts, i + 1, env, ev)
+    w = r.0
+    return (0 - w, r.1)
+  pr(ts, i, env, ev)
+
+fn tm(ts: [str], i: int, env: {str: int}, ev: bool) -> (int, int):
+  r = un(ts, i, env, ev)
+  v = r.0
+  j = r.1
+  while j < ts.len() and (ts[j] == "*" or ts[j] == "/" or ts[j] == "%"):
+    op = ts[j]
+    r2 = un(ts, j + 1, env, ev)
+    j = r2.1
+    if ev:
+      w = r2.0
+      if op == "*":
+        v = v * w
+      elif op == "/":
+        if w == 0: fail("division by zero")
+        v = v / w
+      else:
+        if w == 0: fail("division by zero")
+        v = v % w
+  (v, j)
+
+fn sm(ts: [str], i: int, env: {str: int}, ev: bool) -> (int, int):
+  r = tm(ts, i, env, ev)
+  v = r.0
+  j = r.1
+  while j < ts.len() and (ts[j] == "+" or ts[j] == "-"):
+    op = ts[j]
+    r2 = tm(ts, j + 1, env, ev)
+    j = r2.1
+    if ev:
+      w = r2.0
+      if op == "+":
+        v = v + w
+      else:
+        v = v - w
+  (v, j)
+
+fn ex(ts: [str], i: int, env: {str: int}, ev: bool) -> (int, int):
+  r = sm(ts, i, env, ev)
+  v = r.0
+  j = r.1
+  if j < ts.len() and (ts[j] == "==" or ts[j] == "!=" or ts[j] == "<" or ts[j] == ">" or ts[j] == "<=" or ts[j] == ">="):
+    op = ts[j]
+    r2 = sm(ts, j + 1, env, ev)
+    j = r2.1
+    if ev:
+      w = r2.0
+      if op == "==":
+        v = bi(v == w)
+      elif op == "!=":
+        v = bi(v != w)
+      elif op == "<":
+        v = bi(v < w)
+      elif op == ">":
+        v = bi(v > w)
+      elif op == "<=":
+        v = bi(v <= w)
+      else:
+        v = bi(v >= w)
+  (v, j)
+
+fn run_line(ts: [str]) -> str:
+  head = ts[0]
+  if head == "let":
+    if ts.len() < 4 or not isname(ts[1]) or ts[2] != "=": fail("syntax")
+    chk = ex(ts, 3, {}, False)
+    if chk.1 != ts.len(): fail("syntax")
+    v = ex(ts, 3, {}, True)
+    gv[ts[1]] = v.0
+    return ""
+  if head == "fn":
+    if ts.len() < 3 or not isname(ts[1]) or ts[2] != "(": fail("syntax")
+    ps = []
+    j = 3
+    more = not (j < ts.len() and ts[j] == ")")
+    if not more: j += 1
+    while more:
+      if j >= ts.len() or not isname(ts[j]): fail("syntax")
+      ps.push(ts[j])
+      j += 1
+      if j < ts.len() and ts[j] == ")":
+        j += 1
+        more = False
+      elif j < ts.len() and ts[j] == ",":
+        j += 1
+      else:
+        fail("syntax")
+    if j >= ts.len() or ts[j] != "=": fail("syntax")
+    body = ts[j + 1:]
+    if body.is_empty(): fail("syntax")
+    chk = ex(body, 0, {}, False)
+    if chk.1 != body.len(): fail("syntax")
+    fbody[ts[1]] = body
+    fparams[ts[1]] = ps
+    return ""
+  if head == "print":
+    if ts.len() < 2: fail("syntax")
+    chk = exprs(ts, 1, {}, False)
+    if chk.1 != ts.len(): fail("syntax")
+    vs = exprs(ts, 1, {}, True)
+    out = []
+    for x in vs.0: out.push(x.str())
+    return " ".join(out)
+  fail("syntax")
+
+for raw in lines():
+  lineno += 1
+  s = raw.trim()
+  if s.is_empty() or s.starts_with("#"): continue
+  depth = 0
+  match run_line(lex(s)):
+    Ok(out) =>
+      if out != "": print(out)
+    Err(msg) =>
+      print("error line {lineno}: {msg}")

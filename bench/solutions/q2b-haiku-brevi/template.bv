@@ -1,0 +1,123 @@
+fn walk(j: Json, parts: [str]) -> (bool, Json):
+  cur = j
+  for p in parts:
+    if not cur.has(p): return (false, cur)
+    cur = cur[p]
+  return (true, cur)
+
+fn lookup(scopes: [Json], name: str) -> Json:
+  if name == ".": return scopes[-1]
+  parts = name.split(".")
+  k = scopes.len() - 1
+  while k >= 0:
+    r = walk(scopes[k], parts)
+    if r.0: return r.1
+    k -= 1
+  return json("null")
+
+fn truthy(j: Json) -> bool:
+  match j:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => s != ""
+    Arr(xs) => xs.len() > 0
+    _ => true
+
+fn is_missing(v: Json) -> bool:
+  match v:
+    Null => true
+    Str(s) => s == ""
+    _ => false
+
+fn len_of(v: Json) -> int:
+  match v:
+    Str(s) => s.len()
+    Arr(xs) => xs.len()
+    _ => 0
+
+fn apply(v: Json, f: str) -> Json:
+  if f == "upper": return v.text().upper().json()
+  if f == "lower": return v.text().lower().json()
+  if f == "len": return len_of(v).json()
+  if f.starts_with("default:"):
+    if is_missing(v): return f.slice(8).json()
+    return v
+  return v
+
+fn items_of(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+fn eval_tag(tg: str, scopes: [Json], idxs: [int]) -> str:
+  parts = tg.split("|")
+  head = parts[0].trim()
+  v = json("null")
+  if head == "@index":
+    v = idxs[-1].json()
+  else:
+    v = lookup(scopes, head)
+  for f in parts.skip(1):
+    v = apply(v, f.trim())
+  return v.text()
+
+fn render(lo: int, hi: int, scopes: [Json], idxs: [int]) -> str:
+  out = ""
+  i = lo
+  while i < hi:
+    if toks[i].0 == "t":
+      out += toks[i].1
+      i += 1
+    else:
+      tg = toks[i].1
+      if tg.starts_with("#each "):
+        close = close_of[i]
+        cn = 0
+        for el in items_of(lookup(scopes, tg.slice(6).trim())):
+          out += render(i + 1, close, scopes + [el], idxs + [cn])
+          cn += 1
+        i = close + 1
+      elif tg.starts_with("#if "):
+        close = close_of[i]
+        cut = close
+        if else_of.has(i):
+          cut = else_of[i]
+        if truthy(lookup(scopes, tg.slice(4).trim())):
+          out += render(i + 1, cut, scopes, idxs)
+        elif else_of.has(i):
+          out += render(cut + 1, close, scopes, idxs)
+        i = close + 1
+      else:
+        out += eval_tag(tg, scopes, idxs)
+        i += 1
+  return out
+
+full = stdin()
+nl = full.find("\n")
+header = full.slice(0, nl)
+tpl = full.slice(nl + 1)
+if tpl.ends_with("\n"): tpl = tpl.slice(0, -1)
+data = json(header)
+
+parts = tpl.re_split('[{][{].*?[}][}]')
+tags = tpl.re_list('[{][{].*?[}][}]')
+toks = []
+for k in 0..parts.len():
+  if parts[k] != "": toks.push(("t", parts[k]))
+  if k < tags.len(): toks.push(("g", tags[k].slice(2, -2).trim()))
+
+close_of = {}
+else_of = {}
+stack = []
+for i in 0..toks.len():
+  if toks[i].0 == "g":
+    tg = toks[i].1
+    if tg.starts_with("#"):
+      stack.push(i)
+    elif tg == "else":
+      else_of[stack[-1]] = i
+    elif tg.starts_with("/"):
+      close_of[stack.pop()] = i
+
+print(render(0, toks.len(), [data], []))

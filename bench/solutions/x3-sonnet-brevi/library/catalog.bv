@@ -1,0 +1,28 @@
+type Book:
+  id: str
+  title: str
+  shelf: int
+  waiting: [str]
+  held: [(str, int)]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [str]
+  dues: [int]
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+
+fn new_lib() -> Lib = Lib(books: {}, members: {})
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str):
+  lib.books[id] = Book(id: id, title: title, shelf: copies, waiting: [], held: [])
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str):
+  lib.members[id] = Member(id: id, name: name, tier: tier, owes: 0.dec(), loans: [], dues: [])
+
+fn day_str(n: int) -> str = date("1970-01-01").add_days(n).str()

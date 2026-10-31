@@ -1,0 +1,59 @@
+names = []
+sts = []
+tms = []
+queries = []
+second = False
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str = if n < 10: "0" + str(n) else: str(n)
+fn clock(m: int) -> str = pad(m // 60) + ":" + pad(m % 60)
+
+for line in lines():
+  w = line.words()
+  if not w: continue
+  if w[0] == "---":
+    second = True
+    continue
+  if not second:
+    names.push(w[0])
+    sts.push([w[k] for k in 1..w.len() if k % 2 == 1])
+    tms.push([mins(w[k]) for k in 1..w.len() if k % 2 == 0])
+  else:
+    queries.push(w)
+
+states = []
+for t in 0..names.len():
+  for i in 0..sts[t].len() - 1:
+    states.push((t, i))
+states = states.sort_by(p => (tms[p.0][p.1], p.1))
+
+for q in queries:
+  fr = q[0]
+  to = q[1]
+  qt = mins(q[2])
+  if fr == to:
+    print("{fr} {to} {clock(qt)} via -")
+    continue
+  lab = {}
+  for (t, i) in states:
+    d = tms[t][i]
+    cands = []
+    if sts[t][i] == fr and d >= qt: cands.push((1, names[t]))
+    if i > 0 and lab.has((t, i - 1)): cands.push(lab[(t, i - 1)])
+    for (t2, j) in states:
+      if t2 != t and sts[t2][j + 1] == sts[t][i] and tms[t2][j + 1] + 5 <= d and lab.has((t2, j)):
+        let (c, s) = lab[(t2, j)]
+        cands.push((c + 1, s + ">" + names[t]))
+    if cands: lab[(t, i)] = cands.min()
+  best = []
+  for (t, i) in states:
+    if sts[t][i + 1] == to and lab.has((t, i)):
+      let (c, s) = lab[(t, i)]
+      best.push((tms[t][i + 1], c, s))
+  if best:
+    let (a, c, s) = best.min()
+    print("{fr} {to} {clock(a)} via {s}")
+  else:
+    print("{fr} {to} unreachable")

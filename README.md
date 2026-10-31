@@ -14,11 +14,12 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,665 toke
 - **Fast check:** `brevi check f.bv --fast` runs Brevi's own checks in about 3 ms, without rustc (a full check takes about 400 ms).
 - **Edit by name:** `brevi patch f.bv p.bv` replaces each `fn`, `type`, `enum` or `test` in p.bv by name, or adds it; `del fn name` removes one.
 - **llms.txt:** `site/build.sh` builds llms.txt, llms-full.txt and .md pages for brevi-lang.org into site/out.
-- **Install:** `sh install.sh` fetches the Rust toolchain if it is missing and builds brevi with `cargo install` (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
+- **Install:** `sh install.sh` fetches the Rust toolchain if it is missing, then downloads a prebuilt brevi for Linux, macOS or Windows from the latest GitHub release (built by `.github/workflows/release.yml`), or builds it with `cargo install` when no release fits (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
+- **Editor rules:** `skills/rules/` has ready-made Brevi rules for Cursor, Copilot, Windsurf and Cline, built from BREVI.md by `skills/gen_rules.py`.
 - **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
-## Status: v0.16
+## Status: v0.17
 
 Works today:
 - Parser for the full core syntax in BREVI.md
@@ -36,6 +37,19 @@ Works today:
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Brevi line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
+
+Bigger tasks and multi-file programs, v0.17 (31 Oct 2026, exact tokens, retries scored as patches). Full table in [bench/LEADERBOARD.md](bench/LEADERBOARD.md).
+
+| Task set | Model | Brevi | Python | Brevi saves | First try (Brevi / Python) |
+| --- | --- | --- | --- | --- | --- |
+| 8 big | Sonnet | **8,284** | 8,721 | 5% | 22 of 24 / 48 of 48 |
+| 8 big | Haiku | **9,398** | 10,556 | 11% | 15 of 16 / 45 of 48 |
+| 6 held-out XL | Sonnet | 13,959 | **12,944** | -8% | 7 of 12 / 10 of 12 |
+| 6 held-out XL | Haiku | 17,595 | **15,564** | -13% | 5 of 12 / 10 of 12 |
+
+Sonnet now passes first time on 22 of 24 big tasks (39 of 48 in v0.15), so Brevi is ahead of Python on the original big tasks for both models. v0.17 fixes the failures behind that: `"{{"` and `"}}"` as a method's first argument are two braces, `j.int()`/`j.float()` give 0 for JSON strings, `s.find(sub, start)`, `s.char_at(i)`, `{[...]}` in strings, untyped parameters typed from their calls, and a program's own `fn min`, `fn args` or type `Ord` that shares a built-in's name.
+
+The six new XL tasks (`bench/ref/gen_big3.py`: 150 to 400 lines, two split over several files with `use "file.bv"`) are the first set where Brevi is clearly behind: 8% for Sonnet and 13% for Haiku, even after fixing the gaps the first two runs showed. The largest gap is mini_sql, where values whose type is decided at run time cost Brevi more code than Python. Brevi is behind Python on bigger programs, so the release gate is not met yet.
 
 Held-out check and full re-run, v0.16 (31 Oct 2026, exact tokens, retries scored as patches). Six new big tasks (`bench/ref/gen_big2.py`: sales_report, route_planner, ini_config, stack_vm, line_diff, room_booking) were written after v0.15 and never used to tune Brevi. Each cell is the average of two runs; the small and Haiku big tasks were run again on the v0.15 compiler.
 

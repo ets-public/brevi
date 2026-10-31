@@ -1,0 +1,18 @@
+type Loan:
+  book: str
+  due: Date
+
+type Book:
+  shelf: int
+  waits: [str]
+
+type Member:
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+type Hold:
+  member: str
+  book: str
+  last: int

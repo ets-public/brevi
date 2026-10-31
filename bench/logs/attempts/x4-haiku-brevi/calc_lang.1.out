@@ -1,0 +1,3 @@
+{"line":55,"msg":"the name args is defined multiple times: args redefined here"}
+{"line":101,"msg":"this function takes 0 arguments but 4 arguments were supplied"}
+{"line":110,"msg":"mismatched types: expected {str: int}, found {str: str}","fix":"convert with .int(), .float() or str(x)"}

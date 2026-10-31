@@ -1,0 +1,99 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn plain(s: str) -> str:
+  t = s.re_sub('\*\*(.+?)\*\*', '<strong>\1</strong>')
+  t = t.re_sub('\*(.+?)\*', '<em>\1</em>')
+  return t.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+
+fn inl(s: str) -> str:
+  parts = esc(s).split("`")
+  last = parts.len() - 1
+  res = ""
+  for idx in 0..parts.len():
+    seg = parts[idx]
+    if idx % 2 == 1 and idx < last:
+      res += "<code>" + seg + "</code>"
+    elif idx % 2 == 1:
+      res += plain(seg)
+    else:
+      res += plain(seg)
+      if idx + 1 == last: res += "`"
+  return res
+
+fn make_id(t: str) -> str:
+  s = t.lower().re_sub('[^a-z0-9]+', "-")
+  return s.re_sub('^-+|-+$', "")
+
+fn heading(ln: str) -> bool = ln.re_full('(#{1,6}) (.*)').len() > 0
+
+fn ul_item(ln: str) -> bool = ln.starts_with("- ")
+
+fn ol_item(ln: str) -> bool = ln.re_full('\d+\. (.*)').len() > 0
+
+fn is_kind(ln: str, ordered: bool) -> bool:
+  if ordered: return ol_item(ln)
+  return ul_item(ln)
+
+fn item_text(ln: str) -> str:
+  m = ln.re_full('\d+\. (.*)')
+  if m: return m[1]
+  return ln.slice(2)
+
+fn special(ln: str) -> bool = ln == "```" or heading(ln) or ul_item(ln) or ol_item(ln)
+
+src = stdin().lines()
+n = src.len()
+i = 0
+body = []
+heads = []
+used = {}
+
+while i < n:
+  ln = src[i]
+  if ln.trim() == "":
+    i += 1
+  elif ln == "```":
+    i += 1
+    code = []
+    while i < n and src[i] != "```":
+      code.push(esc(src[i]))
+      i += 1
+    i += 1
+    body.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+  elif heading(ln):
+    m = ln.re_full('(#{1,6}) (.*)')
+    lvl = m[1].len()
+    text = m[2].trim()
+    base = make_id(text)
+    cand = base
+    c = 1
+    while used.has(cand):
+      c += 1
+      cand = base + "-" + str(c)
+    used[cand] = 1
+    heads.push((cand, esc(text.replace("`", "").replace("*", ""))))
+    hv = inl(text)
+    body.push('<h{lvl} id="{cand}">{hv}</h{lvl}>')
+    i += 1
+  elif ul_item(ln) or ol_item(ln):
+    ordered = ol_item(ln)
+    items = []
+    while i < n and is_kind(src[i], ordered):
+      items.push("<li>" + inl(item_text(src[i])) + "</li>")
+      i += 1
+    tag = "ol" if ordered else "ul"
+    body.push("<" + tag + ">\n" + "\n".join(items) + "\n</" + tag + ">")
+  else:
+    ps = []
+    while i < n and src[i].trim() != "" and not special(src[i]):
+      ps.push(src[i])
+      i += 1
+    body.push("<p>" + inl(ps.join(" ")) + "</p>")
+
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads:
+    print('<a href="#{h.0}">{h.1}</a>')
+  print("</nav>")
+for b in body:
+  print(b)

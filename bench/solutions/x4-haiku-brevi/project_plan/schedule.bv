@@ -1,0 +1,51 @@
+fn tails(dep: [[int]], days: [int]) -> [int]:
+  n = days.len()
+  tl = []
+  for i in 0..n:
+    tl.push(days[i])
+  for pass in 0..n:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if dep[j].contains(i) and tl[j] > best: best = tl[j]
+      tl[i] = days[i] + best
+  tl
+
+fn ready(dep: [[int]], fin: [bool], i: int) -> bool:
+  for d in dep[i]:
+    if not fin[d]: return False
+  True
+
+fn plan(k: int, dep: [[int]], days: [int]) -> ([int], [int]):
+  n = days.len()
+  tl = tails(dep, days)
+  st = []
+  en = []
+  fin = []
+  for i in 0..n:
+    st.push(-1)
+    en.push(-1)
+    fin.push(False)
+  busy = 0
+  remaining = n
+  t = 0
+  while remaining > 0:
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and en[i] == t:
+        fin[i] = True
+        busy -= 1
+        remaining -= 1
+    more = True
+    while more and busy < k:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0 and ready(dep, fin, i) and (best < 0 or tl[i] > tl[best]):
+          best = i
+      if best < 0:
+        more = False
+      else:
+        st[best] = t
+        en[best] = t + days[best]
+        busy += 1
+    t += 1
+  (st, en)

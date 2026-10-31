@@ -1,0 +1,84 @@
+fn to_min(s: str) -> int:
+  p = s.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn two(n: int) -> str:
+  if n < 10: return "0" + str(n)
+  return str(n)
+
+fn hm(t: int) -> str = two(t // 60) + ":" + two(t % 60)
+
+fn is_better(c1: int, n1: [str], c2: int, n2: [str]) -> bool:
+  if c1 != c2: return c1 < c2
+  return n1.join(">") < n2.join(">")
+
+fn solve(fr: str, dest: str, q: int) -> (bool, int, str):
+  lab = {}
+  for ti in 0..tnames.len():
+    ss = tstops[ti]
+    for j in 0..ss.len() - 1:
+      if ss[j].0 == fr and ss[j].1 >= q:
+        lab[(ti, j)] = (1, [tnames[ti]])
+  changed = True
+  while changed:
+    changed = False
+    for key in lab.keys():
+      ti = key.0
+      k = key.1
+      cur = lab[key]
+      ss = tstops[ti]
+      if k + 1 < ss.len():
+        nk = (ti, k + 1)
+        if not lab.has(nk) or is_better(cur.0, cur.1, lab[nk].0, lab[nk].1):
+          lab[nk] = cur
+          changed = True
+      st = ss[k].0
+      tk = ss[k].1
+      for ui in 0..tnames.len():
+        if ui == ti: continue
+        us = tstops[ui]
+        for j in 0..us.len() - 1:
+          if us[j].0 == st and us[j].1 >= tk + 5:
+            nk = (ui, j)
+            cn = cur.0 + 1
+            nn = cur.1 + [tnames[ui]]
+            if not lab.has(nk) or is_better(cn, nn, lab[nk].0, lab[nk].1):
+              lab[nk] = (cn, nn)
+              changed = True
+  cands = []
+  for key in lab.keys():
+    ss = tstops[key.0]
+    if ss[key.1].0 == dest:
+      cands.push((ss[key.1].1, lab[key].0, lab[key].1.join(">")))
+  if cands.is_empty(): return (false, 0, "")
+  best = min(cands)
+  return (true, best.0, best.2)
+
+tnames = []
+tstops = []
+in_q = False
+for ln in stdin().lines():
+  w = ln.words()
+  if not w: continue
+  if w[0] == "---":
+    in_q = True
+  elif not in_q:
+    ss = []
+    j = 1
+    while j + 1 < w.len():
+      ss.push((w[j], to_min(w[j + 1])))
+      j += 2
+    tnames.push(w[0])
+    tstops.push(ss)
+  else:
+    qf = w[0]
+    qt = w[1]
+    qq = to_min(w[2])
+    if qf == qt:
+      print("{qf} {qt} {hm(qq)} via -")
+    else:
+      res = solve(qf, qt, qq)
+      if res.0:
+        print("{qf} {qt} {hm(res.1)} via {res.2}")
+      else:
+        print("{qf} {qt} unreachable")

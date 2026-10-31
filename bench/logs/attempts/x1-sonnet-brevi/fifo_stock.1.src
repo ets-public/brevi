@@ -1,0 +1,91 @@
+lots: {str: [(int, dec)]} = {}
+seen: {str: int} = {}
+cogs: {str: dec} = {}
+rev: {str: dec} = {}
+loss: {str: dec} = {}
+mprofit: {str: dec} = {}
+mloss: {str: dec} = {}
+mseen: {str: int} = {}
+
+fn validdate(s: str) -> bool:
+  if len(s.re_full("\d{4}-\d{2}-\d{2}")) == 0: return false
+  match date(s):
+    Ok(d) => str(d) == s
+    Err(m) => false
+
+fn okq(s: str) -> bool = s.is_digit() and s.int().or(0) >= 1
+
+fn okp(s: str) -> bool = len(s.re_full("\d+(\.\d{1,2})?")) > 0
+
+fn have(sku: str) -> int:
+  n = 0
+  for l in lots[sku]: n += l.0
+  n
+
+fn take(sku: str, q: int) -> dec:
+  need = q
+  cost = 0.dec()
+  while need > 0:
+    l = lots[sku][0]
+    t = min(need, l.0)
+    cost += l.1 * t
+    need -= t
+    if t == l.0:
+      lots[sku].remove(0)
+    else:
+      lots[sku][0] = (l.0 - t, l.1)
+  cost
+
+latest = ""
+for idx, raw in enumerate(lines()):
+  ln = idx + 1
+  w = raw.words()
+  if w.is_empty(): continue
+  op = if w.len() > 1: w[1] else: ""
+  good = false
+  if validdate(w[0]) and w.len() >= 4 and okq(w[3]):
+    if op == "RECEIVE" and w.len() == 5 and okp(w[4]): good = true
+    if op == "SHIP" and w.len() == 5 and okp(w[4]): good = true
+    if op == "LOSS" and w.len() == 4: good = true
+  if not good:
+    print("line {ln}: bad line")
+    continue
+  if w[0] < latest:
+    print("line {ln}: date out of order")
+    continue
+  sku = w[2]
+  q = w[3].int()
+  mon = w[0].slice(0, 7)
+  if op == "RECEIVE":
+    lots[sku].push((q, w[4].dec()))
+    seen[sku] = 1
+  else:
+    h = have(sku)
+    if h < q:
+      print("line {ln}: short {sku} need {q} have {h}")
+      continue
+    c = take(sku, q)
+    mseen[mon] = 1
+    if op == "SHIP":
+      r = w[4].dec() * q
+      cogs[sku] += c
+      rev[sku] += r
+      mprofit[mon] += r - c
+    else:
+      loss[sku] += c
+      mloss[mon] += c
+  latest = w[0]
+
+tp = 0.dec()
+tl = 0.dec()
+for sku in seen.keys():
+  val = 0.dec()
+  for l in lots[sku]: val += l.1 * l.0
+  pr = rev[sku] - cogs[sku]
+  tp += pr
+  tl += loss[sku]
+  print("{sku} on_hand {have(sku)} value {val.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {pr.fmt(2)} loss {loss[sku].fmt(2)}")
+print("months")
+for mo in mseen.keys():
+  print("  {mo} profit {mprofit[mo].fmt(2)} loss {mloss[mo].fmt(2)}")
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")

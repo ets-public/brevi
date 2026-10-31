@@ -1,0 +1,86 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn is_int(s: str) -> bool:
+  if s.is_empty(): return False
+  for c in s.chars():
+    if not c.is_digit(): return False
+  True
+
+fn is_name(s: str) -> bool:
+  if s.is_empty(): return False
+  for c in s.chars():
+    if not (c.is_alpha() or c.is_digit() or c == "_"): return False
+  True
+
+fn parse_task(line: str) -> Task:
+  tk = line.words()
+  bad = Task(name: "", days: 0, deps: [])
+  if tk.len() < 2: return bad
+  if not is_name(tk[0]) or not is_int(tk[1]) or tk[1].int().or(0) < 1: return bad
+  d = tk[1].int().or(0)
+  if tk.len() == 2: return Task(name: tk[0], days: d, deps: [])
+  if tk[2] != "after" or tk.len() < 4: return bad
+  rest = " ".join(tk[3:])
+  deps = []
+  for p in rest.split(","):
+    nm = p.trim()
+    if not is_name(nm): return bad
+    deps.push(nm)
+  Task(name: tk[0], days: d, deps: deps)
+
+fn unlimited(dep: [[int]], days: [int]) -> ([int], [int], bool):
+  n = days.len()
+  st = []
+  en = []
+  res = []
+  for i in 0..n:
+    st.push(0)
+    en.push(0)
+    res.push(False)
+  for pass in 0..n:
+    for i in 0..n:
+      if not res[i]:
+        ok = True
+        best = 0
+        for d in dep[i]:
+          if not res[d]:
+            ok = False
+          elif en[d] > best:
+            best = en[d]
+        if ok:
+          st[i] = best
+          en[i] = best + days[i]
+          res[i] = True
+  allok = True
+  for i in 0..n:
+    if not res[i]: allok = False
+  (st, en, allok)
+
+fn critical(dep: [[int]], st: [int], en: [int], L: int) -> [int]:
+  n = st.len()
+  crit = []
+  for i in 0..n:
+    crit.push(en[i] == L)
+  for pass in 0..n:
+    for v in 0..n:
+      if not crit[v]:
+        for w in 0..n:
+          if crit[w] and st[w] == en[v] and dep[w].contains(v):
+            crit[v] = True
+  chain = []
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and crit[i]: cur = i
+  if cur < 0: return chain
+  chain.push(cur)
+  while en[cur] != L:
+    nxt = -1
+    for w in 0..n:
+      if nxt < 0 and crit[w] and st[w] == en[cur] and dep[w].contains(cur): nxt = w
+    if nxt < 0: break
+    cur = nxt
+    chain.push(cur)
+  chain

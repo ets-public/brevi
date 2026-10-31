@@ -1,0 +1,204 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+nm = "[A-Za-z]\w*"
+vl = "'(?:[^']|'')*'|-?\d+"
+cd = nm + " (?:=|!=|<=|>=|<|>) (?:" + vl + ")"
+wc = cd + "(?: AND " + cd + ")*"
+
+fn unq(s: str) -> str = s[1:-1].replace("''", "'")
+
+fn stored(lit: str, ctype: str) -> str = unq(lit) if ctype == "TEXT" else lit.int().or(0).str()
+
+fn lit_ok(lit: str, ctype: str) -> bool = (lit[0:1] == "'") == (ctype == "TEXT")
+
+fn sign_str(a: str, b: str) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn sign_int(a: int, b: int) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn cond_ok(cell: str, op: str, lit: str, is_text: bool) -> bool:
+  c = if is_text: sign_str(cell, unq(lit)) else: sign_int(cell.int().or(0), lit.int().or(0))
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn parse_conds(wh: str) -> [[str]]:
+  out = []
+  for c in wh.re_list(cd):
+    g = c.re_full("(" + nm + ") (=|!=|<=|>=|<|>) (.+)")
+    out.push([g[1], g[2], g[3]])
+  return out
+
+fn row_ok(row: [str], t: Table, conds: [[str]]) -> bool:
+  for c in conds:
+    ci = t.cols.index_of(c[0])
+    if not cond_ok(row[ci], c[1], c[2], t.types[ci] == "TEXT"): return false
+  return true
+
+fn check_names(t: Table, names: [str]) -> str:
+  for n in names:
+    if t.cols.index_of(n) < 0: return "error: no column " + n
+  return ""
+
+fn check_types(t: Table, conds: [[str]]) -> str:
+  for c in conds:
+    ci = t.cols.index_of(c[0])
+    if not lit_ok(c[2], t.types[ci]): return "error: type mismatch"
+  return ""
+
+fn stored_row(vals: [str], types: [str]) -> [str]:
+  out = []
+  for i in 0..vals.len():
+    out.push(stored(vals[i], types[i]))
+  return out
+
+fn with_cell(r: [str], ci: int, v: str) -> [str]:
+  r[ci] = v
+  return r
+
+fn row_cmp(a: [str], b: [str], ci: int, is_text: bool) -> int:
+  if is_text: return sign_str(a[ci], b[ci])
+  return sign_int(a[ci].int().or(0), b[ci].int().or(0))
+
+fn order_rows(rows: [[str]], ci: int, is_text: bool, desc: bool) -> [[str]]:
+  out = []
+  for r in rows:
+    pos = out.len()
+    for j in 0..out.len():
+      c = row_cmp(out[j], r, ci, is_text)
+      if (not desc and c > 0) or (desc and c < 0):
+        pos = j
+        break
+    out.insert(pos, r)
+  return out
+
+fn run(line: str, mut tables: {str: Table}) -> str:
+  m = line.re_full("CREATE TABLE (" + nm + ") \((.+)\)")
+  if m.len() > 0:
+    specs = m[2].split(", ")
+    cols = []
+    types = []
+    for s in specs:
+      g = s.re_full("(" + nm + ") (INT|TEXT)")
+      if g.len() == 0: return "error: syntax"
+      cols.push(g[1])
+      types.push(g[2])
+    if tables.has(m[1]): return "error: table {m[1]} exists"
+    tables[m[1]] = Table(cols: cols, types: types, rows: [])
+    return "ok"
+
+  m = line.re_full("INSERT INTO (" + nm + ") VALUES \((.+)\)")
+  if m.len() > 0:
+    if m[2].re_full("(?:" + vl + ")(?:, (?:" + vl + "))*").len() == 0: return "error: syntax"
+    vals = m[2].re_list(vl)
+    if not tables.has(m[1]): return "error: no table {m[1]}"
+    t = tables[m[1]]
+    if vals.len() != t.cols.len(): return "error: type mismatch"
+    for i in 0..vals.len():
+      if not lit_ok(vals[i], t.types[i]): return "error: type mismatch"
+    rows = t.rows
+    rows.push(stored_row(vals, t.types))
+    tables[m[1]] = Table(cols: t.cols, types: t.types, rows: rows)
+    return "ok"
+
+  m = line.re_full("SELECT COUNT\(\*\) FROM (" + nm + ")(?: WHERE (" + wc + "))?")
+  if m.len() > 0:
+    if not tables.has(m[1]): return "error: no table {m[1]}"
+    t = tables[m[1]]
+    conds = parse_conds(m[2])
+    e = check_names(t, [c[0] for c in conds])
+    if e != "": return e
+    e = check_types(t, conds)
+    if e != "": return e
+    cnt = 0
+    for r in t.rows:
+      if row_ok(r, t, conds): cnt += 1
+    return str(cnt)
+
+  m = line.re_full("SELECT (\*|" + nm + "(?:, " + nm + ")*) FROM (" + nm + ")(?: WHERE (" + wc + "))?(?: ORDER BY (" + nm + ")( DESC)?)?(?: LIMIT (\d+))?")
+  if m.len() > 0:
+    if not tables.has(m[2]): return "error: no table {m[2]}"
+    t = tables[m[2]]
+    if m[1] == "*":
+      sel = t.cols
+    else:
+      sel = m[1].split(", ")
+    conds = parse_conds(m[3])
+    names = sel + [c[0] for c in conds]
+    if m[4] != "": names.push(m[4])
+    e = check_names(t, names)
+    if e != "": return e
+    e = check_types(t, conds)
+    if e != "": return e
+    rows = []
+    for r in t.rows:
+      if row_ok(r, t, conds): rows.push(r)
+    if m[4] != "":
+      ci = t.cols.index_of(m[4])
+      rows = order_rows(rows, ci, t.types[ci] == "TEXT", m[5] != "")
+    if m[6] != "": rows = rows.take(m[6].int().or(0))
+    idx = [t.cols.index_of(c) for c in sel]
+    out = [" | ".join(sel)]
+    for r in rows:
+      out.push(" | ".join([r[i] for i in idx]))
+    out.push("(" + str(rows.len()) + " rows)")
+    return "\n".join(out)
+
+  m = line.re_full("UPDATE (" + nm + ") SET (" + nm + ") = ((?:" + vl + "))(?: WHERE (" + wc + "))?")
+  if m.len() > 0:
+    if not tables.has(m[1]): return "error: no table {m[1]}"
+    t = tables[m[1]]
+    conds = parse_conds(m[4])
+    e = check_names(t, [m[2]] + [c[0] for c in conds])
+    if e != "": return e
+    e = check_types(t, conds)
+    if e != "": return e
+    ci = t.cols.index_of(m[2])
+    if not lit_ok(m[3], t.types[ci]): return "error: type mismatch"
+    sv = stored(m[3], t.types[ci])
+    newrows = []
+    cnt = 0
+    for r in t.rows:
+      if row_ok(r, t, conds):
+        newrows.push(with_cell(r, ci, sv))
+        cnt += 1
+      else:
+        newrows.push(r)
+    tables[m[1]] = Table(cols: t.cols, types: t.types, rows: newrows)
+    return "updated " + str(cnt)
+
+  m = line.re_full("DELETE FROM (" + nm + ")(?: WHERE (" + wc + "))?")
+  if m.len() > 0:
+    if not tables.has(m[1]): return "error: no table {m[1]}"
+    t = tables[m[1]]
+    conds = parse_conds(m[2])
+    e = check_names(t, [c[0] for c in conds])
+    if e != "": return e
+    e = check_types(t, conds)
+    if e != "": return e
+    keep = []
+    cnt = 0
+    for r in t.rows:
+      if row_ok(r, t, conds): cnt += 1
+      else: keep.push(r)
+    tables[m[1]] = Table(cols: t.cols, types: t.types, rows: keep)
+    return "deleted " + str(cnt)
+
+  return "error: syntax"
+
+tables = {}
+for raw in stdin().lines():
+  line = raw.trim()
+  if line == "": continue
+  print(run(line, tables))

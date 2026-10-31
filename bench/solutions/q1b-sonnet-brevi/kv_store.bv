@@ -1,0 +1,37 @@
+store = {}
+snaps = []
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  c = w[0]
+  if c == "SET" and w.len() >= 2:
+    store[w[1]] = if w.len() > 2: w[2] else: ""
+  elif c == "GET" and w.len() >= 2:
+    print(if store.has(w[1]): store[w[1]] else: "NULL")
+  elif c == "DEL" and w.len() >= 2:
+    if store.has(w[1]): store.remove(w[1])
+    else: print("NOT FOUND")
+  elif c == "INCR" and w.len() >= 3:
+    cur = if store.has(w[1]): store[w[1]] else: "0"
+    if cur.re_full('-?\d+').is_empty():
+      print("ERR not an integer")
+    else:
+      nv = cur.int() + w[2].int()
+      store[w[1]] = str(nv)
+      print(nv)
+  elif c == "COUNT" and w.len() >= 2:
+    print(store.values().count(v => v == w[1]))
+  elif c == "KEYS":
+    p = if w.len() > 1: w[1] else: ""
+    ks = store.keys().filter(k => k.starts_with(p))
+    print(if ks: " ".join(ks) else: "(empty)")
+  elif c == "BEGIN":
+    snaps.push(store)
+  elif c == "ROLLBACK":
+    if snaps: store = snaps.pop()
+    else: print("NO TRANSACTION")
+  elif c == "COMMIT":
+    if snaps: snaps = []
+    else: print("NO TRANSACTION")
+  else:
+    print("ERR unknown command")

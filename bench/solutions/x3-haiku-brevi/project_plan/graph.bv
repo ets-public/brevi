@@ -1,0 +1,99 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse_deps(s: str) -> ([str], bool):
+  out: [str] = []
+  for part in s.split(","):
+    nm = part.trim()
+    if nm.re_full("[A-Za-z0-9_]+").is_empty(): return (out, False)
+    out.push(nm)
+  return (out, True)
+
+fn index_of(tasks: [Task], nm: str) -> int:
+  for i, t in enumerate(tasks):
+    if t.name == nm: return i
+  return -1
+
+fn unknown_dep(tasks: [Task]) -> str:
+  for t in tasks:
+    for d in t.deps:
+      if index_of(tasks, d) < 0: return "unknown {d}"
+  return ""
+
+fn dep_ids(tasks: [Task]) -> [[int]]:
+  out: [[int]] = []
+  for t in tasks:
+    ids: [int] = []
+    for d in t.deps: ids.push(index_of(tasks, d))
+    out.push(ids)
+  return out
+
+fn has_cycle(deps: [[int]]) -> bool:
+  n = deps.len()
+  fin: [int] = []
+  for i in 0..n: fin.push(0)
+  progress = True
+  while progress:
+    progress = False
+    for i in 0..n:
+      if fin[i] == 0:
+        ok = True
+        for d in deps[i]:
+          if fin[d] == 0: ok = False
+        if ok:
+          fin[i] = 1
+          progress = True
+  for i in 0..n:
+    if fin[i] == 0: return True
+  return False
+
+fn makespan(ends: [int]) -> int:
+  m = 0
+  for e in ends:
+    if e > m: m = e
+  return m
+
+fn unlimited(tasks: [Task], deps: [[int]]) -> ([int], [int]):
+  n = tasks.len()
+  starts: [int] = []
+  ends: [int] = []
+  for i in 0..n:
+    starts.push(0)
+    ends.push(0)
+  for pass in 0..n:
+    for i in 0..n:
+      st = 0
+      for d in deps[i]:
+        if ends[d] > st: st = ends[d]
+      starts[i] = st
+      ends[i] = st + tasks[i].days
+  return (starts, ends)
+
+fn critical_chain(tasks: [Task], deps: [[int]], starts: [int], ends: [int]) -> [str]:
+  n = tasks.len()
+  top = makespan(ends)
+  cont: [bool] = []
+  for i in 0..n: cont.push(ends[i] == top)
+  for pass in 0..n:
+    for i in 0..n:
+      if not cont[i]:
+        for s in 0..n:
+          if cont[s] and starts[s] == ends[i] and i in deps[s]:
+            cont[i] = True
+  chain: [str] = []
+  first = -1
+  for i in 0..n:
+    if first < 0 and starts[i] == 0 and cont[i]: first = i
+  if first < 0: return chain
+  cur = first
+  chain.push(tasks[cur].name)
+  while ends[cur] != top:
+    nxt = -1
+    for s in 0..n:
+      if nxt < 0 and cont[s] and starts[s] == ends[cur] and cur in deps[s]: nxt = s
+    if nxt < 0: break
+    chain.push(tasks[nxt].name)
+    cur = nxt
+  return chain

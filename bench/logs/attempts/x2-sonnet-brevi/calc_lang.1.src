@@ -1,0 +1,201 @@
+enum Ex:
+  Num(n: int)
+  Var(name: str)
+  Neg(e: Ex)
+  Bin(op: str, a: Ex, b: Ex)
+  Call(name: str, args: [Ex])
+
+toks: [str] = []
+pos = 0
+depth = 0
+gvars: {str: int} = {}
+fparams: {str: [str]} = {}
+fbody: {str: Ex} = {}
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+fn is_name(s: str) -> bool = not s.re_full("[A-Za-z][A-Za-z0-9_]*").is_empty()
+fn is_kw(s: str) -> bool = s in ["let", "fn", "print", "if"]
+fn is_cmp(s: str) -> bool = s in ["==", "!=", "<", ">", "<=", ">="]
+
+fn parse_cmp() -> Ex:
+  a = parse_add()
+  if is_cmp(peek()):
+    op = peek()
+    pos += 1
+    b = parse_add()
+    if is_cmp(peek()): fail("syntax")
+    return Bin(op, a, b)
+  a
+
+fn parse_add() -> Ex:
+  a = parse_mul()
+  while peek() == "+" or peek() == "-":
+    op = peek()
+    pos += 1
+    b = parse_mul()
+    a = Bin(op, a, b)
+  a
+
+fn parse_mul() -> Ex:
+  a = parse_unary()
+  while peek() == "*" or peek() == "/" or peek() == "%":
+    op = peek()
+    pos += 1
+    b = parse_unary()
+    a = Bin(op, a, b)
+  a
+
+fn parse_unary() -> Ex:
+  if peek() == "-":
+    pos += 1
+    return Neg(parse_unary())
+  parse_atom()
+
+fn parse_atom() -> Ex:
+  t = peek()
+  if t == "": fail("syntax")
+  if t.is_digit():
+    pos += 1
+    return Num(t.int())
+  if t == "(":
+    pos += 1
+    e = parse_cmp()
+    if peek() != ")": fail("syntax")
+    pos += 1
+    return e
+  if is_name(t):
+    if is_kw(t) and t != "if": fail("syntax")
+    pos += 1
+    if peek() != "(":
+      if t == "if": fail("syntax")
+      return Var(t)
+    pos += 1
+    args = []
+    if peek() == ")":
+      pos += 1
+      return Call(t, args)
+    while true:
+      args.push(parse_cmp())
+      if peek() == ",":
+        pos += 1
+      elif peek() == ")":
+        pos += 1
+        break
+      else: fail("syntax")
+    return Call(t, args)
+  fail("syntax")
+
+fn lookup(name: str, env: {str: int}) -> int:
+  if env.has(name): return env[name]
+  if gvars.has(name): return gvars[name]
+  fail("unknown name {name}")
+
+fn binop(op: str, a: Ex, b: Ex, env: {str: int}) -> int:
+  x = ev(a, env)
+  y = ev(b, env)
+  match op:
+    "+" => x + y
+    "-" => x - y
+    "*" => x * y
+    "/" =>
+      if y == 0: fail("division by zero")
+      x / y
+    "%" =>
+      if y == 0: fail("division by zero")
+      x % y
+    "==" => if x == y: 1 else: 0
+    "!=" => if x != y: 1 else: 0
+    "<" => if x < y: 1 else: 0
+    ">" => if x > y: 1 else: 0
+    "<=" => if x <= y: 1 else: 0
+    _ => if x >= y: 1 else: 0
+
+fn docall(name: str, args: [Ex], env: {str: int}) -> int:
+  if name == "if":
+    if args.len() != 3: fail("if takes 3 arguments")
+    c = ev(args[0], env)
+    if c != 0: return ev(args[1], env)
+    return ev(args[2], env)
+  if not fparams.has(name): fail("unknown function {name}")
+  ps = fparams[name]
+  if ps.len() != args.len(): fail("{name} takes {ps.len()} arguments")
+  ne: {str: int} = {}
+  for i in 0..args.len():
+    ne[ps[i]] = ev(args[i], env)
+  depth += 1
+  if depth > 200: fail("too deep")
+  r = ev(fbody[name], ne)
+  depth -= 1
+  r
+
+fn ev(e: Ex, env: {str: int}) -> int:
+  match e:
+    Num(n) => n
+    Var(name) => lookup(name, env)
+    Neg(a) => 0 - ev(a, env)
+    Bin(op, a, b) => binop(op, a, b, env)
+    Call(name, args) => docall(name, args, env)
+
+fn run(s: str) -> [str]:
+  stripped = s.replace(" ", "").replace("\t", "")
+  if "".join(toks) != stripped: fail("syntax")
+  first = toks[0]
+  empty: {str: int} = {}
+  if first == "let":
+    if toks.len() < 4: fail("syntax")
+    if not is_name(toks[1]) or is_kw(toks[1]) or toks[2] != "=": fail("syntax")
+    pos = 3
+    e = parse_cmp()
+    if pos != toks.len(): fail("syntax")
+    v = ev(e, empty)
+    gvars[toks[1]] = v
+    return []
+  if first == "fn":
+    if toks.len() < 6: fail("syntax")
+    if not is_name(toks[1]) or is_kw(toks[1]) or toks[2] != "(": fail("syntax")
+    pos = 3
+    ps = []
+    if peek() == ")":
+      pos += 1
+    else:
+      while true:
+        p = peek()
+        if not is_name(p) or is_kw(p): fail("syntax")
+        ps.push(p)
+        pos += 1
+        if peek() == ",":
+          pos += 1
+        elif peek() == ")":
+          pos += 1
+          break
+        else: fail("syntax")
+    if peek() != "=": fail("syntax")
+    pos += 1
+    e = parse_cmp()
+    if pos != toks.len(): fail("syntax")
+    fparams[toks[1]] = ps
+    fbody[toks[1]] = e
+    return []
+  if first == "print":
+    pos = 1
+    es = []
+    while true:
+      es.push(parse_cmp())
+      if peek() == ",": pos += 1
+      else: break
+    if pos != toks.len(): fail("syntax")
+    out = []
+    for e in es:
+      out.push(str(ev(e, empty)))
+    return [" ".join(out)]
+  fail("syntax")
+
+for n, line in enumerate(lines()):
+  s = line.trim()
+  if s.is_empty() or s.starts_with("#"): continue
+  toks = s.re_list("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%(),=<>]")
+  pos = 0
+  depth = 0
+  match run(s):
+    Ok(v) => if v: print(v[0])
+    Err(msg) => print("error line {n + 1}: {msg}")

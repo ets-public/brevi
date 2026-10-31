@@ -1,0 +1,39 @@
+use "catalog.bv"
+use "rules.bv"
+
+lib = Lib(books: {}, members: {}, loans: [], holds: [])
+
+for raw in lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  tk = line.words()
+  day = date(tk[0]).days
+  for s in expire(lib, day):
+    print(s)
+  op = tk[1]
+  if op == "BOOK":
+    bid = tk[2]
+    if lib.books.has(bid):
+      print("duplicate ID")
+    else:
+      title = " ".join(tk[4:])
+      lib.books[bid] = Book(id: bid, title: title, copies: tk[3].int().or(0), waits: [])
+      print("added {bid}")
+  elif op == "MEMBER":
+    mid = tk[2]
+    if lib.members.has(mid):
+      print("duplicate ID")
+    else:
+      name = " ".join(tk[4:])
+      lib.members[mid] = Member(id: mid, name: name, tier: tk[3], owes: 0.dec())
+      print("welcome {name}")
+  elif op == "LOAN":
+    print(lend(lib, day, tk[2], tk[3]))
+  elif op == "RETURN":
+    print(ret(lib, day, tk[2], tk[3]))
+  elif op == "RESERVE":
+    print(reserve(lib, tk[2], tk[3]))
+  elif op == "PAY":
+    print(pay(lib, tk[2], tk[3].dec()))
+  elif op == "STATUS":
+    print(status(lib, tk[2]))

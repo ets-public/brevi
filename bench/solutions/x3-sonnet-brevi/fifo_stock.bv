@@ -1,0 +1,106 @@
+lotq = {}
+lotc = {}
+cogs = {}
+rev = {}
+loss = {}
+seen = {}
+mprofit = {}
+mloss = {}
+mseen = {}
+latest = ""
+
+fn valid_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d\d-\d\d").is_empty(): return false
+  y = s.slice(0, 4).int()
+  m = s.slice(5, 7).int()
+  d = s.slice(8, 10).int()
+  if m < 1 or m > 12 or d < 1: return false
+  dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+  if m == 2 and (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)): dim = 29
+  d <= dim
+
+fn valid_qty(s: str) -> bool = s.re_full("\d+").len() > 0 and s.int() >= 1
+
+fn valid_price(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0
+
+fn onhand(sku: str) -> int:
+  t = 0
+  for q in lotq[sku]: t += q
+  t
+
+fn take(sku: str, qty: int) -> dec:
+  left = qty
+  cost = 0.dec()
+  while left > 0:
+    q = lotq[sku][0]
+    c = lotc[sku][0]
+    u = min(q, left)
+    cost += c * u
+    left -= u
+    if u == q:
+      lotq[sku].remove(0)
+      lotc[sku].remove(0)
+    else:
+      lotq[sku][0] = q - u
+  cost
+
+n = 0
+for line in lines():
+  n += 1
+  w = line.words()
+  if w.is_empty(): continue
+  ok = false
+  if w.len() >= 4 and valid_date(w[0]) and w[2].re_full("\w+").len() > 0 and valid_qty(w[3]):
+    if (w[1] == "RECEIVE" or w[1] == "SHIP") and w.len() == 5: ok = valid_price(w[4])
+    elif w[1] == "LOSS" and w.len() == 4: ok = true
+  if not ok:
+    print("line {n}: bad line")
+    continue
+  date_s = w[0]
+  if latest != "" and date_s < latest:
+    print("line {n}: date out of order")
+    continue
+  sku = w[2]
+  qty = w[3].int()
+  op = w[1]
+  if op == "RECEIVE":
+    latest = date_s
+    if not lotq.has(sku):
+      lotq[sku] = []
+      lotc[sku] = []
+    seen[sku] = 1
+    lotq[sku].push(qty)
+    lotc[sku].push(w[4].dec())
+    continue
+  have = 0
+  if lotq.has(sku): have = onhand(sku)
+  if qty > have:
+    print("line {n}: short {sku} need {qty} have {have}")
+    continue
+  latest = date_s
+  month = date_s.slice(0, 7)
+  mseen[month] = 1
+  cost = take(sku, qty)
+  if op == "SHIP":
+    r = w[4].dec() * qty
+    cogs[sku] += cost
+    rev[sku] += r
+    mprofit[month] += r - cost
+  else:
+    loss[sku] += cost
+    mloss[month] += cost
+
+tp = 0.dec()
+tl = 0.dec()
+for sku in seen.keys():
+  val = 0.dec()
+  for i in 0..lotq[sku].len():
+    val += lotc[sku][i] * lotq[sku][i]
+  prof = rev[sku] - cogs[sku]
+  tp += prof
+  tl += loss[sku]
+  print("{sku} on_hand {onhand(sku)} value {val.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {prof.fmt(2)} loss {loss[sku].fmt(2)}")
+print("months")
+for m in mseen.keys():
+  print("  {m} profit {mprofit[m].fmt(2)} loss {mloss[m].fmt(2)}")
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")

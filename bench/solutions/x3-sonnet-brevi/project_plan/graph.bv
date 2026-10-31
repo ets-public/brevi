@@ -1,0 +1,99 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn dep_idx(tasks: [Task]) -> [[int]]:
+  m = {}
+  for i in 0..tasks.len(): m[tasks[i].name] = i
+  [[m[d] for d in t.deps] for t in tasks]
+
+fn users_of(tasks: [Task]) -> {int: [int]}:
+  di = dep_idx(tasks)
+  us = {}
+  for i in 0..tasks.len():
+    for d in di[i]: us[d].push(i)
+  us
+
+fn topo(tasks: [Task]) -> [int]:
+  di = dep_idx(tasks)
+  us = users_of(tasks)
+  n = tasks.len()
+  indeg = [di[i].len() for i in 0..n]
+  queue = [i for i in 0..n if indeg[i] == 0]
+  qi = 0
+  while qi < queue.len():
+    c = queue[qi]
+    qi += 1
+    for u in us[c]:
+      indeg[u] -= 1
+      if indeg[u] == 0: queue.push(u)
+  queue
+
+fn parse_input(ls: [str]) -> (int, [Task]):
+  k = 0
+  tasks = []
+  seen = {}
+  header = false
+  for i in 0..ls.len():
+    line = ls[i]
+    n = i + 1
+    if line.trim().is_empty(): continue
+    if not header:
+      if line.re_full("workers \d+").is_empty(): fail("line {n}: bad line")
+      k = line.words()[1].int()
+      if k < 1: fail("line {n}: bad line")
+      header = true
+      continue
+    if line.re_full("\w+ \d+( after \w+(, \w+)*)?").is_empty(): fail("line {n}: bad line")
+    w = line.words()
+    name = w[0]
+    days = w[1].int()
+    if days < 1: fail("line {n}: bad line")
+    deps = []
+    if w.len() > 2:
+      deps = [t.replace(",", "") for t in w.skip(3)]
+    if seen.has(name): fail("line {n}: duplicate {name}")
+    seen[name] = 1
+    tasks.push(Task(name: name, days: days, deps: deps))
+  if not header: fail("line 1: bad line")
+  for t in tasks:
+    for d in t.deps:
+      if not seen.has(d): fail("unknown {d}")
+  if topo(tasks).len() < tasks.len(): fail("cycle")
+  (k, tasks)
+
+fn plan(tasks: [Task]) -> ([int], [int]):
+  di = dep_idx(tasks)
+  n = tasks.len()
+  starts = [0].repeat(n)
+  ends = [0].repeat(n)
+  for c in topo(tasks):
+    s = 0
+    for d in di[c]: s = max(s, ends[d])
+    starts[c] = s
+    ends[c] = s + tasks[c].days
+  (starts, ends)
+
+fn critical(tasks: [Task], starts: [int], ends: [int]) -> [str]:
+  n = tasks.len()
+  us = users_of(tasks)
+  longest = max(ends)
+  reach = [false].repeat(n)
+  for c in topo(tasks).rev():
+    if ends[c] == longest:
+      reach[c] = true
+    else:
+      for u in us[c]:
+        if starts[u] == ends[c] and reach[u]: reach[c] = true
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and starts[i] == 0 and reach[i]: cur = i
+  chain = []
+  while cur >= 0:
+    chain.push(tasks[cur].name)
+    nxt = -1
+    for u in us[cur]:
+      if nxt < 0 and starts[u] == ends[cur] and reach[u]: nxt = u
+    cur = nxt
+  chain

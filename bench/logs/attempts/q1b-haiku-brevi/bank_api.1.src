@@ -1,0 +1,134 @@
+owners = []
+bals = []
+fn acct(i: int) -> str = '{"id":{i + 1},"owner":"{owners[i]}","balance":{bals[i]}}'
+fn amt(v: Json) -> int:
+  match v:
+    Num(x) => if x >= 1.0 and x == x.floor(): x.int().or(-1) else: -1
+    _ => -1
+fn idof(v: Json) -> int:
+  match v:
+    Num(x) => x.int().or(0)
+    _ => 0
+nf = '{"error":"no such account"}'
+for line in stdin().lines():
+  if line.trim().is_empty(): continue
+  sp = line.find(" ")
+  method = line if sp < 0 else line.slice(0, sp)
+  after = "" if sp < 0 else line.slice(sp + 1)
+  sp2 = after.find(" ")
+  path = after if sp2 < 0 else after.slice(0, sp2)
+  text = "" if sp2 < 0 else after.slice(sp2 + 1)
+  parts = path.split("/")
+  n = owners.len()
+  okid = parts.len() >= 3 and parts[1] == "accounts" and parts[2].int().or(-1) >= 0
+  r = ""
+  if method == "POST" and path == "/accounts":
+    r = "create"
+  elif method == "GET" and path == "/accounts":
+    r = "list"
+  elif method == "POST" and path == "/transfer":
+    r = "transfer"
+  elif okid and parts.len() == 3 and method == "GET":
+    r = "get"
+  elif okid and parts.len() == 4 and method == "POST" and parts[3] == "deposit":
+    r = "deposit"
+  elif okid and parts.len() == 4 and method == "POST" and parts[3] == "withdraw":
+    r = "withdraw"
+  status = 404
+  body = '{"error":"not found"}'
+  bad = false
+  jv = json("null")
+  if r == "create" or r == "transfer" or r == "deposit" or r == "withdraw":
+    match json(text):
+      Ok(v) => jv = v
+      Err(e) => bad = true
+  if r == "":
+    status = 404
+  elif r == "list":
+    status = 200
+    order = []
+    for i in 0..n:
+      order.push((-bals[i], i))
+    order.sort()
+    items = []
+    for t in order:
+      items.push(acct(t.1))
+    body = "[" + items.join(",") + "]"
+  elif r == "get":
+    aid = parts[2].int().or(0)
+    if aid >= 1 and aid <= n:
+      status = 200
+      body = acct(aid - 1)
+    else:
+      status = 404
+      body = nf
+  elif bad:
+    status = 400
+    body = '{"error":"bad json"}'
+  elif r == "create":
+    name = ""
+    match jv["owner"]:
+      Str(s) => name = s
+      _ => name = ""
+    if name == "":
+      status = 400
+      body = '{"error":"owner required"}'
+    else:
+      owners.push(name)
+      bals.push(0)
+      status = 201
+      body = acct(owners.len() - 1)
+  elif r == "deposit":
+    aid = parts[2].int().or(0)
+    if aid < 1 or aid > n:
+      status = 404
+      body = nf
+    else:
+      a = amt(jv["amount"])
+      if a < 1:
+        status = 400
+        body = '{"error":"bad amount"}'
+      else:
+        bals[aid - 1] += a
+        status = 200
+        body = acct(aid - 1)
+  elif r == "withdraw":
+    aid = parts[2].int().or(0)
+    if aid < 1 or aid > n:
+      status = 404
+      body = nf
+    else:
+      a = amt(jv["amount"])
+      if a < 1:
+        status = 400
+        body = '{"error":"bad amount"}'
+      elif a > bals[aid - 1]:
+        status = 409
+        body = '{"error":"insufficient funds"}'
+      else:
+        bals[aid - 1] -= a
+        status = 200
+        body = acct(aid - 1)
+  elif r == "transfer":
+    fa = idof(jv["from"])
+    ta = idof(jv["to"])
+    if fa < 1 or fa > n or ta < 1 or ta > n:
+      status = 404
+      body = nf
+    elif fa == ta:
+      status = 400
+      body = '{"error":"same account"}'
+    else:
+      a = amt(jv["amount"])
+      if a < 1:
+        status = 400
+        body = '{"error":"bad amount"}'
+      elif a > bals[fa - 1]:
+        status = 409
+        body = '{"error":"insufficient funds"}'
+      else:
+        bals[fa - 1] -= a
+        bals[ta - 1] += a
+        status = 200
+        body = '{"from":{bals[fa - 1]},"to":{bals[ta - 1]}}'
+  print("{status} {body}")

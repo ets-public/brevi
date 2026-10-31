@@ -1,0 +1,157 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+match load(lines()):
+  Err(msg) => print(msg)
+  Ok(r) =>
+    k = r.0
+    ts = r.1
+    st = calc_starts(ts)
+    tl = calc_tails(ts)
+    total = max([st[i] + ts[i].days for i in 0..ts.len()].max().or(0), 0)
+    print("unlimited")
+    for i in 0..ts.len():
+      print("  {ts[i].name} {st[i]}-{st[i] + ts[i].days}")
+    print("length {total}")
+    ch = critical(ts, st, tl, total)
+    print("critical {[ts[i].name for i in ch].join(" > ")}")
+    s2 = schedule(ts, tl, k)
+    print("workers {k}")
+    for i in 0..ts.len():
+      print("  {ts[i].name} {s2[i]}-{s2[i] + ts[i].days}")
+    l2 = [s2[i] + ts[i].days for i in 0..ts.len()].max().or(0)
+    print("length {l2}")
+## graph.bv
+type Task:
+  name: str
+  days: int
+  dn: [str]
+  deps: [int]
+
+fn parse_input(ls: [str]) -> (int, [Task]):
+  k = 0
+  ts: [Task] = []
+  seen: {str: int} = {}
+  hdr = false
+  for i in 0..ls.len():
+    s = ls[i].trim()
+    if s.is_empty(): continue
+    ln = i + 1
+    if not hdr:
+      h = s.re_full("workers (\d+)")
+      if h.is_empty(): fail("line {ln}: bad line")
+      if h[1].int() < 1: fail("line {ln}: bad line")
+      k = h[1].int()
+      hdr = true
+      continue
+    g = s.re_full("(\w+) (\d+)(?: after (\w+(?:, \w+)*))?")
+    if g.is_empty(): fail("line {ln}: bad line")
+    if g[2].int() < 1: fail("line {ln}: bad line")
+    if seen.has(g[1]): fail("line {ln}: duplicate {g[1]}")
+    seen[g[1]] = 1
+    dn: [str] = []
+    if g[3] != "": dn = g[3].split(", ")
+    ds: [int] = []
+    ts.push(Task(g[1], g[2].int(), dn, ds))
+  if not hdr: fail("line 1: bad line")
+  (k, ts)
+
+fn resolve(ts: [Task]) -> [Task]:
+  idx: {str: int} = {}
+  for i in 0..ts.len(): idx[ts[i].name] = i
+  out: [Task] = []
+  for t in ts:
+    ds: [int] = []
+    for d in t.dn:
+      if not idx.has(d): fail("unknown {d}")
+      ds.push(idx[d])
+    out.push(Task(t.name, t.days, t.dn, ds))
+  out
+
+fn topo(ts: [Task]) -> [int]:
+  n = ts.len()
+  indeg = [0].repeat(n)
+  kids: {int: [int]} = {}
+  for i in 0..n:
+    indeg[i] = ts[i].deps.len()
+    for d in ts[i].deps: kids[d].push(i)
+  q = [i for i in 0..n if indeg[i] == 0]
+  head = 0
+  while head < q.len():
+    u = q[head]
+    head += 1
+    for c in kids[u]:
+      indeg[c] = indeg[c] - 1
+      if indeg[c] == 0: q.push(c)
+  q
+
+fn load(ls: [str]) -> (int, [Task]):
+  r = parse_input(ls)
+  ts = resolve(r.1)
+  if topo(ts).len() < ts.len(): fail("cycle")
+  (r.0, ts)
+
+fn calc_starts(ts: [Task]) -> [int]:
+  st = [0].repeat(ts.len())
+  for u in topo(ts):
+    s = 0
+    for d in ts[u].deps: s = max(s, st[d] + ts[d].days)
+    st[u] = s
+  st
+
+fn calc_tails(ts: [Task]) -> [int]:
+  tl = [t.days for t in ts]
+  for u in topo(ts).rev():
+    for d in ts[u].deps: tl[d] = max(tl[d], ts[d].days + tl[u])
+  tl
+
+fn critical(ts: [Task], st: [int], tl: [int], total: int) -> [int]:
+  n = ts.len()
+  chain: [int] = []
+  cur = -1
+  for i in 0..n:
+    if st[i] == 0 and tl[i] == total:
+      cur = i
+      break
+  if cur < 0: return chain
+  chain.push(cur)
+  while st[cur] + ts[cur].days < total:
+    fin = st[cur] + ts[cur].days
+    nx = -1
+    for i in 0..n:
+      if cur in ts[i].deps and st[i] == fin and st[i] + tl[i] == total:
+        nx = i
+        break
+    chain.push(nx)
+    cur = nx
+  chain
+## schedule.bv
+use "graph.bv"
+
+fn schedule(ts: [Task], tl: [int], k: int) -> [int]:
+  n = ts.len()
+  st = [-1].repeat(n)
+  done = [false].repeat(n)
+  running: [(int, int)] = []
+  t = 0
+  while true:
+    rest: [(int, int)] = []
+    for r in running:
+      if r.0 == t:
+        done[r.1] = true
+      else:
+        rest.push(r)
+    running = rest
+    while running.len() < k:
+      best = -1
+      for i in 0..n:
+        if st[i] >= 0: continue
+        if not all(done[d] for d in ts[i].deps): continue
+        if best < 0 or tl[i] > tl[best]: best = i
+      if best < 0: break
+      st[best] = t
+      running.push((t + ts[best].days, best))
+    if running.is_empty(): break
+    t = min(r.0 for r in running)
+  st

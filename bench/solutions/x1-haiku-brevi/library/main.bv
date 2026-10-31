@@ -1,0 +1,38 @@
+use "catalog.bv"
+use "rules.bv"
+
+books = {}
+members = {}
+holds = []
+
+for raw in stdin().lines():
+  line = raw.trim()
+  if line == "": continue
+  w = line.words()
+  cur = date(w[0])
+  for msg in expire(cur.days, books, holds):
+    print(msg)
+  op = w[1]
+  if op == "BOOK":
+    if books.has(w[2]):
+      print("duplicate ID")
+    else:
+      books[w[2]] = Book(shelf: w[3].int().or(0), waits: [])
+      print("added " + w[2])
+  elif op == "MEMBER":
+    if members.has(w[2]):
+      print("duplicate ID")
+    else:
+      nm = " ".join(w[4:])
+      members[w[2]] = Member(name: nm, tier: w[3], owes: 0.dec(), loans: [])
+      print("welcome " + nm)
+  elif op == "LOAN":
+    print(do_loan(cur, w[2], w[3], members, books, holds))
+  elif op == "RETURN":
+    print(do_return(cur, w[2], w[3], members, books, holds))
+  elif op == "RESERVE":
+    print(do_reserve(w[2], w[3], members, books, holds))
+  elif op == "PAY":
+    print(do_pay(w[2], w[3].dec().or(0.dec()), members))
+  elif op == "STATUS":
+    print(do_status(w[2], members))

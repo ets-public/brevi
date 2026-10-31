@@ -1,0 +1,35 @@
+type Loan:
+  book: str
+  due: int
+
+type Book:
+  title: str
+  copies: int
+  outc: int
+  waitlist: [str]
+
+type Member:
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Hold:
+  last: int
+  book: str
+  member: str
+
+fn money(c: int) -> str:
+  neg = c < 0
+  a = abs(c)
+  d = a // 100
+  p = a % 100
+  pad = if p < 10: "0" else: ""
+  sg = if neg: "-" else: ""
+  "{sg}{d}.{pad}{p}"
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  fr = if parts.len() > 1: parts[1] else: "0"
+  if fr.len() == 1: fr = fr + "0"
+  return parts[0].int().or(0) * 100 + fr.int().or(0)

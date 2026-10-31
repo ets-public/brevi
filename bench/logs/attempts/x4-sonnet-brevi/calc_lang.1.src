@@ -1,0 +1,189 @@
+enum Expr:
+  Num(v: int)
+  Var(name: str)
+  Neg(e: Expr)
+  Bin(op: str, l: Expr, r: Expr)
+  Call(name: str, args: [Expr])
+
+toks = []
+pos = 0
+globs = {}
+fnparams = {}
+fnbody = {}
+active = 0
+TP = "[0-9]+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%<>(),=]"
+
+fn peek() -> str:
+  if pos < toks.len(): toks[pos] else: ""
+
+fn eat(s: str) -> bool:
+  if peek() == s:
+    pos += 1
+    true
+  else: false
+
+fn expect(s: str):
+  if not eat(s): fail("syntax")
+
+fn isname(t: str) -> bool = t.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0 and t not in ["let", "fn", "print", "if"]
+
+fn is_cmp(t: str) -> bool = t in ["==", "!=", "<", ">", "<=", ">="]
+
+fn p_cmp() -> Expr:
+  l = p_add()
+  t = peek()
+  if is_cmp(t):
+    pos += 1
+    r = p_add()
+    if is_cmp(peek()): fail("syntax")
+    Bin(t, l, r)
+  else: l
+
+fn p_add() -> Expr:
+  l = p_mul()
+  while peek() == "+" or peek() == "-":
+    op = peek()
+    pos += 1
+    r = p_mul()
+    l = Bin(op, l, r)
+  l
+
+fn p_mul() -> Expr:
+  l = p_un()
+  while peek() == "*" or peek() == "/" or peek() == "%":
+    op = peek()
+    pos += 1
+    r = p_un()
+    l = Bin(op, l, r)
+  l
+
+fn p_un() -> Expr:
+  if eat("-"):
+    e = p_un()
+    Neg(e)
+  else: p_prim()
+
+fn p_prim() -> Expr:
+  t = peek()
+  if t.re_full("[0-9]+").len() > 0:
+    pos += 1
+    Num(t.int())
+  elif t == "(":
+    pos += 1
+    e = p_cmp()
+    expect(")")
+    e
+  elif isname(t) or t == "if":
+    pos += 1
+    if eat("("):
+      args = []
+      if not eat(")"):
+        while true:
+          args.push(p_cmp())
+          if eat(","): continue
+          expect(")")
+          break
+      Call(t, args)
+    elif t == "if": fail("syntax")
+    else: Var(t)
+  else: fail("syntax")
+
+fn eval(e: Expr, env: {str: int}) -> int:
+  match e:
+    Num(v) => v
+    Var(n) =>
+      if env.has(n): env[n]
+      elif globs.has(n): globs[n]
+      else: fail("unknown name {n}")
+    Neg(x) => 0 - eval(x, env)
+    Bin(op, l, r) =>
+      a = eval(l, env)
+      b = eval(r, env)
+      match op:
+        "+" => a + b
+        "-" => a - b
+        "*" => a * b
+        "/" =>
+          if b == 0: fail("division by zero")
+          a / b
+        "%" =>
+          if b == 0: fail("division by zero")
+          a % b
+        "==" => if a == b: 1 else: 0
+        "!=" => if a != b: 1 else: 0
+        "<" => if a < b: 1 else: 0
+        ">" => if a > b: 1 else: 0
+        "<=" => if a <= b: 1 else: 0
+        _ => if a >= b: 1 else: 0
+    Call(name, args) =>
+      if name == "if":
+        if args.len() != 3: fail("if takes 3 arguments")
+        c = eval(args[0], env)
+        if c != 0: eval(args[1], env) else: eval(args[2], env)
+      else:
+        if not fnbody.has(name): fail("unknown function {name}")
+        ps = fnparams[name]
+        if ps.len() != args.len(): fail("{name} takes {ps.len()} arguments")
+        vs = [eval(a, env) for a in args]
+        if active + 1 > 200: fail("too deep")
+        ne = {}
+        for i in 0..ps.len(): ne[ps[i]] = vs[i]
+        active += 1
+        r = eval(fnbody[name], ne)
+        active -= 1
+        r
+
+fn run_line(line: str):
+  toks = line.re_list(TP)
+  rest = line.re_sub(TP, "")
+  pos = 0
+  if rest.replace(" ", "").replace("\t", "") != "": fail("syntax")
+  t0 = peek()
+  active = 0
+  if t0 == "let":
+    pos += 1
+    n = peek()
+    if not isname(n): fail("syntax")
+    pos += 1
+    expect("=")
+    e = p_cmp()
+    if pos != toks.len(): fail("syntax")
+    globs[n] = eval(e, {})
+  elif t0 == "fn":
+    pos += 1
+    n = peek()
+    if not isname(n): fail("syntax")
+    pos += 1
+    expect("(")
+    ps = []
+    if not eat(")"):
+      while true:
+        p = peek()
+        if not isname(p) or p in ps: fail("syntax")
+        pos += 1
+        ps.push(p)
+        if eat(","): continue
+        expect(")")
+        break
+    expect("=")
+    e = p_cmp()
+    if pos != toks.len(): fail("syntax")
+    fnparams[n] = ps
+    fnbody[n] = e
+  elif t0 == "print":
+    pos += 1
+    es = [p_cmp()]
+    while eat(","): es.push(p_cmp())
+    if pos != toks.len(): fail("syntax")
+    out = [str(eval(e, {})) for e in es]
+    print(" ".join(out))
+  else: fail("syntax")
+
+ln = 0
+for line in lines():
+  ln += 1
+  s = line.trim()
+  if s.is_empty() or s.starts_with("#"): continue
+  match run_line(s):
+    Ok(_) => 0
+    Err(m) => print("error line {ln}: {m}")

@@ -1,0 +1,58 @@
+type Book:
+  id: str
+  title: str
+  copies: int
+  waits: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+
+type Loan:
+  member: str
+  book: str
+  due: int
+
+type Hold:
+  book: str
+  member: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  loans: [Loan]
+  holds: [Hold]
+
+fn loans_of(lib: Lib, bk: str) -> int:
+  n = 0
+  for l in lib.loans:
+    if l.book == bk: n += 1
+  n
+
+fn count_loans(lib: Lib, mem: str) -> int:
+  n = 0
+  for l in lib.loans:
+    if l.member == mem: n += 1
+  n
+
+fn has_loan(lib: Lib, mem: str, bk: str) -> bool:
+  for l in lib.loans:
+    if l.member == mem and l.book == bk: return True
+  False
+
+fn holds_of(lib: Lib, bk: str) -> int:
+  n = 0
+  for h in lib.holds:
+    if h.book == bk: n += 1
+  n
+
+fn find_hold(lib: Lib, mem: str, bk: str) -> int:
+  for i in 0..lib.holds.len():
+    if lib.holds[i].member == mem and lib.holds[i].book == bk: return i
+  -1
+
+fn shelf(lib: Lib, bk: str) -> int:
+  lib.books[bk].copies - loans_of(lib, bk) - holds_of(lib, bk)

@@ -1,0 +1,66 @@
+owners = []
+bals = []
+fn acct(id: int) -> str = str({"id": id, "owner": owners[id - 1], "balance": bals[id - 1]})
+fn amt(j: Json) -> int = match j["amount"]:
+  Num(n) => if n > 0.0 and n == n.floor(): n.int() else: 0
+  _ => 0
+fn ownerof(j: Json) -> str = match j["owner"]:
+  Str(s) => s
+  _ => ""
+fn parse(body: str) -> (bool, Json) = match json(body):
+  Ok(v) => (true, v)
+  Err(_) => (false, json("{}"))
+fn exists(id: int) -> bool = id >= 1 and id <= owners.len()
+fn handle(method: str, path: str, body: str) -> str:
+  parts = path.split("/")
+  n = parts.len()
+  nf = '404 {"error":"not found"}'
+  noacct = '404 {"error":"no such account"}'
+  if method == "GET" and path == "/accounts":
+    list = [i for i in 1..owners.len() + 1].sort_by(i => (-bals[i - 1], i))
+    return "200 [" + ",".join([acct(i) for i in list]) + "]"
+  if method == "GET" and n == 3 and parts[0] == "" and parts[1] == "accounts" and parts[2].is_digit():
+    id = parts[2].int()
+    if not exists(id): return noacct
+    return "200 " + acct(id)
+  if method != "POST": return nf
+  if path == "/accounts":
+    ok, j = parse(body)
+    if not ok: return '400 {"error":"bad json"}'
+    o = ownerof(j)
+    if o.is_empty(): return '400 {"error":"owner required"}'
+    owners.push(o)
+    bals.push(0)
+    return "201 " + acct(owners.len())
+  if n == 4 and parts[0] == "" and parts[1] == "accounts" and parts[2].is_digit() and (parts[3] == "deposit" or parts[3] == "withdraw"):
+    ok, j = parse(body)
+    if not ok: return '400 {"error":"bad json"}'
+    id = parts[2].int()
+    if not exists(id): return noacct
+    a = amt(j)
+    if a <= 0: return '400 {"error":"bad amount"}'
+    if parts[3] == "deposit":
+      bals[id - 1] += a
+    else:
+      if a > bals[id - 1]: return '409 {"error":"insufficient funds"}'
+      bals[id - 1] -= a
+    return "200 " + acct(id)
+  if path == "/transfer":
+    ok, j = parse(body)
+    if not ok: return '400 {"error":"bad json"}'
+    f = j["from"].int()
+    t = j["to"].int()
+    if not exists(f) or not exists(t): return noacct
+    if f == t: return '400 {"error":"same account"}'
+    a = amt(j)
+    if a <= 0: return '400 {"error":"bad amount"}'
+    if a > bals[f - 1]: return '409 {"error":"insufficient funds"}'
+    bals[f - 1] -= a
+    bals[t - 1] += a
+    return "200 " + str({"from": bals[f - 1], "to": bals[t - 1]})
+  nf
+for line in lines():
+  if line.trim().is_empty(): continue
+  (m, _, rest) = line.trim().partition(" ")
+  (p, _, body) = rest.partition(" ")
+  print(handle(m, p, body))

@@ -1,0 +1,78 @@
+owners = []
+bals = []
+
+fn acc(i: int) -> str = str({"id": i + 1, "owner": owners[i], "balance": bals[i]})
+
+fn err(code: int, m: str) -> str = "{code} " + str({"error": m})
+
+fn amount(j: Json) -> int:
+  f = j["amount"].float()
+  if f > 0.0 and f == f.floor(): f.int() else: 0
+
+fn exists(i: int) -> bool = i >= 1 and i <= owners.len()
+
+fn handle(method: str, path: str, body: str) -> str:
+  segs = path.split("/")
+  n = segs.len()
+  if n < 2 or segs[0] != "": return err(404, "not found")
+  if segs[1] == "transfer" and n == 2 and method == "POST": return transfer(body)
+  if segs[1] != "accounts": return err(404, "not found")
+  if n == 2 and method == "GET":
+    order = [i for i in 0..owners.len()].sort_by(i => (-bals[i], i))
+    return "200 [" + ",".join(order.map(i => acc(i))) + "]"
+  if n == 2 and method == "POST":
+    if not valid(body): return err(400, "bad json")
+    j = json(body)
+    o = match j["owner"]:
+      Str(s) => s
+      _ => ""
+    if o.is_empty(): return err(400, "owner required")
+    owners.push(o)
+    bals.push(0)
+    return "201 " + acc(owners.len() - 1)
+  if n >= 3 and segs[2].is_digit():
+    id = segs[2].int()
+    if n == 3 and method == "GET":
+      if not exists(id): return err(404, "no such account")
+      return "200 " + acc(id - 1)
+    if n == 4 and method == "POST" and (segs[3] == "deposit" or segs[3] == "withdraw"):
+      if not valid(body): return err(400, "bad json")
+      j = json(body)
+      if not exists(id): return err(404, "no such account")
+      a = amount(j)
+      if a <= 0: return err(400, "bad amount")
+      if segs[3] == "deposit": bals[id - 1] += a
+      else:
+        if a > bals[id - 1]: return err(409, "insufficient funds")
+        bals[id - 1] -= a
+      return "200 " + acc(id - 1)
+  err(404, "not found")
+
+fn valid(body: str) -> bool:
+  match json(body):
+    Ok(_) => true
+    Err(_) => false
+
+fn transfer(body: str) -> str:
+  if not valid(body): return err(400, "bad json")
+  j = json(body)
+  f = j["from"].int()
+  t = j["to"].int()
+  if not exists(f) or not exists(t): return err(404, "no such account")
+  if f == t: return err(400, "same account")
+  a = amount(j)
+  if a <= 0: return err(400, "bad amount")
+  if a > bals[f - 1]: return err(409, "insufficient funds")
+  bals[f - 1] -= a
+  bals[t - 1] += a
+  "200 " + str({"from": bals[f - 1], "to": bals[t - 1]})
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  sp = line.find(" ")
+  method = line.slice(0, sp)
+  rest = line.slice(sp + 1)
+  sp2 = rest.find(" ")
+  path = if sp2 < 0: rest else: rest.slice(0, sp2)
+  body = if sp2 < 0: "" else: rest.slice(sp2 + 1)
+  print(handle(method, path, body))

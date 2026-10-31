@@ -1,0 +1,86 @@
+lots: {str: [(int, dec)]} = {}
+cogs: {str: dec} = {}
+rev: {str: dec} = {}
+loss: {str: dec} = {}
+mprofit: {str: dec} = {}
+mloss: {str: dec} = {}
+mseen: {str: int} = {}
+latest = ""
+
+fn good_qty(s: str) -> bool = s.is_digit() and s.int().or(0) >= 1
+fn good_price(s: str) -> bool = not s.re_full("\d+(\.\d{1,2})?").is_empty()
+
+fn have(sku: str) -> int:
+  t = 0
+  for l in lots[sku]: t += l.0
+  t
+
+fn take(sku: str, q: int) -> dec:
+  cost = 0.dec()
+  need = q
+  ls = lots[sku]
+  while need > 0:
+    f = ls[0]
+    k = min(need, f.0)
+    cost += f.1 * k
+    need -= k
+    if k == f.0: ls.remove(0)
+    else: ls[0] = (f.0 - k, f.1)
+  lots[sku] = ls
+  cost
+
+for n, line in enumerate(lines()):
+  ln = n + 1
+  w = line.words()
+  if not w: continue
+  op = if w.len() > 1: w[1] else: ""
+  ok = not w[0].re_full("\d\d\d\d-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])").is_empty()
+  if ok:
+    if (op == "RECEIVE" or op == "SHIP") and w.len() == 5: ok = good_qty(w[3]) and good_price(w[4])
+    elif op == "LOSS" and w.len() == 4: ok = good_qty(w[3])
+    else: ok = false
+  if not ok:
+    print("line {ln}: bad line")
+    continue
+  d = w[0]
+  if latest != "" and d < latest:
+    print("line {ln}: date out of order")
+    continue
+  sku = w[2]
+  q = w[3].int()
+  if op == "RECEIVE":
+    lots[sku].push((q, w[4].dec()))
+    latest = d
+    continue
+  h = have(sku)
+  if h < q:
+    print("line {ln}: short {sku} need {q} have {h}")
+    continue
+  latest = d
+  c = take(sku, q)
+  m = d.slice(0, 7)
+  mseen[m] = 1
+  if op == "SHIP":
+    r = w[4].dec() * q
+    cogs[sku] += c
+    rev[sku] += r
+    mprofit[m] += r - c
+  else:
+    loss[sku] += c
+    mloss[m] += c
+
+tp = 0.dec()
+tl = 0.dec()
+for sku in lots.keys():
+  oh = have(sku)
+  v = 0.dec()
+  for l in lots[sku]: v += l.1 * l.0
+  p = rev[sku] - cogs[sku]
+  tp += p
+  tl += loss[sku]
+  print("{sku} on_hand {oh} value {v.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {p.fmt(2)} loss {loss[sku].fmt(2)}")
+print("months")
+for m in mseen.keys():
+  print("  {m} profit {mprofit[m].fmt(2)} loss {mloss[m].fmt(2)}")
+nt = tp - tl
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {nt.fmt(2)}")

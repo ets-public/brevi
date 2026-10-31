@@ -1,0 +1,6 @@
+{"line":9,"msg":"r_create is used inside a function, so it needs a type","fix":"write r_create: TYPE = ... with the real type"}
+{"line":10,"msg":"r_insert is used inside a function, so it needs a type","fix":"write r_insert: TYPE = ... with the real type"}
+{"line":11,"msg":"r_select is used inside a function, so it needs a type","fix":"write r_select: TYPE = ... with the real type"}
+{"line":12,"msg":"r_count is used inside a function, so it needs a type","fix":"write r_count: TYPE = ... with the real type"}
+{"line":13,"msg":"r_update is used inside a function, so it needs a type","fix":"write r_update: TYPE = ... with the real type"}
+{"line":14,"msg":"r_delete is used inside a function, so it needs a type","fix":"write r_delete: TYPE = ... with the real type"}

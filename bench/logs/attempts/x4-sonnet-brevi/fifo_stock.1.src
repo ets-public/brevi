@@ -1,0 +1,104 @@
+lq = {}
+lc = {}
+cogs = {}
+rev = {}
+loss = {}
+mprofit = {}
+mloss = {}
+DIM = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+fn validdate(s: str) -> bool:
+  if s.re_full("[0-9]{4}-[0-9]{2}-[0-9]{2}").len() == 0: return false
+  m = s.slice(5, 7).int()
+  d = s.slice(8, 10).int()
+  if m < 1 or m > 12 or d < 1: return false
+  if d > DIM[m - 1]: return false
+  if m == 2 and d == 29:
+    y = s.slice(0, 4).int()
+    return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
+  true
+
+fn onhand(sku: str) -> int:
+  if lq.has(sku): sum(lq[sku]) else: 0
+
+fn take(sku: str, n: int) -> dec:
+  q = lq[sku]
+  c = lc[sku]
+  left = n
+  total = 0.dec()
+  while left > 0:
+    k = min(left, q[0])
+    total += c[0] * k
+    left -= k
+    if k == q[0]:
+      q.remove(0)
+      c.remove(0)
+    else: q[0] = q[0] - k
+  lq[sku] = q
+  lc[sku] = c
+  total
+
+latest = ""
+ln = 0
+for line in lines():
+  ln += 1
+  t = line.words()
+  if not t: continue
+  ok = false
+  if t.len() >= 4:
+    op = t[1]
+    ok = validdate(t[0]) and t[3].re_full("[0-9]+").len() > 0 and t[3].int() >= 1
+    if op == "LOSS": ok = ok and t.len() == 4
+    elif op == "RECEIVE" or op == "SHIP": ok = ok and t.len() == 5 and t[4].re_full("[0-9]+(\.[0-9]{1,2})?").len() > 0
+    else: ok = false
+  if not ok:
+    print("line {ln}: bad line")
+    continue
+  d = t[0]
+  op = t[1]
+  sku = t[2]
+  q = t[3].int()
+  if d < latest:
+    print("line {ln}: date out of order")
+    continue
+  mo = d.slice(0, 7)
+  if op == "RECEIVE":
+    if not lq.has(sku):
+      lq[sku] = []
+      lc[sku] = []
+      cogs[sku] = 0.dec()
+      rev[sku] = 0.dec()
+      loss[sku] = 0.dec()
+    lq[sku].push(q)
+    lc[sku].push(t[4].dec())
+  else:
+    h = onhand(sku)
+    if q > h:
+      print("line {ln}: short {sku} need {q} have {h}")
+      continue
+    cost = take(sku, q)
+    if not mprofit.has(mo):
+      mprofit[mo] = 0.dec()
+      mloss[mo] = 0.dec()
+    if op == "SHIP":
+      r = t[4].dec() * q
+      cogs[sku] += cost
+      rev[sku] += r
+      mprofit[mo] += r - cost
+    else:
+      loss[sku] += cost
+      mloss[mo] += cost
+  latest = d
+tp = 0.dec()
+tl = 0.dec()
+for sku in lq.keys():
+  v = 0.dec()
+  for i in 0..lq[sku].len(): v += lc[sku][i] * lq[sku][i]
+  p = rev[sku] - cogs[sku]
+  tp += p
+  tl += loss[sku]
+  print("{sku} on_hand {onhand(sku)} value {v.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {p.fmt(2)} loss {loss[sku].fmt(2)}")
+print("months")
+for mo in mprofit.keys():
+  print("  {mo} profit {mprofit[mo].fmt(2)} loss {mloss[mo].fmt(2)}")
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")

@@ -1,0 +1,104 @@
+defs = {}
+memo = {}
+vis = {}
+maxc = 0
+maxr = 0
+
+fn note(ref: str):
+  g = ref.re_full('([A-Z])(\d+)')
+  if g:
+    c = g[1].code() - 64
+    r = g[2].int()
+    if c > maxc: maxc = c
+    if r > maxr: maxr = r
+
+fn cell(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if vis.has(name): return (2, 0)
+  if not defs.has(name): return (0, 0)
+  vis[name] = 1
+  c = defs[name]
+  res = (0, 0)
+  if c.starts_with("="):
+    t = c.slice(1).replace(" ", "").re_list('[A-Z]+\d*|\d+|\S')
+    p = [0]
+    res = expr(t, p)
+  else:
+    res = (0, c.int())
+  vis.remove(name)
+  memo[name] = res
+  res
+
+fn expr(t: [str], mut p: [int]) -> (int, int):
+  a = term(t, p)
+  while p[0] < t.len() and (t[p[0]] == "+" or t[p[0]] == "-"):
+    op = t[p[0]]
+    p[0] += 1
+    b = term(t, p)
+    st = max(a.0, b.0)
+    v = if st > 0: 0 else: (if op == "+": a.1 + b.1 else: a.1 - b.1)
+    a = (st, v)
+  a
+
+fn term(t: [str], mut p: [int]) -> (int, int):
+  a = factor(t, p)
+  while p[0] < t.len() and (t[p[0]] == "*" or t[p[0]] == "/"):
+    op = t[p[0]]
+    p[0] += 1
+    b = factor(t, p)
+    st = max(a.0, b.0)
+    if op == "/" and b.0 == 0 and b.1 == 0 and st == 0: st = 1
+    v = if st > 0: 0 else: (if op == "*": a.1 * b.1 else: a.1 / b.1)
+    a = (st, v)
+  a
+
+fn factor(t: [str], mut p: [int]) -> (int, int):
+  tok = t[p[0]]
+  p[0] += 1
+  if tok == "-":
+    a = factor(t, p)
+    return (a.0, -a.1)
+  if tok == "(":
+    a = expr(t, p)
+    p[0] += 1
+    return a
+  if tok.is_digit(): return (0, tok.int())
+  if p[0] < t.len() and t[p[0]] == "(":
+    p[0] += 1
+    r1 = t[p[0]]
+    p[0] += 2
+    r2 = t[p[0]]
+    p[0] += 2
+    vs = []
+    st = 0
+    for ci in (r1[0:1].code() - 65)..(r2[0:1].code() - 64):
+      for ri in r1.slice(1).int()..(r2.slice(1).int() + 1):
+        x = cell(cname(ci, ri))
+        st = max(st, x.0)
+        vs.push(x.1)
+    if st > 0: return (st, 0)
+    if tok == "SUM": return (0, vs.sum())
+    if tok == "MIN": return (0, vs.min())
+    return (0, vs.max())
+  cell(tok)
+
+fn cname(ci: int, ri: int) -> str = (ci + 65).char() + ri.str()
+
+for line in lines():
+  i = line.find("=")
+  if i < 0: continue
+  nm = line.slice(0, i).trim()
+  defs[nm] = line.slice(i + 1).trim()
+  note(nm)
+  for tk in line.slice(i + 1).re_list('[A-Z]\d+'): note(tk)
+print("\t" + "\t".join([(c + 65).char() for c in 0..maxc]))
+for r in 1..(maxr + 1):
+  row = [r.str()]
+  for c in 0..maxc:
+    nm = cname(c, r)
+    if not defs.has(nm):
+      row.push("")
+    else:
+      x = cell(nm)
+      row.push(if x.0 == 2: "#CYCLE" else: (if x.0 == 1: "#DIV0" else: x.1.str()))
+  print("\t".join(row))

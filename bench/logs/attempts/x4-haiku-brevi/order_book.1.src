@@ -1,0 +1,183 @@
+bp = []
+bq = []
+bid = []
+bs = []
+sp = []
+sq = []
+sid = []
+ss = []
+ids = {}
+tvol = 0
+tval = 0
+
+fn is_int(s: str) -> bool:
+  if s.is_empty(): return False
+  for c in s.chars():
+    if not c.is_digit(): return False
+  True
+
+fn valid_qty(s: str) -> bool:
+  is_int(s) and s.int().or(0) >= 1
+
+fn parse_price(s: str) -> int:
+  parts = s.split(".")
+  frac = 0
+  if parts.len() == 2:
+    f = parts[1]
+    if f.len() == 1:
+      frac = f.int().or(0) * 10
+    else:
+      frac = f.int().or(0)
+  parts[0].int().or(0) * 100 + frac
+
+fn valid_price(s: str) -> bool:
+  parts = s.split(".")
+  if parts.len() > 2: return False
+  if not is_int(parts[0]): return False
+  if parts.len() == 2 and (parts[1].len() < 1 or parts[1].len() > 2 or not is_int(parts[1])): return False
+  parse_price(s) > 0
+
+fn fmt_price(p: int) -> str:
+  w = p / 100
+  c = p % 100
+  cs = c.str()
+  if c < 10: cs = "0" + cs
+  "{w}.{cs}"
+
+fn buy_match(id: str, qty: int, limit: int) -> int:
+  left = qty
+  while left > 0 and sp.len() > 0:
+    best = -1
+    for i in 0..sp.len():
+      if best < 0 or sp[i] < sp[best] or (sp[i] == sp[best] and ss[i] < ss[best]):
+        best = i
+    if sp[best] > limit: break
+    fq = min(left, sq[best])
+    px = sp[best]
+    print("TRADE {id} {sid[best]} {fq} {fmt_price(px)}")
+    tvol += fq
+    tval += fq * px
+    left -= fq
+    sq[best] -= fq
+    if sq[best] == 0:
+      sp.remove(best)
+      sq.remove(best)
+      sid.remove(best)
+      ss.remove(best)
+  left
+
+fn sell_match(id: str, qty: int, limit: int) -> int:
+  left = qty
+  while left > 0 and bp.len() > 0:
+    best = -1
+    for i in 0..bp.len():
+      if best < 0 or bp[i] > bp[best] or (bp[i] == bp[best] and bs[i] < bs[best]):
+        best = i
+    if bp[best] < limit: break
+    fq = min(left, bq[best])
+    px = bp[best]
+    print("TRADE {bid[best]} {id} {fq} {fmt_price(px)}")
+    tvol += fq
+    tval += fq * px
+    left -= fq
+    bq[best] -= fq
+    if bq[best] == 0:
+      bp.remove(best)
+      bq.remove(best)
+      bid.remove(best)
+      bs.remove(best)
+  left
+
+fn cancel_order(cid: str) -> int:
+  for i in 0..bid.len():
+    if bid[i] == cid:
+      q = bq[i]
+      bp.remove(i)
+      bq.remove(i)
+      bid.remove(i)
+      bs.remove(i)
+      return q
+  for i in 0..sid.len():
+    if sid[i] == cid:
+      q = sq[i]
+      sp.remove(i)
+      sq.remove(i)
+      sid.remove(i)
+      ss.remove(i)
+      return q
+  -1
+
+fn show_book():
+  print("asks")
+  if sp.is_empty(): print("  -")
+  for p in unique(sp):
+    t = 0
+    for i in 0..sp.len():
+      if sp[i] == p: t += sq[i]
+    print("  {fmt_price(p)} {t}")
+  print("bids")
+  if bp.is_empty(): print("  -")
+  for p in unique(bp).rev():
+    t = 0
+    for i in 0..bp.len():
+      if bp[i] == p: t += bq[i]
+    print("  {fmt_price(p)} {t}")
+
+lineno = 0
+seq = 0
+for raw in lines():
+  lineno += 1
+  line = raw.trim()
+  if line.is_empty(): continue
+  toks = line.words()
+  cmd = toks[0]
+  n = toks.len()
+  if cmd == "BOOK" and n == 1:
+    show_book()
+  elif cmd == "CANCEL" and n == 2:
+    q = cancel_order(toks[1])
+    if q < 0:
+      print("ERR line {lineno}: unknown ID")
+    else:
+      print("CANCELLED {toks[1]} {q}")
+  elif (cmd == "BUY" or cmd == "SELL") and n == 4 and valid_qty(toks[2]) and valid_price(toks[3]):
+    tid = toks[1]
+    if ids.has(tid):
+      print("ERR line {lineno}: duplicate ID")
+      continue
+    ids[tid] = 1
+    qv = toks[2].int().or(0)
+    pv = parse_price(toks[3])
+    if cmd == "BUY":
+      rem = buy_match(tid, qv, pv)
+      if rem > 0:
+        bp.push(pv)
+        bq.push(rem)
+        bid.push(tid)
+        bs.push(seq)
+        seq += 1
+    else:
+      rem = sell_match(tid, qv, pv)
+      if rem > 0:
+        sp.push(pv)
+        sq.push(rem)
+        sid.push(tid)
+        ss.push(seq)
+        seq += 1
+  elif (cmd == "MBUY" or cmd == "MSELL") and n == 3 and valid_qty(toks[2]):
+    tid = toks[1]
+    if ids.has(tid):
+      print("ERR line {lineno}: duplicate ID")
+      continue
+    ids[tid] = 1
+    qv = toks[2].int().or(0)
+    if cmd == "MBUY":
+      rem = buy_match(tid, qv, 999999999999)
+    else:
+      rem = sell_match(tid, qv, 0)
+    if rem > 0:
+      print("DROPPED {tid} {rem}")
+  else:
+    print("ERR line {lineno}: bad command")
+
+print("volume {tvol} value {fmt_price(tval)}")

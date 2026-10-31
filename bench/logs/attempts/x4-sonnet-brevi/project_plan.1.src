@@ -1,0 +1,166 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn main():
+  ls = lines()
+  r = parse_input(ls).or((0, []))
+  match parse_input(ls):
+    Err(m) => print(m)
+    Ok(res) =>
+      let (k, tasks) = res
+      let (st, en) = unlimited(tasks)
+      print("unlimited")
+      for i in 0..tasks.len(): print("  {tasks[i].name} {st[i]}-{en[i]}")
+      print("length {max(en)}")
+      print("critical {" > ".join(critical(tasks, st, en))}")
+      let (s2, e2) = make_plan(tasks, k, en)
+      print("workers {k}")
+      for i in 0..tasks.len(): print("  {tasks[i].name} {s2[i]}-{e2[i]}")
+      print("length {max(e2)}")
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn is_name(s: str) -> bool = s.re_full("[A-Za-z0-9_]+").len() > 0
+
+fn parse_task(line: str) -> Task:
+  t = line.words()
+  if t.len() < 2 or not is_name(t[0]) or t[1].re_full("[0-9]+").len() == 0: fail("bad")
+  days = t[1].int()
+  if days < 1: fail("bad")
+  deps = []
+  if t.len() > 2:
+    if t[2] != "after": fail("bad")
+    rest = " ".join(t.slice(3))
+    for p in rest.split(","):
+      q = p.trim()
+      if not is_name(q): fail("bad")
+      deps.push(q)
+  Task(name: t[0], days: days, deps: deps)
+
+fn parse_input(ls: [str]) -> (int, [Task]):
+  if ls.is_empty(): fail("line 1: bad line")
+  f = ls[0].words()
+  if f.len() != 2 or f[0] != "workers" or f[1].re_full("[0-9]+").len() == 0: fail("line 1: bad line")
+  k = f[1].int()
+  if k < 1: fail("line 1: bad line")
+  tasks = []
+  seen = {}
+  for i in 1..ls.len():
+    if ls[i].trim().is_empty(): continue
+    n = i + 1
+    task = match parse_task(ls[i]):
+      Ok(v) => v
+      Err(_) => fail("line {n}: bad line")
+    if seen.has(task.name): fail("line {n}: duplicate {task.name}")
+    seen[task.name] = 1
+    tasks.push(task)
+  for tk in tasks:
+    for d in tk.deps:
+      if not seen.has(d): fail("unknown {d}")
+  idx = {}
+  for i in 0..tasks.len(): idx[tasks[i].name] = i
+  done = [false for _ in tasks]
+  cnt = 0
+  progress = true
+  while progress:
+    progress = false
+    for i in 0..tasks.len():
+      if done[i]: continue
+      if all(done[idx[d]] for d in tasks[i].deps):
+        done[i] = true
+        cnt += 1
+        progress = true
+  if cnt < tasks.len(): fail("cycle")
+  (k, tasks)
+
+# earliest starts and ends
+fn unlimited(tasks: [Task]) -> ([int], [int]):
+  idx = {}
+  for i in 0..tasks.len(): idx[tasks[i].name] = i
+  n = tasks.len()
+  st = [0 for _ in tasks]
+  en = [0 for _ in tasks]
+  done = [false for _ in tasks]
+  progress = true
+  while progress:
+    progress = false
+    for i in 0..n:
+      if done[i]: continue
+      if all(done[idx[d]] for d in tasks[i].deps):
+        s = 0
+        for d in tasks[i].deps: s = max(s, en[idx[d]])
+        st[i] = s
+        en[i] = s + tasks[i].days
+        done[i] = true
+        progress = true
+  (st, en)
+
+fn critical(tasks: [Task], st: [int], en: [int]) -> [str]:
+  n = tasks.len()
+  idx = {}
+  for i in 0..n: idx[tasks[i].name] = i
+  length = max(en)
+  crit = [false for _ in tasks]
+  order = (0..n).sort_by(i => (0 - en[i], i))
+  for i in order:
+    if en[i] == length: crit[i] = true
+    else:
+      for j in 0..n:
+        if crit[j] and st[j] == en[i] and tasks[i].name in tasks[j].deps: crit[i] = true
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and crit[i]: cur = i
+  chain = [tasks[cur].name]
+  while en[cur] != length:
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and crit[j] and st[j] == en[cur] and tasks[cur].name in tasks[j].deps: nxt = j
+    cur = nxt
+    chain.push(tasks[cur].name)
+  chain
+## schedule.bv
+use "graph.bv"
+
+fn make_plan(tasks: [Task], k: int, en0: [int]) -> ([int], [int]):
+  n = tasks.len()
+  idx = {}
+  for i in 0..n: idx[tasks[i].name] = i
+  tail = [0 for _ in tasks]
+  order = (0..n).sort_by(i => (0 - en0[i], i))
+  for i in order:
+    t = 0
+    for j in 0..n:
+      if tasks[i].name in tasks[j].deps: t = max(t, tail[j])
+    tail[i] = tasks[i].days + t
+  st = [0 for _ in tasks]
+  en = [0 for _ in tasks]
+  state = [0 for _ in tasks]
+  T = 0
+  free = k
+  left = n
+  while left > 0:
+    for i in 0..n:
+      if state[i] == 1 and en[i] == T:
+        state[i] = 2
+        free += 1
+        left -= 1
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if state[i] == 0 and all(state[idx[d]] == 2 for d in tasks[i].deps):
+          if best < 0 or tail[i] > tail[best]: best = i
+      if best < 0: break
+      state[best] = 1
+      st[best] = T
+      en[best] = T + tasks[best].days
+      free -= 1
+    if left > 0:
+      nt = -1
+      for i in 0..n:
+        if state[i] == 1 and (nt < 0 or en[i] < nt): nt = en[i]
+      T = nt
+  (st, en)
