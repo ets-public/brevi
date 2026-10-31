@@ -776,7 +776,7 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
-            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "text" => Str,
+            "char" | "fmt" | "spec" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "text" => Str,
             "list" => List(Box::new(Json)),
             "repeat" | "slice" if matches!(r, Str) => Str,
             "join" => Str,

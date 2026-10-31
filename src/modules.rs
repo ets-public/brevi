@@ -58,10 +58,15 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
             // A used file holds only items: its top-level statements would run as part of the main program.
             if !name.is_empty() {
                 let first = l.split(|c: char| c.is_whitespace() || c == '(' || c == ':').next().unwrap_or("");
-                let item = l.is_empty() || l.starts_with([' ', '\t', '#', '}']) || matches!(first, "fn" | "type" | "enum" | "test" | "rust" | "py" | "use");
+                // `NAME = value` sets a name every file can read.
+                let set = first.chars().all(|c| c.is_alphanumeric() || c == '_') && !first.is_empty() && {
+                    let rest = l[first.len()..].trim_start();
+                    (rest.starts_with('=') && !rest.starts_with("==")) || rest.starts_with(':')
+                };
+                let item = l.is_empty() || set || l.starts_with([' ', '\t', '#', '}']) || matches!(first, "fn" | "type" | "enum" | "test" | "rust" | "py" | "use");
                 if !item {
                     return Err(format!(
-                        "{{\"file\":\"{}\",\"line\":{},\"msg\":\"a used file holds only fn, type, enum and test items\",\"fix\":\"move this statement into a function, or into the main file\"}}",
+                        "{{\"file\":\"{}\",\"line\":{},\"msg\":\"a used file holds only fn, type, enum and test items and NAME = value lines\",\"fix\":\"move this statement into a function, or into the main file\"}}",
                         crate::diag::esc(&name),
                         i + 1
                     ));

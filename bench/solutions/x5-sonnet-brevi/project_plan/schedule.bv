@@ -1,0 +1,38 @@
+use "graph.bv"
+
+fn schedule(tasks: [Task], k: int) -> ({str: int}, {str: int}):
+  n = tasks.len()
+  tail = {}
+  for t in tasks: tail[t.name] = t.days
+  for pass in 0..n:
+    for t in tasks:
+      m = 0
+      for s in tasks:
+        if t.name in s.deps: m = max(m, tail[s.name])
+      tail[t.name] = t.days + m
+  st = {}
+  en = {}
+  now = 0
+  while st.len() < n:
+    running = 0
+    for t in tasks:
+      if en.has(t.name) and en[t.name] > now: running += 1
+    free = k - running
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        t = tasks[i]
+        if not st.has(t.name) and all(en.has(d) and en[d] <= now for d in t.deps):
+          if best < 0 or tail[t.name] > tail[tasks[best].name]: best = i
+      if best < 0: break
+      b = tasks[best]
+      st[b.name] = now
+      en[b.name] = now + b.days
+      free -= 1
+    nxt = -1
+    for t in tasks:
+      if en.has(t.name) and en[t.name] > now:
+        if nxt < 0 or en[t.name] < nxt: nxt = en[t.name]
+    if nxt < 0: break
+    now = nxt
+  (st, en)

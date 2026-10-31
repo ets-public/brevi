@@ -680,6 +680,20 @@ impl Parser {
             Tok::Kw("true") => Ok(Expr::Bool(true)),
             Tok::Kw("false") => Ok(Expr::Bool(false)),
             Tok::Str(s) => Ok(Expr::Str(self.interp(&s, line)?)),
+            // Python's `lambda x, y: expr`.
+            Tok::Ident(name) if name == "lambda" && matches!(self.peek(), Tok::Ident(_) | Tok::Sym(":")) => {
+                let mut names = Vec::new();
+                while let Tok::Ident(n) = self.peek().clone() {
+                    self.next();
+                    names.push(n);
+                    if !self.eat_sym(",") {
+                        break;
+                    }
+                }
+                self.expect_sym(":")?;
+                let body = self.expr()?;
+                Ok(Expr::Lambda(names, Box::new(body)))
+            }
             Tok::Ident(name) => {
                 if self.eat_sym("(") {
                     let mut args = self.args()?;
@@ -693,6 +707,16 @@ impl Parser {
                         "unique" => Some("unique"),
                         _ => None,
                     };
+                    // min(xs, key=f) and max(xs, key=f): the first item with the smallest or largest key.
+                    if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() == 2 && args[0].0.is_none() && args[1].0.as_deref() == Some("key") {
+                        let f = args.remove(1).1;
+                        let xs = args.remove(0).1;
+                        let mut a = vec![f];
+                        if name == "max" {
+                            a.push(Expr::Bool(true));
+                        }
+                        return Ok(Expr::Index(Box::new(Expr::Method(Box::new(xs), "sort_by".into(), a, line)), Box::new(Expr::Int(0))));
+                    }
                     // sorted(xs, key=f, reverse=r)
                     if name == "sorted" && !self.user_fns.contains(&name) && args.first().is_some_and(|a| a.0.is_none()) {
                         let recv = args[0].1.clone();
@@ -904,6 +928,8 @@ impl Parser {
                         return Err(Diag::new("parse", line, 1, "unclosed '{' in string").fix_hint("use {{ for a literal brace"));
                     }
                     let inner: String = chars[start..i - 1].iter().collect();
+                    // Python's format spec: `{x:.2f}`, `{n:03d}`, `{s:<10}`, `{v:>8}`.
+                    let (inner, spec) = split_spec(&inner);
                     let toks = lex(&inner).map_err(|mut d| {
                         d.line = line;
                         d
@@ -916,6 +942,10 @@ impl Parser {
                     if !lit.is_empty() {
                         parts.push(StrPart::Lit(std::mem::take(&mut lit)));
                     }
+                    let e = match spec {
+                        Some(sp) => Expr::Method(Box::new(e), "spec".into(), vec![Expr::Str(vec![StrPart::Lit(sp)])], line),
+                        None => e,
+                    };
                     parts.push(StrPart::Interp(e));
                 }
                 c => {
@@ -935,6 +965,32 @@ impl Parser {
 // Python method names models write by habit, as the Brevi method they mean.
 // Built-in functions a program may define for itself; its own version gets a suffix in the Rust.
 const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
+
+// `x:.2f` -> ("x", Some(".2f")): a colon outside brackets and quotes followed by a Python format spec.
+fn split_spec(inner: &str) -> (String, Option<String>) {
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    for (i, c) in inner.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(' | '[' | '{') => depth += 1,
+            (None, ')' | ']' | '}') => depth -= 1,
+            (None, ':') if depth == 0 => {
+                let spec = &inner[i + 1..];
+                let ok = !spec.is_empty() && {
+                    let b = spec.trim_start_matches(['<', '>', '^']).trim_start_matches('+');
+                    let b = b.trim_start_matches(|c: char| c.is_ascii_digit() || c == ',');
+                    let b = b.strip_prefix('.').map_or(b, |r| r.trim_start_matches(|c: char| c.is_ascii_digit()));
+                    b.is_empty() || matches!(b, "d" | "f" | "s" | "x" | "%" | "e")
+                };
+                return if ok { (inner[..i].to_string(), Some(spec.to_string())) } else { (inner.to_string(), None) };
+            }
+            _ => {}
+        }
+    }
+    (inner.to_string(), None)
+}
 
 // Python's sort keywords: `key=f` and `reverse=r` (also `sort_by(f, reverse=r)`) become `sort_by(f, r)`.
 fn sort_kw(recv: Expr, args: &[(Option<String>, Expr)], line: usize) -> Option<Expr> {

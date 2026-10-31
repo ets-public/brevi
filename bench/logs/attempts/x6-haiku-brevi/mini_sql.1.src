@@ -1,0 +1,356 @@
+NAME = '[A-Za-z][A-Za-z0-9_]*'
+INTRE = '-?\d+'
+
+toks = []
+tokbad = false
+pos = 0
+syn = false
+kind = ""
+tname = ""
+cnames = []
+ctypes = []
+vals = []
+wcols = []
+wops = []
+wvals = []
+ocol = ""
+odesc = false
+has_lim = false
+lim = 0
+star = false
+setcol = ""
+setval = ""
+tcols = {}
+ttyp = {}
+trows = {}
+
+fn isw(c: str) -> bool = c.is_alpha() or c.is_digit() or c == "_"
+
+fn tokenize(s: str) -> [str]:
+  out = []
+  i = 0
+  n = s.len()
+  while i < n:
+    c = s[i]
+    if c == " ":
+      i += 1
+    elif c == "'":
+      j = i + 1
+      buf = ""
+      closed = false
+      while j < n and not closed:
+        if s[j] == "'":
+          if j + 1 < n and s[j + 1] == "'":
+            buf += "'"
+            j += 2
+          else:
+            closed = true
+        else:
+          buf += s[j]
+          j += 1
+      if not closed: tokbad = true
+      out.push("'" + buf)
+      i = j + 1
+    elif c == "<" or c == ">" or c == "!" or c == "=":
+      if i + 1 < n and s[i + 1] == "=":
+        out.push(c + "=")
+        i += 2
+      else:
+        out.push(c)
+        i += 1
+    elif c == "(" or c == ")" or c == "," or c == "*":
+      out.push(c)
+      i += 1
+    elif c == "-" or c.is_alpha() or c.is_digit() or c == "_":
+      j = i + 1
+      while j < n and isw(s[j]): j += 1
+      out.push(s[i:j])
+      i = j
+    else:
+      tokbad = true
+      i += 1
+  out
+
+fn plain(v: str) -> str:
+  r = v
+  if v.starts_with("'"): r = v.slice(1)
+  r
+
+fn stored(v: str, ty: str) -> str:
+  r = plain(v)
+  if ty == "INT": r = r.int().or(0).str()
+  r
+
+fn typeok(v: str, ty: str) -> bool = (v.starts_with("'")) == (ty == "TEXT")
+
+fn at(k: int) -> str:
+  r = ""
+  if k < toks.len(): r = toks[k]
+  r
+
+fn want(s: str):
+  if at(pos) == s: pos += 1
+  else: syn = true
+
+fn ident() -> str:
+  t = at(pos)
+  pos += 1
+  if t.re_full(NAME).is_empty(): syn = true
+  t
+
+fn value() -> str:
+  t = at(pos)
+  pos += 1
+  r = ""
+  if t.starts_with("'"): r = t
+  elif not t.re_full(INTRE).is_empty(): r = t
+  else: syn = true
+  r
+
+fn cmp():
+  c = ident()
+  op = at(pos)
+  pos += 1
+  if op not in ["=", "!=", "<", ">", "<=", ">="]: syn = true
+  v = value()
+  wcols.push(c)
+  wops.push(op)
+  wvals.push(v)
+
+fn where():
+  cmp()
+  while at(pos) == "AND":
+    pos += 1
+    cmp()
+
+fn collist():
+  cnames.push(ident())
+  while at(pos) == ",":
+    pos += 1
+    cnames.push(ident())
+
+fn parse_stmt():
+  cnames = []
+  ctypes = []
+  vals = []
+  wcols = []
+  wops = []
+  wvals = []
+  ocol = ""
+  odesc = false
+  has_lim = false
+  lim = 0
+  star = false
+  setcol = ""
+  setval = ""
+  kind = at(0)
+  pos = 1
+  if kind == "SELECT":
+    if at(pos) == "COUNT":
+      kind = "COUNT"
+      pos += 1
+      want("(")
+      want("*")
+      want(")")
+      want("FROM")
+      tname = ident()
+      if at(pos) == "WHERE":
+        pos += 1
+        where()
+    else:
+      if at(pos) == "*":
+        star = true
+        pos += 1
+      else:
+        collist()
+      want("FROM")
+      tname = ident()
+      if at(pos) == "WHERE":
+        pos += 1
+        where()
+      if at(pos) == "ORDER":
+        pos += 1
+        want("BY")
+        ocol = ident()
+        if at(pos) == "DESC":
+          odesc = true
+          pos += 1
+      if at(pos) == "LIMIT":
+        pos += 1
+        t = at(pos)
+        pos += 1
+        if t.re_full(INTRE).is_empty(): syn = true
+        else:
+          has_lim = true
+          lim = t.int().or(0)
+  elif kind == "CREATE":
+    want("TABLE")
+    tname = ident()
+    want("(")
+    more = true
+    while more:
+      cnames.push(ident())
+      t = at(pos)
+      pos += 1
+      if t == "INT" or t == "TEXT": ctypes.push(t)
+      else: syn = true
+      if at(pos) == ",": pos += 1
+      else: more = false
+    want(")")
+  elif kind == "INSERT":
+    want("INTO")
+    tname = ident()
+    want("VALUES")
+    want("(")
+    more = true
+    while more:
+      vals.push(value())
+      if at(pos) == ",": pos += 1
+      else: more = false
+    want(")")
+  elif kind == "UPDATE":
+    tname = ident()
+    want("SET")
+    setcol = ident()
+    want("=")
+    setval = value()
+    if at(pos) == "WHERE":
+      pos += 1
+      where()
+  elif kind == "DELETE":
+    want("FROM")
+    tname = ident()
+    if at(pos) == "WHERE":
+      pos += 1
+      where()
+  else:
+    syn = true
+  if pos != toks.len(): syn = true
+
+fn sgn(a: str, b: str, isint: bool) -> int:
+  k = 0
+  if isint:
+    x = a.int().or(0)
+    y = b.int().or(0)
+    if x < y: k = -1
+    elif x > y: k = 1
+  else:
+    if a < b: k = -1
+    elif a > b: k = 1
+  k
+
+fn opok(k: int, op: str) -> bool:
+  r = false
+  if op == "=": r = (k == 0)
+  elif op == "!=": r = (k != 0)
+  elif op == "<": r = (k < 0)
+  elif op == ">": r = (k > 0)
+  elif op == "<=": r = (k <= 0)
+  else: r = (k >= 0)
+  r
+
+fn rowok(r: [str], cols: [str], typs: [str]) -> bool:
+  ok = true
+  for j in 0..wcols.len():
+    ci = cols.index_of(wcols[j])
+    k = sgn(r[ci], plain(wvals[j]), typs[ci] == "INT")
+    if not opok(k, wops[j]): ok = false
+  ok
+
+fn check() -> str:
+  if kind == "CREATE":
+    if tcols.has(tname): return "error: table {tname} exists"
+    return ""
+  if not tcols.has(tname): return "error: no table {tname}"
+  cols = tcols[tname]
+  typs = ttyp[tname]
+  names = []
+  if kind == "UPDATE": names.push(setcol)
+  if kind == "SELECT": names = names + cnames
+  names = names + wcols
+  if kind == "SELECT" and ocol != "": names.push(ocol)
+  for c in names:
+    if cols.index_of(c) < 0: return "error: no column {c}"
+  if kind == "INSERT":
+    if vals.len() != cols.len(): return "error: type mismatch"
+    for j in 0..cols.len():
+      if not typeok(vals[j], typs[j]): return "error: type mismatch"
+    return ""
+  if kind == "UPDATE":
+    if not typeok(setval, typs[cols.index_of(setcol)]): return "error: type mismatch"
+  for j in 0..wcols.len():
+    if not typeok(wvals[j], typs[cols.index_of(wcols[j])]): return "error: type mismatch"
+  ""
+
+fn execute():
+  if kind == "CREATE":
+    tcols[tname] = cnames
+    ttyp[tname] = ctypes
+    trows[tname] = []
+    print("ok")
+  elif kind == "INSERT":
+    typs = ttyp[tname]
+    row = []
+    for j in 0..vals.len(): row.push(stored(vals[j], typs[j]))
+    trows[tname].push(row)
+    print("ok")
+  else:
+    cols = tcols[tname]
+    typs = ttyp[tname]
+    rows = trows[tname]
+    if kind == "UPDATE":
+      ci = cols.index_of(setcol)
+      nv = stored(setval, typs[ci])
+      out = []
+      n = 0
+      for r in rows:
+        if rowok(r, cols, typs):
+          r[ci] = nv
+          n += 1
+        out.push(r)
+      trows[tname] = out
+      print("updated {n}")
+    elif kind == "DELETE":
+      out = []
+      for r in rows:
+        if not rowok(r, cols, typs): out.push(r)
+      n = rows.len() - out.len()
+      trows[tname] = out
+      print("deleted {n}")
+    elif kind == "COUNT":
+      n = 0
+      for r in rows:
+        if rowok(r, cols, typs): n += 1
+      print("{n}")
+    else:
+      sel = cnames
+      if star: sel = cols
+      idxs = [cols.index_of(c) for c in sel]
+      res = [r for r in rows if rowok(r, cols, typs)]
+      if ocol != "":
+        oi = cols.index_of(ocol)
+        if typs[oi] == "INT": res = res.sort_by(r => r[oi].int().or(0), odesc)
+        else: res = res.sort_by(r => r[oi], odesc)
+      if has_lim: res = res.take(lim)
+      print(" | ".join(sel))
+      for r in res: print(" | ".join([r[i] for i in idxs]))
+      print("({res.len()} rows)")
+
+fn run(line: str):
+  tokbad = false
+  toks = tokenize(line)
+  pos = 0
+  syn = false
+  parse_stmt()
+  if tokbad: syn = true
+  if syn:
+    print("error: syntax")
+  else:
+    e = check()
+    if e != "": print(e)
+    else: execute()
+
+ls = lines()
+for ln in ls:
+  t = ln.trim()
+  if t != "": run(t)

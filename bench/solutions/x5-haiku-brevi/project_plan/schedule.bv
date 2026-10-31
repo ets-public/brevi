@@ -1,0 +1,45 @@
+fn tails(order: [int], dependents: [[int]], days: [int]) -> [int]:
+  n = days.len()
+  tl = [0 for i in range(0, n)]
+  for u in order.rev():
+    m = 0
+    for v in dependents[u]:
+      if tl[v] > m: m = tl[v]
+    tl[u] = days[u] + m
+  return tl
+
+fn ready(i: int, deps: [[int]], endt: [int], now: int) -> bool:
+  for d in deps[i]:
+    if endt[d] < 0 or endt[d] > now: return false
+  return true
+
+fn make_schedule(k: int, deps: [[int]], days: [int], tl: [int]) -> [int]:
+  n = days.len()
+  st = [0 for i in range(0, n)]
+  endt = [-1 for i in range(0, n)]
+  running = []
+  done = 0
+  now = 0
+  while done < n:
+    still = []
+    for r in running:
+      if endt[r] == now:
+        done += 1
+      else:
+        still.push(r)
+    running = still
+    while running.len() < k:
+      best = -1
+      for i in range(0, n):
+        if endt[i] < 0 and ready(i, deps, endt, now) and (best < 0 or tl[i] > tl[best]):
+          best = i
+      if best < 0: break
+      st[best] = now
+      endt[best] = now + days[best]
+      running.push(best)
+    if running.is_empty(): break
+    nxt = -1
+    for r in running:
+      if nxt < 0 or endt[r] < nxt: nxt = endt[r]
+    now = nxt
+  return st

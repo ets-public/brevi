@@ -1,0 +1,19 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  lib = new_lib()
+  for line in lines():
+    w = line.words()
+    if w.len() < 2: continue
+    today = date(w[0])
+    expire(lib, today)
+    op = w[1]
+    rest = " ".join(w.skip(4))
+    if op == "BOOK": add_book(lib, w[2], w[3].int().or(0))
+    elif op == "MEMBER": add_member(lib, w[2], w[3], rest)
+    elif op == "LOAN": loan(lib, today, w[2], w[3])
+    elif op == "RETURN": give_back(lib, today, w[2], w[3])
+    elif op == "RESERVE": reserve(lib, w[2], w[3])
+    elif op == "PAY": pay(lib, w[2], w[3].dec().or(0.dec()))
+    elif op == "STATUS": status(lib, w[2])

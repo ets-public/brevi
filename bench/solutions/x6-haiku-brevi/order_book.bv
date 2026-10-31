@@ -1,0 +1,118 @@
+LIM = '(BUY|SELL) (\S+) (\d+) (\d+(?:\.\d{1,2})?)'
+MKT = '(MBUY|MSELL) (\S+) (\d+)'
+CAN = 'CANCEL (\S+)'
+
+type Order:
+  oid: str
+  side: str
+  price: int
+  qty: int
+  seq: int
+
+book = []
+ids = {}
+seq = 0
+volq = 0
+valc = 0
+
+fn cents(s: str) -> int:
+  (a, _, b) = s.partition(".")
+  frac = (b + "00")[:2]
+  a.int() * 100 + frac.int()
+
+fn fmtp(c: int) -> str:
+  r = c % 100
+  f = r.str()
+  if r < 10: f = "0" + f
+  (c // 100).str() + "." + f
+
+fn pick(side: str, lim: int, market: bool) -> int:
+  best = -1
+  for i in 0..book.len():
+    o = book[i]
+    if o.side == side: continue
+    if not market:
+      if side == "BUY" and o.price > lim: continue
+      if side == "SELL" and o.price < lim: continue
+    if best < 0:
+      best = i
+    else:
+      b = book[best]
+      if side == "BUY":
+        if o.price < b.price or (o.price == b.price and o.seq < b.seq): best = i
+      else:
+        if o.price > b.price or (o.price == b.price and o.seq < b.seq): best = i
+  best
+
+fn incoming(oid: str, side: str, qty: int, lim: int, market: bool):
+  left = qty
+  while left > 0:
+    i = pick(side, lim, market)
+    if i < 0: break
+    o = book[i]
+    q = min(left, o.qty)
+    if side == "BUY":
+      print("TRADE {oid} {o.oid} {q} {fmtp(o.price)}")
+    else:
+      print("TRADE {o.oid} {oid} {q} {fmtp(o.price)}")
+    volq += q
+    valc += q * o.price
+    left -= q
+    if o.qty == q:
+      book.remove(i)
+    else:
+      o.qty -= q
+      book[i] = o
+  if left > 0:
+    if market:
+      print("DROPPED {oid} {left}")
+    else:
+      seq += 1
+      book.push(Order(oid, side, lim, left, seq))
+
+fn place(ln: int, side: str, oid: str, qty: int, lim: int, market: bool):
+  if ids.has(oid):
+    print("ERR line {ln}: duplicate ID")
+  else:
+    ids[oid] = 1
+    incoming(oid, side, qty, lim, market)
+
+fn cancel(ln: int, oid: str):
+  idx = -1
+  for i in 0..book.len():
+    if book[i].oid == oid: idx = i
+  if idx < 0:
+    print("ERR line {ln}: unknown ID")
+  else:
+    print("CANCELLED {oid} {book[idx].qty}")
+    book.remove(idx)
+
+fn printbook():
+  print("asks")
+  ps = [o.price for o in book if o.side == "SELL"].unique()
+  if ps.is_empty(): print("  -")
+  for p in ps:
+    t = sum(o.qty for o in book if o.side == "SELL" and o.price == p)
+    print("  {fmtp(p)} {t}")
+  print("bids")
+  bs = [o.price for o in book if o.side == "BUY"].unique().rev()
+  if bs.is_empty(): print("  -")
+  for p in bs:
+    t = sum(o.qty for o in book if o.side == "BUY" and o.price == p)
+    print("  {fmtp(p)} {t}")
+
+fn handle(ln: int, t: str):
+  m = t.re_full(LIM)
+  mm = t.re_full(MKT)
+  c = t.re_full(CAN)
+  if m and m[3].int() >= 1 and cents(m[4]) >= 1: place(ln, m[1], m[2], m[3].int(), cents(m[4]), false)
+  elif mm and mm[3].int() >= 1: place(ln, mm[1].slice(1), mm[2], mm[3].int(), 0, true)
+  elif c: cancel(ln, c[1])
+  elif t == "BOOK": printbook()
+  else: print("ERR line {ln}: bad command")
+
+ls = lines()
+for k in 0..ls.len():
+  t = ls[k].trim()
+  if t != "": handle(k + 1, t)
+print("volume {volq} value {fmtp(valc)}")

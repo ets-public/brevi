@@ -1,0 +1,148 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn longest(tasks: [Task], en: {str: int}) -> int:
+  l = 0
+  for t in tasks: l = max(l, en[t.name])
+  l
+
+fn main():
+  (err, k, tasks) = parse_input(lines())
+  if err != "":
+    print(err)
+    return
+  e2 = check(tasks)
+  if e2 != "":
+    print(e2)
+    return
+  (st, en) = plan(tasks)
+  print("unlimited")
+  for t in tasks: print("  {t.name} {st[t.name]}-{en[t.name]}")
+  print("length {longest(tasks, en)}")
+  print("critical {critical(tasks, st, en)}")
+  print("workers {k}")
+  (s2, e2m) = schedule(tasks, k)
+  for t in tasks: print("  {t.name} {s2[t.name]}-{e2m[t.name]}")
+  print("length {longest(tasks, e2m)}")
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse_input(ls: [str]) -> (str, int, [Task]):
+  tasks = []
+  names = {}
+  k = 0
+  header = false
+  for i, line in ls.enumerate():
+    n = i + 1
+    t = line.trim()
+    if t.is_empty(): continue
+    if not header:
+      m = t.re_full("workers +(\d+)")
+      if m.is_empty() or m[1].int().or(0) < 1: return ("line {n}: bad line", 0, [])
+      k = m[1].int()
+      header = true
+      continue
+    m = t.re_full("(\w+) +(\d+)(?: +after +(\w+(?: *, *\w+)*))?")
+    if m.is_empty() or m[2].int().or(0) < 1: return ("line {n}: bad line", 0, [])
+    if names.has(m[1]): return ("line {n}: duplicate {m[1]}", 0, [])
+    names[m[1]] = 1
+    deps = if m.len() > 3: m[3].re_list("\w+") else: []
+    tasks.push(Task(m[1], m[2].int(), deps))
+  if not header: return ("line 1: bad line", 0, [])
+  ("", k, tasks)
+
+fn check(tasks: [Task]) -> str:
+  names = {}
+  for t in tasks: names[t.name] = 1
+  for t in tasks:
+    for d in t.deps:
+      if not names.has(d): return "unknown {d}"
+  r = plan(tasks)
+  if r.0.len() < tasks.len(): return "cycle"
+  ""
+
+fn plan(tasks: [Task]) -> ({str: int}, {str: int}):
+  st = {}
+  en = {}
+  changed = true
+  while changed:
+    changed = false
+    for t in tasks:
+      if not en.has(t.name) and all(en.has(d) for d in t.deps):
+        s = 0
+        for d in t.deps: s = max(s, en[d])
+        st[t.name] = s
+        en[t.name] = s + t.days
+        changed = true
+  (st, en)
+
+fn critical(tasks: [Task], st: {str: int}, en: {str: int}) -> str:
+  length = 0
+  for t in tasks: length = max(length, en[t.name])
+  good = {}
+  changed = true
+  while changed:
+    changed = false
+    for t in tasks:
+      if good.has(t.name): continue
+      ok = en[t.name] == length
+      if not ok:
+        for s in tasks:
+          if good.has(s.name) and t.name in s.deps and st[s.name] == en[t.name]: ok = true
+      if ok:
+        good[t.name] = 1
+        changed = true
+  cur = ""
+  for t in tasks:
+    if cur == "" and st[t.name] == 0 and good.has(t.name): cur = t.name
+  chain = [cur]
+  while en[cur] != length:
+    nxt = ""
+    for s in tasks:
+      if nxt == "" and cur in s.deps and st[s.name] == en[cur] and good.has(s.name): nxt = s.name
+    chain.push(nxt)
+    cur = nxt
+  chain.join(" > ")
+## schedule.bv
+use "graph.bv"
+
+fn schedule(tasks: [Task], k: int) -> ({str: int}, {str: int}):
+  n = tasks.len()
+  tail = {}
+  for t in tasks: tail[t.name] = t.days
+  for pass in 0..n:
+    for t in tasks:
+      m = 0
+      for s in tasks:
+        if t.name in s.deps: m = max(m, tail[s.name])
+      tail[t.name] = t.days + m
+  st = {}
+  en = {}
+  now = 0
+  while st.len() < n:
+    running = 0
+    for t in tasks:
+      if en.has(t.name) and en[t.name] > now: running += 1
+    free = k - running
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        t = tasks[i]
+        if not st.has(t.name) and all(en.has(d) and en[d] <= now for d in t.deps):
+          if best < 0 or tail[t.name] > tail[tasks[best].name]: best = i
+      if best < 0: break
+      b = tasks[best]
+      st[b.name] = now
+      en[b.name] = now + b.days
+      free -= 1
+    nxt = -1
+    for t in tasks:
+      if en.has(t.name) and en[t.name] > now:
+        if nxt < 0 or en[t.name] < nxt: nxt = en[t.name]
+    if nxt < 0: break
+    now = nxt
+  (st, en)

@@ -1,0 +1,205 @@
+enum Expr:
+  Num(n: int)
+  Var(name: str)
+  Neg(e: Expr)
+  Bin(op: str, a: Expr, b: Expr)
+  Call(name: str, args: [Expr])
+
+PAT = "\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%()<>=,]"
+ts = []
+pos = 0
+depth = 0
+vars = {}
+fparams = {}
+fbody = {}
+
+fn tok() -> str = if pos < ts.len(): ts[pos] else: ""
+
+fn expect(s: str):
+  if tok() != s: fail("syntax")
+  pos += 1
+
+fn done():
+  if pos != ts.len(): fail("syntax")
+
+fn ident() -> str:
+  t = tok()
+  if t.re_full("[A-Za-z][A-Za-z0-9_]*").len() == 0 or t in ["let", "fn", "print", "if"]: fail("syntax")
+  pos += 1
+  t
+
+fn iscmp(t: str) -> bool = t in ["==", "!=", "<", ">", "<=", ">="]
+
+fn parse_cmp() -> Expr:
+  a = parse_add()
+  if iscmp(tok()):
+    op = tok()
+    pos += 1
+    b = parse_add()
+    if iscmp(tok()): fail("syntax")
+    return Bin(op, a, b)
+  a
+
+fn parse_add() -> Expr:
+  a = parse_mul()
+  while tok() == "+" or tok() == "-":
+    op = tok()
+    pos += 1
+    b = parse_mul()
+    a = Bin(op, a, b)
+  a
+
+fn parse_mul() -> Expr:
+  a = parse_unary()
+  while tok() == "*" or tok() == "/" or tok() == "%":
+    op = tok()
+    pos += 1
+    b = parse_unary()
+    a = Bin(op, a, b)
+  a
+
+fn parse_unary() -> Expr:
+  if tok() == "-":
+    pos += 1
+    return Neg(parse_unary())
+  parse_primary()
+
+fn parse_primary() -> Expr:
+  t = tok()
+  if t.re_full("\d+").len() > 0:
+    pos += 1
+    return Num(t.int())
+  if t == "(":
+    pos += 1
+    e = parse_cmp()
+    expect(")")
+    return e
+  if t.re_full("[A-Za-z][A-Za-z0-9_]*").len() == 0 or t in ["let", "fn", "print"]: fail("syntax")
+  pos += 1
+  if tok() == "(":
+    pos += 1
+    args = []
+    if tok() == ")":
+      pos += 1
+    else:
+      while True:
+        args.push(parse_cmp())
+        if tok() == ",":
+          pos += 1
+        else:
+          break
+      expect(")")
+    return Call(t, args)
+  if t == "if": fail("syntax")
+  Var(t)
+
+fn b2i(c: bool) -> int = if c: 1 else: 0
+
+fn eval(e: Expr, env: {str: int}) -> int:
+  match e:
+    Num(n) => n
+    Var(name) =>
+      if env.has(name):
+        env[name]
+      elif vars.has(name):
+        vars[name]
+      else:
+        fail("unknown name {name}")
+    Neg(x) => 0 - eval(x, env)
+    Bin(op, a, b) =>
+      x = eval(a, env)
+      y = eval(b, env)
+      if op == "+": x + y
+      elif op == "-": x - y
+      elif op == "*": x * y
+      elif op == "/":
+        if y == 0: fail("division by zero")
+        x / y
+      elif op == "%":
+        if y == 0: fail("division by zero")
+        x % y
+      elif op == "==": b2i(x == y)
+      elif op == "!=": b2i(x != y)
+      elif op == "<": b2i(x < y)
+      elif op == ">": b2i(x > y)
+      elif op == "<=": b2i(x <= y)
+      else: b2i(x >= y)
+    Call(name, args) =>
+      if name == "if":
+        if args.len() != 3: fail("if takes 3 arguments")
+        c = eval(args[0], env)
+        if c != 0:
+          eval(args[1], env)
+        else:
+          eval(args[2], env)
+      else:
+        if not fbody.has(name): fail("unknown function {name}")
+        ps = fparams[name]
+        if ps.len() != args.len(): fail("{name} takes {ps.len()} arguments")
+        depth += 1
+        if depth > 200: fail("too deep")
+        env2 = {}
+        for i in 0..ps.len():
+          env2[ps[i]] = eval(args[i], env)
+        r = eval(fbody[name], env2)
+        depth -= 1
+        r
+
+fn run_line() -> str:
+  c = ts[0]
+  pos += 1
+  if c == "let":
+    name = ident()
+    expect("=")
+    e = parse_cmp()
+    done()
+    v = eval(e, {})
+    vars[name] = v
+    return ""
+  if c == "fn":
+    name = ident()
+    expect("(")
+    ps = []
+    if tok() == ")":
+      pos += 1
+    else:
+      while True:
+        ps.push(ident())
+        if tok() == ",":
+          pos += 1
+        else:
+          break
+      expect(")")
+    expect("=")
+    e = parse_cmp()
+    done()
+    fparams[name] = ps
+    fbody[name] = e
+    return ""
+  if c == "print":
+    es = []
+    while True:
+      es.push(parse_cmp())
+      if tok() == ",":
+        pos += 1
+      else:
+        break
+    done()
+    vals = []
+    for e in es:
+      vals.push(eval(e, {}))
+    return vals.join(" ")
+  fail("syntax")
+
+for i, line in lines().enumerate():
+  n = i + 1
+  if line.trim().is_empty() or line.trim().starts_with("#"): continue
+  ts = line.re_list(PAT)
+  pos = 0
+  depth = 0
+  if not line.re_sub(PAT, "").trim().is_empty():
+    print("error line {n}: syntax")
+  else:
+    match run_line():
+      Ok(s) => if s != "": print(s)
+      Err(m) => print("error line {n}: {m}")

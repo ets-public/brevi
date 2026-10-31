@@ -1,0 +1,34 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  lib = Library(books: {}, members: {})
+  for line in lines():
+    t = line.trim()
+    if t != "":
+      (ds, _, rest) = t.partition(" ")
+      (cmd, _, args) = rest.partition(" ")
+      today = date(ds)
+      expire(lib, today.days)
+      if cmd == "BOOK":
+        (bid, _, r2) = args.partition(" ")
+        (cp, _, title) = r2.partition(" ")
+        do_book(lib, bid, cp.int().or(1), title)
+      elif cmd == "MEMBER":
+        (mid, _, r2) = args.partition(" ")
+        (tier, _, name) = r2.partition(" ")
+        do_member(lib, mid, tier, name)
+      elif cmd == "LOAN":
+        (mid, _, bid) = args.partition(" ")
+        do_loan(lib, today, mid, bid)
+      elif cmd == "RETURN":
+        (mid, _, bid) = args.partition(" ")
+        do_return(lib, today, mid, bid)
+      elif cmd == "RESERVE":
+        (mid, _, bid) = args.partition(" ")
+        do_reserve(lib, mid, bid)
+      elif cmd == "PAY":
+        (mid, _, amt) = args.partition(" ")
+        do_pay(lib, mid, cents(amt))
+      elif cmd == "STATUS":
+        do_status(lib, args)

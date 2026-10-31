@@ -1,0 +1,246 @@
+TOKRE = "\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%()<>=,]|\S"
+KW = ["let", "fn", "print", "if"]
+CMPS = ["==", "!=", "<", ">", "<=", ">="]
+tk = []
+pos = 0
+ev = false
+depth = 0
+cur = {}
+gvars = {}
+fbody = {}
+fparams = {}
+ln = 0
+
+fn is_word(t: str) -> bool:
+  return not t.re_full("[A-Za-z][A-Za-z0-9_]*").is_empty()
+
+fn is_name(t: str) -> bool:
+  return is_word(t) and not (t in KW)
+
+fn at(s: str) -> bool:
+  return pos < tk.len() and tk[pos] == s
+
+fn eat(s: str) -> bool:
+  if at(s):
+    pos += 1
+    return true
+  return false
+
+fn arith(a: int, op: str, b: int) -> int:
+  if op == "+": return a + b
+  if op == "-": return a - b
+  if op == "*": return a * b
+  if b == 0: fail("division by zero")
+  if op == "/": return a / b
+  return a % b
+
+fn cmpv(a: int, op: str, b: int) -> int:
+  r = a == b
+  if op == "!=": r = a != b
+  elif op == "<": r = a < b
+  elif op == ">": r = a > b
+  elif op == "<=": r = a <= b
+  elif op == ">=": r = a >= b
+  return 1 if r else 0
+
+fn p_count() -> int:
+  if at(")"): return 0
+  depth = 0
+  n = 1
+  i = pos
+  while i < tk.len():
+    t = tk[i]
+    if t == "(":
+      depth += 1
+    elif t == ")":
+      if depth == 0: break
+      depth -= 1
+    elif t == "," and depth == 0:
+      n += 1
+    i += 1
+  return n
+
+fn p_args() -> [int]:
+  out = [p_expr()]
+  while eat(","):
+    out.push(p_expr())
+  return out
+
+fn p_invoke(f: str, vals: [int]) -> int:
+  depth += 1
+  if depth > 200: fail("too deep")
+  saved_tk = tk
+  saved_pos = pos
+  saved_cur = cur
+  newcur = {}
+  ps = fparams[f]
+  for i in range(0, ps.len()):
+    newcur[ps[i]] = vals[i]
+  cur = newcur
+  tk = fbody[f]
+  pos = 0
+  r = p_expr()
+  tk = saved_tk
+  pos = saved_pos
+  cur = saved_cur
+  depth -= 1
+  return r
+
+fn p_if() -> int:
+  n = p_count()
+  if n != 3:
+    if ev: fail("if takes 3 arguments")
+    p_args()
+    if not eat(")"): fail("syntax")
+    return 0
+  saved = ev
+  c = p_expr()
+  if not eat(","): fail("syntax")
+  ev = saved and c != 0
+  a = p_expr()
+  if not eat(","): fail("syntax")
+  ev = saved and c == 0
+  b = p_expr()
+  if not eat(")"): fail("syntax")
+  ev = saved
+  if c != 0: return a
+  return b
+
+fn p_call(f: str) -> int:
+  pos += 1
+  if f == "if": return p_if()
+  if f in KW: fail("syntax")
+  n = p_count()
+  if ev:
+    if not fbody.has(f): fail("unknown function {f}")
+    k = fparams[f].len()
+    if n != k: fail("{f} takes {k} arguments")
+  vals = []
+  if not at(")"): vals = p_args()
+  if not eat(")"): fail("syntax")
+  if ev: return p_invoke(f, vals)
+  return 0
+
+fn p_atom() -> int:
+  if pos >= tk.len(): fail("syntax")
+  t = tk[pos]
+  pos += 1
+  if not t.re_full("\d+").is_empty(): return t.int().or(0)
+  if t == "(":
+    v = p_expr()
+    if not eat(")"): fail("syntax")
+    return v
+  if not is_word(t): fail("syntax")
+  if at("("): return p_call(t)
+  if t in KW: fail("syntax")
+  if not ev: return 0
+  if cur.has(t): return cur[t]
+  if gvars.has(t): return gvars[t]
+  fail("unknown name {t}")
+
+fn p_un() -> int:
+  if at("-"):
+    pos += 1
+    return 0 - p_un()
+  return p_atom()
+
+fn p_mul() -> int:
+  a = p_un()
+  while pos < tk.len() and (tk[pos] == "*" or tk[pos] == "/" or tk[pos] == "%"):
+    op = tk[pos]
+    pos += 1
+    b = p_un()
+    if ev: a = arith(a, op, b)
+  return a
+
+fn p_add() -> int:
+  a = p_mul()
+  while pos < tk.len() and (tk[pos] == "+" or tk[pos] == "-"):
+    op = tk[pos]
+    pos += 1
+    b = p_mul()
+    if ev: a = arith(a, op, b)
+  return a
+
+fn p_expr() -> int:
+  a = p_add()
+  if pos < tk.len() and (tk[pos] in CMPS):
+    op = tk[pos]
+    pos += 1
+    b = p_add()
+    if pos < tk.len() and (tk[pos] in CMPS): fail("syntax")
+    if not ev: return 0
+    return cmpv(a, op, b)
+  return a
+
+fn validate(start: int):
+  pos = start
+  ev = false
+  p_expr()
+  if pos != tk.len(): fail("syntax")
+
+fn evaluate(start: int) -> int:
+  pos = start
+  ev = true
+  return p_expr()
+
+fn do_let() -> str:
+  if tk.len() < 4 or not is_name(tk[1]) or tk[2] != "=": fail("syntax")
+  target = tk[1]
+  validate(3)
+  v = evaluate(3)
+  gvars[target] = v
+  return ""
+
+fn do_fn() -> str:
+  if tk.len() < 4 or not is_name(tk[1]) or tk[2] != "(": fail("syntax")
+  fname = tk[1]
+  pos = 3
+  plist = []
+  if not at(")"):
+    if pos >= tk.len() or not is_name(tk[pos]): fail("syntax")
+    plist.push(tk[pos])
+    pos += 1
+    while eat(","):
+      if pos >= tk.len() or not is_name(tk[pos]): fail("syntax")
+      plist.push(tk[pos])
+      pos += 1
+  if not eat(")") or not eat("="): fail("syntax")
+  validate(pos)
+  fbody[fname] = tk[pos:]
+  fparams[fname] = plist
+  return ""
+
+fn validate_list(start: int):
+  pos = start
+  ev = false
+  p_args()
+  if pos != tk.len(): fail("syntax")
+
+fn do_print() -> str:
+  if tk.len() < 2: fail("syntax")
+  validate_list(1)
+  pos = 1
+  ev = true
+  vals = p_args()
+  return " ".join([str(v) for v in vals])
+
+fn run_line() -> str:
+  if tk[0] == "let": return do_let()
+  if tk[0] == "fn": return do_fn()
+  if tk[0] == "print": return do_print()
+  fail("syntax")
+
+for i, raw in enumerate(stdin().lines()):
+  ln = i + 1
+  line = raw.trim()
+  if line.is_empty() or line[:1] == "#": continue
+  tk = line.re_list(TOKRE)
+  pos = 0
+  ev = false
+  depth = 0
+  cur = {}
+  match run_line():
+    Ok(out) =>
+      if out != "": print(out)
+    Err(msg) => print("error line {ln}: {msg}")

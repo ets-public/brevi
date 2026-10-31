@@ -1,0 +1,342 @@
+tk = []
+pos = 0
+tcols = {}
+ttypes = {}
+trows = {}
+tname = ""
+vk = ""
+vv = ""
+ctyp = ""
+lcols = []
+ltypes = []
+lkinds = []
+lvals = []
+cc_cols = []
+cc_ops = []
+cc_kinds = []
+cc_vals = []
+qcs = []
+qmode = ""
+ohas = false
+ocol = ""
+odesc = false
+lhas = false
+limit_n = 0
+scol = ""
+sk = ""
+sv = ""
+si = 0
+OPS = ["=", "!=", "<", ">", "<=", ">="]
+
+fn at(s: str) -> bool:
+  return pos < tk.len() and tk[pos] == s
+
+fn eat(s: str) -> bool:
+  if at(s):
+    pos += 1
+    return true
+  return false
+
+fn name() -> str:
+  if pos < tk.len() and not tk[pos].re_full("[A-Za-z][A-Za-z0-9_]*").is_empty():
+    pos += 1
+    return tk[pos - 1]
+  return ""
+
+fn value() -> bool:
+  if pos >= tk.len(): return false
+  t = tk[pos]
+  if not t.re_full("-?\d+").is_empty():
+    vk = "I"
+    vv = t
+  elif t.len() >= 2 and t[:1] == "'" and t[-1:] == "'":
+    vk = "S"
+    vv = t[1:-1].replace("''", "'")
+  else:
+    return false
+  pos += 1
+  return true
+
+fn add_val() -> bool:
+  if not value(): return false
+  lkinds.push(vk)
+  lvals.push(vv)
+  return true
+
+fn ctype() -> bool:
+  if pos < tk.len() and (tk[pos] == "INT" or tk[pos] == "TEXT"):
+    ctyp = tk[pos]
+    pos += 1
+    return true
+  return false
+
+fn cmpop() -> bool:
+  if pos < tk.len() and (tk[pos] in OPS):
+    pos += 1
+    return true
+  return false
+
+fn one_cmp() -> bool:
+  cn = name()
+  if cn == "" or not cmpop(): return false
+  cop = tk[pos - 1]
+  if not value(): return false
+  cc_cols.push(cn)
+  cc_ops.push(cop)
+  cc_kinds.push(vk)
+  cc_vals.push(vv)
+  return true
+
+fn cond() -> bool:
+  if not one_cmp(): return false
+  while eat("AND"):
+    if not one_cmp(): return false
+  return true
+
+fn where_opt() -> bool:
+  if eat("WHERE"): return cond()
+  return true
+
+fn p_create() -> bool:
+  if not eat("CREATE") or not eat("TABLE"): return false
+  tname = name()
+  if tname == "" or not eat("("): return false
+  cn = name()
+  if cn == "" or not ctype(): return false
+  lcols.push(cn)
+  ltypes.push(ctyp)
+  while eat(","):
+    cn = name()
+    if cn == "" or not ctype(): return false
+    lcols.push(cn)
+    ltypes.push(ctyp)
+  return eat(")")
+
+fn p_insert() -> bool:
+  if not eat("INSERT") or not eat("INTO"): return false
+  tname = name()
+  if tname == "" or not eat("VALUES") or not eat("("): return false
+  if not add_val(): return false
+  while eat(","):
+    if not add_val(): return false
+  return eat(")")
+
+fn p_select() -> bool:
+  if not eat("SELECT"): return false
+  if eat("COUNT"):
+    qmode = "count"
+    if not eat("(") or not eat("*") or not eat(")"): return false
+  elif eat("*"):
+    qmode = "star"
+  else:
+    qmode = "list"
+    cn = name()
+    if cn == "": return false
+    lcols.push(cn)
+    while eat(","):
+      cn = name()
+      if cn == "": return false
+      lcols.push(cn)
+  if not eat("FROM"): return false
+  tname = name()
+  if tname == "": return false
+  if not where_opt(): return false
+  if eat("ORDER"):
+    if not eat("BY"): return false
+    ocol = name()
+    if ocol == "": return false
+    ohas = true
+    odesc = eat("DESC")
+  if eat("LIMIT"):
+    if not value() or vk != "I": return false
+    lhas = true
+    limit_n = vv.int().or(0)
+  return true
+
+fn p_update() -> bool:
+  if not eat("UPDATE"): return false
+  tname = name()
+  if tname == "" or not eat("SET"): return false
+  scol = name()
+  if scol == "" or not eat("="): return false
+  if not value(): return false
+  sk = vk
+  sv = vv
+  return where_opt()
+
+fn p_delete() -> bool:
+  if not eat("DELETE") or not eat("FROM"): return false
+  tname = name()
+  if tname == "": return false
+  return where_opt()
+
+fn parse_line() -> bool:
+  if at("CREATE"): return p_create()
+  if at("INSERT"): return p_insert()
+  if at("SELECT"): return p_select()
+  if at("UPDATE"): return p_update()
+  if at("DELETE"): return p_delete()
+  return false
+
+fn kind_ok(k: str, t: str) -> bool:
+  return (k == "I" and t == "INT") or (k == "S" and t == "TEXT")
+
+fn types_ok(ks: [str], ts: [str]) -> bool:
+  for i in range(0, ks.len()):
+    if not kind_ok(ks[i], ts[i]): return false
+  return true
+
+fn opres(lt: bool, eq: bool, op: str) -> bool:
+  if op == "=": return eq
+  if op == "!=": return not eq
+  if op == "<": return lt
+  if op == "<=": return lt or eq
+  if op == ">": return not lt and not eq
+  return not lt
+
+fn cmp_ok(a: str, typ: str, op: str, b: str) -> bool:
+  if typ == "INT":
+    x = a.int().or(0)
+    y = b.int().or(0)
+    return opres(x < y, x == y, op)
+  return opres(a < b, a == b, op)
+
+fn row_ok(r: [str], cs: [(int, str, str, str)]) -> bool:
+  for c in cs:
+    if not cmp_ok(r[c.0], c.1, c.2, c.3): return false
+  return true
+
+fn cond_check() -> str:
+  qcs = []
+  for i in range(0, cc_cols.len()):
+    ci = tcols[tname].index_of(cc_cols[i])
+    if ci < 0: return "error: no column {cc_cols[i]}"
+    ct = ttypes[tname][ci]
+    if not kind_ok(cc_kinds[i], ct): return "error: type mismatch"
+    qcs.push((ci, ct, cc_ops[i], cc_vals[i]))
+  return ""
+
+fn select_check() -> str:
+  if not tcols.has(tname): return "error: no table {tname}"
+  for cn in lcols:
+    if tcols[tname].index_of(cn) < 0: return "error: no column {cn}"
+  e = cond_check()
+  if e != "": return e
+  if ohas and tcols[tname].index_of(ocol) < 0: return "error: no column {ocol}"
+  return ""
+
+fn update_check() -> str:
+  if not tcols.has(tname): return "error: no table {tname}"
+  si = tcols[tname].index_of(scol)
+  if si < 0: return "error: no column {scol}"
+  if not kind_ok(sk, ttypes[tname][si]): return "error: type mismatch"
+  return cond_check()
+
+fn delete_check() -> str:
+  if not tcols.has(tname): return "error: no table {tname}"
+  return cond_check()
+
+fn run_rows():
+  allc = tcols[tname]
+  pidx = [i for i in range(0, allc.len())]
+  if qmode == "list":
+    pidx = [allc.index_of(cn) for cn in lcols]
+  names = [allc[i] for i in pidx]
+  rows = [r for r in trows[tname] if row_ok(r, qcs)]
+  if ohas:
+    oi = allc.index_of(ocol)
+    if ttypes[tname][oi] == "INT":
+      rows = rows.sort_by(r => r[oi].int().or(0), odesc)
+    else:
+      rows = rows.sort_by(r => r[oi], odesc)
+  if lhas:
+    rows = rows.take(limit_n)
+  print(" | ".join(names))
+  for r in rows:
+    print(" | ".join([r[i] for i in pidx]))
+  print("({rows.len()} rows)")
+
+fn do_create():
+  if tcols.has(tname):
+    print("error: table {tname} exists")
+  else:
+    tcols[tname] = lcols
+    ttypes[tname] = ltypes
+    trows[tname] = []
+    print("ok")
+
+fn do_insert():
+  if not tcols.has(tname):
+    print("error: no table {tname}")
+  elif lvals.len() != tcols[tname].len() or not types_ok(lkinds, ttypes[tname]):
+    print("error: type mismatch")
+  else:
+    trows[tname].push(lvals)
+    print("ok")
+
+fn do_select():
+  e = select_check()
+  if e != "":
+    print(e)
+  elif qmode == "count":
+    hits = [r for r in trows[tname] if row_ok(r, qcs)]
+    print(hits.len())
+  else:
+    run_rows()
+
+fn do_update():
+  e = update_check()
+  if e != "":
+    print(e)
+  else:
+    nrows = []
+    n = 0
+    for r in trows[tname]:
+      if row_ok(r, qcs):
+        nrows.push([sv if i == si else r[i] for i in range(0, r.len())])
+        n += 1
+      else:
+        nrows.push(r)
+    trows[tname] = nrows
+    print("updated {n}")
+
+fn do_delete():
+  e = delete_check()
+  if e != "":
+    print(e)
+  else:
+    nrows = [r for r in trows[tname] if not row_ok(r, qcs)]
+    n = trows[tname].len() - nrows.len()
+    trows[tname] = nrows
+    print("deleted {n}")
+
+fn run_stmt():
+  if tk[0] == "CREATE": do_create()
+  elif tk[0] == "INSERT": do_insert()
+  elif tk[0] == "SELECT": do_select()
+  elif tk[0] == "UPDATE": do_update()
+  else: do_delete()
+
+for raw in stdin().lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  tk = line.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z][A-Za-z0-9_]*|!=|<=|>=|[(),*=<>]|\S")
+  pos = 0
+  lcols = []
+  ltypes = []
+  lkinds = []
+  lvals = []
+  cc_cols = []
+  cc_ops = []
+  cc_kinds = []
+  cc_vals = []
+  qmode = ""
+  ohas = false
+  odesc = false
+  lhas = false
+  ocol = ""
+  ok = parse_line() and pos == tk.len()
+  if not ok:
+    print("error: syntax")
+  else:
+    run_stmt()

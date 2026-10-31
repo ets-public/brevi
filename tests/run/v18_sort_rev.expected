@@ -6,3 +6,4 @@
 [("d", 0), ("a", 1), ("b", 2), ("c", 2)]
 3
 {"t":[["x", "1"], ["y", "9"]]}
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

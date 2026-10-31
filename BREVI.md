@@ -54,6 +54,7 @@ Match arms are one expression or statement (`Num(n) => total += n`) or an indent
 `+ - * / // %` (int `/` and `%` round toward zero, `//` rounds down), `== != < > <= >=`, `x in xs` and `x not in xs` (list item, map key or substring), `and` `or` `!` (also `&&` `||` `not`), `a ~= b` (float equal within 1e-6).
 `+` joins strings and lists. int and f64 never mix: convert with `.float()` or `.int()` (a whole-number literal next to an f64 is an f64: `x * 2`, `area(2, 3.5)`).
 Strings interpolate: `"{name} is {age}"`, `"{-x} {xs.len()} {p.0}"` (`{` followed by a letter, `(`, `-`, `!` or `"` starts an expression, and strings may appear inside: `"{m["k"]}"`). Any other `{` is a plain brace; `\{` and `{{` always are, so `"{{"` is ONE brace (write `'{{'` for two); template tags such as `"{{#each "`, `"{{/if}}"` and `"{{else}}"` keep both braces.
+Python format specs work inside `{}`: `"{x:.2f} {n:03d} {name:<10} {total:>8,}"`.
 Escapes: `\n \t \r \0 \" \\ \{ \}`.
 `'single quotes'` need no `\"` and keep `{` plain unless a name or `(` follows (`{{` is two braces), so JSON and template text is easy: `'{"id":{i},"error":"not found"}'`, `t.starts_with('{{#each ')`.
 
@@ -73,7 +74,7 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 
 Most methods return a new value (`ys = xs.sort()`); as a statement, `xs.sort()` sorts xs. `push pop insert remove` change the list in place.
-Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `(a, _, b) = s.partition("=")`.
+Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `(a, _, b) = s.partition("=")`.
 
 ## Built-in functions
 `print(x)` (`print(a, b)` puts a space between), `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.

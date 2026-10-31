@@ -1,0 +1,35 @@
+type Book:
+  id: str
+  copies: int
+  shelf: int
+  waiting: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+
+type Loan:
+  member: str
+  book: str
+  due: int
+
+type Hold:
+  member: str
+  book: str
+  expires: int
+
+fn tier_limit(tier: str) -> int:
+  if tier == "plus": return 5
+  return 2
+
+fn tier_days(tier: str) -> int:
+  if tier == "plus": return 28
+  return 14
+
+fn tier_rate(tier: str) -> dec:
+  if tier == "plus": return "0.10".dec()
+  return "0.25".dec()
+
+fn day_str(n: int) -> str = str(date("1970-01-01").add_days(n))
