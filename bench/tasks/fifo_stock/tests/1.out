@@ -1,0 +1,12 @@
+line 2: date out of order
+line 3: bad line
+line 5: bad line
+line 6: bad line
+line 8: bad line
+line 9: bad line
+line 11: short gear need 1 have 0
+line 12: short gear need 1 have 0
+gear on_hand 0 value 0.00 cogs 19.98 revenue 25.00 profit 5.02 loss 9.99
+months
+  2026-03 profit 5.02 loss 9.99
+total profit 5.02 loss 9.99 net -4.97

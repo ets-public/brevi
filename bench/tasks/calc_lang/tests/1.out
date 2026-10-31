@@ -1,0 +1,16 @@
+error line 1: unknown name z
+error line 3: division by zero
+error line 4: division by zero
+error line 6: unknown name q
+error line 8: f takes 1 arguments
+error line 9: unknown function g
+error line 10: syntax
+error line 11: syntax
+error line 12: syntax
+error line 13: syntax
+150
+error line 16: too deep
+5 6
+error line 18: syntax
+42 42
+-6 4

@@ -1,0 +1,7 @@
+line 5: short nut need 11 have 10
+bolt on_hand 0 value 0.00 cogs 14.80 revenue 36.00 profit 21.20 loss 1.20
+nut on_hand 3 value 4.20 cogs 15.30 revenue 25.20 profit 9.90 loss 0.00
+months
+  2026-01 profit 17.60 loss 1.20
+  2026-02 profit 13.50 loss 0.00
+total profit 31.10 loss 1.20 net 29.90

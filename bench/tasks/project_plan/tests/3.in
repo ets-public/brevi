@@ -1,0 +1,4 @@
+workers 2
+a 1
+b 2 after a
+c 0 after a

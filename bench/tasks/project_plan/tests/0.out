@@ -1,0 +1,19 @@
+unlimited
+  design 0-3
+  db 3-7
+  api 3-8
+  ui 3-9
+  tests 8-10
+  docs 0-1
+  launch 10-11
+length 11
+critical design > api > tests > launch
+workers 2
+  design 0-3
+  db 3-7
+  api 3-8
+  ui 7-13
+  tests 8-10
+  docs 0-1
+  launch 13-14
+length 14

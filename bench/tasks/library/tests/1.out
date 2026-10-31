@@ -1,0 +1,20 @@
+added x
+welcome A
+welcome B
+welcome C
+refused a x: copy available
+loan a x due 2026-03-15
+reserved b x position 1
+reserved c x position 2
+refused c x: already reserved
+returned a x
+refused c x: none available
+hold expired b x
+hold expired c x
+b B owes 0.00 loans: -
+loan c x due 2026-04-07
+c C owes 0.00 loans: x
+returned c x
+loan a x due 2026-04-13
+refused zed: unknown member
+a A owes 0.00 loans: x

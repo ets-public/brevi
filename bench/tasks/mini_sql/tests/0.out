@@ -1,0 +1,33 @@
+ok
+ok
+ok
+ok
+ok
+id | name | age | city
+1 | Ann | 34 | Oslo
+2 | Bob | 27 | Rome
+3 | O'Neil, Jo | 41 | Oslo
+4 | Dee | 27 | Lima
+(4 rows)
+name | age
+Ann | 34
+O'Neil, Jo | 41
+(2 rows)
+name
+Ann
+Bob
+Dee
+(3 rows)
+id | name
+1 | Ann
+2 | Bob
+(2 rows)
+2
+updated 1
+name | city
+Ann | Bergen
+Dee | Lima
+Bob | Rome
+(3 rows)
+deleted 1
+3

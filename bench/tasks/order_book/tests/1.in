@@ -1,0 +1,14 @@
+SELL a 5 10
+SELL b 5 10
+SELL c 5 9.5
+BUY x 12 10
+BOOK
+MSELL y 3
+BUY z 1 0
+buy q 1 1
+BUY w 1 1.234
+BUY v 0 5
+SELL u 2 abc
+CANCEL
+
+BOOK

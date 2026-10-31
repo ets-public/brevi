@@ -1,0 +1,5 @@
+workers 3
+x 1 after y
+
+y 2 after z
+z 3 after x

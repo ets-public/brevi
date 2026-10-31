@@ -1,0 +1,24 @@
+added b1
+added b2
+welcome Ann Lee
+welcome Bob Ray
+loan ann b1 due 2026-01-16
+refused bob b1: none available
+reserved bob b1 position 1
+refused ann b1: already has it
+loan ann b2 due 2026-01-17
+refused ann b9: unknown book
+refused ann b2: limit
+returned ann b1 fee 1.00
+refused ann b2: already has it
+loan bob b1 due 2026-02-20
+ann Ann Lee owes 1.00 loans: b2
+bob Bob Ray owes 0.00 loans: b1
+returned ann b2 fee 5.00
+ann Ann Lee owes 6.00 loans: -
+refused ann b1: owes 6.00
+paid ann owes 0.00
+ann Ann Lee owes 0.00 loans: -
+duplicate ID
+returned bob b1 fee 0.20
+refused bob b1: not on loan

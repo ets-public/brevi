@@ -5,7 +5,9 @@ SMALL = "bigadd calc date_diff dijkstra intervals inventory json_sum lru topo wr
 BIG = "access_report bank_api invoices kv_store markdown spreadsheet template timetable".split()
 # Held-out big tasks written after v0.15 (ref/gen_big2.py), never used to tune Brevi.
 NEW = "sales_report route_planner ini_config stack_vm line_diff room_booking".split()
-tasks = {"small": SMALL, "big": BIG, "new": NEW}[size]
+# Held-out XL tasks written after v0.16 (ref/gen_big3.py); library and project_plan are multi-file.
+XL = "order_book mini_sql calc_lang fifo_stock library project_plan".split()
+tasks = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL}[size]
 B = "/home/user/brevi/bench"; ext = {"brevi": "bv", "python": "py"}[lang]
 name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
 guide = f"First read the language guide /home/user/brevi/BREVI.md once. " if lang == "brevi" else ""
@@ -13,8 +15,8 @@ print(f"""You are writing small command-line programs in {name}. {guide}Solve th
 
 For each task TASK:
 1. Read {B}/tasks/TASK/prompt.md. Programs read stdin and write stdout.
-2. Write your whole solution to {B}/work/{run}/TASK.{ext}.
-3. Check it by running exactly: {B}/run.sh {lang} TASK {B}/work/{run}/TASK.{ext}
+2. Write your whole solution to {B}/work/{run}/TASK.{ext}. If the prompt asks for several files, write them as {B}/work/{run}/TASK/NAME.{ext} instead, with main.{ext} as the entry point.
+3. Check it by running exactly: {B}/run.sh {lang} TASK {B}/work/{run}/TASK.{ext} (for a several-file task: {B}/run.sh {lang} TASK {B}/work/{run}/TASK/main.{ext})
    It prints PASS, or the compiler error, or the first failing test.
 4. If it did not pass, edit only the lines that need to change (do not rewrite the whole file) and run the check again, up to 6 checks per task, then move on.
 

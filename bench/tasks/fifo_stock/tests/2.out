@@ -1,0 +1,7 @@
+line 8: short b need 1 have 0
+a on_hand 3 value 2.25 cogs 4.75 revenue 4.35 profit -0.40 loss 0.00
+b on_hand 0 value 0.00 cogs 0.00 revenue 0.00 profit 0.00 loss 5.00
+months
+  2026-05 profit -0.40 loss 0.00
+  2026-06 profit 0.00 loss 5.00
+total profit -0.40 loss 5.00 net -5.40
