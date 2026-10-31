@@ -17,6 +17,7 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
+  actions: write
 
 jobs:
   fix:
@@ -81,3 +82,13 @@ jobs:
           git push -u origin "$b"
           gh pr view "$b" >/dev/null 2>&1 || gh pr create --draft --head "$b" --title "Auto-fix for #$ISSUE (unfinished)" \
             --body "Claude committed this for #$ISSUE but the session ended before it opened a PR. Checks may not have finished; CI will run them. Fixes #$ISSUE"
+      - name: Run the toolchain checks on Claude's branch
+        # PRs opened with the Actions token don't trigger CI, so start it by hand; its checks show on the PR.
+        if: always() && steps.key.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          b=$(git rev-parse --abbrev-ref HEAD)
+          if [ "$b" != main ] && [ "$b" != HEAD ] && git ls-remote --exit-code --heads origin "$b" >/dev/null; then
+            gh workflow run toolchains.yml --ref "$b" -f force=true
+          fi
