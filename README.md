@@ -4,7 +4,7 @@
 
 A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one short JSON line with a suggested fix.
 
-The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,665 tokens (exact count, Sonnet tokenizer).
+The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 2,889 tokens (exact count, Sonnet tokenizer). Details live in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand.
 
 ## For agents
 

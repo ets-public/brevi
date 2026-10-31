@@ -21,12 +21,15 @@ const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--rel
 pub const GUIDE: &str = include_str!("../BREVI.md");
 // Kept out of the main guide, which every session reads: shown by `brevi guide Libraries` and word lookups.
 pub const GUIDE_LIBS: &str = include_str!("../LIBRARIES.md");
+// Details kept out of the main guide for the same reason: `brevi guide Json`, `brevi guide re_list`.
+pub const GUIDE_REF: &str = include_str!("../REFERENCE.md");
 static EXPLAIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 // `## Name` sections of the guide, with the intro under the name "Intro".
 fn guide_sections() -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vec![("Intro".into(), String::new())];
-    for l in GUIDE.lines().chain(GUIDE_LIBS.lines().skip_while(|l| !l.starts_with("## "))) {
+    let extra = |g: &'static str| g.lines().skip_while(|l| !l.starts_with("## "));
+    for l in GUIDE.lines().chain(extra(GUIDE_REF)).chain(extra(GUIDE_LIBS)) {
         if let Some(h) = l.strip_prefix("## ") {
             out.push((h.trim().to_string(), String::new()));
         }

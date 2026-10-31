@@ -13,7 +13,7 @@ Check that `brevi --version` works. If it does not, run the repository's `instal
 
 ## Before writing code
 
-Run `brevi guide` once and read the whole guide it prints. It is short and matches the installed compiler. Later, `brevi guide WORD` prints only the lines about one name, like `brevi guide re_list` or `brevi guide Tests`.
+Run `brevi guide` once and read the whole guide it prints. It is short and matches the installed compiler. Details are not in it: before using JSON, regexes, dates, decimals or string templates, run `brevi guide WORD` for the lines about one name (`brevi guide re_list`) or a section (`brevi guide Json`).
 
 ## Loop
 

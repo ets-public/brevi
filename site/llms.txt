@@ -4,7 +4,8 @@
 
 ## Docs
 
-- [Language guide](https://brevi-lang.org/guide.md): the whole language in one page, written for models. Read it once before writing Brevi.
+- [Language guide](https://brevi-lang.org/guide.md): the core language in one page, written for models. Read it once before writing Brevi.
+- [Reference](https://brevi-lang.org/reference.md): details for strings, JSON, regexes, dates, decimals and Python spellings. Look up one name with `brevi guide WORD` instead of reading it all.
 - [Libraries](https://brevi-lang.org/libraries.md): using other .bv files, Rust crates (`use sha2 "0.10"` plus `rust fn`) and Python (`py fn`) from Brevi.
 - [Agent skill](https://brevi-lang.org/skill.md): setup and the write, check, fix loop for coding agents.
 - [Benchmarks](https://brevi-lang.org/bench.md): tokens per finished task against Python, with method and raw logs.
@@ -15,4 +16,4 @@
 
 ## Optional
 
-- [Full text](https://brevi-lang.org/llms-full.txt): the guide and the skill in one file.
+- [Full text](https://brevi-lang.org/llms-full.txt): the guide, reference, libraries and skill in one file.

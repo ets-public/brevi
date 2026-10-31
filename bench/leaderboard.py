@@ -19,7 +19,8 @@ def score(run):
     L = [json.loads(l) for l in open(f"logs/{run}.jsonl")]
     by = collections.OrderedDict()
     for r in L:
-        by.setdefault(r["task"], []).append(r)
+        if r["task"] != "_guide":  # guide lookups only add tokens read
+            by.setdefault(r["task"], []).append(r)
     ok = lambda r: r["total"] > 0 and r["pass"] == r["total"]
     total = sum(r.get("patch_tok", r["code_tok"]) + r["out_tok"] for r in L)
     return total, sum(ok(t[0]) for t in by.values()), sum(ok(t[-1]) for t in by.values()), len(by)
