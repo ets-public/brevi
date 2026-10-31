@@ -2,6 +2,7 @@
 
 Brevi compiles to Rust. Write one statement per line, no semicolons. Blocks are indented, like Python: a line ending in `:` opens a block of the more-indented lines below it, and a short block can follow the `:` on the same line. Comments start with `#`. Types are required only on function parameters; a return type is optional (`fn f(x: int) = x * 2` works it out).
 A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables that other functions also use (`pos = 0`, `toks = []`). A function whose body starts by setting a name (`i = 0`) has its own local, unless another function reads that name without setting it.
+`use "util.bv"` at the top of a file brings in that file's fns, types and enums (a used file holds only definitions, no top-level statements).
 
 ```
 nums = stdin().ints()
