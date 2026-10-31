@@ -71,7 +71,7 @@ jobs:
           rustup toolchain install ${{ matrix.rust }} --profile minimal --no-self-update
           rustup default ${{ matrix.rust }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         id: python
         continue-on-error: ${{ matrix.python == 'next' }}
         with:
