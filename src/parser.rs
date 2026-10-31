@@ -164,6 +164,7 @@ impl Parser {
         let line = self.line();
         if self.eat_kw("fn") {
             let name = self.ident()?;
+            let name = if SHADOWABLE.contains(&name.as_str()) { format!("{name}_") } else { name };
             self.expect_sym("(")?;
             let mut params = Vec::new();
             while !self.is_sym(")") {
@@ -681,6 +682,7 @@ impl Parser {
                         "reversed" => Some("rev"),
                         "ord" => Some("code"),
                         "chr" => Some("char"),
+                        "unique" => Some("unique"),
                         _ => None,
                     };
                     // range(n), range(a, b) and range(a, b, step) are a..b.
@@ -700,6 +702,8 @@ impl Parser {
                     }
                     match m {
                         Some(m) if args.len() == 1 && args[0].0.is_none() && !self.user_fns.contains(&name) => Ok(Expr::Method(Box::new(args.remove(0).1), m.into(), vec![], line)),
+                        // A program's own function named like a built-in (`fn args(...)`) is its own.
+                        _ if self.user_fns.contains(&name) && SHADOWABLE.contains(&name.as_str()) => Ok(Expr::Call(format!("{name}_"), args, line)),
                         _ => Ok(Expr::Call(name, args, line)),
                     }
                 } else {
@@ -914,6 +918,9 @@ impl Parser {
 
 // A declared name like `MAX = 10` is a variable even though it is capitalised.
 // Python method names models write by habit, as the Brevi method they mean.
+// Built-in functions a program may define for itself; its own version gets a suffix in the Rust.
+const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
+
 fn python_method(name: &str, nargs: usize) -> Option<String> {
     Some(match (name, nargs) {
         ("append", 1) => "push",
