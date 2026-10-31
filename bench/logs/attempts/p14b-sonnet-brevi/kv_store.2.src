@@ -1,0 +1,46 @@
+store = {}
+snaps = []
+
+fn to_int(s: str) -> (bool, int):
+  r = (false, 0)
+  match s.int():
+    Ok(v) => r = (true, v)
+    Err(_) => r = (false, 0)
+  r
+
+fn run(line: str) -> int:
+  w = line.words()
+  cmd = w[0]
+  if cmd == "SET":
+    store[w[1]] = w[2]
+  elif cmd == "GET":
+    if store.has(w[1]): print(store[w[1]]) else: print("NULL")
+  elif cmd == "DEL":
+    if store.has(w[1]): store.remove(w[1]) else: print("NOT FOUND")
+  elif cmd == "INCR":
+    cur = if store.has(w[1]): store[w[1]] else: "0"
+    a = to_int(cur)
+    b = to_int(w[2])
+    if not a.0 or not b.0:
+      print("ERR not an integer")
+    else:
+      v = a.1 + b.1
+      store[w[1]] = str(v)
+      print(v)
+  elif cmd == "COUNT":
+    print(store.values().count(v => v == w[1]))
+  elif cmd == "KEYS":
+    ks = store.keys().filter(k => k.starts_with(w[1]))
+    if ks: print(" ".join(ks.sort())) else: print("(empty)")
+  elif cmd == "BEGIN":
+    snaps.push(store)
+  elif cmd == "ROLLBACK":
+    if snaps: store = snaps.pop() else: print("NO TRANSACTION")
+  elif cmd == "COMMIT":
+    if snaps: snaps = [] else: print("NO TRANSACTION")
+  else:
+    print("ERR unknown command")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  run(line)

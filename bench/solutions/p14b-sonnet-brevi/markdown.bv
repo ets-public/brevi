@@ -1,0 +1,66 @@
+fn esc(s: str) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn inline(s: str) -> str:
+  t = esc(s)
+  ms = t.re_all("`([^`]+)`")
+  for i, m in ms.enumerate():
+    t = t.replace(m[0], "\0{i}\0")
+  t = t.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t = t.re_sub("\*(.+?)\*", "<em>\1</em>")
+  t = t.re_sub("\[([^\]]*)\]\(([^)]*)\)", '<a href="\2">\1</a>')
+  for i, m in ms.enumerate():
+    t = t.replace("\0{i}\0", "<code>{m[1]}</code>")
+  t
+
+out = []
+heads = []
+used = {}
+kind = ""
+buf = []
+incode = false
+codebuf = []
+for line in lines() + [""]:
+  if incode:
+    if line == "```":
+      out.push("<pre><code>" + "\n".join(codebuf) + "</code></pre>")
+      incode = false
+    else:
+      codebuf.push(esc(line))
+    continue
+  hm = line.re_full("(#{1,6}) (.*)")
+  k = "p"
+  if line.trim().is_empty(): k = "blank"
+  elif line == "```": k = "code"
+  elif hm: k = "h"
+  elif line.starts_with("- "): k = "ul"
+  elif line.re_full("\d+\. (.*)"): k = "ol"
+  if k != kind:
+    if kind == "p": out.push("<p>" + inline(" ".join(buf)) + "</p>")
+    elif kind == "ul" or kind == "ol":
+      out.push("<{kind}>")
+      for b in buf: out.push("<li>" + inline(b) + "</li>")
+      out.push("</{kind}>")
+    kind = k
+    buf = []
+  if k == "code":
+    incode = true
+    codebuf = []
+  elif k == "h":
+    text = hm[2].trim()
+    id = text.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    if used.has(id):
+      n = 2
+      while used.has("{id}-{n}"): n += 1
+      id = "{id}-{n}"
+    used[id] = 1
+    lv = hm[1].len()
+    out.push('<h{lv} id="{id}">' + inline(text) + '</h{lv}>')
+    heads.push((id, esc(text.replace("`", "").replace("*", ""))))
+  elif k == "p": buf.push(line.trim())
+  elif k == "ul": buf.push(line.slice(2))
+  elif k == "ol": buf.push(line.re_full("\d+\. (.*)")[1])
+if heads.len() >= 2:
+  print("<nav>")
+  for h in heads: print('<a href="#{h.0}">{h.1}</a>')
+  print("</nav>")
+for o in out: print(o)

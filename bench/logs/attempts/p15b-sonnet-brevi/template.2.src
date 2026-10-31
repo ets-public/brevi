@@ -1,0 +1,108 @@
+fn tokenize(s: str) -> [str]:
+  res = []
+  rest = s
+  while rest:
+    a = rest.find("{{")
+    if a < 0:
+      res.push(rest)
+      break
+    b = rest.slice(a).find("}}")
+    if b < 0:
+      res.push(rest)
+      break
+    if a > 0:
+      res.push(rest.slice(0, a))
+    res.push(rest.slice(a, a + b + 2))
+    rest = rest.slice(a + b + 2)
+  res
+
+fn lookup(name: str, ctx: [Json]) -> Json:
+  if name == ".":
+    return ctx.last()
+  segs = name.split(".")
+  ci = ctx.len() - 1
+  while ci >= 0:
+    if ctx[ci].has(segs[0]):
+      cur = ctx[ci]
+      for sg in segs:
+        cur = cur[sg]
+      return cur
+    ci -= 1
+  json("null")
+
+fn apply_filters(v: Json, fs: [str]) -> Json:
+  cur = v
+  for f in fs:
+    f = f.trim()
+    if f == "upper":
+      cur = cur.text().upper().json()
+    elif f == "lower":
+      cur = cur.text().lower().json()
+    elif f == "len":
+      n = match cur:
+        Arr(xs) => xs.len()
+        _ => cur.text().len()
+      cur = n.json()
+    elif f.starts_with("default:"):
+      if cur.text() == "":
+        cur = f.slice(8).json()
+  cur
+
+fn match_end(toks: [str], s: int) -> (int, int):
+  depth = 1
+  els = -1
+  j = s
+  while j < toks.len():
+    t = toks[j]
+    if t.starts_with("{{#each ") or t.starts_with("{{#if "):
+      depth += 1
+    elif t == "{{/each}}" or t == "{{/if}}":
+      depth -= 1
+      if depth == 0:
+        return (j, els)
+    elif t == "{{else}}" and depth == 1:
+      els = j
+    j += 1
+  (toks.len(), els)
+
+fn render(toks: [str], a: int, b: int, ctx: [Json], idx: int) -> str:
+  out, i = "", a
+  while i < b:
+    t = toks[i]
+    if not t.starts_with("{{"):
+      out += t
+      i += 1
+      continue
+    inner = t.slice(2, -2).trim()
+    if inner.starts_with("#each "):
+      e = match_end(toks, i + 1)
+      arr = lookup(inner.slice(6).trim(), ctx)
+      k = 0
+      for el in arr:
+        out += render(toks, i + 1, e.0, ctx + [el], k)
+        k += 1
+      i = e.0 + 1
+    elif inner.starts_with("#if "):
+      e = match_end(toks, i + 1)
+      cond = lookup(inner.slice(4).trim(), ctx)
+      if cond:
+        stop = if e.1 >= 0: e.1 else: e.0
+        out += render(toks, i + 1, stop, ctx, idx)
+      elif e.1 >= 0:
+        out += render(toks, e.1 + 1, e.0, ctx, idx)
+      i = e.0 + 1
+    elif inner == "@index":
+      out += str(idx)
+      i += 1
+    else:
+      parts = inner.split("|")
+      v = lookup(parts[0].trim(), ctx)
+      out += apply_filters(v, parts.skip(1)).text()
+      i += 1
+  out
+
+all_lines = lines()
+data = json(all_lines[0])
+tl = "\n".join(all_lines.skip(1))
+tokens = tokenize(tl)
+print(render(tokens, 0, tokens.len(), [data], 0))

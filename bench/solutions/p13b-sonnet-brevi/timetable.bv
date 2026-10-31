@@ -1,0 +1,66 @@
+fn tm(s: str) = s.slice(0, 2).int() * 60 + s.slice(3, 5).int()
+
+fn pad(n: int) = if n < 10: "0{n}" else: "{n}"
+
+fn hhmm(m: int) = pad(m // 60) + ":" + pad(m % 60)
+
+names = []
+sts = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  if line.trim() == "---":
+    second = true
+    continue
+  if second:
+    queries.push(w)
+  else:
+    names.push(w[0])
+    ss = []
+    tt = []
+    for i in range(1, w.len(), 2):
+      ss.push(w[i])
+      tt.push(tm(w[i + 1]))
+    sts.push(ss)
+    tms.push(tt)
+
+events = []
+for ti in 0..names.len():
+  for k in 0..sts[ti].len():
+    events.push((tms[ti][k], ti, k))
+events = events.sort()
+
+for q in queries:
+  fr = q[0]
+  to = q[1]
+  t0 = tm(q[2])
+  if fr == to:
+    print("{fr} {to} {hhmm(t0)} via -")
+    continue
+  label = {}
+  best = (100000, 0, [])
+  found = false
+  for ev in events:
+    t, ti, k = ev
+    st = sts[ti][k]
+    cands = []
+    if k > 0 and label.has((ti, k - 1)): cands.push(label[(ti, k - 1)])
+    if st == fr and t >= t0: cands.push((1, [names[ti]]))
+    for ev2 in events:
+      t2, tj, j = ev2
+      if t2 + 5 <= t and tj != ti and sts[tj][j] == st and label.has((tj, j)):
+        c, l = label[(tj, j)]
+        cands.push((c + 1, l + [names[ti]]))
+    if cands:
+      label[(ti, k)] = cands.min()
+      if st == to and k > 0:
+        cl = label[(ti, k)]
+        cand = (t, cl.0, cl.1)
+        if not found or cand < best:
+          best = cand
+          found = true
+  if found: print("{fr} {to} {hhmm(best.0)} via {'>'.join(best.2)}")
+  else: print("{fr} {to} unreachable")

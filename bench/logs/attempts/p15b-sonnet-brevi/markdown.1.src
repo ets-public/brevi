@@ -1,0 +1,86 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_plain(s: str) -> str:
+  t = s.re_sub("\[([^\]]*)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+  t = t.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>")
+  t.re_sub("\*(.+?)\*", "<em>\1</em>")
+
+fn inline(s: str) -> str:
+  parts = esc(s).split("`")
+  res = ""
+  for i, p in enumerate(parts):
+    if i % 2 == 1 and i < parts.len() - 1:
+      res += "<code>" + p + "</code>"
+    elif i % 2 == 1:
+      res += "`" + fmt_plain(p)
+    else:
+      res += fmt_plain(p)
+  res
+
+fn is_start(l: str) -> bool:
+  l == "```" or l.starts_with("- ") or not l.re_full("#{1,6} .*").is_empty() or not l.re_full("\d+\. .*").is_empty()
+
+ls = lines()
+n = ls.len()
+out = []
+hids = []
+htexts = []
+used = {}
+i = 0
+while i < n:
+  l = ls[i]
+  if l == "```":
+    j = i + 1
+    body = []
+    while j < n and ls[j] != "```":
+      body.push(esc(ls[j]))
+      j += 1
+    out.push("<pre><code>" + "\n".join(body) + "</code></pre>")
+    i = j + 1
+  elif l.trim().is_empty():
+    i += 1
+  elif not l.re_full("(#{1,6}) (.*)").is_empty():
+    g = l.re_full("(#{1,6}) (.*)")
+    lvl = g[1].len()
+    raw = g[2].trim()
+    base = raw.lower().re_sub("[^a-z0-9]+", "-")
+    while base.starts_with("-"):
+      base = base.slice(1)
+    while base.ends_with("-"):
+      base = base.slice(0, -1)
+    cand = base
+    k = 1
+    while used.has(cand):
+      k += 1
+      cand = base + "-" + str(k)
+    used[cand] = 1
+    hids.push(cand)
+    htexts.push(esc(raw.replace("`", "").replace("*", "")))
+    out.push("<h{lvl} id=\"{cand}\">" + inline(raw) + "</h{lvl}>")
+    i += 1
+  elif l.starts_with("- "):
+    out.push("<ul>")
+    while i < n and ls[i].starts_with("- "):
+      out.push("<li>" + inline(ls[i].slice(2).trim()) + "</li>")
+      i += 1
+    out.push("</ul>")
+  elif not l.re_full("\d+\. .*").is_empty():
+    out.push("<ol>")
+    while i < n and not ls[i].re_full("\d+\. .*").is_empty():
+      g = ls[i].re_full("\d+\. (.*)")
+      out.push("<li>" + inline(g[1].trim()) + "</li>")
+      i += 1
+    out.push("</ol>")
+  else:
+    ps = []
+    while i < n and not ls[i].trim().is_empty() and not is_start(ls[i]):
+      ps.push(ls[i].trim())
+      i += 1
+    out.push("<p>" + inline(" ".join(ps)) + "</p>")
+if hids.len() >= 2:
+  print("<nav>")
+  for k in 0..hids.len():
+    print("<a href=\"#{hids[k]}\">{htexts[k]}</a>")
+  print("</nav>")
+for o in out:
+  print(o)

@@ -15,3 +15,6 @@ print('{{#each {x}}}', '{{x}}', "{{")
 k = 3
 print("  {k} {'#'.repeat(k)}")
 print("{'x'}")
+print("{{#each items}}", "{{/if}}", "{{else}}", "{{", "{{x}}", "{{#each ", "{{/")
+x = 1
+print("{{\"id\":{x}}}")

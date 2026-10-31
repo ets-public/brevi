@@ -30,6 +30,31 @@ const RUST_KEYWORDS: &[&str] = &[
     "override", "virtual", "become", "abstract", "do", "unsized",
 ];
 
+// "{{#each items}}", "{{/if}}", "{{else}}", or "{{#each " at a string's end: where the tag's text ends,
+// and whether `}}` follows it.
+fn template_tag(chars: &[char], from: usize) -> Option<(usize, bool)> {
+    let first = *chars.get(from)?;
+    let tag_start = matches!(first, '#' | '/');
+    let mut j = from;
+    while let Some(&c) = chars.get(j) {
+        if c == '}' {
+            break;
+        }
+        if c == '"' && tag_start && j > from {
+            return Some((j, false));
+        }
+        if c == '"' || c == '\\' || c == '{' || c == '\n' {
+            return None;
+        }
+        j += 1;
+    }
+    if chars.get(j) != Some(&'}') || chars.get(j + 1) != Some(&'}') || j == from {
+        return None;
+    }
+    let text: String = chars[from..j].iter().collect();
+    (tag_start || text == "else").then_some((j, true))
+}
+
 // Does the `{` just before `from` close on this line (quoted strings inside skipped)?
 fn interp_closes(chars: &[char], from: usize) -> bool {
     // `{3}` or `{2,4}` is a regex count, not a value.
@@ -262,6 +287,18 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 match chars.get(i) {
                     None | Some('\n') => {
                         return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \""));
+                    }
+                    // A template tag such as "{{#each items}}", "{{/if}}" or "{{else}}" keeps both braces on each side.
+                    Some('{') if chars.get(i + 1) == Some(&'{') && template_tag(&chars, i + 2).is_some() => {
+                        let (end, closed) = template_tag(&chars, i + 2).unwrap();
+                        s.push_str("{{{{");
+                        s.extend(&chars[i + 2..end]);
+                        let stop = if closed { end + 2 } else { end };
+                        if closed {
+                            s.push_str("}}}}");
+                        }
+                        col += stop - i;
+                        i = stop;
                     }
                     Some('{') if chars.get(i + 1) == Some(&'{') => {
                         s.push_str("{{");

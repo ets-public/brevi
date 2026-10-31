@@ -1,0 +1,12 @@
+store = {"a": "1"}
+fn run(k: str):
+  if store.has(k): store.remove(k) else: print("NOT FOUND")
+run("a")
+run("a")
+print(store.len())
+fn f(v: Json, first: bool) -> int:
+  n = if first: (match v:
+    Arr(xs) => xs.len()
+    _ => 0) else: 1
+  n
+print(f(json("[1,2]"), true))

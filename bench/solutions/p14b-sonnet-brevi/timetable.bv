@@ -1,0 +1,68 @@
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn hhmm(m: int) -> str:
+  h = m // 60
+  mm = m % 60
+  (if h < 10: "0" else: "") + str(h) + ":" + (if mm < 10: "0" else: "") + str(mm)
+
+names = []
+sts = []
+tms = []
+queries = []
+second = false
+for line in lines():
+  if line.trim() == "---":
+    second = true
+    continue
+  if line.trim().is_empty(): continue
+  w = line.words()
+  if second:
+    queries.push(w)
+  else:
+    names.push(w[0])
+    sts.push([w[i] for i in (1..w.len()).step(2)])
+    tms.push([mins(w[i]) for i in (2..(w.len() + 1)).step(2)])
+
+for q in queries:
+  src = q[0]
+  dst = q[1]
+  t0 = mins(q[2])
+  if src == dst:
+    print("{src} {dst} {q[2]} via -")
+    continue
+  st = {}
+  for t in 0..names.len():
+    for i in 0..sts[t].len():
+      if sts[t][i] == src and tms[t][i] >= t0:
+        st[(t, i)] = (1, names[t])
+  changed = true
+  while changed:
+    changed = false
+    for t in 0..names.len():
+      for i in 0..sts[t].len():
+        if not st.has((t, i)): continue
+        cur = st[(t, i)]
+        if i + 1 < sts[t].len():
+          if not st.has((t, i + 1)) or cur < st[(t, i + 1)]:
+            st[(t, i + 1)] = cur
+            changed = true
+        for t2 in 0..names.len():
+          if t2 == t: continue
+          for k in 0..sts[t2].len():
+            if sts[t2][k] == sts[t][i] and tms[t2][k] >= tms[t][i] + 5:
+              nv = (cur.0 + 1, cur.1 + ">" + names[t2])
+              if not st.has((t2, k)) or nv < st[(t2, k)]:
+                st[(t2, k)] = nv
+                changed = true
+  best = (100000, 0, "")
+  for t in 0..names.len():
+    for i in 1..sts[t].len():
+      if sts[t][i] == dst and st.has((t, i)):
+        c = (tms[t][i], st[(t, i)].0, st[(t, i)].1)
+        if c < best: best = c
+  if best.0 == 100000:
+    print("{src} {dst} unreachable")
+  else:
+    print("{src} {dst} {hhmm(best.0)} via {best.2}")

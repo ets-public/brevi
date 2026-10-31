@@ -1,0 +1,146 @@
+cells = {}
+memo = {}
+visiting = {}
+toks = []
+pos = 0
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn merge(a: int, b: int) -> int:
+  if a == 1 or b == 1:
+    return 1
+  if a == 2 or b == 2:
+    return 2
+  0
+
+fn cell_val(key: str) -> (int, int):
+  if memo.has(key):
+    return memo[key]
+  if visiting.has(key):
+    return (1, 0)
+  if not cells.has(key):
+    return (0, 0)
+  c = cells[key]
+  if not c.starts_with("="):
+    res0 = (0, c.int())
+    memo[key] = res0
+    return res0
+  visiting[key] = 1
+  saved_toks = toks
+  saved_pos = pos
+  toks = c.slice(1).replace(" ", "").re_list("[A-Z]+\d*|\d+|[-+*/():]")
+  pos = 0
+  res1 = expr()
+  toks = saved_toks
+  pos = saved_pos
+  visiting.remove(key)
+  memo[key] = res1
+  res1
+
+fn expr() -> (int, int):
+  acc = term()
+  while peek() == "+" or peek() == "-":
+    op = toks[pos]
+    pos += 1
+    rhs = term()
+    k = merge(acc.0, rhs.0)
+    v = if op == "+": acc.1 + rhs.1 else: acc.1 - rhs.1
+    acc = (k, v)
+  acc
+
+fn term() -> (int, int):
+  acc = factor()
+  while peek() == "*" or peek() == "/":
+    op = toks[pos]
+    pos += 1
+    rhs = factor()
+    k = merge(acc.0, rhs.0)
+    v = 0
+    if op == "*":
+      v = acc.1 * rhs.1
+    elif rhs.1 == 0:
+      if k == 0:
+        k = 2
+    else:
+      v = acc.1 / rhs.1
+    acc = (k, v)
+  acc
+
+fn colof(t: str) -> int = t.code() - 65
+
+fn rowof(t: str) -> int = t.slice(1).int()
+
+fn factor() -> (int, int):
+  t = peek()
+  if t == "-":
+    pos += 1
+    f = factor()
+    return (f.0, -f.1)
+  if t == "(":
+    pos += 1
+    e = expr()
+    pos += 1
+    return e
+  if t.is_digit():
+    pos += 1
+    return (0, t.int())
+  if not t.re_full("[A-Z]+").is_empty():
+    pos += 1
+    pos += 1
+    a = toks[pos]
+    pos += 2
+    b = toks[pos]
+    pos += 2
+    c1 = min(colof(a), colof(b))
+    c2 = max(colof(a), colof(b))
+    r1 = min(rowof(a), rowof(b))
+    r2 = max(rowof(a), rowof(b))
+    k = 0
+    vals = []
+    for cc in c1..c2 + 1:
+      for rr in r1..r2 + 1:
+        x = cell_val((65 + cc).char() + str(rr))
+        k = merge(k, x.0)
+        vals.push(x.1)
+    v = 0
+    if t == "SUM":
+      v = vals.sum()
+    elif t == "MIN":
+      v = vals.min().or(0)
+    else:
+      v = vals.max().or(0)
+    return (k, v)
+  pos += 1
+  cell_val(t)
+
+maxc = 0
+maxr = 0
+for line in lines():
+  eq = line.find("=")
+  if eq < 0:
+    continue
+  key = line.slice(0, eq).trim()
+  content = line.slice(eq + 1).trim()
+  cells[key] = content
+  for m in (key + " " + content).re_list("[A-Z]\d+"):
+    maxc = max(maxc, colof(m))
+    maxr = max(maxr, rowof(m))
+hdr = []
+for cc in 0..maxc + 1:
+  hdr.push((65 + cc).char())
+print("\t" + "\t".join(hdr))
+for rr in 1..maxr + 1:
+  row = [str(rr)]
+  for cc in 0..maxc + 1:
+    key = (65 + cc).char() + str(rr)
+    if not cells.has(key):
+      row.push("")
+    else:
+      x = cell_val(key)
+      if x.0 == 1:
+        row.push("#CYCLE")
+      elif x.0 == 2:
+        row.push("#DIV0")
+      else:
+        row.push(str(x.1))
+  print("\t".join(row))

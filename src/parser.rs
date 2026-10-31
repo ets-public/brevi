@@ -761,6 +761,23 @@ impl Parser {
             }
             Tok::Kw("match") => {
                 let subject = self.expr()?;
+                // Inside brackets the arms are not indented into a block: `(match v: A => 1  _ => 0)`.
+                if self.is_sym(":") {
+                    self.pos += 1;
+                    let mut arms = Vec::new();
+                    self.skip_seps();
+                    while !self.is_sym(")") && !self.is_sym("]") && self.pos < self.toks.len() {
+                        let p = self.pat()?;
+                        self.expect_sym("=>")?;
+                        let body = self.expr()?;
+                        arms.push((p, body));
+                        if self.is_sym(",") {
+                            self.pos += 1;
+                        }
+                        self.skip_seps();
+                    }
+                    return Ok(Expr::Match(Box::new(subject), arms));
+                }
                 self.expect_sym("{")?;
                 let mut arms = Vec::new();
                 self.skip_seps();

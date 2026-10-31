@@ -1,0 +1,90 @@
+enum Node:
+  Lit(s: str)
+  Var(e: str)
+  Each(name: str, body: [Node])
+  Cond(name: str, yes: [Node], no: [Node])
+
+fn parse(ts: [str], p0: int) -> ([Node], int, str):
+  nodes = []
+  p = p0
+  while p < ts.len():
+    t = ts[p]
+    if t.starts_with('{{') and t.ends_with('}}'):
+      inner = t.slice(2, -2).trim()
+      if inner.starts_with("#each "):
+        body, q, term = parse(ts, p + 1)
+        nodes.push(Each(inner.slice(6).trim(), body))
+        p = q
+      elif inner.starts_with("#if "):
+        yes, q, term = parse(ts, p + 1)
+        no = []
+        p = q
+        if term == "else":
+          no, q2, term2 = parse(ts, q)
+          p = q2
+        nodes.push(Cond(inner.slice(4).trim(), yes, no))
+      elif inner == "/each" or inner == "/if" or inner == "else":
+        return (nodes, p + 1, inner)
+      else:
+        nodes.push(Var(inner))
+        p += 1
+    else:
+      nodes.push(Lit(t))
+      p += 1
+  (nodes, p, "")
+
+fn resolve(name: str, ctx: [Json], idxs: [int]) -> Json:
+  if name == ".": return ctx.last()
+  if name == "@index": return idxs.last().json()
+  parts = name.split(".")
+  for i in 0..ctx.len():
+    sc = ctx[ctx.len() - 1 - i]
+    if sc.has(parts[0]):
+      v = sc
+      for part in parts:
+        v = v[part]
+      return v
+  json("null")
+
+fn evalvar(e: str, ctx: [Json], idxs: [int]) -> str:
+  parts = e.split("|")
+  v = resolve(parts[0].trim(), ctx, idxs)
+  for f in parts.skip(1):
+    f = f.trim()
+    if f == "upper": v = v.text().upper().json()
+    elif f == "lower": v = v.text().lower().json()
+    elif f == "len":
+      match v:
+        Arr(xs) => v = xs.len().json()
+        _ => v = v.text().len().json()
+    elif f.starts_with("default:"):
+      if v.text().is_empty(): v = f.slice(8).json()
+  v.text()
+
+fn render(nodes: [Node], ctx: [Json], idxs: [int]) -> str:
+  out = ""
+  for n in nodes:
+    match n:
+      Lit(s) => out += s
+      Var(e) => out += evalvar(e, ctx, idxs)
+      Each(name, body) =>
+        arr = resolve(name, ctx, idxs)
+        match arr:
+          Arr(xs) =>
+            k = 0
+            for el in xs:
+              out += render(body, ctx + [el], idxs + [k])
+              k += 1
+          _ => out += ""
+      Cond(name, yes, no) =>
+        v = resolve(name, ctx, idxs)
+        if v: out += render(yes, ctx, idxs)
+        else: out += render(no, ctx, idxs)
+  out
+
+ls = lines()
+root = json(ls[0])
+tpl = "\n".join(ls.skip(1))
+ts = tpl.re_list('[{][{][^}]*[}][}]|[^{]+|[{]')
+nodes, _, _ = parse(ts, 0)
+print(render(nodes, [root], [0]))

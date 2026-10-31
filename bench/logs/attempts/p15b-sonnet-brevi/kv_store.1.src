@@ -1,0 +1,49 @@
+data = {}
+stack = []
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  cmd = w[0]
+  if cmd == "SET" and w.len() >= 3:
+    data[w[1]] = w[2]
+  elif cmd == "GET" and w.len() >= 2:
+    if data.has(w[1]):
+      print(data[w[1]])
+    else:
+      print("NULL")
+  elif cmd == "DEL" and w.len() >= 2:
+    if data.has(w[1]):
+      data.remove(w[1])
+    else:
+      print("NOT FOUND")
+  elif cmd == "INCR" and w.len() >= 3:
+    cur = if data.has(w[1]): data[w[1]] else: "0"
+    if cur.re_full("-?\d+").is_empty():
+      print("ERR not an integer")
+    else:
+      nv = cur.int() + w[2].int()
+      data[w[1]] = str(nv)
+      print(nv)
+  elif cmd == "COUNT" and w.len() >= 2:
+    print(data.values().count(v => v == w[1]))
+  elif cmd == "KEYS" and w.len() >= 2:
+    ks = [k for k in data.keys() if k.starts_with(w[1])]
+    if ks:
+      print(" ".join(ks.sort()))
+    else:
+      print("(empty)")
+  elif cmd == "BEGIN":
+    stack.push(data)
+  elif cmd == "ROLLBACK":
+    if stack:
+      data = stack.pop()
+    else:
+      print("NO TRANSACTION")
+  elif cmd == "COMMIT":
+    if stack:
+      stack = []
+    else:
+      print("NO TRANSACTION")
+  else:
+    print("ERR unknown command")

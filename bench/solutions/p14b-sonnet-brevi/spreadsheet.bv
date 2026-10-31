@@ -1,0 +1,121 @@
+enum Expr:
+  Num(n: int)
+  Ref(name: str)
+  Bin(op: str, a: Expr, b: Expr)
+  Neg(e: Expr)
+  Fn(name: str, a: str, b: str)
+
+defs = {}
+state = {}
+codes = {}
+vals = {}
+
+fn parse_primary(ts: [str], i: int) -> (Expr, int):
+  t = ts[i]
+  if t == "(":
+    e, j = parse_expr(ts, i + 1)
+    return (e, j + 1)
+  if t == "-":
+    e, j = parse_primary(ts, i + 1)
+    return (Neg(e), j)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    return (Fn(t, ts[i + 2], ts[i + 4]), i + 6)
+  if t.re_full("\d+"):
+    return (Num(t.int()), i + 1)
+  (Ref(t), i + 1)
+
+fn parse_term(ts: [str], i: int) -> (Expr, int):
+  l, j = parse_primary(ts, i)
+  while j < ts.len() and (ts[j] == "*" or ts[j] == "/"):
+    op = ts[j]
+    r, j2 = parse_primary(ts, j + 1)
+    l = Bin(op, l, r)
+    j = j2
+  (l, j)
+
+fn parse_expr(ts: [str], i: int) -> (Expr, int):
+  l, j = parse_term(ts, i)
+  while j < ts.len() and (ts[j] == "+" or ts[j] == "-"):
+    op = ts[j]
+    r, j2 = parse_term(ts, j + 1)
+    l = Bin(op, l, r)
+    j = j2
+  (l, j)
+
+fn eval(e: Expr) -> (int, int) = match e:
+  Num(n) => (0, n)
+  Ref(name) => cell(name)
+  Neg(x) =>
+    c, v = eval(x)
+    (c, -v)
+  Bin(op, a, b) =>
+    ca, va = eval(a)
+    cb, vb = eval(b)
+    c = max(ca, cb)
+    if op == "+": (c, va + vb)
+    elif op == "-": (c, va - vb)
+    elif op == "*": (c, va * vb)
+    elif vb == 0: (max(c, 1), 0)
+    else: (c, va / vb)
+  Fn(name, a, b) =>
+    c1 = a.slice(0, 1).code()
+    c2 = b.slice(0, 1).code()
+    r1 = a.slice(1).int()
+    r2 = b.slice(1).int()
+    code = 0
+    xs = []
+    for cc in min(c1, c2)..(max(c1, c2) + 1):
+      for rr in min(r1, r2)..(max(r1, r2) + 1):
+        c, v = cell(cc.char() + str(rr))
+        code = max(code, c)
+        xs.push(v)
+    if name == "SUM": (code, xs.sum())
+    elif name == "MIN": (code, xs.min())
+    else: (code, xs.max())
+
+fn cell(name: str) -> (int, int):
+  if state[name] == 2: return (codes[name], vals[name])
+  if state[name] == 1: return (2, 0)
+  if not defs.has(name): return (0, 0)
+  state[name] = 1
+  c = defs[name]
+  r = (0, 0)
+  if c.starts_with("="):
+    ex, _ = parse_expr(c.slice(1).re_list("\d+|[A-Z]+\d+|[A-Z]+|[-+*/():]"), 0)
+    r = eval(ex)
+  else:
+    r = (0, c.int())
+  state[name] = 2
+  codes[name] = r.0
+  vals[name] = r.1
+  r
+
+maxc = 0
+maxr = 0
+fn note(ref: str):
+  cc = ref.slice(0, 1).code() - 64
+  rr = ref.slice(1).int()
+  if cc > maxc: maxc = cc
+  if rr > maxr: maxr = rr
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  i = line.find("=")
+  name = line.slice(0, i).trim()
+  content = line.slice(i + 1).replace(" ", "")
+  defs[name] = content
+  note(name)
+  for t in content.re_list("[A-Z]+\d+"):
+    if t.re_full("[A-Z]\d+"): note(t)
+
+print("\t" + "\t".join([(64 + c).char() for c in 1..(maxc + 1)]))
+for r in 1..(maxr + 1):
+  row = [str(r)]
+  for c in 1..(maxc + 1):
+    nm = (64 + c).char() + str(r)
+    if defs.has(nm):
+      cd, v = cell(nm)
+      row.push(if cd == 2: "#CYCLE" elif cd == 1: "#DIV0" else: str(v))
+    else:
+      row.push("")
+  print("\t".join(row))

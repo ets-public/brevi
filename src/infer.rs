@@ -978,6 +978,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             cx.flat_env(body, &mut env);
             let mut ts = Vec::new();
             cx.returned(body, &env, &mut ts);
+            let has_return = !ts.is_empty();
             let tail = match body {
                 Expr::Block(_, None) => None,
                 Expr::Block(_, Some(t)) => Some(t.as_ref()),
@@ -997,6 +998,8 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             let t = ts.into_iter().fold(Hole, merge);
             match to_ast(&t) {
                 Some(t) => found.push((k, t)),
+                // No `return` and a last line of unclear type (`if c: print(x) else: m.remove(k)`): no value, as in Python.
+                None if last && !has_return && matches!(tail, Some(Expr::If(..) | Expr::Match(..))) => found.push((k, Ty::Unit)),
                 None if last => {
                     let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out what {name} returns"));
                     d.fix = Some(format!("write the return type: fn {name}(...) -> TYPE"));

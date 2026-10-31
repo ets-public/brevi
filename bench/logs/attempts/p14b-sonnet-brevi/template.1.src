@@ -1,0 +1,110 @@
+ls = lines()
+root = json(ls[0])
+tmpl = "\n".join(ls.skip(1))
+toks = []
+parts = tmpl.split('{{')
+toks.push((false, parts[0]))
+for p in parts.skip(1):
+  k = p.find('}}')
+  toks.push((true, p.slice(0, k)))
+  toks.push((false, p.slice(k + 2)))
+
+fn lookup(name: str, scope: [(Json, int)]) -> Json:
+  if name == ".": return scope[0].0
+  if name == "@index": return scope[0].1.json()
+  segs = name.split(".")
+  for sc in scope:
+    if sc.0.has(segs[0]):
+      cur = sc.0
+      for s in segs: cur = cur[s]
+      return cur
+  json("null")
+
+fn truthy(v: Json) -> bool = match v:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => not s.is_empty()
+  Arr(xs) => not xs.is_empty()
+  Obj(m) => true
+
+fn value(tag: str, scope: [(Json, int)]) -> str:
+  fs = tag.split("|")
+  v = lookup(fs[0].trim(), scope)
+  cur = v.text()
+  isnull = v.is_null()
+  first = true
+  for f in fs.skip(1):
+    f = f.trim()
+    if f == "upper": cur = cur.upper()
+    elif f == "lower": cur = cur.lower()
+    elif f == "len":
+      n = if first: (match v:
+        Arr(xs) => xs.len()
+        _ => cur.len()
+      ) else: cur.len()
+      cur = str(n)
+      isnull = false
+    elif f.starts_with("default:"):
+      if isnull or cur.is_empty():
+        cur = f.slice(8)
+        isnull = false
+    first = false
+  cur
+
+fn closer(lo: int, hi: int, open: str, close: str) -> int:
+  depth = 0
+  for i in lo..hi:
+    t = toks[i]
+    if t.0:
+      s = t.1.trim()
+      if s.starts_with("#" + open + " "): depth += 1
+      elif s == "/" + close:
+        if depth == 0: return i
+        depth -= 1
+  -1
+
+fn elsepos(lo: int, hi: int) -> int:
+  depth = 0
+  for i in lo..hi:
+    t = toks[i]
+    if t.0:
+      s = t.1.trim()
+      if s.starts_with("#if "): depth += 1
+      elif s == "/if": depth -= 1
+      elif s == "else" and depth == 0: return i
+  -1
+
+fn render(lo: int, hi: int, scope: [(Json, int)]) -> str:
+  out = ""
+  i = lo
+  while i < hi:
+    t = toks[i]
+    if not t.0:
+      out += t.1
+      i += 1
+      continue
+    s = t.1.trim()
+    if s.starts_with("#each "):
+      c = closer(i + 1, hi, "each", "each")
+      arr = lookup(s.slice(6).trim(), scope)
+      k = 0
+      for el in arr:
+        out += render(i + 1, c, [(el, k)] + scope)
+        k += 1
+      i = c + 1
+    elif s.starts_with("#if "):
+      c = closer(i + 1, hi, "if", "if")
+      e = elsepos(i + 1, c)
+      v = lookup(s.slice(4).trim(), scope)
+      if truthy(v):
+        out += render(i + 1, if e < 0: c else: e, scope)
+      elif e >= 0:
+        out += render(e + 1, c, scope)
+      i = c + 1
+    else:
+      out += value(s, scope)
+      i += 1
+  out
+
+print(render(0, toks.len(), [(root, 0)]))
