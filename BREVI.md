@@ -56,7 +56,7 @@ Strings interpolate `"{name} is {age}, {xs.len()} items"` and take Python format
 ## Collections
 `xs[-1]`, slices `xs[a:b]` `s[1:]`, `xs[i] = v`, `m[k] += 1`, `m[k].push(x)`, `books[id].shelf -= 1` change the stored item (`b = books[id]` is a copy). A missing map key reads as the type's zero; `m.has(k)` tells.
 Empty values `xs = []`, `m = {}`, `h = heap()` need no type.
-Comprehensions, `len sum min max sorted any all` and tuple map keys (`dist[(x, y)]`) work as in Python.
+Comprehensions (`[*xs for xs in xss]` joins lists), `len sum min max sorted any all` and tuple map keys (`dist[(x, y)]`) work as in Python.
 Lambdas: `x => x * 2`, `(a, b) => a + b` (also unpacks a tuple item).
 
 ## Methods
