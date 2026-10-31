@@ -1,0 +1,21 @@
+test 2 failed
+input:
+X Y 1-1
+Y X 01-1
+X Y -1-0
+expected:
+line 2: bad line
+line 3: bad line
+Pos Team P W D L GF GA GD Pts
+1 X 1 0 1 0 1 1 0 1
+2 Y 1 0 1 0 1 1 0 1
+most goals: X (1)
+best defence: X (1)
+got:
+line 3: bad line
+Pos Team P W D L GF GA GD Pts
+1 X 2 0 2 0 2 2 0 2
+2 Y 2 0 2 0 2 2 0 2
+most goals: X (2)
+best defence: X (2)
+passed 4/5

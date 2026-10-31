@@ -1,0 +1,13 @@
+line 2: duplicate ID
+line 3: bad line
+line 5: too many hours
+line 6: unknown ID
+line 7: bad line
+line 9: not hourly
+line 10: bad line
+line 12: bad line
+payroll 2026-02
+  a1 Zoe gross 1250.00 tax 50.00 net 1200.00
+  s1 Sam gross 760.08 tax 0.00 net 760.08
+  total gross 2010.08 tax 50.00 net 1960.08
+line 15: bad line

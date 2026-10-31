@@ -1,0 +1,8 @@
+{"run":"y1-haiku-brevi","lang":"brevi","task":"grep_lite","code_tok":1741,"patch_tok":1741,"out_tok":133,"compiled":true,"pass":2,"total":5,"tok":"exact"}
+{"run":"y1-haiku-brevi","lang":"brevi","task":"grep_lite","code_tok":1756,"patch_tok":55,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y1-haiku-brevi","lang":"brevi","task":"payroll","code_tok":1687,"patch_tok":1687,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y1-haiku-brevi","lang":"brevi","task":"league","code_tok":1327,"patch_tok":1327,"out_tok":227,"compiled":true,"pass":4,"total":5,"tok":"exact"}
+{"run":"y1-haiku-brevi","lang":"brevi","task":"league","code_tok":1345,"patch_tok":82,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y1-haiku-brevi","lang":"brevi","task":"crafting","code_tok":1389,"patch_tok":1389,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y1-haiku-brevi","lang":"brevi","task":"tiny_cpu","code_tok":2350,"patch_tok":2350,"out_tok":7,"compiled":true,"pass":6,"total":6,"tok":"exact"}
+{"run":"y1-haiku-brevi","lang":"brevi","task":"parking","code_tok":1727,"patch_tok":1727,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}

@@ -1,0 +1,74 @@
+st = {}
+ms = []
+played = {}
+
+fn pts(t: str) -> int = st[t][1] * 3 + st[t][2]
+fn gd(t: str) -> int = st[t][4] - st[t][5]
+
+fn add(t: str, gf: int, ga: int):
+  if not st.has(t): st[t] = [0, 0, 0, 0, 0, 0]
+  st[t][0] += 1
+  if gf > ga: st[t][1] += 1
+  elif gf == ga: st[t][2] += 1
+  else: st[t][3] += 1
+  st[t][4] += gf
+  st[t][5] += ga
+
+fn proc(w: [str]):
+  if w.len() != 3: fail("bad line")
+  m = w[2].re_full("(0|[1-9]\d*)-(0|[1-9]\d*)")
+  if m.is_empty(): fail("bad line")
+  if w[0] == w[1]: fail("same team")
+  if played.has((w[0], w[1])): fail("already played")
+  hg = m[1].int()
+  ag = m[2].int()
+  played[(w[0], w[1])] = 1
+  add(w[0], hg, ag)
+  add(w[1], ag, hg)
+  ms.push((w[0], w[1], hg, ag))
+
+fn h2h(t: str, grp: [str]) -> int:
+  p = 0
+  for m in ms:
+    if m.0 in grp and m.1 in grp:
+      if m.0 == t:
+        p += if m.2 > m.3: 3 elif m.2 == m.3: 1 else: 0
+      elif m.1 == t:
+        p += if m.3 > m.2: 3 elif m.2 == m.3: 1 else: 0
+  p
+
+ln = 0
+for line in lines():
+  ln += 1
+  w = line.words()
+  if w.is_empty(): continue
+  match proc(w):
+    Ok(_) => ln += 0
+    Err(m) => print("line {ln}: {m}")
+
+if st.is_empty():
+  print("no matches")
+else:
+  base = st.keys().sort_by(t => (-pts(t), -gd(t), -st[t][4]))
+  order = []
+  i = 0
+  while i < base.len():
+    j = i + 1
+    while j < base.len() and pts(base[j]) == pts(base[i]) and gd(base[j]) == gd(base[i]) and st[base[j]][4] == st[base[i]][4]: j += 1
+    grp = base[i:j]
+    g2 = grp.sort_by(t => (-h2h(t, grp), t))
+    for t in g2: order.push(t)
+    i = j
+  print("Pos Team P W D L GF GA GD Pts")
+  for k, t in order.enumerate():
+    s = st[t]
+    d = gd(t)
+    ds = if d > 0: "+{d}" else: "{d}"
+    print("{k + 1} {t} {s[0]} {s[1]} {s[2]} {s[3]} {s[4]} {s[5]} {ds} {pts(t)}")
+  mg = order[0]
+  bd = order[0]
+  for t in order:
+    if st[t][4] > st[mg][4]: mg = t
+    if st[t][5] < st[bd][5]: bd = t
+  print("most goals: {mg} ({st[mg][4]})")
+  print("best defence: {bd} ({st[bd][5]})")

@@ -1,0 +1,12 @@
+SHOW
+STOCK gear 2
+RECIPE gear 3: bolt 2, plate 1
+RECIPE plate 2: ore 3
+RECIPE bot 1: gear 4, plate 1, bolt 1
+STOCK bolt 20
+STOCK ore 3
+CRAFT bot 1
+STOCK ore 6
+CRAFT bot 1
+SHOW
+CRAFT bot 0

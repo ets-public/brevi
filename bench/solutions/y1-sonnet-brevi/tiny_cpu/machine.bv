@@ -1,0 +1,68 @@
+use "parse.bv"
+
+fn val(regs: [int], isr: bool, n: int) -> int = if isr: regs[n] else: n
+
+fn run(prog: [Ins], inp: [int]) -> [str]:
+  regs = [0].repeat(8)
+  ds = []
+  cs = []
+  out = []
+  err = ""
+  pc = 0
+  steps = 0
+  ip = 0
+  halted = false
+  while pc < prog.len() and not halted:
+    if steps >= 10000:
+      err = "error: too many steps"
+      break
+    ins = prog[pc]
+    steps += 1
+    npc = pc + 1
+    op = ins.op
+    if op == "MOV": regs[ins.x] = val(regs, ins.yr, ins.y)
+    elif op == "ADD": regs[ins.x] += val(regs, ins.yr, ins.y)
+    elif op == "SUB": regs[ins.x] -= val(regs, ins.yr, ins.y)
+    elif op == "MUL": regs[ins.x] = regs[ins.x] * val(regs, ins.yr, ins.y)
+    elif op == "DIV" or op == "MOD":
+      d = val(regs, ins.yr, ins.y)
+      if d == 0:
+        err = "error line {ins.line}: division by zero"
+        break
+      if op == "DIV": regs[ins.x] = regs[ins.x] / d
+      else: regs[ins.x] = regs[ins.x] % d
+    elif op == "JMP": npc = ins.target
+    elif op == "JZ":
+      if regs[ins.x] == 0: npc = ins.target
+    elif op == "JNZ":
+      if regs[ins.x] != 0: npc = ins.target
+    elif op == "JLT":
+      if val(regs, ins.xr, ins.x) < val(regs, ins.yr, ins.y): npc = ins.target
+    elif op == "CALL":
+      cs.push(pc + 1)
+      npc = ins.target
+    elif op == "RET":
+      if cs.is_empty():
+        err = "error line {ins.line}: stack empty"
+        break
+      npc = cs.pop()
+    elif op == "PUSH": ds.push(val(regs, ins.xr, ins.x))
+    elif op == "POP":
+      if ds.is_empty():
+        err = "error line {ins.line}: stack empty"
+        break
+      regs[ins.x] = ds.pop()
+    elif op == "READ":
+      if ip >= inp.len():
+        err = "error line {ins.line}: no input"
+        break
+      regs[ins.x] = inp[ip]
+      ip += 1
+    elif op == "PRINT": out.push(str(val(regs, ins.xr, ins.x)))
+    elif op == "HALT": halted = true
+    pc = npc
+  if err != "": out.push(err)
+  out.push("steps {steps}")
+  rs = ["r{i}={regs[i]}" for i in 0..8 if regs[i] != 0]
+  out.push(if rs.is_empty(): "regs none" else: "regs " + rs.join(" "))
+  out

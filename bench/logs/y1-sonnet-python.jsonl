@@ -1,0 +1,7 @@
+{"run":"y1-sonnet-python","lang":"python","task":"grep_lite","code_tok":1472,"patch_tok":1472,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y1-sonnet-python","lang":"python","task":"payroll","code_tok":1338,"patch_tok":1338,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y1-sonnet-python","lang":"python","task":"league","code_tok":892,"patch_tok":892,"out_tok":227,"compiled":true,"pass":4,"total":5,"tok":"exact"}
+{"run":"y1-sonnet-python","lang":"python","task":"league","code_tok":910,"patch_tok":96,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y1-sonnet-python","lang":"python","task":"crafting","code_tok":1197,"patch_tok":1197,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y1-sonnet-python","lang":"python","task":"tiny_cpu","code_tok":2307,"patch_tok":2307,"out_tok":7,"compiled":true,"pass":6,"total":6,"tok":"exact"}
+{"run":"y1-sonnet-python","lang":"python","task":"parking","code_tok":1679,"patch_tok":1679,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}

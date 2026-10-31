@@ -1,0 +1,26 @@
+fn dayn(d: str) -> int = date(d).days
+
+fn money(c: int) -> str = "{c // 100}.{c % 100:02d}"
+
+fn stamp(d: str, t: str) -> int:
+  dd = dayn(d)
+  hh = t.slice(0, 2).int()
+  mm = t.slice(3, 5).int()
+  dd * 1440 + hh * 60 + mm
+
+fn valid_stamp(d: str, t: str) -> bool:
+  if d.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return false
+  if t.re_full("\d{2}:\d{2}").is_empty(): return false
+  if t.slice(0, 2).int() > 23 or t.slice(3, 5).int() > 59: return false
+  dayn(d).or(-999999999) != -999999999
+
+fn fee(ty: str, d: int) -> int:
+  rate = if ty == "car": 250 elif ty == "moto": 120 else: 400
+  cap = if ty == "car": 2000 elif ty == "moto": 800 else: 3000
+  if d <= 15: return 0
+  days = d // 1440
+  rest = d % 1440
+  hours = (rest + 59) // 60
+  days * cap + min(hours * rate, cap)
+
+fn stay_fmt(d: int) -> str = "{d // 60}h{d % 60:02d}m"

@@ -1,0 +1,68 @@
+fn is_digits(s: str) -> bool:
+  if s.is_empty():
+    return false
+  for c in s.chars():
+    if not c.is_digit():
+      return false
+  return true
+
+fn valid_date(s: str) -> bool:
+  cs = s.chars()
+  if cs.len() != 10 or cs[4] != "-" or cs[7] != "-":
+    return false
+  if not is_digits(s.slice(0, 4)) or not is_digits(s.slice(5, 7)) or not is_digits(s.slice(8, 10)):
+    return false
+  y = s.slice(0, 4).int()
+  mo = s.slice(5, 7).int()
+  dd = s.slice(8, 10).int()
+  if mo < 1 or mo > 12 or dd < 1:
+    return false
+  leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+  dim = 31
+  if mo == 2:
+    dim = 28
+    if leap:
+      dim = 29
+  elif mo == 4 or mo == 6 or mo == 9 or mo == 11:
+    dim = 30
+  return dd <= dim
+
+fn valid_time(s: str) -> bool:
+  if s.len() != 5 or s.slice(2, 3) != ":":
+    return false
+  if not is_digits(s.slice(0, 2)) or not is_digits(s.slice(3, 5)):
+    return false
+  return s.slice(0, 2).int() <= 23 and s.slice(3, 5).int() <= 59
+
+fn to_abs(day: str, clock: str) -> int:
+  return date(day).days * 1440 + clock.slice(0, 2).int() * 60 + clock.slice(3, 5).int()
+
+fn fee_cents(vtype: str, d: int) -> int:
+  if d <= 15:
+    return 0
+  rate = 250
+  cap = 2000
+  if vtype == "moto":
+    rate = 120
+    cap = 800
+  elif vtype == "van":
+    rate = 400
+    cap = 3000
+  days = d // 1440
+  rest = d % 1440
+  hours = (rest + 59) // 60
+  part = hours * rate
+  if part > cap:
+    part = cap
+  return days * cap + part
+
+fn pad2(n: int) -> str:
+  if n < 10:
+    return "0" + str(n)
+  return str(n)
+
+fn fmt_money(c: int) -> str:
+  return str(c // 100) + "." + pad2(c % 100)
+
+fn fmt_stay(d: int) -> str:
+  return str(d // 60) + "h" + pad2(d % 60) + "m"

@@ -1,0 +1,117 @@
+fn pts_of(x: int, y: int) -> int:
+  if x > y: return 3
+  if x == y: return 1
+  return 0
+
+fn order_block(block: [str], games: {(str, str): (int, int)}) -> [str]:
+  scored = []
+  for t in block:
+    s = 0
+    for o in block:
+      if o == t: continue
+      if games.has((t, o)):
+        g = games[(t, o)]
+        s += pts_of(g.0, g.1)
+      if games.has((o, t)):
+        g = games[(o, t)]
+        s += pts_of(g.1, g.0)
+    scored.push((-s, t))
+  scored.sort()
+  return [p.1 for p in scored]
+
+fn main():
+  lines = stdin().lines()
+  games = {}
+  teams = []
+  pl = {}
+  wn = {}
+  dr = {}
+  lo = {}
+  gf = {}
+  ga = {}
+  for idx in range(lines.len()):
+    n = idx + 1
+    w = lines[idx].words()
+    if w.is_empty(): continue
+    if w.len() != 3 or w[2].re_full('\d+-\d+').is_empty():
+      print("line {n}: bad line")
+      continue
+    h = w[0]
+    a = w[1]
+    sc = w[2].split("-")
+    hg = sc[0].int()
+    ag = sc[1].int()
+    if h == a:
+      print("line {n}: same team")
+      continue
+    if games.has((h, a)):
+      print("line {n}: already played")
+      continue
+    games[(h, a)] = (hg, ag)
+    if not teams.contains(h): teams.push(h)
+    if not teams.contains(a): teams.push(a)
+    pl[h] += 1
+    pl[a] += 1
+    gf[h] += hg
+    ga[h] += ag
+    gf[a] += ag
+    ga[a] += hg
+    if hg > ag:
+      wn[h] += 1
+      lo[a] += 1
+    elif hg < ag:
+      wn[a] += 1
+      lo[h] += 1
+    else:
+      dr[h] += 1
+      dr[a] += 1
+  if teams.is_empty():
+    print("no matches")
+    return
+  rows = []
+  for t in teams:
+    pts = 3 * wn[t] + dr[t]
+    gdv = gf[t] - ga[t]
+    rows.push((-pts, -gdv, -gf[t], t))
+  rows.sort()
+  table = []
+  nr = rows.len()
+  i = 0
+  while i < nr:
+    j = i + 1
+    while j < nr and rows[j].0 == rows[i].0 and rows[j].1 == rows[i].1 and rows[j].2 == rows[i].2:
+      j += 1
+    block = []
+    for k in range(i, j):
+      block.push(rows[k].3)
+    if block.len() > 1: block = order_block(block, games)
+    for t in block: table.push(t)
+    i = j
+  print("Pos Team P W D L GF GA GD Pts")
+  pos = 0
+  for t in table:
+    pos += 1
+    pv = pl[t]
+    wv = wn[t]
+    dv = dr[t]
+    lv = lo[t]
+    gfv = gf[t]
+    gav = ga[t]
+    gdv = gfv - gav
+    gds = "+" + str(gdv) if gdv > 0 else str(gdv)
+    ptv = 3 * wv + dv
+    print("{pos} {t} {pv} {wv} {dv} {lv} {gfv} {gav} {gds} {ptv}")
+  bm = ""
+  bmv = -1
+  for t in table:
+    if gf[t] > bmv:
+      bmv = gf[t]
+      bm = t
+  bd = ""
+  bdv = -1
+  for t in table:
+    if bd == "" or ga[t] < bdv:
+      bdv = ga[t]
+      bd = t
+  print("most goals: {bm} ({bmv})")
+  print("best defence: {bd} ({bdv})")

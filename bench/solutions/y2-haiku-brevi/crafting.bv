@@ -1,0 +1,127 @@
+fn whole(s: str) -> int:
+  if s.is_empty():
+    return -1
+  if s.len() > 1 and s.slice(0, 1) == "0":
+    return -1
+  v = 0
+  for c in s.chars():
+    if not c.is_digit():
+      return -1
+    v = v * 10 + c.digit()
+  return v
+
+fn parse_ings(right: str, item: str) -> [(str, int)]:
+  out = []
+  names = []
+  for part in right.split(","):
+    pw = part.words()
+    if pw.len() != 2 or whole(pw[1]) < 1 or pw[0] in names or pw[0] == item:
+      return []
+    names.push(pw[0])
+    out.push((pw[0], whole(pw[1])))
+  return out
+
+fn reaches(x: str, target: str, ri: {str: [(str, int)]}) -> bool:
+  if x == target:
+    return true
+  if not ri.has(x):
+    return false
+  for p in ri[x]:
+    if reaches(p.0, target, ri):
+      return true
+  return false
+
+fn craft(item: str, qty: int, mut st: {str: int}, mut sh: {str: int}, mut bt: {str: int}, rn: {str: int}, ri: {str: [(str, int)]}):
+  n = rn[item]
+  b = (qty + n - 1) // n
+  bt[item] += b
+  for ing in ri[item]:
+    need = b * ing.1
+    have = st[ing.0]
+    take = have
+    if need < have:
+      take = need
+    st[ing.0] -= take
+    need -= take
+    if need > 0:
+      if rn.has(ing.0):
+        craft(ing.0, need, st, sh, bt, rn, ri)
+        st[ing.0] -= need
+      else:
+        sh[ing.0] += need
+  st[item] += b * n
+
+fn main():
+  st = {}
+  rn = {}
+  ri = {}
+  n = 0
+  for line in lines():
+    n += 1
+    w = line.words()
+    if w.is_empty():
+      continue
+    if w[0] == "STOCK":
+      if w.len() != 3 or whole(w[2]) < 1:
+        print("line {n}: bad line")
+      else:
+        st[w[1]] += whole(w[2])
+    elif w[0] == "RECIPE":
+      (left, sep, right) = line.partition(":")
+      lw = left.words()
+      nn = -1
+      item = ""
+      if lw.len() > 1:
+        item = lw[1]
+      if sep != "" and lw.len() == 3 and lw[0] == "RECIPE":
+        nn = whole(lw[2])
+      ings = parse_ings(right, item)
+      if sep == "" or nn < 1 or ings.is_empty():
+        print("line {n}: bad line")
+      elif rn.has(lw[1]):
+        print("line {n}: duplicate recipe")
+      else:
+        cyc = false
+        for ing in ings:
+          if reaches(ing.0, lw[1], ri):
+            cyc = true
+        if cyc:
+          print("line {n}: cycle")
+        else:
+          rn[lw[1]] = nn
+          ri[lw[1]] = ings
+    elif w[0] == "CRAFT":
+      if w.len() != 3 or whole(w[2]) < 1:
+        print("line {n}: bad line")
+      elif not rn.has(w[1]):
+        print("line {n}: no recipe")
+      else:
+        q = whole(w[2])
+        s2 = st
+        sh = {}
+        bt = {}
+        craft(w[1], q, s2, sh, bt, rn, ri)
+        if sh.is_empty():
+          st = s2
+          parts = []
+          for k in sorted(bt.keys()):
+            parts.push(k + " " + str(bt[k]))
+          print("crafted " + str(q) + " " + w[1] + " (" + ", ".join(parts) + ")")
+        else:
+          parts = []
+          for k in sorted(sh.keys()):
+            parts.push(k + " " + str(sh[k]))
+          print("line {n}: short " + ", ".join(parts))
+    elif w[0] == "SHOW" and w.len() == 1:
+      shown = []
+      for k in sorted(st.keys()):
+        if st[k] > 0:
+          shown.push("  " + k + " " + str(st[k]))
+      if shown.is_empty():
+        print("stock: empty")
+      else:
+        print("stock:")
+        for s in shown:
+          print(s)
+    else:
+      print("line {n}: bad line")

@@ -1,0 +1,4 @@
+top:
+    ADD r0, 1
+    JMP top
+---

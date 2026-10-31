@@ -1,0 +1,57 @@
+use "garage.bv"
+use "billing.bv"
+
+fn valid_dt(d: str, t: str) -> bool:
+  if d.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return False
+  if t.re_full("([01]\d|2[0-3]):[0-5]\d").is_empty(): return False
+  match date(d):
+    Ok(x) => str(x) == d
+    Err(_) => False
+
+fn main():
+  all = lines()
+  h = all[0].words()
+  g = new_garage(h[2].int(), h[4].int(), h[6].int())
+  prev = -1
+  revenue = 0
+  exits = 0
+  for idx in 1..all.len():
+    n = idx + 1
+    w = all[idx].words()
+    if w.is_empty(): continue
+    ok = w.len() >= 3 and valid_dt(w[0], w[1])
+    if ok:
+      c = w[2]
+      if c == "IN": ok = w.len() == 5 and (w[4] == "car" or w[4] == "moto" or w[4] == "van")
+      elif c == "OUT": ok = w.len() == 4
+      elif c == "REPORT": ok = w.len() == 3
+      else: ok = False
+    if not ok:
+      print("line {n}: bad line")
+      continue
+    now = minutes_of(w[0], w[1])
+    if now < prev:
+      print("line {n}: time goes back")
+      continue
+    c = w[2]
+    if c == "IN":
+      if g.inside.has(w[3]):
+        print("line {n}: already inside")
+        continue
+      sp = enter(g, w[3], w[4], now)
+      if sp == "": print("FULL {w[3]}")
+      else: print("IN {w[3]} {sp}")
+    elif c == "OUT":
+      if not g.inside.has(w[3]):
+        print("line {n}: not inside")
+        continue
+      r = leave(g, w[3])
+      d = now - r.1
+      f = fee(r.0, d)
+      revenue += f
+      exits += 1
+      print("OUT {w[3]} {stay_str(d)} fee {money(f)}")
+    else:
+      print("occupied car {occupied(g, "C")}/{g.nc} moto {occupied(g, "M")}/{g.nm} van {occupied(g, "V")}/{g.nv} revenue {money(revenue)}")
+    prev = now
+  print("revenue {money(revenue)} from {exits} exits")

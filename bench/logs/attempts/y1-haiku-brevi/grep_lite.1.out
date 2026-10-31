@@ -1,0 +1,16 @@
+test 0 failed
+input:
+colou?r
+The color is red.
+Colour me surprised: colour!
+no match here
+colouur
+expected:
+1: 4-9 [color]
+2: 21-27 [colour]
+2 of 4 lines match
+got:
+1: 4-9 [The color is red.]
+2: 21-27 [Colour me surprised: colour!]
+2 of 4 lines match
+passed 2/5

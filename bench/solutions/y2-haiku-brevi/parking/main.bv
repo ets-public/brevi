@@ -1,0 +1,64 @@
+use "billing.bv"
+use "garage.bv"
+
+fn main():
+  src = lines()
+  if src.is_empty():
+    return
+  hw = src[0].words()
+  c = hw[2].int()
+  m = hw[4].int()
+  v = hw[6].int()
+  names = make_names(c, m, v)
+  occ = [""].repeat(names.len())
+  inside = {}
+  last = -1
+  revenue = 0
+  exits = 0
+  for i in range(1, src.len()):
+    ln = i + 1
+    w = src[i].words()
+    if w.is_empty():
+      continue
+    ok = false
+    t = -1
+    cmd = ""
+    if w.len() >= 3 and valid_date(w[0]) and valid_time(w[1]):
+      t = to_abs(w[0], w[1])
+      cmd = w[2]
+      ok = (cmd == "IN" and w.len() == 5 and (w[4] == "car" or w[4] == "moto" or w[4] == "van")) or (cmd == "OUT" and w.len() == 4) or (cmd == "REPORT" and w.len() == 3)
+    if not ok:
+      print("line " + str(ln) + ": bad line")
+      continue
+    if last >= 0 and t < last:
+      print("line " + str(ln) + ": time goes back")
+      continue
+    if cmd == "IN":
+      plate = w[3]
+      vt = w[4]
+      if inside.has(plate):
+        print("line " + str(ln) + ": already inside")
+        continue
+      sp = park(names, occ, plate, vt)
+      if sp == "":
+        print("FULL " + plate)
+      else:
+        inside[plate] = (sp, vt, t)
+        print("IN " + plate + " " + sp)
+    elif cmd == "OUT":
+      plate = w[3]
+      if not inside.has(plate):
+        print("line " + str(ln) + ": not inside")
+        continue
+      rec = inside[plate]
+      d = t - rec.2
+      f = fee_cents(rec.1, d)
+      release(names, occ, rec.0)
+      inside.remove(plate)
+      revenue += f
+      exits += 1
+      print("OUT " + plate + " " + fmt_stay(d) + " fee " + fmt_money(f))
+    else:
+      print("occupied car " + str(occupied(names, occ, "C")) + "/" + str(c) + " moto " + str(occupied(names, occ, "M")) + "/" + str(m) + " van " + str(occupied(names, occ, "V")) + "/" + str(v) + " revenue " + fmt_money(revenue))
+    last = t
+  print("revenue " + fmt_money(revenue) + " from " + str(exits) + " exits")

@@ -1,0 +1,25 @@
+fn money(c: int) -> str:
+  whole = c // 100
+  frac = c % 100
+  return "{whole}.{frac:02d}"
+
+fn stay_text(mins: int) -> str:
+  h = mins // 60
+  m = mins % 60
+  return "{h}h{m:02d}m"
+
+fn fee_of(vt: str, mins: int) -> int:
+  if mins <= 15: return 0
+  if vt == "car":
+    rate = 250
+    cap = 2000
+  elif vt == "moto":
+    rate = 120
+    cap = 800
+  else:
+    rate = 400
+    cap = 3000
+  days = mins // 1440
+  rest = mins % 1440
+  hours = (rest + 59) // 60
+  return days * cap + min(hours * rate, cap)

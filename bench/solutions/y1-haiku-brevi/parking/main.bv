@@ -1,0 +1,87 @@
+use "garage.bv"
+use "billing.bv"
+
+fn day_num(s: str) -> int:
+  if s.re_full('\d{4}-\d{2}-\d{2}').is_empty(): return -1
+  r = match date(s):
+    Ok(dt) => dt.days if str(dt) == s else -1
+    Err(m) => -1
+  return r
+
+fn time_min(t: str) -> int:
+  if t.re_full('([01]\d|2[0-3]):[0-5]\d').is_empty(): return -1
+  return t.slice(0, 2).int() * 60 + t.slice(3, 5).int()
+
+fn valid_form(w: [str]) -> bool:
+  if w.len() < 3: return false
+  if day_num(w[0]) < 0 or time_min(w[1]) < 0: return false
+  if w.len() == 5 and w[2] == "IN": return w[4] == "car" or w[4] == "moto" or w[4] == "van"
+  if w.len() == 4 and w[2] == "OUT": return true
+  if w.len() == 3 and w[2] == "REPORT": return true
+  return false
+
+fn main():
+  lines = stdin().lines()
+  head = lines[0].words()
+  cars = names_of("C", head[2].int())
+  motos = names_of("M", head[4].int())
+  vans = names_of("V", head[6].int())
+  occ = {}
+  for nm in cars + motos + vans:
+    occ[nm] = ""
+  inside = {}
+  revenue = 0
+  exits = 0
+  last = -1
+  for idx in range(1, lines.len()):
+    n = idx + 1
+    w = lines[idx].words()
+    if w.is_empty(): continue
+    if not valid_form(w):
+      print("line {n}: bad line")
+      continue
+    mins = day_num(w[0]) * 1440 + time_min(w[1])
+    if last >= 0 and mins < last:
+      print("line {n}: time goes back")
+      continue
+    cmd = w[2]
+    if cmd == "IN":
+      plate = w[3]
+      vt = w[4]
+      if inside.has(plate):
+        print("line {n}: already inside")
+        continue
+      sp = pick_space(vt, cars, motos, vans, occ)
+      if sp == "":
+        print("FULL {plate}")
+      else:
+        occ[sp] = plate
+        inside[plate] = (sp, vt, mins)
+        print("IN {plate} {sp}")
+    elif cmd == "OUT":
+      plate = w[3]
+      if not inside.has(plate):
+        print("line {n}: not inside")
+        continue
+      rec = inside[plate]
+      dur = mins - rec.2
+      fee = fee_of(rec.1, dur)
+      occ[rec.0] = ""
+      inside.remove(plate)
+      revenue += fee
+      exits += 1
+      st = stay_text(dur)
+      fs = money(fee)
+      print("OUT {plate} {st} fee {fs}")
+    else:
+      oc = occupied_count(cars, occ)
+      om = occupied_count(motos, occ)
+      ov = occupied_count(vans, occ)
+      nc = cars.len()
+      nmo = motos.len()
+      nv = vans.len()
+      rs = money(revenue)
+      print("occupied car {oc}/{nc} moto {om}/{nmo} van {ov}/{nv} revenue {rs}")
+    last = mins
+  total = money(revenue)
+  print("revenue {total} from {exits} exits")

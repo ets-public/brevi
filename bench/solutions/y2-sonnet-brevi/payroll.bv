@@ -1,0 +1,92 @@
+emps = {}
+hrs = {}
+bon = {}
+
+fn money(c: int) -> str = "{c // 100}.{c % 100:02d}"
+
+fn cents(x: dec) -> int = (x * 100 + "0.5".dec()).int()
+
+fn okamt(s: str) -> bool:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): return False
+  s.dec() > 0
+
+fn okmonth(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}").is_empty(): return False
+  m = s.slice(5).int()
+  m >= 1 and m <= 12
+
+fn okdate(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return False
+  if not okmonth(s.slice(0, 7)): return False
+  match date(s):
+    Ok(d) => str(d) == s
+    Err(_) => False
+
+fn weekend(s: str) -> bool:
+  d = date(s)
+  d.weekday() >= 6
+
+fn proc(w: [str]):
+  cmd = w[0]
+  n = w.len()
+  if cmd == "EMP":
+    if n != 5: fail("bad line")
+    if w[3] != "hourly" and w[3] != "salary": fail("bad line")
+    if not okamt(w[4]): fail("bad line")
+    if emps.has(w[1]): fail("duplicate ID")
+    emps[w[1]] = (w[2], w[3], w[4].dec())
+  elif cmd == "HOURS":
+    if n != 4: fail("bad line")
+    if not okdate(w[2]) or not okamt(w[3]): fail("bad line")
+    if not emps.has(w[1]): fail("unknown ID")
+    if emps[w[1]].1 != "hourly": fail("not hourly")
+    h = w[3].dec()
+    if hrs[(w[1], w[2])] + h > 24: fail("too many hours")
+    hrs[(w[1], w[2])] += h
+  elif cmd == "BONUS":
+    if n != 4: fail("bad line")
+    if not okmonth(w[2]) or not okamt(w[3]): fail("bad line")
+    if not emps.has(w[1]): fail("unknown ID")
+    bon[(w[1], w[2])] += w[3].dec()
+  elif cmd == "RUN":
+    if n != 2: fail("bad line")
+    if not okmonth(w[1]): fail("bad line")
+    run(w[1])
+  else:
+    fail("bad line")
+
+fn run(mon: str):
+  print("payroll {mon}")
+  tg = 0
+  tt = 0
+  for id, e in emps.pairs():
+    pay = "0".dec()
+    if e.1 == "salary":
+      pay = e.2 / 12
+    else:
+      for k, h in hrs.pairs():
+        if k.0 == id and k.1.slice(0, 7) == mon:
+          if weekend(k.1):
+            pay += h * e.2 * 2
+          else:
+            reg = if h > 8: "8".dec() else: h
+            ot = h - reg
+            pay += reg * e.2 + ot * e.2 * "1.5".dec()
+    pay += bon[(id, mon)]
+    g = cents(pay)
+    a = min(max(g - 100000, 0), 300000)
+    b = max(g - 400000, 0)
+    t = (a * 20 + b * 40 + 50) // 100
+    print("  {id} {e.0} gross {money(g)} tax {money(t)} net {money(g - t)}")
+    tg += g
+    tt += t
+  print("  total gross {money(tg)} tax {money(tt)} net {money(tg - tt)}")
+
+ln = 0
+for line in lines():
+  ln += 1
+  w = line.words()
+  if w.is_empty(): continue
+  match proc(w):
+    Ok(_) => ln += 0
+    Err(m) => print("line {ln}: {m}")

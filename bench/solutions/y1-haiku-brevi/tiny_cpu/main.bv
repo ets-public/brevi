@@ -1,0 +1,37 @@
+use "parse.bv"
+use "machine.bv"
+
+fn main():
+  lines = stdin().lines()
+  src = []
+  inputs = []
+  seen = false
+  for ln in lines:
+    if seen:
+      for w in ln.words():
+        inputs.push(w.int())
+    elif ln.trim() == "---":
+      seen = true
+    else:
+      src.push(ln)
+  prog, labels, errs = parse_prog(src)
+  if not errs.is_empty():
+    for e in errs:
+      ln2 = e[0]
+      msg = e[1]
+      print("line {ln2}: {msg}")
+    return
+  out, steps, regs, err = run_prog(prog, labels, inputs)
+  for o in out:
+    print(o)
+  if err != "": print(err)
+  print("steps {steps}")
+  parts = []
+  for i in range(8):
+    if regs[i] != 0:
+      v = regs[i]
+      parts.push(" r{i}={v}")
+  if parts.is_empty():
+    print("regs none")
+  else:
+    print("regs" + "".join(parts))

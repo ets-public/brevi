@@ -1,0 +1,106 @@
+names = {}
+hourly = {}
+rates = {}
+hrs = {}
+bon = {}
+
+fn okamt(s: str) -> bool:
+  if s.re_full("\d+(\.\d{1,2})?").is_empty(): return false
+  toc(s) > 0
+
+fn toc(s: str) -> int:
+  ps = s.split(".")
+  fr = if ps.len() > 1: ps[1] else: ""
+  ps[0].int() * 100 + (fr + "00").slice(0, 2).int()
+
+fn wd(s: str) -> int = date(s).weekday()
+
+fn okdate(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return false
+  wd(s).or(-1) >= 0
+
+fn okmonth(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}").is_empty(): return false
+  wd(s + "-01").or(-1) >= 0
+
+fn money(c: int) -> str = "{c // 100}.{c % 100:02d}"
+
+fn line_of(id: str, g: int) -> int:
+  t = 0
+  if g > 100000:
+    p1 = min(g, 400000) - 100000
+    p2 = max(g - 400000, 0)
+    t = (p1 * 20 + p2 * 40 + 50) // 100
+  t
+
+fn run(m: str):
+  print("payroll {m}")
+  tg = 0
+  tt = 0
+  for id in names.keys():
+    num = 0
+    if hourly[id]:
+      r = rates[id]
+      for k, h in hrs.pairs():
+        ps = k.split("|")
+        if ps[0] == id and ps[1].slice(0, 7) == m:
+          f = if wd(ps[1]) >= 6: 4 else: 2
+          if f == 4:
+            num += r * h * 4 * 6
+          else:
+            base = min(h, 800)
+            over = max(h - 800, 0)
+            num += (r * base * 2 + r * over * 3) * 6
+    else:
+      num += rates[id] * 100
+    b = bon[id + "|" + m]
+    num += b * 1200
+    g = (num + 600) // 1200
+    t = line_of(id, g)
+    tg += g
+    tt += t
+    print("  {id} {names[id]} gross {money(g)} tax {money(t)} net {money(g - t)}")
+  print("  total gross {money(tg)} tax {money(tt)} net {money(tg - tt)}")
+  0
+
+fn handle(ws: [str]):
+  if ws.is_empty(): fail("bad line")
+  c = ws[0]
+  if c == "EMP":
+    if ws.len() != 5: fail("bad line")
+    if ws[3] != "hourly" and ws[3] != "salary": fail("bad line")
+    if not okamt(ws[4]): fail("bad line")
+    if names.has(ws[1]): fail("duplicate ID")
+    names[ws[1]] = ws[2]
+    hourly[ws[1]] = ws[3] == "hourly"
+    rates[ws[1]] = toc(ws[4])
+  elif c == "HOURS":
+    if ws.len() != 4: fail("bad line")
+    if not okdate(ws[2]) or not okamt(ws[3]): fail("bad line")
+    if not names.has(ws[1]): fail("unknown ID")
+    if not hourly[ws[1]]: fail("not hourly")
+    k = ws[1] + "|" + ws[2]
+    nt = hrs[k] + toc(ws[3])
+    if nt > 2400: fail("too many hours")
+    hrs[k] = nt
+  elif c == "BONUS":
+    if ws.len() != 4: fail("bad line")
+    if not okmonth(ws[2]) or not okamt(ws[3]): fail("bad line")
+    if not names.has(ws[1]): fail("unknown ID")
+    bon[ws[1] + "|" + ws[2]] += toc(ws[3])
+  elif c == "RUN":
+    if ws.len() != 2: fail("bad line")
+    if not okmonth(ws[1]): fail("bad line")
+    run(ws[1])
+  else:
+    fail("bad line")
+  0
+
+n = 0
+for ln in lines():
+  n += 1
+  ws = ln.words()
+  if ws.is_empty(): continue
+  match handle(ws):
+    Ok(_) => n += 0
+    Err(m) => print("line {n}: {m}")

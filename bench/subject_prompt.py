@@ -7,7 +7,9 @@ BIG = "access_report bank_api invoices kv_store markdown spreadsheet template ti
 NEW = "sales_report route_planner ini_config stack_vm line_diff room_booking".split()
 # Held-out XL tasks written after v0.16 (ref/gen_big3.py); library and project_plan are multi-file.
 XL = "order_book mini_sql calc_lang fifo_stock library project_plan".split()
-tasks = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL}[size]
+# Second held-out XL set, written after v0.18 (ref/gen_big4.py); tiny_cpu and parking are multi-file.
+XL2 = "grep_lite payroll league crafting tiny_cpu parking".split()
+tasks = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2}[size]
 B = "/home/user/brevi/bench"; ext = {"brevi": "bv", "python": "py"}[lang]
 name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
 guide = f"First read the language guide /home/user/brevi/BREVI.md once. " if lang == "brevi" else ""

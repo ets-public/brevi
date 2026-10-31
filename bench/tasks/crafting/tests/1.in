@@ -1,0 +1,13 @@
+RECIPE a 2: b 1, c 2
+RECIPE b 1: c 1
+RECIPE c 1: a 1
+RECIPE b 3: d 1
+RECIPE a 1: a 1
+RECIPE e 1: x 0
+CRAFT d 1
+CRAFT a 3
+SHOW
+STOCK c 9
+CRAFT a 3
+SHOW
+recipe a 1: b 1

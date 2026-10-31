@@ -1,0 +1,95 @@
+stock = {}
+wstock = {}
+recn = {}
+reci = {}
+shortm = {}
+ran = {}
+
+fn isnum(s: str) -> bool:
+  if s.re_full("\d+").is_empty(): return false
+  s.int() >= 1
+
+fn reaches(a: str, target: str) -> bool:
+  if a == target: return true
+  if not recn.has(a): return false
+  for p in reci[a]:
+    if reaches(p.0, target): return true
+  false
+
+fn need(item: str, q: int):
+  take = min(wstock[item], q)
+  wstock[item] -= take
+  rest = q - take
+  if rest > 0:
+    if recn.has(item):
+      nn = recn[item]
+      b = (rest + nn - 1) // nn
+      ran[item] += b
+      for p in reci[item]:
+        need(p.0, b * p.1)
+      wstock[item] += b * nn - rest
+    else:
+      shortm[item] += rest
+  0
+
+fn handle(ln: str, ws: [str]):
+  c = ws[0]
+  if c == "STOCK":
+    if ws.len() != 3 or not isnum(ws[2]): fail("bad line")
+    stock[ws[1]] += ws[2].int()
+  elif c == "SHOW":
+    if ws.len() != 1: fail("bad line")
+    items = [k for k, v in stock.pairs() if v > 0]
+    if items.is_empty():
+      print("stock: empty")
+    else:
+      print("stock:")
+      for k in items: print("  {k} {stock[k]}")
+  elif c == "RECIPE":
+    g = ln.re_full("RECIPE (\S+) (\d+): (\S+ \d+(, \S+ \d+)*)")
+    if g.is_empty(): fail("bad line")
+    item = g[1]
+    if not isnum(g[2]): fail("bad line")
+    ings = []
+    seen = []
+    for part in g[3].split(", "):
+      ps = part.split(" ")
+      if not isnum(ps[1]) or ps[0] == item or ps[0] in seen: fail("bad line")
+      seen.push(ps[0])
+      ings.push((ps[0], ps[1].int()))
+    if recn.has(item): fail("duplicate recipe")
+    for p in ings:
+      if reaches(p.0, item): fail("cycle")
+    recn[item] = g[2].int()
+    reci[item] = ings
+  elif c == "CRAFT":
+    if ws.len() != 3 or not isnum(ws[2]): fail("bad line")
+    item = ws[1]
+    if not recn.has(item): fail("no recipe")
+    wstock = stock
+    shortm = {}
+    ran = {}
+    nn = recn[item]
+    b = (ws[2].int() + nn - 1) // nn
+    ran[item] += b
+    for p in reci[item]:
+      need(p.0, b * p.1)
+    if not shortm.is_empty():
+      parts = ["{k} {v}" for k, v in shortm.pairs()]
+      fail("short " + parts.join(", "))
+    wstock[item] += b * nn
+    stock = wstock
+    parts = ["{k} {v}" for k, v in ran.pairs()]
+    print("crafted {ws[2].int()} {item} ({parts.join(", ")})")
+  else:
+    fail("bad line")
+  0
+
+n = 0
+for ln in lines():
+  n += 1
+  ws = ln.words()
+  if ws.is_empty(): continue
+  match handle(ln, ws):
+    Ok(_) => n += 0
+    Err(m) => print("line {n}: {m}")

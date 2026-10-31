@@ -1,0 +1,175 @@
+type Tok:
+  ranges: [int]
+  neg: bool
+  lo: int
+  hi: int
+
+type Pat:
+  toks: [Tok]
+  bol: bool
+  eol: bool
+  ok: bool
+
+fn digits(s: str) -> int:
+  if s.is_empty():
+    return -1
+  v = 0
+  for c in s.chars():
+    if not c.is_digit():
+      return -1
+    v = v * 10 + c.digit()
+  return v
+
+fn tok_ok(t: Tok, c: int) -> bool:
+  hit = false
+  k = 0
+  while k < t.ranges.len():
+    if c >= t.ranges[k] and c <= t.ranges[k + 1]:
+      hit = true
+    k += 2
+  if t.neg:
+    return not hit
+  return hit
+
+fn compile_pat(src: str) -> Pat:
+  cs = src.chars()
+  n = cs.len()
+  bol = false
+  eol = false
+  i = 0
+  toks = []
+  if n > 0 and cs[0] == "^":
+    bol = true
+    i = 1
+  while i < n:
+    c = cs[i]
+    if c == "$" and i == n - 1:
+      eol = true
+      i += 1
+    else:
+      ranges = []
+      neg = false
+      if c == "*" or c == "+" or c == "?" or c == '{':
+        return Pat(toks: [], bol: false, eol: false, ok: false)
+      elif c == "\\":
+        if i + 1 >= n:
+          return Pat(toks: [], bol: false, eol: false, ok: false)
+        ranges = [cs[i + 1].code(), cs[i + 1].code()]
+        i += 2
+      elif c == ".":
+        neg = true
+        i += 1
+      elif c == "[":
+        j = i + 1
+        if j < n and cs[j] == "^":
+          neg = true
+          j += 1
+        while j < n and cs[j] != "]":
+          if j + 2 < n and cs[j + 1] == "-" and cs[j + 2] != "]":
+            if cs[j].code() > cs[j + 2].code():
+              return Pat(toks: [], bol: false, eol: false, ok: false)
+            ranges.push(cs[j].code())
+            ranges.push(cs[j + 2].code())
+            j += 3
+          else:
+            ranges.push(cs[j].code())
+            ranges.push(cs[j].code())
+            j += 1
+        if j >= n or ranges.is_empty():
+          return Pat(toks: [], bol: false, eol: false, ok: false)
+        i = j + 1
+      else:
+        ranges = [c.code(), c.code()]
+        i += 1
+      lo = 1
+      hi = 1
+      if i < n and (cs[i] == "*" or cs[i] == "+" or cs[i] == "?" or cs[i] == '{'):
+        if cs[i] == "*":
+          lo = 0
+          hi = -1
+          i += 1
+        elif cs[i] == "+":
+          lo = 1
+          hi = -1
+          i += 1
+        elif cs[i] == "?":
+          lo = 0
+          hi = 1
+          i += 1
+        else:
+          j = i + 1
+          while j < n and cs[j] != '}':
+            j += 1
+          if j >= n:
+            return Pat(toks: [], bol: false, eol: false, ok: false)
+          parts = src.slice(i + 1, j).split(",")
+          if parts.len() == 1:
+            lo = digits(parts[0])
+            hi = lo
+          elif parts.len() == 2:
+            lo = digits(parts[0])
+            hi = digits(parts[1])
+          else:
+            return Pat(toks: [], bol: false, eol: false, ok: false)
+          if lo < 0 or hi < 0 or hi < lo:
+            return Pat(toks: [], bol: false, eol: false, ok: false)
+          i = j + 1
+      if i < n and (cs[i] == "*" or cs[i] == "+" or cs[i] == "?" or cs[i] == '{'):
+        return Pat(toks: [], bol: false, eol: false, ok: false)
+      toks.push(Tok(ranges: ranges, neg: neg, lo: lo, hi: hi))
+  return Pat(toks: toks, bol: bol, eol: eol, ok: true)
+
+fn longest(pat: Pat, cc: [int], p: int) -> int:
+  n = cc.len()
+  cur = [0].repeat(n + 1)
+  cur[p] = 1
+  for t in pat.toks:
+    nxt = [0].repeat(n + 1)
+    for pos in range(0, n + 1):
+      if cur[pos] == 1:
+        limit = n - pos
+        if t.hi >= 0 and t.hi < limit:
+          limit = t.hi
+        if t.lo == 0:
+          nxt[pos] = 1
+        reps = 0
+        while reps < limit and tok_ok(t, cc[pos + reps]):
+          reps += 1
+          if reps >= t.lo:
+            nxt[pos + reps] = 1
+    cur = nxt
+  best = -1
+  for pos in range(0, n + 1):
+    if cur[pos] == 1 and (not pat.eol or pos == n):
+      best = pos
+  return best
+
+fn main():
+  src = lines()
+  if src.is_empty():
+    print("0 of 0 lines match")
+    return
+  pat = compile_pat(src[0])
+  if not pat.ok:
+    print("bad pattern")
+    return
+  k = 0
+  total = src.len() - 1
+  for i in range(1, src.len()):
+    text = src[i]
+    cc = [c.code() for c in text.chars()]
+    n = cc.len()
+    s = -1
+    e = -1
+    for p in range(0, n + 1):
+      if pat.bol and p > 0:
+        break
+      e = longest(pat, cc, p)
+      if e >= 0:
+        s = p
+        break
+    if s >= 0:
+      k += 1
+      m = text.slice(s, e)
+      print("{i}: {s}-{e} [{m}]")
+  print("{k} of {total} lines match")

@@ -1,0 +1,88 @@
+stock = {}
+rN = {}
+rI = {}
+
+fn reach(a: str, target: str) -> bool:
+  if a == target: return True
+  if rI.has(a):
+    for p in rI[a]:
+      if reach(p.0, target): return True
+  False
+
+fn need(item: str, qty: int, mut stk: {str: int}, mut short: {str: int}, mut runs: {str: int}):
+  take = min(stk[item], qty)
+  stk[item] -= take
+  rem = qty - take
+  if rem > 0:
+    if rN.has(item):
+      n = rN[item]
+      b = (rem + n - 1) // n
+      runs[item] += b
+      for p in rI[item]:
+        need(p.0, b * p.1, stk, short, runs)
+      stk[item] += b * n - rem
+    else:
+      short[item] += rem
+
+fn proc(line: str):
+  w = line.words()
+  cmd = w[0]
+  if cmd == "STOCK":
+    if w.len() != 3 or w[2].re_full("[1-9]\d*").is_empty(): fail("bad line")
+    stock[w[1]] += w[2].int()
+  elif cmd == "RECIPE":
+    m = line.trim().re_full("RECIPE (\S+) ([1-9]\d*): (.*)")
+    if m.is_empty(): fail("bad line")
+    item = m[1]
+    ings = []
+    seen = []
+    for part in m[3].split(", "):
+      pm = part.re_full("(\S+) ([1-9]\d*)")
+      if pm.is_empty(): fail("bad line")
+      if pm[1] == item or pm[1] in seen: fail("bad line")
+      seen.push(pm[1])
+      ings.push((pm[1], pm[2].int()))
+    if rN.has(item): fail("duplicate recipe")
+    for p in ings:
+      if reach(p.0, item): fail("cycle")
+    rN[item] = m[2].int()
+    rI[item] = ings
+  elif cmd == "CRAFT":
+    if w.len() != 3 or w[2].re_full("[1-9]\d*").is_empty(): fail("bad line")
+    item = w[1]
+    qty = w[2].int()
+    if not rN.has(item): fail("no recipe")
+    stk = stock
+    short = {}
+    runs = {}
+    n = rN[item]
+    b = (qty + n - 1) // n
+    runs[item] += b
+    for p in rI[item]:
+      need(p.0, b * p.1, stk, short, runs)
+    if short:
+      parts = [str(k) + " " + str(v) for k, v in short.pairs()]
+      print("line {ln}: short {parts.join(", ")}")
+    else:
+      stk[item] += b * n
+      stock = stk
+      parts = [str(k) + " " + str(v) for k, v in runs.pairs()]
+      print("crafted {qty} {item} ({parts.join(", ")})")
+  elif cmd == "SHOW":
+    if w.len() != 1: fail("bad line")
+    items = [k for k, v in stock.pairs() if v > 0]
+    if items.is_empty():
+      print("stock: empty")
+    else:
+      print("stock:")
+      for k in items: print("  {k} {stock[k]}")
+  else:
+    fail("bad line")
+
+ln = 0
+for line in lines():
+  ln += 1
+  if line.words().is_empty(): continue
+  match proc(line):
+    Ok(_) => ln += 0
+    Err(m) => print("line {ln}: {m}")

@@ -1,0 +1,115 @@
+## main.bv
+use "garage.bv"
+use "billing.bv"
+
+ls = lines()
+h = ls[0].re_full("spaces car (\d+) moto (\d+) van (\d+)")
+g = Garage(nc: 0, nm: 0, nv: 0, spaces: {}, inside: {})
+if not h.is_empty():
+  g = Garage(nc: h[1].int(), nm: h[2].int(), nv: h[3].int(), spaces: {}, inside: {})
+clock = -1
+revenue = 0
+exits = 0
+
+fn handle(ws: [str]):
+  if ws.len() < 3: fail("bad line")
+  if not valid_stamp(ws[0], ws[1]): fail("bad line")
+  c = ws[2]
+  if c == "IN":
+    if ws.len() != 5 or ws[4] not in ["car", "moto", "van"]: fail("bad line")
+  elif c == "OUT":
+    if ws.len() != 4: fail("bad line")
+  elif c == "REPORT":
+    if ws.len() != 3: fail("bad line")
+  else:
+    fail("bad line")
+  t = stamp(ws[0], ws[1])
+  if t < clock: fail("time goes back")
+  if c == "IN":
+    if g.inside.has(ws[3]): fail("already inside")
+    sp = g_in(g, ws[3], ws[4], t)
+    if sp == "":
+      print("FULL {ws[3]}")
+    else:
+      print("IN {ws[3]} {sp}")
+  elif c == "OUT":
+    if not g.inside.has(ws[3]): fail("not inside")
+    e = g_out(g, ws[3])
+    d = t - e.2
+    f = fee(e.0, d)
+    revenue += f
+    exits += 1
+    print("OUT {ws[3]} {stay_fmt(d)} fee {money(f)}")
+  else:
+    cc = occ(g, "C")
+    mm = occ(g, "M")
+    vv = occ(g, "V")
+    print("occupied car {cc}/{g.nc} moto {mm}/{g.nm} van {vv}/{g.nv} revenue {money(revenue)}")
+  clock = t
+  0
+
+for i in 1..ls.len():
+  ws = ls[i].words()
+  if ws.is_empty(): continue
+  match handle(ws):
+    Ok(_) => revenue += 0
+    Err(m) => print("line {i + 1}: {m}")
+print("revenue {money(revenue)} from {exits} exits")
+## garage.bv
+type Garage:
+  nc: int
+  nm: int
+  nv: int
+  spaces: {str: str}
+  inside: {str: (str, str, int)}
+
+fn find_free(g: Garage, pre: str, n: int) -> str:
+  for i in 1..n + 1:
+    nm = pre + str(i)
+    if not g.spaces.has(nm): return nm
+  ""
+
+fn g_in(mut g: Garage, plate: str, ty: str, t: int) -> str:
+  sp = ""
+  if ty == "car": sp = find_free(g, "C", g.nc)
+  elif ty == "van": sp = find_free(g, "V", g.nv)
+  else:
+    sp = find_free(g, "M", g.nm)
+    if sp == "": sp = find_free(g, "C", g.nc)
+  if sp != "":
+    g.spaces[sp] = plate
+    g.inside[plate] = (ty, sp, t)
+  sp
+
+fn g_out(mut g: Garage, plate: str):
+  e = g.inside[plate]
+  g.spaces.remove(e.1)
+  g.inside.remove(plate)
+  e
+
+fn occ(g: Garage, pre: str) -> int = g.spaces.keys().filter(k => k.starts_with(pre)).len()
+## billing.bv
+fn money(c: int) -> str = "{c // 100}.{c % 100:02d}"
+
+fn stamp(d: str, t: str) -> int:
+  dd = date(d).days
+  hh = t.slice(0, 2).int()
+  mm = t.slice(3, 5).int()
+  dd * 1440 + hh * 60 + mm
+
+fn valid_stamp(d: str, t: str) -> bool:
+  if d.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return false
+  if t.re_full("\d{2}:\d{2}").is_empty(): return false
+  if t.slice(0, 2).int() > 23 or t.slice(3, 5).int() > 59: return false
+  date(d).days >= -1000000000
+
+fn fee(ty: str, d: int) -> int:
+  rate = if ty == "car": 250 elif ty == "moto": 120 else: 400
+  cap = if ty == "car": 2000 elif ty == "moto": 800 else: 3000
+  if d <= 15: return 0
+  days = d // 1440
+  rest = d % 1440
+  hours = (rest + 59) // 60
+  days * cap + min(hours * rate, cap)
+
+fn stay_fmt(d: int) -> str = "{d // 60}h{d % 60:02d}m"

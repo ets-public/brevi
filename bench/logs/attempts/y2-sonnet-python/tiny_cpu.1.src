@@ -1,0 +1,172 @@
+## main.py
+import sys
+from parse import parse_program
+from machine import run
+
+def main():
+    lines = sys.stdin.read().split('\n')
+    prog = lines
+    rest = []
+    for i, l in enumerate(lines):
+        if l.strip() == '---':
+            prog = lines[:i]
+            rest = lines[i + 1:]
+            break
+    inputs = [int(x) for x in ' '.join(rest).split()]
+    instrs, labels, errors = parse_program(prog)
+    if errors:
+        for e in errors:
+            print(e)
+        return
+    out, error, steps, regs = run(instrs, labels, inputs)
+    for o in out:
+        print(o)
+    if error:
+        print(error)
+    print('steps %d' % steps)
+    nz = ['r%d=%d' % (i, v) for i, v in enumerate(regs) if v != 0]
+    print('regs ' + ' '.join(nz) if nz else 'regs none')
+
+main()
+## parse.py
+import re
+
+REG = re.compile(r'r[0-7]')
+NUM = re.compile(r'-?\d+')
+WORD = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+
+def is_reg(x):
+    return REG.fullmatch(x) is not None
+
+def is_val(x):
+    return is_reg(x) or NUM.fullmatch(x) is not None
+
+def is_lab(x):
+    return WORD.fullmatch(x) is not None
+
+# operand kinds: r register, v value, l label
+SIGS = {
+    'MOV': 'rv', 'ADD': 'rv', 'SUB': 'rv', 'MUL': 'rv', 'DIV': 'rv', 'MOD': 'rv',
+    'JMP': 'l', 'JZ': 'rl', 'JNZ': 'rl', 'JLT': 'vvl', 'CALL': 'l', 'RET': '',
+    'PUSH': 'v', 'POP': 'r', 'READ': 'r', 'PRINT': 'v', 'HALT': '',
+}
+CHECK = {'r': is_reg, 'v': is_val, 'l': is_lab}
+
+def parse_program(lines):
+    """lines: program lines. Returns (instrs, labels, errors)."""
+    instrs = []
+    labels = {}
+    errors = []
+    for n, raw in enumerate(lines, 1):
+        text = raw.split(';', 1)[0].strip()
+        if not text:
+            continue
+        if text.endswith(':'):
+            name = text[:-1]
+            if not is_lab(name):
+                errors.append((n, 'line %d: bad instruction' % n))
+            elif name in labels:
+                errors.append((n, 'line %d: duplicate label %s' % (n, name)))
+            else:
+                labels[name] = len(instrs)
+            continue
+        parts = text.split(None, 1)
+        op = parts[0]
+        rest = parts[1] if len(parts) > 1 else ''
+        if op not in SIGS:
+            errors.append((n, 'line %d: bad instruction' % n))
+            continue
+        sig = SIGS[op]
+        args = rest.split(', ') if rest else []
+        if len(args) != len(sig) or not all(CHECK[k](a) for k, a in zip(sig, args)):
+            errors.append((n, 'line %d: bad instruction' % n))
+            continue
+        instrs.append((op, args, n))
+    for op, args, n in instrs:
+        if SIGS[op].endswith('l') and args[-1] not in labels:
+            errors.append((n, 'line %d: unknown label %s' % (n, args[-1])))
+    errors.sort(key=lambda e: e[0])
+    return instrs, labels, [e[1] for e in errors]
+## machine.py
+def run(instrs, labels, inputs):
+    """Returns (output, error, steps, regs)."""
+    regs = [0] * 8
+    out = []
+    data = []
+    calls = []
+    inp = list(inputs)
+    ip = 0
+    pc = 0
+    steps = 0
+    error = None
+
+    def val(x):
+        if x[0] == 'r' and len(x) == 2:
+            return regs[int(x[1])]
+        return int(x)
+
+    def tdiv(a, b):
+        q = abs(a) // abs(b)
+        return q if (a >= 0) == (b >= 0) else -q
+
+    while pc < len(instrs):
+        if steps >= 10000:
+            error = 'error: too many steps'
+            break
+        op, a, n = instrs[pc]
+        steps += 1
+        nxt = pc + 1
+        if op == 'MOV':
+            regs[int(a[0][1])] = val(a[1])
+        elif op == 'ADD':
+            regs[int(a[0][1])] += val(a[1])
+        elif op == 'SUB':
+            regs[int(a[0][1])] -= val(a[1])
+        elif op == 'MUL':
+            regs[int(a[0][1])] *= val(a[1])
+        elif op in ('DIV', 'MOD'):
+            d = val(a[1])
+            if d == 0:
+                error = 'error line %d: division by zero' % n
+                break
+            r = int(a[0][1])
+            q = tdiv(regs[r], d)
+            regs[r] = q if op == 'DIV' else regs[r] - q * d
+        elif op == 'JMP':
+            nxt = labels[a[0]]
+        elif op == 'JZ':
+            if val(a[0]) == 0:
+                nxt = labels[a[1]]
+        elif op == 'JNZ':
+            if val(a[0]) != 0:
+                nxt = labels[a[1]]
+        elif op == 'JLT':
+            if val(a[0]) < val(a[1]):
+                nxt = labels[a[2]]
+        elif op == 'CALL':
+            calls.append(pc + 1)
+            nxt = labels[a[0]]
+        elif op == 'RET':
+            if not calls:
+                error = 'error line %d: stack empty' % n
+                break
+            nxt = calls.pop()
+        elif op == 'PUSH':
+            data.append(val(a[0]))
+        elif op == 'POP':
+            if not data:
+                error = 'error line %d: stack empty' % n
+                break
+            regs[int(a[0][1])] = data.pop()
+        elif op == 'READ':
+            if ip >= len(inp):
+                error = 'error line %d: no input' % n
+                break
+            regs[int(a[0][1])] = inp[ip]
+            ip += 1
+        elif op == 'PRINT':
+            out.append(str(val(a[0])))
+        elif op == 'HALT':
+            break
+        pc = nxt
+    return out, error, steps, regs

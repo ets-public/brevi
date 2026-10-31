@@ -1,0 +1,17 @@
+use "parse.bv"
+use "machine.bv"
+
+all = lines()
+sep = all.len()
+for i in 0..all.len():
+  if all[i].trim() == "---" and sep == all.len(): sep = i
+inp = []
+for i in sep + 1..all.len():
+  for v in all[i].ints(): inp.push(v)
+r = parse_prog(all.slice(0, sep))
+prog = r.0
+errs = r.1
+if errs:
+  for e in errs: print(e.1)
+else:
+  for l in run(prog, inp): print(l)

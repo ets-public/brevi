@@ -1,0 +1,11 @@
+start:
+    MOV r1, 5
+    mov r2, 1
+    ADD r9, 1
+    JMP nowhere
+start:
+    PRINT r1 r2
+    HALT 3
+1bad:
+    DIV r1
+---

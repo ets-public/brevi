@@ -1,0 +1,22 @@
+fn minutes_of(d: str, t: str) -> int:
+  dd = date(d)
+  dd.days * 1440 + t.slice(0, 2).int() * 60 + t.slice(3, 5).int()
+
+fn money(c: int) -> str = "{c // 100}.{c % 100:02d}"
+
+fn fee(typ: str, mins: int) -> int:
+  if mins <= 15: return 0
+  rate = 250
+  cap = 2000
+  if typ == "moto":
+    rate = 120
+    cap = 800
+  elif typ == "van":
+    rate = 400
+    cap = 3000
+  days = mins // 1440
+  rest = mins % 1440
+  hrs = (rest + 59) // 60
+  days * cap + min(hrs * rate, cap)
+
+fn stay_str(mins: int) -> str = "{mins // 60}h{mins % 60:02d}m"

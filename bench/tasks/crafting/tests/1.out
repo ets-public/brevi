@@ -1,0 +1,12 @@
+line 3: cycle
+line 4: duplicate recipe
+line 5: bad line
+line 6: bad line
+line 7: no recipe
+line 8: short c 6
+stock: empty
+crafted 3 a (a 2, b 2)
+stock:
+  a 4
+  c 3
+line 13: bad line

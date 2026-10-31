@@ -1,0 +1,32 @@
+type Garage:
+  nc: int
+  nm: int
+  nv: int
+  spaces: {str: str}
+  inside: {str: (str, str, int)}
+
+fn find_free(g: Garage, pre: str, n: int) -> str:
+  for i in 1..n + 1:
+    nm = pre + str(i)
+    if not g.spaces.has(nm): return nm
+  ""
+
+fn g_in(mut g: Garage, plate: str, ty: str, t: int) -> str:
+  sp = ""
+  if ty == "car": sp = find_free(g, "C", g.nc)
+  elif ty == "van": sp = find_free(g, "V", g.nv)
+  else:
+    sp = find_free(g, "M", g.nm)
+    if sp == "": sp = find_free(g, "C", g.nc)
+  if sp != "":
+    g.spaces[sp] = plate
+    g.inside[plate] = (ty, sp, t)
+  sp
+
+fn g_out(mut g: Garage, plate: str):
+  e = g.inside[plate]
+  g.spaces.remove(e.1)
+  g.inside.remove(plate)
+  e
+
+fn occ(g: Garage, pre: str) -> int = g.spaces.keys().filter(k => k.starts_with(pre)).len()
