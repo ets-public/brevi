@@ -1,0 +1,100 @@
+fn nul() -> Json = json("null")
+fn lookup(name: str, ctx: [Json], idx: int) -> Json:
+  if name == "@index": return idx.json()
+  if name == ".": return ctx.last()
+  segs = name.split(".")
+  cur = nul()
+  found = false
+  k = ctx.len() - 1
+  while k >= 0 and not found:
+    sc = ctx[k]
+    if sc.has(segs[0]):
+      cur = sc[segs[0]]
+      found = true
+    k -= 1
+  for s in segs.skip(1): cur = cur[s]
+  cur
+fn truthy(j: Json) -> bool:
+  if j: return true
+  false
+fn jlen(j: Json) -> int = match j:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  _ => 0
+fn blank(j: Json) -> bool = match j:
+  Null => true
+  Str(s) => s.is_empty()
+  _ => false
+fn eval_expr(inner: str, ctx: [Json], idx: int) -> Json:
+  parts = inner.split("|")
+  cur = lookup(parts[0].trim(), ctx, idx)
+  for f0 in parts.skip(1):
+    f = f0.trim()
+    if f == "upper": cur = cur.text().upper().json()
+    elif f == "lower": cur = cur.text().lower().json()
+    elif f == "len": cur = jlen(cur).json()
+    elif f.starts_with("default:"):
+      if blank(cur): cur = f.slice(8).json()
+  cur
+fn close_at(toks: [str], i: int) -> int:
+  depth = 1
+  j = i + 1
+  while j < toks.len():
+    t = toks[j]
+    if t.starts_with("\{\{#"): depth += 1
+    elif t == "\{\{/each}}" or t == "\{\{/if}}": depth -= 1
+    if depth == 0: return j
+    j += 1
+  toks.len()
+fn else_at(toks: [str], a: int, b: int) -> int:
+  depth = 1
+  j = a + 1
+  while j < b:
+    t = toks[j]
+    if t.starts_with("\{\{#"): depth += 1
+    elif t == "\{\{/each}}" or t == "\{\{/if}}": depth -= 1
+    elif t == "\{\{else}}" and depth == 1: return j
+    j += 1
+  -1
+fn render(toks: [str], a: int, b: int, ctx: [Json], idx: int) -> str:
+  out = ""
+  i = a
+  while i < b:
+    t = toks[i]
+    if t.starts_with("\{\{#each "):
+      e = close_at(toks, i)
+      arr = eval_expr(t.slice(8, -2).trim(), ctx, idx)
+      n = 0
+      if str(arr).starts_with("["):
+        for x in arr:
+          c2 = ctx.slice(0, ctx.len())
+          c2.push(x)
+          out += render(toks, i + 1, e, c2, n)
+          n += 1
+      i = e + 1
+    elif t.starts_with("\{\{#if "):
+      e = close_at(toks, i)
+      el = else_at(toks, i, e)
+      v = eval_expr(t.slice(6, -2).trim(), ctx, idx)
+      if truthy(v):
+        hi = e
+        if el >= 0: hi = el
+        out += render(toks, i + 1, hi, ctx, idx)
+      elif el >= 0:
+        out += render(toks, el + 1, e, ctx, idx)
+      i = e + 1
+    elif t.starts_with("\{\{") and t.ends_with("}}"):
+      out += eval_expr(t.slice(2, -2).trim(), ctx, idx).text()
+      i += 1
+    else:
+      out += t
+      i += 1
+  out
+fn main():
+  all = stdin()
+  nl = all.find("\n")
+  data = json(all.slice(0, nl))
+  tpl = all.slice(nl + 1)
+  if tpl.ends_with("\n"): tpl = tpl.slice(0, -1)
+  toks = tpl.re_list('\{\{[^}]*\}\}|[^{]+|\{')
+  print(render(toks, 0, toks.len(), [data], 0))

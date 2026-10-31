@@ -1,0 +1,163 @@
+raw: {str: str} = {}
+memo_v: {str: int} = {}
+memo_c: {str: int} = {}
+memo_d: {str: int} = {}
+busy: {str: int} = {}
+flags: [int] = [0, 0]
+
+fn tokenize(s: str) -> [str]:
+  cs = s.replace(" ", "").chars()
+  out = []
+  i = 0
+  while i < cs.len():
+    c = cs[i]
+    if c.is_alpha():
+      tok = ""
+      while i < cs.len() and cs[i].is_alpha():
+        tok += cs[i]
+        i += 1
+      while i < cs.len() and cs[i].digit() >= 0:
+        tok += cs[i]
+        i += 1
+      out.push(tok)
+    elif c.digit() >= 0:
+      tok = ""
+      while i < cs.len() and cs[i].digit() >= 0:
+        tok += cs[i]
+        i += 1
+      out.push(tok)
+    else:
+      out.push(c)
+      i += 1
+  return out
+
+fn agg(kind: str, a: str, b: str) -> int:
+  ca = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(a.slice(0, 1))
+  cb = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".find(b.slice(0, 1))
+  ra = a.slice(1).int().or(0)
+  rb = b.slice(1).int().or(0)
+  vals = []
+  for ci in min(ca, cb)..(max(ca, cb) + 1):
+    for r in min(ra, rb)..(max(ra, rb) + 1):
+      vals.push(cell_val("ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(ci, ci + 1) + str(r)))
+  if kind == "SUM": return vals.sum()
+  if kind == "MIN": return vals.min()
+  return vals.max()
+
+fn unary(toks: [str], mut pos: int) -> int:
+  if toks[pos] == "-":
+    pos += 1
+    return -unary(toks, pos)
+  return atom(toks, pos)
+
+fn atom(toks: [str], mut pos: int) -> int:
+  t = toks[pos]
+  pos += 1
+  if t == "(":
+    v = expr(toks, pos)
+    pos += 1
+    return v
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    a = toks[pos + 1]
+    b = toks[pos + 3]
+    pos += 5
+    return agg(t, a, b)
+  if t.slice(0, 1).digit() >= 0:
+    return t.int().or(0)
+  return cell_val(t)
+
+fn term(toks: [str], mut pos: int) -> int:
+  v = unary(toks, pos)
+  while pos < toks.len() and (toks[pos] == "*" or toks[pos] == "/"):
+    op = toks[pos]
+    pos += 1
+    r = unary(toks, pos)
+    if op == "*":
+      v = v * r
+    elif r == 0:
+      flags[1] = 1
+      v = 0
+    else:
+      v = v / r
+  return v
+
+fn expr(toks: [str], mut pos: int) -> int:
+  v = term(toks, pos)
+  while pos < toks.len() and (toks[pos] == "+" or toks[pos] == "-"):
+    op = toks[pos]
+    pos += 1
+    r = term(toks, pos)
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+  return v
+
+fn eval_formula(content: str) -> int:
+  if content.starts_with("="):
+    toks = tokenize(content.slice(1))
+    pos = 0
+    return expr(toks, pos)
+  return content.int().or(0)
+
+fn cell_val(name: str) -> int:
+  if memo_v.has(name):
+    flags[0] = max(flags[0], memo_c[name])
+    flags[1] = max(flags[1], memo_d[name])
+    return memo_v[name]
+  if busy.has(name):
+    flags[0] = 1
+    return 0
+  if not raw.has(name):
+    return 0
+  busy[name] = 1
+  s0 = flags[0]
+  s1 = flags[1]
+  flags[0] = 0
+  flags[1] = 0
+  v = eval_formula(raw[name])
+  own0 = flags[0]
+  own1 = flags[1]
+  memo_v[name] = v
+  memo_c[name] = own0
+  memo_d[name] = own1
+  busy.remove(name)
+  flags[0] = max(s0, own0)
+  flags[1] = max(s1, own1)
+  return v
+
+fn show(name: str) -> str:
+  if not raw.has(name): return ""
+  v = cell_val(name)
+  if memo_c[name] == 1: return "#CYCLE"
+  if memo_d[name] == 1: return "#DIV0"
+  return str(v)
+
+fn main():
+  letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  for line in lines():
+    if line.trim().is_empty(): continue
+    (cell, _, content) = line.partition("=")
+    raw[cell.trim()] = content.trim()
+  maxc = 0
+  maxr = 1
+  for name in raw.keys():
+    maxc = max(maxc, letters.find(name.slice(0, 1)))
+    maxr = max(maxr, name.slice(1).int().or(0))
+    c = raw[name]
+    if c.starts_with("="):
+      for tk in tokenize(c.slice(1)):
+        if tk.re_full("[A-Z][0-9]+").is_empty() == false:
+          maxc = max(maxc, letters.find(tk.slice(0, 1)))
+          maxr = max(maxr, tk.slice(1).int().or(0))
+  hdr = []
+  for ci in 0..(maxc + 1):
+    hdr.push(letters.slice(ci, ci + 1))
+  print("\t" + hdr.join("\t"))
+  for r in 1..(maxr + 1):
+    cells = [str(r)]
+    for ci in 0..(maxc + 1):
+      cells.push(show(letters.slice(ci, ci + 1) + str(r)))
+    print(cells.join("\t"))
+
+main()

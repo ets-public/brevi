@@ -1,0 +1,59 @@
+fn esc(s: str) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+fn inl(s: str) -> str = s.re_sub('`([^`]*)`|\*\*(.+?)\*\*|\*(.+?)\*|\[([^\]]*)\]\(([^)]*)\)', g => conv(g))
+fn conv(g: [str]) -> str:
+  if g[0].starts_with("`"): return "<code>" + g[1] + "</code>"
+  if g[0].starts_with("**"): return "<strong>" + inl(g[2]) + "</strong>"
+  if g[0].starts_with("*"): return "<em>" + inl(g[3]) + "</em>"
+  '<a href="' + g[5] + '">' + inl(g[4]) + "</a>"
+fn text(s: str) = inl(esc(s))
+out = []
+heads = []
+used = {}
+ls = lines()
+i = 0
+n = ls.len()
+while i < n:
+  l = ls[i]
+  h = l.re_full('(#{1,6}) (.*)')
+  if l.trim().is_empty():
+    i += 1
+  elif l == "```":
+    i += 1
+    body = []
+    while i < n and ls[i] != "```":
+      body.push(esc(ls[i]))
+      i += 1
+    i += 1
+    out.push("<pre><code>" + "\n".join(body) + "</code></pre>")
+  elif h:
+    raw = h[2].trim()
+    id = raw.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+|-+$", "")
+    used[id] += 1
+    uid = if used[id] > 1: id + "-" + str(used[id]) else: id
+    plain = esc(raw.replace("`", "").replace("*", ""))
+    heads.push('<a href="#{uid}">{plain}</a>')
+    out.push('<h{h[1].len()} id="{uid}">{text(raw)}</h{h[1].len()}>')
+    i += 1
+  elif l.starts_with("- "):
+    out.push("<ul>")
+    while i < n and ls[i].starts_with("- "):
+      out.push("<li>" + text(ls[i].slice(2)) + "</li>")
+      i += 1
+    out.push("</ul>")
+  elif ls[i].re_full("\d+\. .*"):
+    out.push("<ol>")
+    while i < n and ls[i].re_full("\d+\. .*"):
+      out.push("<li>" + text(ls[i].slice(ls[i].find(". ") + 2)) + "</li>")
+      i += 1
+    out.push("</ol>")
+  else:
+    ps = []
+    while i < n and not ls[i].trim().is_empty() and ls[i] != "```" and not ls[i].re_full('#{1,6} .*') and not ls[i].starts_with("- ") and not ls[i].re_full("\d+\. .*"):
+      ps.push(text(ls[i]))
+      i += 1
+    out.push("<p>" + " ".join(ps) + "</p>")
+if heads.len() >= 2:
+  print("<nav>")
+  for t in heads: print(t)
+  print("</nav>")
+for o in out: print(o)

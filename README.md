@@ -4,7 +4,7 @@ A programming language for AI models to write. Brevi compiles to Rust, so progra
 
 The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,251 tokens (exact count, Sonnet tokenizer).
 
-## Status: v0.13
+## Status: v0.14
 
 Works today:
 - Parser for the full core syntax in BREVI.md
@@ -22,6 +22,17 @@ Works today:
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Brevi line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
+
+Big tasks on v0.14 (31 Oct 2026, exact tokens, retries scored as patches). Brevi runs p9 to p12 on the v0.14 compiler; Python is all six of its runs:
+
+| Task set | Model | Brevi | Python | Brevi finished code | Python finished code | First try (Brevi / Python) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 8 big | Sonnet | 9,784 | **8,721** | **8,214** | 8,665 | 28 / 48 of 32 / 48 |
+| 8 big | Haiku | **9,523** | 10,556 | **9,346** | 10,138 | 21 / 45 of 24 / 48 |
+
+Haiku now uses 10% fewer tokens than Python on big tasks, with every Brevi run (9,180 to 9,890) below the Python average. Sonnet's finished Brevi code is 5% shorter than Python's, but Sonnet passes first time less often in Brevi, so its total is 12% higher; one Sonnet run (p11) also gave up on template after writing `"{{#each "` and expecting two braces (12,042 tokens). Without that run Sonnet is 9,032 vs 8,721. Two of the Sonnet failures are fixed in the compiler since (`str({...})` now keeps keys in written order; `'{{'` in single quotes is two braces).
+
+v0.14 adds `'single-quoted'` strings (no `\"` needed, so JSON text is short), `s.re_list(p)` for tokenizers, `s.partition(sep)`, `_` in tuple unpacking, names set on only some paths starting at their type's zero (as Python code expects), and `str({...})` keeping written key order. All 828 old solutions print the same, and every recent Brevi solution that passed still passes.
 
 Big tasks with more runs (v0.13, 31 Oct 2026, exact tokens, retries scored as patches). Six fresh Brevi runs (p3 to p8) and five Python runs (p1, p2, p5, p6, p7) per model:
 

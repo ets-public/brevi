@@ -1,0 +1,102 @@
+cells: {str: str} = {}
+memo: {str: (int, int)} = {}
+visiting: {str: int} = {}
+maxc = 0
+maxr = 0
+fn comb(a: int, b: int) -> int:
+  if a == 2 or b == 2: return 2
+  if a == 1 or b == 1: return 1
+  0
+fn touch(ref: str):
+  c = ref.code() - 64
+  r = ref.slice(1).int()
+  if c > maxc: maxc = c
+  if r > maxr: maxr = r
+fn ev(ref: str) -> (int, int):
+  if memo.has(ref): return memo[ref]
+  if visiting.has(ref): return (2, 0)
+  if not cells.has(ref): return (0, 0)
+  src = cells[ref]
+  res = (0, 0)
+  if not src.starts_with("="):
+    res = (0, src.int().or(0))
+  else:
+    visiting[ref] = 1
+    ts = src.slice(1).replace(" ", "").re_list('\d+|[A-Z]+\d*|[-+*/():]')
+    p = 0
+    res = expr(ts, p)
+    visiting.remove(ref)
+  memo[ref] = res
+  res
+fn expr(ts: [str], mut p: int) -> (int, int):
+  let (s, v) = term(ts, p)
+  while p < ts.len() and (ts[p] == "+" or ts[p] == "-"):
+    op = ts[p]
+    p += 1
+    let (s2, v2) = term(ts, p)
+    s = comb(s, s2)
+    v = if op == "+": v + v2 else: v - v2
+  (s, v)
+fn term(ts: [str], mut p: int) -> (int, int):
+  let (s, v) = unary(ts, p)
+  while p < ts.len() and (ts[p] == "*" or ts[p] == "/"):
+    op = ts[p]
+    p += 1
+    let (s2, v2) = unary(ts, p)
+    s = comb(s, s2)
+    if op == "*": v = v * v2
+    elif v2 == 0: s = comb(s, 1)
+    else: v = v / v2
+  (s, v)
+fn unary(ts: [str], mut p: int) -> (int, int):
+  if ts[p] == "-":
+    p += 1
+    let (s, v) = unary(ts, p)
+    return (s, -v)
+  atom(ts, p)
+fn atom(ts: [str], mut p: int) -> (int, int):
+  t = ts[p]
+  p += 1
+  if t == "(":
+    let (s, v) = expr(ts, p)
+    p += 1
+    return (s, v)
+  if t.is_digit(): return (0, t.int())
+  if t in ["SUM", "MIN", "MAX"]:
+    a = ts[p + 1]
+    b = ts[p + 3]
+    p += 5
+    c1 = min(a.code(), b.code()) - 65
+    c2 = max(a.code(), b.code()) - 65
+    r1 = min(a.slice(1).int(), b.slice(1).int())
+    r2 = max(a.slice(1).int(), b.slice(1).int())
+    vals = []
+    st = 0
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        let (s, v) = ev((c + 65).char() + str(r))
+        st = comb(st, s)
+        vals.push(v)
+    if t == "SUM": return (st, vals.sum())
+    if t == "MIN": return (st, vals.min())
+    return (st, vals.max())
+  ev(t)
+for line in lines():
+  if not line.contains("="): continue
+  i = line.find("=")
+  k = line.slice(0, i).trim()
+  v = line.slice(i + 1).trim()
+  cells[k] = v
+  touch(k)
+  for r in v.re_list('[A-Z]\d+'): touch(r)
+print("\t" + "\t".join([(c + 65).char() for c in 0..maxc]))
+for r in 1..maxr + 1:
+  row = [str(r)]
+  for c in 0..maxc:
+    ref = (c + 65).char() + str(r)
+    if not cells.has(ref):
+      row.push("")
+      continue
+    let (s, v) = ev(ref)
+    row.push(if s == 2: "#CYCLE" elif s == 1: "#DIV0" else: str(v))
+  print("\t".join(row))

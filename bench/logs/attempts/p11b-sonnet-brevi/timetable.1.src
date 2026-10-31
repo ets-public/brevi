@@ -1,0 +1,47 @@
+tn: [str] = []
+ts: [[str]] = []
+tt: [[int]] = []
+best: (int, int, str) = (99999, 0, "")
+fn tm(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+fn pad(x: int) = ("0" + str(x)).slice(-2)
+fn go(st: str, ready: int, to: str, used: [str], arr: int, nu: [str]):
+  for k in 0..tn.len():
+    if tn[k] in used: continue
+    for s in 0..ts[k].len() - 1:
+      if ts[k][s] == st and tt[k][s] >= ready:
+        for u in s + 1..ts[k].len():
+          if tt[k][u] > best.0: continue
+          if ts[k][u] == to:
+            c = (tt[k][u], used.len() + 1, ">".join(used + [tn[k]]))
+            if c < best: best = c
+          else:
+            go(ts[k][u], tt[k][u] + 5, to, used + [tn[k]], 0, [])
+sec = 0
+for line in lines():
+  w = line.words()
+  if not w: continue
+  if w[0] == "---":
+    sec = 1
+    continue
+  if sec == 0:
+    tn.push(w[0])
+    names = []
+    times = []
+    for j in 1..w.len():
+      if j % 2 == 1: names.push(w[j])
+      else: times.push(tm(w[j]))
+    ts.push(names)
+    tt.push(times)
+  else:
+    f = w[0]
+    to = w[1]
+    q = tm(w[2])
+    if f == to:
+      print("{f} {to} {w[2]} via -")
+    else:
+      best = (99999, 0, "")
+      go(f, q, to, [], 0, [])
+      if best.0 == 99999: print("{f} {to} unreachable")
+      else: print("{f} {to} {pad(best.0 // 60)}:{pad(best.0 % 60)} via {best.2}")

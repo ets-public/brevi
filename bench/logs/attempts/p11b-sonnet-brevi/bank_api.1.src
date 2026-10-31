@@ -1,0 +1,79 @@
+owners = []
+bals = []
+fn acct(i: int) = '\{"id":{i + 1},"owner":"{owners[i]}","balance":{bals[i]}}'
+fn amt_ok(j: Json) -> bool = match j["amount"]:
+  Num(n) => n > 0.0 and n.floor() == n
+  _ => false
+fn find_id(s: str) -> int:
+  if s.is_empty() or not s.chars().all(c => c.is_digit()): return -1
+  n = s.int()
+  if n < 1 or n > owners.len(): return -1
+  n - 1
+fn handle(method: str, path: str, body: str) -> str:
+  parts = path.split("/")
+  n = parts.len()
+  if parts[0] != "" or n < 2 or parts[1] not in ["accounts", "transfer"]: return '404 \{"error":"not found"}'
+  kind = ""
+  idtxt = ""
+  if method == "GET" and n == 2 and parts[1] == "accounts": kind = "list"
+  elif method == "GET" and n == 3 and parts[1] == "accounts" and parts[2].is_digit(): kind = "get"
+  elif method == "POST" and n == 2 and parts[1] == "accounts": kind = "create"
+  elif method == "POST" and n == 2 and parts[1] == "transfer": kind = "transfer"
+  elif method == "POST" and n == 4 and parts[1] == "accounts" and parts[2].is_digit() and parts[3] in ["deposit", "withdraw"]: kind = parts[3]
+  if kind == "": return '404 \{"error":"not found"}'
+  if kind == "list":
+    idx = (0..owners.len()).to_list().sort_by(i => (-bals[i], i))
+    return "200 [" + ",".join([acct(i) for i in idx]) + "]"
+  if kind == "get":
+    i = find_id(parts[2])
+    if i < 0: return '404 \{"error":"no such account"}'
+    return "200 " + acct(i)
+  j = Json.Null
+  match json(body):
+    Ok(v) => j = v
+    Err(_) => return '400 \{"error":"bad json"}'
+  if kind == "create":
+    o = j["owner"]
+    match o:
+      Str(s) =>
+        if s.is_empty(): return '400 \{"error":"owner required"}'
+        owners.push(s)
+        bals.push(0)
+        return "201 " + acct(owners.len() - 1)
+      _ => return '400 \{"error":"owner required"}'
+  if kind == "transfer":
+    a = find_id(j["from"].text())
+    b = find_id(j["to"].text())
+    if a < 0 or b < 0: return '404 \{"error":"no such account"}'
+    if a == b: return '400 \{"error":"same account"}'
+    if not amt_ok(j): return '400 \{"error":"bad amount"}'
+    x = j["amount"].int()
+    if x > bals[a]: return '409 \{"error":"insufficient funds"}'
+    bals[a] -= x
+    bals[b] += x
+    return '200 \{"from":{bals[a]},"to":{bals[b]}}'
+  i = find_id(parts[2])
+  if i < 0: return '404 \{"error":"no such account"}'
+  if not amt_ok(j): return '400 \{"error":"bad amount"}'
+  x = j["amount"].int()
+  if kind == "withdraw":
+    if x > bals[i]: return '409 \{"error":"insufficient funds"}'
+    bals[i] -= x
+  else:
+    bals[i] += x
+  "200 " + acct(i)
+for line in lines():
+  if line.trim().is_empty(): continue
+  sp = line.find(" ")
+  method = line
+  rest = ""
+  if sp >= 0:
+    method = line.slice(0, sp)
+    rest = line.slice(sp + 1).trim()
+  sp2 = rest.find(" ")
+  path = rest
+  body = ""
+  if sp2 >= 0:
+    path = rest.slice(0, sp2)
+    body = rest.slice(sp2 + 1).trim()
+  print(handle(method, path, body))

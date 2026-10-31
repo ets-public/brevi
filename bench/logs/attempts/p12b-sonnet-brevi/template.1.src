@@ -1,0 +1,123 @@
+fn is_open(s: str) = s.starts_with("#each ") or s.starts_with("#if ")
+fn is_close(s: str) = s == "/each" or s == "/if"
+
+fn matchend(toks: [(bool, str)], i: int) -> int:
+  depth = 0
+  j = i
+  while j < toks.len():
+    t = toks[j]
+    if t.0:
+      if is_open(t.1):
+        depth += 1
+      elif is_close(t.1):
+        depth -= 1
+        if depth == 0:
+          return j
+    j += 1
+  toks.len()
+
+fn findelse(toks: [(bool, str)], i: int, e: int) -> int:
+  depth = 0
+  for j in i..e:
+    t = toks[j]
+    if t.0:
+      if is_open(t.1):
+        depth += 1
+      elif is_close(t.1):
+        depth -= 1
+      elif t.1 == "else" and depth == 1:
+        return j
+  -1
+
+fn lookup(name: str, scopes: [(Json, int)]) -> Json:
+  if name == ".":
+    return scopes.last().0
+  if name == "@index":
+    return scopes.last().1.json()
+  segs = name.split(".")
+  n = scopes.len()
+  for i in 0..n:
+    sc = scopes[n - 1 - i].0
+    if sc.has(segs[0]):
+      v = sc
+      for s in segs:
+        v = v[s]
+      return v
+  json("null")
+
+fn evaltag(tag: str, scopes: [(Json, int)]) -> str:
+  parts = tag.split("|")
+  v = lookup(parts[0].trim(), scopes)
+  for f0 in parts.skip(1):
+    f = f0.trim()
+    if f == "upper":
+      v = v.text().upper().json()
+    elif f == "lower":
+      v = v.text().lower().json()
+    elif f == "len":
+      n = match v:
+        Arr(xs) => xs.len()
+        Obj(m) => m.len()
+        Str(s) => s.len()
+        _ => 0
+      v = n.json()
+    elif f.starts_with("default:"):
+      if v.text().is_empty():
+        v = f.slice(8).json()
+  v.text()
+
+fn render(toks: [(bool, str)], a: int, b: int, scopes: [(Json, int)]) -> str:
+  res = ""
+  i = a
+  while i < b:
+    t = toks[i]
+    if not t.0:
+      res += t.1
+      i += 1
+      continue
+    tag = t.1
+    if tag.starts_with("#each "):
+      e = matchend(toks, i)
+      arr = lookup(tag.slice(6).trim(), scopes)
+      k = 0
+      for x in arr:
+        res += render(toks, i + 1, e, scopes + [(x, k)])
+        k += 1
+      i = e + 1
+    elif tag.starts_with("#if "):
+      e = matchend(toks, i)
+      el = findelse(toks, i, e)
+      v = lookup(tag.slice(4).trim(), scopes)
+      if v:
+        res += render(toks, i + 1, if el < 0: e else: el, scopes)
+      elif el >= 0:
+        res += render(toks, el + 1, e, scopes)
+      i = e + 1
+    else:
+      res += evaltag(tag, scopes)
+      i += 1
+  res
+
+text = stdin()
+nl = text.find("\n")
+data = json(text.slice(0, nl))
+tpl = text.slice(nl + 1)
+toks = []
+rest = tpl
+while rest:
+  i = rest.find("{{")
+  if i < 0:
+    toks.push((false, rest))
+    break
+  j = rest.slice(i).find("}}")
+  if j < 0:
+    toks.push((false, rest))
+    break
+  if i > 0:
+    toks.push((false, rest.slice(0, i)))
+  toks.push((true, rest.slice(i + 2, i + j).trim()))
+  rest = rest.slice(i + j + 2)
+out = render(toks, 0, toks.len(), [(data, -1)])
+if out.ends_with("\n"):
+  out = out.slice(0, out.len() - 1)
+print(out)

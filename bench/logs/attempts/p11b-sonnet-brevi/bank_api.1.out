@@ -1,0 +1,3 @@
+{"line":1,"msg":"owners is used inside a function, so it needs a type","fix":"write owners: [int] = [] with the real type"}
+{"line":25,"msg":"unknown method .to_list()","fix":"did you mean .re_list()?"}
+{"line":31,"msg":"unknown name 'Json'","fix":"set it first: Json = ..."}

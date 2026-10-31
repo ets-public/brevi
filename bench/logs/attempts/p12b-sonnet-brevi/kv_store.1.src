@@ -1,0 +1,67 @@
+store = {}
+log = []
+marks = []
+
+fn record(k: str):
+  if marks:
+    log.push((k, store.has(k), store.get_or(k, "")))
+
+fn put(k: str, v: str):
+  record(k)
+  store[k] = v
+
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  c = w[0]
+  if c == "SET" and w.len() == 3:
+    put(w[1], w[2])
+  elif c == "GET" and w.len() == 2:
+    if store.has(w[1]):
+      print(store[w[1]])
+    else:
+      print("NULL")
+  elif c == "DEL" and w.len() == 2:
+    if store.has(w[1]):
+      record(w[1])
+      store.remove(w[1])
+    else:
+      print("NOT FOUND")
+  elif c == "INCR" and w.len() == 3:
+    cur = store.get_or(w[1], "0")
+    if cur.re_full("-?\d+").is_empty():
+      print("ERR not an integer")
+    else:
+      nv = cur.int() + w[2].int()
+      put(w[1], str(nv))
+      print(nv)
+  elif c == "COUNT" and w.len() == 2:
+    print(store.values().count(v => v == w[1]))
+  elif c == "KEYS" and w.len() == 2:
+    ks = [k for k in store.keys() if k.starts_with(w[1])]
+    if ks:
+      print(" ".join(ks))
+    else:
+      print("(empty)")
+  elif c == "BEGIN":
+    marks.push(log.len())
+  elif c == "ROLLBACK":
+    if marks:
+      m = marks.pop()
+      while log.len() > m:
+        e = log.pop()
+        if e.1:
+          store[e.0] = e.2
+        else:
+          store.remove(e.0)
+    else:
+      print("NO TRANSACTION")
+  elif c == "COMMIT":
+    if marks:
+      marks = []
+      log = []
+    else:
+      print("NO TRANSACTION")
+  else:
+    print("ERR unknown command")

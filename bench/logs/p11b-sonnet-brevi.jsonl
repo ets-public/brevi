@@ -1,0 +1,14 @@
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"access_report","code_tok":660,"patch_tok":660,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"bank_api","code_tok":1395,"patch_tok":1395,"out_tok":122,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"bank_api","code_tok":1409,"patch_tok":204,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"invoices","code_tok":727,"patch_tok":727,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"kv_store","code_tok":557,"patch_tok":557,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"markdown","code_tok":1088,"patch_tok":1088,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"spreadsheet","code_tok":1469,"patch_tok":1469,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1443,"patch_tok":1443,"out_tok":436,"compiled":true,"pass":0,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1391,"patch_tok":264,"out_tok":436,"compiled":true,"pass":0,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1403,"patch_tok":286,"out_tok":436,"compiled":true,"pass":0,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1423,"patch_tok":384,"out_tok":378,"compiled":true,"pass":0,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1434,"patch_tok":73,"out_tok":378,"compiled":true,"pass":0,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"template","code_tok":1553,"patch_tok":211,"out_tok":378,"compiled":true,"pass":0,"total":2,"tok":"exact"}
+{"run":"p11b-sonnet-brevi","lang":"brevi","task":"timetable","code_tok":668,"patch_tok":668,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

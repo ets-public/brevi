@@ -1520,6 +1520,15 @@ impl Emitter {
         if !tried && self.call_is_fallible(&Expr::Call(name.into(), vec![], 0)) {
             self.diag(self.line, &format!("{name}() can fail but its error is not handled"), Some(format!("write {name}(...)? to pass the error up")));
         }
+        // `str({"id": i, "error": m})` writes the keys in the order given, as Python does.
+        if name == "str" && args.len() == 1 {
+            if let Expr::Map(pairs) = &args[0].1 {
+                if !pairs.is_empty() && pairs.iter().all(|(k, _)| matches!(k, Expr::Str(_))) {
+                    let ps: Vec<String> = pairs.iter().map(|(k, v)| format!("(Show::show(&{}), AxToJson::ax_json(&{}))", self.expr(k), self.expr(v))).collect();
+                    return format!("ax_obj(vec![{}]).show()", ps.join(", "));
+                }
+            }
+        }
         let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
         match name {
             // print(a, b) writes them with a space between, like Python.

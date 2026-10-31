@@ -1,0 +1,100 @@
+fn tag_inner(t: str) -> str:
+  if t.starts_with("{{") and t.ends_with("}}"):
+    return t.slice(2, t.len() - 2).trim()
+  return ""
+
+fn items_of(v: Json) -> [Json]:
+  match v:
+    Arr(xs) => xs
+    _ => []
+
+fn len_of(v: Json) -> int:
+  match v:
+    Str(s) => s.len()
+    Arr(xs) => xs.len()
+    _ => 0
+
+fn blank(v: Json) -> bool:
+  if v.is_null(): return true
+  match v:
+    Str(s) => s.is_empty()
+    _ => false
+
+fn resolve(name: str, scope: [Json], idx: int) -> Json:
+  if name == ".": return scope[scope.len() - 1]
+  if name == "@index": return idx.json()
+  parts = name.split(".")
+  i = scope.len() - 1
+  while i >= 0:
+    cur = scope[i]
+    for p in parts:
+      cur = cur[p]
+    if not cur.is_null(): return cur
+    i -= 1
+  return json("null")
+
+fn apply(f: str, v: Json) -> Json:
+  (fname, _, arg) = f.partition(":")
+  if fname == "upper": return v.text().upper().json()
+  if fname == "lower": return v.text().lower().json()
+  if fname == "len": return len_of(v).json()
+  if fname == "default":
+    if blank(v): return arg.json()
+    return v
+  return v
+
+fn show_expr(ex: str, scope: [Json], idx: int) -> str:
+  parts = ex.split("|")
+  v = resolve(parts[0].trim(), scope, idx)
+  for f in parts[1:]:
+    v = apply(f.trim(), v)
+  return v.text()
+
+fn render(toks: [str], mut pos: int, scope: [Json], idx: int) -> str:
+  out = ""
+  while pos < toks.len():
+    t = toks[pos]
+    if not t.starts_with("{{"):
+      out += t
+      pos += 1
+    else:
+      inner = tag_inner(t)
+      if inner == "/each" or inner == "/if" or inner == "else":
+        return out
+      pos += 1
+      if inner.starts_with("#each "):
+        xs = items_of(resolve(inner.slice(6).trim(), scope, idx))
+        endp = pos
+        render(toks, endp, scope, idx)
+        for k in 0..xs.len():
+          bp = pos
+          out += render(toks, bp, scope + [xs[k]], k)
+        pos = endp + 1
+      elif inner.starts_with("#if "):
+        cond = resolve(inner.slice(4).trim(), scope, idx)
+        ip = pos
+        then_s = render(toks, ip, scope, idx)
+        else_s = ""
+        if tag_inner(toks[ip]) == "else":
+          ip += 1
+          else_s = render(toks, ip, scope, idx)
+        pos = ip + 1
+        if cond:
+          out += then_s
+        else:
+          out += else_s
+      else:
+        out += show_expr(inner, scope, idx)
+  return out
+
+fn main():
+  text = stdin()
+  cut = text.find("\n")
+  root = json(text.slice(0, cut))
+  template = text.slice(cut + 1)
+  toks = template.re_list('\{\{[^}]*\}\}|[^{]+|\{')
+  p = 0
+  out = render(toks, p, [root], 0)
+  print(out)
+
+main()

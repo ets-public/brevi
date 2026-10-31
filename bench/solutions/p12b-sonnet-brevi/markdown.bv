@@ -1,0 +1,94 @@
+out = []
+para = []
+kind = ""
+heads = []
+used = {}
+
+fn esc(s: str) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fmt_seg(s: str):
+  t = s.re_sub('\*\*(.+?)\*\*', "<strong>\1</strong>")
+  t = t.re_sub('\*(.+?)\*', "<em>\1</em>")
+  t.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+
+fn inline(s: str):
+  parts = esc(s).split("`")
+  res = ""
+  n = parts.len()
+  for i in 0..n:
+    if i % 2 == 1 and i < n - 1:
+      res += "<code>" + parts[i] + "</code>"
+    elif i % 2 == 1:
+      res += "`" + fmt_seg(parts[i])
+    else:
+      res += fmt_seg(parts[i])
+  res
+
+fn flush():
+  if para:
+    out.push("<p>" + inline(" ".join(para)) + "</p>")
+    para = []
+  if kind:
+    out.push("</" + kind + ">")
+    kind = ""
+
+fn item(k: str, text: str):
+  if kind != k:
+    flush()
+    kind = k
+    out.push("<" + k + ">")
+  out.push("<li>" + inline(text) + "</li>")
+
+in_code = false
+code = []
+for line in lines():
+  if in_code:
+    if line == "```":
+      out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+      code = []
+      in_code = false
+    else:
+      code.push(esc(line))
+    continue
+  if line == "```":
+    flush()
+    in_code = true
+    continue
+  if line.trim().is_empty():
+    flush()
+    continue
+  h = line.re_full('(#{1,6}) (.*)')
+  if h:
+    flush()
+    lvl = h[1].len()
+    text = h[2].trim()
+    base = text.lower().re_sub('[^a-z0-9]+', "-").re_sub('^-+|-+$', "")
+    id = base
+    n = 2
+    while used.has(id):
+      id = "{base}-{n}"
+      n += 1
+    used[id] = 1
+    heads.push((id, text))
+    out.push('<h{lvl} id="{id}">{inline(text)}</h{lvl}>')
+    continue
+  if line.starts_with("- "):
+    item("ul", line.slice(2))
+    continue
+  o = line.re_full('\d+\. (.*)')
+  if o:
+    item("ol", o[1])
+    continue
+  if kind:
+    flush()
+  para.push(line)
+flush()
+if in_code:
+  out.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+if heads.len() >= 2:
+  print("<nav>")
+  for id, text in heads:
+    print('<a href="#{id}">{esc(text.replace("`", "").replace("*", ""))}</a>')
+  print("</nav>")
+for l in out:
+  print(l)

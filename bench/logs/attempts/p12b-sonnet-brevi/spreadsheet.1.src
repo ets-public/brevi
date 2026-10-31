@@ -1,0 +1,111 @@
+cells = {}
+memo = {}
+visiting = {}
+maxc = 0
+maxr = 0
+
+fn cs(a: int, b: int) -> int = if a == 1 or b == 1: 1 elif a == 2 or b == 2: 2 else: 0
+
+fn colof(n: str) -> int = n.code() - 65
+fn rowof(n: str) -> int = n.slice(1).int().or(0)
+
+fn evalcell(name: str) -> (int, int):
+  if memo.has(name):
+    return memo[name]
+  if visiting.has(name):
+    return (1, 0)
+  visiting[name] = 1
+  content = cells.get_or(name, "")
+  res = (0, 0)
+  if content.starts_with("="):
+    t = content.slice(1).replace(" ", "").re_list('\d+|[A-Z]+\d+|[A-Z]+|[-+*/():]')
+    s, v, p = expr(t, 0)
+    res = (s, v)
+  elif content.is_empty():
+    res = (0, 0)
+  else:
+    res = (0, content.int().or(0))
+  memo[name] = res
+  res
+
+fn expr(t: [str], p0: int) -> (int, int, int):
+  s, v, p = term(t, p0)
+  while p < t.len() and (t[p] == "+" or t[p] == "-"):
+    op = t[p]
+    s2, v2, p2 = term(t, p + 1)
+    s = cs(s, s2)
+    if op == "+":
+      v += v2
+    else:
+      v -= v2
+    p = p2
+  (s, v, p)
+
+fn term(t: [str], p0: int) -> (int, int, int):
+  s, v, p = factor(t, p0)
+  while p < t.len() and (t[p] == "*" or t[p] == "/"):
+    op = t[p]
+    s2, v2, p2 = factor(t, p + 1)
+    s = cs(s, s2)
+    if op == "*":
+      v *= v2
+    elif v2 == 0:
+      if s == 0:
+        s = 2
+      v = 0
+    else:
+      v = v / v2
+    p = p2
+  (s, v, p)
+
+fn factor(t: [str], p: int) -> (int, int, int):
+  tok = t[p]
+  if tok == "-":
+    s, v, q = factor(t, p + 1)
+    return (s, -v, q)
+  if tok == "(":
+    s, v, q = expr(t, p + 1)
+    return (s, v, q + 1)
+  if tok.is_digit():
+    return (0, tok.int(), p + 1)
+  if t.len() > p + 1 and t[p + 1] == "(":
+    a = t[p + 2]
+    b = t[p + 4]
+    vals = []
+    s = 0
+    for c in colof(a)..colof(b) + 1:
+      for r in rowof(a)..rowof(b) + 1:
+        cs2, cv = evalcell("{(65 + c).char()}{r}")
+        s = cs(s, cs2)
+        vals.push(cv)
+    v = 0
+    if tok == "SUM":
+      v = vals.sum()
+    elif tok == "MIN":
+      v = vals.min().or(0)
+    else:
+      v = vals.max().or(0)
+    return (s, v, p + 6)
+  s, v = evalcell(tok)
+  (s, v, p + 1)
+
+for line in lines():
+  i = line.find("=")
+  if i < 0:
+    continue
+  cells[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+for k, content in cells.pairs():
+  for r in (k + " " + content).re_list('[A-Z]\d+'):
+    maxc = max(maxc, colof(r) + 1)
+    maxr = max(maxr, rowof(r))
+print("\t" + "\t".join([(65 + c).char() for c in 0..maxc]))
+for r in 1..maxr + 1:
+  row = [str(r)]
+  for c in 0..maxc:
+    name = "{(65 + c).char()}{r}"
+    if not cells.has(name):
+      row.push("")
+      continue
+    s, v = evalcell(name)
+    row.push(if s == 1: "#CYCLE" elif s == 2: "#DIV0" else: str(v))
+  print("\t".join(row))

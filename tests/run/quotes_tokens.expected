@@ -1,9 +1,10 @@
 {"e":"a"} 3
 abit's
 {"id":3,"owner":"ann","n":4}
-{3} \d+ {"k": 1}
+{{x}} \d+ {"k": 1}
 true
 k v = w
 ["SUM", "(", "A1", ":", "B2", ")", "+", "3", "*", "-", "x"]
 abc true true
+{{#each 1}} {{x}} {
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

@@ -1,0 +1,62 @@
+fn tmin(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+
+fn pad(n: int) -> str = if n < 10: "0{n}" else: str(n)
+
+fn hhmm(m: int) -> str = pad(m // 60) + ":" + pad(m % 60)
+
+trips = []
+queries = []
+section = 0
+for line in lines():
+  t = line.trim()
+  if t == "---":
+    section = 1
+    continue
+  if t.is_empty():
+    continue
+  w = t.words()
+  if section == 0:
+    stns = []
+    times = []
+    for i in 0..(w.len() - 1) // 2:
+      stns.push(w[1 + 2 * i])
+      times.push(tmin(w[2 + 2 * i]))
+    trips.push((w[0], stns, times))
+  else:
+    queries.push(w)
+
+for q in queries:
+  src = q[0]
+  dst = q[1]
+  t0 = tmin(q[2])
+  if src == dst:
+    print("{src} {dst} {hhmm(t0)} via -")
+    continue
+  best = {}
+  best[src] = (t0 - 5, 0, "")
+  changed = true
+  while changed:
+    changed = false
+    for tr in trips:
+      name = tr.0
+      stns = tr.1
+      times = tr.2
+      for k in 0..stns.len() - 1:
+        if not best.has(stns[k]):
+          continue
+        b = best[stns[k]]
+        if b.0 + 5 > times[k]:
+          continue
+        lst = if b.2.is_empty(): name else: b.2 + ">" + name
+        for m in k + 1..stns.len():
+          cand = (times[m], b.1 + 1, lst)
+          if not best.has(stns[m]) or cand < best[stns[m]]:
+            best[stns[m]] = cand
+            changed = true
+  if best.has(dst):
+    r = best[dst]
+    print("{src} {dst} {hhmm(r.0)} via {r.2}")
+  else:
+    print("{src} {dst} unreachable")

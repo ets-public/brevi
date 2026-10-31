@@ -1,0 +1,31 @@
+kv: {str: str} = {}
+snaps: [{str: str}] = []
+for line in lines():
+  w = line.words()
+  if not w: continue
+  c = w[0]
+  n = w.len()
+  if c == "SET" and n == 3: kv[w[1]] = w[2]
+  elif c == "GET" and n == 2: print(if kv.has(w[1]): kv[w[1]] else: "NULL")
+  elif c == "DEL" and n == 2:
+    if kv.has(w[1]): kv.remove(w[1])
+    else: print("NOT FOUND")
+  elif c == "INCR" and n == 3:
+    cur = if kv.has(w[1]): kv[w[1]].int().or(-999999999999) else: 0
+    if cur == -999999999999 and kv[w[1]] != "-999999999999": print("ERR not an integer")
+    else:
+      v = cur + w[2].int().or(0)
+      kv[w[1]] = str(v)
+      print(v)
+  elif c == "COUNT" and n == 2: print(kv.values().count(v => v == w[1]))
+  elif c == "KEYS" and n == 2:
+    ks = kv.keys().filter(k => k.starts_with(w[1]))
+    print(if ks: ks.join(" ") else: "(empty)")
+  elif c == "BEGIN": snaps.push(kv)
+  elif c == "ROLLBACK":
+    if snaps: kv = snaps.pop()
+    else: print("NO TRANSACTION")
+  elif c == "COMMIT":
+    if snaps: snaps = []
+    else: print("NO TRANSACTION")
+  else: print("ERR unknown command")

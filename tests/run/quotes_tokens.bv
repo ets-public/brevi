@@ -10,3 +10,5 @@ print(a, b)
 print("SUM(A1:B2)+3*-x".re_list("\d+|[A-Z]+\d*|\S"))
 (h, s, t) = "abc".partition("z")
 print(h, s == "", t == "")
+x = 1
+print('{{#each {x}}}', '{{x}}', "{{")

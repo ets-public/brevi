@@ -167,6 +167,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                             }
                         }
                     }
+                    // `{{` is two braces here, never a value: '{{#each '.
+                    Some('{') if chars.get(i + 1) == Some(&'{') => {
+                        s.push_str("{{{{");
+                        i += 2;
+                        col += 2;
+                    }
                     Some(&b @ ('{' | '}')) => {
                         s.push(b);
                         s.push(b);
