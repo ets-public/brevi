@@ -1647,6 +1647,8 @@ impl Emitter {
                 self.locals = outer;
                 format!("for {p} in {it} {b}")
             }
+            // `while true:` is Rust's `loop`, so a function may end in it and return from inside.
+            Expr::While(c, body) if matches!(c.as_ref(), Expr::Bool(true)) => format!("loop {}", self.block_d(body, true)),
             Expr::While(c, body) => {
                 let c = self.cond(c);
                 format!("while {c} {}", self.block_d(body, true))

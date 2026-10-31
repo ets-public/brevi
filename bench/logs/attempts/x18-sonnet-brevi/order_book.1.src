@@ -1,0 +1,111 @@
+type Order:
+  id: str
+  buy: bool
+  qty: int
+  price: dec
+  seq: int
+
+book = []
+used = {}
+vol = 0
+val = 0.dec()
+seqn = 0
+
+fn best(want_buy: bool) -> int:
+  bi = -1
+  for i in 0..book.len():
+    o = book[i]
+    if o.buy != want_buy: continue
+    if bi < 0:
+      bi = i
+    else:
+      b = book[bi]
+      better = if want_buy: (o.price > b.price) else: (o.price < b.price)
+      if better: bi = i
+  bi
+
+fn trade(id: str, buy: bool, qty: int, limit: dec, market: bool) -> int:
+  left = qty
+  while left > 0:
+    i = best(not buy)
+    if i < 0: break
+    r = book[i]
+    if not market:
+      if buy and r.price > limit: break
+      if (not buy) and r.price < limit: break
+    q = min(left, r.qty)
+    if buy:
+      print("TRADE {id} {r.id} {q} {r.price.fmt(2)}")
+    else:
+      print("TRADE {r.id} {id} {q} {r.price.fmt(2)}")
+    vol += q
+    val += r.price * q
+    left -= q
+    if q == r.qty:
+      book.remove(i)
+    else:
+      book[i].qty -= q
+  left
+
+fn goodqty(s: str) -> bool = (s.re_full("\d+").len() > 0) and s.int() >= 1
+fn goodprice(s: str) -> bool = (s.re_full("\d+(\.\d{1,2})?").len() > 0) and s.dec() > 0
+
+fn show(buy: bool):
+  ps = [o.price for o in book if o.buy == buy].unique()
+  if not buy:
+    ps = ps
+  else:
+    ps = ps.rev()
+  if ps.is_empty():
+    print("  -")
+  for p in ps:
+    t = sum(o.qty for o in book if o.buy == buy and o.price == p)
+    print("  {p.fmt(2)} {t}")
+
+fn run(line: str) -> int:
+  ws = line.words()
+  cmd = ws[0]
+  n = ws.len()
+  if cmd == "BOOK" and n == 1:
+    print("asks")
+    show(false)
+    print("bids")
+    show(true)
+    return 0
+  if cmd == "CANCEL" and n == 2:
+    idx = -1
+    for i in 0..book.len():
+      if book[i].id == ws[1]: idx = i
+    if idx < 0: fail("unknown ID")
+    print("CANCELLED {ws[1]} {book[idx].qty}")
+    book.remove(idx)
+    return 0
+  if (cmd == "BUY" or cmd == "SELL") and n == 4:
+    if not goodqty(ws[2]) or not goodprice(ws[3]): fail("bad command")
+    if used.has(ws[1]): fail("duplicate ID")
+    used[ws[1]] = 1
+    buy = cmd == "BUY"
+    pr = ws[3].dec()
+    left = trade(ws[1], buy, ws[2].int(), pr, false)
+    if left > 0:
+      seqn += 1
+      book.push(Order(ws[1], buy, left, pr, seqn))
+    return 0
+  if (cmd == "MBUY" or cmd == "MSELL") and n == 3:
+    if not goodqty(ws[2]): fail("bad command")
+    if used.has(ws[1]): fail("duplicate ID")
+    used[ws[1]] = 1
+    left = trade(ws[1], cmd == "MBUY", ws[2].int(), 0.dec(), true)
+    if left > 0: print("DROPPED {ws[1]} {left}")
+    return 0
+  fail("bad command")
+  0
+
+lineno = 0
+for line in lines():
+  lineno += 1
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => lineno += 0
+    Err(m) => print("ERR line {lineno}: {m}")
+print("volume {vol} value {val.fmt(2)}")

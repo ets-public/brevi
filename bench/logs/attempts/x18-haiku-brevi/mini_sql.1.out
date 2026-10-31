@@ -1,0 +1,1 @@
+{"line":34,"msg":"mismatched types: expected ([(str, str, ..., ...)], int), found ()","fix":"convert with .int(), .float() or str(x)"}

@@ -1,0 +1,95 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse_tasks(ls: [str]) -> (int, [Task]):
+  k = 0
+  have = false
+  ts = []
+  names = {}
+  for i in 0..ls.len():
+    s = ls[i].trim()
+    if s.is_empty(): continue
+    if not have:
+      h = s.re_full("workers (\d+)")
+      if h.is_empty(): fail("line {i + 1}: bad line")
+      if h[1].int() < 1: fail("line {i + 1}: bad line")
+      k = h[1].int()
+      have = true
+      continue
+    g = s.re_full("(\w+) (\d+)(?: after (\w+(?:, \w+)*))?")
+    if g.is_empty(): fail("line {i + 1}: bad line")
+    if g[2].int() < 1: fail("line {i + 1}: bad line")
+    if names.has(g[1]): fail("line {i + 1}: duplicate {g[1]}")
+    names[g[1]] = 1
+    deps: [str] = []
+    if g[3] != "": deps = g[3].split(", ")
+    ts.push(Task(name: g[1], days: g[2].int(), deps: deps))
+  if not have: fail("line 1: bad line")
+  for t in ts:
+    for d in t.deps:
+      if not names.has(d): fail("unknown {d}")
+  (k, ts)
+
+fn index_of_names(ts: [Task]) -> {str: int}:
+  idx = {}
+  for i in 0..ts.len():
+    idx[ts[i].name] = i
+  idx
+
+fn unlimited(ts: [Task]) -> ([int], [int]):
+  n = ts.len()
+  idx = index_of_names(ts)
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  done = [0].repeat(n)
+  cnt = 0
+  while cnt < n:
+    prog = false
+    for i in 0..n:
+      if done[i] == 0:
+        ok = true
+        s = 0
+        for d in ts[i].deps:
+          j = idx[d]
+          if done[j] == 0:
+            ok = false
+          else:
+            s = max(s, en[j])
+        if ok:
+          st[i] = s
+          en[i] = s + ts[i].days
+          done[i] = 1
+          cnt += 1
+          prog = true
+    if not prog: fail("cycle")
+  (st, en)
+
+fn by_end_desc(en: [int]) -> [int]:
+  ids = [i for i in 0..en.len()]
+  ids.sort_by(i => -en[i])
+
+fn critical(ts: [Task], st: [int], en: [int]) -> [str]:
+  n = ts.len()
+  if n == 0: return []
+  top = max(en)
+  can = [0].repeat(n)
+  for i in by_end_desc(en):
+    if en[i] == top:
+      can[i] = 1
+    else:
+      for j in 0..n:
+        if can[j] == 1 and st[j] == en[i] and ts[i].name in ts[j].deps:
+          can[i] = 1
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and can[i] == 1: cur = i
+  out = []
+  while cur >= 0:
+    out.push(ts[cur].name)
+    nx = -1
+    for j in 0..n:
+      if nx < 0 and can[j] == 1 and st[j] == en[cur] and ts[cur].name in ts[j].deps: nx = j
+    cur = nx
+  out

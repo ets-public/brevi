@@ -1,0 +1,189 @@
+enum Expr:
+  Num(v: int)
+  Var(n: str)
+  Neg(e: Expr)
+  Bin(op: str, a: Expr, b: Expr)
+  Call(n: str, args: [Expr])
+
+toks = []
+pos = 0
+gv = {}
+fns = {}
+depth = 0
+
+fn syn():
+  fail("syntax")
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  if pos >= toks.len(): syn()
+  t = toks[pos]
+  pos += 1
+  t
+
+fn expect(s: str):
+  if nxt() != s: syn()
+
+fn isname(t: str) -> bool = t.re_full("[A-Za-z]\w*").len() > 0 and t not in ["let", "fn", "print", "if"]
+
+fn name() -> str:
+  t = nxt()
+  if not isname(t): syn()
+  t
+
+fn primary() -> Expr:
+  t = nxt()
+  if t.re_full("\d+").len() > 0: return Num(t.int())
+  if t == "(":
+    e = expr()
+    expect(")")
+    return e
+  if t.re_full("[A-Za-z]\w*").len() > 0:
+    if peek() == "(":
+      nxt()
+      args = []
+      if peek() == ")":
+        nxt()
+      else:
+        while true:
+          args.push(expr())
+          s = nxt()
+          if s == ")": break
+          if s != ",": syn()
+      return Call(t, args)
+    if not isname(t): syn()
+    return Var(t)
+  syn()
+  Num(0)
+
+fn unary() -> Expr:
+  if peek() == "-":
+    nxt()
+    return Neg(unary())
+  primary()
+
+fn term() -> Expr:
+  a = unary()
+  while peek() in ["*", "/", "%"]:
+    op = nxt()
+    b = unary()
+    a = Bin(op, a, b)
+  a
+
+fn arith() -> Expr:
+  a = term()
+  while peek() in ["+", "-"]:
+    op = nxt()
+    b = term()
+    a = Bin(op, a, b)
+  a
+
+fn expr() -> Expr:
+  a = arith()
+  if peek() in ["==", "!=", "<", ">", "<=", ">="]:
+    op = nxt()
+    b = arith()
+    return Bin(op, a, b)
+  a
+
+fn evcall(n: str, args: [Expr], loc: {str: int}) -> int:
+  if n == "if":
+    if args.len() != 3: fail("if takes 3 arguments")
+    c = ev(args[0], loc)
+    if c != 0: return ev(args[1], loc)
+    return ev(args[2], loc)
+  if not fns.has(n): fail("unknown function {n}")
+  f = fns[n]
+  k = f.0.len()
+  if k != args.len(): fail("{n} takes {k} arguments")
+  nl = {}
+  for i in 0..k:
+    nl[f.0[i]] = ev(args[i], loc)
+  if depth >= 200: fail("too deep")
+  depth += 1
+  r = ev(f.1, nl)
+  depth -= 1
+  r
+
+fn ev(e: Expr, loc: {str: int}) -> int = match e:
+  Num(v) => v
+  Var(n) => varval(n, loc)
+  Neg(x) => 0 - ev(x, loc)
+  Bin(op, a, b) => binop(op, ev(a, loc), b, loc)
+  Call(n, args) => evcall(n, args, loc)
+
+fn varval(n: str, loc: {str: int}) -> int:
+  if loc.has(n): return loc[n]
+  if gv.has(n): return gv[n]
+  fail("unknown name {n}")
+  0
+
+fn binop(op: str, x: int, be: Expr, loc: {str: int}) -> int:
+  y = ev(be, loc)
+  if op == "+": return x + y
+  if op == "-": return x - y
+  if op == "*": return x * y
+  if op == "/" or op == "%":
+    if y == 0: fail("division by zero")
+    if op == "/": return x / y
+    return x % y
+  r = false
+  if op == "==": r = x == y
+  if op == "!=": r = x != y
+  if op == "<": r = x < y
+  if op == ">": r = x > y
+  if op == "<=": r = x <= y
+  if op == ">=": r = x >= y
+  if r: 1 else: 0
+
+fn run(line: str) -> str:
+  toks = line.re_list("\d+|[A-Za-z]\w*|==|!=|<=|>=|[-+*/%<>(),=]|\S")
+  pos = 0
+  depth = 0
+  cmd = nxt()
+  if cmd == "let":
+    n = name()
+    expect("=")
+    e = expr()
+    if peek() != "": syn()
+    gv[n] = ev(e, {})
+    return ""
+  if cmd == "fn":
+    n = name()
+    expect("(")
+    ps = []
+    if peek() == ")":
+      nxt()
+    else:
+      while true:
+        ps.push(name())
+        s = nxt()
+        if s == ")": break
+        if s != ",": syn()
+    expect("=")
+    e = expr()
+    if peek() != "": syn()
+    fns[n] = (ps, e)
+    return ""
+  if cmd == "print":
+    es = [expr()]
+    while peek() == ",":
+      nxt()
+      es.push(expr())
+    if peek() != "": syn()
+    out = []
+    for e in es:
+      out.push(str(ev(e, {})))
+    return out.join(" ")
+  syn()
+  ""
+
+lineno = 0
+for line in lines():
+  lineno += 1
+  t = line.trim()
+  if t.is_empty() or t.starts_with("#"): continue
+  match run(line):
+    Ok(s) => if s != "" or line.trim().starts_with("print"): print(s)
+    Err(m) => print("error line {lineno}: {m}")

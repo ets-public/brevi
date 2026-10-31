@@ -1,0 +1,252 @@
+cols = {}
+types = {}
+rows = {}
+toks = []
+pos = 0
+
+fn syn():
+  fail("error: syntax")
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  if pos >= toks.len(): syn()
+  t = toks[pos]
+  pos += 1
+  t
+
+fn expect(s: str):
+  if nxt() != s: syn()
+
+fn name() -> str:
+  t = nxt()
+  if t.re_full("[A-Za-z]\w*").len() == 0: syn()
+  t
+
+fn value() -> (str, str):
+  t = nxt()
+  if t.starts_with("'") and t.len() >= 2 and t.ends_with("'"):
+    return ("T", t.slice(1, -1).replace("''", "'"))
+  if t.re_full("-?\d+").len() > 0:
+    return ("I", str(t.int()))
+  syn()
+  ("I", "0")
+
+fn conds() -> [(str, str, str, str)]:
+  res = []
+  while true:
+    c = name()
+    op = nxt()
+    if op not in ["=", "!=", "<", "<=", ">", ">="]: syn()
+    v = value()
+    res.push((c, op, v.0, v.1))
+    if peek() == "AND":
+      nxt()
+    else:
+      break
+  res
+
+fn cmpok(a: str, op: str, b: str, isint: bool) -> bool:
+  c = 0
+  if isint:
+    x = a.int()
+    y = b.int()
+    c = if x < y: -1 elif x > y: 1 else: 0
+  else:
+    c = if a < b: -1 elif a > b: 1 else: 0
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == "<=": return c <= 0
+  if op == ">": return c > 0
+  c >= 0
+
+fn checkcol(tn: str, c: str) -> int:
+  i = cols[tn].index_of(c)
+  if i < 0: fail("error: no column {c}")
+  i
+
+fn plan(tn: str, cs: [(str, str, str, str)]) -> [int]:
+  idx = []
+  for c in cs:
+    idx.push(checkcol(tn, c.0))
+  for k in 0..cs.len():
+    want = if cs[k].2 == "I": "INT" else: "TEXT"
+    if types[tn][idx[k]] != want: fail("error: type mismatch")
+  idx
+
+fn matches(tn: str, row: [str], cs: [(str, str, str, str)], idx: [int]) -> bool:
+  for k in 0..cs.len():
+    if not cmpok(row[idx[k]], cs[k].1, cs[k].3, types[tn][idx[k]] == "INT"): return false
+  true
+
+fn needtable(tn: str):
+  if not cols.has(tn): fail("error: no table {tn}")
+
+fn run(line: str) -> str:
+  toks = line.re_list("'(?:[^']|'')*'|<=|>=|!=|[A-Za-z_]\w*|-?\d+|[=<>(),*]|\S")
+  pos = 0
+  cmd = nxt()
+  if cmd == "CREATE":
+    expect("TABLE")
+    tn = name()
+    expect("(")
+    cn = []
+    ct = []
+    while true:
+      cn.push(name())
+      ty = nxt()
+      if ty != "INT" and ty != "TEXT": syn()
+      ct.push(ty)
+      t = nxt()
+      if t == ")": break
+      if t != ",": syn()
+    if peek() != "": syn()
+    if cols.has(tn): fail("error: table {tn} exists")
+    cols[tn] = cn
+    types[tn] = ct
+    rows[tn] = []
+    return "ok"
+  if cmd == "INSERT":
+    expect("INTO")
+    tn = name()
+    expect("VALUES")
+    expect("(")
+    vs = []
+    while true:
+      vs.push(value())
+      t = nxt()
+      if t == ")": break
+      if t != ",": syn()
+    if peek() != "": syn()
+    needtable(tn)
+    if vs.len() != cols[tn].len(): fail("error: type mismatch")
+    row = []
+    for i in 0..vs.len():
+      want = if vs[i].0 == "I": "INT" else: "TEXT"
+      if types[tn][i] != want: fail("error: type mismatch")
+      row.push(vs[i].1)
+    rows[tn].push(row)
+    return "ok"
+  if cmd == "UPDATE":
+    tn = name()
+    expect("SET")
+    sc = name()
+    expect("=")
+    sv = value()
+    cs = []
+    if peek() == "WHERE":
+      nxt()
+      cs = conds()
+    if peek() != "": syn()
+    needtable(tn)
+    si = checkcol(tn, sc)
+    idx = plan(tn, cs)
+    want = if sv.0 == "I": "INT" else: "TEXT"
+    if types[tn][si] != want: fail("error: type mismatch")
+    n = 0
+    nr = []
+    for r in rows[tn]:
+      if matches(tn, r, cs, idx):
+        r2 = r
+        r2[si] = sv.1
+        nr.push(r2)
+        n += 1
+      else:
+        nr.push(r)
+    rows[tn] = nr
+    return "updated {n}"
+  if cmd == "DELETE":
+    expect("FROM")
+    tn = name()
+    cs = []
+    if peek() == "WHERE":
+      nxt()
+      cs = conds()
+    if peek() != "": syn()
+    needtable(tn)
+    idx = plan(tn, cs)
+    n = 0
+    nr = []
+    for r in rows[tn]:
+      if matches(tn, r, cs, idx):
+        n += 1
+      else:
+        nr.push(r)
+    rows[tn] = nr
+    return "deleted {n}"
+  if cmd == "SELECT":
+    star = false
+    count = false
+    sel = []
+    if peek() == "*":
+      nxt()
+      star = true
+    elif peek() == "COUNT":
+      nxt()
+      expect("(")
+      expect("*")
+      expect(")")
+      count = true
+    else:
+      sel.push(name())
+      while peek() == ",":
+        nxt()
+        sel.push(name())
+    expect("FROM")
+    tn = name()
+    cs = []
+    if peek() == "WHERE":
+      nxt()
+      cs = conds()
+    ob = ""
+    desc = false
+    lim = -1
+    if not count:
+      if peek() == "ORDER":
+        nxt()
+        expect("BY")
+        ob = name()
+        if peek() == "DESC":
+          nxt()
+          desc = true
+      if peek() == "LIMIT":
+        nxt()
+        l = nxt()
+        if l.re_full("\d+").len() == 0: syn()
+        lim = l.int()
+    if peek() != "": syn()
+    needtable(tn)
+    pi = []
+    if star:
+      pi = [i for i in 0..cols[tn].len()]
+    else:
+      for c in sel:
+        pi.push(checkcol(tn, c))
+    idx = []
+    for c in cs:
+      idx.push(checkcol(tn, c.0))
+    oi = -1
+    if ob != "": oi = checkcol(tn, ob)
+    idx = plan(tn, cs)
+    rs = [r for r in rows[tn] if matches(tn, r, cs, idx)]
+    if count: return "{rs.len()}"
+    if oi >= 0:
+      if types[tn][oi] == "INT":
+        rs = rs.sort_by(r => r[oi].int(), desc)
+      else:
+        rs = rs.sort_by(r => r[oi], desc)
+    if lim >= 0: rs = rs.take(lim)
+    out = [pi.map(i => cols[tn][i]).join(" | ")]
+    for r in rs:
+      out.push(pi.map(i => r[i]).join(" | "))
+    out.push("({rs.len()} rows)")
+    return out.join("\n")
+  syn()
+  ""
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(s) => print(s)
+    Err(m) => print(m)

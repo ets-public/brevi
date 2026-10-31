@@ -1,0 +1,245 @@
+tcols: {str: [(str, str)]} = {}
+trows: {str: [[str]]} = {}
+
+fn tk(toks: [str], i: int) -> str:
+  if i < len(toks): return toks[i]
+  return ""
+
+fn eat(toks: [str], i: int, s: str) -> int:
+  if tk(toks, i) != s: fail("error: syntax")
+  return i + 1
+
+fn is_name(t: str) -> bool = len(t.re_full("[A-Za-z][A-Za-z0-9_]*")) > 0
+
+fn name_at(toks: [str], i: int) -> str:
+  t = tk(toks, i)
+  if not is_name(t): fail("error: syntax")
+  return t
+
+fn int_at(toks: [str], i: int) -> int:
+  t = tk(toks, i)
+  if len(t.re_full("-?\d+")) == 0: fail("error: syntax")
+  return t.int()
+
+fn value_at(toks: [str], i: int) -> (str, str):
+  t = tk(toks, i)
+  if len(t.re_full("-?\d+")) > 0: return ("INT", str(t.int()))
+  if len(t) >= 2 and t.starts_with("'") and t.ends_with("'"):
+    return ("TEXT", t[1:-1].replace("''", "'"))
+  fail("error: syntax")
+
+fn parse_conds(toks: [str], i: int):
+  out = []
+  if tk(toks, i) != "WHERE": return (out, i)
+  j = i + 1
+  while True:
+    c = name_at(toks, j)
+    op = tk(toks, j + 1)
+    if op not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+    v = value_at(toks, j + 2)
+    out.push((c, op, v.0, v.1))
+    j += 3
+    if tk(toks, j) != "AND": return (out, j)
+    j += 1
+
+fn col_index(t: str, c: str) -> int:
+  names = [x.0 for x in tcols[t]]
+  return names.index_of(c)
+
+fn need_table(t: str):
+  if not tcols.has(t): fail("error: no table {t}")
+
+fn check_cols(t: str, refs: [str]):
+  for c in refs:
+    if col_index(t, c) < 0: fail("error: no column {c}")
+
+fn check_conds(t: str, conds: [(str, str, str, str)]):
+  for cd in conds:
+    if tcols[t][col_index(t, cd.0)].1 != cd.2: fail("error: type mismatch")
+
+fn cmp3(a: str, b: str, kind: str) -> int:
+  if kind == "INT":
+    x = a.int()
+    y = b.int()
+    if x < y: return -1
+    if x > y: return 1
+    return 0
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn judge(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn matches(t: str, row: [str], conds: [(str, str, str, str)]) -> bool:
+  for cd in conds:
+    idx = col_index(t, cd.0)
+    kind = tcols[t][idx].1
+    if not judge(cmp3(row[idx], cd.3, kind), cd.1): return False
+  return True
+
+fn do_create(toks: [str]) -> str:
+  i = eat(toks, 1, "TABLE")
+  t = name_at(toks, i)
+  i = eat(toks, i + 1, "(")
+  cols = []
+  while tk(toks, i) != ")":
+    cn = name_at(toks, i)
+    ct = tk(toks, i + 1)
+    if ct != "INT" and ct != "TEXT": fail("error: syntax")
+    cols.push((cn, ct))
+    i += 2
+    if tk(toks, i) == ",":
+      i += 1
+    elif tk(toks, i) != ")":
+      fail("error: syntax")
+  i = eat(toks, i, ")")
+  if i != len(toks): fail("error: syntax")
+  if tcols.has(t): fail("error: table {t} exists")
+  tcols[t] = cols
+  trows[t] = []
+  return "ok"
+
+fn do_insert(toks: [str]) -> str:
+  i = eat(toks, 1, "INTO")
+  t = name_at(toks, i)
+  i = eat(toks, i + 1, "VALUES")
+  i = eat(toks, i, "(")
+  vs = []
+  while tk(toks, i) != ")":
+    vs.push(value_at(toks, i))
+    i += 1
+    if tk(toks, i) == ",":
+      i += 1
+    elif tk(toks, i) != ")":
+      fail("error: syntax")
+  i = eat(toks, i, ")")
+  if i != len(toks): fail("error: syntax")
+  need_table(t)
+  cols = tcols[t]
+  if len(vs) != len(cols): fail("error: type mismatch")
+  m = len(cols)
+  for k in 0..m:
+    if vs[k].0 != cols[k].1: fail("error: type mismatch")
+  row = [v.1 for v in vs]
+  trows[t].push(row)
+  return "ok"
+
+fn do_select(toks: [str]) -> str:
+  i = 1
+  star = False
+  cnt = False
+  sel = []
+  if tk(toks, i) == "COUNT":
+    i = eat(toks, i + 1, "(")
+    i = eat(toks, i, "*")
+    i = eat(toks, i, ")")
+    cnt = True
+  elif tk(toks, i) == "*":
+    star = True
+    i += 1
+  else:
+    while True:
+      sel.push(name_at(toks, i))
+      i += 1
+      if tk(toks, i) == ",":
+        i += 1
+      else:
+        break
+  i = eat(toks, i, "FROM")
+  t = name_at(toks, i)
+  conds, i = parse_conds(toks, i + 1)
+  ocol = ""
+  odesc = False
+  lim = -1
+  if not cnt and tk(toks, i) == "ORDER":
+    i = eat(toks, i + 1, "BY")
+    ocol = name_at(toks, i)
+    i += 1
+    if tk(toks, i) == "DESC":
+      odesc = True
+      i += 1
+  if not cnt and tk(toks, i) == "LIMIT":
+    lim = int_at(toks, i + 1)
+    i += 2
+  if i != len(toks): fail("error: syntax")
+  need_table(t)
+  names = [x.0 for x in tcols[t]]
+  refs = sel + [cd.0 for cd in conds]
+  if ocol != "": refs.push(ocol)
+  check_cols(t, refs)
+  check_conds(t, conds)
+  rows = [r for r in trows[t] if matches(t, r, conds)]
+  if cnt: return str(len(rows))
+  if ocol != "":
+    oi = col_index(t, ocol)
+    if tcols[t][oi].1 == "INT":
+      rows.sort_by(r => r[oi].int(), odesc)
+    else:
+      rows.sort_by(r => r[oi], odesc)
+  if lim >= 0: rows = rows[:lim]
+  want = sel
+  if star: want = names
+  idxs = [col_index(t, c) for c in want]
+  out = [want.join(" | ")]
+  for r in rows:
+    out.push([r[k] for k in idxs].join(" | "))
+  out.push("({len(rows)} rows)")
+  return out.join("\n")
+
+fn do_update(toks: [str]) -> str:
+  t = name_at(toks, 1)
+  i = eat(toks, 2, "SET")
+  c = name_at(toks, i)
+  i = eat(toks, i + 1, "=")
+  v = value_at(toks, i)
+  conds, i = parse_conds(toks, i + 1)
+  if i != len(toks): fail("error: syntax")
+  need_table(t)
+  refs = [c] + [cd.0 for cd in conds]
+  check_cols(t, refs)
+  idx = col_index(t, c)
+  if tcols[t][idx].1 != v.0: fail("error: type mismatch")
+  check_conds(t, conds)
+  n = 0
+  for j in range(len(trows[t])):
+    if matches(t, trows[t][j], conds):
+      row = trows[t][j]
+      row[idx] = v.1
+      trows[t][j] = row
+      n += 1
+  return "updated {n}"
+
+fn do_delete(toks: [str]) -> str:
+  i = eat(toks, 1, "FROM")
+  t = name_at(toks, i)
+  conds, i = parse_conds(toks, i + 1)
+  if i != len(toks): fail("error: syntax")
+  need_table(t)
+  check_cols(t, [cd.0 for cd in conds])
+  check_conds(t, conds)
+  keep = [r for r in trows[t] if not matches(t, r, conds)]
+  n = len(trows[t]) - len(keep)
+  trows[t] = keep
+  return "deleted {n}"
+
+fn run(line: str) -> str:
+  toks = line.re_list("'(?:[^']|'')*'(?!')|-?\d+|[A-Za-z][A-Za-z0-9_]*|!=|<=|>=|\S")
+  kw = tk(toks, 0)
+  if kw == "CREATE": return do_create(toks)
+  if kw == "INSERT": return do_insert(toks)
+  if kw == "SELECT": return do_select(toks)
+  if kw == "UPDATE": return do_update(toks)
+  if kw == "DELETE": return do_delete(toks)
+  fail("error: syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(v) => print(v)
+    Err(m) => print(m)

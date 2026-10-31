@@ -20,7 +20,7 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,665 toke
 - **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
-## Status: v0.17
+## Status: v0.18
 
 Works today:
 - Parser for the full core syntax in BREVI.md
@@ -39,18 +39,18 @@ Works today:
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
 
-Bigger tasks and multi-file programs, v0.17 (31 Oct 2026, exact tokens, retries scored as patches). Full table in [bench/LEADERBOARD.md](bench/LEADERBOARD.md).
+Bigger tasks and multi-file programs, v0.18 (31 Oct 2026, exact tokens, retries scored as patches). Full table in [bench/LEADERBOARD.md](bench/LEADERBOARD.md).
 
 | Task set | Model | Brevi | Python | Brevi saves | First try (Brevi / Python) |
 | --- | --- | --- | --- | --- | --- |
 | 8 big | Sonnet | **8,284** | 8,721 | 5% | 22 of 24 / 48 of 48 |
 | 8 big | Haiku | **9,398** | 10,556 | 11% | 15 of 16 / 45 of 48 |
-| 6 held-out XL | Sonnet | 13,959 | **12,944** | -8% | 7 of 12 / 10 of 12 |
-| 6 held-out XL | Haiku | 17,595 | **15,564** | -13% | 5 of 12 / 10 of 12 |
+| 6 XL | Sonnet | **12,630** | 13,128 | 4% | 11 of 12 / 20 of 24 |
+| 6 XL | Haiku | 15,908 | **15,658** | -2% | 9 of 12 / 21 of 24 |
 
 Sonnet now passes first time on 22 of 24 big tasks (39 of 48 in v0.15), so Brevi is ahead of Python on the original big tasks for both models. v0.17 fixes the failures behind that: `"{{"` and `"}}"` as a method's first argument are two braces, `j.int()`/`j.float()` give 0 for JSON strings, `s.find(sub, start)`, `s.char_at(i)`, `{[...]}` in strings, untyped parameters typed from their calls, and a program's own `fn min`, `fn args` or type `Ord` that shares a built-in's name.
 
-The six new XL tasks (`bench/ref/gen_big3.py`: 150 to 400 lines, two split over several files with `use "file.bv"`) are the first set where Brevi is clearly behind: 8% for Sonnet and 13% for Haiku, even after fixing the gaps the first two runs showed. The largest gap is mini_sql, where values whose type is decided at run time cost Brevi more code than Python. Brevi is behind Python on bigger programs, so the release gate is not met yet.
+The six XL tasks (`bench/ref/gen_big3.py`: 150 to 400 lines, two split over several files with `use "file.bv"`) started 8% (Sonnet) and 13% (Haiku) behind Python. v0.18 closes most of that over six rounds of fixes found by rerunning them: Python's `sorted(xs, key=f, reverse=True)`, `min(xs, key=f)`, `lambda`, format specs like `{x:.2f}` and `print(x, end="")`; `fail` used like Python's raise with one `match` at the top; editing rows and nested fields in place (`for r in rows: r[i] = v`, `books[id].wait.push(x)`); global maps filled through a copy inside a function; `return 0` in a function that otherwise prints; `while True:` with a return inside; and names reused across sibling blocks. Sonnet is now 4% ahead of Python on these tasks and Haiku 2% behind, within run-to-run noise (single runs vary by about 1,500 tokens). Because Brevi was tuned on these runs, the XL set is no longer held out; a fresh held-out set is the next check before the release gate is called met.
 
 Held-out check and full re-run, v0.16 (31 Oct 2026, exact tokens, retries scored as patches). Six new big tasks (`bench/ref/gen_big2.py`: sales_report, route_planner, ini_config, stack_vm, line_diff, room_booking) were written after v0.15 and never used to tune Brevi. Each cell is the average of two runs; the small and Haiku big tasks were run again on the v0.15 compiler.
 

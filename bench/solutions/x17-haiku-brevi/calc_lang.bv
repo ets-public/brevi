@@ -1,0 +1,200 @@
+PAT = "\d+|[A-Za-z]\w*|==|!=|<=|>=|[-+*/%()<>,=]"
+gv: {str: int} = {}
+fbody: {str: [str]} = {}
+fparams: {str: [str]} = {}
+
+fn tok(tk: [str], p: int) -> str = tk[p] if p < len(tk) else ""
+
+fn b2i(x: bool) -> int = 1 if x else 0
+
+fn is_ident(t: str) -> bool:
+  if t == "let" or t == "fn" or t == "print" or t == "if": return False
+  if not t.re_full("[A-Za-z]\w*"): return False
+  return True
+
+fn ident(tk: [str], mut p: int) -> str:
+  t = tok(tk, p)
+  if not is_ident(t): fail("syntax")
+  p += 1
+  return t
+
+fn eat(tk: [str], mut p: int, want: str):
+  if tok(tk, p) != want: fail("syntax")
+  p += 1
+
+fn at_end(tk: [str], p: int):
+  if p != len(tk): fail("syntax")
+
+fn invoke(name: str, av: [int], d: int) -> int:
+  if d + 1 > 200: fail("too deep")
+  q = 0
+  return e_cmp(fbody[name], q, True, d + 1, fparams[name], av)
+
+fn e_call(tk: [str], mut p: int, live: bool, d: int, pn: [str], pv: [int], name: str) -> int:
+  if live and not fbody.has(name): fail("unknown function {name}")
+  av = []
+  if tok(tk, p) != ")":
+    av.push(e_cmp(tk, p, live, d, pn, pv))
+    while tok(tk, p) == ",":
+      p += 1
+      av.push(e_cmp(tk, p, live, d, pn, pv))
+  eat(tk, p, ")")
+  if not live: return 0
+  if len(fparams[name]) != len(av): fail("{name} takes {len(fparams[name])} arguments")
+  return invoke(name, av, d)
+
+fn e_if(tk: [str], mut p: int, live: bool, d: int, pn: [str], pv: [int]) -> int:
+  c = 0
+  a = 0
+  b = 0
+  cnt = 0
+  if tok(tk, p) != ")":
+    c = e_cmp(tk, p, live, d, pn, pv)
+    cnt = 1
+    while tok(tk, p) == ",":
+      p += 1
+      if cnt == 1:
+        la = live and c != 0
+        a = e_cmp(tk, p, la, d, pn, pv)
+      elif cnt == 2:
+        lb = live and c == 0
+        b = e_cmp(tk, p, lb, d, pn, pv)
+      else:
+        e_cmp(tk, p, False, d, pn, pv)
+      cnt += 1
+  eat(tk, p, ")")
+  if live and cnt != 3: fail("if takes 3 arguments")
+  if c != 0: return a
+  return b
+
+fn e_prim(tk: [str], mut p: int, live: bool, d: int, pn: [str], pv: [int]) -> int:
+  t = tok(tk, p)
+  if t == "(":
+    p += 1
+    v = e_cmp(tk, p, live, d, pn, pv)
+    eat(tk, p, ")")
+    return v
+  if t.re_full("\d+"):
+    p += 1
+    return t.int()
+  if t == "if":
+    p += 1
+    eat(tk, p, "(")
+    return e_if(tk, p, live, d, pn, pv)
+  if not is_ident(t): fail("syntax")
+  p += 1
+  if tok(tk, p) == "(":
+    p += 1
+    return e_call(tk, p, live, d, pn, pv, t)
+  if not live: return 0
+  i = pn.index_of(t)
+  if i >= 0: return pv[i]
+  if gv.has(t): return gv[t]
+  fail("unknown name {t}")
+  return 0
+
+fn e_un(tk: [str], mut p: int, live: bool, d: int, pn: [str], pv: [int]) -> int:
+  if tok(tk, p) == "-":
+    p += 1
+    v = e_un(tk, p, live, d, pn, pv)
+    return 0 - v
+  return e_prim(tk, p, live, d, pn, pv)
+
+fn e_mul(tk: [str], mut p: int, live: bool, d: int, pn: [str], pv: [int]) -> int:
+  a = e_un(tk, p, live, d, pn, pv)
+  while tok(tk, p) == "*" or tok(tk, p) == "/" or tok(tk, p) == "%":
+    op = tok(tk, p)
+    p += 1
+    b = e_un(tk, p, live, d, pn, pv)
+    if live:
+      if op == "*":
+        a = a * b
+      else:
+        if b == 0: fail("division by zero")
+        if op == "/": a = a / b
+        else: a = a % b
+  return a
+
+fn e_add(tk: [str], mut p: int, live: bool, d: int, pn: [str], pv: [int]) -> int:
+  a = e_mul(tk, p, live, d, pn, pv)
+  while tok(tk, p) == "+" or tok(tk, p) == "-":
+    op = tok(tk, p)
+    p += 1
+    b = e_mul(tk, p, live, d, pn, pv)
+    if live:
+      if op == "+": a = a + b
+      else: a = a - b
+  return a
+
+fn e_cmp(tk: [str], mut p: int, live: bool, d: int, pn: [str], pv: [int]) -> int:
+  a = e_add(tk, p, live, d, pn, pv)
+  op = tok(tk, p)
+  if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=":
+    p += 1
+    b = e_add(tk, p, live, d, pn, pv)
+    if not live: return 0
+    if op == "==": return b2i(a == b)
+    if op == "!=": return b2i(a != b)
+    if op == "<": return b2i(a < b)
+    if op == ">": return b2i(a > b)
+    if op == "<=": return b2i(a <= b)
+    return b2i(a >= b)
+  return a
+
+fn stmt(tk: [str], live: bool) -> str:
+  if len(tk) == 0: fail("syntax")
+  kw = tk[0]
+  p = 1
+  if kw == "let":
+    nm = ident(tk, p)
+    eat(tk, p, "=")
+    v = e_cmp(tk, p, live, 0, [], [])
+    at_end(tk, p)
+    if live: gv[nm] = v
+    return ""
+  if kw == "fn":
+    nm = ident(tk, p)
+    eat(tk, p, "(")
+    ps = []
+    if tok(tk, p) != ")":
+      ps.push(ident(tk, p))
+      while tok(tk, p) == ",":
+        p += 1
+        ps.push(ident(tk, p))
+    eat(tk, p, ")")
+    eat(tk, p, "=")
+    q = p
+    e_cmp(tk, q, False, 0, ps, [])
+    at_end(tk, q)
+    if live:
+      fbody[nm] = tk.slice(p, len(tk))
+      fparams[nm] = ps
+    return ""
+  if kw == "print":
+    vals = []
+    vals.push(e_cmp(tk, p, live, 0, [], []))
+    while tok(tk, p) == ",":
+      p += 1
+      vals.push(e_cmp(tk, p, live, 0, [], []))
+    at_end(tk, p)
+    if not live: return ""
+    strs = [str(v) for v in vals]
+    return strs.join(" ")
+  fail("syntax")
+  return ""
+
+fn runline(line: str) -> str:
+  if line.re_sub(PAT, "").trim() != "": fail("syntax")
+  tk = line.re_list(PAT)
+  stmt(tk, False)
+  return stmt(tk, True)
+
+ls = lines()
+for k in 0..len(ls):
+  raw = ls[k]
+  tr = raw.trim()
+  if tr == "" or tr.starts_with("#"): continue
+  match runline(raw):
+    Ok(s) =>
+      if s != "": print(s)
+    Err(m) => print("error line {k + 1}: {m}")
