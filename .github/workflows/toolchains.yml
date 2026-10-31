@@ -81,7 +81,7 @@ jobs:
       - name: Already tested?
         id: seen
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.force)
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /tmp/fp
           key: ${{ steps.fp.outputs.key }}
@@ -116,7 +116,7 @@ jobs:
 
       - name: Remember this toolchain passed
         if: success() && steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /tmp/fp
           key: ${{ steps.fp.outputs.key }}
