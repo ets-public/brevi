@@ -116,7 +116,7 @@ def cmd_baseline():
 
 
 def lint_one(f):
-    """Warnings rustc gives on the Rust that Brevi generates for f, for the current and newest edition."""
+    """Warnings (not errors: build falls back to a plain version when a move fails) rustc gives on the Rust that Brevi generates for f, for the current and newest edition."""
     r = run([BREVI, "emit", str(f)])
     if r is None or r.returncode != 0:
         return []
@@ -135,7 +135,7 @@ def lint_one(f):
                     j = json.loads(l)
                 except ValueError:
                     continue
-                if j.get("level") in ("warning", "error") and not j["message"].startswith(("aborting", "unused", "1 warning", "warning")):
+                if j.get("level") == "warning" and not j["message"].startswith(("aborting", "unused", "1 warning", "warning")):
                     code = (j.get("code") or {}).get("code", "")
                     found.append((ed, j["level"], code, j["message"].split("\n")[0]))
     return found

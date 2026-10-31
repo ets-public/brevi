@@ -21,6 +21,7 @@ on:
 permissions:
   contents: read
   issues: write
+  actions: write
 
 concurrency:
   group: toolchains-${{ github.ref }}
@@ -137,4 +138,10 @@ jobs:
           } > body.md
           gh label create toolchain --color B60205 --description "Breakage on a new Rust or Python release" 2>/dev/null || true
           n=$(gh issue list --state open --label toolchain --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
-          if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label toolchain --body-file body.md; fi
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file body.md
+          else
+            n=$(gh issue create --title "$title" --label toolchain --body-file body.md | sed 's#.*/##')
+            # Issues opened with the Actions token do not trigger other workflows, so start auto-fix directly.
+            gh workflow run auto-fix.yml -f issue="$n" || echo "could not start auto-fix"
+          fi
