@@ -1,1 +1,1 @@
-{"e":"check","at":"ret_unknown.bv:1:1","msg":"cannot work out what f returns","fix":"write the return type: fn f(...) -> TYPE"}
+{"line":1,"msg":"cannot work out what f returns","fix":"write the return type: fn f(...) -> TYPE"}

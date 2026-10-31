@@ -1,1 +1,1 @@
-{"e":"parse","at":"parse.bv:3:3","msg":"expected ']', found print","fix":"insert ']'"}
+{"line":3,"msg":"expected ']', found print","fix":"insert ']'"}

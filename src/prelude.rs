@@ -125,6 +125,38 @@ impl<T: Clone> AxIter for Vec<T> {
         self.iter().cloned()
     }
 }
+// A string read item by item is its list of characters, as in Python.
+pub trait AxStrSeq {
+    fn ax_map<U>(&self, f: impl Fn(String) -> U) -> Vec<U>;
+    fn ax_filter(&self, f: impl Fn(String) -> bool) -> Vec<String>;
+    fn ax_any(&self, f: impl Fn(String) -> bool) -> bool;
+    fn ax_all(&self, f: impl Fn(String) -> bool) -> bool;
+    fn ax_enumerate(&self) -> Vec<(i64, String)>;
+}
+impl AxStrSeq for String {
+    fn ax_map<U>(&self, f: impl Fn(String) -> U) -> Vec<U> {
+        self.ax_chars().into_iter().map(f).collect()
+    }
+    fn ax_filter(&self, f: impl Fn(String) -> bool) -> Vec<String> {
+        self.ax_chars().into_iter().filter(|c| f(c.clone())).collect()
+    }
+    fn ax_any(&self, f: impl Fn(String) -> bool) -> bool {
+        self.ax_chars().into_iter().any(f)
+    }
+    fn ax_all(&self, f: impl Fn(String) -> bool) -> bool {
+        self.ax_chars().into_iter().all(f)
+    }
+    fn ax_enumerate(&self) -> Vec<(i64, String)> {
+        self.ax_chars().into_iter().enumerate().map(|(i, c)| (i as i64, c)).collect()
+    }
+}
+// `for c in s` reads a string's characters, as in Python.
+impl AxIter for String {
+    type I<'a> = std::vec::IntoIter<String>;
+    fn ax_iter<'a>(&'a self) -> Self::I<'a> {
+        self.chars().map(|c| c.to_string()).collect::<Vec<_>>().into_iter()
+    }
+}
 impl<K: Hash + Eq + Ord + Clone, V: Clone> AxIter for AxM<K, V> {
     type I<'a> = std::vec::IntoIter<(K, V)> where K: 'a, V: 'a;
     fn ax_iter<'a>(&'a self) -> Self::I<'a> {

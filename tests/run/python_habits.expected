@@ -1,0 +1,12 @@
+{"line":13,"fixed":"totl -> total"}
+0 true true
+1 true true
+a, b, c [1, 3] x ["a", "b"] true
+k 1 0 2
+4
+0 a 97 b
+1 b 98 c
+x
+y
+[0, 0, 2, 3] [1, 4, 7] 8 [2, 1]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

@@ -1,0 +1,16 @@
+# Python spellings models write by habit, and typos with one sure fix.
+fn total(xs: [int]) = xs.sum()
+xs = ["b", "a", "c"]
+ys = []
+ys.append(3)
+ys.append(1)
+ys.sort()
+for T in 0..2:
+  print(T, True, not False)
+print(", ".join(xs.sorted()), ys, "  x ".strip(), "a b".split(), "ab".startswith("a"))
+m = {"k": 1}
+for k, v in m.items(): print(k, v, m.get("z", 0), xs.index("c"))
+print(totl(ys))
+for i, c in enumerate("ab"): print(i, c, ord(c), chr(ord(c) + 1))
+for c in "xy": print(c)
+print([x if x > 1 else 0 for x in range(4)], [i for i in range(1, 9, 3)], int("7") + 1, reversed([1, 2]))

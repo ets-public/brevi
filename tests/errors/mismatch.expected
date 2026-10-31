@@ -1,1 +1,1 @@
-{"e":"type","at":"mismatch.bv:2:1","msg":"mismatched types: expected int, found str","fix":"convert with .int(), .float() or str(x)","rust":"E0308"}
+{"line":2,"msg":"mismatched types: expected int, found str","fix":"convert with .int(), .float() or str(x)"}

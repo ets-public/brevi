@@ -7,11 +7,15 @@ pub struct Diag {
     pub col: usize,
     pub msg: String,
     pub fix: Option<String>,
+    // A machine-applicable fix: replace the first `old` on the error's line with `new`.
+    pub edit: Option<(String, String)>,
+    // The edit is close enough to be applied without asking (a typo of one or two letters).
+    pub sure: bool,
 }
 
 impl Diag {
     pub fn new(kind: &str, line: usize, col: usize, msg: &str) -> Diag {
-        Diag { kind: kind.into(), line, col, msg: msg.into(), fix: None }
+        Diag { kind: kind.into(), line, col, msg: msg.into(), fix: None, edit: None, sure: false }
     }
 
     pub fn fix_hint(mut self, fix: &str) -> Diag {
@@ -19,15 +23,34 @@ impl Diag {
         self
     }
 
-    pub fn to_json(&self, file: &str) -> String {
-        let mut s = format!(
-            "{{\"e\":\"{}\",\"at\":\"{}:{}:{}\",\"msg\":\"{}\"",
-            self.kind,
-            esc(file),
-            self.line,
-            self.col,
-            esc(&self.msg)
-        );
+    pub fn with_edit(mut self, old: &str, new: &str) -> Diag {
+        self.edit = Some((old.into(), new.into()));
+        self
+    }
+
+    // Applies the edit to the source text, if the old text is on the error's line (as a whole word).
+    pub fn apply(&self, src: &str) -> Option<String> {
+        let (old, new) = self.edit.as_ref()?;
+        let mut lines: Vec<String> = src.split('\n').map(String::from).collect();
+        let l = lines.get_mut(self.line.checked_sub(1)?)?;
+        let word = |c: Option<char>| c.map_or(false, |c| c.is_alphanumeric() || c == '_');
+        let mut from = 0;
+        while let Some(p) = l[from..].find(old.as_str()).map(|p| p + from) {
+            let (before, after) = (l[..p].chars().last(), l[p + old.len()..].chars().next());
+            let starts_word = old.chars().next().map_or(false, |c| c.is_alphanumeric() || c == '_');
+            let ends_word = old.chars().last().map_or(false, |c| c.is_alphanumeric() || c == '_');
+            if !(starts_word && word(before)) && !(ends_word && word(after)) {
+                l.replace_range(p..p + old.len(), new);
+                return Some(lines.join("\n"));
+            }
+            from = p + old.len();
+        }
+        None
+    }
+
+    // No file name, column or error kind: programs are one file, and the line is enough to find the mistake.
+    pub fn to_json(&self) -> String {
+        let mut s = format!("{{\"line\":{},\"msg\":\"{}\"", self.line, esc(&self.msg));
         if let Some(f) = &self.fix {
             s.push_str(&format!(",\"fix\":\"{}\"", esc(f)));
         }

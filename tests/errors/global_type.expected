@@ -1,1 +1,1 @@
-{"e":"check","at":"global_type.bv:1:1","msg":"seen is used inside a function, so it needs a type","fix":"write seen: [int] = [] with the real type"}
+{"line":1,"msg":"seen is used inside a function, so it needs a type","fix":"write seen: [int] = [] with the real type"}

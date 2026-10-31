@@ -428,7 +428,20 @@ impl Parser {
     }
 
     pub fn expr(&mut self) -> R<Expr> {
-        self.binary(0)
+        let e = self.binary(0)?;
+        // Python's `a if c else b`; without the `else`, the `if` belongs to a comprehension.
+        if self.is_kw("if") {
+            let save = self.pos;
+            self.next();
+            if let Ok(c) = self.binary(0) {
+                if self.eat_kw("else") {
+                    let other = self.expr()?;
+                    return Ok(Expr::If(Box::new(c), Box::new(Expr::Block(vec![], Some(Box::new(e)))), Some(Box::new(Expr::Block(vec![], Some(Box::new(other)))))));
+                }
+            }
+            self.pos = save;
+        }
+        Ok(e)
     }
 
     fn binary(&mut self, level: usize) -> R<Expr> {
@@ -506,8 +519,14 @@ impl Parser {
                             _ => "or".to_string(),
                         };
                         if self.eat_sym("(") {
-                            let args = self.args()?.into_iter().map(|(_, a)| a).collect();
-                            e = Expr::Method(Box::new(e), name, args, line);
+                            let mut args: Vec<Expr> = self.args()?.into_iter().map(|(_, a)| a).collect();
+                            let name = python_method(&name, args.len()).unwrap_or(name);
+                            // Python's `", ".join(xs)` is `xs.join(", ")`.
+                            e = if name == "join" && args.len() == 1 && matches!(e, Expr::Str(_)) && !matches!(args[0], Expr::Str(_)) {
+                                Expr::Method(Box::new(args.remove(0)), name, vec![e], line)
+                            } else {
+                                Expr::Method(Box::new(e), name, args, line)
+                            };
                         } else {
                             e = Expr::Field(Box::new(e), name);
                         }
@@ -631,10 +650,20 @@ impl Parser {
                     let mut args = self.args()?;
                     // Python's len(xs), sum(xs), sorted(xs), min(xs), max(xs) are the methods.
                     let m = match name.as_str() {
-                        "len" | "sum" | "min" | "max" => Some(name.as_str()),
+                        "len" | "sum" | "min" | "max" | "enumerate" | "int" | "float" => Some(name.as_str()),
                         "sorted" => Some("sort"),
+                        "reversed" => Some("rev"),
+                        "ord" => Some("code"),
+                        "chr" => Some("char"),
                         _ => None,
                     };
+                    // range(n), range(a, b) and range(a, b, step) are a..b.
+                    if name == "range" && (1..=3).contains(&args.len()) && args.iter().all(|a| a.0.is_none()) && !self.user_fns.contains(&name) {
+                        let mut a: Vec<Expr> = args.into_iter().map(|a| a.1).collect();
+                        let (lo, hi) = if a.len() == 1 { (Expr::Int(0), a.remove(0)) } else { (a.remove(0), a.remove(0)) };
+                        let r = Expr::Range(Box::new(lo), Box::new(hi));
+                        return Ok(if a.is_empty() { r } else { Expr::Method(Box::new(r), "step".into(), a, line) });
+                    }
                     // any(c for x in xs) and all(...) test each item.
                     if (name == "any" || name == "all") && args.len() == 1 && !self.user_fns.contains(&name) {
                         let arg = args.remove(0).1;
@@ -746,12 +775,12 @@ impl Parser {
                 Ok(Expr::Match(Box::new(subject), arms))
             }
             Tok::Kw("for") => {
-                let mut p = self.pat()?;
+                let mut p = bind_upper(self.pat()?);
                 // `for k, v in ...` unpacks like `for (k, v) in ...`.
                 if self.is_sym(",") {
                     let mut ps = vec![p];
                     while self.eat_sym(",") {
-                        ps.push(self.pat()?);
+                        ps.push(bind_upper(self.pat()?));
                     }
                     p = Pat::Tuple(ps);
                 }
@@ -838,6 +867,27 @@ impl Parser {
 }
 
 // A declared name like `MAX = 10` is a variable even though it is capitalised.
+// Python method names models write by habit, as the Brevi method they mean.
+fn python_method(name: &str, nargs: usize) -> Option<String> {
+    Some(match (name, nargs) {
+        ("append", 1) => "push",
+        ("sorted", 0) => "sort",
+        ("reversed", 0) => "rev",
+        ("strip", 0) => "trim",
+        ("split", 0) => "words",
+        ("startswith", 1) => "starts_with",
+        ("endswith", 1) => "ends_with",
+        ("isdigit", 0) => "is_digit",
+        ("isalpha", 0) => "is_alpha",
+        ("isspace", 0) => "is_space",
+        ("items", 0) => "pairs",
+        ("index", 1) => "index_of",
+        ("get", 2) => "get_or",
+        _ => return None,
+    }
+    .into())
+}
+
 fn bind_upper(p: Pat) -> Pat {
     match p {
         Pat::Variant(n, args) if args.is_empty() => Pat::Bind(n),

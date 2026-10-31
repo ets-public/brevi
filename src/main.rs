@@ -11,7 +11,7 @@ use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|emit> FILE.bv [--release] [-o OUT] [-- ARGS...]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [-o OUT] [-- ARGS...]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -33,6 +33,20 @@ fn main() {
             exit(1);
         }
     };
+    // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
+    // every suggested fix back to the file.
+    let (src, fixed) = autofix(&src, cmd == "fix");
+    for (line, old, new) in &fixed {
+        eprintln!("{{\"line\":{line},\"fixed\":\"{} -> {}\"}}", esc(old), esc(new));
+    }
+    if cmd == "fix" {
+        if !fixed.is_empty() {
+            if let Err(e) = std::fs::write(&file, &src) {
+                println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+                exit(1);
+            }
+        }
+    }
     // Builds to try in order: with inferred types for empty values, then without (the errors shown come from the last).
     let versions: Vec<(String, Option<String>)> = [true, false]
         .iter()
@@ -47,7 +61,7 @@ fn main() {
         Ok(r) => r,
         Err(diags) => {
             for d in diags {
-                println!("{}", d.to_json(&file));
+                println!("{}", d.to_json());
             }
             exit(1);
         }
@@ -55,10 +69,10 @@ fn main() {
 
     match cmd {
         "emit" => print!("{rust}"),
-        "check" => {
+        "check" | "fix" => {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
-            if !rustc(&versions, &dir, &dir.join("check"), &file, &["--emit=metadata"], false) {
+            if !rustc(&versions, &dir, &dir.join("check"), &["--emit=metadata"], false) {
                 exit(1);
             }
         }
@@ -73,7 +87,7 @@ fn main() {
             if release {
                 extra.extend(["-C", "opt-level=3"]);
             }
-            if !rustc(&versions, &dir, &bin, &file, &extra, true) {
+            if !rustc(&versions, &dir, &bin, &extra, true) {
                 exit(1);
             }
             if cmd == "build" {
@@ -95,6 +109,33 @@ fn main() {
             eprintln!("{USAGE}");
             exit(2);
         }
+    }
+}
+
+// Applies the edits that front-end errors suggest, a round at a time, until the program passes the front end.
+// Without `all`, only sure edits are used, and only if they make the whole front end pass.
+fn autofix(src: &str, all: bool) -> (String, Vec<(usize, String, String)>) {
+    let mut cur = src.to_string();
+    let mut done = Vec::new();
+    for _ in 0..8 {
+        let Err(diags) = compile_to_rust(&cur, true, true) else { return (cur, done) };
+        let mut changed = false;
+        for d in diags.iter().filter(|d| all || d.sure) {
+            if let Some(next) = d.apply(&cur) {
+                let (old, new) = d.edit.clone().unwrap();
+                done.push((d.line, old.trim_matches(|c| c == '.' || c == '(').to_string(), new.trim_matches(|c| c == '.' || c == '(').to_string()));
+                cur = next;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    if all || compile_to_rust(&cur, true, true).is_ok() {
+        (cur, done)
+    } else {
+        (src.to_string(), vec![])
     }
 }
 
@@ -133,7 +174,7 @@ fn build_dir(file: &str) -> PathBuf {
 // Compiles generated Rust. rustc errors are mapped back to Brevi lines and printed as JSON.
 // Each version is (program, the same program without moves). The plain one is used if moving a value broke
 // the borrow rules. Errors are reported from the last version tried.
-fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, file: &str, extra: &[&str], link: bool) -> bool {
+fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &[&str], link: bool) -> bool {
     const MOVE_CODES: [&str; 8] = ["E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597"];
     let mut last = None;
     for (rust, plain) in versions {
@@ -154,7 +195,7 @@ fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, file: &s
         last = Some(r);
     }
     match last {
-        Some((rust, stderr)) => report(rust, &stderr, file),
+        Some((rust, stderr)) => report(rust, &stderr),
         None => {}
     }
     false
@@ -183,7 +224,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     }
 }
 
-fn report(rust: &str, stderr: &str, file: &str) {
+fn report(rust: &str, stderr: &str) {
     let line_map = brevi_lines(rust);
     let mut seen = std::collections::HashSet::new();
     for l in stderr.lines() {
@@ -219,6 +260,7 @@ fn report(rust: &str, stderr: &str, file: &str) {
         let mut fix = fix_for(code, &format!("{msg} {label}"));
         if let Some(opts) = valid_options(code, msg, rust) {
             fix = Some(match fix {
+                Some(_) if code == "E0599" => opts,
                 Some(f) => format!("{f}; {opts}"),
                 None => opts,
             });
@@ -229,11 +271,7 @@ fn report(rust: &str, stderr: &str, file: &str) {
         }
         let mut d = Diag::new("type", aline, 1, &text);
         d.fix = fix;
-        let mut s = d.to_json(file);
-        if !code.is_empty() {
-            s.insert_str(s.len() - 1, &format!(",\"rust\":\"{code}\""));
-        }
-        println!("{s}");
+        println!("{}", d.to_json());
     }
 }
 

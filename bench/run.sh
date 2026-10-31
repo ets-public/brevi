@@ -37,7 +37,10 @@ passed $pass/$total"
 fi
 echo "$out"
 ct=$(python3 $B/tokcount.py < "$file"); ot=$(printf '%s' "$out" | python3 $B/tokcount.py)
-echo "{\"run\":\"$run\",\"lang\":\"$lang\",\"task\":\"$task\",\"code_tok\":$ct,\"out_tok\":$ot,\"compiled\":$([ $ok -eq 0 ] && echo true || echo false),\"pass\":$pass,\"total\":$total,\"tok\":\"exact\"}" >> $B/logs/$run.jsonl
+# A retry's patch_tok counts only the lines changed since the last check; the first check counts the whole file.
+n=$(grep -c "\"task\":\"$task\"" $B/logs/$run.jsonl 2>/dev/null); prev=$B/logs/attempts/$run/$task.$n.src
+pt=$([ -f "$prev" ] && python3 $B/patchtok.py "$prev" "$file" || echo $ct)
+echo "{\"run\":\"$run\",\"lang\":\"$lang\",\"task\":\"$task\",\"code_tok\":$ct,\"patch_tok\":$pt,\"out_tok\":$ot,\"compiled\":$([ $ok -eq 0 ] && echo true || echo false),\"pass\":$pass,\"total\":$total,\"tok\":\"exact\"}" >> $B/logs/$run.jsonl
 # Keep each attempt's code and output for later study.
 n=$(grep -c "\"task\":\"$task\"" $B/logs/$run.jsonl); a=$B/logs/attempts/$run/$task.$n; mkdir -p $(dirname $a)
 cp "$file" $a.src; printf '%s\n' "$out" > $a.out

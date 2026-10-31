@@ -44,7 +44,7 @@ Errors pass up automatically. `fail(msg)`, `read`, and conversions like `s.int()
 Handle a failure where it happens with `.or(default)` or `match f(x):` with arms `Ok(v) => ...` and `Err(msg) => ...`. An uncaught failure stops the program with a JSON error.
 
 ## Statements
-`x = 1` creates a variable or changes it (`let x = 1` makes one that cannot change, `x: [str] = []` gives a type), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
+`x = 1` creates a variable or changes it (`x: [str] = []` gives a type), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
 `if c:` / `elif d:` / `else:` (conditions use Python truth: `if xs:`, `if not s:`, `while q:` test for non-empty, and 0 is false), `for x in xs:`, `for k, v in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
 `if` and `match` are values: `y = if a > b: a else: b`. A variable set in every branch of an `if`/`else` or `match` can be used after it; one first set inside a loop ends with the loop, so set it before the loop.
 Match arms are one expression or statement (`Num(n) => total += n`) or an indented block on the lines after `=>`. Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.
@@ -70,7 +70,8 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 `min` and `max` fail on an empty list (`xs.max().or(0)`). `a..b` excludes b. `slice` takes Python-style bounds (negatives count from the end); `s.slice(a)` runs to the end and `s.slice(i, i + 1)` is one character. `chars` gives a list of one-character strings. `first`, `last` and `pop` return the item itself and stop the program on an empty list. `find` and `index_of` return -1 when absent. `"7".digit()` is 7 (-1 if not a digit). `len` counts characters. `pop` and `remove(i)` return the removed item. `words` splits on any run of whitespace. `and`/`or` short-circuit.
 `s.int().or(0)`, `load(p).or([])` give a default instead of failing.
 
-Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert remove` change the list in place.
+Most methods return a new value (`ys = xs.sort()`); as a statement, `xs.sort()` sorts xs. `push pop insert remove` change the list in place.
+Python spellings work too: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`.
 
 ## Built-in functions
 `print(x)` (`print(a, b)` puts a space between), `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
@@ -92,4 +93,5 @@ test "area of unit circle":
 
 ## Commands
 `brevi run f.bv`, `brevi test f.bv`, `brevi check f.bv`, `brevi build f.bv -o app [--release]`, `brevi emit f.bv` (shows the Rust).
-Errors are one JSON line each: `{"e":kind,"at":"file:line:col","msg":...,"fix":...}`. Apply the fix and rerun. Runtime errors print `{"e":"runtime","line":N,"msg":...}`.
+Errors are one JSON line each: `{"line":N,"msg":...,"fix":...}`. Runtime errors print `{"e":"runtime","line":N,"msg":...}`. A small typo of a known name is fixed for you (`{"line":N,"fixed":"totl -> total"}`); `brevi fix f.bv` writes every suggested rename into the file.
+To fix an error, change only the lines it names (edit them in place); do not rewrite the whole file.

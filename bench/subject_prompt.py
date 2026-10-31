@@ -14,7 +14,7 @@ For each task TASK:
 2. Write your whole solution to {B}/work/{run}/TASK.{ext}.
 3. Check it by running exactly: {B}/run.sh {lang} TASK {B}/work/{run}/TASK.{ext}
    It prints PASS, or the compiler error, or the first failing test.
-4. If it did not pass, fix the file and run the check again, up to 6 checks per task, then move on.
+4. If it did not pass, edit only the lines that need to change (do not rewrite the whole file) and run the check again, up to 6 checks per task, then move on.
 
 Rules: run.sh is the only command you may run. Do not run or test code any other way, and do not read anything else under {B} or the compiler source (no other solutions, tests, logs or reference code). Write code directly, without long planning notes.
 

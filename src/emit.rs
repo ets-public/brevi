@@ -662,6 +662,17 @@ impl Emitter {
         self.diags.push(d);
     }
 
+    // The last error can be fixed by renaming `old` to `new` on its line.
+    fn edit_last(&mut self, old: String, new: String) {
+        if let Some(d) = self.diags.pop() {
+            let core = |s: &str| s.trim_matches(|c| c == '.' || c == '(').to_string();
+            let (a, b) = (core(&old), core(&new));
+            let mut d = d.with_edit(&old, &new);
+            d.sure = edit_distance(&a, &b) <= if a.chars().count() >= 6 { 2 } else { 1 } || a.to_lowercase() == b.to_lowercase();
+            self.diags.push(d);
+        }
+    }
+
     pub fn program(&mut self, items: &[Item]) -> String {
         // The regex engine is left out of programs that do not use it, to keep builds fast.
         let prelude = if format!("{items:?}").contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
@@ -893,6 +904,10 @@ impl Emitter {
                 }
             }
             Expr::Match(subj, arms) => self.match_expr(subj, arms, true),
+            // `xs.sort()` as a statement means `xs = xs.sort()`.
+            Expr::Method(recv, name, _, line) if PURE_METHODS.contains(&name.as_str()) && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) => {
+                self.stmt(&Stmt::Assign { target: (**recv).clone(), op: "=", value: e.clone(), line: *line })
+            }
             Expr::Method(recv, name, _, line) if PURE_METHODS.contains(&name.as_str()) => {
                 let target = match recv.as_ref() {
                     Expr::Ident(n) => n.clone(),
@@ -949,8 +964,11 @@ impl Emitter {
                     }
                 }
                 None => {
-                    let hint = closest(name, self.variants.keys().map(|s| s.as_str())).map(|c| format!("did you mean {c}?"));
-                    self.diag(self.line, &format!("unknown variant {name}"), hint);
+                    let best = closest(name, self.variants.keys().map(|s| s.as_str())).map(String::from);
+                    self.diag(self.line, &format!("unknown variant {name}"), best.as_ref().map(|c| format!("did you mean {c}?")));
+                    if let Some(c) = best {
+                        self.edit_last(name.clone(), c);
+                    }
                     "_".into()
                 }
             },
@@ -976,7 +994,8 @@ impl Emitter {
                     (None, Pat::Bind(n)) => self.empty_hint(n, line, value),
                     _ => String::new(),
                 };
-                format!("let {}{p}{t} = {v};", if *mutable { "mut " } else { "" })
+                // `let` names can be changed too: Python has no constants, and models reassign them.
+                format!("let {}{p}{t} = {v};", if *mutable || matches!(name, Pat::Bind(_)) { "mut " } else { "" })
             }
             Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) => {
                 let v = self.expr(value);
@@ -1120,8 +1139,11 @@ impl Emitter {
             return;
         }
         let names: Vec<String> = self.locals.iter().cloned().chain(self.fns.keys().cloned()).collect();
-        let hint = closest(n, names.iter().map(|s| s.as_str())).map(|c| format!("did you mean {c}?"));
-        self.diag(self.line, &format!("unknown name '{n}'"), hint.or(Some(format!("declare it first with let {n} = ..."))));
+        let best = closest(n, names.iter().map(|s| s.as_str())).map(String::from);
+        self.diag(self.line, &format!("unknown name '{n}'"), Some(best.as_ref().map_or(format!("set it first: {n} = ..."), |c| format!("did you mean {c}?"))));
+        if let Some(c) = best {
+            self.edit_last(n.to_string(), c);
+        }
     }
 
     fn call_is_fallible(&self, e: &Expr) -> bool {
@@ -1218,11 +1240,21 @@ impl Emitter {
                 self.line = *line;
                 format!("Show::show(&{})", self.operand(recv))
             }
+            // A string read item by item (`enumerate`, `map`, `filter`, `any`, `all`) is its list of characters.
+            Expr::Method(recv, name, args, line)
+                if ["enumerate", "map", "filter", "any", "all"].contains(&name.as_str()) && matches!(self.infer_ty(recv), Some(Ty::Named(n)) if n == "str") =>
+            {
+                let chars = Expr::Method(recv.clone(), "chars".into(), vec![], *line);
+                self.expr(&Expr::Method(Box::new(chars), name.clone(), args.clone(), *line))
+            }
             Expr::Method(recv, name, args, line) => {
                 self.line = *line;
                 if !METHODS.contains(&name.as_str()) {
-                    let hint = closest(name, METHODS.iter().copied()).map(|c| format!("did you mean .{c}()?"));
-                    self.diag(*line, &format!("unknown method .{name}()"), hint);
+                    let best = closest(name, METHODS.iter().copied());
+                    self.diag(*line, &format!("unknown method .{name}()"), best.map(|c| format!("did you mean .{c}()?")));
+                    if let Some(c) = best {
+                        self.edit_last(format!(".{name}("), format!(".{c}("));
+                    }
                 }
                 // Changing a list stored in a map or list creates the entry if needed.
                 let r = if name == "or" {
@@ -1335,6 +1367,7 @@ impl Emitter {
                     {
                         format!("{}.ax_iter()", self.place(e))
                     }
+                    other if matches!(self.infer_ty(other), Some(Ty::Named(n)) if n == "str") => format!("{}.ax_chars()", self.expr(other)),
                     other => self.expr(other),
                 };
                 let outer = self.locals.clone();
@@ -1431,8 +1464,11 @@ impl Emitter {
             return format!("{name}({})", plain.join(", "));
         }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();
-        let hint = closest(name, known.iter().map(|s| s.as_str())).map(|c| format!("did you mean {c}()?"));
-        self.diag(self.line, &format!("unknown function {name}()"), hint);
+        let best = closest(name, known.iter().map(|s| s.as_str())).map(String::from);
+        self.diag(self.line, &format!("unknown function {name}()"), best.as_ref().map(|c| format!("did you mean {c}()?")));
+        if let Some(c) = best {
+            self.edit_last(format!("{name}("), format!("{c}("));
+        }
         format!("{name}({})", plain.join(", "))
     }
 

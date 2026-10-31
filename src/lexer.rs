@@ -278,6 +278,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 push(&mut out, Tok::Kw("if"));
                 continue;
             }
+            // Python's True and False are true and false.
+            let word = match word.as_str() { "True" => "true".to_string(), "False" => "false".to_string(), _ => word };
             match KEYWORDS.iter().find(|k| **k == word) {
                 Some(k) => push(&mut out, Tok::Kw(k)),
                 // Rust's own keywords are fine names in Brevi; they get a suffix in the generated Rust.
