@@ -7,6 +7,11 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Brevi is a programming language for AI models to write. It reads like Python, compiles to Rust, and reports each error as one short JSON line with a fix.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#1d5b4f">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500&display=swap">
@@ -59,7 +64,9 @@ code, pre { font-family: var(--mono); font-size: 0.9em; }
 header.top { border-bottom: 1px solid var(--rule); }
 header.top .wrap { display: flex; align-items: center; gap: 24px; padding-block: 14px; flex-wrap: wrap; }
 .brand { font: 500 1.3rem/1 var(--serif); color: var(--fg); text-decoration: none; letter-spacing: -0.01em; }
-.brand span { font: 400 0.75rem var(--mono); color: var(--muted); margin-left: 8px; letter-spacing: 0; }
+.brand { display: inline-flex; align-items: center; gap: 10px; }
+.brand .mark { flex: none; }
+.brand span { font: 400 0.75rem var(--mono); color: var(--muted); margin-left: -2px; letter-spacing: 0; }
 nav { display: flex; gap: 20px; flex-wrap: wrap; margin-left: auto; font-size: 0.93rem; }
 nav a { color: var(--muted); text-decoration: none; }
 nav a:hover { color: var(--fg); }
@@ -142,7 +149,7 @@ footer .end { margin-left: auto; }
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="/">Brevi<span>v0.16 preview</span></a>
+    <a class="brand" href="/"><svg class="mark" aria-hidden="true" width="26" height="26" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="13" fill="#1d5b4f"/><g fill="none" stroke="#fbfbfa" stroke-width="7"><path d="M15 10v42"/><circle cx="25.5" cy="40" r="8.5"/></g><rect x="40" y="45" width="12" height="7" fill="#7cc4b1"/></svg>Brevi<span>v0.16 preview</span></a>
     <nav aria-label="Main">
       <a href="#why">Why Brevi</a>
       <a href="#benchmarks">Benchmarks</a>

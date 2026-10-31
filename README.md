@@ -1,3 +1,5 @@
+<img src="site/icons/favicon.svg" alt="Brevi logo" width="72" height="72">
+
 # Brevi
 
 A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one short JSON line with a suggested fix.
