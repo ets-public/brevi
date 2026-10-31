@@ -1,0 +1,10 @@
+ws = [x.lower() for x in stdin().words()].unique()
+groups = {}
+for w in ws:
+  k = "".join(sorted(w.chars()))
+  groups[k].push(w)
+
+gl = [sorted(g) for g in groups.values() if g.len() > 1]
+gl.sort_by(g => (-g.len(), g[0]))
+for g in gl:
+  print(g.join(" "))

@@ -1,0 +1,60 @@
+fn gs(j: Json) -> str:
+  match j:
+    Str(s) => s
+    Num(n) => n.int().str()
+    _ => ""
+
+fn gn(j: Json) -> int:
+  match j:
+    Num(n) => n.int()
+    _ => 0
+
+fn items(j: Json) -> [Json]:
+  match j:
+    Arr(xs) => xs
+    _ => []
+
+root = json(stdin())
+prods = root["products"]
+custs = root["customers"]
+out = []
+revenue = 0.dec()
+for o in items(root["orders"]):
+  oid = o["id"]
+  cid = gs(o["customer"])
+  cust = custs[cid]
+  if cust == Null:
+    out.push({"id": oid, "error": "unknown customer " + cid})
+    continue
+  bad = ""
+  for l in items(o["lines"]):
+    sku = gs(l["sku"])
+    if bad == "" and prods[sku] == Null: bad = sku
+  if bad != "":
+    out.push({"id": oid, "error": "unknown sku " + bad})
+    continue
+  units = {}
+  csub: {str: dec} = {}
+  sub = 0.dec()
+  for l in items(o["lines"]):
+    p = prods[gs(l["sku"])]
+    q = gn(l["qty"])
+    cat = gs(p["category"])
+    amount = gs(p["price"]).dec() * q
+    units[cat] += q
+    csub[cat] += amount
+    sub += amount
+  disc = 0.dec()
+  for cat, u in units.pairs():
+    if u >= 3: disc += (csub[cat] * "0.05".dec()).round(2)
+  tier = gs(cust["tier"])
+  rate = if tier == "gold": "0.10".dec() elif tier == "silver": "0.05".dec() else: 0.dec()
+  disc += ((sub - disc) * rate).round(2)
+  country = gs(cust["country"])
+  trate = if country == "UK": "0.20".dec() elif country == "US": "0.0825".dec() else: 0.dec()
+  tax = ((sub - disc) * trate).round(2)
+  total = sub - disc + tax
+  revenue += total
+  out.push({"id": oid, "customer": gs(cust["name"]), "subtotal": sub.fmt(2), "discount": disc.fmt(2), "tax": tax.fmt(2), "total": total.fmt(2)})
+print(str(out.json()))
+print("revenue {revenue.fmt(2)}")

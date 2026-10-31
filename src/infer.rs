@@ -665,7 +665,7 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
-            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" => Str,
+            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "repeat" | "slice" if !matches!(r, List(_)) || m != "slice" => Str,
             "join" => Str,
             "words" | "lines" | "chars" | "split" => List(Box::new(Str)),
             "ints" => List(Box::new(Int)),

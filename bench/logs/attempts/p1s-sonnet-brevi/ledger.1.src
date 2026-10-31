@@ -1,0 +1,19 @@
+rows = csv(stdin())
+ins = {}
+outs = {}
+bal = {}
+for r in rows.skip(1):
+  if r.len() < 3: continue
+  m = r[0].slice(0, 7)
+  a = r[2].dec()
+  ins[m] += 0
+  outs[m] += 0
+  if a > 0: ins[m] += a
+  else: outs[m] += 0 - a
+  bal[r[1]] += a
+for m in ins.keys():
+  i = ins[m]
+  o = outs[m]
+  print("{m} {i.fmt(2)} {o.fmt(2)} {(i - o).fmt(2)}")
+top = bal.pairs().sort_by(p => (-p.1, p.0))[0]
+print("top {top.0} {top.1.fmt(2)}")

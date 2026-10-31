@@ -1,0 +1,116 @@
+fn has(c: Json, k: str) -> bool:
+  match c:
+    Obj(m) => m.has(k)
+    _ => false
+
+fn show(v: Json) -> str:
+  match v:
+    Null => ""
+    Str(s) => s
+    Bool(b) => if b: "true" else: "false"
+    Num(n) => if n == n.floor() and n.abs() < 1e15: n.int().str() else: str(v)
+    _ => str(v)
+
+fn truthy(v: Json) -> bool:
+  match v:
+    Null => false
+    Bool(b) => b
+    Num(n) => n != 0.0
+    Str(s) => not s.is_empty()
+    Arr(xs) => not xs.is_empty()
+    _ => true
+
+fn lookup(path: str, ctxs: [(Json, int)]) -> Json:
+  if path == ".": return ctxs[-1].0
+  if path == "@index": return ctxs[-1].1.json()
+  segs = path.split(".")
+  cur = Null
+  for k in (0..ctxs.len()).rev():
+    c = ctxs[k].0
+    if has(c, segs[0]):
+      cur = c[segs[0]]
+      break
+  for s in segs.skip(1): cur = cur[s]
+  cur
+
+fn eval(tag: str, ctxs: [(Json, int)]) -> Json:
+  parts = tag.split("|")
+  v = lookup(parts[0].trim(), ctxs)
+  for f0 in parts.skip(1):
+    f = f0.trim()
+    if f == "upper": v = show(v).upper().json()
+    elif f == "lower": v = show(v).lower().json()
+    elif f == "len":
+      match v:
+        Str(s) => v = s.len().json()
+        Arr(xs) => v = xs.len().json()
+        Obj(m) => v = m.len().json()
+        _ => v = 0.json()
+    elif f.starts_with("default:"):
+      miss = match v:
+        Null => true
+        Str(s) => s.is_empty()
+        _ => false
+      if miss: v = f.slice(8).json()
+  v
+
+fn render(toks: [(int, str)], a: int, b: int, ctxs: [(Json, int)]) -> str:
+  out = ""
+  i = a
+  while i < b:
+    kind = toks[i].0
+    s = toks[i].1
+    if kind == 0:
+      out += s
+      i += 1
+    elif s.starts_with("#each ") or s.starts_with("#if "):
+      depth = 1
+      j = i + 1
+      ep = -1
+      while j < b:
+        if toks[j].0 == 1:
+          t = toks[j].1
+          if t.starts_with("#each ") or t.starts_with("#if "): depth += 1
+          elif t == "/each" or t == "/if":
+            depth -= 1
+            if depth == 0: break
+          elif t == "else" and depth == 1: ep = j
+        j += 1
+      if s.starts_with("#each "):
+        v = lookup(s.slice(6).trim(), ctxs)
+        match v:
+          Arr(xs) =>
+            for k, el in xs.enumerate():
+              out += render(toks, i + 1, j, ctxs + [(el, k)])
+          _ => out += ""
+      else:
+        v = eval(s.slice(4).trim(), ctxs)
+        if truthy(v):
+          out += render(toks, i + 1, if ep >= 0: ep else: j, ctxs)
+        elif ep >= 0: out += render(toks, ep + 1, j, ctxs)
+      i = j + 1
+    else:
+      out += show(eval(s, ctxs))
+      i += 1
+  out
+
+text = stdin()
+nl = text.find("\n")
+data = json(if nl < 0: text else: text.slice(0, nl))
+tpl = if nl < 0: "" else: text.slice(nl + 1)
+if tpl.ends_with("\n"): tpl = tpl.slice(0, tpl.len() - 1)
+toks: [(int, str)] = []
+rest = tpl
+while true:
+  a = rest.find("{{")
+  if a < 0:
+    toks.push((0, rest))
+    break
+  b = rest.slice(a).find("}}")
+  if b < 0:
+    toks.push((0, rest))
+    break
+  toks.push((0, rest.slice(0, a)))
+  toks.push((1, rest.slice(a + 2, a + b).trim()))
+  rest = rest.slice(a + b + 2)
+print(render(toks, 0, toks.len(), [(data, 0)]))

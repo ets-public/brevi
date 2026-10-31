@@ -1,0 +1,139 @@
+import json
+import re
+import sys
+
+accounts = {}
+next_id = 1
+
+NOT_FOUND = (404, {"error": "not found"})
+NO_ACCOUNT = (404, {"error": "no such account"})
+BAD_JSON = (400, {"error": "bad json"})
+BAD_AMOUNT = (400, {"error": "bad amount"})
+
+
+def view(acc):
+    return {"id": acc["id"], "owner": acc["owner"], "balance": acc["balance"]}
+
+
+def valid_amount(v):
+    return type(v) is int and v > 0
+
+
+def get_account(raw):
+    if raw is None or not re.fullmatch(r"[0-9]+", raw):
+        return None
+    return accounts.get(int(raw))
+
+
+def route(method, path):
+    global next_id
+    parts = path.split("/")
+    # parts[0] is "" for absolute paths
+    if path == "/accounts":
+        if method == "POST":
+            return "create", None
+        if method == "GET":
+            return "list", None
+        return None
+    if path == "/transfer" and method == "POST":
+        return "transfer", None
+    if len(parts) == 3 and parts[0] == "" and parts[1] == "accounts" and method == "GET":
+        return "get", parts[2]
+    if len(parts) == 4 and parts[0] == "" and parts[1] == "accounts" and method == "POST":
+        if parts[3] in ("deposit", "withdraw"):
+            return parts[3], parts[2]
+    return None
+
+
+def handle(method, path, body):
+    global next_id
+    r = route(method, path)
+    if r is None:
+        return NOT_FOUND
+    action, arg = r
+    if body is not None:
+        try:
+            body = json.loads(body)
+        except ValueError:
+            return BAD_JSON
+    if not isinstance(body, dict):
+        body = {}
+
+    if action == "create":
+        owner = body.get("owner")
+        if not isinstance(owner, str) or owner == "":
+            return 400, {"error": "owner required"}
+        acc = {"id": next_id, "owner": owner, "balance": 0}
+        accounts[next_id] = acc
+        next_id += 1
+        return 201, view(acc)
+
+    if action == "list":
+        accs = sorted(accounts.values(), key=lambda a: (-a["balance"], a["id"]))
+        return 200, [view(a) for a in accs]
+
+    if action == "get":
+        acc = get_account(arg)
+        if acc is None:
+            return NO_ACCOUNT
+        return 200, view(acc)
+
+    if action in ("deposit", "withdraw"):
+        acc = get_account(arg)
+        if acc is None:
+            return NO_ACCOUNT
+        amount = body.get("amount")
+        if not valid_amount(amount):
+            return BAD_AMOUNT
+        if action == "deposit":
+            acc["balance"] += amount
+        else:
+            if amount > acc["balance"]:
+                return 409, {"error": "insufficient funds"}
+            acc["balance"] -= amount
+        return 200, view(acc)
+
+    if action == "transfer":
+        src = get_account(str(body.get("from")) if type(body.get("from")) is int else None)
+        dst = get_account(str(body.get("to")) if type(body.get("to")) is int else None)
+        if src is None or dst is None:
+            return NO_ACCOUNT
+        if src is dst:
+            return 400, {"error": "same account"}
+        amount = body.get("amount")
+        if not valid_amount(amount):
+            return BAD_AMOUNT
+        if amount > src["balance"]:
+            return 409, {"error": "insufficient funds"}
+        src["balance"] -= amount
+        dst["balance"] += amount
+        return 200, {"from": src["balance"], "to": dst["balance"]}
+
+    return NOT_FOUND
+
+
+def main():
+    out = []
+    for raw in sys.stdin.read().splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        head, sep, body = line.partition(" ")
+        if sep:
+            pm, sp, body_text = body.partition(" ")
+            path = pm
+            body_arg = body_text if (sp and body_text.strip() != "") else None
+            if not sp:
+                body_arg = None
+        else:
+            path = ""
+            body_arg = None
+        if body_arg is None and sep and " " in body:
+            body_arg = None
+        status, payload = handle(head, path, body_arg)
+        out.append(f"{status} {json.dumps(payload, separators=(',', ':'))}")
+    sys.stdout.write("\n".join(out) + ("\n" if out else ""))
+
+
+if __name__ == "__main__":
+    main()

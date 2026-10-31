@@ -1,0 +1,7 @@
+{"line":65,"msg":"cannot change v: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"line":66,"msg":"cannot change s: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"line":75,"msg":"cannot change s: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"line":76,"msg":"cannot change v: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"line":78,"msg":"cannot change s: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"line":79,"msg":"cannot change v: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}
+{"line":80,"msg":"cannot change v: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}

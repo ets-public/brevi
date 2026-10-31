@@ -1,0 +1,134 @@
+content: {str: str} = {}
+memo: {str: (int, int)} = {}
+visiting: {str: int} = {}
+ftoks: {str: [str]} = {}
+maxc = 0
+maxr = 0
+
+fn comb(a: int, b: int) -> int = if a == 2 or b == 2: 2 elif a == 1 or b == 1: 1 else: 0
+
+fn note(name: str):
+  c = name.slice(0, 1).code() - 64
+  r = name.slice(1).int()
+  if c > maxc: maxc = c
+  if r > maxr: maxr = r
+
+fn tokenize(f: str) -> [str]:
+  cs = f.replace(" ", "").chars()
+  ts = []
+  i = 0
+  while i < cs.len():
+    ch = cs[i]
+    if ch.is_digit():
+      j = i
+      w = ""
+      while j < cs.len() and cs[j].is_digit():
+        w += cs[j]
+        j += 1
+      ts.push(w)
+      i = j
+    elif ch.is_alpha():
+      j = i
+      w = ""
+      while j < cs.len() and (cs[j].is_alpha() or cs[j].is_digit()):
+        w += cs[j]
+        j += 1
+      ts.push(w)
+      i = j
+    else:
+      ts.push(ch)
+      i += 1
+  ts
+
+fn evalcell(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if visiting.has(name): return (0, 2)
+  if not content.has(name): return (0, 0)
+  visiting[name] = 1
+  txt = content[name]
+  res = (0, 0)
+  if txt.starts_with("="):
+    t = tokenize(txt.slice(1))
+    p = 0
+    res = expr(t, p)
+  else: res = (txt.int(), 0)
+  visiting.remove(name)
+  memo[name] = res
+  res
+
+fn expr(t: [str], mut p: int) -> (int, int):
+  let (v, s) = term(t, p)
+  while p < t.len() and (t[p] == "+" or t[p] == "-"):
+    op = t[p]
+    p += 1
+    let (v2, s2) = term(t, p)
+    v = if op == "+": v + v2 else: v - v2
+    s = comb(s, s2)
+  (v, s)
+
+fn term(t: [str], mut p: int) -> (int, int):
+  let (v, s) = factor(t, p)
+  while p < t.len() and (t[p] == "*" or t[p] == "/"):
+    op = t[p]
+    p += 1
+    let (v2, s2) = factor(t, p)
+    s = comb(s, s2)
+    if op == "*": v = v * v2
+    elif v2 == 0:
+      s = comb(s, 1)
+      v = 0
+    else: v = v / v2
+  (v, s)
+
+fn factor(t: [str], mut p: int) -> (int, int):
+  tk = t[p]
+  p += 1
+  if tk == "-":
+    let (v, s) = factor(t, p)
+    return (0 - v, s)
+  if tk == "(":
+    let (v, s) = expr(t, p)
+    p += 1
+    return (v, s)
+  if tk.is_digit(): return (tk.int(), 0)
+  if p < t.len() and t[p] == "(":
+    a = t[p + 1]
+    b = t[p + 3]
+    p += 5
+    c1 = min(a.slice(0, 1).code(), b.slice(0, 1).code())
+    c2 = max(a.slice(0, 1).code(), b.slice(0, 1).code())
+    r1 = min(a.slice(1).int(), b.slice(1).int())
+    r2 = max(a.slice(1).int(), b.slice(1).int())
+    vals = []
+    s = 0
+    for c in c1..c2 + 1:
+      for r in r1..r2 + 1:
+        let (v, s2) = evalcell(c.char() + r.str())
+        vals.push(v)
+        s = comb(s, s2)
+    v = if tk == "SUM": vals.sum() elif tk == "MIN": vals.min() else: vals.max()
+    return (v, s)
+  evalcell(tk)
+
+for line in lines():
+  idx = line.find("=")
+  if idx < 0: continue
+  cell = line.slice(0, idx).trim()
+  txt = line.slice(idx + 1).trim()
+  content[cell] = txt
+  note(cell)
+  if txt.starts_with("="):
+    for tk in tokenize(txt.slice(1)):
+      if tk.re_full("[A-Z]\d{1,2}"): note(tk)
+head = []
+for c in 1..maxc + 1: head.push((c + 64).char())
+print("\t" + head.join("\t"))
+for r in 1..maxr + 1:
+  row = [r.str()]
+  for c in 1..maxc + 1:
+    name = (c + 64).char() + r.str()
+    if content.has(name):
+      let (v, s) = evalcell(name)
+      row.push(if s == 2: "#CYCLE" elif s == 1: "#DIV0" else: v.str())
+    else: row.push("")
+  print(row.join("\t"))

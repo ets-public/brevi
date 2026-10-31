@@ -1,0 +1,20 @@
+iv = []
+for line in lines():
+  p = line.words()
+  if p.len() >= 2:
+    iv.push((p[0].int().or(0), p[1].int().or(0)))
+iv.sort()
+
+merged = []
+for s, e in iv:
+  n = merged.len()
+  if n == 0 or s > merged[n - 1].1:
+    merged.push((s, e))
+  elif e > merged[n - 1].1:
+    merged[n - 1] = (merged[n - 1].0, e)
+
+total = 0
+for m in merged:
+  print("{m.0} {m.1}")
+  total += m.1 - m.0
+print("total {total}")

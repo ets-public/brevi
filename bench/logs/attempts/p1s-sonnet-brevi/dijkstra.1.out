@@ -1,0 +1,1 @@
+{"line":2,"msg":"mismatched types: expected bool, found str","fix":"convert with .int(), .float() or str(x)"}

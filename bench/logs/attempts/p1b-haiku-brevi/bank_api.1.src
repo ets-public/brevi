@@ -1,0 +1,118 @@
+owners = []
+bal = []
+
+fn num_ok(s: str) -> bool = s.len() > 0 and s.chars().all(c => c.is_digit())
+
+fn acct(i: int) -> str = "{\"id\":" + str(i + 1) + ",\"owner\":\"" + owners[i] + "\",\"balance\":" + str(bal[i]) + "}"
+
+fn owner_of(j: Json) -> str:
+  match j["owner"]:
+    Str(s) => s
+    _ => ""
+
+fn amount_of(j: Json) -> int:
+  match j["amount"]:
+    Num(n) => if n > 0.0 and n.floor() == n: n.int() else: -1
+    _ => -1
+
+fn id_of(j: Json, key: str) -> int:
+  match j[key]:
+    Num(n) => if n.floor() == n: n.int() else: -1
+    _ => -1
+
+fn valid(s: str) -> bool:
+  match json(s):
+    Ok(_) => return true
+    Err(_) => return false
+
+fn split_req(t: str) -> (str, str, str):
+  sp = t.find(" ")
+  if sp < 0: return (t, "", "")
+  rest = t.slice(sp + 1)
+  mth = t.slice(0, sp)
+  sp2 = rest.find(" ")
+  if sp2 < 0: return (mth, rest, "")
+  return (mth, rest.slice(0, sp2), rest.slice(sp2 + 1).trim())
+
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  method, path, body = split_req(line.trim())
+  segs = path.split("/")
+  n = segs.len()
+  if method == "GET" and path == "/accounts":
+    items = []
+    for i in 0..owners.len():
+      items.push((-bal[i], i))
+    items.sort()
+    parts = []
+    for p in items:
+      parts.push(acct(p.1))
+    print("200 [" + ",".join(parts) + "]")
+    continue
+  if method == "POST" and path == "/accounts":
+    if not valid(body):
+      print("400 {\"error\":\"bad json\"}")
+      continue
+    o = owner_of(json(body))
+    if o == "":
+      print("400 {\"error\":\"owner required\"}")
+      continue
+    owners.push(o)
+    bal.push(0)
+    print("201 " + acct(owners.len() - 1))
+    continue
+  if method == "GET" and n == 3 and segs[1] == "accounts" and num_ok(segs[2]):
+    i = segs[2].int().or(0)
+    if i >= 1 and i <= owners.len():
+      print("200 " + acct(i - 1))
+    else:
+      print("404 {\"error\":\"no such account\"}")
+    continue
+  if method == "POST" and n == 4 and segs[1] == "accounts" and num_ok(segs[2]) and (segs[3] == "deposit" or segs[3] == "withdraw"):
+    if not valid(body):
+      print("400 {\"error\":\"bad json\"}")
+      continue
+    j = json(body)
+    i = segs[2].int().or(0)
+    if i < 1 or i > owners.len():
+      print("404 {\"error\":\"no such account\"}")
+      continue
+    amt = amount_of(j)
+    if amt < 0:
+      print("400 {\"error\":\"bad amount\"}")
+      continue
+    if segs[3] == "deposit":
+      bal[i - 1] += amt
+    else:
+      if amt > bal[i - 1]:
+        print("409 {\"error\":\"insufficient funds\"}")
+        continue
+      bal[i - 1] -= amt
+    print("200 " + acct(i - 1))
+    continue
+  if method == "POST" and path == "/transfer":
+    if not valid(body):
+      print("400 {\"error\":\"bad json\"}")
+      continue
+    j = json(body)
+    fa = id_of(j, "from")
+    ta = id_of(j, "to")
+    if fa < 1 or fa > owners.len() or ta < 1 or ta > owners.len():
+      print("404 {\"error\":\"no such account\"}")
+      continue
+    if fa == ta:
+      print("400 {\"error\":\"same account\"}")
+      continue
+    amt = amount_of(j)
+    if amt < 0:
+      print("400 {\"error\":\"bad amount\"}")
+      continue
+    if amt > bal[fa - 1]:
+      print("409 {\"error\":\"insufficient funds\"}")
+      continue
+    bal[fa - 1] -= amt
+    bal[ta - 1] += amt
+    print("200 {\"from\":" + str(bal[fa - 1]) + ",\"to\":" + str(bal[ta - 1]) + "}")
+    continue
+  print("404 {\"error\":\"not found\"}")

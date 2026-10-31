@@ -1,0 +1,184 @@
+cells = {}
+memo = {}
+busy = {}
+
+fn tokenize(f: str) -> [str]:
+  s = f.replace(" ", "")
+  res = []
+  i = 0
+  while i < s.len():
+    c = s[i]
+    if c.is_digit():
+      j = i
+      while j < s.len() and s[j].is_digit():
+        j += 1
+      res.push(s[i:j])
+      i = j
+    elif c.is_alpha():
+      j = i
+      while j < s.len() and s[j].is_alpha():
+        j += 1
+      while j < s.len() and s[j].is_digit():
+        j += 1
+      res.push(s[i:j])
+      i = j
+    else:
+      res.push(c)
+      i += 1
+  return res
+
+fn comb(c1: int, v1: int, c2: int, v2: int, op: str) -> (int, int):
+  if c1 == 2 or c2 == 2:
+    return (2, 0)
+  if c1 == 1 or c2 == 1:
+    return (1, 0)
+  if op == "+":
+    return (0, v1 + v2)
+  if op == "-":
+    return (0, v1 - v2)
+  if op == "*":
+    return (0, v1 * v2)
+  if v2 == 0:
+    return (1, 0)
+  return (0, v1 / v2)
+
+fn cellval(name: str) -> (int, int):
+  if memo.has(name):
+    return memo[name]
+  if not cells.has(name):
+    return (0, 0)
+  c = cells[name]
+  if not c.starts_with("="):
+    return (0, c.int().or(0))
+  if busy.has(name):
+    return (2, 0)
+  busy[name] = true
+  r = expr(tokenize(c.slice(1)), 0)
+  busy.remove(name)
+  memo[name] = (r.0, r.1)
+  return (r.0, r.1)
+
+fn rng(a: str, b: str, fname: str) -> (int, int):
+  c1 = a[0].code() - 65
+  c2 = b[0].code() - 65
+  r1 = a.slice(1).int().or(1)
+  r2 = b.slice(1).int().or(1)
+  lo_c = min(c1, c2)
+  hi_c = max(c1, c2)
+  lo_r = min(r1, r2)
+  hi_r = max(r1, r2)
+  code = 0
+  total = 0
+  first = true
+  for ci in lo_c..(hi_c + 1):
+    for ri in lo_r..(hi_r + 1):
+      r = cellval((ci + 65).char() + str(ri))
+      if r.0 == 2:
+        code = 2
+      elif r.0 == 1 and code == 0:
+        code = 1
+      v = r.1
+      if fname == "SUM":
+        total += v
+      elif fname == "MIN":
+        if first or v < total:
+          total = v
+      else:
+        if first or v > total:
+          total = v
+      first = false
+  if code != 0:
+    return (code, 0)
+  return (0, total)
+
+fn factor(toks: [str], p: int) -> (int, int, int):
+  if p >= toks.len():
+    return (0, 0, p)
+  t = toks[p]
+  if t == "-":
+    r = factor(toks, p + 1)
+    if r.0 != 0:
+      return (r.0, 0, r.2)
+    return (0, 0 - r.1, r.2)
+  if t == "(":
+    r = expr(toks, p + 1)
+    return (r.0, r.1, r.2 + 1)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    a = toks[p + 2]
+    if toks[p + 3] == ":":
+      b = toks[p + 4]
+      close = p + 5
+    else:
+      b = a
+      close = p + 3
+    r = rng(a, b, t)
+    return (r.0, r.1, close + 1)
+  if t[0].is_digit():
+    return (0, t.int().or(0), p + 1)
+  r = cellval(t)
+  return (r.0, r.1, p + 1)
+
+fn term(toks: [str], p: int) -> (int, int, int):
+  r = factor(toks, p)
+  c = r.0
+  v = r.1
+  q = r.2
+  while q < toks.len() and (toks[q] == "*" or toks[q] == "/"):
+    r2 = factor(toks, q + 1)
+    t = comb(c, v, r2.0, r2.1, toks[q])
+    c = t.0
+    v = t.1
+    q = r2.2
+  return (c, v, q)
+
+fn expr(toks: [str], p: int) -> (int, int, int):
+  r = term(toks, p)
+  c = r.0
+  v = r.1
+  q = r.2
+  while q < toks.len() and (toks[q] == "+" or toks[q] == "-"):
+    r2 = term(toks, q + 1)
+    t = comb(c, v, r2.0, r2.1, toks[q])
+    c = t.0
+    v = t.1
+    q = r2.2
+  return (c, v, q)
+
+fn cref(tk: str) -> bool = tk.len() >= 2 and tk[0].is_alpha() and tk.slice(1).int().or(-1) >= 1
+
+fn cellstr(nm: str) -> str:
+  if not cells.has(nm):
+    return ""
+  r = cellval(nm)
+  if r.0 == 2:
+    return "#CYCLE"
+  if r.0 == 1:
+    return "#DIV0"
+  return str(r.1)
+
+maxc = 0
+maxr = 1
+for line in lines():
+  t = line.trim()
+  if t.is_empty():
+    continue
+  eq = t.find("=")
+  name = t.slice(0, eq).trim()
+  content = t.slice(eq + 1).trim()
+  cells[name] = content
+  maxc = max(maxc, name[0].code() - 65)
+  maxr = max(maxr, name.slice(1).int().or(1))
+  if content.starts_with("="):
+    for tk in tokenize(content.slice(1)):
+      if cref(tk):
+        maxc = max(maxc, tk[0].code() - 65)
+        maxr = max(maxr, tk.slice(1).int().or(1))
+hdr = ""
+for ci in 0..(maxc + 1):
+  hdr += "\t" + (ci + 65).char()
+print(hdr)
+for ri in 1..(maxr + 1):
+  row = str(ri)
+  for ci in 0..(maxc + 1):
+    row += "\t" + cellstr((ci + 65).char() + str(ri))
+  print(row)

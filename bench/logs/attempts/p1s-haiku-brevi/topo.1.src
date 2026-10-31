@@ -1,0 +1,36 @@
+nodes = {}
+indeg = {}
+adj = {}
+for line in lines():
+  parts = line.split("->")
+  if parts.len() >= 2:
+    a = parts[0].trim()
+    b = parts[1].trim()
+    nodes[a] = true
+    nodes[b] = true
+    if not indeg.has(a):
+      indeg[a] = 0
+    if not indeg.has(b):
+      indeg[b] = 0
+    adj[a].push(b)
+    indeg[b] += 1
+
+h = heap()
+for n in nodes.keys():
+  if indeg[n] == 0:
+    h.push(n)
+
+out = []
+while not h.is_empty():
+  u = h.pop()
+  out.push(u)
+  for b in adj[u]:
+    indeg[b] -= 1
+    if indeg[b] == 0:
+      h.push(b)
+
+if out.len() < nodes.len():
+  print("cycle")
+else:
+  for u in out:
+    print(u)

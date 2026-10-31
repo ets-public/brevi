@@ -598,7 +598,9 @@ impl Parser {
         }
         let mut e = self.expr()?;
         if self.eat_kw("if") {
+            // The condition uses Python truth (`if s.trim()`): `not not c` reads it that way.
             let c = self.expr()?;
+            let c = if matches!(c, Expr::Binary(..) | Expr::Bool(_)) { c } else { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(c)))) };
             e = Expr::Method(Box::new(e), "filter".into(), vec![Expr::Lambda(names.clone(), Box::new(c))], line);
         }
         if !matches!(&elem, Expr::Ident(n) if names.len() == 1 && n == &names[0]) {

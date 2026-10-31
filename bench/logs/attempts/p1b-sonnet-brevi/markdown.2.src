@@ -1,0 +1,71 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn fm(p: str) -> str = p.re_sub("\*\*(.+?)\*\*", "<strong>\1</strong>").re_sub("\*(.+?)\*", "<em>\1</em>").re_sub("\[([^\]]+)\]\(([^)]*)\)", "<a href=\"\2\">\1</a>")
+
+fn inline(s: str) -> str:
+  rest = esc(s)
+  result = ""
+  while true:
+    a = rest.find("`")
+    if a < 0: break
+    b = rest.slice(a + 1).find("`")
+    if b < 0: break
+    result += fm(rest.slice(0, a)) + "<code>" + rest.slice(a + 1, a + 1 + b) + "</code>"
+    rest = rest.slice(a + b + 2)
+  result + fm(rest)
+
+ls = lines()
+n = ls.len()
+out = []
+used = {}
+toc = []
+i = 0
+while i < n:
+  l = ls[i]
+  hm = l.re_full("(#{1,6}) (.*)")
+  om = l.re_full("\d+\. (.*)")
+  if l.trim().is_empty(): i += 1
+  elif l == "```":
+    code = []
+    i += 1
+    while i < n and ls[i] != "```":
+      code.push(esc(ls[i]))
+      i += 1
+    i += 1
+    out.push("<pre><code>" + code.join("\n") + "</code></pre>")
+  elif hm:
+    raw = hm[2]
+    base = raw.lower().re_sub("[^a-z0-9]+", "-").re_sub("^-+", "").re_sub("-+$", "")
+    cand = base
+    k = 1
+    while used.has(cand):
+      k += 1
+      cand = base + "-" + k.str()
+    used[cand] = 1
+    lvl = hm[1].len()
+    out.push("<h{lvl} id=\"{cand}\">{inline(raw)}</h{lvl}>")
+    toc.push("<a href=\"#{cand}\">{esc(raw.replace("`", "").replace("*", ""))}</a>")
+    i += 1
+  elif l.starts_with("- "):
+    out.push("<ul>")
+    while i < n and ls[i].starts_with("- "):
+      out.push("<li>" + inline(ls[i].slice(2)) + "</li>")
+      i += 1
+    out.push("</ul>")
+  elif om:
+    out.push("<ol>")
+    while i < n and ls[i].re_full("\d+\. (.*)"):
+      out.push("<li>" + inline(ls[i].re_full("\d+\. (.*)")[1]) + "</li>")
+      i += 1
+    out.push("</ol>")
+  else:
+    para = []
+    while i < n and not ls[i].trim().is_empty() and ls[i] != "```" and not ls[i].re_full("(#{1,6}) (.*)") and not ls[i].starts_with("- ") and not ls[i].re_full("\d+\. (.*)"):
+      para.push(ls[i])
+      i += 1
+    out.push("<p>" + inline(para.join(" ")) + "</p>")
+if toc.len() >= 2:
+  print("<nav>")
+  for t in toc: print(t)
+  print("</nav>")
+for o in out: print(o)

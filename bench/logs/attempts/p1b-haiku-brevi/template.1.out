@@ -1,0 +1,2 @@
+{"line":163,"msg":"v was first set inside a block that has ended","fix":"set v before that block, e.g. v = 0"}
+{"line":164,"msg":"v was first set inside a block that has ended","fix":"set v before that block, e.g. v = 0"}

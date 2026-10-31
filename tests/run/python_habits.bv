@@ -14,3 +14,7 @@ print(totl(ys))
 for i, c in enumerate("ab"): print(i, c, ord(c), chr(ord(c) + 1))
 for c in "xy": print(c)
 print([x if x > 1 else 0 for x in range(4)], [i for i in range(1, 9, 3)], int("7") + 1, reversed([1, 2]))
+print([l for l in ["a", "", "b"] if l.trim()])
+let (a, b) = (1, 2)
+a += 1
+print(a, b, 1e3, 2.5e-1)

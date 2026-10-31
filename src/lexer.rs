@@ -253,6 +253,18 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     i += 1;
                 }
             }
+            // `1e15`, `2.5e-3`
+            let mut is_float = is_float;
+            if matches!(chars.get(i), Some('e' | 'E')) {
+                let j = i + 1 + matches!(chars.get(i + 1), Some('-' | '+')) as usize;
+                if chars.get(j).map_or(false, |d| d.is_ascii_digit()) {
+                    i = j;
+                    while i < chars.len() && chars[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                    is_float = true;
+                }
+            }
             let text: String = chars[start..i].iter().filter(|&&d| d != '_').collect();
             col += i - start;
             if is_float {

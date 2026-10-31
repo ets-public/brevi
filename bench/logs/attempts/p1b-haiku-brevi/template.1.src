@@ -1,0 +1,173 @@
+NUL = json("null")
+
+fn tpl_tokens(s: str) -> [(int, str)]:
+  toks = []
+  i = 0
+  n = s.len()
+  while i < n:
+    o = s.slice(i).find("{{")
+    if o < 0:
+      toks.push((0, s.slice(i)))
+      break
+    if o > 0:
+      toks.push((0, s.slice(i, i + o)))
+    st = i + o
+    c = s.slice(st + 2).find("}}")
+    if c < 0:
+      toks.push((0, s.slice(st)))
+      break
+    toks.push((1, s.slice(st + 2, st + 2 + c).trim()))
+    i = st + 2 + c + 2
+  return toks
+
+fn is_tag(toks: [(int, str)], p: int, s: str) -> bool:
+  if p >= toks.len():
+    return false
+  return toks[p].0 == 1 and toks[p].1 == s
+
+fn field(v: Json, key: str) -> Json:
+  match v:
+    Obj(_) => return v[key]
+    _ => return NUL
+
+fn walk(v: Json, parts: [str]) -> Json:
+  cur = v
+  for p in parts:
+    cur = field(cur, p)
+  return cur
+
+fn is_null(v: Json) -> bool:
+  match v:
+    Null => return true
+    _ => return false
+
+fn lookup(scopes: [Json], name: str) -> Json:
+  if name == ".":
+    return scopes[scopes.len() - 1]
+  parts = name.split(".")
+  k = scopes.len() - 1
+  while k >= 0:
+    v = walk(scopes[k], parts)
+    if not is_null(v):
+      return v
+    k -= 1
+  return NUL
+
+fn truthy(v: Json) -> bool:
+  match v:
+    Null => return false
+    Bool(b) => return b
+    Num(n) => return n != 0.0
+    Str(s) => return s != ""
+    Arr(xs) => return xs.len() > 0
+    _ => return true
+
+fn to_text(v: Json) -> str:
+  match v:
+    Str(s) => return s
+    Num(n) =>
+      if n.floor() == n:
+        return str(n.int())
+      return str(n)
+    Bool(b) =>
+      if b:
+        return "true"
+      return "false"
+    Null => return ""
+    _ => return str(v)
+
+fn is_missing(v: Json) -> bool:
+  match v:
+    Null => return true
+    Str(s) => return s == ""
+    _ => return false
+
+fn apply(v: Json, f: str) -> Json:
+  if f == "upper":
+    match v:
+      Str(s) => return Str(s.upper())
+      _ => return v
+  if f == "lower":
+    match v:
+      Str(s) => return Str(s.lower())
+      _ => return v
+  if f == "len":
+    match v:
+      Str(s) => return Num(s.len().float())
+      Arr(xs) => return Num(xs.len().float())
+      _ => return NUL
+  if f.starts_with("default:"):
+    if is_missing(v):
+      return Str(f.slice(8))
+    return v
+  return v
+
+fn arr_items(v: Json) -> [Json]:
+  match v:
+    Arr(xs) => return xs
+    _ => return []
+
+fn render(toks: [(int, str)], i: int, scopes: [Json], idx: int) -> (str, int):
+  out = ""
+  p = i
+  while p < toks.len():
+    tk = toks[p]
+    if tk.0 == 0:
+      out += tk.1
+      p += 1
+      continue
+    c = tk.1
+    if c == "else" or c.starts_with("/"):
+      return (out, p)
+    if c.starts_with("#each "):
+      items = arr_items(lookup(scopes, c.slice(6).trim()))
+      body = p + 1
+      if items.is_empty():
+        r = render(toks, body, scopes, idx)
+        p = r.1 + 1
+      else:
+        k = 0
+        acc = ""
+        endp = body
+        for it in items:
+          r = render(toks, body, scopes + [it], k)
+          acc += r.0
+          endp = r.1
+          k += 1
+        out += acc
+        p = endp + 1
+      continue
+    if c.starts_with("#if "):
+      cond = truthy(lookup(scopes, c.slice(4).trim()))
+      r1 = render(toks, p + 1, scopes, idx)
+      s1 = r1.0
+      s2 = ""
+      endp = r1.1
+      if is_tag(toks, r1.1, "else"):
+        r2 = render(toks, r1.1 + 1, scopes, idx)
+        s2 = r2.0
+        endp = r2.1
+      if cond:
+        out += s1
+      else:
+        out += s2
+      p = endp + 1
+      continue
+    parts = c.split("|")
+    name = parts[0].trim()
+    if name == "@index":
+      v = Num(idx.float())
+    else:
+      v = lookup(scopes, name)
+    for f in parts[1:]:
+      v = apply(v, f.trim())
+    out += to_text(v)
+    p += 1
+  return (out, p)
+
+ls = lines()
+data = json(ls[0])
+tpl = "\n".join(ls[1:])
+all_toks = tpl_tokens(tpl)
+res = render(all_toks, 0, [data], 0)
+print(res.0)

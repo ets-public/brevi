@@ -88,6 +88,16 @@ fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a
         .map(|(_, o)| o)
 }
 
+// `(a, b)` as `(mut a, mut b)` when every item is a plain name.
+fn mut_binds(ps: &[Pat], p: &str) -> String {
+    if ps.iter().all(|p| matches!(p, Pat::Bind(_) | Pat::Wild)) {
+        let names: Vec<String> = ps.iter().map(|p| if let Pat::Bind(n) = p { format!("mut {n}") } else { "_".into() }).collect();
+        format!("({})", names.join(", "))
+    } else {
+        p.to_string()
+    }
+}
+
 pub fn rust_ty(t: &Ty) -> String {
     match t {
         Ty::Named(n) => match n.as_str() {
@@ -995,6 +1005,7 @@ impl Emitter {
                     _ => String::new(),
                 };
                 // `let` names can be changed too: Python has no constants, and models reassign them.
+                let p = if let Pat::Tuple(ps) = name { mut_binds(ps, &p) } else { p };
                 format!("let {}{p}{t} = {v};", if *mutable || matches!(name, Pat::Bind(_)) { "mut " } else { "" })
             }
             Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) => {

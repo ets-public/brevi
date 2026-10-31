@@ -1,0 +1,1 @@
+{"line":3,"msg":"cannot work out what fm returns","fix":"write the return type: fn fm(...) -> TYPE"}

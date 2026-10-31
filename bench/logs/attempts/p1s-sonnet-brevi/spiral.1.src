@@ -1,0 +1,23 @@
+xs = stdin().ints()
+r = xs[0]
+c = xs[1]
+g = xs.skip(2)
+top = 0
+bot = r - 1
+lf = 0
+rt = c - 1
+out = []
+while top <= bot and lf <= rt:
+  for j in lf..rt + 1: out.push(g[top * c + j])
+  top += 1
+  for i in top..bot + 1: out.push(g[i * c + rt])
+  rt -= 1
+  if top <= bot:
+    for j in (lf..rt + 1).rev(): out.push(g[bot * c + j])
+    bot -= 1
+  if lf <= rt:
+    for i in (top..bot + 1).rev(): out.push(g[i * c + lf])
+    lf += 1
+print(" ".join(out.map(x => str(x))))
+cols = [sum([g[i * c + j] for i in 0..r]) for j in 0..c]
+print(" ".join(cols.map(x => str(x))))
