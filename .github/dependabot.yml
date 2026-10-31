@@ -1,0 +1,10 @@
+# Keeps Brevi's own dependencies current. Crates used by Brevi programs are pinned inside .bv files
+# (`use NAME "VERSION"`) and are watched by tools/upstream_watch.py instead.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
