@@ -1,0 +1,15 @@
+ws = stdin().words()
+seen = {}
+for w in ws: seen[w.lower()] = True
+groups = {}
+for w in seen.keys():
+  key = w.chars().sort().join("")
+  if not groups.has(key): groups[key] = []
+  groups[key].push(w)
+out = []
+for k, g in groups.pairs():
+  if g.len() > 1:
+    g.sort()
+    out.push(g)
+out.sort_by(g => (-g.len(), g[0]))
+for g in out: print(g.join(" "))

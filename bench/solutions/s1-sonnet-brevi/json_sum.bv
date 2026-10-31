@@ -1,0 +1,7 @@
+fn walk(j: Json) -> int = match j:
+  Num(n) => n.int()
+  Arr(xs) => sum(walk(x) for x in xs)
+  Obj(m) => if any(v.text() == "red" for v in m.values()): 0 else: sum(walk(v) for v in m.values())
+  _ => 0
+
+print(walk(json(stdin())))

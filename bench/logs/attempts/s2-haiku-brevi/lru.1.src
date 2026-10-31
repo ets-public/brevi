@@ -1,0 +1,28 @@
+ls = lines()
+cap = ls[0].trim().int()
+vals = {}
+stamp = {}
+clock = 0
+for i in 1..ls.len():
+  p = ls[i].words()
+  if p.len() == 0: continue
+  clock += 1
+  k = p[1]
+  if p[0] == "get":
+    if vals.has(k):
+      stamp[k] = clock
+      print(vals[k])
+    else:
+      print(-1)
+  else:
+    if not vals.has(k) and vals.len() >= cap:
+      best = ""
+      bt = 0
+      for kk, t in stamp.pairs():
+        if best == "" or t < bt:
+          best = kk
+          bt = t
+      vals.remove(best)
+      stamp.remove(best)
+    vals[k] = p[2]
+    stamp[k] = clock

@@ -1,0 +1,4 @@
+for line in lines():
+  p = line.words()
+  if p.len() == 2:
+    print(abs(date(p[0]).days - date(p[1]).days))

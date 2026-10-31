@@ -4,7 +4,7 @@ A programming language for AI models to write. Brevi compiles to Rust, so progra
 
 The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,251 tokens (exact count, Sonnet tokenizer).
 
-## Status: v0.15
+## Status: v0.16
 
 Works today:
 - Parser for the full core syntax in BREVI.md
@@ -22,6 +22,18 @@ Works today:
 - `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Brevi line
 - Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
 - Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
+
+Held-out check and full re-run, v0.16 (31 Oct 2026, exact tokens, retries scored as patches). Six new big tasks (`bench/ref/gen_big2.py`: sales_report, route_planner, ini_config, stack_vm, line_diff, room_booking) were written after v0.15 and never used to tune Brevi. Each cell is the average of two runs; the small and Haiku big tasks were run again on the v0.15 compiler.
+
+| Task set | Model | Brevi | Python | Brevi saves | First try (Brevi / Python) |
+| --- | --- | --- | --- | --- | --- |
+| 6 held-out big | Sonnet | **4,020** | 4,220 | 5% | 11 of 12 / 12 of 12 |
+| 6 held-out big | Haiku | **4,604** | 5,847 | 21% | 10 of 12 / 10 of 12 |
+| 18 small | Sonnet | **4,488** | 5,053 | 11% | 36 of 36 / 35 of 36 |
+| 18 small | Haiku | **5,306** | 5,795 | 8% | 34 of 36 / 36 of 36 |
+| 8 big | Haiku | **10,382** | 10,556 | 2% | 11 of 16 / 45 of 48 |
+
+Brevi is ahead on every set, including tasks it was never tuned on. The Haiku big-task margin is small because run p20 hit three compiler gaps; v0.16 fixes all of them, so those three programs now pass as written: a fallible call saved to a name and then matched with `Ok`/`Err`, a top-level `x = 0.dec()` used inside a function, and `e[1]` on a tuple taken from a list whose type comes from later pushes. v0.16 also lets a loop variable be changed in place (`for k, g in m.pairs(): g.sort()`), the one small-task failure, and accepts `Ok(x):` as a match arm. The held-out runs found four more gaps, fixed before the re-run: nested `m[a][b] = v` into an empty map, an empty value never used again, `_` in partial unpacking, and `d.year`/`d.weekday` on dates. All 889 old solutions print the same.
 
 Sonnet on big tasks, v0.15 (31 Oct 2026, exact tokens, retries scored as patches): six fresh Brevi runs (p13 to p18) against all six Python runs.
 

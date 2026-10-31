@@ -1,0 +1,64 @@
+src = ""
+pos = 0
+
+fn ch() -> str:
+  if pos < src.len(): return src.slice(pos, pos + 1)
+  return ""
+
+fn skip():
+  while ch() == " ":
+    pos += 1
+
+fn factor() -> int:
+  skip()
+  c = ch()
+  if c == "-":
+    pos += 1
+    return 0 - factor()
+  if c == "+":
+    pos += 1
+    return factor()
+  if c == "(":
+    pos += 1
+    v = expr()
+    skip()
+    pos += 1
+    return v
+  start = pos
+  while pos < src.len() and src.slice(pos, pos + 1).is_digit():
+    pos += 1
+  return src.slice(start, pos).int()
+
+fn term() -> int:
+  v = factor()
+  skip()
+  while ch() == "*" or ch() == "/":
+    op = ch()
+    pos += 1
+    d = factor()
+    if op == "*": v = v * d
+    else:
+      if d == 0: fail("division by zero")
+      v = v / d
+    skip()
+  return v
+
+fn expr() -> int:
+  v = term()
+  skip()
+  while ch() == "+" or ch() == "-":
+    op = ch()
+    pos += 1
+    d = term()
+    if op == "+": v = v + d
+    else: v = v - d
+    skip()
+  return v
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  src = line
+  pos = 0
+  match expr():
+    Ok(v) => print(v)
+    Err(m) => print("error")

@@ -1,0 +1,29 @@
+nums = stdin().ints()
+R = nums[0]
+C = nums[1]
+m = []
+for i in 0..R:
+  m.push(nums.slice(2 + i * C, 2 + (i + 1) * C))
+out = []
+top = 0
+bot = R - 1
+lo = 0
+hi = C - 1
+while top <= bot and lo <= hi:
+  for j in lo..hi + 1:
+    out.push(m[top][j])
+  top += 1
+  for i in top..bot + 1:
+    out.push(m[i][hi])
+  hi -= 1
+  if top <= bot:
+    for j in (lo..hi + 1).rev():
+      out.push(m[bot][j])
+    bot -= 1
+  if lo <= hi:
+    for i in (top..bot + 1).rev():
+      out.push(m[i][lo])
+    lo += 1
+print(out.join(" "))
+cols = [sum(m[i][j] for i in 0..R) for j in 0..C]
+print(cols.join(" "))

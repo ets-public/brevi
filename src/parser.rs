@@ -783,7 +783,10 @@ impl Parser {
                 self.skip_seps();
                 while !self.is_sym("}") {
                     let p = self.pat()?;
-                    self.expect_sym("=>")?;
+                    // `Arr(xs):` as in Python's `case`, for `Arr(xs) =>`.
+                    if !self.eat_sym(":") && !self.is_sym("{") {
+                        self.expect_sym("=>")?;
+                    }
                     self.skip_newlines();
                     let next = self.toks.get(self.pos + 1).map(|t| t.tok.clone());
                     let after = self.toks.get(self.pos + 2).map(|t| t.tok.clone());

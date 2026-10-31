@@ -1,0 +1,84 @@
+fn pad(n: int, w: int) -> str:
+  s = str(n)
+  while s.len() < w:
+    s = "0" + s
+  return s
+
+fn hhmm(t: int) -> str = pad(t // 60, 2) + ":" + pad(t % 60, 2)
+
+fn tmin(s: str) -> int:
+  p = s.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn dfs(tn: [str], ts: [[str]], tt: [[int]], tr: int, si: int, route: [str], mut onpath: {str: int}, mut best: [str], dest: str):
+  station = ts[tr][si]
+  t = tt[tr][si]
+  if station == dest:
+    key = pad(t, 4) + "|" + pad(route.len(), 3) + "|" + ">".join(route)
+    if best.len() == 0:
+      best.push(key)
+    elif key < best[0]:
+      best[0] = key
+    return
+  me_key = str(tr) + ":" + str(si)
+  onpath[me_key] = 1
+  if si + 1 < ts[tr].len():
+    nk = str(tr) + ":" + str(si + 1)
+    if not onpath.has(nk):
+      dfs(tn, ts, tt, tr, si + 1, route, onpath, best, dest)
+  for m in 0..tn.len():
+    if m != tr:
+      for j in 0..ts[m].len():
+        if ts[m][j] == station and tt[m][j] >= t + 5:
+          mk = str(m) + ":" + str(j)
+          if not onpath.has(mk):
+            dfs(tn, ts, tt, m, j, route + [tn[m]], onpath, best, dest)
+  onpath.remove(me_key)
+
+fn main():
+  lines = stdin().lines()
+  sep = lines.len()
+  i = 0
+  while i < lines.len():
+    if lines[i].trim() == "---":
+      sep = i
+      break
+    i += 1
+  tn = []
+  ts = []
+  tt = []
+  for line in lines[0:sep]:
+    w = line.words()
+    if w.is_empty():
+      continue
+    tn.push(w[0])
+    st = []
+    tm = []
+    k = 1
+    while k + 1 < w.len():
+      st.push(w[k])
+      tm.push(tmin(w[k + 1]))
+      k += 2
+    ts.push(st)
+    tt.push(tm)
+  for line in lines[sep + 1:]:
+    w = line.words()
+    if w.is_empty():
+      continue
+    orig = w[0]
+    dest = w[1]
+    qt = tmin(w[2])
+    if orig == dest:
+      print(orig + " " + dest + " " + hhmm(qt) + " via -")
+      continue
+    onp: {str: int} = {}
+    best: [str] = []
+    for m in 0..tn.len():
+      for j in 0..ts[m].len():
+        if ts[m][j] == orig and tt[m][j] >= qt:
+          dfs(tn, ts, tt, m, j, [tn[m]], onp, best, dest)
+    if best.len() == 0:
+      print(orig + " " + dest + " unreachable")
+    else:
+      parts = best[0].split("|")
+      print(orig + " " + dest + " " + hhmm(parts[0].int().or(0)) + " via " + parts[2])

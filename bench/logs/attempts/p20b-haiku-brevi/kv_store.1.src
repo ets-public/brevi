@@ -1,0 +1,55 @@
+kv = {}
+undo = []
+marks = []
+
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  cmd = w[0]
+  if cmd == "SET" and w.len() == 3:
+    k = w[1]
+    if marks: undo.push((k, kv.has(k), kv.get_or(k, "")))
+    kv[k] = w[2]
+  elif cmd == "GET" and w.len() == 2:
+    if kv.has(w[1]): print(kv[w[1]])
+    else: print("NULL")
+  elif cmd == "DEL" and w.len() == 2:
+    k = w[1]
+    if kv.has(k):
+      if marks: undo.push((k, kv.has(k), kv[k]))
+      kv.remove(k)
+    else: print("NOT FOUND")
+  elif cmd == "INCR" and w.len() == 3:
+    k = w[1]
+    cur = kv.get_or(k, "0")
+    if cur.re_full('-?[0-9]+').len() == 0:
+      print("ERR not an integer")
+    else:
+      nv = str(cur.int().or(0) + w[2].int().or(0))
+      if marks: undo.push((k, kv.has(k), kv.get_or(k, "")))
+      kv[k] = nv
+      print(nv)
+  elif cmd == "COUNT" and w.len() == 2:
+    print(len([x for x in kv.values() if x == w[1]]))
+  elif cmd == "KEYS" and w.len() == 2:
+    ks = [x for x in kv.keys() if x.starts_with(w[1])]
+    ks.sort()
+    if ks.is_empty(): print("(empty)")
+    else: print(" ".join(ks))
+  elif cmd == "BEGIN" and w.len() == 1:
+    marks.push(undo.len())
+  elif cmd == "ROLLBACK" and w.len() == 1:
+    if marks.is_empty(): print("NO TRANSACTION")
+    else:
+      mk = marks.pop()
+      while undo.len() > mk:
+        e = undo.pop()
+        if e[1]: kv[e[0]] = e[2]
+        else: kv.remove(e[0])
+  elif cmd == "COMMIT" and w.len() == 1:
+    if marks.is_empty(): print("NO TRANSACTION")
+    else:
+      marks = []
+      undo = []
+  else:
+    print("ERR unknown command")

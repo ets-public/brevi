@@ -1,0 +1,9 @@
+rows = csv(stdin())
+totals = {}
+for r in rows[1:]:
+  if r.len() < 3: continue
+  totals[r[0]] += r[1].int().dec() * r[2].dec()
+items = [(v, k) for k, v in totals.pairs()]
+items.sort_by(p => (-p.0, p.1))
+for v, k in items:
+  print("{k}: {v.fmt(2)}")

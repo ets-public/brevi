@@ -1,0 +1,27 @@
+data = csv(stdin())
+ins = {}
+outs = {}
+bal = {}
+months = {}
+for r in data.skip(1):
+  if r.len() < 3: continue
+  m = r[0].trim().slice(0, 7)
+  amt = r[2].trim().dec()
+  months[m] = True
+  if amt > 0:
+    ins[m] += amt
+  else:
+    outs[m] += 0 - amt
+  bal[r[1]] += amt
+for m in months.keys():
+  i_v = ins[m]
+  o_v = outs[m]
+  net = i_v - o_v
+  print("{m} {i_v.fmt(2)} {o_v.fmt(2)} {net.fmt(2)}")
+best = ""
+bb = 0.dec()
+for a, v in bal.pairs():
+  if best == "" or v > bb:
+    best = a
+    bb = v
+print("top {best} {bb.fmt(2)}")

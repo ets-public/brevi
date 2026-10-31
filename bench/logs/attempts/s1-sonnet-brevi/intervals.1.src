@@ -1,0 +1,25 @@
+ps = []
+for l in lines():
+  w = l.ints()
+  if w.len() == 2:
+    ps.push((w[0], w[1]))
+ps = ps.sort()
+total = 0
+cs = 0
+ce = 0
+have = false
+for p in ps:
+  if have and p.0 <= ce:
+    if p.1 > ce:
+      ce = p.1
+  else:
+    if have:
+      print(cs, ce)
+      total += ce - cs
+    cs = p.0
+    ce = p.1
+    have = true
+if have:
+  print(cs, ce)
+  total += ce - cs
+print("total {total}")

@@ -1,0 +1,128 @@
+kinds: [int] = []
+pays: [str] = []
+NULLJ: Json = json("null")
+
+fn walk(root: Json, path: str) -> (Json, bool):
+  cur = root
+  for seg in path.split("."):
+    if not cur.has(seg): return (NULLJ, false)
+    cur = cur[seg]
+  return (cur, true)
+
+fn lookup(path: str, scopes: [(Json, int)]) -> Json:
+  if path == ".": return scopes[-1].0
+  if path == "@index": return scopes[-1].1.json()
+  for s in scopes.rev():
+    found = walk(s.0, path)
+    if found.1: return found.0
+  return NULLJ
+
+fn truthy(v: Json) -> bool:
+  match v:
+    Null => return false
+    Bool(b) => return b
+    Num(n) => return n != 0.0
+    Str(s) => return s.len() > 0
+    Arr(xs) => return xs.len() > 0
+    _ => return true
+
+fn apply_filter(f: str, v: Json) -> Json:
+  if f == "upper": return v.text().upper().json()
+  if f == "lower": return v.text().lower().json()
+  if f == "len":
+    match v:
+      Arr(xs) => return xs.len().json()
+      Str(s) => return s.len().json()
+      _ => return v
+  if f.starts_with("default:"):
+    if v.is_null() or v.text() == "": return f.slice(8).json()
+    return v
+  return v
+
+fn show_expr(expr: str, scopes: [(Json, int)]) -> str:
+  parts = expr.split("|")
+  v = lookup(parts[0].trim(), scopes)
+  for k in range(1, parts.len()):
+    v = apply_filter(parts[k].trim(), v)
+  return v.text()
+
+fn items_of(arr: Json) -> [Json]:
+  match arr:
+    Arr(xs) => return xs
+    _ => return []
+
+fn render_range(i: int, scopes: [(Json, int)]) -> (str, int):
+  out = ""
+  j = i
+  while j < kinds.len() and kinds[j] != 3 and kinds[j] != 5 and kinds[j] != 6:
+    if kinds[j] == 0:
+      out += pays[j]
+      j += 1
+    elif kinds[j] == 1:
+      out += show_expr(pays[j], scopes)
+      j += 1
+    elif kinds[j] == 2:
+      r = render_each(j, scopes)
+      out += r.0
+      j = r.1
+    else:
+      r = render_if(j, scopes)
+      out += r.0
+      j = r.1
+  return (out, j)
+
+fn render_each(j: int, scopes: [(Json, int)]) -> (str, int):
+  items = items_of(lookup(pays[j], scopes))
+  probe = render_range(j + 1, scopes + [(NULLJ, 0)])
+  nxt = probe.1 + 1
+  out = ""
+  for idx in range(items.len()):
+    out += render_range(j + 1, scopes + [(items[idx], idx)]).0
+  return (out, nxt)
+
+fn render_if(j: int, scopes: [(Json, int)]) -> (str, int):
+  v = lookup(pays[j], scopes)
+  first = render_range(j + 1, scopes)
+  k = first.1
+  out_false = ""
+  end = k + 1
+  if k < kinds.len() and kinds[k] == 5:
+    second = render_range(k + 1, scopes)
+    out_false = second.0
+    end = second.1 + 1
+  if truthy(v): return (first.0, end)
+  return (out_false, end)
+
+src = stdin()
+nl = src.find("\n")
+header = src.slice(0, nl)
+tpl = src.slice(nl + 1)
+data: Json = json(header)
+pieces = tpl.re_list('\{\{[^}]*\}\}|(?:[^{]|\{(?!\{))+')
+for pc in pieces:
+  if pc.starts_with("{{"):
+    tag = pc.slice(2, pc.len() - 2).trim()
+    if tag.starts_with("#each "):
+      kinds.push(2)
+      pays.push(tag.slice(6).trim())
+    elif tag == "/each":
+      kinds.push(3)
+      pays.push("")
+    elif tag.starts_with("#if "):
+      kinds.push(4)
+      pays.push(tag.slice(4).trim())
+    elif tag == "else":
+      kinds.push(5)
+      pays.push("")
+    elif tag == "/if":
+      kinds.push(6)
+      pays.push("")
+    else:
+      kinds.push(1)
+      pays.push(tag)
+  else:
+    kinds.push(0)
+    pays.push(pc)
+
+final_res = render_range(0, [(data, -1)])
+print(final_res.0)

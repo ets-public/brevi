@@ -1,0 +1,21 @@
+test 0 failed
+input:
+(a[b]{c})
+([)]
+((x)
+
+}
+expected:
+ok
+error at 3
+error at 5
+ok
+error at 1
+got:
+ok
+error at 3
+error at 5
+ok
+error at 1
+ok
+passed 0/3

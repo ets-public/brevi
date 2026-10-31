@@ -1,0 +1,90 @@
+fn is_id(s: str) -> bool = s.len() > 0 and s.chars().all(c => c.is_digit())
+
+fn intval(j: Json, k: str) -> int = match j[k]:
+  Num(n) => if n >= 1.0 and n == n.floor(): n.int() else: 0
+  _ => 0
+
+fn jstr(j: Json, k: str) -> str = match j[k]:
+  Str(s) => s
+  _ => ""
+
+fn acct(aid: int, owners: {int: str}, bal: {int: int}) -> str = '{"id":' + str(aid) + ',"owner":"' + owners[aid] + '","balance":' + str(bal[aid]) + '}'
+
+fn handle(line: str, mut owners: {int: str}, mut bal: {int: int}) -> str:
+  sp = line.find(" ")
+  method = line if sp < 0 else line[0:sp]
+  rest = "" if sp < 0 else line[sp + 1:]
+  sp2 = rest.find(" ")
+  path = rest if sp2 < 0 else rest[0:sp2]
+  body = "" if sp2 < 0 else rest[sp2 + 1:]
+  parts = path.split("/")
+  code = ""
+  aid = 0
+  if method == "POST" and path == "/accounts":
+    code = "create"
+  elif method == "GET" and path == "/accounts":
+    code = "list"
+  elif method == "POST" and path == "/transfer":
+    code = "transfer"
+  elif parts.len() == 3 and parts[0] == "" and parts[1] == "accounts" and method == "GET" and is_id(parts[2]):
+    code = "get"
+    aid = parts[2].int().or(0)
+  elif parts.len() == 4 and parts[0] == "" and parts[1] == "accounts" and method == "POST" and is_id(parts[2]) and (parts[3] == "deposit" or parts[3] == "withdraw"):
+    code = parts[3]
+    aid = parts[2].int().or(0)
+  if code == "":
+    return '404 {"error":"not found"}'
+  if code == "list":
+    items = [(-bal[k], k) for k in owners.keys()]
+    items = items.sort()
+    ids = [p.1 for p in items]
+    strs = [acct(k, owners, bal) for k in ids]
+    return "200 [" + ",".join(strs) + "]"
+  if code == "get":
+    if not owners.has(aid):
+      return '404 {"error":"no such account"}'
+    return "200 " + acct(aid, owners, bal)
+  j = json(body)
+  if code == "create":
+    name = jstr(j, "owner")
+    if name == "":
+      return '400 {"error":"owner required"}'
+    nid = owners.len() + 1
+    owners[nid] = name
+    bal[nid] = 0
+    return "201 " + acct(nid, owners, bal)
+  if code == "deposit" or code == "withdraw":
+    if not owners.has(aid):
+      return '404 {"error":"no such account"}'
+    amt = intval(j, "amount")
+    if amt == 0:
+      return '400 {"error":"bad amount"}'
+    if code == "deposit":
+      bal[aid] += amt
+      return "200 " + acct(aid, owners, bal)
+    if amt > bal[aid]:
+      return '409 {"error":"insufficient funds"}'
+    bal[aid] -= amt
+    return "200 " + acct(aid, owners, bal)
+  fr = intval(j, "from")
+  to = intval(j, "to")
+  if not owners.has(fr) or not owners.has(to):
+    return '404 {"error":"no such account"}'
+  if fr == to:
+    return '400 {"error":"same account"}'
+  amt = intval(j, "amount")
+  if amt == 0:
+    return '400 {"error":"bad amount"}'
+  if amt > bal[fr]:
+    return '409 {"error":"insufficient funds"}'
+  bal[fr] -= amt
+  bal[to] += amt
+  return '200 {"from":' + str(bal[fr]) + ',"to":' + str(bal[to]) + '}'
+
+fn main():
+  owners = {}
+  bal = {}
+  for line in stdin().lines():
+    match handle(line, owners, bal):
+      Ok(s) => print(s)
+      Err(e) => print('400 {"error":"bad json"}')

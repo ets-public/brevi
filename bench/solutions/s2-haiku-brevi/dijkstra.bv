@@ -1,0 +1,37 @@
+rows = []
+for line in lines():
+  p = line.words()
+  if p.len() > 0: rows.push(p)
+n = rows.len() - 1
+q = rows[n]
+start_node = q[0]
+goal = q[1]
+adj = {}
+for i in 0..n:
+  r = rows[i]
+  w = r[2].int()
+  if not adj.has(r[0]): adj[r[0]] = []
+  adj[r[0]].push((r[1], w))
+  if not adj.has(r[1]): adj[r[1]] = []
+  adj[r[1]].push((r[0], w))
+done = {}
+h = heap()
+h.push((0, [start_node]))
+found = false
+while not h.is_empty():
+  item = h.pop()
+  d = item.0
+  path = item.1
+  node = path[path.len() - 1]
+  if done.has(node): continue
+  done[node] = true
+  if node == goal:
+    print(d)
+    print(path.join("->"))
+    found = true
+    break
+  if adj.has(node):
+    for nb in adj[node]:
+      if not done.has(nb.0):
+        h.push((d + nb.1, path + [nb.0]))
+if not found: print("none")

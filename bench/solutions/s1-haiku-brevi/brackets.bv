@@ -1,0 +1,17 @@
+opener_of = {")": "(", "]": "[", "}": "{"}
+for line in lines():
+  cs = line.chars()
+  res = "ok"
+  st = []
+  for i in 0..cs.len():
+    c = cs[i]
+    if c == "(" or c == "[" or c == "{":
+      st.push(c)
+    elif opener_of.has(c):
+      if st.is_empty() or st.last() != opener_of[c]:
+        res = "error at " + (i + 1).str()
+        break
+      st.pop()
+  if res == "ok" and not st.is_empty():
+    res = "error at " + (cs.len() + 1).str()
+  print(res)

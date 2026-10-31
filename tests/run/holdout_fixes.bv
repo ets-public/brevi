@@ -16,3 +16,12 @@ for line in ["a=1"]:
 print(get("default", "a"))
 unused = []
 print("u")
+j = json("[1,2]")
+n = match j:
+  Arr(xs): xs.len()
+  _: 0
+print(n)
+match j:
+  Arr(xs):
+    print("arr", xs.len())
+  _ => print("other")

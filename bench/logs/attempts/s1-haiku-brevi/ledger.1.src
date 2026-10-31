@@ -1,0 +1,27 @@
+rows = csv(stdin())
+ins = {}
+outs = {}
+bal = {}
+seen = {}
+for r in rows[1:]:
+  if r.len() < 3: continue
+  m = r[0].slice(0, 7)
+  a = r[2].dec()
+  seen[m] = true
+  bal[r[1]] += a
+  if a > 0:
+    ins[m] += a
+  elif a < 0:
+    outs[m] += 0 - a
+
+for m in sorted(seen.keys()):
+  i_ = ins[m]
+  o_ = outs[m]
+  n_ = i_ - o_
+  print("{m} {i_.fmt(2)} {o_.fmt(2)} {n_.fmt(2)}")
+
+ranking = [(0 - b, acc) for acc, b in bal.pairs()]
+ranking.sort()
+top = ranking[0]
+bv = 0 - top.0
+print("top {top.1} {bv.fmt(2)}")

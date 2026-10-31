@@ -1,0 +1,59 @@
+fn main():
+  j = json(stdin())
+  revenue = 0.dec()
+  out = []
+  for o in j["orders"]:
+    cid = o["customer"].text()
+    if not j["customers"].has(cid):
+      out.push('{"id":' + str(o["id"]) + ',"error":"unknown customer ' + cid + '"}')
+      continue
+    unknown = ""
+    for ln in o["lines"]:
+      sku = ln["sku"].text()
+      if unknown == "" and not j["products"].has(sku):
+        unknown = sku
+    if unknown != "":
+      out.push('{"id":' + str(o["id"]) + ',"error":"unknown sku ' + unknown + '"}')
+      continue
+    cust = j["customers"][cid]
+    amts = []
+    cats = []
+    catqty = {}
+    for ln in o["lines"]:
+      p = j["products"][ln["sku"].text()]
+      q = ln["qty"].int()
+      cat = p["category"].text()
+      amts.push(p["price"].text().dec() * q)
+      cats.push(cat)
+      catqty[cat] += q
+    sub = 0.dec()
+    catdisc = 0.dec()
+    for i in 0..amts.len():
+      sub += amts[i]
+      if catqty[cats[i]] >= 3:
+        catdisc += (amts[i] * 5 / 100).round(2)
+    after = sub - catdisc
+    tier = cust["tier"].text()
+    pct = 0
+    if tier == "gold":
+      pct = 10
+    elif tier == "silver":
+      pct = 5
+    tierd = (after * pct / 100).round(2)
+    disc = catdisc + tierd
+    country = cust["country"].text()
+    num = 0
+    den = 1
+    if country == "UK":
+      num = 20
+      den = 100
+    elif country == "US":
+      num = 825
+      den = 10000
+    taxable = sub - disc
+    tax = (taxable * num / den).round(2)
+    total = taxable + tax
+    revenue += total
+    out.push('{"id":' + str(o["id"]) + ',"customer":' + str(cust["name"]) + ',"subtotal":"' + sub.fmt(2) + '","discount":"' + disc.fmt(2) + '","tax":"' + tax.fmt(2) + '","total":"' + total.fmt(2) + '"}')
+  print("[" + ",".join(out) + "]")
+  print("revenue " + revenue.fmt(2))

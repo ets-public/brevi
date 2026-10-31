@@ -1,0 +1,21 @@
+paths = {}
+for line in lines():
+  p = line.words()
+  if p.len() < 4: continue
+  if not paths.has(p[1]): paths[p[1]] = []
+  paths[p[1]].push((p[3].int(), p[2].int()))
+for pth, rows in paths.pairs():
+  n = rows.len()
+  ms = []
+  errs = 0
+  total = 0
+  for r in rows:
+    ms.push(r.0)
+    total += r.0
+    if r.1 >= 500: errs += 1
+  ms.sort()
+  k = (9 * n + 9) // 10
+  p90 = ms[k - 1]
+  avg = total.float() / n.float()
+  ep = errs.float() * 100.0 / n.float()
+  print("{pth} {n} {avg.fmt(1)} {p90} {ep.fmt(1)}%")

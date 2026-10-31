@@ -1,0 +1,30 @@
+ls = lines()
+n = ls[0].int()
+dxs = [1, 2, 2, 1, -1, -2, -2, -1]
+dys = [2, 1, -1, -2, -2, -1, 1, 2]
+
+fn sq(s: str) = (s[0:1].code() - 97, s.slice(1).int() - 1)
+
+for l in ls.skip(1):
+  w = l.words()
+  if w.len() != 2:
+    continue
+  a = sq(w[0])
+  b = sq(w[1])
+  dist = {}
+  dist[a] = 0
+  q = [a]
+  qi = 0
+  while qi < q.len():
+    p = q[qi]
+    qi += 1
+    for k in 0..8:
+      x = p.0 + dxs[k]
+      y = p.1 + dys[k]
+      if x >= 0 and x < n and y >= 0 and y < n and not dist.has((x, y)):
+        dist[(x, y)] = dist[p] + 1
+        q.push((x, y))
+  if dist.has(b):
+    print(dist[b])
+  else:
+    print(-1)

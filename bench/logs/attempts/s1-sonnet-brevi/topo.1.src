@@ -1,0 +1,28 @@
+indeg = {}
+adj = {}
+for l in lines():
+  w = l.words()
+  if w.len() == 3:
+    a = w[0]
+    b = w[2]
+    adj[a].push(b)
+    indeg[b] += 1
+    if not indeg.has(a):
+      indeg[a] = 0
+h = heap()
+for k, v in indeg.pairs():
+  if v == 0:
+    h.push(k)
+out = []
+while h:
+  n = h.pop()
+  out.push(n)
+  for b in adj[n]:
+    indeg[b] -= 1
+    if indeg[b] == 0:
+      h.push(b)
+if out.len() < indeg.len():
+  print("cycle")
+else:
+  for n in out:
+    print(n)

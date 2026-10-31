@@ -1,0 +1,25 @@
+fn bfs(n: int, sx: int, sy: int, tx: int, ty: int) -> int:
+  dist = {}
+  dist[(sx, sy)] = 0
+  q = [(sx, sy)]
+  head = 0
+  while head < q.len():
+    p = q[head]
+    head += 1
+    if p.0 == tx and p.1 == ty: return dist[p]
+    for dx, dy in [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]:
+      nx = p.0 + dx
+      ny = p.1 + dy
+      if nx >= 0 and ny >= 0 and nx < n and ny < n and not dist.has((nx, ny)):
+        dist[(nx, ny)] = dist[p] + 1
+        q.push((nx, ny))
+  return -1
+
+ls = lines()
+n = ls[0].int()
+for line in ls[1:]:
+  p = line.words()
+  if p.len() < 2: continue
+  a = p[0]
+  b = p[1]
+  print(bfs(n, a.code() - 97, a.slice(1).int() - 1, b.code() - 97, b.slice(1).int() - 1))

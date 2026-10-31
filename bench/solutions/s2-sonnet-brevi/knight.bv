@@ -1,0 +1,26 @@
+ls = lines()
+n = ls[0].int()
+moves = [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]
+
+fn sq(s: str) -> (int, int) = (s[:1].code() - 97, s.slice(1).int() - 1)
+
+fn bfs(a: (int, int), b: (int, int)) -> int:
+  dist = {}
+  dist[a] = 0
+  q = [a]
+  qi = 0
+  while qi < q.len():
+    cur = q[qi]
+    qi += 1
+    if cur == b: return dist[cur]
+    for m in moves:
+      nx = (cur.0 + m.0, cur.1 + m.1)
+      if nx.0 >= 0 and nx.0 < n and nx.1 >= 0 and nx.1 < n and not dist.has(nx):
+        dist[nx] = dist[cur] + 1
+        q.push(nx)
+  -1
+
+for l in ls.skip(1):
+  w = l.words()
+  if w.len() == 2:
+    print(bfs(sq(w[0]), sq(w[1])))

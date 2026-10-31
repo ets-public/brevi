@@ -1,0 +1,26 @@
+fn bfs(n: int, sc: int, sr: int, tc: int, tr: int) -> int:
+  dist = {}
+  dist[(sc, sr)] = 0
+  q = [(sc, sr)]
+  head = 0
+  while head < q.len():
+    cur = q[head]
+    head += 1
+    d = dist[cur]
+    if cur.0 == tc and cur.1 == tr: return d
+    for dc, dr in [(1, 2), (2, 1), (-1, 2), (-2, 1), (1, -2), (2, -1), (-1, -2), (-2, -1)]:
+      nc = cur.0 + dc
+      nr = cur.1 + dr
+      if nc >= 0 and nc < n and nr >= 0 and nr < n and not dist.has((nc, nr)):
+        dist[(nc, nr)] = d + 1
+        q.push((nc, nr))
+  return -1
+
+ls = lines()
+n = ls[0].trim().int()
+for i in 1..ls.len():
+  p = ls[i].words()
+  if p.len() < 2: continue
+  a = p[0]
+  b = p[1]
+  print(bfs(n, a.slice(0, 1).code() - 97, a.slice(1).int() - 1, b.slice(0, 1).code() - 97, b.slice(1).int() - 1))

@@ -1,0 +1,24 @@
+ls = lines()
+cap = ls[0].int()
+order = []
+vals = {}
+for l in ls.skip(1):
+  w = l.words()
+  if w.is_empty():
+    continue
+  k = w[1]
+  if w[0] == "get":
+    if vals.has(k):
+      order.remove(order.index_of(k))
+      order.push(k)
+      print(vals[k])
+    else:
+      print(-1)
+  else:
+    if vals.has(k):
+      order.remove(order.index_of(k))
+    elif order.len() >= cap:
+      old = order.remove(0)
+      vals.remove(old)
+    order.push(k)
+    vals[k] = w[2]

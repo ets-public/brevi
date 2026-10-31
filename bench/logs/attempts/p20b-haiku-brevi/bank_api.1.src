@@ -1,0 +1,106 @@
+owners = []
+balances = []
+
+fn reply(code: int, body: str) -> str = "{code} {body}"
+
+fn int_of(v: Json) -> int:
+  match v:
+    Num(n) =>
+      if n != n.floor(): return -1
+      return n.int().or(-1)
+    _ => return -1
+
+fn is_id(s: str) -> bool = s.re_full('[0-9]+').len() > 0
+
+fn route_of(method: str, segs: [str]) -> str:
+  n = segs.len()
+  if n == 2 and segs[0] == "" and segs[1] == "accounts":
+    if method == "POST": return "create"
+    if method == "GET": return "list"
+  if n == 3 and segs[0] == "" and segs[1] == "accounts" and is_id(segs[2]) and method == "GET": return "get"
+  if n == 4 and segs[0] == "" and segs[1] == "accounts" and is_id(segs[2]) and method == "POST":
+    if segs[3] == "deposit": return "deposit"
+    if segs[3] == "withdraw": return "withdraw"
+  if n == 2 and segs[0] == "" and segs[1] == "transfer" and method == "POST": return "transfer"
+  return ""
+
+fn owner_of(j: Json) -> str:
+  match j["owner"]:
+    Str(s) => return s
+    _ => return ""
+
+fn account_json(i: int) -> str:
+  name = owners[i - 1]
+  bal = balances[i - 1]
+  return '{"id":{i},"owner":"{name}","balance":{bal}}'
+
+fn create_account(j: Json) -> str:
+  name = owner_of(j)
+  if name == "": return reply(400, '{"error":"owner required"}')
+  owners.push(name)
+  balances.push(0)
+  return reply(201, account_json(owners.len()))
+
+fn get_account(i: int) -> str:
+  if i < 1 or i > owners.len(): return reply(404, '{"error":"no such account"}')
+  return reply(200, account_json(i))
+
+fn list_accounts() -> str:
+  order = [(-balances[k], k) for k in range(owners.len())]
+  order.sort()
+  parts = [account_json(p.1 + 1) for p in order]
+  return reply(200, "[" + ",".join(parts) + "]")
+
+fn move_funds(i: int, j: Json, sign: int) -> str:
+  if i < 1 or i > owners.len(): return reply(404, '{"error":"no such account"}')
+  amt = int_of(j["amount"])
+  if amt < 1: return reply(400, '{"error":"bad amount"}')
+  if sign < 0 and amt > balances[i - 1]: return reply(409, '{"error":"insufficient funds"}')
+  balances[i - 1] += sign * amt
+  return reply(200, account_json(i))
+
+fn transfer(j: Json) -> str:
+  f = int_of(j["from"])
+  t = int_of(j["to"])
+  if f < 1 or f > owners.len() or t < 1 or t > owners.len(): return reply(404, '{"error":"no such account"}')
+  if f == t: return reply(400, '{"error":"same account"}')
+  amt = int_of(j["amount"])
+  if amt < 1: return reply(400, '{"error":"bad amount"}')
+  if amt > balances[f - 1]: return reply(409, '{"error":"insufficient funds"}')
+  balances[f - 1] -= amt
+  balances[t - 1] += amt
+  fb = balances[f - 1]
+  tb = balances[t - 1]
+  return reply(200, '{"from":{fb},"to":{tb}}')
+
+fn run_post(r: str, segs: [str], j: Json) -> str:
+  if r == "create": return create_account(j)
+  if r == "transfer": return transfer(j)
+  i = segs[2].int().or(0)
+  if r == "deposit": return move_funds(i, j, 1)
+  return move_funds(i, j, -1)
+
+fn handle(method: str, path: str, body: str) -> str:
+  segs = path.split("/")
+  r = route_of(method, segs)
+  if r == "": return reply(404, '{"error":"not found"}')
+  if r == "list": return list_accounts()
+  if r == "get": return get_account(segs[2].int().or(0))
+  parsed = json(body)
+  match parsed:
+    Ok(j) => return run_post(r, segs, j)
+    Err(_) => return reply(400, '{"error":"bad json"}')
+
+fn split_req(line: str) -> (str, str, str):
+  sp = line.find(" ")
+  if sp == -1: return (line, "", "")
+  method = line.slice(0, sp)
+  rest = line.slice(sp + 1)
+  sp2 = rest.find(" ")
+  if sp2 == -1: return (method, rest, "")
+  return (method, rest.slice(0, sp2), rest.slice(sp2 + 1))
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  method, path, body = split_req(line)
+  print(handle(method, path, body))

@@ -1,0 +1,118 @@
+fn hasobj(f: Json, k: str) -> bool = match f:
+  Obj(m) => m.has(k)
+  _ => false
+
+fn jget(v: Json, k: str) -> Json = match v:
+  Obj(m) => v[k]
+  _ => json("null")
+
+fn jlen(v: Json) -> int = match v:
+  Str(s) => s.len()
+  Arr(xs) => xs.len()
+  _ => 0
+
+fn truthy(v: Json) -> bool = match v:
+  Null => false
+  Bool(b) => b
+  Num(n) => n != 0.0
+  Str(s) => s.len() > 0
+  Arr(xs) => xs.len() > 0
+  Obj(m) => true
+
+fn lookup(frames: [Json], name: str) -> Json:
+  path = name.split(".")
+  k = frames.len() - 1
+  while k >= 0:
+    f = frames[k]
+    if hasobj(f, path[0]):
+      v = f
+      for seg in path:
+        v = jget(v, seg)
+      return v
+    k -= 1
+  return json("null")
+
+fn valof(name: str, frames: [Json], idxs: [int]) -> Json:
+  if name == ".":
+    return frames[-1]
+  if name == "@index":
+    return idxs[-1].json()
+  return lookup(frames, name)
+
+fn applyf(v: Json, f: str) -> Json:
+  if f == "upper":
+    return v.text().upper().json()
+  if f == "lower":
+    return v.text().lower().json()
+  if f == "len":
+    return jlen(v).json()
+  if f.starts_with("default:"):
+    if v.text() == "":
+      return f[8:].json()
+    return v
+  return v
+
+fn evalvar(tag: str, frames: [Json], idxs: [int]) -> str:
+  parts = tag.split("|")
+  v = valof(parts[0].trim(), frames, idxs)
+  for f in parts[1:]:
+    v = applyf(v, f.trim())
+  return v.text()
+
+fn render(s: str, start: int, frames: [Json], idxs: [int]) -> (str, int, str):
+  out = ""
+  i = start
+  n = s.len()
+  while i < n:
+    k = s[i:].find('{{')
+    if k < 0:
+      out += s[i:]
+      return (out, n, "")
+    a = i + k
+    out += s[i:a]
+    k2 = s[a:].find('}}')
+    b = a + k2
+    tag = s[a + 2:b].trim()
+    i = b + 2
+    if tag.starts_with("/") or tag == "else":
+      return (out, i, tag)
+    if tag.starts_with("#each "):
+      arr = valof(tag[6:].trim(), frames, idxs)
+      cnt = jlen(arr)
+      endp = i
+      if cnt == 0:
+        r0 = render(s, i, frames + [arr], idxs + [0])
+        endp = r0.1
+      for q in 0..cnt:
+        r1 = render(s, i, frames + [arr[q]], idxs + [q])
+        out += r1.0
+        endp = r1.1
+      i = endp
+    elif tag.starts_with("#if "):
+      cond = truthy(valof(tag[4:].trim(), frames, idxs))
+      yes = render(s, i, frames, idxs)
+      endp = yes.1
+      no_out = ""
+      if yes.2 == "else":
+        no = render(s, yes.1, frames, idxs)
+        no_out = no.0
+        endp = no.1
+      if cond:
+        out += yes.0
+      else:
+        out += no_out
+      i = endp
+    else:
+      out += evalvar(tag, frames, idxs)
+  return (out, n, "")
+
+fn main():
+  text = stdin()
+  nl = text.find("\n")
+  data = json(text[0:nl])
+  tmpl = text[nl + 1:]
+  r = render(tmpl, 0, [data], [0])
+  out = r.0
+  if out.ends_with("\n"):
+    out = out[0:out.len() - 1]
+  print(out)

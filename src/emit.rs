@@ -165,6 +165,44 @@ fn walk_try(e: &Expr, deep: bool) -> bool {
     }
 }
 
+// Puts `call` in place of the subject of the first `match n:`, inside statements and nested blocks.
+fn subject_into_stmt(st: &mut Stmt, n: &str, call: &mut Option<Expr>) {
+    match st {
+        Stmt::Let { value, .. } | Stmt::Assign { value, .. } => subject_into(value, n, call),
+        Stmt::Expr { expr, .. } => subject_into(expr, n, call),
+        Stmt::Return { value: Some(v), .. } => subject_into(v, n, call),
+        _ => {}
+    }
+}
+fn subject_into(e: &mut Expr, n: &str, call: &mut Option<Expr>) {
+    if call.is_none() {
+        return;
+    }
+    match e {
+        Expr::Match(subj, arms) => {
+            if matches!(subj.as_ref(), Expr::Ident(m) | Expr::Move(m) if m == n) {
+                **subj = call.take().unwrap();
+                return;
+            }
+            arms.iter_mut().for_each(|(_, b)| subject_into(b, n, call));
+        }
+        Expr::Block(st, t) => {
+            st.iter_mut().for_each(|s| subject_into_stmt(s, n, call));
+            if let Some(t) = t {
+                subject_into(t, n, call);
+            }
+        }
+        Expr::If(_, a, b) => {
+            subject_into(a, n, call);
+            if let Some(b) = b {
+                subject_into(b, n, call);
+            }
+        }
+        Expr::For(_, _, b) | Expr::While(_, b) => subject_into(b, n, call),
+        _ => {}
+    }
+}
+
 // `?` is optional on calls: a call to a function that can fail passes its error up unless it is
 // already handled (`?`, `.or(...)`, or a match on Ok/Err). Repeats until no more functions become fallible.
 pub fn auto_try(items: &mut [Item]) {
@@ -258,7 +296,45 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
             }
         }
         Expr::Block(stmts, tail) => {
-            for s in stmts {
+            for i in 0..stmts.len() {
+                // `r = json(t)` later matched with Ok/Err arms keeps its error to be matched.
+                let matched = match &stmts[i] {
+                    Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Call(..), .. } | Stmt::Let { name: Pat::Bind(n), value: Expr::Call(..), .. } => {
+                        let rest = format!("{:?} {:?}", &stmts[i + 1..], tail);
+                        rest.contains(&format!("Match(Ident({n:?}), [(Variant(\"Ok\"")) || rest.contains(&format!("Match(Ident({n:?}), [(Variant(\"Err\""))
+                    }
+                    _ => false,
+                };
+                let (left, right) = stmts.split_at_mut(i);
+                let _ = left;
+                let s = &mut right[0];
+                if matched {
+                    let n = match &right[0] {
+                        Stmt::Assign { target: Expr::Ident(n), .. } | Stmt::Let { name: Pat::Bind(n), .. } => n.clone(),
+                        _ => unreachable!(),
+                    };
+                    let id = format!("Ident({n:?})");
+                    let uses = format!("{:?} {:?}", &right[1..], tail).matches(&id).count() + format!("{:?} {:?}", &right[1..], tail).matches(&format!("Move({n:?})")).count();
+                    if uses == 1 {
+                        // Its one use is that match: match on the call itself, so the error reaches the Err arm.
+                        let call = match &mut right[0] {
+                            Stmt::Assign { value, .. } | Stmt::Let { value, .. } => std::mem::replace(value, Expr::Bool(false)),
+                            _ => unreachable!(),
+                        };
+                        let mut call = Some(call);
+                        for st in right[1..].iter_mut() {
+                            if call.is_none() {
+                                break;
+                            }
+                            subject_into_stmt(st, &n, &mut call);
+                        }
+                        if let (Some(c), Some(t)) = (call.take(), tail.as_mut()) {
+                            let mut c = Some(c);
+                            subject_into(t, &n, &mut c);
+                        }
+                    }
+                    continue;
+                }
                 match s {
                     Stmt::Let { value, .. } => wrap_calls(value, f),
                     Stmt::Assign { target, value, .. } => {
@@ -447,6 +523,15 @@ fn root_name(e: &Expr) -> Option<&str> {
         Expr::Field(b, _) | Expr::TupleField(b, _) | Expr::Index(b, _) => root_name(b),
         _ => None,
     }
+}
+
+// True when the block sets `name` or calls a method that changes it, like `name.sort()`.
+fn changes(e: &Expr, name: &str) -> bool {
+    if assigns_to(e, name) {
+        return true;
+    }
+    let d = format!("{e:?}");
+    ["push", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "extend"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
 pub fn assigns_to(e: &Expr, name: &str) -> bool {
@@ -664,6 +749,7 @@ impl Emitter {
             Expr::Try(inner) => match inner.as_ref() {
                 Expr::Method(_, m, _, _) if m == "int" => named("int"),
                 Expr::Method(_, m, _, _) if m == "float" => named("f64"),
+                Expr::Method(_, m, _, _) if m == "dec" || m == "big" => named(m),
                 Expr::Method(_, m, _, _) if m == "ints" => Some(Ty::List(Box::new(Ty::Named("int".into())))),
                 Expr::Call(n, _, _) if n == "read" => named("str"),
                 Expr::Call(n, _, _) if n == "json" => named("Json"),
@@ -676,6 +762,8 @@ impl Emitter {
                 "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
                 "trim" | "lower" | "upper" | "join" | "replace" | "text" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
+                "dec" | "big" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_) | Expr::Float(_))) => named(m),
+                "float" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_))) => named("f64"),
                 _ => None,
             },
             _ => None,
@@ -1450,7 +1538,7 @@ impl Emitter {
             Expr::For(p, iter, body) => {
                 // Assigning to the loop variable edits the list in place.
                 if let (Pat::Bind(n), Expr::Ident(_)) = (p, iter.as_ref()) {
-                    if assigns_to(body, n) {
+                    if changes(body, n) {
                         let it = self.place_mut(iter);
                         self.locals.insert(n.clone());
                         self.refs.insert(n.clone());
@@ -1474,7 +1562,11 @@ impl Emitter {
                 self.bind_pat(p);
                 // A loop variable over a computed list is a fresh copy, so it may be set.
                 let p = match p {
-                    Pat::Bind(n) if assigns_to(body, n) => format!("mut {n}"),
+                    Pat::Bind(n) if changes(body, n) => format!("mut {n}"),
+                    Pat::Tuple(ps) if ps.iter().any(|q| matches!(q, Pat::Bind(n) if changes(body, n))) => {
+                        let names: Vec<String> = ps.iter().map(|q| match q { Pat::Bind(n) if changes(body, n) => format!("mut {n}"), q => self.pat(q) }).collect();
+                        format!("({})", names.join(", "))
+                    }
                     p => self.pat(p),
                 };
                 let b = self.block_d(body, true);

@@ -1,0 +1,22 @@
+rows = csv(stdin())
+ins = {}
+outs = {}
+bal = {}
+for r in rows.skip(1):
+  if r.len() < 3:
+    continue
+  m = r[0].slice(0, 7)
+  a = r[2].dec()
+  if not ins.has(m):
+    ins[m] = 0.dec()
+    outs[m] = 0.dec()
+  if a > 0:
+    ins[m] += a
+  else:
+    outs[m] += 0 - a
+  bal[r[1]] += a
+for m in ins.keys():
+  print("{m} {ins[m].fmt(2)} {outs[m].fmt(2)} {(ins[m] - outs[m]).fmt(2)}")
+top = bal.pairs().sort_by(p => (-p.1, p.0))
+if top:
+  print("top {top[0].0} {top[0].1.fmt(2)}")

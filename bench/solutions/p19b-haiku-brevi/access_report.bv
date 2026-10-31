@@ -1,0 +1,64 @@
+fn main():
+  requests = 0
+  malformed = 0
+  total = 0
+  ips = {}
+  classes = {}
+  paths = {}
+  hours = {}
+  bots = 0
+  errs = {}
+  for line in stdin().lines():
+    m = line.re_full('^(\S+) - - \[([^\]]+)\] "(\S+) (\S+) (\S+)" (\d{3}) (\S+) "[^"]*" "([^"]*)"$')
+    if m.is_empty():
+      malformed += 1
+      continue
+    requests += 1
+    ip = m[1]
+    cls = m[6][0:1]
+    if m[7] != "-":
+      total += m[7].int().or(0)
+    ips[ip] = 1
+    classes[cls] += 1
+    path = m[4].split("?")[0]
+    paths[path] += 1
+    hour = m[2].split(":")[1]
+    hours[hour] += 1
+    if m[8].lower().contains("bot"):
+      bots += 1
+    if cls == "4" or cls == "5":
+      errs[ip] += 1
+  print("requests {requests}")
+  print("malformed {malformed}")
+  print("bytes {total}")
+  print("unique_ips {ips.len()}")
+  print("status")
+  for c in ["2", "3", "4", "5"]:
+    if classes.has(c):
+      n = classes[c]
+      print("  {c}xx {n}")
+  print("top_paths")
+  ps = []
+  for p, c in paths.pairs():
+    ps.push((c, p))
+  ps = ps.sort_by(x => (-x.0, x.1))
+  for x in ps.take(3):
+    print("  {x.0} {x.1}")
+  print("hours")
+  mx = hours.values().max().or(1)
+  for h in hours.keys().sort():
+    n = hours[h]
+    k = (2 * n * 20 + mx) // (2 * mx)
+    if k < 1:
+      k = 1
+    bar = "#".repeat(k)
+    print("  {h} {n} {bar}")
+  print("bots {bots}")
+  print("errors_by_ip")
+  ek = []
+  for ip, n in errs.pairs():
+    if n >= 2:
+      ek.push((n, ip))
+  ek = ek.sort_by(x => (-x.0, x.1))
+  for x in ek:
+    print("  {x.1} {x.0}")

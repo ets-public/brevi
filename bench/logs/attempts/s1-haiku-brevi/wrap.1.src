@@ -1,0 +1,26 @@
+ls = lines()
+W = ls[0].int()
+paras = []
+cur = []
+for ln in ls[1:]:
+  ws = ln.words()
+  if ws.is_empty():
+    if cur.len() > 0:
+      paras.push(cur)
+      cur = []
+  else:
+    for x in ws: cur.push(x)
+if cur.len() > 0: paras.push(cur)
+
+for i in 0..paras.len():
+  if i > 0: print("")
+  cl = ""
+  for word in paras[i]:
+    if cl == "":
+      cl = word
+    elif cl.len() + 1 + word.len() <= W:
+      cl = cl + " " + word
+    else:
+      print(cl)
+      cl = word
+  print(cl)

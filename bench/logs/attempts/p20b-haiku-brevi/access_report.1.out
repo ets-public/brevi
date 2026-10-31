@@ -1,0 +1,55 @@
+test 0 failed
+input:
+10.0.0.1 - - [10/Oct/2026:13:55:36 +0000] "GET /index.html HTTP/1.1" 200 2326 "-" "Mozilla/5.0"
+10.0.0.2 - - [10/Oct/2026:13:57:01 +0000] "GET /about?x=1 HTTP/1.1" 200 512 "-" "Googlebot/2.1"
+10.0.0.1 - - [10/Oct/2026:14:02:11 +0000] "POST /login HTTP/1.1" 401 - "-" "curl/8"
+garbage line here
+10.0.0.1 - - [10/Oct/2026:14:05:00 +0000] "POST /login HTTP/1.1" 500 17 "-" "curl/8"
+10.0.0.3 - - [10/Oct/2026:09:00:00 +0000] "GET /index.html HTTP/1.1" 304 0 "http://x" "SomeBOT"
+10.0.0.2 - - [10/Oct/2026:14:59:59 +0000] "GET /index.html HTTP/2" 404 99 "-" "Mozilla"
+10.0.0.2 - - [10/Oct/2026:14:00:00 +0000] "GET /about HTTP/2" 404 1 "-" "Mozilla"
+expected:
+requests 7
+malformed 1
+bytes 2955
+unique_ips 3
+status
+  2xx 2
+  3xx 1
+  4xx 3
+  5xx 1
+top_paths
+  3 /index.html
+  2 /about
+  2 /login
+hours
+  09 1 #####
+  13 2 ##########
+  14 4 ####################
+bots 2
+errors_by_ip
+  10.0.0.1 2
+  10.0.0.2 2
+got:
+requests 7
+malformed 1
+bytes 2955
+unique_ips 3
+status
+  2xx 2
+  3xx 1
+  4xx 3
+  5xx 1
+top_paths
+  /index.html 3
+  /about 2
+  /login 2
+hours
+  09 1 #####
+  13 2 ##########
+  14 4 ####################
+bots 2
+errors_by_ip
+  10.0.0.1 2
+  10.0.0.2 2
+passed 0/2

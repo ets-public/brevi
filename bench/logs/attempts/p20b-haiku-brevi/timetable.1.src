@@ -1,0 +1,67 @@
+tname: [str] = []
+tstn: [[str]] = []
+ttime: [[int]] = []
+
+fn hm(t: str) -> int:
+  p = t.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn hhmm(m: int) -> str:
+  h = m // 60
+  mi = m % 60
+  hs = str(h)
+  if h < 10: hs = "0" + hs
+  ms = str(mi)
+  if mi < 10: ms = "0" + ms
+  return hs + ":" + ms
+
+fn solve(frm: str, dst: str, q: int) -> str:
+  if frm == dst: return "{frm} {dst} {hhmm(q)} via -"
+  h = heap()
+  for X in range(tname.len()):
+    for j in range(tstn[X].len()):
+      if tstn[X][j] == frm and ttime[X][j] >= q:
+        h.push((ttime[X][j], 1, tname[X], X, j))
+  done = {}
+  while not h.is_empty():
+    e = h.pop()
+    t = e.0
+    c = e.1
+    jn = e.2
+    X = e.3
+    i = e.4
+    key = str(X) + ":" + str(i)
+    if done.has(key): continue
+    done[key] = 1
+    S = tstn[X][i]
+    if S == dst: return "{frm} {dst} {hhmm(t)} via {jn}"
+    if i + 1 < tstn[X].len():
+      h.push((ttime[X][i + 1], c, jn, X, i + 1))
+    for Y in range(tname.len()):
+      if Y == X: continue
+      for j in range(tstn[Y].len()):
+        if tstn[Y][j] == S and ttime[Y][j] >= t + 5:
+          h.push((ttime[Y][j], c + 1, jn + ">" + tname[Y], Y, j))
+  return "{frm} {dst} unreachable"
+
+mode = 0
+results = []
+for line in lines():
+  if mode == 0:
+    if line.trim() == "---":
+      mode = 1
+    elif line.trim().len() > 0:
+      w = line.words()
+      st = []
+      tm = []
+      for k in range(1, w.len(), 2):
+        st.push(w[k])
+        tm.push(hm(w[k + 1]))
+      tname.push(w[0])
+      tstn.push(st)
+      ttime.push(tm)
+  else:
+    if line.trim().len() > 0:
+      w = line.words()
+      results.push(solve(w[0], w[1], hm(w[2])))
+print("\n".join(results))

@@ -1,0 +1,18 @@
+fn check(line: str) -> str:
+  stack = []
+  i = 0
+  for c in line.chars():
+    i += 1
+    if c in "([{":
+      stack.push(c)
+    elif c in ")]}":
+      want = if c == ")": "(" elif c == "]": "[" else: "{"
+      if stack.is_empty() or stack.last() != want:
+        return "error at {i}"
+      stack.pop()
+  if stack:
+    return "error at {line.len() + 1}"
+  "ok"
+
+for line in lines():
+  print(check(line))

@@ -1,0 +1,16 @@
+ws = stdin().words()
+low = [w.lower() for w in ws]
+uniq = low.unique()
+g = {}
+for w in uniq:
+  k = "".join(sorted(w.chars()))
+  if not g.has(k): g[k] = []
+  g[k].push(w)
+groups = []
+for k, v in g.pairs():
+  if v.len() > 1:
+    sv = v.sort()
+    groups.push(sv)
+groups.sort_by(gr => (-gr.len(), gr.first()))
+for gr in groups:
+  print(" ".join(gr))

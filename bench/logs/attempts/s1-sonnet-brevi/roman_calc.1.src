@@ -1,0 +1,40 @@
+vals = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+fn parse(s: str):
+  t = 0
+  cs = s.chars()
+  for i in 0..cs.len():
+    v = vals[cs[i]]
+    if i + 1 < cs.len() and vals[cs[i + 1]] > v:
+      t -= v
+    else:
+      t += v
+  t
+
+fn roman(n: int):
+  nums = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  r = n
+  for i in 0..13:
+    while r >= nums[i]:
+      out = out + syms[i]
+      r -= nums[i]
+  out
+
+for line in lines():
+  w = line.words()
+  if w.is_empty():
+    continue
+  total = parse(w[0])
+  i = 1
+  while i + 1 < w.len() + 1 and i < w.len():
+    if w[i] == "+":
+      total += parse(w[i + 1])
+    else:
+      total -= parse(w[i + 1])
+    i += 2
+  if total <= 0:
+    print("nulla")
+  else:
+    print(roman(total))

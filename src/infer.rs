@@ -137,6 +137,7 @@ struct Cx<'a> {
     ret: T,
     hints: HashMap<(String, usize), String>,
     known_hints: HashMap<(String, usize), bool>,
+    hint_t: HashMap<(String, usize), T>,
     // Keys of string-keyed map literals whose values differ in type (these become Json objects).
     mixed: HashSet<String>,
     // The script's top-level names, seen from inside functions.
@@ -149,7 +150,16 @@ pub fn map_key(ps: &[(Expr, Expr)]) -> String {
 
 // (name, line) of each untyped empty value -> its Rust type, and whether the type is complete.
 pub fn empty_types(items: &[Item]) -> (HashMap<(String, usize), (String, bool)>, HashSet<String>) {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
+    let mut cx = empty_cx(items);
+    let mixed = std::mem::take(&mut cx.mixed);
+    (cx.hints.into_iter().map(|(k, v)| {
+        let full = cx.known_hints[&k];
+        (k, (v, full))
+    }).collect(), mixed)
+}
+
+fn empty_cx(items: &[Item]) -> Cx<'_> {
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
     for it in items {
         match it {
             Item::Fn { name, params, ret, body, script, .. } => {
@@ -186,11 +196,7 @@ pub fn empty_types(items: &[Item]) -> (HashMap<(String, usize), (String, bool)>,
             cx.genv = env;
         }
     }
-    let mixed = std::mem::take(&mut cx.mixed);
-    (cx.hints.into_iter().map(|(k, v)| {
-        let full = cx.known_hints[&k];
-        (k, (v, full))
-    }).collect(), mixed)
+    cx
 }
 
 impl Cx<'_> {
@@ -285,6 +291,7 @@ impl Cx<'_> {
                     if some_known(&t) {
                         self.hints.insert((n.clone(), line), rust(&t));
                         self.known_hints.insert((n.clone(), line), known(&t));
+                        self.hint_t.insert((n.clone(), line), t.clone());
                     } else {
                         // An empty value that is never used again can have any item type.
                         let id = format!("Ident({n:?})");
@@ -974,7 +981,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     // Map literals whose values differ in type are Json objects, also as return values.
     let (_, mixed) = empty_types(items);
     for round in 0..4 {
-        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: mixed.clone(), genv: Env::new() };
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv: Env::new() };
         for it in items.iter() {
             match it {
                 Item::Fn { name, params, ret, .. } => {
@@ -1104,9 +1111,16 @@ struct Ck<'a, 'b> {
     errs: Vec<crate::diag::Diag>,
     // Where each local was first set, for messages.
     set_at: HashMap<String, usize>,
+    // The item types found for untyped empty values, by (name, line).
+    empties: &'a HashMap<(String, usize), T>,
 }
 
 impl Ck<'_, '_> {
+    fn empty_t(&self, n: &str, line: usize, value: &Expr) -> Option<T> {
+        empty_kind(value)?;
+        self.empties.get(&(n.to_string(), line)).cloned()
+    }
+
     fn err(&mut self, msg: String, fix: String) {
         if self.errs.iter().any(|d| d.line == self.line) {
             return;
@@ -1122,7 +1136,10 @@ impl Ck<'_, '_> {
                 Stmt::Let { name, ty, value, line, .. } => {
                     self.line = *line;
                     self.expr(value, env);
-                    let t = ty.as_ref().map(from_ast).unwrap_or_else(|| self.cx.ty(value, env));
+                    let t = ty.as_ref().map(from_ast).unwrap_or_else(|| {
+                        let e = if let Pat::Bind(n) = &*name { self.empty_t(n, *line, value) } else { None };
+                        e.unwrap_or_else(|| self.cx.ty(value, env))
+                    });
                     if let Pat::Bind(n) = name {
                         self.set_at.insert(n.clone(), *line);
                     }
@@ -1136,7 +1153,7 @@ impl Ck<'_, '_> {
                     }
                     match (target, *op) {
                         (Expr::Ident(n), "=") => {
-                            let t = self.cx.ty(value, env);
+                            let t = self.empty_t(n, *line, value).unwrap_or_else(|| self.cx.ty(value, env));
                             match env.get(n) {
                                 Some(old) if clash(old, &t) => {
                                     let at = self.set_at.get(n).copied().unwrap_or(0);
@@ -1336,7 +1353,7 @@ impl Ck<'_, '_> {
 
 // Checks every function and fixes the forms that have one obvious meaning.
 pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
     for it in items.iter() {
         match it {
             Item::Fn { name, params, ret, .. } => {
@@ -1353,6 +1370,7 @@ pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
             _ => {}
         }
     }
+    let empties = empty_cx(items).hint_t;
     let mut errs = Vec::new();
     for it in items.iter_mut() {
         let (params, body, line): (&[Param], &mut Expr, usize) = match it {
@@ -1361,7 +1379,7 @@ pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
             _ => continue,
         };
         let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
-        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new() };
+        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties };
         ck.expr(body, &mut env);
         errs.extend(ck.errs);
     }

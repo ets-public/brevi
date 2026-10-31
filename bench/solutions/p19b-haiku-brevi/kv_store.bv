@@ -1,0 +1,54 @@
+fn main():
+  store = {}
+  snaps = []
+  for raw in stdin().lines():
+    line = raw.trim()
+    if line == "":
+      continue
+    parts = line.split(" ")
+    cmd = parts[0]
+    n = parts.len()
+    if cmd == "SET" and n == 3:
+      store[parts[1]] = parts[2]
+    elif cmd == "GET" and n == 2:
+      if store.has(parts[1]):
+        print(store[parts[1]])
+      else:
+        print("NULL")
+    elif cmd == "DEL" and n == 2:
+      if store.has(parts[1]):
+        store.remove(parts[1])
+      else:
+        print("NOT FOUND")
+    elif cmd == "INCR" and n == 3:
+      cur = store.get_or(parts[1], "0")
+      match cur.int():
+        Ok(x) =>
+          v = x + parts[2].int().or(0)
+          store[parts[1]] = str(v)
+          print(v)
+        Err(e) =>
+          print("ERR not an integer")
+    elif cmd == "COUNT" and n == 2:
+      print(store.values().count(x => x == parts[1]))
+    elif cmd == "KEYS" and n == 2:
+      ks = [k for k in store.keys() if k.starts_with(parts[1])]
+      ks = ks.sort()
+      if ks.is_empty():
+        print("(empty)")
+      else:
+        print(" ".join(ks))
+    elif cmd == "BEGIN" and n == 1:
+      snaps.push(store)
+    elif cmd == "ROLLBACK" and n == 1:
+      if snaps.is_empty():
+        print("NO TRANSACTION")
+      else:
+        store = snaps.pop()
+    elif cmd == "COMMIT" and n == 1:
+      if snaps.is_empty():
+        print("NO TRANSACTION")
+      else:
+        snaps = []
+    else:
+      print("ERR unknown command")

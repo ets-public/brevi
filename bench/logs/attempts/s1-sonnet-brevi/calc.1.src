@@ -1,0 +1,55 @@
+toks = []
+pos = 0
+bad = false
+
+fn peek() = if pos < toks.len(): toks[pos] else: ""
+
+fn atom():
+  t = toks[pos]
+  pos += 1
+  if t == "(":
+    v = expr()
+    pos += 1
+    v
+  elif t == "-":
+    0 - atom()
+  else:
+    t.int()
+
+fn term():
+  v = atom()
+  while peek() == "*" or peek() == "/":
+    op = toks[pos]
+    pos += 1
+    r = atom()
+    if op == "*":
+      v = v * r
+    elif r == 0:
+      bad = true
+    else:
+      v = v / r
+  v
+
+fn expr():
+  v = term()
+  while peek() == "+" or peek() == "-":
+    op = toks[pos]
+    pos += 1
+    r = term()
+    if op == "+":
+      v = v + r
+    else:
+      v = v - r
+  v
+
+for line in lines():
+  if line.trim().is_empty():
+    continue
+  toks = line.re_list("\d+|[-+*/()]")
+  pos = 0
+  bad = false
+  res = expr()
+  if bad:
+    print("error")
+  else:
+    print(res)

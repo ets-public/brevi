@@ -1,0 +1,99 @@
+fn esc(s: str) -> str = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+fn slug(s: str) -> str:
+  t = s.lower().re_sub('[^a-z0-9]+', '-')
+  return t.re_sub('^-+|-+$', '')
+
+fn fmt_plain(s: str) -> str:
+  a = s.re_sub('\*\*(.+?)\*\*', "<strong>\1</strong>")
+  b = a.re_sub('\*([^*]+)\*', "<em>\1</em>")
+  return b.re_sub('\[([^\]]*)\]\(([^)]*)\)', '<a href="\2">\1</a>')
+
+fn inl(raw: str) -> str:
+  segs = esc(raw).split("`")
+  out = ""
+  for i in 0..segs.len():
+    if i % 2 == 1:
+      out += "<code>" + segs[i] + "</code>"
+    else:
+      out += fmt_plain(segs[i])
+  return out
+
+fn hlevel(line: str) -> int:
+  n = 0
+  while n < 7 and line[n:n + 1] == "#":
+    n += 1
+  if n >= 1 and n <= 6 and line[n:n + 1] == " ":
+    return n
+  return 0
+
+fn olprefix(line: str) -> int:
+  m = line.re_find('^\d+\. ')
+  if m.is_empty():
+    return 0
+  return m[0].len()
+
+fn is_break(line: str) -> bool = line.trim() == "" or line == "```" or hlevel(line) > 0 or line.starts_with("- ") or olprefix(line) > 0
+
+fn main():
+  lines = stdin().lines()
+  n = lines.len()
+  blocks = []
+  heads = []
+  used = {}
+  i = 0
+  while i < n:
+    line = lines[i]
+    if line.trim() == "":
+      i += 1
+      continue
+    if line == "```":
+      i += 1
+      code = []
+      while i < n and lines[i] != "```":
+        code.push(esc(lines[i]))
+        i += 1
+      i += 1
+      blocks.push("<pre><code>" + "\n".join(code) + "</code></pre>")
+      continue
+    lv = hlevel(line)
+    if lv > 0:
+      text = line[lv + 1:].trim()
+      base = slug(text)
+      cand = base
+      k = 2
+      while used.has(cand):
+        cand = base + "-" + str(k)
+        k += 1
+      used[cand] = 1
+      toc = esc(text.replace("`", "").replace("*", ""))
+      heads.push((toc, cand))
+      blocks.push("<h" + str(lv) + ' id="' + cand + '">' + inl(text) + "</h" + str(lv) + ">")
+      i += 1
+      continue
+    if line.starts_with("- "):
+      items = []
+      while i < n and lines[i].starts_with("- "):
+        items.push("<li>" + inl(lines[i][2:]) + "</li>")
+        i += 1
+      blocks.push("<ul>\n" + "\n".join(items) + "\n</ul>")
+      continue
+    if olprefix(line) > 0:
+      items = []
+      while i < n and olprefix(lines[i]) > 0:
+        items.push("<li>" + inl(lines[i][olprefix(lines[i]):]) + "</li>")
+        i += 1
+      blocks.push("<ol>\n" + "\n".join(items) + "\n</ol>")
+      continue
+    para = []
+    while i < n and not is_break(lines[i]):
+      para.push(lines[i])
+      i += 1
+    blocks.push("<p>" + inl(" ".join(para)) + "</p>")
+  if heads.len() >= 2:
+    print("<nav>")
+    for h in heads:
+      print('<a href="#' + h.1 + '">' + h.0 + "</a>")
+    print("</nav>")
+  for b in blocks:
+    print(b)

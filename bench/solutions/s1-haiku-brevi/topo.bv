@@ -1,0 +1,27 @@
+indeg = {}
+out = {}
+for line in lines():
+  p = line.words()
+  if p.len() < 3: continue
+  a = p[0]
+  b = p[2]
+  if not out.has(a): out[a] = []
+  if not out.has(b): out[b] = []
+  out[a].push(b)
+  indeg[b] += 1
+
+h = heap()
+for n in out.keys():
+  if indeg[n] == 0: h.push(n)
+order = []
+while not h.is_empty():
+  n = h.pop()
+  order.push(n)
+  for m in out[n]:
+    indeg[m] -= 1
+    if indeg[m] == 0: h.push(m)
+
+if order.len() < out.len():
+  print("cycle")
+else:
+  for n in order: print(n)

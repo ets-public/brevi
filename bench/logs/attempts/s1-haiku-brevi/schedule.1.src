@@ -1,0 +1,54 @@
+dur = {}
+deps = {}
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  ds = []
+  if w.len() > 2 and w[2] == "after":
+    ds = w[3:]
+  dur[w[0]] = w[1].int()
+  deps[w[0]] = ds
+
+fn solve() -> [str]:
+  for n in deps.keys():
+    for d in deps[n]:
+      if not dur.has(d): return ["invalid"]
+  indeg = {}
+  users = {}
+  ready = {}
+  h = heap()
+  for n in deps.keys():
+    indeg[n] = deps[n].len()
+    ready[n] = 0
+    for d in deps[n]:
+      if not users.has(d): users[d] = []
+      users[d].push(n)
+  for n in deps.keys():
+    if indeg[n] == 0: h.push(n)
+  start = {}
+  endt = {}
+  done = 0
+  while not h.is_empty():
+    n = h.pop()
+    start[n] = ready[n]
+    endt[n] = ready[n] + dur[n]
+    done += 1
+    if users.has(n):
+      for u in users[n]:
+        if endt[n] > ready[u]: ready[u] = endt[n]
+        indeg[u] -= 1
+        if indeg[u] == 0: h.push(u)
+  if done < deps.len(): return ["invalid"]
+  rows = [(start[n], n) for n in deps.keys()]
+  rows.sort()
+  out = []
+  total = 0
+  for s, n in rows:
+    e = endt[n]
+    out.push("{n} {s} {e}")
+    if e > total: total = e
+  out.push("total {total}")
+  return out
+
+for line in solve():
+  print(line)

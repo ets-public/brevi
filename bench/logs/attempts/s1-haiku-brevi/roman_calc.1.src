@@ -1,0 +1,41 @@
+rv = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+fn from_roman(s: str) -> int:
+  total = 0
+  cs = s.chars()
+  for i in 0..cs.len():
+    v = rv[cs[i]]
+    if i + 1 < cs.len() and rv[cs[i + 1]] > v:
+      total -= v
+    else:
+      total += v
+  return total
+
+fn to_roman(n: int) -> str:
+  vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]
+  syms = ["M", "CM", "D", "CD", "C", "XC", "L", "XL", "X", "IX", "V", "IV", "I"]
+  out = ""
+  x = n
+  for i in 0..vals.len():
+    while x >= vals[i]:
+      out += syms[i]
+      x -= vals[i]
+  return out
+
+for line in lines():
+  w = line.words()
+  if w.is_empty(): continue
+  grand = from_roman(w[0])
+  i = 1
+  while i + 1 < w.len():
+    op = w[i]
+    v = from_roman(w[i + 1])
+    if op == "+":
+      grand += v
+    else:
+      grand -= v
+    i += 2
+  if grand <= 0:
+    print("nulla")
+  else:
+    print(to_roman(grand))

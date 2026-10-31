@@ -1,0 +1,25 @@
+indeg = {}
+out = {}
+for l in lines():
+  w = l.split("->")
+  if w.len() != 2: continue
+  a = w[0].trim()
+  b = w[1].trim()
+  if not indeg.has(a): indeg[a] = 0
+  if not indeg.has(b): indeg[b] = 0
+  out[a].push(b)
+  indeg[b] += 1
+h = heap()
+for k in indeg.keys():
+  if indeg[k] == 0: h.push(k)
+res = []
+while h:
+  u = h.pop()
+  res.push(u)
+  for v in out[u]:
+    indeg[v] -= 1
+    if indeg[v] == 0: h.push(v)
+if res.len() < indeg.len():
+  print("cycle")
+else:
+  for r in res: print(r)

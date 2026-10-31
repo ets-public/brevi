@@ -1,0 +1,28 @@
+ls = lines()
+cap = ls[0].int()
+vals = {}
+stamp = {}
+tick = 0
+for line in ls[1:]:
+  p = line.words()
+  if p.len() < 2: continue
+  tick += 1
+  k = p[1]
+  if p[0] == "put":
+    if not vals.has(k) and vals.len() >= cap:
+      oldest = ""
+      best = tick + 1
+      for key, t in stamp.pairs():
+        if t < best:
+          oldest = key
+          best = t
+      vals.remove(oldest)
+      stamp.remove(oldest)
+    vals[k] = p[2]
+    stamp[k] = tick
+  else:
+    if vals.has(k):
+      stamp[k] = tick
+      print(vals[k])
+    else:
+      print("-1")

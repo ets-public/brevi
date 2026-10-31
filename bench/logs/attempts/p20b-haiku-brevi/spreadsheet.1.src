@@ -1,0 +1,123 @@
+raw: {str: str} = {}
+memo: {str: (int, int)} = {}
+visiting: {str: int} = {}
+
+fn tokens(f: str) -> [str] = f.replace(" ", "").re_list('[A-Z]+\(|[A-Z]+[0-9]+(?::[A-Z]+[0-9]+)?|[0-9]+|[-+*/()]')
+
+fn cell_val(name: str) -> (int, int):
+  if memo.has(name): return memo[name]
+  if visiting.has(name): return (2, 0)
+  if not raw.has(name): return (0, 0)
+  visiting[name] = 1
+  content = raw[name]
+  res = (0, 0)
+  if content.starts_with("="):
+    ts = tokens(content.slice(1))
+    r = p_expr(ts, 0)
+    res = (r.0, r.1)
+  else:
+    res = (0, content.int().or(0))
+  visiting.remove(name)
+  memo[name] = res
+  return res
+
+fn agg(fname: str, rng: str) -> (int, int):
+  ends = rng.split(":")
+  a = ends[0]
+  b = a
+  if ends.len() > 1: b = ends[1]
+  ca = a.slice(0, 1).code() - 65
+  cb = b.slice(0, 1).code() - 65
+  ra = a.slice(1).int().or(0)
+  rb = b.slice(1).int().or(0)
+  c_lo = min(ca, cb)
+  c_hi = max(ca, cb) + 1
+  r_lo = min(ra, rb)
+  r_hi = max(ra, rb) + 1
+  st = 0
+  vals = []
+  for c in range(c_lo, c_hi):
+    for r in range(r_lo, r_hi):
+      cv = cell_val((65 + c).char() + str(r))
+      st = max(st, cv.0)
+      vals.push(cv.1)
+  if fname == "SUM": return (st, sum(vals))
+  if fname == "MIN": return (st, min(vals))
+  return (st, max(vals))
+
+fn p_factor(ts: [str], p: int) -> (int, int, int):
+  t = ts[p]
+  if t == "(":
+    r = p_expr(ts, p + 1)
+    return (r.0, r.1, r.2 + 1)
+  if t.re_full('[0-9]+').len() > 0:
+    return (0, t.int().or(0), p + 1)
+  if t.ends_with("("):
+    r = agg(t.slice(0, t.len() - 1), ts[p + 1])
+    return (r.0, r.1, p + 3)
+  c = cell_val(t)
+  return (c.0, c.1, p + 1)
+
+fn p_unary(ts: [str], p: int) -> (int, int, int):
+  if ts[p] == "-":
+    r = p_unary(ts, p + 1)
+    return (r.0, -r.1, r.2)
+  return p_factor(ts, p)
+
+fn p_term(ts: [str], p: int) -> (int, int, int):
+  l = p_unary(ts, p)
+  st = l.0
+  v = l.1
+  q = l.2
+  while q < ts.len() and (ts[q] == "*" or ts[q] == "/"):
+    r = p_unary(ts, q + 1)
+    st = max(st, r.0)
+    if ts[q] == "*":
+      v = v * r.1
+    elif r.1 == 0:
+      st = max(st, 1)
+      v = 0
+    else:
+      v = v / r.1
+    q = r.2
+  return (st, v, q)
+
+fn p_expr(ts: [str], p: int) -> (int, int, int):
+  l = p_term(ts, p)
+  st = l.0
+  v = l.1
+  q = l.2
+  while q < ts.len() and (ts[q] == "+" or ts[q] == "-"):
+    r = p_term(ts, q + 1)
+    st = max(st, r.0)
+    if ts[q] == "+":
+      v = v + r.1
+    else:
+      v = v - r.1
+    q = r.2
+  return (st, v, q)
+
+fn show(name: str) -> str:
+  if not raw.has(name): return ""
+  res = cell_val(name)
+  if res.0 == 2: return "#CYCLE"
+  if res.0 == 1: return "#DIV0"
+  return str(res.1)
+
+maxc = 0
+maxr = 0
+for line in lines():
+  eq = line.find("=")
+  if eq == -1: continue
+  name = line.slice(0, eq).trim()
+  content = line.slice(eq + 1).trim()
+  raw[name] = content
+  for ref in (name + " " + content).re_list('[A-Z][0-9]+'):
+    maxc = max(maxc, ref.slice(0, 1).code() - 65)
+    maxr = max(maxr, ref.slice(1).int().or(0))
+
+cols = [(65 + c).char() for c in range(maxc + 1)]
+print("\t" + "\t".join(cols))
+for r in range(1, maxr + 1):
+  cells = [show((65 + c).char() + str(r)) for c in range(maxc + 1)]
+  print(str(r) + "\t" + "\t".join(cells))

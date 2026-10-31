@@ -1,0 +1,26 @@
+ls = lines()
+width = ls[0].int()
+paras = []
+cur = []
+for l in ls.skip(1):
+  if l.trim():
+    cur = cur + l.words()
+  elif cur:
+    paras.push(cur)
+    cur = []
+if cur: paras.push(cur)
+outp = []
+for p in paras:
+  line = ""
+  for w in p:
+    if line == "":
+      line = w
+    elif line.len() + 1 + w.len() <= width:
+      line = line + " " + w
+    else:
+      outp.push(line)
+      line = w
+  outp.push(line)
+  outp.push("")
+if outp: outp.pop()
+for o in outp: print(o)

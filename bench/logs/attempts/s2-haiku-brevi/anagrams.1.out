@@ -1,0 +1,1 @@
+{"line":12,"msg":"cannot change g: it was declared with let","fix":"write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))"}

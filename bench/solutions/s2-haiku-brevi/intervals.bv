@@ -1,0 +1,21 @@
+rows = []
+for line in lines():
+  p = line.words()
+  if p.len() == 2:
+    rows.push((p[0].int(), p[1].int()))
+rows.sort()
+merged = []
+for r in rows:
+  s = r.0
+  e = r.1
+  if merged.len() > 0 and s <= merged[merged.len() - 1].1:
+    top = merged[merged.len() - 1]
+    if e > top.1:
+      merged[merged.len() - 1] = (top.0, e)
+  else:
+    merged.push((s, e))
+total = 0
+for m in merged:
+  print("{m.0} {m.1}")
+  total += m.1 - m.0
+print("total {total}")

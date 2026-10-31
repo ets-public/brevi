@@ -1,0 +1,35 @@
+ls = lines()
+hd = ls[0].words()
+r = hd[0].int()
+c = hd[1].int()
+g = []
+for i in 0..r:
+  g.push(ls[i + 1].ints())
+top = 0
+bot = r - 1
+left = 0
+right = c - 1
+out = []
+while top <= bot and left <= right:
+  for j in left..(right + 1):
+    out.push(g[top][j])
+  top += 1
+  for i in top..(bot + 1):
+    out.push(g[i][right])
+  right -= 1
+  if top <= bot:
+    for j in (left..(right + 1)).rev():
+      out.push(g[bot][j])
+    bot -= 1
+  if left <= right:
+    for i in (top..(bot + 1)).rev():
+      out.push(g[i][left])
+    left += 1
+print(out.join(" "))
+sums = []
+for j in 0..c:
+  s = 0
+  for i in 0..r:
+    s += g[i][j]
+  sums.push(s)
+print(sums.join(" "))

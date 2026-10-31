@@ -1,0 +1,34 @@
+dur = {}
+deps = {}
+names = []
+for l in lines():
+  w = l.words()
+  if w.len() < 2: continue
+  names.push(w[0])
+  dur[w[0]] = w[1].int()
+  deps[w[0]] = w.skip(3)
+ok = true
+for n in names:
+  for d in deps[n]:
+    if not dur.has(d): ok = false
+starts = {}
+ends = {}
+progress = true
+while ok and progress:
+  progress = false
+  for n in names:
+    if ends.has(n): continue
+    if all(ends.has(d) for d in deps[n]):
+      s = 0
+      for d in deps[n]:
+        s = max(s, ends[d])
+      starts[n] = s
+      ends[n] = s + dur[n]
+      progress = true
+if not ok or ends.len() < names.unique().len():
+  print("invalid")
+else:
+  rows = [(starts[n], n) for n in names.unique()].sort()
+  for r in rows:
+    print("{r.1} {r.0} {ends[r.1]}")
+  print("total {max(e for e in ends.values())}")

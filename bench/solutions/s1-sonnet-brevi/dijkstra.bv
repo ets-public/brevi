@@ -1,0 +1,29 @@
+ls = [l for l in lines() if not l.trim().is_empty()]
+q = ls.last().words()
+src = q[0]
+dst = q[1]
+adj = {}
+for l in ls.slice(0, ls.len() - 1):
+  w = l.words()
+  adj[w[0]].push((w[1], w[2].int()))
+  adj[w[1]].push((w[0], w[2].int()))
+done = {}
+h = heap()
+h.push((0, [src]))
+found = false
+while h:
+  let (d, path) = h.pop()
+  n = path.last()
+  if done.has(n):
+    continue
+  done[n] = 1
+  if n == dst:
+    print(d)
+    print(path.join("->"))
+    found = true
+    break
+  for e in adj[n]:
+    if not done.has(e.0):
+      h.push((d + e.1, path + [e.0]))
+if not found:
+  print("none")

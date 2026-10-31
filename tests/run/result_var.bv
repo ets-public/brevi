@@ -1,0 +1,30 @@
+rev = 0.dec()
+undo = []
+
+fn parse(body: str) -> str:
+  parsed = json(body)
+  match parsed:
+    Ok(j) => return str(j)
+    Err(_) => return "bad"
+
+fn add(x: dec):
+  rev = rev + x
+
+print(parse("[1]"))
+print(parse("{oops"))
+add("2.50".dec()?)
+add("1.25".dec()?)
+print(rev)
+for w in ["a", "b"]:
+  undo.push((w, true, w.upper()))
+while undo.len() > 0:
+  e = undo.pop()
+  if e[1]: print(e[0] + e[2])
+groups = {"x": ["b", "a"]}
+for k, g in groups.pairs():
+  g.sort()
+  print(k + " " + g.join(","))
+rows = [[3, 1], [2, 9]]
+for r in rows:
+  r.sort()
+print(rows)

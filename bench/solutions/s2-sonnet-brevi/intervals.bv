@@ -1,0 +1,21 @@
+iv = []
+for l in lines():
+  w = l.ints()
+  if w.len() == 2:
+    iv.push((w[0], w[1]))
+iv = iv.sort()
+total = 0
+if iv:
+  cs = iv[0].0
+  ce = iv[0].1
+  for p in iv.skip(1):
+    if p.0 <= ce:
+      ce = max(ce, p.1)
+    else:
+      print("{cs} {ce}")
+      total += ce - cs
+      cs = p.0
+      ce = p.1
+  print("{cs} {ce}")
+  total += ce - cs
+print("total {total}")

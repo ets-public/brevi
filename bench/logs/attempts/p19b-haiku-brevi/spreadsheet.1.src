@@ -1,0 +1,172 @@
+fn colnum(s: str) -> int = s[0:1].code() - 65
+
+fn rownum(s: str) -> int = s[1:].int().or(0)
+
+fn is_ref(t: str) -> bool = t.len() >= 2 and t[0:1].is_alpha() and t[1:2].is_digit()
+
+fn tokenize(s: str) -> [str]:
+  out = []
+  cur = ""
+  for c in s:
+    if c.is_alpha() or c.is_digit():
+      cur += c
+    else:
+      if cur != "":
+        out.push(cur)
+      cur = ""
+      if c != " ":
+        out.push(c)
+  if cur != "":
+    out.push(cur)
+  return out
+
+fn range_eval(a: str, b: str) -> ([int], int):
+  c1 = min(colnum(a), colnum(b))
+  c2 = max(colnum(a), colnum(b)) + 1
+  r1 = min(rownum(a), rownum(b))
+  r2 = max(rownum(a), rownum(b)) + 1
+  vals = []
+  err = 0
+  for c in c1..c2:
+    for r in r1..r2:
+      res = ev_cell((65 + c).char() + str(r))
+      vals.push(res.0)
+      err = max(err, res.1)
+  return (vals, err)
+
+fn parse_primary(toks: [str], p: int) -> (int, int, int):
+  if p >= toks.len():
+    return (0, p, 0)
+  t = toks[p]
+  if t == "(":
+    r = parse_expr(toks, p + 1)
+    q = r.1
+    if q < toks.len() and toks[q] == ")":
+      q += 1
+    return (r.0, q, r.2)
+  if t[0:1].is_digit():
+    return (t.int().or(0), p + 1, 0)
+  if t == "SUM" or t == "MIN" or t == "MAX":
+    a = toks[p + 2]
+    q = p + 3
+    b = a
+    if q < toks.len() and toks[q] == ":":
+      b = toks[p + 4]
+      q = p + 5
+    if q < toks.len() and toks[q] == ")":
+      q += 1
+    rv = range_eval(a, b)
+    vals = rv.0
+    if t == "SUM":
+      val = vals.sum()
+    elif t == "MIN":
+      val = vals.min().or(0)
+    else:
+      val = vals.max().or(0)
+    return (val, q, rv.1)
+  r = ev_cell(t)
+  return (r.0, p + 1, r.1)
+
+fn parse_unary(toks: [str], p: int) -> (int, int, int):
+  if p < toks.len() and toks[p] == "-":
+    r = parse_unary(toks, p + 1)
+    return (0 - r.0, r.1, r.2)
+  return parse_primary(toks, p)
+
+fn parse_term(toks: [str], p: int) -> (int, int, int):
+  r = parse_unary(toks, p)
+  v = r.0
+  q = r.1
+  e = r.2
+  while q < toks.len() and (toks[q] == "*" or toks[q] == "/"):
+    op = toks[q]
+    r2 = parse_unary(toks, q + 1)
+    q = r2.1
+    e = max(e, r2.2)
+    if op == "*":
+      v = v * r2.0
+    elif r2.0 == 0:
+      e = max(e, 1)
+      v = 0
+    else:
+      v = v / r2.0
+  return (v, q, e)
+
+fn parse_expr(toks: [str], p: int) -> (int, int, int):
+  r = parse_term(toks, p)
+  v = r.0
+  q = r.1
+  e = r.2
+  while q < toks.len() and (toks[q] == "+" or toks[q] == "-"):
+    op = toks[q]
+    r2 = parse_term(toks, q + 1)
+    if op == "+":
+      v = v + r2.0
+    else:
+      v = v - r2.0
+    e = max(e, r2.2)
+    q = r2.1
+  return (v, q, e)
+
+fn ev_cell(name: str) -> (int, int):
+  if memo.has(name):
+    return memo[name]
+  if busy.has(name):
+    return (0, 2)
+  if not cells.has(name):
+    return (0, 0)
+  txt = cells[name]
+  busy[name] = 1
+  res = (0, 0)
+  if txt[0:1] == "=":
+    toks = tokenize(txt[1:])
+    r = parse_expr(toks, 0)
+    res = (r.0, r.2)
+  else:
+    res = (txt.int().or(0), 0)
+  busy.remove(name)
+  memo[name] = res
+  return res
+
+fn show():
+  maxc = 0
+  maxr = 1
+  for nm in cells.keys():
+    maxc = max(maxc, colnum(nm))
+    maxr = max(maxr, rownum(nm))
+    txt = cells[nm]
+    if txt[0:1] == "=":
+      for t in tokenize(txt[1:]):
+        if is_ref(t):
+          maxc = max(maxc, colnum(t))
+          maxr = max(maxr, rownum(t))
+  last = maxc + 1
+  top = maxr + 1
+  print("\t" + "\t".join([(65 + c).char() for c in 0..last]))
+  for r in 1..top:
+    vals = []
+    for c in 0..last:
+      nm = (65 + c).char() + str(r)
+      if not cells.has(nm):
+        vals.push("")
+      else:
+        res = ev_cell(nm)
+        if res.1 == 2:
+          vals.push("#CYCLE")
+        elif res.1 == 1:
+          vals.push("#DIV0")
+        else:
+          vals.push(str(res.0))
+    print(str(r) + "\t" + "\t".join(vals))
+
+cells = {}
+memo = {}
+busy = {}
+for src_line in stdin().lines():
+  if src_line.trim() == "":
+    continue
+  eqpos = src_line.find("=")
+  src_name = src_line[0:eqpos].trim()
+  src_text = src_line[eqpos + 1:].trim()
+  cells[src_name] = src_text
+show()

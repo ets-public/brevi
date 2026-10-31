@@ -1,0 +1,52 @@
+ls = []
+for line in lines():
+  p = line.words()
+  if p.len() == 0: continue
+  ls.push(p)
+qf = ls.pop()
+src = qf[0]
+dst = qf[1]
+
+adj = {}
+for p in ls:
+  a = p[0]
+  b = p[1]
+  w = p[2].int()
+  if not adj.has(a): adj[a] = []
+  if not adj.has(b): adj[b] = []
+  adj[a].push((b, w))
+  adj[b].push((a, w))
+
+dd = {}
+dd[dst] = 0
+h = heap()
+h.push((0, dst))
+while not h.is_empty():
+  top = h.pop()
+  d = top.0
+  u = top.1
+  if d > dd[u]: continue
+  if adj.has(u):
+    for e in adj[u]:
+      v = e.0
+      nd = d + e.1
+      if not dd.has(v) or nd < dd[v]:
+        dd[v] = nd
+        h.push((nd, v))
+
+if not dd.has(src):
+  print("none")
+else:
+  total = dd[src]
+  path = [src]
+  cur = src
+  while cur != dst:
+    best = ""
+    for e in adj[cur]:
+      v = e.0
+      if dd.has(v) and e.1 + dd[v] == dd[cur]:
+        if best == "" or v < best: best = v
+    cur = best
+    path.push(cur)
+  print(total)
+  print(path.join("->"))
