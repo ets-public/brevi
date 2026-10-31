@@ -1,0 +1,139 @@
+fn is_qty(s: str) -> bool:
+  if not s.re_full("\d+"):
+    return false
+  return s.int() >= 1
+
+fn parse_price(s: str) -> int:
+  if not s.re_full("\d+(\.\d{1,2})?"):
+    return -1
+  parts = s.split(".")
+  frac = "0"
+  if parts.len() == 2:
+    frac = parts[1]
+  return parts[0].int() * 100 + (frac + "00").slice(0, 2).int()
+
+fn main():
+  rest = []
+  rside = {}
+  rprice = {}
+  rqty = {}
+  seen = {}
+  vol = 0
+  val = 0
+  for i, raw in enumerate(lines()):
+    ln = i + 1
+    parts = raw.words()
+    n = parts.len()
+    if n == 0:
+      continue
+    cmd = parts[0]
+    oid = ""
+    side = ""
+    market = false
+    lim = 0
+    qty = 0
+    price = 0
+    kind = "bad"
+    if n == 4 and (cmd == "BUY" or cmd == "SELL") and is_qty(parts[2]) and parse_price(parts[3]) > 0:
+      kind = "order"
+      oid = parts[1]
+      side = "B"
+      if cmd == "SELL":
+        side = "S"
+      qty = parts[2].int()
+      price = parse_price(parts[3])
+      lim = price
+    elif n == 3 and (cmd == "MBUY" or cmd == "MSELL") and is_qty(parts[2]):
+      kind = "order"
+      market = true
+      oid = parts[1]
+      side = "B"
+      if cmd == "MSELL":
+        side = "S"
+      qty = parts[2].int()
+      if side == "B":
+        lim = 1000000000000000
+    elif n == 2 and cmd == "CANCEL":
+      kind = "cancel"
+      oid = parts[1]
+    elif n == 1 and cmd == "BOOK":
+      kind = "book"
+    if kind == "bad":
+      print("ERR line {ln}: bad command")
+    elif kind == "order" and seen.has(oid):
+      print("ERR line {ln}: duplicate ID")
+    elif kind == "order":
+      seen[oid] = true
+      left = qty
+      while left > 0:
+        best = ""
+        for rid in rest:
+          if rside[rid] == side:
+            continue
+          p = rprice[rid]
+          if side == "B" and p > lim:
+            continue
+          if side == "S" and p < lim:
+            continue
+          if best == "":
+            best = rid
+          elif side == "B" and p < rprice[best]:
+            best = rid
+          elif side == "S" and p > rprice[best]:
+            best = rid
+        if best == "":
+          break
+        fill = min(left, rqty[best])
+        bp = rprice[best]
+        bw = bp // 100
+        bc = bp % 100
+        if side == "B":
+          print("TRADE {oid} {best} {fill} {bw}.{bc:02d}")
+        else:
+          print("TRADE {best} {oid} {fill} {bw}.{bc:02d}")
+        rqty[best] -= fill
+        if rqty[best] == 0:
+          rest.remove(rest.index_of(best))
+          rqty.remove(best)
+        left -= fill
+        vol += fill
+        val += fill * bp
+      if left > 0:
+        if market:
+          print("DROPPED {oid} {left}")
+        else:
+          rest.push(oid)
+          rside[oid] = side
+          rprice[oid] = price
+          rqty[oid] = left
+    elif kind == "cancel":
+      if not rqty.has(oid):
+        print("ERR line {ln}: unknown ID")
+      else:
+        q = rqty[oid]
+        rest.remove(rest.index_of(oid))
+        rqty.remove(oid)
+        print("CANCELLED {oid} {q}")
+    elif kind == "book":
+      for bs in ["S", "B"]:
+        agg = {}
+        for rid in rest:
+          if rside[rid] == bs:
+            agg[rprice[rid]] += rqty[rid]
+        ps = sorted(agg.keys())
+        if bs == "B":
+          ps = ps.rev()
+        if bs == "S":
+          print("asks")
+        else:
+          print("bids")
+        if ps.is_empty():
+          print("  -")
+        for p in ps:
+          pw = p // 100
+          pc = p % 100
+          pq = agg[p]
+          print("  {pw}.{pc:02d} {pq}")
+  vw = val // 100
+  vc = val % 100
+  print("volume {vol} value {vw}.{vc:02d}")

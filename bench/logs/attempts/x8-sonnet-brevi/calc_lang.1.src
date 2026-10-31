@@ -1,0 +1,211 @@
+toks = []
+pos = 0
+perr = false
+nodes = []
+vars = {}
+fns = {}
+depth = 0
+
+fn isname(t: str) -> bool = t.re_full("[A-Za-z]\w*").len() > 0 and t not in ["let", "fn", "print", "if"]
+fn at(i: int) -> str = if i < toks.len(): toks[i] else: ""
+
+fn mk(kind: str, name: str, v: int, kids: [int]) -> int:
+  nodes.push((kind, name, v, kids))
+  nodes.len() - 1
+
+fn parse_primary() -> int:
+  if pos >= toks.len():
+    perr = true
+    return 0
+  t = toks[pos]
+  if t.re_full("\d+").len() > 0:
+    pos += 1
+    return mk("num", "", t.int(), [])
+  if t == "(":
+    pos += 1
+    e = parse_cmp()
+    if at(pos) == ")":
+      pos += 1
+    else:
+      perr = true
+    return e
+  if t == "if" or isname(t):
+    pos += 1
+    if at(pos) == "(":
+      pos += 1
+      args = []
+      if at(pos) == ")":
+        pos += 1
+        return mk("call", t, 0, args)
+      while not perr:
+        args.push(parse_cmp())
+        if at(pos) == ",":
+          pos += 1
+        elif at(pos) == ")":
+          pos += 1
+          break
+        else:
+          perr = true
+      return mk("call", t, 0, args)
+    if t == "if": perr = true
+    return mk("var", t, 0, [])
+  perr = true
+  0
+
+fn parse_unary() -> int:
+  if at(pos) == "-":
+    pos += 1
+    e = parse_unary()
+    return mk("neg", "", 0, [e])
+  parse_primary()
+
+fn parse_mul() -> int:
+  l = parse_unary()
+  while at(pos) in ["*", "/", "%"] and not perr:
+    op = toks[pos]
+    pos += 1
+    r = parse_unary()
+    l = mk("bin", op, 0, [l, r])
+  l
+
+fn parse_add() -> int:
+  l = parse_mul()
+  while at(pos) in ["+", "-"] and not perr:
+    op = toks[pos]
+    pos += 1
+    r = parse_mul()
+    l = mk("bin", op, 0, [l, r])
+  l
+
+fn parse_cmp() -> int:
+  l = parse_add()
+  if at(pos) in ["==", "!=", "<", ">", "<=", ">="] and not perr:
+    op = toks[pos]
+    pos += 1
+    r = parse_add()
+    l = mk("bin", op, 0, [l, r])
+  l
+
+fn parse_stmt() -> (str, str, [str], [int]):
+  c = toks[0]
+  bad = ("bad", "", [], [])
+  if c == "let":
+    if toks.len() < 4 or not isname(toks[1]) or toks[2] != "=": return bad
+    pos += 2
+    e = parse_cmp()
+    return ("let", toks[1], [], [e])
+  if c == "fn":
+    if toks.len() < 6 or not isname(toks[1]) or toks[2] != "(": return bad
+    pos += 2
+    params = []
+    if at(pos) == ")":
+      pos += 1
+    else:
+      while true:
+        if not isname(at(pos)): return bad
+        params.push(toks[pos])
+        pos += 1
+        if at(pos) == ",":
+          pos += 1
+        elif at(pos) == ")":
+          pos += 1
+          break
+        else:
+          return bad
+    if at(pos) != "=": return bad
+    pos += 1
+    e = parse_cmp()
+    return ("fn", toks[1], params, [e])
+  if c == "print":
+    es = []
+    while true:
+      es.push(parse_cmp())
+      if perr: break
+      if at(pos) == ",":
+        pos += 1
+      else:
+        break
+    return ("print", "", [], es)
+  bad
+
+fn ev(n: int, env: {str: int}) -> int:
+  nd = nodes[n]
+  k = nd.0
+  if k == "num": return nd.2
+  if k == "var":
+    if env.has(nd.1): return env[nd.1]
+    if vars.has(nd.1): return vars[nd.1]
+    fail("unknown name {nd.1}")
+  if k == "neg": return 0 - ev(nd.3[0], env)
+  if k == "bin":
+    a = ev(nd.3[0], env)
+    b = ev(nd.3[1], env)
+    op = nd.1
+    if op == "+": return a + b
+    if op == "-": return a - b
+    if op == "*": return a * b
+    if op == "/" or op == "%":
+      if b == 0: fail("division by zero")
+      if op == "/": return a / b
+      return a % b
+    if op == "==": return if a == b: 1 else: 0
+    if op == "!=": return if a != b: 1 else: 0
+    if op == "<": return if a < b: 1 else: 0
+    if op == ">": return if a > b: 1 else: 0
+    if op == "<=": return if a <= b: 1 else: 0
+    return if a >= b: 1 else: 0
+  name = nd.1
+  kids = nd.3
+  if name == "if":
+    if kids.len() != 3: fail("if takes 3 arguments")
+    c = ev(kids[0], env)
+    if c != 0: return ev(kids[1], env)
+    return ev(kids[2], env)
+  if not fns.has(name): fail("unknown function {name}")
+  f = fns[name]
+  if f.0.len() != kids.len(): fail("{name} takes {f.0.len()} arguments")
+  vals = []
+  for kd in kids: vals.push(ev(kd, env))
+  if depth >= 200: fail("too deep")
+  depth += 1
+  ne = {}
+  for i in 0..vals.len(): ne[f.0[i]] = vals[i]
+  r = ev(f.1, ne)
+  depth -= 1
+  r
+
+fn run_stmt(st: (str, str, [str], [int])) -> str:
+  if st.0 == "let":
+    v = ev(st.3[0], {})
+    vars[st.1] = v
+    return ""
+  if st.0 == "fn":
+    fns[st.1] = (st.2, st.3[0])
+    return ""
+  vals = []
+  for e in st.3: vals.push(str(ev(e, {})))
+  " ".join(vals)
+
+n = 0
+for line in lines():
+  n += 1
+  s = line.trim()
+  if s.is_empty() or s.starts_with("#"): continue
+  p = "\d+|[A-Za-z]\w*|==|!=|<=|>=|[-+*/%<>(),=]"
+  rest = s.re_sub(p, "").replace(" ", "").replace("\t", "")
+  toks = s.re_list(p)
+  if rest != "" or toks.is_empty():
+    print("error line {n}: syntax")
+    continue
+  pos = 1
+  perr = false
+  depth = 0
+  st = parse_stmt()
+  if st.0 == "bad" or perr or pos != toks.len():
+    print("error line {n}: syntax")
+    continue
+  match run_stmt(st):
+    Ok(out) =>
+      if out != "": print(out)
+    Err(msg) =>
+      print("error line {n}: {msg}")

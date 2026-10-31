@@ -1,0 +1,58 @@
+use "graph.bv"
+use "schedule.bv"
+
+tasks: [Task] = []
+seen: {str: int} = {}
+ks = 0
+header = False
+problem = ""
+num = 0
+for raw in lines():
+  num += 1
+  line = raw.trim()
+  if line.is_empty(): continue
+  if not header:
+    hm = line.re_full("workers\s+(\d+)")
+    if len(hm) == 0 or hm[1].int() < 1:
+      problem = "line {num}: bad line"
+      break
+    ks = hm[1].int()
+    header = True
+    continue
+  m = line.re_full("\s*(\w+)\s+(\d+)(\s+after\s+(\w+(\s*,\s*\w+)*))?\s*")
+  if len(m) == 0 or m[2].int() < 1:
+    problem = "line {num}: bad line"
+    break
+  if seen.has(m[1]):
+    problem = "line {num}: duplicate {m[1]}"
+    break
+  seen[m[1]] = 1
+  deps = []
+  if len(m) > 4 and m[4] != "":
+    deps = [d.trim() for d in m[4].split(",")]
+  tasks.push(Task(name: m[1], days: m[2].int(), deps: deps))
+
+if problem == "":
+  u = first_unknown(tasks)
+  if u != "": problem = "unknown {u}"
+if problem == "" and len(topo(tasks)) < len(tasks): problem = "cycle"
+
+if problem != "":
+  print(problem)
+else:
+  order = topo(tasks)
+  us, ue = unlimited(tasks, order)
+  print("unlimited")
+  for i in 0..len(tasks):
+    print("  {tasks[i].name} {us[i]}-{ue[i]}")
+  L = biggest(ue)
+  print("length {L}")
+  chain = critical(tasks, us, ue)
+  cn = [tasks[i].name for i in chain]
+  txt = cn.join(" > ")
+  print("critical {txt}")
+  ss, se = schedule(tasks, ks)
+  print("workers {ks}")
+  for i in 0..len(tasks):
+    print("  {tasks[i].name} {ss[i]}-{se[i]}")
+  print("length {biggest(se)}")

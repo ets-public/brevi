@@ -1,0 +1,220 @@
+type Fn:
+  params: [str]
+  body: [str]
+
+type Ctx:
+  env: {str: int}
+  g: {str: int}
+  fs: {str: Fn}
+  dep: int
+  ev: bool
+
+fn is_name(s: str) -> bool:
+  if s.re_full("[A-Za-z][A-Za-z0-9_]*"): return True
+  False
+
+fn is_kw(s: str) -> bool:
+  s in ["let", "fn", "print", "if"]
+
+fn expect(t: [str], mut p: int, w: str):
+  if p >= len(t) or t[p] != w: fail("syntax")
+  p += 1
+
+fn cmpres(a: int, op: str, b: int) -> int:
+  r = False
+  if op == "==": r = a == b
+  elif op == "!=": r = a != b
+  elif op == "<": r = a < b
+  elif op == ">": r = a > b
+  elif op == "<=": r = a <= b
+  else: r = a >= b
+  if r: return 1
+  0
+
+fn count_args(t: [str], p: int) -> int:
+  if p < len(t) and t[p] == ")": return 0
+  depth = 0
+  commas = 0
+  j = p
+  while j < len(t):
+    x = t[j]
+    if x == "(":
+      depth += 1
+    elif x == ")":
+      if depth == 0: break
+      depth -= 1
+    elif x == "," and depth == 0:
+      commas += 1
+    j += 1
+  commas + 1
+
+fn e_cmp(t: [str], mut p: int, c: Ctx) -> int:
+  a = e_add(t, p, c)
+  if p < len(t) and t[p] in ["==", "!=", "<", ">", "<=", ">="]:
+    op = t[p]
+    p += 1
+    b = e_add(t, p, c)
+    if p < len(t) and t[p] in ["==", "!=", "<", ">", "<=", ">="]: fail("syntax")
+    if not c.ev: return 0
+    return cmpres(a, op, b)
+  a
+
+fn e_add(t: [str], mut p: int, c: Ctx) -> int:
+  a = e_mul(t, p, c)
+  while p < len(t) and (t[p] == "+" or t[p] == "-"):
+    op = t[p]
+    p += 1
+    b = e_mul(t, p, c)
+    if op == "+": a = a + b
+    else: a = a - b
+  a
+
+fn e_mul(t: [str], mut p: int, c: Ctx) -> int:
+  a = e_un(t, p, c)
+  while p < len(t) and (t[p] == "*" or t[p] == "/" or t[p] == "%"):
+    op = t[p]
+    p += 1
+    b = e_un(t, p, c)
+    if not c.ev: continue
+    if op == "*": a = a * b
+    elif b == 0: fail("division by zero")
+    elif op == "/": a = a / b
+    else: a = a % b
+  a
+
+fn e_un(t: [str], mut p: int, c: Ctx) -> int:
+  if p < len(t) and t[p] == "-":
+    p += 1
+    v = e_un(t, p, c)
+    return -v
+  e_prim(t, p, c)
+
+fn e_prim(t: [str], mut p: int, c: Ctx) -> int:
+  if p >= len(t): fail("syntax")
+  tok = t[p]
+  if tok.re_full("\d+"):
+    p += 1
+    if not c.ev: return 0
+    return tok.int()
+  if tok == "(":
+    p += 1
+    v = e_cmp(t, p, c)
+    expect(t, p, ")")
+    return v
+  if not is_name(tok): fail("syntax")
+  if is_kw(tok) and tok != "if": fail("syntax")
+  p += 1
+  if p >= len(t) or t[p] != "(":
+    if tok == "if": fail("syntax")
+    if not c.ev: return 0
+    if tok in c.env: return c.env[tok]
+    if tok in c.g: return c.g[tok]
+    fail("unknown name {tok}")
+  p += 1
+  if tok == "if" and count_args(t, p) == 3:
+    cv = e_cmp(t, p, c)
+    expect(t, p, ",")
+    ca = Ctx(c.env, c.g, c.fs, c.dep, c.ev and cv != 0)
+    av = e_cmp(t, p, ca)
+    expect(t, p, ",")
+    cb = Ctx(c.env, c.g, c.fs, c.dep, c.ev and cv == 0)
+    bv = e_cmp(t, p, cb)
+    expect(t, p, ")")
+    if not c.ev: return 0
+    if cv != 0: return av
+    return bv
+  args = []
+  if p < len(t) and t[p] == ")":
+    p += 1
+  else:
+    while True:
+      v = e_cmp(t, p, c)
+      args.push(v)
+      if p < len(t) and t[p] == ",":
+        p += 1
+      else:
+        break
+    expect(t, p, ")")
+  if not c.ev: return 0
+  if tok == "if": fail("if takes 3 arguments")
+  if tok not in c.fs: fail("unknown function {tok}")
+  fd = c.fs[tok]
+  if len(args) != len(fd.params): fail("{tok} takes {len(fd.params)} arguments")
+  if c.dep >= 200: fail("too deep")
+  e = {}
+  for i in range(len(args)):
+    e[fd.params[i]] = args[i]
+  q = 0
+  e_cmp(fd.body, q, Ctx(e, c.g, c.fs, c.dep + 1, True))
+
+fn expr_all(t: [str], start: int, c: Ctx) -> int:
+  q = start
+  v = e_cmp(t, q, c)
+  if q != len(t): fail("syntax")
+  v
+
+fn eval_list(t: [str], mut p: int, c: Ctx) -> [int]:
+  out = []
+  while True:
+    v = e_cmp(t, p, c)
+    out.push(v)
+    if p < len(t) and t[p] == ",":
+      p += 1
+    else:
+      break
+  out
+
+fn run_line(line: str, mut g: {str: int}, mut fs: {str: Fn}) -> str:
+  t = line.re_list("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[<>+*/%(),=-]")
+  if "".join(t).replace(" ", "") != line.replace(" ", ""): fail("syntax")
+  if t.is_empty(): fail("syntax")
+  if t[0] == "let":
+    if len(t) < 4 or not is_name(t[1]) or is_kw(t[1]) or t[2] != "=": fail("syntax")
+    expr_all(t, 3, Ctx({}, g, fs, 0, False))
+    v = expr_all(t, 3, Ctx({}, g, fs, 0, True))
+    g[t[1]] = v
+    return ""
+  if t[0] == "fn":
+    if len(t) < 6 or not is_name(t[1]) or is_kw(t[1]) or t[2] != "(": fail("syntax")
+    params = []
+    p = 3
+    if t[p] == ")":
+      p += 1
+    else:
+      while True:
+        if p >= len(t) or not is_name(t[p]) or is_kw(t[p]): fail("syntax")
+        params.push(t[p])
+        p += 1
+        if p < len(t) and t[p] == ",":
+          p += 1
+        else:
+          break
+      expect(t, p, ")")
+    expect(t, p, "=")
+    body = t[p:]
+    expr_all(body, 0, Ctx({}, g, fs, 0, False))
+    fs[t[1]] = Fn(params, body)
+    return ""
+  if t[0] == "print":
+    if len(t) < 2: fail("syntax")
+    q = 1
+    eval_list(t, q, Ctx({}, g, fs, 0, False))
+    if q != len(t): fail("syntax")
+    q = 1
+    vals = eval_list(t, q, Ctx({}, g, fs, 0, True))
+    strs = [str(v) for v in vals]
+    return strs.join(" ")
+  fail("syntax")
+
+fn main():
+  g = {}
+  fs = {}
+  n = 0
+  for raw in stdin().lines():
+    n += 1
+    line = raw.trim()
+    if line.is_empty() or line.starts_with("#"): continue
+    match run_line(line, g, fs):
+      Ok(out) =>
+        if out != "": print(out)
+      Err(msg) => print("error line {n}: {msg}")

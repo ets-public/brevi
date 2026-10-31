@@ -1,0 +1,13 @@
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"order_book","code_tok":1403,"patch_tok":1403,"out_tok":524,"compiled":true,"pass":0,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"order_book","code_tok":1399,"patch_tok":24,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"mini_sql","code_tok":3454,"patch_tok":3454,"out_tok":713,"compiled":true,"pass":0,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"mini_sql","code_tok":3454,"patch_tok":70,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"calc_lang","code_tok":2226,"patch_tok":2226,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"fifo_stock","code_tok":1501,"patch_tok":1501,"out_tok":89,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"fifo_stock","code_tok":1505,"patch_tok":68,"out_tok":89,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"fifo_stock","code_tok":1505,"patch_tok":100,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"library","code_tok":2666,"patch_tok":2666,"out_tok":642,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"library","code_tok":2666,"patch_tok":58,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"project_plan","code_tok":2045,"patch_tok":2045,"out_tok":358,"compiled":true,"pass":4,"total":7,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"project_plan","code_tok":2041,"patch_tok":24,"out_tok":33,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"x12-sonnet-brevi","lang":"brevi","task":"project_plan","code_tok":2051,"patch_tok":70,"out_tok":7,"compiled":true,"pass":7,"total":7,"tok":"exact"}

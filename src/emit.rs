@@ -13,7 +13,7 @@ const METHODS: &[&str] = &[
     "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json",
+    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
 ];
 
@@ -51,6 +51,8 @@ pub struct Emitter {
     // Names first set inside a block that has ended, for a clearer "unknown name" error.
     block_only: HashSet<String>,
     fallible: bool,
+    // The current function gives no value, so `return x` only leaves it.
+    unit_fn: bool,
     // Inside a lambda that cannot return an error: a failing conversion stops the program.
     must: bool,
     line: usize,
@@ -458,7 +460,7 @@ fn reads_before_set(stmts: &[Stmt], tail: Option<&Expr>, n: &str) -> bool {
             _ => return true,
         }
     }
-    tail.map_or(false, |t| mentions(&format!("{t:?}")))
+    tail.map_or(false, |t| expr_reads_before_set(t, n))
 }
 
 fn expr_reads_before_set(e: &Expr, n: &str) -> bool {
@@ -480,7 +482,7 @@ fn expr_reads_before_set(e: &Expr, n: &str) -> bool {
     }
 }
 
-fn sets_first(body: &str, n: &str) -> bool {
+pub(crate) fn sets_first(body: &str, n: &str) -> bool {
     let id = format!("Ident({n:?})");
     body.find(&id).map_or(false, |i| {
         // `n = max(n, x)` reads n while setting it, so it is not set first.
@@ -543,11 +545,24 @@ fn root_name(e: &Expr) -> Option<&str> {
 }
 
 // True when the block sets `name` or calls a method that changes it, like `name.sort()`.
+// `m[k]`, `m[k].f`, `xs[i].0.f`: a place inside a list or map.
+fn through_index(e: &Expr) -> bool {
+    match e {
+        Expr::Index(..) => true,
+        Expr::Field(b, _) | Expr::TupleField(b, _) => through_index(b),
+        _ => false,
+    }
+}
+
 fn changes(e: &Expr, name: &str) -> bool {
     if assigns_to(e, name) {
         return true;
     }
     let d = format!("{e:?}");
+    // `row[i] = v` or `p.x = v` changes the item itself.
+    if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) {
+        return true;
+    }
     ["push", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "extend"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
@@ -581,6 +596,7 @@ impl Emitter {
             top_tys: HashMap::new(),
             block_only: HashSet::new(),
             fallible: false,
+            unit_fn: false,
             must: false,
             borrow_loops: false,
             nested: HashSet::new(),
@@ -995,6 +1011,7 @@ impl Emitter {
             }
         }
         self.line = line;
+        self.unit_fn = matches!(ret, Ty::Unit);
         let ps: Vec<String> = params
             .iter()
             .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
@@ -1056,7 +1073,7 @@ impl Emitter {
             let mut names = Vec::new();
             branch_sets(e, &mut names);
             let rest = format!("{rest:?} {tail:?}");
-            for n in names {
+            for n in names.into_iter().filter(|n| n != "_") {
                 if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !stmts_set_first(rest_stmts, tail, &n) {
                     // A zero start value, as in Python a name set on only some paths can still be read after.
                     out.push_str(&format!("    let mut {n} = Default::default();\n"));
@@ -1272,6 +1289,10 @@ impl Emitter {
             Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
                 let v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
+                if self.unit_fn && value.is_some() && !self.must {
+                    let r = if self.fallible { "return Ok(())" } else { "return" };
+                    return format!("    /*@L{line}*/ax_l({line}); {{ let _ = {v}; {r}; }}\n");
+                }
                 if self.fallible { format!("return Ok({v});") } else { format!("return {v};") }
             }
             Stmt::Break { .. } => "break;".into(),
@@ -1478,7 +1499,7 @@ impl Emitter {
                         }
                         other => format!("({})", self.expr(other)),
                     }
-                } else if MUTATING_METHODS.contains(&name.as_str()) && matches!(recv.as_ref(), Expr::Index(..)) {
+                } else if MUTATING_METHODS.contains(&name.as_str()) && through_index(recv) {
                     self.place_mut(recv)
                 } else {
                     self.place(recv)
@@ -1527,6 +1548,8 @@ impl Emitter {
                 }
                 // `x.round(2)` rounds to decimal places.
                 let name = if name == "round" && a.len() == 1 { "round_to" } else { name.as_str() };
+                // `xs.sort_by(f, true)` sorts largest first, keeping equal items in order (Python's reverse=True).
+                let name = if name == "sort_by" && a.len() == 2 { "sort_by_rev" } else { name };
                 // `s.re_sub(p, g => ...)` builds each replacement from the match groups.
                 let name = if name == "re_sub" && matches!(args.get(1), Some(Expr::Lambda(..))) { "re_sub_with" } else { name };
                 if tries {
@@ -1586,8 +1609,10 @@ impl Emitter {
             Expr::Match(subj, arms) => self.match_expr(subj, arms, false),
             Expr::For(p, iter, body) => {
                 // Assigning to the loop variable edits the list in place.
-                if let (Pat::Bind(n), Expr::Ident(_)) = (p, iter.as_ref()) {
-                    if changes(body, n) {
+                if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..)) = (p, iter.as_ref()) {
+                    // (Not when the body also reads the list's owner: it then works on a copy of each row.)
+                    let root_read = root_name(iter).map_or(false, |r| { let t = format!("{body:?}"); t.contains(&format!("Ident({r:?})")) || t.contains(&format!("Move({r:?})")) });
+                    if changes(body, n) && root_name(iter).is_some() && !root_read {
                         let it = self.place_mut(iter);
                         self.locals.insert(n.clone());
                         self.refs.insert(n.clone());
@@ -1622,6 +1647,8 @@ impl Emitter {
                 self.locals = outer;
                 format!("for {p} in {it} {b}")
             }
+            // `while true:` is Rust's `loop`, so a function may end in it and return from inside.
+            Expr::While(c, body) if matches!(c.as_ref(), Expr::Bool(true)) => format!("loop {}", self.block_d(body, true)),
             Expr::While(c, body) => {
                 let c = self.cond(c);
                 format!("while {c} {}", self.block_d(body, true))
@@ -1675,6 +1702,14 @@ impl Emitter {
                     return format!("ax_obj(vec![{}]).show()", ps.join(", "));
                 }
             }
+        }
+        // Python's print(a, b, sep=", ", end=""): written as text, with the given separator and ending.
+        if name == "print" && args.iter().any(|(n, _)| matches!(n.as_deref(), Some("end" | "sep"))) {
+            let named = |k: &str| args.iter().find(|(n, _)| n.as_deref() == Some(k)).map(|(_, a)| a.clone());
+            let sep = named("sep").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "String::from(\" \")".to_string());
+            let end = named("end").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "\"\\n\"".to_string());
+            let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.expr(a))).collect();
+            return format!("{{ use std::io::Write; let __s = [{}].join(&{sep}); print!(\"{{}}{{}}\", __s, {end}); let _ = std::io::stdout().flush(); }}", items.join(", "));
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
         match name {

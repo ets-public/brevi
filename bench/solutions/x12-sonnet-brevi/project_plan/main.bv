@@ -1,0 +1,25 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int], en: [int]):
+  for i in 0..tasks.len(): print("  {tasks[i].name} {st[i]}-{en[i]}")
+  print("length {max(en)}")
+
+fn go(inp: [str]):
+  let (k, tasks) = parse(inp)
+  didx = dep_idx(tasks)
+  order = topo(didx)
+  let (st, en) = times(tasks, didx, order)
+  tl = tails(tasks, didx, order)
+  print("unlimited")
+  show(tasks, st, en)
+  ch = critical(didx, st, en, tl)
+  print("critical " + " > ".join([tasks[c].name for c in ch]))
+  print("workers {k}")
+  let (s2, e2) = schedule([t.days for t in tasks], didx, tl, k)
+  show(tasks, s2, e2)
+
+for _x in [0]:
+  match go(lines()):
+    Ok(_) => continue
+    Err(m) => print(m)

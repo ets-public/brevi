@@ -1,0 +1,97 @@
+lots: {str: [(int, dec)]} = {}
+skus: {str: int} = {}
+cogs: {str: dec} = {}
+revs: {str: dec} = {}
+losses: {str: dec} = {}
+mp: {str: dec} = {}
+ml: {str: dec} = {}
+mseen: {str: int} = {}
+tot_p = 0.dec()
+tot_l = 0.dec()
+latest = ""
+
+fn is_date(s: str) -> bool = len(s.re_full("\d{4}-\d{2}-\d{2}")) > 0
+
+fn is_qty(s: str) -> bool = len(s.re_full("\d+")) > 0 and s.int().or(0) >= 1
+
+fn is_price(s: str) -> bool = len(s.re_full("\d+(\.\d{1,2})?")) > 0
+
+fn take_units(ls: [(int, dec)], q: int) -> (dec, [(int, dec)]):
+  need = q
+  cost = 0.dec()
+  rest = []
+  for lot in ls:
+    if need == 0:
+      rest.push(lot)
+    else:
+      take = min(need, lot.0)
+      cost += lot.1 * take
+      need -= take
+      if take < lot.0:
+        rest.push((lot.0 - take, lot.1))
+  return (cost, rest)
+
+fn handle(n: int, w: [str]) -> str:
+  if len(w) < 4: return "bad line"
+  dt = w[0]
+  op = w[1]
+  sku = w[2]
+  if not is_date(dt): return "bad line"
+  if not is_qty(w[3]): return "bad line"
+  qn = w[3].int()
+  if op == "RECEIVE" or op == "SHIP":
+    if len(w) != 5 or not is_price(w[4]): return "bad line"
+  elif op == "LOSS":
+    if len(w) != 4: return "bad line"
+  else:
+    return "bad line"
+  if dt < latest: return "date out of order"
+  m = dt[:7]
+  if op == "RECEIVE":
+    price = w[4].dec()
+    ls = lots[sku]
+    ls.push((qn, price))
+    lots[sku] = ls
+    skus[sku] = 1
+  else:
+    have = sum([l.0 for l in lots[sku]])
+    if qn > have: return "short {sku} need {qn} have {have}"
+    taken = take_units(lots[sku], qn)
+    lots[sku] = taken.1
+    cost = taken.0
+    if op == "SHIP":
+      price = w[4].dec()
+      rev = price * qn
+      cogs[sku] += cost
+      revs[sku] += rev
+      mp[m] += rev - cost
+      tot_p += rev - cost
+    else:
+      losses[sku] += cost
+      ml[m] += cost
+      tot_l += cost
+    mseen[m] = 1
+  latest = dt
+  return ""
+
+n = 0
+for raw in lines():
+  n += 1
+  w = raw.words()
+  if w.is_empty(): continue
+  msg = handle(n, w)
+  if msg != "": print("line {n}: {msg}")
+
+for s in sorted(skus.keys()):
+  ls = lots[s]
+  oh = sum([l.0 for l in ls])
+  v = 0.dec()
+  for l in ls: v += l.0 * l.1
+  pr = revs[s] - cogs[s]
+  print("{s} on_hand {oh} value {v.fmt(2)} cogs {cogs[s].fmt(2)} revenue {revs[s].fmt(2)} profit {pr.fmt(2)} loss {losses[s].fmt(2)}")
+
+print("months")
+for m in sorted(mseen.keys()):
+  print("  {m} profit {mp[m].fmt(2)} loss {ml[m].fmt(2)}")
+net = tot_p - tot_l
+print("total profit {tot_p.fmt(2)} loss {tot_l.fmt(2)} net {net.fmt(2)}")

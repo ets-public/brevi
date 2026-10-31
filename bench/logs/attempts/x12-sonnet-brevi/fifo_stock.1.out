@@ -1,0 +1,2 @@
+{"line":102,"msg":"cannot add int and str","fix":"turn the number into text with str(x), or write \"{x}\""}
+{"line":103,"msg":"cannot add int and str","fix":"turn the number into text with str(x), or write \"{x}\""}

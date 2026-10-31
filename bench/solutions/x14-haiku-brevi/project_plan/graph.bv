@@ -1,0 +1,130 @@
+type Task:
+  name: str
+  days: int
+  needs: [str]
+
+type Graph:
+  workers: int
+  tasks: [Task]
+  deps: [[int]]
+  succ: [[int]]
+  order: [int]
+
+fn digits(s: str) -> bool:
+  if not s.re_full("\d+"): return False
+  return True
+
+fn is_name(s: str) -> bool:
+  if not s.re_full("\w+"): return False
+  return True
+
+fn topo(deps: [[int]], succ: [[int]], nt: int) -> [int]:
+  indeg = []
+  for i in 0..nt:
+    indeg.push(deps[i].len())
+  queue = []
+  for i in 0..nt:
+    if indeg[i] == 0: queue.push(i)
+  order = []
+  head = 0
+  while head < queue.len():
+    u = queue[head]
+    head += 1
+    order.push(u)
+    for s in succ[u]:
+      indeg[s] = indeg[s] - 1
+      if indeg[s] == 0: queue.push(s)
+  return order
+
+fn parse_graph(ls: [str]) -> Graph:
+  n = 0
+  workers = 0
+  first = True
+  tasks = []
+  seen = {}
+  for line in ls:
+    n += 1
+    ws = line.words()
+    if ws.is_empty(): continue
+    if first:
+      first = False
+      if ws.len() != 2 or ws[0] != "workers" or not digits(ws[1]): fail("line {n}: bad line")
+      workers = ws[1].int().or(0)
+      if workers < 1: fail("line {n}: bad line")
+      continue
+    if ws.len() < 2 or not is_name(ws[0]) or not digits(ws[1]): fail("line {n}: bad line")
+    days = ws[1].int().or(0)
+    if days < 1: fail("line {n}: bad line")
+    needs = []
+    if ws.len() > 2:
+      if ws.len() < 4 or ws[2] != "after": fail("line {n}: bad line")
+      for part in ws[3:].join(" ").split(","):
+        dn = part.trim()
+        if not is_name(dn): fail("line {n}: bad line")
+        needs.push(dn)
+    nm0 = ws[0]
+    if seen.has(nm0): fail("line {n}: duplicate {nm0}")
+    seen[nm0] = tasks.len()
+    tasks.push(Task(nm0, days, needs))
+  if first: fail("line 1: bad line")
+  nt = tasks.len()
+  deps = []
+  succ = []
+  for i in 0..nt:
+    succ.push([])
+  for i in 0..nt:
+    dl = []
+    for dn in tasks[i].needs:
+      if not seen.has(dn): fail("unknown {dn}")
+      dl.push(seen[dn])
+    deps.push(dl)
+  for i in 0..nt:
+    for j in deps[i]:
+      sl = succ[j]
+      sl.push(i)
+      succ[j] = sl
+  order = topo(deps, succ, nt)
+  if order.len() < nt: fail("cycle")
+  return Graph(workers, tasks, deps, succ, order)
+
+fn longest(ends: [int]) -> int:
+  big = 0
+  for e in ends:
+    if e > big: big = e
+  return big
+
+fn unlimited(g: Graph) -> ([int], [int]):
+  nt = g.tasks.len()
+  starts = [0].repeat(nt)
+  ends = [0].repeat(nt)
+  for i in g.order:
+    s0 = 0
+    for d in g.deps[i]:
+      if ends[d] > s0: s0 = ends[d]
+    starts[i] = s0
+    ends[i] = s0 + g.tasks[i].days
+  return (starts, ends)
+
+fn critical(g: Graph, starts: [int], ends: [int]) -> [int]:
+  nt = g.tasks.len()
+  big = longest(ends)
+  onp = [False].repeat(nt)
+  for i in g.order.rev():
+    if ends[i] == big:
+      onp[i] = True
+    else:
+      for s in g.succ[i]:
+        if starts[s] == ends[i] and onp[s]: onp[i] = True
+  cur = -1
+  for i in 0..nt:
+    if cur < 0 and starts[i] == 0 and onp[i]: cur = i
+  chain = []
+  while cur >= 0:
+    chain.push(cur)
+    if ends[cur] == big: break
+    nxt = -1
+    for s in g.succ[cur]:
+      if starts[s] == ends[cur] and onp[s]:
+        if nxt < 0 or s < nxt: nxt = s
+    cur = nxt
+  return chain

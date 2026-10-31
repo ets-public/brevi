@@ -283,6 +283,9 @@ impl Cx<'_> {
                                 continue;
                             }
                             let mut fenv = globals.clone();
+                            // A top-level name the function sets before reading is its own local there.
+                            let text = format!("{body:?}");
+                            fenv.retain(|g, _| g == n || !crate::emit::sets_first(&text, g));
                             fenv.extend(ps.iter().map(|p| (p.name.clone(), from_ast(&p.ty))));
                             fenv.insert(n.clone(), t.clone());
                             self.look_expr(n, body, &mut fenv, &mut t);
@@ -440,6 +443,22 @@ impl Cx<'_> {
                             }
                             env.insert(m.clone(), mt);
                         }
+                        // `lq = m[k]` then `lq.push(x)`: what the copy is filled with is the entry's type.
+                        (Expr::Ident(m), "=") if !env.contains_key(m) && m != n && matches!(value, Expr::Index(b, _) if matches!(b.as_ref(), Expr::Ident(x) if x == n)) => {
+                            let Expr::Index(_, k) = value else { unreachable!() };
+                            let kt = self.ty(k, env);
+                            let mut mt = vt.clone();
+                            let mut later = env.clone();
+                            later.insert(m.clone(), mt.clone());
+                            self.look(m, &stmts[i + 1..], tail, &mut later, &mut mt);
+                            if let Some(tl) = tail {
+                                self.look_expr(m, tl, &mut later, &mut mt);
+                            }
+                            if some_known(&mt) {
+                                *acc = merge(acc.clone(), self.slot(acc, kt, mt.clone()));
+                            }
+                            env.insert(m.clone(), mt);
+                        }
                         (Expr::Ident(m), "=") if !env.contains_key(m) => {
                             env.insert(m.clone(), vt);
                         }
@@ -527,7 +546,7 @@ impl Cx<'_> {
                 let a0 = args.first().map(|a| self.ty(a, env)).unwrap_or(Hole);
                 if Self::is_n(recv, n) {
                     let ev = match (m.as_str(), &*acc) {
-                        ("push", List(_)) => List(Box::new(a0)),
+                        ("push", List(_) | Hole) => List(Box::new(a0)),
                         ("push", Heap(_)) => Heap(Box::new(a0)),
                         ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
                         ("has" | "remove", Map(..)) => Map(Box::new(a0), Box::new(Hole)),
@@ -753,6 +772,8 @@ impl Cx<'_> {
                 bind_params(ps, et, &mut inner);
                 self.ty(body, &inner)
             }
+            // `xs.map(decode)`: a function passed by name gives its return type.
+            Some(Expr::Ident(f)) if !env.contains_key(f) => self.fns.get(f).map(|(_, r)| r.clone()).unwrap_or(Hole),
             _ => Hole,
         };
         match m {
@@ -760,7 +781,7 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
-            "char" | "fmt" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "text" => Str,
+            "char" | "fmt" | "spec" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "text" => Str,
             "list" => List(Box::new(Json)),
             "repeat" | "slice" if matches!(r, Str) => Str,
             "join" => Str,
@@ -881,6 +902,17 @@ fn to_ast(t: &T) -> Option<Ty> {
 }
 
 // Is this expression, as a function's last line, a statement rather than a value?
+// The value is a print on every path (`if c: print(a) else: print(b)`).
+fn ends_in_print(e: &Expr) -> bool {
+    match e {
+        Expr::Call(f, _, _) => f == "print" || f == "write",
+        Expr::Block(_, Some(t)) => ends_in_print(t),
+        Expr::If(_, a, Some(b)) => ends_in_print(a) && ends_in_print(b),
+        Expr::Match(_, arms) => !arms.is_empty() && arms.iter().all(|(_, a)| ends_in_print(a)),
+        _ => false,
+    }
+}
+
 fn no_value(e: &Expr) -> bool {
     match e {
         Expr::For(..) | Expr::While(..) => true,
@@ -1167,8 +1199,9 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 Some(t) if !no_value(t) => ts.push(cx.ty(t, &env)),
                 _ => {}
             }
-            // A bare `return` means the function gives no value.
-            let bare = ts.contains(&Unit);
+            // A bare `return` means the function gives no value; so does ending on a print
+            // (`return 0` on the early paths is then only a way out, as in Python).
+            let bare = ts.contains(&Unit) || tail.map_or(false, ends_in_print);
             let ts: Vec<T> = ts.into_iter().filter(|t| *t != Unit).collect();
             if ts.is_empty() || bare {
                 found.push((k, Ty::Unit));

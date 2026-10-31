@@ -1,0 +1,114 @@
+type Order:
+  oid: str
+  side: str
+  qty: int
+  price: int
+  tick: int
+
+rest = []
+seen = {}
+tick = 0
+volume = 0
+value = 0
+lineno = 0
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  frac = parts[1] if parts.len() > 1 else ""
+  padded = frac + "00"
+  return parts[0].int() * 100 + padded[0:2].int()
+
+fn fmt(c: int) -> str = "{c // 100}.{c % 100:02d}"
+
+fn is_qty(s: str) -> bool = s.re_full("\d+").len() > 0 and s.int() >= 1
+
+fn is_price(s: str) -> bool = s.re_full("\d+(\.\d{1,2})?").len() > 0 and cents(s) > 0
+
+fn best(side: str, limit: int, mkt: bool) -> int:
+  bi = -1
+  bk = (0, 0)
+  for i in 0..rest.len():
+    o = rest[i]
+    if o.side == side: continue
+    if not mkt:
+      if side == "BUY" and o.price > limit: continue
+      if side == "SELL" and o.price < limit: continue
+    k = (o.price, o.tick)
+    if side == "SELL": k = (-o.price, o.tick)
+    if bi < 0 or k < bk:
+      bi = i
+      bk = k
+  return bi
+
+fn take(oid: str, side: str, qty: int, limit: int, mkt: bool):
+  left = qty
+  while left > 0:
+    bi = best(side, limit, mkt)
+    if bi < 0: break
+    o = rest[bi]
+    f = min(left, o.qty)
+    if side == "BUY":
+      print("TRADE {oid} {o.oid} {f} {fmt(o.price)}")
+    else:
+      print("TRADE {o.oid} {oid} {f} {fmt(o.price)}")
+    volume += f
+    value += f * o.price
+    left -= f
+    if o.qty == f:
+      rest.remove(bi)
+    else:
+      rest[bi].qty -= f
+  if left > 0:
+    if mkt:
+      print("DROPPED {oid} {left}")
+    else:
+      tick += 1
+      rest.push(Order(oid: oid, side: side, qty: left, price: limit, tick: tick))
+
+fn place(oid: str, side: str, qty: int, limit: int, mkt: bool, lineno: int):
+  if seen.has(oid):
+    print("ERR line {lineno}: duplicate ID")
+    return
+  seen[oid] = true
+  take(oid, side, qty, limit, mkt)
+
+fn cancel(oid: str, lineno: int):
+  for i in 0..rest.len():
+    if rest[i].oid == oid:
+      print("CANCELLED {oid} {rest[i].qty}")
+      rest.remove(i)
+      return
+  print("ERR line {lineno}: unknown ID")
+
+fn show_side(side: str):
+  levels = {}
+  for o in rest:
+    if o.side == side:
+      levels[o.price] += o.qty
+  ks = levels.keys().sort()
+  if side == "BUY":
+    ks = levels.keys().sort().rev()
+  if levels.is_empty(): print("  -")
+  for k in ks:
+    print("  {fmt(k)} {levels[k]}")
+
+for raw in lines():
+  lineno += 1
+  t = raw.words()
+  if t.is_empty(): continue
+  cmd = t[0]
+  if cmd in ["BUY", "SELL"] and t.len() == 4 and is_qty(t[2]) and is_price(t[3]):
+    place(t[1], cmd, t[2].int(), cents(t[3]), false, lineno)
+  elif cmd in ["MBUY", "MSELL"] and t.len() == 3 and is_qty(t[2]):
+    place(t[1], cmd[1:], t[2].int(), 0, true, lineno)
+  elif cmd == "CANCEL" and t.len() == 2:
+    cancel(t[1], lineno)
+  elif cmd == "BOOK" and t.len() == 1:
+    print("asks")
+    show_side("SELL")
+    print("bids")
+    show_side("BUY")
+  else:
+    print("ERR line {lineno}: bad command")
+
+print("volume {volume} value {fmt(value)}")

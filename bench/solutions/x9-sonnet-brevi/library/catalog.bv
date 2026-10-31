@@ -1,0 +1,37 @@
+type Hold:
+  member: str
+  book: str
+  last: int
+
+type Loan:
+  book: str
+  due: int
+
+type Book:
+  shelf: int
+  title: str
+  waiting: [str]
+
+type Member:
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_lib() -> Lib = Lib(books: {}, members: {}, holds: [])
+
+fn limit_of(tier: str) -> int = if tier == "plus": 5 else: 2
+
+fn days_of(tier: str) -> int = if tier == "plus": 28 else: 14
+
+fn fee_of(tier: str) -> dec = if tier == "plus": "0.10".dec() else: "0.25".dec()
+
+fn has_loan(lib: Lib, m: str, b: str) -> bool:
+  for l in lib.members[m].loans:
+    if l.book == b: return true
+  false

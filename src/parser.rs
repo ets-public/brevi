@@ -489,8 +489,14 @@ impl Parser {
             self.next();
             self.skip_newlines();
             let rhs = self.binary(level + 1)?;
+            let empty = |e: &Expr| matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(m) if m.is_empty());
             lhs = if op == ".." {
                 Expr::Range(Box::new(lhs), Box::new(rhs))
+            } else if (op == "==" || op == "!=") && (empty(&lhs) || empty(&rhs)) {
+                // `xs == []` and `m != {}` test for empty.
+                let x = if empty(&rhs) { lhs } else { rhs };
+                let t = Expr::Method(Box::new(x), "is_empty".into(), vec![], self.line());
+                if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
             } else {
                 Expr::Binary(op, Box::new(lhs), Box::new(rhs))
             };
@@ -537,7 +543,14 @@ impl Parser {
                             _ => "or".to_string(),
                         };
                         if self.eat_sym("(") {
-                            let mut args: Vec<Expr> = self.args()?.into_iter().map(|(_, a)| a).collect();
+                            let raw = self.args()?;
+                            if matches!(name.as_str(), "sort" | "sort_by" | "sorted") {
+                                if let Some(s) = sort_kw(e.clone(), &raw, line) {
+                                    e = s;
+                                    continue;
+                                }
+                            }
+                            let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             let name = python_method(&name, args.len()).unwrap_or(name);
                             // `xs.to_list()` / `xs.copy()`: a list already is one, so this is a copy.
                             let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() {
@@ -546,6 +559,11 @@ impl Parser {
                             } else {
                                 name
                             };
+                            // `n.range()` counts 0..n.
+                            if name == "range" && args.is_empty() {
+                                e = Expr::Range(Box::new(Expr::Int(0)), Box::new(e));
+                                continue;
+                            }
                             // Python's `", ".join(xs)` is `xs.join(", ")`.
                             e = if name == "join" && args.len() == 1 && matches!(e, Expr::Str(_)) && !matches!(args[0], Expr::Str(_)) {
                                 Expr::Method(Box::new(args.remove(0)), name, vec![e], line)
@@ -588,7 +606,8 @@ impl Parser {
         let mut args = Vec::new();
         while !self.is_sym(")") {
             let name = match (self.peek().clone(), self.peek_at(1).clone()) {
-                (Tok::Ident(n), Tok::Sym(":")) => {
+                // Python keywords: `name=value` (`key=f`, `reverse=True`).
+                (Tok::Ident(n), Tok::Sym(":")) | (Tok::Ident(n), Tok::Sym("=")) => {
                     self.next();
                     self.next();
                     Some(n)
@@ -672,6 +691,20 @@ impl Parser {
             Tok::Kw("true") => Ok(Expr::Bool(true)),
             Tok::Kw("false") => Ok(Expr::Bool(false)),
             Tok::Str(s) => Ok(Expr::Str(self.interp(&s, line)?)),
+            // Python's `lambda x, y: expr`.
+            Tok::Ident(name) if name == "lambda" && matches!(self.peek(), Tok::Ident(_) | Tok::Sym(":")) => {
+                let mut names = Vec::new();
+                while let Tok::Ident(n) = self.peek().clone() {
+                    self.next();
+                    names.push(n);
+                    if !self.eat_sym(",") {
+                        break;
+                    }
+                }
+                self.expect_sym(":")?;
+                let body = self.expr()?;
+                Ok(Expr::Lambda(names, Box::new(body)))
+            }
             Tok::Ident(name) => {
                 if self.eat_sym("(") {
                     let mut args = self.args()?;
@@ -685,6 +718,23 @@ impl Parser {
                         "unique" => Some("unique"),
                         _ => None,
                     };
+                    // min(xs, key=f) and max(xs, key=f): the first item with the smallest or largest key.
+                    if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() == 2 && args[0].0.is_none() && args[1].0.as_deref() == Some("key") {
+                        let f = args.remove(1).1;
+                        let xs = args.remove(0).1;
+                        let mut a = vec![f];
+                        if name == "max" {
+                            a.push(Expr::Bool(true));
+                        }
+                        return Ok(Expr::Index(Box::new(Expr::Method(Box::new(xs), "sort_by".into(), a, line)), Box::new(Expr::Int(0))));
+                    }
+                    // sorted(xs, key=f, reverse=r)
+                    if name == "sorted" && !self.user_fns.contains(&name) && args.first().is_some_and(|a| a.0.is_none()) {
+                        let recv = args[0].1.clone();
+                        if let Some(s) = sort_kw(recv, &args[1..], line) {
+                            return Ok(s);
+                        }
+                    }
                     // range(n), range(a, b) and range(a, b, step) are a..b.
                     if name == "range" && (1..=3).contains(&args.len()) && args.iter().all(|a| a.0.is_none()) && !self.user_fns.contains(&name) {
                         let mut a: Vec<Expr> = args.into_iter().map(|a| a.1).collect();
@@ -822,6 +872,11 @@ impl Parser {
                     self.skip_seps();
                 }
                 self.expect_sym("}")?;
+                // `match run(x):` with only an `Err(m)` arm: success needs nothing done.
+                let has = |n: &str| arms.iter().any(|(p, _)| matches!(p, Pat::Variant(v, _) if v == n));
+                if has("Err") && !has("Ok") && !arms.iter().any(|(p, _)| matches!(p, Pat::Wild | Pat::Bind(_))) {
+                    arms.push((Pat::Variant("Ok".into(), vec![Pat::Wild]), Expr::Block(vec![], None)));
+                }
                 Ok(Expr::Match(Box::new(subject), arms))
             }
             Tok::Kw("for") => {
@@ -889,6 +944,8 @@ impl Parser {
                         return Err(Diag::new("parse", line, 1, "unclosed '{' in string").fix_hint("use {{ for a literal brace"));
                     }
                     let inner: String = chars[start..i - 1].iter().collect();
+                    // Python's format spec: `{x:.2f}`, `{n:03d}`, `{s:<10}`, `{v:>8}`.
+                    let (inner, spec) = split_spec(&inner);
                     let toks = lex(&inner).map_err(|mut d| {
                         d.line = line;
                         d
@@ -901,6 +958,10 @@ impl Parser {
                     if !lit.is_empty() {
                         parts.push(StrPart::Lit(std::mem::take(&mut lit)));
                     }
+                    let e = match spec {
+                        Some(sp) => Expr::Method(Box::new(e), "spec".into(), vec![Expr::Str(vec![StrPart::Lit(sp)])], line),
+                        None => e,
+                    };
                     parts.push(StrPart::Interp(e));
                 }
                 c => {
@@ -920,6 +981,47 @@ impl Parser {
 // Python method names models write by habit, as the Brevi method they mean.
 // Built-in functions a program may define for itself; its own version gets a suffix in the Rust.
 const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
+
+// `x:.2f` -> ("x", Some(".2f")): a colon outside brackets and quotes followed by a Python format spec.
+fn split_spec(inner: &str) -> (String, Option<String>) {
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    for (i, c) in inner.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(' | '[' | '{') => depth += 1,
+            (None, ')' | ']' | '}') => depth -= 1,
+            (None, ':') if depth == 0 => {
+                let spec = &inner[i + 1..];
+                let ok = !spec.is_empty() && {
+                    let b = spec.trim_start_matches(['<', '>', '^']).trim_start_matches('+');
+                    let b = b.trim_start_matches(|c: char| c.is_ascii_digit() || c == ',');
+                    let b = b.strip_prefix('.').map_or(b, |r| r.trim_start_matches(|c: char| c.is_ascii_digit()));
+                    b.is_empty() || matches!(b, "d" | "f" | "s" | "x" | "%" | "e")
+                };
+                return if ok { (inner[..i].to_string(), Some(spec.to_string())) } else { (inner.to_string(), None) };
+            }
+            _ => {}
+        }
+    }
+    (inner.to_string(), None)
+}
+
+// Python's sort keywords: `key=f` and `reverse=r` (also `sort_by(f, reverse=r)`) become `sort_by(f, r)`.
+fn sort_kw(recv: Expr, args: &[(Option<String>, Expr)], line: usize) -> Option<Expr> {
+    let get = |k: &str| args.iter().find(|a| a.0.as_deref() == Some(k)).map(|a| a.1.clone());
+    let (key, rev) = (get("key"), get("reverse"));
+    if key.is_none() && rev.is_none() {
+        return None;
+    }
+    let f = key
+        .or_else(|| args.iter().find(|a| a.0.is_none()).map(|a| a.1.clone()))
+        .unwrap_or_else(|| Expr::Lambda(vec!["x_".into()], Box::new(Expr::Ident("x_".into()))));
+    let mut a = vec![f];
+    a.extend(rev);
+    Some(Expr::Method(Box::new(recv), "sort_by".into(), a, line))
+}
 
 fn python_method(name: &str, nargs: usize) -> Option<String> {
     Some(match (name, nargs) {

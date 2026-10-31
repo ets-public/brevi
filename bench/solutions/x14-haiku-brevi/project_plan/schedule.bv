@@ -1,0 +1,54 @@
+use "graph.bv"
+
+fn tails(g: Graph) -> [int]:
+  nt = g.tasks.len()
+  tl = [0].repeat(nt)
+  for i in g.order.rev():
+    best = 0
+    for s in g.succ[i]:
+      if tl[s] > best: best = tl[s]
+    tl[i] = g.tasks[i].days + best
+  return tl
+
+fn make_schedule(g: Graph) -> ([int], [int]):
+  nt = g.tasks.len()
+  tl = tails(g)
+  starts = [0].repeat(nt)
+  ends = [0].repeat(nt)
+  started = [False].repeat(nt)
+  done = [False].repeat(nt)
+  running = []
+  idle = g.workers
+  t = 0
+  nfin = 0
+  while nfin < nt:
+    still = []
+    for r in running:
+      if ends[r] == t:
+        done[r] = True
+        nfin += 1
+        idle += 1
+      else:
+        still.push(r)
+    running = still
+    while idle > 0:
+      best = -1
+      for i in 0..nt:
+        if not started[i]:
+          ok = True
+          for d in g.deps[i]:
+            if not done[d]: ok = False
+          if ok and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0: break
+      started[best] = True
+      starts[best] = t
+      ends[best] = t + g.tasks[best].days
+      running.push(best)
+      idle -= 1
+    if nfin < nt:
+      if running.is_empty(): break
+      nextt = -1
+      for r in running:
+        if nextt < 0 or ends[r] < nextt: nextt = ends[r]
+      t = nextt
+  return (starts, ends)

@@ -1,0 +1,208 @@
+## main.py
+import sys
+
+from graph import Problem, check, parse, unlimited
+from schedule import schedule
+
+
+def main():
+    text = sys.stdin.read()
+    try:
+        workers, tasks = parse(text)
+        order = check(tasks)
+    except Problem as e:
+        print(str(e))
+        return
+
+    out = ["unlimited"]
+    length, chain = unlimited(tasks, order)
+    for t in tasks:
+        out.append("  %s %d-%d" % (t.name, t.start, t.end))
+    out.append("length %d" % length)
+    out.append("critical " + " > ".join(chain))
+
+    k_length, starts, ends = schedule(tasks, order, workers)
+    out.append("workers %d" % workers)
+    for t in tasks:
+        out.append("  %s %d-%d" % (t.name, starts[t.name], ends[t.name]))
+    out.append("length %d" % k_length)
+
+    sys.stdout.write("\n".join(out) + "\n")
+
+
+if __name__ == "__main__":
+    main()
+## graph.py
+"""Parse and check the task list, and work out the unlimited plan."""
+
+import re
+
+WORKERS_RE = re.compile(r"\s*workers\s+(\d+)\s*")
+TASK_RE = re.compile(
+    r"\s*([A-Za-z0-9_]+)\s+(\d+)(?:\s+after\s+([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*))?\s*"
+)
+
+
+class Problem(Exception):
+    pass
+
+
+class Task:
+    def __init__(self, name, days, deps, index):
+        self.name = name
+        self.days = days
+        self.deps = deps          # names, in the order they are listed
+        self.index = index        # position in the input
+        self.succ = []            # names of tasks that depend on this one
+        self.start = 0
+        self.end = 0
+
+
+def parse(text):
+    """Return (workers, tasks). Raises Problem with the first line problem found."""
+    lines = text.split("\n")
+    workers = None
+    tasks = []
+    seen = {}
+    for n, raw in enumerate(lines, 1):
+        line = raw.strip()
+        if not line:
+            continue
+        if workers is None:
+            m = WORKERS_RE.fullmatch(line)
+            if not m or int(m.group(1)) < 1:
+                raise Problem("line %d: bad line" % n)
+            workers = int(m.group(1))
+            continue
+        m = TASK_RE.fullmatch(line)
+        if not m:
+            raise Problem("line %d: bad line" % n)
+        name = m.group(1)
+        days = int(m.group(2))
+        if days < 1:
+            raise Problem("line %d: bad line" % n)
+        deps = []
+        if m.group(3):
+            for d in re.split(r"\s*,\s*", m.group(3)):
+                if d not in deps:
+                    deps.append(d)
+        if name in seen:
+            raise Problem("line %d: duplicate %s" % (n, name))
+        seen[name] = True
+        tasks.append(Task(name, days, deps, len(tasks)))
+    if workers is None:
+        raise Problem("line 1: bad line")
+    return workers, tasks
+
+
+def check(tasks):
+    """Raise Problem for a missing dependency or a cycle."""
+    names = {t.name: t for t in tasks}
+    for t in tasks:
+        for d in t.deps:
+            if d not in names:
+                raise Problem("unknown %s" % d)
+    for t in tasks:
+        for d in t.deps:
+            names[d].succ.append(t.name)
+    order = topo_order(tasks)
+    if len(order) != len(tasks):
+        raise Problem("cycle")
+    return order
+
+
+def topo_order(tasks):
+    """Kahn's algorithm; returns task names in a dependency-respecting order."""
+    names = {t.name: t for t in tasks}
+    indeg = {t.name: len(t.deps) for t in tasks}
+    ready = [t.name for t in tasks if indeg[t.name] == 0]
+    order = []
+    while ready:
+        n = ready.pop(0)
+        order.append(n)
+        for s in names[n].succ:
+            indeg[s] -= 1
+            if indeg[s] == 0:
+                ready.append(s)
+    return order
+
+
+def unlimited(tasks, order):
+    """Earliest-start schedule and the critical chain. Returns (length, chain)."""
+    names = {t.name: t for t in tasks}
+    for n in order:
+        t = names[n]
+        t.start = max((names[d].end for d in t.deps), default=0)
+        t.end = t.start + t.days
+    length = max((t.end for t in tasks), default=0)
+
+    good = {}
+    for n in reversed(order):
+        t = names[n]
+        good[n] = t.end == length or any(
+            good[s] and names[s].start == t.end for s in t.succ
+        )
+
+    chain = []
+    starts = [t for t in tasks if t.start == 0 and good[t.name]]
+    if starts:
+        cur = starts[0]
+        chain.append(cur.name)
+        while cur.end != length:
+            nxt = None
+            for s in sorted(cur.succ, key=lambda x: names[x].index):
+                st = names[s]
+                if st.start == cur.end and good[s]:
+                    nxt = st
+                    break
+            if nxt is None:
+                break
+            chain.append(nxt.name)
+            cur = nxt
+    return length, chain
+## schedule.py
+"""Schedule the tasks on K workers."""
+
+
+def tails(tasks, order):
+    """tail = DAYS plus the largest tail of the tasks that depend on it."""
+    names = {t.name: t for t in tasks}
+    tail = {}
+    for n in reversed(order):
+        t = names[n]
+        tail[n] = t.days + max((tail[s] for s in t.succ), default=0)
+    return tail
+
+
+def schedule(tasks, order, workers):
+    """Return (length, starts, ends) as dicts keyed by task name."""
+    names = {t.name: t for t in tasks}
+    tail = tails(tasks, order)
+    start = {}
+    end = {}
+    done = set()
+    running = {}  # name -> end time
+    now = 0
+    while len(done) < len(tasks):
+        for n in [n for n, e in running.items() if e == now]:
+            del running[n]
+            done.add(n)
+        while len(running) < workers:
+            ready = [
+                t for t in tasks
+                if t.name not in start
+                and all(d in done for d in t.deps)
+            ]
+            if not ready:
+                break
+            best = max(ready, key=lambda t: (tail[t.name], -t.index))
+            start[best.name] = now
+            end[best.name] = now + best.days
+            running[best.name] = now + best.days
+        if len(done) >= len(tasks):
+            break
+        if not running:
+            break
+        now = min(running.values())
+    length = max(end.values(), default=0)
+    return length, start, end

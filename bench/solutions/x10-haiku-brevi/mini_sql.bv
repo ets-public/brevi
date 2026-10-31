@@ -1,0 +1,293 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+type Cond:
+  name: str
+  ci: int
+  op: str
+  lit: str
+  isnum: bool
+  tbad: bool
+
+fn valid(s: str) -> bool:
+  n = "[A-Za-z][A-Za-z0-9_]*"
+  v = "(?:'(?:[^']|'')*'|-?\d+)"
+  c = n + " (?:=|!=|<=|>=|<|>) " + v
+  conds = c + "(?: AND " + c + ")*"
+  names = n + "(?:, " + n + ")*"
+  pats = []
+  pats.push("CREATE TABLE " + n + " \(" + n + " (?:INT|TEXT)(?:, " + n + " (?:INT|TEXT))*\)")
+  pats.push("INSERT INTO " + n + " VALUES \(" + v + "(?:, " + v + ")*\)")
+  pats.push("SELECT (?:\*|" + names + ") FROM " + n + "(?: WHERE " + conds + ")?(?: ORDER BY " + n + "(?: DESC)?)?(?: LIMIT \d+)?")
+  pats.push("SELECT COUNT\(\*\) FROM " + n + "(?: WHERE " + conds + ")?")
+  pats.push("UPDATE " + n + " SET " + n + " = " + v + "(?: WHERE " + conds + ")?")
+  pats.push("DELETE FROM " + n + "(?: WHERE " + conds + ")?")
+  for p in pats:
+    if s.re_full(p):
+      return True
+  return False
+
+fn cell_of(v: str) -> str:
+  if v.starts_with("'"):
+    return v[1:-1].replace("''", "'")
+  return str(v.int())
+
+fn holds_i(x: int, op: str, y: int) -> bool:
+  if op == "=":
+    return x == y
+  if op == "!=":
+    return x != y
+  if op == "<":
+    return x < y
+  if op == ">":
+    return x > y
+  if op == "<=":
+    return x <= y
+  return x >= y
+
+fn holds_s(x: str, op: str, y: str) -> bool:
+  if op == "=":
+    return x == y
+  if op == "!=":
+    return x != y
+  if op == "<":
+    return x < y
+  if op == ">":
+    return x > y
+  if op == "<=":
+    return x <= y
+  return x >= y
+
+fn conds_of(t: [str], start: int, cols: [str], types: [str]) -> [Cond]:
+  out = []
+  i = start
+  while i < len(t) and t[i] != "ORDER" and t[i] != "LIMIT":
+    name = t[i]
+    op = t[i + 1]
+    v = t[i + 2]
+    i += 3
+    if i < len(t) and t[i] == "AND":
+      i += 1
+    ci = cols.index_of(name)
+    isnum = not v.starts_with("'")
+    lit = v
+    if not isnum:
+      lit = v[1:-1].replace("''", "'")
+    tbad = False
+    if ci >= 0:
+      tbad = (types[ci] == "INT") != isnum
+    out.push(Cond(name, ci, op, lit, isnum, tbad))
+  return out
+
+fn row_ok(row: [str], conds: [Cond]) -> bool:
+  for cd in conds:
+    if cd.isnum:
+      if not holds_i(row[cd.ci].int(), cd.op, cd.lit.int()):
+        return False
+    elif not holds_s(row[cd.ci], cd.op, cd.lit):
+      return False
+  return True
+
+fn any_tbad(conds: [Cond]) -> bool:
+  for cd in conds:
+    if cd.tbad:
+      return True
+  return False
+
+fn first_unknown(names: [str], cols: [str]) -> str:
+  for x in names:
+    if cols.index_of(x) < 0:
+      return x
+  return ""
+
+fn main():
+  tables = {}
+  for raw in lines():
+    if raw.trim().is_empty():
+      continue
+    if not valid(raw):
+      print("error: syntax")
+      continue
+    t = raw.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z][A-Za-z0-9_]*|<=|>=|!=|[=<>*(),]")
+    w = t[0]
+    if w == "CREATE":
+      name = t[2]
+      if tables.has(name):
+        print("error: table {name} exists")
+        continue
+      cols = []
+      types = []
+      i = 4
+      while t[i] != ")":
+        cols.push(t[i])
+        types.push(t[i + 1])
+        i += 2
+        if t[i] == ",":
+          i += 1
+      tables[name] = Table(cols, types, [])
+      print("ok")
+      continue
+    if w == "INSERT":
+      name = t[2]
+      if not tables.has(name):
+        print("error: no table {name}")
+        continue
+      tb = tables[name]
+      vals = []
+      i = 5
+      while t[i] != ")":
+        vals.push(t[i])
+        i += 1
+        if t[i] == ",":
+          i += 1
+      if len(vals) != len(tb.cols):
+        print("error: type mismatch")
+        continue
+      mism = False
+      for j in 0..len(vals):
+        if (tb.types[j] == "INT") == vals[j].starts_with("'"):
+          mism = True
+      if mism:
+        print("error: type mismatch")
+        continue
+      cells = []
+      for v in vals:
+        cells.push(cell_of(v))
+      tb.rows.push(cells)
+      tables[name] = tb
+      print("ok")
+      continue
+    if w == "SELECT":
+      cnt_form = t[2] == "("
+      fi = t.index_of("FROM")
+      name = t[fi + 1]
+      if not tables.has(name):
+        print("error: no table {name}")
+        continue
+      tb = tables[name]
+      names = []
+      if not cnt_form and t[1] != "*":
+        for x in t[1:fi]:
+          if x != ",":
+            names.push(x)
+      wi = t.index_of("WHERE")
+      conds = []
+      if wi >= 0:
+        conds = conds_of(t, wi + 1, tb.cols, tb.types)
+      oi = t.index_of("ORDER")
+      li = t.index_of("LIMIT")
+      bad = first_unknown(names, tb.cols)
+      if bad == "":
+        bad = first_unknown([cd.name for cd in conds], tb.cols)
+      if bad == "" and oi >= 0:
+        bad = first_unknown([t[oi + 2]], tb.cols)
+      if bad != "":
+        print("error: no column {bad}")
+        continue
+      if any_tbad(conds):
+        print("error: type mismatch")
+        continue
+      hits = []
+      for row in tb.rows:
+        if row_ok(row, conds):
+          hits.push(row)
+      if cnt_form:
+        print(len(hits))
+        continue
+      if oi >= 0:
+        oc = tb.cols.index_of(t[oi + 2])
+        desc = oi + 3 < len(t) and t[oi + 3] == "DESC"
+        if tb.types[oc] == "INT":
+          hits = hits.sort_by(r => r[oc].int(), desc)
+        else:
+          hits = hits.sort_by(r => r[oc], desc)
+      if li >= 0:
+        n = t[li + 1].int()
+        hits = hits[:n]
+      idx = []
+      if t[1] == "*":
+        for j in 0..len(tb.cols):
+          idx.push(j)
+      else:
+        for x in names:
+          idx.push(tb.cols.index_of(x))
+      heads = []
+      for j in idx:
+        heads.push(tb.cols[j])
+      print(" | ".join(heads))
+      for row in hits:
+        out = []
+        for j in idx:
+          out.push(row[j])
+        print(" | ".join(out))
+      print("({len(hits)} rows)")
+      continue
+    if w == "UPDATE":
+      name = t[1]
+      if not tables.has(name):
+        print("error: no table {name}")
+        continue
+      tb = tables[name]
+      sc = tb.cols.index_of(t[3])
+      wi = t.index_of("WHERE")
+      conds = []
+      if wi >= 0:
+        conds = conds_of(t, wi + 1, tb.cols, tb.types)
+      bad = ""
+      if sc < 0:
+        bad = t[3]
+      if bad == "":
+        bad = first_unknown([cd.name for cd in conds], tb.cols)
+      if bad != "":
+        print("error: no column {bad}")
+        continue
+      v = t[5]
+      isnum = not v.starts_with("'")
+      if (tb.types[sc] == "INT") != isnum or any_tbad(conds):
+        print("error: type mismatch")
+        continue
+      cell = cell_of(v)
+      newrows = []
+      cnt = 0
+      for row in tb.rows:
+        if row_ok(row, conds):
+          cnt += 1
+          r = row
+          r[sc] = cell
+          newrows.push(r)
+        else:
+          newrows.push(row)
+      tb.rows = newrows
+      tables[name] = tb
+      print("updated {cnt}")
+      continue
+    if w == "DELETE":
+      name = t[2]
+      if not tables.has(name):
+        print("error: no table {name}")
+        continue
+      tb = tables[name]
+      wi = t.index_of("WHERE")
+      conds = []
+      if wi >= 0:
+        conds = conds_of(t, wi + 1, tb.cols, tb.types)
+      bad = first_unknown([cd.name for cd in conds], tb.cols)
+      if bad != "":
+        print("error: no column {bad}")
+        continue
+      if any_tbad(conds):
+        print("error: type mismatch")
+        continue
+      newrows = []
+      cnt = 0
+      for row in tb.rows:
+        if row_ok(row, conds):
+          cnt += 1
+        else:
+          newrows.push(row)
+      tb.rows = newrows
+      tables[name] = tb
+      print("deleted {cnt}")
+      continue

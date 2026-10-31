@@ -1,0 +1,137 @@
+type Lot:
+  qty: int
+  cost: int
+
+type Stat:
+  cogs: int
+  rev: int
+  prof: int
+  loss: int
+
+fn cents(s: str) -> int:
+  (a, _, b) = s.partition(".")
+  return a.int() * 100 + (b + "00")[:2].int()
+
+fn money(c: int) -> str:
+  sign = ""
+  a = c
+  if c < 0:
+    sign = "-"
+    a = -c
+  q = a // 100
+  r = a % 100
+  return "{sign}{q}.{r:02d}"
+
+fn qty_ok(s: str) -> bool:
+  if not s.re_full("\d{1,9}"):
+    return False
+  return s.int() >= 1
+
+fn price_ok(s: str) -> bool:
+  if not s.re_full("\d{1,9}(\.\d{1,2})?"):
+    return False
+  return True
+
+fn shape_ok(w: [str]) -> bool:
+  if len(w) < 4:
+    return False
+  if not w[0].re_full("\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"):
+    return False
+  if not qty_ok(w[3]):
+    return False
+  if w[1] == "LOSS":
+    return len(w) == 4
+  if w[1] == "RECEIVE" or w[1] == "SHIP":
+    return len(w) == 5 and price_ok(w[4])
+  return False
+
+fn onhand_q(ls: [Lot]) -> int:
+  t = 0
+  for lt in ls:
+    t += lt.qty
+  return t
+
+fn onhand_v(ls: [Lot]) -> int:
+  t = 0
+  for lt in ls:
+    t += lt.qty * lt.cost
+  return t
+
+fn take(ls: [Lot], n: int) -> ([Lot], int):
+  need = n
+  cost = 0
+  out = []
+  for lt in ls:
+    if need == 0:
+      out.push(lt)
+    elif lt.qty <= need:
+      cost += lt.qty * lt.cost
+      need -= lt.qty
+    else:
+      cost += need * lt.cost
+      out.push(Lot(lt.qty - need, lt.cost))
+      need = 0
+  return (out, cost)
+
+fn main():
+  lots = {}
+  st = {}
+  mp = {}
+  ml = {}
+  mons = {}
+  latest = ""
+  for i, raw in enumerate(lines()):
+    ln = i + 1
+    w = raw.words()
+    if len(w) == 0:
+      continue
+    if not shape_ok(w):
+      print("line {ln}: bad line")
+      continue
+    d = w[0]
+    if d < latest:
+      print("line {ln}: date out of order")
+      continue
+    op = w[1]
+    sku = w[2]
+    q = w[3].int()
+    mon = d[0:7]
+    if op == "RECEIVE":
+      ls = lots[sku]
+      ls.push(Lot(q, cents(w[4])))
+      lots[sku] = ls
+      if not st.has(sku):
+        st[sku] = Stat(0, 0, 0, 0)
+      latest = d
+      continue
+    ls = lots[sku]
+    have = onhand_q(ls)
+    if q > have:
+      print("line {ln}: short {sku} need {q} have {have}")
+      continue
+    (rest, cost) = take(ls, q)
+    lots[sku] = rest
+    latest = d
+    mons[mon] = True
+    if op == "SHIP":
+      rev = q * cents(w[4])
+      st[sku].cogs += cost
+      st[sku].rev += rev
+      st[sku].prof += rev - cost
+      mp[mon] += rev - cost
+    else:
+      st[sku].loss += cost
+      ml[mon] += cost
+
+  tp = 0
+  tl = 0
+  for sku in lots.keys().sort():
+    ls = lots[sku]
+    s = st[sku]
+    tp += s.prof
+    tl += s.loss
+    print("{sku} on_hand {onhand_q(ls)} value {money(onhand_v(ls))} cogs {money(s.cogs)} revenue {money(s.rev)} profit {money(s.prof)} loss {money(s.loss)}")
+  print("months")
+  for mon in mons.keys().sort():
+    print("  {mon} profit {money(mp[mon])} loss {money(ml[mon])}")
+  print("total profit {money(tp)} loss {money(tl)} net {money(tp - tl)}")

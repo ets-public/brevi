@@ -1,0 +1,93 @@
+type Lot:
+  qty: int
+  cost: dec
+
+lots = {}
+cogs = {}
+rev = {}
+loss = {}
+seen = {}
+mark = {}
+mprofit = {}
+mloss = {}
+last = ""
+
+fn validdate(s: str) -> bool:
+  if not s.re_full("\d{4}-\d\d-\d\d"): return false
+  match date(s):
+    Ok(_) => true
+    Err(_) => false
+
+fn take(sku: str, qty: int) -> dec:
+  have = sum([l.qty for l in lots[sku]])
+  if qty > have: fail("short {sku} need {qty} have {have}")
+  rem = qty
+  c = 0.dec()
+  ls = lots[sku]
+  while rem > 0:
+    l = ls[0]
+    q = min(rem, l.qty)
+    c += l.cost * q
+    rem -= q
+    if q == l.qty:
+      ls.remove(0)
+    else:
+      ls[0].qty -= q
+  lots[sku] = ls
+  c
+
+fn handle(line: str, w: [str]) -> int:
+  n = w.len()
+  op = w[0 + 1]
+  if n < 4 or n > 5: fail("bad line")
+  ok = (op == "RECEIVE" and n == 5) or (op == "SHIP" and n == 5) or (op == "LOSS" and n == 4)
+  if not ok: fail("bad line")
+  if not validdate(w[0]): fail("bad line")
+  if not w[3].re_full("[0-9]+"): fail("bad line")
+  qty = w[3].int()
+  if qty < 1: fail("bad line")
+  p = 0.dec()
+  if n == 5:
+    if not w[4].re_full("\d+(\.\d{1,2})?"): fail("bad line")
+    p = w[4].dec()
+  if w[0] < last: fail("date out of order")
+  sku = w[2]
+  mo = w[0].slice(0, 7)
+  if op == "RECEIVE":
+    lots[sku].push(Lot(qty: qty, cost: p))
+    seen[sku] = 1
+  elif op == "SHIP":
+    c = take(sku, qty)
+    cogs[sku] += c
+    rev[sku] += p * qty
+    mark[mo] = 1
+    mprofit[mo] += p * qty - c
+  else:
+    c = take(sku, qty)
+    loss[sku] += c
+    mark[mo] = 1
+    mloss[mo] += c
+  last = w[0]
+  0
+
+ln = 0
+for line in lines():
+  ln += 1
+  if line.trim().is_empty(): continue
+  match handle(line, line.words()):
+    Ok(_) => ln = ln
+    Err(m) => print("line {ln}: {m}")
+
+tp = 0.dec()
+tl = 0.dec()
+for sku in seen.keys():
+  q = sum([l.qty for l in lots[sku]])
+  v = sum([l.cost * l.qty for l in lots[sku]])
+  pr = rev[sku] - cogs[sku]
+  print("{sku} on_hand {q} value {v.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {pr.fmt(2)} loss {loss[sku].fmt(2)}")
+  tp += pr
+  tl += loss[sku]
+print("months")
+for mo in mark.keys():
+  print("  {mo} profit {mprofit[mo].fmt(2)} loss {mloss[mo].fmt(2)}")
+print("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")

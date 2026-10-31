@@ -1,0 +1,26 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int]):
+  top = 0
+  for i in 0..tasks.len():
+    e = st[i] + tasks[i].days
+    top = max(top, e)
+    print("  {tasks[i].name} {st[i]}-{e}")
+  print("length {top}")
+
+r = parse_input(lines())
+if r.0 != "":
+  print(r.0)
+else:
+  tasks = r.2
+  err = check(tasks)
+  if err != "":
+    print(err)
+  else:
+    print("unlimited")
+    st = starts(tasks)
+    show(tasks, st)
+    print("critical {critical(tasks, st).join(" > ")}")
+    print("workers {r.1}")
+    show(tasks, plan_workers(tasks, r.1))

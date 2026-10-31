@@ -1,0 +1,25 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn show(ts: [Task], st: [int], en: [int]):
+  for i in 0..ts.len():
+    print("  {ts[i].name} {st[i]}-{en[i]}")
+  print("length {max(en).or(0)}")
+
+fn solve(ls: [str]) -> int:
+  r = parse_tasks(ls)
+  k = r.0
+  ts = r.1
+  u = unlimited(ts)
+  tl = tails(ts, u.1)
+  w = with_workers(ts, k, tl)
+  print("unlimited")
+  show(ts, u.0, u.1)
+  print("critical {critical(ts, u.0, u.1).join(' > ')}")
+  print("workers {k}")
+  show(ts, w.0, w.1)
+  0
+
+match solve(lines()):
+  Ok(_) => print("", end="")
+  Err(m) => print(m)

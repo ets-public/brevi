@@ -1,0 +1,44 @@
+use "graph.bv"
+
+fn tails(tasks: [Task]) -> [int]:
+  n = tasks.len()
+  st = starts(tasks)
+  di = depidx(tasks)
+  tl = [0].repeat(n)
+  order = [i for i in 0..n].sort_by(i => -st[i])
+  for i in order:
+    mx = 0
+    for j in 0..n:
+      if i in di[j]: mx = max(mx, tl[j])
+    tl[i] = tasks[i].days + mx
+  tl
+
+fn schedule(tasks: [Task], k: int) -> [int]:
+  n = tasks.len()
+  di = depidx(tasks)
+  tl = tails(tasks)
+  start = [-1].repeat(n)
+  endt = [-1].repeat(n)
+  t = 0
+  while true:
+    free = k
+    for i in 0..n:
+      if start[i] >= 0 and endt[i] > t: free -= 1
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if start[i] < 0:
+          ready = true
+          for d in di[i]:
+            if not (endt[d] >= 0 and endt[d] <= t): ready = false
+          if ready and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0: break
+      start[best] = t
+      endt[best] = t + tasks[best].days
+      free -= 1
+    nt = -1
+    for i in 0..n:
+      if start[i] >= 0 and endt[i] > t and (nt < 0 or endt[i] < nt): nt = endt[i]
+    if nt < 0: break
+    t = nt
+  start

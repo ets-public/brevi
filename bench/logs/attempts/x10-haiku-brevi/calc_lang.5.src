@@ -1,0 +1,237 @@
+type Fn:
+  params: [str]
+  body: [str]
+
+fn is_kw(t: str) -> bool:
+  return t == "let" or t == "fn" or t == "print" or t == "if"
+
+fn isname(t: str) -> bool:
+  if is_kw(t):
+    return False
+  if t.re_full("[A-Za-z][A-Za-z0-9_]*"):
+    return True
+  return False
+
+fn is_cmp(t: str) -> bool:
+  return t == "==" or t == "!=" or t == "<" or t == ">" or t == "<=" or t == ">="
+
+fn at(toks: [str], p: int) -> str:
+  if p < len(toks):
+    return toks[p]
+  return ""
+
+fn expect(toks: [str], p: int, s: str):
+  if at(toks, p) != s:
+    fail("syntax")
+
+fn cmpv(a: int, op: str, b: int) -> int:
+  ok = False
+  if op == "==":
+    ok = a == b
+  elif op == "!=":
+    ok = a != b
+  elif op == "<":
+    ok = a < b
+  elif op == ">":
+    ok = a > b
+  elif op == "<=":
+    ok = a <= b
+  else:
+    ok = a >= b
+  if ok:
+    return 1
+  return 0
+
+fn lookup(name: str, fr: {str: int}) -> int:
+  if fr.has(name):
+    return fr[name]
+  if gvars.has(name):
+    return gvars[name]
+  fail("unknown name {name}")
+  return 0
+
+fn prim(toks: [str], p: int, ev: bool, fr: {str: int}, d: int) -> (int, int):
+  t = at(toks, p)
+  if t == "(":
+    (v, q) = expr(toks, p + 1, ev, fr, d)
+    expect(toks, q, ")")
+    return (v, q + 1)
+  if t.re_full("\d+"):
+    return (t.int(), p + 1)
+  if t == "if" and at(toks, p + 1) == "(":
+    return if_call(toks, p, ev, fr, d)
+  if isname(t):
+    if at(toks, p + 1) == "(":
+      return call(toks, p, ev, fr, d)
+    if not ev:
+      return (0, p + 1)
+    return (lookup(t, fr), p + 1)
+  fail("syntax")
+  return (0, p)
+
+fn if_call(toks: [str], p: int, ev: bool, fr: {str: int}, d: int) -> (int, int):
+  (c, q) = expr(toks, p + 2, ev, fr, d)
+  expect(toks, q, ",")
+  (a, q) = expr(toks, q + 1, ev and c != 0, fr, d)
+  expect(toks, q, ",")
+  (b, q) = expr(toks, q + 1, ev and c == 0, fr, d)
+  expect(toks, q, ")")
+  r = b
+  if c != 0:
+    r = a
+  return (r, q + 1)
+
+fn call(toks: [str], p: int, ev: bool, fr: {str: int}, d: int) -> (int, int):
+  name = toks[p]
+  if ev and not fns.has(name):
+    fail("unknown function {name}")
+  args = []
+  q = p + 2
+  if at(toks, q) == ")":
+    q += 1
+  else:
+    while True:
+      (v, q) = expr(toks, q, ev, fr, d)
+      args.push(v)
+      if at(toks, q) == ",":
+        q += 1
+      elif at(toks, q) == ")":
+        q += 1
+        break
+      else:
+        fail("syntax")
+  if not ev:
+    return (0, q)
+  f = fns[name]
+  k = len(f.params)
+  if len(args) != k:
+    fail("{name} takes {k} arguments")
+  if d >= 200:
+    fail("too deep")
+  nf = {}
+  for j in 0..k:
+    nf[f.params[j]] = args[j]
+  (rv, rq) = expr(f.body, 0, True, nf, d + 1)
+  return (rv, q)
+
+fn un(toks: [str], p: int, ev: bool, fr: {str: int}, d: int) -> (int, int):
+  if at(toks, p) == "-":
+    (a, q) = un(toks, p + 1, ev, fr, d)
+    return (-a, q)
+  return prim(toks, p, ev, fr, d)
+
+fn mul(toks: [str], p: int, ev: bool, fr: {str: int}, d: int) -> (int, int):
+  (a, p) = un(toks, p, ev, fr, d)
+  while at(toks, p) == "*" or at(toks, p) == "/" or at(toks, p) == "%":
+    op = at(toks, p)
+    (b, p) = un(toks, p + 1, ev, fr, d)
+    if ev:
+      if op == "*":
+        a = a * b
+      elif b == 0:
+        fail("division by zero")
+      elif op == "/":
+        a = a / b
+      else:
+        a = a % b
+  return (a, p)
+
+fn add(toks: [str], p: int, ev: bool, fr: {str: int}, d: int) -> (int, int):
+  (a, p) = mul(toks, p, ev, fr, d)
+  while at(toks, p) == "+" or at(toks, p) == "-":
+    op = at(toks, p)
+    (b, p) = mul(toks, p + 1, ev, fr, d)
+    if ev:
+      if op == "+":
+        a = a + b
+      else:
+        a = a - b
+  return (a, p)
+
+fn expr(toks: [str], p: int, ev: bool, fr: {str: int}, d: int) -> (int, int):
+  (a, p) = add(toks, p, ev, fr, d)
+  if is_cmp(at(toks, p)):
+    op = at(toks, p)
+    (b, p) = add(toks, p + 1, ev, fr, d)
+    if is_cmp(at(toks, p)):
+      fail("syntax")
+    if ev:
+      return (cmpv(a, op, b), p)
+    return (0, p)
+  return (a, p)
+
+fn exprlist(toks: [str], p: int, ev: bool) -> ([int], int):
+  out = []
+  (v, q) = expr(toks, p, ev, {}, 0)
+  out.push(v)
+  while at(toks, q) == ",":
+    (v, q) = expr(toks, q + 1, ev, {}, 0)
+    out.push(v)
+  return (out, q)
+
+fn tokenize(s: str) -> [str]:
+  return s.re_list("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[<>+\-*/%=(),]")
+
+fn run(s: str) -> [str]:
+  toks = tokenize(s)
+  if "".join(toks) != s.replace(" ", "").replace("\t", ""):
+    fail("syntax")
+  hd = toks[0]
+  if hd == "let":
+    if not isname(at(toks, 1)) or at(toks, 2) != "=":
+      fail("syntax")
+    (v0, q) = expr(toks, 3, False, {}, 0)
+    if q != len(toks):
+      fail("syntax")
+    (v, q) = expr(toks, 3, True, {}, 0)
+    gvars[toks[1]] = v
+    return []
+  if hd == "print":
+    (vl0, q) = exprlist(toks, 1, False)
+    if q != len(toks):
+      fail("syntax")
+    (vals, q) = exprlist(toks, 1, True)
+    strs = []
+    for v in vals:
+      strs.push(str(v))
+    return [" ".join(strs)]
+  if hd == "fn":
+    name = at(toks, 1)
+    if not isname(name) or at(toks, 2) != "(":
+      fail("syntax")
+    params = []
+    q = 3
+    if at(toks, q) != ")":
+      while True:
+        pn = at(toks, q)
+        if not isname(pn):
+          fail("syntax")
+        params.push(pn)
+        q += 1
+        if at(toks, q) == ",":
+          q += 1
+        else:
+          break
+    expect(toks, q, ")")
+    expect(toks, q + 1, "=")
+    body = toks[q + 2:]
+    (v0, e) = expr(body, 0, False, {}, 0)
+    if e != len(body):
+      fail("syntax")
+    fns[name] = Fn(params, body)
+    return []
+  fail("syntax")
+  return []
+
+gvars = {}
+fns = {}
+for i, raw in enumerate(lines()):
+  ln = i + 1
+  s = raw.trim()
+  if s == "" or s.starts_with("#"):
+    continue
+  match run(s):
+    Ok(outs) =>
+      for o in outs:
+        print(o)
+    Err(m) => print("error line {ln}: {m}")

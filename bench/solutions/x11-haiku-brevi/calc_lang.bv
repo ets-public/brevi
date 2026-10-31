@@ -1,0 +1,249 @@
+type Node:
+  k: str
+  name: str
+  num: int
+  a: int
+  b: int
+  args: [int]
+
+type Fn:
+  params: [str]
+  body: int
+
+gvars = {}
+fns = {}
+nodes = []
+toks = []
+pos = 0
+depth = 0
+
+fn tokenize(s: str) -> [str]:
+  out = []
+  cs = s.chars()
+  n = cs.len()
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == " " or c == "\t":
+      i += 1
+    elif c.is_digit():
+      j = i
+      while j < n and cs[j].is_digit():
+        j += 1
+      out.push(s.slice(i, j))
+      i = j
+    elif c.is_alpha():
+      j = i
+      while j < n and (cs[j].is_alpha() or cs[j].is_digit() or cs[j] == "_"):
+        j += 1
+      out.push(s.slice(i, j))
+      i = j
+    elif c in ["=", "!", "<", ">"] and i + 1 < n and cs[i + 1] == "=":
+      out.push(c + "=")
+      i += 2
+    elif c in ["+", "-", "*", "/", "%", "(", ")", ",", "=", "<", ">"]:
+      out.push(c)
+      i += 1
+    else:
+      fail("syntax")
+  return out
+
+fn peek() -> str:
+  if pos < toks.len(): return toks[pos]
+  return ""
+
+fn take() -> str:
+  t = peek()
+  if t == "": fail("syntax")
+  pos += 1
+  return t
+
+fn expect(w: str):
+  if take() != w: fail("syntax")
+
+fn is_num(t: str) -> bool:
+  return t.slice(0, 1).is_digit()
+
+fn is_name(t: str) -> bool:
+  return t.slice(0, 1).is_alpha()
+
+fn is_kw(t: str) -> bool:
+  return t == "let" or t == "fn" or t == "print" or t == "if"
+
+fn ident() -> str:
+  t = take()
+  if not is_name(t) or is_kw(t): fail("syntax")
+  return t
+
+fn finish():
+  if pos < toks.len(): fail("syntax")
+
+# ---- parsing into a node table (syntax only) ----
+
+fn mk(k: str, name: str, num: int, a: int, b: int, args: [int]) -> int:
+  nodes.push(Node(k: k, name: name, num: num, a: a, b: b, args: args))
+  return nodes.len() - 1
+
+fn parse_expr() -> int:
+  l = parse_add()
+  op = peek()
+  if op in ["==", "!=", "<", ">", "<=", ">="]:
+    take()
+    r = parse_add()
+    return mk("bin", op, 0, l, r, [])
+  return l
+
+fn parse_add() -> int:
+  l = parse_mul()
+  while peek() == "+" or peek() == "-":
+    op = take()
+    r = parse_mul()
+    l = mk("bin", op, 0, l, r, [])
+  return l
+
+fn parse_mul() -> int:
+  l = parse_unary()
+  while peek() in ["*", "/", "%"]:
+    op = take()
+    r = parse_unary()
+    l = mk("bin", op, 0, l, r, [])
+  return l
+
+fn parse_unary() -> int:
+  if peek() == "-":
+    take()
+    c = parse_unary()
+    return mk("neg", "", 0, c, 0, [])
+  return parse_primary()
+
+fn parse_primary() -> int:
+  t = take()
+  if t == "(":
+    e = parse_expr()
+    expect(")")
+    return e
+  if is_num(t): return mk("num", "", t.int().or(0), 0, 0, [])
+  if not is_name(t) or is_kw(t) and t != "if": fail("syntax")
+  if peek() != "(":
+    if t == "if": fail("syntax")
+    return mk("var", t, 0, 0, 0, [])
+  take()
+  args = []
+  if peek() != ")":
+    args.push(parse_expr())
+    while peek() == ",":
+      take()
+      args.push(parse_expr())
+  expect(")")
+  return mk("call", t, 0, 0, 0, args)
+
+# ---- evaluation ----
+
+fn bi(c: bool) -> int:
+  if c: return 1
+  return 0
+
+fn binop(op: str, x: int, y: int) -> int:
+  if op == "+": return x + y
+  if op == "-": return x - y
+  if op == "*": return x * y
+  if op == "/":
+    if y == 0: fail("division by zero")
+    return x / y
+  if op == "%":
+    if y == 0: fail("division by zero")
+    return x % y
+  if op == "==": return bi(x == y)
+  if op == "!=": return bi(x != y)
+  if op == "<": return bi(x < y)
+  if op == ">": return bi(x > y)
+  if op == "<=": return bi(x <= y)
+  return bi(x >= y)
+
+fn call_node(nd: Node, env: {str: int}) -> int:
+  if nd.name == "if":
+    if nd.args.len() != 3: fail("if takes 3 arguments")
+    c = ev(nd.args[0], env)
+    if c != 0: return ev(nd.args[1], env)
+    return ev(nd.args[2], env)
+  if not fns.has(nd.name): fail("unknown function {nd.name}")
+  vals = []
+  for a in nd.args: vals.push(ev(a, env))
+  f = fns[nd.name]
+  if vals.len() != f.params.len(): fail("{nd.name} takes {f.params.len()} arguments")
+  if depth >= 200: fail("too deep")
+  depth += 1
+  newenv = {}
+  for j in 0..f.params.len(): newenv[f.params[j]] = vals[j]
+  r = ev(f.body, newenv)
+  depth -= 1
+  return r
+
+fn ev(i: int, env: {str: int}) -> int:
+  nd = nodes[i]
+  if nd.k == "num": return nd.num
+  if nd.k == "var":
+    if env.has(nd.name): return env[nd.name]
+    if gvars.has(nd.name): return gvars[nd.name]
+    fail("unknown name {nd.name}")
+  if nd.k == "neg": return 0 - ev(nd.a, env)
+  if nd.k == "bin":
+    x = ev(nd.a, env)
+    y = ev(nd.b, env)
+    return binop(nd.name, x, y)
+  return call_node(nd, env)
+
+# ---- statements ----
+
+fn run(line: str) -> [str]:
+  toks = tokenize(line)
+  pos = 0
+  kw = peek()
+  if kw == "let":
+    take()
+    name = ident()
+    expect("=")
+    e = parse_expr()
+    finish()
+    v = ev(e, {})
+    gvars[name] = v
+    return []
+  if kw == "fn":
+    take()
+    name = ident()
+    expect("(")
+    ps = []
+    if peek() != ")":
+      ps.push(ident())
+      while peek() == ",":
+        take()
+        ps.push(ident())
+    expect(")")
+    expect("=")
+    b = parse_expr()
+    finish()
+    fns[name] = Fn(params: ps, body: b)
+    return []
+  if kw == "print":
+    take()
+    es = [parse_expr()]
+    while peek() == ",":
+      take()
+      es.push(parse_expr())
+    finish()
+    vals = []
+    for e in es: vals.push(str(ev(e, {})))
+    return [vals.join(" ")]
+  fail("syntax")
+
+n = 0
+for raw in lines():
+  n += 1
+  line = raw.trim()
+  if line.is_empty() or line.slice(0, 1) == "#": continue
+  depth = 0
+  match run(line):
+    Ok(out) =>
+      for o in out:
+        print(o)
+    Err(m) => print("error line {n}: {m}")

@@ -1,0 +1,14 @@
+fn first_big(xs: [int], lim: int) -> (int, int):
+  i = 0
+  while True:
+    if i >= xs.len(): return (-1, i)
+    if xs[i] > lim: return (xs[i], i)
+    i += 1
+
+print(first_big([1, 5, 9], 4))
+print(first_big([1], 4))
+n = 0
+while true:
+  n += 1
+  if n == 3: break
+print(n)

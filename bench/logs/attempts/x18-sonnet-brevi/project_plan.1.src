@@ -1,0 +1,167 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int]):
+  big = 0
+  for i in 0..tasks.len():
+    e = st[i] + tasks[i].days
+    big = max(big, e)
+    print("  {tasks[i].name} {st[i]}-{e}")
+  print("length {big}")
+
+fn report(k: int, tasks: [Task]):
+  print("unlimited")
+  show(tasks, starts(tasks))
+  print("critical {critical(tasks).join(' > ')}")
+  print("workers {k}")
+  show(tasks, schedule(tasks, k))
+
+match load(lines()):
+  Ok(r) => report(r.0, r.1)
+  Err(m) => print(m)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse(ls: [str]) -> (int, [Task]):
+  k = 0
+  started = false
+  tasks = []
+  seen = {}
+  for i in 0..ls.len():
+    line = ls[i].trim()
+    if line.is_empty(): continue
+    if not started:
+      m = line.re_full("workers (\d+)")
+      if m.is_empty(): fail("line {i + 1}: bad line")
+      k = m[1].int()
+      if k < 1: fail("line {i + 1}: bad line")
+      started = true
+      continue
+    m = line.re_full("(\w+) (\d+)( after (\w+(?:, \w+)*))?")
+    if m.is_empty(): fail("line {i + 1}: bad line")
+    days = m[2].int()
+    if days < 1: fail("line {i + 1}: bad line")
+    name = m[1]
+    if seen.has(name): fail("line {i + 1}: duplicate {name}")
+    seen[name] = 1
+    deps = if m[4] == "": [] else: m[4].split(", ")
+    tasks.push(Task(name, days, deps))
+  if not started: fail("line 1: bad line")
+  (k, tasks)
+
+fn depidx(tasks: [Task]) -> [[int]]:
+  idx = {}
+  for i in 0..tasks.len():
+    idx[tasks[i].name] = i
+  res = []
+  for t in tasks:
+    res.push([idx[d] for d in t.deps])
+  res
+
+fn ends(tasks: [Task]) -> [int]:
+  n = tasks.len()
+  di = depidx(tasks)
+  en = [-1].repeat(n)
+  for p in 0..n:
+    for i in 0..n:
+      if en[i] < 0:
+        ok = true
+        mx = 0
+        for d in di[i]:
+          if en[d] < 0:
+            ok = false
+          else:
+            mx = max(mx, en[d])
+        if ok: en[i] = mx + tasks[i].days
+  en
+
+fn load(ls: [str]) -> (int, [Task]):
+  r = parse(ls)
+  tasks = r.1
+  names = {}
+  for t in tasks:
+    names[t.name] = 1
+  for t in tasks:
+    for d in t.deps:
+      if not names.has(d): fail("unknown {d}")
+  en = ends(tasks)
+  if any(e < 0 for e in en): fail("cycle")
+  r
+
+fn starts(tasks: [Task]) -> [int]:
+  en = ends(tasks)
+  [en[i] - tasks[i].days for i in 0..tasks.len()]
+
+fn critical(tasks: [Task]) -> [str]:
+  n = tasks.len()
+  en = ends(tasks)
+  st = starts(tasks)
+  di = depidx(tasks)
+  big = max(e for e in en)
+  order = [i for i in 0..n].sort_by(i => -en[i])
+  f = [false].repeat(n)
+  for i in order:
+    ok = en[i] == big
+    for j in 0..n:
+      if i in di[j] and st[j] == en[i] and f[j]: ok = true
+    f[i] = ok
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and f[i]: cur = i
+  res = []
+  while cur >= 0:
+    res.push(tasks[cur].name)
+    nx = -1
+    for j in 0..n:
+      if nx < 0 and cur in di[j] and st[j] == en[cur] and f[j]: nx = j
+    cur = nx
+  res
+## schedule.bv
+use "graph.bv"
+
+fn tails(tasks: [Task]) -> [int]:
+  n = tasks.len()
+  st = starts(tasks)
+  di = depidx(tasks)
+  tl = [0].repeat(n)
+  order = [i for i in 0..n].sort_by(i => -st[i])
+  for i in order:
+    mx = 0
+    for j in 0..n:
+      if i in di[j]: mx = max(mx, tl[j])
+    tl[i] = tasks[i].days + mx
+  tl
+
+fn schedule(tasks: [Task], k: int) -> [int]:
+  n = tasks.len()
+  di = depidx(tasks)
+  tl = tails(tasks)
+  start = [-1].repeat(n)
+  endt = [-1].repeat(n)
+  t = 0
+  while true:
+    free = k
+    for i in 0..n:
+      if start[i] >= 0 and endt[i] > t: free -= 1
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if start[i] < 0:
+          ready = true
+          for d in di[i]:
+            if not (endt[d] >= 0 and endt[d] <= t): ready = false
+          if ready and (best < 0 or tl[i] > tl[best]): best = i
+      if best < 0: break
+      start[best] = t
+      endt[best] = t + tasks[best].days
+      free -= 1
+    nt = -1
+    for i in 0..n:
+      if start[i] >= 0 and endt[i] > t and (nt < 0 or endt[i] < nt): nt = endt[i]
+    if nt < 0: break
+    t = nt
+  start

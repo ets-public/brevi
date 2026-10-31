@@ -1,0 +1,48 @@
+type Lot:
+  qty: int
+skus = {}
+
+fn add(s: str, q: int):
+  if q > 0:
+    lots = skus[s]
+    lots.push(Lot(q))
+    skus[s] = lots
+
+fn pair(x: int) -> (int, int) = (x, x * 2)
+
+fn go(w: str, x: int) -> str:
+  if w == "a":
+    (_, q) = pair(x)
+    bad = q > 4
+    if bad: return "big"
+    "small"
+  else:
+    bad = "no {w}"
+    bad
+
+add("a", 2)
+add("a", 3)
+print(sum([l.qty for l in skus["a"]]))
+print(go("a", 3))
+print(go("b", 1))
+for i in 3.range(): print(i)
+
+fn report(x: int):
+  if x < 0:
+    print("neg")
+    return 0
+  if x == 0: print("zero")
+  else: print("pos {x}")
+
+fn fill(k: str):
+  ls = shelf[k]
+  ls.push([1, 2])
+  shelf[k] = ls
+
+shelf = {}
+fill("a")
+report(-1)
+report(0)
+report(3)
+ls = lines()
+for r in shelf["a"]: print(r[0] + r[1] + ls.len())

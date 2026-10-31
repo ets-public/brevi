@@ -1,0 +1,115 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+type Input:
+  k: int
+  tasks: [Task]
+
+type Plan:
+  starts: [int]
+  ends: [int]
+
+fn namepat() -> str = "[A-Za-z0-9_]+"
+
+fn parse_input(ls: [str]) -> Input:
+  k = 0
+  tasks = []
+  seen = {}
+  first = true
+  n = 0
+  p = namepat()
+  for line in ls:
+    n += 1
+    if line.trim().is_empty(): continue
+    if first:
+      first = false
+      m0 = line.re_full("workers (\d+)")
+      if m0.is_empty() or m0[1].int() < 1: fail("line {n}: bad line")
+      k = m0[1].int()
+      continue
+    m = line.re_full("(" + p + ") (\d+)(?: after (" + p + "(?:, " + p + ")*))?")
+    if m.is_empty() or m[2].int() < 1: fail("line {n}: bad line")
+    if seen.has(m[1]): fail("line {n}: duplicate {m[1]}")
+    seen[m[1]] = 1
+    deps = if m[3].is_empty(): [] else: m[3].split(", ")
+    tasks.push(Task(m[1], m[2].int(), deps))
+  if first: fail("line 1: bad line")
+  for t in tasks:
+    for d in t.deps:
+      if not seen.has(d): fail("unknown {d}")
+  Input(k, tasks)
+
+fn index_of_names(tasks: [Task]) -> {str: int}:
+  idx = {}
+  for i in 0..tasks.len(): idx[tasks[i].name] = i
+  idx
+
+fn plan(tasks: [Task]) -> Plan:
+  n = tasks.len()
+  idx = index_of_names(tasks)
+  starts = [0].repeat(n)
+  ends = [0].repeat(n)
+  done = [0].repeat(n)
+  cnt = 0
+  progress = true
+  while progress:
+    progress = false
+    for i in 0..n:
+      if done[i] == 1: continue
+      ok = true
+      s = 0
+      for d in tasks[i].deps:
+        j = idx[d]
+        if done[j] == 0: ok = false
+        else: s = max(s, ends[j])
+      if ok:
+        starts[i] = s
+        ends[i] = s + tasks[i].days
+        done[i] = 1
+        cnt += 1
+        progress = true
+  if cnt < n: fail("cycle")
+  Plan(starts, ends)
+
+fn by_end_desc(ends: [int]) -> [int]:
+  ids = [i for i in 0..ends.len()]
+  ids.sort_by(i => -ends[i])
+
+fn tails(tasks: [Task], ends: [int]) -> [int]:
+  n = tasks.len()
+  idx = index_of_names(tasks)
+  tl = [0].repeat(n)
+  best = [0].repeat(n)
+  for i in by_end_desc(ends):
+    tl[i] = tasks[i].days + best[i]
+    for d in tasks[i].deps:
+      j = idx[d]
+      best[j] = max(best[j], tl[i])
+  tl
+
+fn critical(tasks: [Task], p: Plan) -> [str]:
+  n = tasks.len()
+  big = p.ends.max().or(0)
+  ok = [0].repeat(n)
+  for i in by_end_desc(p.ends):
+    if p.ends[i] == big: ok[i] = 1
+    else:
+      for j in 0..n:
+        if ok[j] == 1 and p.starts[j] == p.ends[i] and tasks[i].name in tasks[j].deps: ok[i] = 1
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and p.starts[i] == 0 and ok[i] == 1: cur = i
+  chain = []
+  while cur >= 0:
+    chain.push(tasks[cur].name)
+    if p.ends[cur] == big: break
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and ok[j] == 1 and p.starts[j] == p.ends[cur] and tasks[cur].name in tasks[j].deps: nxt = j
+    cur = nxt
+  chain
+
+fn fmt_plan(tasks: [Task], p: Plan) -> [str]:
+  [("  " + tasks[i].name + " " + p.starts[i].str() + "-" + p.ends[i].str()) for i in 0..tasks.len()]

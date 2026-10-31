@@ -1,0 +1,197 @@
+enum E:
+  Num(n: int)
+  Var(name: str)
+  Neg(e: E)
+  Bin(op: str, a: E, b: E)
+  Call(name: str, args: [E])
+
+type Fn:
+  params: [str]
+  body: E
+
+toks: [str] = []
+pos = 0
+depth = 0
+gv: {str: int} = {}
+funcs: {str: Fn} = {}
+
+fn syn():
+  fail("syntax")
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  if pos >= toks.len(): syn()
+  t = toks[pos]
+  pos += 1
+  t
+
+fn expect(s: str):
+  if nxt() != s: syn()
+
+fn done():
+  if pos != toks.len(): syn()
+
+fn isid(t: str) -> bool = t.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0
+
+fn reserved(t: str) -> bool = t in ["let", "fn", "print", "if"]
+
+fn name() -> str:
+  t = nxt()
+  if not isid(t) or reserved(t): syn()
+  t
+
+fn iscmp(t: str) -> bool = t in ["==", "!=", "<", ">", "<=", ">="]
+
+fn pcmp() -> E:
+  a = padd()
+  if iscmp(peek()):
+    op = nxt()
+    b = padd()
+    if iscmp(peek()): syn()
+    return Bin(op, a, b)
+  a
+
+fn padd() -> E:
+  a = pmul()
+  while peek() == "+" or peek() == "-":
+    op = nxt()
+    b = pmul()
+    a = Bin(op, a, b)
+  a
+
+fn pmul() -> E:
+  a = pun()
+  while peek() == "*" or peek() == "/" or peek() == "%":
+    op = nxt()
+    b = pun()
+    a = Bin(op, a, b)
+  a
+
+fn pun() -> E:
+  if peek() == "-":
+    pos += 1
+    return Neg(pun())
+  prim()
+
+fn prim() -> E:
+  t = nxt()
+  if t.re_full("\d+").len() > 0:
+    return Num(t.int())
+  if t == "(":
+    e = pcmp()
+    expect(")")
+    return e
+  if isid(t):
+    if peek() == "(":
+      if t in ["let", "fn", "print"]: syn()
+      pos += 1
+      args = []
+      if peek() == ")":
+        pos += 1
+      else:
+        while true:
+          args.push(pcmp())
+          s = nxt()
+          if s == ")": break
+          if s != ",": syn()
+      return Call(t, args)
+    if reserved(t): syn()
+    return Var(t)
+  syn()
+  Num(0)
+
+fn ev(e: E, env: {str: int}) -> int = match e:
+  Num(n) => n
+  Var(nm) =>
+    if env.has(nm): env[nm]
+    elif gv.has(nm): gv[nm]
+    else: fail("unknown name {nm}")
+  Neg(x) => 0 - ev(x, env)
+  Bin(op, a, b) =>
+    x = ev(a, env)
+    y = ev(b, env)
+    if op == "+": x + y
+    elif op == "-": x - y
+    elif op == "*": x * y
+    elif op == "/":
+      if y == 0: fail("division by zero")
+      x / y
+    elif op == "%":
+      if y == 0: fail("division by zero")
+      x % y
+    elif op == "==": if x == y: 1 else: 0
+    elif op == "!=": if x != y: 1 else: 0
+    elif op == "<": if x < y: 1 else: 0
+    elif op == ">": if x > y: 1 else: 0
+    elif op == "<=": if x <= y: 1 else: 0
+    else: if x >= y: 1 else: 0
+  Call(nm, args) =>
+    if nm == "if":
+      if args.len() != 3: fail("if takes 3 arguments")
+      c = ev(args[0], env)
+      if c != 0: ev(args[1], env) else: ev(args[2], env)
+    else:
+      if not funcs.has(nm): fail("unknown function {nm}")
+      f = funcs[nm]
+      if f.params.len() != args.len(): fail("{nm} takes {f.params.len()} arguments")
+      if depth >= 200: fail("too deep")
+      ne = {}
+      for i in 0..args.len():
+        ne[f.params[i]] = ev(args[i], env)
+      depth += 1
+      r = ev(f.body, ne)
+      depth -= 1
+      r
+
+fn run(line: str) -> int:
+  toks = line.re_list("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%<>=(),]|\S")
+  pos = 0
+  depth = 0
+  c = nxt()
+  if c == "let":
+    nm = name()
+    expect("=")
+    e = pcmp()
+    done()
+    gv[nm] = ev(e, {})
+  elif c == "fn":
+    nm = name()
+    expect("(")
+    ps = []
+    if peek() == ")":
+      pos += 1
+    else:
+      while true:
+        ps.push(name())
+        s = nxt()
+        if s == ")": break
+        if s != ",": syn()
+    expect("=")
+    body = pcmp()
+    done()
+    funcs[nm] = Fn(params: ps, body: body)
+  elif c == "print":
+    es = []
+    while true:
+      es.push(pcmp())
+      if peek() == ",":
+        pos += 1
+      else:
+        break
+    done()
+    vs = []
+    for e in es:
+      vs.push(ev(e, {}))
+    print(" ".join([v.str() for v in vs]))
+  else:
+    syn()
+  0
+
+ls = lines()
+for i in 0..ls.len():
+  t = ls[i].trim()
+  if t.is_empty() or t.starts_with("#"): continue
+  match run(t):
+    Ok(_) => pos += 0
+    Err(m) => print("error line {i + 1}: {m}")

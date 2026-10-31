@@ -1,0 +1,215 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn plan(ls: [str]) -> [str]:
+  inp = parse_input(ls)
+  g = check_graph(inp.tasks)
+  out = unlimited_lines(g)
+  s = make_schedule(g, inp.k)
+  out.push("workers " + str(inp.k))
+  mx = 0
+  for i in 0..g.names.len():
+    out.push("  " + g.names[i] + " " + str(s.start[i]) + "-" + str(s.end[i]))
+    if s.end[i] > mx: mx = s.end[i]
+  out.push("length " + str(mx))
+  out
+
+fn show(out: [str]):
+  for l in out: print(l)
+
+fn main():
+  match plan(lines()):
+    Ok(out) => show(out)
+    Err(msg) => print(msg)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+type Input:
+  k: int
+  tasks: [Task]
+
+type Graph:
+  names: [str]
+  days: [int]
+  deps: [[int]]
+  dependents: [[int]]
+  order: [int]
+  es: [int]
+  ef: [int]
+  tail: [int]
+  total: int
+
+fn parse_input(ls: [str]) -> Input:
+  k = 0
+  tasks = []
+  seen = {}
+  started = false
+  for i in 0..ls.len():
+    ln = i + 1
+    t = ls[i].trim()
+    if t != "":
+      if not started:
+        m = t.re_full('workers (\d+)')
+        if m.is_empty(): fail("line {ln}: bad line")
+        if m[1].int() < 1: fail("line {ln}: bad line")
+        k = m[1].int()
+        started = true
+      else:
+        a = t.re_full('([A-Za-z0-9_]+) (\d+) after ([A-Za-z0-9_]+(?:, [A-Za-z0-9_]+)*)')
+        b = t.re_full('([A-Za-z0-9_]+) (\d+)')
+        nm = ""
+        dy = 0
+        dl = []
+        if not a.is_empty():
+          nm = a[1]
+          dy = a[2].int()
+          dl = a[3].split(", ")
+        elif not b.is_empty():
+          nm = b[1]
+          dy = b[2].int()
+        else:
+          fail("line {ln}: bad line")
+        if dy < 1: fail("line {ln}: bad line")
+        if seen.has(nm): fail("line {ln}: duplicate {nm}")
+        seen[nm] = true
+        tasks.push(Task(nm, dy, dl))
+  Input(k, tasks)
+
+fn check_graph(tasks: [Task]) -> Graph:
+  n = tasks.len()
+  pos = {}
+  for i in 0..n: pos[tasks[i].name] = i
+  for t in tasks:
+    for d in t.deps:
+      if not pos.has(d): fail("unknown {d}")
+  names = []
+  days = []
+  deps = []
+  for t in tasks:
+    names.push(t.name)
+    days.push(t.days)
+    deps.push([pos[d] for d in t.deps])
+  dependents = []
+  for i in 0..n: dependents.push([])
+  for j in 0..n:
+    for d in deps[j]:
+      cur = dependents[d]
+      cur.push(j)
+      dependents[d] = cur
+  indeg = []
+  for i in 0..n: indeg.push(deps[i].len())
+  queue = []
+  for i in 0..n:
+    if indeg[i] == 0: queue.push(i)
+  order = []
+  head = 0
+  while head < queue.len():
+    u = queue[head]
+    head += 1
+    order.push(u)
+    for v in dependents[u]:
+      indeg[v] = indeg[v] - 1
+      if indeg[v] == 0: queue.push(v)
+  if order.len() < n: fail("cycle")
+  es = []
+  ef = []
+  for i in 0..n:
+    es.push(0)
+    ef.push(0)
+  for u in order:
+    s = 0
+    for d in deps[u]:
+      if ef[d] > s: s = ef[d]
+    es[u] = s
+    ef[u] = s + days[u]
+  tail = []
+  for i in 0..n: tail.push(0)
+  for u in order.rev():
+    m = 0
+    for v in dependents[u]:
+      if tail[v] > m: m = tail[v]
+    tail[u] = days[u] + m
+  total = 0
+  for i in 0..n:
+    if ef[i] > total: total = ef[i]
+  Graph(names, days, deps, dependents, order, es, ef, tail, total)
+
+fn chain(g: Graph) -> [str]:
+  n = g.names.len()
+  back = []
+  for i in 0..n: back.push(false)
+  for u in g.order.rev():
+    ok = g.ef[u] == g.total
+    for v in g.dependents[u]:
+      if g.es[v] == g.ef[u] and back[v]: ok = true
+    back[u] = ok
+  start = -1
+  for i in 0..n:
+    if start < 0 and g.es[i] == 0 and back[i]: start = i
+  res = []
+  if start < 0: return res
+  c = start
+  res.push(g.names[c])
+  while g.ef[c] != g.total:
+    nxt = -1
+    for v in g.dependents[c]:
+      if nxt < 0 and g.es[v] == g.ef[c] and back[v]: nxt = v
+    if nxt < 0: break
+    c = nxt
+    res.push(g.names[c])
+  res
+
+fn unlimited_lines(g: Graph) -> [str]:
+  out = ["unlimited"]
+  for i in 0..g.names.len():
+    out.push("  " + g.names[i] + " " + str(g.es[i]) + "-" + str(g.ef[i]))
+  out.push("length " + str(g.total))
+  out.push("critical " + " > ".join(chain(g)))
+  out
+## schedule.bv
+use "graph.bv"
+
+type Sched:
+  start: [int]
+  end: [int]
+
+fn ready(g: Graph, st: [int], en: [int], i: int, now: int) -> bool:
+  for d in g.deps[i]:
+    if st[d] < 0 or en[d] > now: return false
+  true
+
+fn make_schedule(g: Graph, k: int) -> Sched:
+  n = g.names.len()
+  st = []
+  en = []
+  for i in 0..n:
+    st.push(-1)
+    en.push(-1)
+  now = 0
+  started = 0
+  while started < n:
+    running = 0
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > now: running += 1
+    free = k - running
+    while free > 0:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0 and ready(g, st, en, i, now):
+          if best < 0 or g.tail[i] > g.tail[best]: best = i
+      if best < 0: break
+      st[best] = now
+      en[best] = now + g.days[best]
+      free -= 1
+      started += 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > now:
+        if nt < 0 or en[i] < nt: nt = en[i]
+    if nt < 0: break
+    now = nt
+  Sched(st, en)

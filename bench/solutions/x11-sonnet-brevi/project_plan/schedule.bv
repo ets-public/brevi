@@ -1,0 +1,40 @@
+use "graph.bv"
+
+fn make_schedule(g: Graph) -> [int]:
+  n = g.tasks.len()
+  tail = [0].repeat(n)
+  for k in 0..n:
+    x = g.order[n - 1 - k]
+    best = 0
+    for j in 0..n:
+      if x in g.tasks[j].deps: best = max(best, tail[j])
+    tail[x] = g.tasks[x].days + best
+  st = [-1].repeat(n)
+  en = [-1].repeat(n)
+  running = 0
+  finished = 0
+  t = 0
+  while finished < n:
+    for i in 0..n:
+      if st[i] >= 0 and en[i] == t:
+        running -= 1
+        finished += 1
+    while running < g.workers:
+      pick = -1
+      for i in 0..n:
+        if st[i] >= 0: continue
+        ok = true
+        for d in g.tasks[i].deps:
+          if st[d] < 0 or en[d] > t: ok = false
+        if not ok: continue
+        if pick < 0 or tail[i] > tail[pick]: pick = i
+      if pick < 0: break
+      st[pick] = t
+      en[pick] = t + g.tasks[pick].days
+      running += 1
+    if finished >= n: break
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and en[i] > t and (nt < 0 or en[i] < nt): nt = en[i]
+    t = nt
+  st

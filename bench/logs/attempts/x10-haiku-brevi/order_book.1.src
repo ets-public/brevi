@@ -1,0 +1,145 @@
+type Order:
+  id: str
+  side: str
+  qty: int
+  price: int
+  seq: int
+
+fn cents(s: str) -> int:
+  (a, _, b) = s.partition(".")
+  return a.int() * 100 + (b + "00")[:2].int()
+
+fn money(c: int) -> str:
+  q = c // 100
+  r = c % 100
+  return "{q}.{r:02d}"
+
+fn num_ok(s: str) -> bool:
+  if not s.re_full("\d{1,15}"):
+    return False
+  return s.int() > 0
+
+fn price_ok(s: str) -> bool:
+  if not s.re_full("\d{1,9}(\.\d{1,2})?"):
+    return False
+  return cents(s) > 0
+
+fn show_book(orders: {str: Order}):
+  asks = {}
+  bids = {}
+  for o in orders.values():
+    if o.side == "SELL":
+      asks[o.price] += o.qty
+    else:
+      bids[o.price] += o.qty
+  print("asks")
+  if asks.is_empty():
+    print("  -")
+  for p in asks.keys().sort():
+    print("  {money(p)} {asks[p]}")
+  print("bids")
+  if bids.is_empty():
+    print("  -")
+  for p in bids.keys().sort().rev():
+    print("  {money(p)} {bids[p]}")
+
+fn main():
+  orders = {}
+  used = {}
+  seq = 0
+  volume = 0
+  value = 0
+  for i, raw in enumerate(lines()):
+    ln = i + 1
+    if raw.trim().is_empty():
+      continue
+    p = raw.split(" ")
+    c = p[0]
+    side = ""
+    kind = ""
+    oid = ""
+    qty = 0
+    lim = 0
+    if (c == "BUY" or c == "SELL") and len(p) == 4 and p[1] != "" and num_ok(p[2]) and price_ok(p[3]):
+      kind = "limit"
+      side = c
+      oid = p[1]
+      qty = p[2].int()
+      lim = cents(p[3])
+    elif (c == "MBUY" or c == "MSELL") and len(p) == 3 and p[1] != "" and num_ok(p[2]):
+      kind = "market"
+      oid = p[1]
+      qty = p[2].int()
+      if c == "MBUY":
+        side = "BUY"
+        lim = 1000000000000000
+      else:
+        side = "SELL"
+        lim = 0
+    elif c == "CANCEL" and len(p) == 2 and p[1] != "":
+      kind = "cancel"
+      oid = p[1]
+    elif raw == "BOOK":
+      kind = "book"
+    else:
+      print("ERR line {ln}: bad command")
+      continue
+
+    if kind == "book":
+      show_book(orders)
+      continue
+
+    if kind == "cancel":
+      if not orders.has(oid):
+        print("ERR line {ln}: unknown ID")
+        continue
+      print("CANCELLED {oid} {orders[oid].qty}")
+      orders.remove(oid)
+      continue
+
+    if used.has(oid):
+      print("ERR line {ln}: duplicate ID")
+      continue
+    used[oid] = True
+    seq += 1
+
+    rem = qty
+    while rem > 0:
+      best = ""
+      bkey = (0, 0)
+      for k, o in orders.pairs():
+        if o.side == side:
+          continue
+        if side == "BUY":
+          if o.price > lim:
+            continue
+          key = (o.price, o.seq)
+        else:
+          if o.price < lim:
+            continue
+          key = (-o.price, o.seq)
+        if best == "" or key < bkey:
+          best = k
+          bkey = key
+      if best == "":
+        break
+      rp = orders[best].price
+      fill = min(rem, orders[best].qty)
+      if side == "BUY":
+        print("TRADE {oid} {best} {fill} {money(rp)}")
+      else:
+        print("TRADE {best} {oid} {fill} {money(rp)}")
+      volume += fill
+      value += fill * rp
+      rem -= fill
+      orders[best].qty -= fill
+      if orders[best].qty == 0:
+        orders.remove(best)
+
+    if kind == "market":
+      if rem > 0:
+        print("DROPPED {oid} {rem}")
+    elif rem > 0:
+      orders[oid] = Order(oid, side, rem, lim, seq)
+
+  print("volume {volume} value {money(value)}")

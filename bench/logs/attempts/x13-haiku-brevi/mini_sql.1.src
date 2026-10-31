@@ -1,0 +1,337 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+type Cond:
+  ci: int
+  op: str
+  val: str
+
+tables = {}
+toks = []
+pos = 0
+
+fn tokenize(s: str) -> [str]:
+  cs = s.chars()
+  out = []
+  i = 0
+  while i < cs.len():
+    c = cs[i]
+    if c == " ":
+      i += 1
+    elif c == "'":
+      j = i + 1
+      txt = ""
+      closed = false
+      while not closed:
+        if j >= cs.len(): fail("error: syntax")
+        if cs[j] == "'" and j + 1 < cs.len() and cs[j + 1] == "'":
+          txt += "'"
+          j += 2
+        elif cs[j] == "'":
+          closed = true
+          j += 1
+        else:
+          txt += cs[j]
+          j += 1
+      out.push("'" + txt)
+      i = j
+    elif c.is_alpha() or c.is_digit() or c == "_" or c == "-":
+      j = i + 1
+      while j < cs.len() and (cs[j].is_alpha() or cs[j].is_digit() or cs[j] == "_"):
+        j += 1
+      out.push(cs[i:j].join(""))
+      i = j
+    elif c == "<" or c == ">" or c == "!":
+      if i + 1 < cs.len() and cs[i + 1] == "=":
+        out.push(c + "=")
+        i += 2
+      else:
+        out.push(c)
+        i += 1
+    elif c == "(" or c == ")" or c == "," or c == "*" or c == "=":
+      out.push(c)
+      i += 1
+    else:
+      fail("error: syntax")
+  return out
+
+fn peek() -> str:
+  if pos < toks.len(): return toks[pos]
+  return ""
+
+fn advance() -> str:
+  t = peek()
+  if t == "": fail("error: syntax")
+  pos += 1
+  return t
+
+fn expect(s: str):
+  if advance() != s: fail("error: syntax")
+
+fn at_end() -> bool:
+  return pos >= toks.len()
+
+fn is_name(t: str) -> bool:
+  if t.is_empty() or not t[0].is_alpha(): return false
+  for c in t.chars():
+    if not (c.is_alpha() or c.is_digit() or c == "_"): return false
+  return true
+
+fn ident() -> str:
+  t = advance()
+  if not is_name(t): fail("error: syntax")
+  return t
+
+fn is_int(t: str) -> bool:
+  body = t
+  if t.starts_with("-"): body = t[1:]
+  if body.is_empty(): return false
+  for c in body.chars():
+    if not c.is_digit(): return false
+  return true
+
+fn is_lit(t: str) -> bool:
+  return t.starts_with("'") or is_int(t)
+
+fn lit() -> str:
+  t = advance()
+  if not is_lit(t): fail("error: syntax")
+  return t
+
+fn cell_of(t: str, typ: str) -> str:
+  if t.starts_with("'"):
+    if typ != "TEXT": fail("error: type mismatch")
+    return t[1:]
+  if typ != "INT": fail("error: type mismatch")
+  return t.int().or(0).str()
+
+fn col_idx(t: Table, c: str) -> int:
+  i = t.cols.index_of(c)
+  if i < 0: fail("error: no column " + c)
+  return i
+
+fn parse_where() -> [[str]]:
+  conds = []
+  if peek() != "WHERE": return conds
+  pos += 1
+  while True:
+    c = ident()
+    op = advance()
+    if op not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+    v = lit()
+    conds.push([c, op, v])
+    if peek() != "AND": break
+    pos += 1
+  return conds
+
+fn prep(t: Table, raw: [[str]]) -> [Cond]:
+  out = []
+  for c in raw:
+    ci = col_idx(t, c[0])
+    out.push(Cond(ci: ci, op: c[1], val: cell_of(c[2], t.types[ci])))
+  return out
+
+fn cmp_int(a: str, b: str) -> int:
+  x = a.int().or(0)
+  y = b.int().or(0)
+  if x < y: return -1
+  if x > y: return 1
+  return 0
+
+fn cmp_text(a: str, b: str) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn ok_cmp(r: int, op: str) -> bool:
+  if op == "=": return r == 0
+  if op == "!=": return r != 0
+  if op == "<": return r < 0
+  if op == ">": return r > 0
+  if op == "<=": return r <= 0
+  return r >= 0
+
+fn row_ok(row: [str], t: Table, conds: [Cond]) -> bool:
+  for c in conds:
+    r = 0
+    if t.types[c.ci] == "INT":
+      r = cmp_int(row[c.ci], c.val)
+    else:
+      r = cmp_text(row[c.ci], c.val)
+    if not ok_cmp(r, c.op): return false
+  return true
+
+fn do_create() -> [str]:
+  advance()
+  expect("TABLE")
+  tn = ident()
+  expect("(")
+  cn = []
+  ct = []
+  while True:
+    cn.push(ident())
+    ty = advance()
+    if ty != "INT" and ty != "TEXT": fail("error: syntax")
+    ct.push(ty)
+    if peek() != ",": break
+    pos += 1
+  expect(")")
+  if not at_end(): fail("error: syntax")
+  if tables.has(tn): fail("error: table " + tn + " exists")
+  tables[tn] = Table(cols: cn, types: ct, rows: [])
+  return ["ok"]
+
+fn do_insert() -> [str]:
+  advance()
+  expect("INTO")
+  tn = ident()
+  expect("VALUES")
+  expect("(")
+  vs = []
+  while True:
+    vs.push(lit())
+    if peek() != ",": break
+    pos += 1
+  expect(")")
+  if not at_end(): fail("error: syntax")
+  if not tables.has(tn): fail("error: no table " + tn)
+  t = tables[tn]
+  if vs.len() != t.cols.len(): fail("error: type mismatch")
+  row = []
+  for i in 0..vs.len():
+    row.push(cell_of(vs[i], t.types[i]))
+  tables[tn].rows.push(row)
+  return ["ok"]
+
+fn do_select() -> [str]:
+  advance()
+  star = false
+  cnt = false
+  sel = []
+  if peek() == "COUNT":
+    pos += 1
+    expect("(")
+    expect("*")
+    expect(")")
+    cnt = true
+  elif peek() == "*":
+    pos += 1
+    star = true
+  else:
+    while True:
+      sel.push(ident())
+      if peek() != ",": break
+      pos += 1
+  expect("FROM")
+  tn = ident()
+  raw = parse_where()
+  ob = ""
+  desc = false
+  if peek() == "ORDER":
+    pos += 1
+    expect("BY")
+    ob = ident()
+    if peek() == "DESC":
+      pos += 1
+      desc = true
+  lim = -1
+  if peek() == "LIMIT":
+    pos += 1
+    lt = advance()
+    if not is_int(lt): fail("error: syntax")
+    lim = lt.int().or(0)
+  if not at_end(): fail("error: syntax")
+  if not tables.has(tn): fail("error: no table " + tn)
+  t = tables[tn]
+  si = []
+  if not star and not cnt:
+    for c in sel: si.push(col_idx(t, c))
+  cs = prep(t, raw)
+  oi = -1
+  if ob != "": oi = col_idx(t, ob)
+  hits = []
+  for r in t.rows:
+    if row_ok(r, t, cs): hits.push(r)
+  if oi >= 0:
+    if t.types[oi] == "INT":
+      hits = hits.sort_by(x => x[oi].int().or(0), desc)
+    else:
+      hits = hits.sort_by(x => x[oi], desc)
+  if lim >= 0: hits = hits.take(lim)
+  if cnt: return [hits.len().str()]
+  idx = si
+  if star:
+    idx = []
+    for i in 0..t.cols.len(): idx.push(i)
+  names = []
+  for i in idx: names.push(t.cols[i])
+  out = [names.join(" | ")]
+  for r in hits:
+    vals = []
+    for i in idx: vals.push(r[i])
+    out.push(vals.join(" | "))
+  out.push("({hits.len()} rows)")
+  return out
+
+fn do_update() -> [str]:
+  advance()
+  tn = ident()
+  expect("SET")
+  sc = ident()
+  expect("=")
+  sv = lit()
+  raw = parse_where()
+  if not at_end(): fail("error: syntax")
+  if not tables.has(tn): fail("error: no table " + tn)
+  t = tables[tn]
+  si = col_idx(t, sc)
+  cs = prep(t, raw)
+  nv = cell_of(sv, t.types[si])
+  n = 0
+  rows = []
+  for r in t.rows:
+    if row_ok(r, t, cs):
+      n += 1
+      r[si] = nv
+    rows.push(r)
+  tables[tn].rows = rows
+  return ["updated {n}"]
+
+fn do_delete() -> [str]:
+  advance()
+  expect("FROM")
+  tn = ident()
+  raw = parse_where()
+  if not at_end(): fail("error: syntax")
+  if not tables.has(tn): fail("error: no table " + tn)
+  t = tables[tn]
+  cs = prep(t, raw)
+  keep = []
+  n = 0
+  for r in t.rows:
+    if row_ok(r, t, cs):
+      n += 1
+    else:
+      keep.push(r)
+  tables[tn].rows = keep
+  return ["deleted {n}"]
+
+fn run(line: str) -> [str]:
+  toks = tokenize(line)
+  pos = 0
+  h = peek()
+  if h == "CREATE": return do_create()
+  if h == "INSERT": return do_insert()
+  if h == "SELECT": return do_select()
+  if h == "UPDATE": return do_update()
+  if h == "DELETE": return do_delete()
+  fail("error: syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(v) =>
+      for x in v: print(x)
+    Err(m) => print(m)

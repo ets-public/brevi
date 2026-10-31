@@ -1,0 +1,23 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn plan(ls: [str]) -> [str]:
+  inp = parse_input(ls)
+  g = check_graph(inp.tasks)
+  out = unlimited_lines(g)
+  s = make_schedule(g, inp.k)
+  out.push("workers " + str(inp.k))
+  mx = 0
+  for i in 0..g.names.len():
+    out.push("  " + g.names[i] + " " + str(s.start[i]) + "-" + str(s.end[i]))
+    if s.end[i] > mx: mx = s.end[i]
+  out.push("length " + str(mx))
+  out
+
+fn show(out: [str]):
+  for l in out: print(l)
+
+fn main():
+  match plan(lines()):
+    Ok(out) => show(out)
+    Err(msg) => print(msg)

@@ -1,0 +1,57 @@
+test 1 failed
+input:
+SELL a 5 10
+SELL b 5 10
+SELL c 5 9.5
+BUY x 12 10
+BOOK
+MSELL y 3
+BUY z 1 0
+buy q 1 1
+BUY w 1 1.234
+BUY v 0 5
+SELL u 2 abc
+CANCEL
+
+BOOK
+expected:
+TRADE x c 5 9.50
+TRADE x a 5 10.00
+TRADE x b 2 10.00
+asks
+  10.00 3
+bids
+  -
+DROPPED y 3
+ERR line 7: bad command
+ERR line 8: bad command
+ERR line 9: bad command
+ERR line 10: bad command
+ERR line 11: bad command
+ERR line 12: bad command
+asks
+  10.00 3
+bids
+  -
+volume 12 value 117.50
+got:
+TRADE x c 5 9.50
+TRADE x a 5 10.00
+TRADE x b 2 10.00
+asks
+  10.00 3
+bids
+  -
+DROPPED y 3
+ERR line 7: bad
+ERR line 8: bad command
+ERR line 9: bad
+ERR line 10: bad
+ERR line 11: bad
+ERR line 12: bad command
+asks
+  10.00 3
+bids
+  -
+volume 12 value 117.50
+passed 2/3

@@ -1,0 +1,149 @@
+## main.bv
+use "catalog.bv"
+use "rules.bv"
+
+lib = new_lib()
+for line in lines():
+  if line.trim().is_empty(): continue
+  w = line.words()
+  d = date(w[0]).days
+  for s in expire(lib, d): print(s)
+  c = w[1]
+  if c == "BOOK": print(add_book(lib, w[2], w[3].int(), " ".join(w.skip(4))))
+  elif c == "MEMBER": print(add_member(lib, w[2], w[3], " ".join(w.skip(4))))
+  elif c == "LOAN": print(do_loan(lib, d, w[2], w[3]))
+  elif c == "RETURN": print(do_return(lib, d, w[2], w[3]))
+  elif c == "RESERVE": print(do_reserve(lib, w[2], w[3]))
+  elif c == "PAY": print(do_pay(lib, w[2], w[3].dec()))
+  elif c == "STATUS": print(do_status(lib, w[2]))
+## catalog.bv
+type Book:
+  id: str
+  title: str
+  shelf: int
+  waiting: [str]
+
+type Loan:
+  book: str
+  due: int
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+type Hold:
+  book: str
+  member: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_lib() -> Lib = Lib({}, {}, [])
+
+fn limit_of(tier: str) -> int = if tier == "basic": 2 else: 5
+
+fn days_of(tier: str) -> int = if tier == "basic": 14 else: 28
+
+fn fee_of(tier: str) -> dec = if tier == "basic": "0.25".dec() else: "0.10".dec()
+
+fn has_loan(m: Member, b: str) -> bool = m.loans.any(l => l.book == b)
+
+fn dstr(n: int) -> str = str(date("1970-01-01").add_days(n))
+
+fn refuse(m: str, b: str, why: str) -> str = "refused {m} {b}: {why}"
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str) -> str:
+  if lib.books.has(id): return "duplicate ID"
+  lib.books[id] = Book(id, title, copies, [])
+  "added {id}"
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str) -> str:
+  if lib.members.has(id): return "duplicate ID"
+  lib.members[id] = Member(id, name, tier, 0.dec(), [])
+  "welcome {name}"
+## rules.bv
+use "catalog.bv"
+
+fn expire(mut lib: Lib, today: int) -> [str]:
+  out = []
+  while true:
+    bi = -1
+    for i in 0..lib.holds.len():
+      h = lib.holds[i]
+      if h.last < today:
+        if bi < 0 or h.last < lib.holds[bi].last or (h.last == lib.holds[bi].last and h.book < lib.holds[bi].book): bi = i
+    if bi < 0: break
+    g = lib.holds[bi]
+    out.push("hold expired {g.member} {g.book}")
+    lib.holds.remove(bi)
+    if lib.books[g.book].waiting:
+      nm = lib.books[g.book].waiting[0]
+      lib.books[g.book].waiting.remove(0)
+      lib.holds.push(Hold(g.book, nm, g.last + 3))
+    else: lib.books[g.book].shelf += 1
+  out
+
+fn do_loan(mut lib: Lib, d: int, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return refuse(mid, bid, "unknown member")
+  if not lib.books.has(bid): return refuse(mid, bid, "unknown book")
+  m = lib.members[mid]
+  if m.owes > "2.00".dec(): return refuse(mid, bid, "owes {m.owes.fmt(2)}")
+  if m.loans.len() >= limit_of(m.tier): return refuse(mid, bid, "limit")
+  if has_loan(m, bid): return refuse(mid, bid, "already has it")
+  hi = -1
+  for i in 0..lib.holds.len():
+    if lib.holds[i].book == bid and lib.holds[i].member == mid: hi = i
+  if hi < 0 and lib.books[bid].shelf <= 0: return refuse(mid, bid, "none available")
+  if hi >= 0: lib.holds.remove(hi)
+  else: lib.books[bid].shelf -= 1
+  due = d + days_of(m.tier)
+  lib.members[mid].loans.push(Loan(bid, due))
+  "loan {mid} {bid} due {dstr(due)}"
+
+fn do_return(mut lib: Lib, d: int, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return refuse(mid, bid, "not on loan")
+  m = lib.members[mid]
+  li = -1
+  for i in 0..m.loans.len():
+    if m.loans[i].book == bid: li = i
+  if li < 0: return refuse(mid, bid, "not on loan")
+  late = d - m.loans[li].due
+  fee = 0.dec()
+  if late > 0:
+    fee = fee_of(m.tier) * late
+    if fee > "5.00".dec(): fee = "5.00".dec()
+  lib.members[mid].loans.remove(li)
+  lib.members[mid].owes += fee
+  if lib.books[bid].waiting:
+    nm = lib.books[bid].waiting[0]
+    lib.books[bid].waiting.remove(0)
+    lib.holds.push(Hold(bid, nm, d + 3))
+  else: lib.books[bid].shelf += 1
+  if fee > 0.dec(): return "returned {mid} {bid} fee {fee.fmt(2)}"
+  "returned {mid} {bid}"
+
+fn do_reserve(mut lib: Lib, mid: str, bid: str) -> str:
+  if not lib.members.has(mid): return refuse(mid, bid, "unknown member")
+  if not lib.books.has(bid): return refuse(mid, bid, "unknown book")
+  if has_loan(lib.members[mid], bid): return refuse(mid, bid, "already has it")
+  if mid in lib.books[bid].waiting: return refuse(mid, bid, "already reserved")
+  if lib.books[bid].shelf > 0: return refuse(mid, bid, "copy available")
+  lib.books[bid].waiting.push(mid)
+  "reserved {mid} {bid} position {lib.books[bid].waiting.len()}"
+
+fn do_pay(mut lib: Lib, mid: str, amt: dec) -> str:
+  if not lib.members.has(mid): return "refused {mid}: unknown member"
+  lib.members[mid].owes -= amt
+  "paid {mid} owes {lib.members[mid].owes.fmt(2)}"
+
+fn do_status(lib: Lib, mid: str) -> str:
+  if not lib.members.has(mid): return "refused {mid}: unknown member"
+  m = lib.members[mid]
+  bs = if m.loans.is_empty(): "-" else: " ".join([l.book for l in m.loans])
+  "{mid} {m.name} owes {m.owes.fmt(2)} loans: {bs}"

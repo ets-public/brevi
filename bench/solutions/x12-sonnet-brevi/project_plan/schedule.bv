@@ -1,0 +1,31 @@
+fn schedule(days: [int], didx: [[int]], tl: [int], k: int) -> ([int], [int]):
+  n = days.len()
+  st = [-1].repeat(n)
+  en = [-1].repeat(n)
+  done = [false].repeat(n)
+  fin = 0
+  t = 0
+  while True:
+    for i in 0..n:
+      if st[i] >= 0 and not done[i] and en[i] == t:
+        done[i] = true
+        fin += 1
+    if fin >= n: break
+    running = 0
+    for i in 0..n:
+      if st[i] >= 0 and not done[i]: running += 1
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if st[i] < 0 and all(done[d] for d in didx[i]):
+          if best < 0 or tl[i] > tl[best]: best = i
+      if best < 0: break
+      st[best] = t
+      en[best] = t + days[best]
+      running += 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and not done[i]:
+        if nt < 0 or en[i] < nt: nt = en[i]
+    t = nt
+  (st, en)

@@ -1,0 +1,57 @@
+fn find_unknown(depnames: [[str]], idx: {str: int}) -> str:
+  for dl in depnames:
+    for d in dl:
+      if not idx.has(d): return d
+  return ""
+
+fn topo_order(deps: [[int]], dependents: [[int]]) -> [int]:
+  n = deps.len()
+  indeg = [deps[i].len() for i in range(0, n)]
+  order = []
+  for i in range(0, n):
+    if indeg[i] == 0: order.push(i)
+  h = 0
+  while h < order.len():
+    u = order[h]
+    h += 1
+    for v in dependents[u]:
+      indeg[v] = indeg[v] - 1
+      if indeg[v] == 0: order.push(v)
+  return order
+
+fn earliest(order: [int], deps: [[int]], days: [int]) -> [int]:
+  n = days.len()
+  st = [0 for i in range(0, n)]
+  for u in order:
+    s = 0
+    for d in deps[u]:
+      e = st[d] + days[d]
+      if e > s: s = e
+    st[u] = s
+  return st
+
+fn critical(order: [int], deps: [[int]], dependents: [[int]], st: [int], ends: [int], total: int) -> [int]:
+  n = ends.len()
+  good = []
+  for i in range(0, n):
+    good.push(false)
+  for u in order.rev():
+    g = ends[u] == total
+    for v in dependents[u]:
+      if good[v] and st[v] == ends[u]: g = true
+    good[u] = g
+  chain = []
+  start = -1
+  for i in range(0, n):
+    if start < 0 and st[i] == 0 and good[i]: start = i
+  if start < 0: return chain
+  cur = start
+  chain.push(cur)
+  while ends[cur] != total:
+    nxt = -1
+    for v in range(0, n):
+      if nxt < 0 and good[v] and st[v] == ends[cur] and deps[v].contains(cur): nxt = v
+    if nxt < 0: break
+    chain.push(nxt)
+    cur = nxt
+  return chain

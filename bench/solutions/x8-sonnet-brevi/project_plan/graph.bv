@@ -1,0 +1,108 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse_input(ls: [str]) -> (str, int, [Task]):
+  tasks = []
+  names = {}
+  k = 0
+  header = false
+  for i in 0..ls.len():
+    s = ls[i].trim()
+    if s.is_empty(): continue
+    n = i + 1
+    if not header:
+      g = s.re_full("workers (\d+)")
+      if g.is_empty(): return ("line {n}: bad line", 0, [])
+      if g[1].int() < 1: return ("line {n}: bad line", 0, [])
+      k = g[1].int()
+      header = true
+      continue
+    g = s.re_full("(\w+) (\d+)(?: after (\w+(?:, *\w+)*))?")
+    if g.is_empty(): return ("line {n}: bad line", 0, [])
+    if g[2].int() < 1: return ("line {n}: bad line", 0, [])
+    if names.has(g[1]): return ("line {n}: duplicate {g[1]}", 0, [])
+    names[g[1]] = 1
+    deps = []
+    if not g[3].is_empty():
+      deps = [d.trim() for d in g[3].split(",")]
+    tasks.push(Task(name: g[1], days: g[2].int(), deps: deps))
+  if not header: return ("line 1: bad line", 0, [])
+  ("", k, tasks)
+
+fn unlimited(tasks: [Task]) -> (bool, [int], [int]):
+  n = tasks.len()
+  names = [t.name for t in tasks]
+  start = [0].repeat(n)
+  end = [0].repeat(n)
+  done = [false].repeat(n)
+  cnt = 0
+  progress = true
+  while progress:
+    progress = false
+    for i in 0..n:
+      if done[i]: continue
+      ready = true
+      s = 0
+      for d in tasks[i].deps:
+        j = names.index_of(d)
+        if j < 0 or not done[j]:
+          ready = false
+        else:
+          s = max(s, end[j])
+      if ready:
+        start[i] = s
+        end[i] = s + tasks[i].days
+        done[i] = true
+        cnt += 1
+        progress = true
+  (cnt == n, start, end)
+
+fn check(tasks: [Task]) -> str:
+  names = [t.name for t in tasks]
+  for t in tasks:
+    for d in t.deps:
+      if d not in names: return "unknown {d}"
+  let (ok, s, e) = unlimited(tasks)
+  if not ok: return "cycle"
+  ""
+
+fn by_end_desc(end: [int]) -> [int]:
+  idx = [i for i in 0..end.len()]
+  idx.sort_by(i => end[i], true)
+
+fn critical(tasks: [Task], start: [int], end: [int]) -> [int]:
+  n = tasks.len()
+  names = [t.name for t in tasks]
+  top = max(end)
+  good = [false].repeat(n)
+  for i in by_end_desc(end):
+    if end[i] == top:
+      good[i] = true
+    else:
+      for j in 0..n:
+        if good[j] and start[j] == end[i] and names[i] in tasks[j].deps:
+          good[i] = true
+  chain = []
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and start[i] == 0 and good[i]: cur = i
+  while cur >= 0:
+    chain.push(cur)
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and good[j] and start[j] == end[cur] and names[cur] in tasks[j].deps: nxt = j
+    cur = nxt
+  chain
+
+fn tails(tasks: [Task], end: [int]) -> [int]:
+  n = tasks.len()
+  names = [t.name for t in tasks]
+  tl = [0].repeat(n)
+  for i in by_end_desc(end):
+    best = 0
+    for j in 0..n:
+      if names[i] in tasks[j].deps and tl[j] > best: best = tl[j]
+    tl[i] = tasks[i].days + best
+  tl

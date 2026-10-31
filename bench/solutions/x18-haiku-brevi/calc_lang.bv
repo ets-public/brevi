@@ -1,0 +1,214 @@
+gl: {str: int} = {}
+fns: {str: ([str], [str])} = {}
+
+fn tk(toks: [str], i: int) -> str:
+  if i < len(toks): return toks[i]
+  return ""
+
+fn expect(toks: [str], i: int, s: str) -> int:
+  if tk(toks, i) != s: fail("syntax")
+  return i + 1
+
+fn is_name(t: str) -> bool:
+  if len(t.re_full("[A-Za-z][A-Za-z0-9_]*")) == 0: return False
+  return t not in ["let", "fn", "print", "if"]
+
+fn arith(op: str, a: int, b: int) -> int:
+  if op == "*": return a * b
+  if op == "/" or op == "%":
+    if b == 0: fail("division by zero")
+    if op == "/": return a / b
+    return a % b
+  if op == "+": return a + b
+  return a - b
+
+fn cmpop(op: str, a: int, b: int) -> int:
+  r = False
+  if op == "==":
+    r = a == b
+  elif op == "!=":
+    r = a != b
+  elif op == "<":
+    r = a < b
+  elif op == ">":
+    r = a > b
+  elif op == "<=":
+    r = a <= b
+  else:
+    r = a >= b
+  if r: return 1
+  return 0
+
+fn count_args(toks: [str], j: int) -> (int, int):
+  if tk(toks, j) == ")": return (0, j + 1)
+  cnt = 0
+  k = j
+  more = True
+  while more:
+    r = ex_cmp(toks, k, False, {}, 0)
+    cnt += 1
+    k = r.1
+    if tk(toks, k) == ",":
+      k += 1
+    else:
+      more = False
+  return (cnt, expect(toks, k, ")"))
+
+fn ex_cmp(toks: [str], i: int, live: bool, env: {str: int}, depth: int) -> (int, int):
+  r = ex_add(toks, i, live, env, depth)
+  k = r.1
+  op = tk(toks, k)
+  if op == "==" or op == "!=" or op == "<" or op == ">" or op == "<=" or op == ">=":
+    r2 = ex_add(toks, k + 1, live, env, depth)
+    v = 0
+    if live: v = cmpop(op, r.0, r2.0)
+    return (v, r2.1)
+  return (r.0, k)
+
+fn ex_add(toks: [str], i: int, live: bool, env: {str: int}, depth: int) -> (int, int):
+  r = ex_mul(toks, i, live, env, depth)
+  acc = r.0
+  k = r.1
+  while tk(toks, k) == "+" or tk(toks, k) == "-":
+    op = tk(toks, k)
+    r2 = ex_mul(toks, k + 1, live, env, depth)
+    k = r2.1
+    if live: acc = arith(op, acc, r2.0)
+  return (acc, k)
+
+fn ex_mul(toks: [str], i: int, live: bool, env: {str: int}, depth: int) -> (int, int):
+  r = ex_un(toks, i, live, env, depth)
+  acc = r.0
+  k = r.1
+  while tk(toks, k) == "*" or tk(toks, k) == "/" or tk(toks, k) == "%":
+    op = tk(toks, k)
+    r2 = ex_un(toks, k + 1, live, env, depth)
+    k = r2.1
+    if live: acc = arith(op, acc, r2.0)
+  return (acc, k)
+
+fn ex_un(toks: [str], i: int, live: bool, env: {str: int}, depth: int) -> (int, int):
+  if tk(toks, i) == "-":
+    r = ex_un(toks, i + 1, live, env, depth)
+    return (0 - r.0, r.1)
+  return ex_prim(toks, i, live, env, depth)
+
+fn ex_prim(toks: [str], i: int, live: bool, env: {str: int}, depth: int) -> (int, int):
+  t = tk(toks, i)
+  if len(t.re_full("\d+")) > 0:
+    return (t.int(), i + 1)
+  if t == "(":
+    r = ex_cmp(toks, i + 1, live, env, depth)
+    return (r.0, expect(toks, r.1, ")"))
+  if t == "if" and tk(toks, i + 1) == "(":
+    return ex_call(toks, t, i + 2, live, env, depth)
+  if is_name(t):
+    if tk(toks, i + 1) == "(":
+      return ex_call(toks, t, i + 2, live, env, depth)
+    if not live: return (0, i + 1)
+    if env.has(t): return (env[t], i + 1)
+    if gl.has(t): return (gl[t], i + 1)
+    fail("unknown name {t}")
+  fail("syntax")
+
+fn ex_call(toks: [str], name: str, j: int, live: bool, env: {str: int}, depth: int) -> (int, int):
+  sc = count_args(toks, j)
+  cnt = sc.0
+  endi = sc.1
+  if not live: return (0, endi)
+  if name == "if":
+    if cnt != 3: fail("if takes 3 arguments")
+    cr = ex_cmp(toks, j, True, env, depth)
+    a0 = expect(toks, cr.1, ",")
+    if cr.0 != 0:
+      ar = ex_cmp(toks, a0, True, env, depth)
+      return (ar.0, endi)
+    ar2 = ex_cmp(toks, a0, False, env, depth)
+    b0 = expect(toks, ar2.1, ",")
+    br2 = ex_cmp(toks, b0, True, env, depth)
+    return (br2.0, endi)
+  if not fns.has(name): fail("unknown function {name}")
+  ps = fns[name].0
+  if len(ps) != cnt: fail("{name} takes {len(ps)} arguments")
+  vals = []
+  k = j
+  while len(vals) < cnt:
+    ar3 = ex_cmp(toks, k, True, env, depth)
+    vals.push(ar3.0)
+    k = ar3.1
+    if tk(toks, k) == ",":
+      k += 1
+  if depth + 1 > 200: fail("too deep")
+  np = {}
+  for p in 0..cnt:
+    np[ps[p]] = vals[p]
+  br3 = ex_cmp(fns[name].1, 0, True, np, depth + 1)
+  return (br3.0, endi)
+
+fn run_line(tl: [str]) -> str:
+  first = tk(tl, 0)
+  if first == "let":
+    nm = tk(tl, 1)
+    if not is_name(nm): fail("syntax")
+    k = expect(tl, 2, "=")
+    chk = ex_cmp(tl, k, False, {}, 0)
+    if chk.1 != len(tl): fail("syntax")
+    v = ex_cmp(tl, k, True, {}, 0)
+    gl[nm] = v.0
+    return ""
+  if first == "fn":
+    nm = tk(tl, 1)
+    if not is_name(nm): fail("syntax")
+    k = expect(tl, 2, "(")
+    ps = []
+    while tk(tl, k) != ")":
+      p = tk(tl, k)
+      if not is_name(p): fail("syntax")
+      ps.push(p)
+      k += 1
+      if tk(tl, k) == ",":
+        k += 1
+      elif tk(tl, k) != ")":
+        fail("syntax")
+    k = expect(tl, k, ")")
+    k = expect(tl, k, "=")
+    body = tl[k:]
+    chk = ex_cmp(body, 0, False, {}, 0)
+    if chk.1 != len(body): fail("syntax")
+    fns[nm] = (ps, body)
+    return ""
+  if first == "print":
+    k = 1
+    more = True
+    while more:
+      r = ex_cmp(tl, k, False, {}, 0)
+      k = r.1
+      if tk(tl, k) == ",":
+        k += 1
+      else:
+        more = False
+    if k != len(tl): fail("syntax")
+    out = []
+    k = 1
+    more = True
+    while more:
+      r2 = ex_cmp(tl, k, True, {}, 0)
+      out.push(str(r2.0))
+      k = r2.1
+      if tk(tl, k) == ",":
+        k += 1
+      else:
+        more = False
+    return out.join(" ")
+  fail("syntax")
+
+n = 0
+for raw in lines():
+  n += 1
+  ln = raw.trim()
+  if ln.is_empty() or ln.starts_with("#"): continue
+  tl = ln.re_list("\d+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%(),=<>]|\S")
+  match run_line(tl):
+    Ok(out) =>
+      if out != "": print(out)
+    Err(m) => print("error line {n}: {m}")

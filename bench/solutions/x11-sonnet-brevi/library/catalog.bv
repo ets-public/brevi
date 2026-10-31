@@ -1,0 +1,37 @@
+type Loan:
+  book: str
+  due: int
+
+type Book:
+  id: str
+  title: str
+  copies: int
+  waiting: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+type Hold:
+  member: str
+  book: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_lib() -> Lib:
+  Lib(books: {}, members: {}, holds: [])
+
+fn day_str(n: int) -> str:
+  str(date("1970-01-01").add_days(n))
+
+fn has_loan(m: Member, book: str) -> bool:
+  for l in m.loans:
+    if l.book == book: return true
+  false

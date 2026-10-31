@@ -1,0 +1,152 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], starts: [int], ends: [int]):
+  for i in 0..tasks.len(): print("  {tasks[i].name} {starts[i]}-{ends[i]}")
+
+fn run(ls: [str]) -> int:
+  let (k, tasks) = parse_input(ls)
+  let (starts, ends) = unlimited(tasks)
+  chain = critical(tasks, starts, ends)
+  tl = tails(tasks, ends)
+  let (s2, e2) = schedule(k, tasks, tl)
+  print("unlimited")
+  show(tasks, starts, ends)
+  print("length {ends.max()}")
+  print("critical {chain.map(i => tasks[i].name).join(" > ")}")
+  print("workers {k}")
+  show(tasks, s2, e2)
+  print("length {e2.max()}")
+  0
+
+match run(lines()):
+  Ok(_) => assert true
+  Err(m) => print(m)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  names: [str]
+  deps: [int]
+
+fn parse_input(ls: [str]) -> (int, [Task]):
+  k = 0
+  tasks = []
+  seen = {}
+  started = false
+  for n, raw in ls.enumerate():
+    line = raw.trim()
+    if line.is_empty(): continue
+    if not started:
+      h = line.re_full("workers (\d+)")
+      if h.is_empty(): fail("line {n + 1}: bad line")
+      if h[1].int() < 1: fail("line {n + 1}: bad line")
+      k = h[1].int()
+      started = true
+      continue
+    m = line.re_full("([A-Za-z0-9_]+) (\d+)(?: after ([A-Za-z0-9_]+(?:, [A-Za-z0-9_]+)*))?")
+    if m.is_empty(): fail("line {n + 1}: bad line")
+    if m[2].int() < 1: fail("line {n + 1}: bad line")
+    if seen.has(m[1]): fail("line {n + 1}: duplicate {m[1]}")
+    seen[m[1]] = tasks.len()
+    ds = []
+    if m[3] != "": ds = m[3].split(", ")
+    tasks.push(Task(name: m[1], days: m[2].int(), names: ds, deps: []))
+  if not started: fail("line 1: bad line")
+  for i in 0..tasks.len():
+    for d in tasks[i].names:
+      if not seen.has(d): fail("unknown {d}")
+      tasks[i].deps.push(seen[d])
+  (k, tasks)
+
+fn unlimited(tasks: [Task]) -> ([int], [int]):
+  n = tasks.len()
+  starts = [0].repeat(n)
+  ends = [-1].repeat(n)
+  progress = true
+  while progress:
+    progress = false
+    for i in 0..n:
+      if ends[i] < 0:
+        ok = true
+        s = 0
+        for d in tasks[i].deps:
+          if ends[d] < 0: ok = false
+          elif ends[d] > s: s = ends[d]
+        if ok:
+          starts[i] = s
+          ends[i] = s + tasks[i].days
+          progress = true
+  if ends.any(e => e < 0): fail("cycle")
+  (starts, ends)
+
+fn critical(tasks: [Task], starts: [int], ends: [int]) -> [int]:
+  n = tasks.len()
+  top = ends.max()
+  crit = [false].repeat(n)
+  idx = [i for i in 0..n]
+  idx = idx.sort_by(i => -ends[i])
+  for i in idx:
+    if ends[i] == top:
+      crit[i] = true
+    else:
+      for j in 0..n:
+        if crit[j] and i in tasks[j].deps and starts[j] == ends[i]: crit[i] = true
+  chain = []
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and crit[i] and starts[i] == 0: cur = i
+  while cur >= 0:
+    chain.push(cur)
+    if ends[cur] == top: break
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and crit[j] and cur in tasks[j].deps and starts[j] == ends[cur]: nxt = j
+    cur = nxt
+  chain
+
+fn tails(tasks: [Task], ends: [int]) -> [int]:
+  n = tasks.len()
+  tl = [0].repeat(n)
+  idx = [i for i in 0..n]
+  idx = idx.sort_by(i => -ends[i])
+  for i in idx:
+    best = 0
+    for j in 0..n:
+      if i in tasks[j].deps and tl[j] > best: best = tl[j]
+    tl[i] = tasks[i].days + best
+  tl
+## schedule.bv
+use "graph.bv"
+
+fn schedule(k: int, tasks: [Task], tl: [int]) -> ([int], [int]):
+  n = tasks.len()
+  st = [0].repeat(n)
+  s2 = [0].repeat(n)
+  e2 = [0].repeat(n)
+  t = 0
+  finished = 0
+  while finished < n:
+    for i in 0..n:
+      if st[i] == 1 and e2[i] == t:
+        st[i] = 2
+        finished += 1
+    running = st.count(x => x == 1)
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if st[i] == 0 and tasks[i].deps.all(d => st[d] == 2):
+          if best < 0 or tl[i] > tl[best]: best = i
+      if best < 0: break
+      st[best] = 1
+      s2[best] = t
+      e2[best] = t + tasks[best].days
+      running += 1
+    if finished == n: break
+    nt = -1
+    for i in 0..n:
+      if st[i] == 1 and (nt < 0 or e2[i] < nt): nt = e2[i]
+    if nt < 0: break
+    t = nt
+  (s2, e2)

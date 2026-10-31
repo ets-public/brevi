@@ -1,0 +1,46 @@
+use "graph.bv"
+
+fn tails(ts: [Task], order: [int]) -> [int]:
+  n = ts.len()
+  tl = [0].repeat(n)
+  for i in order.rev():
+    best = 0
+    for j in 0..n:
+      if ts[i].name in ts[j].deps: best = max(best, tl[j])
+    tl[i] = ts[i].days + best
+  tl
+
+fn plan(ts: [Task], order: [int], k: int) -> [int]:
+  n = ts.len()
+  idx = index_map(ts)
+  tl = tails(ts, order)
+  st = [-1].repeat(n)
+  fin = [0].repeat(n)
+  ndone = 0
+  free = k
+  t = 0
+  while ndone < n:
+    for i in 0..n:
+      if st[i] >= 0 and fin[i] == 0 and st[i] + ts[i].days == t:
+        fin[i] = 1
+        ndone += 1
+        free += 1
+    while free > 0:
+      bi = -1
+      for i in 0..n:
+        if st[i] < 0:
+          ready = true
+          for d in ts[i].deps:
+            if fin[idx[d]] == 0: ready = false
+          if ready and (bi < 0 or tl[i] > tl[bi]): bi = i
+      if bi < 0: break
+      st[bi] = t
+      free -= 1
+    nt = -1
+    for i in 0..n:
+      if st[i] >= 0 and fin[i] == 0:
+        e = st[i] + ts[i].days
+        if nt < 0 or e < nt: nt = e
+    if nt < 0: break
+    t = nt
+  st

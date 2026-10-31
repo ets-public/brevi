@@ -1,0 +1,364 @@
+type Table:
+  cols: [str]
+  types: [str]
+  rows: [[str]]
+
+type Stmt:
+  kind: str
+  table: str
+  names: [str]
+  ctypes: [str]
+  vals: [str]
+  vkinds: [str]
+  conds: [(str, str, str, str)]
+  star: bool
+  order: str
+  desc: bool
+  limit: int
+
+tables = {}
+toks = []
+pos = 0
+
+# ---- tokens: strings keep a leading quote, numbers and words are raw text ----
+
+fn tokenize(s: str) -> [str]:
+  out = []
+  cs = s.chars()
+  n = cs.len()
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == " ":
+      i += 1
+    elif c == "'":
+      buf = "'"
+      i += 1
+      closed = false
+      while i < n and not closed:
+        if cs[i] == "'":
+          if i + 1 < n and cs[i + 1] == "'":
+            buf += "'"
+            i += 2
+          else:
+            closed = true
+            i += 1
+        else:
+          buf += cs[i]
+          i += 1
+      if not closed: fail("error: syntax")
+      out.push(buf)
+    elif c in ["(", ")", ",", "*", "="]:
+      out.push(c)
+      i += 1
+    elif c == "<" or c == ">" or c == "!":
+      if i + 1 < n and cs[i + 1] == "=":
+        out.push(c + "=")
+        i += 2
+      elif c == "!":
+        fail("error: syntax")
+      else:
+        out.push(c)
+        i += 1
+    elif c.is_alpha():
+      j = i
+      while j < n and (cs[j].is_alpha() or cs[j].is_digit() or cs[j] == "_"):
+        j += 1
+      out.push(s.slice(i, j))
+      i = j
+    elif c.is_digit() or c == "-":
+      j = i + 1
+      while j < n and cs[j].is_digit():
+        j += 1
+      if j == i + 1 and c == "-": fail("error: syntax")
+      out.push(s.slice(i, j))
+      i = j
+    else:
+      fail("error: syntax")
+  return out
+
+fn peek() -> str:
+  if pos < toks.len(): return toks[pos]
+  return ""
+
+fn take() -> str:
+  t = peek()
+  if t == "": fail("error: syntax")
+  pos += 1
+  return t
+
+fn expect(w: str):
+  if take() != w: fail("error: syntax")
+
+fn is_num(t: str) -> bool:
+  return t.slice(0, 1) == "-" or t.slice(0, 1).is_digit()
+
+fn ident() -> str:
+  t = take()
+  if not t.slice(0, 1).is_alpha(): fail("error: syntax")
+  return t
+
+fn int_tok() -> int:
+  t = take()
+  if not is_num(t): fail("error: syntax")
+  return t.int().or(0)
+
+fn value() -> (str, str):
+  t = take()
+  if t.slice(0, 1) == "'": return ("TEXT", t.slice(1))
+  if is_num(t): return ("INT", str(t.int().or(0)))
+  fail("error: syntax")
+
+fn cond() -> (str, str, str, str):
+  c = ident()
+  op = take()
+  if op not in ["=", "!=", "<", ">", "<=", ">="]: fail("error: syntax")
+  (k, v) = value()
+  return (c, op, k, v)
+
+fn where_part() -> [(str, str, str, str)]:
+  cs = []
+  if peek() == "WHERE":
+    take()
+    cs.push(cond())
+    while peek() == "AND":
+      take()
+      cs.push(cond())
+  return cs
+
+fn empty_stmt(kind: str) -> Stmt:
+  return Stmt(kind: kind, table: "", names: [], ctypes: [], vals: [], vkinds: [], conds: [], star: false, order: "", desc: false, limit: -1)
+
+# ---- parsing: syntax only, nothing is changed here ----
+
+fn parse_stmt() -> Stmt:
+  kw = take()
+  if kw == "CREATE":
+    expect("TABLE")
+    s = empty_stmt("CREATE")
+    s.table = ident()
+    expect("(")
+    names = []
+    ctypes = []
+    while True:
+      names.push(ident())
+      t = take()
+      if t != "INT" and t != "TEXT": fail("error: syntax")
+      ctypes.push(t)
+      if peek() != ",": break
+      take()
+    expect(")")
+    s.names = names
+    s.ctypes = ctypes
+    return s
+  if kw == "INSERT":
+    expect("INTO")
+    s = empty_stmt("INSERT")
+    s.table = ident()
+    expect("VALUES")
+    expect("(")
+    vals = []
+    kinds = []
+    while True:
+      (k, v) = value()
+      kinds.push(k)
+      vals.push(v)
+      if peek() != ",": break
+      take()
+    expect(")")
+    s.vals = vals
+    s.vkinds = kinds
+    return s
+  if kw == "SELECT":
+    s = empty_stmt("SELECT")
+    if peek() == "COUNT":
+      take()
+      expect("(")
+      expect("*")
+      expect(")")
+      s.kind = "COUNT"
+    elif peek() == "*":
+      take()
+      s.star = true
+    else:
+      names = [ident()]
+      while peek() == ",":
+        take()
+        names.push(ident())
+      s.names = names
+    expect("FROM")
+    s.table = ident()
+    s.conds = where_part()
+    if s.kind == "SELECT" and peek() == "ORDER":
+      take()
+      expect("BY")
+      s.order = ident()
+      if peek() == "DESC":
+        take()
+        s.desc = true
+    if s.kind == "SELECT" and peek() == "LIMIT":
+      take()
+      s.limit = int_tok()
+    return s
+  if kw == "UPDATE":
+    s = empty_stmt("UPDATE")
+    s.table = ident()
+    expect("SET")
+    col = ident()
+    expect("=")
+    (k, v) = value()
+    s.names = [col]
+    s.vals = [v]
+    s.vkinds = [k]
+    s.conds = where_part()
+    return s
+  if kw == "DELETE":
+    expect("FROM")
+    s = empty_stmt("DELETE")
+    s.table = ident()
+    s.conds = where_part()
+    return s
+  fail("error: syntax")
+
+# ---- execution helpers ----
+
+fn get_table(name: str) -> Table:
+  if not tables.has(name): fail("error: no table {name}")
+  return tables[name]
+
+fn col_index(tb: Table, name: str) -> int:
+  i = tb.cols.index_of(name)
+  if i < 0: fail("error: no column {name}")
+  return i
+
+fn with_rows(tb: Table, rows: [[str]]) -> Table:
+  return Table(cols: tb.cols, types: tb.types, rows: rows)
+
+# checks every condition (column, then type) and returns the column indexes
+fn check_conds(tb: Table, conds: [(str, str, str, str)]) -> [int]:
+  idxs = []
+  for c in conds:
+    i = col_index(tb, c.0)
+    if tb.types[i] != c.2: fail("error: type mismatch")
+    idxs.push(i)
+  return idxs
+
+fn cmp_int(a: int, b: int) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn cmp_text(a: str, b: str) -> int:
+  if a < b: return -1
+  if a > b: return 1
+  return 0
+
+fn ord_ok(c: int, op: str) -> bool:
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  return c >= 0
+
+fn keep(tb: Table, row: [str], conds: [(str, str, str, str)], idxs: [int]) -> bool:
+  for k in 0..conds.len():
+    op = conds[k].1
+    text = conds[k].3
+    cv = row[idxs[k]]
+    c3 = 0
+    if tb.types[idxs[k]] == "INT":
+      c3 = cmp_int(cv.int().or(0), text.int().or(0))
+    else:
+      c3 = cmp_text(cv, text)
+    if not ord_ok(c3, op): return false
+  return true
+
+fn execute(s: Stmt) -> [str]:
+  if s.kind == "CREATE":
+    if tables.has(s.table): fail("error: table {s.table} exists")
+    tables[s.table] = Table(cols: s.names, types: s.ctypes, rows: [])
+    return ["ok"]
+  tb = get_table(s.table)
+  if s.kind == "INSERT":
+    if s.vals.len() != tb.cols.len(): fail("error: type mismatch")
+    for i in 0..tb.cols.len():
+      if s.vkinds[i] != tb.types[i]: fail("error: type mismatch")
+    tables[s.table] = with_rows(tb, tb.rows + [s.vals])
+    return ["ok"]
+  if s.kind == "SELECT":
+    idxs = []
+    if s.star:
+      for i in 0..tb.cols.len(): idxs.push(i)
+    else:
+      for c in s.names: idxs.push(col_index(tb, c))
+    cidx = check_conds(tb, s.conds)
+    oidx = -1
+    if s.order != "": oidx = col_index(tb, s.order)
+    rows = []
+    for r in tb.rows:
+      if keep(tb, r, s.conds, cidx): rows.push(r)
+    if oidx >= 0:
+      if tb.types[oidx] == "INT":
+        rows = rows.sort_by(r => r[oidx].int().or(0), s.desc)
+      else:
+        rows = rows.sort_by(r => r[oidx], s.desc)
+    if s.limit >= 0: rows = rows.take(s.limit)
+    hdr = []
+    for i in idxs: hdr.push(tb.cols[i])
+    out = [hdr.join(" | ")]
+    for r in rows:
+      vals = []
+      for i in idxs: vals.push(r[i])
+      out.push(vals.join(" | "))
+    out.push("({rows.len()} rows)")
+    return out
+  if s.kind == "COUNT":
+    cidx = check_conds(tb, s.conds)
+    n = 0
+    for r in tb.rows:
+      if keep(tb, r, s.conds, cidx): n += 1
+    return ["{n}"]
+  if s.kind == "UPDATE":
+    col = col_index(tb, s.names[0])
+    if tb.types[col] != s.vkinds[0]: fail("error: type mismatch")
+    cidx = check_conds(tb, s.conds)
+    rows = []
+    n = 0
+    for r in tb.rows:
+      if keep(tb, r, s.conds, cidx):
+        r2 = r
+        r2[col] = s.vals[0]
+        rows.push(r2)
+        n += 1
+      else:
+        rows.push(r)
+    tables[s.table] = with_rows(tb, rows)
+    return ["updated {n}"]
+  # DELETE
+  cidx = check_conds(tb, s.conds)
+  rows = []
+  n = 0
+  for r in tb.rows:
+    if keep(tb, r, s.conds, cidx):
+      n += 1
+    else:
+      rows.push(r)
+  tables[s.table] = with_rows(tb, rows)
+  return ["deleted {n}"]
+
+fn run(line: str) -> [str]:
+  toks = tokenize(line)
+  pos = 0
+  s = parse_stmt()
+  if pos < toks.len(): fail("error: syntax")
+  return execute(s)
+
+for raw in lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  match run(line):
+    Ok(out) =>
+      for o in out:
+        print(o)
+    Err(m) => print(m)

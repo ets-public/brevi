@@ -1,0 +1,30 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  lib = new_lib()
+  for raw in lines():
+    if raw.trim().is_empty():
+      continue
+    p = raw.split(" ")
+    today = date(p[0]).days
+    for line in expire(lib, today):
+      print(line)
+    cmd = p[1]
+    out = []
+    if cmd == "BOOK":
+      out = add_book(lib, p[2], p[3].int(), " ".join(p[4:]))
+    elif cmd == "MEMBER":
+      out = add_member(lib, p[2], p[3], " ".join(p[4:]))
+    elif cmd == "LOAN":
+      out = loan(lib, today, p[2], p[3])
+    elif cmd == "RETURN":
+      out = ret(lib, today, p[2], p[3])
+    elif cmd == "RESERVE":
+      out = reserve(lib, today, p[2], p[3])
+    elif cmd == "PAY":
+      out = pay(lib, p[2], cents(p[3]))
+    elif cmd == "STATUS":
+      out = status(lib, p[2])
+    for line in out:
+      print(line)

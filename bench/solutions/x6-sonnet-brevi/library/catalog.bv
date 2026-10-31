@@ -1,0 +1,29 @@
+type Loan:
+  book: str
+  due: Date
+
+type Book:
+  id: str
+  shelf: int
+  waiting: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+type Hold:
+  member: str
+  book: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_lib() -> Lib = Lib(books: {}, members: {}, holds: [])
+
+fn has_loan(m: Member, book: str) -> bool = any(l.book == book for l in m.loans)

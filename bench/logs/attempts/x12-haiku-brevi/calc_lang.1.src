@@ -1,0 +1,191 @@
+type Def:
+  params: [str]
+  body: [str]
+
+gvars = {}
+funcs = {}
+top = {}
+depth = 0
+lineno = 0
+
+fn toks(line: str) -> [str] = line.re_list("\d+|[A-Za-z]\w*|==|!=|<=|>=|[-+*/%(),<>=]|\S")
+
+fn at(tk: [str], i: int) -> str = tk[i] if i < tk.len() else ""
+
+fn is_kw(t: str) -> bool = t in ["let", "fn", "print", "if"]
+
+fn isname(t: str) -> bool = t.re_full("[A-Za-z]\w*").len() > 0 and not is_kw(t)
+
+fn nm(tk: [str], i: int) -> str:
+  t = at(tk, i)
+  if not isname(t): fail("syntax")
+  return t
+
+fn want(tk: [str], i: int, s: str) -> int:
+  if at(tk, i) != s: fail("syntax")
+  return i + 1
+
+fn check_end(tk: [str], i: int):
+  if i != tk.len(): fail("syntax")
+
+fn cmpop(a: int, op: str, b: int) -> int:
+  if op == "==": return 1 if a == b else 0
+  if op == "!=": return 1 if a != b else 0
+  if op == "<": return 1 if a < b else 0
+  if op == ">": return 1 if a > b else 0
+  if op == "<=": return 1 if a <= b else 0
+  return 1 if a >= b else 0
+
+fn cmpe(tk: [str], i: int, live: bool, env: {str: int}) -> (int, int):
+  a, i = adde(tk, i, live, env)
+  op = at(tk, i)
+  if op in ["==", "!=", "<", ">", "<=", ">="]:
+    b, j = adde(tk, i + 1, live, env)
+    if not live: return (0, j)
+    return (cmpop(a, op, b), j)
+  return (a, i)
+
+fn adde(tk: [str], i: int, live: bool, env: {str: int}) -> (int, int):
+  a, i = mule(tk, i, live, env)
+  while at(tk, i) == "+" or at(tk, i) == "-":
+    op = at(tk, i)
+    b, i = mule(tk, i + 1, live, env)
+    if live:
+      if op == "+":
+        a = a + b
+      else:
+        a = a - b
+  return (a, i)
+
+fn mule(tk: [str], i: int, live: bool, env: {str: int}) -> (int, int):
+  a, i = unary(tk, i, live, env)
+  while at(tk, i) == "*" or at(tk, i) == "/" or at(tk, i) == "%":
+    op = at(tk, i)
+    b, i = unary(tk, i + 1, live, env)
+    if live:
+      if op == "*":
+        a = a * b
+      else:
+        if b == 0: fail("division by zero")
+        if op == "/":
+          a = a / b
+        else:
+          a = a % b
+  return (a, i)
+
+fn unary(tk: [str], i: int, live: bool, env: {str: int}) -> (int, int):
+  if at(tk, i) == "-":
+    v, j = unary(tk, i + 1, live, env)
+    return (-v, j)
+  return primary(tk, i, live, env)
+
+fn primary(tk: [str], i: int, live: bool, env: {str: int}) -> (int, int):
+  t = at(tk, i)
+  if t == "(":
+    v, j = cmpe(tk, i + 1, live, env)
+    j = want(tk, j, ")")
+    return (v, j)
+  if t.re_full("\d+").len() > 0:
+    return (t.int(), i + 1)
+  if t.re_full("[A-Za-z]\w*").len() == 0: fail("syntax")
+  if at(tk, i + 1) == "(":
+    if is_kw(t) and t != "if": fail("syntax")
+    return callfn(tk, t, i + 2, live, env)
+  if is_kw(t): fail("syntax")
+  if live:
+    if env.has(t): return (env[t], i + 1)
+    if gvars.has(t): return (gvars[t], i + 1)
+    fail("unknown name {t}")
+  return (0, i + 1)
+
+fn callfn(tk: [str], name: str, i: int, live: bool, env: {str: int}) -> (int, int):
+  if live and name != "if" and not funcs.has(name): fail("unknown function {name}")
+  args = []
+  if at(tk, i) == ")":
+    i += 1
+  else:
+    while True:
+      k = args.len()
+      al = live
+      if name == "if" and k >= 3: al = false
+      if name == "if" and live and k == 1: al = args[0] != 0
+      if name == "if" and live and k == 2: al = args[0] == 0
+      v, i = cmpe(tk, i, al, env)
+      args.push(v)
+      if at(tk, i) != ",": break
+      i += 1
+    i = want(tk, i, ")")
+  if not live: return (0, i)
+  if name == "if":
+    if args.len() != 3: fail("if takes 3 arguments")
+    if args[0] != 0: return (args[1], i)
+    return (args[2], i)
+  d = funcs[name]
+  if args.len() != d.params.len(): fail("{name} takes {d.params.len()} arguments")
+  if depth >= 200: fail("too deep")
+  env2 = {}
+  for j in 0..args.len():
+    env2[d.params[j]] = args[j]
+  depth += 1
+  v, dummy = cmpe(d.body, 0, true, env2)
+  depth -= 1
+  return (v, i)
+
+fn stmt_let(tk: [str], live: bool) -> str:
+  name = nm(tk, 1)
+  i = want(tk, 2, "=")
+  v, e = cmpe(tk, i, live, top)
+  check_end(tk, e)
+  if live: gvars[name] = v
+  return ""
+
+fn stmt_fn(tk: [str], live: bool) -> str:
+  name = nm(tk, 1)
+  i = want(tk, 2, "(")
+  ps = []
+  if at(tk, i) != ")":
+    while True:
+      ps.push(nm(tk, i))
+      i += 1
+      if at(tk, i) != ",": break
+      i += 1
+  i = want(tk, i, ")")
+  i = want(tk, i, "=")
+  v, e = cmpe(tk, i, false, top)
+  check_end(tk, e)
+  if live: funcs[name] = Def(params: ps, body: tk[i:])
+  return ""
+
+fn stmt_print(tk: [str], live: bool) -> str:
+  i = 1
+  vals = []
+  while True:
+    v, i = cmpe(tk, i, live, top)
+    if live: vals.push(v)
+    if at(tk, i) != ",": break
+    i += 1
+  check_end(tk, i)
+  if live: return vals.join(" ")
+  return ""
+
+fn stmt(tk: [str], live: bool) -> str:
+  h = at(tk, 0)
+  if h == "let": return stmt_let(tk, live)
+  if h == "fn": return stmt_fn(tk, live)
+  if h == "print": return stmt_print(tk, live)
+  fail("syntax")
+
+fn run_line(line: str) -> str:
+  tk = toks(line)
+  stmt(tk, false)
+  return stmt(tk, true)
+
+for raw in lines():
+  lineno += 1
+  line = raw.trim()
+  if line.is_empty() or line.starts_with("#"): continue
+  depth = 0
+  match run_line(line):
+    Ok(s) =>
+      if s != "": print(s)
+    Err(m) => print("error line {lineno}: {m}")

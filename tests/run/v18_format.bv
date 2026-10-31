@@ -1,0 +1,14 @@
+c = 1234567
+r = 5
+x = 3.14159
+s = "ab"
+p = "19.5".dec()
+m = {"k": 7}
+print("{c // 100}.{r:02d} [{x:.2f}] [{s:<5}] [{s:>5}] [{s:^6}] [{c:,}] [{p:.2f}] [{-r:03}] [{x:8.3f}] {m["k"]:3} {0.256:.1%} {r:+d}")
+print("{{a:b}} {s}")
+book = [(5, 1, "a"), (3, 2, "b"), (3, 0, "c"), (9, 3, "d")]
+best = min(book, key=lambda o: (o.0, o.1))
+print(best)
+print(max(book, key=o => o.0))
+print(sorted(book, key=lambda o: o.2, reverse=True))
+print(min(3, 4), max([1, 7, 2]))

@@ -1,0 +1,50 @@
+use "graph.bv"
+
+# longest tail of each task: its days plus the largest tail among the tasks that depend on it
+fn tails(g: Graph) -> [int]:
+  n = g.tasks.len()
+  tl = [0].repeat(n)
+  for j in 0..n:
+    u = g.order[n - 1 - j]
+    best = 0
+    for v in g.succ[u]:
+      if tl[v] > best: best = tl[v]
+    tl[u] = g.tasks[u].days + best
+  return tl
+
+fn ready_at(g: Graph, u: int, done: [bool]) -> bool:
+  for d in g.didx[u]:
+    if not done[d]: return false
+  return true
+
+fn schedule(g: Graph, k: int) -> ([int], [int]):
+  n = g.tasks.len()
+  tl = tails(g)
+  starts = [-1].repeat(n)
+  ends = [0].repeat(n)
+  done = [false].repeat(n)
+  running = []
+  t = 0
+  while True:
+    nr = []
+    for u in running:
+      if ends[u] == t:
+        done[u] = true
+      else:
+        nr.push(u)
+    running = nr
+    while running.len() < k:
+      best = -1
+      for u in 0..n:
+        if starts[u] < 0 and ready_at(g, u, done):
+          if best < 0 or tl[u] > tl[best]: best = u
+      if best < 0: break
+      starts[best] = t
+      ends[best] = t + g.tasks[best].days
+      running.push(best)
+    if running.is_empty(): break
+    nt = ends[running[0]]
+    for u in running:
+      if ends[u] < nt: nt = ends[u]
+    t = nt
+  return (starts, ends)

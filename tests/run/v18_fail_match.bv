@@ -1,0 +1,21 @@
+fn need(c: bool, msg: str):
+  if not c: fail(msg)
+fn run(l: str):
+  need(l != "x", "error: syntax")
+  if l == "y": fail("error: no table {l}")
+  print("ok {l}")
+for line in ["a", "x", "y"]:
+  match run(line):
+    Err(m) => print(m)
+type Book:
+  id: str
+  shelf: int
+  wait: [str]
+books = {}
+books["a"] = Book(id: "a", shelf: 1, wait: [])
+books["a"].shelf += 1
+books["a"].wait.push("m")
+b = books["a"]
+b.shelf -= 5
+print(books["a"], b.shelf)
+print([] == [1].skip(1), {"a": 1} != {})

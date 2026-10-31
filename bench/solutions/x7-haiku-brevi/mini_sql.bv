@@ -1,0 +1,362 @@
+fn tokenize(s: str) -> [str]:
+  toks = []
+  cs = s.chars()
+  n = cs.len()
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == " ":
+      i += 1
+    elif c == "'":
+      buf = "'"
+      i += 1
+      closed = false
+      while i < n:
+        if cs[i] == "'":
+          if i + 1 < n and cs[i + 1] == "'":
+            buf += "'"
+            i += 2
+          else:
+            closed = true
+            i += 1
+            break
+        else:
+          buf += cs[i]
+          i += 1
+      if not closed:
+        return ["#bad"]
+      toks.push(buf)
+    elif c.is_alpha() or c.is_digit() or c == "_":
+      buf = ""
+      while i < n and (cs[i].is_alpha() or cs[i].is_digit() or cs[i] == "_"):
+        buf += cs[i]
+        i += 1
+      if c.is_digit() and not buf.re_full("\d+"):
+        return ["#bad"]
+      toks.push(buf)
+    elif c == "-":
+      if i + 1 < n and cs[i + 1].is_digit():
+        buf = "-"
+        i += 1
+        while i < n and cs[i].is_digit():
+          buf += cs[i]
+          i += 1
+        toks.push(buf)
+      else:
+        return ["#bad"]
+    elif c == "!" or c == "<" or c == ">":
+      if i + 1 < n and cs[i + 1] == "=":
+        toks.push(c + "=")
+        i += 2
+      elif c == "!":
+        return ["#bad"]
+      else:
+        toks.push(c)
+        i += 1
+    elif c in ["(", ")", ",", "*", "="]:
+      toks.push(c)
+      i += 1
+    else:
+      return ["#bad"]
+  return toks
+
+fn is_ident(x: str) -> bool:
+  return x[0].is_alpha()
+
+fn is_val(x: str) -> bool:
+  return x[0] == "'" or x[0] == "-" or x[0].is_digit()
+
+fn kind_ok(v: str, typ: str) -> bool:
+  if typ == "INT":
+    return v[0] != "'"
+  return v[0] == "'"
+
+fn norm(v: str, typ: str) -> str:
+  if typ == "INT":
+    return str(v.int())
+  return v[1:]
+
+fn col_index(sch: [[str]], name: str) -> int:
+  for i in 0..sch.len():
+    if sch[i][0] == name:
+      return i
+  return -1
+
+fn first_missing(sch: [[str]], refs: [str]) -> str:
+  for r in refs:
+    if col_index(sch, r) < 0:
+      return r
+  return ""
+
+fn conds_ok(sch: [[str]], conds: [[str]]) -> bool:
+  for c in conds:
+    if not kind_ok(c[2], sch[col_index(sch, c[0])][1]):
+      return false
+  return true
+
+fn sgn_int(x: int, y: int) -> int:
+  if x < y:
+    return -1
+  if x > y:
+    return 1
+  return 0
+
+fn sgn_str(x: str, y: str) -> int:
+  if x < y:
+    return -1
+  if x > y:
+    return 1
+  return 0
+
+fn op_ok(s: int, op: str) -> bool:
+  if op == "=":
+    return s == 0
+  if op == "!=":
+    return s != 0
+  if op == "<":
+    return s < 0
+  if op == ">":
+    return s > 0
+  if op == "<=":
+    return s <= 0
+  return s >= 0
+
+fn row_ok(r: [str], sch: [[str]], conds: [[str]]) -> bool:
+  for c in conds:
+    ci = col_index(sch, c[0])
+    if sch[ci][1] == "INT":
+      s = sgn_int(r[ci].int(), c[2].int())
+    else:
+      s = sgn_str(r[ci], c[2][1:])
+    if not op_ok(s, c[1]):
+      return false
+  return true
+
+fn parse_where(t: [str], start: int, mut conds: [[str]]) -> int:
+  if start >= t.len() or t[start] != "WHERE":
+    return start
+  p = start + 1
+  more = true
+  while more:
+    if p + 2 < t.len() and is_ident(t[p]) and (t[p + 1] in ["=", "!=", "<", ">", "<=", ">="]) and is_val(t[p + 2]):
+      conds.push([t[p], t[p + 1], t[p + 2]])
+      p += 3
+    else:
+      return -1
+    if p < t.len() and t[p] == "AND":
+      p += 1
+    else:
+      more = false
+  return p
+
+fn main():
+  schema = {}
+  data = {}
+  for line in lines():
+    t = tokenize(line)
+    if t.is_empty():
+      continue
+    done = false
+
+    if t.len() >= 4 and t[0] == "CREATE" and t[1] == "TABLE" and is_ident(t[2]) and t[3] == "(":
+      defs = []
+      p = 4
+      ok = true
+      while ok:
+        if p + 1 < t.len() and is_ident(t[p]) and (t[p + 1] == "INT" or t[p + 1] == "TEXT"):
+          defs.push([t[p], t[p + 1]])
+          p += 2
+        else:
+          ok = false
+        if ok and p < t.len() and t[p] == ",":
+          p += 1
+        else:
+          break
+      if ok and p == t.len() - 1 and t[p] == ")":
+        done = true
+        tn = t[2]
+        if schema.has(tn):
+          print("error: table {tn} exists")
+        else:
+          schema[tn] = defs
+          data[tn] = []
+          print("ok")
+
+    elif t.len() >= 5 and t[0] == "INSERT" and t[1] == "INTO" and is_ident(t[2]) and t[3] == "VALUES" and t[4] == "(":
+      vals = []
+      p = 5
+      ok = true
+      while ok:
+        if p < t.len() and is_val(t[p]):
+          vals.push(t[p])
+          p += 1
+        else:
+          ok = false
+        if ok and p < t.len() and t[p] == ",":
+          p += 1
+        else:
+          break
+      if ok and p == t.len() - 1 and t[p] == ")":
+        done = true
+        tn = t[2]
+        if not schema.has(tn):
+          print("error: no table {tn}")
+        else:
+          sch = schema[tn]
+          good = vals.len() == sch.len()
+          if good:
+            for i in 0..vals.len():
+              if not kind_ok(vals[i], sch[i][1]):
+                good = false
+          if not good:
+            print("error: type mismatch")
+          else:
+            row = []
+            for i in 0..vals.len():
+              row.push(norm(vals[i], sch[i][1]))
+            data[tn].push(row)
+            print("ok")
+
+    elif t[0] == "SELECT" and t.len() >= 2:
+      p = 1
+      count = false
+      star = false
+      cols = []
+      ok = true
+      if t.len() >= 5 and t[1] == "COUNT" and t[2] == "(" and t[3] == "*" and t[4] == ")":
+        count = true
+        p = 5
+      elif t[1] == "*":
+        star = true
+        p = 2
+      else:
+        while ok:
+          if p < t.len() and is_ident(t[p]):
+            cols.push(t[p])
+            p += 1
+          else:
+            ok = false
+          if ok and p < t.len() and t[p] == ",":
+            p += 1
+          else:
+            break
+      order_col = ""
+      dsc = false
+      limit = -1
+      conds = []
+      tn = ""
+      if ok and p + 1 < t.len() and t[p] == "FROM" and is_ident(t[p + 1]):
+        tn = t[p + 1]
+        p = parse_where(t, p + 2, conds)
+        if p < 0:
+          ok = false
+      else:
+        ok = false
+      if ok and p + 2 < t.len() and t[p] == "ORDER" and t[p + 1] == "BY" and is_ident(t[p + 2]):
+        order_col = t[p + 2]
+        p += 3
+        if p < t.len() and t[p] == "DESC":
+          dsc = true
+          p += 1
+      if ok and p + 1 < t.len() and t[p] == "LIMIT" and t[p + 1].re_full("\d+"):
+        limit = t[p + 1].int()
+        p += 2
+      if ok and p == t.len() and (not count or (order_col == "" and limit < 0)):
+        done = true
+        if not schema.has(tn):
+          print("error: no table {tn}")
+        else:
+          sch = schema[tn]
+          refs = cols + [c[0] for c in conds]
+          if order_col != "":
+            refs.push(order_col)
+          miss = first_missing(sch, refs)
+          if miss != "":
+            print("error: no column {miss}")
+          elif not conds_ok(sch, conds):
+            print("error: type mismatch")
+          else:
+            rs = [r for r in data[tn] if row_ok(r, sch, conds)]
+            if order_col != "":
+              oi = col_index(sch, order_col)
+              if sch[oi][1] == "INT":
+                rs = rs.sort_by(x => x[oi].int(), dsc)
+              else:
+                rs = rs.sort_by(x => x[oi], dsc)
+            if limit >= 0:
+              rs = rs.take(limit)
+            if count:
+              print(rs.len())
+            else:
+              idx = []
+              if star:
+                for i in 0..sch.len():
+                  idx.push(i)
+              else:
+                for cn in cols:
+                  idx.push(col_index(sch, cn))
+              head = []
+              for i in idx:
+                head.push(sch[i][0])
+              print(" | ".join(head))
+              for r in rs:
+                vals = []
+                for i in idx:
+                  vals.push(r[i])
+                print(" | ".join(vals))
+              nr = rs.len()
+              print("({nr} rows)")
+
+    elif t.len() >= 6 and t[0] == "UPDATE" and is_ident(t[1]) and t[2] == "SET" and is_ident(t[3]) and t[4] == "=" and is_val(t[5]):
+      conds = []
+      p = parse_where(t, 6, conds)
+      if p == t.len():
+        done = true
+        tn = t[1]
+        if not schema.has(tn):
+          print("error: no table {tn}")
+        else:
+          sch = schema[tn]
+          refs = [t[3]] + [c[0] for c in conds]
+          miss = first_missing(sch, refs)
+          si = col_index(sch, t[3])
+          if miss != "":
+            print("error: no column {miss}")
+          elif not kind_ok(t[5], sch[si][1]) or not conds_ok(sch, conds):
+            print("error: type mismatch")
+          else:
+            nv = norm(t[5], sch[si][1])
+            rs = data[tn]
+            n = 0
+            for k in 0..rs.len():
+              if row_ok(rs[k], sch, conds):
+                row = rs[k]
+                row[si] = nv
+                rs[k] = row
+                n += 1
+            data[tn] = rs
+            print("updated {n}")
+
+    elif t.len() >= 3 and t[0] == "DELETE" and t[1] == "FROM" and is_ident(t[2]):
+      conds = []
+      p = parse_where(t, 3, conds)
+      if p == t.len():
+        done = true
+        tn = t[2]
+        if not schema.has(tn):
+          print("error: no table {tn}")
+        else:
+          sch = schema[tn]
+          miss = first_missing(sch, [c[0] for c in conds])
+          if miss != "":
+            print("error: no column {miss}")
+          elif not conds_ok(sch, conds):
+            print("error: type mismatch")
+          else:
+            keep = [r for r in data[tn] if not row_ok(r, sch, conds)]
+            nd = data[tn].len() - keep.len()
+            data[tn] = keep
+            print("deleted {nd}")
+
+    if not done:
+      print("error: syntax")

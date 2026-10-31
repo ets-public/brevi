@@ -305,6 +305,7 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     let (src, foreign) = ffi::split(src);
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
     ffi::attach(&mut items, &foreign);
+    used_consts_first(&mut items);
     infer::returns(&mut items)?;
     let errs = infer::check(&mut items);
     if !errs.is_empty() {
@@ -323,6 +324,23 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
         Ok(rust)
     } else {
         Err(em.diags)
+    }
+}
+
+// Names a used file sets at its top (`PAT = "..."`) are set before the main file's own statements run, as a
+// Python module's are on import.
+fn used_consts_first(items: &mut [ast::Item]) {
+    let Some(first) = SEGS.get().and_then(|s| s.get(1)).map(|s| s.start) else { return };
+    for it in items.iter_mut() {
+        if let ast::Item::Fn { script: true, body: ast::Expr::Block(stmts, _), .. } = it {
+            let line = |st: &ast::Stmt| match st {
+                ast::Stmt::Let { line, .. } | ast::Stmt::Assign { line, .. } => *line,
+                _ => 0,
+            };
+            let (mut used, own): (Vec<_>, Vec<_>) = std::mem::take(stmts).into_iter().partition(|st| line(st) >= first);
+            used.extend(own);
+            *stmts = used;
+        }
     }
 }
 

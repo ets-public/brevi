@@ -1,0 +1,253 @@
+toks: [str] = []
+pos = 0
+tcols: {str: [str]} = {}
+ttypes: {str: [str]} = {}
+trows: {str: [[str]]} = {}
+
+fn syn():
+  fail("error: syntax")
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  if pos >= toks.len(): syn()
+  t = toks[pos]
+  pos += 1
+  t
+
+fn expect(s: str):
+  if nxt() != s: syn()
+
+fn done():
+  if pos != toks.len(): syn()
+
+fn isident(t: str) -> bool = t.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0
+
+fn ident() -> str:
+  t = nxt()
+  if not isident(t): syn()
+  t
+
+fn val() -> (str, str):
+  t = nxt()
+  if t.starts_with("'"):
+    return ("TEXT", t.slice(1, -1).replace("''", "'"))
+  if t.re_full("-?\d+").len() > 0:
+    return ("INT", t.int().str())
+  syn()
+  ("", "")
+
+fn conds() -> [(str, str, str, str)]:
+  cs = []
+  while true:
+    col = ident()
+    op = nxt()
+    if op not in ["=", "!=", "<", ">", "<=", ">="]: syn()
+    v = val()
+    cs.push((col, op, v.0, v.1))
+    if peek() == "AND":
+      pos += 1
+    else:
+      break
+  cs
+
+fn check_cols(t: str, names: [str]):
+  for n in names:
+    if tcols[t].index_of(n) < 0: fail("error: no column {n}")
+
+fn check_conds(t: str, cs: [(str, str, str, str)]):
+  for c in cs:
+    i = tcols[t].index_of(c.0)
+    if ttypes[t][i] != c.2: fail("error: type mismatch")
+
+fn matches(t: str, row: [str], cs: [(str, str, str, str)]) -> bool:
+  for c in cs:
+    i = tcols[t].index_of(c.0)
+    a = row[i]
+    b = c.3
+    d = 0
+    if ttypes[t][i] == "INT":
+      d = if a.int() < b.int(): -1 elif a.int() > b.int(): 1 else: 0
+    else:
+      d = if a < b: -1 elif a > b: 1 else: 0
+    op = c.1
+    ok = (op == "=" and d == 0) or (op == "!=" and d != 0) or (op == "<" and d < 0) or (op == ">" and d > 0) or (op == "<=" and d <= 0) or (op == ">=" and d >= 0)
+    if not ok: return false
+  true
+
+fn do_create():
+  expect("TABLE")
+  tb = ident()
+  expect("(")
+  names = []
+  types = []
+  while true:
+    names.push(ident())
+    ty = nxt()
+    if ty != "INT" and ty != "TEXT": syn()
+    types.push(ty)
+    s = nxt()
+    if s == ")": break
+    if s != ",": syn()
+  done()
+  if tcols.has(tb): fail("error: table {tb} exists")
+  tcols[tb] = names
+  ttypes[tb] = types
+  trows[tb] = []
+  print("ok")
+
+fn do_insert():
+  expect("INTO")
+  tb = ident()
+  expect("VALUES")
+  expect("(")
+  vs = []
+  while true:
+    vs.push(val())
+    s = nxt()
+    if s == ")": break
+    if s != ",": syn()
+  done()
+  if not tcols.has(tb): fail("error: no table {tb}")
+  if vs.len() != tcols[tb].len(): fail("error: type mismatch")
+  row = []
+  for i in 0..vs.len():
+    if vs[i].0 != ttypes[tb][i]: fail("error: type mismatch")
+    row.push(vs[i].1)
+  trows[tb].push(row)
+  print("ok")
+
+fn do_select():
+  star = false
+  cnt = false
+  names = []
+  t = peek()
+  if t == "COUNT":
+    pos += 1
+    expect("(")
+    expect("*")
+    expect(")")
+    cnt = true
+  elif t == "*":
+    pos += 1
+    star = true
+  else:
+    while true:
+      names.push(ident())
+      if peek() == ",":
+        pos += 1
+      else:
+        break
+  expect("FROM")
+  tb = ident()
+  cs = []
+  if peek() == "WHERE":
+    pos += 1
+    cs = conds()
+  ocol = ""
+  desc = false
+  if peek() == "ORDER":
+    pos += 1
+    expect("BY")
+    ocol = ident()
+    if peek() == "DESC":
+      pos += 1
+      desc = true
+  limit = -1
+  if peek() == "LIMIT":
+    pos += 1
+    l = nxt()
+    if l.re_full("\d+").is_empty(): syn()
+    limit = l.int()
+  done()
+  if not tcols.has(tb): fail("error: no table {tb}")
+  if not star and not cnt: check_cols(tb, names)
+  check_cols(tb, [c.0 for c in cs])
+  if ocol != "": check_cols(tb, [ocol])
+  check_conds(tb, cs)
+  rs = [r for r in trows[tb] if matches(tb, r, cs)]
+  if cnt:
+    print(rs.len())
+    return
+  if star: names = tcols[tb]
+  if ocol != "":
+    oi = tcols[tb].index_of(ocol)
+    if ttypes[tb][oi] == "INT":
+      rs = rs.sort_by(r => r[oi].int(), desc)
+    else:
+      rs = rs.sort_by(r => r[oi], desc)
+  if limit >= 0: rs = rs.take(limit)
+  idx = [tcols[tb].index_of(n) for n in names]
+  print(names.join(" | "))
+  for r in rs:
+    print(" | ".join([r[i] for i in idx]))
+  print("({rs.len()} rows)")
+
+fn do_update():
+  tb = ident()
+  expect("SET")
+  col = ident()
+  expect("=")
+  v = val()
+  cs = []
+  if peek() == "WHERE":
+    pos += 1
+    cs = conds()
+  done()
+  if not tcols.has(tb): fail("error: no table {tb}")
+  check_cols(tb, [col])
+  check_cols(tb, [c.0 for c in cs])
+  ci = tcols[tb].index_of(col)
+  if ttypes[tb][ci] != v.0: fail("error: type mismatch")
+  check_conds(tb, cs)
+  n = 0
+  out = []
+  for r in trows[tb]:
+    if matches(tb, r, cs):
+      r2 = r
+      r2[ci] = v.1
+      out.push(r2)
+      n += 1
+    else:
+      out.push(r)
+  trows[tb] = out
+  print("updated {n}")
+
+fn do_delete():
+  expect("FROM")
+  tb = ident()
+  cs = []
+  if peek() == "WHERE":
+    pos += 1
+    cs = conds()
+  done()
+  if not tcols.has(tb): fail("error: no table {tb}")
+  check_cols(tb, [c.0 for c in cs])
+  check_conds(tb, cs)
+  n = 0
+  out = []
+  for r in trows[tb]:
+    if matches(tb, r, cs):
+      n += 1
+    else:
+      out.push(r)
+  trows[tb] = out
+  print("deleted {n}")
+
+fn run(line: str) -> int:
+  toks = line.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z_]\w*|!=|<=|>=|[=<>(),*]|\S")
+  pos = 0
+  c = nxt()
+  if c == "CREATE": do_create()
+  elif c == "INSERT": do_insert()
+  elif c == "SELECT": do_select()
+  elif c == "UPDATE": do_update()
+  elif c == "DELETE": do_delete()
+  else: syn()
+  0
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  match run(line):
+    Ok(_) => pos += 0
+    Err(m) => print(m)

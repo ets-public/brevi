@@ -1,0 +1,183 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+tasks: [Task] = []
+seen: {str: int} = {}
+ks = 0
+header = False
+problem = ""
+num = 0
+for raw in lines():
+  num += 1
+  line = raw.trim()
+  if line.is_empty(): continue
+  if not header:
+    hm = line.re_full("workers\s+(\d+)")
+    if len(hm) == 0 or hm[1].int() < 1:
+      problem = "line {num}: bad line"
+      break
+    ks = hm[1].int()
+    header = True
+    continue
+  m = line.re_full("\s*(\w+)\s+(\d+)(\s+after\s+(\w+(\s*,\s*\w+)*))?\s*")
+  if len(m) == 0 or m[2].int() < 1:
+    problem = "line {num}: bad line"
+    break
+  if seen.has(m[1]):
+    problem = "line {num}: duplicate {m[1]}"
+    break
+  seen[m[1]] = 1
+  deps = []
+  if len(m) > 4 and m[4] != "":
+    deps = [d.trim() for d in m[4].split(",")]
+  tasks.push(Task(name: m[1], days: m[2].int(), deps: deps))
+
+if problem == "":
+  u = first_unknown(tasks)
+  if u != "": problem = "unknown {u}"
+if problem == "" and len(topo(tasks)) < len(tasks): problem = "cycle"
+
+if problem != "":
+  print(problem)
+else:
+  order = topo(tasks)
+  us, ue = unlimited(tasks, order)
+  print("unlimited")
+  for i in 0..len(tasks):
+    print("  {tasks[i].name} {us[i]}-{ue[i]}")
+  L = biggest(ue)
+  print("length {L}")
+  chain = critical(tasks, us, ue)
+  cn = [tasks[i].name for i in chain]
+  txt = cn.join(" > ")
+  print("critical {txt}")
+  ss, se = schedule(tasks, ks)
+  print("workers {ks}")
+  for i in 0..len(tasks):
+    print("  {tasks[i].name} {ss[i]}-{se[i]}")
+  print("length {biggest(se)}")
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn idx(tasks: [Task], nm: str) -> int:
+  names = [t.name for t in tasks]
+  return names.index_of(nm)
+
+fn first_unknown(tasks: [Task]) -> str:
+  names = [t.name for t in tasks]
+  for t in tasks:
+    for d in t.deps:
+      if not names.contains(d): return d
+  return ""
+
+fn all_placed(deps: [str], placed: {str: int}) -> bool:
+  for d in deps:
+    if not placed.has(d): return False
+  return True
+
+fn topo(tasks: [Task]) -> [int]:
+  order = []
+  placed = {}
+  progress = True
+  while progress:
+    progress = False
+    for i in 0..len(tasks):
+      if not placed.has(tasks[i].name) and all_placed(tasks[i].deps, placed):
+        order.push(i)
+        placed[tasks[i].name] = 1
+        progress = True
+  return order
+
+fn biggest(xs: [int]) -> int:
+  m = 0
+  for x in xs:
+    if x > m: m = x
+  return m
+
+fn unlimited(tasks: [Task], order: [int]) -> ([int], [int]):
+  n = len(tasks)
+  starts = [0].repeat(n)
+  ends = [0].repeat(n)
+  for i in order:
+    s = 0
+    for d in tasks[i].deps:
+      e = ends[idx(tasks, d)]
+      if e > s: s = e
+    starts[i] = s
+    ends[i] = s + tasks[i].days
+  return (starts, ends)
+
+fn critical(tasks: [Task], starts: [int], ends: [int]) -> [int]:
+  n = len(tasks)
+  top = biggest(ends)
+  good = [False].repeat(n)
+  for i in 0..n:
+    good[i] = ends[i] == top
+  changed = True
+  while changed:
+    changed = False
+    for i in 0..n:
+      if not good[i]:
+        for j in 0..n:
+          if good[j] and starts[j] == ends[i] and tasks[j].deps.contains(tasks[i].name):
+            good[i] = True
+            changed = True
+  chain = []
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and starts[i] == 0 and good[i]: cur = i
+  while cur >= 0:
+    chain.push(cur)
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and good[j] and starts[j] == ends[cur] and tasks[j].deps.contains(tasks[cur].name): nxt = j
+    cur = nxt
+  return chain
+## schedule.bv
+use "graph.bv"
+
+fn tails(tasks: [Task]) -> [int]:
+  n = len(tasks)
+  tl = [0].repeat(n)
+  rounds = n + 1
+  for p in 0..rounds:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if tl[j] > best and tasks[j].deps.contains(tasks[i].name): best = tl[j]
+      tl[i] = tasks[i].days + best
+  return tl
+
+fn ready(tasks: [Task], i: int, done: [bool]) -> bool:
+  for d in tasks[i].deps:
+    if not done[idx(tasks, d)]: return False
+  return True
+
+fn schedule(tasks: [Task], k: int) -> ([int], [int]):
+  n = len(tasks)
+  tl = tails(tasks)
+  starts = [-1].repeat(n)
+  ends = [0].repeat(n)
+  done = [False].repeat(n)
+  free = k
+  t = 0
+  while done.contains(False):
+    for i in 0..n:
+      if starts[i] >= 0 and ends[i] == t and not done[i]:
+        done[i] = True
+        free += 1
+    while free > 0:
+      pick = -1
+      for i in 0..n:
+        if starts[i] < 0 and ready(tasks, i, done) and (pick < 0 or tl[i] > tl[pick]):
+          pick = i
+      if pick < 0: break
+      starts[pick] = t
+      ends[pick] = t + tasks[pick].days
+      free -= 1
+    t += 1
+  return (starts, ends)

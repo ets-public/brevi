@@ -1,0 +1,183 @@
+enum Expr:
+  Num(v: int)
+  Var(n: str)
+  Neg(e: Expr)
+  Bin(op: str, a: Expr, b: Expr)
+  Call(n: str, args: [Expr])
+
+type Func:
+  params: [str]
+  body: Expr
+
+gl = {}
+fns = {}
+toks = []
+pos = 0
+depth = 0
+TOKRE = "\d+|[A-Za-z]\w*|==|!=|<=|>=|[-+*/%<>(),=]"
+
+fn syn():
+  fail("syntax")
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  if pos >= toks.len(): syn()
+  t = toks[pos]
+  pos += 1
+  t
+
+fn isname(t: str) -> bool = t.re_full("[A-Za-z]\w*").len() > 0 and t != "let" and t != "fn" and t != "print"
+
+fn name() -> str:
+  t = nxt()
+  if not isname(t) or t == "if": syn()
+  t
+
+fn pcmp() -> Expr:
+  a = padd()
+  op = peek()
+  if op in ["==", "!=", "<", ">", "<=", ">="]:
+    pos += 1
+    b = padd()
+    return Bin(op: op, a: a, b: b)
+  a
+
+fn padd() -> Expr:
+  a = pmul()
+  while peek() == "+" or peek() == "-":
+    op = nxt()
+    b = pmul()
+    a = Bin(op: op, a: a, b: b)
+  a
+
+fn pmul() -> Expr:
+  a = pun()
+  while peek() == "*" or peek() == "/" or peek() == "%":
+    op = nxt()
+    b = pun()
+    a = Bin(op: op, a: a, b: b)
+  a
+
+fn pun() -> Expr:
+  if peek() == "-":
+    pos += 1
+    return Neg(e: pun())
+  pprim()
+
+fn pprim() -> Expr:
+  t = nxt()
+  if t.re_full("\d+").len() > 0: return Num(v: t.int())
+  if t == "(":
+    e = pcmp()
+    if nxt() != ")": syn()
+    return e
+  if not isname(t): syn()
+  if peek() == "(":
+    pos += 1
+    args = []
+    if peek() == ")":
+      pos += 1
+    else:
+      while true:
+        args.push(pcmp())
+        s = nxt()
+        if s == ")": break
+        if s != ",": syn()
+    return Call(n: t, args: args)
+  if t == "if": syn()
+  Var(n: t)
+
+fn binop(op: str, a: int, b: int) -> int:
+  if op == "+": return a + b
+  if op == "-": return a - b
+  if op == "*": return a * b
+  if op == "/" or op == "%":
+    if b == 0: fail("division by zero")
+    return if op == "/": a / b else: a % b
+  r = if op == "==": a == b elif op == "!=": a != b elif op == "<": a < b elif op == ">": a > b elif op == "<=": a <= b else: a >= b
+  if r: 1 else: 0
+
+fn ev(e: Expr, env: {str: int}) -> int = match e:
+  Num(v) => v
+  Var(n) =>
+    if env.has(n): return env[n]
+    if gl.has(n): return gl[n]
+    fail("unknown name {n}")
+  Neg(x) => 0 - ev(x, env)
+  Bin(op, x, y) =>
+    a = ev(x, env)
+    b = ev(y, env)
+    binop(op, a, b)
+  Call(n, args) =>
+    if n == "if":
+      if args.len() != 3: fail("if takes 3 arguments")
+      c = ev(args[0], env)
+      return if c != 0: ev(args[1], env) else: ev(args[2], env)
+    if not fns.has(n): fail("unknown function {n}")
+    f = fns[n]
+    if f.params.len() != args.len(): fail("{n} takes {f.params.len()} arguments")
+    vals = [ev(a, env) for a in args]
+    if depth >= 200: fail("too deep")
+    ne = {}
+    for i in 0..vals.len(): ne[f.params[i]] = vals[i]
+    depth += 1
+    r = ev(f.body, ne)
+    depth -= 1
+    r
+
+fn endp():
+  if pos < toks.len(): syn()
+
+fn run(line: str) -> int:
+  rest = line.re_sub(TOKRE, "")
+  if not rest.trim().is_empty(): syn()
+  toks = line.re_list(TOKRE)
+  pos = 0
+  depth = 0
+  k = nxt()
+  if k == "let":
+    n = name()
+    if nxt() != "=": syn()
+    e = pcmp()
+    endp()
+    gl[n] = ev(e, {})
+  elif k == "fn":
+    n = name()
+    if nxt() != "(": syn()
+    ps = []
+    if peek() == ")":
+      pos += 1
+    else:
+      while true:
+        ps.push(name())
+        s = nxt()
+        if s == ")": break
+        if s != ",": syn()
+    if nxt() != "=": syn()
+    e = pcmp()
+    endp()
+    fns[n] = Func(params: ps, body: e)
+  elif k == "print":
+    es = []
+    while true:
+      es.push(pcmp())
+      if peek() == ",":
+        pos += 1
+      else:
+        break
+    endp()
+    vals = [ev(e, {}) for e in es]
+    print(" ".join([v.str() for v in vals]))
+  else:
+    syn()
+  0
+
+ln = 0
+for line in lines():
+  ln += 1
+  t = line.trim()
+  if t.is_empty() or t.starts_with("#"): continue
+  match run(t):
+    Ok(_) => ln = ln
+    Err(m) => print("error line {ln}: {m}")

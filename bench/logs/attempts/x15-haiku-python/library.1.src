@@ -1,0 +1,264 @@
+## main.py
+import re
+import sys
+
+from catalog import TIERS, Book, Library, Member, day_of, money
+from rules import expire_holds, loan, pay, reserve, ret, status
+
+AMOUNT_RE = re.compile(r"(\d+)(?:\.(\d{1,2}))?")
+
+
+def parse_amount(text):
+    m = AMOUNT_RE.fullmatch(text)
+    if not m:
+        return None
+    return int(m.group(1)) * 100 + int((m.group(2) or "0").ljust(2, "0"))
+
+
+def handle(lib, today, parts, line):
+    op = parts[1]
+    out = []
+    if op == "BOOK" and len(parts) >= 4:
+        bid = parts[2]
+        if not parts[3].isdigit() or int(parts[3]) < 1:
+            return out
+        title = parts[4] if len(parts) > 4 else ""
+        if bid in lib.books:
+            return ["duplicate ID"]
+        lib.books[bid] = Book(bid, title, int(parts[3]))
+        return ["added %s" % bid]
+    if op == "MEMBER" and len(parts) >= 4:
+        mid = parts[2]
+        tier = parts[3]
+        if tier not in TIERS:
+            return out
+        name = parts[4] if len(parts) > 4 else ""
+        if mid in lib.members:
+            return ["duplicate ID"]
+        lib.members[mid] = Member(mid, name, tier)
+        return ["welcome %s" % name]
+    if op == "LOAN" and len(parts) == 4:
+        return [loan(lib, today, parts[2], parts[3])]
+    if op == "RETURN" and len(parts) == 4:
+        return [ret(lib, today, parts[2], parts[3])]
+    if op == "RESERVE" and len(parts) == 4:
+        return [reserve(lib, parts[2], parts[3])]
+    if op == "PAY" and len(parts) == 4:
+        amount = parse_amount(parts[3])
+        if amount is None:
+            return out
+        return [pay(lib, parts[2], amount)]
+    if op == "STATUS" and len(parts) == 3:
+        return [status(lib, parts[2])]
+    return out
+
+
+def main():
+    lib = Library()
+    out = []
+    for raw in sys.stdin:
+        line = raw.strip()
+        if not line:
+            continue
+        parts = line.split(maxsplit=4)
+        if len(parts) < 2:
+            continue
+        today = day_of(parts[0])
+        if today is None:
+            continue
+        out.extend(expire_holds(lib, today))
+        out.extend(handle(lib, today, parts, line))
+    if out:
+        sys.stdout.write("\n".join(out) + "\n")
+
+
+if __name__ == "__main__":
+    main()
+## catalog.py
+"""Book and member records and the library state that holds them."""
+
+import datetime
+from collections import deque
+
+TIERS = {
+    "basic": {"limit": 2, "days": 14, "fee": 25},
+    "plus": {"limit": 5, "days": 28, "fee": 10},
+}
+
+HOLD_DAYS = 3
+MAX_FEE = 500  # cents
+
+
+class Book:
+    def __init__(self, bid, title, copies):
+        self.id = bid
+        self.title = title
+        self.copies = copies
+        self.shelf = copies          # copies on the shelf
+        self.loans = {}              # member id -> due day (ordinal)
+        self.waitlist = deque()      # member ids, first in line first
+
+
+class Member:
+    def __init__(self, mid, name, tier):
+        self.id = mid
+        self.name = name
+        self.tier = tier
+        self.loans = []              # book ids, in lend order
+        self.owes = 0                # cents, may go negative (credit)
+
+
+class Hold:
+    def __init__(self, book_id, member_id, last_day):
+        self.book_id = book_id
+        self.member_id = member_id
+        self.last_day = last_day     # ordinal of the last collectable day
+
+
+class Library:
+    def __init__(self):
+        self.books = {}
+        self.members = {}
+        self.holds = []
+
+
+def day_of(text):
+    """Parse YYYY-MM-DD into an ordinal, or None if it is not a valid date."""
+    parts = text.split("-")
+    if len(parts) != 3 or any(not p.isdigit() for p in parts):
+        return None
+    if len(parts[0]) != 4 or len(parts[1]) != 2 or len(parts[2]) != 2:
+        return None
+    try:
+        return datetime.date(int(parts[0]), int(parts[1]), int(parts[2])).toordinal()
+    except ValueError:
+        return None
+
+
+def date_text(day):
+    return datetime.date.fromordinal(day).isoformat()
+
+
+def money(cents):
+    sign = "-" if cents < 0 else ""
+    c = abs(cents)
+    return "%s%d.%02d" % (sign, c // 100, c % 100)
+## rules.py
+"""Lending rules: loans, returns, fees, holds."""
+
+from catalog import HOLD_DAYS, MAX_FEE, TIERS, Hold, date_text, money
+
+
+def release_copy(lib, book, today):
+    """A copy comes back: hold it for the first on the list, or shelve it."""
+    if book.waitlist:
+        nxt = book.waitlist.popleft()
+        lib.holds.append(Hold(book.id, nxt, today + HOLD_DAYS))
+    else:
+        book.shelf += 1
+
+
+def expire_holds(lib, today):
+    """Expire every hold whose last day is before today, in order."""
+    out = []
+    while True:
+        due = [h for h in lib.holds if h.last_day < today]
+        if not due:
+            break
+        h = min(due, key=lambda x: (x.last_day, x.book_id))
+        lib.holds.remove(h)
+        out.append("hold expired %s %s" % (h.member_id, h.book_id))
+        book = lib.books[h.book_id]
+        if book.waitlist:
+            nxt = book.waitlist.popleft()
+            lib.holds.append(Hold(book.id, nxt, h.last_day + HOLD_DAYS))
+        else:
+            book.shelf += 1
+    return out
+
+
+def find_hold(lib, mid, bid):
+    for h in lib.holds:
+        if h.member_id == mid and h.book_id == bid:
+            return h
+    return None
+
+
+def loan(lib, today, mid, bid):
+    member = lib.members.get(mid)
+    if member is None:
+        return "refused %s %s: unknown member" % (mid, bid)
+    book = lib.books.get(bid)
+    if book is None:
+        return "refused %s %s: unknown book" % (mid, bid)
+    if member.owes > 200:
+        return "refused %s %s: owes %s" % (mid, bid, money(member.owes))
+    tier = TIERS[member.tier]
+    if len(member.loans) >= tier["limit"]:
+        return "refused %s %s: limit" % (mid, bid)
+    if bid in member.loans:
+        return "refused %s %s: already has it" % (mid, bid)
+    hold = find_hold(lib, mid, bid)
+    if hold is not None:
+        lib.holds.remove(hold)
+    elif book.shelf > 0:
+        book.shelf -= 1
+    else:
+        return "refused %s %s: none available" % (mid, bid)
+    due = today + tier["days"]
+    book.loans[mid] = due
+    member.loans.append(bid)
+    return "loan %s %s due %s" % (mid, bid, date_text(due))
+
+
+def ret(lib, today, mid, bid):
+    member = lib.members.get(mid)
+    book = lib.books.get(bid)
+    if member is None or book is None or bid not in member.loans:
+        return "refused %s %s: not on loan" % (mid, bid)
+    due = book.loans.pop(mid)
+    member.loans.remove(bid)
+    fee = 0
+    late = today - due
+    if late > 0:
+        rate = TIERS[member.tier]["fee"]
+        fee = min(late * rate, MAX_FEE)
+        member.owes += fee
+    release_copy(lib, book, today)
+    line = "returned %s %s" % (mid, bid)
+    if fee > 0:
+        line += " fee %s" % money(fee)
+    return line
+
+
+def reserve(lib, mid, bid):
+    member = lib.members.get(mid)
+    if member is None:
+        return "refused %s %s: unknown member" % (mid, bid)
+    book = lib.books.get(bid)
+    if book is None:
+        return "refused %s %s: unknown book" % (mid, bid)
+    if bid in member.loans:
+        return "refused %s %s: already has it" % (mid, bid)
+    if mid in book.waitlist or find_hold(lib, mid, bid) is not None:
+        return "refused %s %s: already reserved" % (mid, bid)
+    if book.shelf > 0:
+        return "refused %s %s: copy available" % (mid, bid)
+    book.waitlist.append(mid)
+    return "reserved %s %s position %d" % (mid, bid, len(book.waitlist))
+
+
+def pay(lib, mid, amount):
+    member = lib.members.get(mid)
+    if member is None:
+        return "refused %s: unknown member" % mid
+    member.owes -= amount
+    return "paid %s owes %s" % (mid, money(member.owes))
+
+
+def status(lib, mid):
+    member = lib.members.get(mid)
+    if member is None:
+        return "refused %s: unknown member" % mid
+    loans = " ".join(member.loans) if member.loans else "-"
+    return "%s %s owes %s loans: %s" % (mid, member.name, money(member.owes), loans)

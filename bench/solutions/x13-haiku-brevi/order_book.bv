@@ -1,0 +1,142 @@
+type Order:
+  oid: str
+  side: str
+  price: int
+  qty: int
+  seq: int
+
+resting = {}
+seen = {}
+seq = 0
+volume = 0
+value = 0
+
+fn all_digits(s: str) -> bool:
+  if s.is_empty(): return false
+  for c in s.chars():
+    if not c.is_digit(): return false
+  return true
+
+fn cents_of(s: str) -> int:
+  parts = s.split(".")
+  if parts.len() > 2: return -1
+  if not all_digits(parts[0]): return -1
+  frac = "00"
+  if parts.len() == 2:
+    frac = parts[1]
+    if frac.len() == 1: frac = frac + "0"
+    if frac.len() != 2 or not all_digits(frac): return -1
+  c = parts[0].int().or(0) * 100 + frac.int().or(0)
+  if c <= 0: return -1
+  return c
+
+fn qty_of(s: str) -> int:
+  if not all_digits(s): return -1
+  n = s.int().or(0)
+  if n < 1: return -1
+  return n
+
+fn fmt_cents(c: int) -> str:
+  whole = c // 100
+  frac = c % 100
+  return "{whole}.{frac:02d}"
+
+fn best_opp(side: str, limit: int) -> str:
+  best = ""
+  for o in resting.values():
+    if o.side == side: continue
+    if limit > 0 and side == "BUY" and o.price > limit: continue
+    if limit > 0 and side == "SELL" and o.price < limit: continue
+    if best == "":
+      best = o.oid
+    else:
+      b = resting[best]
+      if side == "BUY":
+        if o.price < b.price or (o.price == b.price and o.seq < b.seq): best = o.oid
+      else:
+        if o.price > b.price or (o.price == b.price and o.seq < b.seq): best = o.oid
+  return best
+
+fn match_in(oid: str, side: str, qty: int, limit: int):
+  q = qty
+  while q > 0:
+    bid = best_opp(side, limit)
+    if bid == "": break
+    o = resting[bid]
+    fill = min(q, o.qty)
+    ps = fmt_cents(o.price)
+    if side == "BUY":
+      print("TRADE {oid} {bid} {fill} {ps}")
+    else:
+      print("TRADE {bid} {oid} {fill} {ps}")
+    volume += fill
+    value += fill * o.price
+    resting[bid].qty -= fill
+    if resting[bid].qty == 0: resting.remove(bid)
+    q -= fill
+  if q > 0:
+    if limit > 0:
+      seq += 1
+      resting[oid] = Order(oid: oid, side: side, price: limit, qty: q, seq: seq)
+    else:
+      print("DROPPED {oid} {q}")
+
+fn show_book():
+  asks = {}
+  bids = {}
+  for o in resting.values():
+    if o.side == "SELL":
+      asks[o.price] += o.qty
+    else:
+      bids[o.price] += o.qty
+  print("asks")
+  if asks.is_empty(): print("  -")
+  for p in asks.keys():
+    print("  {fmt_cents(p)} {asks[p]}")
+  print("bids")
+  if bids.is_empty(): print("  -")
+  for p in bids.keys().rev():
+    print("  {fmt_cents(p)} {bids[p]}")
+
+fn handle(line: str, n: int):
+  t = line.words()
+  if t.is_empty(): return
+  cmd = t[0]
+  if cmd == "BOOK" and t.len() == 1:
+    show_book()
+  elif cmd == "CANCEL" and t.len() == 2:
+    if not resting.has(t[1]):
+      print("ERR line {n}: unknown ID")
+    else:
+      o = resting[t[1]]
+      print("CANCELLED {t[1]} {o.qty}")
+      resting.remove(t[1])
+  elif (cmd == "BUY" or cmd == "SELL") and t.len() == 4:
+    price = cents_of(t[3])
+    qty = qty_of(t[2])
+    if price < 0 or qty < 0:
+      print("ERR line {n}: bad command")
+    elif seen.has(t[1]):
+      print("ERR line {n}: duplicate ID")
+    else:
+      seen[t[1]] = true
+      match_in(t[1], cmd, qty, price)
+  elif (cmd == "MBUY" or cmd == "MSELL") and t.len() == 3:
+    qty = qty_of(t[2])
+    side = "SELL"
+    if cmd == "MBUY": side = "BUY"
+    if qty < 0:
+      print("ERR line {n}: bad command")
+    elif seen.has(t[1]):
+      print("ERR line {n}: duplicate ID")
+    else:
+      seen[t[1]] = true
+      match_in(t[1], side, qty, 0)
+  else:
+    print("ERR line {n}: bad command")
+
+n = 0
+for line in lines():
+  n += 1
+  handle(line, n)
+print("volume {volume} value {fmt_cents(value)}")

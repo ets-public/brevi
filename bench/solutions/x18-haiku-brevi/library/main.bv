@@ -1,0 +1,40 @@
+use "catalog.bv"
+use "rules.bv"
+
+books: {str: Book} = {}
+members: {str: Member} = {}
+holds: [Hold] = []
+
+for raw in lines():
+  w = raw.words()
+  if len(w) < 2: continue
+  ds = w[0]
+  cmd = w[1]
+  for msg in expire(books, holds, day(ds)):
+    print(msg)
+  if cmd == "BOOK" and len(w) >= 5:
+    bid = w[2]
+    title = w[4:].join(" ")
+    if books.has(bid):
+      print("duplicate ID")
+    else:
+      books[bid] = Book(title: title, copies: w[3].int(), shelf: w[3].int(), waiting: [])
+      print("added {bid}")
+  elif cmd == "MEMBER" and len(w) >= 5:
+    mid = w[2]
+    nm = w[4:].join(" ")
+    if members.has(mid):
+      print("duplicate ID")
+    else:
+      members[mid] = Member(name: nm, tier: w[3], owes: "0.00".dec(), loans: [], dues: {})
+      print("welcome {nm}")
+  elif cmd == "LOAN" and len(w) == 4:
+    print(loan(books, members, holds, ds, w[2], w[3]))
+  elif cmd == "RETURN" and len(w) == 4:
+    print(ret(books, members, holds, ds, w[2], w[3]))
+  elif cmd == "RESERVE" and len(w) == 4:
+    print(reserve(books, members, holds, w[2], w[3]))
+  elif cmd == "PAY" and len(w) == 4:
+    print(pay(members, w[2], w[3].dec()))
+  elif cmd == "STATUS" and len(w) == 3:
+    print(status(members, w[2]))

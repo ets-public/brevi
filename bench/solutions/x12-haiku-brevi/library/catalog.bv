@@ -1,0 +1,38 @@
+type Loan:
+  book: str
+  due: Date
+
+type Book:
+  id: str
+  title: str
+  copies: int
+  out: int
+  waits: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Hold:
+  member: str
+  book: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn money(c: int) -> str:
+  sign = "-" if c < 0 else ""
+  a = abs(c)
+  return "{sign}{a // 100}.{a % 100:02d}"
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  frac = parts[1] if parts.len() > 1 else ""
+  padded = frac + "00"
+  return parts[0].int() * 100 + padded[0:2].int()

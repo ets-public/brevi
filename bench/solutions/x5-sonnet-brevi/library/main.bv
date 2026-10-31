@@ -1,0 +1,26 @@
+use "catalog.bv"
+use "rules.bv"
+
+lib = new_lib()
+
+for line in lines():
+  w = line.words()
+  if w.len() < 3: continue
+  today = date(w[0]).days
+  for s in expire(lib, today):
+    print(s)
+  c = w[1]
+  if c == "BOOK" and w.len() >= 5:
+    print(add_book(lib, w[2], w[3].int(), w.slice(4).join(" ")))
+  elif c == "MEMBER" and w.len() >= 5:
+    print(add_member(lib, w[2], w[3], w.slice(4).join(" ")))
+  elif c == "LOAN" and w.len() == 4:
+    print(loan(lib, today, w[2], w[3]))
+  elif c == "RETURN" and w.len() == 4:
+    print(give_back(lib, today, w[2], w[3]))
+  elif c == "RESERVE" and w.len() == 4:
+    print(reserve(lib, w[2], w[3]))
+  elif c == "PAY" and w.len() == 4:
+    print(pay(lib, w[2], w[3].dec()))
+  elif c == "STATUS" and w.len() == 3:
+    print(status(lib, w[2]))

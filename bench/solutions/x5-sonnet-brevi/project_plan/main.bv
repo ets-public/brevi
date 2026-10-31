@@ -1,0 +1,26 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn longest(tasks: [Task], en: {str: int}) -> int:
+  l = 0
+  for t in tasks: l = max(l, en[t.name])
+  l
+
+fn main():
+  (err, k, tasks) = parse_input(lines())
+  if err != "":
+    print(err)
+    return
+  e2 = check(tasks)
+  if e2 != "":
+    print(e2)
+    return
+  (st, en) = plan(tasks)
+  print("unlimited")
+  for t in tasks: print("  {t.name} {st[t.name]}-{en[t.name]}")
+  print("length {longest(tasks, en)}")
+  print("critical {critical(tasks, st, en)}")
+  print("workers {k}")
+  (s2, e2m) = schedule(tasks, k)
+  for t in tasks: print("  {t.name} {s2[t.name]}-{e2m[t.name]}")
+  print("length {longest(tasks, e2m)}")

@@ -1,0 +1,40 @@
+use "graph.bv"
+
+fn ready(g: Graph, i: int, starts: [int], ends: [int], now: int) -> bool:
+  for d in g.deps[i]:
+    if starts[d] < 0 or ends[d] > now: return false
+  true
+
+fn make_schedule(g: Graph) -> Plan:
+  n = g.names.len()
+  tail = [0].repeat(n)
+  for i in g.order.rev():
+    best = 0
+    for t in g.dependents[i]:
+      if tail[t] > best: best = tail[t]
+    tail[i] = g.days[i] + best
+  starts = [-1].repeat(n)
+  ends = [-1].repeat(n)
+  busy = []
+  now = 0
+  while True:
+    keep = []
+    for b in busy:
+      if ends[b] > now: keep.push(b)
+    busy = keep
+    while busy.len() < g.workers:
+      pick = -1
+      for i in 0..n:
+        if starts[i] < 0 and ready(g, i, starts, ends, now):
+          if pick < 0 or tail[i] > tail[pick]: pick = i
+      if pick < 0: break
+      starts[pick] = now
+      ends[pick] = now + g.days[pick]
+      busy.push(pick)
+    if busy.is_empty(): break
+    nxt = -1
+    for b in busy:
+      if nxt < 0 or ends[b] < nxt: nxt = ends[b]
+    now = nxt
+  total = ends.max().or(0)
+  Plan(starts, ends, total, [])

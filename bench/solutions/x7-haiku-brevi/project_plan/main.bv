@@ -1,0 +1,51 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn main():
+  (err, k, names, days, dnames) = parse_input(lines())
+  if err != "":
+    print(err)
+    return
+  n = names.len()
+  (rerr, deps) = resolve(names, dnames)
+  if rerr != "":
+    print(rerr)
+    return
+  order = topo_order(n, deps)
+  if order.len() < n:
+    print("cycle")
+    return
+  succ = succs(n, deps)
+  (st, en) = unlimited(n, order, days, deps)
+  big = 0
+  for e in en:
+    if e > big:
+      big = e
+  print("unlimited")
+  for i in 0..n:
+    nm = names[i]
+    a = st[i]
+    b = en[i]
+    print("  {nm} {a}-{b}")
+  print("length {big}")
+  chain = critical(n, st, en, succ, big)
+  if chain.is_empty():
+    print("critical")
+  else:
+    cn = []
+    for c in chain:
+      cn.push(names[c])
+    cs = " > ".join(cn)
+    print("critical {cs}")
+  tl = tails(n, order, days, succ)
+  (ss, se) = make_schedule(k, n, days, deps, tl)
+  print("workers {k}")
+  top = 0
+  for i in 0..n:
+    nm = names[i]
+    a = ss[i]
+    b = se[i]
+    if b > top:
+      top = b
+    print("  {nm} {a}-{b}")
+  print("length {top}")

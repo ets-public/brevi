@@ -1,0 +1,32 @@
+fn make_schedule(k: int, n: int, days: [int], deps: [[int]], tl: [int]) -> ([int], [int]):
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  started = [false].repeat(n)
+  done = [false].repeat(n)
+  running = 0
+  count_done = 0
+  t = 0
+  while count_done < n:
+    for i in 0..n:
+      if started[i] and not done[i] and en[i] == t:
+        done[i] = true
+        running -= 1
+        count_done += 1
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if not started[i]:
+          ready = true
+          for d in deps[i]:
+            if not done[d]:
+              ready = false
+          if ready and (best < 0 or tl[i] > tl[best]):
+            best = i
+      if best < 0:
+        break
+      started[best] = true
+      st[best] = t
+      en[best] = t + days[best]
+      running += 1
+    t += 1
+  return (st, en)

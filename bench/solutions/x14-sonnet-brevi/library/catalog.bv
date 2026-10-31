@@ -1,0 +1,46 @@
+type Loan:
+  book: str
+  due: int
+
+type Book:
+  id: str
+  title: str
+  shelf: int
+  waiting: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+type Hold:
+  member: str
+  book: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_lib() -> Lib = Lib({}, {}, [])
+
+fn dstr(days: int) -> str = str(date("1970-01-01").add_days(days))
+
+fn has_loan(m: Member, book: str) -> bool = [l for l in m.loans if l.book == book].len() > 0
+
+fn add_book(mut lib: Lib, id: str, copies: int, title: str):
+  if lib.books.has(id):
+    print("duplicate ID")
+  else:
+    lib.books[id] = Book(id, title, copies, [])
+    print("added {id}")
+
+fn add_member(mut lib: Lib, id: str, tier: str, name: str):
+  if lib.members.has(id):
+    print("duplicate ID")
+  else:
+    lib.members[id] = Member(id, name, tier, 0.dec(), [])
+    print("welcome {name}")

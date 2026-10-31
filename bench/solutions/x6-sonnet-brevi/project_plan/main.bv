@@ -1,0 +1,23 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn show(tasks: [Task], st: [int], en: [int]):
+  for i in 0..tasks.len(): print("  {tasks[i].name} {st[i]}-{en[i]}")
+  print("length {max(en)}")
+
+fn main():
+  err, k, tasks = parse(lines())
+  if err != "":
+    print(err)
+    return
+  e2 = check(tasks)
+  if e2 != "":
+    print(e2)
+    return
+  print("unlimited")
+  st, en = plan(tasks)
+  show(tasks, st, en)
+  print("critical {" > ".join(critical(tasks, st, en))}")
+  print("workers {k}")
+  s2, e3 = schedule(tasks, k)
+  show(tasks, s2, e3)

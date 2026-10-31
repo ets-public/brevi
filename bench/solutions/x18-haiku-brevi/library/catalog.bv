@@ -1,0 +1,19 @@
+type Book:
+  title: str
+  copies: int
+  shelf: int
+  waiting: [str]
+
+type Member:
+  name: str
+  tier: str
+  owes: dec
+  loans: [str]
+  dues: {str: str}
+
+type Hold:
+  book: str
+  member: str
+  last: int
+
+fn day(s: str) -> int = date(s).days

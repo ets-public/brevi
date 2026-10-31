@@ -1,0 +1,33 @@
+use "catalog.bv"
+use "rules.bv"
+
+books: {str: Book} = {}
+members: {str: Member} = {}
+loans: [Loan] = []
+holds: [Hold] = []
+
+for raw in stdin().lines():
+  line = raw.trim()
+  if line.is_empty(): continue
+  parts = line.words()
+  today = date(parts[0]).days
+  for msg in expire(holds, books, today):
+    print(msg)
+  cmd = parts[1]
+  if cmd == "BOOK":
+    g = line.re_full("\S+ BOOK (\S+) (\d+) (.+)")
+    print(add_book(books, g[1], g[2].int().or(0)))
+  elif cmd == "MEMBER":
+    g = line.re_full("\S+ MEMBER (\S+) (basic|plus) (.+)")
+    print(add_member(members, g[1], g[2], g[3]))
+  elif cmd == "LOAN":
+    print(do_loan(loans, holds, books, members, today, parts[2], parts[3]))
+  elif cmd == "RETURN":
+    print(do_return(loans, holds, books, members, today, parts[2], parts[3]))
+  elif cmd == "RESERVE":
+    print(do_reserve(loans, holds, books, members, parts[2], parts[3]))
+  elif cmd == "PAY":
+    g = line.re_full("\S+ PAY (\S+) (\d+(?:\.\d{1,2})?)")
+    print(do_pay(members, g[1], g[2].dec().or(0.dec())))
+  elif cmd == "STATUS":
+    print(do_status(loans, members, parts[2]))

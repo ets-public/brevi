@@ -1,0 +1,31 @@
+use "graph.bv"
+use "schedule.bv"
+
+fn show_unlimited(g: Graph):
+  p = unlimited(g)
+  print("unlimited")
+  for i in 0..g.names.len():
+    nm = g.names[i]
+    s = p.starts[i]
+    e = p.ends[i]
+    print("  {nm} {s}-{e}")
+  print("length {p.length}")
+  cr = " > ".join(p.critical)
+  print("critical {cr}")
+
+fn show_schedule(g: Graph):
+  p = make_schedule(g)
+  print("workers {g.workers}")
+  for i in 0..g.names.len():
+    nm = g.names[i]
+    s = p.starts[i]
+    e = p.ends[i]
+    print("  {nm} {s}-{e}")
+  print("length {p.length}")
+
+ls = lines()
+match read_graph(ls):
+  Ok(g) =>
+    show_unlimited(g)
+    show_schedule(g)
+  Err(m) => print(m)

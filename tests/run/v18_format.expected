@@ -1,0 +1,7 @@
+12345.05 [3.14] [ab   ] [   ab] [  ab  ] [1,234,567] [19.50] [-05] [   3.142]   7 {0.256:.1%} +5
+{a:b} ab
+(3, 0, "c")
+(9, 3, "d")
+[(9, 3, "d"), (3, 0, "c"), (3, 2, "b"), (5, 1, "a")]
+3 7
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

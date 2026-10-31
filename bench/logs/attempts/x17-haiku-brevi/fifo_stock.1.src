@@ -1,0 +1,117 @@
+fn money(c: int) -> str:
+  if c < 0: return "-" + money(0 - c)
+  if c % 100 < 10: return "{c // 100}.0{c % 100}"
+  return "{c // 100}.{c % 100}"
+
+fn cents(s: str) -> int:
+  parts = s.split(".")
+  f = "00"
+  if len(parts) == 2: f = (parts[1] + "0").slice(0, 2)
+  return parts[0].int() * 100 + f.int()
+
+fn valid(ws: [str]) -> bool:
+  if len(ws) < 4: return False
+  if not ws[0].re_full("\d{4}-\d{2}-\d{2}"): return False
+  opn = ws[1]
+  if opn == "LOSS":
+    if len(ws) != 4: return False
+  elif opn == "RECEIVE" or opn == "SHIP":
+    if len(ws) != 5: return False
+    if not ws[4].re_full("\d+(\.\d{1,2})?"): return False
+  else:
+    return False
+  if not ws[3].re_full("\d+"): return False
+  return ws[3].int() > 0
+
+lq: {str: [int]} = {}
+lc: {str: [int]} = {}
+seen: {str: bool} = {}
+cogs_t: {str: int} = {}
+rev_t: {str: int} = {}
+loss_t: {str: int} = {}
+mprof: {str: int} = {}
+mloss: {str: int} = {}
+months: {str: bool} = {}
+last = ""
+
+ls = lines()
+for k in 0..len(ls):
+  ws = ls[k].words()
+  if len(ws) == 0: continue
+  nn = k + 1
+  if not valid(ws):
+    print("line {nn}: bad line")
+    continue
+  d = ws[0]
+  opn = ws[1]
+  sku = ws[2]
+  q = ws[3].int()
+  if d < last:
+    print("line {nn}: date out of order")
+    continue
+  if opn == "RECEIVE":
+    price = cents(ws[4])
+    last = d
+    seen[sku] = True
+    qs = lq[sku]
+    cs = lc[sku]
+    qs.push(q)
+    cs.push(price)
+    lq[sku] = qs
+    lc[sku] = cs
+  else:
+    have = sum(lq[sku])
+    if have < q:
+      print("line {nn}: short {sku} need {q} have {have}")
+      continue
+    qs = lq[sku]
+    cs = lc[sku]
+    need = q
+    cost = 0
+    while need > 0:
+      t = min(need, qs[0])
+      cost += t * cs[0]
+      need -= t
+      qs[0] -= t
+      if qs[0] == 0:
+        qs.remove(0)
+        cs.remove(0)
+    lq[sku] = qs
+    lc[sku] = cs
+    last = d
+    mon = d.slice(0, 7)
+    months[mon] = True
+    if opn == "SHIP":
+      price = cents(ws[4])
+      rev = q * price
+      cogs_t[sku] += cost
+      rev_t[sku] += rev
+      mprof[mon] += rev - cost
+    else:
+      loss_t[sku] += cost
+      mloss[mon] += cost
+
+names = seen.keys()
+names.sort()
+tp = 0
+tl = 0
+for s in names:
+  qs = lq[s]
+  cs = lc[s]
+  onh = sum(qs)
+  val = 0
+  for j in 0..len(qs):
+    val += qs[j] * cs[j]
+  cg = cogs_t[s]
+  rv = rev_t[s]
+  lo = loss_t[s]
+  pf = rv - cg
+  tp += pf
+  tl += lo
+  print("{s} on_hand {onh} value {money(val)} cogs {money(cg)} revenue {money(rv)} profit {money(pf)} loss {money(lo)}")
+print("months")
+mk = months.keys()
+mk.sort()
+for m in mk:
+  print("  {m} profit {money(mprof[m])} loss {money(mloss[m])}")
+print("total profit {money(tp)} loss {money(tl)} net {money(tp - tl)}")

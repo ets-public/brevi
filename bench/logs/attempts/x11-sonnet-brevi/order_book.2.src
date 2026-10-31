@@ -1,0 +1,129 @@
+type Ord:
+  id: str
+  buy: bool
+  qty: int
+  price: int
+  seq: int
+
+orders = []
+used = {}
+volume = 0
+value = 0
+seqn = 0
+out = []
+
+fn parse_price(s: str) -> int:
+  if not s.re_full("\d+(\.\d{1,2})?"): fail("bad")
+  parts = s.split(".")
+  whole = parts[0].int()
+  frac = 0
+  if parts.len() > 1:
+    f = parts[1]
+    if f.len() == 1: f = f + "0"
+    frac = f.int()
+  p = whole * 100 + frac
+  if p <= 0: fail("bad")
+  p
+
+fn parse_qty(s: str) -> int:
+  if not s.re_full("\d+"): fail("bad")
+  q = s.int()
+  if q < 1: fail("bad")
+  q
+
+fn money(c: int) -> str:
+  "{c // 100}.{(c % 100):02d}"
+
+fn fill(buy: bool, id: str, qty: int, limit: int, ismarket: bool) -> int:
+  left = qty
+  while left > 0:
+    best = -1
+    for i in 0..orders.len():
+      o = orders[i]
+      if o.buy == buy: continue
+      if not ismarket:
+        if buy and o.price > limit: continue
+        if not buy and o.price < limit: continue
+      if best < 0:
+        best = i
+      else:
+        b = orders[best]
+        better = if buy: (o.price < b.price or (o.price == b.price and o.seq < b.seq)) else: (o.price > b.price or (o.price == b.price and o.seq < b.seq))
+        if better: best = i
+    if best < 0: break
+    o = orders[best]
+    q = min(left, o.qty)
+    if buy:
+      out.push("TRADE {id} {o.id} {q} {money(o.price)}")
+    else:
+      out.push("TRADE {o.id} {id} {q} {money(o.price)}")
+    volume += q
+    value += q * o.price
+    left -= q
+    if q == o.qty:
+      orders.remove(best)
+    else:
+      orders[best].qty -= q
+  left
+
+fn side(buy: bool):
+  m = {}
+  for o in orders:
+    if o.buy == buy: m[o.price] += o.qty
+  ks = m.keys()
+  if buy: ks = ks.rev()
+  if ks.is_empty():
+    out.push("  -")
+  else:
+    for k in ks: out.push("  {money(k)} {m[k]}")
+
+fn handle(line: str, n: int):
+  w = line.words()
+  cmd = w[0]
+  if cmd == "BUY" or cmd == "SELL":
+    if w.len() != 5: fail("bad")
+    q = parse_qty(w[2])
+    p = parse_price(w[3])
+    if used.has(w[1]): fail("dup")
+    used[w[1]] = true
+    buy = cmd == "BUY"
+    left = fill(buy, w[1], q, p, false)
+    if left > 0:
+      seqn += 1
+      orders.push(Ord(w[1], buy, left, p, seqn))
+  elif cmd == "MBUY" or cmd == "MSELL":
+    if w.len() != 3: fail("bad")
+    q = parse_qty(w[2])
+    if used.has(w[1]): fail("dup")
+    used[w[1]] = true
+    left = fill(cmd == "MBUY", w[1], q, 0, true)
+    if left > 0: out.push("DROPPED {w[1]} {left}")
+  elif cmd == "CANCEL":
+    if w.len() != 2: fail("bad")
+    idx = -1
+    for i in 0..orders.len():
+      if orders[i].id == w[1]: idx = i
+    if idx < 0: fail("unk")
+    out.push("CANCELLED {w[1]} {orders[idx].qty}")
+    orders.remove(idx)
+  elif cmd == "BOOK":
+    if w.len() != 1: fail("bad")
+    out.push("asks")
+    side(false)
+    out.push("bids")
+    side(true)
+  else:
+    fail("bad")
+
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  match handle(line, n):
+    Ok(_) => n += 0
+    Err(m) =>
+      if m == "dup": out.push("ERR line {n}: duplicate ID")
+      elif m == "unk": out.push("ERR line {n}: unknown ID")
+      else: out.push("ERR line {n}: bad command {m}")
+out.push("volume {volume} value {money(value)}")
+for l in out: print(l)

@@ -1,0 +1,56 @@
+use "graph.bv"
+
+fn tails(tasks: [Task]) -> [int]:
+  n = len(tasks)
+  tl = [0].repeat(n)
+  for pass_i in 0..n:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if tasks[i].name in tasks[j].deps and tl[j] > best:
+          best = tl[j]
+      tl[i] = tasks[i].days + best
+  return tl
+
+fn ready(tasks: [Task], fin: [bool], i: int) -> bool:
+  for d in tasks[i].deps:
+    j = index_of_task(tasks, d)
+    if not fin[j]:
+      return False
+  return True
+
+fn schedule_k(tasks: [Task], k: int) -> ([int], [int]):
+  n = len(tasks)
+  tl = tails(tasks)
+  st = [-1].repeat(n)
+  ends = [0].repeat(n)
+  fin = [False].repeat(n)
+  free = k
+  done = 0
+  t = 0
+  while done < n:
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and ends[i] == t:
+        fin[i] = True
+        done += 1
+        free += 1
+    while free > 0:
+      pick = -1
+      for i in 0..n:
+        if st[i] < 0 and ready(tasks, fin, i):
+          if pick < 0 or tl[i] > tl[pick]:
+            pick = i
+      if pick < 0:
+        break
+      st[pick] = t
+      ends[pick] = t + tasks[pick].days
+      free -= 1
+    nextt = -1
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i]:
+        if nextt < 0 or ends[i] < nextt:
+          nextt = ends[i]
+    if nextt < 0:
+      break
+    t = nextt
+  return (st, ends)

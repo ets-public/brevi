@@ -1,0 +1,32 @@
+use "graph.bv"
+
+fn schedule(k: int, tasks: [Task], tl: [int]) -> ([int], [int]):
+  n = tasks.len()
+  st = [0].repeat(n)
+  s2 = [0].repeat(n)
+  e2 = [0].repeat(n)
+  t = 0
+  finished = 0
+  while finished < n:
+    for i in 0..n:
+      if st[i] == 1 and e2[i] == t:
+        st[i] = 2
+        finished += 1
+    running = st.count(x => x == 1)
+    while running < k:
+      best = -1
+      for i in 0..n:
+        if st[i] == 0 and tasks[i].deps.all(d => st[d] == 2):
+          if best < 0 or tl[i] > tl[best]: best = i
+      if best < 0: break
+      st[best] = 1
+      s2[best] = t
+      e2[best] = t + tasks[best].days
+      running += 1
+    if finished == n: break
+    nt = -1
+    for i in 0..n:
+      if st[i] == 1 and (nt < 0 or e2[i] < nt): nt = e2[i]
+    if nt < 0: break
+    t = nt
+  (s2, e2)

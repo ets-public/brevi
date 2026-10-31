@@ -1,0 +1,298 @@
+tcols = {}
+ttypes = {}
+trows = {}
+toks = []
+pos = 0
+bad = false
+
+fn tk() -> str:
+  if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  t = tk()
+  pos += 1
+  t
+
+fn ex(s: str):
+  if tk() == s: pos += 1
+  else: bad = true
+
+fn is_ident(s: str) -> bool = s.re_full("[A-Za-z][A-Za-z0-9_]*").len() > 0
+
+fn is_val(s: str) -> bool = s.re_full("-?\d+").len() > 0 or s.re_full("'(?:[^']|'')*'").len() > 0
+
+fn vtype(v: str) -> str = if v.starts_with("'"): "TEXT" else: "INT"
+
+fn vval(v: str) -> str = if v.starts_with("'"): v.slice(1, v.len() - 1).replace("''", "'") else: v
+
+fn parse_conds() -> [(str, str, str)]:
+  cs = []
+  while not bad:
+    c = nxt()
+    op = nxt()
+    v = nxt()
+    if not is_ident(c) or op not in ["=", "!=", "<", ">", "<=", ">="] or not is_val(v):
+      bad = true
+      break
+    cs.push((c, op, v))
+    if tk() == "AND": pos += 1
+    else: break
+  cs
+
+fn cmp_ok(a: str, op: str, b: str, isint: bool) -> bool:
+  c = 0
+  if isint:
+    x = a.int().or(0)
+    y = b.int().or(0)
+    c = if x < y: -1 elif x > y: 1 else: 0
+  else:
+    c = if a < b: -1 elif a > b: 1 else: 0
+  if op == "=": return c == 0
+  if op == "!=": return c != 0
+  if op == "<": return c < 0
+  if op == ">": return c > 0
+  if op == "<=": return c <= 0
+  c >= 0
+
+fn matching(t: str, cs: [(str, str, str)]) -> [int]:
+  res = []
+  cols = tcols[t]
+  types = ttypes[t]
+  for i in 0..trows[t].len():
+    row = trows[t][i]
+    ok = true
+    for c in cs:
+      j = cols.index_of(c.0)
+      if not cmp_ok(row[j], c.1, vval(c.2), types[j] == "INT"): ok = false
+    if ok: res.push(i)
+  res
+
+# returns error message or ""
+fn check(t: str, names: [str], cs: [(str, str, str)], extra: [(str, str)]) -> str:
+  cols = tcols[t]
+  for n in names:
+    if n not in cols: return "error: no column {n}"
+  for c in cs:
+    if c.0 not in cols: return "error: no column {c.0}"
+  for c in cs:
+    if ttypes[t][cols.index_of(c.0)] != vtype(c.2): return "error: type mismatch"
+  for e in extra:
+    if ttypes[t][cols.index_of(e.0)] != vtype(e.1): return "error: type mismatch"
+  ""
+
+fn run(line: str):
+  toks = line.re_list("'(?:[^']|'')*'|-?\d+|[A-Za-z_][A-Za-z0-9_]*|<=|>=|!=|[=<>(),*]")
+  pos = 0
+  bad = false
+  rest = line.re_sub("'(?:[^']|'')*'|-?\d+|[A-Za-z_][A-Za-z0-9_]*|<=|>=|!=|[=<>(),*]", "")
+  if rest.replace(" ", "") != "": bad = true
+  if line.contains("  ") or line.starts_with(" ") or line.ends_with(" "): bad = true
+  w = nxt()
+  if w == "CREATE":
+    ex("TABLE")
+    t = nxt()
+    ex("(")
+    names = []
+    types = []
+    while not bad:
+      n = nxt()
+      ty = nxt()
+      if not is_ident(n) or ty not in ["INT", "TEXT"]:
+        bad = true
+        break
+      names.push(n)
+      types.push(ty)
+      if tk() == ",": pos += 1
+      else: break
+    ex(")")
+    if tk() != "": bad = true
+    if bad or not is_ident(t):
+      print("error: syntax")
+      return
+    if tcols.has(t):
+      print("error: table {t} exists")
+      return
+    tcols[t] = names
+    ttypes[t] = types
+    trows[t] = []
+    print("ok")
+  elif w == "INSERT":
+    ex("INTO")
+    t = nxt()
+    ex("VALUES")
+    ex("(")
+    vs = []
+    while not bad:
+      v = nxt()
+      if not is_val(v):
+        bad = true
+        break
+      vs.push(v)
+      if tk() == ",": pos += 1
+      else: break
+    ex(")")
+    if tk() != "": bad = true
+    if bad or not is_ident(t):
+      print("error: syntax")
+      return
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    if vs.len() != tcols[t].len():
+      print("error: type mismatch")
+      return
+    for i in 0..vs.len():
+      if vtype(vs[i]) != ttypes[t][i]:
+        print("error: type mismatch")
+        return
+    trows[t].push([vval(v) for v in vs])
+    print("ok")
+  elif w == "SELECT":
+    names = []
+    cnt = false
+    star = false
+    if tk() == "COUNT":
+      pos += 1
+      ex("(")
+      ex("*")
+      ex(")")
+      cnt = true
+    elif tk() == "*":
+      pos += 1
+      star = true
+    else:
+      while not bad:
+        n = nxt()
+        if not is_ident(n):
+          bad = true
+          break
+        names.push(n)
+        if tk() == ",": pos += 1
+        else: break
+    ex("FROM")
+    t = nxt()
+    cs = []
+    if tk() == "WHERE":
+      pos += 1
+      cs = parse_conds()
+    ordc = ""
+    desc = false
+    lim = -1
+    if not cnt and tk() == "ORDER":
+      pos += 1
+      ex("BY")
+      ordc = nxt()
+      if not is_ident(ordc): bad = true
+      if tk() == "DESC":
+        pos += 1
+        desc = true
+    if not cnt and tk() == "LIMIT":
+      pos += 1
+      ls = nxt()
+      if ls.re_full("\d+").len() == 0: bad = true
+      else: lim = ls.int().or(0)
+    if tk() != "": bad = true
+    if bad or not is_ident(t):
+      print("error: syntax")
+      return
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    if star: names = tcols[t]
+    allnames = names + [c.0 for c in cs]
+    if ordc != "": allnames = allnames + [ordc]
+    # column order: select cols, where cols, order col
+    err = check(t, [], [], [])
+    cols = tcols[t]
+    for n in allnames:
+      if n not in cols:
+        print("error: no column {n}")
+        return
+    err = check(t, [], cs, [])
+    if err != "":
+      print(err)
+      return
+    idx = matching(t, cs)
+    if cnt:
+      print(idx.len())
+      return
+    if ordc != "":
+      oj = cols.index_of(ordc)
+      isint = ttypes[t][oj] == "INT"
+      keyed = []
+      for i in idx:
+        v = trows[t][i][oj]
+        if isint: keyed.push((v.int().or(0), i))
+        else: keyed.push((0, i))
+      if isint:
+        idx = keyed.sort_by(p => (if desc: -p.0 else: p.0, p.1)).map(p => p.1)
+      else:
+        sk = [(trows[t][i][oj], i) for i in idx]
+        if desc:
+          idx = sk.sort_by(p => p.0, true).map(p => p.1)
+        else:
+          idx = sk.sort_by(p => p.0).map(p => p.1)
+    if lim >= 0: idx = idx.take(lim)
+    print(names.join(" | "))
+    js = [cols.index_of(n) for n in names]
+    for i in idx:
+      print(" | ".join([trows[t][i][j] for j in js]))
+    print("({idx.len()} rows)")
+  elif w == "UPDATE":
+    t = nxt()
+    ex("SET")
+    sc = nxt()
+    ex("=")
+    sv = nxt()
+    if not is_ident(sc) or not is_val(sv): bad = true
+    cs = []
+    if tk() == "WHERE":
+      pos += 1
+      cs = parse_conds()
+    if tk() != "": bad = true
+    if bad or not is_ident(t):
+      print("error: syntax")
+      return
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    err = check(t, [sc], [], [])
+    if err == "": err = check(t, [], cs, [])
+    if err == "": err = check(t, [], [], [(sc, sv)])
+    if err != "":
+      print(err)
+      return
+    idx = matching(t, cs)
+    j = tcols[t].index_of(sc)
+    for i in idx: trows[t][i][j] = vval(sv)
+    print("updated {idx.len()}")
+  elif w == "DELETE":
+    ex("FROM")
+    t = nxt()
+    cs = []
+    if tk() == "WHERE":
+      pos += 1
+      cs = parse_conds()
+    if tk() != "": bad = true
+    if bad or not is_ident(t):
+      print("error: syntax")
+      return
+    if not tcols.has(t):
+      print("error: no table {t}")
+      return
+    err = check(t, [], cs, [])
+    if err != "":
+      print(err)
+      return
+    idx = matching(t, cs)
+    keep = []
+    for i in 0..trows[t].len():
+      if i not in idx: keep.push(trows[t][i])
+    trows[t] = keep
+    print("deleted {idx.len()}")
+  else:
+    print("error: syntax")
+
+for line in lines():
+  if line.trim().is_empty(): continue
+  run(line)

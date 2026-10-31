@@ -1,0 +1,109 @@
+type Lot:
+  qty: int
+  cost: dec
+
+lots = {}
+seen = {}
+cogs = {}
+rev = {}
+loss = {}
+mprofit = {}
+mloss = {}
+latest = ""
+out = []
+
+fn valid_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d{2}-\d{2}").len() == 0: return false
+  y = s.slice(0, 4).int()
+  m = s.slice(5, 7).int()
+  d = s.slice(8, 10).int()
+  if m < 1 or m > 12: return false
+  dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1]
+  if m == 2 and (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)): dim = 29
+  d >= 1 and d <= dim
+
+fn is_qty(s: str) -> bool:
+  s.re_full("\d+").len() > 0 and s.int() >= 1
+
+fn is_money(s: str) -> bool:
+  s.re_full("\d+(\.\d{1,2})?").len() > 0
+
+fn take(sku: str, q: int) -> dec:
+  total = 0.dec()
+  left = q
+  while left > 0:
+    l = lots[sku][0]
+    t = min(left, l.qty)
+    total += l.cost * t
+    left -= t
+    if t == l.qty:
+      lots[sku].remove(0)
+    else:
+      lots[sku][0].qty -= t
+  total
+
+fn have(sku: str) -> int:
+  n = 0
+  for l in lots[sku]: n += l.qty
+  n
+
+fn handle(line: str, n: int):
+  w = line.words()
+  if w.len() < 4: fail("bad line")
+  op = w[1]
+  if not valid_date(w[0]): fail("bad line")
+  sku = w[2]
+  if op == "RECEIVE" or op == "SHIP":
+    if w.len() != 5: fail("bad line")
+    if not is_qty(w[3]) or not is_money(w[4]): fail("bad line")
+  elif op == "LOSS":
+    if w.len() != 4: fail("bad line")
+    if not is_qty(w[3]): fail("bad line")
+  else:
+    fail("bad line")
+  if w[0] < latest: fail("date out of order")
+  q = w[3].int()
+  mo = w[0].slice(0, 7)
+  if op == "RECEIVE":
+    seen[sku] = true
+    lots[sku].push(Lot(q, w[4].dec()))
+  else:
+    h = have(sku)
+    if q > h: fail("short {sku} need {q} have {h}")
+    c = take(sku, q)
+    if op == "SHIP":
+      r = w[4].dec() * q
+      cogs[sku] += c
+      rev[sku] += r
+      mprofit[mo] += r - c
+      mloss[mo] += 0.dec()
+    else:
+      loss[sku] += c
+      mloss[mo] += c
+      mprofit[mo] += 0.dec()
+  latest = w[0]
+
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  match handle(line, n):
+    Ok(_) => n += 0
+    Err(m) => out.push("line {n}: {m}")
+tp = 0.dec()
+tl = 0.dec()
+for sku in seen.keys():
+  v = 0.dec()
+  oh = 0
+  for l in lots[sku]:
+    v += l.cost * l.qty
+    oh += l.qty
+  p = rev[sku] - cogs[sku]
+  tp += p
+  tl += loss[sku]
+  out.push("{sku} on_hand {oh} value {v.fmt(2)} cogs {cogs[sku].fmt(2)} revenue {rev[sku].fmt(2)} profit {p.fmt(2)} loss {loss[sku].fmt(2)}")
+out.push("months")
+for m in mprofit.keys():
+  out.push("  {m} profit {mprofit[m].fmt(2)} loss {mloss[m].fmt(2)}")
+out.push("total profit {tp.fmt(2)} loss {tl.fmt(2)} net {(tp - tl).fmt(2)}")
+for l in out: print(l)

@@ -1,0 +1,42 @@
+use "graph.bv"
+
+fn schedule(tasks: [Task], k: int) -> [int]:
+  n = tasks.len()
+  tail = [0].repeat(n)
+  for r in 0..n + 1:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if tasks[j].deps.contains(tasks[i].name): best = max(best, tail[j])
+      tail[i] = tasks[i].days + best
+  st = [-1].repeat(n)
+  en = [-1].repeat(n)
+  fin = [false].repeat(n)
+  done = 0
+  clock = 0
+  while done < n:
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and en[i] == clock:
+        fin[i] = true
+        done += 1
+    running = 0
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i]: running += 1
+    while running < k:
+      pick = -1
+      for i in 0..n:
+        if st[i] < 0:
+          ready = true
+          for d in tasks[i].deps:
+            if not fin[idx(tasks, d)]: ready = false
+          if ready and (pick < 0 or tail[i] > tail[pick]): pick = i
+      if pick < 0: break
+      st[pick] = clock
+      en[pick] = clock + tasks[pick].days
+      running += 1
+    nxt = -1
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and (nxt < 0 or en[i] < nxt): nxt = en[i]
+    if nxt < 0: break
+    clock = nxt
+  st

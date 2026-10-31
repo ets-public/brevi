@@ -1,0 +1,198 @@
+type Node:
+  kind: str
+  v: int
+  name: str
+  kids: [int]
+
+type Func:
+  params: [str]
+  body: int
+
+nodes = []
+funcs = {}
+gl = {}
+toks = []
+pos = 0
+depth = 0
+pat = "[0-9]+|[A-Za-z][A-Za-z0-9_]*|==|!=|<=|>=|[-+*/%(),<>=]"
+
+fn mk(kind: str, v: int, name: str, kids: [int]) -> int:
+  nodes.push(Node(kind, v, name, kids))
+  nodes.len() - 1
+
+fn peek() -> str = if pos < toks.len(): toks[pos] else: ""
+
+fn nxt() -> str:
+  t = peek()
+  pos += 1
+  t
+
+fn expect(w: str):
+  if nxt() != w: fail("syntax")
+
+fn expect_end():
+  if pos < toks.len(): fail("syntax")
+
+fn is_name(t: str) -> bool:
+  if t.re_full("[A-Za-z][A-Za-z0-9_]*").is_empty(): return false
+  t not in ["let", "fn", "print", "if"]
+
+fn ident() -> str:
+  t = nxt()
+  if not is_name(t): fail("syntax")
+  t
+
+fn parse_cmp() -> int:
+  l = parse_add()
+  ops = ["==", "!=", "<", ">", "<=", ">="]
+  if peek() in ops:
+    op = nxt()
+    r = parse_add()
+    l = mk("bin", 0, op, [l, r])
+    if peek() in ops: fail("syntax")
+  l
+
+fn parse_add() -> int:
+  l = parse_mul()
+  while peek() == "+" or peek() == "-":
+    op = nxt()
+    r = parse_mul()
+    l = mk("bin", 0, op, [l, r])
+  l
+
+fn parse_mul() -> int:
+  l = parse_unary()
+  while peek() == "*" or peek() == "/" or peek() == "%":
+    op = nxt()
+    r = parse_unary()
+    l = mk("bin", 0, op, [l, r])
+  l
+
+fn parse_unary() -> int:
+  if peek() == "-":
+    nxt()
+    e = parse_unary()
+    return mk("neg", 0, "", [e])
+  parse_atom()
+
+fn parse_atom() -> int:
+  t = nxt()
+  if t.re_full("[0-9]+").len() > 0: return mk("num", t.int(), "", [])
+  if t == "(":
+    e = parse_cmp()
+    expect(")")
+    return e
+  if is_name(t) or (t == "if" and peek() == "("):
+    if peek() == "(":
+      nxt()
+      args = []
+      if peek() == ")":
+        nxt()
+      else:
+        while true:
+          args.push(parse_cmp())
+          sep = nxt()
+          if sep == ")": break
+          if sep != ",": fail("syntax")
+      return mk("call", 0, t, args)
+    return mk("var", 0, t, [])
+  fail("syntax")
+  0
+
+fn ev(n: int, env: {str: int}) -> int:
+  nd = nodes[n]
+  if nd.kind == "num": return nd.v
+  if nd.kind == "var":
+    if env.has(nd.name): return env[nd.name]
+    if gl.has(nd.name): return gl[nd.name]
+    fail("unknown name {nd.name}")
+  if nd.kind == "neg": return 0 - ev(nd.kids[0], env)
+  if nd.kind == "bin":
+    a = ev(nd.kids[0], env)
+    b = ev(nd.kids[1], env)
+    op = nd.name
+    if op == "+": return a + b
+    if op == "-": return a - b
+    if op == "*": return a * b
+    if op == "/" or op == "%":
+      if b == 0: fail("division by zero")
+      if op == "/": return a / b
+      return a % b
+    r = false
+    if op == "==": r = a == b
+    elif op == "!=": r = a != b
+    elif op == "<": r = a < b
+    elif op == ">": r = a > b
+    elif op == "<=": r = a <= b
+    else: r = a >= b
+    return if r: 1 else: 0
+  # call
+  if nd.name == "if":
+    if nd.kids.len() != 3: fail("if takes 3 arguments")
+    c = ev(nd.kids[0], env)
+    if c != 0: return ev(nd.kids[1], env)
+    return ev(nd.kids[2], env)
+  if not funcs.has(nd.name): fail("unknown function {nd.name}")
+  f = funcs[nd.name]
+  if f.params.len() != nd.kids.len(): fail("{nd.name} takes {f.params.len()} arguments")
+  vals = [ev(k, env) for k in nd.kids]
+  if depth >= 200: fail("too deep")
+  e = {}
+  for i in 0..vals.len(): e[f.params[i]] = vals[i]
+  depth += 1
+  r = ev(f.body, e)
+  depth -= 1
+  r
+
+fn run(line: str) -> int:
+  if not line.re_sub(pat, "").trim().is_empty(): fail("syntax")
+  toks = line.re_list(pat)
+  pos = 0
+  depth = 0
+  cmd = nxt()
+  none = {}
+  if cmd == "let":
+    name = ident()
+    expect("=")
+    e = parse_cmp()
+    expect_end()
+    gl[name] = ev(e, none)
+  elif cmd == "fn":
+    name = ident()
+    expect("(")
+    ps = []
+    if peek() == ")":
+      nxt()
+    else:
+      while true:
+        ps.push(ident())
+        sep = nxt()
+        if sep == ")": break
+        if sep != ",": fail("syntax")
+    expect("=")
+    body = parse_cmp()
+    expect_end()
+    funcs[name] = Func(ps, body)
+  elif cmd == "print":
+    es = []
+    while true:
+      es.push(parse_cmp())
+      if peek() == ",":
+        nxt()
+      else:
+        break
+    expect_end()
+    vals = [ev(x, none) for x in es]
+    print(" ".join([str(v) for v in vals]))
+  else:
+    fail("syntax")
+  0
+
+ln = 0
+for line in lines():
+  ln += 1
+  t = line.trim()
+  if t.is_empty() or t.starts_with("#"): continue
+  match run(t):
+    Ok(_) => depth = 0
+    Err(m) => print("error line {ln}: {m}")

@@ -1,0 +1,56 @@
+type Hold:
+  member: str
+  last: int
+
+type Loan:
+  book: str
+  due: int
+
+type Book:
+  id: str
+  title: str
+  copies: int
+  lent: int
+  waiting: [str]
+  holds: [Hold]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [Loan]
+
+fn dnum(s: str) -> int:
+  return date(s).days
+
+fn dstr(n: int) -> str:
+  return str(date("1970-01-01").add_days(n))
+
+fn money(x: dec) -> str:
+  return x.fmt(2)
+
+fn shelf_count(b: Book) -> int:
+  return b.copies - b.lent - b.holds.len()
+
+fn loan_limit(tier: str) -> int:
+  if tier == "plus": return 5
+  return 2
+
+fn loan_days(tier: str) -> int:
+  if tier == "plus": return 28
+  return 14
+
+fn daily_fee(tier: str) -> dec:
+  if tier == "plus": return "0.10".dec()
+  return "0.25".dec()
+
+fn hold_index(b: Book, mid: str) -> int:
+  for i in 0..b.holds.len():
+    if b.holds[i].member == mid: return i
+  return -1
+
+fn has_loan(m: Member, bid: str) -> int:
+  for i in 0..m.loans.len():
+    if m.loans[i].book == bid: return i
+  return -1

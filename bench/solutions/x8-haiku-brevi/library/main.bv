@@ -1,0 +1,28 @@
+use "catalog.bv"
+use "rules.bv"
+
+fn main():
+  lib = Lib({}, {}, [], [])
+  for raw in stdin().lines():
+    w = raw.trim().words()
+    if w.is_empty(): continue
+    day = day_of(w[0])
+    lib, msgs = expire(lib, day)
+    for msg in msgs: print(msg)
+    cmd = w[1]
+    out = []
+    if cmd == "BOOK":
+      lib, out = add_book(lib, w[2], w[3].int(), w[4:].join(" "))
+    elif cmd == "MEMBER":
+      lib, out = add_member(lib, w[2], w[3], w[4:].join(" "))
+    elif cmd == "LOAN":
+      lib, out = do_loan(lib, day, w[2], w[3])
+    elif cmd == "RETURN":
+      lib, out = do_return(lib, day, w[2], w[3])
+    elif cmd == "RESERVE":
+      lib, out = do_reserve(lib, w[2], w[3])
+    elif cmd == "PAY":
+      lib, out = do_pay(lib, w[2], parse_cents(w[3]))
+    elif cmd == "STATUS":
+      lib, out = do_status(lib, w[2])
+    for msg in out: print(msg)

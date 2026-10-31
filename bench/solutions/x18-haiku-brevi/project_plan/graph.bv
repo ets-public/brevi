@@ -1,0 +1,79 @@
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn idx(tasks: [Task], nm: str) -> int:
+  names = [t.name for t in tasks]
+  return names.index_of(nm)
+
+fn first_unknown(tasks: [Task]) -> str:
+  names = [t.name for t in tasks]
+  for t in tasks:
+    for d in t.deps:
+      if not names.contains(d): return d
+  return ""
+
+fn all_placed(deps: [str], placed: {str: int}) -> bool:
+  for d in deps:
+    if not placed.has(d): return False
+  return True
+
+fn topo(tasks: [Task]) -> [int]:
+  order = []
+  placed = {}
+  progress = True
+  while progress:
+    progress = False
+    for i in 0..len(tasks):
+      if not placed.has(tasks[i].name) and all_placed(tasks[i].deps, placed):
+        order.push(i)
+        placed[tasks[i].name] = 1
+        progress = True
+  return order
+
+fn biggest(xs: [int]) -> int:
+  m = 0
+  for x in xs:
+    if x > m: m = x
+  return m
+
+fn unlimited(tasks: [Task], order: [int]) -> ([int], [int]):
+  n = len(tasks)
+  starts = [0].repeat(n)
+  ends = [0].repeat(n)
+  for i in order:
+    s = 0
+    for d in tasks[i].deps:
+      e = ends[idx(tasks, d)]
+      if e > s: s = e
+    starts[i] = s
+    ends[i] = s + tasks[i].days
+  return (starts, ends)
+
+fn critical(tasks: [Task], starts: [int], ends: [int]) -> [int]:
+  n = len(tasks)
+  top = biggest(ends)
+  good = [False].repeat(n)
+  for i in 0..n:
+    good[i] = ends[i] == top
+  changed = True
+  while changed:
+    changed = False
+    for i in 0..n:
+      if not good[i]:
+        for j in 0..n:
+          if good[j] and starts[j] == ends[i] and tasks[j].deps.contains(tasks[i].name):
+            good[i] = True
+            changed = True
+  chain = []
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and starts[i] == 0 and good[i]: cur = i
+  while cur >= 0:
+    chain.push(cur)
+    nxt = -1
+    for j in 0..n:
+      if nxt < 0 and good[j] and starts[j] == ends[cur] and tasks[j].deps.contains(tasks[cur].name): nxt = j
+    cur = nxt
+  return chain

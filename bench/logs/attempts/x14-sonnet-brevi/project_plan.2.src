@@ -1,0 +1,157 @@
+## main.bv
+use "graph.bv"
+use "schedule.bv"
+
+fn report(ls: [str]) -> int:
+  k, tasks = parse(ls)
+  st = unlimited(tasks)
+  n = tasks.len()
+  print("unlimited")
+  for i in 0..n: print("  {tasks[i].name} {st[i]}-{st[i] + tasks[i].days}")
+  print("length {max([st[i] + tasks[i].days for i in 0..n])}")
+  print("critical {" > ".join(critical(tasks, st))}")
+  s2 = schedule(tasks, k)
+  print("workers {k}")
+  for i in 0..n: print("  {tasks[i].name} {s2[i]}-{s2[i] + tasks[i].days}")
+  print("length {max([s2[i] + tasks[i].days for i in 0..n])}")
+  0
+
+match report(lines()):
+  Ok(_) => done = 0
+  Err(m) => print(m)
+## graph.bv
+type Task:
+  name: str
+  days: int
+  deps: [str]
+
+fn parse(ls: [str]) -> (int, [Task]):
+  k = 0
+  tasks = []
+  seen = {}
+  have_k = false
+  for i in 0..ls.len():
+    t = ls[i].trim()
+    if t.is_empty(): continue
+    n = i + 1
+    if not have_k:
+      g = t.re_full("workers\s+([0-9]+)")
+      if g.is_empty(): fail("line {n}: bad line")
+      k = g[1].int()
+      if k < 1: fail("line {n}: bad line")
+      have_k = true
+    else:
+      h = t.re_full("(\w+)\s+([0-9]+)(?:\s+after\s+(\w+(?:\s*,\s*\w+)*))?")
+      if h.is_empty(): fail("line {n}: bad line")
+      name = h[1]
+      days = h[2].int()
+      if days < 1: fail("line {n}: bad line")
+      deps = if h.len() > 3 and h[3] != "": h[3].re_list("\w+") else: []
+      if seen.has(name): fail("line {n}: duplicate {name}")
+      seen[name] = 1
+      tasks.push(Task(name, days, deps))
+  if not have_k: fail("line 1: bad line")
+  for t in tasks:
+    for d in t.deps:
+      if not seen.has(d): fail("unknown {d}")
+  (k, tasks)
+
+fn idx(tasks: [Task], name: str) -> int:
+  for i in 0..tasks.len():
+    if tasks[i].name == name: return i
+  -1
+
+fn unlimited(tasks: [Task]) -> [int]:
+  n = tasks.len()
+  st = [0].repeat(n)
+  en = [0].repeat(n)
+  fin = [false].repeat(n)
+  done = 0
+  progress = true
+  while progress:
+    progress = false
+    for i in 0..n:
+      if fin[i]: continue
+      ok = true
+      s = 0
+      for d in tasks[i].deps:
+        j = idx(tasks, d)
+        if not fin[j]:
+          ok = false
+        else:
+          s = max(s, en[j])
+      if ok:
+        st[i] = s
+        en[i] = s + tasks[i].days
+        fin[i] = true
+        progress = true
+        done += 1
+  if done < n: fail("cycle")
+  st
+
+fn critical(tasks: [Task], st: [int]) -> [str]:
+  n = tasks.len()
+  en = [st[i] + tasks[i].days for i in 0..n]
+  total = max(en)
+  crit = [false].repeat(n)
+  for r in 0..n + 1:
+    for i in 0..n:
+      if en[i] == total:
+        crit[i] = true
+      else:
+        for j in 0..n:
+          if crit[j] and st[j] == en[i] and tasks[j].deps.contains(tasks[i].name): crit[i] = true
+  cur = -1
+  for i in 0..n:
+    if cur < 0 and st[i] == 0 and crit[i]: cur = i
+  chain = [tasks[cur].name]
+  while en[cur] < total:
+    nx = -1
+    for j in 0..n:
+      if nx < 0 and crit[j] and st[j] == en[cur] and tasks[j].deps.contains(tasks[cur].name): nx = j
+    cur = nx
+    chain.push(tasks[cur].name)
+  chain
+## schedule.bv
+use "graph.bv"
+
+fn schedule(tasks: [Task], k: int) -> [int]:
+  n = tasks.len()
+  tail = [0].repeat(n)
+  for r in 0..n + 1:
+    for i in 0..n:
+      best = 0
+      for j in 0..n:
+        if tasks[j].deps.contains(tasks[i].name): best = max(best, tail[j])
+      tail[i] = tasks[i].days + best
+  st = [-1].repeat(n)
+  en = [-1].repeat(n)
+  fin = [false].repeat(n)
+  done = 0
+  clock = 0
+  while done < n:
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and en[i] == clock:
+        fin[i] = true
+        done += 1
+    running = 0
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i]: running += 1
+    while running < k:
+      pick = -1
+      for i in 0..n:
+        if st[i] < 0:
+          ready = true
+          for d in tasks[i].deps:
+            if not fin[idx(tasks, d)]: ready = false
+          if ready and (pick < 0 or tail[i] > tail[pick]): pick = i
+      if pick < 0: break
+      st[pick] = clock
+      en[pick] = clock + tasks[pick].days
+      running += 1
+    nxt = -1
+    for i in 0..n:
+      if st[i] >= 0 and not fin[i] and (nxt < 0 or en[i] < nxt): nxt = en[i]
+    if nxt < 0: break
+    clock = nxt
+  st

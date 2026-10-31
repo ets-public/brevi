@@ -1,0 +1,34 @@
+type Book:
+  id: str
+  title: str
+  copies: int
+  shelf: int
+  waiting: [str]
+
+type Member:
+  id: str
+  name: str
+  tier: str
+  owes: dec
+  loans: [str]
+  dues: [int]
+
+type Hold:
+  book: str
+  member: str
+  last: int
+
+type Library:
+  books: {str: Book}
+  members: {str: Member}
+  holds: [Hold]
+
+fn new_library() -> Library = Library(books: {}, members: {}, holds: [])
+
+fn max_books(tier: str) -> int = if tier == "basic": 2 else: 5
+
+fn loan_days(tier: str) -> int = if tier == "basic": 14 else: 28
+
+fn daily_fee(tier: str) -> dec = if tier == "basic": "0.25".dec() else: "0.10".dec()
+
+fn dstr(days: int) -> str = str(date("1970-01-01").add_days(days))

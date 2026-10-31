@@ -1,0 +1,27 @@
+type Book:
+  title: str
+  shelf: int
+
+type Loan:
+  book: str
+  due: int
+
+type Member:
+  name: str
+  tier: str
+  owes: int
+  loans: [Loan]
+
+type Hold:
+  book: str
+  member: str
+  last: int
+
+type Lib:
+  books: {str: Book}
+  members: {str: Member}
+  queue: {str: [str]}
+  holds: [Hold]
+
+fn new_lib() -> Lib:
+  return Lib({}, {}, {}, [])
