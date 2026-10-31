@@ -538,6 +538,13 @@ impl Parser {
                         if self.eat_sym("(") {
                             let mut args: Vec<Expr> = self.args()?.into_iter().map(|(_, a)| a).collect();
                             let name = python_method(&name, args.len()).unwrap_or(name);
+                            // `xs.to_list()` / `xs.copy()`: a list already is one, so this is a copy.
+                            let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() {
+                                args.push(Expr::Int(0));
+                                "skip".to_string()
+                            } else {
+                                name
+                            };
                             // Python's `", ".join(xs)` is `xs.join(", ")`.
                             e = if name == "join" && args.len() == 1 && matches!(e, Expr::Str(_)) && !matches!(args[0], Expr::Str(_)) {
                                 Expr::Method(Box::new(args.remove(0)), name, vec![e], line)

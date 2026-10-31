@@ -2,7 +2,17 @@
 
 A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one short JSON line with a suggested fix.
 
-The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,251 tokens (exact count, Sonnet tokenizer).
+The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 4,665 tokens (exact count, Sonnet tokenizer).
+
+## For agents
+
+- **Skill:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package: setup, then the write, check, fix loop.
+- **MCP server:** `brevi mcp` serves the tools `guide`, `check`, `run`, `test` and `patch` over stdio. Each takes the program as text, so the agent needs no files. Add it to a client as the command `brevi` with the argument `mcp`.
+- **Guide on demand:** `brevi guide` prints the guide built into the compiler, `brevi guide WORD` only the lines about one name, and `--explain` on any command adds those lines under each error.
+- **Fast check:** `brevi check f.bv --fast` runs Brevi's own checks in about 3 ms, without rustc (a full check takes about 400 ms).
+- **Edit by name:** `brevi patch f.bv p.bv` replaces each `fn`, `type`, `enum` or `test` in p.bv by name, or adds it; `del fn name` removes one.
+- **llms.txt:** `site/build.sh` builds llms.txt, llms-full.txt and .md pages for brevi-lang.org into site/out.
+- Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
 ## Status: v0.16
 

@@ -5,16 +5,146 @@ mod json;
 mod lexer;
 mod moves;
 mod infer;
+mod mcp;
 mod parser;
+mod patch;
 
 use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [-o OUT] [-- ARGS...]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
+
+// The language guide, so `brevi guide` and `--explain` can serve parts of it.
+pub const GUIDE: &str = include_str!("../BREVI.md");
+static EXPLAIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// `## Name` sections of the guide, with the intro under the name "Intro".
+fn guide_sections() -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = vec![("Intro".into(), String::new())];
+    for l in GUIDE.lines() {
+        if let Some(h) = l.strip_prefix("## ") {
+            out.push((h.trim().to_string(), String::new()));
+        }
+        let last = out.last_mut().unwrap();
+        last.1.push_str(l);
+        last.1.push('\n');
+    }
+    out
+}
+
+// A section by name (any case), else every guide line that mentions the word, under its section name.
+pub fn guide_lookup(q: &str) -> String {
+    let secs = guide_sections();
+    if let Some((_, body)) = secs.iter().find(|(n, _)| n.eq_ignore_ascii_case(q)) {
+        return body.clone();
+    }
+    let word = q.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+    if word.is_empty() {
+        return String::new();
+    }
+    let hit = |l: &str| {
+        let b = l.as_bytes();
+        l.match_indices(word).any(|(i, _)| {
+            let before = i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_');
+            let j = i + word.len();
+            let after = j >= b.len() || !(b[j].is_ascii_alphanumeric() || b[j] == b'_');
+            before && after
+        })
+    };
+    let mut out = String::new();
+    for (name, body) in &secs {
+        let lines: Vec<&str> = body.lines().filter(|l| !l.starts_with('#') && hit(l)).collect();
+        if !lines.is_empty() {
+            out.push_str(&format!("[{name}]\n"));
+            for l in lines {
+                out.push_str(l);
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+// With --explain, the guide lines about the names an error mentions (`.char()`, `dec`, `json`).
+fn explain(msg: &str, fix: &str) {
+    if !EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let text = format!("{msg} {fix}");
+    let mut words: Vec<String> = vec![];
+    for w in text.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.')) {
+        let w = w.trim_matches('.');
+        if w.len() > 1 && !words.iter().any(|x| x == w) {
+            words.push(w.to_string());
+        }
+    }
+    const SKIP: &[&str] = &["is", "the", "a", "an", "of", "for", "to", "in", "on", "it", "or", "and", "with", "write", "did", "you", "mean", "here", "this", "use", "not", "be", "can", "found", "expected", "type", "value", "line", "so", "needs", "inside", "function", "used", "valid", "methods", "unknown", "method", "set", "x", "xs", "real", "has", "no", "named"];
+    let mut shown = 0;
+    for w in words.iter().filter(|w| !SKIP.contains(&w.as_str()) && !w.chars().all(|c| c.is_ascii_digit())) {
+        let g = guide_lookup(w);
+        if g.is_empty() || g.lines().count() > 8 {
+            continue;
+        }
+        println!("{{\"guide\":\"{}\"}}", esc(g.trim_end()));
+        shown += 1;
+        if shown == 2 {
+            break;
+        }
+    }
+}
+
+fn print_diag(d: &Diag) {
+    println!("{}", d.to_json());
+    explain(&d.msg, d.fix.as_deref().unwrap_or(""));
+}
 
 fn main() {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(|a| a.as_str()) == Some("mcp") {
+        mcp::serve();
+        return;
+    }
+    if matches!(argv.first().map(|a| a.as_str()), Some("--version" | "version")) {
+        println!("brevi {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if argv.first().map(|a| a.as_str()) == Some("guide") {
+        let q = argv[1..].join(" ");
+        let g = if q.is_empty() { GUIDE.to_string() } else { guide_lookup(&q) };
+        if g.is_empty() {
+            let names: Vec<String> = guide_sections().into_iter().map(|(n, _)| n).collect();
+            println!("{{\"msg\":\"nothing in the guide for {}\",\"fix\":\"sections: {}\"}}", esc(&q), esc(&names.join(", ")));
+            exit(1);
+        }
+        print!("{g}");
+        return;
+    }
+    if argv.first().map(|a| a.as_str()) == Some("patch") && argv.len() == 3 {
+        let read = |f: &str| std::fs::read_to_string(f).unwrap_or_else(|e| {
+            println!("{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}", esc(f), esc(&e.to_string()));
+            exit(1);
+        });
+        match patch::patch(&read(&argv[1]), &read(&argv[2])) {
+            Ok((out, done)) => {
+                std::fs::write(&argv[1], out).unwrap_or_else(|e| {
+                    println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+                    exit(1);
+                });
+                println!("{{\"patched\":\"{}\"}}", esc(&done.join(", ")));
+            }
+            Err(m) => {
+                println!("{{\"msg\":\"{}\",\"fix\":\"a patch holds whole fn, type, enum or test items\"}}", esc(&m));
+                exit(1);
+            }
+        }
+        return;
+    }
+    if let Some(i) = argv.iter().position(|a| a == "--explain") {
+        argv.remove(i);
+        EXPLAIN.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
     let (cmd, file) = match (argv.first(), argv.get(1)) {
         (Some(c), Some(f)) => (c.as_str(), f.clone()),
         _ => {
@@ -61,7 +191,7 @@ fn main() {
         Ok(r) => r,
         Err(diags) => {
             for d in diags {
-                println!("{}", d.to_json());
+                print_diag(&d);
             }
             exit(1);
         }
@@ -69,6 +199,7 @@ fn main() {
 
     match cmd {
         "emit" => print!("{rust}"),
+        "check" | "fix" if fast => {}
         "check" | "fix" => {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
@@ -271,7 +402,7 @@ fn report(rust: &str, stderr: &str) {
         }
         let mut d = Diag::new("type", aline, 1, &text);
         d.fix = fix;
-        println!("{}", d.to_json());
+        print_diag(&d);
     }
 }
 

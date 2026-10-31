@@ -1,0 +1,17 @@
+# Brevi
+
+> Brevi is a programming language for AI models to write. It reads like Python, compiles to Rust for native speed, and reports each error as one short JSON line with a suggested fix. On its benchmark, models finish tasks in Brevi with 5 to 21% fewer tokens than in Python, counting retries.
+
+## Docs
+
+- [Language guide](https://brevi-lang.org/guide.md): the whole language in one page, written for models. Read it once before writing Brevi.
+- [Agent skill](https://brevi-lang.org/skill.md): setup and the write, check, fix loop for coding agents.
+- [Benchmarks](https://brevi-lang.org/bench.md): tokens per finished task against Python, with method and raw logs.
+
+## Tools
+
+- [Compiler source](https://github.com/ets-public/brevi): Apache-2.0, written in Rust.
+
+## Optional
+
+- [Full text](https://brevi-lang.org/llms-full.txt): the guide and the skill in one file.

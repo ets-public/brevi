@@ -93,6 +93,6 @@ test "area of unit circle":
 ```
 
 ## Commands
-`brevi run f.bv`, `brevi test f.bv`, `brevi check f.bv`, `brevi build f.bv -o app [--release]`, `brevi emit f.bv` (shows the Rust).
+`brevi run f.bv`, `brevi test f.bv`, `brevi check f.bv`, `brevi build f.bv -o app [--release]`, `brevi emit f.bv` (shows the Rust). `brevi guide WORD` prints the guide lines about WORD. `brevi patch f.bv p.bv` replaces each `fn`/`type`/`test` in p.bv by name.
 Errors are one JSON line each: `{"line":N,"msg":...,"fix":...}`. Runtime errors print `{"e":"runtime","line":N,"msg":...}`. A small typo of a known name is fixed for you (`{"line":N,"fixed":"totl -> total"}`); `brevi fix f.bv` writes every suggested rename into the file.
 To fix an error, change only the lines it names (edit them in place); do not rewrite the whole file.
