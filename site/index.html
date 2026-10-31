@@ -94,6 +94,17 @@ p { margin: 0 0 14px; max-width: 40em; }
 .benefits p { color: var(--muted); margin: 0; }
 .fig { font: 500 0.88rem var(--mono); color: var(--accent); display: block; margin-bottom: 4px; }
 
+.sec-head.block { margin-top: 48px; }
+h3.sub { font: 500 1.25rem/1.3 var(--serif); margin: 0 0 12px; }
+.costs, .diffs { margin: 0 0 18px; padding-left: 1.2em; max-width: 42em; display: grid; gap: 10px; }
+.costs b, .diffs b { font-weight: 600; }
+.diffs { list-style: square; margin-top: 20px; }
+.pair { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; }
+.pair > * { min-width: 0; }
+.pair .bar span:last-child { font-variant-numeric: tabular-nums; }
+pre.tall { max-height: 560px; overflow: auto; font-size: 0.8rem; }
+table.vs td { white-space: normal; min-width: 140px; vertical-align: top; }
+table.vs td:first-child { color: var(--muted); }
 .compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 24px; }
 .compare > * { min-width: 0; }
 
@@ -117,7 +128,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; padding-block: 28
 footer .end { margin-left: auto; }
 
 @media (max-width: 860px) {
-  .intro, .tables, .compare { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .intro, .tables, .compare, .pair { grid-template-columns: minmax(0, 1fr); gap: 32px; }
   .intro { padding-block: 40px; }
   .sec-head { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .benefits { grid-template-columns: minmax(0, 1fr); gap: 28px; }
@@ -170,10 +181,168 @@ bat: 1</pre>
         <p class="label">Why Brevi</p>
         <div>
           <h2>Built for the model in the loop, not for a person at a keyboard.</h2>
-          <p>Every language in use today was designed for people. When a model writes code, the cost that matters is different: the tokens it writes, the error text it has to read, and the retries it needs before the program works. Brevi is designed around those three numbers.</p>
+          <p>Every language in common use was designed for people. People type slowly, read error messages once, and remember the libraries they know. A model works differently. It pays for every token it writes, it rereads every error message in full, and each failed attempt costs another round of both. Brevi is designed around that cost.</p>
         </div>
       </div>
       <div class="sec-head">
+        <span></span>
+        <div>
+          <h3 class="sub">What a finished task really costs</h3>
+          <ol class="costs">
+            <li><b>The code it writes.</b> Fewer lines and fewer tokens for the same program. Brevi has no semicolons, braces, lifetimes or import lines, and the common tasks (CSV, JSON, dates, money, regular expressions) need no setup code.</li>
+            <li><b>The errors it reads.</b> An error message goes back into the model's context and is paid for in full. Brevi's errors are one short line. In the examples below they are 42% to 86% shorter than the same mistake reported by Python or Rust.</li>
+            <li><b>The retries it needs.</b> Each failed attempt adds another edit and another error. Brevi accepts the Python habits models fall back on, fixes small typos itself, and points to the exact line to change, so fewer attempts fail and each fix is small.</li>
+          </ol>
+          <p>The benchmark counts all three together, with exact token counts. On that measure models finish tasks with up to 21% fewer tokens in Brevi than in Python. On the hard tasks, writing the same programs in Rust, the language Brevi compiles to, takes about 2.4 times as many tokens as Brevi.</p>
+        </div>
+      </div>
+
+      <div class="sec-head block">
+        <span></span>
+        <div>
+          <h3 class="sub">The same task in both languages</h3>
+          <p>A sales report from a CSV file: skip bad rows, total revenue by region and month with exact cents, and find the top product. This is one of the held-out tasks, written after the language was tuned. Both programs below are Claude Haiku's own passing solutions, unedited.</p>
+        </div>
+      </div>
+      <div class="pair">
+        <div class="term">
+          <div class="bar"><span>sales_report.bv</span><span>Brevi · 30 lines · 502 tokens</span></div>
+<pre class="tall">rows = csv(stdin())
+valid = 0
+skipped = 0
+region_tot = {}
+prod_qty = {}
+month_tot = {}
+for i in 1..rows.len():
+  row = rows[i]
+  if row.join(&quot;&quot;).trim().is_empty(): continue
+  ok = row.len() == 5 and row[0].re_full(&quot;\d{4}-\d{2}-\d{2}&quot;).len() &gt; 0 and row[3].re_full(&quot;\d+&quot;).len() &gt; 0 and row[4].re_full(&quot;\d+(\.\d{1,2})?&quot;).len() &gt; 0
+  if not ok:
+    skipped += 1
+    continue
+  valid += 1
+  rev = row[4].dec() * row[3].int()
+  region_tot[row[1]] += rev
+  prod_qty[row[2]] += row[3].int()
+  month_tot[row[0].slice(0, 7)] += rev
+print(&quot;rows {valid}&quot;)
+print(&quot;skipped {skipped}&quot;)
+if valid &gt; 0:
+  print(&quot;regions&quot;)
+  for rp in region_tot.pairs().sort_by(rp =&gt; (-rp.1, rp.0)):
+    print(&quot;  {rp.0} {rp.1.fmt(2)}&quot;)
+  top = prod_qty.pairs().sort_by(pp =&gt; (-pp.1, pp.0))
+  t = top[0]
+  print(&quot;top_product {t.0} {t.1}&quot;)
+  print(&quot;months&quot;)
+  for mp in month_tot.pairs().sort_by(mp =&gt; mp.0):
+    print(&quot;  {mp.0} {mp.1.fmt(2)}&quot;)</pre>
+        </div>
+        <div class="term">
+          <div class="bar"><span>sales_report.py</span><span>Python · 66 lines · 812 tokens</span></div>
+<pre class="tall">import csv
+import re
+import sys
+from collections import defaultdict
+
+DATE_RE = re.compile(r&quot;[0-9]{4}-[0-9]{2}-[0-9]{2}&quot;)
+QTY_RE = re.compile(r&quot;[0-9]+&quot;)
+PRICE_RE = re.compile(r&quot;[0-9]+(\.[0-9]{1,2})?&quot;)
+
+
+def to_cents(price):
+    if &quot;.&quot; in price:
+        whole, frac = price.split(&quot;.&quot;)
+        frac = (frac + &quot;00&quot;)[:2]
+    else:
+        whole, frac = price, &quot;00&quot;
+    return int(whole) * 100 + int(frac)
+
+
+def fmt(cents):
+    return &quot;%d.%02d&quot; % (cents // 100, cents % 100)
+
+
+def main():
+    reader = csv.reader(sys.stdin)
+    rows = 0
+    skipped = 0
+    region_rev = defaultdict(int)
+    product_qty = defaultdict(int)
+    month_rev = defaultdict(int)
+    first = True
+    for row in reader:
+        if first:
+            first = False
+            continue
+        if not row or (len(row) == 1 and row[0].strip() == &quot;&quot;):
+            continue
+        if len(row) != 5:
+            skipped += 1
+            continue
+        date, region, product, qty, price = row
+        if not DATE_RE.fullmatch(date) or not QTY_RE.fullmatch(qty) or not PRICE_RE.fullmatch(price):
+            skipped += 1
+            continue
+        q = int(qty)
+        revenue = q * to_cents(price)
+        rows += 1
+        region_rev[region] += revenue
+        product_qty[product] += q
+        month_rev[date[:7]] += revenue
+
+    out = [&quot;rows %d&quot; % rows, &quot;skipped %d&quot; % skipped]
+    if rows &gt; 0:
+        out.append(&quot;regions&quot;)
+        for region, rev in sorted(region_rev.items(), key=lambda kv: (-kv[1], kv[0])):
+            out.append(&quot;  %s %s&quot; % (region, fmt(rev)))
+        best = min(product_qty.items(), key=lambda kv: (-kv[1], kv[0]))
+        out.append(&quot;top_product %s %d&quot; % (best[0], best[1]))
+        out.append(&quot;months&quot;)
+        for month in sorted(month_rev):
+            out.append(&quot;  %s %s&quot; % (month, fmt(month_rev[month])))
+    sys.stdout.write(&quot;\n&quot;.join(out) + &quot;\n&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()</pre>
+        </div>
+      </div>
+      <div class="sec-head">
+        <span></span>
+        <ul class="diffs">
+          <li><b>Exact money is built in.</b> <code>row[4].dec()</code> is an exact decimal, so the Brevi program adds up prices directly. The Python program writes its own <code>to_cents</code> and <code>fmt</code> helpers to avoid floating-point errors in the totals.</li>
+          <li><b>No setup code.</b> CSV parsing and regular expressions are part of the language, so there are no imports, no compiled patterns and no <code>main()</code> wrapper.</li>
+          <li><b>Missing map keys read as zero.</b> <code>region_tot[row[1]] += rev</code> just works, with no <code>defaultdict</code> or <code>.get(k, 0)</code>.</li>
+          <li><b>And it runs as native code.</b> The Brevi version compiles to a Rust binary, with the speed that comes with it.</li>
+        </ul>
+      </div>
+
+      <div class="sec-head block">
+        <span></span>
+        <div>
+          <h3 class="sub">Brevi against the usual choices</h3>
+          <p>Python is what models write best today, and Rust is what you would pick for speed and safety. Brevi aims to keep the strengths of both.</p>
+        </div>
+      </div>
+      <div class="sec-head">
+        <span></span>
+        <div class="table-wrap">
+          <table class="vs">
+            <thead><tr><th></th><th>Python</th><th>Rust</th><th>Brevi</th></tr></thead>
+            <tbody>
+              <tr><td>Tokens to finish a task</td><td>Baseline</td><td>About 2.4 times Brevi (hard tasks)</td><td class="win">Up to 21% fewer than Python</td></tr>
+              <tr><td>Run time (Dijkstra, 100k nodes)</td><td>2.90 s</td><td>0.30 s</td><td class="win">0.47 s</td></tr>
+              <tr><td>Type mistakes found</td><td>When the line runs</td><td>Before running</td><td class="win">Before running</td></tr>
+              <tr><td>Size of the two errors in the next section</td><td>76 to 80 tokens</td><td>106 to 159 tokens</td><td class="win">44 tokens, or none</td></tr>
+              <tr><td>Memory management</td><td>Garbage collector</td><td>Written by hand: lifetimes and borrows</td><td class="win">Worked out by the compiler</td></tr>
+              <tr><td>Exact decimals, CSV, JSON, dates</td><td>Imports and helpers</td><td>Crates and setup</td><td class="win">Built in</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="sec-head block">
         <span></span>
         <div class="benefits">
           <div>
@@ -202,9 +371,9 @@ bat: 1</pre>
             <p>A model reads one page before writing Brevi. The guide is built into the compiler, and <code>brevi guide WORD</code> prints only the lines about one name.</p>
           </div>
           <div>
-            <span class="fig">JSON · CSV · dates · decimals · regex</span>
-            <h3>Batteries for everyday programs</h3>
-            <p>Strings, lists, maps, files, JSON, CSV, dates, big integers, exact decimals, a min-heap and Python-syntax regular expressions are built in. No package setup before the first line.</p>
+            <span class="fig">36 of 36 first try</span>
+            <h3>Programs that work the first time</h3>
+            <p>On the 18 small tasks, Claude Sonnet's Brevi programs passed on the first attempt every time, against 35 of 36 in Python. A first-try pass means no error to read and no retry to pay for.</p>
           </div>
         </div>
       </div>
@@ -232,6 +401,23 @@ print(<span class="s">"total: "</span> + n)</pre>
             <div class="bar"><span>$ brevi run total.bv</span><span>1 line</span></div>
 <pre class="out" style="white-space: pre-wrap; word-break: break-word;">{"line":2,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or write \"{x}\""}</pre>
           </div>
+        </div>
+      </div>
+      <div class="sec-head block">
+        <span></span>
+        <div>
+          <h3 class="sub">The same two mistakes in three languages</h3>
+          <p>Tokens the model has to read before it can fix each mistake, counted with Anthropic's tokenizer.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Mistake</th><th class="n">Python</th><th class="n">Rust</th><th class="n">Brevi</th></tr></thead>
+              <tbody>
+                <tr><td>Adding a number to text</td><td class="n">76</td><td class="n">106</td><td class="n win">44</td></tr>
+                <tr><td>Misspelled variable name</td><td class="n">80</td><td class="n">159</td><td class="n win">22, and the program runs</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note" style="margin-top: 14px;">Python reports the first mistake only when that line runs. Brevi fixes the misspelling during the build and prints a one-line note instead of failing, so no retry is needed.</p>
         </div>
       </div>
     </div>
