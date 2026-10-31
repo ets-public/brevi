@@ -58,6 +58,8 @@ pub struct Emitter {
     // Fields that hold their own type (directly or in a cycle) are boxed: (owner type, field), and the field names.
     boxed: HashSet<(String, String)>,
     boxed_names: HashSet<String>,
+    // Keys of map literals that are Json objects (values of different types).
+    mixed: HashSet<String>,
     // Names bound to boxed fields in the pattern being emitted, unboxed at the start of the arm.
     unbox: Vec<String>,
     // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
@@ -427,7 +429,8 @@ impl Emitter {
             boxed: HashSet::new(),
             boxed_names: HashSet::new(),
             unbox: Vec::new(),
-            hints: if hints { crate::infer::empty_types(items) } else { HashMap::new() },
+            hints: HashMap::new(),
+            mixed: HashSet::new(),
             line: 0,
             diags: Vec::new(),
         };
@@ -455,6 +458,11 @@ impl Emitter {
                 }
                 Item::Test { .. } => {}
             }
+        }
+        let (h, mixed) = crate::infer::empty_types(items);
+        e.mixed = mixed;
+        if hints {
+            e.hints = h;
         }
         e.find_boxed(items);
         e.find_globals(items);
@@ -612,6 +620,9 @@ impl Emitter {
     fn mixed_map(&self, pairs: &[(Expr, Expr)]) -> bool {
         if !pairs.iter().all(|(k, _)| matches!(k, Expr::Str(_))) {
             return false;
+        }
+        if self.mixed.contains(&crate::infer::map_key(pairs)) {
+            return true;
         }
         let kinds: Vec<String> = pairs
             .iter()
@@ -1186,6 +1197,11 @@ impl Emitter {
                 self.line = *line;
                 let c = self.call(name, args, false);
                 if c.starts_with("(return") { c } else { format!("{{ ax_l({line}); {c} }}") }
+            }
+            // `x.str()` is `str(x)`.
+            Expr::Method(recv, name, args, line) if name == "str" && args.is_empty() => {
+                self.line = *line;
+                format!("Show::show(&{})", self.operand(recv))
             }
             Expr::Method(recv, name, args, line) => {
                 self.line = *line;

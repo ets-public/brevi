@@ -1,0 +1,8 @@
+owners: [str] = ["ann", "bob"]
+fn view(id: int) -> str:
+  o = owners[id]
+  bal = id * 10
+  str({"id": id, "owner": o, "balance": bal, "tags": [o]})
+print(view(1))
+xs = (0..2).map(i => {"i": i, "n": owners[i]})
+print(str(xs.json()))

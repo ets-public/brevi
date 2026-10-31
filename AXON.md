@@ -72,7 +72,7 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert remove` change the list in place.
 
 ## Built-in functions
-`print(x)`, `str(x)`, `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
+`print(x)`, `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
 
 ## Data formats
 - `json(text)` gives a `Json`: match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)` ({str: Json}, keys kept in input order), or index `j["key"][0]` (missing gives `Null`). `str(j)` writes compact JSON. `x.json()` turns any value (int, str, list, map) into Json, so `str(xs.json())` writes it. A map literal whose values differ in type is a Json object with keys in written order: `str({"id": 1, "name": n})` gives `{"id":1,"name":"ann"}`.

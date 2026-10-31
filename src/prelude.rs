@@ -231,8 +231,9 @@ impl<T: Show + 'static> Show for Vec<T> {
 }
 impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> {
     fn show(&self) -> String {
-        let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}: {}", show_item(k), show_item(v))).collect();
-        format!("{{{}}}", parts.join(", "))
+        // Written like compact JSON, so str({"error": msg}) is ready to send.
+        let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}:{}", show_item(k), show_item(v))).collect();
+        format!("{{{}}}", parts.join(","))
     }
 }
 impl<A: Show + 'static, B: Show + 'static> Show for (A, B) {

@@ -1,0 +1,3 @@
+{"id":1,"owner":"bob","balance":10,"tags":["bob"]}
+[{"i":0,"n":"ann"},{"i":1,"n":"bob"}]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

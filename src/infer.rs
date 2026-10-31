@@ -1,7 +1,7 @@
 // Types for empty values: `xs = []` and `m = {}` get their item types from how they are used later,
 // so programs need no `xs: [str] = []`. The result is a Rust type with `_` where nothing is known.
 use crate::ast::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq)]
 enum T {
@@ -125,11 +125,19 @@ struct Cx<'a> {
     ret: T,
     hints: HashMap<(String, usize), String>,
     known_hints: HashMap<(String, usize), bool>,
+    // Keys of string-keyed map literals whose values differ in type (these become Json objects).
+    mixed: HashSet<String>,
+    // The script's top-level names, seen from inside functions.
+    genv: Env,
+}
+
+pub fn map_key(ps: &[(Expr, Expr)]) -> String {
+    ps.iter().map(|(k, _)| format!("{k:?}")).collect::<Vec<_>>().join(",")
 }
 
 // (name, line) of each untyped empty value -> its Rust type, and whether the type is complete.
-pub fn empty_types(items: &[Item]) -> HashMap<(String, usize), (String, bool)> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new() };
+pub fn empty_types(items: &[Item]) -> (HashMap<(String, usize), (String, bool)>, HashSet<String>) {
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
     for it in items {
         match it {
             Item::Fn { name, params, ret, body, script, .. } => {
@@ -149,7 +157,10 @@ pub fn empty_types(items: &[Item]) -> HashMap<(String, usize), (String, bool)> {
             _ => {}
         }
     }
-    for it in items {
+    // The script runs first, so its top-level names are known inside functions.
+    let mut order: Vec<&Item> = items.iter().filter(|i| matches!(i, Item::Fn { script: true, .. })).collect();
+    order.extend(items.iter().filter(|i| !matches!(i, Item::Fn { script: true, .. })));
+    for it in order {
         let (params, ret, body, script) = match it {
             Item::Fn { params, ret, body, script, .. } => (params.as_slice(), from_ast(ret), body, *script),
             Item::Test { body, .. } => (&[][..], Unit, body, false),
@@ -158,16 +169,23 @@ pub fn empty_types(items: &[Item]) -> HashMap<(String, usize), (String, bool)> {
         cx.ret = ret;
         let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
         cx.walk(body, &mut env, script);
+        if script {
+            cx.genv = env;
+        }
     }
-    cx.hints.into_iter().map(|(k, v)| {
+    let mixed = std::mem::take(&mut cx.mixed);
+    (cx.hints.into_iter().map(|(k, v)| {
         let full = cx.known_hints[&k];
         (k, (v, full))
-    }).collect()
+    }).collect(), mixed)
 }
 
 impl Cx<'_> {
     // ---- forward walk: find empty declarations, and keep local types up to date ----
     fn walk(&mut self, e: &Expr, env: &mut Env, top: bool) {
+        if !matches!(e, Expr::Block(..) | Expr::For(..) | Expr::While(..) | Expr::If(..) | Expr::Match(..)) {
+            self.scan_maps(e, env);
+        }
         match e {
             Expr::Block(stmts, tail) => {
                 let mut inner = env.clone();
@@ -197,8 +215,11 @@ impl Cx<'_> {
                 }
             }
             Expr::Match(s, arms) => {
-                for (_, a) in arms {
-                    self.walk(a, &mut env.clone(), false);
+                let st = self.ty(s, env);
+                for (p, a) in arms {
+                    let mut inner = env.clone();
+                    bind_arm(p, &st, &mut inner);
+                    self.walk(a, &mut inner, false);
                 }
                 self.walk(s, env, false);
             }
@@ -280,6 +301,47 @@ impl Cx<'_> {
                 Stmt::Return { value: Some(v), .. } => self.walk(v, env, false),
                 _ => {}
             }
+        }
+    }
+
+    // Finds map literals with string keys whose values have different types.
+    fn scan_maps(&mut self, e: &Expr, env: &Env) {
+        match e {
+            Expr::Map(ps) => {
+                for (_, v) in ps {
+                    self.scan_maps(v, env);
+                }
+                if ps.len() > 1 && ps.iter().all(|(k, _)| matches!(k, Expr::Str(_))) {
+                    let ts: Vec<String> = ps.iter().map(|(_, v)| self.ty(v, env)).filter(known).map(|t| rust(&t)).collect();
+                    if ts.iter().any(|t| t != &ts[0]) {
+                        self.mixed.insert(map_key(ps));
+                    }
+                }
+            }
+            Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| self.scan_maps(x, env)),
+            Expr::Call(_, args, _) => args.iter().for_each(|(_, a)| self.scan_maps(a, env)),
+            Expr::Method(r, _, args, _) => {
+                self.scan_maps(r, env);
+                let et = elem(&self.ty(r, env));
+                for a in args {
+                    match a {
+                        Expr::Lambda(ps, b) if ps.len() == 1 => {
+                            let mut inner = env.clone();
+                            inner.insert(ps[0].clone(), et.clone());
+                            self.scan_maps(b, &inner);
+                        }
+                        a => self.scan_maps(a, env),
+                    }
+                }
+            }
+            Expr::Binary(_, a, b) => {
+                self.scan_maps(a, env);
+                self.scan_maps(b, env);
+            }
+            Expr::Unary(_, a) | Expr::Try(a) => self.scan_maps(a, env),
+            Expr::Lambda(_, b) => self.scan_maps(b, env),
+            Expr::If(..) | Expr::Match(..) | Expr::Block(..) => self.walk(e, &mut env.clone(), false),
+            _ => {}
         }
     }
 
@@ -445,8 +507,11 @@ impl Cx<'_> {
             }
             Expr::Match(s, arms) => {
                 self.look_expr(n, s, env, acc);
-                for (_, a) in arms {
-                    self.look_expr(n, a, &mut env.clone(), acc);
+                let st = self.ty(s, env);
+                for (p, a) in arms {
+                    let mut inner = env.clone();
+                    bind_arm(p, &st, &mut inner);
+                    self.look_expr(n, a, &mut inner, acc);
                 }
             }
             Expr::Binary(_, a, b) | Expr::Range(a, b) => {
@@ -484,8 +549,10 @@ impl Cx<'_> {
             Expr::Float(_) => F64,
             Expr::Bool(_) => Bool,
             Expr::Str(_) => Str,
-            Expr::Ident(n) | Expr::Move(n) => env.get(n).cloned().unwrap_or(Hole),
+            Expr::Ident(n) if n == "Null" && !env.contains_key(n) => Json,
+            Expr::Ident(n) | Expr::Move(n) => env.get(n).or_else(|| self.genv.get(n)).cloned().unwrap_or(Hole),
             Expr::List(xs) => List(Box::new(xs.iter().fold(Hole, |a, x| merge(a, self.ty(x, env))))),
+            Expr::Map(ps) if self.mixed.contains(&map_key(ps)) => Json,
             Expr::Map(ps) => {
                 let (k, v) = ps.iter().fold((Hole, Hole), |(k, v), (a, b)| (merge(k, self.ty(a, env)), merge(v, self.ty(b, env))));
                 Map(Box::new(k), Box::new(v))
@@ -521,6 +588,7 @@ impl Cx<'_> {
                     "abs" => a0(),
                     "min" | "max" => args.iter().fold(Hole, |t, (_, a)| merge(t, self.ty(a, env))),
                     "heap" => Heap(Box::new(Hole)),
+                    "Str" | "Num" | "Bool" | "Arr" | "Obj" if !self.variants.contains_key(n.as_str()) => Json,
                     n if self.structs.contains_key(n) => Named(n.into()),
                     n if self.variants.contains_key(n) => {
                         let en = &self.variants[n];
@@ -652,6 +720,26 @@ fn bind(p: &Pat, t: T, env: &mut Env) {
             }
         }
         _ => {}
+    }
+}
+
+// Names bound by a match arm: Json variants and Ok(v) have known types.
+fn bind_arm(p: &Pat, subj: &T, env: &mut Env) {
+    match (p, subj) {
+        (Pat::Variant(v, args), _) if args.len() == 1 => {
+            let t = match (v.as_str(), subj) {
+                ("Str", Json) => Str,
+                ("Num", Json) => F64,
+                ("Bool", Json) => Bool,
+                ("Arr", Json) => List(Box::new(Json)),
+                ("Obj", Json) => Map(Box::new(Str), Box::new(Json)),
+                ("Ok", t) => t.clone(),
+                ("Err", _) => Str,
+                _ => Hole,
+            };
+            bind(&args[0], t, env);
+        }
+        (p, t) => bind(p, t.clone(), env),
     }
 }
 
