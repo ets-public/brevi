@@ -24,6 +24,12 @@ const KEYWORDS: &[&str] = &[
     "true", "false", "mut", "test", "assert", "break", "continue", "and", "or", "not",
 ];
 
+// Names Rust's prelude gives to traits and types: a Brevi `type Ord` must not clash with them.
+const RUST_PRELUDE: &[&str] = &[
+    "Ord", "PartialOrd", "Eq", "PartialEq", "Clone", "Copy", "Default", "Debug", "Hash", "Iterator", "Drop", "Send",
+    "Sync", "Sized", "From", "Into", "Vec", "String", "Box", "Option", "ToString", "Fn", "FnMut", "FnOnce", "Display",
+];
+
 const RUST_KEYWORDS: &[&str] = &[
     "as", "async", "await", "box", "const", "crate", "dyn", "extern", "impl", "loop", "mod", "move", "priv", "pub", "ref",
     "self", "static", "struct", "super", "trait", "try", "typeof", "unsafe", "use", "where", "yield", "macro", "final",
@@ -457,7 +463,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             match KEYWORDS.iter().find(|k| **k == word) {
                 Some(k) => push(&mut out, Tok::Kw(k)),
                 // Rust's own keywords are fine names in Brevi; they get a suffix in the generated Rust.
-                None if RUST_KEYWORDS.contains(&word.as_str()) => push(&mut out, Tok::Ident(format!("{word}_"))),
+                None if RUST_KEYWORDS.contains(&word.as_str()) || RUST_PRELUDE.contains(&word.as_str()) => push(&mut out, Tok::Ident(format!("{word}_"))),
                 None => push(&mut out, Tok::Ident(word)),
             }
             continue;

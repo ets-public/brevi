@@ -443,6 +443,10 @@ impl Cx<'_> {
                         (Expr::Ident(m), "=") if !env.contains_key(m) => {
                             env.insert(m.clone(), vt);
                         }
+                        // A name set again to a value of another known type (a function's own `n` over a global `n`).
+                        (Expr::Ident(m), "=") if m != n && known(&vt) && env.get(m).map_or(false, |t| known(t) && *t != vt) => {
+                            env.insert(m.clone(), vt);
+                        }
                         (Expr::Tuple(xs), "=") => {
                             for (k, x) in xs.iter().enumerate() {
                                 if let Expr::Ident(m) = x {
@@ -838,6 +842,8 @@ fn bind_arm(p: &Pat, subj: &T, env: &mut Env) {
             };
             bind(&args[0], t, env);
         }
+        // A user enum's fields: unknown here, but the names are the arm's own, not outer ones of the same name.
+        (Pat::Variant(_, args), _) => args.iter().for_each(|a| bind(a, Hole, env)),
         (p, t) => bind(p, t.clone(), env),
     }
 }
@@ -960,6 +966,8 @@ impl Cx<'_> {
             Expr::Block(stmts, tail) => {
                 for st in stmts {
                     match st {
+                        // `return print(...)` gives no value.
+                        Stmt::Return { value: Some(v), .. } if no_value(v) => out.push(Unit),
                         Stmt::Return { value: Some(v), .. } => out.push(self.ty(v, env)),
                         Stmt::Return { value: None, .. } => out.push(Unit),
                         Stmt::Expr { expr, .. } => self.returned(expr, env, out),

@@ -20,7 +20,7 @@ fn to_json(j: &J) -> String {
 
 const TOOLS: &str = r#"[
 {"name":"guide","description":"The Brevi language guide. Read it once (no word) before writing Brevi; with a word, only the guide lines about it.","inputSchema":{"type":"object","properties":{"word":{"type":"string","description":"A name or section, like re_list or Tests"}}}},
-{"name":"check","description":"Compile a Brevi program without running it. Prints OK or one JSON error per line: {line, msg, fix}.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"}},"required":["code"]}},
+{"name":"check","description":"Compile a Brevi program without running it. Prints OK or one JSON error per line: {line, msg, fix}.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested rename and return the fixed program after the errors, below a --- line"}},"required":["code"]}},
 {"name":"run","description":"Compile and run a Brevi program with the given stdin. Prints its output, or the JSON errors.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["code"]}},
 {"name":"test","description":"Run the test blocks in a Brevi program.","inputSchema":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"]}},
 {"name":"patch","description":"Replace each fn, type, enum or test in `patch` by name in `code` (or add it); `del fn name` removes one. Returns the new program.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"patch":{"type":"string"}},"required":["code","patch"]}}
@@ -28,16 +28,22 @@ const TOOLS: &str = r#"[
 
 // Runs this same binary on a temp copy of the program, with a time limit.
 fn brevi(cmd: &str, code: &str, extra: &[String], stdin: &str) -> (String, bool) {
+    let (t, err, _) = brevi_file(cmd, code, extra, stdin);
+    (t, err)
+}
+
+// Also returns the program file as it is after the command (`brevi fix` rewrites it).
+fn brevi_file(cmd: &str, code: &str, extra: &[String], stdin: &str) -> (String, bool, String) {
     let dir = std::env::temp_dir().join(format!("brevi-mcp-{}-{}", std::process::id(), Instant::now().elapsed().as_nanos()));
     let _ = std::fs::create_dir_all(&dir);
     let f = dir.join("main.bv");
     if std::fs::write(&f, code).is_err() {
-        return ("cannot write a temp file".into(), true);
+        return ("cannot write a temp file".into(), true, String::new());
     }
     let exe = std::env::current_exe().unwrap_or_else(|_| "brevi".into());
     let mut c = Command::new(exe);
     c.arg(cmd).arg(&f).args(extra).current_dir(&dir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let Ok(mut child) = c.spawn() else { return ("cannot start brevi".into(), true) };
+    let Ok(mut child) = c.spawn() else { return ("cannot start brevi".into(), true, String::new()) };
     if let Some(mut si) = child.stdin.take() {
         let s = stdin.to_string();
         std::thread::spawn(move || {
@@ -57,8 +63,9 @@ fn brevi(cmd: &str, code: &str, extra: &[String], stdin: &str) -> (String, bool)
         }
     };
     let out = child.wait_with_output().ok();
+    let after = std::fs::read_to_string(&f).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&dir);
-    let Some(st) = status else { return ("{\"e\":\"timeout\",\"msg\":\"stopped after 20 s\"}".into(), true) };
+    let Some(st) = status else { return ("{\"e\":\"timeout\",\"msg\":\"stopped after 20 s\"}".into(), true, after) };
     let (o, e) = out.map(|o| (String::from_utf8_lossy(&o.stdout).to_string(), String::from_utf8_lossy(&o.stderr).to_string())).unwrap_or_default();
     let mut text = o;
     // Notes like {"line":3,"fixed":"totl -> total"} go to stderr; keep them, they matter to the model.
@@ -68,7 +75,7 @@ fn brevi(cmd: &str, code: &str, extra: &[String], stdin: &str) -> (String, bool)
         }
         text.push_str(&e);
     }
-    (text, !st.success())
+    (text, !st.success(), after)
 }
 
 fn call(name: &str, a: &J) -> (String, bool) {
@@ -82,6 +89,11 @@ fn call(name: &str, a: &J) -> (String, bool) {
         "check" => {
             let fast = a.get("fast").map_or(false, |v| v.truthy());
             let flags: Vec<String> = if fast { vec!["--fast".into()] } else { vec![] };
+            if a.get("fix").map_or(false, |v| v.truthy()) {
+                let (t, err, after) = brevi_file("fix", &s("code"), &flags, "");
+                let head = if t.trim().is_empty() && !err { "OK".to_string() } else { t.trim_end().to_string() };
+                return (if after != s("code") { format!("{head}\n---\n{after}") } else { head }, err);
+            }
             let (t, err) = brevi("check", &s("code"), &flags, "");
             (if t.trim().is_empty() && !err { "OK".into() } else { t }, err)
         }

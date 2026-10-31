@@ -418,7 +418,8 @@ fn branch_sets(e: &Expr, out: &mut Vec<String>) {
 // A plain local of function f: set at the top of its body before any read, read afterwards, and f does not call
 // itself (a recursive function may pass results through the shared name).
 fn owns(f: &str, body: &Expr, text: &str, n: &str) -> bool {
-    let top_set = matches!(body, Expr::Block(st, _) if st.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(t), op: "=", .. } if t == n)));
+    // Set before any read, at the top of the body or first inside a branch (`if c: n = line.slice(1)`), as Python makes it local.
+    let top_set = matches!(body, Expr::Block(..));
     // A recursive function shares its names across calls, unless it returns the name (an accumulator).
     let returned = text.contains(&format!("Return {{ value: Some(Ident({n:?}))")) || matches!(body, Expr::Block(_, Some(t)) if matches!(t.as_ref(), Expr::Ident(t) if t == n));
     top_set && (returned || !text.contains(&format!("Call({f:?}"))) && own_use(text, n)
@@ -428,7 +429,7 @@ fn owns(f: &str, body: &Expr, text: &str, n: &str) -> bool {
 // (A function that only assigns a name is writing shared state.)
 fn own_use(body: &str, n: &str) -> bool {
     let id = format!("Ident({n:?})");
-    sets_first(body, n) && body.matches(&id).count() > body.matches(&format!("target: {id}, op: \"=\"")).count()
+    sets_first(body, n) && body.matches(&id).count() + body.matches(&format!("Move({n:?})")).count() > body.matches(&format!("target: {id}, op: \"=\"")).count()
 }
 
 // Do the later statements read n before setting it? Blocks inside if, match and loops are checked on their own:
@@ -961,7 +962,7 @@ impl Emitter {
             let id = format!("Ident({n:?})");
             // Script code itself works on the top-level names.
             let script = !self.fn_texts.iter().any(|(f, _)| f == name);
-            if !script && owns(name, body, &text, &n) && !self.fn_texts.iter().any(|(f, t)| f != name && t.contains(&id) && !own_use(t, &n)) {
+            if !script && owns(name, body, &text, &n) && !self.fn_texts.iter().any(|(f, t)| f != name && t.contains(&id) && !own_use(t, &n) && !t.contains(&format!("Bind({n:?})"))) {
                 self.own_locals.insert(n);
                 continue;
             }
