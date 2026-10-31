@@ -1,0 +1,58 @@
+# When the toolchain watch or the upstream watch opens an issue, Claude Code works on it and opens a
+# pull request with the fix or the adopted feature. A human still reviews and merges every PR.
+# Off until the repository has an ANTHROPIC_API_KEY secret (Settings > Secrets and variables > Actions).
+name: Auto-fix
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number to work on"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  fix:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.issue.labels.*.name, 'toolchain') ||
+      contains(github.event.issue.labels.*.name, 'upstream')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: auto-fix-${{ github.event.issue.number || inputs.issue }}
+    steps:
+      - name: Needs an API key
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: '[ -n "$KEY" ] && echo "ok=true" >> "$GITHUB_OUTPUT" || echo "No ANTHROPIC_API_KEY secret; skipping."'
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == 'true'
+        with: { fetch-depth: 0 }
+      - name: Install Rust
+        if: steps.key.outputs.ok == 'true'
+        run: rustup toolchain install stable beta nightly --profile minimal --no-self-update
+      - uses: anthropics/claude-code-action@v1
+        if: steps.key.outputs.ok == 'true'
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          prompt: |
+            Work on issue #${{ github.event.issue.number || inputs.issue }} in ${{ github.repository }}. Read it with gh.
+            Brevi is a language that compiles to Rust (compiler in src/, guide BREVI.md, AGENTS.md has the rules).
+            Rule: code that once passed must never break. `python3 tools/compat.py check` must pass and
+            `sh tests/check.sh` must pass after `cargo build`. Never edit compat/baseline.txt to hide a failure.
+            For a toolchain break: reproduce it with the named toolchain (`rustup run <toolchain> ...`), fix Brevi
+            so old programs keep working on both the old and the new toolchain, add a test in tests/run or tests/errors.
+            For a release review: adopt only items that make Brevi programs shorter, faster or more correct,
+            each with a test; explain in the PR why the others were skipped. Keep changes small.
+            Open a pull request that says "Fixes #<issue>" and comment on the issue with what you did.
+          claude_args: "--max-turns 80"

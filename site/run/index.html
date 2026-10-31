@@ -6,6 +6,11 @@
 <title>brevi.run</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <meta name="description" content="Hosted compile, run and test for Brevi programs. Coming after the public release.">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#1d5b4f">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Serif:wght@500&display=swap">
 <style>
 /* Layout: one left-aligned column, a request and response pair as the only illustration. */
@@ -24,7 +29,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 var(--
 .wrap { max-width: 720px; margin: 0 auto; padding-block: 72px 56px;
   padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
 a { color: var(--accent); text-underline-offset: 3px; }
-.name { font: 500 0.85rem var(--mono); color: var(--muted); margin: 0 0 28px; }
+.name { font: 500 0.85rem var(--mono); color: var(--muted); margin: 0 0 28px; display: flex; align-items: center; gap: 10px; }
 h1 { font: 500 clamp(1.9rem, 5vw, 2.6rem)/1.15 var(--serif); letter-spacing: -0.015em; margin: 0 0 18px; text-wrap: balance; }
 p { margin: 0 0 14px; color: var(--muted); max-width: 36em; }
 .term { border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); margin: 36px 0; overflow: hidden; }
@@ -37,7 +42,7 @@ footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--rule);
 </head>
 <body>
 <div class="wrap">
-  <p class="name">brevi.run</p>
+  <p class="name"><svg class="mark" aria-hidden="true" width="22" height="22" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="13" fill="#1d5b4f"/><g fill="none" stroke="#fbfbfa" stroke-width="7"><path d="M15 10v42"/><circle cx="25.5" cy="40" r="8.5"/></g><rect x="40" y="45" width="12" height="7" fill="#7cc4b1"/></svg>brevi.run</p>
   <h1>Compile, run and test Brevi without a toolchain.</h1>
   <p>A hosted service for coding agents. Send a Brevi program and its input, and get back the output, the test results or the error lines. Nothing to install, no Rust compiler on the agent's machine.</p>
   <div class="term" aria-label="Example request and response">

@@ -1,3 +1,5 @@
+<img src="site/icons/favicon.svg" alt="Brevi logo" width="72" height="72">
+
 # Brevi
 
 A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one short JSON line with a suggested fix.
@@ -144,6 +146,27 @@ Needs `rustc` on the PATH.
 | `src/main.rs` | CLI, rustc invocation and error mapping |
 | `examples/` | Sample programs |
 | `tests/` | Expected outputs for programs and error cases |
+| `tools/compat.py`, `compat/baseline.txt` | Every bench solution that ever passed; must keep passing on new toolchains |
+| `tools/upstream_watch.py` | Opens review issues for new Rust, Python and crate releases |
+| `.github/` | Daily toolchain matrix, upstream watch, auto-fix, Dependabot (see "Staying current") |
+
+## Staying current
+
+Brevi must never fall behind Rust or Python, and code that once passed must never silently break.
+
+- **Toolchains** (`.github/workflows/toolchains.yml`, daily and on every push/PR): builds Brevi and reruns
+  `tests/check.sh` plus `tools/compat.py check` (all 1,700+ saved Brevi, Python and Rust solutions that once passed)
+  on Rust stable, beta and nightly, the newest Python and the next Python pre-release. Beta and nightly also report
+  deprecation and future-incompatibility warnings in generated Rust and the newest edition, about 6 to 12 weeks before
+  they reach stable. A toolchain already tested at the same commit is skipped. Failures open a `toolchain` issue.
+- **Upstream releases** (`upstream.yml`, twice a week): one `upstream` issue per new Rust stable, Python release or
+  newer crate pinned in tests/examples, listing the new language features and stabilized APIs with a review checklist.
+- **Auto-fix** (`auto-fix.yml`): Claude Code picks up `toolchain` and `upstream` issues and opens a PR. Needs an
+  `ANTHROPIC_API_KEY` repository secret; a human reviews every PR.
+- **Dependabot**: Cargo dependencies and GitHub Actions versions, weekly.
+
+After a change that makes more solutions pass, run `python3 tools/compat.py baseline` to lock them in.
+Never remove a line from `compat/baseline.txt` to make a check pass.
 
 ## License
 

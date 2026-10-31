@@ -11,16 +11,24 @@ deploy() { # name, dir, hostname, zone id
   python3 - "$2" > $T/$1.mjs <<'PY'
 import json, os, sys
 d = sys.argv[1]
-types = {".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8"}
-files = {"/" + f: [open(os.path.join(d, f)).read(), types[os.path.splitext(f)[1]]] for f in sorted(os.listdir(d))}
+import base64
+types = {".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8",
+         ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".ico": "image/x-icon"}
+binary = {".png", ".ico"}
+files = {}
+for f in sorted(os.listdir(d)):
+    ext = os.path.splitext(f)[1]
+    raw = open(os.path.join(d, f), "rb").read()
+    files["/" + f] = [base64.b64encode(raw).decode() if ext in binary else raw.decode(), types[ext], ext in binary]
 print("const FILES = " + json.dumps(files) + ";")
+print("const bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));")
 print('''export default {
   fetch(req) {
     let p = new URL(req.url).pathname;
     if (p.endsWith("/")) p += "index.html";
     const f = FILES[p];
     if (!f) return new Response("Not found\\n", { status: 404, headers: { "content-type": "text/plain" } });
-    return new Response(f[0], { headers: { "content-type": f[1], "cache-control": "public, max-age=300" } });
+    return new Response(f[2] ? bytes(f[0]) : f[0], { headers: { "content-type": f[1], "cache-control": "public, max-age=300" } });
   },
 };''')
 PY
