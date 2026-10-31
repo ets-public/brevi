@@ -1,0 +1,10 @@
+test 4 failed
+input:
+push 1
+frob 2
+jmp nowhere
+expected:
+error line 2: unknown instruction frob
+got:
+error line 2: unknown instruction frob 2
+passed 7/8

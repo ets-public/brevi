@@ -1,0 +1,23 @@
+b1 -> Mid
+b2 -> Small
+b3 -> Big
+b4 -> Mid
+b5 rejected
+b6 -> Tiny
+2026-11-02 Monday
+  09:00-10:00 Mid b1
+  09:00-09:30 Tiny b6
+  09:15-09:45 Big b3
+  09:30-10:30 Small b2
+  10:00-11:00 Mid b4
+b2 cancelled
+b2 not found
+b7 -> Tiny
+2026-11-03 Tuesday
+  no bookings
+2026-11-02 Monday
+  09:00-10:00 Mid b1
+  09:00-09:30 Tiny b6
+  09:15-09:45 Big b3
+  09:40-09:50 Tiny b7
+  10:00-11:00 Mid b4

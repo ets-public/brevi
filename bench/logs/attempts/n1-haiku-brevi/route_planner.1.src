@@ -1,0 +1,41 @@
+fn answer(src: str, dst: str) -> str:
+  if not edges.has(src): return "unknown station {src}"
+  if not edges.has(dst): return "unknown station {dst}"
+  if src == dst: return "{src} (0 min)"
+  best = {src: (0, 0, [src])}
+  done = {}
+  while True:
+    cands = [(lab, s) for s, lab in best.pairs() if not done.has(s)]
+    if cands.is_empty(): break
+    m = min(cands)
+    cur = m.1
+    lab = m.0
+    done[cur] = true
+    if cur == dst: break
+    for nb, t in edges[cur].pairs():
+      nl = (lab.0 + t, lab.1 + 1, lab.2 + [nb])
+      if not done.has(nb) and (not best.has(nb) or nl < best[nb]):
+        best[nb] = nl
+  if not best.has(dst): return "no route {src} {dst}"
+  r = best[dst]
+  j = r.2.join(" -> ")
+  return "{j} ({r.0} min)"
+
+edges = {}
+ls = lines()
+i = 0
+while i < ls.len() and ls[i].trim() != "":
+  p = ls[i].words()
+  i += 1
+  a = p[0]
+  b = p[1]
+  t = p[2].int()
+  if not edges.has(a): edges[a] = {}
+  if not edges.has(b): edges[b] = {}
+  if not edges[a].has(b) or t < edges[a][b]:
+    edges[a][b] = t
+    edges[b][a] = t
+for j in i..ls.len():
+  q = ls[j].words()
+  if q.is_empty(): continue
+  print(answer(q[0], q[1]))

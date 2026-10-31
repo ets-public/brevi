@@ -1094,7 +1094,9 @@ impl Emitter {
                     let mut out = String::new();
                     let mut ps = Vec::new();
                     for n in &names {
-                        if let Some(g) = self.global(n) {
+                        if n == "_" {
+                            ps.push("_".into());
+                        } else if let Some(g) = self.global(n) {
                             ps.push(g);
                         } else if self.locals.contains(n) {
                             ps.push(if self.refs.contains(n) { format!("*{n}") } else { n.clone() });
@@ -1395,6 +1397,10 @@ impl Emitter {
                 } else {
                     format!("{{ ax_l({line}); {r}.ax_{name}({}) }}", a.join(", "))
                 }
+            }
+            // `d.year`, `d.weekday` without brackets read a date's parts.
+            Expr::Field(b, f) if ["year", "month", "day", "weekday"].contains(&f.as_str()) && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => {
+                format!("({}).ax_{f}()", self.expr(b))
             }
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
             Expr::Index(..) => format!("{}.clone()", self.place(e)),

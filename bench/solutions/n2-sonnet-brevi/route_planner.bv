@@ -1,0 +1,41 @@
+adj = {}
+inq = False
+for line in lines():
+  w = line.words()
+  if not inq:
+    if w.len() == 0:
+      inq = True
+      continue
+    t = w[2].int()
+    adj[w[0]].push((w[1], t))
+    adj[w[1]].push((w[0], t))
+  else:
+    if w.len() < 2:
+      continue
+    a = w[0]
+    b = w[1]
+    if not adj.has(a):
+      print("unknown station {a}")
+    elif not adj.has(b):
+      print("unknown station {b}")
+    elif a == b:
+      print("{a} (0 min)")
+    else:
+      h = heap()
+      h.push((0, 1, [a], a))
+      seen = {}
+      found = False
+      while h and not found:
+        (d, c, path, n) = h.pop()
+        if seen.has(n):
+          continue
+        seen[n] = True
+        if n == b:
+          print("{path.join(" -> ")} ({d} min)")
+          found = True
+        else:
+          for (m, t) in adj[n]:
+            if not seen.has(m):
+              h.push((d + t, c + 1, path + [m], m))
+      if not found:
+        print("no route {a} {b}")

@@ -1,0 +1,39 @@
+test 0 failed
+input:
+date,region,product,qty,unit_price
+2026-01-05,North,Widget,3,2.50
+2026-01-17,South,Gadget,1,10
+2026-02-01,North,"Widget, large",2,4.25
+2026-02-11,East,Gadget,5,9.99
+bad,row
+2026-02-12,East,Gizmo,x,1.00
+2026-03-01,South,Widget,10,2.5
+
+2026-03-02,"Sou""th",Gizmo,1,0.05
+expected:
+rows 6
+skipped 2
+regions
+  East 49.95
+  South 35.00
+  North 16.00
+  Sou"th 0.05
+top_product Widget 13
+months
+  2026-01 17.50
+  2026-02 58.45
+  2026-03 25.05
+got:
+rows 6
+skipped 3
+regions
+  East 49.95
+  South 35.00
+  North 16.00
+  Sou"th 0.05
+top_product Widget 13
+months
+  2026-01 17.50
+  2026-02 58.45
+  2026-03 25.05
+passed 2/3

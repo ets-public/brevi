@@ -1,0 +1,64 @@
+secs: {str: {str: str}} = {}
+stk: [str] = []
+cyc: [int] = []
+fn expand(sec: str, v: str) -> str = v.re_sub("\$\{([^}]*)\}", g => lookup(sec, g[1]))
+fn lookup(sec: str, ref: str) -> str:
+  s = sec
+  k = ref
+  if "." in ref:
+    i = ref.find(".")
+    s = ref.slice(0, i)
+    k = ref.slice(i + 1)
+  elif not secs[sec].has(k):
+    s = "default"
+  if not secs[s].has(k):
+    return ""
+  id = s + "\n" + k
+  if id in stk:
+    cyc.push(1)
+    return ""
+  stk.push(id)
+  r = expand(s, secs[s][k])
+  stk.pop()
+  r
+fn resolve(s: str, k: str) -> str:
+  while stk: stk.pop()
+  while cyc: cyc.pop()
+  stk.push(s + "\n" + k)
+  r = expand(s, secs[s][k])
+  if cyc: "<cycle>" else: r
+cur = "default"
+inq = False
+out = []
+for raw in lines():
+  line = raw.trim()
+  if inq:
+    if line == "":
+      continue
+    if line == "sections":
+      names = [k for k, v in secs.pairs() if v.len() > 0]
+      print(names.sort().join(" "))
+    else:
+      i = line.find(".")
+      s = line.slice(0, i)
+      k = line.slice(i + 1)
+      if k == "*":
+        if secs.has(s) and secs[s].len() > 0:
+          for kk in secs[s].keys():
+            print("{kk}={resolve(s, kk)}")
+        else:
+          print("<missing>")
+      elif secs.has(s) and secs[s].has(k):
+        print(resolve(s, k))
+      else:
+        print("<missing>")
+  elif line == "---":
+    inq = True
+  elif line == "" or line.starts_with(";") or line.starts_with("#"):
+    continue
+  elif line.starts_with("["):
+    cur = line.slice(1, line.len() - 1).trim()
+  else:
+    i = line.find("=")
+    if i >= 0:
+      secs[cur][line.slice(0, i).trim()] = line.slice(i + 1).trim()

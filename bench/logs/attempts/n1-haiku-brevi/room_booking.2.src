@@ -1,0 +1,45 @@
+rooms = {}
+bk = {}
+wd = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+fn is_free(room: str, d: str, s: str, e: str) -> bool:
+  for v in bk.values():
+    if v.0 == d and v.3 == room and v.1 < e and s < v.2: return false
+  return true
+
+for ln in lines():
+  w = ln.words()
+  if w.is_empty(): continue
+  cmd = w[0]
+  if cmd == "ROOM":
+    rooms[w[1]] = w[2].int()
+  elif cmd == "BOOK":
+    bid = w[1]
+    d = w[2]
+    s = w[3]
+    e = w[4]
+    people = w[5].int()
+    cands = [(rooms[r], r) for r in rooms.keys() if rooms[r] >= people and is_free(r, d, s, e)]
+    if cands.is_empty():
+      print("{bid} rejected")
+    else:
+      best = min(cands)
+      bk[bid] = (d, s, e, best.1)
+      print("{bid} -> {best.1}")
+  elif cmd == "CANCEL":
+    bid = w[1]
+    if bk.has(bid):
+      bk.remove(bid)
+      print("{bid} cancelled")
+    else:
+      print("{bid} not found")
+  elif cmd == "LIST":
+    d = w[1]
+    dt = date(d)
+    name = wd[dt.weekday() - 1]
+    print("{d} {name}")
+    items = sorted([(v.1, v.3, k, v.2) for k, v in bk.pairs() if v.0 == d])
+    if items.is_empty():
+      print("  no bookings")
+    for it in items:
+      print("  {it.0}-{it.3} {it.1} {it.2}")

@@ -1,0 +1,51 @@
+days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+rooms: [(int, str)] = []
+bk: {str: (str, str, int, int)} = {}
+fn mins(s: str) -> int:
+  p = s.split(":")
+  p[0].int() * 60 + p[1].int()
+fn hm(x: int) -> str:
+  h = x // 60
+  m = x % 60
+  "{(100 + h).str().slice(1)}:{(100 + m).str().slice(1)}"
+for line in lines():
+  w = line.words()
+  if w.len() == 0:
+    continue
+  c = w[0]
+  if c == "ROOM":
+    rooms.push((w[2].int(), w[1]))
+  elif c == "BOOK":
+    id = w[1]
+    d = w[2]
+    s = mins(w[3])
+    e = mins(w[4])
+    p = w[5].int()
+    chosen = ""
+    for (cap, name) in rooms.sort():
+      if chosen == "" and cap >= p:
+        free = True
+        for (k, v) in bk.pairs():
+          if v.0 == name and v.1 == d and v.2 < e and s < v.3:
+            free = False
+        if free:
+          chosen = name
+    if chosen == "":
+      print("{id} rejected")
+    else:
+      bk[id] = (chosen, d, s, e)
+      print("{id} -> {chosen}")
+  elif c == "CANCEL":
+    if bk.has(w[1]):
+      bk.remove(w[1])
+      print("{w[1]} cancelled")
+    else:
+      print("{w[1]} not found")
+  elif c == "LIST":
+    d = w[1]
+    print("{d} {days[date(d).weekday() - 1]}")
+    items = [(v.2, v.0, v.3, k) for k, v in bk.pairs() if v.1 == d]
+    if items.len() == 0:
+      print("  no bookings")
+    for (s, r, e, k) in items.sort():
+      print("  {hm(s)}-{hm(e)} {r} {k}")

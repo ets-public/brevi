@@ -1,0 +1,6 @@
+v = w
+
+<cycle>
+v = w!!
+ref=v = w!!
+s t

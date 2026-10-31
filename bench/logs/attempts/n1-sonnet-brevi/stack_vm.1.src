@@ -1,0 +1,106 @@
+ops = []
+args_ = []
+lnos = []
+labels = {}
+known = ["push", "pop", "dup", "swap", "add", "sub", "mul", "div", "mod", "jmp", "jz", "jnz", "call", "ret", "print", "halt"]
+jumps = ["jmp", "jz", "jnz", "call"]
+ln = 0
+for line in lines():
+  ln += 1
+  t = line
+  i = t.find("#")
+  if i >= 0:
+    t = t.slice(0, i)
+  t = t.trim()
+  if t == "":
+    continue
+  if t.ends_with(":"):
+    labels[t.slice(0, len(t) - 1).trim()] = len(ops)
+    continue
+  p = t.words()
+  ops.push(p[0])
+  args_.push(if len(p) > 1: p[1] else: "")
+  lnos.push(ln)
+
+bad = False
+for i in 0..ops.len():
+  if ops[i] not in known:
+    print("error line {lnos[i]}: unknown instruction {ops[i]}")
+    bad = True
+    break
+if not bad:
+  for i in 0..ops.len():
+    if ops[i] in jumps and not labels.has(args_[i]):
+      print("error line {lnos[i]}: unknown label {args_[i]}")
+      bad = True
+      break
+if not bad:
+  st = []
+  cs = []
+  pc = 0
+  steps = 0
+  n = ops.len()
+  while pc < n:
+    if steps >= 10000:
+      print("error: step limit")
+      break
+    steps += 1
+    op = ops[pc]
+    l = lnos[pc]
+    nxt = pc + 1
+    need = 0
+    if op in ["pop", "dup", "jz", "jnz", "print"]:
+      need = 1
+    elif op in ["swap", "add", "sub", "mul", "div", "mod"]:
+      need = 2
+    if st.len() < need:
+      print("error line {l}: stack underflow")
+      break
+    if op == "push":
+      st.push(args_[pc].int())
+    elif op == "pop":
+      st.pop()
+    elif op == "dup":
+      st.push(st[-1])
+    elif op == "swap":
+      a = st.pop()
+      b = st.pop()
+      st.push(a)
+      st.push(b)
+    elif op in ["add", "sub", "mul", "div", "mod"]:
+      b = st.pop()
+      a = st.pop()
+      if op == "add":
+        st.push(a + b)
+      elif op == "sub":
+        st.push(a - b)
+      elif op == "mul":
+        st.push(a * b)
+      else:
+        if b == 0:
+          print("error line {l}: division by zero")
+          break
+        if op == "div":
+          st.push(a / b)
+        else:
+          st.push(a % b)
+    elif op == "jmp":
+      nxt = labels[args_[pc]]
+    elif op == "jz":
+      if st.pop() == 0:
+        nxt = labels[args_[pc]]
+    elif op == "jnz":
+      if st.pop() != 0:
+        nxt = labels[args_[pc]]
+    elif op == "call":
+      cs.push(pc + 1)
+      nxt = labels[args_[pc]]
+    elif op == "ret":
+      if cs.is_empty():
+        break
+      nxt = cs.pop()
+    elif op == "print":
+      print(st.pop())
+    elif op == "halt":
+      break
+    pc = nxt

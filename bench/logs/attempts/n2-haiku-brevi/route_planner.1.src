@@ -1,0 +1,46 @@
+fn shortest(adj: {str: [(str, int)]}, src: str, dst: str) -> (int, [str]):
+  h = heap()
+  h.push((0, 1, [src]))
+  seen = {}
+  while not h.is_empty():
+    t, hops, path = h.pop()
+    node = path.last()
+    if seen.has(node): continue
+    seen[node] = true
+    if node == dst: return (t, path)
+    for nb, w in adj[node]:
+      if not seen.has(nb): h.push((t + w, hops + 1, path + [nb]))
+  return (-1, [])
+
+fn main():
+  adj = {}
+  edges = true
+  qs = []
+  for line in lines():
+    s = line.trim()
+    if s == "":
+      edges = false
+      continue
+    p = s.words()
+    if edges:
+      w = p[2].int().or(0)
+      adj[p[0]].push((p[1], w))
+      adj[p[1]].push((p[0], w))
+    else:
+      qs.push(p)
+  for p in qs:
+    f = p[0]
+    t = p[1]
+    if not adj.has(f):
+      print("unknown station {f}")
+    elif not adj.has(t):
+      print("unknown station {t}")
+    elif f == t:
+      print("{f} (0 min)")
+    else:
+      d, path = shortest(adj, f, t)
+      if path.is_empty():
+        print("no route {f} {t}")
+      else:
+        text = path.join(" -> ")
+        print("{text} ({d} min)")

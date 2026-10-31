@@ -1,0 +1,13 @@
+[s]
+k = v = w
+e =
+self = ${self}
+[t]
+ref = ${s.k}!${s.e}!
+---
+s.k
+s.e
+s.self
+t.ref
+t.*
+sections

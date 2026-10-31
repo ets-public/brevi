@@ -1,0 +1,10 @@
+date,region,product,qty,unit_price
+2026-01-05,North,Widget,3,2.50
+2026-01-17,South,Gadget,1,10
+2026-02-01,North,"Widget, large",2,4.25
+2026-02-11,East,Gadget,5,9.99
+bad,row
+2026-02-12,East,Gizmo,x,1.00
+2026-03-01,South,Widget,10,2.5
+
+2026-03-02,"Sou""th",Gizmo,1,0.05

@@ -1,0 +1,66 @@
+import csv
+import re
+import sys
+from collections import defaultdict
+
+DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+QTY_RE = re.compile(r"[0-9]+")
+PRICE_RE = re.compile(r"[0-9]+(\.[0-9]{1,2})?")
+
+
+def to_cents(price):
+    if "." in price:
+        whole, frac = price.split(".")
+        frac = (frac + "00")[:2]
+    else:
+        whole, frac = price, "00"
+    return int(whole) * 100 + int(frac)
+
+
+def fmt(cents):
+    return "%d.%02d" % (cents // 100, cents % 100)
+
+
+def main():
+    reader = csv.reader(sys.stdin)
+    rows = 0
+    skipped = 0
+    region_rev = defaultdict(int)
+    product_qty = defaultdict(int)
+    month_rev = defaultdict(int)
+    first = True
+    for row in reader:
+        if first:
+            first = False
+            continue
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 5:
+            skipped += 1
+            continue
+        date, region, product, qty, price = row
+        if not DATE_RE.fullmatch(date) or not QTY_RE.fullmatch(qty) or not PRICE_RE.fullmatch(price):
+            skipped += 1
+            continue
+        q = int(qty)
+        revenue = q * to_cents(price)
+        rows += 1
+        region_rev[region] += revenue
+        product_qty[product] += q
+        month_rev[date[:7]] += revenue
+
+    out = ["rows %d" % rows, "skipped %d" % skipped]
+    if rows > 0:
+        out.append("regions")
+        for region, rev in sorted(region_rev.items(), key=lambda kv: (-kv[1], kv[0])):
+            out.append("  %s %s" % (region, fmt(rev)))
+        best = min(product_qty.items(), key=lambda kv: (-kv[1], kv[0]))
+        out.append("top_product %s %d" % (best[0], best[1]))
+        out.append("months")
+        for month in sorted(month_rev):
+            out.append("  %s %s" % (month, fmt(month_rev[month])))
+    sys.stdout.write("\n".join(out) + "\n")
+
+
+if __name__ == "__main__":
+    main()

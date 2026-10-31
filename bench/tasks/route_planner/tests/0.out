@@ -1,0 +1,7 @@
+A -> C -> D (11 min)
+D -> C -> A (11 min)
+A (0 min)
+no route A Y
+unknown station Q
+unknown station Q
+B -> C (5 min)

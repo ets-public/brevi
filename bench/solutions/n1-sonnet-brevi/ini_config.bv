@@ -1,0 +1,76 @@
+data = {}
+keys = {}
+stack = []
+cyc = False
+
+fn resolve(sec: str, key: str) -> str:
+  stack.push((sec, key))
+  v = data[(sec, key)]
+  out = v.re_sub("\$\{([^}]*)\}", g => lookup(sec, g[1]))
+  stack.pop()
+  out
+
+fn lookup(sec: str, ref: str) -> str:
+  s = sec
+  k = ref
+  if "." in ref:
+    i = ref.find(".")
+    s = ref.slice(0, i)
+    k = ref.slice(i + 1)
+  elif not data.has((sec, ref)):
+    s = "default"
+  if not data.has((s, k)):
+    return ""
+  if (s, k) in stack:
+    cyc = True
+    return ""
+  resolve(s, k)
+
+fn answer(sec: str, key: str) -> str:
+  cyc = False
+  r = resolve(sec, key)
+  if cyc:
+    return "<cycle>"
+  r
+
+cur = "default"
+inq = False
+for line in lines():
+  t = line.trim()
+  if inq:
+    if t == "":
+      continue
+    if t == "sections":
+      print(" ".join([s for s in keys.keys() if len(keys[s]) > 0]))
+    elif t.ends_with(".*"):
+      s = t.slice(0, len(t) - 2)
+      if not keys.has(s):
+        print("<missing>")
+      else:
+        for k in keys[s].sort():
+          print("{k}={answer(s, k)}")
+    else:
+      i = t.find(".")
+      if i < 0:
+        print("<missing>")
+      else:
+        s = t.slice(0, i)
+        k = t.slice(i + 1)
+        if data.has((s, k)):
+          print(answer(s, k))
+        else:
+          print("<missing>")
+  elif t == "---":
+    inq = True
+  elif t == "" or t.starts_with(";") or t.starts_with("#"):
+    continue
+  elif t.starts_with("["):
+    cur = t.slice(1, len(t) - 1).trim()
+  else:
+    i = t.find("=")
+    if i >= 0:
+      k = t.slice(0, i).trim()
+      v = t.slice(i + 1).trim()
+      if not data.has((cur, k)):
+        keys[cur].push(k)
+      data[(cur, k)] = v

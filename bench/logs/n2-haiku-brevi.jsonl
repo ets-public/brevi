@@ -1,0 +1,6 @@
+{"run":"n2-haiku-brevi","lang":"brevi","task":"sales_report","code_tok":538,"patch_tok":538,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"n2-haiku-brevi","lang":"brevi","task":"route_planner","code_tok":494,"patch_tok":494,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"n2-haiku-brevi","lang":"brevi","task":"ini_config","code_tok":1013,"patch_tok":1013,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"n2-haiku-brevi","lang":"brevi","task":"stack_vm","code_tok":1120,"patch_tok":1120,"out_tok":7,"compiled":true,"pass":8,"total":8,"tok":"exact"}
+{"run":"n2-haiku-brevi","lang":"brevi","task":"line_diff","code_tok":537,"patch_tok":537,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"n2-haiku-brevi","lang":"brevi","task":"room_booking","code_tok":828,"patch_tok":828,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

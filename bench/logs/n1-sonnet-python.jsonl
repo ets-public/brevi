@@ -1,0 +1,6 @@
+{"run":"n1-sonnet-python","lang":"python","task":"sales_report","code_tok":647,"patch_tok":647,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"n1-sonnet-python","lang":"python","task":"route_planner","code_tok":491,"patch_tok":491,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"n1-sonnet-python","lang":"python","task":"ini_config","code_tok":743,"patch_tok":743,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"n1-sonnet-python","lang":"python","task":"stack_vm","code_tok":1054,"patch_tok":1054,"out_tok":7,"compiled":true,"pass":8,"total":8,"tok":"exact"}
+{"run":"n1-sonnet-python","lang":"python","task":"line_diff","code_tok":471,"patch_tok":471,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"n1-sonnet-python","lang":"python","task":"room_booking","code_tok":613,"patch_tok":613,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

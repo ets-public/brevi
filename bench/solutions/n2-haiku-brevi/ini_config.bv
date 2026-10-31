@@ -1,0 +1,72 @@
+fn lookup(ref: str, sec: str, stack: [str], kv: {str: str}) -> str:
+  d = ref.find(".")
+  if d >= 0: return value_of(ref.slice(0, d), ref.slice(d + 1), stack, kv)
+  if kv.has(sec + "\t" + ref): return value_of(sec, ref, stack, kv)
+  return value_of("default", ref, stack, kv)
+
+fn expand(v: str, sec: str, stack: [str], kv: {str: str}) -> str:
+  out = ""
+  rest = v
+  i = rest.find("${")
+  while i >= 0:
+    tail = rest.slice(i + 2)
+    j = tail.find("}")
+    if j < 0: break
+    out += rest.slice(0, i)
+    out += lookup(tail.slice(0, j), sec, stack, kv)
+    rest = tail.slice(j + 1)
+    i = rest.find("${")
+  return out + rest
+
+fn value_of(s: str, k: str, stack: [str], kv: {str: str}) -> str:
+  id = s + "\t" + k
+  if not kv.has(id): return ""
+  if stack.contains(id): fail("cycle")
+  return expand(kv[id], s, stack + [id], kv)
+
+fn resolved(s: str, k: str, kv: {str: str}) -> str:
+  match value_of(s, k, [], kv):
+    Ok(v) => v
+    Err(_) => "<cycle>"
+
+fn main():
+  kv = {}
+  sec_keys = {}
+  cur = "default"
+  inq = false
+  queries = []
+  for line in lines():
+    s = line.trim()
+    if s == "---":
+      inq = true
+      continue
+    if inq:
+      if s != "": queries.push(s)
+      continue
+    if s == "" or s.starts_with(";") or s.starts_with("#"): continue
+    if s.starts_with("[") and s.ends_with("]"):
+      cur = s.slice(1, s.len() - 1).trim()
+      continue
+    eq = s.find("=")
+    if eq < 0: continue
+    k = s.slice(0, eq).trim()
+    v = s.slice(eq + 1).trim()
+    id = cur + "\t" + k
+    if not kv.has(id): sec_keys[cur].push(k)
+    kv[id] = v
+  for q in queries:
+    if q == "sections":
+      print(sorted(sec_keys.keys()).join(" "))
+    elif q.ends_with(".*"):
+      sec = q.slice(0, q.len() - 2)
+      if not sec_keys.has(sec):
+        print("<missing>")
+      else:
+        for k in sorted(sec_keys[sec]):
+          print("{k}={resolved(sec, k, kv)}")
+    else:
+      d = q.find(".")
+      if d < 0 or not kv.has(q.slice(0, d) + "\t" + q.slice(d + 1)):
+        print("<missing>")
+      else:
+        print(resolved(q.slice(0, d), q.slice(d + 1), kv))

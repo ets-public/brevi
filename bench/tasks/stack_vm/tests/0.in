@@ -1,0 +1,22 @@
+# countdown
+push 3
+loop:
+dup
+print
+push 1
+sub
+dup
+jnz loop
+pop
+push 7
+push 2
+sub
+print
+push -7
+push 2
+div
+print
+push -7
+push 2
+mod
+print

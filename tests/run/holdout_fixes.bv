@@ -1,0 +1,18 @@
+fn f(name: str) -> str:
+  (ts, _, tk) = name.partition(".")
+  ts + tk
+print(f("a.b"))
+d = date("2026-11-02")
+print(d.weekday, d.year)
+secs = {}
+fn get(s: str, k: str) -> str:
+  if not secs[s].has(k): return ""
+  secs[s][k]
+cur = "default"
+for line in ["a=1"]:
+  i = line.find("=")
+  if i >= 0:
+    secs[cur][line.slice(0, i)] = line.slice(i + 1)
+print(get("default", "a"))
+unused = []
+print("u")

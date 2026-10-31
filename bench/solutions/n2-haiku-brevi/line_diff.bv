@@ -1,0 +1,50 @@
+fn main():
+  src = lines()
+  sep = src.index_of("=====")
+  old = src
+  new = []
+  if sep >= 0:
+    old = src.slice(0, sep)
+    new = src.slice(sep + 1)
+  n = old.len()
+  m = new.len()
+  w = m + 1
+  flat = [0].repeat((n + 1) * w)
+  for i in (0..n).rev():
+    for j in (0..m).rev():
+      if old[i] == new[j]:
+        flat[i * w + j] = flat[(i + 1) * w + j + 1] + 1
+      else:
+        flat[i * w + j] = max(flat[(i + 1) * w + j], flat[i * w + j + 1])
+  i = 0
+  j = 0
+  removed = 0
+  added = 0
+  out = []
+  while i < n or j < m:
+    if i < n and j < m and old[i] == new[j]:
+      out.push("  " + old[i])
+      i += 1
+      j += 1
+    elif i >= n:
+      out.push("+ " + new[j])
+      added += 1
+      j += 1
+    elif j >= m:
+      out.push("- " + old[i])
+      removed += 1
+      i += 1
+    elif flat[(i + 1) * w + j] >= flat[i * w + j + 1]:
+      out.push("- " + old[i])
+      removed += 1
+      i += 1
+    else:
+      out.push("+ " + new[j])
+      added += 1
+      j += 1
+  if removed == 0 and added == 0:
+    print("no changes")
+    return
+  for line in out:
+    print(line)
+  print("@@ -{removed} +{added} @@")

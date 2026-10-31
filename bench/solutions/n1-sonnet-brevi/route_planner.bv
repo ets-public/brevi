@@ -1,0 +1,51 @@
+adj = {}
+w = {}
+inedges = True
+for line in lines():
+  t = line.trim()
+  if inedges:
+    if t == "":
+      inedges = False
+      continue
+    p = t.words()
+    a = p[0]
+    b = p[1]
+    m = p[2].int()
+    if not w.has((a, b)) or m < w[(a, b)]:
+      w[(a, b)] = m
+      w[(b, a)] = m
+    if b not in adj[a]:
+      adj[a].push(b)
+    if a not in adj[b]:
+      adj[b].push(a)
+  else:
+    if t == "":
+      continue
+    p = t.words()
+    src = p[0]
+    dst = p[1]
+    if not adj.has(src):
+      print("unknown station {src}")
+    elif not adj.has(dst):
+      print("unknown station {dst}")
+    elif src == dst:
+      print("{src} (0 min)")
+    else:
+      h = heap()
+      h.push((0, 1, [src], src))
+      done = {}
+      found = False
+      while h:
+        let (d, c, path, u) = h.pop()
+        if done.has(u):
+          continue
+        done[u] = True
+        if u == dst:
+          print("{path.join(" -> ")} ({d} min)")
+          found = True
+          break
+        for v in adj[u]:
+          if not done.has(v):
+            h.push((d + w[(u, v)], c + 1, path + [v], v))
+      if not found:
+        print("no route {src} {dst}")

@@ -1,0 +1,72 @@
+CYC = "\0cycle"
+secs = {}
+
+fn lookup(sec: str, name: str, stack: [(str, str)]) -> str:
+  ts = sec
+  tk = name
+  if name.contains("."):
+    (ts, _, tk) = name.partition(".")
+  elif not (secs.has(sec) and secs[sec].has(name)):
+    ts = "default"
+  if not secs.has(ts) or not secs[ts].has(tk): return ""
+  if stack.contains((ts, tk)): return CYC
+  return resolve(ts, secs[ts][tk], stack + [(ts, tk)])
+
+fn resolve(sec: str, raw: str, stack: [(str, str)]) -> str:
+  out = ""
+  rest = raw
+  while rest.contains("${"):
+    p = rest.find("${")
+    tail = rest.slice(p + 2)
+    e = tail.find("}")
+    if e < 0: break
+    piece = lookup(sec, tail.slice(0, e), stack)
+    if piece == CYC: return CYC
+    out += rest.slice(0, p) + piece
+    rest = tail.slice(e + 1)
+  return out + rest
+
+ls = lines()
+cur = "default"
+i = 0
+while i < ls.len() and ls[i].trim() != "---":
+  t = ls[i].trim()
+  i += 1
+  if t == "" or t.starts_with(";") or t.starts_with("#"): continue
+  if t.starts_with("[") and t.ends_with("]"):
+    cur = t.slice(1, t.len() - 1).trim()
+    if not secs.has(cur): secs[cur] = {}
+  elif t.contains("="):
+    (k, _, v) = t.partition("=")
+    if not secs.has(cur): secs[cur] = {}
+    secs[cur][k.trim()] = v.trim()
+start = i + 1
+for j in start..ls.len():
+  q = ls[j].trim()
+  if q == "": continue
+  if q == "sections":
+    names = sorted([s for s in secs.keys() if secs[s].len() > 0])
+    print(" ".join(names))
+  elif q.ends_with(".*"):
+    sec = q.slice(0, q.len() - 2)
+    if not secs.has(sec):
+      print("<missing>")
+    else:
+      for k in sorted(secs[sec].keys()):
+        v = resolve(sec, secs[sec][k], [(sec, k)])
+        if v == CYC:
+          print("{k}=<cycle>")
+        else:
+          print("{k}={v}")
+  elif q.contains("."):
+    (s, _, k) = q.partition(".")
+    if not secs.has(s) or not secs[s].has(k):
+      print("<missing>")
+    else:
+      v = resolve(s, secs[s][k], [(s, k)])
+      if v == CYC:
+        print("<cycle>")
+      else:
+        print(v)
+  else:
+    print("<missing>")

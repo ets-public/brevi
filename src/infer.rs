@@ -97,6 +97,17 @@ fn merge(a: T, b: T) -> T {
     }
 }
 
+// Unknown item types as int, for an empty value nothing reads.
+fn fill_holes(t: &T) -> T {
+    match t {
+        Hole => Int,
+        List(e) => List(Box::new(fill_holes(e))),
+        Heap(e) => Heap(Box::new(fill_holes(e))),
+        Map(k, v) => Map(Box::new(fill_holes(k)), Box::new(fill_holes(v))),
+        other => other.clone(),
+    }
+}
+
 fn elem(t: &T) -> T {
     match t {
         List(e) | Heap(e) => *e.clone(),
@@ -274,6 +285,21 @@ impl Cx<'_> {
                     if some_known(&t) {
                         self.hints.insert((n.clone(), line), rust(&t));
                         self.known_hints.insert((n.clone(), line), known(&t));
+                    } else {
+                        // An empty value that is never used again can have any item type.
+                        let id = format!("Ident({n:?})");
+                        let mv = format!("Move({n:?})");
+                        let mut rest = format!("{:?} {:?}", &stmts[i + 1..], tail);
+                        if top {
+                            for (_, body) in &self.others {
+                                rest.push_str(&format!("{body:?}"));
+                            }
+                        }
+                        if !rest.contains(&id) && !rest.contains(&mv) {
+                            let filled = fill_holes(&t);
+                            self.hints.insert((n.clone(), line), rust(&filled));
+                            self.known_hints.insert((n.clone(), line), true);
+                        }
                     }
                     env.insert(n.clone(), t);
                     continue;
@@ -385,7 +411,11 @@ impl Cx<'_> {
                                         Map(_, v) | List(v) => *v.clone(),
                                         _ => Hole,
                                     };
-                                    let inner = merge(inner.clone(), self.slot(&inner, k2t, vt));
+                                    // `m[a][b] = v` into a missing entry makes it a map (an empty list has no slot b).
+                                    let inner = match inner {
+                                        Hole => Map(Box::new(k2t), Box::new(vt)),
+                                        inner => merge(inner.clone(), self.slot(&inner, k2t, vt)),
+                                    };
                                     *acc = merge(acc.clone(), self.slot(acc, k1t, inner));
                                 }
                             }

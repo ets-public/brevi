@@ -1,0 +1,8 @@
+{"run":"n1-haiku-python","lang":"python","task":"sales_report","code_tok":807,"patch_tok":807,"out_tok":361,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"n1-haiku-python","lang":"python","task":"sales_report","code_tok":812,"patch_tok":47,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"n1-haiku-python","lang":"python","task":"route_planner","code_tok":751,"patch_tok":751,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"n1-haiku-python","lang":"python","task":"ini_config","code_tok":1000,"patch_tok":1000,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}
+{"run":"n1-haiku-python","lang":"python","task":"stack_vm","code_tok":1466,"patch_tok":1466,"out_tok":70,"compiled":true,"pass":7,"total":8,"tok":"exact"}
+{"run":"n1-haiku-python","lang":"python","task":"stack_vm","code_tok":1459,"patch_tok":61,"out_tok":7,"compiled":true,"pass":8,"total":8,"tok":"exact"}
+{"run":"n1-haiku-python","lang":"python","task":"line_diff","code_tok":593,"patch_tok":593,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"n1-haiku-python","lang":"python","task":"room_booking","code_tok":946,"patch_tok":946,"out_tok":7,"compiled":true,"pass":2,"total":2,"tok":"exact"}

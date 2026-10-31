@@ -1,0 +1,30 @@
+rows = csv(stdin())
+valid = 0
+skipped = 0
+region_tot = {}
+prod_qty = {}
+month_tot = {}
+for i in 1..rows.len():
+  row = rows[i]
+  if row.join("").trim().is_empty(): continue
+  ok = row.len() == 5 and row[0].re_full("\d{4}-\d{2}-\d{2}").len() > 0 and row[3].re_full("\d+").len() > 0 and row[4].re_full("\d+(\.\d{1,2})?").len() > 0
+  if not ok:
+    skipped += 1
+    continue
+  valid += 1
+  rev = row[4].dec() * row[3].int()
+  region_tot[row[1]] += rev
+  prod_qty[row[2]] += row[3].int()
+  month_tot[row[0].slice(0, 7)] += rev
+print("rows {valid}")
+print("skipped {skipped}")
+if valid > 0:
+  print("regions")
+  for rp in region_tot.pairs().sort_by(rp => (-rp.1, rp.0)):
+    print("  {rp.0} {rp.1.fmt(2)}")
+  top = prod_qty.pairs().sort_by(pp => (-pp.1, pp.0))
+  t = top[0]
+  print("top_product {t.0} {t.1}")
+  print("months")
+  for mp in month_tot.pairs().sort_by(mp => mp.0):
+    print("  {mp.0} {mp.1.fmt(2)}")

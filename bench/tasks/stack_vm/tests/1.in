@@ -1,0 +1,8 @@
+push 5
+call square
+print
+halt
+square:   # n -> n*n
+dup
+mul
+ret

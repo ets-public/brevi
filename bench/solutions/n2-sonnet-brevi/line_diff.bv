@@ -1,0 +1,44 @@
+a: [str] = []
+b: [str] = []
+second = False
+for l in lines():
+  if l == "=====" and not second:
+    second = True
+  elif second:
+    b.push(l)
+  else:
+    a.push(l)
+n = a.len()
+m = b.len()
+w = m + 1
+t = [0].repeat((n + 1) * w)
+for i in (0..n).rev():
+  for j in (0..m).rev():
+    if a[i] == b[j]:
+      t[i * w + j] = t[(i + 1) * w + j + 1] + 1
+    else:
+      t[i * w + j] = max(t[(i + 1) * w + j], t[i * w + j + 1])
+i = 0
+j = 0
+rem = 0
+add = 0
+out: [str] = []
+while i < n or j < m:
+  if i < n and j < m and a[i] == b[j]:
+    out.push("  " + a[i])
+    i += 1
+    j += 1
+  elif j >= m or (i < n and t[(i + 1) * w + j] >= t[i * w + j + 1]):
+    out.push("- " + a[i])
+    rem += 1
+    i += 1
+  else:
+    out.push("+ " + b[j])
+    add += 1
+    j += 1
+if rem == 0 and add == 0:
+  print("no changes")
+else:
+  for o in out:
+    print(o)
+  print("@@ -{rem} +{add} @@")

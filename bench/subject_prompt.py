@@ -1,9 +1,11 @@
-"""Prints the prompt given to a test-subject model. usage: subject_prompt.py RUN LANG small|big"""
+"""Prints the prompt given to a test-subject model. usage: subject_prompt.py RUN LANG small|big|new"""
 import sys
 run, lang, size = sys.argv[1:4]
 SMALL = "bigadd calc date_diff dijkstra intervals inventory json_sum lru topo wrap anagrams brackets knight ledger log_stats roman_calc schedule spiral".split()
 BIG = "access_report bank_api invoices kv_store markdown spreadsheet template timetable".split()
-tasks = SMALL if size == "small" else BIG
+# Held-out big tasks written after v0.15 (ref/gen_big2.py), never used to tune Brevi.
+NEW = "sales_report route_planner ini_config stack_vm line_diff room_booking".split()
+tasks = {"small": SMALL, "big": BIG, "new": NEW}[size]
 B = "/home/user/brevi/bench"; ext = {"brevi": "bv", "python": "py"}[lang]
 name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
 guide = f"First read the language guide /home/user/brevi/BREVI.md once. " if lang == "brevi" else ""

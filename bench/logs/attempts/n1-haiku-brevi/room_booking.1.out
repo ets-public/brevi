@@ -1,0 +1,1 @@
+{"line":39,"msg":"no field weekday on type Date: unknown field","fix":"fields of Date: days"}

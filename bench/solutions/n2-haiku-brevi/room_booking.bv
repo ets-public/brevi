@@ -1,0 +1,61 @@
+fn hhmm(t: str) -> int:
+  p = t.split(":")
+  return p[0].int().or(0) * 60 + p[1].int().or(0)
+
+fn hm(t: int) -> str:
+  h = t // 60
+  m = t % 60
+  hs = str(h)
+  ms = str(m)
+  if h < 10: hs = "0" + hs
+  if m < 10: ms = "0" + ms
+  return hs + ":" + ms
+
+fn main():
+  rooms = {}
+  bookings = {}
+  names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  for line in lines():
+    w = line.trim().words()
+    if w.is_empty(): continue
+    cmd = w[0]
+    if cmd == "ROOM":
+      rooms[w[1]] = w[2].int().or(0)
+    elif cmd == "BOOK":
+      bid = w[1]
+      dt = w[2]
+      s = hhmm(w[3])
+      e = hhmm(w[4])
+      people = w[5].int().or(0)
+      chosen = ""
+      for rname, cap in rooms.pairs().sort_by(p => (p.1, p.0)):
+        if chosen != "" or cap < people: continue
+        clash = false
+        for k, b in bookings.pairs():
+          d2, bs, be, rm = b
+          if rm == rname and d2 == dt and s < be and bs < e: clash = true
+        if not clash: chosen = rname
+      if chosen == "":
+        print("{bid} rejected")
+      else:
+        bookings[bid] = (dt, s, e, chosen)
+        print("{bid} -> {chosen}")
+    elif cmd == "CANCEL":
+      bid = w[1]
+      if bookings.has(bid):
+        bookings.remove(bid)
+        print("{bid} cancelled")
+      else:
+        print("{bid} not found")
+    elif cmd == "LIST":
+      dt = w[1]
+      rows = []
+      for k, b in bookings.pairs():
+        d2, bs, be, rm = b
+        if d2 == dt: rows.push((bs, rm, k, be))
+      rows.sort()
+      wd = names[date(dt).weekday() - 1]
+      print("{dt} {wd}")
+      if rows.is_empty(): print("  no bookings")
+      for bs, rm, k, be in rows:
+        print("  {hm(bs)}-{hm(be)} {rm} {k}")

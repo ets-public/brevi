@@ -1,0 +1,17 @@
+/srv/demo/logs
+/srv/demo/cache
+/tmp
+postgres://localhost:6543/demo
+<cycle>
+xok
+<missing>
+a=<cycle>
+b=<cycle>
+c=xok
+d=ok
+host=localhost
+port=6543
+url=postgres://localhost:6543/demo
+<missing>
+db default paths
+/srv/demo

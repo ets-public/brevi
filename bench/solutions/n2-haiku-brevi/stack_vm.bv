@@ -1,0 +1,102 @@
+fn main():
+  src = lines()
+  ops = []
+  labels = {}
+  for i in 0..src.len():
+    s = src[i]
+    h = s.find("#")
+    if h >= 0: s = s.slice(0, h)
+    s = s.trim()
+    if s == "": continue
+    if s.ends_with(":"):
+      labels[s.slice(0, s.len() - 1).trim()] = ops.len()
+      continue
+    w = s.words()
+    arg = ""
+    if w.len() > 1: arg = w[1]
+    ops.push((i + 1, w[0], arg))
+  valid = ["push", "pop", "dup", "swap", "add", "sub", "mul", "div", "mod", "jmp", "jz", "jnz", "call", "ret", "print", "halt"]
+  for op in ops:
+    ln, name, arg = op
+    if not valid.contains(name):
+      print("error line {ln}: unknown instruction {name}")
+      return
+  for op in ops:
+    ln, name, arg = op
+    if ["jmp", "jz", "jnz", "call"].contains(name) and not labels.has(arg):
+      print("error line {ln}: unknown label {arg}")
+      return
+  st = []
+  calls = []
+  pc = 0
+  steps = 0
+  n = ops.len()
+  while pc < n:
+    if steps >= 10000:
+      print("error: step limit")
+      return
+    steps += 1
+    ln, name, arg = ops[pc]
+    pc += 1
+    if name == "push":
+      st.push(arg.int().or(0))
+    elif name == "pop":
+      if st.len() < 1:
+        print("error line {ln}: stack underflow")
+        return
+      st.pop()
+    elif name == "dup":
+      if st.len() < 1:
+        print("error line {ln}: stack underflow")
+        return
+      st.push(st.last())
+    elif name == "swap":
+      if st.len() < 2:
+        print("error line {ln}: stack underflow")
+        return
+      a = st.pop()
+      b = st.pop()
+      st.push(a)
+      st.push(b)
+    elif ["add", "sub", "mul", "div", "mod"].contains(name):
+      if st.len() < 2:
+        print("error line {ln}: stack underflow")
+        return
+      b = st.pop()
+      a = st.pop()
+      if name == "add":
+        st.push(a + b)
+      elif name == "sub":
+        st.push(a - b)
+      elif name == "mul":
+        st.push(a * b)
+      else:
+        if b == 0:
+          print("error line {ln}: division by zero")
+          return
+        if name == "div":
+          st.push(a / b)
+        else:
+          st.push(a % b)
+    elif name == "jmp":
+      pc = labels[arg]
+    elif name == "jz" or name == "jnz":
+      if st.len() < 1:
+        print("error line {ln}: stack underflow")
+        return
+      v = st.pop()
+      if (v == 0) == (name == "jz"):
+        pc = labels[arg]
+    elif name == "call":
+      calls.push(pc)
+      pc = labels[arg]
+    elif name == "ret":
+      if calls.is_empty(): return
+      pc = calls.pop()
+    elif name == "print":
+      if st.len() < 1:
+        print("error line {ln}: stack underflow")
+        return
+      print(st.pop())
+    elif name == "halt":
+      return
