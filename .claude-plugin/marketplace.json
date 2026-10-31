@@ -1,0 +1,12 @@
+{
+  "name": "brevi",
+  "description": "The Brevi language for Claude Code: the skill and the brevi mcp server",
+  "owner": { "name": "Adam" },
+  "plugins": [
+    {
+      "name": "brevi",
+      "source": "./plugins/brevi",
+      "description": "Write, check and run Brevi (.bv) programs with the skill and the brevi mcp tools (guide, check, run, test, patch)"
+    }
+  ]
+}

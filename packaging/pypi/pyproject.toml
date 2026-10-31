@@ -1,0 +1,22 @@
+# The brevi compiler as a Python wheel: `pip install brevi` puts the brevi binary on the PATH.
+# Built by the release workflow (maturin, one wheel per platform); not published until launch.
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "brevi"
+dynamic = ["version"]
+description = "Brevi: a programming language for AI models that compiles to Rust, with one-line JSON errors."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.8"
+keywords = ["language", "compiler", "rust", "mcp", "ai"]
+
+[project.urls]
+Homepage = "https://brevi-lang.org"
+Source = "https://github.com/ets-public/brevi"
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "../../Cargo.toml"

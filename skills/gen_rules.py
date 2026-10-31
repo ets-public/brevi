@@ -13,6 +13,10 @@ out = {
     "windsurf/brevi.md": f"---\ntrigger: glob\nglobs: \"**/*.bv\"\n---\n\n{body}",
     "cline/brevi.md": body,
 }
+# The Claude Code plugin (plugins/brevi) carries its own copy of the skill, since a plugin is installed as one folder.
+plugin_skill = os.path.join(here, "..", "plugins", "brevi", "skills", "brevi", "SKILL.md")
+os.makedirs(os.path.dirname(plugin_skill), exist_ok=True)
+open(plugin_skill, "w").write(src)
 for path, text in out.items():
     p = os.path.join(here, "rules", path); os.makedirs(os.path.dirname(p), exist_ok=True)
     open(p, "w").write(text)

@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "brevi": { "command": "brevi", "args": ["mcp"] }
+  }
+}

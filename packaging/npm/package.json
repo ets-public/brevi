@@ -1,0 +1,12 @@
+{
+  "name": "brevi-lang",
+  "version": "0.18.0",
+  "description": "Brevi: a programming language for AI models that compiles to Rust, with one-line JSON errors.",
+  "homepage": "https://brevi-lang.org",
+  "repository": "github:ets-public/brevi",
+  "license": "Apache-2.0",
+  "bin": { "brevi": "bin/brevi.js" },
+  "files": ["bin", "README.md"],
+  "engines": { "node": ">=18" },
+  "mcpName": "io.github.ets-public/brevi"
+}
