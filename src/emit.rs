@@ -636,6 +636,19 @@ impl Emitter {
         kinds.iter().any(|k| k != &kinds[0])
     }
 
+    // A condition: bool values as they are, anything else by its truth (`if xs:` means not empty).
+    fn cond(&mut self, c: &Expr) -> String {
+        let plain = match c {
+            Expr::Bool(_) => true,
+            Expr::Binary(op, ..) => ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op),
+            Expr::Unary(op, _) => *op == "!",
+            Expr::Method(_, m, _, _) => ["has", "is_empty", "contains", "starts_with", "ends_with", "any", "all", "is_digit", "is_alpha"].contains(&m.as_str()),
+            e => self.infer_ty(e).map_or(false, |t| matches!(&t, Ty::Named(n) if n == "bool")),
+        };
+        let e = self.expr(c);
+        if plain { e } else { format!("ax_t(&{e})") }
+    }
+
     fn global(&self, n: &str) -> Option<String> {
         if self.locals.contains(n) || !self.globals.contains_key(n) || self.own_locals.contains(n) {
             return None;
@@ -871,7 +884,7 @@ impl Emitter {
     fn stmt_expr(&mut self, e: &Expr) -> String {
         match e {
             Expr::If(c, t, f) => {
-                let c = self.expr(c);
+                let c = self.cond(c);
                 let t = self.block_d(t, true);
                 match f {
                     Some(f) if matches!(f.as_ref(), Expr::If(..)) => format!("if {c} {t} else {}", self.stmt_expr(f)),
@@ -1179,14 +1192,16 @@ impl Emitter {
                 }
             }
             Expr::Tuple(items) => format!("({})", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", ")),
+            Expr::Unary(op, a) if *op == "!" => format!("(!{})", self.cond(a)),
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
+            // Python-style truth: an empty list, map or string, 0 and "" are false.
+            Expr::Binary(op @ ("and" | "or"), a, b) => format!("({} {} {})", self.cond(a), if *op == "and" { "&&" } else { "||" }, self.cond(b)),
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
                 let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
                 match *op {
                     "+" => format!("Plus::plus({a}, {b})"),
-                    "and" => format!("({a} && {b})"),
-                    "or" => format!("({a} || {b})"),
+                    "and" | "or" => unreachable!(),
                     "~=" => format!("ax_approx({a}, {b})"),
                     "//" => format!("ax_floordiv({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
@@ -1288,7 +1303,7 @@ impl Emitter {
                 }
             }
             Expr::If(c, t, f) => {
-                let c = self.expr(c);
+                let c = self.cond(c);
                 let t = self.block(t);
                 match f {
                     Some(f) => {
@@ -1334,7 +1349,7 @@ impl Emitter {
                 format!("for {p} in {it} {b}")
             }
             Expr::While(c, body) => {
-                let c = self.expr(c);
+                let c = self.cond(c);
                 format!("while {c} {}", self.block_d(body, true))
             }
             Expr::Range(a, b) => format!("({}..{}).collect::<Vec<i64>>()", self.expr(a), self.expr(b)),
@@ -1376,6 +1391,8 @@ impl Emitter {
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
         match name {
+            // print(a, b) writes them with a space between, like Python.
+            "print" if plain.len() > 1 => return format!("print([{}].join(\" \"))", plain.iter().map(|p| format!("Show::show(&{p})")).collect::<Vec<_>>().join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "fail" => {

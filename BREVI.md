@@ -1,6 +1,6 @@
 # Brevi language guide (for models)
 
-Brevi compiles to Rust. Write one statement per line, no semicolons. Blocks are indented, like Python: a line ending in `:` opens a block of the more-indented lines below it, and a short block can follow the `:` on the same line. Comments start with `#`. Types are required only on function parameters and returns.
+Brevi compiles to Rust. Write one statement per line, no semicolons. Blocks are indented, like Python: a line ending in `:` opens a block of the more-indented lines below it, and a short block can follow the `:` on the same line. Comments start with `#`. Types are required only on function parameters; a return type is optional (`fn f(x: int) = x * 2` works it out).
 A file can be just statements (script mode), or define `fn main()`. In script mode, functions can read and change top-level variables that other functions also use (`pos = 0`, `toks = []`). A function whose body starts by setting a name (`i = 0`) has its own local, unless another function reads that name without setting it.
 
 ```
@@ -38,14 +38,14 @@ fn load(path: str) -> [str]:
   text.lines()                         # last line is the return value
 fn bump(mut xs: [int]):
   for x in xs: x += 1                  # edits caller's list
-fn double(x: int) -> int = x * 2
+fn double(x: int) = x * 2              # return type worked out; write -> T if asked
 ```
 Errors pass up automatically. `fail(msg)`, `read`, and conversions like `s.int()` can fail; a function that uses any of them can fail, and so can its callers. No `?` is needed (writing it is allowed).
 Handle a failure where it happens with `.or(default)` or `match f(x):` with arms `Ok(v) => ...` and `Err(msg) => ...`. An uncaught failure stops the program with a JSON error.
 
 ## Statements
 `x = 1` creates a variable or changes it (`let x = 1` makes one that cannot change, `x: [str] = []` gives a type), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
-`if c:` / `elif d:` / `else:`, `for x in xs:`, `for k, v in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
+`if c:` / `elif d:` / `else:` (conditions use Python truth: `if xs:`, `if not s:`, `while q:` test for non-empty, and 0 is false), `for x in xs:`, `for k, v in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
 `if` and `match` are values: `y = if a > b: a else: b`. A variable set in every branch of an `if`/`else` or `match` can be used after it; one first set inside a loop ends with the loop, so set it before the loop.
 Match arms are one expression or statement (`Num(n) => total += n`) or an indented block on the lines after `=>`. Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.
 
@@ -72,7 +72,7 @@ Every call has parentheses, even with no arguments: `xs.first()`, `s.trim()`.
 Most methods return a new value: write `xs = xs.sort()`. Only `push pop insert remove` change the list in place.
 
 ## Built-in functions
-`print(x)`, `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
+`print(x)` (`print(a, b)` puts a space between), `str(x)` (or `x.str()`), `read(path)`, `write(path, text)`, `args()`, `input()` (one line), `stdin()` (all text), `lines()` (stdin as a list of lines), `fail(msg)`, `abs(x)`, `min(a, b)`, `max(a, b)`.
 
 ## Data formats
 - `json(text)` gives a `Json`: match on `Null`, `Bool(b)`, `Num(n)` (f64), `Str(s)`, `Arr(xs)`, `Obj(m)` ({str: Json}, keys kept in input order), or index `j["key"][0]` (missing gives `Null`). `str(j)` writes compact JSON. `x.json()` turns any value (int, str, list, map) into Json, so `str(xs.json())` writes it. A map literal whose values differ in type is a Json object with keys in written order: `str({"id": 1, "name": n})` gives `{"id":1,"name":"ann"}`.

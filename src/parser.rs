@@ -154,7 +154,8 @@ impl Parser {
                 }
             }
             self.expect_sym(")")?;
-            let ret = if self.eat_sym("->") { self.ty()? } else { Ty::Unit };
+            // Without `->` the return type is worked out from the body (see infer::returns).
+            let ret = if self.eat_sym("->") { self.ty()? } else { Ty::Named("?".into()) };
             let fallible = self.eat_sym("!");
             self.ret_map = matches!(ret, Ty::Map(..));
             let body = if self.eat_sym("=") {

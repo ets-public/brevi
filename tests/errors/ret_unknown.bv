@@ -1,0 +1,4 @@
+fn f(x: int):
+  xs = []
+  xs
+print(f(1))

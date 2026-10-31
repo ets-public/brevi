@@ -753,3 +753,205 @@ fn bind_params(ps: &[String], et: &T, env: &mut Env) {
         }
     }
 }
+
+fn to_ast(t: &T) -> Option<Ty> {
+    let n = |s: &str| Some(Ty::Named(s.into()));
+    match t {
+        Int => n("int"),
+        F64 => n("f64"),
+        Bool => n("bool"),
+        Str => n("str"),
+        Dec => n("dec"),
+        Big => n("big"),
+        Date => n("Date"),
+        Json => n("Json"),
+        Named(s) => n(s),
+        List(e) => Some(Ty::List(Box::new(to_ast(e)?))),
+        Map(k, v) => Some(Ty::Map(Box::new(to_ast(k)?), Box::new(to_ast(v)?))),
+        Tuple(ts) => Some(Ty::Tuple(ts.iter().map(to_ast).collect::<Option<Vec<_>>>()?)),
+        Heap(e) => Some(Ty::Named(format!("AxHeap<{}>", rust(e)))).filter(|_| known(e)),
+        Unit => Some(Ty::Unit),
+        Hole => None,
+    }
+}
+
+// Is this expression, as a function's last line, a statement rather than a value?
+fn no_value(e: &Expr) -> bool {
+    match e {
+        Expr::For(..) | Expr::While(..) => true,
+        Expr::If(_, _, None) => true,
+        Expr::Call(n, _, _) => ["print", "write", "fail"].contains(&n.as_str()),
+        // Changing a list or map is a statement even though remove and pop give a value.
+        Expr::Method(_, m, _, _) => ["push", "insert", "remove", "pop"].contains(&m.as_str()),
+        _ => false,
+    }
+}
+
+impl Cx<'_> {
+    // Types of every name set in a body, in order (first setting wins), for reading return values.
+    fn flat_env(&self, e: &Expr, env: &mut Env) {
+        match e {
+            Expr::Block(stmts, tail) => {
+                for st in stmts {
+                    match st {
+                        Stmt::Let { name, ty, value, .. } => {
+                            self.flat_env(value, env);
+                            let t = ty.as_ref().map(from_ast).unwrap_or_else(|| self.ty(value, env));
+                            bind(name, t, env);
+                        }
+                        Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } => {
+                            self.flat_env(value, env);
+                            if !env.contains_key(n) || env[n] == Hole {
+                                let t = self.ty(value, env);
+                                env.insert(n.clone(), t);
+                            }
+                        }
+                        Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } => {
+                            let t = self.ty(value, env);
+                            for (k, x) in xs.iter().enumerate() {
+                                if let (Expr::Ident(n), Tuple(ts)) = (x, &t) {
+                                    env.entry(n.clone()).or_insert(ts.get(k).cloned().unwrap_or(Hole));
+                                }
+                            }
+                        }
+                        Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } => self.flat_env(expr, env),
+                        _ => {}
+                    }
+                }
+                if let Some(t) = tail {
+                    self.flat_env(t, env);
+                }
+            }
+            Expr::For(p, it, body) => {
+                let t = elem(&self.ty(it, env));
+                bind(p, t, env);
+                self.flat_env(body, env);
+            }
+            Expr::While(_, b) => self.flat_env(b, env),
+            Expr::If(_, a, b) => {
+                self.flat_env(a, env);
+                if let Some(b) = b {
+                    self.flat_env(b, env);
+                }
+            }
+            Expr::Match(s, arms) => {
+                let st = self.ty(s, env);
+                for (p, a) in arms {
+                    bind_arm(p, &st, env);
+                    self.flat_env(a, env);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn returned(&self, e: &Expr, env: &Env, out: &mut Vec<T>) {
+        match e {
+            Expr::Block(stmts, tail) => {
+                for st in stmts {
+                    match st {
+                        Stmt::Return { value: Some(v), .. } => out.push(self.ty(v, env)),
+                        Stmt::Return { value: None, .. } => out.push(Unit),
+                        Stmt::Expr { expr, .. } => self.returned(expr, env, out),
+                        _ => {}
+                    }
+                }
+                if let Some(t) = tail {
+                    self.returned(t, env, out);
+                }
+            }
+            Expr::For(_, _, b) | Expr::While(_, b) => self.returned(b, env, out),
+            Expr::If(_, a, b) => {
+                self.returned(a, env, out);
+                if let Some(b) = b {
+                    self.returned(b, env, out);
+                }
+            }
+            Expr::Match(_, arms) => arms.iter().for_each(|(_, a)| self.returned(a, env, out)),
+            _ => {}
+        }
+    }
+}
+
+// Fills in the return type of every function written without `->`, from what it returns.
+pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
+    let open = |items: &[Item]| items.iter().any(|i| matches!(i, Item::Fn { ret: Ty::Named(n), .. } if n == "?"));
+    if !open(items) {
+        return Ok(());
+    }
+    for round in 0..4 {
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
+        for it in items.iter() {
+            match it {
+                Item::Fn { name, params, ret, .. } => {
+                    let r = if matches!(ret, Ty::Named(n) if n == "?") { Hole } else { from_ast(ret) };
+                    cx.fns.insert(name.clone(), (params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect(), r));
+                }
+                Item::Type { name, fields, .. } => {
+                    cx.structs.insert(name.clone(), fields.iter().map(|f| (f.name.clone(), from_ast(&f.ty))).collect());
+                }
+                Item::Enum { name, variants, .. } => {
+                    for v in variants {
+                        cx.variants.insert(v.name.clone(), name.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let last = round == 3;
+        let mut found = Vec::new();
+        let mut errs = Vec::new();
+        for (k, it) in items.iter().enumerate() {
+            let Item::Fn { name, params, ret: Ty::Named(q), body, line, .. } = it else { continue };
+            if q != "?" {
+                continue;
+            }
+            if name == "main" {
+                found.push((k, Ty::Unit));
+                continue;
+            }
+            let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+            cx.flat_env(body, &mut env);
+            let mut ts = Vec::new();
+            cx.returned(body, &env, &mut ts);
+            let tail = match body {
+                Expr::Block(_, None) => None,
+                Expr::Block(_, Some(t)) => Some(t.as_ref()),
+                e => Some(e),
+            };
+            match tail {
+                Some(t) if !no_value(t) => ts.push(cx.ty(t, &env)),
+                _ => {}
+            }
+            // A bare `return` means the function gives no value.
+            let bare = ts.contains(&Unit);
+            let ts: Vec<T> = ts.into_iter().filter(|t| *t != Unit).collect();
+            if ts.is_empty() || bare {
+                found.push((k, Ty::Unit));
+                continue;
+            }
+            let t = ts.into_iter().fold(Hole, merge);
+            match to_ast(&t) {
+                Some(t) => found.push((k, t)),
+                None if last => {
+                    let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out what {name} returns"));
+                    d.fix = Some(format!("write the return type: fn {name}(...) -> TYPE"));
+                    errs.push(d);
+                }
+                None => {}
+            }
+        }
+        for (k, t) in found {
+            if let Item::Fn { ret, .. } = &mut items[k] {
+                *ret = t;
+            }
+        }
+        if !errs.is_empty() {
+            return Err(errs);
+        }
+        if !open(items) {
+            break;
+        }
+    }
+    Ok(())
+}

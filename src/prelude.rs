@@ -250,6 +250,56 @@ impl<A: Show + 'static, B: Show + 'static, C: Show + 'static> Show for (A, B, C)
 pub fn print<T: Show>(x: T) {
     println!("{}", x.show());
 }
+// Python-style truth for conditions: false, 0, "", [] and {} are false.
+pub trait AxTruth {
+    fn ax_truth(&self) -> bool;
+}
+impl AxTruth for bool {
+    fn ax_truth(&self) -> bool {
+        *self
+    }
+}
+impl AxTruth for i64 {
+    fn ax_truth(&self) -> bool {
+        *self != 0
+    }
+}
+impl AxTruth for f64 {
+    fn ax_truth(&self) -> bool {
+        *self != 0.0
+    }
+}
+impl AxTruth for String {
+    fn ax_truth(&self) -> bool {
+        !self.is_empty()
+    }
+}
+impl<T> AxTruth for Vec<T> {
+    fn ax_truth(&self) -> bool {
+        !self.is_empty()
+    }
+}
+impl<K, V> AxTruth for AxM<K, V> {
+    fn ax_truth(&self) -> bool {
+        !self.m.is_empty()
+    }
+}
+impl AxTruth for Json {
+    fn ax_truth(&self) -> bool {
+        match self {
+            Json::Null => false,
+            Json::Bool { v } => *v,
+            Json::Num { v } => *v != 0.0,
+            Json::Str { v } => !v.is_empty(),
+            Json::Arr { v } => !v.is_empty(),
+            Json::Obj { v } => !v.m.is_empty(),
+        }
+    }
+}
+#[inline]
+pub fn ax_t<T: AxTruth + ?Sized>(x: &T) -> bool {
+    x.ax_truth()
+}
 pub fn read(path: String) -> R<String> {
     std::fs::read_to_string(&path).map_err(|e| AxErr(format!("read {path}: {e}")))
 }

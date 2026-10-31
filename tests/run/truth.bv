@@ -1,0 +1,12 @@
+xs = [1, 2, 3]
+print(xs[-1])
+print("a", 1, xs)
+w = "".words()
+if not w: print("empty")
+m = {}
+m["a"] = 1
+if m and xs: print("both")
+s = ""
+while not s: s = "x"
+n = 0
+print(if n: "yes" else: "no")

@@ -100,6 +100,7 @@ fn main() {
 
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
     let mut items = parser::parse_program(src).map_err(|d| vec![d])?;
+    infer::returns(&mut items)?;
     emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items, hints);
     if moves {
