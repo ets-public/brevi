@@ -112,6 +112,10 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/guide_budget.py
 
+      - name: Package manifests match Cargo.toml
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tools/version_sync.py
+
       - name: Every solution that ever passed still passes
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/compat.py check --report compat-report.md

@@ -58,8 +58,33 @@ jobs:
         with:
           name: brevi-${{ matrix.target }}
           path: brevi-${{ matrix.target }}.*
+  # Python wheels holding the same binary (packaging/pypi), for `pip install brevi`. They are attached to the
+  # release; publishing them to PyPI is a separate step for launch.
+  wheels:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: x86_64 }
+          - { os: ubuntu-22.04-arm, target: aarch64 }
+          - { os: macos-15, target: universal2-apple-darwin }
+          - { os: windows-2022, target: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packaging/pypi
+          target: ${{ matrix.target }}
+          args: --release --locked --out dist
+          manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.target }}
+          path: packaging/pypi/dist/*.whl
   release:
-    needs: build
+    needs: [build, wheels]
     # Attach whatever built, so one platform's runner trouble does not hold back the rest.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
