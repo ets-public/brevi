@@ -344,6 +344,7 @@ if __name__ == &quot;__main__&quot;:
               <tr><td>Size of the two errors in the next section</td><td>76 to 80 tokens</td><td>106 to 159 tokens</td><td class="win">44 tokens, or none</td></tr>
               <tr><td>Memory management</td><td>Garbage collector</td><td>Written by hand: lifetimes and borrows</td><td class="win">Worked out by the compiler</td></tr>
               <tr><td>Exact decimals, CSV, JSON, dates</td><td>Imports and helpers</td><td>Crates and setup</td><td class="win">Built in</td></tr>
+              <tr><td>Libraries</td><td>pip packages</td><td>Crates</td><td class="win">Rust crates, Python functions and other .bv files</td></tr>
             </tbody>
           </table>
         </div>
@@ -355,7 +356,7 @@ if __name__ == &quot;__main__&quot;:
           <div>
             <span class="fig">up to 21% fewer tokens</span>
             <h3>Less to write, less to read</h3>
-            <p>Counted end to end, including errors read and retries, models used fewer tokens in Brevi than in Python on five of six task sets and the same on the sixth, including tasks written after the language was tuned.</p>
+            <p>Counted end to end, including errors read and retries, models used fewer tokens in Brevi than in Python on seven of eight task sets, including tasks written after the language was tuned. On the largest programs the two are close to level.</p>
           </div>
           <div>
             <span class="fig">{"line":N,"msg":…,"fix":…}</span>
@@ -448,13 +449,15 @@ print(<span class="s">"total: "</span> + n)</pre>
             <tbody>
               <tr><td>6 held-out big tasks</td><td>Haiku</td><td class="n win">4,604</td><td class="n">5,847</td><td class="n save">21%</td></tr>
               <tr><td>6 held-out big tasks</td><td>Sonnet</td><td class="n win">4,020</td><td class="n">4,220</td><td class="n save">5%</td></tr>
+              <tr><td>8 big tasks</td><td>Haiku</td><td class="n win">9,398</td><td class="n">10,556</td><td class="n save">11%</td></tr>
+              <tr><td>8 big tasks</td><td>Sonnet</td><td class="n win">8,284</td><td class="n">8,721</td><td class="n save">5%</td></tr>
               <tr><td>18 small tasks</td><td>Sonnet</td><td class="n win">4,488</td><td class="n">5,052</td><td class="n save">11%</td></tr>
               <tr><td>18 small tasks</td><td>Haiku</td><td class="n win">5,306</td><td class="n">5,794</td><td class="n save">8%</td></tr>
-              <tr><td>8 big tasks</td><td>Haiku</td><td class="n win">10,382</td><td class="n">10,556</td><td class="n save">2%</td></tr>
-              <tr><td>8 big tasks</td><td>Sonnet</td><td class="n">8,721</td><td class="n">8,721</td><td class="n">level</td></tr>
+              <tr><td>6 XL tasks, 2 multi-file</td><td>Sonnet</td><td class="n win">12,630</td><td class="n">13,128</td><td class="n save">4%</td></tr>
+              <tr><td>6 XL tasks, 2 multi-file</td><td>Haiku</td><td class="n">15,908</td><td class="n">15,658</td><td class="n">&minus;2%</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">Held-out tasks were written after the language was tuned and never used to change it. Big tasks are programs of 50 to 200 lines. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
+          <p class="note" style="margin-top: 14px;">Held-out tasks were written after the language was tuned and never used to change it. Big tasks are programs of 50 to 200 lines; XL tasks are 150 to 400 lines, two of them split over several files. Brevi was improved using the XL runs, and single runs vary by about 10%, so the XL rows are close to level. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
         </div>
         <div class="table-wrap">
           <table>
@@ -490,6 +493,7 @@ print(<span class="s">"total: "</span> + n)</pre>
           <li><h3>Agent skill</h3><div>An Agent Skills package with setup and the write, check, fix loop: <a href="/skill.md">skill.md</a>.</div></li>
           <li><h3>llms.txt</h3><div>Machine-readable entry points at <a href="/llms.txt">/llms.txt</a> and <a href="/llms-full.txt">/llms-full.txt</a>, with the guide as plain Markdown at <a href="/guide.md">/guide.md</a>.</div></li>
           <li><h3>Edit by name</h3><div><code>brevi patch f.bv p.bv</code> replaces each function, type or test by name, so a fix costs only the lines that changed.</div></li>
+          <li><h3>Libraries</h3><div><code>use "util.bv"</code> splits a program over files, and <code>use sha2 "0.10"</code> with <code>rust fn</code> or <code>py fn</code> calls Rust crates and Python code: <a href="/libraries.md">libraries.md</a>.</div></li>
           <li><h3>Fast checks</h3><div><code>brevi check f.bv --fast</code> runs Brevi's own checks in about 3 ms without invoking rustc.</div></li>
         </ul>
       </div>

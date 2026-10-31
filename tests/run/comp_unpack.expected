@@ -1,0 +1,8 @@
+[1, 2, 3, 4, 5]
+[1, 2, 3, 4]
+21
+60
+["a", "b", "c", "d"]
+[1, 2, 3, 4]
+[0, 0, 1, -1, 2, -2]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

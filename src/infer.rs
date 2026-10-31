@@ -803,6 +803,11 @@ impl Cx<'_> {
                 Hole if m == "repeat" || m == "slice" => Hole,
                 _ => r,
             },
+            "flatten" => match elem(&r) {
+                List(t) => List(t),
+                Str => List(Box::new(Str)),
+                _ => Hole,
+            },
             "enumerate" => List(Box::new(Tuple(vec![Int, elem(&r)]))),
             "zip" => List(Box::new(Tuple(vec![elem(&r), elem(&a(0))]))),
             "keys" => match &r {
