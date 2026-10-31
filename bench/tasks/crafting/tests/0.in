@@ -1,0 +1,11 @@
+STOCK iron 10
+STOCK wood 4
+RECIPE plank 4: wood 1
+RECIPE stick 4: plank 2
+RECIPE pick 1: iron 3, stick 2
+CRAFT pick 2
+SHOW
+CRAFT pick 2
+SHOW
+CRAFT pick 3
+SHOW

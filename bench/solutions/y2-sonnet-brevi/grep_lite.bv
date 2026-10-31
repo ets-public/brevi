@@ -1,0 +1,157 @@
+kinds = []
+sets = []
+mins = []
+maxs = []
+anchS = False
+anchE = False
+lc = []
+L = 0
+
+fn digits_end(cs: [str], j: int) -> int:
+  k = j
+  while k < cs.len() and cs[k].is_digit(): k += 1
+  k
+
+fn parse(p: str):
+  cs = p.chars()
+  n = cs.len()
+  i = 0
+  lastrep = False
+  if n > 0 and cs[0] == "^":
+    anchS = True
+    i = 1
+  while i < n:
+    c = cs[i]
+    if c == "$" and i == n - 1:
+      anchE = True
+      i += 1
+      continue
+    if c == "*" or c == "+" or c == "?" or c == "{":
+      if kinds.len() == 0 or lastrep: fail("bad")
+      t = kinds.len() - 1
+      if c == "*":
+        mins[t] = 0
+        maxs[t] = 1000000
+        i += 1
+      elif c == "+":
+        mins[t] = 1
+        maxs[t] = 1000000
+        i += 1
+      elif c == "?":
+        mins[t] = 0
+        maxs[t] = 1
+        i += 1
+      else:
+        e1 = digits_end(cs, i + 1)
+        if e1 == i + 1 or e1 >= n: fail("bad")
+        lo = "".join(cs[i + 1:e1]).int()
+        hi = lo
+        if cs[e1] == ",":
+          e2 = digits_end(cs, e1 + 1)
+          if e2 == e1 + 1 or e2 >= n: fail("bad")
+          hi = "".join(cs[e1 + 1:e2]).int()
+          e1 = e2
+        if cs[e1] != "}": fail("bad")
+        if lo > hi: fail("bad")
+        mins[t] = lo
+        maxs[t] = hi
+        i = e1 + 1
+      lastrep = True
+      continue
+    lastrep = False
+    if c == "\\":
+      if i + 1 >= n: fail("bad")
+      kinds.push(0)
+      sets.push([(cs[i + 1].code(), cs[i + 1].code())])
+      mins.push(1)
+      maxs.push(1)
+      i += 2
+    elif c == "[":
+      j = i + 1
+      neg = False
+      if j < n and cs[j] == "^":
+        neg = True
+        j += 1
+      rs = []
+      closed = False
+      while j < n:
+        ch = cs[j]
+        if ch == "]":
+          closed = True
+          break
+        if j + 2 < n and cs[j + 1] == "-" and cs[j + 2] != "]":
+          a = ch.code()
+          b = cs[j + 2].code()
+          if a > b: fail("bad")
+          rs.push((a, b))
+          j += 3
+        else:
+          rs.push((ch.code(), ch.code()))
+          j += 1
+      if not closed or rs.is_empty(): fail("bad")
+      kinds.push(if neg: 1 else: 0)
+      sets.push(rs)
+      mins.push(1)
+      maxs.push(1)
+      i = j + 1
+    elif c == ".":
+      kinds.push(2)
+      sets.push([(0, 0)])
+      mins.push(1)
+      maxs.push(1)
+      i += 1
+    else:
+      kinds.push(0)
+      sets.push([(c.code(), c.code())])
+      mins.push(1)
+      maxs.push(1)
+      i += 1
+  0
+
+fn mt(ti: int, c: int) -> bool:
+  k = kinds[ti]
+  if k == 2: return True
+  inside = sets[ti].any(r => c >= r.0 and c <= r.1)
+  if k == 1: !inside else: inside
+
+fn best(ti: int, pos: int) -> int:
+  if ti == kinds.len():
+    if anchE and pos != L: return -1
+    return pos
+  k = 0
+  p = pos
+  res = -1
+  while True:
+    if k >= mins[ti]:
+      r = best(ti + 1, p)
+      if r > res: res = r
+    if k >= maxs[ti] or p >= L: break
+    if not mt(ti, lc[p].code()): break
+    p += 1
+    k += 1
+  res
+
+fn run(all: [str]):
+  total = 0
+  matched = 0
+  for idx in 1..all.len():
+    line = all[idx]
+    total += 1
+    lc = line.chars()
+    L = lc.len()
+    lastS = if anchS: 0 else: L
+    s = 0
+    while s <= lastS:
+      e = best(0, s)
+      if e >= 0:
+        matched += 1
+        print("{idx}: {s}-{e} [{line.slice(s, e)}]")
+        break
+      s += 1
+  print("{matched} of {total} lines match")
+
+all = lines()
+if all.len() > 0:
+  match parse(all[0]):
+    Ok(_) => run(all)
+    Err(_) => print("bad pattern")

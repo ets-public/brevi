@@ -13,6 +13,8 @@ SETS = [
     ("6 held-out big tasks", "haiku", {"brevi": ["n1", "n2"], "python": ["n1", "n2"]}),
     ("6 XL tasks (2 multi-file)", "sonnet", {"brevi": ["x17", "x18"], "python": ["x1", "x2", "x15", "x16"]}),
     ("6 XL tasks (2 multi-file)", "haiku", {"brevi": ["x17", "x18"], "python": ["x1", "x2", "x15", "x16"]}),
+    ("6 held-out XL tasks (2 multi-file)", "sonnet", {"brevi": ["y1", "y2"], "python": ["y1", "y2"]}),
+    ("6 held-out XL tasks (2 multi-file)", "haiku", {"brevi": ["y1", "y2"], "python": ["y1", "y2"]}),
 ]
 
 def score(run):
@@ -38,4 +40,4 @@ for name, model, langs in SETS:
     save = (p[0] - b[0]) / p[0] * 100
     best = lambda v, o: f"**{v:,.0f}**" if round(v) < round(o) else f"{v:,.0f}"
     print(f"| {name} | {model.capitalize()} | {best(b[0], p[0])} | {best(p[0], b[0])} | {save:.0f}% | {b[1]}/{b[3]} / {p[1]}/{p[3]} | {b[2]}/{b[3]} / {p[2]}/{p[3]} | {b[4]} / {p[4]} |")
-print("\nThe held-out tasks (`ref/gen_big2.py`) were written after the language was tuned and never used to change it. The XL tasks (`ref/gen_big3.py`, 150 to 400 lines, two of them split over several files) were held out until their first two runs (x1, x2); Brevi was then improved over six rounds for the gaps the runs showed (x3 to x18, so the XL set is no longer held out); the figures are the latest round (x17, x18) against four Python runs (x1, x2, x15, x16). Single runs vary by up to 30%, so each figure averages two or more runs.")
+print("\nThe held-out tasks (`ref/gen_big2.py`) were written after the language was tuned and never used to change it. The XL tasks (`ref/gen_big3.py`, 150 to 400 lines, two of them split over several files) were held out until their first two runs (x1, x2); Brevi was then improved over six rounds for the gaps the runs showed (x3 to x18, so the XL set is no longer held out); the figures are the latest round (x17, x18) against four Python runs (x1, x2, x15, x16). A second XL set (`ref/gen_big4.py`, runs y1 and y2) was written after v0.18 and is held out. Single runs vary by up to 30%, so each figure averages two or more runs.")

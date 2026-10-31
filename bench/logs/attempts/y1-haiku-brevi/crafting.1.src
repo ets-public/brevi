@@ -1,0 +1,101 @@
+fn posint(s: str) -> bool = not s.re_full('[1-9]\d*').is_empty()
+
+fn reaches(cur: str, target: str, recipes: {str: (int, [(str, int)])}) -> bool:
+  if cur == target: return true
+  if not recipes.has(cur): return false
+  for ing in recipes[cur].1:
+    if reaches(ing.0, target, recipes): return true
+  return false
+
+fn add_recipe(mut recipes: {str: (int, [(str, int)])}, line: str) -> str:
+  m = line.re_full('\s*RECIPE\s+(\S+)\s+([1-9]\d*):\s*(.*\S)\s*')
+  if m.is_empty(): return "bad line"
+  item = m[1]
+  nout = m[2].int()
+  ings = []
+  for p in m[3].split(","):
+    ws = p.words()
+    if ws.len() != 2 or not posint(ws[1]): return "bad line"
+    if ws[0] == item: return "bad line"
+    for g in ings:
+      if g.0 == ws[0]: return "bad line"
+    ings.push((ws[0], ws[1].int()))
+  if recipes.has(item): return "duplicate recipe"
+  for g in ings:
+    if reaches(g.0, item, recipes): return "cycle"
+  recipes[item] = (nout, ings)
+  return ""
+
+fn craft(item: str, qty: int, mut stock: {str: int}, mut ran: {str: int}, mut shorts: {str: int}, recipes: {str: (int, [(str, int)])}):
+  r = recipes[item]
+  nout = r.0
+  b = (qty + nout - 1) // nout
+  ran[item] += b
+  for ing in r.1:
+    nm = ing.0
+    need = b * ing.1
+    have = stock[nm]
+    take = min(have, need)
+    stock[nm] = have - take
+    rem = need - take
+    if rem > 0:
+      if recipes.has(nm):
+        craft(nm, rem, stock, ran, shorts, recipes)
+        stock[nm] = stock[nm] - rem
+      else:
+        shorts[nm] += rem
+  stock[item] += b * nout
+
+fn show(stock: {str: int}):
+  rows = [k for k in sorted(stock.keys()) if stock[k] > 0]
+  if rows.is_empty():
+    print("stock: empty")
+    return
+  print("stock:")
+  for k in rows:
+    v = stock[k]
+    print("  {k} {v}")
+
+fn main():
+  lines = stdin().lines()
+  stock = {}
+  recipes = {}
+  for idx in range(lines.len()):
+    n = idx + 1
+    w = lines[idx].words()
+    if w.is_empty(): continue
+    cmd = w[0]
+    if cmd == "STOCK" and w.len() == 3 and posint(w[2]):
+      stock[w[1]] += w[2].int()
+    elif cmd == "RECIPE":
+      msg = add_recipe(recipes, lines[idx])
+      if msg != "": print("line {n}: {msg}")
+    elif cmd == "CRAFT" and w.len() == 3 and posint(w[2]):
+      item = w[1]
+      q = w[2].int()
+      if not recipes.has(item):
+        print("line {n}: no recipe")
+      else:
+        s2 = stock
+        ran = {}
+        shorts = {}
+        craft(item, q, s2, ran, shorts, recipes)
+        if shorts.is_empty():
+          stock = s2
+          rparts = []
+          for k in sorted(ran.keys()):
+            v = ran[k]
+            rparts.push("{k} {v}")
+          joined = ", ".join(rparts)
+          print("crafted {q} {item} ({joined})")
+        else:
+          sparts = []
+          for k in sorted(shorts.keys()):
+            v = shorts[k]
+            sparts.push("{k} {v}")
+          joined = ", ".join(sparts)
+          print("line {n}: short {joined}")
+    elif cmd == "SHOW" and w.len() == 1:
+      show(stock)
+    else:
+      print("line {n}: bad line")

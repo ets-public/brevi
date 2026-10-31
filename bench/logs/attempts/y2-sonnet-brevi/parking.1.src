@@ -1,0 +1,125 @@
+## main.bv
+use "garage.bv"
+use "billing.bv"
+
+fn valid_dt(d: str, t: str) -> bool:
+  if d.re_full("\d{4}-\d{2}-\d{2}").is_empty(): return False
+  if t.re_full("([01]\d|2[0-3]):[0-5]\d").is_empty(): return False
+  match date(d):
+    Ok(x) => str(x) == d
+    Err(_) => False
+
+fn main():
+  all = lines()
+  h = all[0].words()
+  g = new_garage(h[2].int(), h[4].int(), h[6].int())
+  prev = -1
+  revenue = 0
+  exits = 0
+  for idx in 1..all.len():
+    n = idx + 1
+    w = all[idx].words()
+    if w.is_empty(): continue
+    ok = w.len() >= 3 and valid_dt(w[0], w[1])
+    if ok:
+      c = w[2]
+      if c == "IN": ok = w.len() == 5 and (w[4] == "car" or w[4] == "moto" or w[4] == "van")
+      elif c == "OUT": ok = w.len() == 4
+      elif c == "REPORT": ok = w.len() == 3
+      else: ok = False
+    if not ok:
+      print("line {n}: bad line")
+      continue
+    now = minutes_of(w[0], w[1])
+    if now < prev:
+      print("line {n}: time goes back")
+      continue
+    c = w[2]
+    if c == "IN":
+      if g.inside.has(w[3]):
+        print("line {n}: already inside")
+        continue
+      sp = enter(g, w[3], w[4], now)
+      if sp == "": print("FULL {w[3]}")
+      else: print("IN {w[3]} {sp}")
+    elif c == "OUT":
+      if not g.inside.has(w[3]):
+        print("line {n}: not inside")
+        continue
+      r = leave(g, w[3])
+      d = now - r.1
+      f = fee(r.0, d)
+      revenue += f
+      exits += 1
+      print("OUT {w[3]} {stay_str(d)} fee {money(f)}")
+    else:
+      print("occupied car {occupied(g, "C")}/{g.nc} moto {occupied(g, "M")}/{g.nm} van {occupied(g, "V")}/{g.nv} revenue {money(revenue)}")
+    prev = now
+  print("revenue {money(revenue)} from {exits} exits")
+## garage.bv
+type Garage:
+  nc: int
+  nm: int
+  nv: int
+  spaces: {str: str}
+  inside: {str: (str, str, int)}
+
+fn new_garage(c: int, m: int, v: int) -> Garage:
+  sp = {}
+  for i in 1..c + 1: sp["C{i}"] = ""
+  for i in 1..m + 1: sp["M{i}"] = ""
+  for i in 1..v + 1: sp["V{i}"] = ""
+  Garage(nc: c, nm: m, nv: v, spaces: sp, inside: {})
+
+fn find_free(g: Garage, letter: str, count: int) -> str:
+  for i in 1..count + 1:
+    name = "{letter}{i}"
+    if g.spaces[name] == "": return name
+  ""
+
+fn enter(mut g: Garage, plate: str, typ: str, t: int) -> str:
+  space = ""
+  if typ == "car": space = find_free(g, "C", g.nc)
+  elif typ == "van": space = find_free(g, "V", g.nv)
+  else:
+    space = find_free(g, "M", g.nm)
+    if space == "": space = find_free(g, "C", g.nc)
+  if space == "": return ""
+  g.spaces[space] = plate
+  g.inside[plate] = (typ, space, t)
+  space
+
+fn leave(mut g: Garage, plate: str) -> (str, int):
+  e = g.inside[plate]
+  g.spaces[e.1] = ""
+  g.inside.remove(plate)
+  (e.0, e.2)
+
+fn occupied(g: Garage, letter: str) -> int:
+  n = 0
+  for k, v in g.spaces.pairs():
+    if k.starts_with(letter) and v != "": n += 1
+  n
+## billing.bv
+fn minutes_of(d: str, t: str) -> int:
+  dd = date(d)
+  dd.days * 1440 + t.slice(0, 2).int() * 60 + t.slice(3, 5).int()
+
+fn money(c: int) -> str = "{c // 100}.{c % 100:02d}"
+
+fn fee(typ: str, mins: int) -> int:
+  if mins <= 15: return 0
+  rate = 250
+  cap = 2000
+  if typ == "moto":
+    rate = 120
+    cap = 800
+  elif typ == "van":
+    rate = 400
+    cap = 3000
+  days = mins // 1440
+  rest = mins % 1440
+  hrs = (rest + 59) // 60
+  days * cap + min(hrs * rate, cap)
+
+fn stay_str(mins: int) -> str = "{mins // 60}h{mins % 60:02d}m"

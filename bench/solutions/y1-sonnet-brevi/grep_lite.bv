@@ -1,0 +1,141 @@
+type Tok:
+  kind: int
+  neg: bool = false
+  ranges: [(str, str)]
+  lo: int = 1
+  hi: int = 1
+  rep: bool = false
+
+toks = []
+anch_s = false
+anch_e = false
+lc = []
+tl = 0
+
+fn setrep(a: int, b: int):
+  if toks.is_empty(): fail("bad")
+  t = toks.pop()
+  if t.rep: fail("bad")
+  t.lo = a
+  t.hi = b
+  t.rep = true
+  toks.push(t)
+  0
+
+fn parse(p: str):
+  pn = p.len()
+  cs = p.chars()
+  pi = 0
+  if pn > 0 and cs[0] == "^":
+    anch_s = true
+    pi = 1
+  while pi < pn:
+    ch = cs[pi]
+    if ch == "\\":
+      if pi + 1 >= pn: fail("bad")
+      toks.push(Tok(kind: 2, ranges: [(cs[pi + 1], cs[pi + 1])]))
+      pi += 2
+    elif ch == "$" and pi == pn - 1:
+      anch_e = true
+      pi += 1
+    elif ch == ".":
+      toks.push(Tok(kind: 0, ranges: []))
+      pi += 1
+    elif ch == "[":
+      pi += 1
+      ng = false
+      if pi < pn and cs[pi] == "^":
+        ng = true
+        pi += 1
+      rs = []
+      closed = false
+      while pi < pn:
+        if cs[pi] == "]":
+          closed = true
+          break
+        if pi + 2 < pn and cs[pi + 1] == "-" and cs[pi + 2] != "]":
+          if cs[pi] > cs[pi + 2]: fail("bad")
+          rs.push((cs[pi], cs[pi + 2]))
+          pi += 3
+        else:
+          rs.push((cs[pi], cs[pi]))
+          pi += 1
+      if not closed or rs.is_empty(): fail("bad")
+      toks.push(Tok(kind: 2, neg: ng, ranges: rs))
+      pi += 1
+    elif ch == "*":
+      setrep(0, 1000000)
+      pi += 1
+    elif ch == "+":
+      setrep(1, 1000000)
+      pi += 1
+    elif ch == "?":
+      setrep(0, 1)
+      pi += 1
+    elif ch == "{":
+      j = pi + 1
+      while j < pn and cs[j] != "}": j += 1
+      if j >= pn: fail("bad")
+      inner = p.slice(pi + 1, j)
+      if inner.is_empty(): fail("bad")
+      if "," in inner:
+        parts = inner.split(",")
+        if parts.len() != 2: fail("bad")
+        if parts[0].is_empty() or parts[1].is_empty(): fail("bad")
+        if not parts[0].is_digit() or not parts[1].is_digit(): fail("bad")
+        m1 = parts[0].int()
+        m2 = parts[1].int()
+        if m1 > m2: fail("bad")
+        setrep(m1, m2)
+      else:
+        if not inner.is_digit(): fail("bad")
+        m1 = inner.int()
+        setrep(m1, m1)
+      pi = j + 1
+    else:
+      toks.push(Tok(kind: 2, ranges: [(ch, ch)]))
+      pi += 1
+  0
+
+fn tmatch(t: Tok, ch: str) -> bool:
+  if t.kind == 0: return true
+  ins = t.ranges.any(r => r.0 <= ch and ch <= r.1)
+  if t.neg: return not ins
+  ins
+
+fn best(ti: int, pos: int) -> int:
+  if ti == toks.len():
+    if anch_e and pos != tl: return -1
+    return pos
+  t = toks[ti]
+  kk = 0
+  while kk < t.hi and pos + kk < tl and tmatch(t, lc[pos + kk]): kk += 1
+  res = -1
+  cc = kk
+  while cc >= t.lo:
+    r = best(ti + 1, pos + cc)
+    if r > res: res = r
+    cc -= 1
+  res
+
+ls = lines()
+pat = ls[0]
+ok = parse(pat).or(-1)
+if ok < 0:
+  print("bad pattern")
+else:
+  total = 0
+  hits = 0
+  for idx in 1..ls.len():
+    line = ls[idx]
+    total += 1
+    lc = line.chars()
+    tl = lc.len()
+    last = if anch_s: 0 else: tl
+    for s in 0..last + 1:
+      r = best(0, s)
+      if r >= 0:
+        hits += 1
+        print("{idx}: {s}-{r} [{line.slice(s, r)}]")
+        break
+  print("{hits} of {total} lines match")

@@ -1,0 +1,92 @@
+type Team:
+  w: int = 0
+  d: int = 0
+  l: int = 0
+  gf: int = 0
+  ga: int = 0
+
+ts = {}
+ms = []
+played = {}
+
+fn ensure(n: str):
+  if not ts.has(n): ts[n] = Team()
+  0
+
+fn pts(t: Team) = t.w * 3 + t.d
+fn gd(t: Team) = t.gf - t.ga
+
+fn handle(ws: [str]):
+  if ws.len() != 3: fail("bad line")
+  if ws[2].re_full("\d+-\d+").is_empty(): fail("bad line")
+  if ws[0] == ws[1]: fail("same team")
+  key = ws[0] + "|" + ws[1]
+  if played.has(key): fail("already played")
+  played[key] = 1
+  gs = ws[2].split("-")
+  hg = gs[0].int()
+  ag = gs[1].int()
+  ensure(ws[0])
+  ensure(ws[1])
+  ts[ws[0]].gf += hg
+  ts[ws[0]].ga += ag
+  ts[ws[1]].gf += ag
+  ts[ws[1]].ga += hg
+  if hg > ag:
+    ts[ws[0]].w += 1
+    ts[ws[1]].l += 1
+  elif hg < ag:
+    ts[ws[1]].w += 1
+    ts[ws[0]].l += 1
+  else:
+    ts[ws[0]].d += 1
+    ts[ws[1]].d += 1
+  ms.push((ws[0], ws[1], hg, ag))
+  0
+
+fn bkey(n: str) = (-pts(ts[n]), -gd(ts[n]), -ts[n].gf)
+
+n = 0
+for ln in lines():
+  n += 1
+  ws = ln.words()
+  if ws.is_empty(): continue
+  match handle(ws):
+    Ok(_) => n += 0
+    Err(m) => print("line {n}: {m}")
+
+if ts.is_empty():
+  print("no matches")
+else:
+  base = ts.keys().sort_by(x => bkey(x))
+  order = []
+  i = 0
+  while i < base.len():
+    j = i
+    while j < base.len() and bkey(base[j]) == bkey(base[i]): j += 1
+    grp = base.slice(i, j)
+    mini = {}
+    for g in grp: mini[g] = 0
+    for mt in ms:
+      if mt.0 in grp and mt.1 in grp:
+        if mt.2 > mt.3: mini[mt.0] += 3
+        elif mt.2 < mt.3: mini[mt.1] += 3
+        else:
+          mini[mt.0] += 1
+          mini[mt.1] += 1
+    srt = grp.sort_by(x => (-mini[x], x))
+    for x in srt: order.push(x)
+    i = j
+  print("Pos Team P W D L GF GA GD Pts")
+  for k, nm in order.enumerate():
+    t = ts[nm]
+    g = gd(t)
+    gs = if g > 0: "+{g}" else: "{g}"
+    print("{k + 1} {nm} {t.w + t.d + t.l} {t.w} {t.d} {t.l} {t.gf} {t.ga} {gs} {pts(t)}")
+  mg = order[0]
+  bd = order[0]
+  for nm in order:
+    if ts[nm].gf > ts[mg].gf: mg = nm
+    if ts[nm].ga < ts[bd].ga: bd = nm
+  print("most goals: {mg} ({ts[mg].gf})")
+  print("best defence: {bd} ({ts[bd].ga})")

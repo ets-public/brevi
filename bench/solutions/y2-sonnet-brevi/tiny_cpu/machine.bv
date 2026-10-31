@@ -1,0 +1,72 @@
+use "parse.bv"
+
+type RunOut:
+  out: [str]
+  steps: int
+  regs: [int]
+
+fn val(regs: [int], t: str) -> int:
+  if t.starts_with("r"): regs[t.slice(1).int()] else: t.int()
+
+fn run_prog(p: Prog, inputs: [int]) -> RunOut:
+  regs = [0].repeat(8)
+  out = []
+  stack = []
+  calls = []
+  pc = 0
+  steps = 0
+  ip = 0
+  n = p.ins.len()
+  while pc < n:
+    if steps >= 10000:
+      out.push("error: too many steps")
+      break
+    steps += 1
+    ins = p.ins[pc]
+    op = ins.op
+    a = ins.args
+    nxt = pc + 1
+    msg = ""
+    halt = False
+    if op == "MOV": regs[a[0].slice(1).int()] = val(regs, a[1])
+    elif op == "ADD": regs[a[0].slice(1).int()] = val(regs, a[0]) + val(regs, a[1])
+    elif op == "SUB": regs[a[0].slice(1).int()] = val(regs, a[0]) - val(regs, a[1])
+    elif op == "MUL": regs[a[0].slice(1).int()] = val(regs, a[0]) * val(regs, a[1])
+    elif op == "DIV" or op == "MOD":
+      d = val(regs, a[1])
+      if d == 0:
+        msg = "error line {ins.line}: division by zero"
+      elif op == "DIV":
+        regs[a[0].slice(1).int()] = val(regs, a[0]) / d
+      else:
+        regs[a[0].slice(1).int()] = val(regs, a[0]) % d
+    elif op == "JMP": nxt = p.labels[a[0]]
+    elif op == "JZ":
+      if val(regs, a[0]) == 0: nxt = p.labels[a[1]]
+    elif op == "JNZ":
+      if val(regs, a[0]) != 0: nxt = p.labels[a[1]]
+    elif op == "JLT":
+      if val(regs, a[0]) < val(regs, a[1]): nxt = p.labels[a[2]]
+    elif op == "CALL":
+      calls.push(pc + 1)
+      nxt = p.labels[a[0]]
+    elif op == "RET":
+      if calls.is_empty(): msg = "error line {ins.line}: stack empty"
+      else: nxt = calls.pop()
+    elif op == "PUSH": stack.push(val(regs, a[0]))
+    elif op == "POP":
+      if stack.is_empty(): msg = "error line {ins.line}: stack empty"
+      else: regs[a[0].slice(1).int()] = stack.pop()
+    elif op == "READ":
+      if ip >= inputs.len(): msg = "error line {ins.line}: no input"
+      else:
+        regs[a[0].slice(1).int()] = inputs[ip]
+        ip += 1
+    elif op == "PRINT": out.push(str(val(regs, a[0])))
+    elif op == "HALT": halt = True
+    if msg != "":
+      out.push(msg)
+      break
+    if halt: break
+    pc = nxt
+  RunOut(out: out, steps: steps, regs: regs)

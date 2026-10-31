@@ -1,0 +1,15 @@
+; sum the numbers until a 0, then print the count and the sum
+    READ r1
+loop:
+    JZ r1, done
+    ADD r2, r1
+    ADD r3, 1
+    READ r1
+    JMP loop
+done:
+    PRINT r3
+    PRINT r2
+    HALT
+---
+4 -7 10
+0 99

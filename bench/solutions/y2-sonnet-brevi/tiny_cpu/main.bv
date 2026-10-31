@@ -1,0 +1,23 @@
+use "parse.bv"
+use "machine.bv"
+
+fn main():
+  all = lines()
+  cut = all.len()
+  for i, l in all.enumerate():
+    if l.trim() == "---":
+      cut = i
+      break
+  src = all[:cut]
+  rest = if cut < all.len(): all[cut + 1:] else: []
+  inputs = " ".join(rest).ints()
+  p = parse_prog(src)
+  if p.errs:
+    for e in p.errs: print(e)
+    return
+  r = run_prog(p, inputs)
+  for o in r.out: print(o)
+  print("steps {r.steps}")
+  parts = ["r{i}={v}" for i, v in r.regs.enumerate() if v != 0]
+  if parts: print("regs " + " ".join(parts))
+  else: print("regs none")

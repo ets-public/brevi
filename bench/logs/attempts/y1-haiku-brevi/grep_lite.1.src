@@ -1,0 +1,147 @@
+type Item:
+  kd: int
+  mem: str
+  ng: bool
+  lo: int
+  hi: int
+
+fn num(s: str) -> int:
+  if s.is_empty(): fail("bad")
+  for ch in s.chars():
+    if ch.digit() < 0: fail("bad")
+  return s.int()
+
+fn hit(kd: int, mem: str, ng: bool, c: str) -> bool = kd == 1 or ((c in mem) != ng)
+
+fn parse(p: str) -> ([(int, str, bool, int, int)], bool, bool):
+  cs = p.chars()
+  n = cs.len()
+  items: [(int, str, bool, int, int)] = []
+  bol = false
+  eol = false
+  lastq = false
+  i = 0
+  while i < n:
+    c = cs[i]
+    if c == "^" and i == 0:
+      bol = true
+      i += 1
+    elif c == "$" and i == n - 1:
+      eol = true
+      i += 1
+    elif c == "*" or c == "+" or c == "?":
+      if items.is_empty() or lastq: fail("bad")
+      it = items.pop()
+      lo = 0
+      hi = -1
+      if c == "+": lo = 1
+      if c == "?": hi = 1
+      items.push((it.0, it.1, it.2, lo, hi))
+      lastq = true
+      i += 1
+    elif c == "{":
+      j = i + 1
+      while j < n and cs[j] != "}": j += 1
+      if j >= n or items.is_empty() or lastq: fail("bad")
+      body = "".join(cs[i + 1:j])
+      parts = body.split(",")
+      if parts.len() == 1:
+        lo = num(parts[0])
+        hi = lo
+      elif parts.len() == 2:
+        lo = num(parts[0])
+        hi = num(parts[1])
+        if lo > hi: fail("bad")
+      else:
+        fail("bad")
+      it = items.pop()
+      items.push((it.0, it.1, it.2, lo, hi))
+      lastq = true
+      i = j + 1
+    elif c == ".":
+      items.push((1, "", false, 1, 1))
+      lastq = false
+      i += 1
+    elif c == "[":
+      j = i + 1
+      ng = false
+      if j < n and cs[j] == "^":
+        ng = true
+        j += 1
+      mem = ""
+      closed = false
+      while j < n:
+        c2 = cs[j]
+        if c2 == "]":
+          closed = true
+          break
+        if j + 2 < n and cs[j + 1] == "-" and cs[j + 2] != "]":
+          a = c2.code()
+          b = cs[j + 2].code()
+          if a > b: fail("bad")
+          for code in range(a, b + 1):
+            mem += code.char()
+          j += 3
+        else:
+          mem += c2
+          j += 1
+      if not closed or mem.is_empty(): fail("bad")
+      items.push((2, mem, ng, 1, 1))
+      lastq = false
+      i = j + 1
+    elif c == "\\":
+      if i + 1 >= n: fail("bad")
+      items.push((0, cs[i + 1], false, 1, 1))
+      lastq = false
+      i += 2
+    else:
+      items.push((0, c, false, 1, 1))
+      lastq = false
+      i += 1
+  return (items, bol, eol)
+
+fn best(items: [(int, str, bool, int, int)], k: int, cs: [str], pos: int, eol: bool) -> int:
+  if k == items.len():
+    if eol and pos != cs.len(): return -1
+    return pos
+  kd, mem, ng, lo, hi = items[k]
+  cnt = 0
+  while (hi < 0 or cnt < hi) and pos + cnt < cs.len() and hit(kd, mem, ng, cs[pos + cnt]):
+    cnt += 1
+  top = -1
+  for m in range(lo, cnt + 1):
+    r = best(items, k + 1, cs, pos + m, eol)
+    if r > top: top = r
+  return top
+
+fn search(items: [(int, str, bool, int, int)], bol: bool, eol: bool, cs: [str]) -> (int, int):
+  for s in range(0, cs.len() + 1):
+    if bol and s > 0: break
+    r = best(items, 0, cs, s, eol)
+    if r >= 0: return (s, r)
+  return (-1, -1)
+
+fn report(p: ([(int, str, bool, int, int)], bool, bool), texts: [str]):
+  items, bol, eol = p
+  total = texts.len()
+  hits = 0
+  for idx in range(0, total):
+    line = texts[idx]
+    cs = line.chars()
+    s, e = search(items, bol, eol, cs)
+    if s >= 0:
+      hits += 1
+      n = idx + 1
+      print("{n}: {s}-{e} [{line}]")
+  print("{hits} of {total} lines match")
+
+fn main():
+  ls = stdin().lines()
+  pat = ""
+  texts = []
+  if not ls.is_empty():
+    pat = ls[0]
+    texts = ls[1:]
+  match parse(pat):
+    Ok(p) => report(p, texts)
+    Err(m) => print("bad pattern")

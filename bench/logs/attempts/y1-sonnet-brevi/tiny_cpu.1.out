@@ -1,0 +1,31 @@
+test 2 failed
+input:
+start:
+    MOV r1, 5
+    mov r2, 1
+    ADD r9, 1
+    JMP nowhere
+start:
+    PRINT r1 r2
+    HALT 3
+1bad:
+    DIV r1
+---
+expected:
+line 3: bad instruction
+line 4: bad instruction
+line 5: unknown label nowhere
+line 6: duplicate label start
+line 7: bad instruction
+line 8: bad instruction
+line 9: bad instruction
+line 10: bad instruction
+got:
+line 3: bad instruction
+line 4: bad instruction
+line 5: unknown label nowhere
+line 6: duplicate label start
+line 7: bad instruction
+line 8: bad instruction
+line 10: bad instruction
+passed 5/6

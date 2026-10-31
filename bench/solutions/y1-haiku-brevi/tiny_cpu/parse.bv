@@ -1,0 +1,63 @@
+fn is_reg(s: str) -> bool = not s.re_full('r[0-7]').is_empty()
+
+fn is_num(s: str) -> bool = not s.re_full('-?\d+').is_empty()
+
+fn is_val(s: str) -> bool = is_reg(s) or is_num(s)
+
+fn is_label(s: str) -> bool = not s.re_full('[A-Za-z_]\w*').is_empty()
+
+fn shape(op: str) -> str:
+  if op == "MOV" or op == "ADD" or op == "SUB" or op == "MUL" or op == "DIV" or op == "MOD": return "rv"
+  if op == "JMP" or op == "CALL": return "L"
+  if op == "JZ" or op == "JNZ": return "rL"
+  if op == "JLT": return "vvL"
+  if op == "RET" or op == "HALT": return ""
+  if op == "PUSH" or op == "PRINT": return "v"
+  if op == "POP" or op == "READ": return "r"
+  return "?"
+
+fn kind_ok(k: str, s: str) -> bool:
+  if k == "r": return is_reg(s)
+  if k == "v": return is_val(s)
+  return is_label(s)
+
+fn parse_prog(src: [str]) -> ([(int, str, [str])], {str: int}, [(int, str)]):
+  prog = []
+  labels = {}
+  errs = []
+  uses = []
+  for idx in range(src.len()):
+    ln = idx + 1
+    s = src[idx].split(";")[0].trim()
+    if s.is_empty(): continue
+    if s.ends_with(":"):
+      name = s.slice(0, s.len() - 1)
+      if not is_label(name):
+        errs.push((ln, "bad instruction"))
+      elif labels.has(name):
+        errs.push((ln, "duplicate label " + name))
+      else:
+        labels[name] = prog.len()
+      continue
+    op = s.words()[0]
+    rest = s.slice(op.len()).trim()
+    args = []
+    if not rest.is_empty():
+      args = [a.trim() for a in rest.split(",")]
+    sh = shape(op)
+    ok = sh != "?" and sh.len() == args.len()
+    if ok:
+      for i in range(sh.len()):
+        if not kind_ok(sh.slice(i, i + 1), args[i]): ok = false
+    if not ok:
+      errs.push((ln, "bad instruction"))
+      continue
+    prog.push((ln, op, args))
+    if sh.contains("L"):
+      uses.push((ln, args[args.len() - 1]))
+  for u in uses:
+    name = u[1]
+    if not labels.has(name):
+      errs.push((u[0], "unknown label " + name))
+  errs.sort()
+  return (prog, labels, errs)

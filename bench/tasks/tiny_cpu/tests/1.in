@@ -1,0 +1,26 @@
+    READ r0
+    CALL fact
+    PRINT r1
+    MOV r2, -7
+    MOV r3, r2
+    DIV r2, 2   ; -3
+    MOD r3, 2   ; -1
+    PRINT r2
+    PRINT r3
+    MOV r4, 3
+    PUSH r4
+    PUSH 5
+    POP r5
+    POP r6
+    POP r7
+fact:
+    MOV r1, 1
+again:
+    JLT r0, 2, back
+    MUL r1, r0
+    SUB r0, 1
+    JMP again
+back:
+    RET
+---
+6

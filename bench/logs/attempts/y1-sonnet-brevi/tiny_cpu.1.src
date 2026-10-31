@@ -1,0 +1,178 @@
+## main.bv
+use "parse.bv"
+use "machine.bv"
+
+all = lines()
+sep = all.len()
+for i in 0..all.len():
+  if all[i].trim() == "---" and sep == all.len(): sep = i
+inp = []
+for i in sep + 1..all.len():
+  for v in all[i].ints(): inp.push(v)
+r = parse_prog(all.slice(0, sep))
+prog = r.0
+errs = r.1
+if errs:
+  for e in errs: print(e.1)
+else:
+  for l in run(prog, inp): print(l)
+## parse.bv
+type Ins:
+  op: str
+  line: int
+  x: int = 0
+  xr: bool = false
+  y: int = 0
+  yr: bool = false
+  lbl: str = ""
+  target: int = -1
+
+fn isreg(s: str) -> bool = not s.re_full("r[0-7]").is_empty()
+fn isnum(s: str) -> bool = not s.re_full("-?\d+").is_empty()
+fn isval(s: str) -> bool = isreg(s) or isnum(s)
+fn islbl(s: str) -> bool = not s.re_full("\w+").is_empty()
+fn regn(s: str) -> int = s.slice(1).int()
+fn valn(s: str) -> int = if isreg(s): regn(s) else: s.int()
+
+fn shape(op: str) -> str:
+  if op in ["MOV", "ADD", "SUB", "MUL", "DIV", "MOD"]: return "rv"
+  if op == "JMP" or op == "CALL": return "l"
+  if op == "JZ" or op == "JNZ": return "rl"
+  if op == "JLT": return "vvl"
+  if op == "PUSH" or op == "PRINT": return "v"
+  if op == "POP" or op == "READ": return "r"
+  if op == "RET" or op == "HALT": return ""
+  "?"
+
+fn mk(op: str, ln: int, ops: [str]) -> Ins:
+  sh = shape(op)
+  if sh == "?" or sh.len() != ops.len(): fail("bad")
+  for i in 0..sh.len():
+    k = sh.slice(i, i + 1)
+    o = ops[i]
+    ok = if k == "r": isreg(o) elif k == "v": isval(o) else: islbl(o)
+    if not ok: fail("bad")
+  ins = Ins(op: op, line: ln)
+  if sh == "rv":
+    ins.x = regn(ops[0])
+    ins.y = valn(ops[1])
+    ins.yr = isreg(ops[1])
+  elif sh == "l":
+    ins.lbl = ops[0]
+  elif sh == "rl":
+    ins.x = regn(ops[0])
+    ins.lbl = ops[1]
+  elif sh == "vvl":
+    ins.x = valn(ops[0])
+    ins.xr = isreg(ops[0])
+    ins.y = valn(ops[1])
+    ins.yr = isreg(ops[1])
+    ins.lbl = ops[2]
+  elif sh == "v":
+    ins.x = valn(ops[0])
+    ins.xr = isreg(ops[0])
+  elif sh == "r":
+    ins.x = regn(ops[0])
+  ins
+
+fn parse_prog(ls: [str]) -> ([Ins], [(int, str)]):
+  prog = []
+  errs = []
+  labels = {}
+  for i in 0..ls.len():
+    ln = i + 1
+    text = ls[i].split(";")[0].trim()
+    if text.is_empty(): continue
+    if text.ends_with(":"):
+      nm = text.slice(0, text.len() - 1)
+      if not islbl(nm):
+        errs.push((ln, "line {ln}: bad instruction"))
+      elif labels.has(nm):
+        errs.push((ln, "line {ln}: duplicate label {nm}"))
+      else:
+        labels[nm] = prog.len()
+      continue
+    sp = text.find(" ")
+    op = if sp < 0: text else: text.slice(0, sp)
+    rest = if sp < 0: "" else: text.slice(sp + 1)
+    ops = if rest.is_empty(): [] else: rest.split(", ")
+    match mk(op, ln, ops):
+      Ok(ins) => prog.push(ins)
+      Err(_) => errs.push((ln, "line {ln}: bad instruction"))
+  for j in 0..prog.len():
+    if prog[j].lbl != "":
+      if labels.has(prog[j].lbl):
+        prog[j].target = labels[prog[j].lbl]
+      else:
+        errs.push((prog[j].line, "line {prog[j].line}: unknown label {prog[j].lbl}"))
+  es = errs.sort_by(e => e.0)
+  (prog, es)
+## machine.bv
+use "parse.bv"
+
+fn val(regs: [int], isr: bool, n: int) -> int = if isr: regs[n] else: n
+
+fn run(prog: [Ins], inp: [int]) -> [str]:
+  regs = [0].repeat(8)
+  ds = []
+  cs = []
+  out = []
+  err = ""
+  pc = 0
+  steps = 0
+  ip = 0
+  halted = false
+  while pc < prog.len() and not halted:
+    if steps >= 10000:
+      err = "error: too many steps"
+      break
+    ins = prog[pc]
+    steps += 1
+    npc = pc + 1
+    op = ins.op
+    if op == "MOV": regs[ins.x] = val(regs, ins.yr, ins.y)
+    elif op == "ADD": regs[ins.x] += val(regs, ins.yr, ins.y)
+    elif op == "SUB": regs[ins.x] -= val(regs, ins.yr, ins.y)
+    elif op == "MUL": regs[ins.x] = regs[ins.x] * val(regs, ins.yr, ins.y)
+    elif op == "DIV" or op == "MOD":
+      d = val(regs, ins.yr, ins.y)
+      if d == 0:
+        err = "error line {ins.line}: division by zero"
+        break
+      if op == "DIV": regs[ins.x] = regs[ins.x] / d
+      else: regs[ins.x] = regs[ins.x] % d
+    elif op == "JMP": npc = ins.target
+    elif op == "JZ":
+      if regs[ins.x] == 0: npc = ins.target
+    elif op == "JNZ":
+      if regs[ins.x] != 0: npc = ins.target
+    elif op == "JLT":
+      if val(regs, ins.xr, ins.x) < val(regs, ins.yr, ins.y): npc = ins.target
+    elif op == "CALL":
+      cs.push(pc + 1)
+      npc = ins.target
+    elif op == "RET":
+      if cs.is_empty():
+        err = "error line {ins.line}: stack empty"
+        break
+      npc = cs.pop()
+    elif op == "PUSH": ds.push(val(regs, ins.xr, ins.x))
+    elif op == "POP":
+      if ds.is_empty():
+        err = "error line {ins.line}: stack empty"
+        break
+      regs[ins.x] = ds.pop()
+    elif op == "READ":
+      if ip >= inp.len():
+        err = "error line {ins.line}: no input"
+        break
+      regs[ins.x] = inp[ip]
+      ip += 1
+    elif op == "PRINT": out.push(str(val(regs, ins.xr, ins.x)))
+    elif op == "HALT": halted = true
+    pc = npc
+  if err != "": out.push(err)
+  out.push("steps {steps}")
+  rs = ["r{i}={regs[i]}" for i in 0..8 if regs[i] != 0]
+  out.push(if rs.is_empty(): "regs none" else: "regs " + rs.join(" "))
+  out

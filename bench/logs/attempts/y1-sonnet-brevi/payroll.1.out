@@ -1,0 +1,31 @@
+test 0 failed
+input:
+EMP e2 Bob salary 54000
+EMP e1 Ann hourly 20
+HOURS e1 2026-03-02 10
+HOURS e1 2026-03-03 8
+HOURS e1 2026-03-07 5.5
+HOURS e1 2026-03-07 2
+HOURS e1 2026-04-01 9
+BONUS e2 2026-03 1500.50
+RUN 2026-03
+RUN 2026-04
+expected:
+payroll 2026-03
+  e1 Ann gross 680.00 tax 0.00 net 680.00
+  e2 Bob gross 6000.50 tax 1400.20 net 4600.30
+  total gross 6680.50 tax 1400.20 net 5280.30
+payroll 2026-04
+  e1 Ann gross 190.00 tax 0.00 net 190.00
+  e2 Bob gross 4500.00 tax 800.00 net 3700.00
+  total gross 4690.00 tax 800.00 net 3890.00
+got:
+payroll 2026-03
+  e1 Ann gross 265.00 tax 0.00 net 265.00
+  e2 Bob gross 6000.50 tax 1400.20 net 4600.30
+  total gross 6265.50 tax 1400.20 net 4865.30
+payroll 2026-04
+  e1 Ann gross 95.00 tax 0.00 net 95.00
+  e2 Bob gross 4500.00 tax 800.00 net 3700.00
+  total gross 4595.00 tax 800.00 net 3795.00
+passed 0/3

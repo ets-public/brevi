@@ -1,0 +1,77 @@
+fn reg_of(s: str) -> int = s.slice(1).int()
+
+fn oper(regs: [int], s: str) -> int:
+  if s.starts_with("r"): return regs[reg_of(s)]
+  return s.int()
+
+fn run_prog(prog: [(int, str, [str])], labels: {str: int}, inputs: [int]) -> ([str], int, [int], str):
+  regs = [0].repeat(8)
+  dst = []
+  cst = []
+  out = []
+  pc = 0
+  steps = 0
+  ip = 0
+  err = ""
+  while pc < prog.len():
+    if steps >= 10000:
+      err = "error: too many steps"
+      break
+    ins = prog[pc]
+    ln = ins.0
+    op = ins.1
+    a = ins.2
+    steps += 1
+    pc += 1
+    if op == "HALT":
+      break
+    elif op == "MOV":
+      regs[reg_of(a[0])] = oper(regs, a[1])
+    elif op == "ADD":
+      regs[reg_of(a[0])] = regs[reg_of(a[0])] + oper(regs, a[1])
+    elif op == "SUB":
+      regs[reg_of(a[0])] = regs[reg_of(a[0])] - oper(regs, a[1])
+    elif op == "MUL":
+      regs[reg_of(a[0])] = regs[reg_of(a[0])] * oper(regs, a[1])
+    elif op == "DIV" or op == "MOD":
+      d = oper(regs, a[1])
+      if d == 0:
+        err = "error line {ln}: division by zero"
+        break
+      r = reg_of(a[0])
+      if op == "DIV":
+        regs[r] = regs[r] / d
+      else:
+        regs[r] = regs[r] % d
+    elif op == "JMP":
+      pc = labels[a[0]]
+    elif op == "JZ":
+      if regs[reg_of(a[0])] == 0: pc = labels[a[1]]
+    elif op == "JNZ":
+      if regs[reg_of(a[0])] != 0: pc = labels[a[1]]
+    elif op == "JLT":
+      if oper(regs, a[0]) < oper(regs, a[1]): pc = labels[a[2]]
+    elif op == "CALL":
+      cst.push(pc)
+      pc = labels[a[0]]
+    elif op == "RET":
+      if cst.is_empty():
+        err = "error line {ln}: stack empty"
+        break
+      pc = cst.pop()
+    elif op == "PUSH":
+      dst.push(oper(regs, a[0]))
+    elif op == "POP":
+      if dst.is_empty():
+        err = "error line {ln}: stack empty"
+        break
+      regs[reg_of(a[0])] = dst.pop()
+    elif op == "READ":
+      if ip >= inputs.len():
+        err = "error line {ln}: no input"
+        break
+      regs[reg_of(a[0])] = inputs[ip]
+      ip += 1
+    elif op == "PRINT":
+      out.push(str(oper(regs, a[0])))
+  return (out, steps, regs, err)

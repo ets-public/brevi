@@ -1,0 +1,21 @@
+use "parse.bv"
+use "machine.bv"
+
+fn main():
+  src = lines()
+  cut = src.len()
+  for i in range(0, src.len()):
+    if cut == src.len() and src[i].trim() == "---":
+      cut = i
+  prog_lines = src.slice(0, cut)
+  nums = []
+  if cut < src.len():
+    for line in src.slice(cut + 1):
+      for w in line.words():
+        nums.push(w.int())
+  p = parse_prog(prog_lines)
+  if not p.errs.is_empty():
+    for k in sorted(p.errs.keys()):
+      print("line " + str(k) + ": " + p.errs[k])
+    return
+  execute(p, nums)

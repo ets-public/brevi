@@ -1,0 +1,151 @@
+fn amt_of(s: str) -> dec:
+  bad = "-1".dec()
+  for c in s.chars():
+    if not c.is_digit() and c != ".":
+      return bad
+  p = s.split(".")
+  if p.len() > 2:
+    return bad
+  if p.len() == 2 and p[1].len() > 2:
+    return bad
+  return s.dec().or(bad)
+
+fn valid_month(s: str) -> bool:
+  cs = s.chars()
+  if cs.len() != 7 or cs[4] != "-":
+    return false
+  for i in range(0, 7):
+    if i != 4 and not cs[i].is_digit():
+      return false
+  mo = s.slice(5, 7).int().or(0)
+  return mo >= 1 and mo <= 12
+
+fn valid_date(s: str) -> bool:
+  cs = s.chars()
+  if cs.len() != 10 or cs[4] != "-" or cs[7] != "-":
+    return false
+  for i in range(0, 10):
+    if i != 4 and i != 7 and not cs[i].is_digit():
+      return false
+  y = s.slice(0, 4).int().or(0)
+  mo = s.slice(5, 7).int().or(0)
+  dd = s.slice(8, 10).int().or(0)
+  if mo < 1 or mo > 12 or dd < 1:
+    return false
+  leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+  dim = 31
+  if mo == 2:
+    dim = 28
+    if leap:
+      dim = 29
+  elif mo == 4 or mo == 6 or mo == 9 or mo == 11:
+    dim = 30
+  return dd <= dim
+
+fn cents_of(x: dec) -> dec:
+  c = (x * 100 + "0.5".dec()).int()
+  return c.dec() / 100
+
+fn tax_of(g: dec) -> dec:
+  t = "0".dec()
+  if g > 4000:
+    t = "600".dec() + (g - 4000) * "0.4".dec()
+  elif g > 1000:
+    t = (g - 1000) * "0.2".dec()
+  return cents_of(t)
+
+fn day_pay(rate: dec, h: dec, d: str) -> dec:
+  wd = date(d).weekday()
+  if wd >= 6:
+    return rate * 2 * h
+  if h <= 8:
+    return rate * h
+  return rate * 8 + rate * "1.5".dec() * (h - 8)
+
+fn check_line(w: [str], name: {str: str}, hourly: {str: bool}, days: {(str, str): dec}) -> str:
+  k = w[0]
+  if k == "EMP":
+    if w.len() != 5 or (w[3] != "hourly" and w[3] != "salary") or amt_of(w[4]) <= 0:
+      return "bad line"
+    if name.has(w[1]):
+      return "duplicate ID"
+    return ""
+  if k == "HOURS":
+    if w.len() != 4 or not valid_date(w[2]) or amt_of(w[3]) <= 0:
+      return "bad line"
+    if not name.has(w[1]):
+      return "unknown ID"
+    if not hourly[w[1]]:
+      return "not hourly"
+    if days[(w[1], w[2])] + amt_of(w[3]) > 24:
+      return "too many hours"
+    return ""
+  if k == "BONUS":
+    if w.len() != 4 or not valid_month(w[2]) or amt_of(w[3]) <= 0:
+      return "bad line"
+    if not name.has(w[1]):
+      return "unknown ID"
+    return ""
+  if k == "RUN":
+    if w.len() != 2 or not valid_month(w[1]):
+      return "bad line"
+    return ""
+  return "bad line"
+
+fn run_month(m: str, name: {str: str}, hourly: {str: bool}, rate: {str: dec}, days: {(str, str): dec}, bonuses: [(str, str, dec)]):
+  print("payroll {m}")
+  tg = "0".dec()
+  tt = "0".dec()
+  tn = "0".dec()
+  for id in sorted(name.keys()):
+    pay = "0".dec()
+    if hourly[id]:
+      for key, h in days.pairs():
+        if key.0 == id and key.1.slice(0, 7) == m:
+          pay += day_pay(rate[id], h, key.1)
+    else:
+      pay = rate[id] / 12
+    for b in bonuses:
+      if b.0 == id and b.1 == m:
+        pay += b.2
+    g = cents_of(pay)
+    t = tax_of(g)
+    nt = g - t
+    tg += g
+    tt += t
+    tn += nt
+    nm = name[id]
+    gs = g.fmt(2)
+    ts = t.fmt(2)
+    ns = nt.fmt(2)
+    print("  {id} {nm} gross {gs} tax {ts} net {ns}")
+  tgs = tg.fmt(2)
+  tts = tt.fmt(2)
+  tns = tn.fmt(2)
+  print("  total gross {tgs} tax {tts} net {tns}")
+
+fn main():
+  name = {}
+  hourly = {}
+  rate = {}
+  days = {}
+  bonuses = []
+  n_line = 0
+  for line in lines():
+    n_line += 1
+    w = line.words()
+    if w.is_empty():
+      continue
+    err = check_line(w, name, hourly, days)
+    if err != "":
+      print("line {n_line}: {err}")
+    elif w[0] == "EMP":
+      name[w[1]] = w[2]
+      hourly[w[1]] = w[3] == "hourly"
+      rate[w[1]] = amt_of(w[4])
+    elif w[0] == "HOURS":
+      days[(w[1], w[2])] += amt_of(w[3])
+    elif w[0] == "BONUS":
+      bonuses.push((w[1], w[2], amt_of(w[3])))
+    else:
+      run_month(w[1], name, hourly, rate, days, bonuses)

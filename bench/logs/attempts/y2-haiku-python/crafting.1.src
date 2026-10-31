@@ -1,0 +1,121 @@
+import sys
+import re
+
+NUM = r'(0|[1-9][0-9]*)'
+NAME = r'[^\s:,]+'
+STOCK_RE = re.compile(r'STOCK (' + NAME + r') ' + NUM)
+RECIPE_RE = re.compile(r'RECIPE (' + NAME + r') ' + NUM + r': (.+)')
+ING_RE = re.compile(r'(' + NAME + r') ' + NUM)
+CRAFT_RE = re.compile(r'CRAFT (' + NAME + r') ' + NUM)
+
+recipes = {}  # item -> (n, [(ingredient, qty), ...])
+
+
+def cycle_would_form(item, ings):
+    """True if item is reachable from any of the ingredients through recipes."""
+    seen = set()
+    stack = [ing for ing, _ in ings]
+    while stack:
+        x = stack.pop()
+        if x == item:
+            return True
+        if x in seen:
+            continue
+        seen.add(x)
+        if x in recipes:
+            stack.extend(i for i, _ in recipes[x][1])
+    return False
+
+
+def make(item, qty, st, short, log):
+    n, ings = recipes[item]
+    b = -(-qty // n)
+    for ing, q in ings:
+        need = b * q
+        have = st.get(ing, 0)
+        take = min(have, need)
+        st[ing] = have - take
+        rem = need - take
+        if rem > 0:
+            if ing in recipes:
+                make(ing, rem, st, short, log)
+                st[ing] -= rem
+            else:
+                short[ing] = short.get(ing, 0) + rem
+    if b > 0:
+        log[item] = log.get(item, 0) + b
+    st[item] = st.get(item, 0) + b * n
+
+
+def main():
+    stock = {}
+    lines = sys.stdin.read().splitlines()
+    for n, raw in enumerate(lines, 1):
+        s = raw.strip()
+        if not s:
+            continue
+        if s == 'SHOW':
+            items = sorted(k for k, v in stock.items() if v > 0)
+            if not items:
+                print("stock: empty")
+            else:
+                print("stock:")
+                for k in items:
+                    print(f"  {k} {stock[k]}")
+            continue
+        m = STOCK_RE.fullmatch(s)
+        if m:
+            item, qty = m.group(1), int(m.group(2))
+            if qty < 1:
+                print(f"line {n}: bad line")
+            else:
+                stock[item] = stock.get(item, 0) + qty
+            continue
+        m = RECIPE_RE.fullmatch(s)
+        if m:
+            item, cnt, body = m.group(1), int(m.group(2)), m.group(3)
+            ings = []
+            ok = cnt >= 1
+            if ok:
+                for part in body.split(', '):
+                    im = ING_RE.fullmatch(part)
+                    if not im or int(im.group(2)) < 1:
+                        ok = False
+                        break
+                    ings.append((im.group(1), int(im.group(2))))
+            if ok:
+                names = [i for i, _ in ings]
+                if len(set(names)) != len(names) or item in names:
+                    ok = False
+            if not ok:
+                print(f"line {n}: bad line")
+            elif item in recipes:
+                print(f"line {n}: duplicate recipe")
+            elif cycle_would_form(item, ings):
+                print(f"line {n}: cycle")
+            else:
+                recipes[item] = (cnt, ings)
+            continue
+        m = CRAFT_RE.fullmatch(s)
+        if m:
+            item, qty = m.group(1), int(m.group(2))
+            if item not in recipes:
+                print(f"line {n}: no recipe")
+                continue
+            st = dict(stock)
+            short = {}
+            log = {}
+            make(item, qty, st, short, log)
+            if short:
+                parts = ", ".join(f"{k} {short[k]}" for k in sorted(short))
+                print(f"line {n}: short {parts}")
+            else:
+                stock = {k: v for k, v in st.items()}
+                parts = ", ".join(f"{k} {log[k]}" for k in sorted(log))
+                print(f"crafted {qty} {item} ({parts})")
+            continue
+        print(f"line {n}: bad line")
+
+
+if __name__ == "__main__":
+    main()

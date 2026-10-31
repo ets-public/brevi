@@ -1,0 +1,8 @@
+{"run":"y2-haiku-python","lang":"python","task":"grep_lite","code_tok":1745,"patch_tok":1745,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y2-haiku-python","lang":"python","task":"payroll","code_tok":1737,"patch_tok":1737,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y2-haiku-python","lang":"python","task":"league","code_tok":1284,"patch_tok":1284,"out_tok":227,"compiled":true,"pass":4,"total":5,"tok":"exact"}
+{"run":"y2-haiku-python","lang":"python","task":"league","code_tok":1300,"patch_tok":74,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y2-haiku-python","lang":"python","task":"crafting","code_tok":1452,"patch_tok":1452,"out_tok":339,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"y2-haiku-python","lang":"python","task":"crafting","code_tok":1480,"patch_tok":27,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y2-haiku-python","lang":"python","task":"tiny_cpu","code_tok":2608,"patch_tok":2608,"out_tok":7,"compiled":true,"pass":6,"total":6,"tok":"exact"}
+{"run":"y2-haiku-python","lang":"python","task":"parking","code_tok":1994,"patch_tok":1994,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}

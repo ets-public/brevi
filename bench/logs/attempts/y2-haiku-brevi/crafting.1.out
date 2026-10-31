@@ -1,0 +1,42 @@
+test 1 failed
+input:
+RECIPE a 2: b 1, c 2
+RECIPE b 1: c 1
+RECIPE c 1: a 1
+RECIPE b 3: d 1
+RECIPE a 1: a 1
+RECIPE e 1: x 0
+CRAFT d 1
+CRAFT a 3
+SHOW
+STOCK c 9
+CRAFT a 3
+SHOW
+recipe a 1: b 1
+expected:
+line 3: cycle
+line 4: duplicate recipe
+line 5: bad line
+line 6: bad line
+line 7: no recipe
+line 8: short c 6
+stock: empty
+crafted 3 a (a 2, b 2)
+stock:
+  a 4
+  c 3
+line 13: bad line
+got:
+line 3: cycle
+line 4: duplicate recipe
+line 5: duplicate recipe
+line 6: bad line
+line 7: no recipe
+line 8: short c 6
+stock: empty
+crafted 3 a (a 2, b 2)
+stock:
+  a 4
+  c 3
+line 13: bad line
+passed 2/3

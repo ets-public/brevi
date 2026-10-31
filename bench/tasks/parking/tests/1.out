@@ -1,0 +1,12 @@
+IN X C1
+line 3: time goes back
+line 4: bad line
+line 5: already inside
+line 6: already inside
+line 7: bad line
+OUT X 9h10m fee 20.00
+line 9: bad line
+line 10: bad line
+IN Z C1
+OUT Z 0h14m fee 0.00
+revenue 20.00 from 2 exits

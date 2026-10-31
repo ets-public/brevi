@@ -1,0 +1,8 @@
+payroll 2026-03
+  e1 Ann gross 680.00 tax 0.00 net 680.00
+  e2 Bob gross 6000.50 tax 1400.20 net 4600.30
+  total gross 6680.50 tax 1400.20 net 5280.30
+payroll 2026-04
+  e1 Ann gross 190.00 tax 0.00 net 190.00
+  e2 Bob gross 4500.00 tax 800.00 net 3700.00
+  total gross 4690.00 tax 800.00 net 3890.00

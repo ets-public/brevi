@@ -1,0 +1,23 @@
+fn names_of(kind: str, count: int) -> [str]:
+  out = []
+  for i in range(1, count + 1):
+    out.push(kind + str(i))
+  return out
+
+fn first_free(names: [str], occ: {str: str}) -> str:
+  for nm in names:
+    if occ[nm] == "": return nm
+  return ""
+
+fn pick_space(vt: str, cars: [str], motos: [str], vans: [str], occ: {str: str}) -> str:
+  if vt == "van": return first_free(vans, occ)
+  if vt == "car": return first_free(cars, occ)
+  s = first_free(motos, occ)
+  if s != "": return s
+  return first_free(cars, occ)
+
+fn occupied_count(names: [str], occ: {str: str}) -> int:
+  n = 0
+  for nm in names:
+    if occ[nm] != "": n += 1
+  return n

@@ -1,0 +1,221 @@
+## main.py
+import sys
+
+from parse import check
+from machine import run
+
+
+def main():
+    data = sys.stdin.read()
+    lines = data.split('\n')
+    sep = None
+    for i, line in enumerate(lines):
+        if line.strip() == '---':
+            sep = i
+            break
+    if sep is None:
+        prog_lines = lines
+        rest = []
+    else:
+        prog_lines = lines[:sep]
+        rest = lines[sep + 1:]
+    inputs = [int(t) for t in ' '.join(rest).split()]
+
+    prog, labels, errors = check(prog_lines)
+    if errors:
+        for n, msg in errors:
+            print(f'line {n}: {msg}')
+        return
+
+    out, err, steps, regs = run(prog, labels, inputs)
+    for line in out:
+        print(line)
+    if err is not None:
+        print(err)
+    print(f'steps {steps}')
+    if regs:
+        print('regs ' + ' '.join(regs))
+    else:
+        print('regs none')
+
+
+if __name__ == '__main__':
+    main()
+## parse.py
+import re
+
+REG_RE = re.compile(r'r([0-7])')
+INT_RE = re.compile(r'-?[0-9]+')
+WORD_RE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+LABEL_DEF_RE = re.compile(r'([A-Za-z_][A-Za-z0-9_]*):')
+
+# operand kinds: R register, V register or value, L label
+SPECS = {
+    'MOV': 'RV', 'ADD': 'RV', 'SUB': 'RV', 'MUL': 'RV', 'DIV': 'RV', 'MOD': 'RV',
+    'JMP': 'L', 'JZ': 'RL', 'JNZ': 'RL', 'JLT': 'VVL',
+    'CALL': 'L', 'RET': '', 'PUSH': 'V', 'POP': 'R', 'READ': 'R',
+    'PRINT': 'V', 'HALT': '',
+}
+
+
+def parse_operand(text, kind):
+    """Return ('r', i), ('n', value), ('l', name) or None if it does not fit."""
+    if kind == 'R':
+        m = REG_RE.fullmatch(text)
+        return ('r', int(m.group(1))) if m else None
+    if kind == 'V':
+        m = REG_RE.fullmatch(text)
+        if m:
+            return ('r', int(m.group(1)))
+        if INT_RE.fullmatch(text):
+            return ('n', int(text))
+        return None
+    if kind == 'L':
+        return ('l', text) if WORD_RE.fullmatch(text) else None
+    return None
+
+
+def check(lines):
+    """Check the program lines.
+
+    Returns (prog, labels, errors): prog is a list of (line, op, operands),
+    labels maps a name to the index of the instruction after it, and errors
+    is a list of (line, message) in line order.
+    """
+    prog = []
+    labels = {}
+    errors = []
+    for n, raw in enumerate(lines, 1):
+        text = raw.split(';', 1)[0].strip()
+        if not text:
+            continue
+        if text.endswith(':') or ':' in text:
+            m = LABEL_DEF_RE.fullmatch(text)
+            if not m:
+                errors.append((n, 'bad instruction'))
+                continue
+            name = m.group(1)
+            if name in labels:
+                errors.append((n, f'duplicate label {name}'))
+            else:
+                labels[name] = len(prog)
+            continue
+        parts = text.split(None, 1)
+        op = parts[0]
+        rest = parts[1] if len(parts) > 1 else ''
+        if op not in SPECS:
+            errors.append((n, 'bad instruction'))
+            continue
+        spec = SPECS[op]
+        if rest.strip() == '':
+            texts = []
+        else:
+            texts = [x.strip() for x in rest.split(',')]
+        if len(texts) != len(spec) or any(t == '' for t in texts):
+            errors.append((n, 'bad instruction'))
+            continue
+        ops = []
+        ok = True
+        for t, kind in zip(texts, spec):
+            o = parse_operand(t, kind)
+            if o is None:
+                ok = False
+                break
+            ops.append(o)
+        if not ok:
+            errors.append((n, 'bad instruction'))
+            continue
+        prog.append((n, op, ops))
+
+    for n, op, ops in prog:
+        for o in ops:
+            if o[0] == 'l' and o[1] not in labels:
+                errors.append((n, f'unknown label {o[1]}'))
+
+    errors.sort(key=lambda e: e[0])
+    return prog, labels, errors
+## machine.py
+def tdiv(a, b):
+    """Integer division rounded toward zero."""
+    q = abs(a) // abs(b)
+    return -q if (a < 0) != (b < 0) else q
+
+
+def run(prog, labels, inputs):
+    """Run a checked program. Returns (output lines, error line or None, steps, regs)."""
+    regs = [0] * 8
+    calls = []
+    stack = []
+    out = []
+    pos = 0
+    steps = 0
+    inp = 0
+    err = None
+
+    def val(o):
+        return regs[o[1]] if o[0] == 'r' else o[1]
+
+    while pos < len(prog):
+        if steps >= 10000:
+            err = 'error: too many steps'
+            break
+        ln, op, ops = prog[pos]
+        steps += 1
+        nxt = pos + 1
+        if op in ('MOV', 'ADD', 'SUB', 'MUL', 'DIV', 'MOD'):
+            r = ops[0][1]
+            v = val(ops[1])
+            if op == 'MOV':
+                regs[r] = v
+            elif op == 'ADD':
+                regs[r] += v
+            elif op == 'SUB':
+                regs[r] -= v
+            elif op == 'MUL':
+                regs[r] *= v
+            else:
+                if v == 0:
+                    err = f'error line {ln}: division by zero'
+                    break
+                q = tdiv(regs[r], v)
+                regs[r] = q if op == 'DIV' else regs[r] - q * v
+        elif op == 'JMP':
+            nxt = labels[ops[0][1]]
+        elif op == 'JZ':
+            if regs[ops[0][1]] == 0:
+                nxt = labels[ops[1][1]]
+        elif op == 'JNZ':
+            if regs[ops[0][1]] != 0:
+                nxt = labels[ops[1][1]]
+        elif op == 'JLT':
+            if val(ops[0]) < val(ops[1]):
+                nxt = labels[ops[2][1]]
+        elif op == 'CALL':
+            calls.append(pos + 1)
+            nxt = labels[ops[0][1]]
+        elif op == 'RET':
+            if not calls:
+                err = f'error line {ln}: stack empty'
+                break
+            nxt = calls.pop()
+        elif op == 'PUSH':
+            stack.append(val(ops[0]))
+        elif op == 'POP':
+            if not stack:
+                err = f'error line {ln}: stack empty'
+                break
+            regs[ops[0][1]] = stack.pop()
+        elif op == 'READ':
+            if inp >= len(inputs):
+                err = f'error line {ln}: no input'
+                break
+            regs[ops[0][1]] = inputs[inp]
+            inp += 1
+        elif op == 'PRINT':
+            out.append(str(val(ops[0])))
+        elif op == 'HALT':
+            break
+        pos = nxt
+
+    regs_out = [f'r{i}={regs[i]}' for i in range(8) if regs[i] != 0]
+    return out, err, steps, regs_out

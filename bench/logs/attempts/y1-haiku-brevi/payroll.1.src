@@ -1,0 +1,117 @@
+fn dec_ok(s: str) -> bool = not s.re_full('\d+(\.\d{1,2})?').is_empty()
+
+fn mon_ok(s: str) -> bool:
+  if s.re_full('\d{4}-\d{2}').is_empty(): return false
+  m = s.slice(5, 7).int()
+  return m >= 1 and m <= 12
+
+fn day_ok(s: str) -> bool:
+  if s.re_full('\d{4}-\d{2}-\d{2}').is_empty(): return false
+  r = match date(s):
+    Ok(d) => str(d) == s
+    Err(m) => false
+  return r
+
+fn scaled(s: str) -> int:
+  parts = s.split(".")
+  w = parts[0].int()
+  if parts.len() == 1: return w * 100
+  f = (parts[1] + "00").slice(0, 2).int()
+  return w * 100 + f
+
+fn money(c: int) -> str:
+  whole = c // 100
+  frac = c % 100
+  return "{whole}.{frac:02d}"
+
+fn day_pay(h: int, rate: int, wd: int) -> int:
+  if wd >= 6: return h * rate * 12
+  reg = min(h, 800)
+  ot = max(h - 800, 0)
+  return rate * (6 * reg + 9 * ot)
+
+fn tax_of(g: int) -> int:
+  a = min(max(g - 100000, 0), 300000)
+  b = max(g - 400000, 0)
+  n = a + 2 * b
+  return (2 * n + 5) // 10
+
+fn run_month(emps: {str: (str, str, int)}, hrs: {(str, str): int}, bons: [(str, str, int)], mon: str):
+  print("payroll {mon}")
+  tg = 0
+  tt = 0
+  tn = 0
+  for eid in sorted(emps.keys()):
+    e = emps[eid]
+    kind = e.0
+    name = e.1
+    amt = e.2
+    y = 0
+    if kind == "salary":
+      y = amt * 50
+    else:
+      for k, v in hrs.pairs():
+        if k.0 == eid and k.1.slice(0, 7) == mon:
+          y += day_pay(v, amt, date(k.1).weekday)
+    for b in bons:
+      if b.0 == eid and b.1 == mon: y += b.2 * 600
+    gross = (y + 300) // 600
+    tax = tax_of(gross)
+    net = gross - tax
+    tg += gross
+    tt += tax
+    tn += net
+    g = money(gross)
+    t = money(tax)
+    nn = money(net)
+    print("  {eid} {name} gross {g} tax {t} net {nn}")
+  tgs = money(tg)
+  tts = money(tt)
+  tns = money(tn)
+  print("  total gross {tgs} tax {tts} net {tns}")
+
+fn handle(mut emps: {str: (str, str, int)}, mut hrs: {(str, str): int}, mut bons: [(str, str, int)], w: [str]) -> str:
+  if w.is_empty(): return ""
+  cmd = w[0]
+  n = w.len()
+  if cmd == "EMP":
+    if n != 5 or not (w[3] == "hourly" or w[3] == "salary"): return "bad line"
+    if not dec_ok(w[4]) or scaled(w[4]) <= 0: return "bad line"
+    if emps.has(w[1]): return "duplicate ID"
+    emps[w[1]] = (w[3], w[2], scaled(w[4]))
+    return ""
+  if cmd == "HOURS":
+    if n != 4 or not day_ok(w[2]) or not dec_ok(w[3]): return "bad line"
+    h = scaled(w[3])
+    if h <= 0: return "bad line"
+    if not emps.has(w[1]): return "unknown ID"
+    e = emps[w[1]]
+    if e.0 != "hourly": return "not hourly"
+    key = (w[1], w[2])
+    total = hrs.get_or(key, 0) + h
+    if total > 2400: return "too many hours"
+    hrs[key] = total
+    return ""
+  if cmd == "BONUS":
+    if n != 4 or not mon_ok(w[2]) or not dec_ok(w[3]): return "bad line"
+    c = scaled(w[3])
+    if c <= 0: return "bad line"
+    if not emps.has(w[1]): return "unknown ID"
+    bons.push((w[1], w[2], c))
+    return ""
+  if cmd == "RUN":
+    if n != 2 or not mon_ok(w[1]): return "bad line"
+    run_month(emps, hrs, bons, w[1])
+    return ""
+  return "bad line"
+
+fn main():
+  lines = stdin().lines()
+  emps = {}
+  hrs = {}
+  bons = []
+  for idx in range(lines.len()):
+    w = lines[idx].words()
+    err = handle(emps, hrs, bons, w)
+    n = idx + 1
+    if err != "": print("line {n}: {err}")

@@ -1,0 +1,92 @@
+use "parse.bv"
+
+fn value_of(regs: [int], s: str) -> int:
+  if is_reg(s):
+    return regs[reg_idx(s)]
+  return s.int()
+
+fn execute(p: Prog, inputs: [int]):
+  regs = [0].repeat(8)
+  calls = []
+  stack = []
+  pc = 0
+  steps = 0
+  ip = 0
+  err = ""
+  n = p.ins.len()
+  while pc < n:
+    if steps >= 10000:
+      err = "error: too many steps"
+      break
+    x = p.ins[pc]
+    a = x.args
+    op = x.op
+    steps += 1
+    pc += 1
+    r = 0
+    if a.len() > 0 and is_reg(a[0]):
+      r = reg_idx(a[0])
+    if op == "HALT":
+      break
+    elif op == "MOV":
+      regs[r] = value_of(regs, a[1])
+    elif op == "ADD":
+      regs[r] = regs[r] + value_of(regs, a[1])
+    elif op == "SUB":
+      regs[r] = regs[r] - value_of(regs, a[1])
+    elif op == "MUL":
+      regs[r] = regs[r] * value_of(regs, a[1])
+    elif op == "DIV" or op == "MOD":
+      d = value_of(regs, a[1])
+      if d == 0:
+        err = "error line " + str(x.line) + ": division by zero"
+        break
+      if op == "DIV":
+        regs[r] = regs[r] / d
+      else:
+        regs[r] = regs[r] % d
+    elif op == "JMP":
+      pc = p.labels[a[0]]
+    elif op == "JZ":
+      if regs[r] == 0:
+        pc = p.labels[a[1]]
+    elif op == "JNZ":
+      if regs[r] != 0:
+        pc = p.labels[a[1]]
+    elif op == "JLT":
+      if value_of(regs, a[0]) < value_of(regs, a[1]):
+        pc = p.labels[a[2]]
+    elif op == "CALL":
+      calls.push(pc)
+      pc = p.labels[a[0]]
+    elif op == "RET":
+      if calls.is_empty():
+        err = "error line " + str(x.line) + ": stack empty"
+        break
+      pc = calls.pop()
+    elif op == "PUSH":
+      stack.push(value_of(regs, a[0]))
+    elif op == "POP":
+      if stack.is_empty():
+        err = "error line " + str(x.line) + ": stack empty"
+        break
+      regs[r] = stack.pop()
+    elif op == "READ":
+      if ip >= inputs.len():
+        err = "error line " + str(x.line) + ": no input"
+        break
+      regs[r] = inputs[ip]
+      ip += 1
+    elif op == "PRINT":
+      print(value_of(regs, a[0]))
+  if err != "":
+    print(err)
+  print("steps " + str(steps))
+  parts = []
+  for i in range(0, 8):
+    if regs[i] != 0:
+      parts.push(" r" + str(i) + "=" + str(regs[i]))
+  if parts.is_empty():
+    print("regs none")
+  else:
+    print("regs" + "".join(parts))

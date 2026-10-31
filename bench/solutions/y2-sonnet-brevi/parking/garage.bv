@@ -1,0 +1,43 @@
+type Garage:
+  nc: int
+  nm: int
+  nv: int
+  spaces: {str: str}
+  inside: {str: (str, str, int)}
+
+fn new_garage(c: int, m: int, v: int) -> Garage:
+  sp = {}
+  for i in 1..c + 1: sp["C{i}"] = ""
+  for i in 1..m + 1: sp["M{i}"] = ""
+  for i in 1..v + 1: sp["V{i}"] = ""
+  Garage(nc: c, nm: m, nv: v, spaces: sp, inside: {})
+
+fn find_free(g: Garage, letter: str, count: int) -> str:
+  for i in 1..count + 1:
+    name = "{letter}{i}"
+    if g.spaces[name] == "": return name
+  ""
+
+fn enter(mut g: Garage, plate: str, typ: str, t: int) -> str:
+  space = ""
+  if typ == "car": space = find_free(g, "C", g.nc)
+  elif typ == "van": space = find_free(g, "V", g.nv)
+  else:
+    space = find_free(g, "M", g.nm)
+    if space == "": space = find_free(g, "C", g.nc)
+  if space == "": return ""
+  g.spaces[space] = plate
+  g.inside[plate] = (typ, space, t)
+  space
+
+fn leave(mut g: Garage, plate: str) -> (str, int):
+  e = g.inside[plate]
+  g.spaces[e.1] = ""
+  g.inside.remove(plate)
+  (e.0, e.2)
+
+fn occupied(g: Garage, letter: str) -> int:
+  n = 0
+  for k, v in g.spaces.pairs():
+    if k.starts_with(letter) and v != "": n += 1
+  n

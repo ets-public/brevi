@@ -1,0 +1,8 @@
+stock: empty
+crafted 1 bot (bot 1, gear 1, plate 1)
+crafted 1 bot (bot 1, gear 1, plate 1)
+stock:
+  bolt 14
+  bot 2
+  ore 3
+line 12: bad line

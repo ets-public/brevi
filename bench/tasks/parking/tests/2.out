@@ -1,0 +1,5 @@
+IN m M1
+FULL c
+OUT m 72h00m fee 24.00
+occupied car 0/0 moto 0/1 van 0/0 revenue 24.00
+revenue 24.00 from 1 exits

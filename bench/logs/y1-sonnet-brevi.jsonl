@@ -1,0 +1,11 @@
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"grep_lite","code_tok":1628,"patch_tok":1628,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"payroll","code_tok":1515,"patch_tok":1515,"out_tok":530,"compiled":true,"pass":0,"total":3,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"payroll","code_tok":1495,"patch_tok":92,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"league","code_tok":1224,"patch_tok":1224,"out_tok":48,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"league","code_tok":1233,"patch_tok":91,"out_tok":227,"compiled":true,"pass":4,"total":5,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"league","code_tok":1251,"patch_tok":82,"out_tok":7,"compiled":true,"pass":5,"total":5,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"crafting","code_tok":1199,"patch_tok":1199,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"tiny_cpu","code_tok":2650,"patch_tok":2650,"out_tok":257,"compiled":true,"pass":5,"total":6,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"tiny_cpu","code_tok":2659,"patch_tok":71,"out_tok":7,"compiled":true,"pass":6,"total":6,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"parking","code_tok":1714,"patch_tok":1714,"out_tok":478,"compiled":true,"pass":2,"total":3,"tok":"exact"}
+{"run":"y1-sonnet-brevi","lang":"brevi","task":"parking","code_tok":1741,"patch_tok":73,"out_tok":7,"compiled":true,"pass":3,"total":3,"tok":"exact"}

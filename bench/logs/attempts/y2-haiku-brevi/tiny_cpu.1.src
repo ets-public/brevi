@@ -1,0 +1,217 @@
+## main.bv
+use "parse.bv"
+use "machine.bv"
+
+fn main():
+  src = lines()
+  cut = src.len()
+  for i in range(0, src.len()):
+    if cut == src.len() and src[i].trim() == "---":
+      cut = i
+  prog_lines = src.slice(0, cut)
+  nums = []
+  if cut < src.len():
+    for line in src.slice(cut + 1):
+      for w in line.words():
+        nums.push(w.int())
+  p = parse_prog(prog_lines)
+  if not p.errs.is_empty():
+    for k in sorted(p.errs.keys()):
+      print("line " + str(k) + ": " + p.errs[k])
+    return
+  execute(p, nums)
+## parse.bv
+type Ins:
+  op: str
+  args: [str]
+  line: int
+
+type Prog:
+  ins: [Ins]
+  labels: {str: int}
+  errs: {int: str}
+
+fn is_reg(s: str) -> bool:
+  return s.len() == 2 and s.slice(0, 1) == "r" and s.slice(1, 2) in ["0", "1", "2", "3", "4", "5", "6", "7"]
+
+fn reg_idx(s: str) -> int:
+  return s.slice(1, 2).int()
+
+fn is_num(s: str) -> bool:
+  t = s
+  if t.starts_with("-"):
+    t = t.slice(1)
+  if t.is_empty():
+    return false
+  for c in t.chars():
+    if not c.is_digit():
+      return false
+  return true
+
+fn is_val(s: str) -> bool:
+  return is_reg(s) or is_num(s)
+
+fn is_word(s: str) -> bool:
+  if s.is_empty() or s.contains(":"):
+    return false
+  ws = s.words()
+  return ws.len() == 1 and ws[0] == s
+
+fn is_label(s: str) -> bool:
+  return is_word(s) and not is_reg(s) and not is_num(s)
+
+fn valid_ins(op: str, args: [str]) -> bool:
+  n = args.len()
+  if op == "MOV" or op == "ADD" or op == "SUB" or op == "MUL" or op == "DIV" or op == "MOD":
+    return n == 2 and is_reg(args[0]) and is_val(args[1])
+  if op == "JMP" or op == "CALL":
+    return n == 1 and is_label(args[0])
+  if op == "JZ" or op == "JNZ":
+    return n == 2 and is_reg(args[0]) and is_label(args[1])
+  if op == "JLT":
+    return n == 3 and is_val(args[0]) and is_val(args[1]) and is_label(args[2])
+  if op == "RET" or op == "HALT":
+    return n == 0
+  if op == "PUSH" or op == "PRINT":
+    return n == 1 and is_val(args[0])
+  if op == "POP" or op == "READ":
+    return n == 1 and is_reg(args[0])
+  return false
+
+fn label_of(x: Ins) -> str:
+  if x.op == "JMP" or x.op == "CALL":
+    return x.args[0]
+  if x.op == "JZ" or x.op == "JNZ":
+    return x.args[1]
+  if x.op == "JLT":
+    return x.args[2]
+  return ""
+
+fn parse_prog(src: [str]) -> Prog:
+  ins = []
+  labels = {}
+  errs = {}
+  for i in range(0, src.len()):
+    ln = i + 1
+    text = src[i].split(";")[0].trim()
+    if text.is_empty():
+      continue
+    if text.ends_with(":"):
+      name = text.slice(0, text.len() - 1).trim()
+      if not is_word(name):
+        errs[ln] = "bad instruction"
+      elif labels.has(name):
+        errs[ln] = "duplicate label " + name
+      else:
+        labels[name] = ins.len()
+    else:
+      ws = text.words()
+      op = ws[0]
+      rest = text.slice(op.len()).trim()
+      args = []
+      if not rest.is_empty():
+        for a in rest.split(","):
+          args.push(a.trim())
+      if valid_ins(op, args):
+        ins.push(Ins(op: op, args: args, line: ln))
+      else:
+        errs[ln] = "bad instruction"
+  for x in ins:
+    if not errs.has(x.line):
+      lb = label_of(x)
+      if lb != "" and not labels.has(lb):
+        errs[x.line] = "unknown label " + lb
+  return Prog(ins: ins, labels: labels, errs: errs)
+## machine.bv
+use "parse.bv"
+
+fn value_of(regs: [int], s: str) -> int:
+  if is_reg(s):
+    return regs[reg_idx(s)]
+  return s.int()
+
+fn execute(p: Prog, inputs: [int]):
+  regs = [0].repeat(8)
+  calls = []
+  stack = []
+  pc = 0
+  steps = 0
+  ip = 0
+  err = ""
+  n = p.ins.len()
+  while pc < n:
+    if steps >= 10000:
+      err = "error: too many steps"
+      break
+    x = p.ins[pc]
+    a = x.args
+    op = x.op
+    steps += 1
+    pc += 1
+    r = 0
+    if a.len() > 0 and is_reg(a[0]):
+      r = reg_idx(a[0])
+    if op == "HALT":
+      break
+    elif op == "MOV":
+      regs[r] = value_of(regs, a[1])
+    elif op == "ADD":
+      regs[r] = regs[r] + value_of(regs, a[1])
+    elif op == "SUB":
+      regs[r] = regs[r] - value_of(regs, a[1])
+    elif op == "MUL":
+      regs[r] = regs[r] * value_of(regs, a[1])
+    elif op == "DIV" or op == "MOD":
+      d = value_of(regs, a[1])
+      if d == 0:
+        err = "error line " + str(x.line) + ": division by zero"
+        break
+      if op == "DIV":
+        regs[r] = regs[r] / d
+      else:
+        regs[r] = regs[r] % d
+    elif op == "JMP":
+      pc = p.labels[a[0]]
+    elif op == "JZ":
+      if regs[r] == 0:
+        pc = p.labels[a[1]]
+    elif op == "JNZ":
+      if regs[r] != 0:
+        pc = p.labels[a[1]]
+    elif op == "JLT":
+      if value_of(regs, a[0]) < value_of(regs, a[1]):
+        pc = p.labels[a[2]]
+    elif op == "CALL":
+      calls.push(pc)
+      pc = p.labels[a[0]]
+    elif op == "RET":
+      if calls.is_empty():
+        err = "error line " + str(x.line) + ": stack empty"
+        break
+      pc = calls.pop()
+    elif op == "PUSH":
+      stack.push(value_of(regs, a[0]))
+    elif op == "POP":
+      if stack.is_empty():
+        err = "error line " + str(x.line) + ": stack empty"
+        break
+      regs[r] = stack.pop()
+    elif op == "READ":
+      if ip >= inputs.len():
+        err = "error line " + str(x.line) + ": no input"
+        break
+      regs[r] = inputs[ip]
+      ip += 1
+    elif op == "PRINT":
+      print(value_of(regs, a[0]))
+  if err != "":
+    print(err)
+  print("steps " + str(steps))
+  parts = []
+  for i in range(0, 8):
+    if regs[i] != 0:
+      parts.push(" r" + str(i) + "=" + str(regs[i]))
+  if parts.is_empty():
+    print("regs none")
+  else:
+    print("regs" + "".join(parts))

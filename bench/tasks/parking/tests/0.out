@@ -1,0 +1,14 @@
+IN AB12 C1
+IN M1 M1
+IN M2 C2
+FULL CC
+IN VV V1
+FULL V2
+OUT M2 0h14m fee 0.00
+occupied car 1/2 moto 1/1 van 1/1 revenue 0.00
+OUT AB12 2h01m fee 7.50
+OUT VV 26h11m fee 42.00
+OUT M1 46h55m fee 16.00
+line 13: not inside
+occupied car 0/2 moto 0/1 van 0/1 revenue 65.50
+revenue 65.50 from 4 exits
