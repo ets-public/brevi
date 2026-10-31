@@ -652,6 +652,7 @@ pub trait AxList<T: Clone> {
     fn ax_count(&self, f: impl Fn(T) -> bool) -> i64;
     fn ax_fold<A>(&self, init: A, f: impl Fn(A, T) -> A) -> A;
     fn ax_sort_by<K: PartialOrd>(&self, f: impl Fn(T) -> K) -> Vec<T>;
+    fn ax_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> K, rev: bool) -> Vec<T>;
     fn ax_rev(&self) -> Vec<T>;
     fn ax_take(&self, n: i64) -> Vec<T>;
     fn ax_skip(&self, n: i64) -> Vec<T>;
@@ -709,6 +710,15 @@ impl<T: Clone> AxList<T> for Vec<T> {
         v.sort_by(|a, b| f(a.clone()).partial_cmp(&f(b.clone())).unwrap_or(std::cmp::Ordering::Equal));
         v
     }
+    fn ax_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> K, rev: bool) -> Vec<T> {
+        let mut v = self.clone();
+        v.sort_by(|a, b| {
+            let (x, y) = (f(a.clone()), f(b.clone()));
+            let o = if rev { y.partial_cmp(&x) } else { x.partial_cmp(&y) };
+            o.unwrap_or(std::cmp::Ordering::Equal)
+        });
+        v
+    }
     fn ax_rev(&self) -> Vec<T> {
         self.iter().rev().cloned().collect()
     }
@@ -737,6 +747,7 @@ pub trait AxTryList<T: Clone> {
     fn ax_try_count(&self, f: impl Fn(T) -> R<bool>) -> R<i64>;
     fn ax_try_fold<A>(&self, init: A, f: impl Fn(A, T) -> R<A>) -> R<A>;
     fn ax_try_sort_by<K: PartialOrd>(&self, f: impl Fn(T) -> R<K>) -> R<Vec<T>>;
+    fn ax_try_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> R<K>, rev: bool) -> R<Vec<T>>;
 }
 impl<T: Clone> AxTryList<T> for Vec<T> {
     fn ax_try_map<U>(&self, f: impl Fn(T) -> R<U>) -> R<Vec<U>> {
@@ -781,6 +792,11 @@ impl<T: Clone> AxTryList<T> for Vec<T> {
         let keyed: Vec<(K, T)> = self.iter().cloned().map(|x| Ok((f(x.clone())?, x))).collect::<R<_>>()?;
         let mut keyed = keyed;
         keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(keyed.into_iter().map(|(_, x)| x).collect())
+    }
+    fn ax_try_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> R<K>, rev: bool) -> R<Vec<T>> {
+        let mut keyed: Vec<(K, T)> = self.iter().cloned().map(|x| Ok((f(x.clone())?, x))).collect::<R<_>>()?;
+        keyed.sort_by(|a, b| if rev { b.0.partial_cmp(&a.0) } else { a.0.partial_cmp(&b.0) }.unwrap_or(std::cmp::Ordering::Equal));
         Ok(keyed.into_iter().map(|(_, x)| x).collect())
     }
 }

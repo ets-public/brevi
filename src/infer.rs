@@ -440,6 +440,22 @@ impl Cx<'_> {
                             }
                             env.insert(m.clone(), mt);
                         }
+                        // `lq = m[k]` then `lq.push(x)`: what the copy is filled with is the entry's type.
+                        (Expr::Ident(m), "=") if !env.contains_key(m) && m != n && matches!(value, Expr::Index(b, _) if matches!(b.as_ref(), Expr::Ident(x) if x == n)) => {
+                            let Expr::Index(_, k) = value else { unreachable!() };
+                            let kt = self.ty(k, env);
+                            let mut mt = vt.clone();
+                            let mut later = env.clone();
+                            later.insert(m.clone(), mt.clone());
+                            self.look(m, &stmts[i + 1..], tail, &mut later, &mut mt);
+                            if let Some(tl) = tail {
+                                self.look_expr(m, tl, &mut later, &mut mt);
+                            }
+                            if some_known(&mt) {
+                                *acc = merge(acc.clone(), self.slot(acc, kt, mt.clone()));
+                            }
+                            env.insert(m.clone(), mt);
+                        }
                         (Expr::Ident(m), "=") if !env.contains_key(m) => {
                             env.insert(m.clone(), vt);
                         }

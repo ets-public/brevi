@@ -19,22 +19,30 @@ jobs:
         include:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
-          - { os: macos-14, target: aarch64-apple-darwin }
-          - { os: macos-13, target: x86_64-apple-darwin }
+          - { os: macos-15, target: aarch64-apple-darwin }
+          # Intel Mac images are being retired, so this one is cross-built on Apple silicon.
+          - { os: macos-15, target: x86_64-apple-darwin, cross: true }
           - { os: windows-2022, target: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: Build
-        run: cargo build --release --locked
+        shell: bash
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }}
+          mkdir -p target/release && cp target/${{ matrix.target }}/release/brevi* target/release/ 2>/dev/null || true
       - name: Smoke test
+        if: ${{ !matrix.cross }}
         shell: bash
         run: |
           printf 'n = 1 + 1\nprint("hi {n}")\n' > smoke.bv
           ./target/release/brevi run smoke.bv | grep -qx "hi 2"
       - name: Unit and language tests
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.cross
         run: |
           cargo test --release --locked
           BREVI=./target/release/brevi sh tests/check.sh
@@ -52,6 +60,8 @@ jobs:
           path: brevi-${{ matrix.target }}.*
   release:
     needs: build
+    # Attach whatever built, so one platform's runner trouble does not hold back the rest.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4

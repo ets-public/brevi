@@ -1,0 +1,24 @@
+rows = [("b", 2), ("a", 1), ("c", 2), ("d", 0)]
+desc = true
+print(sorted(rows, key=r => r.1, reverse=desc))
+print(rows.sort_by(r => r.1, desc))
+print(sorted([3, 1, 2], reverse=True))
+xs = [5, 9, 1]
+xs.sort(reverse=True)
+print(xs)
+ys = [(1, "x"), (1, "y"), (0, "z")]
+ys.sort(key=lambda_unused => lambda_unused.0)
+print(ys)
+print(rows.sort_by(r => r.1))
+lots = {}
+fn total(k: str) -> int = sum(lots[k])
+for w in [["a", "1"], ["a", "2"], ["b", "5"]]:
+  if not lots.has(w[0]): lots[w[0]] = []
+  lq = lots[w[0]]
+  lq.push(w[1].int())
+  lots[w[0]] = lq
+print(total("a"))
+table = {"t": [["x", "1"], ["y", "2"]]}
+for row in table["t"]:
+  if row[0] == "y": row[1] = "9"
+print(table)

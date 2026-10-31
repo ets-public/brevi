@@ -548,6 +548,10 @@ fn changes(e: &Expr, name: &str) -> bool {
         return true;
     }
     let d = format!("{e:?}");
+    // `row[i] = v` or `p.x = v` changes the item itself.
+    if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) {
+        return true;
+    }
     ["push", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "extend"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
@@ -1527,6 +1531,8 @@ impl Emitter {
                 }
                 // `x.round(2)` rounds to decimal places.
                 let name = if name == "round" && a.len() == 1 { "round_to" } else { name.as_str() };
+                // `xs.sort_by(f, true)` sorts largest first, keeping equal items in order (Python's reverse=True).
+                let name = if name == "sort_by" && a.len() == 2 { "sort_by_rev" } else { name };
                 // `s.re_sub(p, g => ...)` builds each replacement from the match groups.
                 let name = if name == "re_sub" && matches!(args.get(1), Some(Expr::Lambda(..))) { "re_sub_with" } else { name };
                 if tries {
@@ -1586,8 +1592,8 @@ impl Emitter {
             Expr::Match(subj, arms) => self.match_expr(subj, arms, false),
             Expr::For(p, iter, body) => {
                 // Assigning to the loop variable edits the list in place.
-                if let (Pat::Bind(n), Expr::Ident(_)) = (p, iter.as_ref()) {
-                    if changes(body, n) {
+                if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..)) = (p, iter.as_ref()) {
+                    if changes(body, n) && root_name(iter).is_some() {
                         let it = self.place_mut(iter);
                         self.locals.insert(n.clone());
                         self.refs.insert(n.clone());

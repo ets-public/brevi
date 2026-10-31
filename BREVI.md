@@ -12,7 +12,7 @@ print("total {nums.sum()}, mean {(nums.sum().float() / nums.len().float()).fmt(2
 ## Types
 `int` (64-bit), `f64`, `bool`, `str`, `[T]` list, `{K: V}` map (sorted by key), `(A, B)` tuple, `dec` exact decimal, `big` exact integer, `Date`, `Json`, `heap[T]` min-heap.
 No references or lifetimes: values act as copies. Local variables never need a type. A `mut` parameter edits the caller's variable (call it as `f(x)`); other parameters are local copies the function may change.
-Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`. `let (a, b) = t` destructures; `p.0` is a field (`p[0]` also works when the items share a type).
+Tuples, lists and strings compare and sort element by element: `pairs.sort_by(p => (-p.1, p.0))`; `xs.sort_by(f, desc)` sorts largest first when `desc` is true, keeping ties in order (as `sorted(xs, key=f, reverse=desc)`). `let (a, b) = t` destructures; `p.0` is a field (`p[0]` also works when the items share a type).
 
 ```
 type Point:
@@ -45,7 +45,7 @@ Errors pass up automatically. `fail(msg)`, `read`, and conversions like `s.int()
 Handle a failure where it happens with `.or(default)` or `match f(x):` with arms `Ok(v) => ...` and `Err(msg) => ...`. An uncaught failure stops the program with a JSON error.
 
 ## Statements
-`x = 1` creates a variable or changes it (`x: [str] = []` gives a type), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
+`x = 1` creates a variable or changes it (`x: [str] = []` gives a type; a name set at the top of the file is shared by every function, which can change it like a Python global without `global`), `a, b = pair` unpacks (`a, b = b, a + b` swaps), `x += 1` (also `-=` `*=` `/=`), `return v`, `break`, `continue`, `assert cond`.
 `if c:` / `elif d:` / `else:` (conditions use Python truth: `if xs:`, `if not s:`, `while q:` test for non-empty, and 0 is false), `for x in xs:`, `for k, v in m.pairs():` (any list of tuples unpacks this way), `for i in 0..n:`, `while c:`.
 `if` and `match` are values: `y = if a > b: a else: b`. A variable set in every branch of an `if`/`else` or `match` can be used after it; one first set inside a loop ends with the loop, so set it before the loop.
 Match arms are one expression or statement (`Num(n) => total += n`) or an indented block on the lines after `=>`. Match patterns: literals, `_`, names, `Variant(a, b)`, `(a, b)`.

@@ -537,7 +537,14 @@ impl Parser {
                             _ => "or".to_string(),
                         };
                         if self.eat_sym("(") {
-                            let mut args: Vec<Expr> = self.args()?.into_iter().map(|(_, a)| a).collect();
+                            let raw = self.args()?;
+                            if matches!(name.as_str(), "sort" | "sort_by" | "sorted") {
+                                if let Some(s) = sort_kw(e.clone(), &raw, line) {
+                                    e = s;
+                                    continue;
+                                }
+                            }
+                            let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             let name = python_method(&name, args.len()).unwrap_or(name);
                             // `xs.to_list()` / `xs.copy()`: a list already is one, so this is a copy.
                             let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() {
@@ -588,7 +595,8 @@ impl Parser {
         let mut args = Vec::new();
         while !self.is_sym(")") {
             let name = match (self.peek().clone(), self.peek_at(1).clone()) {
-                (Tok::Ident(n), Tok::Sym(":")) => {
+                // Python keywords: `name=value` (`key=f`, `reverse=True`).
+                (Tok::Ident(n), Tok::Sym(":")) | (Tok::Ident(n), Tok::Sym("=")) => {
                     self.next();
                     self.next();
                     Some(n)
@@ -685,6 +693,13 @@ impl Parser {
                         "unique" => Some("unique"),
                         _ => None,
                     };
+                    // sorted(xs, key=f, reverse=r)
+                    if name == "sorted" && !self.user_fns.contains(&name) && args.first().is_some_and(|a| a.0.is_none()) {
+                        let recv = args[0].1.clone();
+                        if let Some(s) = sort_kw(recv, &args[1..], line) {
+                            return Ok(s);
+                        }
+                    }
                     // range(n), range(a, b) and range(a, b, step) are a..b.
                     if name == "range" && (1..=3).contains(&args.len()) && args.iter().all(|a| a.0.is_none()) && !self.user_fns.contains(&name) {
                         let mut a: Vec<Expr> = args.into_iter().map(|a| a.1).collect();
@@ -920,6 +935,21 @@ impl Parser {
 // Python method names models write by habit, as the Brevi method they mean.
 // Built-in functions a program may define for itself; its own version gets a suffix in the Rust.
 const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
+
+// Python's sort keywords: `key=f` and `reverse=r` (also `sort_by(f, reverse=r)`) become `sort_by(f, r)`.
+fn sort_kw(recv: Expr, args: &[(Option<String>, Expr)], line: usize) -> Option<Expr> {
+    let get = |k: &str| args.iter().find(|a| a.0.as_deref() == Some(k)).map(|a| a.1.clone());
+    let (key, rev) = (get("key"), get("reverse"));
+    if key.is_none() && rev.is_none() {
+        return None;
+    }
+    let f = key
+        .or_else(|| args.iter().find(|a| a.0.is_none()).map(|a| a.1.clone()))
+        .unwrap_or_else(|| Expr::Lambda(vec!["x_".into()], Box::new(Expr::Ident("x_".into()))));
+    let mut a = vec![f];
+    a.extend(rev);
+    Some(Expr::Method(Box::new(recv), "sort_by".into(), a, line))
+}
 
 fn python_method(name: &str, nargs: usize) -> Option<String> {
     Some(match (name, nargs) {
