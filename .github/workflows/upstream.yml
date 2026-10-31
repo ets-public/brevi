@@ -1,0 +1,26 @@
+# Opens a review issue for each new Rust stable release, Python release and newer pinned crate,
+# listing the new language features and stabilized APIs Brevi could adopt. Deduplicated by title.
+name: Upstream releases
+
+on:
+  schedule:
+    - cron: "41 6 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh label create upstream --color 0E8A16 --description "New Rust/Python/crate release to review" 2>/dev/null || true
+      - name: Check for new releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/upstream_watch.py

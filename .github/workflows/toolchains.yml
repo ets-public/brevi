@@ -1,0 +1,140 @@
+# Keeps Brevi working on every new Rust and Python release.
+# Daily: builds Brevi and rebuilds every benchmark solution that ever passed (compat/baseline.txt)
+# on Rust stable, beta and nightly, the newest Python and the next Python pre-release.
+# A toolchain that was already tested at this commit is skipped, so most days cost almost nothing.
+# Any failure on the schedule opens (or updates) a GitHub issue labelled "toolchain".
+name: Toolchains
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run even if this toolchain was already tested at this commit"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: toolchains-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    outputs:
+      next_python: ${{ steps.py.outputs.next }}
+    steps:
+      - id: py
+        name: Find the next Python release (pre-release)
+        run: |
+          next=$(curl -fsSL https://endoflife.date/api/python.json | python3 -c '
+          import json, sys
+          c = max(json.load(sys.stdin), key=lambda c: tuple(map(int, c["cycle"].split("."))))["cycle"]
+          a, b = c.split("."); print(f"{a}.{int(b) + 1}")')
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rust: stable, python: "3.x" }
+          - { rust: beta, python: "3.x" }
+          - { rust: nightly, python: "3.x" }
+          - { rust: stable, python: next }
+    name: rust ${{ matrix.rust }} / python ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.rust }}
+        run: |
+          rustup toolchain install ${{ matrix.rust }} --profile minimal --no-self-update
+          rustup default ${{ matrix.rust }}
+
+      - uses: actions/setup-python@v5
+        id: python
+        continue-on-error: ${{ matrix.python == 'next' }}
+        with:
+          python-version: ${{ matrix.python == 'next' && needs.versions.outputs.next_python || matrix.python }}
+          allow-prereleases: true
+
+      - name: Toolchain fingerprint
+        id: fp
+        run: |
+          rustc -vV | tee /tmp/fp
+          python3 -VV | tee -a /tmp/fp
+          echo "key=tested-${{ matrix.rust }}-${{ matrix.python }}-${{ github.sha }}-$(sha256sum /tmp/fp | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "rustc=$(rustc -V)" >> "$GITHUB_OUTPUT"
+          echo "python=$(python3 -V)" >> "$GITHUB_OUTPUT"
+
+      - name: Already tested?
+        id: seen
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.force)
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/fp
+          key: ${{ steps.fp.outputs.key }}
+          lookup-only: true
+
+      - name: Build
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: cargo build --release && cargo build
+
+      - name: Unit tests
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: cargo test --release
+
+      - name: Language tests (tests/run, tests/errors)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: sh tests/check.sh
+
+      - name: Every solution that ever passed still passes
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tools/compat.py check --report compat-report.md
+
+      - name: Early warnings in generated Rust (deprecations, future incompatibilities, newest edition)
+        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust != 'stable'
+        continue-on-error: true
+        run: |
+          python3 tools/compat.py lints --report lints-report.md
+          cat lints-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bench scripts still compile
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 -m py_compile bench/*.py bench/ref/*.py tools/*.py
+
+      - name: Remember this toolchain passed
+        if: success() && steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/fp
+          key: ${{ steps.fp.outputs.key }}
+
+      - name: Open or update an issue
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Toolchain break: Rust ${{ matrix.rust }} / Python ${{ matrix.python }}"
+          {
+            echo "The daily toolchain check failed. Code that once passed must never silently break, so this needs a fix in Brevi (or a bug report upstream if the toolchain is at fault)."
+            echo
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- ${{ steps.fp.outputs.rustc }}, ${{ steps.fp.outputs.python }}, commit ${{ github.sha }}"
+            echo
+            [ -f compat-report.md ] && cat compat-report.md || echo "Failed before the compatibility check; see the run log."
+          } > body.md
+          gh label create toolchain --color B60205 --description "Breakage on a new Rust or Python release" 2>/dev/null || true
+          n=$(gh issue list --state open --label toolchain --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label toolchain --body-file body.md; fi
