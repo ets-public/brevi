@@ -1,0 +1,17 @@
+import string
+from string import ascii_lowercase, digits
+from decimal import Decimal
+
+def main():
+    ok = set(ascii_lowercase + digits + "-")
+    print("".join(c for c in "Hello World-9!".lower() if c in ok))
+    print(string.ascii_uppercase[:3], len(string.ascii_letters), string.hexdigits)
+    a = Decimal("0.01")
+    print(f"{a:+.2f} {-a:+.2f} {a:+}", format(a, "+.1f"), f"{3:+d} {-2.5:+.1f}")
+    rows = [{"id": 1, "n": "a"}, {"id": "x", "n": "b"}, {"id": 1, "n": "c"}]
+    by = {}
+    for r in rows:
+        by[r["id"]] = r["n"]
+    print(len(by), sorted(by.values()))
+
+main()

@@ -820,6 +820,37 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
         }
     }
+    // Python's `string` constants: `string.digits`, or `digits` after `from string import digits`.
+    let consts = [
+        ("ascii_lowercase", "abcdefghijklmnopqrstuvwxyz"),
+        ("ascii_uppercase", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        ("ascii_letters", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        ("digits", "0123456789"),
+        ("hexdigits", "0123456789abcdefABCDEF"),
+        ("octdigits", "01234567"),
+    ];
+    let from_string: Vec<&str> = src_in
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("from string import "))
+        .flat_map(|r| r.split(',').map(|n| n.trim()))
+        .collect();
+    let mut k = 0;
+    while k < out.len() {
+        let after_dot = k > 0 && out[k - 1].tok == Tok::Sym(".");
+        if let Tok::Ident(w) = &out[k].tok {
+            if let Some((_, v)) = consts.iter().find(|(n, _)| n == w) {
+                let v = Tok::Str(v.to_string());
+                if after_dot && k >= 2 && out[k - 2].tok == Tok::Ident("string".into()) && (k < 3 || out[k - 3].tok != Tok::Sym(".")) {
+                    out[k].tok = v;
+                    out.drain(k - 2..k);
+                    k -= 2;
+                } else if !after_dot && from_string.contains(&w.as_str()) {
+                    out[k].tok = v;
+                }
+            }
+        }
+        k += 1;
+    }
     // `datetime.timedelta(days=1)` is `timedelta(days=1)`.
     let mut k = 0;
     while k + 2 < out.len() {
