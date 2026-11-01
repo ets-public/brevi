@@ -5,7 +5,6 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 ## Unreleased
 
 - Python dicts made records can get keys later in branches (`q = {"id": qid, "type": typ}`, then `q["answer"] = a` for one type and `q["value"] = Fraction(v)` for another); such a key prints only once set, and `'answer' in q` on one is refused rather than guessed. A helper that returns a filtered list is now written back also when called with an item (`for b in od.waiting(w[1]): b[2] -= got`). The e15 Haiku quiz first attempts (both runs) now build and print what Python prints, and Sonnet's e15a warehouse passes every test.
-
 - GUI benchmark set `gui` (`bench/ref/gen_gui.py`): a to-do app, a calculator and tic-tac-toe in tkinter, tested headlessly. `bench/tkshim` is a headless tkinter stand-in for CPython that prints the window the same way as Brevi's GUI runtime (`tools/gui_shim_check.sh`). Plain Python passes all three first try with Sonnet and Haiku; Brevi cannot build tkinter programs yet.
 - String literals written next to each other are joined, as in Python, also across lines inside brackets: `("abc "\n "def")`, `f"{n} " f"items"`.
 - New held-out benchmark set `huge` (`bench/ref/gen_huge.py`): an interpreter, a chess referee and a text adventure, 200 to 750 lines over 3 or 4 files. First run `h1`: plain Python passes 3/3 with Sonnet and Haiku; Brevi-built Python 2/3 with Sonnet (2.1x the cost) and 0/3 with Haiku. See [bench/README.md](bench/README.md).
