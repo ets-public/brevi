@@ -16,7 +16,7 @@ const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "quantize", "csv_rows",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -831,6 +831,8 @@ impl Emitter {
                 Expr::Method(_, m, _, _) if m == "int" => named("int"),
                 Expr::Method(_, m, _, _) if m == "float" => named("f64"),
                 Expr::Method(_, m, _, _) if m == "dec" || m == "big" => named(m),
+                Expr::Method(_, m, _, _) if m == "quantize" => named("dec"),
+                Expr::Method(_, m, _, _) if m == "csv_rows" => Some(Ty::List(Box::new(Ty::List(Box::new(Ty::Named("str".into())))))),
                 Expr::Method(_, m, _, _) if m == "ints" => Some(Ty::List(Box::new(Ty::Named("int".into())))),
                 Expr::Call(n, _, _) if n == "read" => named("str"),
                 Expr::Call(n, _, _) if n == "json" => named("Json"),
