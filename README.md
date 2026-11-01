@@ -26,6 +26,8 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 toke
 
 ## Status: v0.18
 
+**Release test:** models write plain Python and Brevi builds it (`bench/e2e.py --lang pyb`). The test passes when that costs no more than running the same models' Python with CPython, for Sonnet and Haiku. On 1 Nov 2026 it stood at 1.16x for Sonnet and 0.94x for Haiku ([bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026)). The older notes below use the earlier token-count gate.
+
 Works today:
 - Parser for the full core syntax in BREVI.md
 - Front-end checks with short JSON errors: unknown names and methods with "did you mean" hints, wrong argument counts, names used outside their block
