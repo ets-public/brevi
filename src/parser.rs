@@ -1069,7 +1069,8 @@ impl Parser {
                 Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line })
             }
             // `s.discard(x)` takes x out of a set() list when it is there.
-            Expr::Method(recv, m, mut a, l) if m == "discard" && a.len() == 1 && !self.user_fns.contains(&m) => {
+            // Python's `xs.remove(x)` on a list takes out the first item equal to x (Brevi's remove takes an index).
+            Expr::Method(recv, m, mut a, l) if (m == "discard" && !self.user_fns.contains(&m) || m == "remove" && self.py && !self.own_method(&recv)) && a.len() == 1 => {
                 let x = a.remove(0);
                 let cond = Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l);
                 let at = Expr::Method(recv.clone(), "index_of".into(), vec![x], l);
@@ -1512,7 +1513,7 @@ impl Parser {
                             }
                             // A deque is a list: popleft() takes the first item, appendleft(x) puts one in front.
                             if name == "popleft" && args.is_empty() {
-                                e = Expr::Method(Box::new(e), "remove".into(), vec![Expr::Int(0)], line);
+                                e = Expr::Method(Box::new(e), "pop_at".into(), vec![Expr::Int(0)], line);
                                 continue;
                             }
                             if name == "appendleft" && args.len() == 1 {
@@ -2348,7 +2349,7 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         ("Decimal", 1) => m(args.remove(0).1, "dec", vec![]),
         // next(rows) takes the first item, as reading one from an iterator does.
         ("next", 1) => match args.remove(0).1 {
-            x @ Expr::Ident(_) => m(x, "remove", vec![Expr::Int(0)]),
+            x @ Expr::Ident(_) => m(x, "pop_at", vec![Expr::Int(0)]),
             // next(x for x in xs if c): the first match.
             other => m(other, "first", vec![]),
         },

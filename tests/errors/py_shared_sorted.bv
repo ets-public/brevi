@@ -1,6 +1,8 @@
 def take(lots, n):
     for lot in sorted(lots):
         lot[1] -= n
+        if lot[1] < 0:
+            lots.append([0, 0])
     return lots
 
 

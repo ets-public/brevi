@@ -515,6 +515,8 @@ impl Cx<'_> {
                     let vt = self.ty(value, env);
                     match (target, *op) {
                         (Expr::Ident(m), "=" | "+=") if m == n => *acc = merge(acc.clone(), vt),
+                        // Python's `rec[3] -= n` on a list of unknown items may be a slot of a mixed record: no evidence.
+                        (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) && py_on() && matches!(k.as_ref(), Expr::Int(_)) && matches!(acc, List(e) if **e == Hole) => {}
                         (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) => {
                             let kt = self.ty(k, env);
                             *acc = merge(acc.clone(), self.slot(acc, kt, vt));
@@ -822,6 +824,10 @@ impl Cx<'_> {
             Expr::Str(_) => Str,
             Expr::Ident(n) if n == "Null" && !env.contains_key(n) => Json,
             Expr::Ident(n) | Expr::Move(n) => env.get(n).or_else(|| self.genv.get(n)).cloned().unwrap_or(Hole),
+            // Python's `[expiry, seq, sku, qty]`: a record of mixed types is a tuple (its slots stay settable).
+            Expr::List(xs) if mixed_record(xs, &|x| self.ty(x, env)) => Tuple(xs.iter().map(|x| self.ty(x, env)).collect()),
+            // ... and one whose items are not all known yet may still be such a record.
+            Expr::List(xs) if py_on() && (2..=12).contains(&xs.len()) && xs.iter().any(|x| self.ty(x, env) == Hole) && xs.iter().any(|x| matches!(self.ty(x, env), Int | F64 | Str | Bool | Dec | Date)) => List(Box::new(Hole)),
             Expr::List(xs) => List(Box::new(xs.iter().fold(Hole, |a, x| merge(a, self.ty(x, env))))),
             Expr::Map(ps) if self.mixed.contains(&map_key(ps)) => Json,
             Expr::Map(ps) => {
@@ -1917,6 +1923,7 @@ impl Ck<'_, '_> {
         }
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
+            Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Tuple(xs.clone())),
             Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
                 (Tuple(_), Expr::Int(k)) if *k >= 0 => Some(Expr::TupleField(b.clone(), *k as usize)),
                 _ => None,
@@ -2017,6 +2024,14 @@ impl Ck<'_, '_> {
                         for ((_, pt), (_, a)) in ps.iter().zip(args.iter_mut()) {
                             if *pt == F64 {
                                 float_lit(a);
+                            }
+                            // A Python function given JSON values at some calls takes plain values as JSON too.
+                            if self.py && *pt == Json {
+                                let at = self.cx.ty(a, env);
+                                if scalar(&at) && at != Json {
+                                    let v = std::mem::replace(a, Expr::Int(0));
+                                    *a = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                                }
                             }
                         }
                         for ((pn, pt), (_, a)) in ps.iter().zip(args.iter()) {
@@ -2212,7 +2227,7 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
 }
 
 // Calls f on e and every expression inside it (lambda bodies too).
-fn walk(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+pub(crate) fn walk(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     f(e);
     match e {
         Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| walk(x, f)),
@@ -2280,4 +2295,19 @@ fn pat_names(p: &Pat) -> Vec<String> {
 
 fn scalar(t: &T) -> bool {
     matches!(t, Int | F64 | Str | Bool | Json)
+}
+
+// Set for a Python-style program (see main.rs): some Python forms are typed the Python way.
+pub static PY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn py_on() -> bool {
+    PY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn mixed_record(xs: &[Expr], ty: &dyn Fn(&Expr) -> T) -> bool {
+    if !py_on() || !(2..=12).contains(&xs.len()) {
+        return false;
+    }
+    let ts: Vec<T> = xs.iter().map(ty).collect();
+    ts.iter().all(|t| matches!(t, Int | F64 | Str | Bool | Dec | Date)) && ts.iter().any(|t| clash(t, &ts[0]) && !matches!((t, &ts[0]), (Int, F64) | (F64, Int)))
 }

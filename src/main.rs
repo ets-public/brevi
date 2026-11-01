@@ -339,6 +339,7 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
             return Err(errs);
         }
     }
+    infer::PY.store(python_style(&src), std::sync::atomic::Ordering::Relaxed);
     infer::auto_mut(&mut items);
     infer::returns(&mut items)?;
     // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.
