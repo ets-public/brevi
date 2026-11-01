@@ -10,6 +10,25 @@ Each check also logs `patch_tok`: for a retry, the tokens of the lines changed s
 `run.sh` uses `../target/release/brevi` unless `BREVI` is set (runs before the rename are named `-axon`).
 `python3 subject_prompt.py RUN LANG small|big` prints the prompt given to a test-subject model; subjects may only run code through `run.sh`.
 
+## End-to-end benchmark (`e2e.py`, 1 Nov 2026)
+
+`run.sh` scores code written plus errors read. `e2e.py` counts everything the Claude API bills for a finished task: the system prompt (the Brevi guide, cached), tool calls and results, thinking, text and retries, read from each response's `usage`, and prices it in dollars. Each task is a fresh conversation with the same tools in both languages (`write_file`, `edit_file`, `check`, plus `guide` for Brevi). `python3 e2e.py RUN --lang brevi --model sonnet --set xl3` runs a set; `python3 e2e.py --summary "logs/e2e/*.jsonl"` prints totals. Task sets live in `subject_prompt_sets.py`.
+
+Held-out XL set 3, effort medium, two runs (e1, e2), 12 tasks per row, every task passed:
+
+| Model | Language | Passed at first check | Output tokens | Guide cache write | USD |
+| --- | --- | --- | --- | --- | --- |
+| Sonnet | Brevi | 9 | 39,228 | 57,085 | 0.564 |
+| Sonnet | Python | 11 | 26,905 | 32,674 | 0.358 |
+| Haiku | Brevi | 5 | 129,526 | 134,824 | 0.085 |
+| Haiku | Python | 7 | 72,542 | 80,475 | 0.047 |
+
+Brevi costs 58% more than Python with Sonnet and 78% more with Haiku. Most of the gap is output (thinking and text, 46% more with Sonnet, 79% with Haiku) and the guide in the prompt; the finished code is about the same size. This is a larger gap than the code-and-errors benchmark shows.
+
+Third and fourth runs (e3 cold, e4w one task at a time so the guide stays cached) keep each conversation in `work/e2e/.../conversation.json`, with thinking summaries. With a warm cache the guide costs almost nothing (about 4,600 cached tokens read per call). The gap is model output and the cache writes of that output in later turns: Sonnet Brevi $0.315 vs Python $0.187 (e4w). The thinking summaries show why: in Brevi, models stop to work out rules that differ from Python, mostly the scope of top-level names (3 of 8 Sonnet and 5 of 10 Haiku thinking blocks), plus copies vs `mut`, `Result` and whether a parser accepts a form. Python runs show none of this. `--thinking between_tools` turns thinking off on Sonnet for comparison.
+
+`python3 py_as_brevi.py` hands every saved Python solution to `brevi check` unchanged and lists the most common first errors. On 1 Nov 2026, 56 of 580 (9.7%) pass. The top blockers are `;` between statements (126), `import` lines (sys, json, datetime, heapq, csv), `def main()`, raw-string regexes, `|`/`&` on sets, and `.splitlines()`/`.rstrip()`.
+
 ## Editing benchmark (`edit/`)
 
 Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}`), the kind of edit a model makes most often.
