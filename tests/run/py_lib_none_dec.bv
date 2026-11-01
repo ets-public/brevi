@@ -1,0 +1,23 @@
+from decimal import Decimal
+from fractions import Fraction
+
+
+class Q:
+    def __init__(self, val: Fraction):
+        self.val = val
+
+
+best = None
+
+
+def main():
+    global best
+    print(best)
+    for s in ["1.5", "0.25"]:
+        d = Decimal(s)
+        if best is None or d > best:
+            best = d
+    print(best, float(Q(Fraction("0.5")).val))
+
+
+main()

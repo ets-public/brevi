@@ -2665,6 +2665,9 @@ impl Dec {
 }
 impl Show for Dec {
     fn show(&self) -> String {
+        if self.0 == i128::MIN && ax_py_on() {
+            return "None".into();
+        }
         if ax_py_on() {
             return self.ax_fmt(self.1.max(self.places()) as i64);
         }
@@ -3434,6 +3437,12 @@ impl AxJsonSeq for Json {
     }
     fn ax_enumerate(&self) -> Vec<(i64, Json)> {
         self.ax_list().into_iter().enumerate().map(|(i, x)| (i as i64, x)).collect()
+    }
+}
+// `total = None` then a Decimal later: the unset value is a sentinel no sum reaches.
+impl AxNone for Dec {
+    fn ax_none() -> Self {
+        Dec(i128::MIN, 0)
     }
 }
 // @regex: only included in programs that use regexes.

@@ -408,7 +408,7 @@ impl Parser {
         let name = name.trim_start_matches("typing.").to_string();
         let ty = match name.as_str() {
             "float" => Ty::Named("f64".into()),
-            "Decimal" => Ty::Named("dec".into()),
+            "Decimal" | "Fraction" => Ty::Named("dec".into()),
             "list" | "List" | "set" | "Set" | "frozenset" | "deque" | "Sequence" | "Iterable" if self.is_sym("[") => {
                 self.next();
                 let t = self.ty()?;
