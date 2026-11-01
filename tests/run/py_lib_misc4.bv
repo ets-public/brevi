@@ -1,0 +1,25 @@
+def score(ans, spec):
+    s = set(ans)
+    k = set(spec)
+    return len(s - k), len(k & s)
+
+
+def main():
+    print(score("ACD", "AC"))
+    f = frozenset("ab")
+    print(sorted(f))
+    m = {"a": 1}
+    print(m.pop("a", 0), m.pop("b", 7))
+
+
+main()
+
+
+def g(a, b):
+    s = set(a)
+    k = set(b)
+    d = s - k
+    return sorted(d)
+
+
+print(g("abc", "b"))
