@@ -87,6 +87,8 @@ def main():
     del cnt["y"]
     cnt["y"] = 9
     print(d, list(cnt.keys()), cnt, True, 2.0)
+    for a, b, w in [["a", "b", "3"], ["b", "c", "4"]]:
+        print(a, b, int(w), 0 <= int(w) < 4)
 
 
 if __name__ == "__main__":

@@ -1800,6 +1800,14 @@ impl Emitter {
                     }
                     p => self.pat(p),
                 };
+                // Python's `for a, b, w in rows` also unpacks lists of that many items.
+                let it = match iter.as_ref() {
+                    Expr::Range(..) => it,
+                    _ if p.starts_with('(') && (2..=4).contains(&p.matches(',').count().saturating_add(1)) && !p[1..].contains('(') => {
+                        format!("{it}.map(|ax_x| AxUnpack::ax_unpack(ax_x))")
+                    }
+                    _ => it,
+                };
                 let b = self.block_d(body, true);
                 self.locals = outer;
                 format!("for {p} in {it} {b}")

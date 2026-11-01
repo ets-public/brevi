@@ -15,4 +15,6 @@ n:,6,2,4
 \d+{x} [1, 2, 3]
 [[1, 2], [5, 5]]
 {'b': 1, 'a': 2} ['z', 'x', 'y'] {'z': 2, 'x': 1, 'y': 9} True 2.0
+a b 3 True
+b c 4 False
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

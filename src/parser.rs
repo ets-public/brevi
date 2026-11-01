@@ -704,6 +704,8 @@ impl Parser {
             return self.unary();
         }
         let mut lhs = self.binary(level + 1)?;
+        // Python's `0 <= x < n` is `0 <= x and x < n`.
+        let mut chain: Option<Expr> = None;
         loop {
             // `x not in xs` is `!(x in xs)`.
             let negate = level == 2 && self.peek() == &Tok::Kw("not") && self.peek_at(1) == &Tok::Kw("in");
@@ -718,6 +720,19 @@ impl Parser {
             self.next();
             self.skip_newlines();
             let rhs = self.binary(level + 1)?;
+            const ORDER: &[&str] = &["<", ">", "<=", ">=", "==", "!="];
+            if level == 2 && !negate && ORDER.contains(&op) {
+                if let Some(prev) = chain.take() {
+                    chain = Some(rhs.clone());
+                    lhs = Expr::Binary("and", Box::new(lhs), Box::new(Expr::Binary(op, Box::new(prev), Box::new(rhs))));
+                    continue;
+                }
+                if matches!(rhs, Expr::Ident(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_) | Expr::Field(..) | Expr::Call(..) | Expr::Method(..) | Expr::Index(..) | Expr::Binary(..) | Expr::Unary(..)) {
+                    chain = Some(rhs.clone());
+                }
+            } else {
+                chain = None;
+            }
             let empty = |e: &Expr| matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(m) if m.is_empty());
             lhs = if op == ".." {
                 Expr::Range(Box::new(lhs), Box::new(rhs))
