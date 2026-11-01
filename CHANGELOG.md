@@ -2,7 +2,9 @@
 
 Each release's section here becomes its GitHub release notes (`.github/workflows/release.yml`; `release-notes.yml` re-syncs the notes of an existing release). Benchmark figures are tokens per finished task (code written plus errors read, retries scored as patches), from [bench/LEADERBOARD.md](bench/LEADERBOARD.md).
 
-## Unreleased
+## v0.19.0 (1 Nov 2026)
+
+Brevi now aims to build plain Python unchanged ("Python in, Rust speed out"). The release test is a plain-Python trial: models write ordinary Python, Brevi builds it, and the full API cost is compared with running the same models' Python on CPython. In run e14 Brevi costs 1.16x Python with Sonnet and 0.94x with Haiku, from 2.2x and 1.8x this morning. 331 of 580 saved Python solutions build and give the right output unchanged. The release test is not passed yet.
 
 - From the e14 retries: `{d:+.2f}` keeps the plus sign on a Decimal, Python's `string` constants work (`string.digits`, `from string import ascii_lowercase`, and the same for uppercase, letters, hexdigits and octdigits), and JSON values can be dict keys and set items.
 - The release test is now the plain-Python trial (`e2e.py --lang pyb` against `--lang python`, same day, Sonnet and Haiku, two runs). It passes when Brevi-built Python costs no more than CPython and passes as many tasks. See [bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026).
