@@ -239,6 +239,8 @@ struct Cx<'a> {
     param_look: bool,
     // `t.append(c)` with c not known yet: what t holds is not settled (it may be a mixed list).
     unsure: bool,
+    // Working out an entry read out of a map (`dd = nxt[s]`): `dd[t] = v` makes it a map.
+    entry_look: bool,
 }
 
 pub fn map_key(ps: &[(Expr, Expr)]) -> String {
@@ -261,7 +263,7 @@ pub fn global_types(items: &[Item]) -> HashMap<String, Ty> {
 }
 
 fn empty_cx(items: &[Item]) -> Cx<'_> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false, entry_look: false };
     for it in items {
         match it {
             Item::Fn { name, params, ret, body, script, .. } => {
@@ -521,6 +523,8 @@ impl Cx<'_> {
                         (Expr::Ident(m), "=" | "+=") if m == n => *acc = merge(acc.clone(), vt),
                         // Python's `rec[3] -= n` on a list of unknown items may be a slot of a mixed record: no evidence.
                         (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) && py_on() && matches!(k.as_ref(), Expr::Int(_)) && matches!(acc, List(e) if **e == Hole) => {}
+                        // `st = stats[sku]` then `st[0] += q`: a list entry, not a dict keyed by ints.
+                        (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) && self.entry_look && matches!(k.as_ref(), Expr::Int(_)) && *acc == Hole => {}
                         (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) => {
                             let kt = self.ty(k, env);
                             *acc = merge(acc.clone(), self.slot(acc, kt, vt));
@@ -565,10 +569,13 @@ impl Cx<'_> {
                             let mut mt = vt.clone();
                             let mut later = env.clone();
                             later.insert(m.clone(), mt.clone());
+                            let was = self.entry_look;
+                            self.entry_look = mt == Hole && matches!(acc, Map(..) | Hole);
                             self.look(m, &stmts[i + 1..], tail, &mut later, &mut mt);
                             if let Some(tl) = tail {
                                 self.look_expr(m, tl, &mut later, &mut mt);
                             }
+                            self.entry_look = was;
                             if some_known(&mt) {
                                 *acc = merge(acc.clone(), self.slot(acc, kt, mt.clone()));
                             }
@@ -649,6 +656,7 @@ impl Cx<'_> {
             List(_) => List(Box::new(v)),
             // A parameter of unknown kind indexed by a non-int key (`seen[oid] = true`) is a map.
             Hole if self.param_look && !matches!(k, Int | Hole) => Map(Box::new(k), Box::new(v)),
+            Hole if self.entry_look && k != Hole => Map(Box::new(k), Box::new(v)),
             _ => Hole,
         }
     }
@@ -676,6 +684,8 @@ impl Cx<'_> {
                             Hole
                         }
                         ("push" | "heap_push", List(_) | Hole) => List(Box::new(a0)),
+                        // A set() list filled from another list: `dealt.update(cards)`.
+                        ("update" | "extend", List(_)) if matches!(a0, List(_)) => a0.clone(),
                         ("push", Heap(_)) => Heap(Box::new(a0)),
                         ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
                         ("has" | "remove", Map(..)) => Map(Box::new(a0), Box::new(Hole)),
@@ -1360,7 +1370,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     for round in 0..12 {
         // Top-level names (`ts = {}` filled inside a function) are known by type where functions read them.
         let genv = empty_cx(items).genv;
-        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv, param_look: false, unsure: false };
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv, param_look: false, unsure: false, entry_look: false };
         for it in items.iter() {
             match it {
                 Item::Fn { name, params, ret, .. } => {
@@ -1528,6 +1538,32 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
             if last {
                 drop_unused_params(items);
+                // A function nothing calls (a Python method whose one use was inlined) needs no types.
+                let mut used: HashSet<String> = HashSet::new();
+                for it in items.iter() {
+                    if let Item::Fn { body, .. } | Item::Test { body, .. } = it {
+                        walk(body, &mut |e| match e {
+                            Expr::Call(f, _, _) | Expr::Ident(f) => {
+                                used.insert(f.clone());
+                            }
+                            Expr::Method(_, m, _, _) => {
+                                used.insert(m.clone());
+                            }
+                            _ => {}
+                        });
+                    }
+                }
+                for it in items.iter_mut() {
+                    if let Item::Fn { name, params, ret, body, .. } = it {
+                        // `Orders_add_backorder` is called as `.add_backorder`, `Stock__ordered` as `._ordered`.
+                        let called = used.contains(name.as_str()) || name.match_indices('_').any(|(i, _)| used.contains(&name[i + 1..]) || used.contains(&name[i..]));
+                        if name != "main" && !called && params.iter().any(|p| q(&p.ty)) {
+                            params.clear();
+                            *ret = Ty::Named("?".into());
+                            *body = Expr::Block(vec![], None);
+                        }
+                    }
+                }
                 for it in items.iter() {
                     if let Item::Fn { name, params, line, .. } = it {
                         for p in params.iter().filter(|p| q(&p.ty)) {
@@ -1552,6 +1588,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             .collect();
         if !open_types.is_empty() {
             let mut ev: HashMap<(String, String), T> = HashMap::new();
+            let mut idx_ev: Vec<((String, String), T, T)> = vec![];
             for it in items.iter() {
                 let Item::Fn { params, body, .. } = it else { continue };
                 let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
@@ -1582,13 +1619,8 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                                 }
                             } else if let Expr::Index(b, ix) = target {
                                 if let Some(k) = owner(b, &env) {
-                                    let (kt, vt) = (cx.ty(ix, &env), cx.ty(value, &env));
-                                    let cur = ev.get(&k).cloned().unwrap_or(Hole);
-                                    let t = match cur {
-                                        List(_) => List(Box::new(vt)),
-                                        _ => Map(Box::new(kt), Box::new(vt)),
-                                    };
-                                    add(&mut ev, k, t);
+                                    // Whether the field is a list or a map shows from all functions: decided below.
+                                    idx_ev.push((k, cx.ty(ix, &env), cx.ty(value, &env)));
                                 }
                             }
                         }
@@ -1598,9 +1630,25 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                             if m == "push" && args.len() == 1 {
                                 add(&mut ev, k, List(Box::new(cx.ty(&args[0], &env))));
                             }
+                        } else if let Expr::Index(b, ix) = r.as_ref() {
+                            // `self.lots.setdefault(sku, []).append(lot)` (read as `self_.lots[sku].push(lot)`).
+                            if let Some(k) = owner(b, &env) {
+                                if m == "push" && args.len() == 1 && !matches!(ev.get(&k), Some(List(_))) {
+                                    let t = Map(Box::new(cx.ty(ix, &env)), Box::new(List(Box::new(cx.ty(&args[0], &env)))));
+                                    add(&mut ev, k, t);
+                                }
+                            }
                         }
                     }
                 });
+            }
+            for (k, kt, vt) in idx_ev {
+                let t = match ev.get(&k) {
+                    Some(List(_)) => List(Box::new(vt)),
+                    _ => Map(Box::new(kt), Box::new(vt)),
+                };
+                let cur = ev.remove(&k).unwrap_or(Hole);
+                ev.insert(k, merge(cur, t));
             }
             for it in items.iter_mut() {
                 if let Item::Type { name, fields, .. } = it {
@@ -1936,6 +1984,11 @@ impl Ck<'_, '_> {
         }
         // `dist.get(v, INF)` with int values and INF = float('inf'): the default is the biggest int.
         if let Expr::Method(r, m, args, _) = &mut *e {
+            // Python's `list(d)` (a copy, `d.skip(0)`) of a dict is its keys.
+            if m == "skip" && matches!(args.as_slice(), [Expr::Int(0)]) && matches!(self.cx.ty(r, env), Map(..)) {
+                *m = "keys".into();
+                args.clear();
+            }
             if m == "get_or" && args.len() == 2 {
                 if let Map(_, v) = self.cx.ty(r, env) {
                     if *v == Int && self.cx.ty(&args[1], env) == F64 {
@@ -2111,7 +2164,7 @@ impl Ck<'_, '_> {
 
 // Checks every function and fixes the forms that have one obvious meaning.
 pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false, entry_look: false };
     for it in items.iter() {
         match it {
             Item::Fn { name, params, ret, .. } => {

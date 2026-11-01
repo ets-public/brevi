@@ -1,0 +1,61 @@
+class Stock:
+    def __init__(self):
+        self.lots = {}  # sku -> list of [seq, expiry, qty]
+        self.seq = 0
+
+    def add(self, sku, qty, expiry):
+        self.seq += 1
+        self.lots.setdefault(sku, []).append([self.seq, expiry, qty])
+
+    def _ordered(self, sku):
+        return sorted(self.lots.get(sku, []), key=lambda l: (l[1], l[0]))
+
+    def take(self, sku, qty):
+        taken = 0
+        for lot in self._ordered(sku):
+            if qty == 0:
+                break
+            n = min(lot[2], qty)
+            lot[2] -= n
+            qty -= n
+            taken += n
+        for k in list(self.lots):
+            self.lots[k] = [l for l in self.lots[k] if l[2] > 0]
+        return taken
+
+
+def main():
+    s = Stock()
+    s.add("a", 5, "2024-01-02")
+    s.add("a", 3, "2024-01-01")
+    s.add("b", 1, "2024-01-03")
+    print(s.take("a", 4))
+    print(s.lots["a"][0][2], len(s.lots["a"]))
+    stats = {}
+    for sku, q in [("a", 3), ("b", 1), ("a", 2)]:
+        if sku not in stats:
+            stats[sku] = [0, 0]
+        st = stats[sku]
+        st[0] += q
+        st[1] += 1
+    print(stats)
+    nxt = {}
+    for s2, t2 in [("x", 1), ("y", 2), ("x", 3)]:
+        dd = nxt.setdefault(s2, {})
+        dd[t2] = [s2]
+    print(nxt)
+    prev = None
+    for i, k in enumerate([1, 1, 2]):
+        if k != prev:
+            pos = i + 1
+            prev = k
+        print(pos, k)
+    best = None
+    for c in [(3, 1, ["a"]), (2, 5, ["b"])]:
+        if best is None or c < best:
+            best = c
+    if best:
+        print("best", best[0], ",".join(best[2]))
+
+
+main()

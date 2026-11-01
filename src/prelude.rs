@@ -439,6 +439,22 @@ impl AxTruth for String {
         !self.is_empty() && self != "\u{0}None"
     }
 }
+// A tuple is true unless it is the None of a `best = None` that was never set (Python: any tuple is true).
+impl<A: AxNone + PartialEq, B: AxNone + PartialEq> AxTruth for (A, B) {
+    fn ax_truth(&self) -> bool {
+        !(self.0.ax_is_none() && self.1.ax_is_none())
+    }
+}
+impl<A: AxNone + PartialEq, B: AxNone + PartialEq, C: AxNone + PartialEq> AxTruth for (A, B, C) {
+    fn ax_truth(&self) -> bool {
+        !(self.0.ax_is_none() && self.1.ax_is_none() && self.2.ax_is_none())
+    }
+}
+impl<A: AxNone + PartialEq, B: AxNone + PartialEq, C: AxNone + PartialEq, D: AxNone + PartialEq> AxTruth for (A, B, C, D) {
+    fn ax_truth(&self) -> bool {
+        !(self.0.ax_is_none() && self.1.ax_is_none() && self.2.ax_is_none() && self.3.ax_is_none())
+    }
+}
 impl<T> AxTruth for Vec<T> {
     fn ax_truth(&self) -> bool {
         !self.is_empty()
