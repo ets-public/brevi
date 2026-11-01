@@ -2802,6 +2802,38 @@ impl<T> AxUnpack<(T, T, T, T)> for Vec<T> {
         (i.next().unwrap(), i.next().unwrap(), i.next().unwrap(), i.next().unwrap())
     }
 }
+// Python's `a ** b`: an int to a whole power stays an int; with a float on either side it is a float.
+pub trait AxPow<B> {
+    type Out;
+    fn ax_pow(self, b: B) -> Self::Out;
+}
+impl AxPow<i64> for i64 {
+    type Out = i64;
+    fn ax_pow(self, b: i64) -> i64 {
+        if b < 0 {
+            panic!("int ** negative power gives a fraction: write a float, like 2.0 ** {b}");
+        }
+        self.pow(b as u32)
+    }
+}
+impl AxPow<f64> for f64 {
+    type Out = f64;
+    fn ax_pow(self, b: f64) -> f64 {
+        self.powf(b)
+    }
+}
+impl AxPow<i64> for f64 {
+    type Out = f64;
+    fn ax_pow(self, b: i64) -> f64 {
+        self.powi(b as i32)
+    }
+}
+impl AxPow<f64> for i64 {
+    type Out = f64;
+    fn ax_pow(self, b: f64) -> f64 {
+        (self as f64).powf(b)
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]

@@ -14,7 +14,7 @@ for-target ::= pattern (ws "," ws pattern)*
 expr ::= binary (ws "if" ws binary ws "else" ws expr)? | lambda
 lambda ::= t-name ws "=>" ws expr | "(" (ws t-name (ws "," ws t-name)*)? ws ")" ws "=>" ws expr | "lambda" (ws t-name (ws "," ws t-name)*)? ws ":" ws expr
 binary ::= unary (ws binop ws n ws unary)*
-binop ::= "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" ws "in" | "is" | "is" ws "not" | ".." | "+" | "-" | "*" | "/" | "%" | "//" | "|" | "&" | "^" | "<<" | ">>"
+binop ::= "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" ws "in" | "is" | "is" ws "not" | ".." | "+" | "-" | "*" | "/" | "%" | "//" | "|" | "&" | "^" | "<<" | ">>" | "**"
 unary ::= ("-" | "!" | "not") ws unary | postfix
 postfix ::= primary (ws trailer)*
 trailer ::= (t-nl)? ws "." ws (t-name | t-int | "or") (ws call)? | "[" ws n ws slice ws n ws "]" | "?" | call
