@@ -16,7 +16,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -851,8 +851,8 @@ impl Emitter {
             },
             Expr::Method(_, m, _, _) => match m.as_str() {
                 "len" | "count" | "find" | "find_from" | "index_of" | "digit" => named("int"),
-                "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
-                "trim" | "lower" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "zfill" | "title" | "center" | "center_with" | "capitalize" => named("str"),
+                "words" | "lines" | "chars" | "split" | "split_n" | "rsplit_n" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
+                "trim" | "lower" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
                 "dec" | "big" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_) | Expr::Float(_))) => named(m),
                 "float" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_))) => named("f64"),
@@ -1601,6 +1601,14 @@ impl Emitter {
             Expr::Binary("*", a, b) if [a, b].iter().any(|x| matches!(self.infer_ty(x), Some(Ty::Named(n)) if n == "str")) => {
                 let (s, n) = if matches!(self.infer_ty(a), Some(Ty::Named(t)) if t == "str") { (a, b) } else { (b, a) };
                 format!("({}).repeat(({}).max(0) as usize)", self.operand(s), self.expr(n))
+            }
+            // `a - b` on lists used as Python sets: the items of a not in b.
+            Expr::Binary("-", a, b) if [a, b].iter().any(|x| match x.as_ref() {
+                Expr::List(_) => true,
+                Expr::Method(_, m, _, _) if ["unique", "keys", "values"].contains(&m.as_str()) => true,
+                _ => matches!(self.infer_ty(x), Some(Ty::List(_))),
+            }) => {
+                format!("AxSetSub::ax_set_sub({}, {})", self.expr(a), self.expr(b))
             }
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.

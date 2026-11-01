@@ -24,3 +24,12 @@ pat = re.compile(r"(\w+)=(\d+)")
 for s in ["ab=12 x", " ab=1", "zz=7"]:
     mt = pat.match(s)
     print(mt.group(1) + ":" + mt.group(2) if mt else "none")
+def f(s, xs, ys):
+    print(s.ljust(6) + "|", s.rjust(6, "*"), s.count("a"), sorted(set(s)), len(set(s)))
+    print(sorted(set(xs) - set(ys)))
+f("banana", ["a", "b", "c"], ["b"])
+def g(tok, p):
+    qid, ans = tok.split("=", 1)
+    a, b = tok.rsplit("=", 1)
+    print(qid, ans, a, b, list(p), sorted(set(p)), p.count("b"))
+g("q1=a=b", "abcb")

@@ -3032,6 +3032,72 @@ impl<T: Clone + PartialOrd> AxBits for Vec<T> {
         v
     }
 }
+pub trait AxSetSub {
+    fn ax_set_sub(self, o: Self) -> Self;
+}
+impl<T: Clone + PartialOrd> AxSetSub for Vec<T> {
+    fn ax_set_sub(self, o: Vec<T>) -> Vec<T> {
+        let mut v: Vec<T> = self.into_iter().filter(|x| !o.contains(x)).collect();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v.dedup_by(|a, b| a == b);
+        v
+    }
+}
+// Python string methods on a value whose type is only known to Rust: s.count(sub), set(s), ljust/rjust.
+pub trait AxStrMore {
+    fn ax_count(&self, sub: impl AsRef<str>) -> i64;
+    fn ax_unique(&self) -> Vec<String>;
+    fn ax_ljust(&self, n: i64) -> String;
+    fn ax_skip(&self, n: i64) -> Vec<String>;
+    fn ax_split_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String>;
+    fn ax_rsplit_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String>;
+    fn ax_rjust(&self, n: i64) -> String;
+    fn ax_ljust_with(&self, n: i64, fill: impl AsRef<str>) -> String;
+    fn ax_rjust_with(&self, n: i64, fill: impl AsRef<str>) -> String;
+}
+impl AxStrMore for String {
+    fn ax_count(&self, sub: impl AsRef<str>) -> i64 {
+        self.ax_count_sub(sub)
+    }
+    fn ax_unique(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.chars().map(|c| c.to_string()).collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+    fn ax_ljust(&self, n: i64) -> String {
+        self.ax_ljust_with(n, " ")
+    }
+    fn ax_skip(&self, n: i64) -> Vec<String> {
+        self.chars().skip(n.max(0) as usize).map(|c| c.to_string()).collect()
+    }
+    // s.split(sep, n): at most n splits, as in Python (n < 0 means all).
+    fn ax_split_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String> {
+        if n < 0 {
+            return self.split(sep.as_ref()).map(String::from).collect();
+        }
+        self.splitn(n as usize + 1, sep.as_ref()).map(String::from).collect()
+    }
+    fn ax_rsplit_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String> {
+        if n < 0 {
+            return self.split(sep.as_ref()).map(String::from).collect();
+        }
+        let mut v: Vec<String> = self.rsplitn(n as usize + 1, sep.as_ref()).map(String::from).collect();
+        v.reverse();
+        v
+    }
+    fn ax_rjust(&self, n: i64) -> String {
+        self.ax_rjust_with(n, " ")
+    }
+    fn ax_ljust_with(&self, n: i64, fill: impl AsRef<str>) -> String {
+        let pad = (n - self.chars().count() as i64).max(0) as usize;
+        format!("{self}{}", fill.as_ref().repeat(pad))
+    }
+    fn ax_rjust_with(&self, n: i64, fill: impl AsRef<str>) -> String {
+        let pad = (n - self.chars().count() as i64).max(0) as usize;
+        format!("{}{self}", fill.as_ref().repeat(pad))
+    }
+}
 // A map read item by item is its list of keys, as in Python (`[k for k in d if d[k] > 0]`).
 pub trait AxMapSeq<K> {
     fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U>;
