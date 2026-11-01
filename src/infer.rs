@@ -939,7 +939,7 @@ impl Cx<'_> {
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
             "ints" => List(Box::new(Int)),
             "json" => Json,
-            "is_null" | "is_none" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "is_ascii" | "is_leap" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
+            "is_null" | "is_none" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "is_ascii" | "is_leap" | "isinstance" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
             "pop_item" => match &r {
                 Map(k, v) => Tuple(vec![*k.clone(), *v.clone()]),
                 _ => Hole,

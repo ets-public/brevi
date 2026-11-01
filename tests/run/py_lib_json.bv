@@ -1,0 +1,19 @@
+import json
+import sys
+
+
+def count(v):
+    if v is None or isinstance(v, bool):
+        return 0
+    if isinstance(v, (int, float)):
+        return 1
+    if isinstance(v, list):
+        return sum(count(x) for x in v)
+    if isinstance(v, dict):
+        return sum(count(x) for x in v.values())
+    return 0
+
+
+data = json.loads('{"a": [1, 2.5, {"b": "red", "c": 5}], "d": null, "e": true}')
+print(count(data), isinstance(data, dict), isinstance("x", str), isinstance(3, (str, list)))
+print(data["a"][0] == 1, data["a"][1] == 2.5)
