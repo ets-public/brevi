@@ -17,6 +17,7 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 toke
 - **llms.txt:** `site/build.sh` builds llms.txt, llms-full.txt and .md pages for brevi-lang.org into site/out.
 - **Install:** `sh install.sh` fetches the Rust toolchain if it is missing, then downloads a prebuilt brevi for Linux, macOS or Windows from the latest GitHub release (built by `.github/workflows/release.yml`), or builds it with `cargo install` when no release fits (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
 - **Editor rules:** `skills/rules/` has ready-made Brevi rules for Cursor, Copilot, Windsurf and Cline, built from BREVI.md by `skills/gen_rules.py`.
+- **Sandbox:** `allow read, write` at the top of a program declares what it touches (`read`, `write`, or `native` for rust fn, py fn and crates). `brevi run --sandbox` refuses anything undeclared, and the MCP tools sandbox by default (pass `sandbox: false` to turn it off). Brevi's library has no other way to reach files, the network or the environment.
 - **Agent frameworks:** [integrations/](integrations/README.md) has short, tested examples for LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK, each connecting to `brevi mcp`.
 - **Grammar:** [grammar/](grammar/README.md) has a Lark grammar and a llama.cpp GBNF copy for constrained decoding, so a local model can only write lines Brevi accepts.
 - **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.
@@ -166,6 +167,7 @@ Needs `rustc` on the PATH.
 | `src/emit.rs` | Checks and Rust generation |
 | `src/prelude.rs` | Runtime pasted into every generated program |
 | `src/main.rs` | CLI, rustc invocation and error mapping |
+| `src/caps.rs` | `allow` lines and the `--sandbox` check |
 | `examples/` | Sample programs |
 | `tests/` | Expected outputs for programs and error cases |
 | `tools/compat.py`, `compat/baseline.txt` | Every bench solution that ever passed; must keep passing on new toolchains |

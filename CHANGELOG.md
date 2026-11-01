@@ -13,6 +13,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 - Python 3.15 unpacking in comprehensions (`[*xs for xs in xss]`) reads as a comprehension followed by `flatten()` (#15). Rust 1.99 builds cleanly (#13).
 - The core guide is trimmed from 5,035 to 3,490 tokens; rare details move to REFERENCE.md, served by `brevi guide WORD`, and CI fails when BREVI.md goes over 3,600 tokens (#18).
 - Install channels prepared for launch, not yet published: Claude Code plugin and marketplace, MCP registry `server.json`, a PyPI wrapper, an npm wrapper (`brevi-lang`) and a dataset export of 49 tasks with 1,893 verified solutions (#20).
+- Grammar for constrained decoding: `grammar/brevi.lark` and a llama.cpp copy, `grammar/brevi.gbnf`, which accept every test program and all 1,370 verified Brevi solutions. Examples for LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK over `brevi mcp` (`integrations/`), and a Homebrew formula generator (#22).
+- Safe to run: `allow read, write` (or `native`) at the top of a program declares what it touches, `brevi run --sandbox` refuses anything undeclared, and the MCP tools sandbox by default (`sandbox: false` turns it off).
 - A second held-out set of six XL tasks (`bench/ref/gen_big4.py`). On it Brevi is behind Python: Sonnet 10,997 vs 9,222 tokens, Haiku 11,851 vs 11,426 (#19).
 
 ## v0.18.0 (31 Oct 2026)

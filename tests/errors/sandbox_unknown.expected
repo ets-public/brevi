@@ -1,0 +1,1 @@
+{"line":1,"msg":"unknown capability 'files'","fix":"allow takes read, write, native or none"}

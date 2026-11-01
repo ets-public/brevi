@@ -1,0 +1,2 @@
+{"line":3,"msg":"write() needs allow write","fix":"add the line `allow write` at the top, or do without it"}
+{"line":4,"msg":"a rust fn or py fn needs allow native","fix":"add the line `allow native` at the top, or do without it"}

@@ -1,0 +1,3 @@
+allow read, write
+write("target/sandbox_allow.txt", "kept")
+print(read("target/sandbox_allow.txt"))

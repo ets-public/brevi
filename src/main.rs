@@ -1,4 +1,5 @@
 mod ast;
+mod caps;
 mod diag;
 mod emit;
 mod ffi;
@@ -15,7 +16,7 @@ use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--sandbox] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -168,6 +169,7 @@ fn main() {
         EXPLAIN.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
+    let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
     let (cmd, file) = match (argv.first(), argv.get(1)) {
         (Some(c), Some(f)) => (c.as_str(), f.clone()),
         _ => {
@@ -196,6 +198,14 @@ fn main() {
         }
     };
     SEGS.set(segs).ok();
+    // `allow read, write` lines, and with --sandbox (or any allow line) a refusal of anything undeclared.
+    let with_allow = src.clone();
+    let (src, allowed, cap_errs) = caps::split(&src);
+    let cap_errs = if sandbox || allowed.is_some() { [cap_errs, caps::check_src(&src, &allowed.unwrap_or_default())].concat() } else { cap_errs };
+    if !cap_errs.is_empty() {
+        cap_errs.iter().for_each(print_diag);
+        exit(1);
+    }
     let foreign = ffi::split(&src).1;
     DEPS.set(ffi::all_deps(&foreign)).ok();
     RUST_LINES.set(foreign.rust_lines.clone()).ok();
@@ -206,6 +216,7 @@ fn main() {
     if cmd == "fix" {
         if !fixed.is_empty() {
             let segs = SEGS.get().cloned().unwrap_or_default();
+            let src = caps::restore(&with_allow, &src);
             let parts = if segs.len() > 1 { modules::split_back(&segs, &src) } else { vec![(PathBuf::from(&file), src.clone())] };
             for (path, text) in parts {
                 if std::fs::read_to_string(&path).ok().as_deref() == Some(text.as_str()) {
