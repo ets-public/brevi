@@ -119,6 +119,14 @@ fn elem(t: &T) -> T {
     }
 }
 
+// What map, filter, any and all pass to their lambda: a map's keys, as Python's `[k for k in d]` reads them.
+fn each_elem(t: &T) -> T {
+    match t {
+        Map(k, _) => *k.clone(),
+        t => elem(t),
+    }
+}
+
 fn empty_kind(e: &Expr) -> Option<T> {
     match e {
         Expr::List(xs) if xs.is_empty() => Some(List(Box::new(Hole))),
@@ -375,7 +383,7 @@ impl Cx<'_> {
             Expr::Method(r, m, args, _) => {
                 self.scan_maps(r, env);
                 let each = ["map", "filter", "any", "all", "count", "sort_by"].contains(&m.as_str());
-                let et = if each { elem(&self.ty(r, env)) } else { Hole };
+                let et = if each { each_elem(&self.ty(r, env)) } else { Hole };
                 for a in args {
                     match a {
                         Expr::Lambda(ps, b) if ps.len() == 1 => {
@@ -430,6 +438,8 @@ impl Cx<'_> {
                                     };
                                     // `m[a][b] = v` into a missing entry makes it a map (an empty list has no slot b).
                                     let inner = match inner {
+                                        // `m[-1][1] = v` on a list: the item may as well be a list, so later lines decide.
+                                        Hole if matches!(acc, List(_)) && matches!(k2t, Int) => Hole,
                                         Hole => Map(Box::new(k2t), Box::new(vt)),
                                         inner => merge(inner.clone(), self.slot(&inner, k2t, vt)),
                                     };
@@ -578,7 +588,7 @@ impl Cx<'_> {
                     }
                 }
                 self.look_expr(n, recv, env, acc);
-                let et = elem(&self.ty(recv, env));
+                let et = each_elem(&self.ty(recv, env));
                 for a in args {
                     self.look_lambda(n, a, &et, env, acc);
                 }
@@ -741,7 +751,7 @@ impl Cx<'_> {
                 let a0 = || args.first().map(|(_, a)| self.ty(a, env)).unwrap_or(Hole);
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
-                    "stdin" | "input" | "read" | "str" => Str,
+                    "stdin" | "input" | "read" | "str" | "__err" => Str,
                     "csv" => List(Box::new(List(Box::new(Str)))),
                     "json" => Json,
                     "date" => Date,
@@ -847,6 +857,7 @@ impl Cx<'_> {
             },
             "slice" | "sort" | "sort_by" | "rev" | "take" | "skip" | "filter" | "unique" | "step" | "repeat" | "abs" | "round" => match &r {
                 Hole if m == "repeat" || m == "slice" => Hole,
+                Map(k, _) if m == "filter" => List(k.clone()),
                 _ => r,
             },
             "flatten" => match elem(&r) {
@@ -875,7 +886,7 @@ impl Cx<'_> {
                 _ => a(1),
             },
             "or" => merge(r, a(0)),
-            "map" => List(Box::new(lam(0, &elem(&r)))),
+            "map" => List(Box::new(lam(0, &each_elem(&r)))),
             "fold" => merge(a(0), Hole),
             "add_days" => Date,
             _ => Hole,
@@ -1584,7 +1595,7 @@ impl Ck<'_, '_> {
                 self.expr(r, env);
                 // Only these methods pass each item to their lambda.
                 let each = ["map", "filter", "any", "all", "count", "sort_by"].contains(&m.as_str());
-                let et = if each { elem(&self.cx.ty(r, env)) } else { Hole };
+                let et = if each { each_elem(&self.cx.ty(r, env)) } else { Hole };
                 for a in args.iter_mut() {
                     match a {
                         Expr::Lambda(ps, body) => {

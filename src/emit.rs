@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global"];
+const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -58,6 +58,11 @@ pub struct Emitter {
     unit_fn: bool,
     // Inside a lambda that cannot return an error: a failing conversion stops the program.
     must: bool,
+    // Python mode (the program uses def, class or global): values print and dicts order as in Python.
+    pub py_mode: bool,
+    // Labels of the try blocks being emitted: a failure inside one jumps to its handler.
+    catch: Vec<String>,
+    try_n: usize,
     line: usize,
     pub diags: Vec<Diag>,
     // Names whose items are lists changed in place (`m[k].push(x)`), so an empty `m = {}` gets a partial type.
@@ -150,6 +155,7 @@ fn walk_try(e: &Expr, deep: bool) -> bool {
     let any = |xs: &[Expr]| xs.iter().any(|x| walk_try(x, deep));
     match e {
         Expr::Try(_) => true,
+        Expr::If(c, _, Some(h)) if is_try(c) => contains_try(h),
         Expr::Call(n, _, _) if deep && n == "fail" => true,
         Expr::Lambda(_, b) => deep && contains_try(b),
         Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Ident(_) | Expr::Move(_) => false,
@@ -619,6 +625,9 @@ impl Emitter {
             fallible: false,
             unit_fn: false,
             must: false,
+            py_mode: false,
+            catch: vec![],
+            try_n: 0,
             borrow_loops: false,
             nested: HashSet::new(),
             own_locals: HashSet::new(),
@@ -1018,7 +1027,8 @@ impl Emitter {
                     self.begin_fn(&[], true);
                     self.nested = nested_lists(body);
                     let b = self.body(body, &Ty::Unit, true);
-                    let b = b.replacen("{\n", "{\n    AX_FILES_REG.set(AX_FILES).ok();\n", 1);
+                    let py = if self.py_mode { "ax_py_mode();\n    " } else { "" };
+                    let b = b.replacen("{\n", &format!("{{\n    {py}AX_FILES_REG.set(AX_FILES).ok();\n"), 1);
                     tests.push_str(&format!("/*@L{line}*/#[test] fn t{test_n}_{}() -> R<()> {b}\n", slug(name)));
                 }
             }
@@ -1027,9 +1037,12 @@ impl Emitter {
             out.push_str(&crate::ffi::py_support(&crate::ffi::py_driver(&self.foreign, &py_names), items));
         }
         match self.fns.get("main") {
-            Some(sig) if sig.fallible => out.push_str(
-                "fn main() {\n    ax_init(AX_FILES);\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",{},\\\"msg\\\":{:?}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), e.0);\n        std::process::exit(1);\n    }\n}\n",
-            ),
+            Some(sig) if sig.fallible => {
+                let py = if self.py_mode { "    ax_py_mode();\n" } else { "" };
+                out.push_str(&format!(
+                    "fn main() {{\n    ax_init(AX_FILES);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), e.0);\n        std::process::exit(1);\n    }}\n}}\n"
+                ))
+            }
             Some(_) => {}
             None => out.push_str("fn main() {}\n"),
         }
@@ -1104,7 +1117,7 @@ impl Emitter {
             .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
-        let init = if name == "main" && !fallible { "ax_init(AX_FILES);\n" } else { "" };
+        let init = if name == "main" && !fallible { if self.py_mode { "ax_init(AX_FILES);\n    ax_py_mode();\n" } else { "ax_init(AX_FILES);\n" } } else { "" };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }
@@ -1156,6 +1169,11 @@ impl Emitter {
     fn hoist(&mut self, s: &Stmt, rest: &[Stmt], tail: Option<&Expr>) -> String {
         let mut out = String::new();
         let rest_stmts = rest;
+        let s = match s {
+            // A try statement with finally is a block whose first statement is the try.
+            Stmt::Expr { expr: Expr::Block(st, _), .. } if matches!(st.first(), Some(Stmt::Expr { expr: Expr::If(c, ..), .. }) if is_try(c)) => &st[0],
+            s => s,
+        };
         if let Stmt::Expr { expr: e @ (Expr::If(..) | Expr::Match(..)), .. } = s {
             let mut names = Vec::new();
             branch_sets(e, &mut names);
@@ -1206,6 +1224,15 @@ impl Emitter {
     // An expression whose value is not used: if/match branches need not agree on a type.
     fn stmt_expr(&mut self, e: &Expr) -> String {
         match e {
+            Expr::If(c, t, Some(h)) if is_try(c) => {
+                self.try_n += 1;
+                let lab = format!("ax_try{}", self.try_n);
+                self.catch.push(lab.clone());
+                let body = self.block_d(t, true);
+                self.catch.pop();
+                let handler = self.block_d(h, true);
+                format!("{{ let mut {lab}: Option<AxErr> = None; '{lab}: {body} if let Some(AxErr(ax_err)) = {lab} {{ let _ = &ax_err; {handler} }} }}")
+            }
             Expr::If(c, t, f) => {
                 let c = self.cond(c);
                 let t = self.block_d(t, true);
@@ -1326,6 +1353,8 @@ impl Emitter {
             // `(a, b) = v` unpacks; new names are declared.
             Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {
                 let v = self.expr(value);
+                // Python's `h, m = s.split(":")` unpacks a list as well as a tuple.
+                let v = if matches!(value, Expr::Tuple(_)) || !(2..=4).contains(&xs.len()) { v } else { format!("AxUnpack::ax_unpack({v})") };
                 let names: Vec<String> = xs.iter().map(|x| if let Expr::Ident(n) = x { n.clone() } else { unreachable!() }).collect();
                 if names.iter().all(|n| self.locals.contains(n) && !self.globals.contains_key(n)) {
                     let ps: Vec<String> = names.iter().map(|n| if self.refs.contains(n) { format!("*{n}") } else { n.clone() }).collect();
@@ -1569,6 +1598,9 @@ impl Emitter {
                     "and" | "or" => unreachable!(),
                     "~=" => format!("ax_approx({a}, {b})"),
                     "//" => format!("ax_floordiv({a}, {b})"),
+                    // Bitwise on ints, union and intersection on lists used as Python sets.
+                    "|" => format!("AxBits::ax_bor({a}, {b})"),
+                    "&" => format!("AxBits::ax_band({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     op => format!("({a} {op} {b})"),
                 }
@@ -1696,6 +1728,17 @@ impl Emitter {
                 }
                 other => format!("ax_must(ax_q({}))", self.expr(other)),
             },
+            Expr::Try(inner) if !self.catch.is_empty() => {
+                let lab = self.catch.last().unwrap().clone();
+                let v = match inner.as_ref() {
+                    Expr::Call(name, args, line) => {
+                        self.line = *line;
+                        self.call(name, args, true)
+                    }
+                    other => format!("ax_q({})", self.expr(other)),
+                };
+                format!("(match {v} {{ Ok(v) => v, Err(e) => {{ {lab} = Some(AxErr::from(e)); break '{lab}; }} }})")
+            }
             Expr::Try(inner) => {
                 if !self.fallible {
                     self.diag(self.line, "'?' used in a function that cannot fail", Some("add ! after the function's return type".into()));
@@ -1756,6 +1799,14 @@ impl Emitter {
                         format!("({})", names.join(", "))
                     }
                     p => self.pat(p),
+                };
+                // Python's `for a, b, w in rows` also unpacks lists of that many items.
+                let it = match iter.as_ref() {
+                    Expr::Range(..) => it,
+                    _ if p.starts_with('(') && (2..=4).contains(&p.matches(',').count().saturating_add(1)) && !p[1..].contains('(') => {
+                        format!("{it}.map(|ax_x| AxUnpack::ax_unpack(ax_x))")
+                    }
+                    _ => it,
                 };
                 let b = self.block_d(body, true);
                 self.locals = outer;
@@ -1833,6 +1884,11 @@ impl Emitter {
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),
             "__global" => return "()".to_string(),
+            "__err" => return "ax_err.clone()".to_string(),
+            "fail" if !self.catch.is_empty() => {
+                let lab = self.catch.last().unwrap().clone();
+                return format!("{{ {lab} = Some(AxErr({})); break '{lab}; }}", plain.join(", "));
+            }
             "fail" => {
                 if !self.fallible {
                     self.diag(self.line, "fail() used in a function that cannot fail", Some("add ! after the function's return type".into()));
@@ -1931,4 +1987,9 @@ impl Emitter {
 
 fn slug(s: &str) -> String {
     s.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' }).collect()
+}
+
+// The condition of the if that a Python try statement becomes.
+fn is_try(c: &Expr) -> bool {
+    matches!(c, Expr::Call(n, a, _) if n == "__try" && a.is_empty())
 }
