@@ -368,7 +368,10 @@ fn show_item<T: Show + 'static>(x: &T) -> String {
         Some(s) => format!("{s:?}"),
         // Python's repr of a Decimal inside a list or dict: Decimal('1.50').
         None if ax_py_on() && any.is::<Dec>() => format!("Decimal('{}')", x.show()),
-        None => x.show(),
+        None => match any.downcast_ref::<Json>() {
+            Some(j) if ax_py_on() => ax_json_py(j, false),
+            _ => x.show(),
+        },
     }
 }
 impl<T: Show + 'static> Show for Vec<T> {
@@ -1324,8 +1327,171 @@ impl Default for Json {
         Json::Null
     }
 }
+// A Python list of ints and strings holds Json values: arithmetic and comparisons work on their numbers.
+fn ax_jnum(j: &Json) -> f64 {
+    match j {
+        Json::Num { v } => *v,
+        Json::Bool { v } => *v as i64 as f64,
+        _ => panic!("unsupported operand type: {} is not a number", j.show()),
+    }
+}
+fn ax_jn(v: f64) -> Json {
+    Json::Num { v }
+}
+impl Plus for Json {
+    type Out = Json;
+    fn plus(self, o: Json) -> Json {
+        match (self, o) {
+            (Json::Str { v: a }, Json::Str { v: b }) => Json::Str { v: a + &b },
+            (Json::Arr { v: mut a }, Json::Arr { v: b }) => {
+                a.extend(b);
+                Json::Arr { v: a }
+            }
+            (a, b) => ax_jn(ax_jnum(&a) + ax_jnum(&b)),
+        }
+    }
+}
+impl Plus<String> for Json {
+    type Out = Json;
+    fn plus(self, o: String) -> Json {
+        self.plus(Json::Str { v: o })
+    }
+}
+impl Plus<Json> for String {
+    type Out = Json;
+    fn plus(self, o: Json) -> Json {
+        Json::Str { v: self }.plus(o)
+    }
+}
+macro_rules! ax_json_num_ops {
+    ($($t:ty),*) => {$(
+        impl Plus<$t> for Json {
+            type Out = Json;
+            fn plus(self, o: $t) -> Json {
+                ax_jn(ax_jnum(&self) + o as f64)
+            }
+        }
+        impl Plus<Json> for $t {
+            type Out = Json;
+            fn plus(self, o: Json) -> Json {
+                ax_jn(self as f64 + ax_jnum(&o))
+            }
+        }
+        impl std::ops::Sub<$t> for Json { type Output = Json; fn sub(self, o: $t) -> Json { ax_jn(ax_jnum(&self) - o as f64) } }
+        impl std::ops::Sub<Json> for $t { type Output = Json; fn sub(self, o: Json) -> Json { ax_jn(self as f64 - ax_jnum(&o)) } }
+        impl std::ops::Mul<$t> for Json { type Output = Json; fn mul(self, o: $t) -> Json { ax_jn(ax_jnum(&self) * o as f64) } }
+        impl std::ops::Mul<Json> for $t { type Output = Json; fn mul(self, o: Json) -> Json { ax_jn(self as f64 * ax_jnum(&o)) } }
+        impl std::ops::Div<$t> for Json { type Output = Json; fn div(self, o: $t) -> Json { ax_jn(ax_jnum(&self) / o as f64) } }
+        impl std::ops::Div<Json> for $t { type Output = Json; fn div(self, o: Json) -> Json { ax_jn(self as f64 / ax_jnum(&o)) } }
+        impl PartialEq<Json> for $t { fn eq(&self, o: &Json) -> bool { o == self } }
+        impl PartialOrd<$t> for Json {
+            fn partial_cmp(&self, o: &$t) -> Option<std::cmp::Ordering> {
+                ax_jnum(self).partial_cmp(&(*o as f64))
+            }
+        }
+        impl PartialOrd<Json> for $t {
+            fn partial_cmp(&self, o: &Json) -> Option<std::cmp::Ordering> {
+                (*self as f64).partial_cmp(&ax_jnum(o))
+            }
+        }
+    )*};
+}
+ax_json_num_ops!(i64, f64);
+impl std::ops::Sub for Json { type Output = Json; fn sub(self, o: Json) -> Json { ax_jn(ax_jnum(&self) - ax_jnum(&o)) } }
+impl std::ops::Mul for Json {
+    type Output = Json;
+    fn mul(self, o: Json) -> Json {
+        match (self, o) {
+            (Json::Str { v }, n @ Json::Num { .. }) | (n @ Json::Num { .. }, Json::Str { v }) => Json::Str { v: v.repeat(ax_jnum(&n).max(0.0) as usize) },
+            (a, b) => ax_jn(ax_jnum(&a) * ax_jnum(&b)),
+        }
+    }
+}
+impl std::ops::Div for Json { type Output = Json; fn div(self, o: Json) -> Json { ax_jn(ax_jnum(&self) / ax_jnum(&o)) } }
+impl std::ops::Rem for Json { type Output = Json; fn rem(self, o: Json) -> Json { let (a, b) = (ax_jnum(&self), ax_jnum(&o)); ax_jn(a - b * (a / b).floor()) } }
+impl std::ops::Neg for Json { type Output = Json; fn neg(self) -> Json { ax_jn(-ax_jnum(&self)) } }
+impl std::ops::AddAssign for Json { fn add_assign(&mut self, o: Json) { *self = std::mem::take(self).plus(o) } }
+impl std::ops::SubAssign for Json { fn sub_assign(&mut self, o: Json) { *self = std::mem::take(self) - o } }
+impl std::ops::MulAssign for Json { fn mul_assign(&mut self, o: Json) { *self = std::mem::take(self) * o } }
+impl std::ops::DivAssign for Json { fn div_assign(&mut self, o: Json) { *self = std::mem::take(self) / o } }
+impl AxFloorDiv for Json {
+    fn floordiv(self, b: Json) -> Json {
+        ax_jn((ax_jnum(&self) / ax_jnum(&b)).floor())
+    }
+}
+impl AxNum for Json {
+    fn ax_fmt(&self, decimals: i64) -> String {
+        format!("{:.*}", decimals.max(0) as usize, ax_jnum(self))
+    }
+    fn ax_abs(&self) -> Json {
+        ax_jn(ax_jnum(self).abs())
+    }
+    fn ax_float(&self) -> f64 {
+        ax_jnum(self)
+    }
+    fn ax_int(&self) -> i64 {
+        ax_jnum(self) as i64
+    }
+}
+impl AxIn<Json> for Vec<String> {
+    fn ax_in(&self, x: &Json) -> bool {
+        self.iter().any(|y| x == y)
+    }
+}
+// Changing a JSON value in place, as Python changes a dict or list: `rec["pages"] += 10`, `rec["tags"].append(x)`.
+impl AxMut<String, Json> for Json {
+    fn ax_mut(&mut self, k: &String) -> &mut Json {
+        if matches!(self, Json::Null) {
+            *self = Json::Obj { v: AxM::ordered() };
+        }
+        match self {
+            Json::Obj { v } => {
+                if !v.contains_key(k) {
+                    v.insert(k.clone(), Json::Null);
+                }
+                v.get_mut(k).unwrap()
+            }
+            _ => panic!("{} is not a dict, so it has no key {k:?}", self.show()),
+        }
+    }
+}
+impl AxMut<i64, Json> for Json {
+    fn ax_mut(&mut self, i: &i64) -> &mut Json {
+        match self {
+            Json::Arr { v } => {
+                let j = ax_idx(*i, v.len());
+                &mut v[j]
+            }
+            _ => panic!("{} is not a list", self.show()),
+        }
+    }
+}
+impl Json {
+    pub fn ax_push<T: AxToJson>(&mut self, x: T) {
+        match self {
+            Json::Arr { v } => v.push(x.ax_json()),
+            _ => panic!("{} is not a list, so it has no append", self.show()),
+        }
+    }
+}
+// Python mode prints a JSON value as Python prints what json.loads gives: None, True, 'x', [1, 2.5], {'k': 1}.
+fn ax_json_py(j: &Json, top: bool) -> String {
+    match j {
+        Json::Null => "None".into(),
+        Json::Bool { v } => if *v { "True".into() } else { "False".into() },
+        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e16 => format!("{}", *v as i64),
+        Json::Num { v } => ax_py_float(*v),
+        Json::Str { v } if top => v.clone(),
+        Json::Str { v } => ax_py_repr(v),
+        Json::Arr { v } => format!("[{}]", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
+        Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{}: {}", ax_py_repr(k), ax_json_py(x, false))).collect::<Vec<_>>().join(", ")),
+    }
+}
 impl Show for Json {
     fn show(&self) -> String {
+        if ax_py_on() {
+            return ax_json_py(self, true);
+        }
         match self {
             Json::Null => "null".into(),
             Json::Bool { v } => v.to_string(),
@@ -2956,6 +3122,10 @@ impl<T: std::fmt::Debug> std::fmt::Debug for AxB<T> {
 pub trait AxToJson {
     fn ax_json(&self) -> Json;
 }
+// A plain value put into a Python list that also holds other types.
+pub fn ax_to_json<T: AxToJson>(v: T) -> Json {
+    v.ax_json()
+}
 impl AxToJson for Json {
     fn ax_json(&self) -> Json {
         self.clone()
@@ -2989,6 +3159,22 @@ impl AxToJson for String {
 impl AxToJson for &str {
     fn ax_json(&self) -> Json {
         Json::Str { v: self.to_string() }
+    }
+}
+// A tuple is a JSON list, as json.dumps writes it.
+impl<A: AxToJson, B: AxToJson> AxToJson for (A, B) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json()] }
+    }
+}
+impl<A: AxToJson, B: AxToJson, C: AxToJson> AxToJson for (A, B, C) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json()] }
+    }
+}
+impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson> AxToJson for (A, B, C, D) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json()] }
     }
 }
 impl<T: AxToJson> AxToJson for Vec<T> {
@@ -3197,6 +3383,32 @@ impl<T> AxUnpack<(T, T, T, T)> for Vec<T> {
         (i.next().unwrap(), i.next().unwrap(), i.next().unwrap(), i.next().unwrap())
     }
 }
+// Longer unpacks (`ip, ts, meth, path, proto, st, size, ref, ua = m.groups()`).
+macro_rules! ax_unpack_many {
+    ($n:expr; $($t:ident)+) => {
+        impl<$($t),+> AxUnpack<($($t,)+)> for ($($t,)+) {
+            fn ax_unpack(self) -> ($($t,)+) {
+                self
+            }
+        }
+        impl<T> AxUnpack<($(ax_unpack_many!(@t $t),)+)> for Vec<T> {
+            fn ax_unpack(self) -> ($(ax_unpack_many!(@t $t),)+) {
+                let mut i = ax_unpack_n(self, $n);
+                ($(ax_unpack_many!(@n i $t),)+)
+            }
+        }
+    };
+    (@t $x:ident) => { T };
+    (@n $i:ident $x:ident) => { $i.next().unwrap() };
+}
+ax_unpack_many!(5; A B C D E);
+ax_unpack_many!(6; A B C D E F);
+ax_unpack_many!(7; A B C D E F G);
+ax_unpack_many!(8; A B C D E F G H);
+ax_unpack_many!(9; A B C D E F G H I);
+ax_unpack_many!(10; A B C D E F G H I J);
+ax_unpack_many!(11; A B C D E F G H I J K);
+ax_unpack_many!(12; A B C D E F G H I J K L);
 // Python's `a ** b`: an int to a whole power stays an int; with a float on either side it is a float.
 pub trait AxPow<B> {
     type Out;

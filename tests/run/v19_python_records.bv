@@ -1,0 +1,65 @@
+from decimal import Decimal
+
+cur = None
+books = []
+
+
+def start(n, title):
+    global cur
+    if not title:
+        cur = {'bad': True}
+        return
+    cur = {'n': n, 'title': title, 'pages': 0, 'tags': [], 'bad': False, 'price': Decimal('0')}
+
+
+def finish():
+    global cur
+    if cur is not None and not cur['bad']:
+        books.append(cur)
+    cur = None
+
+
+def get_stat(stats, sku):
+    if sku not in stats:
+        stats[sku] = [0, 0]
+    return stats[sku]
+
+
+class Shelf:
+    def __init__(self):
+        self.items = []
+
+
+def main():
+    start(1, "Dune")
+    cur['pages'] += 412
+    cur['tags'].append("sf")
+    cur['price'] += Decimal('9.99')
+    finish()
+    start(2, "")
+    finish()
+    start(3, "Emma")
+    cur['tags'].append("classic")
+    print('tags' in cur, cur.get('pages'), cur.get('isbn', 'none'))
+    finish()
+    for b in books:
+        print(b['n'], b['title'], b['pages'], ",".join(b['tags']), b['price'])
+    print(books[0])
+    stats = {}
+    for sku, q in [("a", 3), ("b", 1), ("a", 2)]:
+        st = get_stat(stats, sku)
+        st[0] += q
+        st[1] += 1
+    print(stats)
+    months = {}
+    for date, x in [("2026-01-05", 4), ("2026-01-09", 1), ("2026-02-01", 7)]:
+        m = months.setdefault(date[:7], [0, 0])
+        m[0] += x
+        m[1] += 1
+    print(months)
+    shelf = Shelf()
+    shelf.items.append("x")
+    print(shelf.items)
+
+
+main()

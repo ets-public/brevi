@@ -237,6 +237,8 @@ struct Cx<'a> {
     genv: Env,
     // Typing a parameter written without a type from how its own function uses it: every use counts.
     param_look: bool,
+    // `t.append(c)` with c not known yet: what t holds is not settled (it may be a mixed list).
+    unsure: bool,
 }
 
 pub fn map_key(ps: &[(Expr, Expr)]) -> String {
@@ -259,7 +261,7 @@ pub fn global_types(items: &[Item]) -> HashMap<String, Ty> {
 }
 
 fn empty_cx(items: &[Item]) -> Cx<'_> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false };
     for it in items {
         match it {
             Item::Fn { name, params, ret, body, script, .. } => {
@@ -411,6 +413,10 @@ impl Cx<'_> {
                             self.known_hints.insert((n.clone(), line), true);
                         }
                     }
+                    // Functions read it with this type from here on (not an older guess).
+                    if top && known(&t) {
+                        globals.insert(n.clone(), t.clone());
+                    }
                     env.insert(n.clone(), t);
                     continue;
                 }
@@ -513,6 +519,8 @@ impl Cx<'_> {
                     let vt = self.ty(value, env);
                     match (target, *op) {
                         (Expr::Ident(m), "=" | "+=") if m == n => *acc = merge(acc.clone(), vt),
+                        // Python's `rec[3] -= n` on a list of unknown items may be a slot of a mixed record: no evidence.
+                        (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) && py_on() && matches!(k.as_ref(), Expr::Int(_)) && matches!(acc, List(e) if **e == Hole) => {}
                         (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) => {
                             let kt = self.ty(k, env);
                             *acc = merge(acc.clone(), self.slot(acc, kt, vt));
@@ -658,6 +666,15 @@ impl Cx<'_> {
                         // Methods only text has.
                         ("split" | "words" | "lines" | "lower" | "upper" | "trim" | "starts_with" | "ends_with" | "replace" | "is_digit" | "is_alpha" | "ints" | "partition" | "find" | "chars", Hole) if self.param_look => Str,
                         ("has", Hole) if self.param_look => Map(Box::new(a0), Box::new(Hole)),
+                        // Python lists that hold ints and strings (`t.append(int(s[i:j]))`, `t.append(c)`): JSON items.
+                        ("push", List(x)) if scalar(x) && scalar(&a0) && clash(x, &a0) => {
+                            *acc = List(Box::new(Json));
+                            Hole
+                        }
+                        ("push", List(x)) if a0 == Hole && scalar(x) && matches!(args.first(), Some(Expr::Ident(_))) => {
+                            self.unsure = true;
+                            Hole
+                        }
                         ("push" | "heap_push", List(_) | Hole) => List(Box::new(a0)),
                         ("push", Heap(_)) => Heap(Box::new(a0)),
                         ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
@@ -811,6 +828,10 @@ impl Cx<'_> {
             Expr::Str(_) => Str,
             Expr::Ident(n) if n == "Null" && !env.contains_key(n) => Json,
             Expr::Ident(n) | Expr::Move(n) => env.get(n).or_else(|| self.genv.get(n)).cloned().unwrap_or(Hole),
+            // Python's `[expiry, seq, sku, qty]`: a record of mixed types is a tuple (its slots stay settable).
+            Expr::List(xs) if mixed_record(xs, &|x| self.ty(x, env)) => Tuple(xs.iter().map(|x| self.ty(x, env)).collect()),
+            // ... and one whose items are not all known yet may still be such a record.
+            Expr::List(xs) if py_on() && (2..=12).contains(&xs.len()) && xs.iter().any(|x| self.ty(x, env) == Hole) && xs.iter().any(|x| matches!(self.ty(x, env), Int | F64 | Str | Bool | Dec | Date)) => List(Box::new(Hole)),
             Expr::List(xs) => List(Box::new(xs.iter().fold(Hole, |a, x| merge(a, self.ty(x, env))))),
             Expr::Map(ps) if self.mixed.contains(&map_key(ps)) => Json,
             Expr::Map(ps) => {
@@ -851,6 +872,7 @@ impl Cx<'_> {
                     "abs" => a0(),
                     "min" | "max" => args.iter().fold(Hole, |t, (_, a)| merge(t, self.ty(a, env))),
                     "heap" => Heap(Box::new(Hole)),
+                    "ax_to_json" => Json,
                     "Str" | "Num" | "Bool" | "Arr" | "Obj" if !self.variants.contains_key(n.as_str()) => Json,
                     n if self.structs.contains_key(n) => Named(n.into()),
                     n if self.variants.contains_key(n) => {
@@ -871,6 +893,11 @@ impl Cx<'_> {
                 _ => Hole,
             },
             Expr::Index(b, i) => match self.ty(b, env) {
+                // `tx['posts']` on a dict made a record: the field.
+                Named(r) if crate::records::is_record(&r) => match rec_key(i) {
+                    Some(k) => self.structs.get(&r).and_then(|fs| fs.iter().find(|(n, _)| *n == k).map(|(_, t)| t.clone())).unwrap_or(Hole),
+                    None => Hole,
+                },
                 List(e) => *e,
                 Map(_, v) => *v,
                 Str => Str,
@@ -1029,7 +1056,12 @@ fn bind(p: &Pat, t: T, env: &mut Env) {
         }
         Pat::Tuple(ps) => {
             for (k, p) in ps.iter().enumerate() {
-                let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                // A list unpacked into names (`for a, b, w in rows` with rows a list of lists) gives its items.
+                let et = match &t {
+                    Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
+                    List(e) => (**e).clone(),
+                    _ => Hole,
+                };
                 bind(p, et, env);
             }
         }
@@ -1139,9 +1171,13 @@ impl Cx<'_> {
                             let mut mt = empty_kind(value).unwrap();
                             let mut later = env.clone();
                             later.insert(n.clone(), mt.clone());
+                            self.unsure = false;
                             self.look(n, &stmts[i + 1..], tail.as_deref(), &mut later, &mut mt);
                             if let Some(tl) = tail {
                                 self.look_expr(n, tl, &mut later, &mut mt);
+                            }
+                            if std::mem::take(&mut self.unsure) {
+                                mt = List(Box::new(Hole));
                             }
                             env.insert(n.clone(), mt);
                         }
@@ -1155,6 +1191,12 @@ impl Cx<'_> {
                             if !env.contains_key(n) || env[n] == Hole {
                                 let t = self.ty(value, env);
                                 env.insert(n.clone(), t);
+                            } else {
+                                // Python's `st = int(st)`: the name holds the new type from here on.
+                                let t = self.ty(value, env);
+                                if clash(&env[n], &t) {
+                                    env.insert(n.clone(), t);
+                                }
                             }
                         }
                         Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } => {
@@ -1313,10 +1355,12 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     }
     // Map literals whose values differ in type are Json objects, also as return values.
     let (_, mixed) = empty_types(items);
-    for round in 0..6 {
+    // Whether the last round still learned types from calls or returns (the evidence param_look waits for).
+    let mut moving = true;
+    for round in 0..12 {
         // Top-level names (`ts = {}` filled inside a function) are known by type where functions read them.
         let genv = empty_cx(items).genv;
-        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv, param_look: false };
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv, param_look: false, unsure: false };
         for it in items.iter() {
             match it {
                 Item::Fn { name, params, ret, .. } => {
@@ -1334,7 +1378,9 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 _ => {}
             }
         }
-        let last = round == 5;
+        let last = round == 11;
+        // A field typed this round is seen by the functions only next round.
+        let mut fields_moved = false;
         let mut errs = Vec::new();
         // `stock.take(sku, n)` on a value now known to be a class with that method calls the method, also when
         // the name is a built-in one or the class comes from another file.
@@ -1343,6 +1389,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
             cx.flat_env(body, &mut env);
             crate::parser::walk_mut(body, &mut |e| {
+                rec_field(e, &|x| global_too(cx.ty(x, &env), x, &cx.genv), &cx.structs);
                 if let Expr::Method(r, m, args, line) = e {
                     if let Named(c) = cx.ty(r, &env) {
                         let f = format!("{c}_{m}");
@@ -1445,11 +1492,13 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
             // A parameter no call pins down takes the type its own function's uses show
             // (`lots.push(Lot(...))`, `st[t]`, `p.qty`).
+            let from_calls = !fills.is_empty();
             for (k, it) in items.iter().enumerate() {
                 let Item::Fn { params, body, .. } = it else { continue };
                 for (pi, p) in params.iter().enumerate() {
-                    // Calls are the better evidence, so this waits until they have had two rounds.
-                    if round < 2 || !q(&p.ty) || fills.iter().any(|f| f.0 == k && f.1 == pi) {
+                    // Calls are the better evidence, so this waits until they have had two rounds and stopped
+                    // teaching anything new.
+                    if round < 2 || ((from_calls || moving) && round < 9) || !q(&p.ty) || fills.iter().any(|f| f.0 == k && f.1 == pi) {
                         continue;
                     }
                     let mut env: Env = params.iter().filter(|o| !q(&o.ty)).map(|o| (o.name.clone(), from_ast(&o.ty))).collect();
@@ -1510,7 +1559,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 let owner = |e: &Expr, env: &Env| -> Option<(String, String)> {
                     let Expr::Field(r, f) = e else { return None };
                     let Expr::Ident(n) = r.as_ref() else { return None };
-                    match env.get(n) {
+                    match env.get(n).filter(|t| **t != Hole).or_else(|| cx.genv.get(n)) {
                         Some(Named(c)) if open_types.iter().any(|(oc, of)| oc == c && of == f) => Some((c.clone(), f.clone())),
                         _ => None,
                     }
@@ -1558,6 +1607,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     for f in fields.iter_mut().filter(|f| q(&f.ty)) {
                         if let Some(t) = ev.get(&(name.clone(), f.name.clone())).and_then(to_ast) {
                             f.ty = t;
+                            fields_moved = true;
                         }
                     }
                 }
@@ -1624,6 +1674,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 None => {}
             }
         }
+        moving = !found.is_empty() || fields_moved;
         for (k, t) in found {
             if let Item::Fn { ret, .. } = &mut items[k] {
                 *ret = t;
@@ -1692,6 +1743,10 @@ struct Ck<'a, 'b> {
     set_at: HashMap<String, usize>,
     // The item types found for untyped empty values, by (name, line).
     empties: &'a HashMap<(String, usize), T>,
+    // Python-style file: a name set again to another type in the block that made it is a new name there.
+    py: bool,
+    // Names bound by the loop or function whose body the next block is.
+    next_own: Vec<String>,
 }
 
 impl Ck<'_, '_> {
@@ -1710,7 +1765,37 @@ impl Ck<'_, '_> {
     }
 
     fn block(&mut self, stmts: &mut [Stmt], tail: &mut Option<Box<Expr>>, env: &mut Env) {
+        // Names made in this block (so `w = int(w)` here can shadow them, as Python's rebinding does).
+        let mut own: HashSet<String> = std::mem::take(&mut self.next_own).into_iter().collect();
         for st in stmts.iter_mut() {
+            if self.py {
+                let shadow = match &*st {
+                    Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } if own.contains(n) && clash(&env.get(n).cloned().unwrap_or(Hole), &self.cx.ty(value, env)) => {
+                        Some((n.clone(), value.clone(), *line))
+                    }
+                    _ => None,
+                };
+                if let Some((n, value, line)) = shadow {
+                    env.remove(&n);
+                    *st = Stmt::Let { name: Pat::Bind(n), ty: None, value, mutable: true, line };
+                }
+            }
+            match &*st {
+                Stmt::Let { name, .. } => own.extend(pat_names(name)),
+                Stmt::Assign { target: Expr::Ident(n), op: "=", .. } if !env.contains_key(n) => {
+                    own.insert(n.clone());
+                }
+                Stmt::Assign { target: Expr::Tuple(xs), op: "=", .. } => {
+                    for x in xs {
+                        if let Expr::Ident(n) = x {
+                            if !env.contains_key(n) {
+                                own.insert(n.clone());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
             match st {
                 Stmt::Let { name, ty, value, line, .. } => {
                     self.line = *line;
@@ -1727,6 +1812,16 @@ impl Ck<'_, '_> {
                 Stmt::Assign { target, op, value, line } => {
                     self.line = *line;
                     self.expr(value, env);
+                    // `rec["done"] = True` on a JSON record: the value is put in as JSON.
+                    if self.py && *op == "=" {
+                        if let Expr::Index(b, _) = &*target {
+                            let vt = self.cx.ty(value, env);
+                            if self.cx.ty(b, env) == Json && vt != Json && (scalar(&vt) || matches!(vt, List(_) | Map(..))) {
+                                let v = std::mem::replace(value, Expr::Int(0));
+                                *value = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                            }
+                        }
+                    }
                     if !matches!(target, Expr::Ident(_)) {
                         self.expr(target, env);
                     }
@@ -1751,7 +1846,11 @@ impl Ck<'_, '_> {
                             for (k, x) in xs.iter().enumerate() {
                                 if let Expr::Ident(n) = x {
                                     if !env.contains_key(n) {
-                                        let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                                        let et = match &t {
+                                            Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
+                                            List(e) => (**e).clone(),
+                                            _ => Hole,
+                                        };
                                         env.insert(n.clone(), et);
                                     }
                                 }
@@ -1823,8 +1922,33 @@ impl Ck<'_, '_> {
                 }
             }
         }
+        // A list of JSON items (Python's mixed list) is given plain values as JSON.
+        if let Expr::Method(r, m, args, line) = &mut *e {
+            if matches!(m.as_str(), "push" | "insert") && !args.is_empty() {
+                if let List(it) = self.cx.ty(r, env) {
+                    let k = args.len() - 1;
+                    if *it == Json && scalar(&self.cx.ty(&args[k], env)) && self.cx.ty(&args[k], env) != Json {
+                        let v = std::mem::replace(&mut args[k], Expr::Int(0));
+                        args[k] = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                    }
+                }
+            }
+        }
+        // `dist.get(v, INF)` with int values and INF = float('inf'): the default is the biggest int.
+        if let Expr::Method(r, m, args, _) = &mut *e {
+            if m == "get_or" && args.len() == 2 {
+                if let Map(_, v) = self.cx.ty(r, env) {
+                    if *v == Int && self.cx.ty(&args[1], env) == F64 {
+                        let d = std::mem::replace(&mut args[1], Expr::Int(0));
+                        args[1] = Expr::Method(Box::new(d), "int".into(), vec![], 0);
+                    }
+                }
+            }
+        }
+        rec_field(e, &|x| global_too(self.cx.ty(x, env), x, &self.cx.genv), &self.cx.structs);
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
+            Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Tuple(xs.clone())),
             Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
                 (Tuple(_), Expr::Int(k)) if *k >= 0 => Some(Expr::TupleField(b.clone(), *k as usize)),
                 _ => None,
@@ -1869,7 +1993,11 @@ impl Ck<'_, '_> {
                 }
                 let mut inner = env.clone();
                 bind(p, loop_elem(p, &it_t), &mut inner);
+                if matches!(**body, Expr::Block(..)) {
+                    self.next_own = pat_names(p);
+                }
                 self.expr(body, &mut inner);
+                self.next_own.clear();
             }
             Expr::While(c, body) => {
                 self.expr(c, env);
@@ -1921,6 +2049,14 @@ impl Ck<'_, '_> {
                         for ((_, pt), (_, a)) in ps.iter().zip(args.iter_mut()) {
                             if *pt == F64 {
                                 float_lit(a);
+                            }
+                            // A Python function given JSON values at some calls takes plain values as JSON too.
+                            if self.py && *pt == Json {
+                                let at = self.cx.ty(a, env);
+                                if scalar(&at) && at != Json {
+                                    let v = std::mem::replace(a, Expr::Int(0));
+                                    *a = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                                }
                             }
                         }
                         for ((pn, pt), (_, a)) in ps.iter().zip(args.iter()) {
@@ -1974,8 +2110,8 @@ impl Ck<'_, '_> {
 }
 
 // Checks every function and fixes the forms that have one obvious meaning.
-pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false };
+pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false };
     for it in items.iter() {
         match it {
             Item::Fn { name, params, ret, .. } => {
@@ -1995,6 +2131,7 @@ pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
     // Top-level names, as functions see them (`for p in postings: s += p[1]` with postings a global list of pairs).
     let ecx = empty_cx(items);
     cx.genv = ecx.genv;
+    cx.mixed = ecx.mixed;
     let empties = ecx.hint_t;
     let mut errs = Vec::new();
     for it in items.iter_mut() {
@@ -2004,7 +2141,10 @@ pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
             _ => continue,
         };
         let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
-        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties };
+        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect() };
+        if !matches!(body, Expr::Block(..)) {
+            ck.next_own.clear();
+        }
         ck.expr(body, &mut env);
         errs.extend(ck.errs);
     }
@@ -2113,7 +2253,7 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
 }
 
 // Calls f on e and every expression inside it (lambda bodies too).
-fn walk(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+pub(crate) fn walk(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     f(e);
     match e {
         Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| walk(x, f)),
@@ -2170,5 +2310,73 @@ fn walk(e: &Expr, f: &mut dyn FnMut(&Expr)) {
             }
         }
         _ => {}
+    }
+}
+
+fn pat_names(p: &Pat) -> Vec<String> {
+    let mut out = vec![];
+    crate::parser::pat_names(p, &mut out);
+    out
+}
+
+fn scalar(t: &T) -> bool {
+    matches!(t, Int | F64 | Str | Bool | Json)
+}
+
+// Set for a Python-style program (see main.rs): some Python forms are typed the Python way.
+pub static PY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn py_on() -> bool {
+    PY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn mixed_record(xs: &[Expr], ty: &dyn Fn(&Expr) -> T) -> bool {
+    if !py_on() || !(2..=12).contains(&xs.len()) {
+        return false;
+    }
+    let ts: Vec<T> = xs.iter().map(ty).collect();
+    ts.iter().all(|t| matches!(t, Int | F64 | Str | Bool | Dec | Date)) && ts.iter().any(|t| clash(t, &ts[0]) && !matches!((t, &ts[0]), (Int, F64) | (F64, Int)))
+}
+
+fn rec_key(i: &Expr) -> Option<String> {
+    match i {
+        Expr::Str(parts) => match parts.as_slice() {
+            [StrPart::Lit(k)] => Some(k.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+// `tx['posts']`, `tx.get('posts')`, `tx.get('posts', [])` and `'posts' in tx` on a record.
+fn rec_field(e: &mut Expr, ty: &dyn Fn(&Expr) -> T, structs: &HashMap<String, Vec<(String, T)>>) {
+    let has = |b: &Expr, k: &str| -> Option<bool> {
+        match ty(b) {
+            Named(r) if crate::records::is_record(&r) => Some(structs.get(&r).is_some_and(|fs| fs.iter().any(|(n, _)| n == k))),
+            _ => None,
+        }
+    };
+    let new = match &*e {
+        Expr::Index(b, i) => rec_key(i).and_then(|k| (has(b, &k) == Some(true)).then(|| Expr::Field(b.clone(), k))),
+        Expr::Method(b, m, args, _) if matches!(m.as_str(), "get" | "get_or") && (1..=2).contains(&args.len()) => {
+            rec_key(&args[0]).and_then(|k| match has(b, &k) {
+                Some(true) => Some(Expr::Field(b.clone(), k)),
+                Some(false) => args.get(1).cloned(),
+                None => None,
+            })
+        }
+        Expr::Binary(op @ ("in" | "not in"), a, b) => rec_key(a).and_then(|k| has(b, &k).map(|h| Expr::Bool(h == (*op == "in")))),
+        _ => None,
+    };
+    if let Some(n) = new {
+        *e = n;
+    }
+}
+
+// A top-level name still unknown where it is read (`cur = None` above) has the type functions gave it.
+fn global_too(t: T, x: &Expr, genv: &Env) -> T {
+    match (&t, x) {
+        (Hole, Expr::Ident(n)) => genv.get(n).cloned().unwrap_or(Hole),
+        _ => t,
     }
 }

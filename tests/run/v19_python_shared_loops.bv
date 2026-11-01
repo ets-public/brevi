@@ -1,0 +1,63 @@
+lots = []
+_seq = 0
+backorders = []
+
+
+def add(sku, qty, expiry):
+    global _seq
+    _seq += 1
+    lots.append([expiry, _seq, sku, qty])
+
+
+def take(sku, qty):
+    got = 0
+    for lot in sorted((l for l in lots if l[2] == sku), key=lambda l: (l[0], l[1])):
+        if got >= qty:
+            break
+        n = min(qty - got, lot[3])
+        lot[3] -= n
+        got += n
+    lots[:] = [l for l in lots if l[3] > 0]
+    return got
+
+
+def summary():
+    d = {}
+    for l in lots:
+        c = d.setdefault(l[2], [0, 0])
+        c[0] += l[3]
+        c[1] += 1
+    return sorted((k, v[0], v[1]) for k, v in d.items())
+
+
+def fill(sku, have):
+    res = []
+    for b in list(backorders):
+        if b[1] != sku:
+            continue
+        s = min(have, b[2])
+        have -= s
+        b[2] -= s
+        if b[2] == 0:
+            backorders.remove(b)
+        res.append((b[0], s, b[2]))
+    return res
+
+
+def main():
+    add("apple", 5, "2024-01-02")
+    add("apple", 4, "2024-01-01")
+    add("pear", 3, "2024-01-01")
+    print(take("apple", 6))
+    print(summary())
+    backorders.append([1, "apple", 2])
+    backorders.append([2, "pear", 5])
+    backorders.append([3, "apple", 4])
+    print(fill("apple", 5))
+    print(len(backorders), backorders[0][0], backorders[1][2])
+    names = ["a", "b", "c", "b"]
+    names.remove("b")
+    print(names)
+
+
+main()

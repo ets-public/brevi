@@ -466,9 +466,6 @@ macro_rules! ax_tuple_json {
                 match j { Json::Arr { v } => Ok(($($t::ax_from(v.get($i).unwrap_or(&Json::Null))?,)+)), _ => Err("expected a list for a tuple".into()) }
             }
         }
-        impl<$($t: AxToJson),+> AxToJson for ($($t,)+) {
-            fn ax_json(&self) -> Json { Json::Arr { v: vec![$(self.$i.ax_json()),+] } }
-        }
     };
 }
 ax_tuple_json!(A 0, B 1);

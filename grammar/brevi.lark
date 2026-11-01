@@ -142,3 +142,4 @@ _NL: /(\r?\n[\t ]*((#|\/\/)[^\n]*)?)+/
 COMMENT: /#[^\n]*/ | /\/\/[^\n]*/
 %ignore COMMENT
 %ignore /[\t \f]+/
+%ignore /\\\n/

@@ -1018,6 +1018,13 @@ impl Emitter {
                     // Python's `__str__` (or `__repr__`) is how the object prints.
                     let dunder = ["___str__", "___repr__"].iter().map(|d| format!("{name}{d}")).find(|f| self.fns.get(f).is_some_and(|s| s.params.len() == 1 && !s.fallible));
                     match dunder {
+                        // A Python dict made a record prints as the dict, and is a JSON object for json.dumps.
+                        None if crate::records::is_record(name) => {
+                            let parts: Vec<String> = fields.iter().map(|f| format!("format!(\"'{0}': {{}}\", show_item(&self.{0}))", f.name)).collect();
+                            let pairs: Vec<String> = fields.iter().map(|f| format!("(String::from(\"{0}\"), AxToJson::ax_json(&self.{0}))", f.name)).collect();
+                            out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{{{{{}}}}}}\", [{}].join(\", \")) }} }}\n", parts.join(", ")));
+                            out.push_str(&format!("impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ ax_obj(vec![{}]) }} }}\n", pairs.join(", ")));
+                        }
                         Some(f) => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ {f}(self.clone()).to_string() }} }}\n")),
                         None => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n")),
                     }
@@ -1410,7 +1417,7 @@ impl Emitter {
             Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {
                 let v = self.expr(value);
                 // Python's `h, m = s.split(":")` unpacks a list as well as a tuple.
-                let v = if matches!(value, Expr::Tuple(_)) || !(2..=4).contains(&xs.len()) { v } else { format!("AxUnpack::ax_unpack({v})") };
+                let v = if matches!(value, Expr::Tuple(_)) || !(2..=12).contains(&xs.len()) { v } else { format!("AxUnpack::ax_unpack({v})") };
                 let names: Vec<String> = xs.iter().map(|x| if let Expr::Ident(n) = x { n.clone() } else { unreachable!() }).collect();
                 if names.iter().all(|n| self.locals.contains(n) && !self.globals.contains_key(n)) {
                     let ps: Vec<String> = names.iter().map(|n| if self.refs.contains(n) { format!("*{n}") } else { n.clone() }).collect();
@@ -1618,7 +1625,15 @@ impl Emitter {
                 if pairs.is_empty() {
                     "AxM::new()".into()
                 } else if self.mixed_map(pairs) {
-                    let ps: Vec<String> = pairs.iter().map(|(k, v)| format!("(Show::show(&{}), AxToJson::ax_json(&{}))", self.expr(k), self.expr(v))).collect();
+                    let ps: Vec<String> = pairs
+                        .iter()
+                        .map(|(k, v)| match v {
+                            // An empty list or dict in a JSON record has no item type to name.
+                            Expr::List(xs) if xs.is_empty() => format!("(Show::show(&{}), Json::Arr {{ v: vec![] }})", self.expr(k)),
+                            Expr::Map(xs) if xs.is_empty() => format!("(Show::show(&{}), Json::Obj {{ v: AxM::ordered() }})", self.expr(k)),
+                            _ => format!("(Show::show(&{}), AxToJson::ax_json(&{}))", self.expr(k), self.expr(v)),
+                        })
+                        .collect();
                     format!("ax_obj(vec![{}])", ps.join(", "))
                 } else {
                     // A map of functions holds each in an AxFn, which has the zero value a map needs.
@@ -1913,7 +1928,7 @@ impl Emitter {
                 // Python's `for a, b, w in rows` also unpacks lists of that many items.
                 let it = match iter.as_ref() {
                     Expr::Range(..) => it,
-                    _ if p.starts_with('(') && (2..=4).contains(&p.matches(',').count().saturating_add(1)) && !p[1..].contains('(') => {
+                    _ if p.starts_with('(') && (2..=12).contains(&p.matches(',').count().saturating_add(1)) && !p[1..].contains('(') => {
                         format!("{it}.map(|ax_x| AxUnpack::ax_unpack(ax_x))")
                     }
                     _ => it,
@@ -2036,7 +2051,7 @@ impl Emitter {
             }
             return format!("{name}({})", ordered.join(", "));
         }
-        if self.locals.contains(name) {
+        if self.locals.contains(name) || name == "ax_to_json" {
             return format!("{name}({})", plain.join(", "));
         }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();
