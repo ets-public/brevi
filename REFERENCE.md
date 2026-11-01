@@ -29,3 +29,4 @@ Functions are values: `ops = [add, mul]`, `for (name, f) in [("+", add)]: f(1, 2
 `brevi build f.bv -o app --release` builds an optimized binary. Runtime errors print `{"e":"runtime","line":N,"msg":...}`.
 `brevi emit f.bv` shows the Rust. `--explain` on any command adds the guide lines under each error. `brevi check f.bv --fast` skips rustc. `del fn name` in a patch file removes a function.
 A fixed typo prints `{"line":N,"fixed":"totl -> total"}`.
+`allow read, write` at the top declares what a program touches (`read`, `write`, `native` for rust fn, py fn and crates). `brevi run --sandbox` and the MCP tools refuse anything undeclared; a program with an `allow` line is held to it on every command.

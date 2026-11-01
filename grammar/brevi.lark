@@ -16,6 +16,7 @@ start: _NL? (line _NL)* line?
      | NAME ":" type ("=" expr)?     // field, or typed variable
      | "use" STRING STRING*          // use "util.bv", use sha2 "0.10"
      | "use" NAME STRING*
+     | "allow" NAME ("," NAME)*       // allow read, write, native
      | simple
 
 opener: fn_sig

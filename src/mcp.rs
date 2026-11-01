@@ -20,9 +20,9 @@ fn to_json(j: &J) -> String {
 
 const TOOLS: &str = r#"[
 {"name":"guide","description":"The Brevi language guide. Read the core once (no word) before writing Brevi; with a word, only the lines about it from the core and the reference (sections: Strings, Lists, Python, Libraries).","inputSchema":{"type":"object","properties":{"word":{"type":"string","description":"A name or section, like re_list or Tests"}}}},
-{"name":"check","description":"Compile a Brevi program without running it. Prints OK or one JSON error per line: {line, msg, fix}.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested rename and return the fixed program after the errors, below a --- line"}},"required":["code"]}},
-{"name":"run","description":"Compile and run a Brevi program with the given stdin. Prints its output, or the JSON errors.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["code"]}},
-{"name":"test","description":"Run the test blocks in a Brevi program.","inputSchema":{"type":"object","properties":{"code":{"type":"string"}},"required":["code"]}},
+{"name":"check","description":"Compile a Brevi program without running it. Prints OK or one JSON error per line: {line, msg, fix}.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested rename and return the fixed program after the errors, below a --- line"},"sandbox":{"type":"boolean","description":"Default true: read, write and native code need an allow line (allow read, write, native)"}},"required":["code"]}},
+{"name":"run","description":"Compile and run a Brevi program with the given stdin. Prints its output, or the JSON errors.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"sandbox":{"type":"boolean","description":"Default true: read, write and native code need an allow line (allow read, write, native)"}},"required":["code"]}},
+{"name":"test","description":"Run the test blocks in a Brevi program.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: read, write and native code need an allow line (allow read, write, native)"}},"required":["code"]}},
 {"name":"patch","description":"Replace each fn, type, enum or test in `patch` by name in `code` (or add it); `del fn name` removes one. Returns the new program.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"patch":{"type":"string"}},"required":["code","patch"]}}
 ]"#;
 
@@ -80,6 +80,8 @@ fn brevi_file(cmd: &str, code: &str, extra: &[String], stdin: &str) -> (String, 
 
 fn call(name: &str, a: &J) -> (String, bool) {
     let s = |k: &str| a.get(k).and_then(|v| v.str()).unwrap_or("").to_string();
+    // Sandboxed unless the caller says otherwise: no file access or native code without an `allow` line.
+    let sandbox: Vec<String> = if a.get("sandbox").map_or(true, |v| v.truthy()) { vec!["--sandbox".into()] } else { vec![] };
     match name {
         "guide" => {
             let w = s("word");
@@ -88,7 +90,10 @@ fn call(name: &str, a: &J) -> (String, bool) {
         }
         "check" => {
             let fast = a.get("fast").map_or(false, |v| v.truthy());
-            let flags: Vec<String> = if fast { vec!["--fast".into()] } else { vec![] };
+            let mut flags = sandbox.clone();
+            if fast {
+                flags.push("--fast".into());
+            }
             if a.get("fix").map_or(false, |v| v.truthy()) {
                 let (t, err, after) = brevi_file("fix", &s("code"), &flags, "");
                 let head = if t.trim().is_empty() && !err { "OK".to_string() } else { t.trim_end().to_string() };
@@ -98,7 +103,7 @@ fn call(name: &str, a: &J) -> (String, bool) {
             (if t.trim().is_empty() && !err { "OK".into() } else { t }, err)
         }
         "run" => {
-            let mut extra = vec![];
+            let mut extra = sandbox.clone();
             let args: Vec<String> = a.get("args").map(|v| v.arr().iter().filter_map(|x| x.str().map(String::from)).collect()).unwrap_or_default();
             if !args.is_empty() {
                 extra.push("--".to_string());
@@ -106,7 +111,7 @@ fn call(name: &str, a: &J) -> (String, bool) {
             }
             brevi("run", &s("code"), &extra, &s("stdin"))
         }
-        "test" => brevi("test", &s("code"), &[], ""),
+        "test" => brevi("test", &s("code"), &sandbox, ""),
         "patch" => match crate::patch::patch(&s("code"), &s("patch")) {
             Ok((out, done)) => (format!("{}\n---\n{out}", done.join(", ")), false),
             Err(m) => (m, true),

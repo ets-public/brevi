@@ -1,0 +1,4 @@
+allow read
+text = read("in.txt")
+write("out.txt", text)
+py fn sq(x: int) -> int = x * x
