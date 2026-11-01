@@ -1,0 +1,32 @@
+room hall Great Hall
+room kitchen Old Kitchen
+room cellar Damp Cellar
+exit hall east kitchen
+exit kitchen west hall
+exit kitchen down cellar locked brass_key
+exit cellar up kitchen locked brass_key
+item brass_key hall 1 small brass key
+item barrel kitchen 30 oak barrel
+item lamp player 2 oil lamp
+item gold cellar 5 bag of gold
+start hall
+capacity 8
+goal gold hall
+---
+look
+inv
+take brass_key
+go east
+look
+take barrel
+go down
+unlock down
+go down
+take gold
+inv
+go up
+look
+go west
+score
+drop gold
+look

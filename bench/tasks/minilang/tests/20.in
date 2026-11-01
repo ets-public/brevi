@@ -1,0 +1,4 @@
+func outer()
+  func inner()
+  end
+end

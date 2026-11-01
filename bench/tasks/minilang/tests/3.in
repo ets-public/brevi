@@ -1,0 +1,23 @@
+# scope
+g = 10
+func f(x)
+  g = x + 1
+  return g + h
+end
+h = 5
+print f(1), g
+func show()
+  print "g is", g
+end
+show()
+n = 0
+for ch in "hello"
+  if ch == "l"
+    continue
+  elif ch == "o"
+    break
+  else
+    n = n + 1
+  end
+end
+print n

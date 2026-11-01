@@ -1,0 +1,8 @@
+print "a"
+while true
+  print "b"
+  x = 1
+end
+func f()
+  break
+end

@@ -1,0 +1,7 @@
+room x The X
+item token x 1 a token
+start x
+goal token x
+---
+look
+look

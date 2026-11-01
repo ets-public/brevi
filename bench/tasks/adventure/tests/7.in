@@ -1,0 +1,10 @@
+
+room  bad Bad
+room good Good Room
+item it good -1 thing
+item i2 good 1
+exit good up
+start good extra
+capacity 0
+---
+look

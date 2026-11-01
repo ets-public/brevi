@@ -1,0 +1,16 @@
+room cave Big Cave
+item cave player 1 cave map
+item ring cave 0 gold ring
+exit cave down cave
+start cave
+capacity 1
+---
+inv
+take ring
+take cave
+drop cave
+take cave
+examine cave
+inv
+go down
+score

@@ -1,0 +1,6 @@
+3 10 hi
+3 -4 1 1
+abcd [1, 2, 3] 5 2
+true false true true none
+result: 13
+[1, "two", [true, none]]
