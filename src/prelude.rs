@@ -2858,6 +2858,33 @@ impl AxPow<f64> for i64 {
         (self as f64).powf(b)
     }
 }
+// Python 3's `a / b`: always a float.
+pub trait AxTrueDiv<B> {
+    fn ax_truediv(self, b: B) -> f64;
+}
+impl AxTrueDiv<i64> for i64 {
+    fn ax_truediv(self, b: i64) -> f64 {
+        if b == 0 {
+            panic!("division by zero");
+        }
+        self as f64 / b as f64
+    }
+}
+impl AxTrueDiv<f64> for i64 {
+    fn ax_truediv(self, b: f64) -> f64 {
+        self as f64 / b
+    }
+}
+impl AxTrueDiv<i64> for f64 {
+    fn ax_truediv(self, b: i64) -> f64 {
+        self / b as f64
+    }
+}
+impl AxTrueDiv<f64> for f64 {
+    fn ax_truediv(self, b: f64) -> f64 {
+        self / b
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]
