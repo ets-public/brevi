@@ -2145,6 +2145,19 @@ impl<K: Hash + Eq + Ord + Clone, V> AxOrdered<K, V> for AxM<K, V> {
         (k, v)
     }
 }
+// next(it, default) on a list being read from the front.
+pub trait AxNextOr<T> {
+    fn ax_next_or(&mut self, d: T) -> T;
+    fn ax_next_or_empty(&mut self) -> T;
+}
+impl<T: Default> AxNextOr<T> for Vec<T> {
+    fn ax_next_or(&mut self, d: T) -> T {
+        if self.is_empty() { d } else { self.remove(0) }
+    }
+    fn ax_next_or_empty(&mut self) -> T {
+        if self.is_empty() { T::default() } else { self.remove(0) }
+    }
+}
 // Python's d2 - d1 between dates: `.days` gives the number of days between them.
 impl std::ops::Sub for Date {
     type Output = Date;
@@ -3203,4 +3216,17 @@ impl AxRe for String {
         out
     }
 }
-
+// Python's re.match (anchored at the start) and re.findall (group 1 when the pattern has one group).
+pub trait AxRePy {
+    fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String>;
+    fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String>;
+}
+impl AxRePy for String {
+    fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String> {
+        self.ax_re_find(format!("^(?:{})", p.as_ref()))
+    }
+    fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
+        let all = self.ax_re_all(p.as_ref().to_string());
+        all.into_iter().map(|g| if g.len() == 2 { g[1].clone() } else { g[0].clone() }).collect()
+    }
+}

@@ -34,6 +34,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 - Python's `Decimal(x)` and `d.quantize(q, rounding=...)` work; a `dec` now remembers how many places it was written with (`1.50`, or what quantize set), which Python-style printing shows. `csv.reader(sys.stdin)` and `csv.reader(lines)` give the rows, and `date.fromisoformat(s)` is `date(s)`. Values that print in Python's style (`True`, `2.0`, `['a']`, `{'k': 1}`) are ready in the runtime for programs written as Python.
 - More Python: `next(rows)`, `xs.pop(i)` and `m.pop(k)` (which give the item back), `sorted(s)`, `enumerate(s, 1)` and `sep.join(s)` on a string, `sorted(m)` on a map, `(d2 - d1).days` on dates, and `OrderedDict()`. In Python mode `int("q")` fails with Python's message.
 - `OrderedDict` as an LRU cache: `move_to_end(k)` and `popitem(last=False)` / `popitem()`.
+- Python's `re` module: `re.compile`, `re.match`, `re.fullmatch`, `re.search`, `re.findall`, `re.sub`, `re.split`, compiled-pattern methods, and `m.group(n)`/`m.groups()`. `next(it, default)` and `next(x for x in xs if c)`.
 
 ## v0.18.0 (31 Oct 2026)
 

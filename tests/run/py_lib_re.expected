@@ -1,0 +1,13 @@
+a 1 ["a", "1"]
+no bad
+b 22 ["b", "22"]
+a b c
+["1", "22", "333"]
+["a", "b"]
+ok
+[] ["a"]
+["a", "b", "c"]
+x_y
+["h1", "h2"] ["1", "2"] ["empty"]
+8
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
