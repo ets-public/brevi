@@ -1,0 +1,10 @@
+from collections import OrderedDict
+def run():
+    cache = OrderedDict()
+    for k in ["a", "b", "c"]:
+        cache[k] = len(k)
+    cache.move_to_end("a")
+    k, v = cache.popitem(last=False)
+    print(k, v, list(cache.keys()))
+    print(cache.popitem())
+run()

@@ -2121,6 +2121,30 @@ impl<K: Hash + Eq + Ord + Clone + Show + 'static, V> AxPopAt<K, V> for AxM<K, V>
         }
     }
 }
+// OrderedDict: move_to_end(k) makes k the newest entry; popitem(last) takes the newest (or oldest) out.
+pub trait AxOrdered<K, V> {
+    fn ax_move_to_end(&mut self, k: K);
+    fn ax_pop_item(&mut self, last: bool) -> (K, V);
+}
+impl<K: Hash + Eq + Ord + Clone, V> AxOrdered<K, V> for AxM<K, V> {
+    fn ax_move_to_end(&mut self, k: K) {
+        if let Some(o) = &mut self.ord {
+            if let Some(i) = o.iter().position(|x| *x == k) {
+                let x = o.remove(i);
+                o.push(x);
+            }
+        }
+    }
+    fn ax_pop_item(&mut self, last: bool) -> (K, V) {
+        let k = match &self.ord {
+            Some(o) => if last { o.last().cloned() } else { o.first().cloned() },
+            None => if last { self.m.keys().max().cloned() } else { self.m.keys().min().cloned() },
+        };
+        let k = k.expect("KeyError: popitem(): dictionary is empty");
+        let v = self.remove(&k).unwrap();
+        (k, v)
+    }
+}
 // Python's d2 - d1 between dates: `.days` gives the number of days between them.
 impl std::ops::Sub for Date {
     type Output = Date;
