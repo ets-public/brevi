@@ -3227,6 +3227,92 @@ impl AxTrueDiv<f64> for f64 {
         self / b
     }
 }
+// Python's s.update(xs) on a set() list, m.update(other) on a dict, c.update(xs) on a Counter.
+pub trait AxUpdate<O> {
+    fn ax_update(&mut self, o: O);
+}
+impl<T: PartialEq> AxUpdate<Vec<T>> for Vec<T> {
+    fn ax_update(&mut self, o: Vec<T>) {
+        for x in o {
+            if !self.contains(&x) {
+                self.push(x);
+            }
+        }
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxUpdate<AxM<K, V>> for AxM<K, V> {
+    fn ax_update(&mut self, o: AxM<K, V>) {
+        for (k, v) in o.iter() {
+            self.insert(k.clone(), v.clone());
+        }
+    }
+}
+impl<K: Hash + Eq + Ord + Clone> AxUpdate<Vec<K>> for AxM<K, i64> {
+    fn ax_update(&mut self, o: Vec<K>) {
+        for k in o {
+            match self.get_mut(&k) {
+                Some(n) => *n += 1,
+                None => {
+                    self.insert(k, 1);
+                }
+            }
+        }
+    }
+}
+// timedelta(days=n) is a Date n days from the epoch, so d + timedelta(...) and (d2 - d1).days work.
+pub trait AxDelta {
+    fn ax_delta_days(&self) -> Date;
+}
+impl AxDelta for i64 {
+    fn ax_delta_days(&self) -> Date {
+        Date { days: *self }
+    }
+}
+impl Plus for Date {
+    type Out = Date;
+    fn plus(self, o: Date) -> Date {
+        Date { days: self.days + o.days }
+    }
+}
+// calendar.monthrange(y, m) and calendar.isleap(y) on the year.
+pub trait AxCalendar {
+    fn ax_month_range(&self, m: i64) -> (i64, i64);
+    fn ax_is_leap(&self) -> bool;
+}
+impl AxCalendar for i64 {
+    fn ax_month_range(&self, m: i64) -> (i64, i64) {
+        let first = days_from_civil(*self, m, 1);
+        let next = if m == 12 { days_from_civil(*self + 1, 1, 1) } else { days_from_civil(*self, m + 1, 1) };
+        ((first + 3).rem_euclid(7), next - first)
+    }
+    fn ax_is_leap(&self) -> bool {
+        let y = *self;
+        y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
+    }
+}
+pub trait AxIsAscii {
+    fn ax_is_ascii(&self) -> bool;
+}
+impl AxIsAscii for String {
+    fn ax_is_ascii(&self) -> bool {
+        self.is_ascii()
+    }
+}
+// float(d), int(d), abs(d) on a decimal, as Python allows.
+impl AxNum for Dec {
+    fn ax_fmt(&self, decimals: i64) -> String {
+        Dec::ax_fmt(self, decimals)
+    }
+    fn ax_abs(&self) -> Self {
+        Dec::ax_abs(self)
+    }
+    fn ax_float(&self) -> f64 {
+        Dec::ax_float(self)
+    }
+    fn ax_int(&self) -> i64 {
+        Dec::ax_int(self)
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]
