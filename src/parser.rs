@@ -83,10 +83,18 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         let class_names: Vec<String> = classes.iter().filter_map(|(c, _)| match c { Item::Type { name, .. } => Some(format!("{name}_")), _ => None }).collect();
         loop {
             let text = format!("{items:?} {script:?}");
+            let fn_names: Vec<String> = items.iter().filter_map(|i| match i { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
             let before = items.len();
             items.retain(|i| match i {
                 Item::Fn { name, .. } if class_names.iter().any(|c| name.starts_with(c.as_str())) => {
-                    text.contains(&format!("Call({name:?}")) || text.contains(&format!("Ident({name:?})"))
+                    // `board.add(...)` on a value whose class is only known once types are worked out (a parameter,
+                    // or a class from another file) keeps the method, if its class is made somewhere.
+                    let by_method = class_names.iter().filter(|c| name.starts_with(c.as_str())).any(|c| {
+                        let m = &name[c.len()..];
+                        let made = text.contains(&format!("Call(\"{c}new\"")) || !fn_names.contains(&format!("{c}new"));
+                        made && m != "new" && text.contains(&format!("{m:?}, ["))
+                    });
+                    by_method || text.contains(&format!("Call({name:?}")) || text.contains(&format!("Ident({name:?})"))
                 }
                 _ => true,
             });
@@ -2248,8 +2256,9 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
         }
     });
     let names: Vec<String> = kids.iter().filter_map(|k| match k { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
-    // What each child reads from the outer function.
+    // What each child reads from the outer function, and which of those it sets (`nonlocal`).
     let mut caps: Vec<Vec<String>> = Vec::new();
+    let mut nonlocals: Vec<Vec<String>> = Vec::new();
     for k in &kids {
         let Item::Fn { params, body: kb, .. } = k else {
             caps.push(vec![]);
@@ -2272,6 +2281,22 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
                 own.extend(ps.iter().cloned());
             }
         });
+        // `nonlocal x` names the outer function's x: it is passed in, to be changed there.
+        let mut shared: Vec<String> = Vec::new();
+        walk_mut(&mut kb2, &mut |e| {
+            if let Expr::Call(f, args, _) = e {
+                if f == "__global" {
+                    for (_, a) in args.iter() {
+                        if let Expr::Ident(n) = a {
+                            if outer_locals.contains(n) && !shared.contains(n) {
+                                shared.push(n.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        own.retain(|n| !shared.contains(n));
         let mut used = Vec::new();
         walk_mut(&mut kb2, &mut |e| {
             if let Expr::Ident(n) | Expr::Move(n) = e {
@@ -2280,7 +2305,10 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
                 }
             }
         });
+        // A nonlocal name the child never reads is not passed.
+        shared.retain(|n| used.contains(n));
         caps.push(used);
+        nonlocals.push(shared);
     }
     let mangled = |n: &str| format!("{outer}_{n}");
     let rename = |e: &mut Expr| {
@@ -2308,11 +2336,24 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
     };
     rename(body);
     let mut out = Vec::new();
-    for (k, cap) in kids.into_iter().zip(caps.iter()) {
+    for ((k, cap), shared) in kids.into_iter().zip(caps.iter()).zip(nonlocals.iter()) {
         if let Item::Fn { name, mut params, ret, fallible, mut body, line, script } = k {
             for c in cap {
-                params.push(Param { name: c.clone(), ty: Ty::Named("?".into()), is_mut: false });
+                params.push(Param { name: c.clone(), ty: Ty::Named("?".into()), is_mut: shared.contains(c) });
             }
+            // The nonlocal names are parameters now, not top-level names.
+            walk_mut(&mut body, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    for s in st.iter_mut() {
+                        if let Stmt::Expr { expr: Expr::Call(f, args, _), .. } = s {
+                            if f == "__global" {
+                                args.retain(|(_, a)| !matches!(a, Expr::Ident(n) if shared.contains(n)));
+                            }
+                        }
+                    }
+                    st.retain(|s| !matches!(s, Stmt::Expr { expr: Expr::Call(f, args, _), .. } if f == "__global" && args.is_empty()));
+                }
+            });
             rename(&mut body);
             out.push(Item::Fn { name: mangled(&name), params, ret, fallible, body, line, script });
         } else {
@@ -2374,7 +2415,7 @@ fn generator_body(body: Expr, line: usize) -> Expr {
     Expr::Block(stmts, None)
 }
 
-fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
+pub(crate) fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
     f(e);
     match e {
         Expr::List(xs) | Expr::Tuple(xs) => xs.iter_mut().for_each(|x| walk_mut(x, f)),

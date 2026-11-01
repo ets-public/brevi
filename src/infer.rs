@@ -120,6 +120,84 @@ fn elem(t: &T) -> T {
 }
 
 // What map, filter, any and all pass to their lambda: a map's keys, as Python's `[k for k in d]` reads them.
+// Python passes along parameters a function never reads (`def route(frm, to, stops: list)`), so their type
+// cannot be worked out. Such a parameter is dropped, with its argument at each call, unless the function is
+// also used as a value.
+fn drop_unused_params(items: &mut [Item]) {
+    let q = |t: &Ty| matches!(t, Ty::Named(n) if n == "?");
+    let mut drops: Vec<(String, Vec<usize>)> = Vec::new();
+    for it in items.iter() {
+        let Item::Fn { name, params, body, .. } = it else { continue };
+        let mut read: Vec<String> = Vec::new();
+        walk(body, &mut |e| {
+            if let Expr::Ident(n) | Expr::Move(n) = e {
+                read.push(n.clone());
+            }
+        });
+        let gone: Vec<usize> = params.iter().enumerate().filter(|(_, p)| q(&p.ty) && !read.contains(&p.name)).map(|(i, _)| i).collect();
+        if !gone.is_empty() {
+            drops.push((name.clone(), gone));
+        }
+    }
+    if drops.is_empty() {
+        return;
+    }
+    // A function named outside a call (`map(f, xs)`, `ops = [f]`) keeps its shape.
+    let mut as_value: Vec<String> = Vec::new();
+    for it in items.iter() {
+        if let Item::Fn { body, .. } = it {
+            walk(body, &mut |e| {
+                if let Expr::Ident(n) | Expr::Move(n) = e {
+                    as_value.push(n.clone());
+                }
+            });
+        }
+    }
+    drops.retain(|(n, _)| !as_value.contains(n));
+    for it in items.iter_mut() {
+        if let Item::Fn { name, params, body, .. } = it {
+            if let Some((_, gone)) = drops.iter().find(|(n, _)| n == name) {
+                let mut i = 0;
+                params.retain(|_| {
+                    i += 1;
+                    !gone.contains(&(i - 1))
+                });
+            }
+            crate::parser::walk_mut(body, &mut |e| {
+                if let Expr::Call(f, args, _) = e {
+                    if let Some((_, gone)) = drops.iter().find(|(n, _)| n == f) {
+                        if args.iter().all(|(k, _)| k.is_none()) {
+                            let mut i = 0;
+                            args.retain(|_| {
+                                i += 1;
+                                !gone.contains(&(i - 1))
+                            });
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+
+// `a or b` / `a and b` on values that are not bools: their shared type (one side may still be unknown).
+fn or_value(a: &T, b: &T) -> Option<T> {
+    match (a, b) {
+        (Bool, _) | (_, Bool) | (Hole, Hole) => None,
+        (Hole, t) | (t, Hole) => Some(t.clone()),
+        (x, y) if x == y => Some(x.clone()),
+        _ => None,
+    }
+}
+
+// What a `for p in xs` loop gives p: a map read by one name gives its keys, as in Python.
+fn loop_elem(p: &Pat, t: &T) -> T {
+    match (p, t) {
+        (Pat::Bind(_), Map(k, _)) => *k.clone(),
+        _ => elem(t),
+    }
+}
+
 fn each_elem(t: &T) -> T {
     match t {
         Map(k, _) => *k.clone(),
@@ -232,7 +310,7 @@ impl Cx<'_> {
                 }
             }
             Expr::For(p, it, body) => {
-                let t = elem(&self.ty(it, env));
+                let t = loop_elem(p, &self.ty(it, env));
                 let mut inner = env.clone();
                 bind(p, t, &mut inner);
                 self.walk(body, &mut inner, false);
@@ -664,7 +742,7 @@ impl Cx<'_> {
             }
             Expr::For(p, it, body) => {
                 self.look_expr(n, it, env, acc);
-                let t = elem(&self.ty(it, env));
+                let t = loop_elem(p, &self.ty(it, env));
                 let mut inner = env.clone();
                 bind(p, t, &mut inner);
                 self.look_expr(n, body, &mut inner, acc);
@@ -741,6 +819,8 @@ impl Cx<'_> {
                 }
             }
             Expr::Binary(op, a, b) => match *op {
+                // `s or ""` on values that are not bools is a value of their type (see Checker::expr).
+                "and" | "or" if or_value(&self.ty(a, env), &self.ty(b, env)).is_some() => or_value(&self.ty(a, env), &self.ty(b, env)).unwrap(),
                 "==" | "!=" | "<" | ">" | "<=" | ">=" | "and" | "or" | "~=" | "&&" | "||" | "in" => Bool,
                 _ => {
                     let (x, y) = (self.ty(a, env), self.ty(b, env));
@@ -1078,7 +1158,7 @@ impl Cx<'_> {
                 }
             }
             Expr::For(p, it, body) => {
-                let t = elem(&self.ty(it, env));
+                let t = loop_elem(p, &self.ty(it, env));
                 bind(p, t, env);
                 self.flat_env(body, env);
             }
@@ -1228,6 +1308,25 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
         }
         let last = round == 5;
         let mut errs = Vec::new();
+        // `stock.take(sku, n)` on a value now known to be a class with that method calls the method, also when
+        // the name is a built-in one or the class comes from another file.
+        for it in items.iter_mut() {
+            let Item::Fn { params, body, .. } = it else { continue };
+            let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+            cx.flat_env(body, &mut env);
+            crate::parser::walk_mut(body, &mut |e| {
+                if let Expr::Method(r, m, args, line) = e {
+                    if let Named(c) = cx.ty(r, &env) {
+                        let f = format!("{c}_{m}");
+                        if cx.fns.contains_key(&f) {
+                            let mut a = vec![(None, (**r).clone())];
+                            a.extend(args.drain(..).map(|x| (None, x)));
+                            *e = Expr::Call(f, a, *line);
+                        }
+                    }
+                }
+            });
+        }
         // A parameter written without a type (`fn chk(t: str, cc):`) takes the type of what the calls pass.
         let untyped: HashMap<String, usize> = items
             .iter()
@@ -1320,6 +1419,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 }
             }
             if last {
+                drop_unused_params(items);
                 for it in items.iter() {
                     if let Item::Fn { name, params, line, .. } = it {
                         for p in params.iter().filter(|p| q(&p.ty)) {
@@ -1683,13 +1783,26 @@ impl Ck<'_, '_> {
             }
             Expr::For(p, it, body) => {
                 self.expr(it, env);
+                let it_t = self.cx.ty(it, env);
+                // Python's `for k in m:` reads the keys.
+                if matches!(it_t, Map(..)) && matches!(p, Pat::Bind(_)) {
+                    let m = std::mem::replace(it.as_mut(), Expr::Int(0));
+                    **it = Expr::Method(Box::new(m), "keys".into(), vec![], self.line);
+                }
                 let mut inner = env.clone();
-                bind(p, elem(&self.cx.ty(it, env)), &mut inner);
+                bind(p, loop_elem(p, &it_t), &mut inner);
                 self.expr(body, &mut inner);
             }
             Expr::While(c, body) => {
                 self.expr(c, env);
                 self.expr(body, &mut env.clone());
+            }
+            // Python's `m.group(3) or ""` is a value, not a test: the first operand when it is true, else the second.
+            Expr::Binary(op @ ("or" | "and"), a, b) if or_value(&self.cx.ty(a, env), &self.cx.ty(b, env)).is_some() => {
+                let (x, y) = ((**a).clone(), (**b).clone());
+                let blk = |e: Expr| Box::new(Expr::Block(vec![], Some(Box::new(e))));
+                *e = if *op == "or" { Expr::If(Box::new(x.clone()), blk(x), Some(blk(y))) } else { Expr::If(Box::new(x.clone()), blk(y), Some(blk(x))) };
+                self.expr(e, env);
             }
             Expr::Binary(op, a, b) => {
                 self.expr(a, env);

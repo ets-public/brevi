@@ -329,6 +329,8 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     used_consts_first(&mut items);
     infer::auto_mut(&mut items);
     infer::returns(&mut items)?;
+    // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.
+    infer::auto_mut(&mut items);
     let errs = infer::check(&mut items);
     if !errs.is_empty() {
         return Err(errs);
