@@ -810,6 +810,12 @@ impl Parser {
                         if self.eat_sym("(") {
                             let raw = self.args()?;
                             // Python's d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP): half to even unless ROUND_HALF_UP.
+                            // OrderedDict's popitem(last=False) takes the oldest entry; popitem() the newest.
+                            if name == "popitem" && raw.len() <= 1 {
+                                let last = !raw.first().is_some_and(|a| matches!(&a.1, Expr::Bool(false)));
+                                e = Expr::Method(Box::new(e), "pop_item".into(), vec![Expr::Bool(last)], line);
+                                continue;
+                            }
                             if name == "quantize" && !raw.is_empty() {
                                 let up = raw.iter().any(|a| a.0.as_deref() == Some("rounding") && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP"))
                                     || raw.get(1).is_some_and(|a| a.0.is_none() && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP"));
