@@ -1,0 +1,14 @@
+["name", "qty"]
+["a", "1"]
+["b", "2"]
+["a", "a", "a", "b", "n", "n"]
+1 a
+2 b
+["a", "b"]
+60
+1
+1 1
+c-a-b
+abc
+1 [2, 3]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

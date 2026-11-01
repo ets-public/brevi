@@ -837,8 +837,8 @@ impl Cx<'_> {
             "ints" => List(Box::new(Int)),
             "json" => Json,
             "is_null" | "is_none" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
-            "first" | "last" | "pop" | "min" | "max" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" => match &r {
-                Map(_, v) if m == "pop" => *v.clone(),
+            "first" | "last" | "pop" | "min" | "max" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" => match &r {
+                Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
                 _ => elem(&r),
             },
             "remove" => match &r {
@@ -983,7 +983,7 @@ fn no_value(e: &Expr) -> bool {
         Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
         Expr::Call(n, _, _) => ["print", "write", "fail"].contains(&n.as_str()),
         // Changing a list or map is a statement even though remove and pop give a value.
-        Expr::Method(_, m, _, _) => ["push", "insert", "remove", "pop", "heap_push", "heap_pop", "heapify"].contains(&m.as_str()),
+        Expr::Method(_, m, _, _) => ["push", "insert", "remove", "pop", "heap_push", "heap_pop", "heapify", "pop_at"].contains(&m.as_str()),
         _ => false,
     }
 }

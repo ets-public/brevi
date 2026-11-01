@@ -769,7 +769,13 @@ impl AxStr for String {
         self.repeat(n.max(0) as usize)
     }
     fn ax_int(&self) -> R<i64> {
-        self.trim().parse::<i64>().map_err(|_| AxErr(format!("not an int: {self:?}")))
+        self.trim().parse::<i64>().map_err(|_| {
+            if ax_py_on() {
+                AxErr(format!("invalid literal for int() with base 10: {}", ax_py_repr(self)))
+            } else {
+                AxErr(format!("not an int: {self:?}"))
+            }
+        })
     }
     fn ax_float(&self) -> R<f64> {
         self.trim().parse::<f64>().map_err(|_| AxErr(format!("not a float: {self:?}")))
@@ -2054,6 +2060,60 @@ impl<T: PartialOrd> AxHeapq<T> for Vec<T> {
         let top = std::mem::replace(&mut self[0], x);
         ax_sift_down(self, 0);
         top
+    }
+}
+// Python reads a string item by item: sorted(s), enumerate(s, 1); sorted(m) gives a map's sorted keys.
+pub trait AxStrItems {
+    fn ax_sort(&self) -> Vec<String>;
+    fn ax_enumerate_from(&self, n: i64) -> Vec<(i64, String)>;
+    fn ax_join(&self, sep: String) -> String;
+}
+impl AxStrItems for String {
+    fn ax_sort(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.chars().map(String::from).collect();
+        v.sort();
+        v
+    }
+    fn ax_enumerate_from(&self, n: i64) -> Vec<(i64, String)> {
+        self.chars().enumerate().map(|(i, c)| (i as i64 + n, c.to_string())).collect()
+    }
+    fn ax_join(&self, sep: String) -> String {
+        self.chars().map(String::from).collect::<Vec<_>>().join(&sep)
+    }
+}
+pub trait AxMapSort<K> {
+    fn ax_sort(&self) -> Vec<K>;
+}
+impl<K: Hash + Eq + Ord + Clone, V> AxMapSort<K> for AxM<K, V> {
+    fn ax_sort(&self) -> Vec<K> {
+        let mut v: Vec<K> = self.m.keys().cloned().collect();
+        v.sort();
+        v
+    }
+}
+// Python's xs.pop(i) and m.pop(k): take the item out and give it back.
+pub trait AxPopAt<I, T> {
+    fn ax_pop_at(&mut self, i: I) -> T;
+}
+impl<T> AxPopAt<i64, T> for Vec<T> {
+    fn ax_pop_at(&mut self, i: i64) -> T {
+        let j = ax_idx(i, self.len());
+        self.remove(j)
+    }
+}
+impl<K: Hash + Eq + Ord + Clone + Show + 'static, V> AxPopAt<K, V> for AxM<K, V> {
+    fn ax_pop_at(&mut self, k: K) -> V {
+        match self.remove(&k) {
+            Some(v) => v,
+            None => panic!("KeyError: {}", show_item(&k)),
+        }
+    }
+}
+// Python's d2 - d1 between dates: `.days` gives the number of days between them.
+impl std::ops::Sub for Date {
+    type Output = Date;
+    fn sub(self, o: Date) -> Date {
+        Date { days: self.days - o.days }
     }
 }
 // csv.reader(...) over a whole text or a list of lines.
