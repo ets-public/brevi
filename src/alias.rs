@@ -46,9 +46,23 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
         }
     }
     let mut cx = Cx { errs: vec![], mutators, getters };
+    let inl: Inline = items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Fn { name, params, body: Expr::Block(st, t), .. } => {
+                let e = match (st.as_slice(), t) {
+                    ([Stmt::Return { value: Some(e), .. }], None) => e.clone(),
+                    ([], Some(e)) => e.as_ref().clone(),
+                    _ => return None,
+                };
+                Some((name.clone(), (params.iter().map(|p| p.name.clone()).collect(), e)))
+            }
+            _ => None,
+        })
+        .collect();
     for it in items.iter_mut() {
         if let Item::Fn { body, .. } | Item::Test { body, .. } = it {
-            let pre = loops(body);
+            let pre = loops(body, &inl);
             if let Expr::Block(st, _) = body {
                 st.splice(0..0, pre);
             }
@@ -86,14 +100,14 @@ fn show(e: &Expr) -> String {
 
 // `for a in m.values()`, `for k, a in m.items()` and `for i, x in enumerate(xs)` whose body changes the item:
 // the loop goes over keys or indexes and names the item `a = m[k]`, which the write-back then covers.
-fn loops(e: &mut Expr) -> Vec<Stmt> {
+fn loops(e: &mut Expr, inl: &Inline) -> Vec<Stmt> {
     match e {
         Expr::Block(stmts, tail) => {
             let mut k = 0;
             while k < stmts.len() {
                 let pre = match &mut stmts[k] {
-                    Stmt::Expr { expr, .. } => loops(expr),
-                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => loops(value),
+                    Stmt::Expr { expr, .. } => loops(expr, inl),
+                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => loops(value, inl),
                     _ => vec![],
                 };
                 let n = pre.len();
@@ -103,24 +117,24 @@ fn loops(e: &mut Expr) -> Vec<Stmt> {
                 k += n + 1;
             }
             if let Some(t) = tail {
-                let pre = loops(t);
+                let pre = loops(t, inl);
                 stmts.extend(pre);
             }
         }
         Expr::If(_, a, b) => {
-            loops(a);
+            loops(a, inl);
             if let Some(b) = b {
-                loops(b);
+                loops(b, inl);
             }
         }
         Expr::While(_, b) => {
-            loops(b);
+            loops(b, inl);
         }
         Expr::Match(_, arms) => arms.iter_mut().for_each(|(_, a)| {
-            loops(a);
+            loops(a, inl);
         }),
         Expr::For(p, it, body) => {
-            loops(body);
+            loops(body, inl);
             let item = match &*p {
                 Pat::Bind(a) => Some(a.clone()),
                 Pat::Tuple(ps) if ps.len() == 2 => if let Pat::Bind(a) = &ps[1] { Some(a.clone()) } else { None },
@@ -134,6 +148,16 @@ fn loops(e: &mut Expr) -> Vec<Stmt> {
                 if let Some((i, pre)) = index_loop(&a, it, body) {
                     *p = Pat::Bind(i);
                     return pre;
+                }
+                // `for b in orders.pending_for(sku)` where the method only returns a list made from a field.
+                if let Some(mut inlined) = inline_call(it, inl) {
+                    let mut b2 = body.clone();
+                    if let Some((i, pre)) = index_loop(&a, &mut inlined, &mut b2) {
+                        *p = Pat::Bind(i);
+                        *it = inlined;
+                        *body = b2;
+                        return pre;
+                    }
                 }
             }
             let Expr::Method(base, m, args, line) = it.as_ref() else { return vec![] };
@@ -437,7 +461,8 @@ fn alias_of(st: &Stmt) -> Option<(String, Expr, Expr, usize)> {
         _ => return None,
     };
     let b = root(&base)?;
-    if b == r || !matches!(&base, Expr::Ident(_) | Expr::Field(..)) || !plain_key(&key) {
+    let nested = matches!(&base, Expr::Index(bb, bk) if matches!(bb.as_ref(), Expr::Ident(_) | Expr::Field(..)) && plain_key(bk) && !matches!(bk.as_ref(), Expr::Ident(k) if k == r));
+    if b == r || !(matches!(&base, Expr::Ident(_) | Expr::Field(..)) || nested) || !plain_key(&key) {
         return None;
     }
     if matches!(&key, Expr::Ident(k) if k == r) {
@@ -606,8 +631,15 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
     let mut steps: Vec<(String, Option<(String, Expr)>)> = vec![];
     let mut cur: &Expr = it.as_ref();
     let line;
+    // `m.get(k, [])` at the bottom: the list m[k].
+    let mut got: Option<Expr> = None;
     loop {
         match cur {
+            Expr::Method(r, m, args, l) if m == "get_or" && matches!(args.as_slice(), [k, Expr::List(d)] if d.is_empty() && plain_key(k)) && matches!(r.as_ref(), Expr::Ident(_) | Expr::Field(..)) => {
+                got = Some(Expr::Index(r.clone(), Box::new(args[0].clone())));
+                line = *l;
+                break;
+            }
             Expr::Method(r, m, args, l) => {
                 let step = match (m.as_str(), args.as_slice()) {
                     ("filter" | "sort_by", [Expr::Lambda(ps, lb)]) if ps.len() == 1 => (m.clone(), Some((ps[0].clone(), lb.as_ref().clone()))),
@@ -621,12 +653,22 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
                     line = *l;
                     break;
                 }
+                if let Expr::Method(r2, m2, a2, _) = cur {
+                    if m2 == "get_or" && matches!(a2.as_slice(), [k, Expr::List(d)] if d.is_empty() && plain_key(k)) && matches!(r2.as_ref(), Expr::Ident(_) | Expr::Field(..)) {
+                        got = Some(Expr::Index(r2.clone(), Box::new(a2[0].clone())));
+                        line = *l;
+                        break;
+                    }
+                }
             }
             _ => return None,
         }
     }
-    let base = cur.clone();
+    let base = got.unwrap_or_else(|| cur.clone());
     let Some(b) = root(&base).map(String::from) else { return None };
+    if steps.is_empty() && !matches!(base, Expr::Index(..)) {
+        return None;
+    }
     steps.reverse();
     let copy_only = steps.iter().all(|(m, _)| m == "skip");
     if shape_changed(&b, body, if copy_only { Some(a) } else { None }) {
@@ -816,4 +858,33 @@ fn getter_call(st: &Stmt, getters: &std::collections::HashMap<String, (Result<us
     }
     let key = args.get(*ki)?.1.clone();
     Some((r.clone(), value.clone(), base, key, line))
+}
+
+type Inline = std::collections::HashMap<String, (Vec<String>, Expr)>;
+
+// A call of a function that only returns an expression, with the arguments put in (plain arguments only).
+fn inline_call(it: &Expr, inl: &Inline) -> Option<Box<Expr>> {
+    let Expr::Call(f, args, _) = it else { return None };
+    let (ps, e) = inl.get(f)?;
+    if ps.len() != args.len() || args.iter().any(|(n, a)| n.is_some() || !matches!(a, Expr::Ident(_) | Expr::Field(..) | Expr::Int(_) | Expr::Str(_))) {
+        return None;
+    }
+    let mut lams: Vec<String> = vec![];
+    crate::infer::walk(e, &mut |x| {
+        if let Expr::Lambda(ps, _) = x {
+            lams.extend(ps.iter().cloned());
+        }
+    });
+    if args.iter().any(|(_, a)| root(a).is_some_and(|n| lams.iter().any(|l| l == n))) {
+        return None;
+    }
+    let mut e = e.clone();
+    // Names first go to placeholders, so an argument named like another parameter is not replaced twice.
+    for (k, p) in ps.iter().enumerate() {
+        subst(&mut e, p, &Expr::Ident(format!("ax_inl{k}")));
+    }
+    for (k, (_, a)) in args.iter().enumerate() {
+        subst(&mut e, &format!("ax_inl{k}"), a);
+    }
+    Some(Box::new(e))
 }

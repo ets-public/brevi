@@ -1186,6 +1186,9 @@ impl Emitter {
             out.push_str(&self.hoist(s, &stmts[i + 1..], tail));
             out.push_str(&self.stmt(s));
         }
+        if let Some(t) = tail {
+            out.push_str(&self.loop_hoist(t));
+        }
         match tail {
             Some(t) if unit => {
                 out.push_str(&format!("    {};\n", self.stmt_expr(t)));
@@ -1211,6 +1214,38 @@ impl Emitter {
         out
     }
 
+    fn loop_hoist(&mut self, e: &Expr) -> String {
+        let mut out = String::new();
+        // Python: a name set on some paths of a loop body keeps its value into the next pass
+        // (`if key != prev: pos = i + 1` then `print(pos)`), so it is declared before the loop.
+        if let Expr::For(_, _, b) | Expr::While(_, b) = e {
+            let pat = match e {
+                Expr::For(p, _, _) => format!("{p:?}"),
+                _ => String::new(),
+            };
+            if let (true, Expr::Block(body, btail)) = (self.py_mode, b.as_ref()) {
+                for (j, st) in body.iter().enumerate() {
+                    let Stmt::Expr { expr: e @ (Expr::If(..) | Expr::Match(..)), .. } = st else { continue };
+                    let mut names = Vec::new();
+                    branch_sets(e, &mut names);
+                    // Not the loop's own names, nor names each pass sets before the if.
+                    names.retain(|n| {
+                        !pat.contains(&format!("{n:?}"))
+                            && !body[..j].iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(x), op: "=", .. } if x == n) || matches!(s, Stmt::Let { name: Pat::Bind(x), .. } if x == n))
+                    });
+                    let later = format!("{:?} {btail:?}", &body[j + 1..]);
+                    for n in names.into_iter().filter(|n| n != "_") {
+                        if !self.locals.contains(&n) && self.global(&n).is_none() && (later.contains(&format!("Ident({n:?})")) || later.contains(&format!("Move({n:?})"))) && !stmts_set_first(&body[j + 1..], btail.as_deref(), &n) {
+                            out.push_str(&format!("    let mut {n} = Default::default();\n"));
+                            self.locals.insert(n);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
     // A name first set inside an if or match and used after it is declared before it
     // (Rust checks that every path sets it).
     fn hoist(&mut self, s: &Stmt, rest: &[Stmt], tail: Option<&Expr>) -> String {
@@ -1221,6 +1256,9 @@ impl Emitter {
             Stmt::Expr { expr: Expr::Block(st, _), .. } if matches!(st.first(), Some(Stmt::Expr { expr: Expr::If(c, ..), .. }) if is_try(c)) => &st[0],
             s => s,
         };
+        if let Stmt::Expr { expr, .. } = s {
+            out.push_str(&self.loop_hoist(expr));
+        }
         if let Stmt::Expr { expr: e @ (Expr::If(..) | Expr::Match(..)), .. } = s {
             let mut names = Vec::new();
             branch_sets(e, &mut names);
@@ -1252,6 +1290,7 @@ impl Emitter {
                     out.push_str(&self.stmt(s));
                 }
                 if let Some(t) = tail {
+                    out.push_str(&self.loop_hoist(t));
                     if discard {
                         out.push_str(&format!("    {};\n", self.stmt_expr(t)));
                     } else {
