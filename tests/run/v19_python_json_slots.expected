@@ -1,0 +1,13 @@
+bad X5 choice A
+Q1 B 2
+Q2 AC 2
+Q2 ACZ 0
+Q3 3.15 3
+Q3 3.16 0
+Q4 PARIS 1
+Q1 2
+Q3 2
+Q4 2
+True False 3.5 2024-01-05
+(2, 0, 0, 0, 0)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

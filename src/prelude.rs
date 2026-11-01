@@ -455,6 +455,16 @@ impl<A: AxNone + PartialEq, B: AxNone + PartialEq, C: AxNone + PartialEq, D: AxN
         !(self.0.ax_is_none() && self.1.ax_is_none() && self.2.ax_is_none() && self.3.ax_is_none())
     }
 }
+impl<A: AxNone + PartialEq, B: AxNone + PartialEq, C: AxNone + PartialEq, D: AxNone + PartialEq, E: AxNone + PartialEq> AxTruth for (A, B, C, D, E) {
+    fn ax_truth(&self) -> bool {
+        !(self.0.ax_is_none() && self.1.ax_is_none() && self.2.ax_is_none() && self.3.ax_is_none() && self.4.ax_is_none())
+    }
+}
+impl<A: AxNone + PartialEq, B: AxNone + PartialEq, C: AxNone + PartialEq, D: AxNone + PartialEq, E: AxNone + PartialEq, F: AxNone + PartialEq> AxTruth for (A, B, C, D, E, F) {
+    fn ax_truth(&self) -> bool {
+        !(self.0.ax_is_none() && self.1.ax_is_none() && self.2.ax_is_none() && self.3.ax_is_none() && self.4.ax_is_none() && self.5.ax_is_none())
+    }
+}
 impl<T> AxTruth for Vec<T> {
     fn ax_truth(&self) -> bool {
         !self.is_empty()
@@ -1452,6 +1462,57 @@ impl AxNum for Json {
 impl AxIn<Json> for Vec<String> {
     fn ax_in(&self, x: &Json) -> bool {
         self.iter().any(|y| x == y)
+    }
+}
+// `ans in spec` with spec a JSON value: an item of a list, a key of an object, or a substring of a string.
+impl AxIn<String> for Json {
+    fn ax_in(&self, x: &String) -> bool {
+        match self {
+            Json::Arr { v } => v.iter().any(|y| y == x),
+            Json::Obj { v } => v.contains_key(x),
+            Json::Str { v } => v.contains(x.as_str()),
+            _ => false,
+        }
+    }
+}
+// Python's `a <= b` (`a < b` when strict) on sets.
+pub fn ax_subset<T: PartialEq>(a: Vec<T>, b: Vec<T>, strict: bool) -> bool {
+    a.iter().all(|x| b.contains(x)) && (!strict || b.iter().any(|x| !a.contains(x)))
+}
+// A JSON value used where a plain value is expected (a Python slot that holds a different type per row).
+pub fn ax_json_dec(j: Json) -> Dec {
+    j.ax_dec()
+}
+// A decimal next to a JSON value (a Python slot holding a decimal pair on some rows): `abs(a - value) <= tol`.
+impl std::ops::Sub<Json> for Dec {
+    type Output = Dec;
+    fn sub(self, o: Json) -> Dec {
+        self - o.ax_dec()
+    }
+}
+impl PartialEq<Json> for Dec {
+    fn eq(&self, o: &Json) -> bool {
+        *self == o.ax_dec()
+    }
+}
+impl PartialOrd<Json> for Dec {
+    fn partial_cmp(&self, o: &Json) -> Option<std::cmp::Ordering> {
+        self.partial_cmp(&o.ax_dec())
+    }
+}
+
+pub fn ax_json_strs(j: Json) -> Vec<String> {
+    match j {
+        Json::Arr { v } => v.iter().map(|x| x.ax_text()).collect(),
+        Json::Str { v } => v.chars().map(|c| c.to_string()).collect(),
+        Json::Obj { v } => v.keys().cloned().collect(),
+        _ => vec![],
+    }
+}
+pub fn ax_json_ints(j: Json) -> Vec<i64> {
+    match j {
+        Json::Arr { v } => v.iter().map(|x| x.ax_int()).collect(),
+        _ => vec![],
     }
 }
 // Changing a JSON value in place, as Python changes a dict or list: `rec["pages"] += 10`, `rec["tags"].append(x)`.
@@ -3381,6 +3442,20 @@ fn ax_unpack_n<T>(xs: Vec<T>, n: usize) -> std::vec::IntoIter<T> {
     }
     xs.into_iter()
 }
+// `value, tol = q.data` with data a JSON list.
+impl AxUnpack<(Json, Json)> for Json {
+    fn ax_unpack(self) -> (Json, Json) {
+        let v = self.ax_list();
+        (v.get(0).cloned().unwrap_or(Json::Null), v.get(1).cloned().unwrap_or(Json::Null))
+    }
+}
+impl AxUnpack<(Json, Json, Json)> for Json {
+    fn ax_unpack(self) -> (Json, Json, Json) {
+        let v = self.ax_list();
+        let g = |i: usize| v.get(i).cloned().unwrap_or(Json::Null);
+        (g(0), g(1), g(2))
+    }
+}
 impl<T> AxUnpack<(T, T)> for Vec<T> {
     fn ax_unpack(self) -> (T, T) {
         let mut i = ax_unpack_n(self, 2);
@@ -3717,6 +3792,16 @@ impl<A: AxNone, B: AxNone, C: AxNone, D: AxNone> AxNone for (A, B, C, D) {
         (A::ax_none(), B::ax_none(), C::ax_none(), D::ax_none())
     }
 }
+impl<A: AxNone, B: AxNone, C: AxNone, D: AxNone, E: AxNone> AxNone for (A, B, C, D, E) {
+    fn ax_none() -> Self {
+        (A::ax_none(), B::ax_none(), C::ax_none(), D::ax_none(), E::ax_none())
+    }
+}
+impl<A: AxNone, B: AxNone, C: AxNone, D: AxNone, E: AxNone, F: AxNone> AxNone for (A, B, C, D, E, F) {
+    fn ax_none() -> Self {
+        (A::ax_none(), B::ax_none(), C::ax_none(), D::ax_none(), E::ax_none(), F::ax_none())
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]
@@ -3887,6 +3972,13 @@ impl AxRxP {
                 self.i += 1;
                 if e == 'b' {
                     return AxRx::WordB;
+                }
+                // `\Z` and `\A`: the end and start of the text.
+                if e == 'Z' {
+                    return AxRx::End;
+                }
+                if e == 'A' {
+                    return AxRx::Start;
                 }
                 match ax_rx_class(e) {
                     Some((cs, neg)) => AxRx::Class(cs, neg),

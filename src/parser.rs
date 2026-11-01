@@ -15,6 +15,8 @@ pub struct Parser {
     hoisted: Vec<Item>,
     // Statements that go right after the one just parsed (`a[i], b = x, y` is three).
     pending: Vec<Stmt>,
+    // Names set from `set(...)` (Python sets, kept as sorted lists without repeats).
+    set_names: Vec<String>,
     // A program written as Python: `/` divides exactly, as in Python 3.
     py: bool,
     // Functions with default values or `*args`: parameter names, defaults, and where `*args` is.
@@ -39,7 +41,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
     p.py = crate::python_style(src);
     p.class_names = p.toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
         (Tok::Ident(c), Tok::Ident(n)) if c == "class" => Some(n.clone()),
@@ -1030,7 +1032,25 @@ impl Parser {
                         self.held.push(n.clone());
                     }
                 }
+                // `s = set(ans)`: s is a set, so `s <= other` is a subset test.
+                if let Expr::Ident(n) = &e {
+                    if op == "=" && Self::set_made(&value) {
+                        self.set_names.push(n.clone());
+                    }
+                }
                 let e = if op == "=" && matches!(&e, Expr::Tuple(xs) if xs.iter().any(|x| matches!(x, Expr::Tuple(_)))) { self.flat_target(e, line) } else { e };
+                // `order, questions = [], {}`: one name at a time, so each empty value's type is worked out alone.
+                if let (Expr::Tuple(ns), "=", Expr::Tuple(vs)) = (&e, op, &value) {
+                    let lit = |v: &Expr| matches!(v, Expr::List(x) if x.is_empty()) || matches!(v, Expr::Map(x) if x.is_empty()) || matches!(v, Expr::Int(_) | Expr::Float(_) | Expr::Bool(_)) || matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty());
+                    if self.py && ns.len() == vs.len() && ns.iter().all(|n| matches!(n, Expr::Ident(_))) && vs.iter().all(lit) && vs.iter().any(|v| matches!(v, Expr::List(_) | Expr::Map(_))) {
+                        let mut pairs = ns.iter().cloned().zip(vs.iter().cloned());
+                        let (n0, v0) = pairs.next().unwrap();
+                        for (n, v) in pairs {
+                            self.pending.push(Stmt::Assign { target: n, op, value: v, line });
+                        }
+                        return Ok(Stmt::Assign { target: n0, op, value: v0, line });
+                    }
+                }
                 // `x = m.setdefault(k, v)`: set m[k] when missing, then x is m[k] (shared, as in Python).
                 if let (Expr::Ident(_), "=", Expr::Method(recv, m, a, l)) = (&e, op, &value) {
                     if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(m) && self.py {
@@ -1082,6 +1102,14 @@ impl Parser {
     }
 
     // After a name: is this `, b, c =`?
+    fn set_made(e: &Expr) -> bool {
+        matches!(e, Expr::Method(_, m, a, _) if m == "unique" && a.is_empty())
+    }
+
+    fn is_set(&self, e: &Expr) -> bool {
+        Self::set_made(e) || matches!(e, Expr::Ident(n) if self.set_names.contains(n))
+    }
+
     // Is this a value of one of the program's classes (`self`, or a name set from `C(...)`)?
     fn own_method(&self, recv: &Expr) -> bool {
         matches!(recv, Expr::Ident(n) if n == "self_" || self.held.contains(n))
@@ -1286,6 +1314,10 @@ impl Parser {
                 Expr::Method(Box::new(lhs), "repeat".into(), vec![rhs], self.line())
             } else if op == "*" && matches!(rhs, Expr::List(_)) {
                 Expr::Method(Box::new(rhs), "repeat".into(), vec![lhs], self.line())
+            } else if self.py && matches!(op, "<=" | "<" | ">=" | ">") && (self.is_set(&lhs) || self.is_set(&rhs)) {
+                // Python's `a <= b` on sets: a is a subset of b.
+                let (small, big) = if matches!(op, "<=" | "<") { (lhs, rhs) } else { (rhs, lhs) };
+                Expr::Call("ax_subset".into(), vec![(None, small), (None, big), (None, Expr::Bool(matches!(op, "<" | ">")))], self.line())
             } else if op == "/" && self.py {
                 // Python's `7 / 2` is 3.5.
                 Expr::Call("__truediv".into(), vec![(None, lhs), (None, rhs)], self.line())
@@ -1338,6 +1370,8 @@ impl Parser {
                     t @ (Tok::Ident(_) | Tok::Kw("or" | "match" | "in" | "not" | "and" | "type" | "test")) => {
                         let name = match t {
                             Tok::Ident(n) => n,
+                            // `q.type == "choice"`: the field `self.type` was named `type_` (see the lexer).
+                            Tok::Kw(k @ ("type" | "match" | "test")) if !self.is_sym("(") => format!("{k}_"),
                             Tok::Kw(k) => k.to_string(),
                             _ => unreachable!(),
                         };
@@ -1819,7 +1853,12 @@ impl Parser {
                         let arg = args.remove(0).1;
                         return Ok(match arg {
                             Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => Expr::Method(base, name, vec![la.remove(0)], line),
-                            other => Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(Expr::Ident("b_".into())))], line),
+                            // Python's `all(words)` tests each item's truth (`!!` is bool(x)).
+                            other => {
+                                let b = Expr::Ident("b_".into());
+                                let b = if self.py { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(b)))) } else { b };
+                                Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(b))], line)
+                            }
                         });
                     }
                     // defaultdict(lambda: 0) (read as a `lambda:` named argument) with an empty default is a map.
@@ -2159,7 +2198,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
@@ -2295,6 +2334,8 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("rjust", 2) => "rjust_with",
         ("most_common", 0) => "most_common_all",
         ("split", 0) => "words",
+        // `s.casefold()`: lower case (enough for comparing words without regard to case).
+        ("casefold", 0) => "lower",
         ("split", 2) => "split_n",
         ("rsplit", 2) => "rsplit_n",
         ("startswith", 1) => "starts_with",

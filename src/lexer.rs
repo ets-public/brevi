@@ -148,6 +148,7 @@ fn is_module_path(m: &str) -> bool {
 
 fn drop_py_imports(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
+    let mut renames: Vec<(String, String)> = vec![];
     for l in src.split_inclusive('\n') {
         let t = l.trim();
         // Decorators (`@dataclass`, `@staticmethod`, `@lru_cache(None)`): the code works the same without them.
@@ -162,10 +163,75 @@ fn drop_py_imports(src: &str) -> String {
         });
         // Any Python import line: the modules Brevi maps are built in, and `import` means nothing else here.
         if module.is_some_and(|ms| ms.iter().all(|m| PY_BUILTIN_MODULES.contains(m) || is_module_path(m))) {
+            // `from datetime import date as Date`: Date is date.
+            if let Some((_, names)) = t.strip_prefix("from ").and_then(|r| r.split_once(" import ")) {
+                for n in names.trim_matches(|c| c == '(' || c == ')' || c == ' ').split(',') {
+                    if let Some((a, b)) = n.split_once(" as ") {
+                        let (a, b) = (a.trim(), b.trim());
+                        if a != b && [a, b].iter().all(|w| !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || c == '_')) {
+                            renames.push((b.to_string(), a.to_string()));
+                        }
+                    }
+                }
+            }
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
         } else {
             out.push_str(l);
         }
+    }
+    if renames.is_empty() {
+        return out;
+    }
+    rename_words(&out, &renames)
+}
+
+// Renames whole words outside strings and comments.
+fn rename_words(src: &str, renames: &[(String, String)]) -> String {
+    let c: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        if ch == '#' {
+            while i < c.len() && c[i] != '\n' {
+                out.push(c[i]);
+                i += 1;
+            }
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            // A string: copied as is (an f-string's `{...}` parts are left alone too).
+            out.push(ch);
+            i += 1;
+            while i < c.len() && c[i] != ch && c[i] != '\n' {
+                if c[i] == '\\' && i + 1 < c.len() {
+                    out.push(c[i]);
+                    i += 1;
+                }
+                out.push(c[i]);
+                i += 1;
+            }
+            if i < c.len() {
+                out.push(c[i]);
+                i += 1;
+            }
+            continue;
+        }
+        if ch.is_alphabetic() || ch == '_' {
+            let start = i;
+            while i < c.len() && (c[i].is_alphanumeric() || c[i] == '_') {
+                i += 1;
+            }
+            let w: String = c[start..i].iter().collect();
+            let after_dot = start > 0 && c[start - 1] == '.';
+            match renames.iter().find(|(a, _)| *a == w) {
+                Some((_, b)) if !after_dot => out.push_str(b),
+                _ => out.push_str(&w),
+            }
+            continue;
+        }
+        out.push(ch);
+        i += 1;
     }
     out
 }

@@ -1,0 +1,87 @@
+from datetime import date as Date
+from decimal import Decimal
+import re
+
+
+class Question:
+    def __init__(self, qid, kind, points, data):
+        self.id = qid
+        self.type = kind
+        self.points = points
+        self.data = data
+
+
+def parse(line):
+    t = line.split()
+    qid, typ = t[0], t[1]
+    if not re.match(r'Q\d+\Z', qid):
+        return None
+    if typ == 'choice':
+        return (qid, (typ, 2, t[2]))
+    if typ == 'multi':
+        return (qid, (typ, 4, frozenset(t[2])))
+    if typ == 'number':
+        return (qid, (typ, 3, (Decimal(t[2]), Decimal(t[3]))))
+    return (qid, (typ, 1, [w.lower() for w in t[2].split('|')]))
+
+
+def make(line):
+    t = line.split()
+    if t[1] == 'choice':
+        spec = t[2]
+    elif t[1] == 'multi':
+        spec = frozenset(t[2])
+    elif t[1] == 'number':
+        spec = (Decimal(t[2]), Decimal(t[3]))
+    else:
+        spec = [w.lower() for w in t[2].split('|')]
+    return Question(t[0], t[1], 2, spec)
+
+
+def grade(q, ans):
+    typ, pts, spec = q
+    if typ == 'choice':
+        return pts if ans == spec else 0
+    if typ == 'multi':
+        s = set(ans)
+        if not s <= set('ABCDE'):
+            return 0
+        if s == spec:
+            return pts
+        return max(0, pts * (len(s & spec) - len(s - spec)) // len(spec))
+    if typ == 'number':
+        return pts if abs(Decimal(ans) - spec[0]) <= spec[1] else 0
+    return pts if ans.casefold() in spec else 0
+
+
+def grade_q(q, ans):
+    if q.type == 'number':
+        value, tol = q.data
+        return q.points if abs(Decimal(ans) - value) <= tol else 0
+    return q.points if ans == q.data or ans in q.data else 0
+
+
+def main():
+    order, qs = [], {}
+    lines = ["Q1 choice B", "Q2 multi ACD", "Q3 number 3.14 0.01", "Q4 text Paris|paris", "X5 choice A"]
+    for line in lines:
+        r = parse(line)
+        if r is None:
+            print("bad", line)
+            continue
+        qs[r[0]] = r[1]
+        order.append(r[0])
+    for qid, ans in [("Q1", "B"), ("Q2", "AC"), ("Q2", "ACZ"), ("Q3", "3.15"), ("Q3", "3.16"), ("Q4", "PARIS")]:
+        print(qid, ans, grade(qs[qid], ans))
+    for line, ans in [("Q1 choice B", "B"), ("Q3 number 2.5 0.5", "2.9"), ("Q4 text a|b", "b")]:
+        print(make(line).id, grade_q(make(line), ans))
+    words = "a b".split()
+    print(all(words), all([w for w in ["a", ""]]), Decimal(7) / Decimal(2), Date(2024, 1, 5).isoformat())
+    best = None
+    for c in [(1, 2, 3, 4, 5), (2, 0, 0, 0, 0)]:
+        if best is None or c > best:
+            best = c
+    print(best)
+
+
+main()

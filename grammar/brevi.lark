@@ -20,7 +20,7 @@ start: _NL? (line _NL)* line?
      | "allow" NAME ("," NAME)*       // allow read, write, native
      | ("global" | "nonlocal") NAME ("," NAME)*   // Python scope: see BREVI.md
      | "import" module ("as" NAME)? ("," module ("as" NAME)?)*   // import sys, or a stock.bv next to the file
-     | "from" module "import" NAME ("," NAME)*
+     | "from" module "import" NAME ("as" NAME)? ("," NAME ("as" NAME)?)*
      | "@" postfix                   // decorators such as @dataclass are skipped
      | simples
 
