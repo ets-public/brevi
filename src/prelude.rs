@@ -825,19 +825,17 @@ impl<T: Clone> AxList<T> for Vec<T> {
     fn ax_fold<A>(&self, init: A, f: impl Fn(A, T) -> A) -> A {
         self.iter().cloned().fold(init, f)
     }
+    // The key is worked out once per item, as in Python, not twice per comparison.
     fn ax_sort_by<K: PartialOrd>(&self, f: impl Fn(T) -> K) -> Vec<T> {
-        let mut v = self.clone();
-        v.sort_by(|a, b| f(a.clone()).partial_cmp(&f(b.clone())).unwrap_or(std::cmp::Ordering::Equal));
-        v
+        self.ax_sort_by_rev(f, false)
     }
     fn ax_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(T) -> K, rev: bool) -> Vec<T> {
-        let mut v = self.clone();
-        v.sort_by(|a, b| {
-            let (x, y) = (f(a.clone()), f(b.clone()));
-            let o = if rev { y.partial_cmp(&x) } else { x.partial_cmp(&y) };
+        let mut v: Vec<(K, usize)> = self.iter().enumerate().map(|(i, x)| (f(x.clone()), i)).collect();
+        v.sort_by(|(x, _), (y, _)| {
+            let o = if rev { y.partial_cmp(x) } else { x.partial_cmp(y) };
             o.unwrap_or(std::cmp::Ordering::Equal)
         });
-        v
+        v.into_iter().map(|(_, i)| self[i].clone()).collect()
     }
     fn ax_rev(&self) -> Vec<T> {
         self.iter().rev().cloned().collect()

@@ -20,6 +20,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 - Safe to run: `allow read, write` (or `native`) at the top of a program declares what it touches, `brevi run --sandbox` refuses anything undeclared, and the MCP tools sandbox by default (`sandbox: false` turns it off).
 - A second held-out set of six XL tasks (`bench/ref/gen_big4.py`). On it Brevi is behind Python: Sonnet 10,997 vs 9,222 tokens, Haiku 11,851 vs 11,426 (#19).
 - Faster builds: the runtime prelude is compiled once per rustc version into a cached library instead of being rebuilt with every program (a build goes from about 0.73 s to 0.36 s, `brevi check` from 0.55 s to 0.21 s), and builds are cached by a hash of the generated code, flags and rustc version, so running the same program again takes about 0.1 s. Programs are built without debug info (5 MB to 1.1 MB). The compatibility check of 1,971 old solutions drops from about 6 to under 3 minutes. `BREVI_NO_CACHE=1` and `BREVI_NO_RTLIB=1` turn these off.
+- `brevi mcp` keeps the program between calls: send `code` once, then change it with `patch` (whole functions by name) or the new `edit` (a range of lines), which check again in the same reply, so a retry costs the changed lines instead of the whole file. Multi-file programs work through `file`. `run` takes `cases` (stdin and expected output), builds once, and prints `ok` or the first differing line per case. `show` prints the kept program with line numbers. Calls that pass `code` work as before.
+- Sorting by a key (`xs.sort_by(f)`, `sorted(xs, key=f)`) works out each key once, as Python does, instead of twice per comparison. `--release` builds keep the prelude inside the program so its functions can be inlined.
 
 ## v0.18.0 (31 Oct 2026)
 

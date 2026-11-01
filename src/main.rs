@@ -587,7 +587,12 @@ const RT_HEADER: &str = "#![allow(warnings)] extern crate brevi_rt; use brevi_rt
 
 // Swaps the pasted prelude for a use of the runtime library, when the library can be built.
 // rustc then skips type-checking and compiling about 2,600 lines of prelude on every build.
+// Release builds keep the pasted prelude: without it, prelude functions cannot be inlined into the program
+// (word counts ran 20% slower), and a release build is made once, not on every edit.
 fn use_runtime_lib(rust: &str, release: bool) -> String {
+    if release {
+        return rust.to_string();
+    }
     let short = &emit::PRELUDE[..emit::PRELUDE.find("// @regex").unwrap_or(emit::PRELUDE.len())];
     let rest = rust.strip_prefix(emit::PRELUDE).or_else(|| rust.strip_prefix(short));
     match rest {
