@@ -21,7 +21,9 @@ Escapes: `\n \t \r \0 \" \\ \{ \}`.
 A missing map key reads as the type's zero (0, 0.0, "", [], dec 0). `print(a, b)` puts a space between.
 
 ## Python
-Python spellings models write by habit are accepted: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `sorted(xs, key=f, reverse=True)`, `print(x, end="", sep=", ")`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `&& || !` for `and or not`.
+Python spellings models write by habit are accepted: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `sorted(xs, key=f, reverse=True)`, `print(x, end="", sep=", ")`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `&& || !` for `and or not`. `f"..."` is a plain string (Brevi strings already fill in `{x}`).
+
+Functions are values: `ops = [add, mul]`, `for (name, f) in [("+", add)]: f(1, 2)`, `ops[0](3, 4)`. A function in a map (`{"add": add}`) is not supported yet; use a list of pairs.
 
 ## Tools
 `brevi build f.bv -o app --release` builds an optimized binary. Runtime errors print `{"e":"runtime","line":N,"msg":...}`.

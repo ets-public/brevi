@@ -9,58 +9,65 @@ on:
       tag:
         description: "Release tag to build and attach to (made if missing), e.g. v0.17.0"
         required: true
+      wheels:
+        description: "Also build the Python wheels (only needed once PyPI publishing starts)"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
+  # Actions minutes are shared and metered (macOS counts 10x), so: one macOS job builds both Mac
+  # targets, and only the Linux x86-64 job runs the full test suite (CI already tests every push to main).
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
-          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
-          - { os: macos-15, target: aarch64-apple-darwin }
-          # Intel Mac images are being retired, so this one is cross-built on Apple silicon.
-          - { os: macos-15, target: x86_64-apple-darwin, cross: true }
-          - { os: windows-2022, target: x86_64-pc-windows-msvc }
+          - { os: ubuntu-22.04, targets: x86_64-unknown-linux-gnu, test: true }
+          - { os: ubuntu-22.04-arm, targets: aarch64-unknown-linux-gnu }
+          # Intel Mac images are being retired, so the Intel binary is cross-built on Apple silicon.
+          - { os: macos-15, targets: aarch64-apple-darwin x86_64-apple-darwin }
+          - { os: windows-2022, targets: x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.targets }}
       - name: Build
         shell: bash
-        run: |
-          cargo build --release --locked --target ${{ matrix.target }}
-          mkdir -p target/release && cp target/${{ matrix.target }}/release/brevi* target/release/ 2>/dev/null || true
-      - name: Smoke test
-        if: ${{ !matrix.cross }}
+        run: for t in ${{ matrix.targets }}; do cargo build --release --locked --target $t; done
+      - name: Smoke test (native target)
         shell: bash
         run: |
+          t=$(echo ${{ matrix.targets }} | cut -d' ' -f1)
           printf 'n = 1 + 1\nprint("hi {n}")\n' > smoke.bv
-          ./target/release/brevi run smoke.bv | grep -qx "hi 2"
+          ./target/$t/release/brevi run smoke.bv | grep -qx "hi 2"
       - name: Unit and language tests
-        if: runner.os != 'Windows' && !matrix.cross
+        if: ${{ matrix.test }}
         run: |
           cargo test --release --locked
-          BREVI=./target/release/brevi sh tests/check.sh
+          BREVI=./target/${{ matrix.targets }}/release/brevi sh tests/check.sh
       - name: Package
         shell: bash
         run: |
-          name=brevi-${{ matrix.target }}
-          mkdir $name
-          if [ "$RUNNER_OS" = Windows ]; then cp target/release/brevi.exe $name/; else cp target/release/brevi $name/; fi
-          cp LICENSE README.md BREVI.md $name/
-          if [ "$RUNNER_OS" = Windows ]; then 7z a $name.zip $name >/dev/null; else tar czf $name.tar.gz $name; fi
+          for t in ${{ matrix.targets }}; do
+            name=brevi-$t
+            mkdir $name
+            if [ "$RUNNER_OS" = Windows ]; then cp target/$t/release/brevi.exe $name/; else cp target/$t/release/brevi $name/; fi
+            cp LICENSE README.md BREVI.md $name/
+            if [ "$RUNNER_OS" = Windows ]; then 7z a $name.zip $name >/dev/null; else tar czf $name.tar.gz $name; fi
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: brevi-${{ matrix.target }}
-          path: brevi-${{ matrix.target }}.*
+          name: brevi-${{ matrix.os }}
+          path: brevi-*.*
   # Python wheels holding the same binary (packaging/pypi), for `pip install brevi`. They are attached to the
   # release; publishing them to PyPI is a separate step for launch.
   wheels:
+    # Off by default: wheels are not published until launch, and this job adds another macOS build.
+    if: ${{ github.event.inputs.wheels == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -89,6 +96,7 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -100,6 +108,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
+          # Release notes: this tag's section of CHANGELOG.md, then the install note.
+          python3 tools/release_notes.py "$TAG" > notes.md
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes "Prebuilt brevi compiler. brevi still needs rustc on the PATH to build programs (install.sh fetches it)."
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes-file notes.md
           gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber

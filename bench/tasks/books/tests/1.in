@@ -1,0 +1,31 @@
+ACCOUNT cash asset
+ACCOUNT sales income
+ACCOUNT cash asset
+ACCOUNT fees expense
+ACCOUNT wages cost
+TX 2026-03-01 sale
+  cash 10
+  sales -9.99
+TX 2026-03-02 single leg
+  cash 5
+TX 2026-02-28 too early
+  cash 1
+  sales -1
+TX 2026-03-03 unknown
+  cash 4
+  bonus -4
+TX 2026-03-04 fine
+  cash 7.25
+  sales -7
+  fees -0.25
+  cash 1.234
+TX 2026-03-05 fine again
+  cash +3
+  sales -3
+  fees 0
+
+TX 2026-02-30 bad date
+  cash 1
+  sales -1
+  cash 2
+REPORT

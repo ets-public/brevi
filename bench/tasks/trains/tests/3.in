@@ -1,0 +1,7 @@
+TRAIN k2 m 06:00 n 06:30 o 07:00
+TRAIN k1 m 06:00 n 06:30 o 07:00
+TRAIN k3 n 06:32 o 06:50
+TRAIN k4 n 06:31 o 06:50
+TRIP m o 05:00
+TRIP n o 06:30
+TRIP m n 06:00

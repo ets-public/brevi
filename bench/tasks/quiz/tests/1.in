@@ -1,0 +1,14 @@
+KEY
+Q1 choice 5 F
+Q1 choice 5 A
+Q2 number 2 10 -1
+Q2 number 2 10 0.5
+Q3 multi 3 A
+Q3 multi 3 AB
+Q4 essay 3 x
+Q5 text 0 yes
+ANSWERS
+eli Q1=A Q2=10.5 Q3=BA
+fay Q1=a Q2=9.4 Q3=B Q3=A
+eli Q1=A
+gil Q9=A Q1 Q2= Q2=10

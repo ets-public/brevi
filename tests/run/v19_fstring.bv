@@ -1,0 +1,9 @@
+x = 3
+name = "ann"
+print(f"x is {x}, name is {name}")
+print(f'{x * 2} twice')
+type Result:
+  ok: bool
+  msg: str
+r = Result(True, "fine")
+print(r.msg)

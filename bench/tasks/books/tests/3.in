@@ -1,0 +1,18 @@
+ACCOUNT z expense
+ACCOUNT y asset
+ACCOUNT x income
+REPORT
+TX 2026-07-01 three way
+  y 100
+  x -60
+  x -40
+TX 2026-07-01 refund
+  x 15.75
+  y -15.75
+TX 2026-07-02 costs
+  z 20
+  y -20
+TX 2026-07-01 late
+  z 1
+  y -1
+REPORT

@@ -1,0 +1,9 @@
+ORDER o1: shipped 7
+apple 8 in 1 lots
+pear 4 in 1 lots
+ORDER o2: shipped 4 of 6
+BACKORDER o2: shipped 1, 1 left
+BACKORDER o2: done
+apple 8 in 1 lots
+pear 2 in 1 lots
+shipped 13 units, backordered 0 units

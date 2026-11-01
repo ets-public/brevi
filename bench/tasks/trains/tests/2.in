@@ -1,0 +1,9 @@
+TRAIN bad1 a 10:00 b 09:59
+TRAIN bad2 a 10:00 a 10:30
+TRAIN t1 a 25:00 b 26:00
+TRAIN t2 a 10:00
+TRAIN ok a 10:00 b 10:10
+TRAIN ok c 10:00 d 10:10
+TRIP a b
+TRIP a b 9:5
+TRIP b a 10:00

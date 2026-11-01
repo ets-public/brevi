@@ -1,0 +1,11 @@
+line 1: bad line
+line 4: bad line
+tx on line 7: needs two postings
+line 9: bad line
+line 10: bad line
+line 14: bad line
+trial balance
+a asset 0.00
+b liability 0.00
+debits 0.00 credits 0.00
+0 transactions accepted, 2 rejected

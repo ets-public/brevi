@@ -1,0 +1,15 @@
+fn add(a: int, b: int) = a + b
+fn mul(a: int, b: int) = a * b
+fn shout(s: str) -> str = s.upper()
+ops = [add, mul]
+f = ops[1]
+print(f(3, 4))
+x = ops[0](3, 4) + 1
+print(x)
+named = [("+", add), ("*", mul)]
+for (s, g) in named:
+  print("{s} {g(6, 7)}")
+print(named[1].1(2, 5))
+fs = [shout]
+print(fs[0]("hi"))
+print(sorted(["b", "a"], key=shout))

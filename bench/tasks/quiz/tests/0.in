@@ -1,0 +1,11 @@
+KEY
+Q1 choice 2 B
+Q2 multi 4 ACD
+Q3 number 3 3.14 0.01
+Q4 text 1 paris|Paris|PARIS
+Q5 text 2 Lyon
+ANSWERS
+amy Q1=B Q2=ACD Q3=3.15 Q4=paris Q5=lyon
+ben Q1=C Q2=AC Q3=3.16 Q4=Rome
+cal Q2=ADBE Q3=x Q5=LYON Q1=B
+dee

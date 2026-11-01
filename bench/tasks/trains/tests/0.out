@@ -1,0 +1,6 @@
+TRIP a->d: arrive 09:00 via r1,r2
+TRIP a->d: no route
+TRIP b->d: arrive 09:00 via r2
+TRIP e->a: no route
+TRIP x->a: unknown stop x
+3 trains, 5 trips

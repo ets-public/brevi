@@ -1,0 +1,4 @@
+TRIP m->o: arrive 06:50 via k1,k3
+TRIP n->o: arrive 06:50 via k3
+TRIP m->n: arrive 06:30 via k1
+4 trains, 3 trips

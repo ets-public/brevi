@@ -1,0 +1,24 @@
+type Team:
+  w: int = 0
+  gf: int = 0
+ts = {}
+fn ensure(n: str):
+  if not ts.has(n): ts[n] = Team()
+  0
+fn key(n: str) = (-ts[n].w, -ts[n].gf, n)
+ensure("b")
+ensure("a")
+ts["a"].w += 2
+print(sorted(ts.keys(), key=key))
+secs = {}
+cur = ""
+for ln in ["[a]", "x=1", "y=2", "[b]", "z=3"]:
+  if ln.starts_with("["):
+    cur = ln[1:-1]
+  else:
+    kv = ln.split("=")
+    inner = secs.get_or(cur, {})
+    inner[kv[0]] = kv[1]
+    secs[cur] = inner
+fn get(s: str, k: str) -> str = secs[s][k]
+print(get("a", "y") + get("b", "z"))

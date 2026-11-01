@@ -1,0 +1,5 @@
+TRIP p->r: arrive 10:59 via s1,s4
+TRIP p->r: arrive 10:59 via s1,s4
+TRIP q->q: already there
+TRIP p->z: unknown stop z
+5 trains, 4 trips

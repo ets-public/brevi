@@ -20,6 +20,7 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 toke
 - **Agent frameworks:** [integrations/](integrations/README.md) has short, tested examples for LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK, each connecting to `brevi mcp`.
 - **Grammar:** [grammar/](grammar/README.md) has a Lark grammar and a llama.cpp GBNF copy for constrained decoding, so a local model can only write lines Brevi accepts.
 - **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.
+- **Changes:** [CHANGELOG.md](CHANGELOG.md), one section per release.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
 ## Status: v0.18
@@ -186,7 +187,7 @@ Brevi must never fall behind Rust or Python, and code that once passed must neve
   run `sh tools/ci_local.sh` (the same checks) before merging.
 - **Upstream releases** (`upstream.yml`, twice a week): one `upstream` issue per new Rust stable, Python release or
   newer crate pinned in tests/examples, listing the new language features and stabilized APIs with a review checklist.
-- **Auto-fix** (`auto-fix.yml`): Claude Code picks up `toolchain` and `upstream` issues and opens a PR. Needs an
+- **Auto-fix** (`auto-fix.yml`): Claude Code picks up `toolchain` and `upstream` issues and opens a PR, using the
   `ANTHROPIC_API_KEY` repository secret; a human reviews every PR.
 - **Dependabot**: Cargo dependencies and GitHub Actions versions, weekly.
 
