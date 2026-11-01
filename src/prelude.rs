@@ -3313,6 +3313,129 @@ impl AxNum for Dec {
         Dec::ax_int(self)
     }
 }
+// isinstance(v, int) and isinstance(v, (str, list)): kinds is a comma-separated list of Python type names.
+// Fixed types answer from their own type; a JSON value answers from what it holds (bool counts as int, as in Python).
+pub trait AxIsInstance {
+    fn ax_kind(&self) -> &'static str;
+    fn ax_isinstance(&self, kinds: String) -> bool {
+        let k = self.ax_kind();
+        kinds.split(',').any(|t| t == k || (t == "int" && k == "bool") || (t == "object"))
+    }
+}
+impl AxIsInstance for i64 {
+    fn ax_kind(&self) -> &'static str {
+        "int"
+    }
+}
+impl AxIsInstance for f64 {
+    fn ax_kind(&self) -> &'static str {
+        "float"
+    }
+}
+impl AxIsInstance for bool {
+    fn ax_kind(&self) -> &'static str {
+        "bool"
+    }
+}
+impl AxIsInstance for String {
+    fn ax_kind(&self) -> &'static str {
+        "str"
+    }
+}
+impl AxIsInstance for Dec {
+    fn ax_kind(&self) -> &'static str {
+        "Decimal"
+    }
+}
+impl<T> AxIsInstance for Vec<T> {
+    fn ax_kind(&self) -> &'static str {
+        "list"
+    }
+}
+impl<K, V> AxIsInstance for AxM<K, V> {
+    fn ax_kind(&self) -> &'static str {
+        "dict"
+    }
+}
+impl AxIsInstance for Json {
+    fn ax_kind(&self) -> &'static str {
+        match self {
+            Json::Null => "NoneType",
+            Json::Bool { .. } => "bool",
+            Json::Num { v } => if v.fract() == 0.0 && v.abs() < 1e15 { "int" } else { "float" },
+            Json::Str { .. } => "str",
+            Json::Arr { .. } => "list",
+            Json::Obj { .. } => "dict",
+        }
+    }
+}
+// Python code that reads json.loads values directly: `v is None`, `v == 0`, `for x in v`, `sum(f(x) for x in v)`.
+impl AxNone for Json {
+    fn ax_none() -> Self {
+        Json::Null
+    }
+}
+impl PartialEq<i64> for Json {
+    fn eq(&self, o: &i64) -> bool {
+        matches!(self, Json::Num { v } if *v == *o as f64)
+    }
+}
+impl PartialEq<f64> for Json {
+    fn eq(&self, o: &f64) -> bool {
+        matches!(self, Json::Num { v } if *v == *o)
+    }
+}
+impl AxTryList<Json> for Json {
+    fn ax_try_map<U>(&self, f: impl Fn(Json) -> R<U>) -> R<Vec<U>> {
+        self.ax_list().ax_try_map(f)
+    }
+    fn ax_try_filter(&self, f: impl Fn(Json) -> R<bool>) -> R<Vec<Json>> {
+        self.ax_list().ax_try_filter(f)
+    }
+    fn ax_try_any(&self, f: impl Fn(Json) -> R<bool>) -> R<bool> {
+        self.ax_list().ax_try_any(f)
+    }
+    fn ax_try_all(&self, f: impl Fn(Json) -> R<bool>) -> R<bool> {
+        self.ax_list().ax_try_all(f)
+    }
+    fn ax_try_count(&self, f: impl Fn(Json) -> R<bool>) -> R<i64> {
+        self.ax_list().ax_try_count(f)
+    }
+    fn ax_try_fold<A>(&self, init: A, f: impl Fn(A, Json) -> R<A>) -> R<A> {
+        self.ax_list().ax_try_fold(init, f)
+    }
+    fn ax_try_sort_by<K: PartialOrd>(&self, f: impl Fn(Json) -> R<K>) -> R<Vec<Json>> {
+        self.ax_list().ax_try_sort_by(f)
+    }
+    fn ax_try_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(Json) -> R<K>, rev: bool) -> R<Vec<Json>> {
+        self.ax_list().ax_try_sort_by_rev(f, rev)
+    }
+}
+// A JSON list read item by item, as Python code does with json.loads values.
+pub trait AxJsonSeq {
+    fn ax_map<U>(&self, f: impl Fn(Json) -> U) -> Vec<U>;
+    fn ax_filter(&self, f: impl Fn(Json) -> bool) -> Vec<Json>;
+    fn ax_any(&self, f: impl Fn(Json) -> bool) -> bool;
+    fn ax_all(&self, f: impl Fn(Json) -> bool) -> bool;
+    fn ax_enumerate(&self) -> Vec<(i64, Json)>;
+}
+impl AxJsonSeq for Json {
+    fn ax_map<U>(&self, f: impl Fn(Json) -> U) -> Vec<U> {
+        self.ax_list().into_iter().map(f).collect()
+    }
+    fn ax_filter(&self, f: impl Fn(Json) -> bool) -> Vec<Json> {
+        self.ax_list().into_iter().filter(|x| f(x.clone())).collect()
+    }
+    fn ax_any(&self, f: impl Fn(Json) -> bool) -> bool {
+        self.ax_list().into_iter().any(f)
+    }
+    fn ax_all(&self, f: impl Fn(Json) -> bool) -> bool {
+        self.ax_list().into_iter().all(f)
+    }
+    fn ax_enumerate(&self) -> Vec<(i64, Json)> {
+        self.ax_list().into_iter().enumerate().map(|(i, x)| (i as i64, x)).collect()
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]

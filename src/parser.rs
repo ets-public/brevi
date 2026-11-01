@@ -1372,6 +1372,15 @@ impl Parser {
                                 e = Expr::Tuple(vec![]);
                                 continue;
                             }
+                            // json.loads(s) and json.load(f) read JSON.
+                            if (name == "loads" || name == "load") && args.len() == 1 && matches!(&e, Expr::Ident(j) if j == "json") {
+                                let src = match args.remove(0) {
+                                    Expr::Field(m, f) if f == "stdin" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys") => Expr::Call("stdin".into(), vec![], line),
+                                    other => other,
+                                };
+                                e = Expr::Call("json".into(), vec![(None, src)], line);
+                                continue;
+                            }
                             // sys.exit(n) ends the program with that code; sys.exit("msg") prints msg and exits with 1.
                             if name == "exit" && args.len() <= 1 && matches!(&e, Expr::Ident(s) if s == "sys") {
                                 let code = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
@@ -2198,6 +2207,31 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         // dict(m) copies a map; maps are values in Brevi already.
         ("OrderedDict", 1) => args.remove(0).1,
+        // isinstance(v, int) / isinstance(v, (int, float)) asks the value's kind.
+        ("isinstance", 2) => {
+            // `int`, `float`, `str` alone read as conversion functions: v_.int() and so on.
+            fn type_name(x: &Expr) -> Option<String> {
+                match x {
+                    Expr::Ident(n) => Some(n.clone()),
+                    Expr::Lambda(_, b) => match b.as_ref() {
+                        Expr::Method(_, n, a, _) if a.is_empty() => Some(n.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+            let names: Vec<String> = match &args[1].1 {
+                Expr::Tuple(xs) => xs.iter().filter_map(type_name).collect(),
+                x => vec![type_name(x)?],
+            };
+            let names: Vec<String> = names.into_iter().map(|n| match n.as_str() {
+                "set" | "List" | "tuple" => "list".to_string(),
+                "Dict" | "OrderedDict" | "defaultdict" => "dict".to_string(),
+                _ => n,
+            }).collect();
+            args.pop();
+            m(args.remove(0).1, "isinstance", vec![Expr::Str(vec![StrPart::Lit(names.join(","))])])
+        }
         // bool(x) is x's truth: not not x.
         ("bool", 1) => Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(args.remove(0).1)))),
         ("divmod", 2) => {
