@@ -872,7 +872,7 @@ impl Cx<'_> {
             },
             "slice" | "sort" | "sort_by" | "rev" | "take" | "skip" | "filter" | "unique" | "step" | "repeat" | "abs" | "round" => match &r {
                 Hole if m == "repeat" || m == "slice" => Hole,
-                Map(k, _) if m == "filter" => List(k.clone()),
+                Map(k, _) if m == "filter" || m == "sort" || m == "sort_by" || m == "sort_by_rev" => List(k.clone()),
                 _ => r,
             },
             "flatten" => match elem(&r) {
@@ -905,6 +905,7 @@ impl Cx<'_> {
             "fold" => merge(a(0), Hole),
             "add_days" => Date,
             "tally" => Map(Box::new(elem(&r)), Box::new(Int)),
+            "tally_words" => Map(Box::new(Str), Box::new(Int)),
             "to_dict" => match elem(&r) {
                 Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
                 _ => match &r {
@@ -1021,7 +1022,7 @@ fn no_value(e: &Expr) -> bool {
         Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
         Expr::Call(n, _, _) => ["print", "write", "fail"].contains(&n.as_str()),
         // Changing a list or map is a statement even though remove and pop give a value.
-        Expr::Method(_, m, _, _) => ["push", "insert", "remove", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].contains(&m.as_str()),
+        Expr::Method(_, m, _, _) => ["push", "insert", "remove", "clear", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].contains(&m.as_str()),
         _ => false,
     }
 }
