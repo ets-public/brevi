@@ -147,6 +147,8 @@ struct Cx<'a> {
     mixed: HashSet<String>,
     // The script's top-level names, seen from inside functions.
     genv: Env,
+    // Typing a parameter written without a type from how its own function uses it: every use counts.
+    param_look: bool,
 }
 
 pub fn map_key(ps: &[(Expr, Expr)]) -> String {
@@ -164,7 +166,7 @@ pub fn empty_types(items: &[Item]) -> (HashMap<(String, usize), (String, bool)>,
 }
 
 fn empty_cx(items: &[Item]) -> Cx<'_> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false };
     for it in items {
         match it {
             Item::Fn { name, params, ret, body, script, .. } => {
@@ -537,6 +539,8 @@ impl Cx<'_> {
         match acc {
             Map(..) => Map(Box::new(k), Box::new(v)),
             List(_) => List(Box::new(v)),
+            // A parameter of unknown kind indexed by a non-int key (`seen[oid] = true`) is a map.
+            Hole if self.param_look && !matches!(k, Int | Hole) => Map(Box::new(k), Box::new(v)),
             _ => Hole,
         }
     }
@@ -551,6 +555,9 @@ impl Cx<'_> {
                 let a0 = args.first().map(|a| self.ty(a, env)).unwrap_or(Hole);
                 if Self::is_n(recv, n) {
                     let ev = match (m.as_str(), &*acc) {
+                        // Methods only text has.
+                        ("split" | "words" | "lines" | "lower" | "upper" | "trim" | "starts_with" | "ends_with" | "replace" | "is_digit" | "is_alpha" | "ints" | "partition" | "find" | "chars", Hole) if self.param_look => Str,
+                        ("has", Hole) if self.param_look => Map(Box::new(a0), Box::new(Hole)),
                         ("push", List(_) | Hole) => List(Box::new(a0)),
                         ("push", Heap(_)) => Heap(Box::new(a0)),
                         ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
@@ -574,6 +581,39 @@ impl Cx<'_> {
                 let et = elem(&self.ty(recv, env));
                 for a in args {
                     self.look_lambda(n, a, &et, env, acc);
+                }
+            }
+            // `st[t]` with st a {str: ...} map makes t a str; `xs[i]` makes i an int.
+            Expr::Index(b, k) if self.param_look && Self::is_n(k, n) => {
+                let ev = match self.ty(b, env) {
+                    Map(kt, _) => *kt,
+                    List(_) | Str => Int,
+                    _ => Hole,
+                };
+                *acc = merge(acc.clone(), ev);
+                self.look_expr(n, b, env, acc);
+            }
+            // `t == "x"`, `n + 1`, `w in words`: the other side's type.
+            Expr::Binary(op, a, b) if self.param_look && (Self::is_n(a, n) || Self::is_n(b, n)) && !matches!(*op, "and" | "or" | "&&" | "||") => {
+                let other = if Self::is_n(a, n) { b } else { a };
+                let ot = self.ty(other, env);
+                let ev = match *op {
+                    "in" if Self::is_n(a, n) => elem(&ot),
+                    // `c in mem` with c a str: mem may be a list or a string, so the calls decide.
+                    "in" if matches!(ot, Int | F64 | Bool | Tuple(_) | Named(_)) => List(Box::new(ot)),
+                    "in" => Hole,
+                    "*" | "/" | "//" | "%" if matches!(ot, Str) => Hole,
+                    _ if matches!(ot, Int | F64 | Str | Bool | Dec | Date | Big | Named(_) | Tuple(_)) => ot,
+                    _ => Hole,
+                };
+                *acc = merge(acc.clone(), ev);
+                self.look_expr(n, other, env, acc);
+            }
+            // `p.qty` on a parameter: the one user type with that field.
+            Expr::Field(a, f) if self.param_look && Self::is_n(a, n) => {
+                let owners: Vec<&String> = self.structs.iter().filter(|(_, fs)| fs.iter().any(|(fname, _)| fname == f)).map(|(s, _)| s).collect();
+                if owners.len() == 1 {
+                    *acc = merge(acc.clone(), Named(owners[0].clone()));
                 }
             }
             Expr::Index(b, k) => {
@@ -720,6 +760,7 @@ impl Cx<'_> {
             Expr::Method(recv, m, args, _) => self.method(recv, m, args, env),
             Expr::Field(b, f) => match self.ty(b, env) {
                 Named(s) => self.structs.get(&s).and_then(|fs| fs.iter().find(|(n, _)| n == f).map(|(_, t)| t.clone())).unwrap_or(Hole),
+                Date if matches!(f.as_str(), "days" | "day" | "month" | "year" | "weekday") => Int,
                 _ => Hole,
             },
             Expr::TupleField(b, i) => match self.ty(b, env) {
@@ -782,7 +823,7 @@ impl Cx<'_> {
             _ => Hole,
         };
         match m {
-            "len" | "count" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" => Int,
+            "len" | "count" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
@@ -1122,7 +1163,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     for round in 0..6 {
         // Top-level names (`ts = {}` filled inside a function) are known by type where functions read them.
         let genv = empty_cx(items).genv;
-        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv };
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv, param_look: false };
         for it in items.iter() {
             match it {
                 Item::Fn { name, params, ret, .. } => {
@@ -1175,6 +1216,33 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         if let Some(t) = to_ast(&cx.ty(a, &env)) {
                             fills.push((k, pi, t));
                         }
+                    }
+                }
+            }
+            // A parameter no call pins down takes the type its own function's uses show
+            // (`lots.push(Lot(...))`, `st[t]`, `p.qty`).
+            for (k, it) in items.iter().enumerate() {
+                let Item::Fn { params, body, .. } = it else { continue };
+                for (pi, p) in params.iter().enumerate() {
+                    // Calls are the better evidence, so this waits until they have had two rounds.
+                    if round < 2 || !q(&p.ty) || fills.iter().any(|f| f.0 == k && f.1 == pi) {
+                        continue;
+                    }
+                    let mut env: Env = params.iter().filter(|o| !q(&o.ty)).map(|o| (o.name.clone(), from_ast(&o.ty))).collect();
+                    let mut acc = Hole;
+                    cx.param_look = true;
+                    match body {
+                        Expr::Block(stmts, tail) => {
+                            cx.look(&p.name, stmts, tail.as_deref(), &mut env, &mut acc);
+                            if let Some(t) = tail {
+                                cx.look_expr(&p.name, t, &mut env, &mut acc);
+                            }
+                        }
+                        e => cx.look_expr(&p.name, e, &mut env, &mut acc),
+                    }
+                    cx.param_look = false;
+                    if let Some(t) = to_ast(&acc) {
+                        fills.push((k, pi, t));
                     }
                 }
             }
@@ -1553,7 +1621,7 @@ impl Ck<'_, '_> {
 
 // Checks every function and fixes the forms that have one obvious meaning.
 pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new() };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false };
     for it in items.iter() {
         match it {
             Item::Fn { name, params, ret, .. } => {
@@ -1585,4 +1653,165 @@ pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
     }
     errs.sort_by_key(|d| d.line);
     errs
+}
+
+// Python passes lists, maps and objects by reference, so models leave out `mut` on a parameter they
+// change in place (`fn add(lots, x): lots.push(x)`). Such a parameter becomes `mut`: changed in place
+// (push, pop, insert, remove, `p[k] = v`, `p.f = v`, `p[k] += 1`) or passed on to a `mut` parameter,
+// and never set as a whole (`p = ...`, which in Python makes a new local).
+pub fn auto_mut(items: &mut [Item]) {
+    loop {
+        let muts: HashMap<String, Vec<bool>> = items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Fn { name, params, .. } => Some((name.clone(), params.iter().map(|p| p.is_mut).collect())),
+                _ => None,
+            })
+            .collect();
+        let mut changed = false;
+        for it in items.iter_mut() {
+            let Item::Fn { params, body, script: false, .. } = it else { continue };
+            for p in params.iter_mut() {
+                // `r[ci] = v; return r` changes a copy and hands it back, so it stays a copy.
+                if !p.is_mut && in_place(body, &p.name, &muts) && !crate::emit::assigns_to(body, &p.name) && !rebinds(body, &p.name) && !returns_name(body, &p.name) {
+                    p.is_mut = true;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return;
+        }
+    }
+}
+
+fn returns_name(body: &Expr, n: &str) -> bool {
+    let is_n = |e: &Expr| matches!(e, Expr::Ident(m) | Expr::Move(m) if m == n);
+    let mut hit = matches!(body, Expr::Block(_, Some(t)) if is_n(t));
+    walk(body, &mut |x| {
+        if let Expr::Block(stmts, _) = x {
+            if stmts.iter().any(|st| matches!(st, Stmt::Return { value: Some(v), .. } if is_n(v))) {
+                hit = true;
+            }
+        }
+    });
+    hit
+}
+
+fn root_is(e: &Expr, n: &str) -> bool {
+    match e {
+        Expr::Ident(m) | Expr::Move(m) => m == n,
+        Expr::Index(b, _) | Expr::Field(b, _) | Expr::TupleField(b, _) => root_is(b, n),
+        _ => false,
+    }
+}
+
+// `p = ...` or `p += ...` anywhere, also as a `for p in` / pattern binding.
+fn rebinds(e: &Expr, n: &str) -> bool {
+    let mut hit = false;
+    walk(e, &mut |x| {
+        if let Expr::Block(stmts, _) = x {
+            for st in stmts {
+                match st {
+                    Stmt::Assign { target: Expr::Ident(m), .. } if m == n => hit = true,
+                    Stmt::Let { name: Pat::Bind(m), .. } if m == n => hit = true,
+                    _ => {}
+                }
+            }
+        }
+        if let Expr::For(Pat::Bind(m), _, _) = x {
+            if m == n {
+                hit = true;
+            }
+        }
+    });
+    hit
+}
+
+fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
+    let mut hit = false;
+    walk(e, &mut |x| match x {
+        Expr::Block(stmts, _) => {
+            for st in stmts {
+                if let Stmt::Assign { target, .. } = st {
+                    if root_is(target, n) && !matches!(target, Expr::Ident(_) | Expr::Move(_)) {
+                        hit = true;
+                    }
+                }
+            }
+        }
+        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
+        Expr::Call(f, args, _) => {
+            if let Some(ms) = muts.get(f) {
+                for (k, (_, a)) in args.iter().enumerate() {
+                    if ms.get(k).copied().unwrap_or(false) && matches!(a, Expr::Ident(m) | Expr::Move(m) if m == n) {
+                        hit = true;
+                    }
+                }
+            }
+        }
+        _ => {}
+    });
+    hit
+}
+
+// Calls f on e and every expression inside it (lambda bodies too).
+fn walk(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    f(e);
+    match e {
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| walk(x, f)),
+        Expr::Map(ps) => ps.iter().for_each(|(k, v)| {
+            walk(k, f);
+            walk(v, f);
+        }),
+        Expr::Str(parts) => {
+            for p in parts {
+                if let StrPart::Interp(x) = p {
+                    walk(x, f);
+                }
+            }
+        }
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Lambda(_, a) | Expr::Try(a) => walk(a, f),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) => {
+            walk(a, f);
+            walk(b, f);
+        }
+        Expr::For(_, a, b) => {
+            walk(a, f);
+            walk(b, f);
+        }
+        Expr::Call(_, args, _) => args.iter().for_each(|(_, a)| walk(a, f)),
+        Expr::Method(r, _, args, _) => {
+            walk(r, f);
+            args.iter().for_each(|a| walk(a, f));
+        }
+        Expr::If(c, a, b) => {
+            walk(c, f);
+            walk(a, f);
+            if let Some(b) = b {
+                walk(b, f);
+            }
+        }
+        Expr::Match(s, arms) => {
+            walk(s, f);
+            arms.iter().for_each(|(_, a)| walk(a, f));
+        }
+        Expr::Block(stmts, tail) => {
+            for st in stmts {
+                match st {
+                    Stmt::Let { value, .. } => walk(value, f),
+                    Stmt::Assign { target, value, .. } => {
+                        walk(target, f);
+                        walk(value, f);
+                    }
+                    Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => walk(expr, f),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                walk(t, f);
+            }
+        }
+        _ => {}
+    }
 }

@@ -17,6 +17,7 @@ start: _NL? (line _NL)* line?
      | "use" STRING STRING*          // use "util.bv", use sha2 "0.10"
      | "use" NAME STRING*
      | "allow" NAME ("," NAME)*       // allow read, write, native
+     | ("global" | "nonlocal") NAME ("," NAME)*   // Python scope: see BREVI.md
      | "import" NAME ("," NAME)*     // import sys, math: Python modules Brevi has built in
      | "from" NAME "import" NAME ("," NAME)*
      | simple

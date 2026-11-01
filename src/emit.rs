@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none"];
+const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -490,6 +490,24 @@ pub(crate) fn sets_first(body: &str, n: &str) -> bool {
         let value = &rest[..rest.find(", line: ").unwrap_or(rest.len())];
         body[..i].ends_with("Assign { target: ") && body[i..].starts_with(&format!("{id}, op: \"=\"")) && !value.contains(&id) && !value.contains(&format!("Move({n:?})"))
     })
+}
+
+// Names a function declares with `global a, b`.
+fn global_names(body: &Expr) -> HashSet<String> {
+    let mut out = HashSet::new();
+    if let Expr::Block(stmts, _) = body {
+        for st in stmts {
+            if let Stmt::Expr { expr: Expr::Call(f, args, _), .. } = st {
+                if f == "__global" {
+                    out.extend(args.iter().filter_map(|(_, a)| match a {
+                        Expr::Ident(n) => Some(n.clone()),
+                        _ => None,
+                    }));
+                }
+            }
+        }
+    }
+    out
 }
 
 // Names used as `name[k].push(..)` (or pop, insert, remove) anywhere in a body.
@@ -1049,7 +1067,15 @@ impl Emitter {
         self.nested = nested_lists(body);
         // A top-level name that this function first sets to a value of another type is the function's own.
         let text = format!("{body:?}");
-        let names: Vec<String> = self.globals.keys().filter(|n| sets_first(&text, n)).cloned().collect();
+        // A program with `global x` lines follows Python: setting a top-level name anywhere in a
+        // function, without declaring it global there, makes it the function's own local.
+        let py_scope = self.fn_texts.iter().any(|(_, t)| t.contains("Call(\"__global\"")) && self.fn_texts.iter().any(|(f, _)| f == name);
+        if py_scope {
+            let declared = global_names(body);
+            let names: Vec<String> = self.globals.keys().filter(|n| !declared.contains(*n) && (assigns_to(body, n) || text.contains(&format!("For(Bind({n:?})")))).cloned().collect();
+            self.own_locals.extend(names);
+        }
+        let names: Vec<String> = if py_scope { vec![] } else { self.globals.keys().filter(|n| sets_first(&text, n)).cloned().collect() };
         for n in names {
             // Set first here, and no other function reads it before setting it: a local that shares the name.
             let id = format!("Ident({n:?})");
@@ -1801,6 +1827,7 @@ impl Emitter {
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),
+            "__global" => return "()".to_string(),
             "fail" => {
                 if !self.fallible {
                     self.diag(self.line, "fail() used in a function that cannot fail", Some("add ! after the function's return type".into()));

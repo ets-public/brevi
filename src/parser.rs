@@ -320,6 +320,20 @@ impl Parser {
 
     fn stmt(&mut self) -> R<Stmt> {
         let line = self.line();
+        // Python's `global count` / `nonlocal count`. A program that uses them gets Python's scope rule
+        // exactly: a function that sets a top-level name without declaring it global has its own local.
+        if matches!(self.peek(), Tok::Ident(w) if w == "global" || w == "nonlocal") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            self.next();
+            let mut names = Vec::new();
+            while let Tok::Ident(n) = self.peek().clone() {
+                self.next();
+                names.push((None, Expr::Ident(n)));
+                if !self.eat_sym(",") {
+                    break;
+                }
+            }
+            return Ok(Stmt::Expr { expr: Expr::Call("__global".into(), names, line), line });
+        }
         if self.is_kw("let") || self.is_kw("var") {
             let mutable = self.next() == Tok::Kw("var");
             let name = bind_upper(self.pat()?);
