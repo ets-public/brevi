@@ -1,0 +1,154 @@
+## main.bv
+use "stock.bv"
+use "orders.bv"
+
+fn valid_date(s: str) -> bool:
+  if s.re_full('\d{4}-\d{2}-\d{2}').is_empty(): return false
+  match date(s):
+    Ok(_) => true
+    Err(_) => false
+
+fn valid_qty(s: str) -> bool = not s.re_full('\d+').is_empty() and s.int() > 0
+
+st = new_stock()
+od = new_orders()
+today = ""
+shipped = 0
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  w = line.words()
+  cmd = w[0]
+  if cmd == "DAY":
+    if w.len() != 2 or not valid_date(w[1]):
+      print("line {n}: bad line")
+    elif w[1] < today:
+      print("line {n}: date goes back")
+    else:
+      today = w[1]
+      for m in discard_before(st, today): print(m)
+  elif cmd == "RECV":
+    if w.len() != 4 or not valid_qty(w[2]) or not valid_date(w[3]):
+      print("line {n}: bad line")
+    elif today == "":
+      print("line {n}: no date")
+    elif w[3] < today:
+      print("line {n}: expired on arrival")
+    else:
+      add_lot(st, w[1], w[2].int(), w[3])
+      msgs: [str] = []
+      shipped += fill(od, st, w[1], msgs)
+      for m in msgs: print(m)
+  elif cmd == "ORDER":
+    if w.len() != 4 or not valid_qty(w[3]):
+      print("line {n}: bad line")
+    elif today == "":
+      print("line {n}: no date")
+    elif has_order(od, w[1]):
+      print("line {n}: duplicate order")
+    else:
+      add_order(od, w[1])
+      q = w[3].int()
+      s = take(st, w[2], q)
+      shipped += s
+      if s < q:
+        print("ORDER {w[1]}: shipped {s} of {q}")
+        add_back(od, w[1], w[2], q - s)
+      else:
+        print("ORDER {w[1]}: shipped {q}")
+  elif cmd == "STOCK":
+    if w.len() != 1:
+      print("line {n}: bad line")
+    else:
+      ls = stock_lines(st)
+      if ls.is_empty():
+        print("stock empty")
+      else:
+        for l in ls: print(l)
+  else:
+    print("line {n}: bad line")
+print("shipped {shipped} units, backordered {pending(od)} units")
+## stock.bv
+type Lot:
+  sku: str
+  qty: int
+  expiry: str
+
+type Stock:
+  lots: [Lot]
+
+fn new_stock() -> Stock = Stock(lots: [])
+
+fn add_lot(mut s: Stock, sku: str, qty: int, expiry: str):
+  s.lots.push(Lot(sku: sku, qty: qty, expiry: expiry))
+
+fn take(mut s: Stock, sku: str, qty: int) -> int:
+  idx = (0..s.lots.len()).filter(i => s.lots[i].sku == sku and s.lots[i].qty > 0)
+  order = idx.sort_by(i => (s.lots[i].expiry, i))
+  left = qty
+  for i in order:
+    if left > 0:
+      k = min(left, s.lots[i].qty)
+      s.lots[i].qty -= k
+      left -= k
+  qty - left
+
+fn discard_before(mut s: Stock, today: str) -> [str]:
+  idx = (0..s.lots.len()).filter(i => s.lots[i].expiry < today)
+  order = idx.sort_by(i => (s.lots[i].sku, s.lots[i].expiry, i))
+  msgs: [str] = []
+  for i in order:
+    if s.lots[i].qty > 0:
+      msgs.push("discard {s.lots[i].sku} {s.lots[i].qty} {s.lots[i].expiry}")
+  s.lots = s.lots.filter(l => l.expiry >= today)
+  msgs
+
+fn stock_lines(s: Stock) -> [str]:
+  qtys: {str: int} = {}
+  cnt: {str: int} = {}
+  for l in s.lots:
+    if l.qty > 0:
+      qtys[l.sku] += l.qty
+      cnt[l.sku] += 1
+  out: [str] = []
+  for k, q in qtys.pairs():
+    out.push("{k} {q} in {cnt[k]} lots")
+  out
+## orders.bv
+use "stock.bv"
+
+type Backorder:
+  id: str
+  sku: str
+  left: int
+
+type Orders:
+  ids: [str]
+  back: [Backorder]
+
+fn new_orders() -> Orders = Orders(ids: [], back: [])
+
+fn has_order(o: Orders, id: str) -> bool = id in o.ids
+
+fn add_order(mut o: Orders, id: str):
+  o.ids.push(id)
+
+fn add_back(mut o: Orders, id: str, sku: str, left: int):
+  o.back.push(Backorder(id: id, sku: sku, left: left))
+
+fn pending(o: Orders) -> int = o.back.map(b => b.left).sum()
+
+fn fill(mut o: Orders, mut s: Stock, sku: str, mut msgs: [str]) -> int:
+  total = 0
+  for i in 0..o.back.len():
+    if o.back[i].sku == sku and o.back[i].left > 0:
+      k = take(s, sku, o.back[i].left)
+      if k > 0:
+        o.back[i].left -= k
+        total += k
+        if o.back[i].left == 0:
+          msgs.push("BACKORDER {o.back[i].id}: done")
+        else:
+          msgs.push("BACKORDER {o.back[i].id}: shipped {k}, {o.back[i].left} left")
+  total

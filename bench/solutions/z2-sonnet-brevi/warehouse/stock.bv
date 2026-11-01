@@ -1,0 +1,35 @@
+type Lot:
+  sku: str
+  qty: int
+  exp: str
+  seq: int
+
+fn take(mut lots: [Lot], sku: str, want: int) -> int:
+  got = 0
+  cand: [(str, int, int)] = []
+  for i in 0..lots.len():
+    if lots[i].sku == sku and lots[i].qty > 0: cand.push((lots[i].exp, lots[i].seq, i))
+  for c in cand.sort():
+    if got < want:
+      x = min(want - got, lots[c.2].qty)
+      lots[c.2].qty -= x
+      got += x
+  lots = lots.filter(l => l.qty > 0)
+  got
+
+fn discard(mut lots: [Lot], today: str) -> [str]:
+  gone = lots.filter(l => l.exp < today).sort_by(l => (l.sku, l.exp, l.seq))
+  out: [str] = gone.map(l => "discard {l.sku} {l.qty} {l.exp}")
+  lots = lots.filter(l => l.exp >= today)
+  out
+
+fn stock_lines(lots: [Lot]) -> [str]:
+  tot: {str: int} = {}
+  cnt: {str: int} = {}
+  for l in lots:
+    if l.qty > 0:
+      tot[l.sku] += l.qty
+      cnt[l.sku] += 1
+  out: [str] = []
+  for k, v in tot.pairs(): out.push("{k} {v} in {cnt[k]} lots")
+  out

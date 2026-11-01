@@ -1,0 +1,61 @@
+warns: [str] = []
+hs: [(int, int, str)] = []
+incode = false
+codeline = 0
+n = 0
+for line in lines():
+  n += 1
+  if line.starts_with("```"):
+    if incode:
+      incode = false
+    else:
+      incode = true
+      codeline = n
+    continue
+  if incode: continue
+  k = 0
+  while k < line.len() and line[k] == "#":
+    k += 1
+  if k >= 1 and k <= 6 and line.len() > k and line[k] == " ":
+    rest = line[k:].trim()
+    if rest.is_empty(): continue
+    text = rest.re_sub(' +#+$', '')
+    hs.push((n, k, text))
+if incode:
+  warns.push("line {codeline}: unclosed code block")
+
+counters = [0].repeat(8)
+used: {str: int} = {}
+out: [str] = []
+top = 99
+for h in hs:
+  top = min(top, h.1)
+prevlevel = 0
+prevdepth = 0
+maxd = 0
+first = true
+for h in hs:
+  depth = 1 + h.1 - top
+  if not first and h.1 > prevlevel + 1:
+    warns.insert(warns.len() - (if incode: 1 else: 0), "line {h.0}: level jump")
+    depth = prevdepth + 1
+  first = false
+  prevlevel = h.1
+  prevdepth = depth
+  maxd = max(maxd, depth)
+  counters[depth] += 1
+  for d in depth + 1..8:
+    counters[d] = 0
+  num = counters[1:depth + 1].map(x => str(x)).join(".")
+  slug = h.2.lower().re_sub('[^a-z0-9 -]', '').replace(" ", "-")
+  if slug.is_empty(): slug = "section"
+  c = used.get_or(slug, 0)
+  used[slug] = c + 1
+  final = if c > 0: "{slug}-{c}" else: slug
+  out.push("{'  '.repeat(depth - 1)}{num} {h.2} (#{final})")
+for w in warns: print(w)
+if hs.is_empty():
+  print("no headings")
+else:
+  for o in out: print(o)
+  print("{hs.len()} headings, max depth {maxd}")

@@ -1,0 +1,1 @@
+{"line":13,"msg":"no method named index_of found for str: method not found in str","fix":"valid methods here: len words lines chars split slice find lower upper trim contains starts_with ends_with replace repeat is_empty is_digit is_alpha is_space digit int float ints big"}

@@ -1,0 +1,65 @@
+fn slugify(t: str) -> str:
+  out = ""
+  for c in t.lower().chars():
+    if c in "abcdefghijklmnopqrstuvwxyz0123456789 -": out += c
+  out.replace(" ", "-")
+
+hl: [int] = []
+hv: [int] = []
+ht: [str] = []
+warns: [str] = []
+incode = false
+codeline = 0
+n = 0
+for line in lines():
+  n += 1
+  if line.starts_with("```"):
+    if incode:
+      incode = false
+    else:
+      incode = true
+      codeline = n
+    continue
+  if incode: continue
+  m = line.re_full("(#{1,6}) (.*)")
+  if m == []: continue
+  rest = m[2].trim()
+  if rest.is_empty(): continue
+  r2 = rest.re_full("(.*) +#+")
+  if r2 != []: rest = r2[1].trim()
+  hl.push(n)
+  hv.push(m[1].len())
+  ht.push(rest)
+
+top = hv.min().or(1)
+counters: [int] = [0, 0, 0, 0, 0, 0, 0, 0]
+used: {str: int} = {}
+outl: [str] = []
+prevlevel = 0
+prevdepth = 0
+maxd = 0
+for i in 0..hv.len():
+  lv = hv[i]
+  depth = 1 + (lv - top)
+  if i > 0 and lv > prevlevel + 1:
+    warns.push("line {hl[i]}: level jump")
+    depth = prevdepth + 1
+  prevlevel = lv
+  prevdepth = depth
+  if depth > maxd: maxd = depth
+  counters[depth] += 1
+  for j in (depth + 1)..8: counters[j] = 0
+  num = counters[1:depth + 1].map(x => str(x)).join(".")
+  base = slugify(ht[i])
+  if base.is_empty(): base = "section"
+  c = used[base]
+  slug = if c == 0: base else: "{base}-{c}"
+  used[base] += 1
+  outl.push("{"  ".repeat(depth - 1)}{num} {ht[i]} (#{slug})")
+if incode: warns.push("line {codeline}: unclosed code block")
+for w in warns: print(w)
+if hv.is_empty():
+  print("no headings")
+else:
+  for o in outl: print(o)
+  print("{hv.len()} headings, max depth {maxd}")

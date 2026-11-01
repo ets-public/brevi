@@ -1,0 +1,137 @@
+RANKS = "23456789TJQKA"
+
+fn words(s: str) -> [str]:
+  return s.split(" ").filter(x => x != "")
+
+fn card_ok(c: str) -> bool:
+  return c.len() == 2 and RANKS.contains(c[0:1]) and "SHDC".contains(c[1:2])
+
+fn valid_hand(w: [str]) -> bool:
+  if w.len() != 6:
+    return False
+  for c in w[1:6]:
+    if not card_ok(c):
+      return False
+  return w[1:6].unique().len() == 5
+
+fn evaluate(cards: [str]) -> (int, str):
+  vals = []
+  suits = []
+  for c in cards:
+    vals.push(RANKS.find(c[0:1]) + 2)
+    suits.push(c[1:2])
+  cnt = {}
+  for v in vals:
+    cnt[v] = cnt.get_or(v, 0) + 1
+  groups = []
+  for v in cnt.keys():
+    groups.push((cnt[v], v))
+  groups = groups.sort_by(g => (-g.0, -g.1))
+  shape = groups.map(g => g.0)
+  flush = suits.unique().len() == 1
+  sv = vals.sort()
+  lo = sv[0]
+  hi = sv[4]
+  straight = False
+  high = hi
+  if groups.len() == 5:
+    if hi - lo == 4:
+      straight = True
+    elif vals.contains(14) and vals.contains(2) and vals.contains(3) and vals.contains(4) and vals.contains(5):
+      straight = True
+      high = 5
+  cat = 0
+  name = "high card"
+  if straight and flush:
+    cat = 8
+    name = "straight flush"
+  elif shape[0] == 4:
+    cat = 7
+    name = "four of a kind"
+  elif shape[0] == 3 and shape[1] == 2:
+    cat = 6
+    name = "full house"
+  elif flush:
+    cat = 5
+    name = "flush"
+  elif straight:
+    cat = 4
+    name = "straight"
+  elif shape[0] == 3:
+    cat = 3
+    name = "three of a kind"
+  elif shape[0] == 2 and shape[1] == 2:
+    cat = 2
+    name = "two pair"
+  elif shape[0] == 2:
+    cat = 1
+    name = "pair"
+  tb = groups.map(g => g.1)
+  if straight:
+    tb = [high]
+  while tb.len() < 5:
+    tb.push(0)
+  key = cat
+  for r in tb:
+    key = key * 15 + r
+  return (key, name)
+
+fn show(r: int, ps: [(int, str, str)]):
+  print("round {r}")
+  if ps.is_empty():
+    print("no players")
+    return
+  srt = ps.sort_by(p => (-p.0, p.1))
+  pos = 1
+  prevk = -1
+  for i in 0..srt.len():
+    p = srt[i]
+    if i > 0 and p.0 != prevk:
+      pos = i + 1
+    prevk = p.0
+    nm = p.1
+    ct = p.2
+    print("{pos}. {nm} {ct}")
+
+rnd = 0
+in_round = False
+players = []
+names = {}
+dealt = {}
+for i, ln in lines().enumerate():
+  n = i + 1
+  w = words(ln)
+  if w.is_empty():
+    if in_round:
+      show(rnd, players)
+      players = []
+      names = {}
+      dealt = {}
+      in_round = False
+    continue
+  if not in_round:
+    rnd += 1
+    in_round = True
+  if not valid_hand(w):
+    print("line {n}: bad hand")
+    continue
+  nm = w[0]
+  if names.has(nm):
+    print("line {n}: duplicate player")
+    continue
+  dup = ""
+  for c in w[1:6]:
+    if dealt.has(c) and dup == "":
+      dup = c
+  if dup != "":
+    print("line {n}: card {dup} already dealt")
+    continue
+  for c in w[1:6]:
+    dealt[c] = True
+  names[nm] = True
+  res = evaluate(w[1:6])
+  players.push((res.0, nm, res.1))
+
+if in_round:
+  show(rnd, players)
+print("{rnd} rounds")

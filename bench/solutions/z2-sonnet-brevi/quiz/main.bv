@@ -1,0 +1,61 @@
+use "key.bv"
+use "grade.bv"
+
+qs: [[str]] = []
+qidx: {str: int} = {}
+snames: [str] = []
+srows: [[int]] = []
+state = 0
+n = 0
+for line in lines():
+  n += 1
+  t = line.trim()
+  if t.is_empty(): continue
+  w = t.words()
+  if state == 0:
+    if t == "KEY": state = 1
+    continue
+  if state == 1:
+    if t == "ANSWERS":
+      state = 2
+      continue
+    if key_ok(w) and not qidx.has(w[0]):
+      qidx[w[0]] = qs.len()
+      qs.push(w)
+    else:
+      print("key line {n}: bad question")
+    continue
+  name = w[0]
+  if name in snames:
+    print("line {n}: duplicate student")
+    continue
+  snames.push(name)
+  row: [int] = qs.map(q => 0)
+  seen: [str] = []
+  for tok in w[1:]:
+    parts = tok.partition("=")
+    if "=" not in tok or parts.2.is_empty():
+      print("line {n}: bad answer {tok}")
+    elif not qidx.has(parts.0):
+      print("line {n}: unknown question {parts.0}")
+    elif parts.0 in seen:
+      print("line {n}: answered twice {parts.0}")
+    else:
+      seen.push(parts.0)
+      qi = qidx[parts.0]
+      row[qi] = grade_answer(qs[qi], parts.2)
+  srows.push(row)
+
+if qs.is_empty():
+  print("empty key")
+elif snames.is_empty():
+  print("no students")
+else:
+  mx = qs.map(q => q[2].int()).sum()
+  scores: [int] = srows.map(r => r.sum())
+  for i in 0..snames.len():
+    print("{snames[i]} {scores[i]}/{mx} {pct(scores[i], mx)}%")
+  for qi in 0..qs.len():
+    tot = srows.map(r => r[qi]).sum()
+    print("{qs[qi][0]} avg {avg_str(tot, snames.len())}")
+  print(top_line(snames, scores))

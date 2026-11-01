@@ -1,0 +1,44 @@
+fn pdec(s: str) -> dec:
+  if s.starts_with("+"): s[1:].dec() else: s.dec()
+
+fn is_dec(s: str) -> bool = s.re_full("[+-]?\d+(\.\d+)?") != []
+
+fn key_ok(w: [str]) -> bool:
+  if w.len() < 4: return false
+  if w[0].re_full("Q\d+") == []: return false
+  if w[2].re_full("\d+") == []: return false
+  p = w[2].int()
+  if p < 1 or p > 100: return false
+  k = w[1]
+  if k == "choice": return w.len() == 4 and w[3].re_full("[A-E]") != []
+  if k == "multi":
+    return w.len() == 4 and w[3].re_full("[A-E]{2,}") != [] and w[3].chars().unique().len() == w[3].len()
+  if k == "number":
+    if w.len() != 5: return false
+    if not is_dec(w[3]) or not is_dec(w[4]): return false
+    return pdec(w[4]) >= 0
+  if k == "text":
+    return w.len() == 4 and w[3].split("|").all(x => not x.is_empty())
+  false
+
+fn grade_answer(w: [str], ans: str) -> int:
+  p = w[2].int()
+  k = w[1]
+  if k == "choice":
+    return if ans == w[3]: p else: 0
+  if k == "multi":
+    if ans.re_full("[A-E]+") == []: return 0
+    mine = ans.chars().unique()
+    keyl = w[3].chars()
+    if mine.len() == keyl.len() and mine.all(c => c in keyl): return p
+    right = mine.count(c => c in keyl)
+    wrong = mine.len() - right
+    return max(0, (p * (right - wrong)) // keyl.len())
+  if k == "number":
+    if not is_dec(ans): return 0
+    d = pdec(ans) - pdec(w[3])
+    if d < 0: d = 0 - d
+    return if d <= pdec(w[4]): p else: 0
+  if k == "text":
+    return if ans.lower() in w[3].lower().split("|"): p else: 0
+  0

@@ -1,0 +1,101 @@
+use "stock.bv"
+use "orders.bv"
+
+fn words(s: str) -> [str]:
+  return s.split(" ").filter(x => x != "")
+
+fn valid_date(s: str) -> bool:
+  if not s.re_full("\d{4}-\d{2}-\d{2}"):
+    return False
+  yy = s[0:4].int()
+  mo = s[5:7].int()
+  dy = s[8:10].int()
+  if mo < 1 or mo > 12:
+    return False
+  days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  top = days[mo - 1]
+  if mo == 2 and ((yy % 4 == 0 and yy % 100 != 0) or yy % 400 == 0):
+    top = 29
+  return dy >= 1 and dy <= top
+
+fn posint(s: str) -> bool:
+  if not s.re_full("\d+"):
+    return False
+  return s.int() > 0
+
+lots = []
+backs = []
+seen = {}
+today = ""
+seq = 0
+shipped = 0
+for i, ln in lines().enumerate():
+  n = i + 1
+  w = words(ln)
+  if w.is_empty():
+    continue
+  cmd = w[0]
+  if cmd == "DAY":
+    if w.len() != 2 or not valid_date(w[1]):
+      print("line {n}: bad line")
+    elif today != "" and w[1] < today:
+      print("line {n}: date goes back")
+    else:
+      today = w[1]
+      for msg in discard_before(lots, today):
+        print(msg)
+  elif cmd == "RECV":
+    if w.len() != 4 or not posint(w[2]) or not valid_date(w[3]):
+      print("line {n}: bad line")
+    elif today == "":
+      print("line {n}: no date")
+    elif w[3] < today:
+      print("line {n}: expired on arrival")
+    else:
+      sku = w[1]
+      q = w[2].int()
+      seq += 1
+      add_lot(lots, sku, q, w[3], seq)
+      for bi in waiting_for(backs, sku):
+        got = take(lots, sku, backs[bi].left)
+        if got > 0:
+          shipped += got
+          backs[bi].left -= got
+          bid = backs[bi].oid
+          if backs[bi].left > 0:
+            bleft = backs[bi].left
+            print("BACKORDER {bid}: shipped {got}, {bleft} left")
+          else:
+            print("BACKORDER {bid}: done")
+  elif cmd == "ORDER":
+    if w.len() != 4 or not posint(w[3]):
+      print("line {n}: bad line")
+    elif today == "":
+      print("line {n}: no date")
+    elif not new_order(seen, w[1]):
+      print("line {n}: duplicate order")
+    else:
+      oid = w[1]
+      osku = w[2]
+      oq = w[3].int()
+      got = take(lots, osku, oq)
+      shipped += got
+      if got < oq:
+        print("ORDER {oid}: shipped {got} of {oq}")
+        add_back(backs, oid, osku, oq - got)
+      else:
+        print("ORDER {oid}: shipped {oq}")
+  elif cmd == "STOCK":
+    if w.len() != 1:
+      print("line {n}: bad line")
+    else:
+      ls = stock_lines(lots)
+      if ls.is_empty():
+        print("stock empty")
+      for s in ls:
+        print(s)
+  else:
+    print("line {n}: bad line")
+
+waiting = units_waiting(backs)
+print("shipped {shipped} units, backordered {waiting} units")

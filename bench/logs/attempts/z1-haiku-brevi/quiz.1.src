@@ -1,0 +1,220 @@
+## main.bv
+use "key.bv"
+use "grade.bv"
+
+fn words(s: str) -> [str]:
+  return s.split(" ").filter(x => x != "")
+
+state = 0
+keys = []
+keyids = {}
+studs = []
+stud_names = {}
+for i, ln in lines().enumerate():
+  n = i + 1
+  w = words(ln)
+  if w.is_empty():
+    continue
+  if state == 0:
+    if w.len() == 1 and w[0] == "KEY":
+      state = 1
+    continue
+  if state == 1:
+    if w.len() == 1 and w[0] == "ANSWERS":
+      state = 2
+      continue
+    kr = parse_key(w)
+    if not kr.0 or keyids.has(kr.1):
+      print("key line {n}: bad question")
+    else:
+      keyids[kr.1] = True
+      keys.push((kr.1, kr.2, kr.3, kr.4))
+    continue
+  nm = w[0]
+  if stud_names.has(nm):
+    print("line {n}: duplicate student")
+    continue
+  answers = {}
+  for tok in w[1:]:
+    idx = tok.find("=")
+    if idx < 0 or idx == tok.len() - 1:
+      print("line {n}: bad answer {tok}")
+    else:
+      qid = tok[0:idx]
+      ans = tok[idx + 1:]
+      if not keyids.has(qid):
+        print("line {n}: unknown question {qid}")
+      elif answers.has(qid):
+        print("line {n}: answered twice {qid}")
+      else:
+        answers[qid] = ans
+  scored = []
+  for kq in keys:
+    a = ""
+    if answers.has(kq.0):
+      a = answers[kq.0]
+    scored.push(grade_one(kq.1, kq.3, kq.2, a))
+  stud_names[nm] = True
+  add_student(studs, nm, scored)
+
+if studs.is_empty():
+  print("no students")
+elif keys.is_empty():
+  print("empty key")
+else:
+  max_pts = 0
+  for kq in keys:
+    max_pts += kq.2
+  for rec in studs:
+    got = total_of(rec.1)
+    pct = got * 100 // max_pts
+    who = rec.0
+    print("{who} {got}/{max_pts} {pct}%")
+  for j in 0..keys.len():
+    a100 = avg100(studs, j)
+    whole = a100 // 100
+    frac = a100 % 100
+    qid = keys[j].0
+    print("{qid} avg {whole}.{frac:02d}")
+  top = top_of(studs)
+  names = top.1.join(", ")
+  best = top.0
+  print("top: {names} ({best})")
+## key.bv
+# Answer-key checks and grading of one answer against one question.
+
+fn normdec(s: str) -> str:
+  if not s.re_full("[+-]?(\d+(\.\d*)?|\.\d+)"):
+    return ""
+  neg = s.starts_with("-")
+  t = s
+  if s.starts_with("-") or s.starts_with("+"):
+    t = s[1:]
+  if t.starts_with("."):
+    t = "0" + t
+  parts = t.split(".")
+  ip = parts[0]
+  fp = "0"
+  if parts.len() == 2 and parts[1] != "":
+    fp = parts[1]
+  sg = ""
+  if neg:
+    sg = "-"
+  return "{sg}{ip}.{fp}"
+
+# Returns (valid, ID, TYPE, POINTS, SPEC). SPEC is the letter, the letters,
+# "VALUE TOL" (normalised decimals) or the WORD|WORD list.
+fn parse_key(ws: [str]) -> (bool, str, str, int, str):
+  bad = (False, "", "", 0, "")
+  if ws.len() < 4:
+    return bad
+  qid = ws[0]
+  if not qid.re_full("Q\d+"):
+    return bad
+  kind = ws[1]
+  if not ws[2].re_full("\d+"):
+    return bad
+  pts = ws[2].int()
+  if pts < 1 or pts > 100:
+    return bad
+  if kind == "choice":
+    if ws.len() != 4 or not ws[3].re_full("[A-E]"):
+      return bad
+    return (True, qid, kind, pts, ws[3])
+  if kind == "multi":
+    if ws.len() != 4 or not ws[3].re_full("[A-E][A-E]+"):
+      return bad
+    if ws[3].chars().unique().len() != ws[3].len():
+      return bad
+    return (True, qid, kind, pts, ws[3])
+  if kind == "number":
+    if ws.len() != 5:
+      return bad
+    val = normdec(ws[3])
+    tl = normdec(ws[4])
+    if val == "" or tl == "":
+      return bad
+    if tl.dec() < 0.dec():
+      return bad
+    return (True, qid, kind, pts, "{val} {tl}")
+  if kind == "text":
+    if ws.len() != 4:
+      return bad
+    for part in ws[3].split("|"):
+      if part == "":
+        return bad
+    return (True, qid, kind, pts, ws[3])
+  return bad
+
+# Points earned for one answer (ans "" means unanswered).
+fn grade_one(kind: str, spec: str, pts: int, ans: str) -> int:
+  if ans == "":
+    return 0
+  if kind == "choice":
+    if ans == spec:
+      return pts
+    return 0
+  if kind == "multi":
+    if not ans.re_full("[A-E]+"):
+      return 0
+    got = ans.chars().unique()
+    want = spec.chars()
+    right = 0
+    for c in got:
+      if spec.contains(c):
+        right += 1
+    wrong = got.len() - right
+    if right == want.len() and wrong == 0:
+      return pts
+    d = right - wrong
+    if d <= 0:
+      return 0
+    return pts * d // want.len()
+  if kind == "number":
+    v = normdec(ans)
+    if v == "":
+      return 0
+    bits = spec.split(" ")
+    target = bits[0].dec()
+    tol = bits[1].dec()
+    x = v.dec()
+    if x >= target - tol and x <= target + tol:
+      return pts
+    return 0
+  if kind == "text":
+    low = ans.lower()
+    for word in spec.split("|"):
+      if word.lower() == low:
+        return pts
+    return 0
+  return 0
+## grade.bv
+# Keeps the students' scores (one list per student, in key order) and
+# works out totals, averages and the top score.
+
+fn add_student(mut st: [(str, [int])], nm: str, scores: [int]):
+  st.push((nm, scores))
+
+fn total_of(scores: [int]) -> int:
+  return scores.sum()
+
+# Average of question j in hundredths, rounded half up.
+fn avg100(st: [(str, [int])], j: int) -> int:
+  tot = 0
+  for rec in st:
+    tot += rec.1[j]
+  cnt = st.len()
+  return (2 * tot * 100 + cnt) // (2 * cnt)
+
+# (highest total, names with it in input order)
+fn top_of(st: [(str, [int])]) -> (int, [str]):
+  best_so_far = -1
+  who = []
+  for rec in st:
+    tot = total_of(rec.1)
+    if tot > best_so_far:
+      best_so_far = tot
+      who = [rec.0]
+    elif tot == best_so_far:
+      who.push(rec.0)
+  return (best_so_far, who)

@@ -1,0 +1,145 @@
+## main.py
+import sys
+from key import parse_key_line, grade_answer
+from grade import Grades
+
+lines = sys.stdin.read().split('\n')
+state = 0
+questions = {}
+order = []
+students = []
+msgs = []
+g = None
+for n, raw in enumerate(lines, 1):
+    s = raw.strip()
+    if not s:
+        continue
+    if state == 0:
+        if s == 'KEY':
+            state = 1
+        continue
+    if state == 1:
+        if s == 'ANSWERS':
+            state = 2
+            continue
+        if s == 'KEY':
+            continue
+        q = parse_key_line(s)
+        if q is None or q[0] in questions:
+            msgs.append('key line %d: bad question' % n)
+        else:
+            questions[q[0]] = q
+            order.append(q[0])
+        continue
+    if s in ('KEY', 'ANSWERS'):
+        continue
+    if g is None:
+        g = Grades(order, sum(questions[i][2] for i in order))
+    w = s.split()
+    name = w[0]
+    if g.has(name):
+        msgs.append('line %d: duplicate student' % n)
+        continue
+    given = {}
+    scores = {}
+    for tok in w[1:]:
+        if '=' not in tok or tok.split('=', 1)[1] == '':
+            msgs.append('line %d: bad answer %s' % (n, tok))
+            continue
+        qid, ans = tok.split('=', 1)
+        if qid not in questions:
+            msgs.append('line %d: unknown question %s' % (n, qid))
+            continue
+        if qid in given:
+            msgs.append('line %d: answered twice %s' % (n, qid))
+            continue
+        given[qid] = ans
+        scores[qid] = grade_answer(questions[qid], ans)
+    g.add(name, scores)
+
+out = list(msgs)
+if not order:
+    out.append('empty key')
+elif g is None or not g.students:
+    out.append('no students')
+else:
+    for name, sc in g.students:
+        out.append('%s %d/%d %d%%' % (name, g.total(sc), g.maxpts, g.pct(sc)))
+    for qid in order:
+        out.append('%s avg %s' % (qid, g.avg(qid)))
+    names, best = g.top()
+    out.append('top: %s (%d)' % (', '.join(names), best))
+print('\n'.join(out))
+## key.py
+import re
+from fractions import Fraction
+DEC = re.compile(r'^[+-]?\d+(\.\d+)?$')
+
+def parse_key_line(line):
+    w = line.split()
+    if len(w) < 4 or not re.match(r'^Q\d+$', w[0]) or not re.match(r'^\d+$', w[2]):
+        return None
+    pts = int(w[2])
+    if pts < 1 or pts > 100:
+        return None
+    t = w[1]
+    if t == 'choice' and len(w) == 4 and re.match(r'^[A-E]$', w[3]):
+        return (w[0], t, pts, w[3])
+    if t == 'multi' and len(w) == 4 and re.match(r'^[A-E]{2,}$', w[3]) and len(set(w[3])) == len(w[3]):
+        return (w[0], t, pts, frozenset(w[3]))
+    if t == 'number' and len(w) == 5 and DEC.match(w[3]) and DEC.match(w[4]) and Fraction(w[4]) >= 0:
+        return (w[0], t, pts, (Fraction(w[3]), Fraction(w[4])))
+    if t == 'text' and len(w) == 4:
+        ws = w[3].split('|')
+        if all(ws):
+            return (w[0], t, pts, [x.lower() for x in ws])
+    return None
+
+def grade_answer(q, ans):
+    _, t, pts, spec = q
+    if t == 'choice':
+        return pts if ans == spec else 0
+    if t == 'multi':
+        if not re.match(r'^[A-E]+$', ans):
+            return 0
+        s = set(ans)
+        if s == spec:
+            return pts
+        right = len(s & spec)
+        wrong = len(s - spec)
+        return max(0, pts * (right - wrong) // len(spec))
+    if t == 'number':
+        if not DEC.match(ans):
+            return 0
+        return pts if abs(Fraction(ans) - spec[0]) <= spec[1] else 0
+    return pts if ans.lower() in spec else 0
+## grade.py
+class Grades:
+    def __init__(self, qids, maxpts):
+        self.qids = qids
+        self.maxpts = maxpts
+        self.students = []
+        self.names = set()
+
+    def has(self, name):
+        return name in self.names
+
+    def add(self, name, scores):
+        self.names.add(name)
+        self.students.append((name, scores))
+
+    def total(self, scores):
+        return sum(scores.values())
+
+    def pct(self, scores):
+        return self.total(scores) * 100 // self.maxpts
+
+    def avg(self, qid):
+        n = len(self.students)
+        tot = sum(s.get(qid, 0) for _, s in self.students)
+        c = (tot * 200 + n) // (2 * n)
+        return '%d.%02d' % (c // 100, c % 100)
+
+    def top(self):
+        best = max(self.total(s) for _, s in self.students)
+        return [nm for nm, s in self.students if self.total(s) == best], best

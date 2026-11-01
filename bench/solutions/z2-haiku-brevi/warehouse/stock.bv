@@ -1,0 +1,53 @@
+type Lot:
+  sku: str
+  qty: int
+  expiry: str
+  seq: int
+
+fn add_lot(mut lots: [Lot], sku: str, qty: int, expiry: str, seq: int):
+  lots.push(Lot(sku: sku, qty: qty, expiry: expiry, seq: seq))
+
+fn take_expired(mut lots: [Lot], today: str) -> [Lot]:
+  gone: [Lot] = []
+  keep: [Lot] = []
+  for l in lots:
+    if l.expiry < today: gone.push(l)
+    else: keep.push(l)
+  lots = keep
+  gone.sort_by(l => (l.sku, l.expiry, l.seq))
+  return gone
+
+fn pick(mut lots: [Lot], sku: str, qty: int) -> int:
+  cand: [(str, int)] = []
+  for i in 0..lots.len():
+    if lots[i].sku == sku: cand.push((lots[i].expiry, i))
+  cand.sort_by(c => (c.0, c.1))
+  left = qty
+  taken = 0
+  for c in cand:
+    if left == 0: break
+    i = c.1
+    t = min(left, lots[i].qty)
+    l = lots[i]
+    l.qty -= t
+    lots[i] = l
+    left -= t
+    taken += t
+  keep: [Lot] = []
+  for l in lots:
+    if l.qty > 0: keep.push(l)
+  lots = keep
+  return taken
+
+fn stock_lines(lots: [Lot]) -> [str]:
+  qty: {str: int} = {}
+  cnt: {str: int} = {}
+  for l in lots:
+    qty[l.sku] += l.qty
+    cnt[l.sku] += 1
+  out: [str] = []
+  for s in qty.keys():
+    q2 = qty[s]
+    c2 = cnt[s]
+    if q2 > 0: out.push("{s} {q2} in {c2} lots")
+  return out

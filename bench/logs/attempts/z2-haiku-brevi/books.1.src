@@ -1,0 +1,149 @@
+fn valid_date(s: str) -> bool:
+  p = s.split("-")
+  if p.len() != 3: return false
+  if p[0].len() != 4 or p[1].len() != 2 or p[2].len() != 2: return false
+  if not (p[0] + p[1] + p[2]).chars().all(c => c.is_digit()): return false
+  y = p[0].int().or(0)
+  m = p[1].int().or(0)
+  d = p[2].int().or(0)
+  if m < 1 or m > 12: return false
+  leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+  mdays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  top = mdays[m - 1]
+  if m == 2 and leap: top = 29
+  return d >= 1 and d <= top
+
+fn parse_amt(s: str) -> (bool, int):
+  t = s
+  sign = 1
+  if t.starts_with("-"):
+    sign = -1
+    t = t[1:]
+  elif t.starts_with("+"):
+    t = t[1:]
+  p = t.split(".")
+  if p.len() > 2: return (false, 0)
+  w = p[0]
+  f = ""
+  if p.len() == 2: f = p[1]
+  if w.is_empty() or not w.chars().all(c => c.is_digit()): return (false, 0)
+  if f.len() > 2 or not f.chars().all(c => c.is_digit()): return (false, 0)
+  if p.len() == 2 and f.is_empty(): return (false, 0)
+  if f.len() == 1: f = f + "0"
+  if f.is_empty(): f = "00"
+  return (true, sign * (w.int().or(0) * 100 + f.int().or(0)))
+
+fn money(c: int) -> str:
+  a = abs(c)
+  w = a // 100
+  f = a % 100
+  s = "{w}.{f:02d}"
+  if c < 0: return "-" + s
+  return s
+
+fn signed(c: int) -> str:
+  if c < 0: return "-" + money(-c)
+  return "+" + money(c)
+
+fn main():
+  types = ["asset", "liability", "equity", "income", "expense"]
+  acct: {str: str} = {}
+  bal: {str: int} = {}
+  n_ok = 0
+  n_bad = 0
+  debits = 0
+  credits = 0
+  last_date = ""
+  state = 0
+  tx_line = 0
+  tx_date = ""
+  tx_bad = false
+  tx_posts: [(str, int)] = []
+  rows = lines()
+  for i in 0..rows.len() + 1:
+    lineno = i + 1
+    at_end = i == rows.len()
+    raw = ""
+    if not at_end: raw = rows[i]
+    is_post = raw.starts_with("  ")
+    if not at_end and raw.trim().is_empty(): continue
+    if at_end or not is_post:
+      if state == 1:
+        if tx_bad:
+          n_bad += 1
+        elif tx_date < last_date:
+          print("line {tx_line}: date goes back")
+          n_bad += 1
+        elif tx_posts.len() < 2:
+          print("tx on line {tx_line}: needs two postings")
+          n_bad += 1
+        else:
+          total = 0
+          for p in tx_posts: total += p.1
+          if total != 0:
+            print("tx on line {tx_line}: unbalanced by {signed(total)}")
+            n_bad += 1
+          else:
+            n_ok += 1
+            last_date = tx_date
+            for p in tx_posts:
+              bal[p.0] += p.1
+              if p.1 > 0:
+                debits += p.1
+              else:
+                credits += -p.1
+      state = 0
+    if at_end: break
+    w = raw.split()
+    if is_post:
+      if state == 0:
+        print("line {lineno}: bad line")
+      elif state == 1:
+        if w.len() != 2:
+          print("line {lineno}: bad line")
+          tx_bad = true
+        else:
+          ok, c = parse_amt(w[1])
+          if not ok:
+            print("line {lineno}: bad line")
+            tx_bad = true
+          elif not acct.has(w[0]):
+            print("line {lineno}: unknown account {w[0]}")
+            tx_bad = true
+          else:
+            tx_posts.push((w[0], c))
+    elif w[0] == "ACCOUNT":
+      if w.len() != 3 or not types.contains(w[2]):
+        print("line {lineno}: bad line")
+      elif acct.has(w[1]):
+        print("line {lineno}: duplicate account")
+      else:
+        acct[w[1]] = w[2]
+    elif w[0] == "TX":
+      tx_line = lineno
+      tx_posts = []
+      tx_bad = false
+      tx_date = ""
+      if w.len() < 3 or not valid_date(w[1]):
+        print("line {lineno}: bad line")
+        state = 2
+      else:
+        tx_date = w[1]
+        state = 1
+    elif w[0] == "REPORT":
+      if w.len() != 1:
+        print("line {lineno}: bad line")
+      else:
+        print("trial balance")
+        for t in types:
+          for name in acct.keys():
+            if acct[name] == t:
+              b = bal[name]
+              shown = -b
+              if t == "asset" or t == "expense":
+                shown = b
+              print("{name} {t} {money(shown)}")
+        print("debits {money(debits)} credits {money(credits)}")
+    else:
+      print("line {lineno}: bad line")
+  print("{n_ok} transactions accepted, {n_bad} rejected")

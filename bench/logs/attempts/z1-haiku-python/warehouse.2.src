@@ -1,0 +1,196 @@
+## main.py
+import sys
+import re
+from datetime import date
+
+from stock import Stock
+from orders import Orders
+
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+QTY_RE = re.compile(r"^\d+$")
+
+
+def valid_date(s):
+    if not DATE_RE.match(s):
+        return False
+    try:
+        y, m, d = map(int, s.split("-"))
+        date(y, m, d)
+        return True
+    except ValueError:
+        return False
+
+
+def positive_qty(s):
+    if not QTY_RE.match(s):
+        return None
+    q = int(s)
+    return q if q > 0 else None
+
+
+def main():
+    lines = sys.stdin.read().split("\n")
+    today = None
+    stock = Stock()
+    orders = Orders(stock)
+    shipped_total = 0
+
+    for idx, raw in enumerate(lines):
+        lineno = idx + 1
+        parts = raw.split()
+        if not parts:
+            continue
+        kw = parts[0]
+
+        if kw == "DAY":
+            if len(parts) != 2 or not valid_date(parts[1]):
+                print("line %d: bad line" % lineno)
+                continue
+            new_day = parts[1]
+            if today is not None and new_day < today:
+                print("line %d: date goes back" % lineno)
+                continue
+            today = new_day
+            for sku, qty, expiry in stock.discard_before(today):
+                print("discard %s %d %s" % (sku, qty, expiry))
+
+        elif kw == "RECV":
+            if len(parts) != 4 or positive_qty(parts[2]) is None or not valid_date(parts[3]):
+                print("line %d: bad line" % lineno)
+                continue
+            if today is None:
+                print("line %d: no date" % lineno)
+                continue
+            sku, qty, expiry = parts[1], positive_qty(parts[2]), parts[3]
+            if expiry < today:
+                print("line %d: expired on arrival" % lineno)
+                continue
+            stock.add(sku, qty, expiry)
+            got, msgs = orders.fill(sku)
+            shipped_total += got
+            for m in msgs:
+                print(m)
+
+        elif kw == "ORDER":
+            if len(parts) != 4 or positive_qty(parts[3]) is None:
+                print("line %d: bad line" % lineno)
+                continue
+            if today is None:
+                print("line %d: no date" % lineno)
+                continue
+            oid, sku, qty = parts[1], parts[2], positive_qty(parts[3])
+            if orders.has(oid):
+                print("line %d: duplicate order" % lineno)
+                continue
+            shipped, msgs = orders.place(oid, sku, qty)
+            shipped_total += shipped
+            for m in msgs:
+                print(m)
+
+        elif kw == "STOCK":
+            if len(parts) != 1:
+                print("line %d: bad line" % lineno)
+                continue
+            rows = stock.summary()
+            if not rows:
+                print("stock empty")
+            for sku, units, count in rows:
+                print("%s %d in %d lots" % (sku, units, count))
+
+        else:
+            print("line %d: bad line" % lineno)
+
+    print("shipped %d units, backordered %d units" % (shipped_total, orders.waiting()))
+
+
+if __name__ == "__main__":
+    main()
+## stock.py
+class Stock:
+    """Lots of goods. Units are always taken from the earliest expiry first."""
+
+    def __init__(self):
+        self.lots = []  # dicts: sku, qty, expiry, seq
+        self.seq = 0
+
+    def add(self, sku, qty, expiry):
+        self.seq += 1
+        self.lots.append({"sku": sku, "qty": qty, "expiry": expiry, "seq": self.seq})
+
+    def discard_before(self, today):
+        """Remove lots expiring before `today`. Returns (sku, qty, expiry) tuples in print order."""
+        gone = [l for l in self.lots if l["expiry"] < today and l["qty"] > 0]
+        self.lots = [l for l in self.lots if l["expiry"] >= today]
+        gone.sort(key=lambda l: (l["sku"], l["expiry"], l["seq"]))
+        return [(l["sku"], l["qty"], l["expiry"]) for l in gone]
+
+    def _ordered(self, sku):
+        lots = [l for l in self.lots if l["sku"] == sku and l["qty"] > 0]
+        lots.sort(key=lambda l: (l["expiry"], l["seq"]))
+        return lots
+
+    def take(self, sku, qty):
+        """Take up to qty units of sku; returns the number actually taken."""
+        taken = 0
+        for lot in self._ordered(sku):
+            if taken == qty:
+                break
+            n = min(lot["qty"], qty - taken)
+            lot["qty"] -= n
+            taken += n
+        self.lots = [l for l in self.lots if l["qty"] > 0]
+        return taken
+
+    def summary(self):
+        """List of (sku, units, lots_with_units) sorted by sku."""
+        per = {}
+        for l in self.lots:
+            if l["qty"] <= 0:
+                continue
+            units, count = per.get(l["sku"], (0, 0))
+            per[l["sku"]] = (units + l["qty"], count + 1)
+        return [(sku, per[sku][0], per[sku][1]) for sku in sorted(per)]
+## orders.py
+class Orders:
+    """Tracks order IDs and waiting backorders; ships through the Stock."""
+
+    def __init__(self, stock):
+        self.stock = stock
+        self.ids = set()
+        self.backorders = []  # dicts: id, sku, left (in creation order)
+
+    def has(self, oid):
+        return oid in self.ids
+
+    def place(self, oid, sku, qty):
+        """Record an order. Returns (units shipped, lines to print)."""
+        self.ids.add(oid)
+        shipped = self.stock.take(sku, qty)
+        if shipped == qty:
+            lines = ["ORDER %s: shipped %d" % (oid, qty)]
+        else:
+            lines = ["ORDER %s: shipped %d of %d" % (oid, shipped, qty)]
+            self.backorders.append({"id": oid, "sku": sku, "left": qty - shipped})
+        return shipped, lines
+
+    def fill(self, sku):
+        """Fill waiting backorders for sku, oldest first. Returns (units shipped, lines)."""
+        total = 0
+        lines = []
+        for bo in self.backorders:
+            if bo["sku"] != sku:
+                continue
+            got = self.stock.take(sku, bo["left"])
+            if got == 0:
+                continue
+            bo["left"] -= got
+            total += got
+            if bo["left"] == 0:
+                lines.append("BACKORDER %s: done" % bo["id"])
+            else:
+                lines.append("BACKORDER %s: shipped %d, %d left" % (bo["id"], got, bo["left"]))
+        self.backorders = [bo for bo in self.backorders if bo["left"] > 0]
+        return total, lines
+
+    def waiting(self):
+        return sum(bo["left"] for bo in self.backorders)

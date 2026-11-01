@@ -1,0 +1,173 @@
+types = ["asset", "liability", "equity", "income", "expense"]
+
+fn words(s: str) -> [str]:
+  return s.split(" ").filter(w => w != "")
+
+fn cents(s: str) -> (bool, int):
+  if not s.re_full("[+-]?\d+(\.\d\d?)?"):
+    return (False, 0)
+  t = s
+  neg = False
+  if s.starts_with("-"):
+    neg = True
+  if s.starts_with("-") or s.starts_with("+"):
+    t = s[1:]
+  parts = t.split(".")
+  v = parts[0].int() * 100
+  if parts.len() == 2:
+    f = parts[1]
+    if f.len() == 1:
+      f = f + "0"
+    v += f.int()
+  if neg:
+    v = -v
+  return (True, v)
+
+fn money(c: int) -> str:
+  a = abs(c)
+  sg = ""
+  if c < 0:
+    sg = "-"
+  whole = a // 100
+  frac = a % 100
+  return "{sg}{whole}.{frac:02d}"
+
+fn valid_date(s: str) -> bool:
+  if not s.re_full("\d{4}-\d{2}-\d{2}"):
+    return False
+  yy = s[0:4].int()
+  mo = s[5:7].int()
+  dy = s[8:10].int()
+  if mo < 1 or mo > 12:
+    return False
+  days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  top = days[mo - 1]
+  if mo == 2 and ((yy % 4 == 0 and yy % 100 != 0) or yy % 400 == 0):
+    top = 29
+  return dy >= 1 and dy <= top
+
+fn verdict(tdate: str, last: str, count: int, total: int) -> str:
+  if last != "" and tdate < last:
+    return "date"
+  if count < 2:
+    return "two"
+  if total != 0:
+    return "unbal"
+  return "ok"
+
+fn rank(t: str) -> int:
+  return types.index_of(t)
+
+names = []
+acc_type = {}
+bal = {}
+debits = 0
+credits = 0
+accepted = 0
+rejected = 0
+last_date = ""
+in_tx = False
+tx_bad = False
+tx_dead = False
+tx_line = 0
+tx_date = ""
+tx_postings = []
+tx_sum = 0
+
+for i, ln in (lines() + ["@@END@@"]).enumerate():
+  n = i + 1
+  if ln.trim() == "":
+    continue
+  if ln.starts_with("  "):
+    if not in_tx:
+      print("line {n}: bad line")
+      continue
+    if tx_bad:
+      continue
+    w = words(ln)
+    c = (False, 0)
+    if w.len() == 2:
+      c = cents(w[1])
+    if w.len() != 2 or not c[0]:
+      print("line {n}: bad line")
+      if not tx_dead:
+        rejected += 1
+        tx_dead = True
+    elif w[0] not in acc_type:
+      print("line {n}: unknown account {w[0]}")
+      if not tx_dead:
+        rejected += 1
+        tx_dead = True
+    elif not tx_dead:
+      tx_postings.push((w[0], c[1]))
+      tx_sum += c[1]
+    continue
+  if in_tx:
+    in_tx = False
+    if not tx_bad and not tx_dead:
+      v = verdict(tx_date, last_date, tx_postings.len(), tx_sum)
+      if v == "date":
+        print("line {tx_line}: date goes back")
+        rejected += 1
+      elif v == "two":
+        print("tx on line {tx_line}: needs two postings")
+        rejected += 1
+      elif v == "unbal":
+        s = "+"
+        if tx_sum < 0:
+          s = "-"
+        print("tx on line {tx_line}: unbalanced by {s}{money(abs(tx_sum))}")
+        rejected += 1
+      else:
+        for p in tx_postings:
+          bal[p.0] += p.1
+          if p.1 > 0:
+            debits += p.1
+          elif p.1 < 0:
+            credits -= p.1
+        last_date = tx_date
+        accepted += 1
+  if ln == "@@END@@":
+    break
+  w = words(ln)
+  if w[0] == "TX":
+    in_tx = True
+    tx_line = n
+    tx_dead = False
+    tx_postings = []
+    tx_sum = 0
+    tx_date = ""
+    tx_bad = True
+    if w.len() >= 3:
+      tx_date = w[1]
+      if valid_date(w[1]):
+        tx_bad = False
+    if tx_bad:
+      print("line {n}: bad line")
+  elif w[0] == "ACCOUNT":
+    good = w.len() == 3
+    if good:
+      good = w[2] in types
+    if not good:
+      print("line {n}: bad line")
+    elif w[1] in acc_type:
+      print("line {n}: duplicate account")
+    else:
+      acc_type[w[1]] = w[2]
+      names.push(w[1])
+      bal[w[1]] = 0
+  elif w.len() == 1 and w[0] == "REPORT":
+    print("trial balance")
+    ordered = names.sort_by(nm => (rank(acc_type[nm]), nm))
+    for nm in ordered:
+      t = acc_type[nm]
+      b = bal[nm]
+      shown = -b
+      if t == "asset" or t == "expense":
+        shown = b
+      print("{nm} {t} {money(shown)}")
+    print("debits {money(debits)} credits {money(credits)}")
+  else:
+    print("line {n}: bad line")
+
+print("{accepted} transactions accepted, {rejected} rejected")
