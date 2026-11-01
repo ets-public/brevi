@@ -177,11 +177,13 @@ Needs `rustc` on the PATH.
 
 Brevi must never fall behind Rust or Python, and code that once passed must never silently break.
 
-- **Toolchains** (`.github/workflows/toolchains.yml`, daily, on pushes to main, and Rust stable only on PRs): builds Brevi and reruns
-  `tests/check.sh` plus `tools/compat.py check` (all 1,700+ saved Brevi, Python and Rust solutions that once passed)
-  on Rust stable, beta and nightly, the newest Python and the next Python pre-release. Beta and nightly also report
-  deprecation and future-incompatibility warnings in generated Rust and the newest edition, about 6 to 12 weeks before
-  they reach stable. A toolchain already tested at the same commit is skipped. Failures open a `toolchain` issue.
+- **Toolchains** (`.github/workflows/toolchains.yml`): builds Brevi and reruns `tests/check.sh` plus `tools/compat.py check`
+  (all 1,900+ saved Brevi, Python and Rust solutions that once passed). Daily on Rust stable with the newest and the next
+  Python pre-release; Mondays also on Rust beta and nightly, where nightly reports deprecation and future-incompatibility
+  warnings in generated Rust and the newest edition, about 6 to 12 weeks before they reach stable. PRs test Rust stable
+  only, skip drafts and docs-only changes, and rerun the old solutions only when the compiler or baseline changed.
+  A toolchain already tested at the same commit is skipped. Failures open a `toolchain` issue. To save Actions minutes,
+  run `sh tools/ci_local.sh` (the same checks) before merging.
 - **Upstream releases** (`upstream.yml`, twice a week): one `upstream` issue per new Rust stable, Python release or
   newer crate pinned in tests/examples, listing the new language features and stabilized APIs with a review checklist.
 - **Auto-fix** (`auto-fix.yml`): Claude Code picks up `toolchain` and `upstream` issues and opens a PR. Needs an
