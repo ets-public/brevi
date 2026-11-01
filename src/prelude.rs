@@ -666,13 +666,16 @@ impl AxSpec for f64 {
 }
 impl AxSpec for Dec {
     fn ax_spec(&self, spec: String) -> String {
-        let (_, _, _, _, comma, prec, _) = ax_spec_parts(&spec);
+        let (_, plus, _, _, comma, prec, _) = ax_spec_parts(&spec);
         let mut body = match prec {
             Some(p) => self.ax_fmt(p as i64),
             None => self.show(),
         };
         if comma {
             body = ax_commas(&body);
+        }
+        if plus && !body.starts_with('-') {
+            body = format!("+{body}");
         }
         ax_spec_pad(body, &spec, true)
     }
@@ -1336,6 +1339,41 @@ pub enum Json {
     Str { v: String },
     Arr { v: Vec<Json> },
     Obj { v: AxM<String, Json> },
+}
+// Json values can be map keys and set items (`qmap[q["id"]] = q` with q a mixed-type record).
+impl Eq for Json {}
+impl Hash for Json {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        match self {
+            Json::Null => 0u8.hash(h),
+            Json::Bool { v } => v.hash(h),
+            // Whole numbers hash like the int they equal; others by their bits.
+            Json::Num { v } => {
+                if v.fract() == 0.0 && v.abs() < 9e15 {
+                    (*v as i64).hash(h)
+                } else {
+                    v.to_bits().hash(h)
+                }
+            }
+            Json::Str { v } => v.hash(h),
+            Json::Arr { v } => v.hash(h),
+            // Equal objects may hold their keys in a different order, so only the size is hashed.
+            Json::Obj { v } => v.m.len().hash(h),
+        }
+    }
+}
+impl Ord for Json {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        let rank = |j: &Json| match j {
+            Json::Null => 0,
+            Json::Bool { .. } => 1,
+            Json::Num { .. } => 2,
+            Json::Str { .. } => 3,
+            Json::Arr { .. } => 4,
+            Json::Obj { .. } => 5,
+        };
+        self.partial_cmp(o).unwrap_or_else(|| rank(self).cmp(&rank(o)).then_with(|| self.show().cmp(&o.show())))
+    }
 }
 // A Json value equals a string when it is that JSON string: `j["tier"] == "gold"`.
 impl PartialEq<String> for Json {
