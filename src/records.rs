@@ -17,8 +17,21 @@ const RESERVED: &[&str] = &[
 fn key_name(k: &Expr) -> Option<String> {
     let Expr::Str(parts) = k else { return None };
     let [StrPart::Lit(s)] = parts.as_slice() else { return None };
-    let ok = s.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !RESERVED.contains(&s.as_str());
-    ok.then(|| s.clone())
+    let ok = s.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    ok.then(|| field_of(s))
+}
+
+// The field that holds a key: a key that is a Rust or Brevi word (`'type'`) gets a trailing `_`.
+pub fn field_of(key: &str) -> String {
+    if RESERVED.contains(&key) { format!("{key}_") } else { key.to_string() }
+}
+
+// The dict key a record field stands for (as printed and in JSON).
+pub fn key_of(field: &str) -> &str {
+    match field.strip_suffix('_') {
+        Some(k) if RESERVED.contains(&k) => k,
+        _ => field,
+    }
 }
 
 // What a value written in the literal plainly is, when that shows.

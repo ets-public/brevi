@@ -1633,6 +1633,16 @@ impl Parser {
                     let Some(idx) = start else { return Err(self.err("expected an index")) };
                     e = Expr::Index(Box::new(e), Box::new(idx));
                 }
+            } else if self.is_sym("(") && matches!(&e, Expr::Lambda(ps, _) if !ps.is_empty()) {
+                // `(lambda s: (s[0], s[1]))(x)` calls the lambda at once: a block that names its arguments.
+                self.eat_sym("(");
+                let args: Vec<Expr> = self.args()?.into_iter().map(|(_, a)| a).collect();
+                let Expr::Lambda(ps, body) = e else { unreachable!() };
+                if args.len() != ps.len() {
+                    return Err(self.err("wrong number of arguments for this lambda"));
+                }
+                let lets = ps.into_iter().zip(args).map(|(p, a)| Stmt::Let { name: Pat::Bind(p), ty: None, value: a, mutable: false, line }).collect();
+                e = Expr::Block(lets, Some(body));
             } else if self.is_sym("(") && matches!(e, Expr::Index(..) | Expr::Field(..) | Expr::TupleField(..)) {
                 // `ops[1](3, 4)`: call a function value taken from a list, tuple or field.
                 self.eat_sym("(");

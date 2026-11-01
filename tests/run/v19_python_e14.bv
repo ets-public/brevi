@@ -1,0 +1,49 @@
+# Python patterns from the e14 plain-Python trial.
+def score(cards):
+    return (len(cards), sorted(cards))
+
+
+class Stock:
+    def __init__(self):
+        self.lots = []
+        self._seq = 0
+
+    def add(self, sku, qty, kind):
+        self._seq += 1
+        self.lots.append({"seq": self._seq, "sku": sku, "qty": qty, "type": kind})
+
+    def _ordered(self, sku):
+        lots = [l for l in self.lots if l["qty"] > 0 and l["sku"] == sku]
+        lots.sort(key=lambda l: (l["type"], l["seq"]))
+        return lots
+
+    def take(self, sku, qty):
+        taken = 0
+        for lot in self._ordered(sku):
+            n = min(lot["qty"], qty - taken)
+            lot["qty"] -= n
+            taken += n
+        return taken
+
+
+def main():
+    players = {}
+    for t in [["a", "x", "y"], ["b", "z"]]:
+        players[t[0]] = (lambda s: (s[0], s[1]))(score(t[1:]))
+    print(players)
+
+    backorders = []
+    backorders.append(["o1", "x", 5])
+    backorders.append(["o2", "y", 3])
+    for b in backorders:
+        b[2] -= 2
+    print(backorders[0][2], backorders[1][2], [b[0] for b in backorders if b[2] > 1])
+
+    s = Stock()
+    s.add("a", 5, "late")
+    s.add("a", 4, "early")
+    s.add("b", 2, "early")
+    print(s.take("a", 6), [l["qty"] for l in s.lots], s.lots[0]["type"])
+    print(s.lots[1])
+
+main()

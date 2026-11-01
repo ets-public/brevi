@@ -53,6 +53,23 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                 let e = match (st.as_slice(), t) {
                     ([Stmt::Return { value: Some(e), .. }], None) => e.clone(),
                     ([], Some(e)) => e.as_ref().clone(),
+                    // `xs = [l for l in self.lots if ...]`, `xs.sort(key=...)`, `return xs`: the sorted list.
+                    ([set, Stmt::Expr { expr: Expr::Method(r, m, a, l), .. }, rest @ ..], t) if matches!(r.as_ref(), Expr::Ident(_)) && matches!(m.as_str(), "sort" | "sort_by") => {
+                        let Expr::Ident(x) = r.as_ref() else { return None };
+                        let first = match set {
+                            Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x => value.clone(),
+                            _ => return None,
+                        };
+                        let ret = match (rest, t) {
+                            ([Stmt::Return { value: Some(v), .. }], None) => v,
+                            ([], Some(v)) => v.as_ref(),
+                            _ => return None,
+                        };
+                        if !matches!(ret, Expr::Ident(n) | Expr::Move(n) if n == x) {
+                            return None;
+                        }
+                        Expr::Method(Box::new(first), m.clone(), a.clone(), *l)
+                    }
                     _ => return None,
                 };
                 Some((name.clone(), (params.iter().map(|p| p.name.clone()).collect(), e)))
