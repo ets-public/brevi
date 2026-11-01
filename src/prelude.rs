@@ -3814,6 +3814,12 @@ impl AxRe for String {
             let (a, b) = c[0].unwrap();
             if b > a {
                 out.push(cs[last..a].iter().collect());
+                // Python's re.split also gives each group's text between the pieces.
+                if ax_py_on() {
+                    for g in &c[1..] {
+                        out.push(g.map_or(String::new(), |(x, y)| cs[x..y].iter().collect()));
+                    }
+                }
                 last = b;
             }
         });

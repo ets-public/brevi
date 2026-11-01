@@ -1,0 +1,20 @@
+import re
+import sys
+
+
+def main():
+    total = 0
+    for line in ["123456789012345678901234567890 987654321098765432109876543210", "5 7"]:
+        parts = line.split()
+        a, b = int(parts[0]), int(parts[1])
+        total += a * b
+        print(a + b, a - b, a > b, f"{a + 1}")
+        print(int(parts[0]) + int(parts[1]))
+    print(total)
+    n = int("12")
+    print([0, 1, 2][n - 11], n)
+    print(re.split(r"`([^`]*)`", "a `b` c `d`"))
+    print(re.split(r"[,;] *", "x, y;z"))
+
+
+main()
