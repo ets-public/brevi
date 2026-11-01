@@ -1169,7 +1169,9 @@ fn calls_in<'a>(e: &'a Expr, out: &mut Vec<(&'a str, &'a [(Option<String>, Expr)
 // Fills in the return type of every function written without `->`, from what it returns.
 pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     let q = |t: &Ty| matches!(t, Ty::Named(n) if n == "?");
-    let open = |items: &[Item]| items.iter().any(|i| matches!(i, Item::Fn { ret, params, .. } if q(ret) || params.iter().any(|p| q(&p.ty))));
+    let open = |items: &[Item]| {
+        items.iter().any(|i| matches!(i, Item::Fn { ret, params, .. } if q(ret) || params.iter().any(|p| q(&p.ty))) || matches!(i, Item::Type { fields, .. } if fields.iter().any(|f| q(&f.ty))))
+    };
     if !open(items) {
         return Ok(());
     }
@@ -1274,6 +1276,90 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         for p in params.iter().filter(|p| q(&p.ty)) {
                             let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out the type of {} in {name}", p.name));
                             d.fix = Some(format!("write it: {}: TYPE", p.name));
+                            errs.push(d);
+                        }
+                    }
+                }
+                if !errs.is_empty() {
+                    return Err(errs);
+                }
+            }
+        }
+        // Fields of a Python class (`self.n = 0`, `self.items.append(x)`) take the type of what is put there.
+        let open_types: Vec<(String, String)> = items
+            .iter()
+            .flat_map(|i| match i {
+                Item::Type { name, fields, .. } => fields.iter().filter(|f| q(&f.ty)).map(|f| (name.clone(), f.name.clone())).collect::<Vec<_>>(),
+                _ => vec![],
+            })
+            .collect();
+        if !open_types.is_empty() {
+            let mut ev: HashMap<(String, String), T> = HashMap::new();
+            for it in items.iter() {
+                let Item::Fn { params, body, .. } = it else { continue };
+                let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                cx.flat_env(body, &mut env);
+                let owner = |e: &Expr, env: &Env| -> Option<(String, String)> {
+                    let Expr::Field(r, f) = e else { return None };
+                    let Expr::Ident(n) = r.as_ref() else { return None };
+                    match env.get(n) {
+                        Some(Named(c)) if open_types.iter().any(|(oc, of)| oc == c && of == f) => Some((c.clone(), f.clone())),
+                        _ => None,
+                    }
+                };
+                fn add(ev: &mut HashMap<(String, String), T>, k: (String, String), t: T) {
+                    let cur = ev.remove(&k).unwrap_or(Hole);
+                    ev.insert(k, merge(cur, t));
+                }
+                walk(body, &mut |e| {
+                    if let Expr::Block(stmts, _) = e {
+                        for st in stmts {
+                            let Stmt::Assign { target, op, value, .. } = st else { continue };
+                            if let Some(k) = owner(target, &env) {
+                                let t = match empty_kind(value) {
+                                    Some(t) => t,
+                                    None => cx.ty(value, &env),
+                                };
+                                if *op == "=" || *op == "+=" {
+                                    add(&mut ev, k, t);
+                                }
+                            } else if let Expr::Index(b, ix) = target {
+                                if let Some(k) = owner(b, &env) {
+                                    let (kt, vt) = (cx.ty(ix, &env), cx.ty(value, &env));
+                                    let cur = ev.get(&k).cloned().unwrap_or(Hole);
+                                    let t = match cur {
+                                        List(_) => List(Box::new(vt)),
+                                        _ => Map(Box::new(kt), Box::new(vt)),
+                                    };
+                                    add(&mut ev, k, t);
+                                }
+                            }
+                        }
+                    }
+                    if let Expr::Method(r, m, args, _) = e {
+                        if let Some(k) = owner(r, &env) {
+                            if m == "push" && args.len() == 1 {
+                                add(&mut ev, k, List(Box::new(cx.ty(&args[0], &env))));
+                            }
+                        }
+                    }
+                });
+            }
+            for it in items.iter_mut() {
+                if let Item::Type { name, fields, .. } = it {
+                    for f in fields.iter_mut().filter(|f| q(&f.ty)) {
+                        if let Some(t) = ev.get(&(name.clone(), f.name.clone())).and_then(to_ast) {
+                            f.ty = t;
+                        }
+                    }
+                }
+            }
+            if last {
+                for it in items.iter() {
+                    if let Item::Type { name, fields, line } = it {
+                        for f in fields.iter().filter(|f| q(&f.ty)) {
+                            let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out the type of {name}.{}", f.name));
+                            d.fix = Some(format!("set self.{} to a value of its type in __init__", f.name));
                             errs.push(d);
                         }
                     }

@@ -1,0 +1,59 @@
+# Python classes, unchanged: fields come from `self.x = ...`, methods are called on objects.
+class BadInput(Exception):
+    def __init__(self, msg):
+        super().__init__(msg)
+        self.msg = msg
+
+
+class Account:
+    """A bank account."""
+
+    def __init__(self, owner, balance):
+        self.owner = owner
+        self.balance = balance
+        self.log = []
+
+    def deposit(self, n):
+        if n <= 0:
+            raise BadInput(f"bad amount {n}")
+        self.balance += n
+        self.log.append(n)
+
+    def summary(self):
+        return f"{self.owner}: {self.balance} after {len(self.log)} deposits"
+
+
+class Tally:
+    def __init__(self):
+        self.n = {}
+
+    def add(self, k):
+        self.n[k] = self.n.get(k, 0) + 1
+
+    def top(self):
+        return max(self.n.values())
+
+
+def main():
+    a = Account("ann", 10)
+    for x in [5, 0, 7]:
+        try:
+            a.deposit(x)
+        except BadInput as e:
+            print("refused:", e)
+    print(a.summary())
+    t = Tally()
+    for w in "x y x z x".split():
+        t.add(w)
+    print(t.n, t.top())
+    print(2 ** 10, 2.0 ** 0.5 > 1.41, -2 ** 2, 0xFF, 0b101, 0o17)
+    text = """two
+lines"""
+    print(text)
+    st = [1, 2, 3]
+    st[-1], st[-2] = st[-2], st[-1]
+    print(st)
+
+
+if __name__ == "__main__":
+    main()
