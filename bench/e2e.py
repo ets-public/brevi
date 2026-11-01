@@ -91,12 +91,14 @@ def run_check(lang, task, work):
             if r.returncode:
                 return (r.stdout + r.stderr).strip()
         cmd = [sys.executable, str(main)]
+    # GUI tasks (tasks/NAME/gui): CPython runs tkinter programs through the headless stand-in in tkshim/.
+    env = dict(os.environ, PYTHONPATH=str(B / "tkshim")) if (tdir / "gui").exists() and lang == "python" else None
     tests = sorted(glob.glob(str(tdir / "tests" / "*.in")))
     passed, first = 0, None
     for t in tests:
         want = Path(t[:-3] + ".out").read_text()
         try:
-            got = subprocess.run(cmd, stdin=open(t), capture_output=True, text=True, timeout=10, cwd=work)
+            got = subprocess.run(cmd, stdin=open(t), capture_output=True, text=True, timeout=10, cwd=work, env=env)
             out = (got.stdout + got.stderr).rstrip("\n")
         except subprocess.TimeoutExpired:
             out = "timeout after 10 s"

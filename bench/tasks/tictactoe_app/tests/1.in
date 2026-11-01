@@ -1,0 +1,14 @@
+tap 1 150 150
+tap 1 50 50
+tap 1 250 50
+tap 1 50 250
+tap 1 50 150
+tap 1 250 150
+tap 1 150 50
+tap 1 150 250
+tap 1 250 250
+show
+click New game
+show
+wait 5000
+show
