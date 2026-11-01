@@ -120,6 +120,7 @@ fn show(e: &Expr) -> String {
 fn loops(e: &mut Expr, inl: &Inline) -> Vec<Stmt> {
     match e {
         Expr::Block(stmts, tail) => {
+            fold_local_copies(stmts, tail);
             let mut k = 0;
             while k < stmts.len() {
                 let pre = match &mut stmts[k] {
@@ -210,6 +211,61 @@ fn loops(e: &mut Expr, inl: &Inline) -> Vec<Stmt> {
         _ => {}
     }
     vec![]
+}
+
+fn names(e: &Expr, n: &str) -> bool {
+    let d = format!("{e:?}");
+    d.contains(&format!("Ident({n:?})")) || d.contains(&format!("Move({n:?})"))
+}
+
+// `cands = [l for l in self.lots if ...]`, `cands.sort(key=...)`, then `for lot in cands:` changing lot:
+// Python changes the dicts in self.lots. When cands is used nowhere else, the loop goes over the
+// filtered, sorted expression itself, which the index loop below writes back.
+fn fold_local_copies(stmts: &mut Vec<Stmt>, tail: &Option<Box<Expr>>) {
+    let mut k = 0;
+    while k < stmts.len() {
+        let Stmt::Expr { expr: Expr::For(Pat::Bind(a), it, body), .. } = &stmts[k] else { k += 1; continue };
+        let Expr::Ident(x) = it.as_ref() else { k += 1; continue };
+        let (x, a) = (x.clone(), a.clone());
+        if !any_expr(body, &mut |st| direct(&a, st)) || names(body, &x) {
+            k += 1;
+            continue;
+        }
+        // The setting of x, then at most an in-place sort, right before the loop.
+        let mut def = None;
+        let mut sort: Option<(String, Vec<Expr>, usize)> = None;
+        for j in (0..k).rev() {
+            match &stmts[j] {
+                Stmt::Expr { expr: Expr::Method(r, m, args, l), .. } if matches!(r.as_ref(), Expr::Ident(n) if *n == x) && matches!(m.as_str(), "sort" | "sort_by") && sort.is_none() && j + 1 == k => {
+                    sort = Some((m.clone(), args.clone(), *l));
+                }
+                Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if *n == x => {
+                    let next = if sort.is_some() { j + 2 } else { j + 1 };
+                    if next == k && matches!(value, Expr::Method(_, m, _, _) if m == "filter" || m == "sort_by" || m == "sort") {
+                        def = Some((j, value.clone()));
+                    }
+                    break;
+                }
+                _ => break,
+            }
+        }
+        let Some((j, value)) = def else { k += 1; continue };
+        // x must not be read after the loop.
+        let later = stmts[k + 1..].iter().any(|st| names(&Expr::Block(vec![st.clone()], None), &x)) || tail.as_ref().is_some_and(|t| names(t, &x));
+        if later {
+            k += 1;
+            continue;
+        }
+        let new_it = match sort {
+            Some((m, args, l)) => Expr::Method(Box::new(value), m, args, l),
+            None => value,
+        };
+        if let Stmt::Expr { expr: Expr::For(_, it, _), .. } = &mut stmts[k] {
+            **it = new_it;
+        }
+        stmts.drain(j..k);
+        k = j + 1;
+    }
 }
 
 // `row = []`, `grid.append(row)`, then `row.append(1)`: grid holds a copy made before the change.
@@ -535,7 +591,30 @@ fn any_stmt(stmts: &[Stmt], tail: Option<&Expr>, f: &mut dyn FnMut(&Stmt) -> boo
             }
         }
     }
+    // A loop that ends a block is its tail: give it to f as a statement too (on the line after the last one).
+    if let Some(t) = tail {
+        if matches!(t, Expr::For(..)) {
+            let inside = match t {
+                Expr::For(_, _, b) => match b.as_ref() {
+                    Expr::Block(st, _) => st.first().map_or(0, stmt_line).saturating_sub(1),
+                    _ => 0,
+                },
+                _ => 0,
+            };
+            let line = if inside > 0 { inside } else { stmts.last().map_or(0, stmt_line) + 1 };
+            if f(&Stmt::Expr { expr: t.clone(), line }) {
+                return true;
+            }
+        }
+    }
     tail.map_or(false, |t| any_expr(t, f))
+}
+
+fn stmt_line(st: &Stmt) -> usize {
+    match st {
+        Stmt::Expr { line, .. } | Stmt::Let { line, .. } | Stmt::Assign { line, .. } => *line,
+        _ => 0,
+    }
 }
 
 fn any_expr(e: &Expr, f: &mut dyn FnMut(&Stmt) -> bool) -> bool {
@@ -739,6 +818,12 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
         );
         **it = Expr::Range(Box::new(Expr::Int(0)), Box::new(len));
         return Some((i, vec![Stmt::Assign { target: Expr::Ident(d), op: "=", value: Expr::Int(0), line }]));
+    }
+    // Indexes worked out before the loop go stale if the body takes items out of the list
+    // (`orders.remove(b)`, also through a helper): leave the loop to the copy check.
+    let d = format!("{body:?}");
+    if d.contains("\"remove\"") || d.contains("\"pop\"") || d.contains("\"pop_at\"") || d.contains("remove") {
+        return None;
     }
     // Indexes of the items, filtered and sorted by the same tests on `xs[i]`.
     let mut new_it = Expr::Method(Box::new(Expr::Range(Box::new(Expr::Int(0)), Box::new(len))), "skip".into(), vec![Expr::Int(0)], line);

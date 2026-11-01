@@ -1,0 +1,83 @@
+# Python patterns from the e15 plain-Python trial.
+import re
+from fractions import Fraction
+
+
+class Stock:
+    def __init__(self):
+        self.lots = []
+        self.seq = 0
+
+    def add(self, sku, qty):
+        self.seq += 1
+        self.lots.append({'sku': sku, 'qty': qty, 'seq': self.seq})
+
+    def gone(self):
+        return [(l['sku'], l['qty']) for l in self.lots if l['qty'] == 0]
+
+    def take(self, sku, qty):
+        left = qty
+        cands = [l for l in self.lots if l['sku'] == sku and l['qty'] > 0]
+        cands.sort(key=lambda l: -l['seq'])
+        for lot in cands:
+            t = min(lot['qty'], left)
+            lot['qty'] -= t
+            left -= t
+        return qty - left
+
+
+class Grades:
+    def __init__(self, qids):
+        self.qids = qids
+
+    def avg(self, qid, s, n):
+        v = Fraction(s, n)
+        return (v * 100 + Fraction(1, 2)).__floor__()
+
+
+def solve(n):
+    memo = {}
+
+    def f(i):
+        if i in memo:
+            return memo[i]
+        res = i if i < 2 else f(i - 1) + f(i - 2)
+        memo[i] = res
+        return res
+
+    return f(n)
+
+
+def main():
+    s = Stock()
+    for line in ["DAY", "RECV a 3", "RECV a 4", "TAKE a 5", "DAY"]:
+        parts = line.split()
+        cmd, args = parts[0], parts[1:]
+        if cmd == "DAY":
+            for sku, q in s.gone():
+                print("gone", sku, q)
+        elif cmd == "RECV":
+            sku, qs = args
+            s.add(sku, int(qs))
+        else:
+            sku, qs = args
+            print("took", s.take(sku, int(qs)))
+
+    cur = {"players": {}, "cards": set()}
+    cur["out"] = []
+    cur["cards"].update(["AS", "KD"])
+    cur["out"].append("x")
+    print(sorted(cur["cards"]), cur["out"])
+
+    qs = {"Q1": 1, "Q2": 2}
+    q = ("Q1", 3)
+    g = Grades(list(qs))
+    for q in g.qids:
+        print(q, g.avg(q, 7, 3))
+
+    print(solve(30), bool(re.fullmatch(r"q\d+", "Q12", re.IGNORECASE)))
+    pairs = sorted({"b": [1, 2], "a": [3, 4]}.items())
+    for k, (x, y) in pairs:
+        print(k, x + y)
+
+main()

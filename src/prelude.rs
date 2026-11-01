@@ -2935,6 +2935,13 @@ impl Dec {
     pub fn ax_abs(&self) -> Dec {
         Dec(self.0.abs(), self.1)
     }
+    // Python's math.floor / math.ceil (and `x.__floor__()`) on a Decimal or Fraction: an int.
+    pub fn ax_floor(&self) -> i64 {
+        self.0.div_euclid(DEC_ONE) as i64
+    }
+    pub fn ax_ceil(&self) -> i64 {
+        -((-self.0).div_euclid(DEC_ONE)) as i64
+    }
     pub fn ax_float(&self) -> f64 {
         self.0 as f64 / DEC_ONE as f64
     }
@@ -4119,6 +4126,25 @@ fn ax_rx_search(p: &str, s: &[char], from: usize, full: bool) -> Option<(usize, 
 }
 // `anchored`: only a match starting at `from` counts (Python's re.match).
 fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool) -> Option<(usize, AxCaps)> {
+    // Python's re.IGNORECASE, written as `(?i)` in front: match lowercased text with a lowercased
+    // pattern (escapes such as \D keep their case); positions are the same in the original text.
+    if let Some(rest) = p.strip_prefix("(?i)") {
+        let low: Vec<char> = s.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)).collect();
+        let mut lp = String::new();
+        let mut esc = false;
+        for c in rest.chars() {
+            if esc {
+                lp.push(c);
+                esc = false;
+            } else if c == '\\' {
+                lp.push(c);
+                esc = true;
+            } else {
+                lp.extend(c.to_lowercase());
+            }
+        }
+        return ax_rx_search_at(&lp, &low, from, full, anchored);
+    }
     let rx = ax_rx(p);
     for st in from..=s.len() {
         let mut caps: AxCaps = vec![None; rx.1 + 1];
