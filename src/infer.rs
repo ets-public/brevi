@@ -445,6 +445,7 @@ impl Cx<'_> {
                 let et = match &t {
                     Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
                     List(e) => *e.clone(),
+                    Json => Json,
                     _ => Hole,
                 };
                                         env.insert(n.clone(), et);
@@ -592,7 +593,13 @@ impl Cx<'_> {
                             for (k, x) in xs.iter().enumerate() {
                                 if let Expr::Ident(m) = x {
                                     if !env.contains_key(m) {
-                                        let et = if let Tuple(ts) = &vt { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                                        // `qid, ans = tok.split("=", 1)`: a list gives its items.
+                                        let et = match &vt {
+                                            Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
+                                            List(e) => (**e).clone(),
+                                            Json => Json,
+                                            _ => Hole,
+                                        };
                                         env.insert(m.clone(), et);
                                     }
                                 }
@@ -875,6 +882,7 @@ impl Cx<'_> {
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
                     "stdin" | "input" | "read" | "str" | "__err" => Str,
+                    "__truediv" if args.iter().any(|(_, a)| self.ty(a, env) == Dec) => Dec,
                     "__truediv" => F64,
                     "csv" => List(Box::new(List(Box::new(Str)))),
                     "json" => Json,
@@ -883,6 +891,10 @@ impl Cx<'_> {
                     "min" | "max" => args.iter().fold(Hole, |t, (_, a)| merge(t, self.ty(a, env))),
                     "heap" => Heap(Box::new(Hole)),
                     "ax_to_json" => Json,
+                    "ax_json_dec" => Dec,
+                    "ax_subset" => Bool,
+                    "ax_json_strs" => List(Box::new(Str)),
+                    "ax_json_ints" => List(Box::new(Int)),
                     "Str" | "Num" | "Bool" | "Arr" | "Obj" if !self.variants.contains_key(n.as_str()) => Json,
                     n if self.structs.contains_key(n) => Named(n.into()),
                     n if self.variants.contains_key(n) => {
@@ -1070,6 +1082,7 @@ fn bind(p: &Pat, t: T, env: &mut Env) {
                 let et = match &t {
                     Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
                     List(e) => (**e).clone(),
+                    Json => Json,
                     _ => Hole,
                 };
                 bind(p, et, env);
@@ -1109,6 +1122,124 @@ fn bind_params(ps: &[String], et: &T, env: &mut Env) {
             let t = if let Tuple(ts) = et { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
             env.insert(p.clone(), t);
         }
+    }
+}
+
+// Two known types no value can have both of (an int next to a decimal mixes in).
+// Only a list, set or tuple next to another kind counts: two scalars (str next to int) more often mean
+// one of the guesses is off than a slot that really holds both.
+fn ty_clash(a: &T, b: &T) -> bool {
+    let coll = |t: &T| matches!(t, List(_) | Tuple(_) | Map(..));
+    a != b && to_ast(a).is_some() && to_ast(b).is_some() && (coll(a) || coll(b))
+}
+
+// `n = v` as the last use of n in each branch of an if chain becomes `n = ax_to_json(v)`.
+fn json_branch_sets(e: &mut Expr, n: &str) {
+    let mentions = |s: &Stmt| format!("{s:?}").contains(&format!("Ident({n:?})"));
+    let block = |b: &mut Expr| {
+        if let Expr::Block(stmts, _) = b {
+            let len = stmts.len();
+            for i in 0..len {
+                let last = !stmts[i + 1..].iter().any(|s| mentions(s));
+                if let Stmt::Assign { target: Expr::Ident(t), op: "=", value, line } = &mut stmts[i] {
+                    if t == n && last && !matches!(value, Expr::Call(f, _, _) if f == "ax_to_json") {
+                        let v = std::mem::replace(value, Expr::Int(0));
+                        *value = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                    }
+                }
+            }
+        }
+    };
+    if let Expr::If(_, a, b) = e {
+        block(a);
+        match b.as_deref_mut() {
+            Some(i @ Expr::If(..)) => json_branch_sets(i, n),
+            Some(b) => block(b),
+            None => {}
+        }
+    }
+}
+
+// The slots of returned tuples that hold values of clashing types on different paths, as paths into
+// nested tuples (`(qid, ('multi', pts, frozenset(s)))` gives [1, 2]).
+fn json_slots(ts: &[T]) -> Vec<Vec<usize>> {
+    let tuples: Vec<&Vec<T>> = ts.iter().filter_map(|t| if let Tuple(xs) = t { Some(xs) } else { None }).collect();
+    let Some(n) = tuples.first().map(|x| x.len()) else { return vec![] };
+    if tuples.len() < 2 || tuples.iter().any(|x| x.len() != n) {
+        return vec![];
+    }
+    let mut out = vec![];
+    for i in 0..n {
+        let at: Vec<T> = tuples.iter().map(|x| x[i].clone()).collect();
+        let known: Vec<&T> = at.iter().filter(|t| to_ast(t).is_some()).collect();
+        let inner = json_slots(&at);
+        // Tuples of one length at this slot: look inside them instead.
+        if !inner.is_empty() && at.iter().all(|t| matches!(t, Tuple(x) if x.len() == inner_len(&at))) {
+            out.extend(inner.into_iter().map(|mut p| {
+                p.insert(0, i);
+                p
+            }));
+        } else if known.iter().any(|a| known.iter().any(|b| ty_clash(a, b))) {
+            out.push(vec![i]);
+        }
+    }
+    out
+}
+
+fn inner_len(ts: &[T]) -> usize {
+    match ts.first() {
+        Some(Tuple(x)) => x.len(),
+        _ => 0,
+    }
+}
+
+fn set_path(t: &mut T, p: &[usize]) {
+    match (t, p) {
+        (t, []) => *t = Json,
+        (Tuple(xs), [i, rest @ ..]) => {
+            if let Some(x) = xs.get_mut(*i) {
+                set_path(x, rest);
+            }
+        }
+        _ => {}
+    }
+}
+
+// `return (a, b, x)` with slot 2 holding JSON: `return (a, b, ax_to_json(x))`.
+fn json_returns(body: &mut Expr, slots: &[Vec<usize>]) {
+    fn wrap_at(v: &mut Expr, p: &[usize]) {
+        match (v, p) {
+            (Expr::Call(f, _, _), []) if f == "ax_to_json" => {}
+            (x, []) => {
+                let inner = std::mem::replace(x, Expr::Int(0));
+                *x = Expr::Call("ax_to_json".into(), vec![(None, inner)], 0);
+            }
+            (Expr::Tuple(xs), [i, rest @ ..]) => {
+                if let Some(x) = xs.get_mut(*i) {
+                    wrap_at(x, rest);
+                }
+            }
+            _ => {}
+        }
+    }
+    let wrap = |v: &mut Expr| {
+        if matches!(v, Expr::Tuple(_)) {
+            for p in slots {
+                wrap_at(v, p);
+            }
+        }
+    };
+    crate::parser::walk_mut(body, &mut |e| {
+        if let Expr::Block(stmts, _) = e {
+            for st in stmts.iter_mut() {
+                if let Stmt::Return { value: Some(v), .. } = st {
+                    wrap(v);
+                }
+            }
+        }
+    });
+    if let Expr::Block(_, Some(t)) = body {
+        wrap(t);
     }
 }
 
@@ -1392,6 +1523,47 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
         // A field typed this round is seen by the functions only next round.
         let mut fields_moved = false;
         let mut errs = Vec::new();
+        // Python: a name set to values of clashing types in the branches of an if (`spec = parts[3]` /
+        // `spec = frozenset(s)` / `spec = (Decimal(v), tol)`) and used after it holds JSON values.
+        if py_on() {
+            for it in items.iter_mut() {
+                let Item::Fn { params, body, .. } = it else { continue };
+                let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                cx.flat_env(body, &mut env);
+                let mut wraps: Vec<(usize, String)> = vec![];
+                let mut k = 0;
+                walk(body, &mut |e| {
+                    if let Expr::Block(stmts, _) = e {
+                        for st in stmts {
+                            k += 1;
+                            let Stmt::Expr { expr: ife @ Expr::If(..), .. } = st else { continue };
+                            let mut sets = Vec::new();
+                            cx.branch_sets(ife, &env, &mut sets);
+                            for (n, t) in &sets {
+                                if sets.iter().any(|(m, u)| m == n && ty_clash(t, u)) && !wraps.iter().any(|(kk, m)| *kk == k && m == n) {
+                                    wraps.push((k, n.clone()));
+                                }
+                            }
+                        }
+                    }
+                });
+                if wraps.is_empty() {
+                    continue;
+                }
+                let mut k = 0;
+                crate::parser::walk_mut(body, &mut |e| {
+                    if let Expr::Block(stmts, _) = e {
+                        for st in stmts.iter_mut() {
+                            k += 1;
+                            let Stmt::Expr { expr: ife @ Expr::If(..), .. } = st else { continue };
+                            for (_, n) in wraps.iter().filter(|(kk, _)| *kk == k) {
+                                json_branch_sets(ife, n);
+                            }
+                        }
+                    }
+                });
+            }
+        }
         // `stock.take(sku, n)` on a value now known to be a class with that method calls the method, also when
         // the name is a built-in one or the class comes from another file.
         for it in items.iter_mut() {
@@ -1527,6 +1699,20 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     if let Some(t) = to_ast(&acc) {
                         fills.push((k, pi, t));
                     }
+                }
+            }
+            // Python: a parameter given values of clashing types by different calls (`Question(qid, kind, pts, t[3])`
+            // next to `Question(qid, kind, pts, frozenset(s))`) holds JSON values.
+            if py_on() {
+                let mut clash: Vec<(usize, usize)> = vec![];
+                for (i, (k, pi, t)) in fills.iter().enumerate() {
+                    if fills[..i].iter().any(|(k2, p2, t2)| k2 == k && p2 == pi && ty_clash(&from_ast(t), &from_ast(t2))) && !clash.contains(&(*k, *pi)) {
+                        clash.push((*k, *pi));
+                    }
+                }
+                fills.retain(|(k, pi, _)| !clash.contains(&(*k, *pi)));
+                for (k, pi) in clash {
+                    fills.push((k, pi, Ty::Named("Json".into())));
                 }
             }
             for (k, pi, t) in fills {
@@ -1676,6 +1862,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
         }
         let mut found = Vec::new();
+        let mut to_json: Vec<(usize, Vec<Vec<usize>>)> = Vec::new();
         for (k, it) in items.iter().enumerate() {
             let Item::Fn { name, params, ret: Ty::Named(q), body, line, .. } = it else { continue };
             if q != "?" {
@@ -1709,6 +1896,20 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
             // `return 0` on some paths and `return v` (a JSON value) on others: the function gives JSON.
             let json = ts.contains(&Json) && ts.iter().all(|t| matches!(t, Json | Int | F64 | Bool | Str | Hole));
+            // Python tuples whose slot holds a different type per path (`(qid, 'choice', pts, t[3])`,
+            // `(qid, 'multi', pts, set(t[3]))`, `(qid, 'number', pts, (v, tol))`): that slot holds JSON values.
+            let mut ts = ts;
+            if py_on() {
+                let slots = json_slots(&ts);
+                if !slots.is_empty() {
+                    for t in ts.iter_mut() {
+                        for p in &slots {
+                            set_path(t, p);
+                        }
+                    }
+                    to_json.push((k, slots));
+                }
+            }
             let t = if json { Json } else { ts.into_iter().fold(Hole, merge) };
             match to_ast(&t) {
                 Some(t) => found.push((k, t)),
@@ -1723,6 +1924,11 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
         }
         moving = !found.is_empty() || fields_moved;
+        for (k, slots) in to_json {
+            if let Item::Fn { body, .. } = &mut items[k] {
+                json_returns(body, &slots);
+            }
+        }
         for (k, t) in found {
             if let Item::Fn { ret, .. } = &mut items[k] {
                 *ret = t;
@@ -1897,6 +2103,7 @@ impl Ck<'_, '_> {
                                         let et = match &t {
                                             Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
                                             List(e) => (**e).clone(),
+                                            Json => Json,
                                             _ => Hole,
                                         };
                                         env.insert(n.clone(), et);
@@ -1967,6 +2174,49 @@ impl Ck<'_, '_> {
                             }
                         }
                     }
+                }
+            }
+        }
+        // A JSON value (a Python slot of a different type per row) next to a decimal or a list is read as one:
+        // `abs(v - spec[0]) <= spec[1]`, `s == spec`, `s & spec`.
+        if let (true, Expr::Binary(op, a, b)) = (self.py, &mut *e) {
+            if matches!(*op, "+" | "-" | "*" | "/" | "//" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "&" | "|" | "^") {
+                let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                let conv = |t: &T| match t {
+                    Dec => Some("ax_json_dec"),
+                    List(x) if **x == Str => Some("ax_json_strs"),
+                    List(x) if **x == Int => Some("ax_json_ints"),
+                    _ => None,
+                };
+                let side = if ta == Json && tb != Json { conv(&tb).map(|f| (f, a)) } else if tb == Json && ta != Json { conv(&ta).map(|f| (f, b)) } else { None };
+                if let Some((f, x)) = side {
+                    let v = std::mem::replace(x.as_mut(), Expr::Int(0));
+                    **x = Expr::Call(f.into(), vec![(None, v)], 0);
+                }
+            }
+        }
+        // `Fraction(Decimal(s))`, `Decimal(d)`: a decimal already.
+        if let Expr::Method(r, m, args, _) = &mut *e {
+            if m == "dec" && args.is_empty() && self.cx.ty(r, env) == Dec {
+                let inner = std::mem::replace(r.as_mut(), Expr::Int(0));
+                *e = inner;
+            }
+        }
+        // `Decimal(total) / Decimal(n)`: decimal division (an int side becomes a decimal).
+        if let Expr::Call(f, args, _) = &mut *e {
+            if f == "__truediv" && args.len() == 2 {
+                let ts: Vec<T> = args.iter().map(|(_, a)| self.cx.ty(a, env)).collect();
+                if ts.contains(&Dec) && ts.iter().all(|t| matches!(t, Dec | Int)) {
+                    let mut v: Vec<Expr> = args.drain(..).map(|(_, a)| a).collect();
+                    for (x, t) in v.iter_mut().zip(&ts) {
+                        if *t == Int {
+                            let inner = std::mem::replace(x, Expr::Int(0));
+                            *x = Expr::Method(Box::new(inner), "dec".into(), vec![], 0);
+                        }
+                    }
+                    let b = v.pop().unwrap();
+                    let a = v.pop().unwrap();
+                    *e = Expr::Binary("/", Box::new(a), Box::new(b));
                 }
             }
         }
@@ -2106,7 +2356,7 @@ impl Ck<'_, '_> {
                             // A Python function given JSON values at some calls takes plain values as JSON too.
                             if self.py && *pt == Json {
                                 let at = self.cx.ty(a, env);
-                                if scalar(&at) && at != Json {
+                                if (scalar(&at) || matches!(at, List(_) | Tuple(_) | Map(..))) && at != Json && at != Hole {
                                     let v = std::mem::replace(a, Expr::Int(0));
                                     *a = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
                                 }

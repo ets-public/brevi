@@ -1,0 +1,19 @@
+from collections import deque
+def main():
+    lots = {}
+    lots.setdefault("a", deque()).append([5, 1])
+    lots.setdefault("a", deque()).append([3, 2])
+    dq = lots.get("a", deque())
+    need = 6
+    while need:
+        l = dq[0]
+        t = min(need, l[0])
+        l[0] -= t
+        need -= t
+        if l[0] == 0:
+            dq.popleft()
+    print(lots["a"][0], len(lots["a"]))
+    other = lots.get("b", [])
+    other.append([1, 1])
+    print(len(lots))
+main()

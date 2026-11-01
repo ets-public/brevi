@@ -368,11 +368,22 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                         continue;
                     }
                 }
-                if let Some((r, base, key, line)) = alias_of(&stmts[i]) {
+                if let Some((r, base, key, line, guarded)) = alias_of(&stmts[i]) {
                     let mut rest = stmts.split_off(i + 1);
-                    if changed(&r, &rest, tail.as_deref()) {
+                    // The code stores it back itself (`q = lots.get(sku, [])` ... `lots[sku] = q`) after the last change.
+                    let slot = format!("{:?}", Expr::Index(Box::new(base.clone()), Box::new(key.clone())));
+                    let stores = rest.iter().rposition(|st| matches!(st, Stmt::Assign { target, op: "=", value: Expr::Ident(v), .. } if *v == r && format!("{target:?}") == slot));
+                    let stored_back = stores.is_some_and(|j| !changed(&r, &rest[j + 1..], tail.as_deref()));
+                    if !stored_back && changed(&r, &rest, tail.as_deref()) {
                         if safe(&r, &base, &key, &rest, tail.as_deref()) {
-                            let wb = Stmt::Assign { target: Expr::Index(Box::new(base), Box::new(key)), op: "=", value: Expr::Ident(r.clone()), line };
+                            let set = Stmt::Assign { target: Expr::Index(Box::new(base.clone()), Box::new(key.clone())), op: "=", value: Expr::Ident(r.clone()), line };
+                            // `dq = lots.get(sku, [])`: when sku is missing, Python changes a new list nobody keeps.
+                            let wb = if guarded {
+                                let has = Expr::Method(Box::new(base), "has".into(), vec![key], line);
+                                Stmt::Expr { expr: Expr::If(Box::new(has), Box::new(Expr::Block(vec![set], None)), None), line }
+                            } else {
+                                set
+                            };
                             add(&r, &wb, &mut rest, tail);
                         } else if any_stmt(&rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
                             let (rs, from) = (r.trim_end_matches('_').to_string(), show(&Expr::Index(Box::new(base.clone()), Box::new(key.clone()))));
@@ -446,17 +457,21 @@ fn plain_key(k: &Expr) -> bool {
 }
 
 // `r = base[key]` where base is a name or a field path and key a name or a constant.
-fn alias_of(st: &Stmt) -> Option<(String, Expr, Expr, usize)> {
+fn alias_of(st: &Stmt) -> Option<(String, Expr, Expr, usize, bool)> {
     let (r, value, line) = match st {
         Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
         Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
         _ => return None,
     };
-    let (base, key) = match value {
-        Expr::Index(base, key) => (base.as_ref().clone(), key.as_ref().clone()),
+    let (base, key, guarded) = match value {
+        Expr::Index(base, key) => (base.as_ref().clone(), key.as_ref().clone(), false),
         // `r = resting.get(rid)` (None when missing): changed only after a None check, so it is there.
         Expr::Method(base, m, args, _) if (m == "get" || m == "get_or") && (args.len() == 1 || matches!(args.get(1), Some(Expr::Call(f, a, _)) if f == "none" && a.is_empty())) => {
-            (base.as_ref().clone(), args[0].clone())
+            (base.as_ref().clone(), args[0].clone(), false)
+        }
+        // `dq = lots.get(sku, deque())`: the stored list when there is one.
+        Expr::Method(base, m, args, _) if m == "get_or" && args.len() == 2 && (matches!(&args[1], Expr::List(x) if x.is_empty()) || matches!(&args[1], Expr::Map(x) if x.is_empty())) => {
+            (base.as_ref().clone(), args[0].clone(), true)
         }
         _ => return None,
     };
@@ -468,7 +483,7 @@ fn alias_of(st: &Stmt) -> Option<(String, Expr, Expr, usize)> {
     if matches!(&key, Expr::Ident(k) if k == r) {
         return None;
     }
-    Some((r.clone(), base, key, line))
+    Some((r.clone(), base, key, line, guarded))
 }
 
 // Methods that change the value they are called on, when the call is a value rather than a statement.
