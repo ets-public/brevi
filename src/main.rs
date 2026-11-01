@@ -325,6 +325,23 @@ fn autofix(src: &str, all: bool) -> (String, Vec<(usize, String, String)>) {
     }
 }
 
+// Whether a function builds a dict literal with string keys whose values are all names or fields.
+fn has_untyped_map(items: &[ast::Item]) -> bool {
+    let mut hit = false;
+    for it in items {
+        if let ast::Item::Fn { body, .. } = it {
+            infer::walk(body, &mut |e| {
+                if let ast::Expr::Map(ps) = e {
+                    if ps.len() > 1 && ps.iter().all(|(k, v)| matches!(k, ast::Expr::Str(_)) && matches!(v, ast::Expr::Ident(_) | ast::Expr::Field(..))) {
+                        hit = true;
+                    }
+                }
+            });
+        }
+    }
+    hit
+}
+
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
     let (src, foreign) = ffi::split(src);
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
@@ -344,6 +361,18 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
         records::records(&mut items, &mixed);
     }
     infer::PY.store(python_style(&src), std::sync::atomic::Ordering::Relaxed);
+    // A dict literal built from untyped parameters (`{"sku": sku, "qty": qty}` in a method) shows its
+    // mixed types only once the parameters are inferred: infer a copy, then make those dicts records too.
+    if python_style(&src) && has_untyped_map(&items) {
+        let mut copy = items.clone();
+        infer::auto_mut(&mut copy);
+        if infer::returns(&mut copy).is_ok() {
+            let (_, mixed) = infer::empty_types(&copy);
+            if !mixed.is_empty() {
+                records::records(&mut items, &mixed);
+            }
+        }
+    }
     infer::auto_mut(&mut items);
     infer::returns(&mut items)?;
     // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.

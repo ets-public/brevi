@@ -2644,7 +2644,7 @@ fn mixed_record(xs: &[Expr], ty: &dyn Fn(&Expr) -> T) -> bool {
 fn rec_key(i: &Expr) -> Option<String> {
     match i {
         Expr::Str(parts) => match parts.as_slice() {
-            [StrPart::Lit(k)] => Some(k.clone()),
+            [StrPart::Lit(k)] => Some(crate::records::field_of(k)),
             _ => None,
         },
         _ => None,

@@ -598,7 +598,7 @@ fn changes(e: &Expr, name: &str) -> bool {
     }
     let d = format!("{e:?}");
     // `row[i] = v` or `p.x = v` changes the item itself.
-    if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) {
+    if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) || d.contains(&format!("target: TupleField(Ident({name:?})")) {
         return true;
     }
     ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
@@ -1020,8 +1020,8 @@ impl Emitter {
                     match dunder {
                         // A Python dict made a record prints as the dict, and is a JSON object for json.dumps.
                         None if crate::records::is_record(name) => {
-                            let parts: Vec<String> = fields.iter().map(|f| format!("format!(\"'{0}': {{}}\", show_item(&self.{0}))", f.name)).collect();
-                            let pairs: Vec<String> = fields.iter().map(|f| format!("(String::from(\"{0}\"), AxToJson::ax_json(&self.{0}))", f.name)).collect();
+                            let parts: Vec<String> = fields.iter().map(|f| format!("format!(\"'{1}': {{}}\", show_item(&self.{0}))", f.name, crate::records::key_of(&f.name))).collect();
+                            let pairs: Vec<String> = fields.iter().map(|f| format!("(String::from(\"{1}\"), AxToJson::ax_json(&self.{0}))", f.name, crate::records::key_of(&f.name))).collect();
                             out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{{{{{}}}}}}\", [{}].join(\", \")) }} }}\n", parts.join(", ")));
                             out.push_str(&format!("impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ ax_obj(vec![{}]) }} }}\n", pairs.join(", ")));
                         }
