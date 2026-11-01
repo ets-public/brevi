@@ -860,8 +860,9 @@ impl Parser {
                                     continue;
                                 }
                             }
-                            // pat.match(s), pat.fullmatch(s), pat.search(s), pat.findall(s), pat.sub(r, s) on a compiled pattern.
-                            {
+                            // pat.match(s), pat.fullmatch(s), pat.search(s), pat.findall(s), pat.sub(r, s) on a compiled pattern
+                            // (a program's own method of that name keeps it).
+                            if !self.user_fns.contains(&name) {
                                 let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
                                 let m = match (name.as_str(), args.len()) {
                                     ("match", 1) => Some("re_match"),
@@ -881,12 +882,12 @@ impl Parser {
                                 }
                             }
                             // m.group(n), m.group(), m.groups() on a match.
-                            if name == "group" && args.len() <= 1 {
+                            if name == "group" && args.len() <= 1 && !self.user_fns.contains(&name) {
                                 let i = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
                                 e = Expr::Index(Box::new(e), Box::new(i));
                                 continue;
                             }
-                            if name == "groups" && args.is_empty() {
+                            if name == "groups" && args.is_empty() && !self.user_fns.contains(&name) {
                                 e = Expr::Method(Box::new(e), "skip".into(), vec![Expr::Int(1)], line);
                                 continue;
                             }
