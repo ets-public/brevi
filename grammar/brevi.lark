@@ -1,0 +1,119 @@
+// Brevi grammar for constrained decoding (Lark syntax; works with Lark, llguidance, Outlines, vLLM).
+// It checks each line, not indentation: a line ending in `:` opens a block, and block depth is
+// left to the compiler. Any program `brevi check` accepts should parse (tools/grammar_check.py tests this).
+// Not covered: the bodies of `rust fn` and `py fn` (foreign code).
+// grammar/brevi.gbnf (llama.cpp) is made from this file by tools/lark_to_gbnf.py.
+
+start: _NL? (line _NL)* line?
+
+?line: opener ":" simple?           // if/for/while/match/fn/type/enum/test headers, with an optional one-line body
+     | opener block (_n "else" ("if" expr)? block)*   // brace blocks: fn f() { ... }, enum J { A, B(n: int) }
+     | pattern "=>" block
+     | pattern "=>" opener ":" simple?   // Str(s) => if s:
+     | fn_sig "=" expr               // fn f(x: int) = x * 2
+     | fn_sig "=" "match" expr ":"   // fn area(s: Shape) -> f64 = match s:
+     | pattern ("=>" | ":") simple?  // match arm; with nothing after it the body is the block below
+     | NAME ":" type ("=" expr)?     // field, or typed variable
+     | "use" STRING STRING*          // use "util.bv", use sha2 "0.10"
+     | "use" NAME STRING*
+     | simple
+
+opener: fn_sig
+      | "type" NAME
+      | "enum" NAME
+      | "test" STRING
+      | "if" expr
+      | "elif" expr
+      | "else" ("if" expr)?
+      | "for" for_target "in" expr
+      | "while" expr
+      | "match" expr
+      | targets ASSIGN (unary binop)* ("if" | "match") expr   // out = out + match n:
+      | "return" (unary binop)* ("if" | "match") expr
+
+fn_sig: ("rust" | "py")? "fn" NAME "(" _n [param ("," _n param)* ","?] _n ")" ("->" type)? "!"?
+param: "mut"? NAME (":" type)?
+
+?type: "[" type "]"
+     | "{" type ":" type "}"
+     | "(" [type ("," type)*] ")"
+     | NAME ("[" type "]")?
+
+?simple: ("let" | "var") pattern (":" type)? "=" expr
+       | "return" expr?
+       | "break"
+       | "continue"
+       | "assert" expr
+       | targets ASSIGN expr ("," expr)*
+       | inline_if
+       | expr
+
+targets: postfix ("," postfix)*
+ASSIGN: "=" | "+=" | "-=" | "*=" | "/="
+
+inline_if: "if" expr ":" simple ("elif" expr ":" simple)* ("else" (inline_if | ":" simple))?
+for_target: pattern ("," pattern)*
+
+?expr: binary ("if" binary "else" expr)?
+     | lambda
+lambda: NAME "=>" expr
+      | "(" [NAME ("," NAME)*] ")" "=>" expr
+      | "lambda" [NAME ("," NAME)*] ":" expr
+
+?binary: unary (binop _n unary)*
+binop: "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" "in"
+     | ".." | "+" | "-" | "*" | "/" | "%" | "//"
+?unary: ("-" | "!" | "not") unary
+      | postfix
+
+?postfix: primary trailer*
+trailer: _NL? "." (NAME | INT | "or") call?
+       | "[" _n slice _n "]"
+       | "?"
+       | call                        // ops[0](3, 4)
+slice: expr | expr? ":" expr?
+
+call: "(" _n [arg ("," _n arg)* ","?] _n ")"
+arg: (NAME ("=" | ":"))? "*"? expr comp?
+comp: "for" comp_target "in" expr ("if" expr)?
+comp_target: NAME ("," NAME)* | "(" NAME ("," NAME)* ")"
+
+?primary: INT | FLOAT | STRING
+        | "true" | "false"
+        | NAME call?
+        | "(" _n [expr ("," _n expr)* ","?] _n ")"
+        | "[" _n [item ("," _n item)* ","?] _n "]"
+        | "[" _n "*"? expr comp _n "]"
+        | "{" _sep* "}"
+        | "{" _sep* pair (_sep+ pair)* _sep* "}"
+        | "(" _n "match" expr ":" _n (pattern "=>" expr ","? _n)+ ")"
+        | inline_if
+        | brace_if
+        | "match" expr block
+item: "*"? expr
+pair: expr ":" expr
+
+?pattern: NAME
+        | NAME "(" [pattern ("," pattern)*] ")"
+        | "-"? INT
+        | STRING
+        | "true" | "false"
+        | "(" [pattern ("," pattern)*] ")"
+
+block: "{" _sep* "}"
+     | "{" _sep* line (_sep+ line)* _sep* "}"
+brace_if: "if" expr block (_n "else" (brace_if | block))?
+
+_n: _NL*
+_sep: "," | _NL
+
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+INT: /[0-9][0-9_]*/
+FLOAT: /[0-9][0-9_]*\.[0-9]+([eE][+-]?[0-9]+)?/ | /[0-9][0-9_]*[eE][+-]?[0-9]+/
+STRING: /[fF]?"([^"\\\n{]|\\.|\{[^}"\n]*("[^"\n]*"[^}"\n]*)*\}|\{)*"/ | /[fF]?'([^'\\\n{]|\\.|\{[^}'\n]*('[^'\n]*'[^}'\n]*)*\}|\{)*'/
+
+// A newline, with any blank or comment-only lines after it.
+_NL: /(\r?\n[\t ]*((#|\/\/)[^\n]*)?)+/
+COMMENT: /#[^\n]*/ | /\/\/[^\n]*/
+%ignore COMMENT
+%ignore /[\t \f]+/
