@@ -9,6 +9,9 @@ pub struct Parser {
     ret_map: bool,
     // Functions the program defines, which keep their own meaning over Python's len, sum, etc.
     user_fns: Vec<String>,
+    // Functions written inside the function being parsed (Python's nested `def`), lifted to the top level.
+    children: Vec<Item>,
+    hoisted: Vec<Item>,
 }
 
 type R<T> = Result<T, Diag>;
@@ -19,7 +22,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![] };
     let mut items = Vec::new();
     // Statements outside any function form the program's main (script mode).
     let mut script = Vec::new();
@@ -41,6 +44,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
             }
         }
     }
+    items.append(&mut p.hoisted);
     if !script.is_empty() {
         // Top-level statements beside fn main run first, then main, as in a Python file that ends with main().
         let mut script = script;
@@ -49,16 +53,14 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
                 return Err(Diag::new("parse", script_line, 1, "main takes no parameters").fix_hint("use args() to read command line arguments"));
             }
             *name = "main_".into();
-            let calls = |st: &Stmt| matches!(st, Stmt::Expr { expr: Expr::Call(f, a, _), .. } if f == "main" && a.is_empty());
-            if script.iter().any(|st| calls(st)) {
-                for st in script.iter_mut() {
-                    if let Stmt::Expr { expr: Expr::Call(f, a, _), .. } = st {
-                        if f == "main" && a.is_empty() {
-                            *f = "main_".into();
-                        }
-                    }
+            // `main()`, also inside `if __name__ == "__main__":`.
+            let mut called = false;
+            for st in script.iter_mut() {
+                if let Stmt::Expr { expr, .. } = st {
+                    called |= rename_main(expr);
                 }
-            } else {
+            }
+            if !called {
                 let line = script.last().map_or(script_line, |_| script_line);
                 script.push(Stmt::Expr { expr: Expr::Call("main_".into(), vec![], line), line });
             }
@@ -182,6 +184,7 @@ impl Parser {
             let ret = if self.eat_sym("->") { self.ty()? } else { Ty::Named("?".into()) };
             let fallible = self.eat_sym("!");
             self.ret_map = matches!(ret, Ty::Map(..));
+            let saved_children = std::mem::take(&mut self.children);
             let body = if self.eat_sym("=") {
                 self.skip_newlines();
                 self.expr()?
@@ -191,6 +194,12 @@ impl Parser {
                 return Err(self.err("expected '=', ':' or '{' to start the function body"));
             };
             self.ret_map = false;
+            let kids = std::mem::replace(&mut self.children, saved_children);
+            let mut body = body;
+            if !kids.is_empty() {
+                let lifted = lift_nested(&name, &params, &mut body, kids);
+                self.hoisted.extend(lifted);
+            }
             return Ok(Item::Fn { name, params, ret, fallible, body, line, script: false });
         }
         if self.eat_kw("type") {
@@ -320,6 +329,12 @@ impl Parser {
 
     fn stmt(&mut self) -> R<Stmt> {
         let line = self.line();
+        // Python's nested `def`: lifted out of the function (see lift_nested).
+        if self.is_kw("fn") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            let f = self.item()?;
+            self.children.push(f);
+            return Ok(Stmt::Expr { expr: Expr::Block(vec![], None), line });
+        }
         // Python's `global count` / `nonlocal count`. A program that uses them gets Python's scope rule
         // exactly: a function that sets a top-level name without declaring it global has its own local.
         if matches!(self.peek(), Tok::Ident(w) if w == "global" || w == "nonlocal") && matches!(self.peek_at(1), Tok::Ident(_)) {
@@ -333,6 +348,105 @@ impl Parser {
                 }
             }
             return Ok(Stmt::Expr { expr: Expr::Call("__global".into(), names, line), line });
+        }
+        // Python's try/except/else/finally: `__try(body, handler, name)`. An error raised in body (a failing call or
+        // `raise`) runs handler with `name` set to its message; else runs after a body without error, finally after both.
+        if matches!(self.peek(), Tok::Ident(w) if w == "try_") && matches!(self.peek_at(1), Tok::Sym("{" | ":")) {
+            self.next();
+            let body = self.block()?;
+            let mut handler: Option<Expr> = None;
+            let mut err_name = String::from("_");
+            let mut els: Option<Expr> = None;
+            let mut fin: Option<Expr> = None;
+            loop {
+                let save = self.pos;
+                self.skip_newlines();
+                if matches!(self.peek(), Tok::Ident(w) if w == "except") {
+                    self.next();
+                    let mut depth = 0;
+                    let mut name = None;
+                    while !(depth == 0 && matches!(self.peek(), Tok::Sym("{" | ":"))) && self.peek() != &Tok::Eof && self.peek() != &Tok::Newline {
+                        match self.next() {
+                            Tok::Sym("(" | "[") => depth += 1,
+                            Tok::Sym(")" | "]") => depth -= 1,
+                            Tok::Ident(w) if w == "as_" => {
+                                if let Tok::Ident(n) = self.peek().clone() {
+                                    name = Some(n);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    let h = self.block()?;
+                    // Brevi errors carry only a message, so the first handler serves every error.
+                    if handler.is_none() {
+                        handler = Some(h);
+                        if let Some(n) = name {
+                            err_name = n;
+                        }
+                    }
+                } else if self.is_kw("else") && handler.is_some() {
+                    self.next();
+                    els = Some(self.block()?);
+                } else if matches!(self.peek(), Tok::Ident(w) if w == "finally") {
+                    self.next();
+                    fin = Some(self.block()?);
+                } else {
+                    self.pos = save;
+                    break;
+                }
+            }
+            let mut body = body;
+            if let Some(Expr::Block(es, et)) = els {
+                if let Expr::Block(bs, bt) = &mut body {
+                    if let Some(t) = bt.take() {
+                        bs.push(Stmt::Expr { expr: *t, line });
+                    }
+                    bs.extend(es);
+                    *bt = et;
+                }
+            }
+            // An if whose condition is `__try()`: every pass over branches (types, names set on some paths) applies as is.
+            let mut handler = match handler {
+                Some(Expr::Block(st, t)) => (st, t),
+                Some(other) => (vec![], Some(Box::new(other))),
+                None => (vec![], None),
+            };
+            if err_name != "_" {
+                handler.0.insert(0, Stmt::Let { name: Pat::Bind(err_name), ty: None, value: Expr::Call("__err".into(), vec![], line), mutable: false, line });
+            }
+            let handler = Expr::Block(handler.0, handler.1);
+            let t = Expr::If(Box::new(Expr::Call("__try".into(), vec![], line)), Box::new(body), Some(Box::new(handler)));
+            return Ok(match fin {
+                Some(Expr::Block(mut fs, ft)) => {
+                    fs.insert(0, Stmt::Expr { expr: t, line });
+                    Stmt::Expr { expr: Expr::Block(fs, ft), line }
+                }
+                _ => Stmt::Expr { expr: t, line },
+            });
+        }
+        // Python's `raise ValueError("bad")` is fail("bad"); a bare `raise` or `raise KeyError` fails with the name.
+        if matches!(self.peek(), Tok::Ident(w) if w == "raise") {
+            self.next();
+            let msg = if self.peek() == &Tok::Newline || self.is_sym("}") {
+                Expr::Str(vec![StrPart::Lit("error".into())])
+            } else {
+                let e = self.expr()?;
+                if let Tok::Ident(w) = self.peek().clone() {
+                    if w == "from" {
+                        self.next();
+                        self.expr()?;
+                    }
+                }
+                match e {
+                    Expr::Call(n, mut args, _) if n.chars().next().map_or(false, |c| c.is_uppercase()) => {
+                        if args.is_empty() { Expr::Str(vec![StrPart::Lit(n)]) } else { Expr::Call("str".into(), vec![(None, args.remove(0).1)], line) }
+                    }
+                    Expr::Ident(n) => Expr::Str(vec![StrPart::Lit(n)]),
+                    other => Expr::Call("str".into(), vec![(None, other)], line),
+                }
+            };
+            return Ok(Stmt::Expr { expr: Expr::Call("fail".into(), vec![(None, msg)], line), line });
         }
         if self.is_kw("let") || self.is_kw("var") {
             let mutable = self.next() == Tok::Kw("var");
@@ -354,7 +468,15 @@ impl Parser {
             return Ok(Stmt::Let { name, ty, value, mutable: true, line });
         }
         if self.eat_kw("return") {
-            let value = if self.peek() == &Tok::Newline || self.is_sym("}") { None } else { Some(self.expr()?) };
+            let mut value = if self.peek() == &Tok::Newline || self.is_sym("}") { None } else { Some(self.expr()?) };
+            // Python's `return a, b` returns a tuple.
+            if value.is_some() && self.is_sym(",") {
+                let mut xs = vec![value.take().unwrap()];
+                while self.eat_sym(",") {
+                    xs.push(self.expr()?);
+                }
+                value = Some(Expr::Tuple(xs));
+            }
             return Ok(Stmt::Return { value, line });
         }
         if self.eat_kw("break") {
@@ -388,6 +510,19 @@ impl Parser {
                 };
                 self.skip_newlines();
                 let mut value = self.expr()?;
+                // Python's `a = b = 0` sets each name.
+                if op == "=" && matches!(e, Expr::Ident(_)) && matches!(value, Expr::Ident(_)) && self.is_sym("=") {
+                    let mut names = vec![e.clone(), value];
+                    while self.eat_sym("=") {
+                        names.push(self.expr()?);
+                    }
+                    let v = names.pop().unwrap();
+                    if names.iter().all(|n| matches!(n, Expr::Ident(_))) {
+                        let vs = vec![v; names.len()];
+                        return Ok(Stmt::Assign { target: Expr::Tuple(names), op, value: Expr::Tuple(vs), line });
+                    }
+                    return Err(self.err("expected names before each ="));
+                }
                 if bare && self.is_sym(",") {
                     let mut vs = vec![value];
                     while self.eat_sym(",") {
@@ -492,6 +627,10 @@ impl Parser {
             &["and"],
             &["==", "!=", "<", ">", "<=", ">=", "~=", "in"],
             &[".."],
+            &["|"],
+            &["^"],
+            &["&"],
+            &["<<", ">>"],
             &["+", "-"],
             &["*", "/", "%", "//"],
         ];
@@ -581,10 +720,11 @@ impl Parser {
             if self.eat_sym(".") {
                 match self.next() {
                     Tok::Int(n) => e = Expr::TupleField(Box::new(e), n as usize),
-                    t @ (Tok::Ident(_) | Tok::Kw("or")) => {
+                    t @ (Tok::Ident(_) | Tok::Kw("or" | "match" | "in" | "not" | "and" | "type" | "test")) => {
                         let name = match t {
                             Tok::Ident(n) => n,
-                            _ => "or".to_string(),
+                            Tok::Kw(k) => k.to_string(),
+                            _ => unreachable!(),
                         };
                         if self.eat_sym("(") {
                             let raw = self.args()?;
@@ -735,6 +875,11 @@ impl Parser {
             return Err(self.err("expected in").fix_hint("write [x * 2 for x in xs]"));
         }
         let mut e = self.expr()?;
+        // `x for a in A for x in a`: each a gives a list; they are joined.
+        if self.eat_kw("for") {
+            let inner = self.comprehension(elem)?;
+            return Ok(Expr::Method(Box::new(Expr::Method(Box::new(e), "map".into(), vec![Expr::Lambda(names, Box::new(inner))], line)), "flatten".into(), vec![], line));
+        }
         if self.eat_kw("if") {
             // The condition uses Python truth (`if s.trim()`): `not not c` reads it that way.
             let c = self.expr()?;
@@ -806,6 +951,8 @@ impl Parser {
                 let body = self.expr()?;
                 Ok(Expr::Lambda(names, Box::new(body)))
             }
+            // Python's `if __name__ == "__main__":` is always true here.
+            Tok::Ident(name) if name == "__name__" => Ok(Expr::Str(vec![StrPart::Lit("__main__".into())])),
             // Python's None: an int, float, str or tuple slot that is not set yet.
             Tok::Ident(name) if name == "None" && !self.is_sym("(") => Ok(Expr::Call("none".into(), vec![], line)),
             Tok::Ident(name) => {
@@ -872,6 +1019,12 @@ impl Parser {
                 let mut items = Vec::new();
                 while !self.is_sym(")") {
                     items.push(self.expr()?);
+                    // `(x * 2 for x in xs)`: a generator is the list it makes.
+                    if items.len() == 1 && self.eat_kw("for") {
+                        let c = self.comprehension(items.pop().unwrap())?;
+                        self.expect_sym(")")?;
+                        return Ok(c);
+                    }
                     if !self.eat_sym(",") {
                         break;
                     }
@@ -911,8 +1064,51 @@ impl Parser {
                 self.skip_seps();
                 while !self.is_sym("}") {
                     let k = self.expr()?;
+                    // Python's sets: `{a, b}` and `{w for w in ws}` are lists without repeats.
+                    if pairs.is_empty() && !self.is_sym(":") {
+                        let line = self.line();
+                        let list = if self.eat_kw("for") {
+                            self.comprehension(k)?
+                        } else {
+                            let mut xs = vec![k];
+                            while self.eat_sym(",") {
+                                self.skip_newlines();
+                                if self.is_sym("}") {
+                                    break;
+                                }
+                                xs.push(self.expr()?);
+                            }
+                            Expr::List(xs)
+                        };
+                        self.skip_newlines();
+                        self.expect_sym("}")?;
+                        return Ok(Expr::Method(Box::new(list), "unique".into(), vec![], line));
+                    }
                     self.expect_sym(":")?;
                     let v = self.expr()?;
+                    // Python's `{k: v for x in xs}`: a map filled by a loop over the pairs.
+                    if pairs.is_empty() && self.is_kw("for") {
+                        let line = self.line();
+                        self.next();
+                        let list = self.comprehension(Expr::Tuple(vec![k, v]))?;
+                        self.skip_newlines();
+                        self.expect_sym("}")?;
+                        let d = format!("ax_d{}", self.pos);
+                        let fill = Stmt::Assign {
+                            target: Expr::Index(Box::new(Expr::Ident(d.clone())), Box::new(Expr::Ident("ax_k".into()))),
+                            op: "=",
+                            value: Expr::Ident("ax_v".into()),
+                            line,
+                        };
+                        let pat = Pat::Tuple(vec![Pat::Bind("ax_k".into()), Pat::Bind("ax_v".into())]);
+                        return Ok(Expr::Block(
+                            vec![
+                                Stmt::Assign { target: Expr::Ident(d.clone()), op: "=", value: Expr::Map(vec![]), line },
+                                Stmt::Expr { expr: Expr::For(pat, Box::new(list), Box::new(Expr::Block(vec![fill], None))), line },
+                            ],
+                            Some(Box::new(Expr::Ident(d))),
+                        ));
+                    }
                     pairs.push((k, v));
                     self.skip_seps();
                 }
@@ -1062,7 +1258,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone() };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![] };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
@@ -1133,6 +1329,30 @@ fn sort_kw(recv: Expr, args: &[(Option<String>, Expr)], line: usize) -> Option<E
     let mut a = vec![f];
     a.extend(rev);
     Some(Expr::Method(Box::new(recv), "sort_by".into(), a, line))
+}
+
+// Renames a top-level `main()` call (plain, or in an if's blocks) to `main_()`; true when there was one.
+fn rename_main(e: &mut Expr) -> bool {
+    match e {
+        Expr::Call(f, a, _) if f == "main" && a.is_empty() => {
+            *f = "main_".into();
+            true
+        }
+        Expr::If(_, a, b) => {
+            let x = rename_main(a);
+            b.as_mut().map_or(false, |b| rename_main(b)) || x
+        }
+        Expr::Block(stmts, tail) => {
+            let mut hit = false;
+            for st in stmts.iter_mut() {
+                if let Stmt::Expr { expr, .. } = st {
+                    hit |= rename_main(expr);
+                }
+            }
+            tail.as_mut().map_or(false, |t| rename_main(t)) || hit
+        }
+        _ => false,
+    }
 }
 
 fn python_method(name: &str, nargs: usize) -> Option<String> {
@@ -1288,5 +1508,179 @@ fn bind_upper(p: Pat) -> Pat {
         Pat::Variant(n, args) if args.is_empty() => Pat::Bind(n),
         Pat::Tuple(ps) => Pat::Tuple(ps.into_iter().map(bind_upper).collect()),
         p => p,
+    }
+}
+
+// Python's nested `def inner(a):` inside `def outer(...)` becomes the top-level `outer_inner(a, c1, c2)`,
+// where c1, c2 are the outer function's locals it reads; calls inside outer pass them along.
+fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<Item>) -> Vec<Item> {
+    let mut outer_locals: Vec<String> = outer_params.iter().map(|p| p.name.clone()).collect();
+    walk_mut(body, &mut |e| {
+        if let Expr::Block(stmts, _) = e {
+            for st in stmts.iter() {
+                match st {
+                    Stmt::Assign { target, .. } => pat_names_expr(target, &mut outer_locals),
+                    Stmt::Let { name, .. } => pat_names(name, &mut outer_locals),
+                    _ => {}
+                }
+            }
+        }
+        if let Expr::For(p, _, _) = e {
+            pat_names(p, &mut outer_locals);
+        }
+    });
+    let names: Vec<String> = kids.iter().filter_map(|k| match k { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
+    // What each child reads from the outer function.
+    let mut caps: Vec<Vec<String>> = Vec::new();
+    for k in &kids {
+        let Item::Fn { params, body: kb, .. } = k else {
+            caps.push(vec![]);
+            continue;
+        };
+        let mut own: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        let mut kb2 = kb.clone();
+        walk_mut(&mut kb2, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for st in stmts.iter() {
+                    if let Stmt::Assign { target, .. } = st {
+                        pat_names_expr(target, &mut own);
+                    }
+                }
+            }
+            if let Expr::For(p, _, _) = e {
+                pat_names(p, &mut own);
+            }
+            if let Expr::Lambda(ps, _) = e {
+                own.extend(ps.iter().cloned());
+            }
+        });
+        let mut used = Vec::new();
+        walk_mut(&mut kb2, &mut |e| {
+            if let Expr::Ident(n) | Expr::Move(n) = e {
+                if outer_locals.contains(n) && !own.contains(n) && !used.contains(n) {
+                    used.push(n.clone());
+                }
+            }
+        });
+        caps.push(used);
+    }
+    let mangled = |n: &str| format!("{outer}_{n}");
+    let rename = |e: &mut Expr| {
+        walk_mut(e, &mut |x| {
+            match x {
+                Expr::Call(f, args, line) => {
+                    if let Some(i) = names.iter().position(|n| n == f) {
+                        *f = mangled(&names[i]);
+                        for c in &caps[i] {
+                            args.push((None, Expr::Ident(c.clone())));
+                        }
+                        let _ = line;
+                    }
+                }
+                Expr::Ident(n) => {
+                    if let Some(i) = names.iter().position(|m| m == n) {
+                        if caps[i].is_empty() {
+                            *n = mangled(&names[i]);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        });
+    };
+    rename(body);
+    let mut out = Vec::new();
+    for (k, cap) in kids.into_iter().zip(caps.iter()) {
+        if let Item::Fn { name, mut params, ret, fallible, mut body, line, script } = k {
+            for c in cap {
+                params.push(Param { name: c.clone(), ty: Ty::Named("?".into()), is_mut: false });
+            }
+            rename(&mut body);
+            out.push(Item::Fn { name: mangled(&name), params, ret, fallible, body, line, script });
+        } else {
+            out.push(k);
+        }
+    }
+    out
+}
+
+fn pat_names(p: &Pat, out: &mut Vec<String>) {
+    match p {
+        Pat::Bind(n) => {
+            if !out.contains(n) {
+                out.push(n.clone())
+            }
+        }
+        Pat::Tuple(ps) | Pat::Variant(_, ps) => ps.iter().for_each(|p| pat_names(p, out)),
+        _ => {}
+    }
+}
+
+fn pat_names_expr(e: &Expr, out: &mut Vec<String>) {
+    match e {
+        Expr::Ident(n) => {
+            if !out.contains(n) {
+                out.push(n.clone())
+            }
+        }
+        Expr::Tuple(xs) => xs.iter().for_each(|x| pat_names_expr(x, out)),
+        _ => {}
+    }
+}
+
+// Calls f on every expression inside e (children first is not needed; f sees each node once).
+fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
+    f(e);
+    match e {
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter_mut().for_each(|x| walk_mut(x, f)),
+        Expr::Map(ps) => ps.iter_mut().for_each(|(k, v)| {
+            walk_mut(k, f);
+            walk_mut(v, f);
+        }),
+        Expr::Str(parts) => {
+            for p in parts.iter_mut() {
+                if let StrPart::Interp(x) = p {
+                    walk_mut(x, f);
+                }
+            }
+        }
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Lambda(_, a) | Expr::Try(a) => walk_mut(a, f),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) | Expr::For(_, a, b) => {
+            walk_mut(a, f);
+            walk_mut(b, f);
+        }
+        Expr::Call(_, args, _) => args.iter_mut().for_each(|(_, a)| walk_mut(a, f)),
+        Expr::Method(r, _, args, _) => {
+            walk_mut(r, f);
+            args.iter_mut().for_each(|a| walk_mut(a, f));
+        }
+        Expr::If(c, a, b) => {
+            walk_mut(c, f);
+            walk_mut(a, f);
+            if let Some(b) = b {
+                walk_mut(b, f);
+            }
+        }
+        Expr::Match(sub, arms) => {
+            walk_mut(sub, f);
+            arms.iter_mut().for_each(|(_, a)| walk_mut(a, f));
+        }
+        Expr::Block(stmts, tail) => {
+            for st in stmts.iter_mut() {
+                match st {
+                    Stmt::Let { value, .. } => walk_mut(value, f),
+                    Stmt::Assign { target, value, .. } => {
+                        walk_mut(target, f);
+                        walk_mut(value, f);
+                    }
+                    Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => walk_mut(expr, f),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                walk_mut(t, f);
+            }
+        }
+        _ => {}
     }
 }

@@ -116,8 +116,8 @@ fn interp_closes(chars: &[char], from: usize) -> bool {
 
 // Longest symbols first so the scanner can take the first match.
 const SYMBOLS: &[&str] = &[
-    "->", "=>", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
-    "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?",
+    "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
+    "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?", ";", "|", "&", "^",
 ];
 
 // After a value, `a // b` is floor division unless what follows reads like words (`x = 5 // the count`).
@@ -131,16 +131,23 @@ fn looks_like_prose(rest: &str) -> bool {
 // are dropped; the line stays so line numbers hold.
 const PY_BUILTIN_MODULES: &[&str] = &["sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools"];
 
+// `json`, `os.path`, `xml.etree.ElementTree as ET`: a dotted module name, maybe with `as NAME`.
+fn is_module_path(m: &str) -> bool {
+    let name = m.split(" as ").next().unwrap_or("").trim();
+    !name.is_empty() && name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_'))
+}
+
 fn drop_py_imports(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     for l in src.split_inclusive('\n') {
-        let t = l.trim_end();
+        let t = l.trim();
         let module = t.strip_prefix("import ").map(|m| m.split(',').map(str::trim).collect::<Vec<_>>()).or_else(|| {
             let rest = t.strip_prefix("from ")?;
             let (m, _) = rest.split_once(" import ")?;
             Some(vec![m.trim()])
         });
-        if module.is_some_and(|ms| ms.iter().all(|m| PY_BUILTIN_MODULES.contains(m))) {
+        // Any Python import line: the modules Brevi maps are built in, and `import` means nothing else here.
+        if module.is_some_and(|ms| ms.iter().all(|m| PY_BUILTIN_MODULES.contains(m) || is_module_path(m))) {
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
         } else {
             out.push_str(l);
@@ -481,6 +488,45 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             if word == "f" && matches!(chars.get(i), Some('"') | Some('\'')) {
                 continue;
             }
+            // Python's `def f(...)` is `fn f(...)`.
+            if word == "def" && chars.get(i) == Some(&' ') && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || *c == '_') {
+                push(&mut out, Tok::Kw("fn"));
+                continue;
+            }
+            // Python's raw strings `r"\d+"`: backslashes stay as written and braces are plain text.
+            if matches!(word.as_str(), "r" | "R" | "rb" | "br") && matches!(chars.get(i), Some('"') | Some('\'')) {
+                let q = chars[i];
+                let triple = chars.get(i + 1) == Some(&q) && chars.get(i + 2) == Some(&q);
+                let mut j = i + if triple { 3 } else { 1 };
+                let mut s = String::new();
+                loop {
+                    match chars.get(j) {
+                        None => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing quote")),
+                        Some('\n') if !triple => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing quote")),
+                        Some('\\') if chars.get(j + 1).is_some() => {
+                            s.push('\\');
+                            s.push(chars[j + 1]);
+                            j += 2;
+                        }
+                        Some(&c) if c == q && (!triple || (chars.get(j + 1) == Some(&q) && chars.get(j + 2) == Some(&q))) => {
+                            j += if triple { 3 } else { 1 };
+                            break;
+                        }
+                        Some(&c) => {
+                            if c == '{' || c == '}' {
+                                s.push(c);
+                            }
+                            s.push(c);
+                            j += 1;
+                        }
+                    }
+                }
+                line += chars[i..j].iter().filter(|c| **c == '\n').count();
+                col += j - i;
+                i = j;
+                push(&mut out, Tok::Str(s));
+                continue;
+            }
             // Python's `elif` is accepted as `else if`.
             if word == "elif" {
                 push(&mut out, Tok::Kw("else"));
@@ -494,12 +540,15 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     push(&mut out, Tok::Sym("=="));
                     continue;
                 }
-                if rest.starts_with(" not None") {
+                if rest.starts_with(" not ") {
                     push(&mut out, Tok::Sym("!="));
                     i += 4;
                     col += 4;
                     continue;
                 }
+                // Python's identity test on other values: Brevi values have no identity, so it compares them.
+                push(&mut out, Tok::Sym("=="));
+                continue;
             }
             // Python's True and False are true and false.
             let word = match word.as_str() { "True" => "true".to_string(), "False" => "false".to_string(), _ => word };
@@ -537,6 +586,33 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     }
     out.push(Token { tok: Tok::Newline, line, col });
     out.push(Token { tok: Tok::Eof, line, col });
+    let mut out = inline_bodies(out);
+    // Python's `a = 1; b = 2`: each statement after a `;` is a line of its own at the same indentation.
+    let mut first_col = 1;
+    let mut at_start = true;
+    let mut semi = false;
+    for t in out.iter_mut() {
+        match t.tok {
+            Tok::Newline => {
+                at_start = true;
+                semi = false;
+            }
+            Tok::Sym(";") => {
+                t.tok = Tok::Newline;
+                semi = true;
+                continue;
+            }
+            _ => {
+                if semi {
+                    t.col = first_col;
+                    semi = false;
+                } else if at_start {
+                    first_col = t.col;
+                }
+                at_start = false;
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -585,5 +661,62 @@ pub fn indent_blocks(toks: Vec<Token>) -> Vec<Token> {
         out.push(mk(Tok::Newline, &end));
     }
     out.push(end);
+    out
+}
+
+// Python's `if k in c: a; b` runs both statements under the if: the body after the `:` becomes an indented block.
+fn inline_bodies(toks: Vec<Token>) -> Vec<Token> {
+    const OPENERS: &[&str] = &["if", "else", "for", "while", "fn"];
+    let mut out = Vec::with_capacity(toks.len());
+    let mut line: Vec<Token> = Vec::new();
+    for t in toks {
+        let end = matches!(t.tok, Tok::Newline | Tok::Eof);
+        line.push(t);
+        if !end {
+            continue;
+        }
+        let opens = match line.first().map(|t| &t.tok) {
+            Some(Tok::Kw(k)) => OPENERS.contains(k),
+            Some(Tok::Ident(w)) => matches!(w.as_str(), "try_" | "except" | "finally" | "with"),
+            _ => false,
+        };
+        let mut colon = None;
+        let mut has_semi = false;
+        if opens {
+            let mut depth = 0i32;
+            for (i, t) in line.iter().enumerate() {
+                match &t.tok {
+                    Tok::Sym("(" | "[" | "{") => depth += 1,
+                    Tok::Sym(")" | "]" | "}") => depth -= 1,
+                    // A lambda's `x: ...` cannot appear at depth 0 in a statement header, so the first `:` there ends it.
+                    Tok::Sym(":") if depth == 0 && colon.is_none() => colon = Some(i),
+                    Tok::Sym(";") if depth == 0 && colon.is_some() => has_semi = true,
+                    _ => {}
+                }
+            }
+        }
+        match colon {
+            Some(c) if has_semi && c + 1 < line.len() && !matches!(line[c + 1].tok, Tok::Newline) => {
+                let indent = line[0].col + 4;
+                let (ln, cl) = (line[c].line, line[c].col);
+                let rest = line.split_off(c + 1);
+                out.extend(line.drain(..));
+                out.push(Token { tok: Tok::Newline, line: ln, col: cl + 1 });
+                let mut first = true;
+                for mut t in rest {
+                    if first && !matches!(t.tok, Tok::Newline | Tok::Eof) {
+                        t.col = indent;
+                    }
+                    first = matches!(t.tok, Tok::Sym(";"));
+                    if first {
+                        t.tok = Tok::Newline;
+                    }
+                    out.push(t);
+                }
+            }
+            _ => out.append(&mut line),
+        }
+        line.clear();
+    }
     out
 }

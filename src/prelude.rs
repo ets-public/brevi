@@ -2390,6 +2390,69 @@ pub fn ax_obj(xs: Vec<(String, Json)>) -> Json {
     Json::Obj { v: m }
 }
 
+// `a | b` and `a & b`: bitwise on ints; union and intersection (sorted, no repeats) on lists used as sets.
+pub trait AxBits {
+    fn ax_bor(self, o: Self) -> Self;
+    fn ax_band(self, o: Self) -> Self;
+}
+impl AxBits for i64 {
+    fn ax_bor(self, o: i64) -> i64 {
+        self | o
+    }
+    fn ax_band(self, o: i64) -> i64 {
+        self & o
+    }
+}
+impl AxBits for bool {
+    fn ax_bor(self, o: bool) -> bool {
+        self | o
+    }
+    fn ax_band(self, o: bool) -> bool {
+        self & o
+    }
+}
+impl<T: Clone + PartialOrd> AxBits for Vec<T> {
+    fn ax_bor(self, o: Vec<T>) -> Vec<T> {
+        let mut v = self;
+        v.extend(o);
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v.dedup_by(|a, b| a == b);
+        v
+    }
+    fn ax_band(self, o: Vec<T>) -> Vec<T> {
+        let mut v: Vec<T> = self.into_iter().filter(|x| o.contains(x)).collect();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v.dedup_by(|a, b| a == b);
+        v
+    }
+}
+// A map read item by item is its list of keys, as in Python (`[k for k in d if d[k] > 0]`).
+pub trait AxMapSeq<K> {
+    fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U>;
+    fn ax_filter(&self, f: impl Fn(K) -> bool) -> Vec<K>;
+    fn ax_any(&self, f: impl Fn(K) -> bool) -> bool;
+    fn ax_all(&self, f: impl Fn(K) -> bool) -> bool;
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMapSeq<K> for AxM<K, V> {
+    fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U> {
+        self.ax_keys().into_iter().map(f).collect()
+    }
+    fn ax_filter(&self, f: impl Fn(K) -> bool) -> Vec<K> {
+        self.ax_keys().into_iter().filter(|k| f(k.clone())).collect()
+    }
+    fn ax_any(&self, f: impl Fn(K) -> bool) -> bool {
+        self.ax_keys().into_iter().any(f)
+    }
+    fn ax_all(&self, f: impl Fn(K) -> bool) -> bool {
+        self.ax_keys().into_iter().all(f)
+    }
+}
+// A list is never Python's None; a None list slot reads as an empty list.
+impl<T> AxNone for Vec<T> {
+    fn ax_none() -> Self {
+        Vec::new()
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]
@@ -2735,3 +2798,4 @@ impl AxRe for String {
         out
     }
 }
+
