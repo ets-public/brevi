@@ -50,6 +50,12 @@ def main():
             pos = i + 1
             prev = k
         print(pos, k)
+    best = None
+    for c in [(3, 1, ["a"]), (2, 5, ["b"])]:
+        if best is None or c < best:
+            best = c
+    if best:
+        print("best", best[0], ",".join(best[2]))
 
 
 main()
