@@ -1592,6 +1592,11 @@ impl Emitter {
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
             // Python-style truth: an empty list, map or string, 0 and "" are false.
             Expr::Binary(op @ ("and" | "or"), a, b) => format!("({} {} {})", self.cond(a), if *op == "and" { "&&" } else { "||" }, self.cond(b)),
+            // Python's `"-" * 40`: text repeated.
+            Expr::Binary("*", a, b) if [a, b].iter().any(|x| matches!(self.infer_ty(x), Some(Ty::Named(n)) if n == "str")) => {
+                let (s, n) = if matches!(self.infer_ty(a), Some(Ty::Named(t)) if t == "str") { (a, b) } else { (b, a) };
+                format!("({}).repeat(({}).max(0) as usize)", self.operand(s), self.expr(n))
+            }
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
                 let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
@@ -1740,7 +1745,8 @@ impl Emitter {
                     }
                     other => format!("ax_q({})", self.expr(other)),
                 };
-                format!("(match {v} {{ Ok(v) => v, Err(e) => {{ {lab} = Some(AxErr::from(e)); break '{lab}; }} }})")
+                let brk = if lab.starts_with("ax_tryv") { " None" } else { "" };
+                format!("(match {v} {{ Ok(v) => v, Err(e) => {{ {lab} = Some(AxErr::from(e)); break '{lab}{brk}; }} }})")
             }
             Expr::Try(inner) => {
                 if !self.fallible {
@@ -1754,6 +1760,17 @@ impl Emitter {
                     // ax_q lets `?` follow conversions that cannot fail on numbers (`2.5.int()`).
                     other => format!("ax_q({})?", self.expr(other)),
                 }
+            }
+            // A try whose value is used (`try: return f(s)` at a function's end, where the return became its value):
+            // a failure breaks out with None and the handler gives the value.
+            Expr::If(c, t, Some(h)) if is_try(c) => {
+                self.try_n += 1;
+                let lab = format!("ax_tryv{}", self.try_n);
+                self.catch.push(lab.clone());
+                let body = self.block(t);
+                self.catch.pop();
+                let handler = self.block(h);
+                format!("{{ let mut {lab}: Option<AxErr> = None; match '{lab}: {{ Some({body}) }} {{ Some(v) => v, None => {{ let AxErr(ax_err) = {lab}.unwrap(); let _ = &ax_err; {handler} }} }} }}")
             }
             Expr::If(c, t, f) => {
                 let c = self.cond(c);
@@ -1892,7 +1909,8 @@ impl Emitter {
             "__truediv" => return format!("AxTrueDiv::ax_truediv({})", plain.join(", ")),
             "fail" if !self.catch.is_empty() => {
                 let lab = self.catch.last().unwrap().clone();
-                return format!("{{ {lab} = Some(AxErr({})); break '{lab}; }}", plain.join(", "));
+                let brk = if lab.starts_with("ax_tryv") { " None" } else { "" };
+                return format!("{{ {lab} = Some(AxErr({})); break '{lab}{brk}; }}", plain.join(", "));
             }
             "fail" => {
                 if !self.fallible {

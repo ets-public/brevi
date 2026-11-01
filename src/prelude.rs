@@ -1993,6 +1993,11 @@ impl AxNone for String {
         "\u{0}None".to_string()
     }
 }
+impl AxNone for Date {
+    fn ax_none() -> Self {
+        Date { days: i64::MIN }
+    }
+}
 impl AxNone for bool {
     fn ax_none() -> Self {
         false

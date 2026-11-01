@@ -25,12 +25,72 @@ fn use_path(l: &str) -> Option<&str> {
     }
 }
 
+// Python's `import stock, key as k` or `from stock import Stock`: the modules named, with the name each
+// is called by in `stock.f()` (None for `from`). Only modules with a `.bv` file next to this one count
+// (`lib.stock` is lib/stock.bv).
+fn py_imports(l: &str, dir: &Path) -> Vec<(String, Option<String>)> {
+    let l = l.split(" #").next().unwrap_or("").trim();
+    let mods: Vec<(String, Option<String>)> = if let Some(r) = l.strip_prefix("import ") {
+        r.split(',')
+            .filter_map(|m| {
+                let mut w = m.split_whitespace();
+                let name = w.next()?.to_string();
+                let alias = match (w.next(), w.next()) {
+                    (Some("as"), Some(a)) => a.to_string(),
+                    _ => name.clone(),
+                };
+                Some((name, Some(alias)))
+            })
+            .collect()
+    } else if let Some(r) = l.strip_prefix("from ") {
+        match r.split_whitespace().next() {
+            Some(m) if r[m.len()..].trim_start().starts_with("import ") => vec![(m.trim_start_matches('.').to_string(), None)],
+            _ => vec![],
+        }
+    } else {
+        vec![]
+    };
+    mods.into_iter()
+        .map(|(m, a)| (format!("{}.bv", m.replace('.', "/")), m, a))
+        .filter(|(p, m, _)| m.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.') && dir.join(p).is_file())
+        .map(|(p, _, a)| (p, a))
+        .collect()
+}
+
+// `stock.find(x)` becomes `find(x)` for a module brought in with `import stock`: the files are one program.
+fn unqualify(l: &str, names: &[String]) -> String {
+    if names.is_empty() {
+        return l.to_string();
+    }
+    let cs: Vec<char> = l.chars().collect();
+    let mut out = String::with_capacity(l.len());
+    let mut i = 0;
+    while i < cs.len() {
+        let boundary = i == 0 || !(cs[i - 1].is_alphanumeric() || cs[i - 1] == '_' || cs[i - 1] == '.');
+        if boundary {
+            if let Some(n) = names.iter().find(|n| {
+                let k = n.chars().count();
+                cs[i..].starts_with(&n.chars().collect::<Vec<_>>()) && cs.get(i + k) == Some(&'.') && cs.get(i + k + 1).map_or(false, |c| c.is_alphabetic() || *c == '_')
+            }) {
+                i += n.chars().count() + 1;
+                continue;
+            }
+        }
+        out.push(cs[i]);
+        i += 1;
+    }
+    out
+}
+
 // The joined source and where each file's lines are. Err is a JSON error line.
 pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
     let mut out = String::new();
     let mut segs: Vec<Seg> = vec![];
     let mut queue: Vec<(String, PathBuf, String, Option<(String, usize)>)> = vec![("".into(), PathBuf::from(main), src.to_string(), None)];
     let mut seen: Vec<PathBuf> = vec![std::fs::canonicalize(main).unwrap_or_else(|_| PathBuf::from(main))];
+    // Names Python code calls modules by (`import stock` then `stock.load()`), across all files.
+    let mut quals: Vec<String> = vec![];
+    let mut changed = false;
     while !queue.is_empty() {
         let (name, path, text, _) = queue.remove(0);
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -38,11 +98,21 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
         let mut n = 0;
         for (i, l) in text.lines().enumerate() {
             n += 1;
-            if let Some(p) = use_path(l.trim_end()) {
+            let mut paths: Vec<String> = use_path(l.trim_end()).map(|p| vec![p.to_string()]).unwrap_or_default();
+            if paths.is_empty() && !l.starts_with([' ', '\t']) {
+                for (p, q) in py_imports(l, &dir) {
+                    quals.extend(q);
+                    paths.push(p);
+                }
+            }
+            for (k, p) in paths.iter().enumerate() {
+                let p = p.as_str();
                 let full = dir.join(p);
                 let canon = std::fs::canonicalize(&full).unwrap_or_else(|_| full.clone());
-                out.push_str(l);
-                out.push('\n');
+                if k == 0 {
+                    out.push_str(l);
+                    out.push('\n');
+                }
                 if seen.contains(&canon) {
                     continue;
                 }
@@ -53,6 +123,9 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                 seen.push(canon);
                 let shown = if name.is_empty() { p.to_string() } else { Path::new(&name).parent().map_or(p.into(), |d| d.join(p).to_string_lossy().to_string()) };
                 queue.push((shown, full, body, Some((name.clone(), i + 1))));
+            }
+            if !paths.is_empty() {
+                changed = true;
                 continue;
             }
             // A used file holds only items: its top-level statements would run as part of the main program.
@@ -63,7 +136,11 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                     let rest = l[first.len()..].trim_start();
                     (rest.starts_with('=') && !rest.starts_with("==")) || rest.starts_with(':')
                 };
-                let item = l.is_empty() || set || l.starts_with([' ', '\t', '#', '}']) || matches!(first, "fn" | "type" | "enum" | "test" | "rust" | "py" | "use");
+                // Python modules also hold `def`, `class`, decorators, imports and the closing line of a long list.
+                let item = l.is_empty()
+                    || set
+                    || l.starts_with([' ', '\t', '#', '}', ']', ')', '@'])
+                    || matches!(first, "fn" | "type" | "enum" | "test" | "rust" | "py" | "use" | "def" | "class" | "import" | "from");
                 if !item {
                     return Err(format!(
                         "{{\"file\":\"{}\",\"line\":{},\"msg\":\"a used file holds only fn, type, enum and test items and NAME = value lines\",\"fix\":\"move this statement into a function, or into the main file\"}}",
@@ -77,8 +154,11 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
         }
         segs.push(Seg { file: name, path, start, len: n });
     }
-    if segs.len() == 1 {
+    if segs.len() == 1 && !changed {
         return Ok((src.to_string(), segs));
+    }
+    if !quals.is_empty() {
+        out = out.lines().map(|l| unqualify(l, &quals) + "\n").collect();
     }
     Ok((out, segs))
 }

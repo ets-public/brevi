@@ -1,0 +1,18 @@
+from dataclasses import dataclass
+
+LIMIT = 10
+NAMES = [
+    "a",
+    "b",
+]
+
+
+@dataclass
+class Stock:
+    name: str
+    qty: int = 0
+
+
+def parse(line):
+    a, b = line.split()
+    return Stock(a, int(b))

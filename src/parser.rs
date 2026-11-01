@@ -23,6 +23,8 @@ pub struct Parser {
     // method calls are the class's even when a built-in method has the same name.
     class_names: Vec<String>,
     held: Vec<String>,
+    // The function being parsed has a `yield` (it builds its items in `ax_gen`).
+    yields: bool,
 }
 
 type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
@@ -35,7 +37,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![] };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false };
     p.py = crate::python_style(src);
     p.class_names = p.toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
         (Tok::Ident(c), Tok::Ident(n)) if c == "class" => Some(n.clone()),
@@ -260,6 +262,7 @@ impl Parser {
             let fallible = self.eat_sym("!");
             self.ret_map = matches!(ret, Ty::Map(..));
             let saved_children = std::mem::take(&mut self.children);
+            let saved_yields = std::mem::replace(&mut self.yields, false);
             let body = if self.eat_sym("=") {
                 self.skip_newlines();
                 self.expr()?
@@ -271,6 +274,9 @@ impl Parser {
             self.ret_map = false;
             let kids = std::mem::replace(&mut self.children, saved_children);
             let mut body = body;
+            if std::mem::replace(&mut self.yields, saved_yields) {
+                body = generator_body(body, line);
+            }
             if !kids.is_empty() {
                 let lifted = lift_nested(&name, &params, &mut body, kids);
                 self.hoisted.extend(lifted);
@@ -761,6 +767,27 @@ impl Parser {
             self.skip_newlines();
             let value = self.expr()?;
             return Ok(Stmt::Let { name, ty, value, mutable: true, line });
+        }
+        // A generator collects what it yields in a list, which it returns (see item()).
+        if matches!(self.peek(), Tok::Ident(w) if w == "yield_") && !matches!(self.peek_at(1), Tok::Sym("=" | "." | "[" | ")" | ",")) {
+            self.next();
+            self.yields = true;
+            let acc = Expr::Ident("ax_gen".into());
+            let e = if matches!(self.peek(), Tok::Ident(w) if w == "from") {
+                self.next();
+                return Ok(Stmt::Assign { target: acc, op: "+=", value: self.expr()?, line });
+            } else {
+                let mut v = self.expr()?;
+                if self.is_sym(",") {
+                    let mut xs = vec![v];
+                    while self.eat_sym(",") {
+                        xs.push(self.expr()?);
+                    }
+                    v = Expr::Tuple(xs);
+                }
+                Expr::Method(Box::new(acc), "push".into(), vec![v], line)
+            };
+            return Ok(Stmt::Expr { expr: e, line });
         }
         if self.eat_kw("return") {
             let mut value = if self.peek() == &Tok::Newline || self.is_sym("}") { None } else { Some(self.expr()?) };
@@ -1749,7 +1776,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![] };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
@@ -2199,6 +2226,33 @@ fn pat_names_expr(e: &Expr, out: &mut Vec<String>) {
 }
 
 // Calls f on every expression inside e (children first is not needed; f sees each node once).
+// A generator `def f(): ... yield x ...` runs to the end and returns the list of what it yielded,
+// so `for v in f()`, `list(f())` and `sum(f())` work. (It is not lazy: an endless generator never returns.)
+fn generator_body(body: Expr, line: usize) -> Expr {
+    let acc = || Expr::Ident("ax_gen".into());
+    let (mut stmts, tail) = match body {
+        Expr::Block(st, tail) => (st, tail),
+        e => (vec![], Some(Box::new(e))),
+    };
+    if let Some(t) = tail {
+        stmts.push(Stmt::Expr { expr: *t, line });
+    }
+    let mut b = Expr::Block(stmts, None);
+    walk_mut(&mut b, &mut |x| {
+        if let Expr::Block(st, _) = x {
+            for s in st.iter_mut() {
+                if let Stmt::Return { value: v @ None, .. } = s {
+                    *v = Some(acc());
+                }
+            }
+        }
+    });
+    let Expr::Block(mut stmts, _) = b else { unreachable!() };
+    stmts.insert(0, Stmt::Assign { target: acc(), op: "=", value: Expr::List(vec![]), line });
+    stmts.push(Stmt::Return { value: Some(acc()), line });
+    Expr::Block(stmts, None)
+}
+
 fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
     f(e);
     match e {

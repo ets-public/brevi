@@ -1,0 +1,27 @@
+def squares(n):
+    for i in range(n):
+        yield i * i
+
+
+def pairs(words):
+    for i, w in enumerate(words):
+        if w == "stop":
+            return
+        yield w, i
+
+
+def both(n):
+    yield from squares(n)
+    yield -1
+
+
+def main():
+    x = 7
+    print(f"{x:03d}|{x:>4}|{3.14159:.2f}|{1234567:,}|{0.25:.0%}")
+    print(list(squares(4)), sum(squares(3)), max(squares(5)))
+    for w, i in pairs(["a", "b", "stop", "c"]):
+        print(w, i)
+    print(list(both(3)))
+
+
+main()

@@ -79,6 +79,15 @@ fn method_arg_start(chars: &[char], q: usize) -> bool {
 }
 
 // Does the `{` just before `from` close on this line (quoted strings inside skipped)?
+// `7`, `3.14` or `1_000` right after an f-string's `{`, up to a `:` or `}`: where the number ends.
+fn num_interp(chars: &[char], from: usize) -> Option<usize> {
+    let mut j = from;
+    while chars.get(j).map_or(false, |c| c.is_ascii_digit() || matches!(c, '.' | '_')) {
+        j += 1;
+    }
+    (j > from && chars[from].is_ascii_digit() && matches!(chars.get(j), Some(':' | '}'))).then_some(j)
+}
+
 fn interp_closes(chars: &[char], from: usize) -> bool {
     // `{3}` or `{2,4}` is a regex count, not a value.
     let count: String = chars[from..].iter().take_while(|c| **c != '}' && **c != '"' && **c != '\n').collect();
@@ -267,6 +276,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     let (mut i, mut line, mut col) = (0usize, 1usize, 1usize);
     // Newlines inside () or [] never end a statement.
     let mut depth: Vec<char> = Vec::new();
+    // The string just ahead is an f-string, where `{3.14:.2f}` formats a number written in place.
+    let mut fstr = false;
 
     while i < chars.len() {
         let c = chars[i];
@@ -315,6 +326,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
         }
         // 'text': quotes inside need no escape, and `{` is a value only before a name or `(` (`'{"id":{i}}'`).
         if c == '\'' {
+            fstr = false;
             let mut s = String::new();
             i += 1;
             col += 1;
@@ -398,6 +410,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             continue;
         }
         if c == '"' {
+            let is_f = std::mem::take(&mut fstr);
             let mut s = String::new();
             i += 1;
             col += 1;
@@ -491,6 +504,16 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         }
                         i += 2;
                         col += 2;
+                    }
+                    // f"{7:03d}": the number is wrapped as `(7)` so it reads as a value.
+                    Some('{') if is_f && !bs && num_interp(&chars, i + 1).is_some() => {
+                        let end = num_interp(&chars, i + 1).unwrap();
+                        s.push_str("{(");
+                        s.extend(&chars[i + 1..end]);
+                        s.push(')');
+                        depth = 1;
+                        col += end - i;
+                        i = end;
                     }
                     Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
                         depth = 1;
@@ -613,6 +636,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             col += i - start;
             // Python's f"..." is a plain string: Brevi strings already fill in `{name}`.
             if word == "f" && matches!(chars.get(i), Some('"') | Some('\'')) {
+                fstr = true;
                 continue;
             }
             // Python's `def f(...)` is `fn f(...)`.

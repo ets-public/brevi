@@ -1,0 +1,6 @@
+007|   7|3.14|1,234,567|25%
+[0, 1, 4, 9] 5 16
+a 0
+b 1
+[0, 1, 4, -1]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
