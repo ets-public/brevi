@@ -1,0 +1,12 @@
+def main():
+    teams = {"a": {"p": 0, "gf": 0}, "b": {"p": 0, "gf": 0}}
+    for home, away, g in [("a", "b", 2), ("b", "a", 1)]:
+        h, w = teams[home], teams[away]
+        h["p"] += 1
+        w["p"] += 1
+        h["gf"] += g
+    x, y = 1, 2
+    x, y = y, x
+    print(teams, x, y)
+
+main()

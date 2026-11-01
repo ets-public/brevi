@@ -120,6 +120,7 @@ fn show(e: &Expr) -> String {
 fn loops(e: &mut Expr, inl: &Inline) -> Vec<Stmt> {
     match e {
         Expr::Block(stmts, tail) => {
+            split_pairs(stmts);
             fold_local_copies(stmts, tail);
             let mut k = 0;
             while k < stmts.len() {
@@ -211,6 +212,39 @@ fn loops(e: &mut Expr, inl: &Inline) -> Vec<Stmt> {
         _ => {}
     }
     vec![]
+}
+
+// `h, a = teams[home], teams[away]` is two settings, so each name is an alias of its entry and the
+// write-back below works on it as on `h = teams[home]`.
+fn split_pairs(stmts: &mut Vec<Stmt>) {
+    let mut k = 0;
+    while k < stmts.len() {
+        let split = match &stmts[k] {
+            Stmt::Assign { target: Expr::Tuple(ts), op: "=", value: Expr::Tuple(vs), line } if ts.len() == vs.len() && ts.len() > 1 => {
+                let ns: Option<Vec<String>> = ts.iter().map(|t| if let Expr::Ident(n) = t { Some(n.clone()) } else { None }).collect();
+                ns.map(|ns| (ns, vs.clone(), *line, false))
+            }
+            Stmt::Let { name: Pat::Tuple(ps), value: Expr::Tuple(vs), line, .. } if ps.len() == vs.len() && ps.len() > 1 => {
+                let ns: Option<Vec<String>> = ps.iter().map(|p| if let Pat::Bind(n) = p { Some(n.clone()) } else { None }).collect();
+                ns.map(|ns| (ns, vs.clone(), *line, true))
+            }
+            _ => None,
+        };
+        if let Some((ns, vs, line, is_let)) = split {
+            if vs.iter().all(|v| matches!(v, Expr::Index(..))) && !vs.iter().any(|v| ns.iter().any(|n| names(v, n))) {
+                let new: Vec<Stmt> = ns
+                    .into_iter()
+                    .zip(vs)
+                    .map(|(n, v)| if is_let { Stmt::Let { name: Pat::Bind(n), ty: None, value: v, mutable: true, line } } else { Stmt::Assign { target: Expr::Ident(n), op: "=", value: v, line } })
+                    .collect();
+                let c = new.len();
+                stmts.splice(k..k + 1, new);
+                k += c;
+                continue;
+            }
+        }
+        k += 1;
+    }
 }
 
 fn names(e: &Expr, n: &str) -> bool {
