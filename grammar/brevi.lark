@@ -79,7 +79,8 @@ for_target: pattern ("," pattern)*
      | lambda
 lambda: NAME "=>" expr
       | "(" [NAME ("," NAME)*] ")" "=>" expr
-      | "lambda" [NAME ("," NAME)*] ":" expr
+      | "lambda" [lambda_param ("," lambda_param)*] ":" expr
+lambda_param: NAME ("=" binary)?
 
 ?binary: unary (binop _n unary)*
 binop: "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" "in" | "is" | "is" "not"

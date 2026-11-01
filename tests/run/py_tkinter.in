@@ -1,0 +1,18 @@
+show
+click B
+click A
+key 0 y
+type 1  hello 
+key 1 Return
+tap 1 20 30
+show
+click Tick
+wait 150
+show
+wait 500
+show
+answer no
+click Clear
+answer yes
+click Clear
+show

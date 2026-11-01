@@ -6,6 +6,7 @@ mod caps;
 mod diag;
 mod emit;
 mod ffi;
+mod gui;
 mod json;
 mod lexer;
 mod moves;
@@ -373,8 +374,11 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
 }
 
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
-    let (src, foreign) = ffi::split(src);
+    let (src, mut foreign) = ffi::split(src);
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
+    if gui::active() {
+        foreign.rust_top.push_str(&gui::runtime());
+    }
     ffi::attach(&mut items, &foreign);
     used_consts_first(&mut items);
     if python_style(&src) {
