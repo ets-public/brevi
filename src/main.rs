@@ -342,6 +342,36 @@ fn has_untyped_map(items: &[ast::Item]) -> bool {
     hit
 }
 
+// Records, inference and checks.
+fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::Item>, Vec<Diag>> {
+    if py {
+        // Dicts used as records (values of different types under fixed keys) become record types.
+        let (_, mixed) = infer::empty_types(&items);
+        records::records_with(&mut items, &mixed, eager);
+        // A dict literal built from untyped parameters shows its mixed types only once the parameters
+        // are inferred: infer a copy, then make those dicts records too. Even when the copy fails to
+        // type (often because those dicts are not records yet), what it worked out shows which mix types.
+        if !eager && has_untyped_map(&items) {
+            let mut copy = items.clone();
+            infer::auto_mut(&mut copy);
+            let _ = infer::returns(&mut copy);
+            let (_, mixed) = infer::empty_types(&copy);
+            if !mixed.is_empty() {
+                records::records(&mut items, &mixed);
+            }
+        }
+    }
+    infer::auto_mut(&mut items);
+    infer::returns(&mut items)?;
+    // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.
+    infer::auto_mut(&mut items);
+    let errs = infer::check(&mut items, py);
+    if !errs.is_empty() {
+        return Err(errs);
+    }
+    Ok(items)
+}
+
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
     let (src, foreign) = ffi::split(src);
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
@@ -356,31 +386,21 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
         if !errs.is_empty() {
             return Err(errs);
         }
-        // Dicts used as records (values of different types under fixed keys) become record types.
-        let (_, mixed) = infer::empty_types(&items);
-        records::records(&mut items, &mixed);
     }
-    infer::PY.store(python_style(&src), std::sync::atomic::Ordering::Relaxed);
-    // A dict literal built from untyped parameters (`{"sku": sku, "qty": qty}` in a method) shows its
-    // mixed types only once the parameters are inferred: infer a copy, then make those dicts records too.
-    if python_style(&src) && has_untyped_map(&items) {
-        let mut copy = items.clone();
-        infer::auto_mut(&mut copy);
-        if infer::returns(&mut copy).is_ok() {
-            let (_, mixed) = infer::empty_types(&copy);
-            if !mixed.is_empty() {
-                records::records(&mut items, &mixed);
+    let py = python_style(&src);
+    infer::PY.store(py, std::sync::atomic::Ordering::Relaxed);
+    // Python dicts built from names (`{"sku": sku, "qty": qty}` in a method) are tried as records first;
+    // if that does not type, the program is typed as before.
+    let mut items = if py && has_untyped_map(&items) {
+        match typed(items.clone(), py, true) {
+            Ok(t) => t,
+            Err(_) => {
+                typed(items, py, false)?
             }
         }
-    }
-    infer::auto_mut(&mut items);
-    infer::returns(&mut items)?;
-    // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.
-    infer::auto_mut(&mut items);
-    let errs = infer::check(&mut items, python_style(&src));
-    if !errs.is_empty() {
-        return Err(errs);
-    }
+    } else {
+        typed(items, py, false)?
+    };
     emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items, hints);
     em.foreign = foreign;

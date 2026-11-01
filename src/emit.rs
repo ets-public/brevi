@@ -592,6 +592,20 @@ fn through_index(e: &Expr) -> bool {
     }
 }
 
+// A value unpacked level by level to the shape of a nested tuple pattern (lists or tuples at each level).
+fn unpack_levels(p: &Pat, v: &str, k: &mut usize) -> String {
+    match p {
+        Pat::Tuple(ps) => {
+            let base = *k;
+            *k += ps.len();
+            let names: Vec<String> = (0..ps.len()).map(|i| format!("ax_u{}", base + i)).collect();
+            let parts: Vec<String> = ps.iter().zip(&names).map(|(q, n)| unpack_levels(q, n, k)).collect();
+            format!("{{ let ({},) = AxUnpack::ax_unpack({v}); ({},) }}", names.join(", "), parts.join(", "))
+        }
+        _ => v.to_string(),
+    }
+}
+
 fn changes(e: &Expr, name: &str) -> bool {
     if assigns_to(e, name) {
         return true;
@@ -1954,6 +1968,7 @@ impl Emitter {
                     other => format!("AxEach::ax_each({})", self.expr(other)),
                 };
                 let outer = self.locals.clone();
+                let pat_src = p;
                 self.bind_pat(p);
                 // A loop variable over a computed list is a fresh copy, so it may be set.
                 let p = match p {
@@ -1965,8 +1980,11 @@ impl Emitter {
                     p => self.pat(p),
                 };
                 // Python's `for a, b, w in rows` also unpacks lists of that many items.
+                let nested = matches!(pat_src, Pat::Tuple(ps) if ps.iter().any(|q| matches!(q, Pat::Tuple(_))));
                 let it = match iter.as_ref() {
                     Expr::Range(..) => it,
+                    // `for sku, (q, n) in pairs` where each pair holds a list: unpack each level.
+                    _ if nested => format!("{it}.map(|ax_x| {})", unpack_levels(pat_src, "ax_x", &mut 0)),
                     _ if p.starts_with('(') && (2..=12).contains(&p.matches(',').count().saturating_add(1)) && !p[1..].contains('(') => {
                         format!("{it}.map(|ax_x| AxUnpack::ax_unpack(ax_x))")
                     }

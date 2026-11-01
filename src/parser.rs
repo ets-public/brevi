@@ -1411,6 +1411,48 @@ impl Parser {
                                     }
                                 }
                             }
+                            // Flags at the end of a re call (`re.fullmatch(p, s, re.ASCII)`, `re.compile(p, re.I)`):
+                            // IGNORECASE goes into the pattern as (?i); ASCII is dropped. Other flags stay (not supported).
+                            if matches!(&e, Expr::Ident(m) if m == "re") && args.len() >= 2 {
+                                let mut inline = String::new();
+                                let mut ok = true;
+                                let mut flag_words: Vec<String> = vec![];
+                                fn words(x: &Expr, out: &mut Vec<String>) -> bool {
+                                    match x {
+                                        Expr::Field(b, f) if matches!(b.as_ref(), Expr::Ident(r) if r == "re") => {
+                                            out.push(f.clone());
+                                            true
+                                        }
+                                        Expr::Binary("|", a, b) => words(a, out) && words(b, out),
+                                        _ => false,
+                                    }
+                                }
+                                if words(args.last().unwrap(), &mut flag_words) {
+                                    for w in &flag_words {
+                                        match w.as_str() {
+                                            "I" | "IGNORECASE" => inline.push('i'),
+                                            "A" | "ASCII" => {}
+                                            _ => ok = false,
+                                        }
+                                    }
+                                    if ok {
+                                        args.pop();
+                                        if !inline.is_empty() {
+                                            let flag = format!("(?{inline})");
+                                            match &mut args[0] {
+                                                Expr::Str(parts) => match parts.first_mut() {
+                                                    Some(StrPart::Lit(l)) => l.insert_str(0, &flag),
+                                                    _ => parts.insert(0, StrPart::Lit(flag)),
+                                                },
+                                                a0 => {
+                                                    let p0 = std::mem::replace(a0, Expr::Int(0));
+                                                    *a0 = Expr::Binary("+", Box::new(Expr::Str(vec![StrPart::Lit(flag)])), Box::new(p0));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             // Python's re module: a compiled pattern is its string, a match is [whole, group1, ...] ([] for none).
                             if matches!(&e, Expr::Ident(m) if m == "re") {
                                 let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
@@ -2346,6 +2388,9 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("split", 0) => "words",
         // `s.casefold()`: lower case (enough for comparing words without regard to case).
         ("casefold", 0) => "lower",
+        ("__floor__", 0) => "floor",
+        ("__ceil__", 0) => "ceil",
+        ("__abs__", 0) => "abs",
         ("split", 2) => "split_n",
         ("rsplit", 2) => "rsplit_n",
         ("startswith", 1) => "starts_with",

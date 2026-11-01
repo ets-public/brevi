@@ -89,6 +89,22 @@ fn holder(st: &Stmt) -> Option<(&str, &Expr)> {
 }
 
 pub fn records(items: &mut Vec<Item>, mixed: &HashSet<String>) {
+    records_with(items, mixed, false)
+}
+
+// `eager`: also make a record of a dict literal whose values are all names, fields or calls (no plain
+// literal shows their kinds), as Python code builds records from parameters. The caller retries
+// without it when that does not type.
+pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool) {
+    for it in items.iter_mut() {
+        if let Item::Fn { body, .. } | Item::Test { body, .. } = it {
+            crate::parser::walk_mut(body, &mut |e| {
+                if let Expr::Block(stmts, _) = e {
+                    fold_keys(stmts);
+                }
+            });
+        }
+    }
     // Each distinct key set of a dict literal, and the names it is put in.
     let mut sets: Vec<(Vec<String>, HashSet<String>)> = vec![];
     let mut typed_mixed: Vec<Vec<String>> = vec![];
@@ -186,17 +202,20 @@ pub fn records(items: &mut Vec<Item>, mixed: &HashSet<String>) {
         .filter(|s| {
             let all: HashSet<&str> = s.kinds.iter().flatten().copied().collect();
             let differ = all.len() >= 2 || typed_mixed.iter().any(|k| s.sets.iter().any(|m| same(k, m)));
-            s.keys.len() >= 2 && differ && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
+            let named = eager && all.is_empty() && s.fixed.iter().all(|f| f.is_none());
+            s.keys.len() >= 2 && (differ || named) && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
         })
         .collect();
     if chosen.is_empty() {
         return;
     }
+    // Numbers go on from records made by an earlier call.
+    let base = items.iter().filter(|it| matches!(it, Item::Type { name, .. } if name.starts_with(PREFIX))).count();
     // Keys passed to the constructor (the others are fixed there).
     let names: Vec<(String, Vec<Vec<String>>, Vec<String>)> = chosen
         .iter()
         .enumerate()
-        .map(|(n, s)| (format!("{PREFIX}{n}"), s.sets.clone(), s.keys.iter().zip(&s.fixed).filter(|(_, f)| f.is_none()).map(|(k, _)| k.clone()).collect()))
+        .map(|(n, s)| (format!("{PREFIX}{}", n + base), s.sets.clone(), s.keys.iter().zip(&s.fixed).filter(|(_, f)| f.is_none()).map(|(k, _)| k.clone()).collect()))
         .collect();
     for it in items.iter_mut() {
         let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
@@ -235,6 +254,36 @@ pub fn records(items: &mut Vec<Item>, mixed: &HashSet<String>) {
             line,
             script: false,
         });
+    }
+}
+
+// `cur = {"players": {}}` then `cur["res"] = []` right after: one literal with both keys, as Python
+// ends up with the same dict.
+fn fold_keys(stmts: &mut Vec<Stmt>) {
+    let mut i = 0;
+    while i < stmts.len() {
+        let n = match &stmts[i] {
+            Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Map(ps), .. } | Stmt::Let { name: Pat::Bind(n), value: Expr::Map(ps), .. } if shape_of(ps).is_some() => n.clone(),
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        while i + 1 < stmts.len() {
+            let Stmt::Assign { target: Expr::Index(b, k), op: "=", value, .. } = &stmts[i + 1] else { break };
+            if !matches!(b.as_ref(), Expr::Ident(x) if *x == n) || key_name(k).is_none() || format!("{value:?}").contains(&format!("{n:?}")) {
+                break;
+            }
+            let (k, v) = (k.as_ref().clone(), value.clone());
+            if let Stmt::Assign { value: Expr::Map(ps), .. } | Stmt::Let { value: Expr::Map(ps), .. } = &mut stmts[i] {
+                if ps.iter().any(|(x, _)| format!("{x:?}") == format!("{k:?}")) {
+                    break;
+                }
+                ps.push((k, v));
+            }
+            stmts.remove(i + 1);
+        }
+        i += 1;
     }
 }
 
