@@ -1,0 +1,17 @@
+ok 5
+done
+bad: empty
+done
+bad: not an int: "q"
+done
+5 -1 -1
+18 3
+2 1 ["b"]
+new
+4 16 5 9
+1 0 90
+3 1 2
+n:,6,2,4
+\d+{x} [1, 2, 3]
+[[1, 2], [5, 5]]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

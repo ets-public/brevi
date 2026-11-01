@@ -732,7 +732,7 @@ fn report(rust: &str, stderr: &str) {
         } else if code == "E0381" {
             let name = msg.split('`').nth(1).unwrap_or("it");
             text = format!("{name} is not set on every path before this use");
-        } else if !label.is_empty() && !text.contains(&label) {
+        } else if !label.is_empty() && !text.contains(&label) && !label.starts_with("method not found in") {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
         let mut fix = fix_for(code, &format!("{msg} {label}"));

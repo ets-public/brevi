@@ -438,6 +438,8 @@ impl Cx<'_> {
                                     };
                                     // `m[a][b] = v` into a missing entry makes it a map (an empty list has no slot b).
                                     let inner = match inner {
+                                        // `m[-1][1] = v` on a list: the item may as well be a list, so later lines decide.
+                                        Hole if matches!(acc, List(_)) && matches!(k2t, Int) => Hole,
                                         Hole => Map(Box::new(k2t), Box::new(vt)),
                                         inner => merge(inner.clone(), self.slot(&inner, k2t, vt)),
                                     };

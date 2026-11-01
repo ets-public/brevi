@@ -1,28 +1,29 @@
 # Brevi grammar for llama.cpp, made from brevi.lark by tools/lark_to_gbnf.py. Do not edit by hand.
 root ::= ws start ws
 start ::= (t-nl)? (ws line ws t-nl)* (ws line)?
-line ::= opener ws ":" (ws simple)? | opener ws block (ws n ws "else" (ws "if" ws expr)? ws block)* | pattern ws "=>" ws block | pattern ws "=>" ws opener ws ":" (ws simple)? | fn-sig ws "=" ws expr | fn-sig ws "=" ws "match" ws expr ws ":" | pattern ws ("=>" | ":") (ws simple)? | t-name ws ":" ws type (ws "=" ws expr)? | "use" ws t-string (ws t-string)* | "use" ws t-name (ws t-string)* | "allow" ws t-name (ws "," ws t-name)* | ("global" | "nonlocal") ws t-name (ws "," ws t-name)* | "import" ws t-name (ws "," ws t-name)* | "from" ws t-name ws "import" ws t-name (ws "," ws t-name)* | simple
-opener ::= fn-sig | "type" ws t-name | "enum" ws t-name | "test" ws t-string | "if" ws expr | "elif" ws expr | "else" (ws "if" ws expr)? | "for" ws for-target ws "in" ws expr | "while" ws expr | "match" ws expr | targets ws t-assign (ws unary ws binop)* ws ("if" | "match") ws expr | "return" (ws unary ws binop)* ws ("if" | "match") ws expr
-fn-sig ::= ("rust" | "py")? ws "fn" ws t-name ws "(" ws n (ws param (ws "," ws n ws param)* (ws ",")?)? ws n ws ")" (ws "->" ws type)? (ws "!")?
+line ::= opener ws ":" (ws simples)? | opener ws block (ws n ws "else" (ws "if" ws expr)? ws block)* | pattern ws "=>" ws block | pattern ws "=>" ws opener ws ":" (ws simples)? | fn-sig ws "=" ws expr | fn-sig ws "=" ws "match" ws expr ws ":" | pattern ws ("=>" | ":") (ws simple)? | t-name ws ":" ws type (ws "=" ws expr)? | "use" ws t-string (ws t-string)* | "use" ws t-name (ws t-string)* | "allow" ws t-name (ws "," ws t-name)* | ("global" | "nonlocal") ws t-name (ws "," ws t-name)* | "import" ws t-name (ws "," ws t-name)* | "from" ws t-name ws "import" ws t-name (ws "," ws t-name)* | simples
+opener ::= fn-sig | "type" ws t-name | "enum" ws t-name | "test" ws t-string | "if" ws expr | "elif" ws expr | "else" (ws "if" ws expr)? | "for" ws for-target ws "in" ws expr | "while" ws expr | "match" ws expr | "class" ws t-name (ws "(" (ws expr (ws "," ws expr)*)? ws ")")? | "try" | "except" (ws expr (ws "as" ws t-name)?)? | "finally" | targets ws t-assign (ws unary ws binop)* ws ("if" | "match") ws expr | "return" (ws unary ws binop)* ws ("if" | "match") ws expr
+fn-sig ::= ("rust" | "py")? ws ("fn" | "def") ws t-name ws "(" ws n (ws param (ws "," ws n ws param)* (ws ",")?)? ws n ws ")" (ws "->" ws type)? (ws "!")?
 param ::= ("mut")? ws t-name (ws ":" ws type)?
 type ::= "[" ws type ws "]" | "{" ws type ws ":" ws type ws "}" | "(" (ws type (ws "," ws type)*)? ws ")" | t-name (ws "[" ws type ws "]")?
-simple ::= ("let" | "var") ws pattern (ws ":" ws type)? ws "=" ws expr | "return" (ws expr)? | "break" | "continue" | "assert" ws expr | targets ws t-assign ws expr (ws "," ws expr)* | inline-if | expr
+simples ::= simple (ws ";" ws simple)*
+simple ::= ("let" | "var") ws pattern (ws ":" ws type)? ws "=" ws expr | "return" (ws expr (ws "," ws expr)*)? | "pass" | "raise" (ws expr (ws "from" ws expr)?)? | "break" | "continue" | "assert" ws expr | targets ws t-assign ws expr (ws "," ws expr)* (ws "=" ws expr)* | inline-if | expr
 targets ::= postfix (ws "," ws postfix)*
-inline-if ::= "if" ws expr ws ":" ws simple (ws "elif" ws expr ws ":" ws simple)* (ws "else" ws (inline-if | ":" ws simple))?
+inline-if ::= "if" ws expr ws ":" ws simples (ws "elif" ws expr ws ":" ws simples)* (ws "else" ws (inline-if | ":" ws simples))?
 for-target ::= pattern (ws "," ws pattern)*
 expr ::= binary (ws "if" ws binary ws "else" ws expr)? | lambda
 lambda ::= t-name ws "=>" ws expr | "(" (ws t-name (ws "," ws t-name)*)? ws ")" ws "=>" ws expr | "lambda" (ws t-name (ws "," ws t-name)*)? ws ":" ws expr
 binary ::= unary (ws binop ws n ws unary)*
-binop ::= "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" ws "in" | "is" | "is" ws "not" | ".." | "+" | "-" | "*" | "/" | "%" | "//"
+binop ::= "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" ws "in" | "is" | "is" ws "not" | ".." | "+" | "-" | "*" | "/" | "%" | "//" | "|" | "&" | "^" | "<<" | ">>"
 unary ::= ("-" | "!" | "not") ws unary | postfix
 postfix ::= primary (ws trailer)*
 trailer ::= (t-nl)? ws "." ws (t-name | t-int | "or") (ws call)? | "[" ws n ws slice ws n ws "]" | "?" | call
 slice ::= expr | (expr)? ws ":" (ws expr)? (ws ":" (ws expr)?)?
 call ::= "(" ws n (ws arg (ws "," ws n ws arg)* (ws ",")?)? ws n ws ")"
 arg ::= (t-name ws ("=" | ":"))? (ws "*")? ws expr (ws comp)?
-comp ::= "for" ws comp-target ws "in" ws expr (ws "if" ws expr)?
+comp ::= ("for" ws comp-target ws "in" ws binary (ws "if" ws binary)?)+
 comp-target ::= t-name (ws "," ws t-name)* | "(" ws t-name (ws "," ws t-name)* ws ")"
-primary ::= t-int | t-float | t-string | "true" | "false" | t-name (ws call)? | "(" ws n (ws expr (ws "," ws n ws expr)* (ws ",")?)? ws n ws ")" | "[" ws n (ws item (ws "," ws n ws item)* (ws ",")?)? ws n ws "]" | "[" ws n (ws "*")? ws expr ws comp ws n ws "]" | "{" (ws sep)* ws "}" | "{" (ws sep)* ws pair (ws (sep)+ ws pair)* (ws sep)* ws "}" | "(" ws n ws "match" ws expr ws ":" ws n (ws pattern ws "=>" ws expr (ws ",")? ws n)+ ws ")" | inline-if | brace-if | "match" ws expr ws block
+primary ::= t-int | t-float | t-string | "true" | "false" | t-name (ws call)? | "(" ws n (ws expr (ws "," ws n ws expr)* (ws ",")?)? ws n ws ")" | "(" ws n ws expr ws comp ws n ws ")" | "[" ws n (ws item (ws "," ws n ws item)* (ws ",")?)? ws n ws "]" | "[" ws n (ws "*")? ws expr ws comp ws n ws "]" | "{" (ws sep)* ws "}" | "{" (ws sep)* ws pair (ws (sep)+ ws pair)* (ws sep)* ws "}" | "{" ws n ws (pair | expr) ws comp ws n ws "}" | "{" ws n ws expr (ws "," ws n ws expr)* (ws ",")? ws n ws "}" | "(" ws n ws "match" ws expr ws ":" ws n (ws pattern ws "=>" ws expr (ws ",")? ws n)+ ws ")" | inline-if | brace-if | "match" ws expr ws block
 item ::= ("*")? ws expr
 pair ::= expr ws ":" ws expr
 pattern ::= t-name | t-name ws "(" (ws pattern (ws "," ws pattern)*)? ws ")" | ("-")? ws t-int | t-string | "true" | "false" | "(" (ws pattern (ws "," ws pattern)*)? ws ")"

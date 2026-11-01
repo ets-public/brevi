@@ -6,10 +6,10 @@
 
 start: _NL? (line _NL)* line?
 
-?line: opener ":" simple?           // if/for/while/match/fn/type/enum/test headers, with an optional one-line body
+?line: opener ":" simples?          // if/for/while/match/fn/type/enum/test headers, with an optional one-line body
      | opener block (_n "else" ("if" expr)? block)*   // brace blocks: fn f() { ... }, enum J { A, B(n: int) }
      | pattern "=>" block
-     | pattern "=>" opener ":" simple?   // Str(s) => if s:
+     | pattern "=>" opener ":" simples?   // Str(s) => if s:
      | fn_sig "=" expr               // fn f(x: int) = x * 2
      | fn_sig "=" "match" expr ":"   // fn area(s: Shape) -> f64 = match s:
      | pattern ("=>" | ":") simple?  // match arm; with nothing after it the body is the block below
@@ -20,7 +20,7 @@ start: _NL? (line _NL)* line?
      | ("global" | "nonlocal") NAME ("," NAME)*   // Python scope: see BREVI.md
      | "import" NAME ("," NAME)*     // import sys, math: Python modules Brevi has built in
      | "from" NAME "import" NAME ("," NAME)*
-     | simple
+     | simples
 
 opener: fn_sig
       | "type" NAME
@@ -32,10 +32,14 @@ opener: fn_sig
       | "for" for_target "in" expr
       | "while" expr
       | "match" expr
+      | "class" NAME ("(" [expr ("," expr)*] ")")?   // Python error classes: class BadInput(Exception): pass
+      | "try"
+      | "except" (expr ("as" NAME)?)?
+      | "finally"
       | targets ASSIGN (unary binop)* ("if" | "match") expr   // out = out + match n:
       | "return" (unary binop)* ("if" | "match") expr
 
-fn_sig: ("rust" | "py")? "fn" NAME "(" _n [param ("," _n param)* ","?] _n ")" ("->" type)? "!"?
+fn_sig: ("rust" | "py")? ("fn" | "def") NAME "(" _n [param ("," _n param)* ","?] _n ")" ("->" type)? "!"?
 param: "mut"? NAME (":" type)?
 
 ?type: "[" type "]"
@@ -43,19 +47,23 @@ param: "mut"? NAME (":" type)?
      | "(" [type ("," type)*] ")"
      | NAME ("[" type "]")?
 
+simples: simple (";" simple)*      // Python's a = 1; b = 2
+
 ?simple: ("let" | "var") pattern (":" type)? "=" expr
-       | "return" expr?
+       | "return" (expr ("," expr)*)?
+       | "pass"
+       | "raise" (expr ("from" expr)?)?
        | "break"
        | "continue"
        | "assert" expr
-       | targets ASSIGN expr ("," expr)*
+       | targets ASSIGN expr ("," expr)* ("=" expr)*   // a = b = 0
        | inline_if
        | expr
 
 targets: postfix ("," postfix)*
-ASSIGN: "=" | "+=" | "-=" | "*=" | "/="
+ASSIGN: "=" | "+=" | "-=" | "*=" | "/=" | "//=" | "%=" | "|=" | "&=" | "^=" | "<<=" | ">>="
 
-inline_if: "if" expr ":" simple ("elif" expr ":" simple)* ("else" (inline_if | ":" simple))?
+inline_if: "if" expr ":" simples ("elif" expr ":" simples)* ("else" (inline_if | ":" simples))?
 for_target: pattern ("," pattern)*
 
 ?expr: binary ("if" binary "else" expr)?
@@ -66,7 +74,7 @@ lambda: NAME "=>" expr
 
 ?binary: unary (binop _n unary)*
 binop: "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" "in" | "is" | "is" "not"
-     | ".." | "+" | "-" | "*" | "/" | "%" | "//"
+     | ".." | "+" | "-" | "*" | "/" | "%" | "//" | "|" | "&" | "^" | "<<" | ">>"
 ?unary: ("-" | "!" | "not") unary
       | postfix
 
@@ -79,17 +87,20 @@ slice: expr | expr? ":" expr? (":" expr?)?   // xs[a:b], xs[::-1]
 
 call: "(" _n [arg ("," _n arg)* ","?] _n ")"
 arg: (NAME ("=" | ":"))? "*"? expr comp?
-comp: "for" comp_target "in" expr ("if" expr)?
+comp: ("for" comp_target "in" binary ("if" binary)?)+
 comp_target: NAME ("," NAME)* | "(" NAME ("," NAME)* ")"
 
 ?primary: INT | FLOAT | STRING
         | "true" | "false"
         | NAME call?
         | "(" _n [expr ("," _n expr)* ","?] _n ")"
+        | "(" _n expr comp _n ")"           // (x * x for x in xs)
         | "[" _n [item ("," _n item)* ","?] _n "]"
         | "[" _n "*"? expr comp _n "]"
         | "{" _sep* "}"
         | "{" _sep* pair (_sep+ pair)* _sep* "}"
+        | "{" _n (pair | expr) comp _n "}"   // {k: v for k in ks}, {w for w in ws}
+        | "{" _n expr ("," _n expr)* ","? _n "}"   // Python set {a, b}
         | "(" _n "match" expr ":" _n (pattern "=>" expr ","? _n)+ ")"
         | inline_if
         | brace_if
@@ -114,7 +125,7 @@ _sep: "," | _NL
 NAME: /[A-Za-z_][A-Za-z0-9_]*/
 INT: /[0-9][0-9_]*/
 FLOAT: /[0-9][0-9_]*\.[0-9]+([eE][+-]?[0-9]+)?/ | /[0-9][0-9_]*[eE][+-]?[0-9]+/
-STRING: /[fF]?"([^"\\\n{]|\\.|\{[^}"\n]*("[^"\n]*"[^}"\n]*)*\}|\{)*"/ | /[fF]?'([^'\\\n{]|\\.|\{[^}'\n]*('[^'\n]*'[^}'\n]*)*\}|\{)*'/
+STRING: /[rR]"[^"\n]*"/ | /[rR]'[^'\n]*'/ | /[fF]?"([^"\\\n{]|\\.|\{[^}"\n]*("[^"\n]*"[^}"\n]*)*\}|\{)*"/ | /[fF]?'([^'\\\n{]|\\.|\{[^}'\n]*('[^'\n]*'[^}'\n]*)*\}|\{)*'/
 
 // A newline, with any blank or comment-only lines after it.
 _NL: /(\r?\n[\t ]*((#|\/\/)[^\n]*)?)+/

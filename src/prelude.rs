@@ -2559,6 +2559,49 @@ impl<T> AxNone for Vec<T> {
         Vec::new()
     }
 }
+// `a, b = xs`: a tuple as it is, or a list of exactly that many items, as Python unpacks them.
+pub trait AxUnpack<T> {
+    fn ax_unpack(self) -> T;
+}
+impl<A, B> AxUnpack<(A, B)> for (A, B) {
+    fn ax_unpack(self) -> (A, B) {
+        self
+    }
+}
+impl<A, B, C> AxUnpack<(A, B, C)> for (A, B, C) {
+    fn ax_unpack(self) -> (A, B, C) {
+        self
+    }
+}
+impl<A, B, C, D> AxUnpack<(A, B, C, D)> for (A, B, C, D) {
+    fn ax_unpack(self) -> (A, B, C, D) {
+        self
+    }
+}
+fn ax_unpack_n<T>(xs: Vec<T>, n: usize) -> std::vec::IntoIter<T> {
+    if xs.len() != n {
+        panic!("cannot unpack {} items into {n} names", xs.len());
+    }
+    xs.into_iter()
+}
+impl<T> AxUnpack<(T, T)> for Vec<T> {
+    fn ax_unpack(self) -> (T, T) {
+        let mut i = ax_unpack_n(self, 2);
+        (i.next().unwrap(), i.next().unwrap())
+    }
+}
+impl<T> AxUnpack<(T, T, T)> for Vec<T> {
+    fn ax_unpack(self) -> (T, T, T) {
+        let mut i = ax_unpack_n(self, 3);
+        (i.next().unwrap(), i.next().unwrap(), i.next().unwrap())
+    }
+}
+impl<T> AxUnpack<(T, T, T, T)> for Vec<T> {
+    fn ax_unpack(self) -> (T, T, T, T) {
+        let mut i = ax_unpack_n(self, 4);
+        (i.next().unwrap(), i.next().unwrap(), i.next().unwrap(), i.next().unwrap())
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]

@@ -34,6 +34,8 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         }
         if matches!(p.peek(), Tok::Kw("fn" | "type" | "enum" | "test")) {
             items.push(p.item()?);
+        } else if p.error_class() {
+            continue;
         } else {
             if script.is_empty() {
                 script_line = p.line();
@@ -327,8 +329,46 @@ impl Parser {
         Ok(Expr::Block(stmts, tail))
     }
 
+    // Python's `class BadInput(Exception): pass`: Brevi errors are messages, so an error class needs nothing.
+    // Skipped (true) when the class body holds only `pass`, `...` or a docstring.
+    fn error_class(&mut self) -> bool {
+        if !matches!(self.peek(), Tok::Ident(w) if w == "class") || !matches!(self.peek_at(1), Tok::Ident(_)) {
+            return false;
+        }
+        let save = self.pos;
+        self.pos += 2;
+        if self.eat_sym("(") {
+            let mut depth = 1;
+            while depth > 0 && self.peek() != &Tok::Eof {
+                match self.next() {
+                    Tok::Sym("(") => depth += 1,
+                    Tok::Sym(")") => depth -= 1,
+                    _ => {}
+                }
+            }
+        }
+        let kids = self.children.len();
+        let trivial = match self.block() {
+            Ok(Expr::Block(st, t)) => {
+                st.iter().all(|s| matches!(s, Stmt::Expr { expr: Expr::Block(b, None), .. } if b.is_empty()) || matches!(s, Stmt::Expr { expr: Expr::Str(_), .. }))
+                    && t.map_or(true, |t| matches!(*t, Expr::Str(_) | Expr::Block(..) | Expr::Range(..)))
+            }
+            _ => false,
+        };
+        self.children.truncate(kids);
+        if !trivial {
+            self.pos = save;
+        }
+        trivial
+    }
+
     fn stmt(&mut self) -> R<Stmt> {
         let line = self.line();
+        // Python's `pass`.
+        if matches!(self.peek(), Tok::Ident(w) if w == "pass") && matches!(self.peek_at(1), Tok::Newline | Tok::Sym("}")) {
+            self.next();
+            return Ok(Stmt::Expr { expr: Expr::Block(vec![], None), line });
+        }
         // Python's nested `def`: lifted out of the function (see lift_nested).
         if self.is_kw("fn") && matches!(self.peek_at(1), Tok::Ident(_)) {
             let f = self.item()?;
@@ -498,6 +538,23 @@ impl Parser {
             }
             e = Expr::Tuple(xs);
             bare = true;
+        }
+        // Python's `x |= m`, `x //= 2`, `x <<= 1` and the like: `x = x | m`.
+        for op in ["//=", "%=", "|=", "&=", "^=", "<<=", ">>="] {
+            if self.eat_sym(op) {
+                self.skip_newlines();
+                let value = self.expr()?;
+                let bin: &'static str = match op {
+                    "//=" => "//",
+                    "%=" => "%",
+                    "|=" => "|",
+                    "&=" => "&",
+                    "^=" => "^",
+                    "<<=" => "<<",
+                    _ => ">>",
+                };
+                return Ok(Stmt::Assign { target: e.clone(), op: "=", value: Expr::Binary(bin, Box::new(e), Box::new(value)), line });
+            }
         }
         for op in ["=", "+=", "-=", "*=", "/="] {
             if self.eat_sym(op) {
@@ -869,7 +926,12 @@ impl Parser {
             let e = if self.eat_kw("for") {
                 self.flat_comprehension(e, flat)?
             } else if flat {
-                return Err(self.err("expected for after *x").fix_hint("write sum(*xs for xs in xss)"));
+                // Python's `print(*xs)`: each item is its own argument.
+                args.push((Some("__star".into()), e));
+                if !self.eat_sym(",") {
+                    break;
+                }
+                continue;
             } else {
                 e
             };
@@ -1022,7 +1084,8 @@ impl Parser {
                             other => Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(Expr::Ident("b_".into())))], line),
                         });
                     }
-                    if !self.user_fns.contains(&name) && args.iter().all(|a| a.0.is_none()) {
+                    let star = args.iter().any(|a| a.0.as_deref() == Some("__star"));
+                    if !self.user_fns.contains(&name) && (star || args.iter().all(|a| a.0.is_none())) {
                         if let Some(d) = python_call(&name, &mut args, line) {
                             return Ok(d);
                         }
@@ -1427,6 +1490,33 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
 // Python built-ins spelled as Brevi: set(xs), divmod(a, b), round(x, n), enumerate(xs, 1), defaultdict(int).
 fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) -> Option<Expr> {
     let m = |e: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(e), n.into(), a, line);
+    if args.iter().any(|(n, _)| n.as_deref() == Some("__star")) {
+        if name != "print" {
+            return None;
+        }
+        // `print(*xs, 1)`: the items written with the separator between them.
+        let mut items: Option<Expr> = None;
+        let mut rest = Vec::new();
+        for (n, e) in args.drain(..) {
+            let part = match n.as_deref() {
+                Some("__star") => m(e, "map", vec![Expr::Lambda(vec!["ax_x".into()], Box::new(Expr::Call("str".into(), vec![(None, Expr::Ident("ax_x".into()))], line)))]),
+                None => Expr::List(vec![Expr::Call("str".into(), vec![(None, e)], line)]),
+                Some(_) => {
+                    rest.push((n, e));
+                    continue;
+                }
+            };
+            items = Some(match items {
+                Some(a) => Expr::Binary("+", Box::new(a), Box::new(part)),
+                None => part,
+            });
+        }
+        let sep = rest.iter().position(|(n, _)| n.as_deref() == Some("sep")).map(|i| rest.remove(i).1).unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
+        let joined = m(items.unwrap_or(Expr::List(vec![])), "join", vec![sep]);
+        let mut a = vec![(None, joined)];
+        a.extend(rest);
+        return Some(Expr::Call("print".into(), a, line));
+    }
     if let Some(hm) = heapq_method(name, args.len()) {
         let h = args.remove(0).1;
         return Some(m(h, hm, args.drain(..).map(|a| a.1).collect()));

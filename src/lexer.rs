@@ -116,7 +116,7 @@ fn interp_closes(chars: &[char], from: usize) -> bool {
 
 // Longest symbols first so the scanner can take the first match.
 const SYMBOLS: &[&str] = &[
-    "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
+    "<<=", ">>=", "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "%=", "|=", "&=", "^=", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
     "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?", ";", "|", "&", "^",
 ];
 
@@ -190,6 +190,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             let rest: String = chars[i + 2..].iter().take_while(|c| **c != '\n').collect();
             // Only up to a later comment on the same line.
             let rest = rest.split("//").next().unwrap_or("").split('#').next().unwrap_or("").to_string();
+            if after_value && chars.get(i + 2) == Some(&'=') {
+                push(&mut out, Tok::Sym("//="));
+                i += 3;
+                col += 3;
+                continue;
+            }
             if after_value && !looks_like_prose(&rest) {
                 push(&mut out, Tok::Sym("//"));
                 i += 2;
@@ -505,6 +511,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         Some('\n') if !triple => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing quote")),
                         Some('\\') if chars.get(j + 1).is_some() => {
                             s.push('\\');
+                            if matches!(chars[j + 1], '{' | '}') {
+                                s.push(chars[j + 1]);
+                            }
                             s.push(chars[j + 1]);
                             j += 2;
                         }
@@ -560,10 +569,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             continue;
         }
-        let rest: String = chars[i..(i + 2).min(chars.len())].iter().collect();
+        let rest: String = chars[i..(i + 3).min(chars.len())].iter().collect();
         // `&&` and `||` are accepted as spellings of `and` and `or`.
-        if rest == "&&" || rest == "||" {
-            push(&mut out, Tok::Kw(if rest == "&&" { "and" } else { "or" }));
+        if rest.starts_with("&&") || rest.starts_with("||") {
+            push(&mut out, Tok::Kw(if rest.starts_with("&&") { "and" } else { "or" }));
             i += 2;
             col += 2;
             continue;

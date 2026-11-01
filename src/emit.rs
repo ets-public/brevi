@@ -1344,6 +1344,8 @@ impl Emitter {
             // `(a, b) = v` unpacks; new names are declared.
             Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {
                 let v = self.expr(value);
+                // Python's `h, m = s.split(":")` unpacks a list as well as a tuple.
+                let v = if matches!(value, Expr::Tuple(_)) || !(2..=4).contains(&xs.len()) { v } else { format!("AxUnpack::ax_unpack({v})") };
                 let names: Vec<String> = xs.iter().map(|x| if let Expr::Ident(n) = x { n.clone() } else { unreachable!() }).collect();
                 if names.iter().all(|n| self.locals.contains(n) && !self.globals.contains_key(n)) {
                     let ps: Vec<String> = names.iter().map(|n| if self.refs.contains(n) { format!("*{n}") } else { n.clone() }).collect();
