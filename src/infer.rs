@@ -852,7 +852,7 @@ impl Cx<'_> {
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
-            "words" | "lines" | "chars" | "split" | "re_full" | "re_find" | "re_split" | "re_list" => List(Box::new(Str)),
+            "words" | "lines" | "chars" | "split" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
             "ints" => List(Box::new(Int)),
@@ -862,7 +862,7 @@ impl Cx<'_> {
                 Map(k, v) => Tuple(vec![*k.clone(), *v.clone()]),
                 _ => Hole,
             },
-            "first" | "last" | "pop" | "min" | "max" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" => match &r {
+            "first" | "last" | "pop" | "min" | "max" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" => match &r {
                 Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
                 _ => elem(&r),
             },
@@ -1009,7 +1009,7 @@ fn no_value(e: &Expr) -> bool {
         Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
         Expr::Call(n, _, _) => ["print", "write", "fail"].contains(&n.as_str()),
         // Changing a list or map is a statement even though remove and pop give a value.
-        Expr::Method(_, m, _, _) => ["push", "insert", "remove", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item"].contains(&m.as_str()),
+        Expr::Method(_, m, _, _) => ["push", "insert", "remove", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].contains(&m.as_str()),
         _ => false,
     }
 }
