@@ -32,25 +32,29 @@ impl Hasher for AxHasher {
 #[derive(Clone, Debug)]
 pub struct AxM<K, V> {
     m: HashMap<K, V, BuildHasherDefault<AxHasher>>,
-    // Keys in insertion order, kept only for JSON objects, which list keys as written.
+    // Keys in insertion order, kept for JSON objects, which list keys as written, and in Python mode,
+    // where dicts keep insertion order.
     ord: Option<Vec<K>>,
 }
 impl<K, V> Default for AxM<K, V> {
     fn default() -> Self {
-        AxM { m: HashMap::default(), ord: None }
+        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None } }
     }
 }
 impl<K: Hash + Eq + Ord, V> AxM<K, V> {
     pub fn new() -> Self {
-        AxM { m: HashMap::default(), ord: None }
+        AxM::default()
     }
     pub fn ordered() -> Self {
         AxM { m: HashMap::default(), ord: Some(Vec::new()) }
     }
-    pub fn from<const N: usize>(xs: [(K, V); N]) -> Self {
+    pub fn from<const N: usize>(xs: [(K, V); N]) -> Self
+    where
+        K: Clone,
+    {
         let mut m = AxM::new();
         for (k, v) in xs {
-            m.m.insert(k, v);
+            m.insert(k, v);
         }
         m
     }
@@ -86,7 +90,15 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
         }
         self.m.remove(k)
     }
-    pub fn entry(&mut self, k: K) -> std::collections::hash_map::Entry<'_, K, V> {
+    pub fn entry(&mut self, k: K) -> std::collections::hash_map::Entry<'_, K, V>
+    where
+        K: Clone,
+    {
+        if let Some(o) = &mut self.ord {
+            if !self.m.contains_key(&k) {
+                o.push(k.clone());
+            }
+        }
         self.m.entry(k)
     }
     // Entries sorted by key (JSON objects: in insertion order).

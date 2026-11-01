@@ -52,6 +52,7 @@ simples: simple (";" simple)*      // Python's a = 1; b = 2
 ?simple: ("let" | "var") pattern (":" type)? "=" expr
        | "return" (expr ("," expr)*)?
        | "pass"
+       | "del" postfix
        | "raise" (expr ("from" expr)?)?
        | "break"
        | "continue"

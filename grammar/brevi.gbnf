@@ -7,7 +7,7 @@ fn-sig ::= ("rust" | "py")? ws ("fn" | "def") ws t-name ws "(" ws n (ws param (w
 param ::= ("mut")? ws t-name (ws ":" ws type)?
 type ::= "[" ws type ws "]" | "{" ws type ws ":" ws type ws "}" | "(" (ws type (ws "," ws type)*)? ws ")" | t-name (ws "[" ws type ws "]")?
 simples ::= simple (ws ";" ws simple)*
-simple ::= ("let" | "var") ws pattern (ws ":" ws type)? ws "=" ws expr | "return" (ws expr (ws "," ws expr)*)? | "pass" | "raise" (ws expr (ws "from" ws expr)?)? | "break" | "continue" | "assert" ws expr | targets ws t-assign ws expr (ws "," ws expr)* (ws "=" ws expr)* | inline-if | expr
+simple ::= ("let" | "var") ws pattern (ws ":" ws type)? ws "=" ws expr | "return" (ws expr (ws "," ws expr)*)? | "pass" | "del" ws postfix | "raise" (ws expr (ws "from" ws expr)?)? | "break" | "continue" | "assert" ws expr | targets ws t-assign ws expr (ws "," ws expr)* (ws "=" ws expr)* | inline-if | expr
 targets ::= postfix (ws "," ws postfix)*
 inline-if ::= "if" ws expr ws ":" ws simples (ws "elif" ws expr ws ":" ws simples)* (ws "else" ws (inline-if | ":" ws simples))?
 for-target ::= pattern (ws "," ws pattern)*

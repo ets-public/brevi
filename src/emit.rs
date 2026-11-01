@@ -58,6 +58,8 @@ pub struct Emitter {
     unit_fn: bool,
     // Inside a lambda that cannot return an error: a failing conversion stops the program.
     must: bool,
+    // Python mode (the program uses def, class or global): values print and dicts order as in Python.
+    pub py_mode: bool,
     // Labels of the try blocks being emitted: a failure inside one jumps to its handler.
     catch: Vec<String>,
     try_n: usize,
@@ -623,6 +625,7 @@ impl Emitter {
             fallible: false,
             unit_fn: false,
             must: false,
+            py_mode: false,
             catch: vec![],
             try_n: 0,
             borrow_loops: false,
@@ -1024,7 +1027,8 @@ impl Emitter {
                     self.begin_fn(&[], true);
                     self.nested = nested_lists(body);
                     let b = self.body(body, &Ty::Unit, true);
-                    let b = b.replacen("{\n", "{\n    AX_FILES_REG.set(AX_FILES).ok();\n", 1);
+                    let py = if self.py_mode { "ax_py_mode();\n    " } else { "" };
+                    let b = b.replacen("{\n", &format!("{{\n    {py}AX_FILES_REG.set(AX_FILES).ok();\n"), 1);
                     tests.push_str(&format!("/*@L{line}*/#[test] fn t{test_n}_{}() -> R<()> {b}\n", slug(name)));
                 }
             }
@@ -1033,9 +1037,12 @@ impl Emitter {
             out.push_str(&crate::ffi::py_support(&crate::ffi::py_driver(&self.foreign, &py_names), items));
         }
         match self.fns.get("main") {
-            Some(sig) if sig.fallible => out.push_str(
-                "fn main() {\n    ax_init(AX_FILES);\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",{},\\\"msg\\\":{:?}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), e.0);\n        std::process::exit(1);\n    }\n}\n",
-            ),
+            Some(sig) if sig.fallible => {
+                let py = if self.py_mode { "    ax_py_mode();\n" } else { "" };
+                out.push_str(&format!(
+                    "fn main() {{\n    ax_init(AX_FILES);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), e.0);\n        std::process::exit(1);\n    }}\n}}\n"
+                ))
+            }
             Some(_) => {}
             None => out.push_str("fn main() {}\n"),
         }
@@ -1110,7 +1117,7 @@ impl Emitter {
             .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
-        let init = if name == "main" && !fallible { "ax_init(AX_FILES);\n" } else { "" };
+        let init = if name == "main" && !fallible { if self.py_mode { "ax_init(AX_FILES);\n    ax_py_mode();\n" } else { "ax_init(AX_FILES);\n" } } else { "" };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }

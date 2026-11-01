@@ -364,6 +364,15 @@ impl Parser {
 
     fn stmt(&mut self) -> R<Stmt> {
         let line = self.line();
+        // Python's `del m[k]` and `del xs[i]`.
+        if matches!(self.peek(), Tok::Ident(w) if w == "del") && !matches!(self.peek_at(1), Tok::Newline | Tok::Sym("=" | "(" | "." | "[")) {
+            self.next();
+            let e = self.expr()?;
+            return match e {
+                Expr::Index(b, k) => Ok(Stmt::Expr { expr: Expr::Method(b, "remove".into(), vec![*k], line), line }),
+                _ => Err(self.err("del takes m[k] or xs[i]").fix_hint("write del m[k]")),
+            };
+        }
         // Python's `pass`.
         if matches!(self.peek(), Tok::Ident(w) if w == "pass") && matches!(self.peek_at(1), Tok::Newline | Tok::Sym("}")) {
             self.next();
