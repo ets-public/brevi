@@ -1,0 +1,7 @@
+(3, 3) 50 0 [('a', 'b', 4), ('a', 'b', 5)]
+2024-03-01 60
+t1 x
+t2 y
+5 ['x', 'y'] {'x': 5, 'y': 5}
+7
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

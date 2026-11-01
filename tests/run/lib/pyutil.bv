@@ -1,0 +1,7 @@
+"""Helpers for the main program.
+
+Some text: with colons, and words.
+"""
+
+def double(x):
+    return x * 2

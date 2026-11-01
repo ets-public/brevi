@@ -1,0 +1,12 @@
+class Board:
+    def __init__(self):
+        self.names = []
+        self.rows = {}
+
+    def add(self, name, row):
+        self.names.append(name)
+        self.rows[name] = row
+
+    def take(self, name, n):
+        self.rows[name] -= n
+        return self.rows[name]

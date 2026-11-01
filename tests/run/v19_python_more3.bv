@@ -1,0 +1,66 @@
+# Python habits from the plain-Python trials: for/else, lots[:] = ..., not a <= b <= c, int() in generators,
+# docstrings in imported files, quoted and loose annotations, a = b = None, tuple constants.
+from lib.pyutil import double
+
+c: list = [0] * 3
+used: dict = {}
+pl = pd = None
+
+
+def parse(s: str) -> "int | None":
+    return int(s) if s else None
+
+
+def pair(s) -> tuple[int, ...]:
+    return (int(s), 1)
+
+
+def anything(x) -> object:
+    return x + 1
+
+
+def pick(xs):
+    best = None
+    for x in xs:
+        if best is None or x > best:
+            best = x
+    return best
+
+
+c[1] = double(4)
+used["a"] = 1
+pl = 3
+print(c, used, pl, pd, parse("5"), parse(""), pair("4"), anything(2), pick([3, 9, 2]))
+
+
+def parse_date(s):
+    y, mo, d = (int(x) for x in s.split("-"))
+    if not 1 <= mo <= 12:
+        return None
+    return y * 10000 + mo * 100 + d
+
+
+def safe(s):
+    try:
+        return sum(int(x) for x in s.split(","))
+    except ValueError:
+        return -1
+
+
+lots = [1, 2, 3]
+
+
+def trim(lots):
+    lots[:] = [x for x in lots if x > 1]
+
+
+trim(lots)
+print(parse_date("2024-03-05"), parse_date("2024-13-01"), safe("1,2"), safe("1,x"), lots)
+for i in range(3):
+    if i == 5:
+        break
+else:
+    print("no break")
+SIZES = ("S", "M", "L")
+for s in ("a", "b"):
+    print(s, len(SIZES))
