@@ -365,6 +365,15 @@ impl Parser {
     }
 
     fn ty_raw(&mut self) -> R<Ty> {
+        // A quoted annotation (`-> "date | None"`) or `...` in `tuple[int, ...]` is left to inference.
+        if matches!(self.peek(), Tok::Str(_)) {
+            self.next();
+            return Ok(Ty::Named("?".into()));
+        }
+        if self.eat_sym("..") {
+            self.eat_sym(".");
+            return Ok(Ty::Named("?".into()));
+        }
         if self.eat_sym("[") {
             let t = self.ty()?;
             self.expect_sym("]")?;
@@ -825,7 +834,8 @@ impl Parser {
         if matches!(self.peek(), Tok::Ident(_)) && matches!(self.peek_at(1), Tok::Sym(":")) {
             let name = bind_upper(self.pat()?);
             self.expect_sym(":")?;
-            let ty = Some(self.ty()?);
+            // `c: list = [0] * 10`: a type with unknown parts is worked out from the value.
+            let ty = Some(self.ty()?).filter(|t| !matches!(t, Ty::Named(n) if n == "?"));
             // A dataclass field without a default (`x: int`).
             if self.peek() == &Tok::Newline || self.is_sym("}") {
                 return Ok(Stmt::Let { name, ty, value: Expr::Call("__field".into(), vec![], line), mutable: true, line });
@@ -878,6 +888,21 @@ impl Parser {
             return Ok(Stmt::Assert { cond: self.expr()?, line });
         }
         let mut e = self.expr()?;
+        // `lots[:] = [...]` replaces the list's items in place (the caller sees them).
+        if let Expr::Method(r, m, a, _) = &e {
+            if m == "slice" && matches!(a.as_slice(), [Expr::Int(0)]) && self.is_sym("=") {
+                self.next();
+                self.skip_newlines();
+                let value = self.expr()?;
+                let tmp = format!("ax_new{}", self.pos);
+                let r = (**r).clone();
+                self.pending.push(Stmt::Expr { expr: Expr::Method(Box::new(r.clone()), "clear".into(), vec![], line), line });
+                let x = Expr::Ident("ax_x".into());
+                let push = Stmt::Expr { expr: Expr::Method(Box::new(r), "push".into(), vec![x], line), line };
+                self.pending.push(Stmt::Expr { expr: Expr::For(Pat::Bind("ax_x".into()), Box::new(Expr::Ident(tmp.clone())), Box::new(Expr::Block(vec![push], None))), line });
+                return Ok(Stmt::Assign { target: Expr::Ident(tmp), op: "=", value, line });
+            }
+        }
         // `self.names: list[str] = []`: the field's type comes from what is put in it, so the annotation is read
         // and dropped.
         if matches!(e, Expr::Field(..) | Expr::Index(..)) && self.is_sym(":") {
@@ -971,6 +996,18 @@ impl Parser {
                         names.push(self.expr()?);
                     }
                     let v = names.pop().unwrap();
+                    // A plain value (`pl = pd = None`, `a = b = 0`) is set name by name, so each is typed alone.
+                    let plain = matches!(&v, Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) | Expr::Ident(_))
+                        || matches!(&v, Expr::Call(f, a, _) if f == "none" && a.is_empty())
+                        || matches!(&v, Expr::List(x) if x.is_empty())
+                        || matches!(&v, Expr::Map(x) if x.is_empty());
+                    if plain && names.iter().all(|n| matches!(n, Expr::Ident(_))) {
+                        let first = names.remove(0);
+                        for n in names {
+                            self.pending.push(Stmt::Assign { target: n, op, value: v.clone(), line });
+                        }
+                        return Ok(Stmt::Assign { target: first, op, value: v, line });
+                    }
                     if names.iter().all(|n| matches!(n, Expr::Ident(_))) {
                         let vs = vec![v; names.len()];
                         return Ok(Stmt::Assign { target: Expr::Tuple(names), op, value: Expr::Tuple(vs), line });
@@ -1109,6 +1146,10 @@ impl Parser {
         ];
         if level == LEVELS.len() {
             return self.unary();
+        }
+        // Python's `not` binds looser than a comparison: `not 1 <= m <= 12` is `not (1 <= m <= 12)`.
+        if level == 2 && self.eat_kw("not") {
+            return Ok(Expr::Unary("!", Box::new(self.binary(2)?)));
         }
         let mut lhs = self.binary(level + 1)?;
         // Python's `0 <= x < n` is `0 <= x and x < n`.
@@ -1832,18 +1873,76 @@ impl Parser {
                 }
                 let iter = self.expr()?;
                 let body = self.block()?;
-                Ok(Expr::For(p, Box::new(iter), Box::new(body)))
+                let lp = Expr::For(p, Box::new(iter), Box::new(body));
+                self.loop_else(lp)
             }
             Tok::Kw("while") => {
                 let cond = self.expr()?;
                 let body = self.block()?;
-                Ok(Expr::While(Box::new(cond), Box::new(body)))
+                let lp = Expr::While(Box::new(cond), Box::new(body));
+                self.loop_else(lp)
             }
             t => {
                 self.pos -= 1;
                 Err(self.err(&format!("expected an expression, found {}", tok_text(&t))))
             }
         }
+    }
+
+    // Python's `for ...: ... else: ...` runs the else part when the loop ends without `break`.
+    fn loop_else(&mut self, lp: Expr) -> R<Expr> {
+        let save = self.pos;
+        self.skip_newlines();
+        if !(self.is_kw("else") && matches!(self.peek_at(1), Tok::Sym(":" | "{"))) {
+            self.pos = save;
+            return Ok(lp);
+        }
+        self.next();
+        let other = self.block()?;
+        let line = self.line();
+        let flag = format!("ax_broke{}", self.pos);
+        fn mark(e: &mut Expr, flag: &str, line: usize) {
+            match e {
+                Expr::Block(st, tail) => {
+                    let mut out = Vec::with_capacity(st.len());
+                    for mut s in std::mem::take(st) {
+                        match &mut s {
+                            Stmt::Break { .. } => {
+                                out.push(Stmt::Assign { target: Expr::Ident(flag.into()), op: "=", value: Expr::Bool(true), line });
+                            }
+                            Stmt::Expr { expr, .. } => mark(expr, flag, line),
+                            _ => {}
+                        }
+                        out.push(s);
+                    }
+                    *st = out;
+                    if let Some(t) = tail {
+                        mark(t, flag, line);
+                    }
+                }
+                Expr::If(_, a, b) => {
+                    mark(a, flag, line);
+                    if let Some(b) = b {
+                        mark(b, flag, line);
+                    }
+                }
+                Expr::Match(_, arms) => arms.iter_mut().for_each(|(_, a)| mark(a, flag, line)),
+                _ => {}
+            }
+        }
+        let mut lp = lp;
+        match &mut lp {
+            Expr::For(_, _, b) | Expr::While(_, b) => mark(b, &flag, line),
+            _ => {}
+        }
+        Ok(Expr::Block(
+            vec![
+                Stmt::Assign { target: Expr::Ident(flag.clone()), op: "=", value: Expr::Bool(false), line },
+                Stmt::Expr { expr: lp, line },
+                Stmt::Expr { expr: Expr::If(Box::new(Expr::Unary("!", Box::new(Expr::Ident(flag)))), Box::new(other), None), line },
+            ],
+            None,
+        ))
     }
 
     // Splits "a {x} b" into literal and interpolated parts. "{{" is a literal brace.

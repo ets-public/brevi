@@ -13,7 +13,7 @@ start: _NL? (line _NL)* line?
      | fn_sig "=" expr               // fn f(x: int) = x * 2
      | fn_sig "=" "match" expr ":"   // fn area(s: Shape) -> f64 = match s:
      | pattern ("=>" | ":") simple?  // match arm; with nothing after it the body is the block below
-     | NAME ":" type ("=" expr)?     // field, or typed variable
+     | NAME ":" (type | STRING) ("=" expr)?     // field, or typed variable
      | postfix ":" type "=" expr     // self.names: list[str] = []
      | "use" STRING STRING*          // use "util.bv", use sha2 "0.10"
      | "use" NAME STRING*
@@ -41,7 +41,7 @@ opener: fn_sig
       | targets ASSIGN (unary binop)* ("if" | "match") expr   // out = out + match n:
       | "return" (unary binop)* ("if" | "match") expr
 
-fn_sig: ("rust" | "py")? ("fn" | "def") NAME "(" _n [param ("," _n param)* ","?] _n ")" ("->" type)? "!"?
+fn_sig: ("rust" | "py")? ("fn" | "def") NAME "(" _n [param ("," _n param)* ","?] _n ")" ("->" (type | STRING))? "!"?
 module: NAME ("." NAME)*         // lib.stock is lib/stock.bv
 param: "mut"? NAME (":" type)? ("=" expr)?   // def scale(x, k=2)
      | "*" NAME (":" type)?                     // def total(*xs)
@@ -51,6 +51,7 @@ param: "mut"? NAME (":" type)? ("=" expr)?   // def scale(x, k=2)
      | "(" [type ("," type)*] ")"
      | NAME ("[" type ("," type)* "]")?   // list[str], dict[str, int], Optional[T]
      | type "|" type                     // int | None
+     | "..."                             // tuple[int, ...]
 
 simples: simple (";" simple)*      // Python's a = 1; b = 2
 

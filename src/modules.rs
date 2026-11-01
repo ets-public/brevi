@@ -96,8 +96,20 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         let start = out.lines().count() + 1;
         let mut n = 0;
+        // Inside a `"""docstring"""` that spans lines.
+        let mut in_doc = false;
         for (i, l) in text.lines().enumerate() {
             n += 1;
+            let t = l.trim_start();
+            let doc_line = in_doc || t.starts_with("\"\"\"") || t.starts_with("'''") || (t.starts_with('"') && t.trim_end().ends_with('"'));
+            if in_doc {
+                if t.contains("\"\"\"") || t.contains("'''") {
+                    in_doc = false;
+                }
+            } else if let Some(q) = ["\"\"\"", "'''"].iter().find(|q| t.starts_with(**q)) {
+                // A docstring that does not close on its own line.
+                in_doc = !t[3..].contains(q);
+            }
             let mut paths: Vec<String> = use_path(l.trim_end()).map(|p| vec![p.to_string()]).unwrap_or_default();
             if paths.is_empty() && !l.starts_with([' ', '\t']) {
                 for (p, q) in py_imports(l, &dir) {
@@ -138,6 +150,7 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                 };
                 // Python modules also hold `def`, `class`, decorators, imports and the closing line of a long list.
                 let item = l.is_empty()
+                    || doc_line
                     || set
                     || l.starts_with([' ', '\t', '#', '}', ']', ')', '@'])
                     || matches!(first, "fn" | "type" | "enum" | "test" | "rust" | "py" | "use" | "def" | "class" | "import" | "from");

@@ -2040,7 +2040,7 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
                 }
             }
         }
-        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
+        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
         Expr::Call(f, args, _) => {
             if let Some(ms) = muts.get(f) {
                 for (k, (_, a)) in args.iter().enumerate() {
