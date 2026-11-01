@@ -995,6 +995,7 @@ impl Emitter {
                     self.begin_fn(&[], true);
                     self.nested = nested_lists(body);
                     let b = self.body(body, &Ty::Unit, true);
+                    let b = b.replacen("{\n", "{\n    AX_FILES_REG.set(AX_FILES).ok();\n", 1);
                     tests.push_str(&format!("/*@L{line}*/#[test] fn t{test_n}_{}() -> R<()> {b}\n", slug(name)));
                 }
             }
@@ -1004,7 +1005,7 @@ impl Emitter {
         }
         match self.fns.get("main") {
             Some(sig) if sig.fallible => out.push_str(
-                "fn main() {\n    ax_init();\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",{},\\\"msg\\\":{:?}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), e.0);\n        std::process::exit(1);\n    }\n}\n",
+                "fn main() {\n    ax_init(AX_FILES);\n    if let Err(e) = ax_main() {\n        eprintln!(\"{{\\\"e\\\":\\\"runtime\\\",{},\\\"msg\\\":{:?}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), e.0);\n        std::process::exit(1);\n    }\n}\n",
             ),
             Some(_) => {}
             None => out.push_str("fn main() {}\n"),
@@ -1072,7 +1073,7 @@ impl Emitter {
             .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
-        let init = if name == "main" && !fallible { "ax_init();\n" } else { "" };
+        let init = if name == "main" && !fallible { "ax_init(AX_FILES);\n" } else { "" };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }
