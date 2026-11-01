@@ -1,0 +1,15 @@
+click 3
+click -
+click 1
+click 0
+click =
+click /
+click 2
+click =
+click *
+click *
+click -
+click 4
+click =
+click =
+show

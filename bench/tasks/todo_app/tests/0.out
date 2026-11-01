@@ -1,0 +1,45 @@
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox []
+  Button "Done"
+  Button "Clear done"
+  Label "0 open, 0 done"
+[showwarning] Todo: Nothing to add
+[showwarning] Todo: Already on the list
+[showinfo] Todo: Select a task first
+window "Todo"
+  Entry "buy milk"
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[x] buy milk | [ ] walk dog]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 1 done"
+window "Todo"
+  Entry "buy milk"
+  Button "Add"
+  Checkbutton "Hide done" [x]
+  Listbox [[ ] walk dog]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 1 done"
+[askyesno] Todo: Remove 2 done tasks?
+window "Todo"
+  Entry "buy milk"
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[x] buy milk | [x] walk dog]
+  Button "Done"
+  Button "Clear done"
+  Label "0 open, 2 done"
+[askyesno] Todo: Remove 2 done tasks?
+window "Todo"
+  Entry "buy milk"
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox []
+  Button "Done"
+  Button "Clear done"
+  Label "0 open, 0 done"

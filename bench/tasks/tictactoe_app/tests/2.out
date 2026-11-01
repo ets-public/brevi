@@ -1,0 +1,43 @@
+window "Tic-tac-toe"
+  Label "X wins! New game in 3"
+  Canvas 300x300
+    line 100 0 100 300 width=2
+    line 0 100 300 100 width=2
+    line 200 0 200 300 width=2
+    line 0 200 300 200 width=2
+    text 250 50 fill=blue text=X
+    text 50 50 fill=red text=O
+    text 150 150 fill=blue text=X
+    text 50 150 fill=red text=O
+    text 50 250 fill=blue text=X
+    line 250 50 50 250 fill=green width=4
+  Frame
+    Button "New game"
+    Label "X 1 - O 0 - draws 0"
+window "Tic-tac-toe"
+  Label "O wins! New game in 3"
+  Canvas 300x300
+    line 100 0 100 300 width=2
+    line 0 100 300 100 width=2
+    line 200 0 200 300 width=2
+    line 0 200 300 200 width=2
+    text 150 150 fill=red text=O
+    text 50 50 fill=blue text=X
+    text 150 50 fill=red text=O
+    text 50 150 fill=blue text=X
+    text 150 250 fill=red text=O
+    line 150 50 150 250 fill=green width=4
+  Frame
+    Button "New game"
+    Label "X 1 - O 1 - draws 0"
+window "Tic-tac-toe"
+  Label "O to move"
+  Canvas 300x300
+    line 100 0 100 300 width=2
+    line 0 100 300 100 width=2
+    line 200 0 200 300 width=2
+    line 0 200 300 200 width=2
+    text 250 50 fill=blue text=X
+  Frame
+    Button "New game"
+    Label "X 1 - O 1 - draws 0"

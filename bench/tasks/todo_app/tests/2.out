@@ -1,0 +1,28 @@
+[showinfo] Todo: No done tasks
+[showinfo] Todo: Select a task first
+[showwarning] Todo: Already on the list
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[x] x | [ ] x]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 1 done"
+[askyesno] Todo: Remove 1 done tasks?
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [x]
+  Listbox [[ ] x]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 0 done"
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[ ] x]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 0 done"
