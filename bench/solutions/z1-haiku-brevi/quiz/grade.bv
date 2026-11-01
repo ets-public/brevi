@@ -1,0 +1,29 @@
+# Keeps the students' scores (one list per student, in key order) and
+# works out totals, averages and the top score.
+
+fn add_student(mut st: [(str, [int])], nm: str, scores: [int]):
+  st.push((nm, scores))
+
+fn total_of(scores: [int]) -> int:
+  return scores.sum()
+
+# Average of question j in hundredths, rounded half up.
+fn avg100(st: [(str, [int])], j: int) -> int:
+  tot = 0
+  for rec in st:
+    tot += rec.1[j]
+  cnt = st.len()
+  return (2 * tot * 100 + cnt) // (2 * cnt)
+
+# (highest total, names with it in input order)
+fn top_of(st: [(str, [int])]) -> (int, [str]):
+  best_so_far = -1
+  who = []
+  for rec in st:
+    tot = total_of(rec.1)
+    if tot > best_so_far:
+      best_so_far = tot
+      who = [rec.0]
+    elif tot == best_so_far:
+      who.push(rec.0)
+  return (best_so_far, who)

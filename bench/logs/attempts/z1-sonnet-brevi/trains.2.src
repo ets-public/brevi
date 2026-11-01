@@ -1,0 +1,93 @@
+ids: [str] = []
+tstops: [[str]] = []
+ttimes: [[int]] = []
+known: {str: bool} = {}
+
+fn parse_time(s: str) -> int:
+  if s.re_full('\d\d:\d\d').is_empty(): return -1
+  h = s[0:2].int()
+  m = s[3:5].int()
+  if h > 23 or m > 59: return -1
+  h * 60 + m
+
+fn fmt_time(t: int) -> str = "{t // 60:02d}:{t % 60:02d}"
+
+fn trip(src: str, dst: str, start: int) -> str:
+  head = "TRIP {src}->{dst}: "
+  if not known.has(src): return head + "unknown stop {src}"
+  if not known.has(dst): return head + "unknown stop {dst}"
+  if src == dst: return head + "already there"
+  nt = ids.len()
+  cur: {(int, int): [str]} = {}
+  best: [(int, int, [str])] = []
+  for k in 1..nt + 1:
+    nxt: {(int, int): [str]} = {}
+    for t in 0..nt:
+      for j in 0..tstops[t].len():
+        s = tstops[t][j]
+        tm = ttimes[t][j]
+        ok = false
+        base: [str] = []
+        if k == 1:
+          ok = s == src and tm >= start
+        else:
+          for kv in cur.pairs():
+            u = kv.0.0
+            i = kv.0.1
+            if u != t and tstops[u][i] == s and ttimes[u][i] + 2 <= tm:
+              if not ok or kv.1 < base:
+                base = kv.1
+              ok = true
+        if ok:
+          lst = base + [ids[t]]
+          for i in j + 1..tstops[t].len():
+            key = (t, i)
+            if not nxt.has(key) or lst < nxt[key]:
+              nxt[key] = lst
+    cur = nxt
+    for kv in cur.pairs():
+      if tstops[kv.0.0][kv.0.1] == dst:
+        best.push((ttimes[kv.0.0][kv.0.1], k, kv.1))
+  if best.is_empty(): return head + "no route"
+  b = best.sort()[0]
+  head + "arrive {fmt_time(b.0)} via {b.2.join(',')}"
+
+ntrains = 0
+nq = 0
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  w = line.words()
+  if w[0] == "TRAIN":
+    if w.len() < 6 or w.len() % 2 != 0:
+      print("line {n}: bad line")
+      continue
+    stops = [w[i] for i in range(2, w.len(), 2)]
+    times = [parse_time(w[i]) for i in range(3, w.len(), 2)]
+    if times.any(t => t < 0):
+      print("line {n}: bad line")
+      continue
+    bad = stops.unique().len() != stops.len()
+    for i in 1..times.len():
+      if times[i] <= times[i - 1]: bad = true
+    if bad:
+      print("line {n}: bad train")
+      continue
+    if w[1] in ids:
+      print("line {n}: duplicate train")
+      continue
+    ids.push(w[1])
+    tstops.push(stops)
+    ttimes.push(times)
+    for s in stops: known[s] = true
+    ntrains += 1
+  elif w[0] == "TRIP":
+    if w.len() != 4 or parse_time(w[3]) < 0:
+      print("line {n}: bad line")
+      continue
+    nq += 1
+    print(trip(w[1], w[2], parse_time(w[3])))
+  else:
+    print("line {n}: bad line")
+print("{ntrains} trains, {nq} trips")

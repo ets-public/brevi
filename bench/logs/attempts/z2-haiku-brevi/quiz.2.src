@@ -1,0 +1,209 @@
+## main.bv
+use "key.bv"
+use "grade.bv"
+
+fn main():
+  rows = lines()
+  section = 0
+  questions: [Question] = []
+  qseen: {str: bool} = {}
+  names: [str] = []
+  sheets: [{str: str}] = []
+  nameseen: {str: bool} = {}
+  for i in 0..rows.len():
+    ln = i + 1
+    w = rows[i].split()
+    if w.is_empty(): continue
+    if section == 0:
+      if w.len() == 1 and w[0] == "KEY": section = 1
+      continue
+    if section == 1:
+      if w.len() == 1 and w[0] == "ANSWERS":
+        section = 2
+        continue
+      if w.len() == 1 and w[0] == "KEY": continue
+      okq, q = parse_key(w)
+      if not okq or qseen.has(q.id):
+        print("key line {ln}: bad question")
+        continue
+      qseen[q.id] = true
+      questions.push(q)
+      continue
+    if w.len() == 1 and w[0] == "ANSWERS": continue
+    name = w[0]
+    if nameseen.has(name):
+      print("line {ln}: duplicate student")
+      continue
+    nameseen[name] = true
+    ans: {str: str} = {}
+    for t in w.slice(1, w.len()):
+      if not t.contains("="):
+        print("line {ln}: bad answer {t}")
+        continue
+      k = t.find("=")
+      qid = t.slice(0, k)
+      a = t.slice(k + 1, t.len())
+      if a.is_empty():
+        print("line {ln}: bad answer {t}")
+        continue
+      if not qseen.has(qid):
+        print("line {ln}: unknown question {qid}")
+        continue
+      if ans.has(qid):
+        print("line {ln}: answered twice {qid}")
+        continue
+      ans[qid] = a
+    names.push(name)
+    sheets.push(ans)
+  if names.is_empty():
+    print("no students")
+    return
+  if questions.is_empty():
+    print("empty key")
+    return
+  ns = names.len()
+  nq = questions.len()
+  mx = 0
+  for q in questions: mx += q.points
+  scores: [[int]] = []
+  for i in 0..ns:
+    row: [int] = []
+    for q in questions:
+      if sheets[i].has(q.id):
+        row.push(grade_one(q, sheets[i][q.id]))
+      else:
+        row.push(0)
+    scores.push(row)
+  totals = row_totals(scores)
+  for i in 0..ns:
+    nm = names[i]
+    tt = totals[i]
+    p = tt * 100 // mx
+    print("{nm} {tt}/{mx} {p}%")
+  for j in 0..nq:
+    col_sum = 0
+    for i in 0..ns: col_sum += scores[i][j]
+    qid = questions[j].id
+    m = mean2(col_sum, ns)
+    print("{qid} avg {m}")
+  print(top_line(names, totals))
+## key.bv
+type Question:
+  id: str
+  kind: str
+  points: int
+  a: str
+  b: str
+  words: [str]
+
+fn is_digits(s: str) -> bool:
+  return (not s.is_empty()) and s.chars().all(c => c.is_digit())
+
+fn is_decimal(s: str) -> bool:
+  t = s
+  if t.starts_with("-"): t = t.slice(1, t.len())
+  parts = t.split(".")
+  if parts.len() > 2: return false
+  digits = parts.join("")
+  if digits.is_empty(): return false
+  return digits.chars().all(c => c.is_digit())
+
+fn to_dec(s: str) -> dec:
+  neg = s.starts_with("-")
+  t = s
+  if neg: t = t.slice(1, t.len())
+  if t.starts_with("."): t = "0" + t
+  if t.ends_with("."): t = t + "0"
+  if neg: t = "-" + t
+  return t.dec().or(0.dec())
+
+fn parse_key(w: [str]) -> (bool, Question):
+  empty = Question(id: "", kind: "", points: 0, a: "", b: "", words: [])
+  if w.len() < 3: return (false, empty)
+  qid = w[0]
+  if not qid.starts_with("Q") or not is_digits(qid.slice(1, qid.len())): return (false, empty)
+  if not is_digits(w[2]): return (false, empty)
+  pts = w[2].int().or(0)
+  if pts < 1 or pts > 100: return (false, empty)
+  kind = w[1]
+  if kind == "choice":
+    if w.len() != 4 or w[3].len() != 1 or not "ABCDE".contains(w[3]): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: w[3], b: "", words: []))
+  if kind == "multi":
+    if w.len() != 4 or w[3].len() < 2: return (false, empty)
+    letters = w[3]
+    for c in letters.chars():
+      if not "ABCDE".contains(c): return (false, empty)
+    if letters.chars().unique().len() != letters.len(): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: letters, b: "", words: []))
+  if kind == "number":
+    if w.len() != 5: return (false, empty)
+    if not is_decimal(w[3]) or not is_decimal(w[4]) or w[4].starts_with("-"): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: w[3], b: w[4], words: []))
+  if kind == "text":
+    if w.len() != 4: return (false, empty)
+    parts = w[3].split("|")
+    for p in parts:
+      if p.is_empty(): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: "", b: "", words: parts))
+  return (false, empty)
+
+fn grade_one(q: Question, ans: str) -> int:
+  if q.kind == "choice":
+    if ans.len() != 1 or not "ABCDE".contains(ans): return 0
+    if ans == q.a: return q.points
+    return 0
+  if q.kind == "multi":
+    for c in ans.chars():
+      if not "ABCDE".contains(c): return 0
+    chosen: {str: bool} = {}
+    for c in ans.chars(): chosen[c] = true
+    right = 0
+    wrong = 0
+    for c in chosen.keys():
+      if q.a.contains(c): right += 1
+      else: wrong += 1
+    n = q.a.len()
+    if wrong == 0 and right == n: return q.points
+    num = q.points * (right - wrong)
+    if num <= 0: return 0
+    return num // n
+  if q.kind == "number":
+    if not is_decimal(ans): return 0
+    x = to_dec(ans)
+    v = to_dec(q.a)
+    tol = to_dec(q.b)
+    d = x - v
+    if d < 0: d = -d
+    if d <= tol: return q.points
+    return 0
+  if q.kind == "text":
+    low = ans.lower()
+    for w in q.words:
+      if low == w.lower(): return q.points
+    return 0
+  return 0
+## grade.bv
+fn row_totals(rows: [[int]]) -> [int]:
+  out: [int] = []
+  for r in rows:
+    s = 0
+    for v in r: s += v
+    out.push(s)
+  return out
+
+fn mean2(total: int, n: int) -> str:
+  v = (total * 200 + n) // (2 * n)
+  w = v // 100
+  f = v % 100
+  return "{w}.{f:02d}"
+
+fn top_line(names: [str], totals: [int]) -> str:
+  best = totals[0]
+  for t in totals:
+    if t > best: best = t
+  who: [str] = []
+  for i in 0..names.len():
+    if totals[i] == best: who.push(names[i])
+  names_s = who.join(", ")
+  return "top: {names_s} ({best})"

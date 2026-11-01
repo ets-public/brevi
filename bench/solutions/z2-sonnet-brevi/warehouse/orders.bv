@@ -1,0 +1,22 @@
+use "stock.bv"
+
+type Backorder:
+  id: str
+  sku: str
+  left: int
+
+fn fill(mut bos: [Backorder], mut lots: [Lot], sku: str) -> ([str], int):
+  out: [str] = []
+  total = 0
+  for i in 0..bos.len():
+    if bos[i].sku == sku and bos[i].left > 0:
+      x = take(lots, sku, bos[i].left)
+      if x > 0:
+        bos[i].left -= x
+        total += x
+        if bos[i].left == 0:
+          out.push("BACKORDER {bos[i].id}: done")
+        else:
+          out.push("BACKORDER {bos[i].id}: shipped {x}, {bos[i].left} left")
+  bos = bos.filter(b => b.left > 0)
+  (out, total)

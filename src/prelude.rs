@@ -1928,13 +1928,20 @@ impl<A: AxNone, B: AxNone, C: AxNone> AxNone for (A, B, C) {
         (A::ax_none(), B::ax_none(), C::ax_none())
     }
 }
-// "abc"[::-1] is "cba".
+// "abc"[::-1] is "cba"; "AKQ".index_of("K") is 1 (-1 when missing), counted in characters.
 pub trait AxStrRev {
     fn ax_rev(&self) -> String;
+    fn ax_index_of(&self, s: impl AsRef<str>) -> i64;
 }
 impl AxStrRev for String {
     fn ax_rev(&self) -> String {
         self.chars().rev().collect()
+    }
+    fn ax_index_of(&self, s: impl AsRef<str>) -> i64 {
+        match self.find(s.as_ref()) {
+            Some(b) => self[..b].chars().count() as i64,
+            None => -1,
+        }
     }
 }
 // Python's enumerate(xs, 1) counts from 1.

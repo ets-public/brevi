@@ -1,0 +1,86 @@
+catnames: [str] = ["high card", "pair", "two pair", "three of a kind", "straight", "flush", "full house", "four of a kind", "straight flush"]
+rankstr = "23456789TJQKA"
+
+fn score(cards: [str]) -> [int]:
+  rs: [int] = cards.map(c => rankstr.find(c[0:1]) + 2)
+  flush = cards.all(c => c[1:2] == cards[0][1:2])
+  cnt: {int: int} = {}
+  for r in rs: cnt[r] += 1
+  groups = cnt.pairs().map(p => (-p.1, -p.0)).sort()
+  ordered: [int] = groups.map(g => -g.1)
+  shape: [int] = groups.map(g => -g.0)
+  straight = false
+  hi = 0
+  if ordered.len() == 5:
+    if ordered[0] - ordered[4] == 4:
+      straight = true
+      hi = ordered[0]
+    elif ordered == [14, 5, 4, 3, 2]:
+      straight = true
+      hi = 5
+  cat = 0
+  if straight and flush: cat = 8
+  elif shape[0] == 4: cat = 7
+  elif shape == [3, 2]: cat = 6
+  elif flush: cat = 5
+  elif straight: cat = 4
+  elif shape[0] == 3: cat = 3
+  elif shape == [2, 2, 1]: cat = 2
+  elif shape[0] == 2: cat = 1
+  if straight: [cat, hi] else: [cat] + ordered
+
+names: [str] = []
+dealt: [str] = []
+res: [([int], str)] = []
+started = false
+rounds = 0
+
+fn endround():
+  if started:
+    rounds += 1
+    print("round {rounds}")
+    if res.is_empty():
+      print("no players")
+    else:
+      sorted_res = res.sort_by(p => (p.0.map(x => -x), p.1))
+      pos = 0
+      prev: [int] = []
+      for i in 0..sorted_res.len():
+        if i == 0 or sorted_res[i].0 != prev: pos = i + 1
+        prev = sorted_res[i].0
+        print("{pos}. {sorted_res[i].1} {catnames[prev[0]]}")
+    started = false
+    names = []
+    dealt = []
+    res = []
+
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty():
+    endround()
+    continue
+  started = true
+  w = line.words()
+  ok = w.len() == 6
+  if ok:
+    for c in w[1:]:
+      if c.len() != 2 or c[0:1] not in rankstr or c[1:2] not in "SHDC": ok = false
+  if ok and w[1:].unique().len() != 5: ok = false
+  if not ok:
+    print("line {n}: bad hand")
+    continue
+  if w[0] in names:
+    print("line {n}: duplicate player")
+    continue
+  bad = ""
+  for c in w[1:]:
+    if bad.is_empty() and c in dealt: bad = c
+  if not bad.is_empty():
+    print("line {n}: card {bad} already dealt")
+    continue
+  names.push(w[0])
+  for c in w[1:]: dealt.push(c)
+  res.push((score(w[1:]), w[0]))
+endround()
+print("{rounds} rounds")

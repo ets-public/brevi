@@ -1,0 +1,120 @@
+## main.bv
+use "key.bv"
+use "grade.bv"
+
+qs: [[str]] = []
+qidx: {str: int} = {}
+snames: [str] = []
+srows: [[int]] = []
+state = 0
+n = 0
+for line in lines():
+  n += 1
+  t = line.trim()
+  if t.is_empty(): continue
+  w = t.words()
+  if state == 0:
+    if t == "KEY": state = 1
+    continue
+  if state == 1:
+    if t == "ANSWERS":
+      state = 2
+      continue
+    if key_ok(w) and not qidx.has(w[0]):
+      qidx[w[0]] = qs.len()
+      qs.push(w)
+    else:
+      print("key line {n}: bad question")
+    continue
+  name = w[0]
+  if name in snames:
+    print("line {n}: duplicate student")
+    continue
+  snames.push(name)
+  row: [int] = qs.map(q => 0)
+  seen: [str] = []
+  for tok in w[1:]:
+    parts = tok.partition("=")
+    if "=" not in tok or parts.2.is_empty():
+      print("line {n}: bad answer {tok}")
+    elif not qidx.has(parts.0):
+      print("line {n}: unknown question {parts.0}")
+    elif parts.0 in seen:
+      print("line {n}: answered twice {parts.0}")
+    else:
+      seen.push(parts.0)
+      qi = qidx[parts.0]
+      row[qi] = grade_answer(qs[qi], parts.2)
+  srows.push(row)
+
+if qs.is_empty():
+  print("empty key")
+elif snames.is_empty():
+  print("no students")
+else:
+  mx = qs.map(q => q[2].int()).sum()
+  scores: [int] = srows.map(r => r.sum())
+  for i in 0..snames.len():
+    print("{snames[i]} {scores[i]}/{mx} {pct(scores[i], mx)}%")
+  for qi in 0..qs.len():
+    tot = srows.map(r => r[qi]).sum()
+    print("{qs[qi][0]} avg {avg_str(tot, snames.len())}")
+  print(top_line(snames, scores))
+## key.bv
+fn pdec(s: str) -> dec:
+  if s.starts_with("+"): s[1:].dec() else: s.dec()
+
+fn is_dec(s: str) -> bool = s.re_full("[+-]?\d+(\.\d+)?") != []
+
+fn key_ok(w: [str]) -> bool:
+  if w.len() < 4: return false
+  if w[0].re_full("Q\d+") == []: return false
+  if w[2].re_full("\d+") == []: return false
+  p = w[2].int()
+  if p < 1 or p > 100: return false
+  k = w[1]
+  if k == "choice": return w.len() == 4 and w[3].re_full("[A-E]") != []
+  if k == "multi":
+    return w.len() == 4 and w[3].re_full("[A-E]{2,}") != [] and w[3].chars().unique().len() == w[3].len()
+  if k == "number":
+    if w.len() != 5: return false
+    if not is_dec(w[3]) or not is_dec(w[4]): return false
+    return pdec(w[4]) >= 0
+  if k == "text":
+    return w.len() == 4 and w[3].split("|").all(x => not x.is_empty())
+  false
+
+fn grade_answer(w: [str], ans: str) -> int:
+  p = w[2].int()
+  k = w[1]
+  if k == "choice":
+    return if ans == w[3]: p else: 0
+  if k == "multi":
+    if ans.re_full("[A-E]+") == []: return 0
+    mine = ans.chars().unique()
+    keyl = w[3].chars()
+    if mine.len() == keyl.len() and mine.all(c => c in keyl): return p
+    right = mine.count(c => c in keyl)
+    wrong = mine.len() - right
+    return max(0, (p * (right - wrong)) // keyl.len())
+  if k == "number":
+    if not is_dec(ans): return 0
+    d = pdec(ans) - pdec(w[3])
+    if d < 0: d = 0 - d
+    return if d <= pdec(w[4]): p else: 0
+  if k == "text":
+    return if ans.lower() in w[3].lower().split("|"): p else: 0
+  0
+## grade.bv
+fn pct(score: int, mx: int) -> int = (score * 100) // mx
+
+fn avg_str(total: int, n: int) -> str:
+  x = (total * 200 + n) // (2 * n)
+  "{x // 100}.{(x % 100):02d}"
+
+fn top_line(names: [str], scores: [int]) -> str:
+  best = scores.max().or(0)
+  who: [str] = []
+  for i in 0..names.len():
+    if scores[i] == best: who.push(names[i])
+  "top: {who.join(", ")} ({best})"

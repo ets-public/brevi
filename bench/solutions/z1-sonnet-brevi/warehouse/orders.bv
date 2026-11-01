@@ -1,0 +1,36 @@
+use "stock.bv"
+
+type Backorder:
+  id: str
+  sku: str
+  left: int
+
+type Orders:
+  ids: [str]
+  back: [Backorder]
+
+fn new_orders() -> Orders = Orders(ids: [], back: [])
+
+fn has_order(o: Orders, id: str) -> bool = id in o.ids
+
+fn add_order(mut o: Orders, id: str):
+  o.ids.push(id)
+
+fn add_back(mut o: Orders, id: str, sku: str, left: int):
+  o.back.push(Backorder(id: id, sku: sku, left: left))
+
+fn pending(o: Orders) -> int = o.back.map(b => b.left).sum()
+
+fn fill(mut o: Orders, mut s: Stock, sku: str, mut msgs: [str]) -> int:
+  total = 0
+  for i in 0..o.back.len():
+    if o.back[i].sku == sku and o.back[i].left > 0:
+      k = take(s, sku, o.back[i].left)
+      if k > 0:
+        o.back[i].left -= k
+        total += k
+        if o.back[i].left == 0:
+          msgs.push("BACKORDER {o.back[i].id}: done")
+        else:
+          msgs.push("BACKORDER {o.back[i].id}: shipped {k}, {o.back[i].left} left")
+  total

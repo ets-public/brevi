@@ -1,0 +1,6 @@
+{"run":"z1-sonnet-python","lang":"python","task":"books","code_tok":1459,"patch_tok":1459,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-python","lang":"python","task":"toc","code_tok":777,"patch_tok":777,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-python","lang":"python","task":"poker","code_tok":1078,"patch_tok":1078,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-python","lang":"python","task":"trains","code_tok":1153,"patch_tok":1153,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-python","lang":"python","task":"quiz","code_tok":1802,"patch_tok":1802,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-python","lang":"python","task":"warehouse","code_tok":1616,"patch_tok":1616,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}

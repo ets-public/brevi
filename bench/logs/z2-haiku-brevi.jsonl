@@ -1,0 +1,9 @@
+{"run":"z2-haiku-brevi","lang":"brevi","task":"_guide","word":"split","code_tok":0,"patch_tok":0,"out_tok":434,"compiled":true,"pass":0,"total":0,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"books","code_tok":1889,"patch_tok":1889,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"toc","code_tok":1118,"patch_tok":1118,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"poker","code_tok":1381,"patch_tok":1381,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"trains","code_tok":2003,"patch_tok":2003,"out_tok":326,"compiled":true,"pass":3,"total":4,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"trains","code_tok":2003,"patch_tok":56,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"quiz","code_tok":2696,"patch_tok":2696,"out_tok":554,"compiled":true,"pass":2,"total":4,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"quiz","code_tok":2698,"patch_tok":34,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z2-haiku-brevi","lang":"brevi","task":"warehouse","code_tok":2299,"patch_tok":2299,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}

@@ -1,0 +1,81 @@
+use "key.bv"
+use "grade.bv"
+
+fn words(s: str) -> [str]:
+  return s.split(" ").filter(x => x != "")
+
+state = 0
+keys = []
+keyids = {}
+studs = []
+stud_names = {}
+for i, ln in lines().enumerate():
+  n = i + 1
+  w = words(ln)
+  if w.is_empty():
+    continue
+  if state == 0:
+    if w.len() == 1 and w[0] == "KEY":
+      state = 1
+    continue
+  if state == 1:
+    if w.len() == 1 and w[0] == "ANSWERS":
+      state = 2
+      continue
+    kr = parse_key(w)
+    if not kr.0 or keyids.has(kr.1):
+      print("key line {n}: bad question")
+    else:
+      keyids[kr.1] = True
+      keys.push((kr.1, kr.2, kr.3, kr.4))
+    continue
+  nm = w[0]
+  if stud_names.has(nm):
+    print("line {n}: duplicate student")
+    continue
+  answers = {}
+  for tok in w[1:]:
+    idx = tok.find("=")
+    if idx < 0 or idx == tok.len() - 1:
+      print("line {n}: bad answer {tok}")
+    else:
+      qid = tok[0:idx]
+      ans = tok[idx + 1:]
+      if not keyids.has(qid):
+        print("line {n}: unknown question {qid}")
+      elif answers.has(qid):
+        print("line {n}: answered twice {qid}")
+      else:
+        answers[qid] = ans
+  scored = []
+  for kq in keys:
+    a = ""
+    if answers.has(kq.0):
+      a = answers[kq.0]
+    scored.push(grade_one(kq.1, kq.3, kq.2, a))
+  stud_names[nm] = True
+  add_student(studs, nm, scored)
+
+if studs.is_empty():
+  print("no students")
+elif keys.is_empty():
+  print("empty key")
+else:
+  max_pts = 0
+  for kq in keys:
+    max_pts += kq.2
+  for rec in studs:
+    got = total_of(rec.1)
+    pct = got * 100 // max_pts
+    who = rec.0
+    print("{who} {got}/{max_pts} {pct}%")
+  for j in 0..keys.len():
+    a100 = avg100(studs, j)
+    whole = a100 // 100
+    frac = a100 % 100
+    qid = keys[j].0
+    print("{qid} avg {whole}.{frac:02d}")
+  top = top_of(studs)
+  names = top.1.join(", ")
+  best = top.0
+  print("top: {names} ({best})")

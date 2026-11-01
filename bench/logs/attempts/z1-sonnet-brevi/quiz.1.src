@@ -1,0 +1,157 @@
+## main.bv
+use "key.bv"
+use "grade.bv"
+
+qs: [Q] = []
+board = new_board()
+sect = 0
+n = 0
+for line in lines():
+  n += 1
+  t = line.trim()
+  if t.is_empty(): continue
+  if sect == 0:
+    if t == "KEY": sect = 1
+    continue
+  if sect == 1:
+    if t == "ANSWERS":
+      sect = 2
+      continue
+    q = parse_q(t)
+    if q.kind == "" or qs.any(x => x.id == q.id):
+      print("key line {n}: bad question")
+    else:
+      qs.push(q)
+    continue
+  w = t.words()
+  name = w[0]
+  if has_student(board, name):
+    print("line {n}: duplicate student")
+    continue
+  row = [0].repeat(qs.len())
+  seen = [false].repeat(qs.len())
+  for tok in w.skip(1):
+    p = tok.find("=")
+    if p < 0 or p == tok.len() - 1:
+      print("line {n}: bad answer {tok}")
+      continue
+    id = tok[0:p]
+    ans = tok[p + 1:]
+    qi = -1
+    for i in 0..qs.len():
+      if qs[i].id == id: qi = i
+    if qi < 0:
+      print("line {n}: unknown question {id}")
+      continue
+    if seen[qi]:
+      print("line {n}: answered twice {id}")
+      continue
+    seen[qi] = true
+    row[qi] = score(qs[qi], ans)
+  add_student(board, name, row)
+
+if qs.is_empty():
+  print("empty key")
+elif board.names.is_empty():
+  print("no students")
+else:
+  maxp = qs.map(q => q.points).sum()
+  for i in 0..board.names.len():
+    s = total(board.rows[i])
+    print("{board.names[i]} {s}/{maxp} {pct(s, maxp)}%")
+  for i in 0..qs.len():
+    print("{qs[i].id} avg {avg(board, i)}")
+  print(top(board))
+## key.bv
+type Q:
+  id: str
+  kind: str
+  points: int
+  spec: str
+  value: dec
+  tol: dec
+
+fn bad_q() -> Q = Q(id: "", kind: "", points: 0, spec: "", value: 0.dec(), tol: 0.dec())
+
+fn is_dec(s: str) -> bool = not s.re_full('[+-]?\d+(\.\d+)?').is_empty()
+
+fn parse_q(line: str) -> Q:
+  w = line.words()
+  if w.len() < 4: return bad_q()
+  if w[0].re_full('Q\d+').is_empty(): return bad_q()
+  if w[2].re_full('\d+').is_empty(): return bad_q()
+  pts = w[2].int()
+  if pts < 1 or pts > 100: return bad_q()
+  kind = w[1]
+  spec = w[3]
+  if kind == "choice":
+    if w.len() != 4 or spec.re_full('[A-E]').is_empty(): return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: 0.dec(), tol: 0.dec())
+  if kind == "multi":
+    if w.len() != 4 or spec.re_full('[A-E]{2,}').is_empty(): return bad_q()
+    if spec.chars().unique().len() != spec.len(): return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: 0.dec(), tol: 0.dec())
+  if kind == "number":
+    if w.len() != 5 or not is_dec(w[3]) or not is_dec(w[4]): return bad_q()
+    tol = w[4].replace("+", "").dec()
+    if tol < 0: return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: w[3].replace("+", "").dec(), tol: tol)
+  if kind == "text":
+    if w.len() != 4: return bad_q()
+    if spec.split("|").any(x => x.is_empty()): return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: 0.dec(), tol: 0.dec())
+  bad_q()
+
+fn score(q: Q, ans: str) -> int:
+  if q.kind == "choice":
+    return if ans == q.spec: q.points else: 0
+  if q.kind == "multi":
+    if ans.re_full('[A-E]+').is_empty(): return 0
+    chosen = ans.chars().unique()
+    right = chosen.count(c => c in q.spec)
+    wrong = chosen.len() - right
+    if wrong == 0 and right == q.spec.len(): return q.points
+    d = right - wrong
+    if d <= 0: return 0
+    return q.points * d // q.spec.len()
+  if q.kind == "number":
+    if not is_dec(ans): return 0
+    a = ans.replace("+", "").dec()
+    diff = a - q.value
+    if diff < 0: diff = 0 - diff
+    return if diff <= q.tol: q.points else: 0
+  if q.kind == "text":
+    low = ans.lower()
+    return if q.spec.split("|").any(x => x.lower() == low): q.points else: 0
+  0
+## grade.bv
+type Board:
+  names: [str]
+  rows: [[int]]
+
+fn new_board() -> Board = Board(names: [], rows: [])
+
+fn has_student(b: Board, name: str) -> bool = name in b.names
+
+fn add_student(mut b: Board, name: str, row: [int]):
+  b.names.push(name)
+  b.rows.push(row)
+
+fn total(row: [int]) -> int = row.sum()
+
+fn pct(score: int, max_pts: int) -> int = score * 100 // max_pts
+
+fn avg(b: Board, qi: int) -> str:
+  n = b.names.len()
+  s = 0
+  for r in b.rows: s += r[qi]
+  c = (s * 200 + n) // (2 * n)
+  "{c // 100}.{c % 100:02d}"
+
+fn top(b: Board) -> str:
+  totals = b.rows.map(r => r.sum())
+  best = totals.max().or(0)
+  winners: [str] = []
+  for i in 0..totals.len():
+    if totals[i] == best: winners.push(b.names[i])
+  "top: {winners.join(', ')} ({best})"

@@ -1,0 +1,33 @@
+test 0 failed
+input:
+DAY 2026-04-01
+RECV apple 10 2026-04-05
+RECV apple 5 2026-04-03
+RECV pear 4 2026-05-01
+ORDER o1 apple 7
+STOCK
+ORDER o2 pear 6
+RECV pear 1 2026-06-01
+RECV pear 3 2026-06-02
+STOCK
+expected:
+ORDER o1: shipped 7
+apple 8 in 1 lots
+pear 4 in 1 lots
+ORDER o2: shipped 4 of 6
+BACKORDER o2: shipped 1, 1 left
+BACKORDER o2: done
+apple 8 in 1 lots
+pear 2 in 1 lots
+shipped 13 units, backordered 0 units
+got:
+o1: shipped 7
+apple 8 in 1 lots
+pear 4 in 1 lots
+o2: shipped 4 of 6
+BACKORDER o2: shipped 1, 1 left
+BACKORDER o2: done
+apple 8 in 1 lots
+pear 2 in 1 lots
+shipped 13 units, backordered 0 units
+passed 1/4

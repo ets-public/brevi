@@ -1,0 +1,11 @@
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"books","code_tok":1240,"patch_tok":1240,"out_tok":559,"compiled":true,"pass":2,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"books","code_tok":1250,"patch_tok":32,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"toc","code_tok":749,"patch_tok":749,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"poker","code_tok":1133,"patch_tok":1133,"out_tok":93,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"poker","code_tok":1131,"patch_tok":60,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"trains","code_tok":1255,"patch_tok":1255,"out_tok":30,"compiled":false,"pass":0,"total":0,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"trains","code_tok":1259,"patch_tok":108,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"_guide","word":"use","code_tok":0,"patch_tok":0,"out_tok":123,"compiled":true,"pass":0,"total":0,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"_guide","word":"Libraries","code_tok":0,"patch_tok":0,"out_tok":492,"compiled":true,"pass":0,"total":0,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"quiz","code_tok":2169,"patch_tok":2169,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-sonnet-brevi","lang":"brevi","task":"warehouse","code_tok":1984,"patch_tok":1984,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}

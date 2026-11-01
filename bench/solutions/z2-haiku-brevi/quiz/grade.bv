@@ -1,0 +1,23 @@
+fn row_totals(rows: [[int]]) -> [int]:
+  out: [int] = []
+  for r in rows:
+    s = 0
+    for v in r: s += v
+    out.push(s)
+  return out
+
+fn mean2(total: int, n: int) -> str:
+  v = (total * 200 + n) // (2 * n)
+  w = v // 100
+  f = v % 100
+  return "{w}.{f:02d}"
+
+fn top_line(names: [str], totals: [int]) -> str:
+  best = totals[0]
+  for t in totals:
+    if t > best: best = t
+  who: [str] = []
+  for i in 0..names.len():
+    if totals[i] == best: who.push(names[i])
+  names_s = who.join(", ")
+  return "top: {names_s} ({best})"

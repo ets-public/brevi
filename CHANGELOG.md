@@ -10,6 +10,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 - `inner = m.get_or(k, {})` is typed by what is done with it, like a fresh `{}`, so nested maps built this way at the top level work inside functions.
 - A function ending in `if c: m.remove(k) else: print(...)` gives no value, as in Python.
 - Functions are values: `ops = [add, mul]`, pairs such as `("+", add)`, and calls straight from a list, tuple or field (`ops[0](3, 4)`).
+- A third held-out set of six XL tasks (`bench/ref/gen_big5.py`, runs z1 and z2). Brevi is still behind Python: Sonnet 9,042 vs 7,990 tokens (13% more), Haiku 12,405 vs 11,394 (9% more), from 19% and 4% on the second set. Brevi passes first time more often with Haiku (10 of 12 vs 9 of 12), but its finished programs are no shorter than Python's at this size; type annotations are about 5% of Brevi's tokens.
+- `s.index_of(sub)` and `s.index(sub)` on strings (-1 when missing).
 - `None` for int, float, str and tuple values: `best = None`, `x is None`, `x is not None`, `return None`.
 - Maps of functions: `ops = {"+": add, "-": lambda a, b: a - b}`, then `ops[op](a, b)` or `for k, f in ops.items()`.
 - More Python habits: `set(xs)` and `s.add(x)`, `xs.extend(ys)`, `xs[::-1]`, `divmod`, `round(x)`/`round(x, n)`, `enumerate(xs, 1)`, `m.setdefault(k, [])`, `defaultdict(int)`, `"%d %s" % (a, b)`, `"{:>5}".format(x)`, `math.sqrt`, `sys.stdin`, `[0] * n`, `p.0.1`, and `import sys`/`from collections import ...` lines. These came from compile errors in earlier benchmark runs.

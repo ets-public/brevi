@@ -1,0 +1,82 @@
+fn slug_of(t: str) -> str:
+  keep = "abcdefghijklmnopqrstuvwxyz0123456789- "
+  out = ""
+  for ch in t.lower().chars():
+    if keep.contains(ch):
+      if ch == " ":
+        out += "-"
+      else:
+        out += ch
+  if out == "":
+    return "section"
+  return out
+
+hl = []
+fence_open = 0
+for i, ln in lines().enumerate():
+  n = i + 1
+  if ln.starts_with("```"):
+    if fence_open == 0:
+      fence_open = n
+    else:
+      fence_open = 0
+    continue
+  if fence_open != 0:
+    continue
+  m = ln.re_find("^(#{1,6}) (.*)$")
+  if m and m[2].trim() != "":
+    txt = m[2].trim().re_sub("\s+#+$", "")
+    hl.push((n, m[1].len(), txt))
+
+top = 99
+for h in hl:
+  if h.1 < top:
+    top = h.1
+
+warns = []
+outs = []
+ctr = [0]
+seen = {}
+maxd = 0
+prev_level = 0
+prev_depth = 0
+for k, h in hl.enumerate():
+  hn = h.0
+  lv = h.1
+  txt = h.2
+  d = 1 + lv - top
+  if k > 0 and lv - prev_level > 1:
+    warns.push("line {hn}: level jump")
+    d = prev_depth + 1
+  while ctr.len() < d + 1:
+    ctr.push(0)
+  ctr[d] = ctr[d] + 1
+  ctr = ctr.slice(0, d + 1)
+  nums = []
+  for j in 1..d + 1:
+    nums.push(str(ctr[j]))
+  num = ".".join(nums)
+  plain = slug_of(txt)
+  used = seen.get_or(plain, 0)
+  seen[plain] = used + 1
+  slug = plain
+  if used > 0:
+    slug = "{plain}-{used}"
+  pad = "  ".repeat(d - 1)
+  outs.push("{pad}{num} {txt} (#{slug})")
+  if d > maxd:
+    maxd = d
+  prev_level = lv
+  prev_depth = d
+
+if fence_open != 0:
+  warns.push("line {fence_open}: unclosed code block")
+
+for w in warns:
+  print(w)
+if hl.is_empty():
+  print("no headings")
+else:
+  for o in outs:
+    print(o)
+  print("{hl.len()} headings, max depth {maxd}")

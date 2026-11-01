@@ -1,0 +1,141 @@
+## main.py
+import sys, re, datetime
+from stock import Stock
+from orders import Orders
+
+def vd(d):
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', d):
+        return False
+    try:
+        datetime.date(int(d[:4]), int(d[5:7]), int(d[8:]))
+        return True
+    except ValueError:
+        return False
+
+def vq(q):
+    return re.match(r'^\d+$', q) is not None and int(q) > 0
+
+st = Stock()
+od = Orders()
+today = None
+shipped = 0
+out = []
+for n, raw in enumerate(sys.stdin.read().split('\n'), 1):
+    w = raw.split()
+    if not w:
+        continue
+    c = w[0]
+    bad = 'line %d: bad line' % n
+    if c == 'DAY':
+        if len(w) != 2 or not vd(w[1]):
+            out.append(bad)
+        elif today is not None and w[1] < today:
+            out.append('line %d: date goes back' % n)
+        else:
+            today = w[1]
+            for l in st.expire(today):
+                out.append('discard %s %d %s' % (l[0], l[3], l[1]))
+    elif c == 'RECV':
+        if len(w) != 4 or not vq(w[2]) or not vd(w[3]):
+            out.append(bad)
+        elif today is None:
+            out.append('line %d: no date' % n)
+        elif w[3] < today:
+            out.append('line %d: expired on arrival' % n)
+        else:
+            st.add(w[1], int(w[2]), w[3])
+            shipped += od.fill(w[1], st, out)
+    elif c == 'ORDER':
+        if len(w) != 4 or not vq(w[3]):
+            out.append(bad)
+        elif today is None:
+            out.append('line %d: no date' % n)
+        elif od.seen(w[1]):
+            out.append('line %d: duplicate order' % n)
+        else:
+            q = int(w[3])
+            got = st.take(w[2], q)
+            shipped += got
+            od.add(w[1], w[2], q, got)
+            if got == q:
+                out.append('ORDER %s: shipped %d' % (w[1], q))
+            else:
+                out.append('ORDER %s: shipped %d of %d' % (w[1], got, q))
+    elif c == 'STOCK':
+        if len(w) != 1:
+            out.append(bad)
+        else:
+            s = st.summary()
+            if not s:
+                out.append('stock empty')
+            for sku, (q, l) in s:
+                out.append('%s %d in %d lots' % (sku, q, l))
+    else:
+        out.append(bad)
+out.append('shipped %d units, backordered %d units' % (shipped, od.waiting()))
+print('\n'.join(out))
+## stock.py
+class Stock:
+    def __init__(self):
+        self.lots = []
+        self.seq = 0
+
+    def add(self, sku, qty, exp):
+        self.seq += 1
+        self.lots.append([sku, exp, self.seq, qty])
+
+    def expire(self, today):
+        gone = sorted([l for l in self.lots if l[1] < today])
+        self.lots = [l for l in self.lots if l[1] >= today]
+        return gone
+
+    def take(self, sku, qty):
+        got = 0
+        for l in sorted((l for l in self.lots if l[0] == sku), key=lambda l: (l[1], l[2])):
+            if got >= qty:
+                break
+            t = min(qty - got, l[3])
+            l[3] -= t
+            got += t
+        self.lots = [l for l in self.lots if l[3] > 0]
+        return got
+
+    def summary(self):
+        d = {}
+        for l in self.lots:
+            a = d.setdefault(l[0], [0, 0])
+            a[0] += l[3]
+            a[1] += 1
+        return sorted(d.items())
+## orders.py
+class Orders:
+    def __init__(self):
+        self.ids = set()
+        self.back = []
+
+    def seen(self, oid):
+        return oid in self.ids
+
+    def add(self, oid, sku, qty, shipped):
+        self.ids.add(oid)
+        if shipped < qty:
+            self.back.append([oid, sku, qty - shipped])
+
+    def fill(self, sku, stock, out):
+        total = 0
+        for b in self.back:
+            if b[1] != sku:
+                continue
+            got = stock.take(sku, b[2])
+            if got:
+                b[2] -= got
+                total += got
+                if b[2] == 0:
+                    out.append('BACKORDER %s: done' % b[0])
+                else:
+                    out.append('BACKORDER %s: shipped %d, %d left' % (b[0], got, b[2]))
+        self.back = [b for b in self.back if b[2] > 0]
+        return total
+
+    def waiting(self):
+        return sum(b[2] for b in self.back)

@@ -8,4 +8,5 @@
 [0, 0, 0] ["a", "a"] 2
 3 items, ab, 3.14, [   42] [ab  ] 100%
 ab has    42| 2.2 ab
+11 8 -1
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

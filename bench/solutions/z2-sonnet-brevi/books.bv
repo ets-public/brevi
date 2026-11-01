@@ -1,0 +1,110 @@
+fn valid_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d\d-\d\d") == []: return false
+  match date(s):
+    Ok(_) => true
+    Err(_) => false
+
+fn tstr(x: dec) -> str:
+  s = x.fmt(2)
+  if x > 0: "+" + s else: s
+
+types: [str] = ["asset", "liability", "equity", "income", "expense"]
+atype: {str: str} = {}
+bal: {str: dec} = {}
+open_tx = false
+txline = 0
+txbad = false
+txdate = ""
+posterr = false
+pn: [str] = []
+pa: [dec] = []
+last = ""
+acc = 0
+rej = 0
+debits = 0.dec()
+credits = 0.dec()
+
+fn finish():
+  if open_tx:
+    open_tx = false
+    if txbad: return
+    if posterr:
+      rej += 1
+      return
+    if txdate < last:
+      print("line {txline}: date goes back")
+      rej += 1
+      return
+    if pn.len() < 2:
+      print("tx on line {txline}: needs two postings")
+      rej += 1
+      return
+    total = pa.sum()
+    if total != 0:
+      print("tx on line {txline}: unbalanced by {tstr(total)}")
+      rej += 1
+      return
+    acc += 1
+    last = txdate
+    for i in 0..pn.len():
+      bal[pn[i]] += pa[i]
+      if pa[i] > 0: debits += pa[i] else: credits += 0 - pa[i]
+
+fn report():
+  print("trial balance")
+  for t in types:
+    for k, v in atype.pairs():
+      if v == t:
+        b = bal[k]
+        if t != "asset" and t != "expense": b = 0 - b
+        print("{k} {t} {b.fmt(2)}")
+  print("debits {debits.fmt(2)} credits {credits.fmt(2)}")
+
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  w = line.words()
+  if line.starts_with("  "):
+    if not open_tx:
+      print("line {n}: bad line")
+    elif not txbad:
+      ok = false
+      if w.len() == 2 and w[1].re_full("[+-]?\d+(\.\d{1,2})?") != []:
+        ok = true
+      if not ok:
+        print("line {n}: bad line")
+        posterr = true
+      elif w[0] not in atype:
+        print("line {n}: unknown account {w[0]}")
+        posterr = true
+      else:
+        a = w[1]
+        if a.starts_with("+"): a = a[1:]
+        pn.push(w[0])
+        pa.push(a.dec())
+    continue
+  finish()
+  if w[0] == "ACCOUNT" and w.len() == 3 and w[2] in types:
+    if w[1] in atype:
+      print("line {n}: duplicate account")
+    else:
+      atype[w[1]] = w[2]
+  elif w[0] == "TX":
+    open_tx = true
+    txline = n
+    txbad = false
+    posterr = false
+    pn = []
+    pa = []
+    if w.len() >= 3 and valid_date(w[1]):
+      txdate = w[1]
+    else:
+      txbad = true
+      print("line {n}: bad line")
+  elif w[0] == "REPORT" and w.len() == 1:
+    report()
+  else:
+    print("line {n}: bad line")
+finish()
+print("{acc} transactions accepted, {rej} rejected")

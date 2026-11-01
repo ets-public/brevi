@@ -1,0 +1,218 @@
+## main.py
+import sys
+
+from key import parse_key
+from grade import Gradebook
+
+
+def main():
+    raw_lines = sys.stdin.read().split("\n")
+
+    state = "before"  # before -> key -> answers
+    key_lines = []
+    student_lines = []
+
+    for idx, raw in enumerate(raw_lines):
+        lineno = idx + 1
+        text = raw.rstrip("\r")
+        parts = text.split()
+        if not parts:
+            continue
+        if state == "before":
+            if parts == ["KEY"]:
+                state = "key"
+            continue
+        if state == "key":
+            if parts == ["ANSWERS"]:
+                state = "answers"
+                continue
+            if parts == ["KEY"]:
+                continue
+            key_lines.append((lineno, text))
+            continue
+        # answers section
+        if parts == ["ANSWERS"]:
+            continue
+        student_lines.append((lineno, text))
+
+    questions, messages = parse_key(key_lines)
+    question_ids = set(q["id"] for q in questions)
+    book = Gradebook(questions)
+    names_used = set()
+
+    for lineno, text in student_lines:
+        parts = text.split()
+        name = parts[0]
+        if name in names_used:
+            messages.append("line %d: duplicate student" % lineno)
+            continue
+        names_used.add(name)
+        answers = {}
+        for tok in parts[1:]:
+            if "=" not in tok or tok.split("=", 1)[1] == "":
+                messages.append("line %d: bad answer %s" % (lineno, tok))
+                continue
+            qid, ans = tok.split("=", 1)
+            if qid not in question_ids:
+                messages.append("line %d: unknown question ID" % lineno)
+                continue
+            if qid in answers:
+                messages.append("line %d: answered twice %s" % (lineno, qid))
+                continue
+            answers[qid] = ans
+        book.add(name, answers)
+
+    for m in messages:
+        print(m)
+
+    if not book.students:
+        print("no students")
+        return
+    if not questions:
+        print("empty key")
+        return
+
+    for name, score, pct in book.results():
+        print("%s %d/%d %d%%" % (name, score, book.max_total, pct))
+    for q in questions:
+        print("%s avg %s" % (q["id"], book.average(q["id"])))
+    best, names = book.top()
+    print("top: %s (%d)" % (", ".join(names), best))
+
+
+if __name__ == "__main__":
+    main()
+## key.py
+import re
+from decimal import Decimal
+
+ID_RE = re.compile(r"^Q\d+$")
+POINTS_RE = re.compile(r"^\d+$")
+CHOICE_RE = re.compile(r"^[A-E]$")
+MULTI_RE = re.compile(r"^[A-E]{2,}$")
+NUM_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)$")
+LETTERS = "ABCDE"
+
+
+def parse_key_line(text):
+    """Return a question dict for a valid key line, otherwise None."""
+    parts = text.split()
+    if len(parts) < 3:
+        return None
+    qid, typ, pts = parts[0], parts[1], parts[2]
+    if not ID_RE.match(qid):
+        return None
+    if not POINTS_RE.match(pts):
+        return None
+    points = int(pts)
+    if not 1 <= points <= 100:
+        return None
+
+    data = None
+    if typ == "choice" and len(parts) == 4 and CHOICE_RE.match(parts[3]):
+        data = parts[3]
+    elif typ == "multi" and len(parts) == 4 and MULTI_RE.match(parts[3]):
+        if len(set(parts[3])) != len(parts[3]):
+            return None
+        data = set(parts[3])
+    elif typ == "number" and len(parts) == 5:
+        if not (NUM_RE.match(parts[3]) and NUM_RE.match(parts[4])):
+            return None
+        tol = Decimal(parts[4])
+        if tol < 0:
+            return None
+        data = (Decimal(parts[3]), tol)
+    elif typ == "text" and len(parts) == 4:
+        words = parts[3].split("|")
+        if not all(words):
+            return None
+        data = words
+    else:
+        return None
+
+    return {"id": qid, "type": typ, "points": points, "data": data}
+
+
+def parse_key(key_lines):
+    """key_lines: list of (lineno, text). Returns (questions, messages)."""
+    questions = []
+    messages = []
+    seen = set()
+    for lineno, text in key_lines:
+        q = parse_key_line(text)
+        if q is None or q["id"] in seen:
+            messages.append("key line %d: bad question" % lineno)
+            continue
+        seen.add(q["id"])
+        questions.append(q)
+    return questions, messages
+
+
+def grade_answer(q, ans):
+    """Score one non-empty answer string against question q."""
+    t = q["type"]
+    points = q["points"]
+    if t == "choice":
+        return points if ans == q["data"] else 0
+    if t == "multi":
+        if any(c not in LETTERS for c in ans):
+            return 0
+        letters = set(ans)
+        key = q["data"]
+        if letters == key:
+            return points
+        right = len(letters & key)
+        wrong = len(letters - key)
+        return max(0, points * (right - wrong) // len(key))
+    if t == "number":
+        if not NUM_RE.match(ans):
+            return 0
+        value, tol = q["data"]
+        return points if abs(Decimal(ans) - value) <= tol else 0
+    if t == "text":
+        lowered = [w.lower() for w in q["data"]]
+        return points if ans.lower() in lowered else 0
+    return 0
+## grade.py
+from decimal import Decimal, ROUND_HALF_UP
+
+from key import grade_answer
+
+
+class Gradebook:
+    def __init__(self, questions):
+        self.questions = questions
+        self.max_total = sum(q["points"] for q in questions)
+        self.students = []  # list of (name, {qid: score}) in input order
+
+    def add(self, name, answers):
+        scores = {}
+        for q in self.questions:
+            ans = answers.get(q["id"])
+            scores[q["id"]] = 0 if ans is None else grade_answer(q, ans)
+        self.students.append((name, scores))
+
+    def total(self, scores):
+        return sum(scores.values())
+
+    def results(self):
+        """List of (name, score, percent) in input order."""
+        out = []
+        for name, scores in self.students:
+            score = self.total(scores)
+            pct = score * 100 // self.max_total if self.max_total else 0
+            out.append((name, score, pct))
+        return out
+
+    def average(self, qid):
+        n = len(self.students)
+        total = sum(scores[qid] for _, scores in self.students)
+        avg = (Decimal(total) / Decimal(n)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return "{:.2f}".format(avg)
+
+    def top(self):
+        """Return (best score, names with that score in input order)."""
+        totals = [(name, self.total(scores)) for name, scores in self.students]
+        best = max(t for _, t in totals)
+        names = [name for name, t in totals if t == best]
+        return best, names

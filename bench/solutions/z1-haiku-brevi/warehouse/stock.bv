@@ -1,0 +1,62 @@
+# Lots of stock and picking units in expiry order (earliest expiry first,
+# then the lot received first). Lots with qty 0 are kept but have no units.
+
+type Lot:
+  sku: str
+  qty: int
+  exp: str
+  seq: int
+
+fn add_lot(mut lots: [Lot], sku: str, qty: int, exp: str, seq: int):
+  lots.push(Lot(sku: sku, qty: qty, exp: exp, seq: seq))
+
+# Indices of all lots in pick order.
+fn pick_order(lots: [Lot]) -> [int]:
+  keyed = []
+  for ix in 0..lots.len():
+    keyed.push((lots[ix].exp, lots[ix].seq, ix))
+  return keyed.sort().map(t => t.2)
+
+# Takes up to want units of sku; returns how many were taken.
+fn take(mut lots: [Lot], sku: str, want: int) -> int:
+  gotn = 0
+  for ix in pick_order(lots):
+    if gotn >= want:
+      break
+    if lots[ix].sku == sku and lots[ix].qty > 0:
+      take_n = min(want - gotn, lots[ix].qty)
+      lots[ix].qty -= take_n
+      gotn += take_n
+  return gotn
+
+# Empties every lot expiring before day; returns the discard lines in
+# SKU, expiry, received order.
+fn discard_before(mut lots: [Lot], day: str) -> [str]:
+  keyed = []
+  for ix in 0..lots.len():
+    if lots[ix].qty > 0 and lots[ix].exp < day:
+      keyed.push((lots[ix].sku, lots[ix].exp, lots[ix].seq, ix))
+  out = []
+  for t in keyed.sort():
+    ix = t.3
+    dq = lots[ix].qty
+    dsku = lots[ix].sku
+    dexp = lots[ix].exp
+    out.push("discard {dsku} {dq} {dexp}")
+    lots[ix].qty = 0
+  return out
+
+# STOCK lines: one per SKU with units, sorted by SKU.
+fn stock_lines(lots: [Lot]) -> [str]:
+  totq = {}
+  nlot = {}
+  for lt in lots:
+    if lt.qty > 0:
+      totq[lt.sku] = totq.get_or(lt.sku, 0) + lt.qty
+      nlot[lt.sku] = nlot.get_or(lt.sku, 0) + 1
+  out = []
+  for sk in totq.keys().sort():
+    qv = totq[sk]
+    lv = nlot[sk]
+    out.push("{sk} {qv} in {lv} lots")
+  return out

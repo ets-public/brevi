@@ -1,0 +1,17 @@
+type Backorder:
+  id: str
+  sku: str
+  qty: int
+
+fn take_order_id(mut ids: {str: bool}, id: str) -> bool:
+  if ids.has(id): return false
+  ids[id] = true
+  return true
+
+fn add_backorder(mut bos: [Backorder], id: str, sku: str, qty: int):
+  bos.push(Backorder(id: id, sku: sku, qty: qty))
+
+fn backorder_units(bos: [Backorder]) -> int:
+  total = 0
+  for b in bos: total += b.qty
+  return total
