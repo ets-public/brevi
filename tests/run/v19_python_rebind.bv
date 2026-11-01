@@ -1,0 +1,42 @@
+import re
+
+def weights():
+    rows = [l.split() for l in ["a b 3", "c d 4", "a c 10"]]
+    g = {}
+    tot = 0
+    for a, b, w in rows:
+        w = int(w)
+        tot += w
+        g.setdefault(a, []).append((b, w))
+    return g, tot
+
+def shortest(g, src):
+    INF = float('inf')
+    dist = {src: 0}
+    todo = [src]
+    while todo:
+        u = todo.pop()
+        for v, w in g.get(u, []):
+            if dist[u] + w < dist.get(v, INF):
+                dist[v] = dist[u] + w
+                todo.append(v)
+    return dist
+
+def parse(line):
+    m = re.match(r'(\S+) (\S+) (\S+) (\d+) (\S+) (\S+)', line)
+    ip, day, meth, st, path, ua = m.groups()
+    st = int(st)
+    return ip, st // 100, path
+
+def main():
+    g, tot = weights()
+    print(tot)
+    d = shortest(g, "a")
+    for k in sorted(d):
+        print(k, d[k])
+    x = "12"
+    x = int(x)
+    print(x + 1)
+    print(parse("1.2.3.4 mon GET 404 /x curl"))
+
+main()

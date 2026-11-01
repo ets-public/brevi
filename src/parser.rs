@@ -2713,7 +2713,7 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
     out
 }
 
-fn pat_names(p: &Pat, out: &mut Vec<String>) {
+pub fn pat_names(p: &Pat, out: &mut Vec<String>) {
     match p {
         Pat::Bind(n) => {
             if !out.contains(n) {

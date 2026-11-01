@@ -1025,7 +1025,12 @@ fn bind(p: &Pat, t: T, env: &mut Env) {
         }
         Pat::Tuple(ps) => {
             for (k, p) in ps.iter().enumerate() {
-                let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                // A list unpacked into names (`for a, b, w in rows` with rows a list of lists) gives its items.
+                let et = match &t {
+                    Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
+                    List(e) => (**e).clone(),
+                    _ => Hole,
+                };
                 bind(p, et, env);
             }
         }
@@ -1151,6 +1156,12 @@ impl Cx<'_> {
                             if !env.contains_key(n) || env[n] == Hole {
                                 let t = self.ty(value, env);
                                 env.insert(n.clone(), t);
+                            } else {
+                                // Python's `st = int(st)`: the name holds the new type from here on.
+                                let t = self.ty(value, env);
+                                if clash(&env[n], &t) {
+                                    env.insert(n.clone(), t);
+                                }
                             }
                         }
                         Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } => {
@@ -1688,6 +1699,10 @@ struct Ck<'a, 'b> {
     set_at: HashMap<String, usize>,
     // The item types found for untyped empty values, by (name, line).
     empties: &'a HashMap<(String, usize), T>,
+    // Python-style file: a name set again to another type in the block that made it is a new name there.
+    py: bool,
+    // Names bound by the loop or function whose body the next block is.
+    next_own: Vec<String>,
 }
 
 impl Ck<'_, '_> {
@@ -1706,7 +1721,37 @@ impl Ck<'_, '_> {
     }
 
     fn block(&mut self, stmts: &mut [Stmt], tail: &mut Option<Box<Expr>>, env: &mut Env) {
+        // Names made in this block (so `w = int(w)` here can shadow them, as Python's rebinding does).
+        let mut own: HashSet<String> = std::mem::take(&mut self.next_own).into_iter().collect();
         for st in stmts.iter_mut() {
+            if self.py {
+                let shadow = match &*st {
+                    Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } if own.contains(n) && clash(&env.get(n).cloned().unwrap_or(Hole), &self.cx.ty(value, env)) => {
+                        Some((n.clone(), value.clone(), *line))
+                    }
+                    _ => None,
+                };
+                if let Some((n, value, line)) = shadow {
+                    env.remove(&n);
+                    *st = Stmt::Let { name: Pat::Bind(n), ty: None, value, mutable: true, line };
+                }
+            }
+            match &*st {
+                Stmt::Let { name, .. } => own.extend(pat_names(name)),
+                Stmt::Assign { target: Expr::Ident(n), op: "=", .. } if !env.contains_key(n) => {
+                    own.insert(n.clone());
+                }
+                Stmt::Assign { target: Expr::Tuple(xs), op: "=", .. } => {
+                    for x in xs {
+                        if let Expr::Ident(n) = x {
+                            if !env.contains_key(n) {
+                                own.insert(n.clone());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
             match st {
                 Stmt::Let { name, ty, value, line, .. } => {
                     self.line = *line;
@@ -1747,7 +1792,11 @@ impl Ck<'_, '_> {
                             for (k, x) in xs.iter().enumerate() {
                                 if let Expr::Ident(n) = x {
                                     if !env.contains_key(n) {
-                                        let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                                        let et = match &t {
+                                            Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
+                                            List(e) => (**e).clone(),
+                                            _ => Hole,
+                                        };
                                         env.insert(n.clone(), et);
                                     }
                                 }
@@ -1819,6 +1868,17 @@ impl Ck<'_, '_> {
                 }
             }
         }
+        // `dist.get(v, INF)` with int values and INF = float('inf'): the default is the biggest int.
+        if let Expr::Method(r, m, args, _) = &mut *e {
+            if m == "get_or" && args.len() == 2 {
+                if let Map(_, v) = self.cx.ty(r, env) {
+                    if *v == Int && self.cx.ty(&args[1], env) == F64 {
+                        let d = std::mem::replace(&mut args[1], Expr::Int(0));
+                        args[1] = Expr::Method(Box::new(d), "int".into(), vec![], 0);
+                    }
+                }
+            }
+        }
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
             Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
@@ -1865,7 +1925,11 @@ impl Ck<'_, '_> {
                 }
                 let mut inner = env.clone();
                 bind(p, loop_elem(p, &it_t), &mut inner);
+                if matches!(**body, Expr::Block(..)) {
+                    self.next_own = pat_names(p);
+                }
                 self.expr(body, &mut inner);
+                self.next_own.clear();
             }
             Expr::While(c, body) => {
                 self.expr(c, env);
@@ -1970,7 +2034,7 @@ impl Ck<'_, '_> {
 }
 
 // Checks every function and fixes the forms that have one obvious meaning.
-pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
+pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
     let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false };
     for it in items.iter() {
         match it {
@@ -2000,7 +2064,10 @@ pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
             _ => continue,
         };
         let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
-        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties };
+        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect() };
+        if !matches!(body, Expr::Block(..)) {
+            ck.next_own.clear();
+        }
         ck.expr(body, &mut env);
         errs.extend(ck.errs);
     }
@@ -2167,4 +2234,10 @@ fn walk(e: &Expr, f: &mut dyn FnMut(&Expr)) {
         }
         _ => {}
     }
+}
+
+fn pat_names(p: &Pat) -> Vec<String> {
+    let mut out = vec![];
+    crate::parser::pat_names(p, &mut out);
+    out
 }

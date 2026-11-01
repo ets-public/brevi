@@ -3194,6 +3194,32 @@ impl<T> AxUnpack<(T, T, T, T)> for Vec<T> {
         (i.next().unwrap(), i.next().unwrap(), i.next().unwrap(), i.next().unwrap())
     }
 }
+// Longer unpacks (`ip, ts, meth, path, proto, st, size, ref, ua = m.groups()`).
+macro_rules! ax_unpack_many {
+    ($n:expr; $($t:ident)+) => {
+        impl<$($t),+> AxUnpack<($($t,)+)> for ($($t,)+) {
+            fn ax_unpack(self) -> ($($t,)+) {
+                self
+            }
+        }
+        impl<T> AxUnpack<($(ax_unpack_many!(@t $t),)+)> for Vec<T> {
+            fn ax_unpack(self) -> ($(ax_unpack_many!(@t $t),)+) {
+                let mut i = ax_unpack_n(self, $n);
+                ($(ax_unpack_many!(@n i $t),)+)
+            }
+        }
+    };
+    (@t $x:ident) => { T };
+    (@n $i:ident $x:ident) => { $i.next().unwrap() };
+}
+ax_unpack_many!(5; A B C D E);
+ax_unpack_many!(6; A B C D E F);
+ax_unpack_many!(7; A B C D E F G);
+ax_unpack_many!(8; A B C D E F G H);
+ax_unpack_many!(9; A B C D E F G H I);
+ax_unpack_many!(10; A B C D E F G H I J);
+ax_unpack_many!(11; A B C D E F G H I J K);
+ax_unpack_many!(12; A B C D E F G H I J K L);
 // Python's `a ** b`: an int to a whole power stays an int; with a float on either side it is a float.
 pub trait AxPow<B> {
     type Out;

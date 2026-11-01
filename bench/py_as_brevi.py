@@ -108,11 +108,14 @@ def main():
             for p, m in ran:
                 if m is not None and m != "no tests":
                     print(f"       {Path(p).parent.name}/{Path(p).name}: {m}")
+    files_out = {str(Path(p).relative_to(B)): m for p, m in res}
+    if a.full:
+        files_out.update({str(Path(p).relative_to(B)): "build: " + m for p, m in full if m is not None})
     print("most common first errors:")
     for m, n in errs.most_common(a.top):
         print(f"{n:5}  {m[:150]}")
     if a.json:
-        Path(a.json).write_text(json.dumps({"total": len(files), "pass": len(ok), "errors": errs.most_common()}, indent=1))
+        Path(a.json).write_text(json.dumps({"total": len(files), "pass": len(ok), "errors": errs.most_common(), "files": files_out}, indent=1))
 
 
 if __name__ == "__main__":
