@@ -1017,7 +1017,10 @@ type Inline = std::collections::HashMap<String, (Vec<String>, Expr)>;
 fn inline_call(it: &Expr, inl: &Inline) -> Option<Box<Expr>> {
     let Expr::Call(f, args, _) = it else { return None };
     let (ps, e) = inl.get(f)?;
-    if ps.len() != args.len() || args.iter().any(|(n, a)| n.is_some() || !matches!(a, Expr::Ident(_) | Expr::Field(..) | Expr::Int(_) | Expr::Str(_))) {
+    let simple = |a: &Expr| matches!(a, Expr::Ident(_) | Expr::Field(..) | Expr::Int(_) | Expr::Str(_));
+    // `od.waiting(w[1])`: an item of a name is as plain as the name.
+    let plain = |a: &Expr| simple(a) || matches!(a, Expr::Index(b, k) if simple(b) && simple(k));
+    if ps.len() != args.len() || args.iter().any(|(n, a)| n.is_some() || !plain(a)) {
         return None;
     }
     let mut lams: Vec<String> = vec![];

@@ -1034,10 +1034,12 @@ impl Emitter {
                     match dunder {
                         // A Python dict made a record prints as the dict, and is a JSON object for json.dumps.
                         None if crate::records::is_record(name) => {
-                            let parts: Vec<String> = fields.iter().map(|f| format!("format!(\"'{1}': {{}}\", show_item(&self.{0}))", f.name, crate::records::key_of(&f.name))).collect();
-                            let pairs: Vec<String> = fields.iter().map(|f| format!("(String::from(\"{1}\"), AxToJson::ax_json(&self.{0}))", f.name, crate::records::key_of(&f.name))).collect();
-                            out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{{{{{}}}}}}\", [{}].join(\", \")) }} }}\n", parts.join(", ")));
-                            out.push_str(&format!("impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ ax_obj(vec![{}]) }} }}\n", pairs.join(", ")));
+                            // A key only some of the dicts have is left out while it is None, as Python's dict lacks it.
+                            let when = |f: &Field| if crate::records::is_optional(name, &f.name) { format!("if !AxNone::ax_is_none(&self.{}) ", f.name) } else { String::new() };
+                            let parts: Vec<String> = fields.iter().map(|f| format!("{2}{{ v.push(format!(\"'{1}': {{}}\", show_item(&self.{0}))); }}", f.name, crate::records::key_of(&f.name), when(f))).collect();
+                            let pairs: Vec<String> = fields.iter().map(|f| format!("{2}{{ v.push((String::from(\"{1}\"), AxToJson::ax_json(&self.{0}))); }}", f.name, crate::records::key_of(&f.name), when(f))).collect();
+                            out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ let mut v: Vec<String> = vec![]; {} format!(\"{{{{{{}}}}}}\", v.join(\", \")) }} }}\n", parts.join(" ")));
+                            out.push_str(&format!("impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ let mut v = vec![]; {} ax_obj(v) }} }}\n", pairs.join(" ")));
                         }
                         Some(f) => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ {f}(self.clone()).to_string() }} }}\n")),
                         None => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n")),

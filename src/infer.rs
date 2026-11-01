@@ -2785,12 +2785,15 @@ fn rec_key(i: &Expr) -> Option<String> {
 fn rec_field(e: &mut Expr, ty: &dyn Fn(&Expr) -> T, structs: &HashMap<String, Vec<(String, T)>>) {
     let has = |b: &Expr, k: &str| -> Option<bool> {
         match ty(b) {
+            // A key only some of the dicts have: not known from the type.
+            Named(r) if crate::records::is_record(&r) && crate::records::is_optional(&r, k) => None,
             Named(r) if crate::records::is_record(&r) => Some(structs.get(&r).is_some_and(|fs| fs.iter().any(|(n, _)| n == k))),
             _ => None,
         }
     };
+    let field = |b: &Expr, k: &str| matches!(ty(b), Named(r) if crate::records::is_record(&r) && structs.get(&r).is_some_and(|fs| fs.iter().any(|(n, _)| n == k)));
     let new = match &*e {
-        Expr::Index(b, i) => rec_key(i).and_then(|k| (has(b, &k) == Some(true)).then(|| Expr::Field(b.clone(), k))),
+        Expr::Index(b, i) => rec_key(i).and_then(|k| (field(b, &k)).then(|| Expr::Field(b.clone(), k))),
         Expr::Method(b, m, args, _) if matches!(m.as_str(), "get" | "get_or") && (1..=2).contains(&args.len()) => {
             rec_key(&args[0]).and_then(|k| match has(b, &k) {
                 Some(true) => Some(Expr::Field(b.clone(), k)),

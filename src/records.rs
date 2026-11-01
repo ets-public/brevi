@@ -139,6 +139,22 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             }
         });
     }
+    // Keys set later on a name that holds a literal (`q = {...}`, then `q["answer"] = a` in a branch).
+    let mut later: Vec<(String, String, Expr)> = vec![];
+    for it in items.iter() {
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        crate::infer::walk(body, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for st in stmts {
+                    if let Stmt::Assign { target: Expr::Index(b, k), op: "=", value, .. } = st {
+                        if let (Expr::Ident(n), Some(key)) = (b.as_ref(), key_name(k)) {
+                            later.push((n.clone(), key, value.clone()));
+                        }
+                    }
+                }
+            }
+        });
+    }
     // Key sets put in the same name are one record (`cur = {'silent': True}` and the full one).
     let mut group: Vec<usize> = (0..sets.len()).collect();
     loop {
@@ -171,6 +187,13 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
                 }
             }
         }
+        // Later keys join only a record whose literals already show it is one (values of mixed kinds).
+        let extra: Vec<String> = later.iter().filter(|(n, k, _)| members.iter().any(|&m| sets[m].1.contains(n)) && !keys.contains(k)).map(|(_, k, _)| k.clone()).collect();
+        for k in extra {
+            if !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
         for &m in &members {
             shape_of_set[m] = shapes.len();
         }
@@ -195,6 +218,20 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             }
         });
     }
+    for sh in shapes.iter_mut() {
+        for (j, k) in sh.keys.clone().iter().enumerate() {
+            if sh.sets.iter().all(|set| !set.contains(k)) {
+                // No literal has it: the constructor sets it to None and later lines give its type.
+                sh.fixed[j] = Some(Expr::Call("none".into(), vec![], 0));
+                for (_, lk, v) in later.iter().filter(|(_, lk, _)| lk == k) {
+                    let _ = lk;
+                    if let Some(kd) = kind(v) {
+                        sh.kinds[j].insert(kd);
+                    }
+                }
+            }
+        }
+    }
     // A record: at least two keys, values that plainly differ in kind (`[]` next to `False`) or are known
     // to differ in type; and no key holding two kinds of value (that would be a dict used as a dict).
     let chosen: Vec<&Shape> = shapes
@@ -202,7 +239,9 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
         .filter(|s| {
             let all: HashSet<&str> = s.kinds.iter().flatten().copied().collect();
             let differ = all.len() >= 2 || typed_mixed.iter().any(|k| s.sets.iter().any(|m| same(k, m)));
-            let named = eager && all.is_empty() && s.fixed.iter().all(|f| f.is_none());
+            // Keys set later may show kinds; the literals' own keys show none.
+            let own_plain = s.keys.iter().zip(&s.kinds).all(|(k, kd)| kd.is_empty() || !s.sets.iter().any(|set| set.contains(k)));
+            let named = eager && own_plain && s.keys.iter().zip(&s.fixed).all(|(k, f)| f.is_none() || !s.sets.iter().any(|set| set.contains(k)));
             s.keys.len() >= 2 && (differ || named) && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
         })
         .collect();
@@ -233,6 +272,13 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
                 .collect();
             *e = Expr::Call(format!("{name}_new"), args, 0);
         });
+    }
+    for ((name, _, _), s) in names.iter().zip(&chosen) {
+        for k in &s.keys {
+            if s.sets.iter().all(|set| !set.contains(k)) {
+                OPTIONAL.with(|o| o.borrow_mut().insert((name.clone(), k.clone())));
+            }
+        }
     }
     for ((name, _, passed), s) in names.iter().zip(&chosen) {
         let keys = &s.keys;
@@ -285,6 +331,16 @@ fn fold_keys(stmts: &mut Vec<Stmt>) {
         }
         i += 1;
     }
+}
+
+thread_local! {
+    // (record, field) pairs no literal of the record has: set later (`q["answer"] = a` in one branch). `'k' in d` can't be answered from the type for these, and
+    // printing leaves them out while they are None.
+    static OPTIONAL: std::cell::RefCell<HashSet<(String, String)>> = std::cell::RefCell::new(HashSet::new());
+}
+
+pub fn is_optional(rec: &str, field: &str) -> bool {
+    OPTIONAL.with(|o| o.borrow().contains(&(rec.to_string(), field.to_string())))
 }
 
 pub fn is_record(name: &str) -> bool {
