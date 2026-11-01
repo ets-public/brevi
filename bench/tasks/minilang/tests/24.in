@@ -1,0 +1,3 @@
+print -3 * -2, -(4 + 1), 10 - 2 - 3, 2 * 3 % 4, 100 / 7 / 2
+print "b" >= "a", "abc" < "abd", [1] != [1, 2], none == none, false == false
+print [1] < [2]

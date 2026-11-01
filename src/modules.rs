@@ -26,9 +26,10 @@ fn use_path(l: &str) -> Option<&str> {
 }
 
 // Python's `import stock, key as k` or `from stock import Stock`: the modules named, with the name each
-// is called by in `stock.f()` (None for `from`). Only modules with a `.bv` file next to this one count
-// (`lib.stock` is lib/stock.bv).
-fn py_imports(l: &str, dir: &Path) -> Vec<(String, Option<String>)> {
+// is called by in `stock.f()` (None for `from`). Only modules with a `.bv` or `.py` file next to this one count
+// (`lib.stock` is lib/stock.bv, else lib/stock.py; a folder `lib/` with `__init__.py` is a package).
+// Like Python, a module is looked for next to the importing file, then next to the main file.
+fn py_imports(l: &str, dirs: &[&Path]) -> Vec<(String, Option<String>)> {
     let l = l.split(" #").next().unwrap_or("").trim();
     let mods: Vec<(String, Option<String>)> = if let Some(r) = l.strip_prefix("import ") {
         r.split(',')
@@ -51,10 +52,23 @@ fn py_imports(l: &str, dir: &Path) -> Vec<(String, Option<String>)> {
         vec![]
     };
     mods.into_iter()
-        .map(|(m, a)| (format!("{}.bv", m.replace('.', "/")), m, a))
-        .filter(|(p, m, _)| m.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.') && dir.join(p).is_file())
-        .map(|(p, _, a)| (p, a))
+        .filter(|(m, _)| m.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.'))
+        .filter_map(|(m, a)| {
+            let base = m.replace('.', "/");
+            let base = &base;
+            let mut found = dirs.iter().flat_map(|d| ["bv", "py"].iter().map(move |e| d.join(format!("{base}.{e}"))));
+            found.find(|p| p.is_file()).map(|p| (p.to_string_lossy().to_string(), a))
+        })
         .collect()
+}
+
+// A GUI library a top-level Python import names (`import tkinter as tk`, `from PyQt5.QtWidgets import *`).
+fn gui_import(l: &str) -> Option<&'static str> {
+    let r = l.strip_prefix("import ").or_else(|| l.strip_prefix("from "))?;
+    let m = r.split([' ', ',', '.']).next()?;
+    ["tkinter", "turtle", "pygame", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "kivy", "customtkinter", "pyglet", "arcade", "dearpygui"]
+        .into_iter()
+        .find(|g| *g == m)
 }
 
 // `stock.find(x)` becomes `find(x)` for a module brought in with `import stock`: the files are one program.
@@ -91,6 +105,7 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
     // Names Python code calls modules by (`import stock` then `stock.load()`), across all files.
     let mut quals: Vec<String> = vec![];
     let mut changed = false;
+    let root = Path::new(main).parent().map(Path::to_path_buf).unwrap_or_default();
     while !queue.is_empty() {
         let (name, path, text, _) = queue.remove(0);
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -98,8 +113,20 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
         let mut n = 0;
         // Inside a `"""docstring"""` that spans lines.
         let mut in_doc = false;
+        // Inside a used file's `if __name__ == "__main__":` block, which Python only runs for the main file.
+        let mut in_main_guard = false;
         for (i, l) in text.lines().enumerate() {
             n += 1;
+            if !name.is_empty() {
+                let guard = l.starts_with("if __name__") && l.contains("__main__");
+                if guard || (in_main_guard && (l.trim().is_empty() || l.starts_with([' ', '\t']))) {
+                    in_main_guard = true;
+                    // Kept as a blank line so line numbers in errors still match the file.
+                    out.push('\n');
+                    continue;
+                }
+                in_main_guard = false;
+            }
             let t = l.trim_start();
             let doc_line = in_doc || t.starts_with("\"\"\"") || t.starts_with("'''") || (t.starts_with('"') && t.trim_end().ends_with('"'));
             if in_doc {
@@ -110,16 +137,25 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                 // A docstring that does not close on its own line.
                 in_doc = !t[3..].contains(q);
             }
-            let mut paths: Vec<String> = use_path(l.trim_end()).map(|p| vec![p.to_string()]).unwrap_or_default();
+            if let Some(g) = gui_import(l) {
+                let at = if name.is_empty() { String::new() } else { format!("\"file\":\"{}\",", crate::diag::esc(&name)) };
+                return Err(format!("{{{at}\"line\":{},\"msg\":\"{g} is not supported yet: Brevi has no GUI library\",\"fix\":\"write a program without a window (print, input, files), or run this one with python3\"}}", i + 1));
+            }
+            // Each file to bring in, as written (or found) and its path on disk.
+            let mut paths: Vec<(String, PathBuf)> = use_path(l.trim_end()).map(|p| vec![(p.to_string(), dir.join(p))]).unwrap_or_default();
             if paths.is_empty() && !l.starts_with([' ', '\t']) {
-                for (p, q) in py_imports(l, &dir) {
+                for (p, q) in py_imports(l, &[dir.as_path(), root.as_path()]) {
                     quals.extend(q);
-                    paths.push(p);
+                    let full = PathBuf::from(&p);
+                    // Shown in errors relative to the main file, as Python finds it.
+                    let shown = full.strip_prefix(&root).map_or(p.clone(), |r| r.to_string_lossy().to_string());
+                    paths.push((shown, full));
                 }
             }
-            for (k, p) in paths.iter().enumerate() {
+            for (k, (p, full)) in paths.iter().enumerate() {
                 let p = p.as_str();
-                let full = dir.join(p);
+                let full = full.clone();
+                let py = use_path(l.trim_end()).is_none();
                 let canon = std::fs::canonicalize(&full).unwrap_or_else(|_| full.clone());
                 if k == 0 {
                     out.push_str(l);
@@ -133,7 +169,7 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                     format!("{{{at}\"line\":{},\"msg\":\"cannot read {}: {}\"}}", i + 1, crate::diag::esc(p), crate::diag::esc(&e.to_string()))
                 })?;
                 seen.push(canon);
-                let shown = if name.is_empty() { p.to_string() } else { Path::new(&name).parent().map_or(p.into(), |d| d.join(p).to_string_lossy().to_string()) };
+                let shown = if name.is_empty() || py { p.to_string() } else { Path::new(&name).parent().map_or(p.into(), |d| d.join(p).to_string_lossy().to_string()) };
                 queue.push((shown, full, body, Some((name.clone(), i + 1))));
             }
             if !paths.is_empty() {

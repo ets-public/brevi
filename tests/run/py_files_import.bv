@@ -1,0 +1,19 @@
+# Python modules saved as .py files, in a package folder, with their own `if __name__ == "__main__":` self-test.
+from lib.pyshop.store import Store
+
+
+def main():
+    s = Store()
+    s.add("a", 2.5, 10)
+    s.add("b", 1.0, 3)
+    o = s.order(1, [("a", 4), ("b", 1)])
+    print(f"{o.total():.2f}")
+    try:
+        s.order(2, [("b", 5)])
+    except ValueError as e:
+        print("error:", e)
+    print(s.stock["a"].qty, len(s.orders))
+
+
+if __name__ == "__main__":
+    main()

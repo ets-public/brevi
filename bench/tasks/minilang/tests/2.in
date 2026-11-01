@@ -1,0 +1,17 @@
+a = [1, 2, 3]
+b = a
+push(b, 4)
+print a, len(a)
+b[0] = 99
+print a[0], a[-1], a[-4]
+func addall(xs, v)
+  for i in range(len(xs))
+    xs[i] = xs[i] + v
+  end
+end
+addall(a, 10)
+print a
+print pop(a), a
+c = a + [0]
+push(c, 5)
+print a, c

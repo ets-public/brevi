@@ -1,0 +1,2 @@
+print int("42") + 1, int("-7"), int(5)
+print int("4x")

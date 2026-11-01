@@ -1,0 +1,14 @@
+[package]
+name = "brevi_tk"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The tkinter-style GUI runtime that Brevi compiles Python tkinter programs onto (egui window, or headless for tests)."
+
+[features]
+default = []
+# A real window through eframe/egui. Without it every program runs headless.
+window = ["dep:eframe"]
+
+[dependencies]
+eframe = { version = "0.31", optional = true, default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }

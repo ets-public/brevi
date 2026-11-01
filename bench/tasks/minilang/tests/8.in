@@ -1,0 +1,5 @@
+print "x"
+func f(a)
+  return a
+end
+print f(1, 2)

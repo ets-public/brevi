@@ -1,0 +1,26 @@
+room start Start Room
+room end End Room
+exit start east end
+exit end west start
+item flag start 1 red flag
+item stone start 4 grey stone
+item feather end 0 white feather
+start start
+capacity 4
+goal flag end
+goal feather start
+---
+examine stone
+take stone
+take flag
+inv
+drop stone
+take flag
+examine flag
+go east
+take feather
+drop flag
+look
+go west
+drop feather
+look

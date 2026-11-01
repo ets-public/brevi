@@ -1,0 +1,24 @@
+check
+stalemate
+8 . . . . . b n r
+7 . . . . p . p q
+6 . . . . Q p k r
+5 . . . . . . . p
+4 . . . . . . . P
+3 . . . . P . . .
+2 P P P P . P P .
+1 R N B . K B N R
+  a b c d e f g h
+undone c8e6
+undone f7g6
+g6: none
+moves played: 17
+8 . . Q . . b n r
+7 . . . . p k p q
+6 . . . . . p . r
+5 . . . . . . . p
+4 . . . . . . . P
+3 . . . . P . . .
+2 P P P P . P P .
+1 R N B . K B N R
+  a b c d e f g h

@@ -1,0 +1,16 @@
+line 1: nothing to undo
+undone e2e4
+line 4: nothing to undo
+e2: e3 e4
+f8: none
+d4: d5
+moves played: 2
+8 r n b q k b n r
+7 p p p p . p p p
+6 . . . . p . . .
+5 . . . . . . . .
+4 . . . P . . . .
+3 . . . . . . . .
+2 P P P . P P P P
+1 R N B Q K B N R
+  a b c d e f g h

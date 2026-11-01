@@ -1,0 +1,21 @@
+g7: f8 g8 h8
+line 10: illegal move
+8 r n b q k b . N
+7 p p p p . . . p
+6 . . . . . . n .
+5 . . . . . . . .
+4 . . . . . . . .
+3 . . . . . . . .
+2 P P P . P P P P
+1 R N B Q K B N R
+  a b c d e f g h
+moves played: 9
+8 r n b q k b . N
+7 p p p p . . . p
+6 . . . . . . n .
+5 . . . . . . . .
+4 . . . . . . . .
+3 . . . . . . . .
+2 P P P . P P P P
+1 R N B Q K B N R
+  a b c d e f g h

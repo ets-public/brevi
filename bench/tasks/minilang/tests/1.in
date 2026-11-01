@@ -1,0 +1,21 @@
+func fib(n)
+  if n < 2
+    return n
+  end
+  return fib(n - 1) + fib(n - 2)
+end
+i = 0
+out = []
+while i < 15
+  push(out, fib(i))
+  i = i + 1
+end
+print out
+print fact(10)
+func fact(n)
+  r = 1
+  for k in range(n)
+    r = r * (k + 1)
+  end
+  return r
+end

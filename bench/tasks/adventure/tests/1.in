@@ -1,0 +1,14 @@
+room a Room A
+room b Room B
+exit a north b
+start a
+---
+go north
+go north
+go south
+fly
+go sideways
+take nothing
+drop lamp
+score
+examine b

@@ -9,4 +9,6 @@ XL = "order_book mini_sql calc_lang fifo_stock library project_plan".split()
 XL2 = "grep_lite payroll league crafting tiny_cpu parking".split()
 # Third held-out XL set (ref/gen_big5.py).
 XL3 = "books toc poker trains quiz warehouse".split()
-SETS = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3}
+# "Huge" held-out set (ref/gen_huge.py, 1 Nov 2026): 300-800 line programs over 3-4 files, for the big-programs push.
+HUGE = "minilang chess adventure".split()
+SETS = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3, "huge": HUGE}
