@@ -2145,6 +2145,7 @@ impl<K: Hash + Eq + Ord + Clone, V> AxOrdered<K, V> for AxM<K, V> {
         (k, v)
     }
 }
+<<<<<<< HEAD
 // Python's Counter(xs), dict(pairs) and c.most_common(n).
 pub trait AxTally<T> {
     fn ax_tally(&self) -> AxM<T, i64>;
@@ -2286,6 +2287,8 @@ impl AxExit for &str {
         std::process::exit(1)
     }
 }
+=======
+>>>>>>> origin/main
 // next(it, default) on a list being read from the front.
 pub trait AxNextOr<T> {
     fn ax_next_or(&mut self, d: T) -> T;
