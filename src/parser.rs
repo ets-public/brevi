@@ -1240,7 +1240,7 @@ impl Parser {
                             if name == "get" && args.len() == 1 && !self.own_method(&e) {
                                 args.push(Expr::Call("none".into(), vec![], line));
                             }
-                            let name = python_method(&name, args.len()).unwrap_or(name);
+                            let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
                             // Python's `"{} of {:>5}".format(a, b)` fills the string.
                             if name == "format" {
                                 if let Expr::Str(parts) = &e {
