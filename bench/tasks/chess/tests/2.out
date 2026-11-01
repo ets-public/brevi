@@ -1,0 +1,25 @@
+e5: e6 f6
+8 r n b q k b n r
+7 p p p . p . p p
+6 . . . . . P . .
+5 . . . p . . . .
+4 . . . . . . . .
+3 . . . . . . . .
+2 P P P P . P P P
+1 R N B Q K B N R
+  a b c d e f g h
+line 8: illegal move
+line 9: illegal move
+line 10: bad input
+line 11: bad input
+line 12: bad input
+moves played: 5
+8 r n b q k b n r
+7 p p p . p . p p
+6 . . . . . P . .
+5 . . . p . . . .
+4 . . . . . . . .
+3 . . . . . . . .
+2 P P P P . P P P
+1 R N B Q K B N R
+  a b c d e f g h

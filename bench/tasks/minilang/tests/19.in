@@ -1,0 +1,6 @@
+print "a" # comment with "quote
+print [] == [], [] + [], range(0), range(3)
+print "x"[0], "abc"[-1]
+z = [[1, 2], [3]]
+z[0][1] = 7
+print z

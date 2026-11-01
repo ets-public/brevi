@@ -1,0 +1,21 @@
+room r1 First
+room r2 Second
+room r3 Third
+exit r1 east r2 locked k
+exit r2 west r1 locked k
+exit r2 east r3 locked k2
+item k r1 1 iron key
+item k2 r3 1 steel key
+start r1
+---
+unlock west
+unlock east
+take k
+unlock east
+unlock east
+go east
+look
+unlock west
+unlock east
+go east
+score

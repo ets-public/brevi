@@ -1,0 +1,14 @@
+room a Room A
+room a Again
+exit a north c
+exit a north a
+item key a x heavy key
+item key2 nowhere 1 key two
+item key3 a 1
+start b
+start a
+capacity 5
+capacity 6
+goal ghost a
+door a b
+exit a west a locked mystery

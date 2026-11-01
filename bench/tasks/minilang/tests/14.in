@@ -1,0 +1,3 @@
+func len(x)
+  return 0
+end

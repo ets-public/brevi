@@ -1,0 +1,10 @@
+# basics
+x = 3
+y = x * 4 - 2
+print x, y, "hi"
+print 7 / 2, -7 / 2, 7 % 3, -7 % 2
+print "ab" + "cd", [1, 2] + [3], len("hello"), len([1, [2, 3]])
+print 1 == 1, 1 == true, "a" < "b", [1, [2]] == [1, [2]], none
+s = "result: " + str(x + y)
+print s
+print str([1, "two", [true, none]])

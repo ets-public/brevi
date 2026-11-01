@@ -100,7 +100,7 @@ comp: ("for" comp_target "in" binary ("if" binary)?)+
 comp_target: comp_name ("," comp_name)*
 comp_name: NAME | "(" comp_name ("," comp_name)* ","? ")"
 
-?primary: INT | FLOAT | STRING
+?primary: INT | FLOAT | STRING (_n STRING)*   // "ab" "cd" joined, also across lines in brackets
         | "true" | "false"
         | NAME call?
         | "(" _n [expr ("," _n expr)* ","?] _n ")"

@@ -23,6 +23,19 @@ python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
 
 The test passes when, averaged over two runs, `pyb` costs no more dollars than `python` for both Sonnet and Haiku, and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Latest result is run `e14` (1 Nov 2026, one run): Sonnet $0.205 against $0.176 (1.16x), Haiku $0.024 against $0.025 (0.94x). Not yet passed. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
+## Huge programs (set `huge`, since 1 Nov 2026)
+
+Programs of 200 to 750 lines over 3 or 4 files, where Brevi's plain-Python acceptance drops off (on 1 Nov, 95% of saved solutions under 40 lines built unchanged, 11% of those over 150 lines). Three held-out tasks from `ref/gen_huge.py`: `minilang` (an interpreter for a small language), `chess` (a referee with castling, en passant, promotion, mate and undo) and `adventure` (a text-adventure engine with world checking). Run like the release test with `--set huge`.
+
+First run `h1` (1 Nov 2026, one run each):
+
+| | Python passes | Python $ | Brevi-built Python passes | Brevi-built $ |
+|---|---|---|---|---|
+| Sonnet | 3/3 | $0.237 | 2/3 | $0.500 |
+| Haiku | 3/3 | $0.034 | 0/3 | $0.057 |
+
+None of the six passing CPython solutions (199 to 727 lines) builds with Brevi unchanged. First blockers: adjacent f-strings joined across lines, a field set to `None` in `__init__` and to a tuple later, parameter types only known from a call in another file, and `type(v) is int` checks on values that hold several types (the interpreter's values).
+
 ## End-to-end benchmark (`e2e.py`, 1 Nov 2026)
 
 `run.sh` scores code written plus errors read. `e2e.py` counts everything the Claude API bills for a finished task: the system prompt (the Brevi guide, cached), tool calls and results, thinking, text and retries, read from each response's `usage`, and prices it in dollars. Each task is a fresh conversation with the same tools in both languages (`write_file`, `edit_file`, `check`, plus `guide` for Brevi). `python3 e2e.py RUN --lang brevi --model sonnet --set xl3` runs a set; `python3 e2e.py --summary "logs/e2e/*.jsonl"` prints totals. Task sets live in `subject_prompt_sets.py`.

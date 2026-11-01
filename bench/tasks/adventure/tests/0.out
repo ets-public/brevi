@@ -1,0 +1,23 @@
+Great Hall
+items: brass_key
+exits: east
+carrying: lamp (2/8)
+taken brass_key
+Old Kitchen
+Old Kitchen
+items: barrel
+exits: west, down (locked)
+barrel is too heavy
+the way down is locked
+unlocked
+Damp Cellar
+taken gold
+carrying: brass_key, gold, lamp (8/8)
+Old Kitchen
+Old Kitchen
+items: barrel
+exits: west, down
+Great Hall
+visited 3 of 3 rooms in 4 moves
+dropped gold
+you win in 4 moves

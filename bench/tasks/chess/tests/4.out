@@ -1,0 +1,23 @@
+e1: d2 f1 g1
+line 14: illegal move
+e1: d2 f1 g1
+e1: c1 d1 f1 g1
+8 r n b q . r k .
+7 . p p . p p b .
+6 . . . p . n p B
+5 p . . . . . . .
+4 . . . . . . . .
+3 . . N P . N P .
+2 P P P Q P P B P
+1 . . K R . . . R
+  a b c d e f g h
+moves played: 17
+8 r n b q . r k .
+7 . p p . p p b .
+6 . . . p . n p B
+5 p . . . . . . .
+4 . . . . . . . .
+3 . . N P . N P .
+2 P P P Q P P B P
+1 . . K R . . . R
+  a b c d e f g h

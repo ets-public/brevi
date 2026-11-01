@@ -1,0 +1,31 @@
+func count(n)
+  if n == 0
+    return 0
+  end
+  return 1 + count(n - 1)
+end
+print count(50)
+func collatz(n)
+  steps = 0
+  while n != 1
+    if n % 2 == 0
+      n = n / 2
+    else
+      n = 3 * n + 1
+    end
+    steps = steps + 1
+  end
+  return steps
+end
+best = 0
+arg = 0
+for k in range(30)
+  if k > 0
+    c = collatz(k)
+    if c > best
+      best = c
+      arg = k
+    end
+  end
+end
+print arg, best
