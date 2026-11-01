@@ -848,11 +848,11 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
-            "char" | "fmt" | "spec" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" => Str,
+            "char" | "fmt" | "spec" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
-            "words" | "lines" | "chars" | "split" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
+            "words" | "lines" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
             "ints" => List(Box::new(Int)),
@@ -871,6 +871,8 @@ impl Cx<'_> {
                 _ => elem(&r),
             },
             "slice" | "sort" | "sort_by" | "rev" | "take" | "skip" | "filter" | "unique" | "step" | "repeat" | "abs" | "round" => match &r {
+                // list(s) and set(s) on a string: its characters.
+                Str if m == "skip" || m == "unique" => List(Box::new(Str)),
                 Hole if m == "repeat" || m == "slice" => Hole,
                 Map(k, _) if m == "filter" || m == "sort" || m == "sort_by" || m == "sort_by_rev" => List(k.clone()),
                 _ => r,

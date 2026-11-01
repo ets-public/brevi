@@ -13,4 +13,7 @@ c 2
 ab:12
 none
 zz:7
+banana| banana 3 ['a', 'b', 'n'] 3
+['a', 'c']
+q1 a=b q1=a b ['a', 'b', 'c', 'b'] ['a', 'b', 'c'] 2
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
