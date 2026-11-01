@@ -251,6 +251,55 @@ pub fn ax_init(files: &'static [(&'static str, usize, usize)]) {
     }));
 }
 
+// Python mode: a program written as Python (it uses def, class or global) prints as Python does:
+// True/False, 2.0, ['a', 'b'], {'k': 1}. Brevi-style programs keep Brevi's output.
+pub static AX_PY_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn ax_py_mode() {
+    AX_PY_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+fn ax_py_on() -> bool {
+    AX_PY_MODE.load(std::sync::atomic::Ordering::Relaxed)
+}
+// Python's repr of a string: single quotes unless the text has a ' and no ".
+fn ax_py_repr(s: &str) -> String {
+    let q = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push(q);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if c == q => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push(q);
+    out
+}
+// Python's str of a float: always a decimal point (2.0), inf and nan as Python spells them.
+fn ax_py_float(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    let a = x.abs();
+    if a != 0.0 && (a >= 1e16 || a < 1e-4) {
+        // 1e-05 and 1e+16, as Python writes them.
+        let t = format!("{x:e}");
+        let (m, e) = t.split_once('e').unwrap();
+        let n: i32 = e.parse().unwrap();
+        let m = if m.contains('.') { m.to_string() } else { m.to_string() };
+        return format!("{m}e{}{:02}", if n < 0 { '-' } else { '+' }, n.abs());
+    }
+    format!("{x:?}")
+}
 pub trait Show {
     fn show(&self) -> String;
 }
@@ -261,12 +310,20 @@ impl Show for i64 {
 }
 impl Show for f64 {
     fn show(&self) -> String {
-        self.to_string()
+        if ax_py_on() {
+            ax_py_float(*self)
+        } else {
+            self.to_string()
+        }
     }
 }
 impl Show for bool {
     fn show(&self) -> String {
-        self.to_string()
+        match (ax_py_on(), *self) {
+            (true, true) => "True".into(),
+            (true, false) => "False".into(),
+            _ => self.to_string(),
+        }
     }
 }
 impl Show for String {
@@ -287,6 +344,7 @@ impl Show for () {
 fn show_item<T: Show + 'static>(x: &T) -> String {
     // Strings inside collections get quotes so [a, b] and ["a, b"] differ.
     match (x as &dyn std::any::Any).downcast_ref::<String>() {
+        Some(s) if ax_py_on() => ax_py_repr(s),
         Some(s) => format!("{s:?}"),
         None => x.show(),
     }
@@ -298,6 +356,10 @@ impl<T: Show + 'static> Show for Vec<T> {
 }
 impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> {
     fn show(&self) -> String {
+        if ax_py_on() {
+            let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}: {}", show_item(k), show_item(v))).collect();
+            return format!("{{{}}}", parts.join(", "));
+        }
         // Written like compact JSON, so str({"error": msg}) is ready to send.
         let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}:{}", show_item(k), show_item(v))).collect();
         format!("{{{}}}", parts.join(","))
@@ -1994,6 +2056,20 @@ impl<T: PartialOrd> AxHeapq<T> for Vec<T> {
         top
     }
 }
+// csv.reader(...) over a whole text or a list of lines.
+pub trait AxCsvRows {
+    fn ax_csv_rows(&self) -> Vec<Vec<String>>;
+}
+impl AxCsvRows for String {
+    fn ax_csv_rows(&self) -> Vec<Vec<String>> {
+        csv(self.clone())
+    }
+}
+impl AxCsvRows for Vec<String> {
+    fn ax_csv_rows(&self) -> Vec<Vec<String>> {
+        csv(self.join("\n"))
+    }
+}
 // Python's strip family: rstrip()/lstrip() trim whitespace at one end; strip(cs)/rstrip(cs)/lstrip(cs)
 // trim any of the characters in cs. isupper/islower/isalnum as in Python.
 pub trait AxStrPy {
@@ -2117,8 +2193,31 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> T {
     if b > a { b } else { a }
 }
 // ---- exact decimals: fixed point with 9 places ----
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Default, Hash)]
-pub struct Dec(pub i128);
+// The second field is the number of decimal places written, as Python's Decimal keeps it:
+// "1.50" stays 1.50 and quantize sets it. Only the value counts when comparing or hashing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Dec(pub i128, pub u8);
+impl PartialEq for Dec {
+    fn eq(&self, o: &Dec) -> bool {
+        self.0 == o.0
+    }
+}
+impl Eq for Dec {}
+impl PartialOrd for Dec {
+    fn partial_cmp(&self, o: &Dec) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for Dec {
+    fn cmp(&self, o: &Dec) -> std::cmp::Ordering {
+        self.0.cmp(&o.0)
+    }
+}
+impl Hash for Dec {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.0.hash(h)
+    }
+}
 // A dec compares directly with an int: `price > 0`.
 impl PartialEq<i64> for Dec {
     fn eq(&self, o: &i64) -> bool {
@@ -2143,7 +2242,7 @@ impl Dec {
         let i: i128 = if ip.is_empty() { 0 } else { ip.parse().map_err(|_| AxErr(format!("decimal too large: {:?}", s)))? };
         let f: i128 = format!("{:0<9}", fp).parse().unwrap_or(0);
         let v = i * DEC_ONE + f;
-        Ok(Dec(if neg { -v } else { v }))
+        Ok(Dec(if neg { -v } else { v }, fp.len() as u8))
     }
     pub fn ax_fmt(&self, decimals: i64) -> String {
         let d = decimals.clamp(0, 9) as u32;
@@ -2158,7 +2257,7 @@ impl Dec {
         if neg { format!("-{s}") } else { s }
     }
     pub fn ax_abs(&self) -> Dec {
-        Dec(self.0.abs())
+        Dec(self.0.abs(), self.1)
     }
     pub fn ax_float(&self) -> f64 {
         self.0 as f64 / DEC_ONE as f64
@@ -2169,9 +2268,34 @@ impl Dec {
     pub fn ax_round(&self) -> Dec {
         Dec::parse(&self.ax_fmt(0)).unwrap()
     }
+    // Python's d.quantize(Decimal("0.01")) (half to even), or with rounding=ROUND_HALF_UP (half away from zero).
+    pub fn ax_quantize(&self, q: Dec, half_up: bool) -> Dec {
+        let d = q.1.min(9) as u32;
+        let unit = 10i128.pow(9 - d);
+        let (n, r) = (self.0.div_euclid(unit), self.0.rem_euclid(unit));
+        let up = if half_up {
+            if self.0 >= 0 { r * 2 >= unit } else { r * 2 > unit }
+        } else {
+            r * 2 > unit || (r * 2 == unit && n % 2 != 0)
+        };
+        Dec((n + up as i128) * unit, d as u8)
+    }
+    // Fewest places that write the value exactly.
+    fn places(&self) -> u8 {
+        let mut v = self.0.abs();
+        let mut p = 9u8;
+        while p > 0 && v % 10 == 0 {
+            v /= 10;
+            p -= 1;
+        }
+        p
+    }
 }
 impl Show for Dec {
     fn show(&self) -> String {
+        if ax_py_on() {
+            return self.ax_fmt(self.1.max(self.places()) as i64);
+        }
         let s = self.ax_fmt(9);
         let s = s.trim_end_matches('0');
         s.trim_end_matches('.').to_string()
@@ -2180,19 +2304,19 @@ impl Show for Dec {
 impl Plus for Dec {
     type Out = Dec;
     fn plus(self, o: Dec) -> Dec {
-        Dec(self.0 + o.0)
+        Dec(self.0 + o.0, self.1.max(o.1))
     }
 }
 impl std::ops::Sub for Dec {
     type Output = Dec;
     fn sub(self, o: Dec) -> Dec {
-        Dec(self.0 - o.0)
+        Dec(self.0 - o.0, self.1.max(o.1))
     }
 }
 impl std::ops::Mul for Dec {
     type Output = Dec;
     fn mul(self, o: Dec) -> Dec {
-        Dec(self.0 * o.0 / DEC_ONE)
+        Dec(self.0 * o.0 / DEC_ONE, (self.1 + o.1).min(9))
     }
 }
 impl std::ops::Div for Dec {
@@ -2201,23 +2325,27 @@ impl std::ops::Div for Dec {
         if o.0 == 0 {
             panic!("division by zero");
         }
-        Dec(self.0 * DEC_ONE / o.0)
+        let v = self.0 * DEC_ONE / o.0;
+        // An exact quotient keeps Python's places (a's minus b's, or as many as it needs); otherwise all 9.
+        let r = Dec(v, 0);
+        let p = if (self.0 * DEC_ONE) % o.0 == 0 { (self.1.saturating_sub(o.1)).max(r.places()) } else { 9 };
+        Dec(v, p)
     }
 }
 // Ints mix with decs in arithmetic: `0 - amt`, `price * 2`, `total += 1`.
 fn dec_of(n: i64) -> Dec {
-    Dec(n as i128 * DEC_ONE)
+    Dec(n as i128 * DEC_ONE, 0)
 }
 impl Plus<i64> for Dec {
     type Out = Dec;
     fn plus(self, o: i64) -> Dec {
-        Dec(self.0 + dec_of(o).0)
+        Dec(self.0 + dec_of(o).0, self.1)
     }
 }
 impl Plus<Dec> for i64 {
     type Out = Dec;
     fn plus(self, o: Dec) -> Dec {
-        Dec(dec_of(self).0 + o.0)
+        Dec(dec_of(self).0 + o.0, o.1)
     }
 }
 macro_rules! dec_int_ops {
@@ -2255,12 +2383,12 @@ impl PartialOrd<Dec> for i64 {
 impl std::ops::Neg for Dec {
     type Output = Dec;
     fn neg(self) -> Dec {
-        Dec(-self.0)
+        Dec(-self.0, self.1)
     }
 }
 impl std::ops::SubAssign for Dec {
     fn sub_assign(&mut self, o: Dec) {
-        self.0 -= o.0
+        *self = *self - o
     }
 }
 impl std::ops::MulAssign for Dec {
@@ -2275,7 +2403,7 @@ impl std::ops::DivAssign for Dec {
 }
 impl AxSum<Dec> for Vec<Dec> {
     fn ax_sum(&self) -> Dec {
-        Dec(self.iter().map(|d| d.0).sum())
+        Dec(self.iter().map(|d| d.0).sum(), self.iter().map(|d| d.1).max().unwrap_or(0))
     }
 }
 pub trait AxToDec {
@@ -2283,7 +2411,7 @@ pub trait AxToDec {
 }
 impl AxToDec for i64 {
     fn ax_dec(&self) -> Dec {
-        Dec(*self as i128 * DEC_ONE)
+        Dec(*self as i128 * DEC_ONE, 0)
     }
 }
 pub trait AxStrDec {
@@ -2395,7 +2523,7 @@ pub trait AxRoundTo {
 }
 impl AxRoundTo for Dec {
     fn ax_round_to(&self, n: i64) -> Dec {
-        Dec::parse(&self.ax_fmt(n)).unwrap()
+        Dec::parse(&self.ax_fmt(n.clamp(0, 9))).unwrap()
     }
 }
 impl AxRoundTo for f64 {

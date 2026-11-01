@@ -785,6 +785,13 @@ impl Parser {
                         };
                         if self.eat_sym("(") {
                             let raw = self.args()?;
+                            // Python's d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP): half to even unless ROUND_HALF_UP.
+                            if name == "quantize" && !raw.is_empty() {
+                                let up = raw.iter().any(|a| a.0.as_deref() == Some("rounding") && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP"))
+                                    || raw.get(1).is_some_and(|a| a.0.is_none() && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP"));
+                                e = Expr::Method(Box::new(e), name, vec![raw[0].1.clone(), Expr::Bool(up)], line);
+                                continue;
+                            }
                             if matches!(name.as_str(), "sort" | "sort_by" | "sorted") {
                                 if let Some(s) = sort_kw(e.clone(), &raw, line) {
                                     e = s;
@@ -801,6 +808,20 @@ impl Parser {
                                         continue;
                                     }
                                 }
+                            }
+                            // csv.reader(sys.stdin), csv.reader(lines) or csv.reader(text.splitlines()) give the rows.
+                            if name == "reader" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "csv") {
+                                let src = match args.remove(0) {
+                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    other => other,
+                                };
+                                e = Expr::Method(Box::new(src), "csv_rows".into(), vec![], line);
+                                continue;
+                            }
+                            // date.fromisoformat(s) and datetime.date.fromisoformat(s) are date(s).
+                            if name == "fromisoformat" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "date") || matches!(&e, Expr::Field(m, f) if f == "date" && matches!(m.as_ref(), Expr::Ident(d) if d == "datetime")) && name == "fromisoformat" {
+                                e = Expr::Call("date".into(), vec![(None, args.remove(0))], line);
+                                continue;
                             }
                             // sys.stdout.write(s) prints s as it is.
                             if name == "write" && args.len() == 1 && matches!(&e, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys")) {
@@ -1523,6 +1544,7 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
     }
     Some(match (name, args.len()) {
         ("set" | "list" | "deque", 0) => Expr::List(vec![]),
+        ("Decimal", 1) => m(args.remove(0).1, "dec", vec![]),
         ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {
             let f = args.remove(0).1;
