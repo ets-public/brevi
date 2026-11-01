@@ -4,7 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
-- More plain Python from the e14 trial's first attempts: a lambda called at once (`(lambda s: (s[0], s[1]))(score(t))`); rows of a mixed list changed in a loop (`backorders.append([oid, sku, left])`, then `for b in backorders: b[2] -= got`); dicts built from a method's parameters (`self.lots.append({"seq": n, "sku": sku, "qty": qty})`) and dicts with a key that is a keyword (`'type'`) become records; and a loop that changes the dicts a helper returns after filtering and sorting them (`lots = [l for l in self.lots if ...]`, `lots.sort(key=...)`, `return lots`) changes the stored dicts, as in Python. When every build fails, errors come from the build with inferred types. The e14 Sonnet poker and warehouse and Haiku warehouse first attempts now pass every test, and Haiku's quiz builds and prints what Python prints.
+- More plain Python from the e14 trial's first attempts: a lambda called at once (`(lambda s: (s[0], s[1]))(score(t))`); rows of a mixed list changed in a loop (`backorders.append([oid, sku, left])`, then `for b in backorders: b[2] -= got`); dicts built from a method's parameters (`self.lots.append({"seq": n, "sku": sku, "qty": qty})`) and dicts with a key that is a keyword (`'type'`) become records; and a loop that changes the dicts a helper returns after filtering and sorting them (`lots = [l for l in self.lots if ...]`, `lots.sort(key=...)`, `return lots`) changes the stored dicts, as in Python. The e14 Sonnet poker and warehouse and Haiku warehouse first attempts now pass every test, and Haiku's quiz builds and prints what Python prints.
 
 ## v0.19.0 (1 Nov 2026)
 
