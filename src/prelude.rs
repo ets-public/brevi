@@ -2145,6 +2145,147 @@ impl<K: Hash + Eq + Ord + Clone, V> AxOrdered<K, V> for AxM<K, V> {
         (k, v)
     }
 }
+// Python's Counter(xs), dict(pairs) and c.most_common(n).
+pub trait AxTally<T> {
+    fn ax_tally(&self) -> AxM<T, i64>;
+}
+impl<T: Hash + Eq + Ord + Clone> AxTally<T> for Vec<T> {
+    fn ax_tally(&self) -> AxM<T, i64> {
+        let mut m = AxM::default();
+        for x in self {
+            match m.get_mut(x) {
+                Some(n) => *n += 1,
+                None => {
+                    m.insert(x.clone(), 1);
+                }
+            }
+        }
+        m
+    }
+}
+impl AxTally<String> for String {
+    fn ax_tally(&self) -> AxM<String, i64> {
+        self.chars().map(|c| c.to_string()).collect::<Vec<_>>().ax_tally()
+    }
+}
+pub trait AxToDict<K, V> {
+    fn ax_to_dict(&self) -> AxM<K, V>;
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxToDict<K, V> for Vec<(K, V)> {
+    fn ax_to_dict(&self) -> AxM<K, V> {
+        let mut m = AxM::default();
+        for (k, v) in self {
+            m.insert(k.clone(), v.clone());
+        }
+        m
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxToDict<K, V> for AxM<K, V> {
+    fn ax_to_dict(&self) -> AxM<K, V> {
+        let mut m = AxM::default();
+        for (k, v) in self.iter() {
+            m.insert(k.clone(), v.clone());
+        }
+        m
+    }
+}
+pub trait AxMostCommon<K> {
+    fn ax_most_common(&self, n: i64) -> Vec<(K, i64)>;
+    fn ax_most_common_all(&self) -> Vec<(K, i64)> {
+        self.ax_most_common(-1)
+    }
+}
+impl<K: Hash + Eq + Ord + Clone> AxMostCommon<K> for AxM<K, i64> {
+    fn ax_most_common(&self, n: i64) -> Vec<(K, i64)> {
+        let mut v: Vec<(K, i64)> = self.iter().map(|(k, c)| (k.clone(), *c)).collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1));
+        if n >= 0 {
+            v.truncate(n as usize);
+        }
+        v
+    }
+}
+// zfill, title, center, capitalize as in Python.
+pub trait AxStrFmtPy {
+    fn ax_zfill(&self, n: i64) -> String;
+    fn ax_title(&self) -> String;
+    fn ax_center(&self, n: i64) -> String;
+    fn ax_center_with(&self, n: i64, fill: impl AsRef<str>) -> String;
+    fn ax_capitalize(&self) -> String;
+    fn ax_count_sub(&self, sub: impl AsRef<str>) -> i64;
+}
+impl AxStrFmtPy for String {
+    fn ax_zfill(&self, n: i64) -> String {
+        let len = self.chars().count() as i64;
+        if len >= n {
+            return self.clone();
+        }
+        let zeros = "0".repeat((n - len) as usize);
+        match self.chars().next() {
+            Some(c @ ('-' | '+')) => format!("{c}{zeros}{}", &self[1..]),
+            _ => format!("{zeros}{self}"),
+        }
+    }
+    fn ax_title(&self) -> String {
+        let mut out = String::new();
+        let mut prev = false;
+        for c in self.chars() {
+            if c.is_alphabetic() {
+                if prev { out.extend(c.to_lowercase()) } else { out.extend(c.to_uppercase()) }
+                prev = true;
+            } else {
+                out.push(c);
+                prev = false;
+            }
+        }
+        out
+    }
+    fn ax_center(&self, n: i64) -> String {
+        self.ax_center_with(n, " ")
+    }
+    fn ax_center_with(&self, n: i64, fill: impl AsRef<str>) -> String {
+        let len = self.chars().count() as i64;
+        if len >= n {
+            return self.clone();
+        }
+        let marg = n - len;
+        let left = marg / 2 + (marg & n & 1);
+        let f = fill.as_ref();
+        format!("{}{self}{}", f.repeat(left as usize), f.repeat((marg - left) as usize))
+    }
+    fn ax_count_sub(&self, sub: impl AsRef<str>) -> i64 {
+        let sub = sub.as_ref();
+        if sub.is_empty() { self.chars().count() as i64 + 1 } else { self.matches(sub).count() as i64 }
+    }
+    fn ax_capitalize(&self) -> String {
+        let mut cs = self.chars();
+        match cs.next() {
+            Some(c) => c.to_uppercase().chain(cs.flat_map(|c| c.to_lowercase())).collect(),
+            None => String::new(),
+        }
+    }
+}
+// sys.exit(n) and sys.exit("message").
+pub trait AxExit {
+    fn ax_exit_with(&self) -> !;
+}
+impl AxExit for i64 {
+    fn ax_exit_with(&self) -> ! {
+        std::process::exit(*self as i32)
+    }
+}
+impl AxExit for String {
+    fn ax_exit_with(&self) -> ! {
+        eprintln!("{self}");
+        std::process::exit(1)
+    }
+}
+impl AxExit for &str {
+    fn ax_exit_with(&self) -> ! {
+        eprintln!("{self}");
+        std::process::exit(1)
+    }
+}
 // next(it, default) on a list being read from the front.
 pub trait AxNextOr<T> {
     fn ax_next_or(&mut self, d: T) -> T;

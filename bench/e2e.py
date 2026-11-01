@@ -29,6 +29,9 @@ sys.path.insert(0, str(B))
 from subject_prompt_sets import SETS  # noqa: E402
 
 
+GUIDE = ROOT / "BREVI.md"
+
+
 def system_prompt(lang):
     name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
     ext = {"brevi": "bv", "python": "py"}[lang]
@@ -40,7 +43,7 @@ def system_prompt(lang):
         "Stop calling tools once check prints PASS. Write code directly, without long planning notes."
     )
     if lang == "brevi":
-        text += "\n\nThe Brevi language guide follows. For details it points to, call guide with a word.\n\n" + (ROOT / "BREVI.md").read_text()
+        text += "\n\nThe Brevi language guide follows. For details it points to, call guide with a word.\n\n" + Path(GUIDE).read_text()
     return text
 
 
@@ -190,8 +193,12 @@ def main():
     ap.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--thinking", default="adaptive", choices=["adaptive", "between_tools"], help="between_tools turns thinking off (Sonnet)")
+    ap.add_argument("--guide", help="a guide file to send instead of BREVI.md (for A/B tests)")
     ap.add_argument("--summary")
     a = ap.parse_args()
+    if a.guide:
+        global GUIDE
+        GUIDE = Path(a.guide).resolve()
     if a.summary:
         return summary(a.summary)
     if not (a.run and a.lang):

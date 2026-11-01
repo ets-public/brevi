@@ -1,0 +1,17 @@
+import sys
+from collections import Counter
+words = "b a b c a b".split()
+c = Counter(words)
+print(c.most_common(2))
+print(c.most_common())
+print(Counter("hello")["l"], "hello".count("l"))
+for a, b in zip([1, 2, 3], "xyz"):
+    print(a, b)
+print(list(zip([1, 2], [3.5, 4.5])))
+d = dict([("k", 1), ("j", 2)])
+print(d)
+print("42".zfill(5), "-7".zfill(4), "hello world".title(), "ab".center(5), "ab".center(6, "*"), "hELLO".capitalize())
+print([i * i for i in range(6) if i % 2])
+if len(words) > 100:
+    sys.exit(2)
+print("done")

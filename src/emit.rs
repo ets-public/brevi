@@ -16,7 +16,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "to_dict", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -852,7 +852,7 @@ impl Emitter {
             Expr::Method(_, m, _, _) => match m.as_str() {
                 "len" | "count" | "find" | "find_from" | "index_of" | "digit" => named("int"),
                 "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
-                "trim" | "lower" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" => named("str"),
+                "trim" | "lower" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "zfill" | "title" | "center" | "center_with" | "capitalize" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
                 "dec" | "big" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_) | Expr::Float(_))) => named(m),
                 "float" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_))) => named("f64"),
@@ -1622,10 +1622,19 @@ impl Emitter {
             }
             // A string read item by item (`enumerate`, `map`, `filter`, `any`, `all`) is its list of characters.
             Expr::Method(recv, name, args, line)
-                if ["enumerate", "map", "filter", "any", "all", "sort", "sort_by"].contains(&name.as_str()) && matches!(self.infer_ty(recv), Some(Ty::Named(n)) if n == "str") =>
+                if ["enumerate", "map", "filter", "any", "all", "sort", "sort_by", "zip", "unique"].contains(&name.as_str()) && matches!(self.infer_ty(recv), Some(Ty::Named(n)) if n == "str") =>
             {
                 let chars = Expr::Method(recv.clone(), "chars".into(), vec![], *line);
                 self.expr(&Expr::Method(Box::new(chars), name.clone(), args.clone(), *line))
+            }
+            // s.count("ab") counts a substring.
+            Expr::Method(recv, name, args, line) if name == "count" && args.len() == 1 && !matches!(args[0], Expr::Lambda(..)) && matches!(self.infer_ty(recv), Some(Ty::Named(n)) if n == "str") => {
+                self.expr(&Expr::Method(recv.clone(), "count_sub".into(), args.clone(), *line))
+            }
+            // zip(xs, "abc") pairs items with characters.
+            Expr::Method(recv, name, args, line) if name == "zip" && args.len() == 1 && matches!(self.infer_ty(&args[0]), Some(Ty::Named(n)) if n == "str") => {
+                let chars = Expr::Method(Box::new(args[0].clone()), "chars".into(), vec![], *line);
+                self.expr(&Expr::Method(recv.clone(), name.clone(), vec![chars], *line))
             }
             Expr::Method(recv, name, args, line) => {
                 self.line = *line;
