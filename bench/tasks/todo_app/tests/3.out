@@ -1,0 +1,24 @@
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [x]
+  Listbox [[ ] two]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 1 done"
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [x]
+  Listbox []
+  Button "Done"
+  Button "Clear done"
+  Label "0 open, 2 done"
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[x] one | [x] two]
+  Button "Done"
+  Button "Clear done"
+  Label "0 open, 2 done"

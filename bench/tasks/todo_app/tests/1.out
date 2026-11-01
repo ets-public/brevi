@@ -1,0 +1,33 @@
+[askyesno] Todo: Remove 1 done tasks?
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[ ] a | [ ] c]
+  Button "Done"
+  Button "Clear done"
+  Label "2 open, 0 done"
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[ ] a | [x] c | [ ] b]
+  Button "Done"
+  Button "Clear done"
+  Label "2 open, 1 done"
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [x]
+  Listbox [[ ] b]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 2 done"
+window "Todo"
+  Entry ""
+  Button "Add"
+  Checkbutton "Hide done" [ ]
+  Listbox [[x] a | [x] c | [ ] b]
+  Button "Done"
+  Button "Clear done"
+  Label "1 open, 2 done"

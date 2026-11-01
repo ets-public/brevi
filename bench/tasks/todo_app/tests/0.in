@@ -1,0 +1,22 @@
+show
+click Add
+type 1 buy milk
+click Add
+type 1   walk dog
+key 1 Return
+type 1 buy milk
+key 1 Return
+click Done
+select 1 0
+click Done
+show
+click Hide done
+show
+select 1 0
+click Done
+click Hide done
+answer no
+click Clear done
+show
+click Clear done
+show

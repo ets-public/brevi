@@ -721,9 +721,9 @@ pub fn invoke(w: W) {
     }
 }
 
-/// Runs the callbacks bound to `ev` on `w` (and `<Key>` for any key).
+/// Runs the callbacks bound to `ev` on `w` (a key press fires `<Key>` separately).
 pub(crate) fn fire(w: W, ev: &str, e: &Event) {
-    let cbs: Vec<EvCb> = with(|a| a.widgets[w].binds.iter().filter(|(k, _)| k == ev || (k == "<Key>" && ev.starts_with("<Key"))).map(|(_, c)| c.clone()).collect());
+    let cbs: Vec<EvCb> = with(|a| a.widgets[w].binds.iter().filter(|(k, _)| k == ev).map(|(_, c)| c.clone()).collect());
     for c in cbs {
         c(e);
     }
