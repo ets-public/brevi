@@ -1,0 +1,2 @@
+acts = {"hi": lambda s: "hi " + s}
+print(acts["hi"]("y"))

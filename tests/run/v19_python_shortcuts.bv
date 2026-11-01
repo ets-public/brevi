@@ -1,0 +1,29 @@
+from collections import defaultdict
+import sys, math
+
+xs = [3, 1, 3, 2]
+s = set(xs)
+seen = set()
+seen.add(4)
+seen.add(4)
+print(len(s), seen, 4 in seen)
+q, r = divmod(17, 5)
+print(q, r)
+ys = [1]
+ys.extend([2, 3])
+print(ys, ys[::-1], ys[::2], "abc"[::-1])
+print(round(2.567, 2), round(3.7), math.sqrt(16.0), math.floor(2.7))
+for i, x in enumerate(["a", "b"], 1):
+    print(i, x)
+m = {}
+m.setdefault("a", []).append(1)
+m.setdefault("a", []).append(2)
+c = defaultdict(int)
+c["x"] += 1
+print(m, c)
+grid = [0] * 3
+p = ((1, 2), 3)
+print(grid, 2 * ["a"], p.0.1)
+name = "ab"
+print("%d items, %s, %.2f, [%5d] [%-4s] 100%%" % (3, name, 3.14159, 42, name))
+print("{} has {:>5}| {:.1f} {0}".format(name, 42, 2.25))

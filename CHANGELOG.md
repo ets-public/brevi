@@ -10,6 +10,9 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 - `inner = m.get_or(k, {})` is typed by what is done with it, like a fresh `{}`, so nested maps built this way at the top level work inside functions.
 - A function ending in `if c: m.remove(k) else: print(...)` gives no value, as in Python.
 - Functions are values: `ops = [add, mul]`, pairs such as `("+", add)`, and calls straight from a list, tuple or field (`ops[0](3, 4)`).
+- `None` for int, float, str and tuple values: `best = None`, `x is None`, `x is not None`, `return None`.
+- Maps of functions: `ops = {"+": add, "-": lambda a, b: a - b}`, then `ops[op](a, b)` or `for k, f in ops.items()`.
+- More Python habits: `set(xs)` and `s.add(x)`, `xs.extend(ys)`, `xs[::-1]`, `divmod`, `round(x)`/`round(x, n)`, `enumerate(xs, 1)`, `m.setdefault(k, [])`, `defaultdict(int)`, `"%d %s" % (a, b)`, `"{:>5}".format(x)`, `math.sqrt`, `sys.stdin`, `[0] * n`, `p.0.1`, and `import sys`/`from collections import ...` lines. These came from compile errors in earlier benchmark runs.
 - Python 3.15 unpacking in comprehensions (`[*xs for xs in xss]`) reads as a comprehension followed by `flatten()` (#15). Rust 1.99 builds cleanly (#13).
 - The core guide is trimmed from 5,035 to 3,490 tokens; rare details move to REFERENCE.md, served by `brevi guide WORD`, and CI fails when BREVI.md goes over 3,600 tokens (#18).
 - Install channels prepared for launch, not yet published: Claude Code plugin and marketplace, MCP registry `server.json`, a PyPI wrapper, an npm wrapper (`brevi-lang`) and a dataset export of 49 tasks with 1,893 verified solutions (#20).

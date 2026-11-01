@@ -17,6 +17,8 @@ start: _NL? (line _NL)* line?
      | "use" STRING STRING*          // use "util.bv", use sha2 "0.10"
      | "use" NAME STRING*
      | "allow" NAME ("," NAME)*       // allow read, write, native
+     | "import" NAME ("," NAME)*     // import sys, math: Python modules Brevi has built in
+     | "from" NAME "import" NAME ("," NAME)*
      | simple
 
 opener: fn_sig
@@ -62,7 +64,7 @@ lambda: NAME "=>" expr
       | "lambda" [NAME ("," NAME)*] ":" expr
 
 ?binary: unary (binop _n unary)*
-binop: "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" "in"
+binop: "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" "in" | "is" | "is" "not"
      | ".." | "+" | "-" | "*" | "/" | "%" | "//"
 ?unary: ("-" | "!" | "not") unary
       | postfix
@@ -72,7 +74,7 @@ trailer: _NL? "." (NAME | INT | "or") call?
        | "[" _n slice _n "]"
        | "?"
        | call                        // ops[0](3, 4)
-slice: expr | expr? ":" expr?
+slice: expr | expr? ":" expr? (":" expr?)?   // xs[a:b], xs[::-1]
 
 call: "(" _n [arg ("," _n arg)* ","?] _n ")"
 arg: (NAME ("=" | ":"))? "*"? expr comp?

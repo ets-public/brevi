@@ -21,9 +21,11 @@ Escapes: `\n \t \r \0 \" \\ \{ \}`.
 A missing map key reads as the type's zero (0, 0.0, "", [], dec 0). `print(a, b)` puts a space between.
 
 ## Python
-Python spellings models write by habit are accepted: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `sorted(xs, key=f, reverse=True)`, `print(x, end="", sep=", ")`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `&& || !` for `and or not`. `f"..."` is a plain string (Brevi strings already fill in `{x}`).
+Python spellings models write by habit are accepted: `True False`, `a if c else b`, `range(a, b, step)`, `for c in s`, `enumerate(xs) int(s) ord chr reversed`, `lambda x: x * 2`, `min(xs, key=f)`, `sorted(xs, key=f, reverse=True)`, `print(x, end="", sep=", ")`, `append strip split() startswith endswith isdigit items index get(k, d)`, `", ".join(xs)`, `&& || !` for `and or not`. `f"..."` is a plain string (Brevi strings already fill in `{x}`). Also `set(xs)` (a sorted list without repeats) with `s.add(x)`, `xs.extend(ys)`, `xs[::-1]` and `xs[::2]`, `divmod(a, b)`, `round(x)` and `round(x, 2)`, `enumerate(xs, 1)`, `m.setdefault(k, []).append(x)`, `defaultdict(int)`, `"%5.2f %s" % (x, s)`, `"{:>5} {}".format(a, b)`, `math.sqrt floor ceil`, `for line in sys.stdin`; `import sys`, `math`, `re` and `from collections import ...` lines are ignored.
 
-Functions are values: `ops = [add, mul]`, `for (name, f) in [("+", add)]: f(1, 2)`, `ops[0](3, 4)`. A function in a map (`{"add": add}`) is not supported yet; use a list of pairs.
+Functions are values: `ops = [add, mul]`, `for (name, f) in [("+", add)]: f(1, 2)`, `ops[0](3, 4)`. A map of functions works when at least one value is a named function: `ops = {"+": add, "-": lambda a, b: a - b}`, then `ops[op](a, b)`.
+
+`None` works for int, float, str and tuple values: `best = None`, `if best is None or v > best: best = v`, `return None` from `-> int`. It is a reserved value, not an Option, so it cannot hold a user type.
 
 ## Tools
 `brevi build f.bv -o app --release` builds an optimized binary. Runtime errors print `{"e":"runtime","line":N,"msg":...}`.

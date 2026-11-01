@@ -127,7 +127,30 @@ fn looks_like_prose(rest: &str) -> bool {
     rest.trim().is_empty() || words.windows(2).any(|p| is_word(p[0]) && is_word(p[1]))
 }
 
+// Python imports of modules Brevi has built in (`import sys`, `from collections import defaultdict`)
+// are dropped; the line stays so line numbers hold.
+const PY_BUILTIN_MODULES: &[&str] = &["sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools"];
+
+fn drop_py_imports(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    for l in src.split_inclusive('\n') {
+        let t = l.trim_end();
+        let module = t.strip_prefix("import ").map(|m| m.split(',').map(str::trim).collect::<Vec<_>>()).or_else(|| {
+            let rest = t.strip_prefix("from ")?;
+            let (m, _) = rest.split_once(" import ")?;
+            Some(vec![m.trim()])
+        });
+        if module.is_some_and(|ms| ms.iter().all(|m| PY_BUILTIN_MODULES.contains(m))) {
+            out.push_str(if l.ends_with('\n') { "\n" } else { "" });
+        } else {
+            out.push_str(l);
+        }
+    }
+    out
+}
+
 pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
+    let src = &drop_py_imports(src);
     let chars: Vec<char> = src.chars().collect();
     let mut out = Vec::new();
     let (mut i, mut line, mut col) = (0usize, 1usize, 1usize);
@@ -414,7 +437,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '_') {
                 i += 1;
             }
-            let is_float = chars.get(i) == Some(&'.') && chars.get(i + 1).map_or(false, |d| d.is_ascii_digit());
+            // After a `.` this is a tuple field (`p.0.1`), never a float.
+            let after_dot = start > 0 && chars[start - 1] == '.';
+            let is_float = !after_dot && chars.get(i) == Some(&'.') && chars.get(i + 1).map_or(false, |d| d.is_ascii_digit());
             if is_float {
                 i += 1;
                 while i < chars.len() && chars[i].is_ascii_digit() {
@@ -423,7 +448,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             // `1e15`, `2.5e-3`
             let mut is_float = is_float;
-            if matches!(chars.get(i), Some('e' | 'E')) {
+            if !after_dot && matches!(chars.get(i), Some('e' | 'E')) {
                 let j = i + 1 + matches!(chars.get(i + 1), Some('-' | '+')) as usize;
                 if chars.get(j).map_or(false, |d| d.is_ascii_digit()) {
                     i = j;
@@ -461,6 +486,20 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 push(&mut out, Tok::Kw("else"));
                 push(&mut out, Tok::Kw("if"));
                 continue;
+            }
+            // Python's `x is None` and `x is not None` compare with None.
+            if word == "is" {
+                let rest: String = chars[i..chars.len().min(i + 10)].iter().collect();
+                if rest.starts_with(" None") {
+                    push(&mut out, Tok::Sym("=="));
+                    continue;
+                }
+                if rest.starts_with(" not None") {
+                    push(&mut out, Tok::Sym("!="));
+                    i += 4;
+                    col += 4;
+                    continue;
+                }
             }
             // Python's True and False are true and false.
             let word = match word.as_str() { "True" => "true".to_string(), "False" => "false".to_string(), _ => word };

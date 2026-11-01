@@ -79,7 +79,8 @@ fn some_known(t: &T) -> bool {
     match t {
         List(e) | Heap(e) => *e.as_ref() != Hole,
         Map(k, v) => **k != Hole || **v != Hole,
-        _ => false,
+        // `best = None`, later `best = v`: a plain type.
+        other => *other != Hole && !matches!(other, Unit),
     }
 }
 
@@ -123,6 +124,8 @@ fn empty_kind(e: &Expr) -> Option<T> {
         Expr::List(xs) if xs.is_empty() => Some(List(Box::new(Hole))),
         Expr::Map(ps) if ps.is_empty() => Some(Map(Box::new(Hole), Box::new(Hole))),
         Expr::Call(n, a, _) if n == "heap" && a.is_empty() => Some(Heap(Box::new(Hole))),
+        // `best = None`: typed by what is put there later.
+        Expr::Call(n, a, _) if n == "none" && a.is_empty() => Some(Hole),
         // `inner = secs.get_or(k, {})`: typed by what is done with it, like a fresh `{}`.
         Expr::Method(_, m, a, _) if matches!(m.as_str(), "get_or" | "get") && a.len() == 2 => empty_kind(&a[1]),
         _ => None,
@@ -785,14 +788,14 @@ impl Cx<'_> {
             "big" => Big,
             "char" | "fmt" | "spec" | "trim" | "lower" | "upper" | "replace" | "re_sub" | "text" => Str,
             "list" => List(Box::new(Json)),
-            "repeat" | "slice" if matches!(r, Str) => Str,
+            "repeat" | "slice" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
             "words" | "lines" | "chars" | "split" | "re_full" | "re_find" | "re_split" | "re_list" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" => List(Box::new(List(Box::new(Str)))),
             "ints" => List(Box::new(Int)),
             "json" => Json,
-            "is_null" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
+            "is_null" | "is_none" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
             "first" | "last" | "pop" | "min" | "max" | "sum" => match &r {
                 Map(_, v) if m == "pop" => *v.clone(),
                 _ => elem(&r),
@@ -810,7 +813,7 @@ impl Cx<'_> {
                 Str => List(Box::new(Str)),
                 _ => Hole,
             },
-            "enumerate" => List(Box::new(Tuple(vec![Int, elem(&r)]))),
+            "enumerate" | "enumerate_from" => List(Box::new(Tuple(vec![Int, elem(&r)]))),
             "zip" => List(Box::new(Tuple(vec![elem(&r), elem(&a(0))]))),
             "keys" => match &r {
                 Map(k, _) => List(k.clone()),

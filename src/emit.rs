@@ -6,20 +6,20 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap"];
+const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
     "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten",
+    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
 const PURE_METHODS: &[&str] = &[
-    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten",
+    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten", "enumerate_from",
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
@@ -784,7 +784,17 @@ impl Emitter {
                 _ => None,
             },
             Expr::List(xs) if !xs.is_empty() => Some(Ty::List(Box::new(self.infer_ty(&xs[0])?))),
-            Expr::Map(ps) if !ps.is_empty() => Some(Ty::Map(Box::new(self.infer_ty(&ps[0].0)?), Box::new(self.infer_ty(&ps[0].1)?))),
+            Expr::Map(ps) if !ps.is_empty() => {
+                // A map of functions: the value type is the first named function's pointer type.
+                let fptr = ps.iter().find_map(|(_, v)| match v {
+                    Expr::Ident(n) if !self.locals.contains(n) && self.global(n).is_none() => self.fn_ptr_ty(n),
+                    _ => None,
+                });
+                if let Some(f) = fptr {
+                    return Some(Ty::Map(Box::new(self.infer_ty(&ps[0].0)?), Box::new(Ty::Named(format!("AxFn<{f}>")))));
+                }
+                Some(Ty::Map(Box::new(self.infer_ty(&ps[0].0)?), Box::new(self.infer_ty(&ps[0].1)?)))
+            }
             Expr::Tuple(xs) => Some(Ty::Tuple(xs.iter().map(|x| self.infer_ty(x)).collect::<Option<Vec<_>>>()?)),
             Expr::Call(n, _, _) => match n.as_str() {
                 "lines" | "args" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
@@ -821,6 +831,51 @@ impl Emitter {
     }
 
     // A map literal with string keys and values of different kinds becomes a JSON object.
+    // A lambda with its parameter types written out from a fn pointer type like `fn(i64, i64) -> i64`.
+    fn lambda_typed(&mut self, e: &Expr, fptr: &str) -> String {
+        let Expr::Lambda(params, body) = e else { return self.expr(e) };
+        let inner = fptr.strip_prefix("fn(").unwrap_or("");
+        let (mut tys, mut depth, mut cur) = (Vec::new(), 0, String::new());
+        for (i, c) in inner.char_indices() {
+            match c {
+                '<' | '(' | '[' => depth += 1,
+                '>' if depth > 0 && !inner[..i].ends_with('-') => depth -= 1,
+                ')' | ']' if depth > 0 => depth -= 1,
+                ')' => break,
+                ',' if depth == 0 => {
+                    tys.push(std::mem::take(&mut cur).trim().to_string());
+                    continue;
+                }
+                _ => {}
+            }
+            cur.push(c);
+        }
+        if !cur.trim().is_empty() {
+            tys.push(cur.trim().to_string());
+        }
+        if tys.len() != params.len() {
+            return self.expr(e);
+        }
+        let outer = self.locals.clone();
+        for p in params {
+            self.locals.insert(p.clone());
+        }
+        let saved = std::mem::replace(&mut self.must, true);
+        let ps: Vec<String> = params.iter().zip(&tys).map(|(p, t)| format!("{p}: {t}")).collect();
+        let out = format!("(|{}| {})", ps.join(", "), self.expr(body));
+        self.must = saved;
+        self.locals = outer;
+        out
+    }
+
+    // `fn(i64, i64) -> i64` for a plain (non-failing) function used as a value.
+    fn fn_ptr_ty(&self, n: &str) -> Option<String> {
+        let sig = self.fns.get(n).filter(|f| !f.fallible && n != "main")?;
+        let ps: Vec<String> = sig.params.iter().map(|p| rust_ty(&p.ty)).collect();
+        let ret = if matches!(sig.ret, Ty::Unit) { String::new() } else { format!(" -> {}", rust_ty(&sig.ret)) };
+        Some(format!("fn({}){ret}", ps.join(", ")))
+    }
+
     fn mixed_map(&self, pairs: &[(Expr, Expr)]) -> bool {
         if !pairs.iter().all(|(k, _)| matches!(k, Expr::Str(_))) {
             return false;
@@ -1430,12 +1485,10 @@ impl Emitter {
                 self.check_ident(n);
                 if self.locals.contains(n) {
                     format!("{}.clone()", self.place(e))
-                } else if let Some(sig) = self.fns.get(n).filter(|f| !f.fallible && n != "main") {
-                    // A function used as a value (`ops = {"add": add, "mul": mul}`) is a fn pointer, so
+                } else if let Some(f) = self.fn_ptr_ty(n) {
+                    // A function used as a value (`ops = [add, mul]`) is a fn pointer, so
                     // different functions with the same signature fit in one list or map.
-                    let ps: Vec<String> = sig.params.iter().map(|p| rust_ty(&p.ty)).collect();
-                    let ret = if matches!(sig.ret, Ty::Unit) { String::new() } else { format!(" -> {}", rust_ty(&sig.ret)) };
-                    format!("({n} as fn({}){ret})", ps.join(", "))
+                    format!("({n} as {f})")
                 } else {
                     n.clone()
                 }
@@ -1448,7 +1501,26 @@ impl Emitter {
                     let ps: Vec<String> = pairs.iter().map(|(k, v)| format!("(Show::show(&{}), AxToJson::ax_json(&{}))", self.expr(k), self.expr(v))).collect();
                     format!("ax_obj(vec![{}])", ps.join(", "))
                 } else {
-                    let ps: Vec<String> = pairs.iter().map(|(k, v)| format!("({}, {})", self.expr(k), self.expr(v))).collect();
+                    // A map of functions holds each in an AxFn, which has the zero value a map needs.
+                    let is_fn = |v: &Expr| matches!(v, Expr::Ident(n) if !self.locals.contains(n) && self.global(n).is_none() && self.fns.get(n).is_some_and(|f| !f.fallible && n != "main"));
+                    // The pointer type comes from the first named function; lambdas beside it take that type.
+                    let fptr = pairs.iter().find_map(|(_, v)| match v {
+                        Expr::Ident(n) if is_fn(v) => self.fn_ptr_ty(n),
+                        _ => None,
+                    });
+                    let fns = fptr.is_some() && pairs.iter().all(|(_, v)| is_fn(v) || matches!(v, Expr::Lambda(..)));
+                    if fptr.is_none() && pairs.iter().all(|(_, v)| matches!(v, Expr::Lambda(..))) {
+                        self.diag(self.line, "a map of lambdas needs the functions' types", Some("make the first one a named function: fn up(s: str) -> str = s.upper(), then {\"up\": up, \"hi\": lambda s: ...}".into()));
+                    }
+                    let ps: Vec<String> = pairs
+                        .iter()
+                        .map(|(k, v)| match v {
+                            // `{"+": add, "-": lambda a, b: a - b}`: a lambda that uses no outside names is a fn pointer.
+                            Expr::Lambda(..) if fns => format!("({}, AxFn(Some(({}) as {})))", self.expr(k), self.lambda_typed(v, fptr.as_deref().unwrap()), fptr.as_deref().unwrap()),
+                            _ if fns => format!("({}, AxFn(Some({})))", self.expr(k), self.expr(v)),
+                            _ => format!("({}, {})", self.expr(k), self.expr(v)),
+                        })
+                        .collect();
                     format!("AxM::from([{}])", ps.join(", "))
                 }
             }
@@ -1727,6 +1799,7 @@ impl Emitter {
             "print" if plain.len() > 1 => return format!("print([{}].join(\" \"))", plain.iter().map(|p| format!("Show::show(&{p})")).collect::<Vec<_>>().join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
+            "none" => return "ax_none()".to_string(),
             "fail" => {
                 if !self.fallible {
                     self.diag(self.line, "fail() used in a function that cannot fail", Some("add ! after the function's return type".into()));

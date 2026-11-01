@@ -1865,6 +1865,86 @@ impl AxChar for i64 {
         char::from_u32(*self as u32).map_or(String::new(), |c| c.to_string())
     }
 }
+// A function stored in a map: `ops = {"+": add}`, then `ops["+"](1, 2)` or `f = ops[k]; f(1, 2)`.
+#[derive(Clone, Copy, PartialEq)]
+pub struct AxFn<F>(pub Option<F>);
+impl<F> Default for AxFn<F> {
+    fn default() -> Self {
+        AxFn(None)
+    }
+}
+impl<F> std::ops::Deref for AxFn<F> {
+    type Target = F;
+    fn deref(&self) -> &F {
+        self.0.as_ref().expect("no function stored for that key")
+    }
+}
+impl<F> Show for AxFn<F> {
+    fn show(&self) -> String {
+        "<fn>".to_string()
+    }
+}
+// Python's None in an int, float, str or tuple slot: a value no program makes by itself.
+pub trait AxNone {
+    fn ax_none() -> Self;
+    fn ax_is_none(&self) -> bool
+    where
+        Self: PartialEq + Sized,
+    {
+        *self == Self::ax_none()
+    }
+}
+pub fn ax_none<T: AxNone>() -> T {
+    T::ax_none()
+}
+impl AxNone for i64 {
+    fn ax_none() -> Self {
+        i64::MIN
+    }
+}
+impl AxNone for f64 {
+    fn ax_none() -> Self {
+        f64::MIN
+    }
+}
+impl AxNone for String {
+    fn ax_none() -> Self {
+        "\u{0}None".to_string()
+    }
+}
+impl AxNone for bool {
+    fn ax_none() -> Self {
+        false
+    }
+}
+impl<A: AxNone, B: AxNone> AxNone for (A, B) {
+    fn ax_none() -> Self {
+        (A::ax_none(), B::ax_none())
+    }
+}
+impl<A: AxNone, B: AxNone, C: AxNone> AxNone for (A, B, C) {
+    fn ax_none() -> Self {
+        (A::ax_none(), B::ax_none(), C::ax_none())
+    }
+}
+// "abc"[::-1] is "cba".
+pub trait AxStrRev {
+    fn ax_rev(&self) -> String;
+}
+impl AxStrRev for String {
+    fn ax_rev(&self) -> String {
+        self.chars().rev().collect()
+    }
+}
+// Python's enumerate(xs, 1) counts from 1.
+pub trait AxEnumFrom<T> {
+    fn ax_enumerate_from(&self, n: i64) -> Vec<(i64, T)>;
+}
+impl<T: Clone> AxEnumFrom<T> for Vec<T> {
+    fn ax_enumerate_from(&self, n: i64) -> Vec<(i64, T)> {
+        self.iter().cloned().enumerate().map(|(i, x)| (i as i64 + n, x)).collect()
+    }
+}
 // [0].repeat(n) is a list of n zeros; unique() sorts and drops repeats.
 pub trait AxListRepeat<T> {
     fn ax_repeat(&self, n: i64) -> Vec<T>;

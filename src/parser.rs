@@ -384,7 +384,17 @@ impl Parser {
                 return Ok(Stmt::Assign { target: e, op, value, line });
             }
         }
-        Ok(Stmt::Expr { expr: e, line })
+        // Python's `xs.extend(ys)` is `xs += ys`; `s.add(x)` on a set() list adds x unless it is there.
+        match e {
+            Expr::Method(recv, m, mut a, _) if m == "extend" && a.len() == 1 => Ok(Stmt::Assign { target: *recv, op: "+=", value: a.remove(0), line }),
+            Expr::Method(recv, m, mut a, l) if m == "add" && a.len() == 1 => {
+                let x = a.remove(0);
+                let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l)));
+                let push = Expr::Method(recv, "push".into(), vec![x], l);
+                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line })
+            }
+            e => Ok(Stmt::Expr { expr: e, line }),
+        }
     }
 
     // After a name: is this `, b, c =`?
@@ -497,6 +507,26 @@ impl Parser {
                 let x = if empty(&rhs) { lhs } else { rhs };
                 let t = Expr::Method(Box::new(x), "is_empty".into(), vec![], self.line());
                 if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
+            } else if (op == "==" || op == "!=") && [&lhs, &rhs].iter().any(|e| matches!(e, Expr::Call(n, a, _) if n == "none" && a.is_empty())) {
+                // `x is None` / `x == None`.
+                let x = if matches!(&rhs, Expr::Call(n, _, _) if n == "none") { lhs } else { rhs };
+                let t = Expr::Method(Box::new(x), "is_none".into(), vec![], self.line());
+                if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
+            } else if let (true, Expr::Str(parts)) = (op == "%", &lhs) {
+                // Python's `"%d of %s" % (a, b)` fills the string.
+                let args = match rhs.clone() {
+                    Expr::Tuple(xs) => xs,
+                    x => vec![x],
+                };
+                match fill_format(parts, args, true, self.line()) {
+                    Some(p) => Expr::Str(p),
+                    None => Expr::Binary(op, Box::new(lhs), Box::new(rhs)),
+                }
+            } else if op == "*" && matches!(lhs, Expr::List(_)) {
+                // Python's `[0] * n` repeats the list.
+                Expr::Method(Box::new(lhs), "repeat".into(), vec![rhs], self.line())
+            } else if op == "*" && matches!(rhs, Expr::List(_)) {
+                Expr::Method(Box::new(rhs), "repeat".into(), vec![lhs], self.line())
             } else {
                 Expr::Binary(op, Box::new(lhs), Box::new(rhs))
             };
@@ -552,6 +582,31 @@ impl Parser {
                             }
                             let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             let name = python_method(&name, args.len()).unwrap_or(name);
+                            // Python's `"{} of {:>5}".format(a, b)` fills the string.
+                            if name == "format" {
+                                if let Expr::Str(parts) = &e {
+                                    if let Some(p) = fill_format(parts, args.clone(), false, line) {
+                                        e = Expr::Str(p);
+                                        continue;
+                                    }
+                                }
+                            }
+                            // math.sqrt(x), math.floor(x), math.ceil(x); sys.stdin.read() is stdin().
+                            if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && matches!(name.as_str(), "sqrt" | "floor" | "ceil") {
+                                let x = args.remove(0);
+                                let f = Expr::Method(Box::new(Expr::Method(Box::new(x), "float".into(), vec![], line)), name.clone(), vec![], line);
+                                e = if name == "sqrt" { f } else { Expr::Method(Box::new(f), "int".into(), vec![], line) };
+                                continue;
+                            }
+                            if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty()) && name == "read" && args.is_empty() {
+                                e = Expr::Call("stdin".into(), vec![], line);
+                                continue;
+                            }
+                            // `m.setdefault(k, [])` is `m[k]`: a missing key reads as the empty value.
+                            if name == "setdefault" && args.len() == 2 && empty_literal(&args[1]) {
+                                e = Expr::Index(Box::new(e), Box::new(args.remove(0)));
+                                continue;
+                            }
                             // `xs.to_list()` / `xs.copy()`: a list already is one, so this is a copy.
                             let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() {
                                 args.push(Expr::Int(0));
@@ -570,6 +625,8 @@ impl Parser {
                             } else {
                                 Expr::Method(Box::new(e), name, args, line)
                             };
+                        } else if name == "stdin" && matches!(&e, Expr::Ident(m) if m == "sys") {
+                            e = Expr::Call("lines".into(), vec![], line);
                         } else {
                             e = Expr::Field(Box::new(e), name);
                         }
@@ -581,12 +638,22 @@ impl Parser {
                 let line = self.line();
                 let start = if self.is_sym(":") { None } else { Some(self.expr()?) };
                 if self.eat_sym(":") {
-                    let mut args = vec![start.unwrap_or(Expr::Int(0))];
-                    if !self.is_sym("]") {
+                    let mut args = vec![start.clone().unwrap_or(Expr::Int(0))];
+                    if !self.is_sym("]") && !self.is_sym(":") {
                         args.push(self.expr()?);
                     }
+                    // Python's step: `xs[::-1]` reverses, `xs[::2]` takes every second item.
+                    let step = if self.eat_sym(":") && !self.is_sym("]") { Some(self.expr()?) } else { None };
                     self.expect_sym("]")?;
-                    e = Expr::Method(Box::new(e), "slice".into(), args, line);
+                    if start.is_some() || args.len() > 1 || step.is_none() {
+                        e = Expr::Method(Box::new(e), "slice".into(), args, line);
+                    }
+                    match step {
+                        Some(Expr::Unary("-", n)) if matches!(*n, Expr::Int(1)) => e = Expr::Method(Box::new(e), "rev".into(), vec![], line),
+                        Some(Expr::Int(-1)) => e = Expr::Method(Box::new(e), "rev".into(), vec![], line),
+                        Some(Expr::Int(1)) | None => {}
+                        Some(k) => e = Expr::Method(Box::new(e), "step".into(), vec![k], line),
+                    }
                 } else {
                     self.expect_sym("]")?;
                     let Some(idx) = start else { return Err(self.err("expected an index")) };
@@ -725,6 +792,8 @@ impl Parser {
                 let body = self.expr()?;
                 Ok(Expr::Lambda(names, Box::new(body)))
             }
+            // Python's None: an int, float, str or tuple slot that is not set yet.
+            Tok::Ident(name) if name == "None" && !self.is_sym("(") => Ok(Expr::Call("none".into(), vec![], line)),
             Tok::Ident(name) => {
                 if self.eat_sym("(") {
                     let mut args = self.args()?;
@@ -769,6 +838,11 @@ impl Parser {
                             Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => Expr::Method(base, name, vec![la.remove(0)], line),
                             other => Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(Expr::Ident("b_".into())))], line),
                         });
+                    }
+                    if !self.user_fns.contains(&name) && args.iter().all(|a| a.0.is_none()) {
+                        if let Some(d) = python_call(&name, &mut args, line) {
+                            return Ok(d);
+                        }
                     }
                     match m {
                         Some(m) if args.len() == 1 && args[0].0.is_none() && !self.user_fns.contains(&name) => Ok(Expr::Method(Box::new(args.remove(0).1), m.into(), vec![], line)),
@@ -1067,6 +1141,132 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         _ => return None,
     }
     .into())
+}
+
+// Python built-ins spelled as Brevi: set(xs), divmod(a, b), round(x, n), enumerate(xs, 1), defaultdict(int).
+fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) -> Option<Expr> {
+    let m = |e: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(e), n.into(), a, line);
+    Some(match (name, args.len()) {
+        ("set" | "list", 0) => Expr::List(vec![]),
+        ("dict" | "Counter", 0) | ("defaultdict", 1) => Expr::Map(vec![]),
+        ("set", 1) => m(args.remove(0).1, "unique", vec![]),
+        ("divmod", 2) => {
+            let (a, b) = (args[0].1.clone(), args[1].1.clone());
+            Expr::Tuple(vec![Expr::Binary("//", Box::new(a.clone()), Box::new(b.clone())), Expr::Binary("%", Box::new(a), Box::new(b))])
+        }
+        ("round", 1) => m(m(args.remove(0).1, "round", vec![]), "int", vec![]),
+        ("round", 2) => {
+            let n = args.remove(1).1;
+            m(args.remove(0).1, "round", vec![n])
+        }
+        ("enumerate", 2) => {
+            let n = args.remove(1).1;
+            m(args.remove(0).1, "enumerate_from", vec![n])
+        }
+        _ => return None,
+    })
+}
+
+// Fills `{}`/`{:spec}`/`{0}` (format) or `%s`/`%5.2f`/`%-8s` (percent) slots in a string's text
+// with the arguments; None when the slots and arguments do not match up.
+fn fill_format(parts: &[StrPart], args: Vec<Expr>, percent: bool, line: usize) -> Option<Vec<StrPart>> {
+    let mut out = Vec::new();
+    let mut lit = String::new();
+    let mut next = 0;
+    let mut used = vec![false; args.len()];
+    for part in parts {
+        let text = match part {
+            StrPart::Lit(t) => t,
+            other => {
+                if !lit.is_empty() {
+                    out.push(StrPart::Lit(std::mem::take(&mut lit)));
+                }
+                out.push(other.clone());
+                continue;
+            }
+        };
+        let cs: Vec<char> = text.chars().collect();
+        let mut i = 0;
+        while i < cs.len() {
+            let slot = if percent && cs[i] == '%' {
+                if cs.get(i + 1) == Some(&'%') {
+                    lit.push('%');
+                    i += 2;
+                    continue;
+                }
+                let mut j = i + 1;
+                while j < cs.len() && (cs[j].is_ascii_digit() || matches!(cs[j], '-' | '.' | '+')) {
+                    j += 1;
+                }
+                let ty = *cs.get(j)?;
+                if !matches!(ty, 'd' | 'i' | 's' | 'f' | 'r' | 'x' | 'e') {
+                    return None;
+                }
+                let flags: String = cs[i + 1..j].iter().collect();
+                let spec = match (ty, flags.strip_prefix('-')) {
+                    (_, Some(w)) => format!("<{w}"),
+                    ('s' | 'r', None) if !flags.is_empty() => format!(">{flags}"),
+                    ('f' | 'x' | 'e', None) => format!("{flags}{ty}"),
+                    (_, None) => flags,
+                };
+                i = j + 1;
+                let k = next;
+                next += 1;
+                Some((k, spec))
+            } else if !percent && cs[i] == '{' {
+                let j = i + cs[i..].iter().position(|&c| c == '}')?;
+                let inner: String = cs[i + 1..j].iter().collect();
+                let (idx, spec) = inner.split_once(':').unwrap_or((&inner, ""));
+                if !idx.chars().all(|c| c.is_ascii_digit()) {
+                    return None;
+                }
+                let k = if idx.is_empty() {
+                    next += 1;
+                    next - 1
+                } else {
+                    idx.parse().ok()?
+                };
+                i = j + 1;
+                Some((k, spec.to_string()))
+            } else {
+                None
+            };
+            match slot {
+                Some((k, spec)) => {
+                    let a = args.get(k)?.clone();
+                    *used.get_mut(k)? = true;
+                    if !lit.is_empty() {
+                        out.push(StrPart::Lit(std::mem::take(&mut lit)));
+                    }
+                    out.push(StrPart::Interp(if spec.is_empty() {
+                        a
+                    } else {
+                        Expr::Method(Box::new(a), "spec".into(), vec![Expr::Str(vec![StrPart::Lit(spec)])], line)
+                    }));
+                }
+                None => {
+                    lit.push(cs[i]);
+                    i += 1;
+                }
+            }
+        }
+    }
+    if !lit.is_empty() {
+        out.push(StrPart::Lit(lit));
+    }
+    used.iter().all(|u| *u).then_some(out)
+}
+
+// `[]`, `{}`, `0`, `0.0`, `""` and `set()`/`list()`/`dict()`: the value a missing map key reads as.
+fn empty_literal(e: &Expr) -> bool {
+    match e {
+        Expr::List(v) => v.is_empty(),
+        Expr::Map(v) => v.is_empty(),
+        Expr::Int(0) => true,
+        Expr::Float(f) => *f == 0.0,
+        Expr::Str(p) => p.is_empty(),
+        _ => false,
+    }
 }
 
 fn bind_upper(p: Pat) -> Pat {
