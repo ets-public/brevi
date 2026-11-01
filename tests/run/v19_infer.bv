@@ -1,0 +1,39 @@
+type Lot:
+  sku: str
+  qty: int
+
+enum Shape:
+  Circle(r: f64)
+  Sq(w: f64)
+
+fn add_lot(lots, sku, qty):
+  lots.push(Lot(sku: sku, qty: qty))
+
+fn total(lots) = lots.map(l => l.qty).sum()
+
+fn mark(seen, id):
+  if seen.has(id): return false
+  seen[id] = true
+  true
+
+fn bump(c):
+  c.qty += 1
+
+fn with_cell(r, i, v):
+  r[i] = v
+  return r
+
+fn area(s) = match s:
+  Circle(r) => 3.0 * r * r
+  Sq(w) => w * w
+
+fn dayn(d) = date(d).days
+
+ls = []
+add_lot(ls, "a", 3)
+add_lot(ls, "b", 4)
+bump(ls[0])
+seen = {}
+print(total(ls), mark(seen, "x"), mark(seen, "x"), seen)
+row = ["a", "b"]
+print(with_cell(row, 0, "z"), row, area(Sq(w: 2.0)), dayn("1970-01-03"))

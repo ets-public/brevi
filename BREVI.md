@@ -1,7 +1,7 @@
 # Brevi language guide (for models)
 
-Brevi compiles to Rust. Write it like Python: one statement per line, indented blocks after a line ending in `:` (a short block can follow the `:`), `#` comments. Only function parameters need types.
-A file can be just statements or define `fn main()`. Top-level names are shared by every function, like Python globals without `global`; a function whose body starts by setting a name (`i = 0`) has its own local.
+Brevi compiles to Rust. Write it like Python: one statement per line, indented blocks after a line ending in `:` (a short block can follow the `:`), `#` comments. Types are optional: parameters, return types and empty values are worked out from use. Write one only when `brevi check` asks.
+A file can be just statements or define `fn main()`. Scope works as in Python, `global x` included. Without any `global` line, functions may also set top-level names directly.
 `use "util.bv"` brings in another file's definitions. This guide is the core: `brevi guide WORD` prints every line about a name, and `brevi guide Strings`, `Lists`, `Python` or `Libraries` a section of details.
 
 ```
@@ -11,7 +11,7 @@ print("total {nums.sum()}, mean {(nums.sum().float() / nums.len().float()).fmt(2
 
 ## Types
 `int` (64-bit), `f64`, `bool`, `str`, `[T]` list, `{K: V}` map (sorted by key), `(A, B)` tuple, `dec` exact decimal, `big` exact integer, `Date`, `Json`, `heap[T]` min-heap.
-Values act as copies. A `mut` parameter edits the caller's variable; other parameters are local copies.
+A parameter changed in place (`xs.push(x)`, `xs[i] = v`, `p.n += 1`) changes the caller's value, as in Python. Mark it `mut` only to replace it whole (`mut xs`, then `xs = xs.filter(f)`). Other values act as copies.
 Tuples, lists and strings compare element by element: `pairs.sort_by(p => (-p.1, p.0))`. `p.0` is a tuple field (`p[0]` also works).
 
 ```
@@ -29,16 +29,16 @@ s = Rect(w: 2.0, h: 3.0)
 
 ## Functions
 ```
-fn area(s: Shape) -> f64 = match s:
+fn area(s) = match s:
   Circle(r) => 3.14159 * r * r
   Rect(w, h) => w * h
   Empty => 0.0
-fn load(path: str) -> [str]:
+fn load(path):
   text = read(path)                    # can fail; the error passes up
   if text.is_empty(): fail("empty file")
   text.lines()                         # last line is returned
-fn bump(mut xs: [int]):
-  for x in xs: x += 1                  # edits caller's list
+fn add(xs, x):
+  xs.push(x)                           # edits caller's list
 ```
 Errors pass up automatically, no `?`: a function using `fail(msg)` (like Python's raise), `read` or `s.int()` can fail, and so can its callers. Handle a failure with `.or(default)` (`s.int().or(0)`) or `match f(x):` with arms `Ok(v) => ...` and `Err(msg) => ...`.
 
