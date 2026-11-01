@@ -530,7 +530,11 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     let release = extra.contains(&"opt-level=3");
     let rt = if rust.starts_with(RT_HEADER) { runtime_lib(release) } else { None };
     let use_cache = std::env::var("BREVI_NO_CACHE").map_or(true, |v| v.is_empty() || v == "0");
-    let key = format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version()], 0), fnv(&[rust, &extra.join(" "), rustc_version()], 7));
+    // The prelude is linked from a prebuilt library rather than pasted in, so its own hash is part of the key:
+    // a changed runtime (a brevi upgrade) must not reuse a binary or error built against the old one.
+    static PRELUDE_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let ph = PRELUDE_HASH.get_or_init(|| format!("{:016x}", fnv(&[emit::PRELUDE, env!("CARGO_PKG_VERSION")], 3)));
+    let key = format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version(), ph], 0), fnv(&[rust, &extra.join(" "), rustc_version(), ph], 7));
     let cdir = cache_dir().join("bin");
     let cached = cdir.join(&key);
     if use_cache {
@@ -954,5 +958,5 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
 
 // A program written as Python (`def`, `class`, `global`) prints values and orders dicts as Python does.
 pub fn python_style(src: &str) -> bool {
-    src.lines().map(str::trim_start).any(|l| l.starts_with("def ") || l.starts_with("class ") || l.starts_with("global ") || l.starts_with("nonlocal "))
+    src.lines().map(str::trim_start).any(|l| l.starts_with("def ") || l.starts_with("class ") || l.starts_with("global ") || l.starts_with("nonlocal ") || l.starts_with("import ") || (l.starts_with("from ") && l.contains(" import ")))
 }

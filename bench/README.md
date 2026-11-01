@@ -27,7 +27,18 @@ Brevi costs 58% more than Python with Sonnet and 78% more with Haiku. Most of th
 
 Third and fourth runs (e3 cold, e4w one task at a time so the guide stays cached) keep each conversation in `work/e2e/.../conversation.json`, with thinking summaries. With a warm cache the guide costs almost nothing (about 4,600 cached tokens read per call). The gap is model output and the cache writes of that output in later turns: Sonnet Brevi $0.315 vs Python $0.187 (e4w). The thinking summaries show why: in Brevi, models stop to work out rules that differ from Python, mostly the scope of top-level names (3 of 8 Sonnet and 5 of 10 Haiku thinking blocks), plus copies vs `mut`, `Result` and whether a parser accepts a form. Python runs show none of this. `--thinking between_tools` turns thinking off on Sonnet for comparison.
 
-`python3 py_as_brevi.py` hands every saved Python solution to `brevi check` unchanged and lists the most common first errors. On 1 Nov 2026, 56 of 580 (9.7%) pass. The top blockers are `;` between statements (126), `import` lines (sys, json, datetime, heapq, csv), `def main()`, raw-string regexes, `|`/`&` on sets, and `.splitlines()`/`.rstrip()`.
+`python3 py_as_brevi.py` hands every saved Python solution to `brevi check` unchanged and lists the most common first errors. On 1 Nov 2026, 56 of 580 (9.7%) pass. The top blockers are `;` between statements (126), `import` lines (sys, json, datetime, heapq, csv), `def main()`, raw-string regexes, `|`/`&` on sets, and `.splitlines()`/`.rstrip()`. After the library batches (#32 to #39) and the roadmap thread's syntax work, 271 of 580 (46.7%) pass the fast check and 162 (27.9%) also build (`--full`).
+
+Later runs on the same 6 tasks, warm cache, one at a time (`--jobs 1`):
+
+| Run | Model | Brevi USD | Python USD | Note |
+| --- | --- | --- | --- | --- |
+| e5 | Sonnet | $0.262 | $0.182 | after #32 to #35; Brevi +44% (was +58%) |
+| e5 | Haiku | $0.044 | $0.025 | Brevi +77% |
+| e6g | Sonnet | $0.411 | (e5) | `--guide guides/python_first.md` |
+| e6g | Haiku | $0.053 | (e5) | `--guide guides/python_first.md` |
+
+The draft Python-first guide (e6g) cost more than the Brevi guide. On the single-file tasks the cost was about the same, but the code was 20 to 50% longer than plain Python: the guide's list of limits made models write cautious, fully annotated Python. Most of the extra cost came from the two multi-file tasks (quiz, warehouse), where models wrote `from stock import Stock` and module-level code in the other files. Brevi does not accept that yet. Other blockers seen: `"-" * 40`, `set.discard`, `None` for a missing date, and `.count`/set comprehensions on strings (the last two fixed in #39). Next: accept Python imports between files, cut the limits list down, then run the A/B again.
 
 ## Editing benchmark (`edit/`)
 

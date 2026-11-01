@@ -920,6 +920,14 @@ impl Parser {
                 let push = Expr::Method(recv, "push".into(), vec![x], l);
                 Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line })
             }
+            // `s.discard(x)` takes x out of a set() list when it is there.
+            Expr::Method(recv, m, mut a, l) if m == "discard" && a.len() == 1 && !self.user_fns.contains(&m) => {
+                let x = a.remove(0);
+                let cond = Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l);
+                let at = Expr::Method(recv.clone(), "index_of".into(), vec![x], l);
+                let rm = Expr::Method(recv, "remove".into(), vec![at], l);
+                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: rm, line }], None)), None), line })
+            }
             e => Ok(Stmt::Expr { expr: e, line }),
         }
     }
@@ -1231,6 +1239,12 @@ impl Parser {
                                 e = Expr::Call("date".into(), vec![(None, args.remove(0))], line);
                                 continue;
                             }
+                            // sys.exit(n) ends the program with that code; sys.exit("msg") prints msg and exits with 1.
+                            if name == "exit" && args.len() <= 1 && matches!(&e, Expr::Ident(s) if s == "sys") {
+                                let code = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
+                                e = Expr::Method(Box::new(code), "exit_with".into(), vec![], line);
+                                continue;
+                            }
                             // sys.stdout.write(s) prints s as it is.
                             if name == "write" && args.len() == 1 && matches!(&e, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys")) {
                                 e = Expr::Call("print".into(), vec![(None, args.remove(0)), (Some("end".into()), Expr::Str(vec![]))], line);
@@ -1396,7 +1410,7 @@ impl Parser {
         if self.eat_kw("if") {
             // The condition uses Python truth (`if s.trim()`): `not not c` reads it that way.
             let c = self.expr()?;
-            let c = if matches!(c, Expr::Binary(..) | Expr::Bool(_)) { c } else { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(c)))) };
+            let c = if matches!(&c, Expr::Binary(op, ..) if ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op)) || matches!(c, Expr::Bool(_)) { c } else { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(c)))) };
             e = Expr::Method(Box::new(e), "filter".into(), vec![Expr::Lambda(names.clone(), Box::new(c))], line);
         }
         if !matches!(&elem, Expr::Ident(n) if names.len() == 1 && n == &names[0]) {
@@ -1902,6 +1916,8 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("isupper", 0) => "is_upper",
         ("islower", 0) => "is_lower",
         ("isalnum", 0) => "is_alnum",
+        ("center", 2) => "center_with",
+        ("most_common", 0) => "most_common_all",
         ("split", 0) => "words",
         ("startswith", 1) => "starts_with",
         ("endswith", 1) => "ends_with",
@@ -1972,6 +1988,13 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             }
         }
         ("OrderedDict", 0) => Expr::Map(vec![]),
+        // zip(xs, ys), Counter(xs) (each item's count, in first-seen order) and dict(pairs).
+        ("zip", 2) => {
+            let ys = args.remove(1).1;
+            m(args.remove(0).1, "zip", vec![ys])
+        }
+        ("Counter", 1) => m(args.remove(0).1, "tally", vec![]),
+        ("dict", 1) => m(args.remove(0).1, "to_dict", vec![]),
         ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {
             let f = args.remove(0).1;

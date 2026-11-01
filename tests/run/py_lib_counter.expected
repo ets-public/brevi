@@ -1,0 +1,13 @@
+[('b', 3), ('a', 2)]
+[('b', 3), ('a', 2), ('c', 1)]
+2 2
+1 x
+2 y
+3 z
+[(1, 3.5), (2, 4.5)]
+{'k': 1, 'j': 2}
+00042 -007 Hello World   ab  **ab** Hello
+[1, 9, 25]
+done
+[5] 1
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

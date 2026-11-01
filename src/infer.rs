@@ -844,11 +844,11 @@ impl Cx<'_> {
             _ => Hole,
         };
         match m {
-            "len" | "count" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
+            "len" | "count" | "count_sub" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" => Dec,
             "big" => Big,
-            "char" | "fmt" | "spec" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" => Str,
+            "char" | "fmt" | "spec" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" => Str,
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
@@ -904,6 +904,18 @@ impl Cx<'_> {
             "map" => List(Box::new(lam(0, &each_elem(&r)))),
             "fold" => merge(a(0), Hole),
             "add_days" => Date,
+            "tally" => Map(Box::new(elem(&r)), Box::new(Int)),
+            "to_dict" => match elem(&r) {
+                Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
+                _ => match &r {
+                    Map(..) => r,
+                    _ => Hole,
+                },
+            },
+            "most_common" | "most_common_all" => match &r {
+                Map(k, _) => List(Box::new(Tuple(vec![*k.clone(), Int]))),
+                _ => Hole,
+            },
             _ => Hole,
         }
     }
