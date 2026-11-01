@@ -1,0 +1,23 @@
+s = "  Hello World \n"
+print("[" + s.rstrip() + "]")
+print("[" + s.lstrip() + "]")
+print("xxhixx".strip("x"), "--a--".rstrip("-"), "--a--".lstrip("-"))
+for l in "a\nb\nc".splitlines():
+    print(l)
+print("ABC".isupper(), "abc".islower(), "ab1".isalnum(), "a b".isalnum())
+print(sorted("dcba"))
+w = "hello"
+print("".join(sorted(w)))
+h = []
+for x in [5, 1, 4, 2, 3]:
+    heapq.heappush(h, (x, "n" + str(x)))
+print(h[0])
+out = []
+while h:
+    d, n = heapq.heappop(h)
+    out.append(n)
+print(out)
+g = [9, 7, 8, 1]
+heapq.heapify(g)
+heappush(g, 0)
+print(heappop(g), heappop(g), g[0])

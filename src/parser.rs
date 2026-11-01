@@ -605,6 +605,28 @@ impl Parser {
                                     }
                                 }
                             }
+                            // sys.stdout.write(s) prints s as it is.
+                            if name == "write" && args.len() == 1 && matches!(&e, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys")) {
+                                e = Expr::Call("print".into(), vec![(None, args.remove(0)), (Some("end".into()), Expr::Str(vec![]))], line);
+                                continue;
+                            }
+                            // A deque is a list: popleft() takes the first item, appendleft(x) puts one in front.
+                            if name == "popleft" && args.is_empty() {
+                                e = Expr::Method(Box::new(e), "remove".into(), vec![Expr::Int(0)], line);
+                                continue;
+                            }
+                            if name == "appendleft" && args.len() == 1 {
+                                e = Expr::Method(Box::new(e), "insert".into(), vec![Expr::Int(0), args.remove(0)], line);
+                                continue;
+                            }
+                            // heapq.heappush(h, x), heapq.heappop(h), heapq.heapify(h) work on a plain list, as in Python.
+                            if matches!(&e, Expr::Ident(m) if m == "heapq") && !args.is_empty() {
+                                if let Some(m) = heapq_method(&name, args.len()) {
+                                    let h = args.remove(0);
+                                    e = Expr::Method(Box::new(h), m.into(), args, line);
+                                    continue;
+                                }
+                            }
                             // math.sqrt(x), math.floor(x), math.ceil(x); sys.stdin.read() is stdin().
                             if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && matches!(name.as_str(), "sqrt" | "floor" | "ceil") {
                                 let x = args.remove(0);
@@ -864,6 +886,10 @@ impl Parser {
                         _ if self.user_fns.contains(&name) && SHADOWABLE.contains(&name.as_str()) => Ok(Expr::Call(format!("{name}_"), args, line)),
                         _ => Ok(Expr::Call(name, args, line)),
                     }
+                } else if matches!(name.as_str(), "int" | "float" | "str" | "len") && !self.is_sym("=") {
+                    // `map(int, xs)`, `key=len`: a built-in conversion used as a function value.
+                    let v = Expr::Ident("v_".into());
+                    Ok(Expr::Lambda(vec!["v_".into()], Box::new(Expr::Method(Box::new(v), name, vec![], line))))
                 } else {
                     Ok(Expr::Ident(name))
                 }
@@ -1135,12 +1161,33 @@ fn sort_kw(recv: Expr, args: &[(Option<String>, Expr)], line: usize) -> Option<E
     Some(Expr::Method(Box::new(recv), "sort_by".into(), a, line))
 }
 
+// Python's heapq functions (`from heapq import heappush` or `heapq.heappush`) as list methods.
+fn heapq_method(name: &str, nargs: usize) -> Option<&'static str> {
+    Some(match (name, nargs) {
+        ("heappush", 2) => "heap_push",
+        ("heappop", 1) => "heap_pop",
+        ("heapify", 1) => "heapify",
+        ("heappushpop", 2) => "heap_push_pop",
+        ("heapreplace", 2) => "heap_replace",
+        _ => return None,
+    })
+}
+
 fn python_method(name: &str, nargs: usize) -> Option<String> {
     Some(match (name, nargs) {
         ("append", 1) => "push",
         ("sorted", 0) => "sort",
         ("reversed", 0) => "rev",
         ("strip", 0) => "trim",
+        ("strip", 1) => "trim_of",
+        ("rstrip", 0) => "trim_end",
+        ("rstrip", 1) => "trim_end_of",
+        ("lstrip", 0) => "trim_start",
+        ("lstrip", 1) => "trim_start_of",
+        ("splitlines", 0) => "lines",
+        ("isupper", 0) => "is_upper",
+        ("islower", 0) => "is_lower",
+        ("isalnum", 0) => "is_alnum",
         ("split", 0) => "words",
         ("startswith", 1) => "starts_with",
         ("endswith", 1) => "ends_with",
@@ -1160,8 +1207,17 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
 // Python built-ins spelled as Brevi: set(xs), divmod(a, b), round(x, n), enumerate(xs, 1), defaultdict(int).
 fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) -> Option<Expr> {
     let m = |e: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(e), n.into(), a, line);
+    if let Some(hm) = heapq_method(name, args.len()) {
+        let h = args.remove(0).1;
+        return Some(m(h, hm, args.drain(..).map(|a| a.1).collect()));
+    }
     Some(match (name, args.len()) {
-        ("set" | "list", 0) => Expr::List(vec![]),
+        ("set" | "list" | "deque", 0) => Expr::List(vec![]),
+        ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
+        ("map" | "filter", 2) => {
+            let f = args.remove(0).1;
+            m(args.remove(0).1, name, vec![f])
+        }
         ("dict" | "Counter", 0) | ("defaultdict", 1) => Expr::Map(vec![]),
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         ("divmod", 2) => {
