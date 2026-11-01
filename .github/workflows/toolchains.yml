@@ -1,20 +1,37 @@
 # Keeps Brevi working on every new Rust and Python release.
 # Daily: builds Brevi and rebuilds every benchmark solution that ever passed (compat/baseline.txt)
-# on Rust stable, beta and nightly, the newest Python and the next Python pre-release.
-# A toolchain that was already tested at this commit is skipped, so most days cost almost nothing.
+# on Rust stable and the next Python pre-release; Mondays also on Rust beta and nightly.
+# A toolchain that was already tested at this commit is skipped, so quiet days cost almost nothing.
 # Any failure on the schedule opens (or updates) a GitHub issue labelled "toolchain".
+# Actions minutes are limited, so: no run on pushes to main (the PR and the daily run cover it),
+# pull requests test Rust stable only, skip draft PRs and docs/site-only changes, and rebuild the
+# old solutions only when the compiler or the baseline changed. Run tools/ci_local.sh before merging.
 name: Toolchains
 
 on:
   schedule:
     - cron: "17 5 * * *"
-  push:
-    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "**"
+      - "!site/**"
+      - "!**/*.md"
+      - "BREVI.md"
+      - "REFERENCE.md"
+      - "!bench/logs/**"
+      - "!bench/tokcache.json"
+      - "!skills/**"
+      - "!plugins/**"
+      - "!reserve/**"
   workflow_dispatch:
     inputs:
       force:
         description: "Run even if this toolchain was already tested at this commit"
+        type: boolean
+        default: false
+      full:
+        description: "Test every toolchain (Rust stable, beta, nightly and the next Python), not just stable"
         type: boolean
         default: false
 
@@ -29,6 +46,7 @@ concurrency:
 
 jobs:
   versions:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     outputs:
       next_python: ${{ steps.py.outputs.next }}
@@ -45,19 +63,25 @@ jobs:
           echo "next=${next:-3.16}" >> "$GITHUB_OUTPUT"
       - id: m
         name: Pick toolchains
-        # Pull requests test Rust stable only, to save Actions minutes. The daily run, pushes to main
-        # and manual runs test the full matrix.
+        # Saves Actions minutes: PRs and manual runs test Rust stable only, the daily run adds the
+        # next Python, and Monday's run (or a manual run with full) adds Rust beta and nightly.
         run: |
-          if [ "${{ github.event_name }}" = pull_request ]; then
-            echo 'matrix=[{"rust":"stable","python":"3.x"}]' >> "$GITHUB_OUTPUT"
+          stable='{"rust":"stable","python":"3.x"}'
+          next='{"rust":"stable","python":"next"}'
+          weekly='{"rust":"beta","python":"3.x"},{"rust":"nightly","python":"3.x"}'
+          if [ "${{ github.event_name }}" = schedule ] && [ "$(date -u +%u)" = 1 ] || [ "${{ inputs.full }}" = true ]; then
+            m="[$stable,$next,$weekly]"
+          elif [ "${{ github.event_name }}" = schedule ]; then
+            m="[$stable,$next]"
           else
-            echo 'matrix=[{"rust":"stable","python":"3.x"},{"rust":"beta","python":"3.x"},{"rust":"nightly","python":"3.x"},{"rust":"stable","python":"next"}]' >> "$GITHUB_OUTPUT"
+            m="[$stable]"
           fi
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"
 
   test:
     needs: versions
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -65,6 +89,8 @@ jobs:
     name: rust ${{ matrix.rust }} / python ${{ matrix.python }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
 
       - name: Install Rust ${{ matrix.rust }}
         run: |
@@ -98,7 +124,19 @@ jobs:
 
       - name: Build
         if: steps.seen.outputs.cache-hit != 'true'
-        run: cargo build --release && cargo build
+        run: cargo build --release
+
+      - name: Does this PR change the compiler or the baseline?
+        id: scope
+        # Rebuilding the ~1,900 old solutions takes about 6 minutes, so PRs that only touch docs,
+        # tests, tools or the guide skip it. The daily run always does it.
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo "compat=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          changed=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD)
+          echo "$changed"
+          if echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/|tools/compat\.py$|bench/(solutions|tasks|ref)/)'; then
+            echo "compat=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Unit tests
         if: steps.seen.outputs.cache-hit != 'true'
@@ -106,6 +144,8 @@ jobs:
 
       - name: Language tests (tests/run, tests/errors)
         if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          BREVI: ./target/release/brevi
         run: sh tests/check.sh
 
       - name: Core guide stays under its token budget
@@ -117,11 +157,11 @@ jobs:
         run: python3 tools/version_sync.py
 
       - name: Every solution that ever passed still passes
-        if: steps.seen.outputs.cache-hit != 'true'
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true'
         run: python3 tools/compat.py check --report compat-report.md
 
       - name: Early warnings in generated Rust (deprecations, future incompatibilities, newest edition)
-        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust != 'stable'
+        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'nightly'
         continue-on-error: true
         run: |
           python3 tools/compat.py lints --report lints-report.md
@@ -139,7 +179,7 @@ jobs:
           key: ${{ steps.fp.outputs.key }}
 
       - name: Open or update an issue
-        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+        if: failure() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
