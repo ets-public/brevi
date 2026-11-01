@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- Python programs split over several `.py` files now build: `import stock` and `from shop.store import Store` find `stock.py` or `shop/store.py` (next to the importing file, then next to the main file, as Python does; folders with `__init__.py` are packages). A module's own `if __name__ == "__main__":` self-test is left out when another file imports it. Importing a GUI library (`tkinter`, `pygame`, `PyQt`, ...) now says plainly that Brevi has no GUI support yet, instead of a confusing type error.
 - More plain Python from the e14 trial's first attempts: a lambda called at once (`(lambda s: (s[0], s[1]))(score(t))`); rows of a mixed list changed in a loop (`backorders.append([oid, sku, left])`, then `for b in backorders: b[2] -= got`); dicts built from a method's parameters (`self.lots.append({"seq": n, "sku": sku, "qty": qty})`) and dicts with a key that is a keyword (`'type'`) become records; and a loop that changes the dicts a helper returns after filtering and sorting them (`lots = [l for l in self.lots if ...]`, `lots.sort(key=...)`, `return lots`) changes the stored dicts, as in Python. The e14 Sonnet poker and warehouse and Haiku warehouse first attempts now pass every test, and Haiku's quiz builds and prints what Python prints.
 
 ## v0.19.0 (1 Nov 2026)

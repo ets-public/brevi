@@ -1,0 +1,1 @@
+{"line":1,"msg":"tkinter is not supported yet: Brevi has no GUI library","fix":"write a program without a window (print, input, files), or run this one with python3"}
