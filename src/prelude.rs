@@ -360,6 +360,14 @@ impl Show for () {
         "()".into()
     }
 }
+pub trait AxPyRepr {
+    fn ax_py_repr(&self) -> String;
+}
+impl<T: Show + 'static> AxPyRepr for T {
+    fn ax_py_repr(&self) -> String {
+        show_item(self)
+    }
+}
 fn show_item<T: Show + 'static>(x: &T) -> String {
     // Strings inside collections get quotes so [a, b] and ["a, b"] differ.
     let any = x as &dyn std::any::Any;

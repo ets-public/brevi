@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- `repr(x)` (Python's text for a value, e.g. `"a'b"` or `[1, 2]`) and `iter(xs)` (so `next(iter(s))` takes the first item).
 - String literals written next to each other are joined, as in Python, also across lines inside brackets: `("abc "\n "def")`, `f"{n} " f"items"`.
 - New held-out benchmark set `huge` (`bench/ref/gen_huge.py`): an interpreter, a chess referee and a text adventure, 200 to 750 lines over 3 or 4 files. First run `h1`: plain Python passes 3/3 with Sonnet and Haiku; Brevi-built Python 2/3 with Sonnet (2.1x the cost) and 0/3 with Haiku. See [bench/README.md](bench/README.md).
 - Python programs split over several `.py` files now build: `import stock` and `from shop.store import Store` find `stock.py` or `shop/store.py` (next to the importing file, then next to the main file, as Python does; folders with `__init__.py` are packages). A module's own `if __name__ == "__main__":` self-test is left out when another file imports it. Importing a GUI library (`tkinter`, `pygame`, `PyQt`, ...) now says plainly that Brevi has no GUI support yet, instead of a confusing type error.
