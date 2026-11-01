@@ -13,8 +13,8 @@ import json, os, sys
 d = sys.argv[1]
 import base64
 types = {".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8",
-         ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".ico": "image/x-icon"}
-binary = {".png", ".ico"}
+         ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2"}
+binary = {".png", ".ico", ".woff2"}
 files = {}
 for f in sorted(os.listdir(d)):
     ext = os.path.splitext(f)[1]
@@ -28,7 +28,9 @@ print('''export default {
     if (p.endsWith("/")) p += "index.html";
     const f = FILES[p];
     if (!f) return new Response("Not found\\n", { status: 404, headers: { "content-type": "text/plain" } });
-    return new Response(f[2] ? bytes(f[0]) : f[0], { headers: { "content-type": f[1], "cache-control": "public, max-age=300" } });
+    // Pages change with each deploy; fonts and icons almost never do.
+    const cache = /\.(woff2|png|ico|svg)$/.test(p) ? "public, max-age=604800, stale-while-revalidate=86400" : "public, max-age=300, stale-while-revalidate=3600";
+    return new Response(f[2] ? bytes(f[0]) : f[0], { headers: { "content-type": f[1], "cache-control": cache } });
   },
 };''')
 PY

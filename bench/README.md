@@ -10,6 +10,21 @@ Each check also logs `patch_tok`: for a retry, the tokens of the lines changed s
 `run.sh` uses `../target/release/brevi` unless `BREVI` is set (runs before the rename are named `-axon`).
 `python3 subject_prompt.py RUN LANG small|big` prints the prompt given to a test-subject model; subjects may only run code through `run.sh`.
 
+## End-to-end benchmark (`e2e.py`, 1 Nov 2026)
+
+`run.sh` scores code written plus errors read. `e2e.py` counts everything the Claude API bills for a finished task: the system prompt (the Brevi guide, cached), tool calls and results, thinking, text and retries, read from each response's `usage`, and prices it in dollars. Each task is a fresh conversation with the same tools in both languages (`write_file`, `edit_file`, `check`, plus `guide` for Brevi). `python3 e2e.py RUN --lang brevi --model sonnet --set xl3` runs a set; `python3 e2e.py --summary "logs/e2e/*.jsonl"` prints totals. Task sets live in `subject_prompt_sets.py`.
+
+Held-out XL set 3, effort medium, two runs (e1, e2), 12 tasks per row, every task passed:
+
+| Model | Language | Passed at first check | Output tokens | Guide cache write | USD |
+| --- | --- | --- | --- | --- | --- |
+| Sonnet | Brevi | 9 | 39,228 | 57,085 | 0.564 |
+| Sonnet | Python | 11 | 26,905 | 32,674 | 0.358 |
+| Haiku | Brevi | 5 | 129,526 | 134,824 | 0.085 |
+| Haiku | Python | 7 | 72,542 | 80,475 | 0.047 |
+
+Brevi costs 58% more than Python with Sonnet and 78% more with Haiku. Most of the gap is output (thinking and text, 46% more with Sonnet, 79% with Haiku) and the guide in the prompt; the finished code is about the same size. This is a larger gap than the code-and-errors benchmark shows.
+
 ## Editing benchmark (`edit/`)
 
 Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}`), the kind of edit a model makes most often.

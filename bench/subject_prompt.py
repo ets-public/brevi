@@ -1,16 +1,8 @@
 """Prints the prompt given to a test-subject model. usage: subject_prompt.py RUN LANG small|big|new"""
 import sys
 run, lang, size = sys.argv[1:4]
-SMALL = "bigadd calc date_diff dijkstra intervals inventory json_sum lru topo wrap anagrams brackets knight ledger log_stats roman_calc schedule spiral".split()
-BIG = "access_report bank_api invoices kv_store markdown spreadsheet template timetable".split()
-# Held-out big tasks written after v0.15 (ref/gen_big2.py), never used to tune Brevi.
-NEW = "sales_report route_planner ini_config stack_vm line_diff room_booking".split()
-# Held-out XL tasks written after v0.16 (ref/gen_big3.py); library and project_plan are multi-file.
-XL = "order_book mini_sql calc_lang fifo_stock library project_plan".split()
-# Second held-out XL set, written after v0.18 (ref/gen_big4.py); tiny_cpu and parking are multi-file.
-XL2 = "grep_lite payroll league crafting tiny_cpu parking".split()
-XL3 = "books toc poker trains quiz warehouse".split()
-tasks = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3}[size]
+from subject_prompt_sets import SETS
+tasks = SETS[size]
 B = "/home/user/brevi/bench"; ext = {"brevi": "bv", "python": "py"}[lang]
 name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
 guide = f"First read the language guide /home/user/brevi/BREVI.md once. When you need details it points to, run {B}/guide.sh {run} WORD to print the guide lines about WORD; this is the only other command you may run. " if lang == "brevi" else ""
