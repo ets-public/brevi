@@ -3631,6 +3631,24 @@ impl AxNone for Dec {
         Dec(i128::MIN, 0)
     }
 }
+pub trait AxPopOr<K, V> {
+    fn ax_pop_or(&mut self, k: K, d: V) -> V;
+}
+impl<K: Hash + Eq + Ord, V> AxPopOr<K, V> for AxM<K, V> {
+    fn ax_pop_or(&mut self, k: K, d: V) -> V {
+        self.remove(&k).unwrap_or(d)
+    }
+}
+impl AxToJson for Date {
+    fn ax_json(&self) -> Json {
+        Json::Str { v: self.show() }
+    }
+}
+impl<A: AxNone, B: AxNone, C: AxNone, D: AxNone> AxNone for (A, B, C, D) {
+    fn ax_none() -> Self {
+        (A::ax_none(), B::ax_none(), C::ax_none(), D::ax_none())
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]
