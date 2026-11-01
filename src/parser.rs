@@ -1240,7 +1240,7 @@ impl Parser {
                             if name == "get" && args.len() == 1 && !self.own_method(&e) {
                                 args.push(Expr::Call("none".into(), vec![], line));
                             }
-                            let name = python_method(&name, args.len()).unwrap_or(name);
+                            let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
                             // Python's `"{} of {:>5}".format(a, b)` fills the string.
                             if name == "format" {
                                 if let Expr::Str(parts) = &e {
@@ -2003,8 +2003,12 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("islower", 0) => "is_lower",
         ("isalnum", 0) => "is_alnum",
         ("center", 2) => "center_with",
+        ("ljust", 2) => "ljust_with",
+        ("rjust", 2) => "rjust_with",
         ("most_common", 0) => "most_common_all",
         ("split", 0) => "words",
+        ("split", 2) => "split_n",
+        ("rsplit", 2) => "rsplit_n",
         ("startswith", 1) => "starts_with",
         ("endswith", 1) => "ends_with",
         ("isdigit", 0) => "is_digit",

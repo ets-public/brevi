@@ -40,6 +40,15 @@ Later runs on the same 6 tasks, warm cache, one at a time (`--jobs 1`):
 
 The draft Python-first guide (e6g) cost more than the Brevi guide. On the single-file tasks the cost was about the same, but the code was 20 to 50% longer than plain Python: the guide's list of limits made models write cautious, fully annotated Python. Most of the extra cost came from the two multi-file tasks (quiz, warehouse), where models wrote `from stock import Stock` and module-level code in the other files. Brevi does not accept that yet. Other blockers seen: `"-" * 40`, `set.discard`, `None` for a missing date, and `.count`/set comprehensions on strings (the last two fixed in #39). Next: accept Python imports between files, cut the limits list down, then run the A/B again.
 
+After imports between files (#41), type annotations (#44) and a shorter guide, the A/B was run again on the same compiler (two runs each, `e8`/`e9` with BREVI.md, `e8g`/`e9g` with `guides/python_first.md`):
+
+| Model | BREVI.md USD (2 runs) | Python-first USD (2 runs) | Checks, BREVI.md / Python-first |
+| --- | --- | --- | --- |
+| Sonnet | $0.282, $0.249 | $0.256, $0.262 | 15 / 22 |
+| Haiku | $0.044, $0.044 | $0.043, $0.046 | 24 / 46 |
+
+The two guides now cost about the same (Sonnet 2% less with Python-first, Haiku 1% more, and one Haiku task failed). Python-first runs still hit more compile errors: nested `nonlocal`, `a or b` used as a value, return types with bare `list` parameters, methods of a class imported from another file, `today = None` without a type. Each one fixed should move Python-first ahead. Plain Python in Python costs $0.182 (Sonnet) and $0.025 (Haiku) on the same tasks.
+
 ## Editing benchmark (`edit/`)
 
 Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}`), the kind of edit a model makes most often.
