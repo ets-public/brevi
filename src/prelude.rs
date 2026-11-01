@@ -32,25 +32,29 @@ impl Hasher for AxHasher {
 #[derive(Clone, Debug)]
 pub struct AxM<K, V> {
     m: HashMap<K, V, BuildHasherDefault<AxHasher>>,
-    // Keys in insertion order, kept only for JSON objects, which list keys as written.
+    // Keys in insertion order, kept for JSON objects, which list keys as written, and in Python mode,
+    // where dicts keep insertion order.
     ord: Option<Vec<K>>,
 }
 impl<K, V> Default for AxM<K, V> {
     fn default() -> Self {
-        AxM { m: HashMap::default(), ord: None }
+        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None } }
     }
 }
 impl<K: Hash + Eq + Ord, V> AxM<K, V> {
     pub fn new() -> Self {
-        AxM { m: HashMap::default(), ord: None }
+        AxM::default()
     }
     pub fn ordered() -> Self {
         AxM { m: HashMap::default(), ord: Some(Vec::new()) }
     }
-    pub fn from<const N: usize>(xs: [(K, V); N]) -> Self {
+    pub fn from<const N: usize>(xs: [(K, V); N]) -> Self
+    where
+        K: Clone,
+    {
         let mut m = AxM::new();
         for (k, v) in xs {
-            m.m.insert(k, v);
+            m.insert(k, v);
         }
         m
     }
@@ -86,7 +90,15 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
         }
         self.m.remove(k)
     }
-    pub fn entry(&mut self, k: K) -> std::collections::hash_map::Entry<'_, K, V> {
+    pub fn entry(&mut self, k: K) -> std::collections::hash_map::Entry<'_, K, V>
+    where
+        K: Clone,
+    {
+        if let Some(o) = &mut self.ord {
+            if !self.m.contains_key(&k) {
+                o.push(k.clone());
+            }
+        }
         self.m.entry(k)
     }
     // Entries sorted by key (JSON objects: in insertion order).
@@ -2684,6 +2696,112 @@ pub fn ax_obj(xs: Vec<(String, Json)>) -> Json {
     Json::Obj { v: m }
 }
 
+// `a | b` and `a & b`: bitwise on ints; union and intersection (sorted, no repeats) on lists used as sets.
+pub trait AxBits {
+    fn ax_bor(self, o: Self) -> Self;
+    fn ax_band(self, o: Self) -> Self;
+}
+impl AxBits for i64 {
+    fn ax_bor(self, o: i64) -> i64 {
+        self | o
+    }
+    fn ax_band(self, o: i64) -> i64 {
+        self & o
+    }
+}
+impl AxBits for bool {
+    fn ax_bor(self, o: bool) -> bool {
+        self | o
+    }
+    fn ax_band(self, o: bool) -> bool {
+        self & o
+    }
+}
+impl<T: Clone + PartialOrd> AxBits for Vec<T> {
+    fn ax_bor(self, o: Vec<T>) -> Vec<T> {
+        let mut v = self;
+        v.extend(o);
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v.dedup_by(|a, b| a == b);
+        v
+    }
+    fn ax_band(self, o: Vec<T>) -> Vec<T> {
+        let mut v: Vec<T> = self.into_iter().filter(|x| o.contains(x)).collect();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v.dedup_by(|a, b| a == b);
+        v
+    }
+}
+// A map read item by item is its list of keys, as in Python (`[k for k in d if d[k] > 0]`).
+pub trait AxMapSeq<K> {
+    fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U>;
+    fn ax_filter(&self, f: impl Fn(K) -> bool) -> Vec<K>;
+    fn ax_any(&self, f: impl Fn(K) -> bool) -> bool;
+    fn ax_all(&self, f: impl Fn(K) -> bool) -> bool;
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMapSeq<K> for AxM<K, V> {
+    fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U> {
+        self.ax_keys().into_iter().map(f).collect()
+    }
+    fn ax_filter(&self, f: impl Fn(K) -> bool) -> Vec<K> {
+        self.ax_keys().into_iter().filter(|k| f(k.clone())).collect()
+    }
+    fn ax_any(&self, f: impl Fn(K) -> bool) -> bool {
+        self.ax_keys().into_iter().any(f)
+    }
+    fn ax_all(&self, f: impl Fn(K) -> bool) -> bool {
+        self.ax_keys().into_iter().all(f)
+    }
+}
+// A list is never Python's None; a None list slot reads as an empty list.
+impl<T> AxNone for Vec<T> {
+    fn ax_none() -> Self {
+        Vec::new()
+    }
+}
+// `a, b = xs`: a tuple as it is, or a list of exactly that many items, as Python unpacks them.
+pub trait AxUnpack<T> {
+    fn ax_unpack(self) -> T;
+}
+impl<A, B> AxUnpack<(A, B)> for (A, B) {
+    fn ax_unpack(self) -> (A, B) {
+        self
+    }
+}
+impl<A, B, C> AxUnpack<(A, B, C)> for (A, B, C) {
+    fn ax_unpack(self) -> (A, B, C) {
+        self
+    }
+}
+impl<A, B, C, D> AxUnpack<(A, B, C, D)> for (A, B, C, D) {
+    fn ax_unpack(self) -> (A, B, C, D) {
+        self
+    }
+}
+fn ax_unpack_n<T>(xs: Vec<T>, n: usize) -> std::vec::IntoIter<T> {
+    if xs.len() != n {
+        panic!("cannot unpack {} items into {n} names", xs.len());
+    }
+    xs.into_iter()
+}
+impl<T> AxUnpack<(T, T)> for Vec<T> {
+    fn ax_unpack(self) -> (T, T) {
+        let mut i = ax_unpack_n(self, 2);
+        (i.next().unwrap(), i.next().unwrap())
+    }
+}
+impl<T> AxUnpack<(T, T, T)> for Vec<T> {
+    fn ax_unpack(self) -> (T, T, T) {
+        let mut i = ax_unpack_n(self, 3);
+        (i.next().unwrap(), i.next().unwrap(), i.next().unwrap())
+    }
+}
+impl<T> AxUnpack<(T, T, T, T)> for Vec<T> {
+    fn ax_unpack(self) -> (T, T, T, T) {
+        let mut i = ax_unpack_n(self, 4);
+        (i.next().unwrap(), i.next().unwrap(), i.next().unwrap(), i.next().unwrap())
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]
@@ -3029,3 +3147,4 @@ impl AxRe for String {
         out
     }
 }
+

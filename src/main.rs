@@ -336,6 +336,7 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items, hints);
     em.foreign = foreign;
+    em.py_mode = python_style(&src);
     em.files = SEGS.get().map(|s| s.iter().skip(1).map(|g| (g.file.clone(), g.start, g.len)).collect()).unwrap_or_default();
     if moves {
         moves::mark_moves(&mut items);
@@ -732,7 +733,7 @@ fn report(rust: &str, stderr: &str) {
         } else if code == "E0381" {
             let name = msg.split('`').nth(1).unwrap_or("it");
             text = format!("{name} is not set on every path before this use");
-        } else if !label.is_empty() && !text.contains(&label) {
+        } else if !label.is_empty() && !text.contains(&label) && !label.starts_with("method not found in") {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
         let mut fix = fix_for(code, &format!("{msg} {label}"));
@@ -949,4 +950,9 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
         "E0277" if msg.contains("i64") && msg.contains("f64") => Some("convert one side with .float() or .int()".into()),
         _ => None,
     }
+}
+
+// A program written as Python (`def`, `class`, `global`) prints values and orders dicts as Python does.
+fn python_style(src: &str) -> bool {
+    src.lines().map(str::trim_start).any(|l| l.starts_with("def ") || l.starts_with("class ") || l.starts_with("global ") || l.starts_with("nonlocal "))
 }
