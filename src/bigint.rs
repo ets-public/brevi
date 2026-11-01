@@ -6,12 +6,35 @@ use crate::ast::*;
 use std::collections::{HashMap, HashSet};
 
 pub fn promote(items: &mut [Item]) {
-    for it in items.iter_mut() {
+    // Names each function reads: a top-level name read by another function must stay an int.
+    let names: Vec<HashSet<String>> = items.iter().map(|it| match it {
+        Item::Fn { body, .. } => idents(&format!("{body:?}")),
+        _ => HashSet::new(),
+    }).collect();
+    for (i, it) in items.iter_mut().enumerate() {
         if let Item::Fn { params, body, .. } = it {
-            let params: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
-            promote_body(body, &params);
+            let mut keep: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+            for (j, ns) in names.iter().enumerate() {
+                if j != i {
+                    keep.extend(ns.iter().cloned());
+                }
+            }
+            promote_body(body, &keep);
         }
     }
+}
+
+fn idents(dbg: &str) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for pre in ["Ident(\"", "Move(\"", "Bind(\""] {
+        for (i, _) in dbg.match_indices(pre) {
+            let rest = &dbg[i + pre.len()..];
+            if let Some(end) = rest.find('"') {
+                out.insert(rest[..end].to_string());
+            }
+        }
+    }
+    out
 }
 
 const ARITH: &[&str] = &["+", "-", "*"];

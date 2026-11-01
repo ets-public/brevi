@@ -362,9 +362,12 @@ impl Show for () {
 }
 fn show_item<T: Show + 'static>(x: &T) -> String {
     // Strings inside collections get quotes so [a, b] and ["a, b"] differ.
-    match (x as &dyn std::any::Any).downcast_ref::<String>() {
+    let any = x as &dyn std::any::Any;
+    match any.downcast_ref::<String>() {
         Some(s) if ax_py_on() => ax_py_repr(s),
         Some(s) => format!("{s:?}"),
+        // Python's repr of a Decimal inside a list or dict: Decimal('1.50').
+        None if ax_py_on() && any.is::<Dec>() => format!("Decimal('{}')", x.show()),
         None => x.show(),
     }
 }
