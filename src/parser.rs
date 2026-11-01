@@ -25,6 +25,8 @@ pub struct Parser {
     held: Vec<String>,
     // The function being parsed has a `yield` (it builds its items in `ax_gen`).
     yields: bool,
+    // `self.x: T = v` annotations met in the class being parsed.
+    attr_tys: Vec<(String, Ty)>,
 }
 
 type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
@@ -37,7 +39,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
     p.py = crate::python_style(src);
     p.class_names = p.toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
         (Tok::Ident(c), Tok::Ident(n)) if c == "class" => Some(n.clone()),
@@ -274,6 +276,12 @@ impl Parser {
             self.ret_map = false;
             let kids = std::mem::replace(&mut self.children, saved_children);
             let mut body = body;
+            // `best: int` with no value only names a local's type; the local is made where it is set.
+            walk_mut(&mut body, &mut |x| {
+                if let Expr::Block(st, _) = x {
+                    st.retain(|s| !matches!(s, Stmt::Let { value: Expr::Call(f, _, _), .. } if f == "__field"));
+                }
+            });
             if std::mem::replace(&mut self.yields, saved_yields) {
                 body = generator_body(body, line);
             }
@@ -335,7 +343,19 @@ impl Parser {
         Ok(fields)
     }
 
+    // A type with an unknown part (`list[tuple]`, `dict[str, Any]`) is left whole to inference.
     fn ty(&mut self) -> R<Ty> {
+        let t = self.ty_raw()?;
+        let vague = |t: &Ty| matches!(t, Ty::Named(n) if n == "?");
+        Ok(match &t {
+            Ty::List(a) if vague(a) => Ty::Named("?".into()),
+            Ty::Map(a, b) if vague(a) || vague(b) => Ty::Named("?".into()),
+            Ty::Tuple(ts) if ts.iter().any(vague) => Ty::Named("?".into()),
+            _ => t,
+        })
+    }
+
+    fn ty_raw(&mut self) -> R<Ty> {
         if self.eat_sym("[") {
             let t = self.ty()?;
             self.expect_sym("]")?;
@@ -370,6 +390,7 @@ impl Parser {
         let name = name.trim_start_matches("typing.").to_string();
         let ty = match name.as_str() {
             "float" => Ty::Named("f64".into()),
+            "Decimal" => Ty::Named("dec".into()),
             "list" | "List" | "set" | "Set" | "frozenset" | "deque" | "Sequence" | "Iterable" if self.is_sym("[") => {
                 self.next();
                 let t = self.ty()?;
@@ -402,13 +423,45 @@ impl Parser {
                 self.expect_sym("]")?;
                 t
             }
-            "list" | "List" | "set" | "Set" | "dict" | "Dict" | "tuple" | "Tuple" | "Any" | "object" => Ty::Named("?".into()),
+            // Union[int, None] is int; a union of real types is left to inference.
+            "Union" if self.is_sym("[") => {
+                self.next();
+                let mut ts = vec![self.ty()?];
+                while self.eat_sym(",") {
+                    ts.push(self.ty()?);
+                }
+                self.expect_sym("]")?;
+                ts.retain(|t| !matches!(t, Ty::Unit));
+                if ts.len() == 1 { ts.remove(0) } else { Ty::Named("?".into()) }
+            }
+            "list" | "List" | "set" | "Set" | "dict" | "Dict" | "tuple" | "Tuple" | "Any" | "object" | "Callable" | "Iterator" | "Generator" => {
+                // Callable[[int], str] and the like: skipped whole.
+                if self.eat_sym("[") {
+                    let mut depth = 1;
+                    while depth > 0 && self.peek() != &Tok::Eof {
+                        match self.next() {
+                            Tok::Sym("[") => depth += 1,
+                            Tok::Sym("]") => depth -= 1,
+                            _ => {}
+                        }
+                    }
+                }
+                Ty::Named("?".into())
+            }
             "None" => Ty::Unit,
             _ => Ty::Named(name),
         };
         // `int | None`: the None part is how a missing value is written; the value keeps its type.
-        if self.is_sym("|") && matches!(self.peek_at(1), Tok::Ident(n) if n == "None") {
-            self.pos += 2;
+        // `int | str` is left to inference.
+        let mut ty = ty;
+        while self.is_sym("|") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            if matches!(self.peek_at(1), Tok::Ident(n) if n == "None") {
+                self.pos += 2;
+                continue;
+            }
+            self.next();
+            self.ty_raw()?;
+            ty = Ty::Named("?".into());
         }
         Ok(ty)
     }
@@ -479,7 +532,9 @@ impl Parser {
             }
         }
         let kids = self.children.len();
+        let saved_attrs = std::mem::take(&mut self.attr_tys);
         let body = self.block()?;
+        let attr_tys = std::mem::replace(&mut self.attr_tys, saved_attrs);
         let methods: Vec<Item> = self.children.split_off(kids);
         // Fields written in the class body, as a dataclass has them: `x: int`, `tags: list[str] = field(default_factory=list)`.
         let mut declared: Vec<Field> = Vec::new();
@@ -564,7 +619,10 @@ impl Parser {
         }
         let fields = fields
             .into_iter()
-            .map(|f| declared.iter().find(|d| d.name == f).cloned().unwrap_or(Field { name: f, ty: Ty::Named("?".into()), default: None }))
+            .map(|f| {
+                let ty = attr_tys.iter().find(|(n, _)| *n == f).map(|(_, t)| t.clone()).unwrap_or(Ty::Named("?".into()));
+                declared.iter().find(|d| d.name == f).cloned().unwrap_or(Field { name: f, ty, default: None })
+            })
             .collect();
         Ok((Item::Type { name, fields, line }, fns, bases))
     }
@@ -811,6 +869,21 @@ impl Parser {
             return Ok(Stmt::Assert { cond: self.expr()?, line });
         }
         let mut e = self.expr()?;
+        // `self.names: list[str] = []`: the field's type comes from what is put in it, so the annotation is read
+        // and dropped.
+        if matches!(e, Expr::Field(..) | Expr::Index(..)) && self.is_sym(":") {
+            self.next();
+            let ty = self.ty()?;
+            if let Expr::Field(r, f) = &e {
+                if matches!(r.as_ref(), Expr::Ident(n) if n == "self_") && !matches!(&ty, Ty::Named(n) if n == "?") {
+                    self.attr_tys.push((f.clone(), ty));
+                }
+            }
+            self.expect_sym("=")?;
+            self.skip_newlines();
+            let value = self.expr()?;
+            return Ok(Stmt::Assign { target: e, op: "=", value, line });
+        }
         // `a, b = ...` assigns a tuple, like `(a, b) = ...`.
         let mut bare = false;
         if matches!(e, Expr::Ident(_)) && self.is_sym(",") && self.bare_targets() {
@@ -1163,6 +1236,10 @@ impl Parser {
                                 }
                             }
                             let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
+                            // `m.get(k)` is None when k is missing.
+                            if name == "get" && args.len() == 1 && !self.own_method(&e) {
+                                args.push(Expr::Call("none".into(), vec![], line));
+                            }
                             let name = python_method(&name, args.len()).unwrap_or(name);
                             // Python's `"{} of {:>5}".format(a, b)` fills the string.
                             if name == "format" {
@@ -1498,6 +1575,12 @@ impl Parser {
                         "unique" => Some("unique"),
                         _ => None,
                     };
+                    // sum(xs, start): the start plus the sum.
+                    if name == "sum" && !self.user_fns.contains(&name) && args.len() == 2 {
+                        let start = args.remove(1).1;
+                        let xs = args.remove(0).1;
+                        return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![], line))));
+                    }
                     // min(xs, key=f) and max(xs, key=f): the first item with the smallest or largest key.
                     if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() == 2 && args[0].0.is_none() && args[1].0.as_deref() == Some("key") {
                         let f = args.remove(1).1;
@@ -1793,7 +1876,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d

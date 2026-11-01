@@ -317,6 +317,10 @@ pub trait Show {
 }
 impl Show for i64 {
     fn show(&self) -> String {
+        // None (see AxNone) prints as Python does.
+        if *self == i64::MIN && ax_py_on() {
+            return "None".into();
+        }
         self.to_string()
     }
 }
@@ -340,6 +344,9 @@ impl Show for bool {
 }
 impl Show for String {
     fn show(&self) -> String {
+        if self == "\u{0}None" {
+            return "None".into();
+        }
         self.clone()
     }
 }
