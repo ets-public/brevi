@@ -1,0 +1,27 @@
+import sys
+import re
+from collections import defaultdict
+from decimal import Decimal
+sys.setrecursionlimit(10000)
+
+
+def cents(s):
+    return int((Decimal(s.strip()) * 100).to_integral_value())
+
+
+def main():
+    d = defaultdict(lambda: 0)
+    d["a"] += 2
+    print(d["a"], cents(" 2.345 "), cents("2.355"))
+    st = {}
+    st.setdefault("x", [1, 2])
+    st.setdefault("x", [9])
+    st["x"].append(3)
+    print(st)
+    for i, c in enumerate("ab", start=1):
+        print(i, c)
+    ok = bool(re.match(r"^\d+$", "12")) and bool("")
+    print(ok, bool([1]))
+
+
+main()

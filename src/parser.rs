@@ -993,6 +993,14 @@ impl Parser {
                 let push = Expr::Method(recv, "push".into(), vec![x], l);
                 Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line })
             }
+            // `m.setdefault(k, v)` as a statement sets m[k] to v when k is missing.
+            Expr::Method(recv, m, mut a, l) if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(&m) => {
+                let v = a.remove(1);
+                let k = a.remove(0);
+                let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)));
+                let set = Stmt::Assign { target: Expr::Index(recv, Box::new(k)), op: "=", value: v, line };
+                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line })
+            }
             // `s.discard(x)` takes x out of a set() list when it is there.
             Expr::Method(recv, m, mut a, l) if m == "discard" && a.len() == 1 && !self.user_fns.contains(&m) => {
                 let x = a.remove(0);
@@ -1359,6 +1367,11 @@ impl Parser {
                                     continue;
                                 }
                             }
+                            // sys.setrecursionlimit(n): native code has no recursion limit to raise.
+                            if name == "setrecursionlimit" && matches!(&e, Expr::Ident(s) if s == "sys") {
+                                e = Expr::Tuple(vec![]);
+                                continue;
+                            }
                             // sys.exit(n) ends the program with that code; sys.exit("msg") prints msg and exits with 1.
                             if name == "exit" && args.len() <= 1 && matches!(&e, Expr::Ident(s) if s == "sys") {
                                 let code = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
@@ -1655,6 +1668,15 @@ impl Parser {
                             Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => Expr::Method(base, name, vec![la.remove(0)], line),
                             other => Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(Expr::Ident("b_".into())))], line),
                         });
+                    }
+                    // defaultdict(lambda: 0) (read as a `lambda:` named argument) with an empty default is a map.
+                    if name == "defaultdict" && args.len() == 1 && args[0].0.as_deref() == Some("lambda") && empty_literal(&args[0].1) && !self.user_fns.contains(&name) {
+                        return Ok(Expr::Map(vec![]));
+                    }
+                    // enumerate(xs, start=1)
+                    if name == "enumerate" && args.len() == 2 && args[1].0.as_deref() == Some("start") && !self.user_fns.contains(&name) {
+                        let n = args.remove(1).1;
+                        return Ok(Expr::Method(Box::new(args.remove(0).1), "enumerate_from".into(), vec![n], line));
                     }
                     // timedelta(days=n, weeks=w) is a span of days that adds to a date.
                     if name == "timedelta" && !args.is_empty() && !self.user_fns.contains(&name) && args.iter().all(|a| matches!(a.0.as_deref(), None | Some("days") | Some("weeks"))) {
@@ -2058,6 +2080,8 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("islower", 0) => "is_lower",
         ("isalnum", 0) => "is_alnum",
         ("isascii", 0) => "is_ascii",
+        // d.to_integral_value() rounds a Decimal half to even, as Python's default context does.
+        ("to_integral_value" | "to_integral", 0) => "round",
         ("center", 2) => "center_with",
         ("ljust", 2) => "ljust_with",
         ("rjust", 2) => "rjust_with",
@@ -2174,6 +2198,8 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         // dict(m) copies a map; maps are values in Brevi already.
         ("OrderedDict", 1) => args.remove(0).1,
+        // bool(x) is x's truth: not not x.
+        ("bool", 1) => Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(args.remove(0).1)))),
         ("divmod", 2) => {
             let (a, b) = (args[0].1.clone(), args[1].1.clone());
             Expr::Tuple(vec![Expr::Binary("//", Box::new(a.clone()), Box::new(b.clone())), Expr::Binary("%", Box::new(a), Box::new(b))])
