@@ -1513,6 +1513,8 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("lstrip", 0) => "trim_start",
         ("lstrip", 1) => "trim_start_of",
         ("splitlines", 0) => "lines",
+        // xs.pop(i) and m.pop(k) take the item out and give it back.
+        ("pop", 1) => "pop_at",
         ("isupper", 0) => "is_upper",
         ("islower", 0) => "is_lower",
         ("isalnum", 0) => "is_alnum",
@@ -1569,6 +1571,9 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
     Some(match (name, args.len()) {
         ("set" | "list" | "deque", 0) => Expr::List(vec![]),
         ("Decimal", 1) => m(args.remove(0).1, "dec", vec![]),
+        // next(rows) takes the first item, as reading one from an iterator does.
+        ("next", 1) => m(args.remove(0).1, "remove", vec![Expr::Int(0)]),
+        ("OrderedDict", 0) => Expr::Map(vec![]),
         ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {
             let f = args.remove(0).1;

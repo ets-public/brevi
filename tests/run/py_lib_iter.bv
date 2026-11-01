@@ -1,0 +1,24 @@
+rows = csv.reader(["name,qty", "a,1", "b,2"])
+header = next(rows)
+print(header)
+for r in rows:
+    print(r)
+print(sorted("banana"))
+for i, c in enumerate("ab", 1):
+    print(i, c)
+m = {"b": 1, "a": 2}
+print(sorted(m))
+d1 = date.fromisoformat("2024-01-01")
+d2 = date.fromisoformat("2024-03-01")
+print((d2 - d1).days)
+o = OrderedDict()
+o["x"] = 1
+print(len(o))
+d = {"a": 1, "b": 2}
+v = d.pop("a")
+print(v, len(d))
+s = "cab"
+print("-".join(s))
+print("".join(sorted(s)))
+xs = [1, 2, 3]
+print(xs.pop(0), xs)
