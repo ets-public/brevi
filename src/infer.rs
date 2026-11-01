@@ -413,6 +413,10 @@ impl Cx<'_> {
                             self.known_hints.insert((n.clone(), line), true);
                         }
                     }
+                    // Functions read it with this type from here on (not an older guess).
+                    if top && known(&t) {
+                        globals.insert(n.clone(), t.clone());
+                    }
                     env.insert(n.clone(), t);
                     continue;
                 }
@@ -889,6 +893,11 @@ impl Cx<'_> {
                 _ => Hole,
             },
             Expr::Index(b, i) => match self.ty(b, env) {
+                // `tx['posts']` on a dict made a record: the field.
+                Named(r) if crate::records::is_record(&r) => match rec_key(i) {
+                    Some(k) => self.structs.get(&r).and_then(|fs| fs.iter().find(|(n, _)| *n == k).map(|(_, t)| t.clone())).unwrap_or(Hole),
+                    None => Hole,
+                },
                 List(e) => *e,
                 Map(_, v) => *v,
                 Str => Str,
@@ -1380,6 +1389,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
             cx.flat_env(body, &mut env);
             crate::parser::walk_mut(body, &mut |e| {
+                rec_field(e, &|x| global_too(cx.ty(x, &env), x, &cx.genv), &cx.structs);
                 if let Expr::Method(r, m, args, line) = e {
                     if let Named(c) = cx.ty(r, &env) {
                         let f = format!("{c}_{m}");
@@ -1549,7 +1559,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 let owner = |e: &Expr, env: &Env| -> Option<(String, String)> {
                     let Expr::Field(r, f) = e else { return None };
                     let Expr::Ident(n) = r.as_ref() else { return None };
-                    match env.get(n) {
+                    match env.get(n).filter(|t| **t != Hole).or_else(|| cx.genv.get(n)) {
                         Some(Named(c)) if open_types.iter().any(|(oc, of)| oc == c && of == f) => Some((c.clone(), f.clone())),
                         _ => None,
                     }
@@ -1802,6 +1812,16 @@ impl Ck<'_, '_> {
                 Stmt::Assign { target, op, value, line } => {
                     self.line = *line;
                     self.expr(value, env);
+                    // `rec["done"] = True` on a JSON record: the value is put in as JSON.
+                    if self.py && *op == "=" {
+                        if let Expr::Index(b, _) = &*target {
+                            let vt = self.cx.ty(value, env);
+                            if self.cx.ty(b, env) == Json && vt != Json && (scalar(&vt) || matches!(vt, List(_) | Map(..))) {
+                                let v = std::mem::replace(value, Expr::Int(0));
+                                *value = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                            }
+                        }
+                    }
                     if !matches!(target, Expr::Ident(_)) {
                         self.expr(target, env);
                     }
@@ -1925,6 +1945,7 @@ impl Ck<'_, '_> {
                 }
             }
         }
+        rec_field(e, &|x| global_too(self.cx.ty(x, env), x, &self.cx.genv), &self.cx.structs);
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
             Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Tuple(xs.clone())),
@@ -2110,6 +2131,7 @@ pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
     // Top-level names, as functions see them (`for p in postings: s += p[1]` with postings a global list of pairs).
     let ecx = empty_cx(items);
     cx.genv = ecx.genv;
+    cx.mixed = ecx.mixed;
     let empties = ecx.hint_t;
     let mut errs = Vec::new();
     for it in items.iter_mut() {
@@ -2314,4 +2336,47 @@ fn mixed_record(xs: &[Expr], ty: &dyn Fn(&Expr) -> T) -> bool {
     }
     let ts: Vec<T> = xs.iter().map(ty).collect();
     ts.iter().all(|t| matches!(t, Int | F64 | Str | Bool | Dec | Date)) && ts.iter().any(|t| clash(t, &ts[0]) && !matches!((t, &ts[0]), (Int, F64) | (F64, Int)))
+}
+
+fn rec_key(i: &Expr) -> Option<String> {
+    match i {
+        Expr::Str(parts) => match parts.as_slice() {
+            [StrPart::Lit(k)] => Some(k.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+// `tx['posts']`, `tx.get('posts')`, `tx.get('posts', [])` and `'posts' in tx` on a record.
+fn rec_field(e: &mut Expr, ty: &dyn Fn(&Expr) -> T, structs: &HashMap<String, Vec<(String, T)>>) {
+    let has = |b: &Expr, k: &str| -> Option<bool> {
+        match ty(b) {
+            Named(r) if crate::records::is_record(&r) => Some(structs.get(&r).is_some_and(|fs| fs.iter().any(|(n, _)| n == k))),
+            _ => None,
+        }
+    };
+    let new = match &*e {
+        Expr::Index(b, i) => rec_key(i).and_then(|k| (has(b, &k) == Some(true)).then(|| Expr::Field(b.clone(), k))),
+        Expr::Method(b, m, args, _) if matches!(m.as_str(), "get" | "get_or") && (1..=2).contains(&args.len()) => {
+            rec_key(&args[0]).and_then(|k| match has(b, &k) {
+                Some(true) => Some(Expr::Field(b.clone(), k)),
+                Some(false) => args.get(1).cloned(),
+                None => None,
+            })
+        }
+        Expr::Binary(op @ ("in" | "not in"), a, b) => rec_key(a).and_then(|k| has(b, &k).map(|h| Expr::Bool(h == (*op == "in")))),
+        _ => None,
+    };
+    if let Some(n) = new {
+        *e = n;
+    }
+}
+
+// A top-level name still unknown where it is read (`cur = None` above) has the type functions gave it.
+fn global_too(t: T, x: &Expr, genv: &Env) -> T {
+    match (&t, x) {
+        (Hole, Expr::Ident(n)) => genv.get(n).cloned().unwrap_or(Hole),
+        _ => t,
+    }
 }

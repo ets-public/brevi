@@ -11,6 +11,9 @@ struct Cx {
     errs: Vec<Diag>,
     // Class methods that change self (`def deposit(self, n): self.bal += n`).
     mutators: HashSet<String>,
+    // Functions that hand back an item of a container (`def stat(sku): ...; return stats[sku]`):
+    // name -> (the container: a parameter's index or a top-level name, the key parameter's index).
+    getters: std::collections::HashMap<String, (Result<usize, String>, usize)>,
 }
 
 pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
@@ -34,7 +37,15 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     }
-    let mut cx = Cx { errs: vec![], mutators };
+    let mut getters = std::collections::HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { name, params, body, .. } = it {
+            if let Some(g) = getter(params, body) {
+                getters.insert(name.clone(), g);
+            }
+        }
+    }
+    let mut cx = Cx { errs: vec![], mutators, getters };
     for it in items.iter_mut() {
         if let Item::Fn { body, .. } | Item::Test { body, .. } = it {
             let pre = loops(body);
@@ -307,6 +318,32 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
             }
             let mut i = 0;
             while i < stmts.len() {
+                // `m = months[date[:7]]` then `m[0] += x`: the key is worked out once, into a name, so the
+                // change can be written back under it.
+                // `st = stat(sku)` where stat returns `stats[sku]`: the call is made, then st names stats[sku].
+                if let Some((r, call, base, key, line)) = getter_call(&stmts[i], &cx.getters) {
+                    if changed(&r, &stmts[i + 1..], tail.as_deref()) {
+                        stmts[i] = Stmt::Assign { target: Expr::Ident(r), op: "=", value: Expr::Index(Box::new(base), Box::new(key)), line };
+                        stmts.insert(i, Stmt::Expr { expr: call, line });
+                        i += 1;
+                        continue;
+                    }
+                }
+                if let Some((r, key, line)) = keyed_alias(&stmts[i]) {
+                    if changed(&r, &stmts[i + 1..], tail.as_deref()) {
+                        let kn = format!("ax_ak{line}_{r}");
+                        if let Stmt::Assign { value, .. } | Stmt::Let { value, .. } = &mut stmts[i] {
+                            match value {
+                                Expr::Index(_, k) => **k = Expr::Ident(kn.clone()),
+                                Expr::Method(_, _, args, _) => args[0] = Expr::Ident(kn.clone()),
+                                _ => {}
+                            }
+                        }
+                        stmts.insert(i, Stmt::Assign { target: Expr::Ident(kn), op: "=", value: key, line });
+                        i += 1;
+                        continue;
+                    }
+                }
                 if let Some((r, base, key, line)) = alias_of(&stmts[i]) {
                     let mut rest = stmts.split_off(i + 1);
                     if changed(&r, &rest, tail.as_deref()) {
@@ -691,4 +728,92 @@ fn own_item(args: &[Expr], a: &str) -> bool {
         [Expr::Method(_, m, xs, _)] if m == "index_of" => matches!(xs.as_slice(), [Expr::Ident(x)] if x == a),
         _ => false,
     }
+}
+
+// `r = base[key]` (or `base.get(key)`) whose key is an expression (`date[:7]`, `row["sku"]`), not a name.
+fn keyed_alias(st: &Stmt) -> Option<(String, Expr, usize)> {
+    let (r, value, line) = match st {
+        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
+        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        _ => return None,
+    };
+    let (base, key) = match value {
+        Expr::Index(base, key) => (base.as_ref(), key.as_ref()),
+        Expr::Method(base, m, args, _) if (m == "get" || m == "get_or") && (args.len() == 1 || matches!(args.get(1), Some(Expr::Call(f, a, _)) if f == "none" && a.is_empty())) => (base.as_ref(), &args[0]),
+        _ => return None,
+    };
+    let b = root(base)?;
+    if b == r || !matches!(base, Expr::Ident(_) | Expr::Field(..)) || plain_key(key) || matches!(key, Expr::Range(..)) {
+        return None;
+    }
+    Some((r.clone(), key.clone(), line))
+}
+
+// A function whose only value is `base[k]`, with k a parameter and base a parameter or a top-level name.
+fn getter(params: &[Param], body: &Expr) -> Option<(Result<usize, String>, usize)> {
+    let mut rets: Vec<Expr> = vec![];
+    let mut other = false;
+    crate::infer::walk(body, &mut |e| {
+        if let Expr::Block(stmts, _) = e {
+            for st in stmts {
+                if let Stmt::Return { value, .. } = st {
+                    match value {
+                        Some(v) => rets.push(v.clone()),
+                        None => other = true,
+                    }
+                }
+            }
+        }
+        if matches!(e, Expr::Lambda(..)) {
+            other = true;
+        }
+    });
+    if let Expr::Block(_, Some(t)) = body {
+        rets.push(t.as_ref().clone());
+    }
+    if other || rets.len() != 1 {
+        return None;
+    }
+    let Expr::Index(b, k) = &rets[0] else { return None };
+    let (Expr::Ident(bn), Expr::Ident(kn)) = (b.as_ref(), k.as_ref()) else { return None };
+    let ki = params.iter().position(|p| &p.name == kn)?;
+    // The function must not set the key name to something else.
+    let mut sets_key = false;
+    crate::infer::walk(body, &mut |e| {
+        if let Expr::Block(stmts, _) = e {
+            if stmts.iter().any(|st| matches!(st, Stmt::Assign { target: Expr::Ident(n), .. } | Stmt::Let { name: Pat::Bind(n), .. } if n == kn || n == bn)) {
+                sets_key = true;
+            }
+        }
+    });
+    if sets_key {
+        return None;
+    }
+    let base = match params.iter().position(|p| &p.name == bn) {
+        Some(i) => Ok(i),
+        None => Err(bn.clone()),
+    };
+    Some((base, ki))
+}
+
+fn getter_call(st: &Stmt, getters: &std::collections::HashMap<String, (Result<usize, String>, usize)>) -> Option<(String, Expr, Expr, Expr, usize)> {
+    let (r, value, line) = match st {
+        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
+        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        _ => return None,
+    };
+    let Expr::Call(f, args, _) = value else { return None };
+    let (base, ki) = getters.get(f)?;
+    if args.iter().any(|(n, _)| n.is_some()) {
+        return None;
+    }
+    let base = match base {
+        Ok(bi) => args.get(*bi)?.1.clone(),
+        Err(g) => Expr::Ident(g.clone()),
+    };
+    if !matches!(base, Expr::Ident(_) | Expr::Field(..)) || root(&base) == Some(r.as_str()) {
+        return None;
+    }
+    let key = args.get(*ki)?.1.clone();
+    Some((r.clone(), value.clone(), base, key, line))
 }

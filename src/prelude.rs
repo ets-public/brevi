@@ -1438,6 +1438,42 @@ impl AxIn<Json> for Vec<String> {
         self.iter().any(|y| x == y)
     }
 }
+// Changing a JSON value in place, as Python changes a dict or list: `rec["pages"] += 10`, `rec["tags"].append(x)`.
+impl AxMut<String, Json> for Json {
+    fn ax_mut(&mut self, k: &String) -> &mut Json {
+        if matches!(self, Json::Null) {
+            *self = Json::Obj { v: AxM::ordered() };
+        }
+        match self {
+            Json::Obj { v } => {
+                if !v.contains_key(k) {
+                    v.insert(k.clone(), Json::Null);
+                }
+                v.get_mut(k).unwrap()
+            }
+            _ => panic!("{} is not a dict, so it has no key {k:?}", self.show()),
+        }
+    }
+}
+impl AxMut<i64, Json> for Json {
+    fn ax_mut(&mut self, i: &i64) -> &mut Json {
+        match self {
+            Json::Arr { v } => {
+                let j = ax_idx(*i, v.len());
+                &mut v[j]
+            }
+            _ => panic!("{} is not a list", self.show()),
+        }
+    }
+}
+impl Json {
+    pub fn ax_push<T: AxToJson>(&mut self, x: T) {
+        match self {
+            Json::Arr { v } => v.push(x.ax_json()),
+            _ => panic!("{} is not a list, so it has no append", self.show()),
+        }
+    }
+}
 // Python mode prints a JSON value as Python prints what json.loads gives: None, True, 'x', [1, 2.5], {'k': 1}.
 fn ax_json_py(j: &Json, top: bool) -> String {
     match j {
@@ -3123,6 +3159,22 @@ impl AxToJson for String {
 impl AxToJson for &str {
     fn ax_json(&self) -> Json {
         Json::Str { v: self.to_string() }
+    }
+}
+// A tuple is a JSON list, as json.dumps writes it.
+impl<A: AxToJson, B: AxToJson> AxToJson for (A, B) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json()] }
+    }
+}
+impl<A: AxToJson, B: AxToJson, C: AxToJson> AxToJson for (A, B, C) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json()] }
+    }
+}
+impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson> AxToJson for (A, B, C, D) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json()] }
     }
 }
 impl<T: AxToJson> AxToJson for Vec<T> {

@@ -1,4 +1,5 @@
 mod alias;
+mod records;
 mod ast;
 mod bigint;
 mod caps;
@@ -338,6 +339,9 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
         if !errs.is_empty() {
             return Err(errs);
         }
+        // Dicts used as records (values of different types under fixed keys) become record types.
+        let (_, mixed) = infer::empty_types(&items);
+        records::records(&mut items, &mixed);
     }
     infer::PY.store(python_style(&src), std::sync::atomic::Ordering::Relaxed);
     infer::auto_mut(&mut items);
