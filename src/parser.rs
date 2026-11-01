@@ -1031,6 +1031,16 @@ impl Parser {
                     }
                 }
                 let e = if op == "=" && matches!(&e, Expr::Tuple(xs) if xs.iter().any(|x| matches!(x, Expr::Tuple(_)))) { self.flat_target(e, line) } else { e };
+                // `x = m.setdefault(k, v)`: set m[k] when missing, then x is m[k] (shared, as in Python).
+                if let (Expr::Ident(_), "=", Expr::Method(recv, m, a, l)) = (&e, op, &value) {
+                    if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(m) && self.py {
+                        let (recv, k, v, l) = (recv.clone(), a[0].clone(), a[1].clone(), *l);
+                        let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)));
+                        let set = Stmt::Assign { target: Expr::Index(recv.clone(), Box::new(k.clone())), op: "=", value: v, line };
+                        self.pending.push(Stmt::Assign { target: e, op, value: Expr::Index(recv, Box::new(k)), line });
+                        return Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line });
+                    }
+                }
                 return Ok(Stmt::Assign { target: e, op, value, line });
             }
         }
