@@ -330,7 +330,10 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     used_consts_first(&mut items);
     // Python names share objects (`r = rows[k]; r[0] -= 1` changes rows); Brevi programs keep copies.
     if python_style(&src) {
-        alias::writeback(&mut items);
+        let errs = alias::writeback(&mut items);
+        if !errs.is_empty() {
+            return Err(errs);
+        }
     }
     infer::auto_mut(&mut items);
     infer::returns(&mut items)?;

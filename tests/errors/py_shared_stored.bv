@@ -1,0 +1,9 @@
+def build():
+    rows = []
+    row = []
+    rows.append(row)
+    row.append(7)
+    return rows
+
+
+print(build())

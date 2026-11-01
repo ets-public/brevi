@@ -417,19 +417,20 @@ impl AxTruth for bool {
         *self
     }
 }
+// Python's None (held as i64::MIN, f64::MIN or "\0None") is false too.
 impl AxTruth for i64 {
     fn ax_truth(&self) -> bool {
-        *self != 0
+        *self != 0 && *self != i64::MIN
     }
 }
 impl AxTruth for f64 {
     fn ax_truth(&self) -> bool {
-        *self != 0.0
+        *self != 0.0 && *self != f64::MIN
     }
 }
 impl AxTruth for String {
     fn ax_truth(&self) -> bool {
-        !self.is_empty()
+        !self.is_empty() && self != "\u{0}None"
     }
 }
 impl<T> AxTruth for Vec<T> {

@@ -1,0 +1,87 @@
+# Python that relies on shared objects or on Python's own rules: loops over .values(), .items() and
+# enumerate() that change the item, range() counting down, None as false, (x,) tuples, setdefault alone.
+import heapq
+
+
+class A:
+    def __init__(self, n):
+        self.n = n
+        self.bal = 0
+
+
+def main():
+    accts = {"x": A("x"), "y": A("y")}
+    for a in accts.values():
+        a.bal += 1
+    lots = [[3, 1], [1, 2]]
+    for i, l in enumerate(lots):
+        l[1] += 10
+    for k, a in accts.items():
+        a.bal += 5
+    rows = []
+    row = []
+    row.append(7)
+    rows.append(row)
+    print([a.bal for a in accts.values()], lots, rows)
+
+
+
+
+def counts():
+    for j in range(5, 1, -1):
+        print(j)
+    r = 3
+    l = 0
+    xs = []
+    for j in range(r, l - 1, -1):
+        xs.append(j)
+    print(xs, list(range(10, 0, -3)))
+    bad = None
+    if bad:
+        print("bad")
+    bad = 2
+    if bad:
+        print("bad2")
+
+
+def route():
+    g = {"a": {"b": 5}, "b": {"a": 5, "c": 2}, "c": {"b": 2}}
+    s, t = "a", "c"
+    h = [(0, 1, (s,))]
+    done = set(); res = None
+    while h:
+        d, n, path = heapq.heappop(h)
+        u = path[-1]
+        print(d, n, len(path), u)
+        if u in done: continue
+        done.add(u)
+        if u == t: res = (d, path); break
+        for v, w in g[u].items():
+            if v not in done:
+                heapq.heappush(h, (d + w, n + 1, path + (v,)))
+    print(res[0], " ".join(res[1]))
+
+
+def topo():
+    adj={};indeg={}
+    for l in ["a -> b", "b -> c"]:
+        a,b=[x.strip() for x in l.split('->')]
+        indeg.setdefault(a,0);indeg.setdefault(b,0)
+        adj.setdefault(a,set())
+        if b not in adj[a]:
+            adj[a].add(b);indeg[b]+=1
+    print(indeg)
+    h=[k for k,v in indeg.items() if v==0];heapq.heapify(h);out=[]
+    print(h)
+    while h:
+        u=heapq.heappop(h);out.append(u)
+        for v in adj.get(u,()):
+            indeg[v]-=1
+            if indeg[v]==0: heapq.heappush(h,v)
+    print(out)
+
+
+main()
+counts()
+route()
+topo()

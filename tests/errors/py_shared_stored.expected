@@ -1,0 +1,1 @@
+{"line":4,"msg":"rows gets a copy of row here, so changing row later does not change rows (Brevi values are copies, not shared)","fix":"finish row before putting it in rows, or change it through rows"}

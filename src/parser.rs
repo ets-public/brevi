@@ -1044,6 +1044,12 @@ impl Parser {
                 let push = Expr::Method(recv, "push".into(), vec![x], l);
                 Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line })
             }
+            // `m.setdefault(k, 0)` / `m.setdefault(k, set())` alone on a line (read as `m[k]`) puts the key in:
+            // a missing key reads as the empty value, which is set back.
+            Expr::Index(recv, k) if self.py && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) => {
+                let x = Expr::Index(recv, k);
+                Ok(Stmt::Assign { target: x.clone(), op: "=", value: x, line })
+            }
             // `m.setdefault(k, v)` as a statement sets m[k] to v when k is missing.
             Expr::Method(recv, m, mut a, l) if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(&m) => {
                 let v = a.remove(1);
@@ -1783,6 +1789,17 @@ impl Parser {
                     if name == "range" && (1..=3).contains(&args.len()) && args.iter().all(|a| a.0.is_none()) && !self.user_fns.contains(&name) {
                         let mut a: Vec<Expr> = args.into_iter().map(|a| a.1).collect();
                         let (lo, hi) = if a.len() == 1 { (Expr::Int(0), a.remove(0)) } else { (a.remove(0), a.remove(0)) };
+                        // range(a, b, -k) counts down: a, a-k, ... while above b, which is (b+1..a+1) reversed, every k-th.
+                        let neg = match a.first() {
+                            Some(Expr::Unary("-", x)) => if let Expr::Int(k) = x.as_ref() { Some(*k) } else { None },
+                            Some(Expr::Int(k)) if *k < 0 => Some(-k),
+                            _ => None,
+                        };
+                        if let Some(k) = neg {
+                            let one = |e: Expr| Expr::Binary("+", Box::new(e), Box::new(Expr::Int(1)));
+                            let r = Expr::Method(Box::new(Expr::Range(Box::new(one(hi)), Box::new(one(lo)))), "rev".into(), vec![], line);
+                            return Ok(if k == 1 { r } else { Expr::Method(Box::new(r), "step".into(), vec![Expr::Int(k)], line) });
+                        }
                         let r = Expr::Range(Box::new(lo), Box::new(hi));
                         return Ok(if a.is_empty() { r } else { Expr::Method(Box::new(r), "step".into(), a, line) });
                     }
@@ -1847,6 +1864,11 @@ impl Parser {
                     }
                     if !self.eat_sym(",") {
                         break;
+                    }
+                    // Python's `(x,)`: a one-item tuple, kept as a one-item list.
+                    if items.len() == 1 && self.is_sym(")") {
+                        self.next();
+                        return Ok(Expr::List(items));
                     }
                 }
                 self.expect_sym(")")?;
@@ -2126,7 +2148,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d

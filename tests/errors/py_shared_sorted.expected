@@ -1,0 +1,1 @@
+{"line":2,"msg":"lot is a copy of an item of sorted(lots), so changing lot in this loop does not change the list or map it came from (Brevi values are copies, not shared)","fix":"loop over the indexes or keys of the original and change it there, e.g. for i in range(len(xs)): xs[i].n += 1"}
