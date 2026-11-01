@@ -1605,7 +1605,9 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 found.push((k, Ty::Unit));
                 continue;
             }
-            let t = ts.into_iter().fold(Hole, merge);
+            // `return 0` on some paths and `return v` (a JSON value) on others: the function gives JSON.
+            let json = ts.contains(&Json) && ts.iter().all(|t| matches!(t, Json | Int | F64 | Bool | Str | Hole));
+            let t = if json { Json } else { ts.into_iter().fold(Hole, merge) };
             match to_ast(&t) {
                 Some(t) => found.push((k, t)),
                 // No `return` and a last line of unclear type (`if c: print(x) else: m.remove(k)`): no value, as in Python.
