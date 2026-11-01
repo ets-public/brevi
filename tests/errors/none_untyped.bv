@@ -1,0 +1,12 @@
+def main():
+    best = None
+    for i in range(3):
+        if best is None or i > best[0]:
+            best = (i, 1, 2, 3, 4)
+    if best:
+        print(best)
+    d = {}
+    print(len(d))
+
+
+main()

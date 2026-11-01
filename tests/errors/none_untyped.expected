@@ -1,0 +1,1 @@
+{"line":2,"msg":"can't work out the type of best, which starts as None","fix":"give it a type where it starts, e.g. best: (int, str) = None, or set it to a real value first"}
