@@ -1,0 +1,87 @@
+# Python from the plain-Python trials: names share objects (r = rows[k]; r[0] -= 1 changes rows), nested
+# unpacking, Brevi keywords used as Python names, heaps typed from heappush.
+import heapq
+
+
+def main():
+    sells = []
+    resting = {}
+    total = 0
+
+    def take(qty):
+        nonlocal total
+        while qty > 0 and sells:
+            p, s, rid = sells[0]
+            r = resting.get(rid)
+            if r is None or r[1] != s:
+                heapq.heappop(sells)
+                continue
+            t = min(qty, r[0])
+            total += t * p
+            qty -= t
+            r[0] -= t
+            if r[0] == 0:
+                del resting[rid]
+                heapq.heappop(sells)
+        return qty
+
+    heapq.heappush(sells, (5, 1, "a"))
+    resting["a"] = [3, 1]
+    heapq.heappush(sells, (6, 2, "b"))
+    resting["b"] = [4, 2]
+    print(take(5), total, resting)
+
+
+main()
+
+
+class Acct:
+    def __init__(self, name):
+        self.name = name
+        self.bal = 0
+
+
+def main2():
+    accts = {"a": Acct("a")}
+    rows = [[1, 2], [3, 4]]
+    a = accts["a"]
+    a.bal += 5
+    for r in rows:
+        r[0] += 10
+    lst = [Acct("x"), Acct("y")]
+    for x in lst:
+        x.bal += 1
+    last = lst[-1]
+    last.bal += 7
+    print(accts["a"].bal, rows, [x.bal for x in lst])
+
+
+main2()
+
+
+bookings = {"b1": ("r1", "d1", 9, 10), "b2": ("r2", "d1", 8, 9), "b3": ("r1", "d2", 7, 8)}
+
+
+def day(date):
+    items = sorted((s, r, bid, e) for bid, (r, dd, s, e) in bookings.items() if dd == date)
+    return items
+
+
+cres = [(0, "a", ("x", 5)), (1, "b", ("y", 6))]
+print(day("d1"), [v + i for (i, op, (_t, v)) in cres])
+arg = ("x", (1, 2), (3, 4))
+(c1, r1), (c2, r2) = arg[1], arg[2]
+work = [((5, 6), 7)]
+(ti, i), p = work.pop()
+print(c1, r1, c2, r2, ti, i, p)
+pairs = [((1, 2), "a"), ((3, 4), "b")]
+print([x + y for (x, y), n in pairs if n != "c"])
+
+
+def var(x):
+    return x + 1
+
+
+match = var(2)
+type = "t"
+print(match, var(match), type)

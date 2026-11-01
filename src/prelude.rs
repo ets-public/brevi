@@ -394,6 +394,16 @@ impl<A: Show + 'static, B: Show + 'static, C: Show + 'static> Show for (A, B, C)
         format!("({}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2))
     }
 }
+impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static> Show for (A, B, C, D) {
+    fn show(&self) -> String {
+        format!("({}, {}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3))
+    }
+}
+impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static, E: Show + 'static> Show for (A, B, C, D, E) {
+    fn show(&self) -> String {
+        format!("({}, {}, {}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3), show_item(&self.4))
+    }
+}
 
 pub fn print<T: Show>(x: T) {
     println!("{}", x.show());

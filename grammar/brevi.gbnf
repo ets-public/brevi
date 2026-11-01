@@ -23,7 +23,8 @@ slice ::= expr | (expr)? ws ":" (ws expr)? (ws ":" (ws expr)?)?
 call ::= "(" ws n (ws arg (ws "," ws n ws arg)* (ws ",")?)? ws n ws ")"
 arg ::= (t-name ws ("=" | ":"))? (ws "*")? ws expr (ws comp)?
 comp ::= ("for" ws comp-target ws "in" ws binary (ws "if" ws binary)?)+
-comp-target ::= t-name (ws "," ws t-name)* | "(" ws t-name (ws "," ws t-name)* ws ")"
+comp-target ::= comp-name (ws "," ws comp-name)*
+comp-name ::= t-name | "(" ws comp-name (ws "," ws comp-name)* (ws ",")? ws ")"
 primary ::= t-int | t-float | t-string | "true" | "false" | t-name (ws call)? | "(" ws n (ws expr (ws "," ws n ws expr)* (ws ",")?)? ws n ws ")" | "(" ws n ws expr ws comp ws n ws ")" | "[" ws n (ws item (ws "," ws n ws item)* (ws ",")?)? ws n ws "]" | "[" ws n (ws "*")? ws expr ws comp ws n ws "]" | "{" (ws sep)* ws "}" | "{" (ws sep)* ws pair (ws (sep)+ ws pair)* (ws sep)* ws "}" | "{" ws n ws (pair | expr) ws comp ws n ws "}" | "{" ws n ws expr (ws "," ws n ws expr)* (ws ",")? ws n ws "}" | "(" ws n ws "match" ws expr ws ":" ws n (ws pattern ws "=>" ws expr (ws ",")? ws n)+ ws ")" | inline-if | brace-if | "match" ws expr ws block
 item ::= ("*")? ws expr
 pair ::= expr ws ":" ws expr

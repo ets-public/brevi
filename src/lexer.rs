@@ -278,6 +278,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     let mut depth: Vec<char> = Vec::new();
     // The string just ahead is an f-string, where `{3.14:.2f}` formats a number written in place.
     let mut fstr = false;
+    // Functions defined with Python's `def var(...)`: the name is a name everywhere, even where Brevi has a keyword.
+    let py_defs: Vec<String> = src
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix("def "))
+        .map(|r| r.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("").to_string())
+        .collect();
 
     while i < chars.len() {
         let c = chars[i];
@@ -712,6 +718,21 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 }
                 if !chars.get(j).map_or(false, |c| c.is_alphabetic() || *c == '_') {
                     push(&mut out, Tok::Ident("fn_".into()));
+                    continue;
+                }
+            }
+            // Python code names values `var`, `match`, `type`, `test`... (`def var(expr):`, `match = re.match(...)`): a
+            // Brevi-only keyword is a name after `def` or when a value's use (`=`, `.`, `,`, `)`, `[`) follows it.
+            if ["let", "var", "type", "enum", "match", "test", "mut"].contains(&word.as_str()) {
+                let mut j = i;
+                while chars.get(j) == Some(&' ') {
+                    j += 1;
+                }
+                let next = chars.get(j).copied().unwrap_or('\n');
+                let after_def = matches!(out.last(), Some(Token { tok: Tok::Kw("fn"), .. }));
+                let used = matches!(next, '.' | ',' | ')' | ']' | '[') || (next == '=' && chars.get(j + 1) != Some(&'='));
+                if after_def || used || py_defs.contains(&word) {
+                    push(&mut out, Tok::Ident(format!("{word}_")));
                     continue;
                 }
             }

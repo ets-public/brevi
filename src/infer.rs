@@ -653,7 +653,7 @@ impl Cx<'_> {
                         // Methods only text has.
                         ("split" | "words" | "lines" | "lower" | "upper" | "trim" | "starts_with" | "ends_with" | "replace" | "is_digit" | "is_alpha" | "ints" | "partition" | "find" | "chars", Hole) if self.param_look => Str,
                         ("has", Hole) if self.param_look => Map(Box::new(a0), Box::new(Hole)),
-                        ("push", List(_) | Hole) => List(Box::new(a0)),
+                        ("push" | "heap_push", List(_) | Hole) => List(Box::new(a0)),
                         ("push", Heap(_)) => Heap(Box::new(a0)),
                         ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
                         ("has" | "remove", Map(..)) => Map(Box::new(a0), Box::new(Hole)),
@@ -903,6 +903,12 @@ impl Cx<'_> {
                             let t = self.ty(value, &inner);
                             inner.insert(n.clone(), t);
                         }
+                        // `(r, d) = ax_cu` from a comprehension's `for k, (r, d) in ...`.
+                        Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {
+                            let p = Pat::Tuple(xs.iter().map(|x| if let Expr::Ident(n) = x { Pat::Bind(n.clone()) } else { Pat::Wild }).collect());
+                            let t = self.ty(value, &inner);
+                            bind(&p, t, &mut inner);
+                        }
                         _ => {}
                     }
                 }
@@ -928,7 +934,7 @@ impl Cx<'_> {
         match m {
             "len" | "count" | "count_sub" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
-            "dec" => Dec,
+            "dec" | "quantize" => Dec,
             "big" => Big,
             "char" | "fmt" | "spec" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
@@ -2041,7 +2047,7 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
                 }
             }
         }
-        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
+        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear", "heap_push", "heap_pop", "heap_push_pop", "heap_replace", "heapify", "pop_at", "pop_item", "update", "move_to_end"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
         Expr::Call(f, args, _) => {
             if let Some(ms) = muts.get(f) {
                 for (k, (_, a)) in args.iter().enumerate() {
