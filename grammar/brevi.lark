@@ -14,6 +14,7 @@ start: _NL? (line _NL)* line?
      | fn_sig "=" "match" expr ":"   // fn area(s: Shape) -> f64 = match s:
      | pattern ("=>" | ":") simple?  // match arm; with nothing after it the body is the block below
      | NAME ":" type ("=" expr)?     // field, or typed variable
+     | postfix ":" type "=" expr     // self.names: list[str] = []
      | "use" STRING STRING*          // use "util.bv", use sha2 "0.10"
      | "use" NAME STRING*
      | "allow" NAME ("," NAME)*       // allow read, write, native

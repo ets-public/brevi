@@ -1,0 +1,88 @@
+# Python type annotations: read where they help, otherwise left to inference.
+from typing import Dict, List, Optional, Set, Tuple, Union
+
+
+def pick(xs: List[int], k: Optional[int] = None) -> Tuple[int, int]:
+    best: int
+    if k is None:
+        best = max(xs)
+    else:
+        best = k
+    return best, len(xs)
+
+
+def tags(words: list[str]) -> set[str]:
+    out: set[str] = set()
+    for w in words:
+        out.add(w[0])
+    return out
+
+
+def index(rows: list[tuple[str, int]]) -> dict[str, list[int]]:
+    m: Dict[str, List[int]] = {}
+    for name, v in rows:
+        m.setdefault(name, []).append(v)
+    return m
+
+
+def first(m: dict[str, int], key: str) -> int | None:
+    return m.get(key)
+
+
+def num(s: str) -> Union[int, float]:
+    return int(s)
+
+
+print(pick([3, 9, 2]), pick([1], 7), sorted(tags(["ab", "ac", "b"])))
+print(index([("a", 1), ("b", 2), ("a", 3)]))
+print(first({"x": 1}, "x"), first({"x": 1}, "y"), num("4"))
+
+from dataclasses import dataclass
+from decimal import Decimal
+
+
+@dataclass
+class Lot:
+    sku: str
+    price: Decimal
+    qty: int = 0
+
+
+class Store:
+    def __init__(self) -> None:
+        self.names: list[str] = []
+        self.lots: list[Lot] = []
+        self.types: dict[str, str] = {}
+        self.best: Optional[Lot] = None
+        self.count: int = 0
+
+    def add(self, lot: Lot) -> None:
+        self.lots.append(lot)
+        self.names.append(lot.sku)
+        self.types[lot.sku] = "x" if lot.qty > 1 else "y"
+        self.count += 1
+
+    def fill(self, sku: str) -> list[tuple]:
+        out: list[tuple[str, int]] = []
+        for l in self.lots:
+            if l.sku == sku:
+                out.append((l.sku, l.qty))
+        return out
+
+
+def kind(x: str) -> str:
+    if x in ("a", "b"):
+        return "ab"
+    return "other"
+
+
+def main2() -> None:
+    s = Store()
+    s.add(Lot("p", Decimal("1.50"), 2))
+    s.add(Lot("q", Decimal("2"), 1))
+    print(s.names, s.types, s.count, s.fill("p"), kind("a"), kind("z"))
+    total: Decimal = sum((l.price * l.qty for l in s.lots), Decimal("0"))
+    print(total)
+
+
+main2()

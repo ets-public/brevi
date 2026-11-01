@@ -1592,6 +1592,11 @@ impl Emitter {
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
             // Python-style truth: an empty list, map or string, 0 and "" are false.
             Expr::Binary(op @ ("and" | "or"), a, b) => format!("({} {} {})", self.cond(a), if *op == "and" { "&&" } else { "||" }, self.cond(b)),
+            // `x in ("a", "b")`: a tuple of like values is searched as a list.
+            Expr::Binary("in", a, b) if matches!(b.as_ref(), Expr::Tuple(_)) => {
+                let Expr::Tuple(xs) = b.as_ref() else { unreachable!() };
+                self.expr(&Expr::Binary("in", a.clone(), Box::new(Expr::List(xs.clone()))))
+            }
             // Python's `"-" * 40`: text repeated.
             Expr::Binary("*", a, b) if [a, b].iter().any(|x| matches!(self.infer_ty(x), Some(Ty::Named(n)) if n == "str")) => {
                 let (s, n) = if matches!(self.infer_ty(a), Some(Ty::Named(t)) if t == "str") { (a, b) } else { (b, a) };
