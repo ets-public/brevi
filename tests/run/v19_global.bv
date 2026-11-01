@@ -1,0 +1,19 @@
+count = 0
+total = 5
+names = []
+fn bump(n):
+    global count, total
+    count = count + n
+    total = 0
+    names.append("x")
+fn local_only():
+    count = 100
+    return count
+bump(2)
+bump(3)
+print(count, total, names, local_only(), count)
+fn loop_local():
+    for count in [7]:
+        print(count)
+loop_local()
+print(count)

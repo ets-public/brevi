@@ -4,6 +4,9 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- Types are optional everywhere. A parameter without a type now also takes the type its own function's uses show (`lots.push(Lot(...))`, `seen[id] = true`, `st[t]`, `p.qty`), and `date(s).days` and `weekday()` are typed. With every annotation removed from the 48 saved held-out XL solutions, 46 still build and pass (31 before). The guide now says so and its examples drop their types.
+- A parameter changed in place (`xs.push(x)`, `xs[i] = v`, `p.n += 1`) edits the caller's value without `mut`, as in Python. It stays a copy when the function sets it whole or returns it. Leaving out `mut` used to give silently wrong output.
+- `global x` and `nonlocal x` are accepted. A program that uses them follows Python's scope rule exactly; programs without them keep Brevi's rule.
 - Python's `f"..."` and `f'...'` strings are accepted (Brevi strings already fill in `{name}`).
 - A program's own type named `Result` no longer clashes with Rust's.
 - A top-level map filled inside a function (`ts = {}`, then `ts[n] = Team()` in a function) is typed where other functions read it, so `fn key(n: str) = (-ts[n].w, n)` needs no return type. This was the most common first-check error in recent runs.
