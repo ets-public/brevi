@@ -232,7 +232,7 @@ fn main() {
             }
         }
     }
-    // Builds to try in order: with inferred types for empty values, then without (the errors shown come from the last).
+    // Builds to try in order: with inferred types for empty values, then without (the errors shown come from the first).
     let versions: Vec<(String, Option<String>)> = [true, false]
         .iter()
         .filter_map(|&h| compile_to_rust(&src, true, h).ok().map(|r| (r, compile_to_rust(&src, false, h).ok())))
@@ -438,7 +438,11 @@ fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &
                 });
             }
         }
-        last = Some(r);
+        // Report the first build's errors: it has the inferred types, so its errors name the real gap
+        // (without them, a `best = None` that inference typed would be blamed instead).
+        if last.is_none() {
+            last = Some(r);
+        }
     }
     match last {
         Some((rust, stderr)) => report(rust, &stderr),
