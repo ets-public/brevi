@@ -20,6 +20,7 @@ start: _NL? (line _NL)* line?
      | ("global" | "nonlocal") NAME ("," NAME)*   // Python scope: see BREVI.md
      | "import" NAME ("," NAME)*     // import sys, math: Python modules Brevi has built in
      | "from" NAME "import" NAME ("," NAME)*
+     | "@" postfix                   // decorators such as @dataclass are skipped
      | simples
 
 opener: fn_sig
@@ -40,12 +41,14 @@ opener: fn_sig
       | "return" (unary binop)* ("if" | "match") expr
 
 fn_sig: ("rust" | "py")? ("fn" | "def") NAME "(" _n [param ("," _n param)* ","?] _n ")" ("->" type)? "!"?
-param: "mut"? NAME (":" type)?
+param: "mut"? NAME (":" type)? ("=" expr)?   // def scale(x, k=2)
+     | "*" NAME (":" type)?                     // def total(*xs)
 
 ?type: "[" type "]"
      | "{" type ":" type "}"
      | "(" [type ("," type)*] ")"
-     | NAME ("[" type "]")?
+     | NAME ("[" type ("," type)* "]")?   // list[str], dict[str, int], Optional[T]
+     | type "|" type                     // int | None
 
 simples: simple (";" simple)*      // Python's a = 1; b = 2
 

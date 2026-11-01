@@ -348,7 +348,12 @@ impl Cx<'_> {
                             for (k, x) in xs.iter().enumerate() {
                                 if let Expr::Ident(n) = x {
                                     if !env.contains_key(n) {
-                                        let et = if let Tuple(ts) = &t { ts.get(k).cloned().unwrap_or(Hole) } else { Hole };
+                                        // A list unpacks as well (`for a, b in rows`, `a, b = s.split()`).
+                let et = match &t {
+                    Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
+                    List(e) => *e.clone(),
+                    _ => Hole,
+                };
                                         env.insert(n.clone(), et);
                                     }
                                 }
@@ -752,6 +757,7 @@ impl Cx<'_> {
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
                     "stdin" | "input" | "read" | "str" | "__err" => Str,
+                    "__truediv" => F64,
                     "csv" => List(Box::new(List(Box::new(Str)))),
                     "json" => Json,
                     "date" => Date,
@@ -777,11 +783,16 @@ impl Cx<'_> {
                 Tuple(ts) => ts.get(*i).cloned().unwrap_or(Hole),
                 _ => Hole,
             },
-            Expr::Index(b, _) => match self.ty(b, env) {
+            Expr::Index(b, i) => match self.ty(b, env) {
                 List(e) => *e,
                 Map(_, v) => *v,
                 Str => Str,
                 Json => Json,
+                // `r[1]` on a tuple is its field (the checker turns it into r.1).
+                Tuple(ts) => match i.as_ref() {
+                    Expr::Int(k) if *k >= 0 => ts.get(*k as usize).cloned().unwrap_or(Hole),
+                    _ => Hole,
+                },
                 _ => Hole,
             },
             Expr::Try(a) => self.ty(a, env),
@@ -1051,6 +1062,10 @@ impl Cx<'_> {
                                 if let (Expr::Ident(n), Tuple(ts)) = (x, &t) {
                                     env.entry(n.clone()).or_insert(ts.get(k).cloned().unwrap_or(Hole));
                                 }
+                                // `a, b = line.split()`: each name is an item.
+                                if let (Expr::Ident(n), List(e)) = (x, &t) {
+                                    env.entry(n.clone()).or_insert(*e.clone());
+                                }
                             }
                         }
                         Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } => self.flat_env(expr, env),
@@ -1231,6 +1246,27 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 };
                 let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
                 cx.flat_env(body, &mut env);
+                // A function passed by name to a method that calls it on each item (`sorted(rows, key=key)`,
+                // `map(double, xs)`) takes the item type.
+                walk(body, &mut |e| {
+                    if let Expr::Method(r, m, args, _) = e {
+                        if ["sort_by", "map", "filter", "any", "all", "count", "min_by", "max_by", "group_by"].contains(&m.as_str()) {
+                            for a in args {
+                                if let Expr::Ident(f) = a {
+                                    if let Some(&k) = untyped.get(f) {
+                                        if let Item::Fn { params: ps, .. } = &items[k] {
+                                            if ps.len() == 1 && q(&ps[0].ty) {
+                                                if let Some(t) = to_ast(&each_elem(&cx.ty(r, &env))) {
+                                                    fills.push((k, 0, t));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
                 let mut calls = Vec::new();
                 calls_in(body, &mut calls);
                 for (f, args) in calls {
@@ -1663,6 +1699,19 @@ impl Ck<'_, '_> {
                         float_lit(b);
                     } else if self.cx.ty(b, env) == F64 {
                         float_lit(a);
+                    }
+                }
+                // Python mixes int and float freely (`qty * price`): the int side is turned into a float.
+                if ["+", "-", "*", "/", "//", "%", "==", "!=", "<", ">", "<=", ">=", "**"].contains(op) {
+                    let (x, y) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                    let float = |e: &mut Box<Expr>| {
+                        let inner = std::mem::replace(e.as_mut(), Expr::Int(0));
+                        **e = Expr::Method(Box::new(inner), "float".into(), vec![], 0);
+                    };
+                    match (&x, &y) {
+                        (Int, F64) if *op != "**" => float(a),
+                        (F64, Int) if *op != "**" => float(b),
+                        _ => {}
                     }
                 }
                 if ["+", "-", "*", "/", "//", "%"].contains(op) {

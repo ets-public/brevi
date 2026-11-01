@@ -957,6 +957,6 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
 }
 
 // A program written as Python (`def`, `class`, `global`) prints values and orders dicts as Python does.
-fn python_style(src: &str) -> bool {
+pub fn python_style(src: &str) -> bool {
     src.lines().map(str::trim_start).any(|l| l.starts_with("def ") || l.starts_with("class ") || l.starts_with("global ") || l.starts_with("nonlocal ") || l.starts_with("import ") || (l.starts_with("from ") && l.contains(" import ")))
 }
