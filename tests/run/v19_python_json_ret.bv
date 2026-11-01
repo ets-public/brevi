@@ -1,0 +1,17 @@
+import json
+
+def total(v):
+    if isinstance(v, (int, float)):
+        return v
+    if isinstance(v, list):
+        return sum(total(x) for x in v)
+    if isinstance(v, dict):
+        return sum(total(x) for x in v.values())
+    return 0
+
+def main():
+    data = json.loads('{"a": 1, "b": [2, 3, {"c": 4}], "d": "x"}')
+    print(total(data))
+    print(total(json.loads('[5, 6]')))
+
+main()

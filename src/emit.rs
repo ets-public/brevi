@@ -68,6 +68,7 @@ pub struct Emitter {
     // Names whose items are lists changed in place (`m[k].push(x)`), so an empty `m = {}` gets a partial type.
     nested: HashSet<String>,
     cur_body: String,
+    json_ret: bool,
     // Top-level names that the current function sets before reading, so they are its own locals.
     own_locals: HashSet<String>,
     // Types for untyped empty values, by (name, line): (Rust type, complete).
@@ -639,6 +640,7 @@ impl Emitter {
             borrow_loops: false,
             nested: HashSet::new(),
             cur_body: String::new(),
+            json_ret: false,
             own_locals: HashSet::new(),
             fn_texts: items
                 .iter()
@@ -1135,6 +1137,8 @@ impl Emitter {
         }
         self.line = line;
         self.unit_fn = matches!(ret, Ty::Unit);
+        // A function giving JSON on some paths and a number on others: every value returned is made JSON.
+        self.json_ret = matches!(ret, Ty::Named(n) if n == "json" || n == "Json");
         let ps: Vec<String> = params
             .iter()
             .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
@@ -1432,7 +1436,10 @@ impl Emitter {
             }
             Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
-                let v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
+                let mut v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
+                if self.json_ret && value.is_some() {
+                    v = format!("AxToJson::ax_json(&{v})");
+                }
                 if self.unit_fn && value.is_some() && !self.must {
                     let r = if self.fallible { "return Ok(())" } else { "return" };
                     return format!("    /*@L{line}*/ax_l({line}); {{ let _ = {v}; {r}; }}\n");

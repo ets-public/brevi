@@ -1073,6 +1073,12 @@ impl AxSum<f64> for Vec<f64> {
         self.iter().sum()
     }
 }
+// Numbers held as JSON (a function returning `v` or `0`): their sum, as JSON.
+impl AxSum<Json> for Vec<Json> {
+    fn ax_sum(&self) -> Json {
+        Json::Num { v: self.iter().map(|j| if let Json::Num { v } = j { *v } else { 0.0 }).sum() }
+    }
+}
 pub trait AxJoin {
     fn ax_join(&self, sep: String) -> String;
 }
