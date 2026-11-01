@@ -1,0 +1,45 @@
+type Lot:
+  sku: str
+  qty: int
+  expiry: str
+
+type Stock:
+  lots: [Lot]
+
+fn new_stock() -> Stock = Stock(lots: [])
+
+fn add_lot(mut s: Stock, sku: str, qty: int, expiry: str):
+  s.lots.push(Lot(sku: sku, qty: qty, expiry: expiry))
+
+fn take(mut s: Stock, sku: str, qty: int) -> int:
+  idx = (0..s.lots.len()).filter(i => s.lots[i].sku == sku and s.lots[i].qty > 0)
+  order = idx.sort_by(i => (s.lots[i].expiry, i))
+  left = qty
+  for i in order:
+    if left > 0:
+      k = min(left, s.lots[i].qty)
+      s.lots[i].qty -= k
+      left -= k
+  qty - left
+
+fn discard_before(mut s: Stock, today: str) -> [str]:
+  idx = (0..s.lots.len()).filter(i => s.lots[i].expiry < today)
+  order = idx.sort_by(i => (s.lots[i].sku, s.lots[i].expiry, i))
+  msgs: [str] = []
+  for i in order:
+    if s.lots[i].qty > 0:
+      msgs.push("discard {s.lots[i].sku} {s.lots[i].qty} {s.lots[i].expiry}")
+  s.lots = s.lots.filter(l => l.expiry >= today)
+  msgs
+
+fn stock_lines(s: Stock) -> [str]:
+  qtys: {str: int} = {}
+  cnt: {str: int} = {}
+  for l in s.lots:
+    if l.qty > 0:
+      qtys[l.sku] += l.qty
+      cnt[l.sku] += 1
+  out: [str] = []
+  for k, q in qtys.pairs():
+    out.push("{k} {q} in {cnt[k]} lots")
+  out

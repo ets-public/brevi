@@ -1,0 +1,90 @@
+fn heading(raw: str) -> (int, str):
+  cs = raw.chars()
+  n = 0
+  while n < cs.len():
+    if cs[n] != "#": break
+    n += 1
+  if n < 1 or n > 6: return (0, "")
+  if n >= cs.len(): return (0, "")
+  if cs[n] != " ": return (0, "")
+  t = raw.slice(n, raw.len()).trim()
+  if t.is_empty(): return (0, "")
+  t2 = t
+  while t2.ends_with("#"):
+    t2 = t2.slice(0, t2.len() - 1)
+  if t2.len() < t.len() and t2.ends_with(" "):
+    t = t2.trim()
+  return (n, t)
+
+fn main():
+  rows = lines()
+  heads: [(int, int, str)] = []
+  in_code = false
+  open_line = 0
+  for i in 0..rows.len():
+    raw = rows[i]
+    ln = i + 1
+    if raw.starts_with("```"):
+      in_code = not in_code
+      if in_code: open_line = ln
+      continue
+    if in_code: continue
+    hres = heading(raw)
+    if hres.0 > 0:
+      heads.push((ln, hres.0, hres.1))
+  warns: [str] = []
+  if heads.len() == 0:
+    if in_code: warns.push("line {open_line}: unclosed code block")
+    for w in warns: print(w)
+    print("no headings")
+    return
+  top = heads[0].1
+  for h in heads:
+    if h.1 < top: top = h.1
+  cnt = [0].repeat(rows.len() + 10)
+  seen: {str: int} = {}
+  out: [str] = []
+  max_d = 0
+  prev_level = 0
+  prev_depth = 0
+  for h in heads:
+    ln = h.0
+    lev = h.1
+    text = h.2
+    if prev_level == 0:
+      depth = 1 + lev - top
+    elif lev - prev_level > 1:
+      warns.push("line {ln}: level jump")
+      depth = prev_depth + 1
+    else:
+      depth = 1 + lev - top
+    prev_level = lev
+    prev_depth = depth
+    if depth > max_d: max_d = depth
+    cnt[depth] += 1
+    for k in depth + 1..max_d + 1:
+      cnt[k] = 0
+    parts: [str] = []
+    for k in 1..depth + 1:
+      parts.push(str(cnt[k]))
+    num = parts.join(".")
+    slug = ""
+    for c in text.lower().chars():
+      if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "-":
+        slug = slug + c
+      elif c == " ":
+        slug = slug + "-"
+    if slug.is_empty(): slug = "section"
+    if seen.has(slug):
+      k = seen[slug]
+      seen[slug] += 1
+      final = slug + "-" + str(k)
+    else:
+      seen[slug] = 1
+      final = slug
+    ind = "  ".repeat(depth - 1)
+    out.push("{ind}{num} {text} (#{final})")
+  if in_code: warns.push("line {open_line}: unclosed code block")
+  for w in warns: print(w)
+  for o in out: print(o)
+  print("{heads.len()} headings, max depth {max_d}")

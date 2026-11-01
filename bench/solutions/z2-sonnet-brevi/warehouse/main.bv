@@ -1,0 +1,65 @@
+use "stock.bv"
+use "orders.bv"
+
+fn valid_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d\d-\d\d") == []: return false
+  match date(s):
+    Ok(_) => true
+    Err(_) => false
+
+fn good_qty(s: str) -> bool = s.re_full("\d+") != [] and s.int() > 0
+
+lots: [Lot] = []
+bos: [Backorder] = []
+ids: [str] = []
+today = ""
+seq = 0
+shipped = 0
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  w = line.words()
+  c = w[0]
+  if c == "DAY" and w.len() == 2 and valid_date(w[1]):
+    if w[1] < today:
+      print("line {n}: date goes back")
+    else:
+      today = w[1]
+      for s in discard(lots, today): print(s)
+  elif c == "RECV" and w.len() == 4 and good_qty(w[2]) and valid_date(w[3]):
+    if today.is_empty():
+      print("line {n}: no date")
+    elif w[3] < today:
+      print("line {n}: expired on arrival")
+    else:
+      seq += 1
+      lots.push(Lot(sku: w[1], qty: w[2].int(), exp: w[3], seq: seq))
+      r = fill(bos, lots, w[1])
+      for s in r.0: print(s)
+      shipped += r.1
+  elif c == "ORDER" and w.len() == 4 and good_qty(w[3]):
+    if today.is_empty():
+      print("line {n}: no date")
+    elif w[1] in ids:
+      print("line {n}: duplicate order")
+    else:
+      ids.push(w[1])
+      q = w[3].int()
+      x = take(lots, w[2], q)
+      shipped += x
+      if x < q:
+        print("ORDER {w[1]}: shipped {x} of {q}")
+        bos.push(Backorder(id: w[1], sku: w[2], left: q - x))
+      else:
+        print("ORDER {w[1]}: shipped {q}")
+  elif c == "STOCK" and w.len() == 1:
+    sl = stock_lines(lots)
+    if sl.is_empty():
+      print("stock empty")
+    else:
+      for s in sl: print(s)
+  else:
+    print("line {n}: bad line")
+back = bos.map(b => b.left).sum()
+print("shipped {shipped} units, backordered {back} units")

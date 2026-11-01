@@ -1,0 +1,125 @@
+## main.bv
+use "stock.bv"
+use "orders.bv"
+
+fn valid_date(s: str) -> bool:
+  if s.re_full("\d{4}-\d\d-\d\d") == []: return false
+  match date(s):
+    Ok(_) => true
+    Err(_) => false
+
+fn good_qty(s: str) -> bool = s.re_full("\d+") != [] and s.int() > 0
+
+lots: [Lot] = []
+bos: [Backorder] = []
+ids: [str] = []
+today = ""
+seq = 0
+shipped = 0
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  w = line.words()
+  c = w[0]
+  if c == "DAY" and w.len() == 2 and valid_date(w[1]):
+    if w[1] < today:
+      print("line {n}: date goes back")
+    else:
+      today = w[1]
+      for s in discard(lots, today): print(s)
+  elif c == "RECV" and w.len() == 4 and good_qty(w[2]) and valid_date(w[3]):
+    if today.is_empty():
+      print("line {n}: no date")
+    elif w[3] < today:
+      print("line {n}: expired on arrival")
+    else:
+      seq += 1
+      lots.push(Lot(sku: w[1], qty: w[2].int(), exp: w[3], seq: seq))
+      r = fill(bos, lots, w[1])
+      for s in r.0: print(s)
+      shipped += r.1
+  elif c == "ORDER" and w.len() == 4 and good_qty(w[3]):
+    if today.is_empty():
+      print("line {n}: no date")
+    elif w[1] in ids:
+      print("line {n}: duplicate order")
+    else:
+      ids.push(w[1])
+      q = w[3].int()
+      x = take(lots, w[2], q)
+      shipped += x
+      if x < q:
+        print("ORDER {w[1]}: shipped {x} of {q}")
+        bos.push(Backorder(id: w[1], sku: w[2], left: q - x))
+      else:
+        print("ORDER {w[1]}: shipped {q}")
+  elif c == "STOCK" and w.len() == 1:
+    sl = stock_lines(lots)
+    if sl.is_empty():
+      print("stock empty")
+    else:
+      for s in sl: print(s)
+  else:
+    print("line {n}: bad line")
+back = bos.map(b => b.left).sum()
+print("shipped {shipped} units, backordered {back} units")
+## stock.bv
+type Lot:
+  sku: str
+  qty: int
+  exp: str
+  seq: int
+
+fn take(mut lots: [Lot], sku: str, want: int) -> int:
+  got = 0
+  cand: [(str, int, int)] = []
+  for i in 0..lots.len():
+    if lots[i].sku == sku and lots[i].qty > 0: cand.push((lots[i].exp, lots[i].seq, i))
+  for c in cand.sort():
+    if got < want:
+      x = min(want - got, lots[c.2].qty)
+      lots[c.2].qty -= x
+      got += x
+  lots = lots.filter(l => l.qty > 0)
+  got
+
+fn discard(mut lots: [Lot], today: str) -> [str]:
+  gone = lots.filter(l => l.exp < today).sort_by(l => (l.sku, l.exp, l.seq))
+  out: [str] = gone.map(l => "discard {l.sku} {l.qty} {l.exp}")
+  lots = lots.filter(l => l.exp >= today)
+  out
+
+fn stock_lines(lots: [Lot]) -> [str]:
+  tot: {str: int} = {}
+  cnt: {str: int} = {}
+  for l in lots:
+    if l.qty > 0:
+      tot[l.sku] += l.qty
+      cnt[l.sku] += 1
+  out: [str] = []
+  for k, v in tot.pairs(): out.push("{k} {v} in {cnt[k]} lots")
+  out
+## orders.bv
+use "stock.bv"
+
+type Backorder:
+  id: str
+  sku: str
+  left: int
+
+fn fill(mut bos: [Backorder], mut lots: [Lot], sku: str) -> ([str], int):
+  out: [str] = []
+  total = 0
+  for i in 0..bos.len():
+    if bos[i].sku == sku and bos[i].left > 0:
+      x = take(lots, sku, bos[i].left)
+      if x > 0:
+        bos[i].left -= x
+        total += x
+        if bos[i].left == 0:
+          out.push("BACKORDER {bos[i].id}: done")
+        else:
+          out.push("BACKORDER {bos[i].id}: shipped {x}, {bos[i].left} left")
+  bos = bos.filter(b => b.left > 0)
+  (out, total)

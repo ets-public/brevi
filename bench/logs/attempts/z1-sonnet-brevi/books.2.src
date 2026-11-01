@@ -1,0 +1,118 @@
+accts: {str: str} = {}
+bal: {str: dec} = {}
+postings: [(str, dec)] = []
+txopen = false
+txbad = false
+postbad = false
+txline = 0
+txdate = ""
+lastdate = ""
+accepted = 0
+rejected = 0
+debits = 0.dec()
+credits = 0.dec()
+ranks = ["asset", "liability", "equity", "income", "expense"]
+
+fn valid_date(s: str) -> bool:
+  if s.re_full('\d{4}-\d{2}-\d{2}').is_empty(): return false
+  match date(s):
+    Ok(_) => true
+    Err(_) => false
+
+fn finish():
+  if not txopen: return
+  txopen = false
+  if txbad: return
+  if postbad:
+    rejected += 1
+    return
+  if txdate < lastdate:
+    print("line {txline}: date goes back")
+    rejected += 1
+    return
+  if postings.len() < 2:
+    print("tx on line {txline}: needs two postings")
+    rejected += 1
+    return
+  total = 0.dec()
+  for p in postings:
+    total += p.1
+  if total != 0:
+    if total > 0:
+      print("tx on line {txline}: unbalanced by +{total.fmt(2)}")
+    else:
+      print("tx on line {txline}: unbalanced by {total.fmt(2)}")
+    rejected += 1
+    return
+  lastdate = txdate
+  accepted += 1
+  for p in postings:
+    bal[p.0] += p.1
+    if p.1 > 0:
+      debits += p.1
+    else:
+      credits += 0 - p.1
+
+fn report():
+  print("trial balance")
+  items: [(int, str)] = []
+  for k, t in accts.pairs():
+    items.push((ranks.index_of(t), k))
+  items = items.sort()
+  for it in items:
+    name = it.1
+    t = accts[name]
+    b = bal[name]
+    if it.0 >= 1 and it.0 <= 3:
+      b = 0 - b
+    print("{name} {t} {b.fmt(2)}")
+  print("debits {debits.fmt(2)} credits {credits.fmt(2)}")
+
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  w = line.words()
+  if line.starts_with("  "):
+    if not txopen:
+      print("line {n}: bad line")
+      continue
+    if txbad: continue
+    if w.len() != 2 or w[1].re_full('[+-]?\d+(\.\d{1,2})?').is_empty():
+      print("line {n}: bad line")
+      postbad = true
+      continue
+    if not accts.has(w[0]):
+      print("line {n}: unknown account {w[0]}")
+      postbad = true
+      continue
+    postings.push((w[0], w[1].replace("+", "").dec()))
+    continue
+  finish()
+  if w[0] == "ACCOUNT":
+    if w.len() != 3 or w[2] not in ranks:
+      print("line {n}: bad line")
+    elif accts.has(w[1]):
+      print("line {n}: duplicate account")
+    else:
+      accts[w[1]] = w[2]
+  elif w[0] == "TX":
+    txopen = true
+    txline = n
+    postbad = false
+    postings = []
+    if w.len() < 3 or not valid_date(w[1]):
+      print("line {n}: bad line")
+      txbad = true
+    else:
+      txbad = false
+      txdate = w[1]
+  elif w[0] == "REPORT":
+    if w.len() != 1:
+      print("line {n}: bad line")
+    else:
+      report()
+  else:
+    print("line {n}: bad line")
+finish()
+print("{accepted} transactions accepted, {rejected} rejected")

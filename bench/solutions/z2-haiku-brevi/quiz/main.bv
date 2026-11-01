@@ -1,0 +1,88 @@
+use "key.bv"
+use "grade.bv"
+
+fn main():
+  rows = lines()
+  section = 0
+  questions: [Question] = []
+  qseen: {str: bool} = {}
+  names: [str] = []
+  sheets: [{str: str}] = []
+  nameseen: {str: bool} = {}
+  for i in 0..rows.len():
+    ln = i + 1
+    w = rows[i].split()
+    if w.is_empty(): continue
+    if section == 0:
+      if w.len() == 1 and w[0] == "KEY": section = 1
+      continue
+    if section == 1:
+      if w.len() == 1 and w[0] == "ANSWERS":
+        section = 2
+        continue
+      if w.len() == 1 and w[0] == "KEY": continue
+      okq, q = parse_key(w)
+      if not okq or qseen.has(q.id):
+        print("key line {ln}: bad question")
+        continue
+      qseen[q.id] = true
+      questions.push(q)
+      continue
+    if w.len() == 1 and w[0] == "ANSWERS": continue
+    name = w[0]
+    if nameseen.has(name):
+      print("line {ln}: duplicate student")
+      continue
+    nameseen[name] = true
+    ans: {str: str} = {}
+    for t in w.slice(1, w.len()):
+      if not t.contains("="):
+        print("line {ln}: bad answer {t}")
+        continue
+      k = t.find("=")
+      qid = t.slice(0, k)
+      a = t.slice(k + 1, t.len())
+      if a.is_empty():
+        print("line {ln}: bad answer {t}")
+        continue
+      if not qseen.has(qid):
+        print("line {ln}: unknown question {qid}")
+        continue
+      if ans.has(qid):
+        print("line {ln}: answered twice {qid}")
+        continue
+      ans[qid] = a
+    names.push(name)
+    sheets.push(ans)
+  if names.is_empty():
+    print("no students")
+    return
+  if questions.is_empty():
+    print("empty key")
+    return
+  ns = names.len()
+  nq = questions.len()
+  mx = 0
+  for q in questions: mx += q.points
+  scores: [[int]] = []
+  for i in 0..ns:
+    row: [int] = []
+    for q in questions:
+      if sheets[i].has(q.id):
+        row.push(grade_one(q, sheets[i][q.id]))
+      else:
+        row.push(0)
+    scores.push(row)
+  totals = row_totals(scores)
+  for i in 0..ns:
+    nm = names[i]
+    tt = totals[i]
+    p = tt * 100 // mx
+    print("{nm} {tt}/{mx} {p}%")
+  for j in 0..nq:
+    col_sum = 0
+    for i in 0..ns: col_sum += scores[i][j]
+    qid = questions[j].id
+    m = mean2(col_sum, ns)
+    print("{qid} avg {m}")
+  print(top_line(names, totals))

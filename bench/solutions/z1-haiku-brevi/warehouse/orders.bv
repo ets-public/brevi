@@ -1,0 +1,30 @@
+# Order IDs and backorders (units still waiting, in the order created).
+
+type Back:
+  oid: str
+  sku: str
+  left: int
+
+# False when the ID was used before; otherwise records it.
+fn new_order(mut seen: {str: bool}, oid: str) -> bool:
+  if seen.has(oid):
+    return False
+  seen[oid] = True
+  return True
+
+fn add_back(mut backs: [Back], oid: str, sku: str, left: int):
+  backs.push(Back(oid: oid, sku: sku, left: left))
+
+# Indices of backorders for sku that still wait, in creation order.
+fn waiting_for(backs: [Back], sku: str) -> [int]:
+  out = []
+  for ix in 0..backs.len():
+    if backs[ix].sku == sku and backs[ix].left > 0:
+      out.push(ix)
+  return out
+
+fn units_waiting(backs: [Back]) -> int:
+  tot = 0
+  for b in backs:
+    tot += b.left
+  return tot

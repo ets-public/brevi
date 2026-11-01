@@ -1,0 +1,153 @@
+fn words(s: str) -> [str]:
+  return s.split(" ").filter(x => x != "")
+
+fn hhmm(s: str) -> int:
+  if not s.re_full("\d{2}:\d{2}"):
+    return -1
+  hr = s[0:2].int()
+  mn = s[3:5].int()
+  if hr > 23 or mn > 59:
+    return -1
+  return hr * 60 + mn
+
+fn plan(src: str, dst: str, t0: int) -> (int, [str]):
+  bst = {}
+  kys = []
+  for tn in tids:
+    for q in 0..tstops[tn].len():
+      kys.push((tn, q))
+  for ky in kys:
+    tn = ky.0
+    q = ky.1
+    st = tstops[tn]
+    tm = ttimes[tn]
+    if st[q] == src and tm[q] >= t0:
+      kk = "{tn} {q}"
+      cand = (tm[q], 1, [tn])
+      if not bst.has(kk) or cand < bst[kk]:
+        bst[kk] = cand
+  changed = True
+  while changed:
+    changed = False
+    for ky in kys:
+      tn = ky.0
+      q = ky.1
+      kk = "{tn} {q}"
+      if not bst.has(kk):
+        continue
+      lab = bst[kk]
+      st = tstops[tn]
+      tm = ttimes[tn]
+      if q + 1 < st.len():
+        q1 = q + 1
+        nkk = "{tn} {q1}"
+        cand = (tm[q1], lab.1, lab.2)
+        if not bst.has(nkk) or cand < bst[nkk]:
+          bst[nkk] = cand
+          changed = True
+      for wl in where[st[q]]:
+        bn = wl.0
+        bq = wl.1
+        if bn != tn:
+          dep = ttimes[bn][bq]
+          if dep >= lab.0 + 2:
+            cand = (dep, lab.1 + 1, lab.2 + [bn])
+            nkk = "{bn} {bq}"
+            if not bst.has(nkk) or cand < bst[nkk]:
+              bst[nkk] = cand
+              changed = True
+  found = False
+  ans = (0, 0, [])
+  for ky in kys:
+    tn = ky.0
+    q = ky.1
+    if tstops[tn][q] == dst:
+      kk = "{tn} {q}"
+      if bst.has(kk):
+        if not found or bst[kk] < ans:
+          ans = bst[kk]
+          found = True
+  if not found:
+    return (-1, [])
+  return (ans.0, ans.2)
+
+tids = []
+tstops = {}
+ttimes = {}
+where = {}
+trips = 0
+for i, ln in lines().enumerate():
+  n = i + 1
+  w = words(ln)
+  if w.is_empty():
+    continue
+  if w[0] == "TRAIN":
+    okshape = w.len() >= 6 and w.len() % 2 == 0
+    if not okshape:
+      print("line {n}: bad line")
+      continue
+    nst = (w.len() - 2) // 2
+    stl = []
+    tml = []
+    bad_time = False
+    for j in 0..nst:
+      stl.push(w[2 + 2 * j])
+      tv = hhmm(w[3 + 2 * j])
+      if tv < 0:
+        bad_time = True
+      tml.push(tv)
+    if bad_time:
+      print("line {n}: bad line")
+      continue
+    order_ok = True
+    for j in 1..nst:
+      if tml[j] <= tml[j - 1]:
+        order_ok = False
+    if stl.unique().len() != nst:
+      order_ok = False
+    if not order_ok:
+      print("line {n}: bad train")
+      continue
+    tid = w[1]
+    if tstops.has(tid):
+      print("line {n}: duplicate train")
+      continue
+    tids.push(tid)
+    tstops[tid] = stl
+    ttimes[tid] = tml
+    for j in 0..nst:
+      s = stl[j]
+      if not where.has(s):
+        where[s] = []
+      where[s].push((tid, j))
+  elif w[0] == "TRIP":
+    okt = w.len() == 4
+    if okt:
+      okt = hhmm(w[3]) >= 0
+    if not okt:
+      print("line {n}: bad line")
+      continue
+    trips += 1
+    fr = w[1]
+    to = w[2]
+    tt = hhmm(w[3])
+    head = "TRIP {fr}->{to}"
+    if not where.has(fr):
+      print("{head}: unknown stop {fr}")
+    elif not where.has(to):
+      print("{head}: unknown stop {to}")
+    elif fr == to:
+      print("{head}: already there")
+    else:
+      res = plan(fr, to, tt)
+      if res.0 < 0:
+        print("{head}: no route")
+      else:
+        hh = res.0 // 60
+        mm = res.0 % 60
+        via = res.1.join(",")
+        print("{head}: arrive {hh:02d}:{mm:02d} via {via}")
+  else:
+    print("line {n}: bad line")
+
+print("{tids.len()} trains, {trips} trips")

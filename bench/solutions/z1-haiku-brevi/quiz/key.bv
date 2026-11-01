@@ -1,0 +1,107 @@
+# Answer-key checks and grading of one answer against one question.
+
+fn normdec(s: str) -> str:
+  if not s.re_full("[+-]?(\d+(\.\d*)?|\.\d+)"):
+    return ""
+  neg = s.starts_with("-")
+  t = s
+  if s.starts_with("-") or s.starts_with("+"):
+    t = s[1:]
+  if t.starts_with("."):
+    t = "0" + t
+  parts = t.split(".")
+  ip = parts[0]
+  fp = "0"
+  if parts.len() == 2 and parts[1] != "":
+    fp = parts[1]
+  sg = ""
+  if neg:
+    sg = "-"
+  return "{sg}{ip}.{fp}"
+
+# Returns (valid, ID, TYPE, POINTS, SPEC). SPEC is the letter, the letters,
+# "VALUE TOL" (normalised decimals) or the WORD|WORD list.
+fn parse_key(ws: [str]) -> (bool, str, str, int, str):
+  bad = (False, "", "", 0, "")
+  if ws.len() < 4:
+    return bad
+  qid = ws[0]
+  if not qid.re_full("Q\d+"):
+    return bad
+  kind = ws[1]
+  if not ws[2].re_full("\d+"):
+    return bad
+  pts = ws[2].int()
+  if pts < 1 or pts > 100:
+    return bad
+  if kind == "choice":
+    if ws.len() != 4 or not ws[3].re_full("[A-E]"):
+      return bad
+    return (True, qid, kind, pts, ws[3])
+  if kind == "multi":
+    if ws.len() != 4 or not ws[3].re_full("[A-E][A-E]+"):
+      return bad
+    if ws[3].chars().unique().len() != ws[3].len():
+      return bad
+    return (True, qid, kind, pts, ws[3])
+  if kind == "number":
+    if ws.len() != 5:
+      return bad
+    val = normdec(ws[3])
+    tl = normdec(ws[4])
+    if val == "" or tl == "":
+      return bad
+    if tl.dec() < 0.dec():
+      return bad
+    return (True, qid, kind, pts, "{val} {tl}")
+  if kind == "text":
+    if ws.len() != 4:
+      return bad
+    for part in ws[3].split("|"):
+      if part == "":
+        return bad
+    return (True, qid, kind, pts, ws[3])
+  return bad
+
+# Points earned for one answer (ans "" means unanswered).
+fn grade_one(kind: str, spec: str, pts: int, ans: str) -> int:
+  if ans == "":
+    return 0
+  if kind == "choice":
+    if ans == spec:
+      return pts
+    return 0
+  if kind == "multi":
+    if not ans.re_full("[A-E]+"):
+      return 0
+    got = ans.chars().unique()
+    want = spec.chars()
+    right = 0
+    for c in got:
+      if spec.contains(c):
+        right += 1
+    wrong = got.len() - right
+    if right == want.len() and wrong == 0:
+      return pts
+    d = right - wrong
+    if d <= 0:
+      return 0
+    return pts * d // want.len()
+  if kind == "number":
+    v = normdec(ans)
+    if v == "":
+      return 0
+    bits = spec.split(" ")
+    target = bits[0].dec()
+    tol = bits[1].dec()
+    x = v.dec()
+    if x >= target - tol and x <= target + tol:
+      return pts
+    return 0
+  if kind == "text":
+    low = ans.lower()
+    for word in spec.split("|"):
+      if word.lower() == low:
+        return pts
+    return 0
+  return 0

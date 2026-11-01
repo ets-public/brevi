@@ -1,0 +1,110 @@
+fn ptime(s: str) -> int:
+  m = s.re_full("(\d\d):(\d\d)")
+  if m == []: return -1
+  h = m[1].int()
+  mi = m[2].int()
+  if h > 23 or mi > 59: return -1
+  h * 60 + mi
+
+fn hhmm(t: int) -> str = "{(t // 60):02d}:{(t % 60):02d}"
+
+tids: [str] = []
+tstops: [[str]] = []
+ttimes: [[int]] = []
+known: {str: int} = {}
+ntr = 0
+nq = 0
+
+fn plan(from: str, to: str, t0: int) -> str:
+  layer: {str: [(int, [str])]} = {}
+  layer[from] = [(t0, [])]
+  best: (int, int, [str]) = (100000, 0, [])
+  found = false
+  for r in 0..(tids.len() + 1):
+    gap = if r == 0: 0 else: 2
+    nxt: {str: [(int, [str])]} = {}
+    for k in 0..tids.len():
+      sts = tstops[k]
+      tms = ttimes[k]
+      for i in 0..sts.len():
+        if not layer.has(sts[i]): continue
+        have = false
+        pre: [str] = []
+        for e in layer[sts[i]]:
+          if e.0 + gap <= tms[i]:
+            if not have or e.1 < pre:
+              pre = e.1
+              have = true
+        if not have: continue
+        for j in (i + 1)..sts.len():
+          nxt[sts[j]].push((tms[j], pre + [tids[k]]))
+    if nxt.is_empty(): break
+    layer = {}
+    for s, es in nxt.pairs():
+      srt = es.sort()
+      kept: [(int, [str])] = []
+      mn: [str] = []
+      first = true
+      for e in srt:
+        if first or e.1 < mn:
+          kept.push(e)
+          mn = e.1
+          first = false
+      layer[s] = kept
+    if layer.has(to):
+      for e in layer[to]:
+        cand = (e.0, r + 1, e.1)
+        if not found or cand < best:
+          best = cand
+          found = true
+  if not found: return "TRIP {from}->{to}: no route"
+  "TRIP {from}->{to}: arrive {hhmm(best.0)} via {best.2.join(",")}"
+
+n = 0
+for line in lines():
+  n += 1
+  if line.trim().is_empty(): continue
+  w = line.words()
+  if w[0] == "TRAIN":
+    ok = w.len() >= 6 and w.len() % 2 == 0
+    if ok:
+      for i in 0..((w.len() - 2) // 2):
+        if ptime(w[3 + 2 * i]) < 0: ok = false
+    if not ok:
+      print("line {n}: bad line")
+      continue
+    sts: [str] = []
+    tms: [int] = []
+    for i in 0..((w.len() - 2) // 2):
+      sts.push(w[2 + 2 * i])
+      tms.push(ptime(w[3 + 2 * i]))
+    good = true
+    for i in 0..sts.len():
+      if i > 0 and tms[i] <= tms[i - 1]: good = false
+      if sts[i] in sts[:i]: good = false
+    if not good:
+      print("line {n}: bad train")
+    elif w[1] in tids:
+      print("line {n}: duplicate train")
+    else:
+      tids.push(w[1])
+      tstops.push(sts)
+      ttimes.push(tms)
+      for s in sts: known[s] = 1
+      ntr += 1
+  elif w[0] == "TRIP":
+    if w.len() != 4 or ptime(w[3]) < 0:
+      print("line {n}: bad line")
+      continue
+    nq += 1
+    if not known.has(w[1]):
+      print("TRIP {w[1]}->{w[2]}: unknown stop {w[1]}")
+    elif not known.has(w[2]):
+      print("TRIP {w[1]}->{w[2]}: unknown stop {w[2]}")
+    elif w[1] == w[2]:
+      print("TRIP {w[1]}->{w[2]}: already there")
+    else:
+      print(plan(w[1], w[2], ptime(w[3])))
+  else:
+    print("line {n}: bad line")
+print("{ntr} trains, {nq} trips")

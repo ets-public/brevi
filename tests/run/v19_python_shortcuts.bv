@@ -27,3 +27,5 @@ print(grid, 2 * ["a"], p.0.1)
 name = "ab"
 print("%d items, %s, %.2f, [%5d] [%-4s] 100%%" % (3, name, 3.14159, 42, name))
 print("{} has {:>5}| {:.1f} {0}".format(name, 42, 2.25))
+R = "23456789TJQKA"
+print(R.index_of("K"), R.index("T"), R.index_of("Z"))

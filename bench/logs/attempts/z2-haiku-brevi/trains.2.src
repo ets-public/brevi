@@ -1,0 +1,142 @@
+fn parse_time(s: str) -> (bool, int):
+  if s.len() != 5 or s.slice(2, 3) != ":": return (false, 0)
+  h = s.slice(0, 2)
+  m = s.slice(3, 5)
+  if not h.chars().all(c => c.is_digit()) or not m.chars().all(c => c.is_digit()): return (false, 0)
+  hh = h.int().or(0)
+  mm = m.int().or(0)
+  if hh > 23 or mm > 59: return (false, 0)
+  return (true, hh * 60 + mm)
+
+fn less_ids(a: [str], b: [str]) -> bool:
+  if a.len() != b.len(): return a.len() < b.len()
+  for i in 0..a.len():
+    if a[i] != b[i]: return a[i] < b[i]
+  return false
+
+fn plan(t_ids: [str], t_stops: [[str]], t_times: [[int]], frm: str, to: str, t0: int) -> (bool, int, [str]):
+  nt = t_ids.len()
+  lab: {str: [str]} = {}
+  for ti in 0..nt:
+    for j in 0..t_stops[ti].len():
+      if t_stops[ti][j] == frm and t_times[ti][j] >= t0:
+        key = "{ti}:{j}"
+        cand = [t_ids[ti]]
+        if not lab.has(key) or less_ids(cand, lab[key]):
+          lab[key] = cand
+  changed = true
+  while changed:
+    changed = false
+    for ti in 0..nt:
+      for j in 0..t_stops[ti].len():
+        key = "{ti}:{j}"
+        if not lab.has(key): continue
+        if t_stops[ti][j] == to: continue
+        ids = lab[key]
+        cur = t_times[ti][j]
+        j1 = j + 1
+        if j1 < t_stops[ti].len():
+          k2 = "{ti}:{j1}"
+          if not lab.has(k2) or less_ids(ids, lab[k2]):
+            lab[k2] = ids
+            changed = true
+        s = t_stops[ti][j]
+        for tj in 0..nt:
+          if tj == ti: continue
+          for jj in 0..t_stops[tj].len():
+            if t_stops[tj][jj] == s and t_times[tj][jj] >= cur + 2:
+              cand = ids + [t_ids[tj]]
+              k3 = "{tj}:{jj}"
+              if not lab.has(k3) or less_ids(cand, lab[k3]):
+                lab[k3] = cand
+                changed = true
+  found = false
+  best_t = 0
+  best_ids: [str] = []
+  for ti in 0..nt:
+    for j in 0..t_stops[ti].len():
+      key = "{ti}:{j}"
+      if t_stops[ti][j] == to and lab.has(key):
+        tm = t_times[ti][j]
+        ids = lab[key]
+        if not found or tm < best_t or (tm == best_t and less_ids(ids, best_ids)):
+          found = true
+          best_t = tm
+          best_ids = ids
+  return (found, best_t, best_ids)
+
+fn main():
+  rows = lines()
+  t_ids: [str] = []
+  t_stops: [[str]] = []
+  t_times: [[int]] = []
+  known: {str: bool} = {}
+  used: {str: bool} = {}
+  q = 0
+  for i in 0..rows.len():
+    ln = i + 1
+    w = rows[i].split()
+    if w.is_empty(): continue
+    if w[0] == "TRAIN":
+      if w.len() < 6 or (w.len() - 2) % 2 != 0:
+        print("line {ln}: bad line")
+        continue
+      np = (w.len() - 2) // 2
+      stops: [str] = []
+      times: [int] = []
+      ok_all = true
+      for k in 0..np:
+        okt, tm = parse_time(w[3 + 2 * k])
+        if not okt: ok_all = false
+        times.push(tm)
+        stops.push(w[2 + 2 * k])
+      if not ok_all:
+        print("line {ln}: bad line")
+        continue
+      mono = np >= 2
+      seen_s: {str: bool} = {}
+      for k in 0..np:
+        if seen_s.has(stops[k]): mono = false
+        seen_s[stops[k]] = true
+        if k > 0 and times[k] <= times[k - 1]: mono = false
+      if not mono:
+        print("line {ln}: bad train")
+        continue
+      if used.has(w[1]):
+        print("line {ln}: duplicate train")
+        continue
+      used[w[1]] = true
+      for s in stops: known[s] = true
+      t_ids.push(w[1])
+      t_stops.push(stops)
+      t_times.push(times)
+    elif w[0] == "TRIP":
+      okt = false
+      t0 = 0
+      if w.len() == 4:
+        okt, t0 = parse_time(w[3])
+      if not okt:
+        print("line {ln}: bad line")
+        continue
+      q += 1
+      frm = w[1]
+      to = w[2]
+      if not known.has(frm):
+        print("TRIP {frm}->{to}: unknown stop {frm}")
+      elif not known.has(to):
+        print("TRIP {frm}->{to}: unknown stop {to}")
+      elif frm == to:
+        print("TRIP {frm}->{to}: already there")
+      else:
+        found, arr, ids = plan(t_ids, t_stops, t_times, frm, to, t0)
+        if not found:
+          print("TRIP {frm}->{to}: no route")
+        else:
+          h = arr // 60
+          m = arr % 60
+          hm = "{h:02d}:{m:02d}"
+          via = ids.join(",")
+          print("TRIP {frm}->{to}: arrive {hm} via {via}")
+    else:
+      print("line {ln}: bad line")
+  print("{t_ids.len()} trains, {q} trips")

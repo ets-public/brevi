@@ -1,0 +1,95 @@
+type Question:
+  id: str
+  kind: str
+  points: int
+  a: str
+  b: str
+  words: [str]
+
+fn is_digits(s: str) -> bool:
+  return (not s.is_empty()) and s.chars().all(c => c.is_digit())
+
+fn is_decimal(s: str) -> bool:
+  t = s
+  if t.starts_with("-"): t = t.slice(1, t.len())
+  parts = t.split(".")
+  if parts.len() > 2: return false
+  digits = parts.join("")
+  if digits.is_empty(): return false
+  return digits.chars().all(c => c.is_digit())
+
+fn to_dec(s: str) -> dec:
+  neg = s.starts_with("-")
+  t = s
+  if neg: t = t.slice(1, t.len())
+  if t.starts_with("."): t = "0" + t
+  if t.ends_with("."): t = t + "0"
+  if neg: t = "-" + t
+  return t.dec().or(0.dec())
+
+fn parse_key(w: [str]) -> (bool, Question):
+  empty = Question(id: "", kind: "", points: 0, a: "", b: "", words: [])
+  if w.len() < 3: return (false, empty)
+  qid = w[0]
+  if not qid.starts_with("Q") or not is_digits(qid.slice(1, qid.len())): return (false, empty)
+  if not is_digits(w[2]): return (false, empty)
+  pts = w[2].int().or(0)
+  if pts < 1 or pts > 100: return (false, empty)
+  kind = w[1]
+  if kind == "choice":
+    if w.len() != 4 or w[3].len() != 1 or not "ABCDE".contains(w[3]): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: w[3], b: "", words: []))
+  if kind == "multi":
+    if w.len() != 4 or w[3].len() < 2: return (false, empty)
+    letters = w[3]
+    for c in letters.chars():
+      if not "ABCDE".contains(c): return (false, empty)
+    if letters.chars().unique().len() != letters.len(): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: letters, b: "", words: []))
+  if kind == "number":
+    if w.len() != 5: return (false, empty)
+    if not is_decimal(w[3]) or not is_decimal(w[4]) or w[4].starts_with("-"): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: w[3], b: w[4], words: []))
+  if kind == "text":
+    if w.len() != 4: return (false, empty)
+    parts = w[3].split("|")
+    for p in parts:
+      if p.is_empty(): return (false, empty)
+    return (true, Question(id: qid, kind: kind, points: pts, a: "", b: "", words: parts))
+  return (false, empty)
+
+fn grade_one(q: Question, ans: str) -> int:
+  if q.kind == "choice":
+    if ans.len() != 1 or not "ABCDE".contains(ans): return 0
+    if ans == q.a: return q.points
+    return 0
+  if q.kind == "multi":
+    for c in ans.chars():
+      if not "ABCDE".contains(c): return 0
+    chosen: {str: bool} = {}
+    for c in ans.chars(): chosen[c] = true
+    right = 0
+    wrong = 0
+    for c in chosen.keys():
+      if q.a.contains(c): right += 1
+      else: wrong += 1
+    n = q.a.len()
+    if wrong == 0 and right == n: return q.points
+    num = q.points * (right - wrong)
+    if num <= 0: return 0
+    return num // n
+  if q.kind == "number":
+    if not is_decimal(ans): return 0
+    x = to_dec(ans)
+    v = to_dec(q.a)
+    tol = to_dec(q.b)
+    d = x - v
+    if d < 0: d = -d
+    if d <= tol: return q.points
+    return 0
+  if q.kind == "text":
+    low = ans.lower()
+    for w in q.words:
+      if low == w.lower(): return q.points
+    return 0
+  return 0

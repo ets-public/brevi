@@ -1,0 +1,197 @@
+## main.py
+import sys
+import key
+import grade
+
+
+def main():
+    questions = {}
+    g = grade.Grade(questions)
+    messages = []
+    section = 'before'
+
+    for n, raw in enumerate(sys.stdin, 1):
+        line = raw.strip()
+        if not line:
+            continue
+        if section == 'before':
+            if line == 'KEY':
+                section = 'key'
+            continue
+        if section == 'key':
+            if line == 'ANSWERS':
+                section = 'students'
+            elif line == 'KEY':
+                pass
+            elif not key.add_question(questions, line.split()):
+                messages.append('key line %d: bad question' % n)
+            continue
+
+        # student section
+        if line in ('ANSWERS', 'KEY'):
+            continue
+        tokens = line.split()
+        name = tokens[0]
+        if g.has_name(name):
+            messages.append('line %d: duplicate student' % n)
+            continue
+        answers = {}
+        for tok in tokens[1:]:
+            if '=' not in tok or tok.split('=', 1)[1] == '':
+                messages.append('line %d: bad answer %s' % (n, tok))
+                continue
+            qid, ans = tok.split('=', 1)
+            if qid not in questions:
+                messages.append('line %d: unknown question ID %s' % (n, qid))
+                continue
+            if qid in answers:
+                messages.append('line %d: answered twice %s' % (n, qid))
+                continue
+            answers[qid] = ans
+        g.add_student(name, answers)
+
+    out = list(messages)
+    if not g.students:
+        out.append('no students')
+    elif not questions:
+        out.append('empty key')
+    else:
+        out.extend(g.student_lines())
+        out.extend(g.average_lines())
+        out.append(g.top_line())
+    print('\n'.join(out))
+
+
+if __name__ == '__main__':
+    main()
+## key.py
+import re
+from decimal import Decimal
+
+LETTERS = 'ABCDE'
+ID_RE = re.compile(r'Q[0-9]+')
+PTS_RE = re.compile(r'[0-9]+')
+MULTI_RE = re.compile(r'[A-E]{2,}')
+DEC_RE = re.compile(r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)')
+
+
+def is_decimal(s):
+    return DEC_RE.fullmatch(s) is not None
+
+
+def parse_question(tokens):
+    if len(tokens) < 4:
+        return None
+    qid, typ, pts = tokens[0], tokens[1], tokens[2]
+    if not ID_RE.fullmatch(qid) or not PTS_RE.fullmatch(pts):
+        return None
+    points = int(pts)
+    if not 1 <= points <= 100:
+        return None
+    base = {'id': qid, 'points': points, 'type': typ}
+    if typ == 'choice' and len(tokens) == 4 and tokens[3] in tuple(LETTERS):
+        base['answer'] = tokens[3]
+        return base
+    if typ == 'multi' and len(tokens) == 4:
+        letters = tokens[3]
+        if MULTI_RE.fullmatch(letters) and len(set(letters)) == len(letters):
+            base['letters'] = frozenset(letters)
+            return base
+        return None
+    if typ == 'number' and len(tokens) == 5:
+        value, tol = tokens[3], tokens[4]
+        if is_decimal(value) and is_decimal(tol) and not tol.startswith('-'):
+            base['value'] = Decimal(value)
+            base['tol'] = Decimal(tol)
+            return base
+        return None
+    if typ == 'text' and len(tokens) == 4:
+        words = tokens[3].split('|')
+        if all(words):
+            base['words'] = set(w.lower() for w in words)
+            return base
+    return None
+
+
+def add_question(questions, tokens):
+    """Adds a key line to questions (dict id -> question). Returns False if bad."""
+    if not tokens:
+        return False
+    q = parse_question(tokens)
+    if q is None or q['id'] in questions:
+        return False
+    questions[q['id']] = q
+    return True
+
+
+def grade(q, answer):
+    """Points earned for one answer string to question q."""
+    pts = q['points']
+    typ = q['type']
+    if typ == 'choice':
+        return pts if answer == q['answer'] else 0
+    if typ == 'multi':
+        if any(c not in LETTERS for c in answer):
+            return 0
+        chosen = set(answer)
+        letters = q['letters']
+        if chosen == letters:
+            return pts
+        right = len(chosen & letters)
+        wrong = len(chosen - letters)
+        return max(0, pts * (right - wrong) // len(letters))
+    if typ == 'number':
+        if not is_decimal(answer):
+            return 0
+        return pts if abs(Decimal(answer) - q['value']) <= q['tol'] else 0
+    if typ == 'text':
+        return pts if answer.lower() in q['words'] else 0
+    return 0
+## grade.py
+import key
+
+
+class Grade:
+    def __init__(self, questions):
+        self.questions = questions
+        self.students = []  # (name, {qid: points}, total)
+        self.names = set()
+
+    def has_name(self, name):
+        return name in self.names
+
+    def add_student(self, name, answers):
+        per = {}
+        for qid, q in self.questions.items():
+            if qid in answers:
+                per[qid] = key.grade(q, answers[qid])
+            else:
+                per[qid] = 0
+        total = sum(per.values())
+        self.names.add(name)
+        self.students.append((name, per, total))
+
+    def max_total(self):
+        return sum(q['points'] for q in self.questions.values())
+
+    def student_lines(self):
+        mx = self.max_total()
+        lines = []
+        for name, _, total in self.students:
+            pct = total * 100 // mx
+            lines.append('%s %d/%d %d%%' % (name, total, mx, pct))
+        return lines
+
+    def average_lines(self):
+        n = len(self.students)
+        lines = []
+        for qid in self.questions:
+            s = sum(per[qid] for _, per, _ in self.students)
+            cents = (2 * s * 100 + n) // (2 * n)
+            lines.append('%s avg %d.%02d' % (qid, cents // 100, cents % 100))
+        return lines
+
+    def top_line(self):
+        best = max(total for _, _, total in self.students)
+        names = [name for name, _, total in self.students if total == best]
+        return 'top: %s (%d)' % (', '.join(names), best)

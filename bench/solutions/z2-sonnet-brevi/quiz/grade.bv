@@ -1,0 +1,12 @@
+fn pct(score: int, mx: int) -> int = (score * 100) // mx
+
+fn avg_str(total: int, n: int) -> str:
+  x = (total * 200 + n) // (2 * n)
+  "{x // 100}.{(x % 100):02d}"
+
+fn top_line(names: [str], scores: [int]) -> str:
+  best = scores.max().or(0)
+  who: [str] = []
+  for i in 0..names.len():
+    if scores[i] == best: who.push(names[i])
+  "top: {who.join(", ")} ({best})"

@@ -1,0 +1,30 @@
+type Board:
+  names: [str]
+  rows: [[int]]
+
+fn new_board() -> Board = Board(names: [], rows: [])
+
+fn has_student(b: Board, name: str) -> bool = name in b.names
+
+fn add_student(mut b: Board, name: str, row: [int]):
+  b.names.push(name)
+  b.rows.push(row)
+
+fn total(row: [int]) -> int = row.sum()
+
+fn pct(score: int, max_pts: int) -> int = score * 100 // max_pts
+
+fn avg(b: Board, qi: int) -> str:
+  n = b.names.len()
+  s = 0
+  for r in b.rows: s += r[qi]
+  c = (s * 200 + n) // (2 * n)
+  "{c // 100}.{c % 100:02d}"
+
+fn top(b: Board) -> str:
+  totals = b.rows.map(r => r.sum())
+  best = totals.max().or(0)
+  winners: [str] = []
+  for i in 0..totals.len():
+    if totals[i] == best: winners.push(b.names[i])
+  "top: {winners.join(', ')} ({best})"

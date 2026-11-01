@@ -1,0 +1,157 @@
+## main.py
+import sys
+from key import parse_key_line, grade_answer
+from grade import Gradebook
+
+msgs = []
+questions = {}
+order = []
+student_lines = []
+state = 0
+n = 0
+for raw in sys.stdin.read().split('\n'):
+    n += 1
+    s = raw.strip()
+    if not s:
+        continue
+    if state == 0:
+        if s == 'KEY':
+            state = 1
+        continue
+    if state == 1:
+        if s == 'KEY':
+            continue
+        if s == 'ANSWERS':
+            state = 2
+            continue
+        r = parse_key_line(s, questions)
+        if r is None:
+            msgs.append('key line %d: bad question' % n)
+        else:
+            questions[r[0]] = r[1]
+            order.append(r[0])
+        continue
+    if s in ('KEY', 'ANSWERS'):
+        continue
+    student_lines.append((n, s))
+
+maxpts = sum(q['points'] for q in questions.values())
+book = Gradebook(order, maxpts)
+for n, s in student_lines:
+    w = s.split()
+    name = w[0]
+    if book.has(name):
+        msgs.append('line %d: duplicate student' % n)
+        continue
+    per = {}
+    for tok in w[1:]:
+        if '=' not in tok or tok.endswith('=') :
+            msgs.append('line %d: bad answer %s' % (n, tok))
+            continue
+        qid, ans = tok.split('=', 1)
+        if qid not in questions:
+            msgs.append('line %d: unknown question %s' % (n, qid))
+            continue
+        if qid in per:
+            msgs.append('line %d: answered twice %s' % (n, qid))
+            continue
+        per[qid] = grade_answer(questions[qid], ans)
+    book.add(name, per)
+
+for m in msgs:
+    print(m)
+if not order:
+    print('empty key')
+elif not book.names:
+    print('no students')
+else:
+    for x in book.names:
+        print('%s %d/%d %d%%' % (x, book.total(x), maxpts, book.pct(x)))
+    for q in order:
+        print('%s avg %s' % (q, book.avg(q)))
+    names, best = book.top()
+    print('top: %s (%d)' % (', '.join(names), best))
+## key.py
+import re
+from decimal import Decimal
+
+DEC = re.compile(r'^[+-]?(\d+\.?\d*|\.\d+)$')
+
+
+def parse_key_line(line, seen):
+    """Return (id, question dict) or None if bad."""
+    w = line.split()
+    if len(w) < 4:
+        return None
+    qid, typ, pts = w[0], w[1], w[2]
+    if not re.match(r'^Q\d+$', qid) or qid in seen:
+        return None
+    if not re.match(r'^\d+$', pts) or not 1 <= int(pts) <= 100:
+        return None
+    pts = int(pts)
+    spec = w[3:]
+    if typ == 'choice' and len(spec) == 1 and re.match(r'^[A-E]$', spec[0]):
+        return qid, {'type': typ, 'points': pts, 'spec': spec[0]}
+    if typ == 'multi' and len(spec) == 1 and re.match(r'^[A-E]{2,}$', spec[0]) \
+            and len(set(spec[0])) == len(spec[0]):
+        return qid, {'type': typ, 'points': pts, 'spec': set(spec[0])}
+    if typ == 'number' and len(spec) == 2 and DEC.match(spec[0]) and DEC.match(spec[1]):
+        tol = Decimal(spec[1])
+        if tol < 0:
+            return None
+        return qid, {'type': typ, 'points': pts, 'spec': (Decimal(spec[0]), tol)}
+    if typ == 'text' and len(spec) == 1:
+        words = spec[0].split('|')
+        if all(words):
+            return qid, {'type': typ, 'points': pts, 'spec': set(x.lower() for x in words)}
+    return None
+
+
+def grade_answer(q, ans):
+    pts, typ, spec = q['points'], q['type'], q['spec']
+    if typ == 'choice':
+        return pts if ans == spec else 0
+    if typ == 'multi':
+        s = set(ans)
+        if not s <= set('ABCDE'):
+            return 0
+        if s == spec:
+            return pts
+        right = len(s & spec)
+        wrong = len(s - spec)
+        return max(0, pts * (right - wrong) // len(spec))
+    if typ == 'number':
+        if not DEC.match(ans):
+            return 0
+        return pts if abs(Decimal(ans) - spec[0]) <= spec[1] else 0
+    return pts if ans.lower() in spec else 0
+## grade.py
+class Gradebook:
+    def __init__(self, qids, maxpts):
+        self.qids = qids
+        self.maxpts = maxpts
+        self.names = []
+        self.scores = {}  # name -> {qid: score}
+
+    def has(self, name):
+        return name in self.scores
+
+    def add(self, name, per_q):
+        self.names.append(name)
+        self.scores[name] = per_q
+
+    def total(self, name):
+        return sum(self.scores[name].values())
+
+    def pct(self, name):
+        return self.total(name) * 100 // self.maxpts
+
+    def avg(self, qid):
+        n = len(self.names)
+        t = sum(self.scores[x].get(qid, 0) for x in self.names)
+        v = (t * 200 + n) // (2 * n)
+        return '%d.%02d' % (v // 100, v % 100)
+
+    def top(self):
+        best = max(self.total(x) for x in self.names)
+        return [x for x in self.names if self.total(x) == best], best

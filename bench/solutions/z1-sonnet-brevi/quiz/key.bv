@@ -1,0 +1,61 @@
+type Q:
+  id: str
+  kind: str
+  points: int
+  spec: str
+  value: dec
+  tol: dec
+
+fn bad_q() -> Q = Q(id: "", kind: "", points: 0, spec: "", value: 0.dec(), tol: 0.dec())
+
+fn is_dec(s: str) -> bool = not s.re_full('[+-]?\d+(\.\d+)?').is_empty()
+
+fn parse_q(line: str) -> Q:
+  w = line.words()
+  if w.len() < 4: return bad_q()
+  if w[0].re_full('Q\d+').is_empty(): return bad_q()
+  if w[2].re_full('\d+').is_empty(): return bad_q()
+  pts = w[2].int()
+  if pts < 1 or pts > 100: return bad_q()
+  kind = w[1]
+  spec = w[3]
+  if kind == "choice":
+    if w.len() != 4 or spec.re_full('[A-E]').is_empty(): return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: 0.dec(), tol: 0.dec())
+  if kind == "multi":
+    if w.len() != 4 or spec.re_full('[A-E]{2,}').is_empty(): return bad_q()
+    if spec.chars().unique().len() != spec.len(): return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: 0.dec(), tol: 0.dec())
+  if kind == "number":
+    if w.len() != 5 or not is_dec(w[3]) or not is_dec(w[4]): return bad_q()
+    tol = w[4].replace("+", "").dec()
+    if tol < 0: return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: w[3].replace("+", "").dec(), tol: tol)
+  if kind == "text":
+    if w.len() != 4: return bad_q()
+    if spec.split("|").any(x => x.is_empty()): return bad_q()
+    return Q(id: w[0], kind: kind, points: pts, spec: spec, value: 0.dec(), tol: 0.dec())
+  bad_q()
+
+fn score(q: Q, ans: str) -> int:
+  if q.kind == "choice":
+    return if ans == q.spec: q.points else: 0
+  if q.kind == "multi":
+    if ans.re_full('[A-E]+').is_empty(): return 0
+    chosen = ans.chars().unique()
+    right = chosen.count(c => c in q.spec)
+    wrong = chosen.len() - right
+    if wrong == 0 and right == q.spec.len(): return q.points
+    d = right - wrong
+    if d <= 0: return 0
+    return q.points * d // q.spec.len()
+  if q.kind == "number":
+    if not is_dec(ans): return 0
+    a = ans.replace("+", "").dec()
+    diff = a - q.value
+    if diff < 0: diff = 0 - diff
+    return if diff <= q.tol: q.points else: 0
+  if q.kind == "text":
+    low = ans.lower()
+    return if q.spec.split("|").any(x => x.lower() == low): q.points else: 0
+  0

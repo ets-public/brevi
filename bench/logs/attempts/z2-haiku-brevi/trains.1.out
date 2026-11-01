@@ -1,0 +1,32 @@
+test 2 failed
+input:
+TRAIN bad1 a 10:00 b 09:59
+TRAIN bad2 a 10:00 a 10:30
+TRAIN t1 a 25:00 b 26:00
+TRAIN t2 a 10:00
+TRAIN ok a 10:00 b 10:10
+TRAIN ok c 10:00 d 10:10
+TRIP a b
+TRIP a b 9:5
+TRIP b a 10:00
+expected:
+line 1: bad train
+line 2: bad train
+line 3: bad line
+line 4: bad line
+line 6: duplicate train
+line 7: bad line
+line 8: bad line
+TRIP b->a: no route
+1 trains, 1 trips
+got:
+line 1: bad train
+line 2: bad train
+line 3: bad line
+line 4: bad train
+line 6: duplicate train
+line 7: bad line
+line 8: bad line
+TRIP b->a: no route
+1 trains, 1 trips
+passed 3/4

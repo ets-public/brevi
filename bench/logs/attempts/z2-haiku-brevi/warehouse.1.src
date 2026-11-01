@@ -1,0 +1,180 @@
+## main.bv
+use "stock.bv"
+use "orders.bv"
+
+fn valid_date(s: str) -> bool:
+  p = s.split("-")
+  if p.len() != 3: return false
+  if p[0].len() != 4 or p[1].len() != 2 or p[2].len() != 2: return false
+  if not (p[0] + p[1] + p[2]).chars().all(c => c.is_digit()): return false
+  y = p[0].int().or(0)
+  m = p[1].int().or(0)
+  d = p[2].int().or(0)
+  if m < 1 or m > 12: return false
+  leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+  mdays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  top = mdays[m - 1]
+  if m == 2 and leap: top = 29
+  return d >= 1 and d <= top
+
+fn is_qty(s: str) -> bool:
+  if s.is_empty() or not s.chars().all(c => c.is_digit()): return false
+  return s.int().or(0) >= 1
+
+fn fill(mut lots: [Lot], mut bos: [Backorder], sku: str) -> int:
+  shipped = 0
+  keep: [Backorder] = []
+  for b in bos:
+    if b.sku != sku:
+      keep.push(b)
+      continue
+    bid = b.id
+    got = pick(lots, sku, b.qty)
+    shipped += got
+    left = b.qty - got
+    if left == 0:
+      print("BACKORDER {bid}: done")
+    else:
+      if got > 0: print("BACKORDER {bid}: shipped {got}, {left} left")
+      keep.push(Backorder(id: bid, sku: sku, qty: left))
+  bos = keep
+  return shipped
+
+fn main():
+  rows = lines()
+  today = ""
+  lots: [Lot] = []
+  bos: [Backorder] = []
+  order_ids: {str: bool} = {}
+  seq = 0
+  total = 0
+  for i in 0..rows.len():
+    ln = i + 1
+    w = rows[i].split()
+    if w.is_empty(): continue
+    cmd = w[0]
+    if cmd == "DAY":
+      if w.len() != 2 or not valid_date(w[1]):
+        print("line {ln}: bad line")
+      elif today != "" and w[1] < today:
+        print("line {ln}: date goes back")
+      else:
+        today = w[1]
+        gone = take_expired(lots, today)
+        for l in gone:
+          ls = l.sku
+          lq = l.qty
+          le = l.expiry
+          print("discard {ls} {lq} {le}")
+    elif cmd == "RECV":
+      if w.len() != 4 or not is_qty(w[2]) or not valid_date(w[3]):
+        print("line {ln}: bad line")
+      elif today == "":
+        print("line {ln}: no date")
+      elif w[3] < today:
+        print("line {ln}: expired on arrival")
+      else:
+        seq += 1
+        add_lot(lots, w[1], w[2].int().or(0), w[3], seq)
+        total += fill(lots, bos, w[1])
+    elif cmd == "ORDER":
+      if w.len() != 4 or not is_qty(w[3]):
+        print("line {ln}: bad line")
+      elif today == "":
+        print("line {ln}: no date")
+      elif not take_order_id(order_ids, w[1]):
+        print("line {ln}: duplicate order")
+      else:
+        q = w[3].int().or(0)
+        oid = w[1]
+        got = pick(lots, w[2], q)
+        total += got
+        if got == q:
+          print("ORDER {oid}: shipped {q}")
+        else:
+          print("ORDER {oid}: shipped {got} of {q}")
+          add_backorder(bos, oid, w[2], q - got)
+    elif cmd == "STOCK":
+      if w.len() != 1:
+        print("line {ln}: bad line")
+      else:
+        out = stock_lines(lots)
+        if out.is_empty():
+          print("stock empty")
+        for o in out: print(o)
+    else:
+      print("line {ln}: bad line")
+  bu = backorder_units(bos)
+  print("shipped {total} units, backordered {bu} units")
+## stock.bv
+type Lot:
+  sku: str
+  qty: int
+  expiry: str
+  seq: int
+
+fn add_lot(mut lots: [Lot], sku: str, qty: int, expiry: str, seq: int):
+  lots.push(Lot(sku: sku, qty: qty, expiry: expiry, seq: seq))
+
+fn take_expired(mut lots: [Lot], today: str) -> [Lot]:
+  gone: [Lot] = []
+  keep: [Lot] = []
+  for l in lots:
+    if l.expiry < today: gone.push(l)
+    else: keep.push(l)
+  lots = keep
+  gone.sort_by(l => (l.sku, l.expiry, l.seq))
+  return gone
+
+fn pick(mut lots: [Lot], sku: str, qty: int) -> int:
+  cand: [(str, int)] = []
+  for i in 0..lots.len():
+    if lots[i].sku == sku: cand.push((lots[i].expiry, i))
+  cand.sort_by(c => (c.0, c.1))
+  left = qty
+  taken = 0
+  for c in cand:
+    if left == 0: break
+    i = c.1
+    t = min(left, lots[i].qty)
+    l = lots[i]
+    l.qty -= t
+    lots[i] = l
+    left -= t
+    taken += t
+  keep: [Lot] = []
+  for l in lots:
+    if l.qty > 0: keep.push(l)
+  lots = keep
+  return taken
+
+fn stock_lines(lots: [Lot]) -> [str]:
+  qty: {str: int} = {}
+  cnt: {str: int} = {}
+  for l in lots:
+    qty[l.sku] += l.qty
+    cnt[l.sku] += 1
+  out: [str] = []
+  for s in qty.keys():
+    q2 = qty[s]
+    c2 = cnt[s]
+    if q2 > 0: out.push("{s} {q2} in {c2} lots")
+  return out
+## orders.bv
+type Backorder:
+  id: str
+  sku: str
+  qty: int
+
+fn take_order_id(mut ids: {str: bool}, id: str) -> bool:
+  if ids.has(id): return false
+  ids[id] = true
+  return true
+
+fn add_backorder(mut bos: [Backorder], id: str, sku: str, qty: int):
+  bos.push(Backorder(id: id, sku: sku, qty: qty))
+
+fn backorder_units(bos: [Backorder]) -> int:
+  total = 0
+  for b in bos: total += b.qty
+  return total

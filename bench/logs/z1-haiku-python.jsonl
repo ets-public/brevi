@@ -1,0 +1,8 @@
+{"run":"z1-haiku-python","lang":"python","task":"books","code_tok":1754,"patch_tok":1754,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-haiku-python","lang":"python","task":"toc","code_tok":1049,"patch_tok":1049,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-haiku-python","lang":"python","task":"poker","code_tok":1486,"patch_tok":1486,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-haiku-python","lang":"python","task":"trains","code_tok":2135,"patch_tok":2135,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-haiku-python","lang":"python","task":"quiz","code_tok":2433,"patch_tok":2433,"out_tok":554,"compiled":true,"pass":2,"total":4,"tok":"exact"}
+{"run":"z1-haiku-python","lang":"python","task":"quiz","code_tok":2437,"patch_tok":48,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
+{"run":"z1-haiku-python","lang":"python","task":"warehouse","code_tok":2397,"patch_tok":2397,"out_tok":385,"compiled":true,"pass":1,"total":4,"tok":"exact"}
+{"run":"z1-haiku-python","lang":"python","task":"warehouse","code_tok":2405,"patch_tok":120,"out_tok":7,"compiled":true,"pass":4,"total":4,"tok":"exact"}
