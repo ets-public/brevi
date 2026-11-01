@@ -1,0 +1,22 @@
+from datetime import date as Date
+import datetime
+import datetime as dt
+from collections import Counter as C
+
+def pd(s):
+    try:
+        y, m, d = (int(x) for x in s.split("-"))
+        return Date(y, m, d)
+    except ValueError:
+        return None
+
+def main():
+    a = pd("2024-02-29")
+    print(a)
+    b = datetime.date(2024, 1, 5)
+    print(a > b, (a - b).days)
+    print(pd("2023-02-30"))
+    print(dt.date(2020, 3, 1) - dt.timedelta(days=1))
+    print(C("abca")["a"])
+
+main()

@@ -148,7 +148,6 @@ fn is_module_path(m: &str) -> bool {
 
 fn drop_py_imports(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
-    let mut renames: Vec<(String, String)> = vec![];
     for l in src.split_inclusive('\n') {
         let t = l.trim();
         // Decorators (`@dataclass`, `@staticmethod`, `@lru_cache(None)`): the code works the same without them.
@@ -163,75 +162,10 @@ fn drop_py_imports(src: &str) -> String {
         });
         // Any Python import line: the modules Brevi maps are built in, and `import` means nothing else here.
         if module.is_some_and(|ms| ms.iter().all(|m| PY_BUILTIN_MODULES.contains(m) || is_module_path(m))) {
-            // `from datetime import date as Date`: Date is date.
-            if let Some((_, names)) = t.strip_prefix("from ").and_then(|r| r.split_once(" import ")) {
-                for n in names.trim_matches(|c| c == '(' || c == ')' || c == ' ').split(',') {
-                    if let Some((a, b)) = n.split_once(" as ") {
-                        let (a, b) = (a.trim(), b.trim());
-                        if a != b && [a, b].iter().all(|w| !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || c == '_')) {
-                            renames.push((b.to_string(), a.to_string()));
-                        }
-                    }
-                }
-            }
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
         } else {
             out.push_str(l);
         }
-    }
-    if renames.is_empty() {
-        return out;
-    }
-    rename_words(&out, &renames)
-}
-
-// Renames whole words outside strings and comments.
-fn rename_words(src: &str, renames: &[(String, String)]) -> String {
-    let c: Vec<char> = src.chars().collect();
-    let mut out = String::with_capacity(src.len());
-    let mut i = 0;
-    while i < c.len() {
-        let ch = c[i];
-        if ch == '#' {
-            while i < c.len() && c[i] != '\n' {
-                out.push(c[i]);
-                i += 1;
-            }
-            continue;
-        }
-        if ch == '"' || ch == '\'' {
-            // A string: copied as is (an f-string's `{...}` parts are left alone too).
-            out.push(ch);
-            i += 1;
-            while i < c.len() && c[i] != ch && c[i] != '\n' {
-                if c[i] == '\\' && i + 1 < c.len() {
-                    out.push(c[i]);
-                    i += 1;
-                }
-                out.push(c[i]);
-                i += 1;
-            }
-            if i < c.len() {
-                out.push(c[i]);
-                i += 1;
-            }
-            continue;
-        }
-        if ch.is_alphabetic() || ch == '_' {
-            let start = i;
-            while i < c.len() && (c[i].is_alphanumeric() || c[i] == '_') {
-                i += 1;
-            }
-            let w: String = c[start..i].iter().collect();
-            let after_dot = start > 0 && c[start - 1] == '.';
-            match renames.iter().find(|(a, _)| *a == w) {
-                Some((_, b)) if !after_dot => out.push_str(b),
-                _ => out.push_str(&w),
-            }
-            continue;
-        }
-        out.push(ch);
-        i += 1;
     }
     out
 }
@@ -343,6 +277,7 @@ fn triple_strings(src: &str) -> String {
 }
 
 pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
+    let src_in = src;
     let src = &triple_strings(&drop_py_imports(src));
     let chars: Vec<char> = src.chars().collect();
     let mut out = Vec::new();
@@ -873,8 +808,64 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
         }
     }
+    // `from datetime import date as Date`, `import datetime as dt`: the short name means the real one.
+    let aliases = py_import_aliases(src_in);
+    if !aliases.is_empty() {
+        for k in 0..out.len() {
+            let after_dot = k > 0 && out[k - 1].tok == Tok::Sym(".");
+            if let Tok::Ident(w) = &out[k].tok {
+                if let Some((_, real)) = aliases.iter().find(|(a, _)| a == w).filter(|_| !after_dot) {
+                    out[k].tok = Tok::Ident(real.clone());
+                }
+            }
+        }
+    }
+    // `datetime.timedelta(days=1)` is `timedelta(days=1)`.
+    let mut k = 0;
+    while k + 2 < out.len() {
+        if out[k].tok == Tok::Ident("datetime".into()) && out[k + 1].tok == Tok::Sym(".") && out[k + 2].tok == Tok::Ident("timedelta".into()) && (k == 0 || out[k - 1].tok != Tok::Sym(".")) {
+            out.drain(k..k + 2);
+        }
+        k += 1;
+    }
     Ok(out)
 }
+
+// (alias, real name) pairs from Python import lines whose module Brevi has built in.
+fn py_import_aliases(src: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let ok = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || c == '_');
+    for l in src.lines() {
+        let t = l.trim();
+        if let Some(rest) = t.strip_prefix("from ") {
+            let Some((m, names)) = rest.split_once(" import ") else { continue };
+            if !(PY_BUILTIN_MODULES.contains(&m.trim()) || PY_ALIAS_MODULES.contains(&m.trim())) {
+                continue;
+            }
+            for n in names.trim_matches(|c| c == '(' || c == ')' || c == ' ').split(',') {
+                if let Some((real, alias)) = n.split_once(" as ") {
+                    let (real, alias) = (real.trim(), alias.trim());
+                    if ok(real) && ok(alias) && real != alias {
+                        out.push((alias.to_string(), real.to_string()));
+                    }
+                }
+            }
+        } else if let Some(rest) = t.strip_prefix("import ") {
+            for n in rest.split(',') {
+                if let Some((real, alias)) = n.split_once(" as ") {
+                    let (real, alias) = (real.trim(), alias.trim());
+                    if (PY_BUILTIN_MODULES.contains(&real) || PY_ALIAS_MODULES.contains(&real)) && ok(alias) && real != alias {
+                        out.push((alias.to_string(), real.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+// Modules whose names the parser knows (`datetime.date`, `json.loads`), so an alias can stand for them.
+const PY_ALIAS_MODULES: &[&str] = &["datetime", "json", "calendar", "decimal", "fractions", "heapq", "bisect", "string", "statistics", "random", "time", "copy", "operator"];
 
 // Python-style blocks: a line ending in `:` opens a block that holds the more-indented lines after it.
 // The block is turned into `{ ... }` here, so the parser only sees braces. Brace blocks still work.

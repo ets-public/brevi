@@ -727,16 +727,24 @@ fn prune_cache(dir: &Path) {
 fn report(rust: &str, stderr: &str) {
     let line_map = brevi_lines(rust);
     let mut seen = std::collections::HashSet::new();
-    for l in stderr.lines() {
-        let Some(j) = json::parse(l) else { continue };
-        if j.get("level").and_then(|v| v.str()) != Some("error") {
+    let errs: Vec<json::J> = stderr
+        .lines()
+        .filter_map(json::parse)
+        .filter(|j| j.get("level").and_then(|v| v.str()) == Some("error"))
+        .filter(|j| !j.get("message").and_then(|v| v.str()).unwrap_or("").starts_with("aborting due to"))
+        .collect();
+    let code_of = |j: &json::J| j.get("code").and_then(|c| c.get("code")).and_then(|c| c.str()).unwrap_or("").to_string();
+    // "type annotations needed" (E0282/E0283) is usually a knock-on of a real error elsewhere,
+    // e.g. a missing trait on a value; show it only when nothing else went wrong.
+    let vague = |c: &str| c == "E0282" || c == "E0283";
+    let has_real = errs.iter().any(|j| !vague(&code_of(j)));
+    for j in &errs {
+        let code = code_of(j);
+        if has_real && vague(&code) {
             continue;
         }
+        let code = code.as_str();
         let msg = j.get("message").and_then(|v| v.str()).unwrap_or("");
-        if msg.starts_with("aborting due to") {
-            continue;
-        }
-        let code = j.get("code").and_then(|c| c.get("code")).and_then(|c| c.str()).unwrap_or("");
         let spans = j.get("spans").map(|s| s.arr()).unwrap_or(&[]);
         // Spans inside the runtime library (rt.rs) say nothing about the program's lines.
         let ours = |s: &&json::J| s.get("file_name").and_then(|f| f.str()).map_or(true, |f| !f.ends_with("rt.rs"));
@@ -760,6 +768,12 @@ fn report(rust: &str, stderr: &str) {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
         let mut fix = fix_for(code, &format!("{msg} {label}"));
+        if vague(code) {
+            if let Some((t, f)) = vague_type_words(primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("")) {
+                text = t;
+                fix = Some(f);
+            }
+        }
         if let Some(opts) = valid_options(code, msg, rust) {
             fix = Some(match fix {
                 Some(_) if code == "E0599" => opts,
@@ -768,7 +782,7 @@ fn report(rust: &str, stderr: &str) {
             });
         }
         if RUST_LINES.get().map_or(false, |rs| rs.iter().any(|&(a, b)| aline >= a && aline <= b)) {
-            fix = rust_help(&j, code).or(fix);
+            fix = rust_help(j, code).or(fix);
         }
         // One error per line: later ones are usually knock-on effects.
         if !seen.insert(aline) {
@@ -778,6 +792,26 @@ fn report(rust: &str, stderr: &str) {
         d.fix = fix;
         print_diag(&d);
     }
+}
+
+// "type annotations needed" on `let mut NAME = ...`: name the variable and say why its type is unknown.
+fn vague_type_words(src: &str) -> Option<(String, String)> {
+    let p = src.find("let ")?;
+    let rest = src[p + 4..].trim_start().trim_start_matches("mut ").trim_start();
+    let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    let after = rest[name.len()..].trim_start();
+    if name.is_empty() || !after.starts_with('=') {
+        return None;
+    }
+    let shown = name.trim_start_matches("v_").to_string();
+    let rhs = &after[1..];
+    Some(if rhs.contains("ax_none()") {
+        (format!("can't work out the type of {shown}, which starts as None"), format!("give it a type where it starts, e.g. {shown}: (int, str) = None, or set it to a real value first"))
+    } else if rhs.contains("AxM::new()") || rhs.contains("Vec::new()") || rhs.contains("vec![]") || rhs.contains("BTreeSet::new()") {
+        (format!("can't work out the type of the empty {shown}"), format!("give it a type, e.g. {shown}: {{str: int}} = {{}} or {shown}: [str] = []"))
+    } else {
+        (format!("can't work out the type of {shown}"), format!("give {shown} a type where it is first set, e.g. {shown}: int = ..."))
+    })
 }
 
 // For each generated Rust line, the Brevi line it came from (from /*@L..*/ markers).

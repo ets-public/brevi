@@ -1959,6 +1959,9 @@ pub fn date(text: String) -> R<Date> {
 }
 impl Show for Date {
     fn show(&self) -> String {
+        if self.days == i64::MIN && ax_py_on() {
+            return "None".into();
+        }
         let (y, m, d) = civil_from_days(self.days);
         format!("{y:04}-{m:02}-{d:02}")
     }
