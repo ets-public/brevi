@@ -61,3 +61,22 @@ for tid in trains:
 b = Board()
 load(b, ["x 5", "y 7"])
 print(use(b, "y"), b.names, b.rows)
+postings = []
+
+
+def post(name, amt):
+    global postings
+    postings.append((name, amt))
+
+
+def total():
+    global postings
+    s = 0
+    for p in postings:
+        s += p[1]
+    return s
+
+
+post("a", 3)
+post("b", 4)
+print(total())

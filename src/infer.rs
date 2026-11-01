@@ -1914,7 +1914,10 @@ pub fn check(items: &mut [Item]) -> Vec<crate::diag::Diag> {
             _ => {}
         }
     }
-    let empties = empty_cx(items).hint_t;
+    // Top-level names, as functions see them (`for p in postings: s += p[1]` with postings a global list of pairs).
+    let ecx = empty_cx(items);
+    cx.genv = ecx.genv;
+    let empties = ecx.hint_t;
     let mut errs = Vec::new();
     for it in items.iter_mut() {
         let (params, body, line): (&[Param], &mut Expr, usize) = match it {
