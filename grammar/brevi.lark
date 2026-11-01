@@ -97,7 +97,8 @@ slice: expr | expr? ":" expr? (":" expr?)?   // xs[a:b], xs[::-1]
 call: "(" _n [arg ("," _n arg)* ","?] _n ")"
 arg: (NAME ("=" | ":"))? "*"? expr comp?
 comp: ("for" comp_target "in" binary ("if" binary)?)+
-comp_target: NAME ("," NAME)* | "(" NAME ("," NAME)* ")"
+comp_target: comp_name ("," comp_name)*
+comp_name: NAME | "(" comp_name ("," comp_name)* ","? ")"
 
 ?primary: INT | FLOAT | STRING
         | "true" | "false"

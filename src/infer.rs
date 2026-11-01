@@ -253,6 +253,11 @@ pub fn empty_types(items: &[Item]) -> (HashMap<(String, usize), (String, bool)>,
     }).collect(), mixed)
 }
 
+// Top-level names with the types functions see them with (`R = {c: i for i, c in enumerate(s)}`).
+pub fn global_types(items: &[Item]) -> HashMap<String, Ty> {
+    empty_cx(items).genv.iter().filter_map(|(n, t)| Some((n.clone(), to_ast(t)?))).collect()
+}
+
 fn empty_cx(items: &[Item]) -> Cx<'_> {
     let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false };
     for it in items {
@@ -653,7 +658,7 @@ impl Cx<'_> {
                         // Methods only text has.
                         ("split" | "words" | "lines" | "lower" | "upper" | "trim" | "starts_with" | "ends_with" | "replace" | "is_digit" | "is_alpha" | "ints" | "partition" | "find" | "chars", Hole) if self.param_look => Str,
                         ("has", Hole) if self.param_look => Map(Box::new(a0), Box::new(Hole)),
-                        ("push", List(_) | Hole) => List(Box::new(a0)),
+                        ("push" | "heap_push", List(_) | Hole) => List(Box::new(a0)),
                         ("push", Heap(_)) => Heap(Box::new(a0)),
                         ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
                         ("has" | "remove", Map(..)) => Map(Box::new(a0), Box::new(Hole)),
@@ -903,6 +908,12 @@ impl Cx<'_> {
                             let t = self.ty(value, &inner);
                             inner.insert(n.clone(), t);
                         }
+                        // `(r, d) = ax_cu` from a comprehension's `for k, (r, d) in ...`.
+                        Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {
+                            let p = Pat::Tuple(xs.iter().map(|x| if let Expr::Ident(n) = x { Pat::Bind(n.clone()) } else { Pat::Wild }).collect());
+                            let t = self.ty(value, &inner);
+                            bind(&p, t, &mut inner);
+                        }
                         _ => {}
                     }
                 }
@@ -928,7 +939,7 @@ impl Cx<'_> {
         match m {
             "len" | "count" | "count_sub" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
-            "dec" => Dec,
+            "dec" | "quantize" => Dec,
             "big" => Big,
             "char" | "fmt" | "spec" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
@@ -1164,7 +1175,15 @@ impl Cx<'_> {
             }
             Expr::For(p, it, body) => {
                 let t = loop_elem(p, &self.ty(it, env));
-                bind(p, t, env);
+                // A loop name that is still unknown here does not hide what an earlier setting found
+                // (`name = parts[0]` above, then `for name, total, _ in roster.students`).
+                let mut tmp = Env::new();
+                bind(p, t, &mut tmp);
+                for (n, t) in tmp {
+                    if known(&t) || env.get(&n).map_or(true, |o| !known(o)) {
+                        env.insert(n, t);
+                    }
+                }
                 self.flat_env(body, env);
             }
             Expr::While(_, b) => self.flat_env(b, env),
@@ -1372,6 +1391,37 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         }
                     }
                 });
+                // Calls inside `all(valid(c) for c in t[1:])`: the lambda's names take the items' type.
+                let mut lams: Vec<(Expr, Env)> = Vec::new();
+                walk(body, &mut |e| {
+                    if let Expr::Method(r, _, args, _) = e {
+                        for a in args {
+                            if let Expr::Lambda(ps, lb) = a {
+                                let mut inner = env.clone();
+                                bind_params(ps, &each_elem(&cx.ty(r, &env)), &mut inner);
+                                lams.push((lb.as_ref().clone(), inner));
+                            }
+                        }
+                    }
+                });
+                for (lb, lenv) in &lams {
+                    let mut calls = Vec::new();
+                    calls_in(lb, &mut calls);
+                    for (f, args) in calls {
+                        let Some(&k) = untyped.get(f) else { continue };
+                        let Item::Fn { params: ps, .. } = &items[k] else { continue };
+                        for (j, (nm, a)) in args.iter().enumerate() {
+                            let pi = match nm {
+                                Some(nm) => ps.iter().position(|p| &p.name == nm),
+                                None => Some(j),
+                            };
+                            let Some(pi) = pi.filter(|&pi| pi < ps.len() && q(&ps[pi].ty)) else { continue };
+                            if let Some(t) = to_ast(&cx.ty(a, lenv)) {
+                                fills.push((k, pi, t));
+                            }
+                        }
+                    }
+                }
                 let mut calls = Vec::new();
                 calls_in(body, &mut calls);
                 for (f, args) in calls {
@@ -2041,7 +2091,7 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
                 }
             }
         }
-        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
+        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear", "heap_push", "heap_pop", "heap_push_pop", "heap_replace", "heapify", "pop_at", "pop_item", "update", "move_to_end"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
         Expr::Call(f, args, _) => {
             if let Some(ms) = muts.get(f) {
                 for (k, (_, a)) in args.iter().enumerate() {
