@@ -230,14 +230,17 @@ pub fn ax_l(n: usize) {
 }
 // Where a line of the combined program is: lines after the main file's come from files it uses (`use "lib.bv"`).
 pub fn ax_at(l: usize) -> String {
-    for (f, start, n) in AX_FILES {
+    for (f, start, n) in AX_FILES_REG.get().copied().unwrap_or(&[]) {
         if l >= *start && l < start + n {
             return format!("\"file\":{f:?},\"line\":{}", l - start + 1);
         }
     }
     format!("\"line\":{l}")
 }
-pub fn ax_init() {
+// The program's file table, set by ax_init, so the prelude can also be a separately compiled library.
+pub static AX_FILES_REG: std::sync::OnceLock<&'static [(&'static str, usize, usize)]> = std::sync::OnceLock::new();
+pub fn ax_init(files: &'static [(&'static str, usize, usize)]) {
+    AX_FILES_REG.set(files).ok();
     std::panic::set_hook(Box::new(|info| {
         let msg = match info.payload().downcast_ref::<&str>() {
             Some(s) => s.to_string(),

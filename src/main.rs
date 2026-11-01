@@ -393,8 +393,16 @@ fn build_dir(file: &str) -> PathBuf {
 // the borrow rules. Errors are reported from the last version tried.
 fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &[&str], link: bool) -> bool {
     const MOVE_CODES: [&str; 8] = ["E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597"];
+    let release = extra.contains(&"opt-level=3");
+    let lib: Vec<(String, Option<String>)> = versions.iter().map(|(r, p)| (use_runtime_lib(r, release), p.as_ref().map(|p| use_runtime_lib(p, release)))).collect();
+    // A program that implements a prelude trait for a prelude type cannot use the library: paste the prelude.
+    let orphan = |e: &str| ["E0117", "E0116", "E0210"].iter().any(|c| e.contains(&format!("\"code\":\"{c}\"")));
+    let versions = match lib.first() {
+        Some((r, _)) if r.starts_with(RT_HEADER) && matches!(compile(r, dir, out, extra, link), Some(Err(e)) if orphan(&e)) => versions.to_vec(),
+        _ => lib,
+    };
     let mut last = None;
-    for (rust, plain) in versions {
+    for (rust, plain) in &versions {
         let mut r = (rust.as_str(), match compile(rust, dir, out, extra, link) {
             Some(Ok(())) => return true,
             Some(Err(e)) => e,
@@ -511,28 +519,178 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 }
 
 // None when rustc could not be started.
+// Builds are cached by a hash of the generated code, the flags and the rustc version, so running the same
+// program again (an agent re-running its tests, or an MCP call) skips rustc. BREVI_NO_CACHE=1 turns this off.
 fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
     if let Some(deps) = DEPS.get().filter(|d| !d.is_empty()) {
         return cargo_compile(deps, rust, dir, out, extra, link);
+    }
+    let release = extra.contains(&"opt-level=3");
+    let rt = if rust.starts_with(RT_HEADER) { runtime_lib(release) } else { None };
+    let use_cache = std::env::var("BREVI_NO_CACHE").map_or(true, |v| v.is_empty() || v == "0");
+    let key = format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version()], 0), fnv(&[rust, &extra.join(" "), rustc_version()], 7));
+    let cdir = cache_dir().join("bin");
+    let cached = cdir.join(&key);
+    if use_cache {
+        if let Ok(e) = std::fs::read_to_string(cached.with_extension("err")) {
+            return Some(Err(e));
+        }
+        if cached.exists() && (!link || copy_bin(&cached, out)) {
+            touch(&cached);
+            return Some(Ok(()));
+        }
     }
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = Command::new("rustc");
     c.args(["--edition", "2021", "--error-format=json", "--crate-name", "brevi_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
     c.args(extra);
+    if let Some(lib) = &rt {
+        c.arg("--extern").arg(format!("brevi_rt={}", lib.display()));
+    }
     if link {
+        // Debug info is never used (runtime errors carry Brevi line numbers), and it is most of the file.
+        c.args(["-C", "strip=debuginfo"]);
         c.arg("-o").arg(out);
     } else {
         c.arg("--out-dir").arg(dir);
     }
     c.arg(&rs);
-    match c.output() {
-        Ok(o) if o.status.success() => Some(Ok(())),
-        Ok(o) => Some(Err(String::from_utf8_lossy(&o.stderr).to_string())),
+    let r = match c.output() {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
         Err(e) => {
             println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
-            None
+            return None;
         }
+    };
+    if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
+        let tmp = cdir.join(format!("{key}.{}", std::process::id()));
+        let saved = match &r {
+            Ok(()) if link => std::fs::copy(out, &tmp).is_ok(),
+            Ok(()) => std::fs::write(&tmp, "").is_ok(),
+            Err(e) if e.contains("\"level\":\"error\"") => std::fs::write(&tmp, e).is_ok(),
+            Err(_) => false,
+        };
+        let dest = if r.is_ok() { cached.clone() } else { cached.with_extension("err") };
+        if saved && std::fs::rename(&tmp, &dest).is_ok() {
+            prune_cache(&cdir);
+        } else {
+            std::fs::remove_file(&tmp).ok();
+        }
+    }
+    Some(r)
+}
+
+// The first line of a program built against the runtime library instead of a pasted prelude.
+const RT_HEADER: &str = "#![allow(warnings)] extern crate brevi_rt; use brevi_rt::*;\n";
+
+// Swaps the pasted prelude for a use of the runtime library, when the library can be built.
+// rustc then skips type-checking and compiling about 2,600 lines of prelude on every build.
+fn use_runtime_lib(rust: &str, release: bool) -> String {
+    let short = &emit::PRELUDE[..emit::PRELUDE.find("// @regex").unwrap_or(emit::PRELUDE.len())];
+    let rest = rust.strip_prefix(emit::PRELUDE).or_else(|| rust.strip_prefix(short));
+    match rest {
+        // Python interop implements prelude traits for prelude types, which only works inside one crate.
+        Some(rest) if DEPS.get().map_or(true, |d| d.is_empty()) && !rest.contains("trait AxFromJson") && runtime_lib(release).is_some() => format!("{RT_HEADER}{rest}"),
+        _ => rust.to_string(),
+    }
+}
+
+// The prelude as a library: every top-level item public, built once per rustc version and build mode
+// into the cache. None (fall back to pasting the prelude) if it cannot be built.
+fn runtime_lib(release: bool) -> Option<PathBuf> {
+    static LIBS: [std::sync::OnceLock<Option<PathBuf>>; 2] = [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
+    LIBS[release as usize]
+        .get_or_init(|| {
+            if std::env::var("BREVI_NO_RTLIB").map_or(false, |v| !v.is_empty() && v != "0") {
+                return None;
+            }
+            let src = runtime_lib_source();
+            let mode = if release { "release" } else { "debug" };
+            let dir = cache_dir().join("rt").join(format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1)));
+            let lib = dir.join("libbrevi_rt.rlib");
+            if lib.exists() {
+                return Some(lib);
+            }
+            std::fs::create_dir_all(&dir).ok()?;
+            let tmp = dir.join(format!("build-{}", std::process::id()));
+            std::fs::create_dir_all(&tmp).ok()?;
+            std::fs::write(tmp.join("rt.rs"), &src).ok()?;
+            let mut c = Command::new("rustc");
+            c.args(["--edition", "2021", "--crate-type", "rlib", "--crate-name", "brevi_rt", "-A", "warnings", "-C", "overflow-checks=on"]);
+            if release {
+                c.args(["-C", "opt-level=3"]);
+            }
+            c.arg("-o").arg(tmp.join("libbrevi_rt.rlib")).arg(tmp.join("rt.rs"));
+            let ok = c.output().map_or(false, |o| o.status.success());
+            let moved = ok && std::fs::rename(tmp.join("libbrevi_rt.rlib"), &lib).is_ok();
+            std::fs::remove_dir_all(&tmp).ok();
+            if moved || lib.exists() { Some(lib) } else { None }
+        })
+        .clone()
+}
+
+fn runtime_lib_source() -> String {
+    let mut out = String::with_capacity(emit::PRELUDE.len() + 4096);
+    for l in emit::PRELUDE.lines() {
+        let item = ["fn ", "struct ", "enum ", "trait ", "type ", "const ", "static ", "use ", "mod "].iter().any(|k| l.starts_with(k));
+        if item {
+            out.push_str("pub ");
+        }
+        out.push_str(l);
+        out.push('\n');
+    }
+    out
+}
+
+// `rustc -vV`, asked once per run. Part of every cache key, so a new toolchain never reuses old builds.
+fn rustc_version() -> &'static str {
+    static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        Command::new("rustc").arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default()
+    })
+}
+
+fn fnv(parts: &[&str], seed: u64) -> u64 {
+    let mut h: u64 = 1469598103934665603 ^ seed.wrapping_mul(0x9e3779b97f4a7c15);
+    for p in parts {
+        for b in p.bytes().chain([0xff]) {
+            h = (h ^ b as u64).wrapping_mul(1099511628211);
+        }
+    }
+    h
+}
+
+// Copies a cached program into place: a hard link when possible, else a copy (written aside, then renamed).
+fn copy_bin(from: &Path, to: &Path) -> bool {
+    std::fs::remove_file(to).ok();
+    if std::fs::hard_link(from, to).is_ok() {
+        return true;
+    }
+    let tmp = to.with_extension(format!("tmp{}", std::process::id()));
+    std::fs::copy(from, &tmp).is_ok() && std::fs::rename(&tmp, to).is_ok()
+}
+
+fn touch(p: &Path) {
+    if let Ok(f) = std::fs::File::options().append(true).open(p) {
+        f.set_modified(std::time::SystemTime::now()).ok();
+    }
+}
+
+// Keeps the build cache small: past 400 entries, the least recently used half goes.
+fn prune_cache(dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut es: Vec<(std::time::SystemTime, PathBuf)> = rd
+        .flatten()
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    if es.len() <= 400 {
+        return;
+    }
+    es.sort();
+    for (_, p) in es.iter().take(es.len() - 200) {
+        std::fs::remove_file(p).ok();
     }
 }
 
@@ -550,7 +708,9 @@ fn report(rust: &str, stderr: &str) {
         }
         let code = j.get("code").and_then(|c| c.get("code")).and_then(|c| c.str()).unwrap_or("");
         let spans = j.get("spans").map(|s| s.arr()).unwrap_or(&[]);
-        let primary = spans.iter().find(|s| s.get("is_primary").map_or(false, |p| p.truthy())).or(spans.first());
+        // Spans inside the runtime library (rt.rs) say nothing about the program's lines.
+        let ours = |s: &&json::J| s.get("file_name").and_then(|f| f.str()).map_or(true, |f| !f.ends_with("rt.rs"));
+        let primary = spans.iter().filter(ours).find(|s| s.get("is_primary").map_or(false, |p| p.truthy())).or(spans.iter().find(ours)).or(spans.first());
         let (rline, label) = match primary {
             Some(s) => (
                 s.get("line_start").and_then(|v| v.num()).unwrap_or(0.0) as usize,
@@ -628,6 +788,7 @@ fn to_brevi_words(s: &str) -> String {
         .replace("std::collections::BTreeMap", "BTreeMap")
         .replace("brevi_prog::AxM", "AxM")
         .replace("brevi_prog::", "")
+        .replace("brevi_rt::", "")
         .replace("found for struct ", "found for ")
         .replace(" in the current scope", "")
         .replace("&mut ", "mut ")
@@ -715,8 +876,9 @@ fn valid_options(code: &str, msg: &str, rust: &str) -> Option<String> {
         "E0609" | "E0560" | "E0026" => {
             // "no field `z` on type `Point`": list the struct's fields from the generated code.
             let ty = msg.rsplit('`').nth(1)?;
-            let start = rust.find(&format!("pub struct {ty} {{"))?;
-            let body = &rust[start..];
+            let src = if rust.contains(&format!("pub struct {ty} {{")) { rust } else { emit::PRELUDE };
+            let start = src.find(&format!("pub struct {ty} {{"))?;
+            let body = &src[start..];
             let body = &body[..body.find('}')?];
             let fields: Vec<&str> = body.lines().filter_map(|l| l.trim().strip_prefix("pub ")?.split(':').next()).filter(|f| !f.starts_with("struct")).collect();
             Some(format!("fields of {ty}: {}", fields.join(", ")))
