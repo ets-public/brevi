@@ -1,0 +1,14 @@
+[  Hello World]
+[Hello World 
+]
+hi --a a--
+a
+b
+c
+true true true false
+["a", "b", "c", "d"]
+ehllo
+(1, "n1")
+["n1", "n2", "n3", "n4", "n5"]
+0 1 7
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
