@@ -1929,6 +1929,112 @@ impl<A: AxNone, B: AxNone, C: AxNone> AxNone for (A, B, C) {
     }
 }
 // "abc"[::-1] is "cba"; "AKQ".index_of("K") is 1 (-1 when missing), counted in characters.
+// Python's heapq on a plain list: the smallest item is always at index 0.
+pub trait AxHeapq<T> {
+    fn ax_heap_push(&mut self, x: T);
+    fn ax_heap_pop(&mut self) -> T;
+    fn ax_heapify(&mut self);
+    fn ax_heap_push_pop(&mut self, x: T) -> T;
+    fn ax_heap_replace(&mut self, x: T) -> T;
+}
+fn ax_less<T: PartialOrd>(a: &T, b: &T) -> bool {
+    a.partial_cmp(b) == Some(std::cmp::Ordering::Less)
+}
+fn ax_sift_down<T: PartialOrd>(v: &mut [T], mut i: usize) {
+    loop {
+        let (l, r) = (2 * i + 1, 2 * i + 2);
+        let mut m = i;
+        if l < v.len() && ax_less(&v[l], &v[m]) {
+            m = l;
+        }
+        if r < v.len() && ax_less(&v[r], &v[m]) {
+            m = r;
+        }
+        if m == i {
+            return;
+        }
+        v.swap(i, m);
+        i = m;
+    }
+}
+impl<T: PartialOrd> AxHeapq<T> for Vec<T> {
+    fn ax_heap_push(&mut self, x: T) {
+        self.push(x);
+        let mut i = self.len() - 1;
+        while i > 0 && ax_less(&self[i], &self[(i - 1) / 2]) {
+            self.swap(i, (i - 1) / 2);
+            i = (i - 1) / 2;
+        }
+    }
+    fn ax_heap_pop(&mut self) -> T {
+        let n = self.len();
+        assert!(n > 0, "index out of range: heappop from an empty list");
+        self.swap(0, n - 1);
+        let x = self.pop().unwrap();
+        ax_sift_down(self, 0);
+        x
+    }
+    fn ax_heapify(&mut self) {
+        for i in (0..self.len() / 2).rev() {
+            ax_sift_down(self, i);
+        }
+    }
+    fn ax_heap_push_pop(&mut self, x: T) -> T {
+        if self.is_empty() || !ax_less(&self[0], &x) {
+            return x;
+        }
+        let top = std::mem::replace(&mut self[0], x);
+        ax_sift_down(self, 0);
+        top
+    }
+    fn ax_heap_replace(&mut self, x: T) -> T {
+        assert!(!self.is_empty(), "index out of range: heapreplace on an empty list");
+        let top = std::mem::replace(&mut self[0], x);
+        ax_sift_down(self, 0);
+        top
+    }
+}
+// Python's strip family: rstrip()/lstrip() trim whitespace at one end; strip(cs)/rstrip(cs)/lstrip(cs)
+// trim any of the characters in cs. isupper/islower/isalnum as in Python.
+pub trait AxStrPy {
+    fn ax_trim_of(&self, cs: impl AsRef<str>) -> String;
+    fn ax_trim_end(&self) -> String;
+    fn ax_trim_end_of(&self, cs: impl AsRef<str>) -> String;
+    fn ax_trim_start(&self) -> String;
+    fn ax_trim_start_of(&self, cs: impl AsRef<str>) -> String;
+    fn ax_is_upper(&self) -> bool;
+    fn ax_is_lower(&self) -> bool;
+    fn ax_is_alnum(&self) -> bool;
+}
+impl AxStrPy for String {
+    fn ax_trim_of(&self, cs: impl AsRef<str>) -> String {
+        let cs = cs.as_ref();
+        self.trim_matches(|c| cs.contains(c)).to_string()
+    }
+    fn ax_trim_end(&self) -> String {
+        self.trim_end().to_string()
+    }
+    fn ax_trim_end_of(&self, cs: impl AsRef<str>) -> String {
+        let cs = cs.as_ref();
+        self.trim_end_matches(|c| cs.contains(c)).to_string()
+    }
+    fn ax_trim_start(&self) -> String {
+        self.trim_start().to_string()
+    }
+    fn ax_trim_start_of(&self, cs: impl AsRef<str>) -> String {
+        let cs = cs.as_ref();
+        self.trim_start_matches(|c| cs.contains(c)).to_string()
+    }
+    fn ax_is_upper(&self) -> bool {
+        self.chars().any(|c| c.is_alphabetic()) && !self.chars().any(|c| c.is_lowercase())
+    }
+    fn ax_is_lower(&self) -> bool {
+        self.chars().any(|c| c.is_alphabetic()) && !self.chars().any(|c| c.is_uppercase())
+    }
+    fn ax_is_alnum(&self) -> bool {
+        !self.is_empty() && self.chars().all(|c| c.is_alphanumeric())
+    }
+}
 pub trait AxStrRev {
     fn ax_rev(&self) -> String;
     fn ax_index_of(&self, s: impl AsRef<str>) -> i64;

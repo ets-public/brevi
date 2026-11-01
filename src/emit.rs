@@ -15,13 +15,16 @@ const METHODS: &[&str] = &[
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
+    "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
 const PURE_METHODS: &[&str] = &[
     "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten", "enumerate_from",
+    "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of",
 ];
-const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove"];
+const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
 const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
 // Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
@@ -528,7 +531,7 @@ fn nested_lists(body: &Expr) -> HashSet<String> {
             j += 1;
         }
         let rest = &text[(j + 1).min(text.len())..];
-        if ["push", "pop", "insert", "remove"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
+        if ["push", "pop", "insert", "remove", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
             out.insert(name.to_string());
         }
     }
@@ -563,7 +566,7 @@ fn changes(e: &Expr, name: &str) -> bool {
     if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) {
         return true;
     }
-    ["push", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "extend"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
+    ["push", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
 pub fn assigns_to(e: &Expr, name: &str) -> bool {
@@ -820,7 +823,7 @@ impl Emitter {
             Expr::Method(_, m, _, _) => match m.as_str() {
                 "len" | "count" | "find" | "find_from" | "index_of" | "digit" => named("int"),
                 "words" | "lines" | "chars" | "split" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
-                "trim" | "lower" | "upper" | "join" | "replace" | "text" => named("str"),
+                "trim" | "lower" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
                 "dec" | "big" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_) | Expr::Float(_))) => named(m),
                 "float" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_))) => named("f64"),
@@ -901,7 +904,7 @@ impl Emitter {
             Expr::Bool(_) => true,
             Expr::Binary(op, ..) => ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op),
             Expr::Unary(op, _) => *op == "!",
-            Expr::Method(_, m, _, _) => ["has", "is_empty", "contains", "starts_with", "ends_with", "any", "all", "is_digit", "is_alpha", "is_null", "bool"].contains(&m.as_str()),
+            Expr::Method(_, m, _, _) => ["has", "is_empty", "contains", "starts_with", "ends_with", "any", "all", "is_digit", "is_alpha", "is_null", "bool", "is_upper", "is_lower", "is_alnum"].contains(&m.as_str()),
             e => self.infer_ty(e).map_or(false, |t| matches!(&t, Ty::Named(n) if n == "bool")),
         };
         let e = self.expr(c);
@@ -1558,7 +1561,7 @@ impl Emitter {
             }
             // A string read item by item (`enumerate`, `map`, `filter`, `any`, `all`) is its list of characters.
             Expr::Method(recv, name, args, line)
-                if ["enumerate", "map", "filter", "any", "all"].contains(&name.as_str()) && matches!(self.infer_ty(recv), Some(Ty::Named(n)) if n == "str") =>
+                if ["enumerate", "map", "filter", "any", "all", "sort", "sort_by"].contains(&name.as_str()) && matches!(self.infer_ty(recv), Some(Ty::Named(n)) if n == "str") =>
             {
                 let chars = Expr::Method(recv.clone(), "chars".into(), vec![], *line);
                 self.expr(&Expr::Method(Box::new(chars), name.clone(), args.clone(), *line))
