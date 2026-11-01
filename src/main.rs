@@ -1,5 +1,6 @@
 mod alias;
 mod ast;
+mod bigint;
 mod caps;
 mod diag;
 mod emit;
@@ -328,6 +329,9 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
     ffi::attach(&mut items, &foreign);
     used_consts_first(&mut items);
+    if python_style(&src) {
+        bigint::promote(&mut items);
+    }
     // Python names share objects (`r = rows[k]; r[0] -= 1` changes rows); Brevi programs keep copies.
     if python_style(&src) {
         let errs = alias::writeback(&mut items);
