@@ -16,7 +16,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "pop_or",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -24,7 +24,7 @@ const PURE_METHODS: &[&str] = &[
     "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten", "enumerate_from",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of",
 ];
-const MUTATING_METHODS: &[&str] = &["push", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"];
+const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
 const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
 // Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
@@ -37,6 +37,8 @@ struct FnSig {
 }
 
 pub struct Emitter {
+    // Locals set from set(...) / a - b on sets in this function, so `s - k` on them is set difference.
+    set_vars: HashSet<String>,
     // Crates, rust fn and py fn code (see ffi.rs).
     pub foreign: crate::ffi::Foreign,
     // Files the program uses: (name, first line in the combined source, line count).
@@ -564,7 +566,7 @@ fn nested_lists(body: &Expr) -> HashSet<String> {
             j += 1;
         }
         let rest = &text[(j + 1).min(text.len())..];
-        if ["push", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
+        if ["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
             out.insert(name.to_string());
         }
     }
@@ -599,7 +601,7 @@ fn changes(e: &Expr, name: &str) -> bool {
     if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) {
         return true;
     }
-    ["push", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
+    ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
 pub fn assigns_to(e: &Expr, name: &str) -> bool {
@@ -642,6 +644,7 @@ impl Emitter {
             cur_body: String::new(),
             json_ret: false,
             own_locals: HashSet::new(),
+            set_vars: HashSet::new(),
             fn_texts: items
                 .iter()
                 .filter_map(|i| match i {
@@ -802,6 +805,15 @@ impl Emitter {
                     }
                 }
             }
+        }
+    }
+
+    fn is_set_expr(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Method(_, m, _, _) => ["unique", "keys", "values", "set_sub"].contains(&m.as_str()),
+            Expr::Ident(n) | Expr::Move(n) => self.set_vars.contains(n),
+            Expr::Binary("-" | "|" | "&", a, b) => self.is_set_expr(a) || self.is_set_expr(b),
+            _ => false,
         }
     }
 
@@ -1099,6 +1111,7 @@ impl Emitter {
 
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
         self.own_locals.clear();
+        self.set_vars.clear();
         self.locals = params.iter().map(|p| p.name.clone()).collect();
         self.refs = params.iter().filter(|p| p.is_mut).map(|p| p.name.clone()).collect();
         self.fallible = fallible;
@@ -1346,6 +1359,17 @@ impl Emitter {
             Stmt::Let { line, .. } | Stmt::Assign { line, .. } | Stmt::Expr { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line } | Stmt::Continue { line } | Stmt::Assert { line, .. } => *line,
         };
         self.line = line;
+        let set_name = match s {
+            Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } => Some((n.clone(), self.is_set_expr(value))),
+            _ => None,
+        };
+        if let Some((n, is_set)) = set_name {
+            if is_set {
+                self.set_vars.insert(n);
+            } else {
+                self.set_vars.remove(&n);
+            }
+        }
         let body = match s {
             Stmt::Let { name: Pat::Bind(n), value, .. } if self.globals.get(n).map_or(false, |g| g.1 == line) => {
                 let v = self.expr(value);
@@ -1638,8 +1662,7 @@ impl Emitter {
             // `a - b` on lists used as Python sets: the items of a not in b.
             Expr::Binary("-", a, b) if [a, b].iter().any(|x| match x.as_ref() {
                 Expr::List(_) => true,
-                Expr::Method(_, m, _, _) if ["unique", "keys", "values"].contains(&m.as_str()) => true,
-                _ => matches!(self.infer_ty(x), Some(Ty::List(_))),
+                _ => self.is_set_expr(x) || matches!(self.infer_ty(x), Some(Ty::List(_))),
             }) => {
                 format!("AxSetSub::ax_set_sub({}, {})", self.expr(a), self.expr(b))
             }

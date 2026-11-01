@@ -2281,6 +2281,8 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("splitlines", 0) => "lines",
         // xs.pop(i) and m.pop(k) take the item out and give it back.
         ("pop", 1) => "pop_at",
+        // m.pop(k, d): the value taken out, or d when k is missing.
+        ("pop", 2) => "pop_or",
         ("isupper", 0) => "is_upper",
         ("islower", 0) => "is_lower",
         ("isalnum", 0) => "is_alnum",
@@ -2344,7 +2346,8 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         return Some(m(h, hm, args.drain(..).map(|a| a.1).collect()));
     }
     Some(match (name, args.len()) {
-        ("set" | "list" | "deque", 0) => Expr::List(vec![]),
+        ("set" | "list" | "deque" | "frozenset", 0) => Expr::List(vec![]),
+        ("frozenset", 1) => m(args.remove(0).1, "unique", vec![]),
         ("Decimal", 1) => m(args.remove(0).1, "dec", vec![]),
         // next(rows) takes the first item, as reading one from an iterator does.
         ("next", 1) => match args.remove(0).1 {
