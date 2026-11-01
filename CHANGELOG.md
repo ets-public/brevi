@@ -2,6 +2,10 @@
 
 Each release's section here becomes its GitHub release notes (`.github/workflows/release.yml`; `release-notes.yml` re-syncs the notes of an existing release). Benchmark figures are tokens per finished task (code written plus errors read, retries scored as patches), from [bench/LEADERBOARD.md](bench/LEADERBOARD.md).
 
+## Unreleased
+
+- More plain Python from the e14 trial's first attempts: a lambda called at once (`(lambda s: (s[0], s[1]))(score(t))`); rows of a mixed list changed in a loop (`backorders.append([oid, sku, left])`, then `for b in backorders: b[2] -= got`); dicts built from a method's parameters (`self.lots.append({"seq": n, "sku": sku, "qty": qty})`) and dicts with a key that is a keyword (`'type'`) become records; and a loop that changes the dicts a helper returns after filtering and sorting them (`lots = [l for l in self.lots if ...]`, `lots.sort(key=...)`, `return lots`) changes the stored dicts, as in Python. When every build fails, errors come from the build with inferred types. The e14 Sonnet poker and warehouse and Haiku warehouse first attempts now pass every test, and Haiku's quiz builds and prints what Python prints.
+
 ## v0.19.0 (1 Nov 2026)
 
 Brevi now aims to build plain Python unchanged ("Python in, Rust speed out"). The release test is a plain-Python trial: models write ordinary Python, Brevi builds it, and the full API cost is compared with running the same models' Python on CPython. In run e14 Brevi costs 1.16x Python with Sonnet and 0.94x with Haiku, from 2.2x and 1.8x this morning. 331 of 580 saved Python solutions build and give the right output unchanged. The release test is not passed yet.
