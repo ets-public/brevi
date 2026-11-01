@@ -10,6 +10,19 @@ Each check also logs `patch_tok`: for a retry, the tokens of the lines changed s
 `run.sh` uses `../target/release/brevi` unless `BREVI` is set (runs before the rename are named `-axon`).
 `python3 subject_prompt.py RUN LANG small|big` prints the prompt given to a test-subject model; subjects may only run code through `run.sh`.
 
+## Release test (plain Python, since 1 Nov 2026)
+
+Brevi's release test is the plain-Python trial: the model gets the ordinary Python prompt and tools, writes `.py` files, and Brevi builds and runs them in place of CPython. Plain Python runs the same day as the baseline:
+
+```
+python3 e2e.py RUN --lang pyb --model sonnet --set xl3 --jobs 1
+python3 e2e.py RUN --lang python --model sonnet --set xl3 --jobs 1
+# the same with --model haiku, then a second run
+python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
+```
+
+The test passes when, averaged over two runs, `pyb` costs no more dollars than `python` for both Sonnet and Haiku, and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Latest result is run `e14` (1 Nov 2026, one run): Sonnet $0.205 against $0.176 (1.16x), Haiku $0.024 against $0.025 (0.94x). Not yet passed. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
+
 ## End-to-end benchmark (`e2e.py`, 1 Nov 2026)
 
 `run.sh` scores code written plus errors read. `e2e.py` counts everything the Claude API bills for a finished task: the system prompt (the Brevi guide, cached), tool calls and results, thinking, text and retries, read from each response's `usage`, and prices it in dollars. Each task is a fresh conversation with the same tools in both languages (`write_file`, `edit_file`, `check`, plus `guide` for Brevi). `python3 e2e.py RUN --lang brevi --model sonnet --set xl3` runs a set; `python3 e2e.py --summary "logs/e2e/*.jsonl"` prints totals. Task sets live in `subject_prompt_sets.py`.
