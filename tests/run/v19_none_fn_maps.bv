@@ -1,0 +1,30 @@
+fn add(a: int, b: int) -> int = a + b
+
+fn find(xs: [int], t: int) -> int:
+    for i, x in xs.enumerate():
+        if x == t:
+            return i
+    return None
+
+ops = {"+": add, "-": lambda a, b: a - b}
+
+fn apply(o: str, a: int, b: int) -> int:
+    return ops[o](a, b)
+
+best = None
+for v in [3, 9, 2]:
+    if best is None or v > best:
+        best = v
+print(best)
+name = None
+for w in ["b", "a"]:
+    if name is None or w < name:
+        name = w
+print(name)
+r = find([1, 2, 3], 5)
+if r is None:
+    print("missing")
+print(find([1, 2, 3], 2) is not None)
+for k, f in ops.items():
+    print(k, f(6, 3))
+print(apply("+", 1, 2), "-" in ops)
