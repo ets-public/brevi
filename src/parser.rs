@@ -114,6 +114,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     if !p.sigs.is_empty() {
         fill_args(&mut items, &mut script, &p.sigs);
     }
+    tuples_as_lists(&mut items, &mut script);
     if !script.is_empty() {
         // Top-level statements beside fn main run first, then main, as in a Python file that ends with main().
         let mut script = script;
@@ -1658,6 +1659,9 @@ impl Parser {
                 self.expect_sym(")")?;
                 if items.len() == 1 {
                     Ok(items.pop().unwrap())
+                } else if items.is_empty() && self.py {
+                    // Python's `()` is an empty sequence (`adj.get(n, ())`).
+                    Ok(Expr::List(items))
                 } else {
                     Ok(Expr::Tuple(items))
                 }
@@ -2417,6 +2421,57 @@ fn generator_body(body: Expr, line: usize) -> Expr {
     stmts.insert(0, Stmt::Assign { target: acc(), op: "=", value: Expr::List(vec![]), line });
     stmts.push(Stmt::Return { value: Some(acc()), line });
     Expr::Block(stmts, None)
+}
+
+// Python code reads a tuple of like items as a sequence (`for d in ("Mon", "Tue"):`, `DAYS = ("Mon", "Tue")`
+// then `for d in DAYS`, `len(DAYS)`). Such tuples are lists here: a tuple literal looped over directly, and an
+// ALL_CAPS constant set to a tuple of like literals.
+fn tuples_as_lists(items: &mut [Item], script: &mut [Stmt]) {
+    fn kind(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Int(_) | Expr::Unary("-", _) => Some("int".into()),
+            Expr::Float(_) => Some("float".into()),
+            Expr::Str(p) if p.iter().all(|x| matches!(x, StrPart::Lit(_))) => Some("str".into()),
+            Expr::Tuple(xs) => Some(format!("({})", xs.iter().map(|x| kind(x).unwrap_or("?".into())).collect::<Vec<_>>().join(","))),
+            _ => None,
+        }
+    }
+    let like = |xs: &[Expr]| xs.len() >= 2 && kind(&xs[0]).is_some_and(|k| !k.contains('?') && xs.iter().all(|x| kind(x).as_ref() == Some(&k)));
+    let caps = |n: &str| n.chars().any(|c| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    let mut fix = |e: &mut Expr| {
+        walk_mut(e, &mut |x| {
+            if let Expr::For(_, it, _) = x {
+                if let Expr::Tuple(xs) = it.as_mut() {
+                    *it = Box::new(Expr::List(std::mem::take(xs)));
+                }
+            }
+            if let Expr::Block(st, _) = x {
+                for s in st.iter_mut() {
+                    if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(n), value, .. } = s {
+                        if caps(n) {
+                            if let Expr::Tuple(xs) = value {
+                                if like(xs) {
+                                    *value = Expr::List(std::mem::take(xs));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    };
+    for it in items.iter_mut() {
+        if let Item::Fn { body, .. } = it {
+            fix(body);
+        }
+    }
+    let mut b = Expr::Block(script.to_vec(), None);
+    fix(&mut b);
+    if let Expr::Block(v, _) = b {
+        for (st, n) in script.iter_mut().zip(v) {
+            *st = n;
+        }
+    }
 }
 
 pub(crate) fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {

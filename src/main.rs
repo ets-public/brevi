@@ -959,6 +959,23 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
 }
 
 // A program written as Python (`def`, `class`, `global`) prints values and orders dicts as Python does.
+// Also a script with spellings only Python code uses: `None`, `xs.append(x)` (Brevi code writes `True` too).
 pub fn python_style(src: &str) -> bool {
-    src.lines().map(str::trim_start).any(|l| l.starts_with("def ") || l.starts_with("class ") || l.starts_with("global ") || l.starts_with("nonlocal ") || l.starts_with("import ") || (l.starts_with("from ") && l.contains(" import ")))
+    let word = |l: &str, w: &str| {
+        l.match_indices(w).any(|(i, _)| {
+            let before = l[..i].chars().next_back();
+            let after = l[i + w.len()..].chars().next();
+            !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '"' || c == '\'') && !after.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '"' || c == '\'')
+        })
+    };
+    src.lines().map(str::trim_start).filter(|l| !l.starts_with('#')).any(|l| {
+        l.starts_with("def ")
+            || l.starts_with("class ")
+            || l.starts_with("global ")
+            || l.starts_with("nonlocal ")
+            || l.starts_with("import ")
+            || (l.starts_with("from ") && l.contains(" import "))
+            || l.contains(".append(")
+            || word(l, "None")
+    })
 }

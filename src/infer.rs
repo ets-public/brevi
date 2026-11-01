@@ -115,6 +115,8 @@ fn elem(t: &T) -> T {
         Map(k, v) => Tuple(vec![*k.clone(), *v.clone()]),
         Str => Str,
         Json => Json,
+        // A tuple of like items (`DAYS = ("Mon", "Tue")`) is read item by item, as Python reads it.
+        Tuple(ts) if !ts.is_empty() && ts.iter().all(|t| *t == ts[0]) => ts[0].clone(),
         _ => Hole,
     }
 }
@@ -1747,6 +1749,23 @@ impl Ck<'_, '_> {
     }
 
     fn expr(&mut self, e: &mut Expr, env: &mut Env) {
+        // `sum(e - s for s, e in m)` with m a list of lists: the lambda takes each list and unpacks it.
+        if let Expr::Method(r, _, args, line) = &mut *e {
+            if let List(inner) = self.cx.ty(r, env) {
+                if matches!(*inner, List(_)) {
+                    for a in args.iter_mut() {
+                        if let Expr::Lambda(ps, body) = a {
+                            if (2..=4).contains(&ps.len()) {
+                                let names: Vec<Expr> = ps.iter().map(|p| Expr::Ident(p.clone())).collect();
+                                let b = std::mem::replace(body.as_mut(), Expr::Int(0));
+                                let un = Stmt::Assign { target: Expr::Tuple(names), op: "=", value: Expr::Ident("ax_row".into()), line: *line };
+                                *a = Expr::Lambda(vec!["ax_row".into()], Box::new(Expr::Block(vec![un], Some(Box::new(b)))));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
             Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
