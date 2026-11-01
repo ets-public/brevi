@@ -1301,6 +1301,9 @@ impl Parser {
                             } else {
                                 Expr::Method(Box::new(e), name, args, line)
                             };
+                        } else if name == "argv" && matches!(&e, Expr::Ident(m) if m == "sys") {
+                            // sys.argv: the program's name, then its arguments.
+                            e = Expr::Binary("+", Box::new(Expr::List(vec![Expr::Str(vec![StrPart::Lit("main".into())])])), Box::new(Expr::Call("args".into(), vec![], line)));
                         } else if name == "stdin" && matches!(&e, Expr::Ident(m) if m == "sys") {
                             e = Expr::Call("lines".into(), vec![], line);
                         } else {
@@ -1988,12 +1991,24 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             }
         }
         ("OrderedDict", 0) => Expr::Map(vec![]),
+        // date(y, m, d) checks and builds the date as date("y-m-d") does.
+        ("date", 3) => {
+            let d = args.remove(2).1;
+            let mo = args.remove(1).1;
+            let y = args.remove(0).1;
+            let dash = || StrPart::Lit("-".into());
+            Expr::Call("date".into(), vec![(None, Expr::Str(vec![StrPart::Interp(y), dash(), StrPart::Interp(mo), dash(), StrPart::Interp(d)]))], line)
+        }
         // zip(xs, ys), Counter(xs) (each item's count, in first-seen order) and dict(pairs).
         ("zip", 2) => {
             let ys = args.remove(1).1;
             m(args.remove(0).1, "zip", vec![ys])
         }
-        ("Counter", 1) => m(args.remove(0).1, "tally", vec![]),
+        ("Counter", 1) => match args.remove(0).1 {
+            // Counter(s.split()) counts the words without building the list first.
+            Expr::Method(s, w, a, _) if w == "words" && a.is_empty() => m(*s, "tally_words", vec![]),
+            x => m(x, "tally", vec![]),
+        },
         ("dict", 1) => m(args.remove(0).1, "to_dict", vec![]),
         ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {

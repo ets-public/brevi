@@ -1560,36 +1560,92 @@ impl AxIter for Json {
 
 // ---- CSV ----
 pub fn csv(text: String) -> Vec<Vec<String>> {
-    // Fields may be "quoted", with "" for a literal quote; quoted fields may hold commas and newlines.
-    let mut rows = Vec::new();
+    AxCsvIter { text, pos: 0 }.collect()
+}
+// CSV rows one at a time. Fields may be "quoted", with "" for a literal quote; quoted fields may hold
+// commas and newlines. A line without quotes is split straight from the text; empty lines are skipped.
+pub struct AxCsvIter {
+    text: String,
+    pos: usize,
+}
+impl Iterator for AxCsvIter {
+    type Item = Vec<String>;
+    fn next(&mut self) -> Option<Vec<String>> {
+        loop {
+            if self.pos >= self.text.len() {
+                return None;
+            }
+            let rest = &self.text[self.pos..];
+            let end = rest.find('\n').unwrap_or(rest.len());
+            let line = &rest[..end];
+            if !line.contains('"') {
+                self.pos += end + 1;
+                let line = line.trim_end_matches('\r');
+                if line.is_empty() {
+                    // Python's csv.reader gives [] for a blank line; Brevi's csv() skips it.
+                    if ax_py_on() {
+                        return Some(Vec::new());
+                    }
+                    continue;
+                }
+                return Some(line.split(',').map(|f| f.replace('\r', "")).collect());
+            }
+            let (row, used) = csv_quoted_row(rest);
+            self.pos += used;
+            if row.len() == 1 && row[0].is_empty() {
+                if ax_py_on() {
+                    return Some(Vec::new());
+                }
+                continue;
+            }
+            return Some(row);
+        }
+    }
+}
+impl AxEach for AxCsvIter {
+    type It = AxCsvIter;
+    fn ax_each(self) -> Self::It {
+        self
+    }
+}
+// One row that has quotes in it, and the bytes it used (its ending newline included).
+fn csv_quoted_row(text: &str) -> (Vec<String>, usize) {
     let mut row = Vec::new();
     let mut cur = String::new();
     let mut inq = false;
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
+    let mut it = text.char_indices().peekable();
+    while let Some((i, ch)) = it.next() {
         match ch {
-            '"' if inq && chars.peek() == Some(&'"') => {
-                chars.next();
+            '"' if inq && it.peek().map(|p| p.1) == Some('"') => {
+                it.next();
                 cur.push('"');
             }
             '"' => inq = !inq,
             ',' if !inq => row.push(std::mem::take(&mut cur)),
             '\r' if !inq => {}
             '\n' if !inq => {
-                row.push(std::mem::take(&mut cur));
-                if !(row.len() == 1 && row[0].is_empty()) {
-                    rows.push(std::mem::take(&mut row));
-                }
-                row.clear();
+                row.push(cur);
+                return (row, i + 1);
             }
             c => cur.push(c),
         }
     }
-    if !cur.is_empty() || !row.is_empty() {
-        row.push(cur);
-        rows.push(row);
+    row.push(cur);
+    (row, text.len())
+}
+// `for row in csv.reader(src)` reads the rows one at a time instead of building them all first.
+pub trait AxCsvStream {
+    fn ax_csv_iter(self) -> AxCsvIter;
+}
+impl AxCsvStream for String {
+    fn ax_csv_iter(self) -> AxCsvIter {
+        AxCsvIter { text: self, pos: 0 }
     }
-    rows
+}
+impl AxCsvStream for Vec<String> {
+    fn ax_csv_iter(self) -> AxCsvIter {
+        AxCsvIter { text: self.join("\n"), pos: 0 }
+    }
 }
 
 // ---- dates (proleptic Gregorian) ----
@@ -2171,6 +2227,60 @@ impl<T: Hash + Eq + Ord + Clone> AxTally<T> for Vec<T> {
 impl AxTally<String> for String {
     fn ax_tally(&self) -> AxM<String, i64> {
         self.chars().map(|c| c.to_string()).collect::<Vec<_>>().ax_tally()
+    }
+}
+// sorted(m, key=f): the keys, ordered by f.
+pub trait AxMapSortBy<K> {
+    fn ax_sort_by<U: PartialOrd>(&self, f: impl Fn(K) -> U) -> Vec<K>;
+    fn ax_sort_by_rev<U: PartialOrd>(&self, f: impl Fn(K) -> U, rev: bool) -> Vec<K>;
+}
+impl<K: Hash + Eq + Ord + Clone, V> AxMapSortBy<K> for AxM<K, V> {
+    fn ax_sort_by<U: PartialOrd>(&self, f: impl Fn(K) -> U) -> Vec<K> {
+        self.ax_sort_by_rev(f, false)
+    }
+    fn ax_sort_by_rev<U: PartialOrd>(&self, f: impl Fn(K) -> U, rev: bool) -> Vec<K> {
+        let ks: Vec<K> = self.iter().map(|(k, _)| k.clone()).collect();
+        ks.ax_sort_by_rev(f, rev)
+    }
+}
+// xs.clear() and m.clear().
+pub trait AxClear {
+    fn ax_clear(&mut self);
+}
+impl<T> AxClear for Vec<T> {
+    fn ax_clear(&mut self) {
+        self.clear();
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V> AxClear for AxM<K, V> {
+    fn ax_clear(&mut self) {
+        let keys: Vec<K> = self.keys().cloned().collect();
+        for k in keys {
+            self.remove(&k);
+        }
+    }
+}
+pub trait AxTallyWords {
+    fn ax_tally_words(&self) -> AxM<String, i64>;
+}
+impl AxTallyWords for String {
+    fn ax_tally_words(&self) -> AxM<String, i64> {
+        let mut at: HashMap<&str, usize, BuildHasherDefault<AxHasher>> = HashMap::default();
+        let mut seen: Vec<(&str, i64)> = Vec::new();
+        for w in self.split_whitespace() {
+            match at.get(w) {
+                Some(&i) => seen[i].1 += 1,
+                None => {
+                    at.insert(w, seen.len());
+                    seen.push((w, 1));
+                }
+            }
+        }
+        let mut m = AxM::default();
+        for (w, n) in seen {
+            m.insert(w.to_string(), n);
+        }
+        m
     }
 }
 pub trait AxToDict<K, V> {
@@ -3256,7 +3366,31 @@ fn ax_rx_seq(v: &[AxRx], s: &[char], i: usize, caps: &mut AxCaps, k: &mut dyn Fn
         Some((a, rest)) => ax_rx_m(a, s, i, caps, &mut |j, caps: &mut AxCaps| ax_rx_seq(rest, s, j, caps, k)),
     }
 }
+// One character matched by a single-character node, or None when the node is not one.
+fn ax_rx_one(n: &AxRx, c: char) -> Option<bool> {
+    match n {
+        AxRx::Char(x) => Some(c == *x),
+        AxRx::Any => Some(c != '\n'),
+        AxRx::Class(rs, neg) => Some(rs.iter().any(|&(a, b)| a <= c && c <= b) != *neg),
+        _ => None,
+    }
+}
 fn ax_rx_rep(n: &AxRx, lo: usize, hi: usize, lazy: bool, count: usize, s: &[char], i: usize, caps: &mut AxCaps, k: &mut dyn FnMut(usize, &mut AxCaps) -> bool) -> bool {
+    // `\S+`, `\d*`, `.*` and the like: count the run in a loop, then try the lengths in order,
+    // instead of one nested call per character.
+    if count == 0 && ax_rx_one(n, 'a').is_some() {
+        let mut run = 0;
+        while run < hi && i + run < s.len() && ax_rx_one(n, s[i + run]) == Some(true) {
+            run += 1;
+        }
+        if run < lo {
+            return false;
+        }
+        if lazy {
+            return (lo..=run).any(|m| k(i + m, caps));
+        }
+        return (lo..=run).rev().any(|m| k(i + m, caps));
+    }
     if lazy && count >= lo && k(i, caps) {
         return true;
     }
@@ -3270,6 +3404,9 @@ thread_local! {
 }
 fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
     AX_RX.with(|c| {
+        if let Some(r) = c.borrow().get(p) {
+            return r.clone();
+        }
         c.borrow_mut()
             .entry(p.to_string())
             .or_insert_with(|| {
@@ -3282,6 +3419,10 @@ fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
 }
 // The first match at or after `from`: (start, end, groups).
 fn ax_rx_search(p: &str, s: &[char], from: usize, full: bool) -> Option<(usize, AxCaps)> {
+    ax_rx_search_at(p, s, from, full, full)
+}
+// `anchored`: only a match starting at `from` counts (Python's re.match).
+fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool) -> Option<(usize, AxCaps)> {
     let rx = ax_rx(p);
     for st in from..=s.len() {
         let mut caps: AxCaps = vec![None; rx.1 + 1];
@@ -3297,7 +3438,7 @@ fn ax_rx_search(p: &str, s: &[char], from: usize, full: bool) -> Option<(usize, 
             let _ = end;
             return Some((st, caps));
         }
-        if full {
+        if anchored {
             break;
         }
     }
@@ -3396,7 +3537,8 @@ pub trait AxRePy {
 }
 impl AxRePy for String {
     fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String> {
-        self.ax_re_find(format!("^(?:{})", p.as_ref()))
+        let cs: Vec<char> = self.chars().collect();
+        ax_rx_search_at(p.as_ref(), &cs, 0, false, true).map_or(vec![], |(_, c)| ax_rx_groups(&cs, &c))
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         let all = self.ax_re_all(p.as_ref().to_string());

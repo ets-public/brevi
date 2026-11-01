@@ -1,0 +1,26 @@
+import sys, csv, re
+from collections import Counter, defaultdict
+from datetime import date
+d = defaultdict(int)
+d["b"] += 2
+d["a"] += 5
+d["c"] += 2
+for k in sorted(d, key=lambda k: (-d[k], k)):
+    print(k, d[k])
+print(sorted(d, key=lambda k: d[k], reverse=True))
+xs = [1, 2]
+xs.clear()
+m = {"a": 1}
+m.clear()
+m["z"] = 2
+print(xs, m, sys.argv[1:])
+print(date(2026, 3, 1), (date(2026, 3, 1) - date(2026, 2, 1)).days)
+lines = ['a,"b,c",d', '', '"x ""q""",2', 'p,q']
+for r in csv.reader(lines):
+    print(r)
+print(len(list(csv.reader(lines))))
+print(Counter("the cat the hat the".split()).most_common(2))
+pat = re.compile(r"(\w+)=(\d+)")
+for s in ["ab=12 x", " ab=1", "zz=7"]:
+    mt = pat.match(s)
+    print(mt.group(1) + ":" + mt.group(2) if mt else "none")
