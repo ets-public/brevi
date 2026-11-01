@@ -5,7 +5,7 @@ import asyncio, os, subprocess, sys
 
 PROGRAM = 'n = 3\nprint("n is {n}")'
 WANT = "n is 3"
-TOOLS = ["guide", "check", "run", "test", "patch"]
+TOOLS = ["guide", "check", "run", "test", "patch", "edit", "show"]
 results = {}
 
 

@@ -149,6 +149,10 @@ jobs:
           BREVI: ./target/release/brevi
         run: sh tests/check.sh
 
+      - name: MCP server tests
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tests/mcp_test.py
+
       - name: Core guide stays under its token budget
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/guide_budget.py
