@@ -839,6 +839,57 @@ impl Parser {
                                     }
                                 }
                             }
+                            // Python's re module: a compiled pattern is its string, a match is [whole, group1, ...] ([] for none).
+                            if matches!(&e, Expr::Ident(m) if m == "re") {
+                                let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
+                                let done = match (name.as_str(), args.len()) {
+                                    ("compile", 1) => Some(args.remove(0)),
+                                    ("match", 2) => Some(r(args.remove(1), "re_match", vec![args.remove(0)])),
+                                    ("fullmatch", 2) => Some(r(args.remove(1), "re_full", vec![args.remove(0)])),
+                                    ("search", 2) => Some(r(args.remove(1), "re_find", vec![args.remove(0)])),
+                                    ("findall", 2) => Some(r(args.remove(1), "re_findall", vec![args.remove(0)])),
+                                    ("split", 2) => Some(r(args.remove(1), "re_split", vec![args.remove(0)])),
+                                    ("sub", 3) => {
+                                        let s = args.remove(2);
+                                        Some(r(s, "re_sub", args.drain(..).collect()))
+                                    }
+                                    _ => None,
+                                };
+                                if let Some(d) = done {
+                                    e = d;
+                                    continue;
+                                }
+                            }
+                            // pat.match(s), pat.fullmatch(s), pat.search(s), pat.findall(s), pat.sub(r, s) on a compiled pattern.
+                            {
+                                let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
+                                let m = match (name.as_str(), args.len()) {
+                                    ("match", 1) => Some("re_match"),
+                                    ("fullmatch", 1) => Some("re_full"),
+                                    ("search", 1) => Some("re_find"),
+                                    ("findall", 1) => Some("re_findall"),
+                                    _ => None,
+                                };
+                                if let Some(m) = m {
+                                    e = r(args.remove(0), m, vec![e]);
+                                    continue;
+                                }
+                                if name == "sub" && args.len() == 2 {
+                                    let s = args.remove(1);
+                                    e = r(s, "re_sub", vec![e, args.remove(0)]);
+                                    continue;
+                                }
+                            }
+                            // m.group(n), m.group(), m.groups() on a match.
+                            if name == "group" && args.len() <= 1 {
+                                let i = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
+                                e = Expr::Index(Box::new(e), Box::new(i));
+                                continue;
+                            }
+                            if name == "groups" && args.is_empty() {
+                                e = Expr::Method(Box::new(e), "skip".into(), vec![Expr::Int(1)], line);
+                                continue;
+                            }
                             // csv.reader(sys.stdin), csv.reader(lines) or csv.reader(text.splitlines()) give the rows.
                             if name == "reader" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "csv") {
                                 let src = match args.remove(0) {
@@ -1578,7 +1629,21 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         ("set" | "list" | "deque", 0) => Expr::List(vec![]),
         ("Decimal", 1) => m(args.remove(0).1, "dec", vec![]),
         // next(rows) takes the first item, as reading one from an iterator does.
-        ("next", 1) => m(args.remove(0).1, "remove", vec![Expr::Int(0)]),
+        ("next", 1) => match args.remove(0).1 {
+            x @ Expr::Ident(_) => m(x, "remove", vec![Expr::Int(0)]),
+            // next(x for x in xs if c): the first match.
+            other => m(other, "first", vec![]),
+        },
+        // next(rows, None): the first item taken out, or the empty value when there is none.
+        ("next", 2) => {
+            let d = args.remove(1).1;
+            let x = args.remove(0).1;
+            if matches!(&d, Expr::Call(n, a, _) if n == "none" && a.is_empty()) {
+                m(x, "next_or_empty", vec![])
+            } else {
+                m(x, "next_or", vec![d])
+            }
+        }
         ("OrderedDict", 0) => Expr::Map(vec![]),
         ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {

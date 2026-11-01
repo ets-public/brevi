@@ -1,0 +1,22 @@
+import re
+PAT = re.compile(r"^(\w+)=(\d+)$")
+for line in ["a=1", "bad", "b=22"]:
+    m = PAT.match(line)
+    if m:
+        print(m.group(1), int(m.group(2)), m.groups())
+    else:
+        print("no", line)
+print(re.sub(r"\s+", " ", "a   b \t c"))
+print(re.findall(r"\d+", "x1 y22 z333"))
+print(re.findall(r"(\w)=", "a=1 b=2"))
+if re.fullmatch(r"\d{4}-\d{2}", "2024-01"):
+    print("ok")
+print(re.match(r"a|b", "cab"), re.search(r"a|b", "cab"))
+print(re.split(r",\s*", "a, b,c"))
+WS = re.compile(r"\s+")
+print(WS.sub("_", "x  y"))
+rows = csv.reader(["h1,h2", "1,2"])
+header = next(rows, None)
+print(header, next(rows, ["x"]), next(rows, ["empty"]))
+xs = [3, 8, 11, 20]
+print(next(x for x in xs if x > 5))
