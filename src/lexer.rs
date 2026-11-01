@@ -859,7 +859,16 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
         }
         k += 1;
     }
-    Ok(out)
+    // Python joins string literals written next to each other (`("abc "\n "def")`, `f"{n} " f"items"`).
+    let mut joined: Vec<Token> = Vec::with_capacity(out.len());
+    for t in out {
+        if let (Tok::Str(b), Some(Token { tok: Tok::Str(a), .. })) = (&t.tok, joined.last_mut()) {
+            a.push_str(b);
+            continue;
+        }
+        joined.push(t);
+    }
+    Ok(joined)
 }
 
 // (alias, real name) pairs from Python import lines whose module Brevi has built in.

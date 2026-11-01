@@ -1,0 +1,12 @@
+# Python joins string literals written next to each other, also across lines inside brackets.
+def main():
+    n = 3
+    s = ("abc "
+         "def")
+    print(s)
+    print(f"n is {n} "
+          f"and done")
+    print("x" "y", f"{n}" "!")
+
+
+main()
