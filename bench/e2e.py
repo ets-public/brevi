@@ -33,6 +33,8 @@ GUIDE = ROOT / "BREVI.md"
 
 
 def system_prompt(lang):
+    # "pyb": the model is told exactly what the Python runs are told; check builds its .py files with Brevi.
+    lang = "python" if lang == "pyb" else lang
     name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
     ext = {"brevi": "bv", "python": "py"}[lang]
     text = (
@@ -48,6 +50,7 @@ def system_prompt(lang):
 
 
 def tools(lang):
+    lang = "python" if lang == "pyb" else lang
     ts = [
         {"name": "write_file", "description": "Write a whole file.", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"], "additionalProperties": False}, "strict": True},
         {"name": "edit_file", "description": "Replace the one occurrence of old with new in a file.", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}}, "required": ["path", "old", "new"], "additionalProperties": False}, "strict": True},
@@ -60,7 +63,7 @@ def tools(lang):
 
 def run_check(lang, task, work):
     """The same feedback as run.sh, without its logging."""
-    ext = {"brevi": "bv", "python": "py"}[lang]
+    ext = {"brevi": "bv", "python": "py", "pyb": "py"}[lang]
     tdir = B / "tasks" / task
     files = (tdir / "files").read_text().split() if (tdir / "files").exists() else ["main"]
     missing = [f"{f}.{ext}" for f in files if not (work / f"{f}.{ext}").exists()]
@@ -68,7 +71,16 @@ def run_check(lang, task, work):
         return f"missing files: {' '.join(missing)}"
     main = work / f"main.{ext}"
     binp = Path(tempfile.mkdtemp()) / "prog"
-    if lang == "brevi":
+    if lang == "pyb":
+        # The same Python files, built by Brevi: each f.py is copied to f.bv so imports between files resolve.
+        bdir = Path(tempfile.mkdtemp())
+        for f in work.glob("*.py"):
+            (bdir / (f.stem + ".bv")).write_text(f.read_text())
+        r = subprocess.run([BREVI, "build", str(bdir / "main.bv"), "-o", str(binp)], capture_output=True, text=True, cwd=work)
+        if r.returncode:
+            return (r.stdout + r.stderr).strip().replace(".bv", ".py")
+        cmd = [str(binp)]
+    elif lang == "brevi":
         r = subprocess.run([BREVI, "build", str(main), "-o", str(binp)], capture_output=True, text=True, cwd=work)
         if r.returncode:
             return (r.stdout + r.stderr).strip()
@@ -186,7 +198,7 @@ def summary(pattern):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run", nargs="?")
-    ap.add_argument("--lang", choices=["brevi", "python"])
+    ap.add_argument("--lang", choices=["brevi", "python", "pyb"], help="pyb: the Python prompt, built with Brevi")
     ap.add_argument("--model", choices=list(MODELS), default="sonnet")
     ap.add_argument("--set", default="xl3", choices=list(SETS))
     ap.add_argument("--tasks", help="comma-separated, instead of --set")

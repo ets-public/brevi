@@ -1366,6 +1366,49 @@ impl Parser {
                                 e = Expr::Call("date".into(), vec![(None, args.remove(0))], line);
                                 continue;
                             }
+                            // datetime.date(y, m, d) is date(y, m, d); datetime.strptime(s, "%Y-%m-%d") (any alias) reads the date.
+                            if name == "date" && args.len() == 3 && matches!(&e, Expr::Ident(m) if m == "datetime") {
+                                let mut a: Vec<(Option<String>, Expr)> = args.drain(..).map(|x| (None, x)).collect();
+                                e = python_call("date", &mut a, line).unwrap();
+                                continue;
+                            }
+                            if name == "strptime" && args.len() == 2 && !self.user_fns.contains(&name) && matches!(&args[1], Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(f)] if f == "%Y-%m-%d")) {
+                                args.pop();
+                                e = Expr::Call("date".into(), vec![(None, args.remove(0))], line);
+                                continue;
+                            }
+                            // .date() on a date read that way is the date itself.
+                            if name == "date" && args.is_empty() && matches!(&e, Expr::Call(f, _, _) if f == "date") {
+                                continue;
+                            }
+                            if args.is_empty() && !self.user_fns.contains(&name) {
+                                let one = |x: Expr, n: &str| Expr::Method(Box::new(x), n.into(), vec![], line);
+                                let done = match name.as_str() {
+                                    // d.isoformat() is str(d); d.toordinal() counts days from 0001-01-01 as day 1.
+                                    "isoformat" => Some(Expr::Call("str".into(), vec![(None, e.clone())], line)),
+                                    "toordinal" => Some(Expr::Binary("+", Box::new(one(e.clone(), "days")), Box::new(Expr::Int(719163)))),
+                                    // Python's d.weekday() is 0 for Monday; d.isoweekday() is 1 for Monday.
+                                    "weekday" if self.py => Some(Expr::Binary("-", Box::new(one(e.clone(), "weekday")), Box::new(Expr::Int(1)))),
+                                    "isoweekday" => Some(one(e.clone(), "weekday")),
+                                    _ => None,
+                                };
+                                if let Some(d) = done {
+                                    e = d;
+                                    continue;
+                                }
+                            }
+                            // calendar.monthrange(y, m) gives (weekday of the 1st, days in the month); calendar.isleap(y).
+                            if matches!(&e, Expr::Ident(m) if m == "calendar") {
+                                if name == "monthrange" && args.len() == 2 {
+                                    let mo = args.pop().unwrap();
+                                    e = Expr::Method(Box::new(args.remove(0)), "month_range".into(), vec![mo], line);
+                                    continue;
+                                }
+                                if name == "isleap" && args.len() == 1 {
+                                    e = Expr::Method(Box::new(args.remove(0)), "is_leap".into(), vec![], line);
+                                    continue;
+                                }
+                            }
                             // sys.exit(n) ends the program with that code; sys.exit("msg") prints msg and exits with 1.
                             if name == "exit" && args.len() <= 1 && matches!(&e, Expr::Ident(s) if s == "sys") {
                                 let code = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
@@ -1662,6 +1705,18 @@ impl Parser {
                             Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => Expr::Method(base, name, vec![la.remove(0)], line),
                             other => Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(Expr::Ident("b_".into())))], line),
                         });
+                    }
+                    // timedelta(days=n, weeks=w) is a span of days that adds to a date.
+                    if name == "timedelta" && !args.is_empty() && !self.user_fns.contains(&name) && args.iter().all(|a| matches!(a.0.as_deref(), None | Some("days") | Some("weeks"))) {
+                        let mut total: Option<Expr> = None;
+                        for (n, v) in args.drain(..) {
+                            let v = if n.as_deref() == Some("weeks") { Expr::Binary("*", Box::new(v), Box::new(Expr::Int(7))) } else { v };
+                            total = Some(match total {
+                                Some(t) => Expr::Binary("+", Box::new(t), Box::new(v)),
+                                None => v,
+                            });
+                        }
+                        return Ok(Expr::Method(Box::new(total.unwrap()), "delta_days".into(), vec![], line));
                     }
                     let star = args.iter().any(|a| a.0.as_deref() == Some("__star"));
                     if !self.user_fns.contains(&name) && (star || args.iter().all(|a| a.0.is_none())) {
@@ -2113,6 +2168,7 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("isupper", 0) => "is_upper",
         ("islower", 0) => "is_lower",
         ("isalnum", 0) => "is_alnum",
+        ("isascii", 0) => "is_ascii",
         ("center", 2) => "center_with",
         ("ljust", 2) => "ljust_with",
         ("rjust", 2) => "rjust_with",
@@ -2208,6 +2264,18 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             x => m(x, "tally", vec![]),
         },
         ("dict", 1) => m(args.remove(0).1, "to_dict", vec![]),
+        // format(x, spec) is f"{x:spec}"; Fraction(s) and Fraction(a, b) are exact decimals.
+        ("format", 1) => Expr::Call("str".into(), vec![(None, args.remove(0).1)], line),
+        ("format", 2) => {
+            let spec = args.remove(1).1;
+            m(args.remove(0).1, "spec", vec![spec])
+        }
+        ("Fraction", 1) => m(args.remove(0).1, "dec", vec![]),
+        ("Fraction", 2) => {
+            let b = m(args.remove(1).1, "dec", vec![]);
+            Expr::Binary("/", Box::new(m(args.remove(0).1, "dec", vec![])), Box::new(b))
+        }
+
         ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {
             let f = args.remove(0).1;
@@ -2216,7 +2284,7 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         ("dict" | "Counter", 0) | ("defaultdict", 1) => Expr::Map(vec![]),
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         // dict(m) copies a map; maps are values in Brevi already.
-        ("dict" | "OrderedDict", 1) => args.remove(0).1,
+        ("OrderedDict", 1) => args.remove(0).1,
         ("divmod", 2) => {
             let (a, b) = (args[0].1.clone(), args[1].1.clone());
             Expr::Tuple(vec![Expr::Binary("//", Box::new(a.clone()), Box::new(b.clone())), Expr::Binary("%", Box::new(a), Box::new(b))])

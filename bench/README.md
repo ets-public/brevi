@@ -49,6 +49,8 @@ After imports between files (#41), type annotations (#44) and a shorter guide, t
 
 The two guides now cost about the same (Sonnet 2% less with Python-first, Haiku 1% more, and one Haiku task failed). Python-first runs still hit more compile errors: nested `nonlocal`, `a or b` used as a value, return types with bare `list` parameters, methods of a class imported from another file, `today = None` without a type. Each one fixed should move Python-first ahead. Plain Python in Python costs $0.182 (Sonnet) and $0.025 (Haiku) on the same tasks.
 
+The strictest test of "Python in, Rust speed out" is `--lang pyb`: the model gets exactly the Python prompt and tools, writes `.py` files, and `check` builds them with Brevi instead of running CPython (run `e10`, same 6 tasks). None of the 6 programs built at the first check with either model. Sonnet cost $0.421 (5 of 6 passed) against $0.189 in Python; Haiku $0.046 (2 of 6) against $0.026. The blockers were all plain Python the compiler did not accept yet: lists of mixed types, untyped module globals and `x = None`, some annotations (`tuple[int, ...]`, string annotations), docstrings in imported files, `xs[:] = ...`, `not a <= x <= b`, for/else, and library calls (`set.update`, `format(x, spec)`, `datetime.strptime`, `timedelta`, `calendar.monthrange`). The library calls are now supported; the syntax items are with the parser work.
+
 ## Editing benchmark (`edit/`)
 
 Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}`), the kind of edit a model makes most often.
