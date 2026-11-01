@@ -3135,6 +3135,12 @@ impl<T> AxNone for Vec<T> {
         Vec::new()
     }
 }
+// Nor is a map: `d = m.get(k)` with k missing reads as an empty map (`if not d:` sees it as missing).
+impl<K, V> AxNone for AxM<K, V> {
+    fn ax_none() -> Self {
+        Default::default()
+    }
+}
 // `a, b = xs`: a tuple as it is, or a list of exactly that many items, as Python unpacks them.
 pub trait AxUnpack<T> {
     fn ax_unpack(self) -> T;

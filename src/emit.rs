@@ -761,6 +761,7 @@ impl Emitter {
                 _ => None,
             })
             .collect();
+        let gtys = crate::infer::global_types(items);
         for (n, ty, value, line) in &decls {
             let (n, ty, value, line) = (n, ty, value, line);
             if let Some(t) = ty.clone().or_else(|| self.infer_ty(value)) {
@@ -775,7 +776,7 @@ impl Emitter {
                     continue;
                 }
                 let hinted = self.hints.get(&(n.clone(), *line)).filter(|h| h.1).map(|h| Ty::Named(h.0.clone()));
-                let found = ty.clone().or(hinted).or_else(|| self.infer_ty(value));
+                let found = ty.clone().or(hinted).or_else(|| self.infer_ty(value)).or_else(|| gtys.get(n).cloned());
                 // A name every function sets before reading is each function's own local.
                 let id = format!("Ident({n:?})");
                 if others.iter().filter(|(_, b, _, _)| b.contains(&id)).all(|(ps, text, f, body)| ps.contains(n) || owns(f, body, text, n)) {
@@ -1000,7 +1001,12 @@ impl Emitter {
                     for f in fields {
                         out.push_str(&format!("    pub {}: {},\n", f.name, self.field_ty(name, f)));
                     }
-                    out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n"));
+                    // Python's `__str__` (or `__repr__`) is how the object prints.
+                    let dunder = ["___str__", "___repr__"].iter().map(|d| format!("{name}{d}")).find(|f| self.fns.get(f).is_some_and(|s| s.params.len() == 1 && !s.fallible));
+                    match dunder {
+                        Some(f) => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ {f}(self.clone()).to_string() }} }}\n")),
+                        None => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n")),
+                    }
                     // Python's None in a slot of this type: the zero value.
                     out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Default::default() }} }}\n"));
                 }

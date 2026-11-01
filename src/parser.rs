@@ -94,7 +94,9 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
                         let made = text.contains(&format!("Call(\"{c}new\"")) || !fn_names.contains(&format!("{c}new"));
                         made && m != "new" && text.contains(&format!("{m:?}, ["))
                     });
-                    by_method || text.contains(&format!("Call({name:?}")) || text.contains(&format!("Ident({name:?})"))
+                    // `__str__` / `__repr__` are how the class prints.
+                    let shows = name.ends_with("___str__") || name.ends_with("___repr__");
+                    shows || by_method || text.contains(&format!("Call({name:?}")) || text.contains(&format!("Ident({name:?})"))
                 }
                 _ => true,
             });
@@ -602,6 +604,8 @@ impl Parser {
         let me = Ty::Named(name.clone());
         for m in methods {
             let Item::Fn { name: mname, mut params, ret, fallible, body, line, script } = m else { continue };
+            // `def __len__(self)` is what `len(x)` calls.
+            let mname = if mname == "__len__" { "len".to_string() } else { mname };
             if params.first().map_or(true, |p| p.name != "self_") {
                 // A static method: a plain function.
                 fns.push(Item::Fn { name: format!("{name}_{mname}"), params, ret, fallible, body, line, script });
@@ -1903,21 +1907,8 @@ impl Parser {
                         let list = self.comprehension(Expr::Tuple(vec![k, v]))?;
                         self.skip_newlines();
                         self.expect_sym("}")?;
-                        let d = format!("ax_d{}", self.pos);
-                        let fill = Stmt::Assign {
-                            target: Expr::Index(Box::new(Expr::Ident(d.clone())), Box::new(Expr::Ident("ax_k".into()))),
-                            op: "=",
-                            value: Expr::Ident("ax_v".into()),
-                            line,
-                        };
-                        let pat = Pat::Tuple(vec![Pat::Bind("ax_k".into()), Pat::Bind("ax_v".into())]);
-                        return Ok(Expr::Block(
-                            vec![
-                                Stmt::Assign { target: Expr::Ident(d.clone()), op: "=", value: Expr::Map(vec![]), line },
-                                Stmt::Expr { expr: Expr::For(pat, Box::new(list), Box::new(Expr::Block(vec![fill], None))), line },
-                            ],
-                            Some(Box::new(Expr::Ident(d))),
-                        ));
+                        // `{c: i for i, c in enumerate(s)}`: the pairs made into a map, typed from the pairs.
+                        return Ok(Expr::Method(Box::new(list), "to_dict".into(), vec![], line));
                     }
                     pairs.push((k, v));
                     self.skip_seps();
@@ -2362,7 +2353,8 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             Expr::Binary("/", Box::new(m(args.remove(0).1, "dec", vec![])), Box::new(b))
         }
 
-        ("deque" | "list", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
+        // tuple(xs) is kept as a list: it sorts, compares and hashes the same way (it prints with [ ]).
+        ("deque" | "list" | "tuple", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {
             let f = args.remove(0).1;
             m(args.remove(0).1, name, vec![f])
@@ -2522,9 +2514,14 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
     // What each child reads from the outer function, and which of those it sets (`nonlocal`).
     let mut caps: Vec<Vec<String>> = Vec::new();
     let mut nonlocals: Vec<Vec<String>> = Vec::new();
+    let mut owns: Vec<Vec<String>> = Vec::new();
+    let mut sib_calls: Vec<Vec<usize>> = Vec::new();
     for k in &kids {
         let Item::Fn { params, body: kb, .. } = k else {
             caps.push(vec![]);
+            nonlocals.push(vec![]);
+            owns.push(vec![]);
+            sib_calls.push(vec![]);
             continue;
         };
         let mut own: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
@@ -2570,8 +2567,42 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
         });
         // A nonlocal name the child never reads is not passed.
         shared.retain(|n| used.contains(n));
+        let mut calls = Vec::new();
+        walk_mut(&mut kb2, &mut |e| {
+            if let Expr::Call(f, _, _) = e {
+                if let Some(j) = names.iter().position(|n| n == f) {
+                    if !calls.contains(&j) {
+                        calls.push(j);
+                    }
+                }
+            }
+        });
         caps.push(used);
         nonlocals.push(shared);
+        owns.push(own);
+        sib_calls.push(calls);
+    }
+    // A child that calls a sibling (`expr()` calling `peek()`) passes on what the sibling reads, so it
+    // reads those names too.
+    loop {
+        let mut grew = false;
+        for i in 0..caps.len() {
+            for &j in &sib_calls[i].clone() {
+                for c in caps[j].clone() {
+                    if !owns[i].contains(&c) && !caps[i].contains(&c) {
+                        caps[i].push(c.clone());
+                        grew = true;
+                    }
+                    if nonlocals[j].contains(&c) && !nonlocals[i].contains(&c) && !owns[i].contains(&c) {
+                        nonlocals[i].push(c);
+                        grew = true;
+                    }
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
     }
     let mangled = |n: &str| format!("{outer}_{n}");
     let rename = |e: &mut Expr| {
@@ -2693,7 +2724,7 @@ fn tuples_as_lists(items: &mut [Item], script: &mut [Stmt]) {
     }
     let like = |xs: &[Expr]| xs.len() >= 2 && kind(&xs[0]).is_some_and(|k| !k.contains('?') && xs.iter().all(|x| kind(x).as_ref() == Some(&k)));
     let caps = |n: &str| n.chars().any(|c| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
-    let mut fix = |e: &mut Expr| {
+    let fix = |e: &mut Expr| {
         walk_mut(e, &mut |x| {
             if let Expr::For(_, it, _) = x {
                 if let Expr::Tuple(xs) = it.as_mut() {
