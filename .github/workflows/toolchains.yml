@@ -116,6 +116,13 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/version_sync.py
 
+      - name: Grammar accepts every test program, and the GBNF copy is current
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: |
+          python3 -m pip install --quiet lark==1.2.2
+          python3 tools/lark_to_gbnf.py --check
+          python3 tools/grammar_check.py tests/run/*.bv
+
       - name: Every solution that ever passed still passes
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/compat.py check --report compat-report.md
