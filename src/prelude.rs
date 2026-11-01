@@ -251,6 +251,55 @@ pub fn ax_init(files: &'static [(&'static str, usize, usize)]) {
     }));
 }
 
+// Python mode: a program written as Python (it uses def, class or global) prints as Python does:
+// True/False, 2.0, ['a', 'b'], {'k': 1}. Brevi-style programs keep Brevi's output.
+pub static AX_PY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn ax_py_mode() {
+    AX_PY.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+fn ax_py() -> bool {
+    AX_PY.load(std::sync::atomic::Ordering::Relaxed)
+}
+// Python's repr of a string: single quotes unless the text has a ' and no ".
+fn ax_py_repr(s: &str) -> String {
+    let q = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push(q);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if c == q => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push(q);
+    out
+}
+// Python's str of a float: always a decimal point (2.0), inf and nan as Python spells them.
+fn ax_py_float(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    let a = x.abs();
+    if a != 0.0 && (a >= 1e16 || a < 1e-4) {
+        // 1e-05 and 1e+16, as Python writes them.
+        let t = format!("{x:e}");
+        let (m, e) = t.split_once('e').unwrap();
+        let n: i32 = e.parse().unwrap();
+        let m = if m.contains('.') { m.to_string() } else { m.to_string() };
+        return format!("{m}e{}{:02}", if n < 0 { '-' } else { '+' }, n.abs());
+    }
+    format!("{x:?}")
+}
 pub trait Show {
     fn show(&self) -> String;
 }
@@ -261,12 +310,20 @@ impl Show for i64 {
 }
 impl Show for f64 {
     fn show(&self) -> String {
-        self.to_string()
+        if ax_py() {
+            ax_py_float(*self)
+        } else {
+            self.to_string()
+        }
     }
 }
 impl Show for bool {
     fn show(&self) -> String {
-        self.to_string()
+        match (ax_py(), *self) {
+            (true, true) => "True".into(),
+            (true, false) => "False".into(),
+            _ => self.to_string(),
+        }
     }
 }
 impl Show for String {
@@ -287,6 +344,7 @@ impl Show for () {
 fn show_item<T: Show + 'static>(x: &T) -> String {
     // Strings inside collections get quotes so [a, b] and ["a, b"] differ.
     match (x as &dyn std::any::Any).downcast_ref::<String>() {
+        Some(s) if ax_py() => ax_py_repr(s),
         Some(s) => format!("{s:?}"),
         None => x.show(),
     }
@@ -298,6 +356,10 @@ impl<T: Show + 'static> Show for Vec<T> {
 }
 impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> {
     fn show(&self) -> String {
+        if ax_py() {
+            let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}: {}", show_item(k), show_item(v))).collect();
+            return format!("{{{}}}", parts.join(", "));
+        }
         // Written like compact JSON, so str({"error": msg}) is ready to send.
         let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}:{}", show_item(k), show_item(v))).collect();
         format!("{{{}}}", parts.join(","))
