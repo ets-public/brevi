@@ -1,0 +1,14 @@
+CENT = Decimal("0.01")
+a = Decimal("19.99")
+b = Decimal(3)
+t = a * b
+print(t, t.quantize(CENT), Decimal("2.675").quantize(CENT), Decimal("2.665").quantize(CENT, rounding=ROUND_HALF_UP))
+print(Decimal("1.50") + Decimal("2"), Decimal(10) / Decimal(4), Decimal("0.00"))
+total = Decimal("0")
+for x in ["1.10", "2.20"]:
+    total += Decimal(x)
+print(total, total > 3)
+d = date.fromisoformat("2024-02-29")
+print(d)
+for row in csv.reader(["a,\"b,c\",d", "1,2,3"]):
+    print(row)

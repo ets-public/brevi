@@ -29,6 +29,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 - Sorting by a key (`xs.sort_by(f)`, `sorted(xs, key=f)`) works out each key once, as Python does, instead of twice per comparison. `--release` builds keep the prelude inside the program so its functions can be inlined.
 - An end-to-end benchmark, `bench/e2e.py`, counts every token and dollar the API bills per finished task (guide, thinking, tool calls, retries). On held-out XL set 3 Brevi costs 58% more than Python with Sonnet and 78% more with Haiku, mostly in model output; see bench/README.md.
 - More of Python's library works unchanged: `rstrip`, `lstrip`, `strip(chars)`, `splitlines`, `isupper`, `islower`, `isalnum`, `heapq` (`heappush`, `heappop`, `heapify`, `heappushpop`, `heapreplace`) on a plain list, `deque` with `popleft`/`appendleft`, `map(f, xs)`, `filter(f, xs)`, `list(xs)`, `map(int, xs)` and `key=len`, `sorted(s)` of a string, and `sys.stdout.write`. The share of saved Python solutions Brevi accepts unchanged (`bench/py_as_brevi.py`) goes from 9.7% to 13.1%.
+- Python's `Decimal(x)` and `d.quantize(q, rounding=...)` work; a `dec` now remembers how many places it was written with (`1.50`, or what quantize set), which Python-style printing shows. `csv.reader(sys.stdin)` and `csv.reader(lines)` give the rows, and `date.fromisoformat(s)` is `date(s)`. Values that print in Python's style (`True`, `2.0`, `['a']`, `{'k': 1}`) are ready in the runtime for programs written as Python.
 
 ## v0.18.0 (31 Oct 2026)
 
