@@ -253,12 +253,12 @@ pub fn ax_init(files: &'static [(&'static str, usize, usize)]) {
 
 // Python mode: a program written as Python (it uses def, class or global) prints as Python does:
 // True/False, 2.0, ['a', 'b'], {'k': 1}. Brevi-style programs keep Brevi's output.
-pub static AX_PY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub static AX_PY_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn ax_py_mode() {
-    AX_PY.store(true, std::sync::atomic::Ordering::Relaxed);
+    AX_PY_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
-fn ax_py() -> bool {
-    AX_PY.load(std::sync::atomic::Ordering::Relaxed)
+fn ax_py_on() -> bool {
+    AX_PY_MODE.load(std::sync::atomic::Ordering::Relaxed)
 }
 // Python's repr of a string: single quotes unless the text has a ' and no ".
 fn ax_py_repr(s: &str) -> String {
@@ -310,7 +310,7 @@ impl Show for i64 {
 }
 impl Show for f64 {
     fn show(&self) -> String {
-        if ax_py() {
+        if ax_py_on() {
             ax_py_float(*self)
         } else {
             self.to_string()
@@ -319,7 +319,7 @@ impl Show for f64 {
 }
 impl Show for bool {
     fn show(&self) -> String {
-        match (ax_py(), *self) {
+        match (ax_py_on(), *self) {
             (true, true) => "True".into(),
             (true, false) => "False".into(),
             _ => self.to_string(),
@@ -344,7 +344,7 @@ impl Show for () {
 fn show_item<T: Show + 'static>(x: &T) -> String {
     // Strings inside collections get quotes so [a, b] and ["a, b"] differ.
     match (x as &dyn std::any::Any).downcast_ref::<String>() {
-        Some(s) if ax_py() => ax_py_repr(s),
+        Some(s) if ax_py_on() => ax_py_repr(s),
         Some(s) => format!("{s:?}"),
         None => x.show(),
     }
@@ -356,7 +356,7 @@ impl<T: Show + 'static> Show for Vec<T> {
 }
 impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> {
     fn show(&self) -> String {
-        if ax_py() {
+        if ax_py_on() {
             let parts: Vec<String> = self.iter().map(|(k, v)| format!("{}: {}", show_item(k), show_item(v))).collect();
             return format!("{{{}}}", parts.join(", "));
         }
