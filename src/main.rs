@@ -1,3 +1,4 @@
+mod alias;
 mod ast;
 mod caps;
 mod diag;
@@ -327,6 +328,13 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
     ffi::attach(&mut items, &foreign);
     used_consts_first(&mut items);
+    // Python names share objects (`r = rows[k]; r[0] -= 1` changes rows); Brevi programs keep copies.
+    if python_style(&src) {
+        let errs = alias::writeback(&mut items);
+        if !errs.is_empty() {
+            return Err(errs);
+        }
+    }
     infer::auto_mut(&mut items);
     infer::returns(&mut items)?;
     // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.

@@ -10,7 +10,7 @@ check does not catch type errors that only Rust sees.
 
 usage: python3 py_as_brevi.py [--top 25] [--jobs 8] [--json out.json] [--full]
 """
-import argparse, collections, concurrent.futures as cf, glob, json, os, re, shutil, subprocess, tempfile
+import argparse, collections, concurrent.futures as cf, glob, json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 B = Path(__file__).resolve().parent
@@ -38,6 +38,40 @@ def check(path, fast=True):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def run_tests(path):
+    """Builds the solution and runs its task's tests: None when every test prints the expected output."""
+    task = B / "tasks" / Path(path).stem / "tests"
+    if not task.is_dir():
+        return path, "no tests"
+    d = tempfile.mkdtemp()
+    try:
+        dst = Path(d) / "main.bv"
+        shutil.copy(path, dst)
+        r = subprocess.run([BREVI, "build", str(dst), "-o", str(Path(d) / "bin")], capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            return path, "build failed"
+        for i in sorted(task.glob("*.in")):
+            o = i.with_suffix(".out")
+            if not o.exists():
+                continue
+            # Only tests the Python program itself passes count.
+            try:
+                py = subprocess.run([sys.executable, path], stdin=open(i), capture_output=True, text=True, timeout=10).stdout
+            except subprocess.TimeoutExpired:
+                continue
+            if py.rstrip() != o.read_text().rstrip():
+                continue
+            try:
+                got = subprocess.run([str(Path(d) / "bin")], stdin=open(i), capture_output=True, text=True, timeout=10).stdout
+            except subprocess.TimeoutExpired:
+                return path, f"timeout on {i.name}"
+            if got.rstrip() != o.read_text().rstrip():
+                return path, f"wrong output on {i.name}"
+        return path, None
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def norm(msg):
     msg = re.sub(r"`[^`]*`|'[^']*'|\"[^\"]*\"", "Q", msg)
     return re.sub(r"\b\d+\b", "N", msg)
@@ -49,6 +83,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
     ap.add_argument("--json")
     ap.add_argument("--full", action="store_true")
+    ap.add_argument("--run", action="store_true", help="with --full: also run each built solution on its task's tests")
     a = ap.parse_args()
     # Single-file solutions only: multi-file tasks keep their files in a folder.
     files = sorted(p for p in glob.glob(str(B / "solutions" / "*-python" / "*.py")))
@@ -64,6 +99,15 @@ def main():
         print(f"{len(built)} of {len(files)} also build ({100 * len(built) / max(1, len(files)):.1f}%); first build errors:")
         for m, n in collections.Counter(norm(m) for _, m in full if m is not None).most_common(a.top):
             print(f"{n:5}  {m[:150]}")
+        if a.run:
+            with cf.ThreadPoolExecutor(a.jobs) as ex:
+                ran = list(ex.map(run_tests, built))
+            right = [p for p, m in ran if m is None]
+            tested = [p for p, m in ran if m != "no tests"]
+            print(f"{len(right)} of {len(tested)} built solutions with tests give the right output on every test; wrong:")
+            for p, m in ran:
+                if m is not None and m != "no tests":
+                    print(f"       {Path(p).parent.name}/{Path(p).name}: {m}")
     print("most common first errors:")
     for m, n in errs.most_common(a.top):
         print(f"{n:5}  {m[:150]}")

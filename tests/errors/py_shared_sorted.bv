@@ -1,0 +1,7 @@
+def take(lots, n):
+    for lot in sorted(lots):
+        lot[1] -= n
+    return lots
+
+
+print(take([[2, 5], [1, 4]], 1))

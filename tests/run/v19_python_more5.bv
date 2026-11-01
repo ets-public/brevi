@@ -1,0 +1,71 @@
+# Python from the plain-Python trials: module-level dict comprehensions read in functions, nested functions
+# calling each other, __len__ and __str__, a loop name reused after a plain setting, calls inside generators,
+# tuple(), and m.get(k) on a map of maps.
+R = {c: i for i, c in enumerate("23456789TJQKA")}
+seen = set()
+
+
+def rank(card):
+    return R[card[0]]
+
+
+def valid(c):
+    return len(c) == 2 and c[0] in R and c[1] in "SHDC"
+
+
+def evalf(toks):
+    pos = [0]
+
+    def peek():
+        return toks[pos[0]] if pos[0] < len(toks) else None
+
+    def nxt():
+        t = peek()
+        pos[0] += 1
+        return t
+
+    def expr():
+        v = int(nxt())
+        while peek() == "+":
+            nxt()
+            v += int(nxt())
+        return v
+
+    return expr()
+
+
+class Roster:
+    def __init__(self):
+        self.students = []
+
+    def add(self, name, total):
+        self.students.append((name, total))
+
+    def __len__(self):
+        return len(self.students)
+
+    def __str__(self):
+        return f"Roster({len(self.students)})"
+
+
+def run(text):
+    roster = Roster()
+    for line in text.splitlines():
+        name = line.strip()
+        roster.add(name, len(name))
+    out = []
+    for name, total in roster.students:
+        out.append(f"{name}={total}")
+    return out, len(roster), roster
+
+
+hand = "AS KH 2D".split()
+print(rank("K"), all(valid(c) for c in hand), valid("1X"), evalf(["1", "+", "2", "+", "4"]))
+out, n, r = run("ann\nbo")
+print(out, n, r)
+print(str(Roster()), sorted([tuple([3, 1]), tuple([2, 5])])[0][1])
+cur = {"a": {1: ["x"]}}
+d = cur.get("b")
+if not d:
+    print("no b")
+print(cur.get("a"))

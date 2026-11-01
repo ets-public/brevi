@@ -1,0 +1,15 @@
+[6, 6] [[3, 11], [1, 12]] [[7]]
+5
+4
+3
+2
+[3, 2, 1, 0] [10, 7, 4, 1]
+bad2
+0 1 1 a
+5 2 2 b
+7 3 3 c
+7 a b c
+{'a': 0, 'b': 1, 'c': 1}
+['a']
+['a', 'b', 'c']
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

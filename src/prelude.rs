@@ -394,6 +394,16 @@ impl<A: Show + 'static, B: Show + 'static, C: Show + 'static> Show for (A, B, C)
         format!("({}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2))
     }
 }
+impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static> Show for (A, B, C, D) {
+    fn show(&self) -> String {
+        format!("({}, {}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3))
+    }
+}
+impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static, E: Show + 'static> Show for (A, B, C, D, E) {
+    fn show(&self) -> String {
+        format!("({}, {}, {}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3), show_item(&self.4))
+    }
+}
 
 pub fn print<T: Show>(x: T) {
     println!("{}", x.show());
@@ -407,19 +417,20 @@ impl AxTruth for bool {
         *self
     }
 }
+// Python's None (held as i64::MIN, f64::MIN or "\0None") is false too.
 impl AxTruth for i64 {
     fn ax_truth(&self) -> bool {
-        *self != 0
+        *self != 0 && *self != i64::MIN
     }
 }
 impl AxTruth for f64 {
     fn ax_truth(&self) -> bool {
-        *self != 0.0
+        *self != 0.0 && *self != f64::MIN
     }
 }
 impl AxTruth for String {
     fn ax_truth(&self) -> bool {
-        !self.is_empty()
+        !self.is_empty() && self != "\u{0}None"
     }
 }
 impl<T> AxTruth for Vec<T> {
@@ -3126,6 +3137,12 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMapSeq<K> for AxM<K, V> {
 impl<T> AxNone for Vec<T> {
     fn ax_none() -> Self {
         Vec::new()
+    }
+}
+// Nor is a map: `d = m.get(k)` with k missing reads as an empty map (`if not d:` sees it as missing).
+impl<K, V> AxNone for AxM<K, V> {
+    fn ax_none() -> Self {
+        Default::default()
     }
 }
 // `a, b = xs`: a tuple as it is, or a list of exactly that many items, as Python unpacks them.
