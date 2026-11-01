@@ -15,3 +15,10 @@ print([i * i for i in range(6) if i % 2])
 if len(words) > 100:
     sys.exit(2)
 print("done")
+import sys
+s = set()
+for x in [3, 5, 3]:
+    s.add(x)
+s.discard(3)
+s.discard(9)
+print(sorted(s), len(s))

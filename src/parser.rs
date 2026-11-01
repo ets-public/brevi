@@ -742,6 +742,14 @@ impl Parser {
                 let push = Expr::Method(recv, "push".into(), vec![x], l);
                 Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line })
             }
+            // `s.discard(x)` takes x out of a set() list when it is there.
+            Expr::Method(recv, m, mut a, l) if m == "discard" && a.len() == 1 && !self.user_fns.contains(&m) => {
+                let x = a.remove(0);
+                let cond = Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l);
+                let at = Expr::Method(recv.clone(), "index_of".into(), vec![x], l);
+                let rm = Expr::Method(recv, "remove".into(), vec![at], l);
+                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: rm, line }], None)), None), line })
+            }
             e => Ok(Stmt::Expr { expr: e, line }),
         }
     }

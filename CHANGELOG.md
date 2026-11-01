@@ -35,7 +35,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 - More Python: `next(rows)`, `xs.pop(i)` and `m.pop(k)` (which give the item back), `sorted(s)`, `enumerate(s, 1)` and `sep.join(s)` on a string, `sorted(m)` on a map, `(d2 - d1).days` on dates, and `OrderedDict()`. In Python mode `int("q")` fails with Python's message.
 - `OrderedDict` as an LRU cache: `move_to_end(k)` and `popitem(last=False)` / `popitem()`.
 - Python's `re` module: `re.compile`, `re.match`, `re.fullmatch`, `re.search`, `re.findall`, `re.sub`, `re.split`, compiled-pattern methods, and `m.group(n)`/`m.groups()`. `next(it, default)` and `next(x for x in xs if c)`.
-- More Python: `zip(xs, ys)` (also with a string), `Counter(xs)` with `c.most_common(n)`, `dict(pairs)`, `sys.exit(n)` and `sys.exit(msg)`, `s.count(sub)`, `zfill`, `title`, `center`, `capitalize`, and `{c for c in s}` on a string. A comprehension's `if i % 2` uses Python truth. A program with `import` or `from ... import` lines now prints the Python way (`True`, `['a']`, `{'k': 1}`, `4.0`), as programs with `def` or `class` already did.
+- More Python: `zip(xs, ys)` (also with a string), `Counter(xs)` with `c.most_common(n)`, `dict(pairs)`, `sys.exit(n)` and `sys.exit(msg)`, `s.discard(x)`, `s.count(sub)`, `zfill`, `title`, `center`, `capitalize`, and `{c for c in s}` on a string. A comprehension's `if i % 2` uses Python truth. A program with `import` or `from ... import` lines now prints the Python way (`True`, `['a']`, `{'k': 1}`, `4.0`), as programs with `def` or `class` already did.
 
 ## v0.18.0 (31 Oct 2026)
 
