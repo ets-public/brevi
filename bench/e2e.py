@@ -94,7 +94,7 @@ def run_check(lang, task, work):
     return f"{first}\npassed {passed}/{len(tests)}"
 
 
-def solve(client, model, lang, task, work, effort):
+def solve(client, model, lang, task, work, effort, thinking="adaptive"):
     work.mkdir(parents=True, exist_ok=True)
     system = [{"type": "text", "text": system_prompt(lang), "cache_control": {"type": "ephemeral"}}]
     messages = [{"role": "user", "content": (B / "tasks" / task / "prompt.md").read_text()}]
@@ -107,6 +107,7 @@ def solve(client, model, lang, task, work, effort):
                 with client.messages.stream(
                     model=model, max_tokens=32000, system=system, tools=tools(lang), messages=messages,
                     output_config={"effort": effort}, cache_control={"type": "ephemeral"},
+                    thinking={"type": "adaptive", "display": "summarized"} if thinking == "adaptive" else {"type": thinking},
                 ) as s:
                     r = s.get_final_message()
                 break
@@ -155,6 +156,12 @@ def solve(client, model, lang, task, work, effort):
         messages.append({"role": "user", "content": results})
         if checks >= MAX_CHECKS and not passed:
             break
+    # Keep the whole conversation (thinking, text, tool calls and results) for reading later.
+    def plain(c):
+        if isinstance(c, str):
+            return c
+        return [b if isinstance(b, dict) else b.model_dump(exclude_none=True) for b in c]
+    (work / "conversation.json").write_text(json.dumps([{"role": m["role"], "content": plain(m["content"])} for m in messages], indent=1))
     pin, pout, pread = PRICES[model]
     cost = (use["input"] * pin + use["cache_write"] * pin * 1.25 + use["cache_read"] * pread + use["output"] * pout) / 1e6
     return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, **use, "usd": round(cost, 5)}
@@ -182,6 +189,7 @@ def main():
     ap.add_argument("--tasks", help="comma-separated, instead of --set")
     ap.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--jobs", type=int, default=3)
+    ap.add_argument("--thinking", default="adaptive", choices=["adaptive", "between_tools"], help="between_tools turns thinking off (Sonnet)")
     ap.add_argument("--summary")
     a = ap.parse_args()
     if a.summary:
@@ -196,9 +204,9 @@ def main():
     log = B / "logs" / "e2e" / f"{name}.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     with cf.ThreadPoolExecutor(a.jobs) as ex:
-        futs = {ex.submit(solve, client, model, a.lang, t, B / "work" / "e2e" / name / t, a.effort): t for t in tasks}
+        futs = {ex.submit(solve, client, model, a.lang, t, B / "work" / "e2e" / name / t, a.effort, a.thinking): t for t in tasks}
         for f in cf.as_completed(futs):
-            r = {"run": name, "model": model, "lang": a.lang, "effort": a.effort, **f.result()}
+            r = {"run": name, "model": model, "lang": a.lang, "effort": a.effort, "thinking": a.thinking, **f.result()}
             with open(log, "a") as fh:
                 fh.write(json.dumps(r) + "\n")
             print(json.dumps(r))

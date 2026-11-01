@@ -25,6 +25,10 @@ Held-out XL set 3, effort medium, two runs (e1, e2), 12 tasks per row, every tas
 
 Brevi costs 58% more than Python with Sonnet and 78% more with Haiku. Most of the gap is output (thinking and text, 46% more with Sonnet, 79% with Haiku) and the guide in the prompt; the finished code is about the same size. This is a larger gap than the code-and-errors benchmark shows.
 
+Third and fourth runs (e3 cold, e4w one task at a time so the guide stays cached) keep each conversation in `work/e2e/.../conversation.json`, with thinking summaries. With a warm cache the guide costs almost nothing (about 4,600 cached tokens read per call). The gap is model output and the cache writes of that output in later turns: Sonnet Brevi $0.315 vs Python $0.187 (e4w). The thinking summaries show why: in Brevi, models stop to work out rules that differ from Python, mostly the scope of top-level names (3 of 8 Sonnet and 5 of 10 Haiku thinking blocks), plus copies vs `mut`, `Result` and whether a parser accepts a form. Python runs show none of this. `--thinking between_tools` turns thinking off on Sonnet for comparison.
+
+`python3 py_as_brevi.py` hands every saved Python solution to `brevi check` unchanged and lists the most common first errors. On 1 Nov 2026, 56 of 580 (9.7%) pass. The top blockers are `;` between statements (126), `import` lines (sys, json, datetime, heapq, csv), `def main()`, raw-string regexes, `|`/`&` on sets, and `.splitlines()`/`.rstrip()`.
+
 ## Editing benchmark (`edit/`)
 
 Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}`), the kind of edit a model makes most often.
