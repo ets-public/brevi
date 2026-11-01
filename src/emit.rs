@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err"];
+const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__default"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
-const METHODS: &[&str] = &[
+pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
     "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
@@ -1601,6 +1601,7 @@ impl Emitter {
                     // Bitwise on ints, union and intersection on lists used as Python sets.
                     "|" => format!("AxBits::ax_bor({a}, {b})"),
                     "&" => format!("AxBits::ax_band({a}, {b})"),
+                    "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     op => format!("({a} {op} {b})"),
                 }
@@ -1885,6 +1886,7 @@ impl Emitter {
             "none" => return "ax_none()".to_string(),
             "__global" => return "()".to_string(),
             "__err" => return "ax_err.clone()".to_string(),
+            "__default" => return "Default::default()".to_string(),
             "fail" if !self.catch.is_empty() => {
                 let lab = self.catch.last().unwrap().clone();
                 return format!("{{ {lab} = Some(AxErr({})); break '{lab}; }}", plain.join(", "));

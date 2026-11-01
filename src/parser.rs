@@ -12,6 +12,8 @@ pub struct Parser {
     // Functions written inside the function being parsed (Python's nested `def`), lifted to the top level.
     children: Vec<Item>,
     hoisted: Vec<Item>,
+    // Statements that go right after the one just parsed (`a[i], b = x, y` is three).
+    pending: Vec<Stmt>,
 }
 
 type R<T> = Result<T, Diag>;
@@ -22,8 +24,9 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![] };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![] };
     let mut items = Vec::new();
+    let mut classes: Vec<(Item, usize)> = Vec::new();
     // Statements outside any function form the program's main (script mode).
     let mut script = Vec::new();
     let mut script_line = 0;
@@ -36,17 +39,26 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
             items.push(p.item()?);
         } else if p.error_class() {
             continue;
+        } else if matches!(p.peek(), Tok::Ident(w) if w == "class") && matches!(p.peek_at(1), Tok::Ident(_)) {
+            let (ty, fns) = p.class()?;
+            classes.push((ty, fns.len()));
+            items.extend(fns);
         } else {
             if script.is_empty() {
                 script_line = p.line();
             }
             script.push(p.stmt()?);
+            script.append(&mut p.pending);
             if p.peek() != &Tok::Newline {
                 return Err(p.err(&format!("expected end of line, found {}", tok_text(p.peek()))));
             }
         }
     }
     items.append(&mut p.hoisted);
+    if !classes.is_empty() {
+        lower_methods(&mut items, &mut script, &classes);
+        items.extend(classes.into_iter().map(|c| c.0));
+    }
     if !script.is_empty() {
         // Top-level statements beside fn main run first, then main, as in a Python file that ends with main().
         let mut script = script;
@@ -293,6 +305,11 @@ impl Parser {
         // `if c: stmt` on one line.
         if self.eat_sym(":") {
             let st = self.stmt()?;
+            if !self.pending.is_empty() {
+                let mut v = vec![st];
+                v.append(&mut self.pending);
+                return Ok(Expr::Block(v, None));
+            }
             return Ok(match st {
                 Stmt::Expr { expr, .. } => Expr::Block(vec![], Some(Box::new(expr))),
                 st => Expr::Block(vec![st], None),
@@ -309,6 +326,7 @@ impl Parser {
                 return Err(self.err("block is missing its closing '}'").fix_hint("insert '}'"));
             }
             stmts.push(self.stmt()?);
+            stmts.append(&mut self.pending);
             if self.is_sym("!") {
                 return Err(self.err("unexpected '!' after an expression")
                     .fix_hint("use ? to pass an error up; ! only goes after a function's return type"));
@@ -329,14 +347,13 @@ impl Parser {
         Ok(Expr::Block(stmts, tail))
     }
 
-    // Python's `class BadInput(Exception): pass`: Brevi errors are messages, so an error class needs nothing.
-    // Skipped (true) when the class body holds only `pass`, `...` or a docstring.
-    fn error_class(&mut self) -> bool {
-        if !matches!(self.peek(), Tok::Ident(w) if w == "class") || !matches!(self.peek_at(1), Tok::Ident(_)) {
-            return false;
-        }
-        let save = self.pos;
-        self.pos += 2;
+    // Python's class: a type whose fields are the `self.x` it sets, `__init__` as the function `C_new`
+    // (`C(a, b)` calls it), and each method `m` as the function `C_m(self, ...)`; `obj.m(x)` calls become
+    // `C_m(obj, x)` in lower_methods. Field types are worked out like parameter types (infer::returns).
+    fn class(&mut self) -> R<(Item, Vec<Item>)> {
+        let line = self.line();
+        self.next();
+        let name = self.ident()?;
         if self.eat_sym("(") {
             let mut depth = 1;
             while depth > 0 && self.peek() != &Tok::Eof {
@@ -348,13 +365,96 @@ impl Parser {
             }
         }
         let kids = self.children.len();
-        let trivial = match self.block() {
+        self.block()?;
+        let methods: Vec<Item> = self.children.split_off(kids);
+        let mut fields: Vec<String> = Vec::new();
+        let mut fns = Vec::new();
+        for m in &methods {
+            if let Item::Fn { body, .. } = m {
+                let mut b = body.clone();
+                walk_mut(&mut b, &mut |e| {
+                    if let Expr::Block(stmts, _) = e {
+                        for st in stmts.iter() {
+                            if let Stmt::Assign { target: Expr::Field(r, f), .. } = st {
+                                if matches!(r.as_ref(), Expr::Ident(n) if n == "self_") && !fields.contains(f) {
+                                    fields.push(f.clone());
+                                }
+                            }
+                            if let Stmt::Assign { target: Expr::Tuple(xs), .. } = st {
+                                for x in xs {
+                                    if let Expr::Field(r, f) = x {
+                                        if matches!(r.as_ref(), Expr::Ident(n) if n == "self_") && !fields.contains(f) {
+                                            fields.push(f.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        let me = Ty::Named(name.clone());
+        for m in methods {
+            let Item::Fn { name: mname, mut params, ret, fallible, body, line, script } = m else { continue };
+            if params.first().map_or(true, |p| p.name != "self_") {
+                // A static method: a plain function.
+                fns.push(Item::Fn { name: format!("{name}_{mname}"), params, ret, fallible, body, line, script });
+                continue;
+            }
+            if mname == "__init__" {
+                params.remove(0);
+                let mut stmts = vec![Stmt::Let { name: Pat::Bind("self_".into()), ty: Some(me.clone()), value: Expr::Call("__default".into(), vec![], line), mutable: true, line }];
+                match body {
+                    Expr::Block(st, t) => {
+                        stmts.extend(st);
+                        if let Some(t) = t {
+                            stmts.push(Stmt::Expr { expr: *t, line });
+                        }
+                    }
+                    e => stmts.push(Stmt::Expr { expr: e, line }),
+                }
+                fns.push(Item::Fn { name: format!("{name}_new"), params, ret: Ty::Named("?".into()), fallible, body: Expr::Block(stmts, Some(Box::new(Expr::Ident("self_".into())))), line, script });
+            } else {
+                params[0].ty = me.clone();
+                fns.push(Item::Fn { name: format!("{name}_{mname}"), params, ret, fallible, body, line, script });
+            }
+        }
+        let fields = fields.into_iter().map(|f| Field { name: f, ty: Ty::Named("?".into()), default: None }).collect();
+        Ok((Item::Type { name, fields, line }, fns))
+    }
+
+    // Python's `class BadInput(Exception): pass`: Brevi errors are messages, so an error class needs nothing.
+    // Skipped (true) when the class body holds only `pass`, `...` or a docstring.
+    fn error_class(&mut self) -> bool {
+        if !matches!(self.peek(), Tok::Ident(w) if w == "class") || !matches!(self.peek_at(1), Tok::Ident(_)) {
+            return false;
+        }
+        let save = self.pos;
+        self.pos += 2;
+        // `class BadInput(ValueError):` with any body is an error class too.
+        let mut error_base = false;
+        if self.eat_sym("(") {
+            let mut depth = 1;
+            while depth > 0 && self.peek() != &Tok::Eof {
+                match self.next() {
+                    Tok::Sym("(") => depth += 1,
+                    Tok::Sym(")") => depth -= 1,
+                    Tok::Ident(b) if depth == 1 && (b.ends_with("Exception") || b.ends_with("Error")) => error_base = true,
+                    _ => {}
+                }
+            }
+        }
+        let kids = self.children.len();
+        let body = self.block();
+        let trivial = error_base || match body {
             Ok(Expr::Block(st, t)) => {
                 st.iter().all(|s| matches!(s, Stmt::Expr { expr: Expr::Block(b, None), .. } if b.is_empty()) || matches!(s, Stmt::Expr { expr: Expr::Str(_), .. }))
                     && t.map_or(true, |t| matches!(*t, Expr::Str(_) | Expr::Block(..) | Expr::Range(..)))
             }
             _ => false,
         };
+        let trivial = error_base || (trivial && self.children.len() == kids);
         self.children.truncate(kids);
         if !trivial {
             self.pos = save;
@@ -547,6 +647,39 @@ impl Parser {
             }
             e = Expr::Tuple(xs);
             bare = true;
+        } else if matches!(e, Expr::Ident(_) | Expr::Index(..) | Expr::Field(..)) && self.is_sym(",") {
+            // `st[-1], st[-2] = st[-2], st[-1]`: the values are worked out first, then set one by one.
+            let save = self.pos;
+            let mut xs = vec![e.clone()];
+            let mut ok = true;
+            while self.eat_sym(",") {
+                match self.postfix() {
+                    Ok(t @ (Expr::Ident(_) | Expr::Index(..) | Expr::Field(..))) => xs.push(t),
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok && self.eat_sym("=") {
+                self.skip_newlines();
+                let mut vs = vec![self.expr()?];
+                while self.eat_sym(",") {
+                    vs.push(self.expr()?);
+                }
+                if vs.len() != xs.len() {
+                    return Err(self.err(&format!("{} names but {} values", xs.len(), vs.len())));
+                }
+                let tmp = format!("ax_sw{}", self.pos);
+                let mut stmts = vec![Stmt::Let { name: Pat::Bind(tmp.clone()), ty: None, value: Expr::Tuple(vs), mutable: false, line }];
+                for (k, t) in xs.into_iter().enumerate() {
+                    stmts.push(Stmt::Assign { target: t, op: "=", value: Expr::TupleField(Box::new(Expr::Ident(tmp.clone())), k), line });
+                }
+                let first = stmts.remove(0);
+                self.pending.extend(stmts);
+                return Ok(first);
+            }
+            self.pos = save;
         }
         // Python's `x |= m`, `x //= 2`, `x <<= 1` and the like: `x = x | m`.
         for op in ["//=", "%=", "|=", "&=", "^=", "<<=", ">>="] {
@@ -601,8 +734,9 @@ impl Parser {
         }
         // Python's `xs.extend(ys)` is `xs += ys`; `s.add(x)` on a set() list adds x unless it is there.
         match e {
-            Expr::Method(recv, m, mut a, _) if m == "extend" && a.len() == 1 => Ok(Stmt::Assign { target: *recv, op: "+=", value: a.remove(0), line }),
-            Expr::Method(recv, m, mut a, l) if m == "add" && a.len() == 1 => {
+            // (Not when the program has its own method by that name: a class's `def add(self, x)`.)
+            Expr::Method(recv, m, mut a, _) if m == "extend" && a.len() == 1 && !self.user_fns.contains(&m) => Ok(Stmt::Assign { target: *recv, op: "+=", value: a.remove(0), line }),
+            Expr::Method(recv, m, mut a, l) if m == "add" && a.len() == 1 && !self.user_fns.contains(&m) => {
                 let x = a.remove(0);
                 let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l)));
                 let push = Expr::Method(recv, "push".into(), vec![x], l);
@@ -779,7 +913,13 @@ impl Parser {
         if self.eat_sym("!") || self.eat_kw("not") {
             return Ok(Expr::Unary("!", Box::new(self.unary()?)));
         }
-        self.postfix()
+        let base = self.postfix()?;
+        // Python's `a ** b`: binds tighter than a minus on its left, and groups to the right.
+        if self.eat_sym("**") {
+            let e = self.unary()?;
+            return Ok(Expr::Binary("**", Box::new(base), Box::new(e)));
+        }
+        Ok(base)
     }
 
     fn postfix(&mut self) -> R<Expr> {
@@ -1450,7 +1590,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![] };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![] };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
@@ -1951,5 +2091,60 @@ fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
             }
         }
         _ => {}
+    }
+}
+
+// Calls on objects of the program's classes: `C(a)` is `C_new(a)` and `obj.m(x)` is `C_m(obj, x)`. A method name
+// that a built-in method also has is only taken for `self.m(x)` inside the class, or when it is no built-in.
+fn lower_methods(items: &mut [Item], script: &mut [Stmt], classes: &[(Item, usize)]) {
+    let fn_names: Vec<String> = items.iter().filter_map(|i| match i { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
+    let class_names: Vec<String> = classes.iter().filter_map(|(c, _)| match c { Item::Type { name, .. } => Some(name.clone()), _ => None }).collect();
+    let owners = |m: &str| -> Vec<String> { class_names.iter().filter(|c| fn_names.contains(&format!("{c}_{m}"))).cloned().collect() };
+    let lower = |e: &mut Expr, me: Option<&str>| {
+        // Names set from a constructor (`ps = Parser(toks)`) are known to hold that class.
+        let mut held: Vec<(String, String)> = Vec::new();
+        walk_mut(e, &mut |x| {
+            if let Expr::Block(stmts, _) = x {
+                for st in stmts.iter() {
+                    if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Call(c, _, _), .. } | Stmt::Let { name: Pat::Bind(n), value: Expr::Call(c, _, _), .. } = st {
+                        if class_names.contains(c) {
+                            held.push((n.clone(), c.clone()));
+                        }
+                    }
+                }
+            }
+        });
+        walk_mut(e, &mut |x| match x {
+            Expr::Call(f, _, _) if class_names.contains(f) && fn_names.contains(&format!("{f}_new")) => *f = format!("{f}_new"),
+            Expr::Call(f, args, _) if class_names.contains(f) && args.is_empty() => *f = "__default".into(),
+            Expr::Method(r, m, args, line) => {
+                let os = owners(m);
+                let pick = match (me, r.as_ref()) {
+                    (Some(c), Expr::Ident(n)) if n == "self_" && os.iter().any(|o| o == c) => Some(c.to_string()),
+                    (_, Expr::Ident(n)) if held.iter().any(|(h, c)| h == n && os.contains(c)) => held.iter().find(|(h, _)| h == n).map(|(_, c)| c.clone()),
+                    _ if os.len() == 1 && !crate::emit::METHODS.contains(&m.as_str()) => Some(os[0].clone()),
+                    _ => None,
+                };
+                if let Some(c) = pick {
+                    let mut a = vec![(None, *r.clone())];
+                    a.extend(args.drain(..).map(|x| (None, x)));
+                    *x = Expr::Call(format!("{c}_{m}"), a, *line);
+                }
+            }
+            _ => {}
+        });
+    };
+    for it in items.iter_mut() {
+        if let Item::Fn { name, body, .. } = it {
+            let me = class_names.iter().find(|c| name.starts_with(&format!("{c}_"))).cloned();
+            lower(body, me.as_deref());
+        }
+    }
+    for st in script.iter_mut() {
+        let mut b = Expr::Block(vec![st.clone()], None);
+        lower(&mut b, None);
+        if let Expr::Block(mut v, _) = b {
+            *st = v.remove(0);
+        }
     }
 }

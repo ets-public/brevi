@@ -116,7 +116,7 @@ fn interp_closes(chars: &[char], from: usize) -> bool {
 
 // Longest symbols first so the scanner can take the first match.
 const SYMBOLS: &[&str] = &[
-    "<<=", ">>=", "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "%=", "|=", "&=", "^=", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
+    "**", "<<=", ">>=", "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "%=", "|=", "&=", "^=", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
     "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?", ";", "|", "&", "^",
 ];
 
@@ -156,8 +156,107 @@ fn drop_py_imports(src: &str) -> String {
     out
 }
 
+// Python's triple-quoted strings (`"""doc"""`, multi-line text) become one-line strings with `\n` in them;
+// the newlines they held move to the end of their last line, so later line numbers hold.
+fn triple_strings(src: &str) -> String {
+    if !src.contains("\"\"\"") && !src.contains("'''") {
+        return src.to_string();
+    }
+    let c: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    let mut owed = 0;
+    while i < c.len() {
+        let ch = c[i];
+        if ch == '#' {
+            while i < c.len() && c[i] != '\n' {
+                out.push(c[i]);
+                i += 1;
+            }
+            continue;
+        }
+        if ch == '\n' {
+            for _ in 0..owed {
+                out.push('\n');
+            }
+            owed = 0;
+            out.push(ch);
+            i += 1;
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            let triple = c.get(i + 1) == Some(&ch) && c.get(i + 2) == Some(&ch);
+            let raw = i > 0 && matches!(c[i - 1], 'r' | 'R') && !(i > 1 && (c[i - 2].is_alphanumeric() || c[i - 2] == '_'));
+            if triple && raw {
+                // Kept whole for the raw-string reader.
+                let mut j = i + 3;
+                while j < c.len() && !(c[j] == ch && c.get(j + 1) == Some(&ch) && c.get(j + 2) == Some(&ch)) {
+                    j += 1;
+                }
+                let end = (j + 3).min(c.len());
+                out.extend(&c[i..end]);
+                i = end;
+                continue;
+            }
+            if triple {
+                let mut j = i + 3;
+                let mut body = String::new();
+                while j < c.len() && !(c[j] == ch && c.get(j + 1) == Some(&ch) && c.get(j + 2) == Some(&ch)) {
+                    match c[j] {
+                        '\\' if j + 1 < c.len() => {
+                            if c[j + 1] == '\n' {
+                                owed += 1;
+                            } else {
+                                body.push('\\');
+                                body.push(c[j + 1]);
+                            }
+                            j += 2;
+                            continue;
+                        }
+                        '\n' => {
+                            body.push_str("\\n");
+                            owed += 1;
+                        }
+                        '"' => body.push_str("\\\""),
+                        x => body.push(x),
+                    }
+                    j += 1;
+                }
+                if j >= c.len() {
+                    out.extend(&c[i..]);
+                    break;
+                }
+                out.push('"');
+                out.push_str(&body);
+                out.push('"');
+                i = j + 3;
+                continue;
+            }
+            // An ordinary string: copied as it is.
+            out.push(ch);
+            i += 1;
+            while i < c.len() && c[i] != ch && c[i] != '\n' {
+                if c[i] == '\\' && i + 1 < c.len() {
+                    out.push(c[i]);
+                    i += 1;
+                }
+                out.push(c[i]);
+                i += 1;
+            }
+            if i < c.len() && c[i] == ch {
+                out.push(ch);
+                i += 1;
+            }
+            continue;
+        }
+        out.push(ch);
+        i += 1;
+    }
+    out
+}
+
 pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
-    let src = &drop_py_imports(src);
+    let src = &triple_strings(&drop_py_imports(src));
     let chars: Vec<char> = src.chars().collect();
     let mut out = Vec::new();
     let (mut i, mut line, mut col) = (0usize, 1usize, 1usize);
@@ -445,6 +544,23 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             push(&mut out, Tok::Str(s));
             continue;
         }
+        // Python's `0xFF`, `0o17`, `0b101`.
+        if c == '0' && matches!(chars.get(i + 1), Some('x' | 'X' | 'o' | 'O' | 'b' | 'B')) && chars.get(i + 2).map_or(false, |d| d.is_ascii_hexdigit()) {
+            let radix = match chars[i + 1] { 'x' | 'X' => 16, 'o' | 'O' => 8, _ => 2 };
+            let mut j = i + 2;
+            while j < chars.len() && (chars[j].is_digit(radix) || chars[j] == '_') {
+                j += 1;
+            }
+            let text: String = chars[i + 2..j].iter().filter(|&&d| d != '_').collect();
+            match u64::from_str_radix(&text, radix) {
+                // Up to 64 bits, as Rust reads them (0xFFFFFFFFFFFFFFFF is -1).
+                Ok(n) => push(&mut out, Tok::Int(n as i64)),
+                Err(_) => return Err(Diag::new("lex", tl, tc, "integer literal too large for int")),
+            }
+            col += j - i;
+            i = j;
+            continue;
+        }
         if c.is_ascii_digit() {
             let start = i;
             while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '_') {
@@ -558,6 +674,17 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 // Python's identity test on other values: Brevi values have no identity, so it compares them.
                 push(&mut out, Tok::Sym("=="));
                 continue;
+            }
+            // Python code often names a value `fn`; only `fn NAME` starts a function.
+            if word == "fn" {
+                let mut j = i;
+                while chars.get(j) == Some(&' ') {
+                    j += 1;
+                }
+                if !chars.get(j).map_or(false, |c| c.is_alphabetic() || *c == '_') {
+                    push(&mut out, Tok::Ident("fn_".into()));
+                    continue;
+                }
             }
             // Python's True and False are true and false.
             let word = match word.as_str() { "True" => "true".to_string(), "False" => "false".to_string(), _ => word };
