@@ -141,6 +141,11 @@ fn drop_py_imports(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     for l in src.split_inclusive('\n') {
         let t = l.trim();
+        // Decorators (`@dataclass`, `@staticmethod`, `@lru_cache(None)`): the code works the same without them.
+        if t.starts_with('@') && t[1..].chars().next().map_or(false, |c| c.is_alphabetic()) {
+            out.push_str(if l.ends_with('\n') { "\n" } else { "" });
+            continue;
+        }
         let module = t.strip_prefix("import ").map(|m| m.split(',').map(str::trim).collect::<Vec<_>>()).or_else(|| {
             let rest = t.strip_prefix("from ")?;
             let (m, _) = rest.split_once(" import ")?;

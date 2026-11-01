@@ -1,0 +1,84 @@
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+
+@dataclass
+class Item:
+    name: str
+    qty: int = 0
+    tags: list[str] = field(default_factory=list)
+
+    def total(self, price: float) -> float:
+        return self.qty * price
+
+
+class Animal:
+    def __init__(self, name):
+        self.name = name
+        self.legs = 4
+
+    def describe(self):
+        return f"{self.name} has {self.legs} legs"
+
+
+class Bird(Animal):
+    def __init__(self, name):
+        super().__init__(name)
+        self.legs = 2
+
+
+class Cat(Animal):
+    pass
+
+
+class Stock:
+    def __init__(self):
+        self.n = 0
+
+    def add(self, n):
+        self.n += n
+
+
+def best(items: List[Item]) -> Optional[Item]:
+    return max(items, key=lambda i: i.qty) if items else None
+
+
+def scale(x, k=2):
+    return x * k
+
+
+def total(*xs):
+    return sum(xs)
+
+
+def parse(line):
+    a, b = line.split()
+    return a, int(b)
+
+
+def main():
+    xs = [Item("a", 2), Item("b", 5), Item(name="c")]
+    xs[0].tags.append("new")
+    b = best(xs)
+    print(b.name, b.total(1.5), xs[0].tags, xs[2].qty)
+    counts: dict[str, int] = {}
+    for it in xs:
+        counts[it.name] = it.qty
+    print(counts)
+    print(Bird("tweety").describe(), "/", Cat("tom").describe())
+    s = Stock()
+    s.add(4)
+    seen = set()
+    seen.add(3)
+    print(s.n, len(seen), scale(5), scale(5, k=3), scale(x=1), total(1, 2, 3))
+    totals = defaultdict(int)
+    for line in ["ab 3", "ac 4", "b 1"]:
+        name, qty = parse(line)
+        totals[name[0]] += qty
+    print(dict(totals))
+    n = 7
+    print(n / 2, n // 2, n * 0.5, n < 7.5)
+
+
+main()

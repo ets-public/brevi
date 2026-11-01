@@ -1,1 +1,1 @@
-{"line":1,"msg":"cannot divide int and f64","fix":"int and f64 never mix: convert with .float() or .int()"}
+{"line":1,"msg":"mismatched types: expected int, found f64","fix":"convert with .int(), .float() or str(x)"}
