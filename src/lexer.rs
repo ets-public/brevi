@@ -173,7 +173,7 @@ fn drop_py_imports(src: &str) -> String {
 // Python's triple-quoted strings (`"""doc"""`, multi-line text) become one-line strings with `\n` in them;
 // the newlines they held move to the end of their last line, so later line numbers hold.
 fn triple_strings(src: &str) -> String {
-    if !src.contains("\"\"\"") && !src.contains("'''") {
+    if !src.contains("\"\"\"") && !src.contains("'''") && !src.contains("\\\n") {
         return src.to_string();
     }
     let c: Vec<char> = src.chars().collect();
@@ -263,6 +263,13 @@ fn triple_strings(src: &str) -> String {
             }
             continue;
         }
+        // Python's `\` at the end of a line joins the next line to it.
+        if ch == '\\' && c.get(i + 1) == Some(&'\n') {
+            out.push(' ');
+            owed += 1;
+            i += 2;
+            continue;
+        }
         out.push(ch);
         i += 1;
     }
@@ -332,7 +339,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
         }
         // 'text': quotes inside need no escape, and `{` is a value only before a name or `(` (`'{"id":{i}}'`).
         if c == '\'' {
-            fstr = false;
+            // An f'...' string's values may start with a quote or bracket too (`f'{"#" * n}'`).
+            let is_f = std::mem::take(&mut fstr);
             let mut s = String::new();
             i += 1;
             col += 1;
@@ -344,7 +352,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         col += 1;
                         break;
                     }
-                    Some('{') if chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(')) && interp_closes(&chars, i + 1) => {
+                    Some('{') if chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(') || (is_f && matches!(c, '"' | '[' | '-' | '!'))) && interp_closes(&chars, i + 1) => {
                         // The value runs to its matching `}`; strings inside it are skipped.
                         let (mut depth, mut inner) = (0usize, false);
                         while let Some(&ch) = chars.get(i) {

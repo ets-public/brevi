@@ -365,7 +365,10 @@ fn show_item<T: Show + 'static>(x: &T) -> String {
     match (x as &dyn std::any::Any).downcast_ref::<String>() {
         Some(s) if ax_py_on() => ax_py_repr(s),
         Some(s) => format!("{s:?}"),
-        None => x.show(),
+        None => match (x as &dyn std::any::Any).downcast_ref::<Json>() {
+            Some(j) if ax_py_on() => ax_json_py(j, false),
+            _ => x.show(),
+        },
     }
 }
 impl<T: Show + 'static> Show for Vec<T> {
@@ -1321,8 +1324,135 @@ impl Default for Json {
         Json::Null
     }
 }
+// A Python list of ints and strings holds Json values: arithmetic and comparisons work on their numbers.
+fn ax_jnum(j: &Json) -> f64 {
+    match j {
+        Json::Num { v } => *v,
+        Json::Bool { v } => *v as i64 as f64,
+        _ => panic!("unsupported operand type: {} is not a number", j.show()),
+    }
+}
+fn ax_jn(v: f64) -> Json {
+    Json::Num { v }
+}
+impl Plus for Json {
+    type Out = Json;
+    fn plus(self, o: Json) -> Json {
+        match (self, o) {
+            (Json::Str { v: a }, Json::Str { v: b }) => Json::Str { v: a + &b },
+            (Json::Arr { v: mut a }, Json::Arr { v: b }) => {
+                a.extend(b);
+                Json::Arr { v: a }
+            }
+            (a, b) => ax_jn(ax_jnum(&a) + ax_jnum(&b)),
+        }
+    }
+}
+impl Plus<String> for Json {
+    type Out = Json;
+    fn plus(self, o: String) -> Json {
+        self.plus(Json::Str { v: o })
+    }
+}
+impl Plus<Json> for String {
+    type Out = Json;
+    fn plus(self, o: Json) -> Json {
+        Json::Str { v: self }.plus(o)
+    }
+}
+macro_rules! ax_json_num_ops {
+    ($($t:ty),*) => {$(
+        impl Plus<$t> for Json {
+            type Out = Json;
+            fn plus(self, o: $t) -> Json {
+                ax_jn(ax_jnum(&self) + o as f64)
+            }
+        }
+        impl Plus<Json> for $t {
+            type Out = Json;
+            fn plus(self, o: Json) -> Json {
+                ax_jn(self as f64 + ax_jnum(&o))
+            }
+        }
+        impl std::ops::Sub<$t> for Json { type Output = Json; fn sub(self, o: $t) -> Json { ax_jn(ax_jnum(&self) - o as f64) } }
+        impl std::ops::Sub<Json> for $t { type Output = Json; fn sub(self, o: Json) -> Json { ax_jn(self as f64 - ax_jnum(&o)) } }
+        impl std::ops::Mul<$t> for Json { type Output = Json; fn mul(self, o: $t) -> Json { ax_jn(ax_jnum(&self) * o as f64) } }
+        impl std::ops::Mul<Json> for $t { type Output = Json; fn mul(self, o: Json) -> Json { ax_jn(self as f64 * ax_jnum(&o)) } }
+        impl std::ops::Div<$t> for Json { type Output = Json; fn div(self, o: $t) -> Json { ax_jn(ax_jnum(&self) / o as f64) } }
+        impl std::ops::Div<Json> for $t { type Output = Json; fn div(self, o: Json) -> Json { ax_jn(self as f64 / ax_jnum(&o)) } }
+        impl PartialEq<Json> for $t { fn eq(&self, o: &Json) -> bool { o == self } }
+        impl PartialOrd<$t> for Json {
+            fn partial_cmp(&self, o: &$t) -> Option<std::cmp::Ordering> {
+                ax_jnum(self).partial_cmp(&(*o as f64))
+            }
+        }
+        impl PartialOrd<Json> for $t {
+            fn partial_cmp(&self, o: &Json) -> Option<std::cmp::Ordering> {
+                (*self as f64).partial_cmp(&ax_jnum(o))
+            }
+        }
+    )*};
+}
+ax_json_num_ops!(i64, f64);
+impl std::ops::Sub for Json { type Output = Json; fn sub(self, o: Json) -> Json { ax_jn(ax_jnum(&self) - ax_jnum(&o)) } }
+impl std::ops::Mul for Json {
+    type Output = Json;
+    fn mul(self, o: Json) -> Json {
+        match (self, o) {
+            (Json::Str { v }, n @ Json::Num { .. }) | (n @ Json::Num { .. }, Json::Str { v }) => Json::Str { v: v.repeat(ax_jnum(&n).max(0.0) as usize) },
+            (a, b) => ax_jn(ax_jnum(&a) * ax_jnum(&b)),
+        }
+    }
+}
+impl std::ops::Div for Json { type Output = Json; fn div(self, o: Json) -> Json { ax_jn(ax_jnum(&self) / ax_jnum(&o)) } }
+impl std::ops::Rem for Json { type Output = Json; fn rem(self, o: Json) -> Json { let (a, b) = (ax_jnum(&self), ax_jnum(&o)); ax_jn(a - b * (a / b).floor()) } }
+impl std::ops::Neg for Json { type Output = Json; fn neg(self) -> Json { ax_jn(-ax_jnum(&self)) } }
+impl std::ops::AddAssign for Json { fn add_assign(&mut self, o: Json) { *self = std::mem::take(self).plus(o) } }
+impl std::ops::SubAssign for Json { fn sub_assign(&mut self, o: Json) { *self = std::mem::take(self) - o } }
+impl std::ops::MulAssign for Json { fn mul_assign(&mut self, o: Json) { *self = std::mem::take(self) * o } }
+impl std::ops::DivAssign for Json { fn div_assign(&mut self, o: Json) { *self = std::mem::take(self) / o } }
+impl AxFloorDiv for Json {
+    fn floordiv(self, b: Json) -> Json {
+        ax_jn((ax_jnum(&self) / ax_jnum(&b)).floor())
+    }
+}
+impl AxNum for Json {
+    fn ax_fmt(&self, decimals: i64) -> String {
+        format!("{:.*}", decimals.max(0) as usize, ax_jnum(self))
+    }
+    fn ax_abs(&self) -> Json {
+        ax_jn(ax_jnum(self).abs())
+    }
+    fn ax_float(&self) -> f64 {
+        ax_jnum(self)
+    }
+    fn ax_int(&self) -> i64 {
+        ax_jnum(self) as i64
+    }
+}
+impl AxIn<Json> for Vec<String> {
+    fn ax_in(&self, x: &Json) -> bool {
+        self.iter().any(|y| x == y)
+    }
+}
+// Python mode prints a JSON value as Python prints what json.loads gives: None, True, 'x', [1, 2.5], {'k': 1}.
+fn ax_json_py(j: &Json, top: bool) -> String {
+    match j {
+        Json::Null => "None".into(),
+        Json::Bool { v } => if *v { "True".into() } else { "False".into() },
+        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e16 => format!("{}", *v as i64),
+        Json::Num { v } => ax_py_float(*v),
+        Json::Str { v } if top => v.clone(),
+        Json::Str { v } => ax_py_repr(v),
+        Json::Arr { v } => format!("[{}]", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
+        Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{}: {}", ax_py_repr(k), ax_json_py(x, false))).collect::<Vec<_>>().join(", ")),
+    }
+}
 impl Show for Json {
     fn show(&self) -> String {
+        if ax_py_on() {
+            return ax_json_py(self, true);
+        }
         match self {
             Json::Null => "null".into(),
             Json::Bool { v } => v.to_string(),
@@ -2952,6 +3082,10 @@ impl<T: std::fmt::Debug> std::fmt::Debug for AxB<T> {
 // x.json(): any value as a Json value, so str(x.json()) writes it as compact JSON.
 pub trait AxToJson {
     fn ax_json(&self) -> Json;
+}
+// A plain value put into a Python list that also holds other types.
+pub fn ax_to_json<T: AxToJson>(v: T) -> Json {
+    v.ax_json()
 }
 impl AxToJson for Json {
     fn ax_json(&self) -> Json {
