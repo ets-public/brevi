@@ -1,0 +1,4 @@
+Bolt 3 0 hello 10 ['a', 'b']
+True False False
+True ----- ababab
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

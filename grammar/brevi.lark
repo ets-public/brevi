@@ -18,8 +18,8 @@ start: _NL? (line _NL)* line?
      | "use" NAME STRING*
      | "allow" NAME ("," NAME)*       // allow read, write, native
      | ("global" | "nonlocal") NAME ("," NAME)*   // Python scope: see BREVI.md
-     | "import" NAME ("," NAME)*     // import sys, math: Python modules Brevi has built in
-     | "from" NAME "import" NAME ("," NAME)*
+     | "import" module ("as" NAME)? ("," module ("as" NAME)?)*   // import sys, or a stock.bv next to the file
+     | "from" module "import" NAME ("," NAME)*
      | "@" postfix                   // decorators such as @dataclass are skipped
      | simples
 
@@ -41,6 +41,7 @@ opener: fn_sig
       | "return" (unary binop)* ("if" | "match") expr
 
 fn_sig: ("rust" | "py")? ("fn" | "def") NAME "(" _n [param ("," _n param)* ","?] _n ")" ("->" type)? "!"?
+module: NAME ("." NAME)*         // lib.stock is lib/stock.bv
 param: "mut"? NAME (":" type)? ("=" expr)?   // def scale(x, k=2)
      | "*" NAME (":" type)?                     // def total(*xs)
 
@@ -55,6 +56,8 @@ simples: simple (";" simple)*      // Python's a = 1; b = 2
 ?simple: ("let" | "var") pattern (":" type)? "=" expr
        | "return" (expr ("," expr)*)?
        | "pass"
+       | "yield" "from" expr           // generators collect what they yield in a list
+       | "yield" (expr ("," expr)*)?
        | "del" postfix
        | "raise" (expr ("from" expr)?)?
        | "break"

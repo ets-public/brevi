@@ -1,0 +1,34 @@
+# Python imports between files: `from lib.pystock import ...` reads lib/pystock.bv.
+import sys
+from datetime import date
+from lib.pystock import Stock, parse, LIMIT, NAMES
+import lib.pykey as key
+
+
+def valid_date(s: str) -> bool:
+    if len(s) != 10 or s[4] != "-" or s[7] != "-":
+        return False
+    try:
+        date.fromisoformat(s)
+        return True
+    except Exception:
+        return False
+
+
+def as_date(s):
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def main():
+    s = parse("Bolt 3")
+    t = Stock("nut")
+    print(s.name, s.qty, t.qty, key.norm("  HeLLo "), LIMIT, NAMES)
+    print(valid_date("2024-01-05"), valid_date("2024-13-05"), valid_date("x"))
+    d = as_date("bad")
+    print(d is None, "-" * 5, 3 * "ab")
+
+
+main()
