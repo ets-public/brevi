@@ -1,7 +1,7 @@
 {"line":13,"fixed":"totl -> total"}
-0 true true
-1 true true
-a, b, c [1, 3] x ["a", "b"] true
+0 True True
+1 True True
+a, b, c [1, 3] x ['a', 'b'] True
 k 1 0 2
 4
 0 a 97 b
@@ -9,6 +9,6 @@ k 1 0 2
 x
 y
 [0, 0, 2, 3] [1, 4, 7] 8 [2, 1]
-["a", "b"]
-2 2 1000 0.25
+['a', 'b']
+2 2 1000.0 0.25
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

@@ -67,6 +67,7 @@ pub struct Emitter {
     pub diags: Vec<Diag>,
     // Names whose items are lists changed in place (`m[k].push(x)`), so an empty `m = {}` gets a partial type.
     nested: HashSet<String>,
+    cur_body: String,
     // Top-level names that the current function sets before reading, so they are its own locals.
     own_locals: HashSet<String>,
     // Types for untyped empty values, by (name, line): (Rust type, complete).
@@ -239,9 +240,16 @@ pub fn auto_try(items: &mut [Item]) {
                 _ => {}
             }
         }
-        let after = items.iter().filter(|it| matches!(it, Item::Fn { fallible: f, body, .. } if *f || can_fail(body))).count()
-            + FALLIBLE_BUILTINS.len();
-        if after <= before {
+        // Counted as a set like `fallible`, so a function defined twice cannot keep the loop going.
+        let mut now = fallible.clone();
+        for it in items.iter() {
+            if let Item::Fn { name, fallible: f, body, .. } = it {
+                if *f || can_fail(body) {
+                    now.insert(name.clone());
+                }
+            }
+        }
+        if now.len() <= before {
             return;
         }
     }
@@ -630,6 +638,7 @@ impl Emitter {
             try_n: 0,
             borrow_loops: false,
             nested: HashSet::new(),
+            cur_body: String::new(),
             own_locals: HashSet::new(),
             fn_texts: items
                 .iter()
@@ -1064,6 +1073,11 @@ impl Emitter {
         }
     }
 
+    // Is n set again in the function being written (`best = x` after `best = None`)?
+    fn set_later(&self, n: &str) -> bool {
+        self.cur_body.matches(&format!("target: Ident({n:?})")).count() > 1
+    }
+
     fn nested_hint(&self, n: &str, value: &Expr) -> String {
         if !self.nested.contains(n) {
             return String::new();
@@ -1085,6 +1099,7 @@ impl Emitter {
     fn function(&mut self, name: &str, params: &[Param], ret: &Ty, fallible: bool, body: &Expr, line: usize) -> String {
         self.begin_fn(params, fallible);
         self.nested = nested_lists(body);
+        self.cur_body = format!("{body:?}");
         // A top-level name that this function first sets to a value of another type is the function's own.
         let text = format!("{body:?}");
         // A program with `global x` lines follows Python: setting a top-level name anywhere in a
@@ -1350,7 +1365,12 @@ impl Emitter {
             {
                 let v = self.expr(value);
                 self.locals.insert(n.clone());
-                format!("let mut {n}{} = {v};", self.empty_hint(n, line, value))
+                let mut hint = self.empty_hint(n, line, value);
+                // `pd = None` with nothing else ever put in pd: an int slot holding None.
+                if hint.is_empty() && matches!(value, Expr::Call(f, a, _) if f == "none" && a.is_empty()) && !self.set_later(n) {
+                    hint = ": i64".into();
+                }
+                format!("let mut {n}{hint} = {v};")
             }
             // `(a, b) = v` unpacks; new names are declared.
             Stmt::Assign { target: Expr::Tuple(xs), op: "=", value, .. } if xs.iter().all(|x| matches!(x, Expr::Ident(_))) => {
@@ -1681,9 +1701,9 @@ impl Emitter {
                     self.place(recv)
                 };
                 let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if contains_try(b)));
-                if tries && !self.fallible {
-                    self.diag(*line, "'?' used in a function that cannot fail", Some("add ! after the function's return type".into()));
-                }
+                // Outside a function that can fail and outside try/except, a failure inside the lambda stops the
+                // program with its message, as an uncaught Python exception does (`(int(x) for x in parts)`).
+                let tries = tries && (self.fallible || !self.catch.is_empty());
                 let unpack = ONE_ARG_METHODS.contains(&name.as_str());
                 let ref_arg = ["has", "get_or", "contains", "index_of"].contains(&name.as_str());
                 let a: Vec<String> = args
@@ -1706,7 +1726,10 @@ impl Emitter {
                             } else {
                                 let saved = std::mem::replace(&mut self.fallible, true);
                                 let saved_must = std::mem::replace(&mut self.must, false);
+                                // Inside the lambda a failure is its Err value; the try around it is outside.
+                                let saved_catch = std::mem::take(&mut self.catch);
                                 let b = self.expr(body);
+                                self.catch = saved_catch;
                                 self.fallible = saved;
                                 self.must = saved_must;
                                 format!("(|{params}| -> R<_> {{ Ok({b}) }})")
@@ -1728,7 +1751,11 @@ impl Emitter {
                 let name = if name == "sort_by" && a.len() == 2 { "sort_by_rev" } else { name };
                 // `s.re_sub(p, g => ...)` builds each replacement from the match groups.
                 let name = if name == "re_sub" && matches!(args.get(1), Some(Expr::Lambda(..))) { "re_sub_with" } else { name };
-                if tries {
+                if tries && !self.catch.is_empty() {
+                    let lab = self.catch.last().unwrap().clone();
+                    let brk = if lab.starts_with("ax_tryv") { " None" } else { "" };
+                    format!("{{ ax_l({line}); match {r}.ax_try_{name}({}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(AxErr::from(e)); break '{lab}{brk}; }} }} }}", a.join(", "))
+                } else if tries {
                     format!("{{ ax_l({line}); {r}.ax_try_{name}({})? }}", a.join(", "))
                 } else {
                     format!("{{ ax_l({line}); {r}.ax_{name}({}) }}", a.join(", "))

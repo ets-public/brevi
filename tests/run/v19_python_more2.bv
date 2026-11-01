@@ -1,0 +1,82 @@
+# Python habits from the guide trials: nonlocal, `a or b` values, unused parameters, dict loops, methods of
+# a class from another file.
+import re
+from datetime import date
+from lib.pyboard import Board
+
+
+def deal(n):
+    rnd = 7
+    seen = set()
+    dealt = 0
+
+    def one():
+        nonlocal rnd, seen, dealt
+        dealt += 1
+        seen.add(dealt)
+        return dealt + rnd
+
+    for _ in range(n):
+        one()
+    return dealt, len(seen)
+
+
+def frac(s):
+    m = re.match(r"(\d+)(\.(\d+))?", s)
+    f = m.group(3) or ""
+    return f + "0"
+
+
+def route(frm: str, to: str, t0: int, ids: list, stops: list, times: list):
+    out = []
+    for i in ids:
+        out.append((frm, to, t0 + i))
+    return out
+
+
+today = None
+
+
+def set_today(s):
+    global today
+    today = date.fromisoformat(s)
+
+
+def load(board, lines):
+    for ln in lines:
+        name, n = ln.split()
+        board.add(name, int(n))
+
+
+def use(board: Board, name: str) -> int:
+    return board.take(name, 2)
+
+
+print(deal(3), frac("12.5"), frac("7"), route("a", "b", 3, [1, 2], [], []))
+set_today("2024-03-01")
+print(today, (today - date(2024, 1, 1)).days)
+trains = {"t1": ("x", [("a", 1)]), "t2": ("y", [])}
+for tid in trains:
+    print(tid, trains[tid][0])
+b = Board()
+load(b, ["x 5", "y 7"])
+print(use(b, "y"), b.names, b.rows)
+postings = []
+
+
+def post(name, amt):
+    global postings
+    postings.append((name, amt))
+
+
+def total():
+    global postings
+    s = 0
+    for p in postings:
+        s += p[1]
+    return s
+
+
+post("a", 3)
+post("b", 4)
+print(total())
