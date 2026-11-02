@@ -2220,7 +2220,19 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     }
                 }
                 let mut calls = Vec::new();
-                calls_in(body, &mut calls);
+                // (Not inside `fmt(self.ev(e, loc)) for e in s[2]`: the lambdas above have their own names,
+                // which the whole-function view would mix up with an `except RErr as e` elsewhere.)
+                let mut no_lams = body.clone();
+                crate::parser::walk_mut(&mut no_lams, &mut |e| {
+                    if let Expr::Method(_, _, args, _) = e {
+                        for a in args.iter_mut() {
+                            if let Expr::Lambda(_, lb) = a {
+                                **lb = Expr::Block(vec![], None);
+                            }
+                        }
+                    }
+                });
+                calls_in(&no_lams, &mut calls);
                 // The same calls with the names' types where each call is (`name = t[0]` then `g.has(name)`,
                 // before a later `for name in g.names` over a list not known yet), and method calls on a value
                 // known to be a class (`g.has(name)` calls Grades_has(g, name)).
@@ -3946,4 +3958,5 @@ fn global_too(t: T, x: &Expr, genv: &Env) -> T {
         _ => t,
     }
 }
+
 
