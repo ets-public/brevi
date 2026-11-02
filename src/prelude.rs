@@ -398,6 +398,25 @@ impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> 
         format!("{{{}}}", parts.join(","))
     }
 }
+thread_local! {
+    // Tuple types that hold Python lists of mixed kinds (`[oid, sku, n]`): they print as lists.
+    static AX_ROWS: std::cell::RefCell<std::collections::HashSet<std::any::TypeId>> = std::cell::RefCell::new(std::collections::HashSet::new());
+}
+pub fn ax_row<T: 'static>(t: T) -> T {
+    let id = std::any::TypeId::of::<T>();
+    AX_ROWS.with(|r| {
+        if !r.borrow().contains(&id) {
+            r.borrow_mut().insert(id);
+        }
+    });
+    t
+}
+fn ax_wrap<T: 'static>(parts: &[String]) -> String {
+    if ax_py_on() && AX_ROWS.with(|r| r.borrow().contains(&std::any::TypeId::of::<T>())) {
+        return format!("[{}]", parts.join(", "));
+    }
+    format!("({})", parts.join(", "))
+}
 impl<A: Show + 'static, B: Show + 'static> Show for (A, B) {
     fn show(&self) -> String {
         let parts = [show_item(&self.0), show_item(&self.1)];
@@ -405,7 +424,7 @@ impl<A: Show + 'static, B: Show + 'static> Show for (A, B) {
         if ax_py_on() && parts.iter().all(|p| p == "None") {
             return "None".to_string();
         }
-        format!("({})", parts.join(", "))
+        ax_wrap::<Self>(&parts)
     }
 }
 impl<A: Show + 'static, B: Show + 'static, C: Show + 'static> Show for (A, B, C) {
@@ -415,7 +434,7 @@ impl<A: Show + 'static, B: Show + 'static, C: Show + 'static> Show for (A, B, C)
         if ax_py_on() && parts.iter().all(|p| p == "None") {
             return "None".to_string();
         }
-        format!("({})", parts.join(", "))
+        ax_wrap::<Self>(&parts)
     }
 }
 impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static> Show for (A, B, C, D) {
@@ -425,7 +444,7 @@ impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static>
         if ax_py_on() && parts.iter().all(|p| p == "None") {
             return "None".to_string();
         }
-        format!("({})", parts.join(", "))
+        ax_wrap::<Self>(&parts)
     }
 }
 impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static, E: Show + 'static> Show for (A, B, C, D, E) {
@@ -435,7 +454,7 @@ impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static,
         if ax_py_on() && parts.iter().all(|p| p == "None") {
             return "None".to_string();
         }
-        format!("({})", parts.join(", "))
+        ax_wrap::<Self>(&parts)
     }
 }
 

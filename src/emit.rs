@@ -2135,7 +2135,7 @@ impl Emitter {
             }
             return format!("{name}({})", ordered.join(", "));
         }
-        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
+        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
         }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();

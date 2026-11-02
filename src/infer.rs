@@ -850,6 +850,7 @@ impl Cx<'_> {
             Expr::Bool(_) => Bool,
             Expr::Str(_) => Str,
             Expr::Ident(n) if n == "Null" && !env.contains_key(n) => Json,
+            Expr::Call(f, a, _) if f == "ax_row" && a.len() == 1 => self.ty(&a[0].1, env),
             Expr::Ident(n) | Expr::Move(n) => env.get(n).or_else(|| self.genv.get(n)).cloned().unwrap_or(Hole),
             // Python's `[expiry, seq, sku, qty]`: a record of mixed types is a tuple (its slots stay settable).
             Expr::List(xs) if mixed_record(xs, &|x| self.ty(x, env)) => Tuple(xs.iter().map(|x| self.ty(x, env)).collect()),
@@ -2392,7 +2393,7 @@ impl Ck<'_, '_> {
         rec_field(e, &|x| global_too(self.cx.ty(x, env), x, &self.cx.genv), &self.cx.structs);
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
-            Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Tuple(xs.clone())),
+            Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Call("ax_row".into(), vec![(None, Expr::Tuple(xs.clone()))], 0)),
             Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
                 (Tuple(_), Expr::Int(k)) if *k >= 0 => Some(Expr::TupleField(b.clone(), *k as usize)),
                 _ => None,
@@ -2405,6 +2406,19 @@ impl Ck<'_, '_> {
         };
         if let Some(f) = fix {
             *e = f;
+        }
+        // Count the tuple types made from mixed lists (rows) and those written as tuples: a type that is
+        // both can't print as a list for rows and a tuple for tuples, so then rows print as tuples.
+        match &*e {
+            Expr::Call(f, a, _) if f == "ax_row" && a.len() == 1 => {
+                let k = format!("{:?}", self.cx.ty(&a[0].1, env));
+                ROW_TUPLES.with(|r| r.borrow_mut().entry(k).or_insert((0, 0)).0 += 1);
+            }
+            Expr::Tuple(_) => {
+                let k = format!("{:?}", self.cx.ty(e, env));
+                ROW_TUPLES.with(|r| r.borrow_mut().entry(k).or_insert((0, 0)).1 += 1);
+            }
+            _ => {}
         }
         match e {
             Expr::Block(stmts, tail) => {
@@ -2880,6 +2894,18 @@ fn holes_json(t: T) -> T {
         Tuple(ts) => Tuple(ts.into_iter().map(holes_json).collect()),
         other => other,
     }
+}
+
+thread_local! {
+    // Per tuple type: (rows made from mixed lists, tuples seen, which counts the rows' own tuples too).
+    static ROW_TUPLES: std::cell::RefCell<HashMap<String, (usize, usize)>> = std::cell::RefCell::new(HashMap::new());
+}
+pub fn rows_reset() {
+    ROW_TUPLES.with(|r| r.borrow_mut().clear());
+}
+// Some tuple type is used both for mixed-list rows and for real tuples.
+pub fn rows_clash() -> bool {
+    ROW_TUPLES.with(|r| r.borrow().values().any(|(rows, all)| *rows > 0 && all > rows))
 }
 
 fn mixed_record(xs: &[Expr], ty: &dyn Fn(&Expr) -> T) -> bool {

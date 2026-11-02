@@ -14,6 +14,9 @@ struct Cx {
     // Functions that hand back an item of a container (`def stat(sku): ...; return stats[sku]`):
     // name -> (the container: a parameter's index or a top-level name, the key parameter's index).
     getters: std::collections::HashMap<String, (Result<usize, String>, usize)>,
+    // Functions (and class methods, by method name) that return a filtered, sorted or sliced copy of a
+    // list they did not build (`return [t for t in tasks if not t[1]]`, `return list(tasks)`).
+    copy_fns: HashSet<String>,
 }
 
 thread_local! {
@@ -77,7 +80,35 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     }
-    let mut cx = Cx { errs: vec![], mutators, getters };
+    let mut copy_fns = HashSet::new();
+    for it in items.iter() {
+        if let Item::Fn { name, body, .. } = it {
+            let mut hit = false;
+            let mut check = |v: &Expr| {
+                if let Expr::Method(r, m, _, _) = v {
+                    if COPYING.contains(&m.as_str()) && mentions_name(r) {
+                        hit = true;
+                    }
+                }
+            };
+            any_expr(body, &mut |st| {
+                if let Stmt::Return { value: Some(v), .. } = st {
+                    check(v);
+                }
+                false
+            });
+            if let Expr::Block(_, Some(t)) = body {
+                check(t);
+            }
+            if hit {
+                copy_fns.insert(name.clone());
+                if let Some(c) = classes.iter().find(|c| name.starts_with(c.as_str())) {
+                    copy_fns.insert(name[c.len()..].to_string());
+                }
+            }
+        }
+    }
+    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns };
     let inl: Inline = items
         .iter()
         .filter_map(|it| match it {
@@ -432,15 +463,73 @@ fn stored(st: &Stmt) -> Option<(String, String, usize)> {
 
 // A loop over a new list made from another (`for l in sorted(lots)`) that changes its item: the change
 // stays in the new list.
+const COPYING: [&str; 8] = ["filter", "sort", "sort_by", "rev", "slice", "take", "skip", "unique"];
+
+// How deep below the name `x` an expression reaches: `x` is 0, `x[i]` is 1, `x[i][1]` and `x[i].n` are 2.
+fn depth_below(e: &Expr, x: &str) -> Option<usize> {
+    match e {
+        Expr::Ident(n) if n == x => Some(0),
+        Expr::Field(b, _) | Expr::Index(b, _) | Expr::TupleField(b, _) => depth_below(b, x).map(|d| d + 1),
+        _ => None,
+    }
+}
+
+// A statement that changes an item inside `x` (`x[i][1] = v`, `x[i].n += 1`, `x[i].append(v)`).
+fn item_change(x: &str, st: &Stmt) -> bool {
+    match st {
+        Stmt::Assign { target, .. } => depth_below(target, x).is_some_and(|d| d >= 2),
+        Stmt::Expr { expr: Expr::Method(recv, m, _, _), .. } => depth_below(recv, x).is_some_and(|d| d >= 1) && CHANGING.contains(&m.as_str()),
+        _ => false,
+    }
+}
+
 fn derived_loops(e: &Expr, cx: &mut Cx) {
     let mut found: Vec<(String, String, usize)> = vec![];
     let muts = cx.mutators.clone();
+    // Locals set from a helper that returns a copy of a list it did not build (`vis = visible_tasks()`):
+    // changing an item of one (`vis[i][1] = ...`) changes the shared item in Python, a copy here.
+    let mut from_copy: Vec<(String, String)> = vec![];
+    any_expr(e, &mut |st| {
+        if let Stmt::Let { name: Pat::Bind(x), value, .. } | Stmt::Assign { target: Expr::Ident(x), op: "=", value, .. } = st {
+            let f = match value {
+                Expr::Call(f, _, _) => Some(f),
+                Expr::Method(_, m, _, _) => Some(m),
+                _ => None,
+            };
+            if f.is_some_and(|f| cx.copy_fns.contains(f)) {
+                from_copy.push((x.clone(), show(value)));
+            }
+        }
+        false
+    });
+    let mut item_errs: Vec<(String, String, usize)> = vec![];
+    for (x, from) in &from_copy {
+        any_expr(e, &mut |st| {
+            if item_change(x, st) {
+                let line = match st {
+                    Stmt::Assign { line, .. } | Stmt::Expr { line, .. } => *line,
+                    _ => 0,
+                };
+                item_errs.push((x.clone(), from.clone(), line));
+            }
+            false
+        });
+    }
+    for (x, from, line) in item_errs {
+        let x = x.trim_end_matches('_').to_string();
+        err(
+            cx,
+            line,
+            format!("the items of {x} are copies of the items {from} returned, so changing them does not change the original list (Brevi values are copies, not shared)"),
+            "change the item in the original list, e.g. find its index there and set tasks[i][1] = v".into(),
+        );
+    }
     // Locals set to a filtered, sorted or sliced copy of a list (`cand = sorted(l for l in self.lots if ...)`):
     // their items are copies too.
     let mut copies: HashSet<String> = HashSet::new();
     any_expr(e, &mut |st| {
         if let Stmt::Let { name: Pat::Bind(x), value: Expr::Method(r, m, _, _), .. } | Stmt::Assign { target: Expr::Ident(x), op: "=", value: Expr::Method(r, m, _, _), .. } = st {
-            if matches!(m.as_str(), "filter" | "sort" | "sort_by" | "rev" | "slice" | "take" | "skip" | "unique") && mentions_name(r) {
+            if COPYING.contains(&m.as_str()) && mentions_name(r) {
                 copies.insert(x.clone());
             }
         }
