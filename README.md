@@ -2,13 +2,13 @@
 
 # Brevi
 
-A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one short JSON line with a suggested fix.
+The fast, safe target for AI-written Python. Brevi is built for AI coding agents: the agent writes the plain Python it knows best, and Brevi checks the whole program before it runs, reports each mistake as one short JSON line with a suggested fix, and compiles it through Rust to a native binary (1.3x to 10.8x faster than CPython on the speed set, measured 2 Nov 2026). The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
 
-The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 tokens (exact count, Sonnet tokenizer). Details live in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand.
+Brevi also has its own Python-like syntax (`.bv` files). Its guide is [BREVI.md](BREVI.md), 3,508 tokens (exact count, Sonnet tokenizer), with details in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand. Same-day runs show agents finish tasks more cheaply writing plain Python than writing Brevi syntax, so the agent skill asks for Python.
 
 ## For agents
 
-- **Skill:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package: setup, then the write, check, fix loop.
+- **Skill:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package: setup, then write plain Python and `brevi run main.py`, fixing only the lines an error names.
 - **MCP server:** `brevi mcp` serves the tools `guide`, `check`, `run`, `test`, `patch`, `edit` and `show` over stdio. The server keeps the program: the agent sends it as `code` once, then fixes it with `patch` (whole functions by name) or `edit` (a range of lines), which check again in the same call, so a retry costs only the lines that change. `run` with `cases` builds once and prints `ok` or the first line that differs for each case. No files needed. Add it to a client as the command `brevi` with the argument `mcp`.
 - **Guide on demand:** `brevi guide` prints the guide built into the compiler, `brevi guide WORD` only the lines about one name, and `--explain` on any command adds those lines under each error.
 - **Fast check:** `brevi check f.bv --fast` runs Brevi's own checks in about 3 ms, without rustc (a full check takes about 400 ms).
@@ -25,9 +25,9 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 toke
 - **Changes:** [CHANGELOG.md](CHANGELOG.md), one section per release.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
-## Status: v0.19
+## Status: v0.20
 
-**Release test:** models write plain Python and Brevi builds it (`bench/e2e.py --lang pyb`). The test passes when that costs no more than running the same models' Python with CPython, for Sonnet and Haiku. On 2 Nov 2026 (runs e22 and e23, four runs) it stood at 1.04x for Sonnet and 1.07x for Haiku, every task passing, with 38 of 48 programs built natively and the rest run on CPython by the fallback ([bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026)). `brevi run x.py` always runs plain Python: when Brevi cannot build a file yet, it runs it with python3 and prints a one-line note saying which line stopped it (`--native` refuses instead). Of 580 saved Python solutions from earlier runs, 331 build with Brevi and give the right output unchanged (`bench/py_as_brevi.py --full --run`). The older notes below use the earlier token-count gate.
+**Release test:** models write plain Python and Brevi builds it (`bench/e2e.py --lang pyb`), against the same models' Python run with CPython, for Sonnet and Haiku. It passes when, over four runs per model, every task passes, Brevi's cost is within 10% of CPython's, and at least 90% of the final programs build natively ([bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026)). On 2 Nov 2026 (runs e23 and e24) every task passed and the cost was 1.05x CPython for Sonnet and 1.07x for Haiku, inside the bar; 39 of 48 programs built natively (81%), so the test is not passed yet. `brevi run x.py` always runs plain Python: when Brevi cannot build a file yet, it runs it with python3 and prints a one-line note saying which line stopped it (`--native` refuses instead). Of 580 saved Python solutions from earlier runs, 344 build with Brevi and give the right output unchanged (`bench/py_as_brevi.py --full --run`). The older notes below use the earlier token-count gate.
 
 Works today:
 - Parser for the full core syntax in BREVI.md

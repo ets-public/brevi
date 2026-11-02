@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Brevi programming language</title>
+<title>Brevi: the fast, safe target for AI-written Python</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Brevi compiles ordinary Python to Rust: write the Python you know, get a fast, memory-safe native binary, with mistakes found before the program runs.">
+<meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, Brevi checks the whole program before it runs and builds a fast, memory-safe native binary.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -165,8 +165,8 @@ footer .end { margin-left: auto; }
 <main>
   <div class="wrap intro">
     <div>
-      <h1>Write Python. Ship a fast, safe native binary.</h1>
-      <p class="lede">Brevi compiles ordinary Python to Rust. You, or your coding agent, write the Python you already know; Brevi checks the whole program before it runs and builds a native binary that runs <strong>up to 11 times faster than CPython</strong>, with memory safety and overflow checks from Rust underneath.</p>
+      <h1>The fast, safe target for AI-written Python.</h1>
+      <p class="lede">Brevi is built for AI coding agents. The agent writes the Python it already writes best; Brevi checks the whole program before it runs, answers each mistake with one short line the agent can act on, and builds a native binary that runs <strong>up to 11 times faster than CPython</strong>, with memory safety and overflow checks from Rust underneath.</p>
       <p class="status">Status: preview. The compiler, written in Rust, opens under the Apache-2.0 license with the first public release.</p>
     </div>
     <div class="term" aria-label="Example program and output">
@@ -190,8 +190,8 @@ bat: 1</pre>
       <div class="sec-head">
         <p class="label">Why Brevi</p>
         <div>
-          <h2>Python's ease, Rust's speed and safety.</h2>
-          <p>Python is the language people and models write best. It is also slow, and it finds most mistakes only when the broken line finally runs. Rust is fast and safe, but slow to write. Brevi takes the Python you would write anyway and gives it Rust's speed and checks, without a new language to learn.</p>
+          <h2>Built for the agent in the loop.</h2>
+          <p>Python is the language models have seen most and write most reliably. It is also slow, and it finds most mistakes only when the broken line finally runs, which costs an agent another round of reading and fixing. Rust is fast and safe, but slow and expensive for a model to write. Brevi lets the agent keep writing the Python it knows, and gives the result Rust's speed and checks: nothing new to learn, no guide to load, and errors made for a model to read.</p>
         </div>
       </div>
 
@@ -340,11 +340,11 @@ print(<span class="s">"total: "</span> + n)</pre>
               <tr><th>Model cost, 6 XL tasks</th><th class="n">CPython</th><th class="n">Brevi</th></tr>
             </thead>
             <tbody>
-              <tr><td>Claude Sonnet</td><td class="n">$0.182</td><td class="n">$0.189</td></tr>
-              <tr><td>Claude Haiku</td><td class="n">$0.023</td><td class="n">$0.030</td></tr>
+              <tr><td>Claude Sonnet</td><td class="n">$0.174</td><td class="n">$0.182</td></tr>
+              <tr><td>Claude Haiku</td><td class="n">$0.023</td><td class="n">$0.025</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over two runs on the same day. Brevi's cost is close to Python's; the difference is the attempts where Brevi refused Python it cannot build yet, which each release reduces. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
+          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over four runs (2 November 2026, every task passed). Brevi's cost is within 7% of Python's. When Brevi cannot build a program yet, <code>brevi run</code> runs it with CPython instead; 39 of the 48 final programs built natively, and each release raises that share. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
         </div>
       </div>
     </div>
@@ -362,7 +362,7 @@ print(<span class="s">"total: "</span> + n)</pre>
       <div class="sec-head">
         <span></span>
         <ul class="agent-list">
-          <li><h3>MCP server</h3><div><code>brevi mcp</code> serves <code>guide</code>, <code>check</code>, <code>run</code>, <code>test</code> and <code>patch</code> over stdio. Each tool takes the program as text, so the agent needs no files.</div></li>
+          <li><h3>MCP server</h3><div><code>brevi mcp</code> serves <code>check</code>, <code>run</code>, <code>test</code>, <code>patch</code>, <code>edit</code>, <code>show</code> and <code>guide</code> over stdio. The server keeps the program, so the agent sends it once and then only the lines that change.</div></li>
           <li><h3>Agent skill</h3><div>An Agent Skills package that tells the agent to write ordinary Python and build it with Brevi: <a href="/skill.md">skill.md</a>.</div></li>
           <li><h3>llms.txt</h3><div>Machine-readable entry points at <a href="/llms.txt">/llms.txt</a> and <a href="/llms-full.txt">/llms-full.txt</a>, with the guide as plain Markdown at <a href="/guide.md">/guide.md</a>.</div></li>
           <li><h3>Edit by name</h3><div><code>brevi patch f.bv p.bv</code> replaces each function, type or test by name, so a fix costs only the lines that changed.</div></li>
