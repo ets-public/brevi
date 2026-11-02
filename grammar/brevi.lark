@@ -98,7 +98,7 @@ slice: expr | expr? ":" expr? (":" expr?)?   // xs[a:b], xs[::-1]
 
 call: "(" _n [arg ("," _n arg)* ","?] _n ")"
 arg: (NAME ("=" | ":"))? "*"? expr comp?
-comp: ("for" comp_target "in" binary ("if" binary)?)+
+comp: (_n "for" comp_target "in" binary (_n "if" binary)?)+
 comp_target: comp_name ("," comp_name)*
 comp_name: NAME | "(" comp_name ("," comp_name)* ","? ")"
 
