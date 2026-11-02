@@ -19,6 +19,9 @@ struct Cx {
     copy_fns: HashSet<String>,
     // Class method name -> the fields of self its body names (`self.tx` in any way).
     method_fields: std::collections::HashMap<String, HashSet<String>>,
+    // Copies that only matter when the value is not shared (a list of ints, not an object, record or row):
+    // (line, name, message, fix), checked by the Rust compiler through a `__shared(name)` marker.
+    pending: Vec<(usize, String, String, String)>,
 }
 
 thread_local! {
@@ -128,7 +131,7 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     }
-    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, method_fields };
+    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, method_fields, pending: vec![] };
     let inl: Inline = items
         .iter()
         .filter_map(|it| match it {
@@ -169,11 +172,64 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             stored_then_changed(body, &mut cx);
             walk(body, &mut cx);
             derived_loops(body, &mut cx);
+            for (line, var, msg, fix) in std::mem::take(&mut cx.pending) {
+                let hex: String = format!("{msg}\u{1}{fix}").bytes().map(|b| format!("{b:02x}")).collect();
+                let mark = Stmt::Expr { expr: Expr::Call("__shared".into(), vec![(None, Expr::Ident(var.clone())), (None, Expr::Str(vec![StrPart::Lit(hex)]))], line), line };
+                if !place_mark(body, line, &var, &mark) {
+                    err(&mut cx, line, msg, fix);
+                }
+            }
         }
     }
     let mut seen = HashSet::new();
     cx.errs.retain(|d| seen.insert((d.line, d.msg.clone())));
     cx.errs
+}
+
+// A copy that is wrong only when `var`'s value is not shared: the Rust compiler decides (see `__shared`).
+fn defer(cx: &mut Cx, line: usize, var: &str, msg: String, fix: String) {
+    cx.pending.push((line, var.to_string(), msg, fix));
+}
+
+// Puts the marker where `var` is in scope: first in the body of the loop at `line` that names it, or right
+// after the statement at `line`.
+fn place_mark(e: &mut Expr, line: usize, var: &str, mark: &Stmt) -> bool {
+    match e {
+        Expr::Block(stmts, tail) => {
+            for i in 0..stmts.len() {
+                if stmt_line(&stmts[i]) == line {
+                    if let Stmt::Expr { expr: Expr::For(p, _, body), .. } = &mut stmts[i] {
+                        if format!("{p:?}").contains(&format!("{var:?}")) {
+                            if let Expr::Block(b, _) = body.as_mut() {
+                                b.insert(0, mark.clone());
+                                return true;
+                            }
+                        }
+                    }
+                    if !matches!(&stmts[i], Stmt::Expr { expr: Expr::For(..) | Expr::If(..) | Expr::While(..), .. }) {
+                        stmts.insert(i + 1, mark.clone());
+                        return true;
+                    }
+                }
+                let hit = match &mut stmts[i] {
+                    Stmt::Expr { expr, .. } => place_mark(expr, line, var, mark),
+                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => matches!(value, Expr::Block(..) | Expr::If(..)) && place_mark(value, line, var, mark),
+                    _ => false,
+                };
+                if hit {
+                    return true;
+                }
+            }
+            if let Some(t) = tail {
+                return place_mark(t, line, var, mark);
+            }
+            false
+        }
+        Expr::If(_, a, b) => place_mark(a, line, var, mark) || b.as_mut().is_some_and(|b| place_mark(b, line, var, mark)),
+        Expr::For(_, _, b) | Expr::While(_, b) => place_mark(b, line, var, mark),
+        Expr::Match(_, arms) => arms.iter_mut().any(|(_, a)| place_mark(a, line, var, mark)),
+        _ => false,
+    }
 }
 
 fn err(cx: &mut Cx, line: usize, msg: String, fix: String) {
@@ -418,9 +474,10 @@ fn stored_then_changed(e: &Expr, cx: &mut Cx) {
             let muts = cx.mutators.clone();
             if any_stmt(&rest[..end], t, &mut |s| direct_strict(&x, s, &muts) && !rebinds_in(s, &x)) {
                 let xs = x.trim_end_matches('_').to_string();
-                err(
+                defer(
                     cx,
                     line,
+                    &x,
                     format!("{into} gets a copy of {xs} here, so changing {xs} later does not change {into} (Brevi values are copies, not shared)"),
                     format!("finish {xs} before putting it in {into}, or change it through {into}"),
                 );
@@ -535,11 +592,12 @@ fn derived_loops(e: &Expr, cx: &mut Cx) {
             false
         });
     }
-    for (x, from, line) in item_errs {
-        let x = x.trim_end_matches('_').to_string();
-        err(
+    for (raw, from, line) in item_errs {
+        let x = raw.trim_end_matches('_').to_string();
+        defer(
             cx,
             line,
+            &raw,
             format!("the items of {x} are copies of the items {from} returned, so changing them does not change the original list (Brevi values are copies, not shared)"),
             "change the item in the original list, e.g. find its index there and set tasks[i][1] = v".into(),
         );
@@ -578,11 +636,12 @@ fn derived_loops(e: &Expr, cx: &mut Cx) {
         }
         false
     });
-    for (a, from, line) in found {
-        let a = a.trim_end_matches('_').to_string();
-        err(
+    for (raw, from, line) in found {
+        let a = raw.trim_end_matches('_').to_string();
+        defer(
             cx,
             line,
+            &raw,
             format!("{a} is a copy of an item of {from}, so changing {a} in this loop does not change the list or map it came from (Brevi values are copies, not shared)"),
             "loop over the indexes or keys of the original and change it there, e.g. for i in range(len(xs)): xs[i].n += 1".into(),
         );
@@ -665,9 +724,10 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                             add(&r, &wb, &mut rest, tail);
                         } else if any_stmt(&rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
                             let (rs, from) = (r.trim_end_matches('_').to_string(), show(&Expr::Index(Box::new(base.clone()), Box::new(key.clone()))));
-                            err(
+                            defer(
                                 cx,
                                 line,
+                                &r,
                                 format!("{rs} is a copy of {from}, and the code after changes {rs} in a way Brevi cannot copy back (the list, map or key changes too), so {from} would not change (Brevi values are copies, not shared)"),
                                 format!("change {from} directly, or set {from} = {rs} after changing {rs}"),
                             );
@@ -708,9 +768,10 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                             add(&r, &wb, &mut rest, tail);
                         } else {
                             let (rs, from) = (r.trim_end_matches('_').to_string(), format!("{}.{}", b.trim_end_matches('_'), f));
-                            err(
+                            defer(
                                 cx,
                                 line,
+                                &r,
                                 format!("{rs} is a copy of {from}, and the code after changes {rs} where Brevi cannot copy it back ({from} is also set or used there), so {from} would not change (Brevi values are copies, not shared)"),
                                 format!("change {from} directly, or set {from} = {rs} after changing {rs}"),
                             );
@@ -721,9 +782,10 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                     let rest = &stmts[i + 1..];
                     if any_stmt(rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
                         let rs = r.trim_end_matches('_').to_string();
-                        err(
+                        defer(
                             cx,
                             line,
+                            &r,
                             format!("{rs} is a copy of the item {from} picks, so changing {rs} does not change the item in the list (Brevi values are copies, not shared)"),
                             "find the item's index or key, then change xs[i] directly".into(),
                         );
@@ -769,6 +831,8 @@ fn picked(st: &Stmt) -> Option<(String, String, usize)> {
     };
     match value {
         Expr::Method(b, m, _, _) if ["max", "min", "max_by", "min_by", "first", "last"].contains(&m.as_str()) && mentions_name(b) => Some((r.clone(), format!("{m}()"), line)),
+        // `max(xs, key=f)` is `xs.sort_by(f, true)[0]`; also `sorted(xs)[0]` and the like.
+        Expr::Index(c, _) if matches!(c.as_ref(), Expr::Method(b, m, _, _) if COPYING.contains(&m.as_str()) && mentions_name(b)) => Some((r.clone(), "max() or min()".to_string(), line)),
         _ => None,
     }
 }

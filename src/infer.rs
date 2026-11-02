@@ -58,6 +58,7 @@ fn rust(t: &T) -> String {
         Named(n) => n.clone(),
         List(e) => format!("Vec<{}>", rust(e)),
         Map(k, v) => format!("AxM<{}, {}>", rust(k), rust(v)),
+        Tuple(ts) if is_row(t) => format!("AxRow<({},)>", ts.iter().map(rust).collect::<Vec<_>>().join(", ")),
         Tuple(ts) => format!("({},)", ts.iter().map(rust).collect::<Vec<_>>().join(", ")),
         Heap(e) => format!("AxHeap<{}>", rust(e)),
         Unit => "()".into(),
@@ -2926,6 +2927,14 @@ thread_local! {
 }
 pub fn rows_reset() {
     ROW_TUPLES.with(|r| r.borrow_mut().clear());
+}
+// A tuple type held only by mixed-list rows: in Rust a shared row (AxRow).
+fn is_row(t: &T) -> bool {
+    // When any row type clashes, every row stays a plain tuple (main.rs drops all the ax_row calls).
+    !rows_clash() && ROW_TUPLES.with(|r| r.borrow().get(&format!("{t:?}")).is_some_and(|(rows, all)| *rows > 0 && all <= rows))
+}
+pub fn is_row_ast(t: &Ty) -> bool {
+    is_row(&from_ast(t))
 }
 // Some tuple type is used both for mixed-list rows and for real tuples.
 pub fn rows_clash() -> bool {

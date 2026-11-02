@@ -1,0 +1,1 @@
+{"line":5,"msg":"top is a copy of the item max() or min() picks, so changing top does not change the item in the list (Brevi values are copies, not shared)","fix":"find the item's index or key, then change xs[i] directly"}

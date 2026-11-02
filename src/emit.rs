@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__default", "__truediv"];
+const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__default", "__truediv"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -139,6 +139,7 @@ pub fn rust_ty(t: &Ty) -> String {
         },
         Ty::List(t) => format!("Vec<{}>", rust_ty(t)),
         Ty::Map(k, v) => format!("AxM<{}, {}>", rust_ty(k), rust_ty(v)),
+        Ty::Tuple(ts) if crate::infer::is_row_ast(t) => format!("AxRow<({},)>", ts.iter().map(rust_ty).collect::<Vec<_>>().join(", ")),
         Ty::Tuple(ts) => format!("({})", ts.iter().map(rust_ty).collect::<Vec<_>>().join(", ")),
         Ty::Unit => "()".into(),
     }
@@ -689,7 +690,8 @@ impl Emitter {
             match it {
                 Item::Type { name, fields, line } => {
                     e.structs.insert(name.clone(), fields.clone());
-                    if *line > 0 && crate::infer::py_on() && !crate::records::is_record(name) {
+                    // Python objects and dicts made records are shared handles.
+                    if crate::infer::py_on() && (*line > 0 || crate::records::is_record(name)) {
                         e.marked.insert(name.clone());
                     }
                 }
@@ -1056,6 +1058,7 @@ impl Emitter {
                         out.push_str(&format!("impl PartialOrd for {name} {{ fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {{ if self.0.is_null() || o.0.is_null() {{ return self.0.is_null().partial_cmp(&o.0.is_null()).map(|c| c.reverse()); }} (**self).partial_cmp(&**o) }} }}\n"));
                         out.push_str(&format!("impl std::fmt::Debug for {name} {{ fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {{ if self.0.is_null() {{ write!(f, \"None\") }} else {{ (**self).fmt(f) }} }} }}\n"));
                         out.push_str(&format!("impl AxIsNoneHandle for {name} {{ fn ax_null(&self) -> bool {{ self.0.is_null() }} }}\n"));
+                        out.push_str(&format!("impl AxShared for {name} {{}}\n"));
                         // The `}` that ends the struct in the other cases ends this empty impl.
                         out.push_str(&format!("impl {data} {{\n"));
                     }
@@ -2091,6 +2094,15 @@ impl Emitter {
         if !tried && self.call_is_fallible(&Expr::Call(name.into(), vec![], 0)) {
             self.diag(self.line, &format!("{name}() can fail but its error is not handled"), Some(format!("write {name}(...)? to pass the error up")));
         }
+        // A copy that is only wrong when the value is not shared: the Rust compiler checks the value's type,
+        // and an error there reports the message carried (hex) in the comment.
+        if name == "__shared" && args.len() == 2 {
+            let hex = match &args[1].1 {
+                Expr::Str(parts) => parts.iter().map(|p| if let StrPart::Lit(t) = p { t.clone() } else { String::new() }).collect::<String>(),
+                _ => String::new(),
+            };
+            return format!("ax_shared(&{}) /*axsh:{hex}*/", self.place(&args[0].1));
+        }
         // `str({"id": i, "error": m})` writes the keys in the order given, as Python does.
         if name == "str" && args.len() == 1 {
             if let Expr::Map(pairs) = &args[0].1 {
@@ -2153,7 +2165,8 @@ impl Emitter {
                     Some(j) if p.is_mut && !matches!(args[j].1, Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleField(..)) => ordered.push(format!("&mut ({})", plain[j])),
                     // A Python object is a shared handle: the function gets its own copy of the handle (changes reach
                     // the same object), so the caller's place is not borrowed while the other arguments are read.
-                    Some(j) if p.is_mut && matches!(&p.ty, Ty::Named(n) if self.marked.contains(n)) => ordered.push(format!("&mut ({})", plain[j])),
+                    // (Only `self`: other names passed by reference may be set to a new object, which the caller must see.)
+                    Some(j) if p.is_mut && p.name == "self_" && matches!(&p.ty, Ty::Named(n) if self.marked.contains(n)) => ordered.push(format!("&mut ({})", plain[j])),
                     Some(j) if p.is_mut => ordered.push(format!("&mut {}", self.place_mut(&args[j].1))),
                     Some(j) => ordered.push(plain[j].clone()),
                     None => {}

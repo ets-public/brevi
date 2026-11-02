@@ -850,6 +850,22 @@ fn report(rust: &str, stderr: &str) {
         } else if !label.is_empty() && !text.contains(&label) && !label.starts_with("method not found in") {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
+        // A copy Brevi refuses because the value is not shared (a `__shared` marker from alias.rs).
+        if msg.contains("AxShared") {
+            let src = primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("");
+            if let Some(h) = src.split("axsh:").nth(1).map(|h| h.split("*/").next().unwrap_or("")) {
+                let bytes: Vec<u8> = (0..h.len() / 2).filter_map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()).collect();
+                let t = String::from_utf8_lossy(&bytes).to_string();
+                let (m, f) = t.split_once('\u{1}').unwrap_or((&t, ""));
+                if !seen.insert(aline) {
+                    continue;
+                }
+                let mut d = Diag::new("check", aline, 1, m);
+                d.fix = Some(f.to_string());
+                print_diag(&d);
+                continue;
+            }
+        }
         let mut fix = fix_for(code, &format!("{msg} {label}"));
         if vague(code) {
             if let Some((t, f)) = vague_type_words(primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("")) {

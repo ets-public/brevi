@@ -1,0 +1,4 @@
+[['a', False], ['b', True], ['c', True]]
+[['a', 1], ['b', 0]]
+[{'k': 'x', 'n': 1, 'ok': True}, {'k': 'y', 'n': 12, 'ok': False}]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

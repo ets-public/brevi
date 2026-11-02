@@ -1,0 +1,10 @@
+# A list of ints picked by max() is a copy in Brevi: changing it is refused, since Python would change the
+# list inside grid.
+def main():
+    grid = [[1, 2], [3, 4]]
+    top = max(grid, key=lambda r: r[1])
+    top[1] = 0
+    print(grid)
+
+
+main()
