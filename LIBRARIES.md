@@ -16,3 +16,6 @@ py fn mean(xs: [f64]) -> f64:      # Python body; values cross as JSON (a type i
 py fn sq(x: int) -> int = x * x    # one-line form, also for rust fn
 ```
 A `py fn` can fail: a Python exception becomes its error. Top-level `rust:` and `py:` blocks hold shared Rust items or Python code. Give crate versions you know: without one cargo takes the newest.
+
+## Python libraries
+In Python files (`.py`, or a `.bv` written as Python), `import numpy as np`, `pandas`, `sqlite3`, `subprocess`, `pathlib`, `urllib.parse` or any other installed module runs in CPython inside the built program: its values, methods, operators (`a @ b`), iteration and exceptions (`except sqlite3.Error`) behave as in Python. Brevi's own modules (math, re, json, datetime, ...) stay native and fast; what they lack (`math.gcd`, `d.strftime(...)`) is taken from CPython. A list passed to a library sees its changes (`random.shuffle(xs)`); a lambda can be passed as a callback (`key=lambda r: r[1]`). The built program needs python3 with its shared library (libpython).

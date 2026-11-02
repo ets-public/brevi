@@ -340,11 +340,11 @@ print(<span class="s">"total: "</span> + n)</pre>
               <tr><th>Model cost, 6 XL tasks</th><th class="n">CPython</th><th class="n">Brevi</th></tr>
             </thead>
             <tbody>
-              <tr><td>Claude Sonnet</td><td class="n">$0.174</td><td class="n">$0.182</td></tr>
-              <tr><td>Claude Haiku</td><td class="n">$0.023</td><td class="n">$0.025</td></tr>
+              <tr><td>Claude Sonnet</td><td class="n">$0.192</td><td class="n">$0.191</td></tr>
+              <tr><td>Claude Haiku</td><td class="n">$0.024</td><td class="n">$0.024</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over four runs (2 November 2026, every task passed). Brevi's cost is within 7% of Python's. When Brevi cannot build a program yet, <code>brevi run</code> runs it with CPython instead; 39 of the 48 final programs built natively, and each release raises that share. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
+          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over two runs per model on 2 November 2026 (runs e25 and e26, the first where each side's prompt cache is kept apart; every task passed). Brevi costs the same as Python: 0.99x with Sonnet, 0.98x with Haiku. When Brevi cannot build a program yet, <code>brevi run</code> runs it with CPython instead. The share built natively still varies from run to run: 16 of the 24 final programs here (Sonnet 10 of 12, Haiku 6 of 12), 39 of 48 in the two runs before. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
         </div>
       </div>
     </div>

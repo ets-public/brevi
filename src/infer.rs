@@ -1037,6 +1037,13 @@ impl Cx<'_> {
                     "min" | "max" => args.iter().fold(Hole, |t, (_, a)| merge(t, self.ty(a, env))),
                     "heap" => Heap(Box::new(Hole)),
                     "ax_to_json" | "ax_tup_json" => Json,
+                    // pybridge: Python library values, and Brevi values made from them.
+                    "ax_pyb_int" | "ax_pyb_len" => Int,
+                    "ax_pyb_float" => F64,
+                    "ax_pyb_bool" => Bool,
+                    "ax_pyb_str" | "ax_pyb_repr" | "ax_pyb_format" => Str,
+                    "ax_pyb_items" | "ax_pyb_list" => List(Box::new(Named("AxPy".into()))),
+                    n if n.starts_with("ax_pyb") && !matches!(n, "ax_pyb_set" | "ax_pyb_setidx" | "ax_pyb_delidx") => Named("AxPy".into()),
                     "ax_jint" | "ax_jas_int" => Int,
                     "ax_json_dec" => Dec,
                     "ax_subset" => Bool,
@@ -1121,6 +1128,10 @@ impl Cx<'_> {
 
     fn method(&self, recv: &Expr, m: &str, args: &[Expr], env: &Env) -> T {
         let r = self.ty(recv, env);
+        // pybridge: a Python library value's own method gives a Python value.
+        if matches!(&r, Named(n) if n == "AxPy") && crate::pybridge::py_method(m) {
+            return Named("AxPy".into());
+        }
         let a = |i: usize| args.get(i).map(|x| self.ty(x, env)).unwrap_or(Hole);
         let lam = |i: usize, et: &T| match args.get(i) {
             Some(Expr::Lambda(ps, body)) => {
@@ -3242,6 +3253,18 @@ impl Ck<'_, '_> {
                     let v = std::mem::replace(x.as_mut(), Expr::Int(0));
                     **x = Expr::Call(f.into(), vec![(None, v)], 0);
                 }
+            }
+        }
+        // pybridge: `d.strftime(f)` with d a Python library value known by its type: CPython's method.
+        if let Expr::Method(r, m, args, line) = &*e {
+            if crate::pybridge::py_method(m) && matches!(self.cx.ty(r, env), Named(n) if n == "AxPy") {
+                *e = crate::pybridge::typed_call(r, m, args, *line);
+            }
+        }
+        // pybridge: only a list or dict given to a library is read back after the call (`random.shuffle(xs)`).
+        if let Expr::Call(f, a, _) = &mut *e {
+            if f == "ax_pyb_argm" && a.len() == 1 && !matches!(self.cx.ty(&a[0].1, env), List(_) | Map(..) | Hole) {
+                *f = "ax_pyb".into();
             }
         }
         // `Fraction(Decimal(s))`, `Decimal(d)`: a decimal already.

@@ -1093,6 +1093,11 @@ impl Emitter {
                             let pairs: Vec<String> = fields.iter().map(|f| format!("{2}{{ v.push((String::from(\"{1}\"), AxToJson::ax_json(&self.{0}))); }}", f.name, crate::records::key_of(&f.name), when(f))).collect();
                             out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ let mut v: Vec<String> = vec![]; {} format!(\"{{{{{{}}}}}}\", v.join(\", \")) }} }}\n", parts.join(" ")));
                             out.push_str(&format!("impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ let mut v = vec![]; {} ax_obj(v) }} }}\n", pairs.join(" ")));
+                            // pybridge: the dict given to a Python library.
+                            if crate::pybridge::active() {
+                                let pys: Vec<String> = fields.iter().map(|f| format!("{2}{{ v.push((String::from(\"{1}\"), AxToPy::ax_to_py(&self.{0}))); }}", f.name, crate::records::key_of(&f.name), when(f))).collect();
+                                out.push_str(&format!("impl AxToPy for {name} {{ fn ax_to_py(&self) -> AxPy {{ let mut v = vec![]; {} ax_pyb_dict(v) }} }}\n", pys.join(" ")));
+                            }
                         }
                         Some(f) => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ {f}(self.clone()).to_string() }} }}\n")),
                         None => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n")),
@@ -2266,6 +2271,21 @@ impl Emitter {
                 }
             }
             return format!("{name}({})", ordered.join(", "));
+        }
+        // pybridge: calls into the Python runtime (pyrt.rs).
+        if name.starts_with("ax_pyb") && crate::pybridge::active() {
+            // A name given to Python by place (its changes are written back); a lambda moves what it uses.
+            if name == "ax_pyb_argm" && args.len() == 1 {
+                let a = match &args[0].1 {
+                    Expr::Move(n) => Expr::Ident(n.clone()),
+                    other => other.clone(),
+                };
+                return format!("ax_pyb_argm(&mut {})", self.place_mut(&a));
+            }
+            if name.starts_with("ax_pyb_fn") {
+                return format!("{name}({})", plain.join(", ").replacen("(|", "(move |", 1));
+            }
+            return format!("{name}({})", plain.join(", "));
         }
         if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));

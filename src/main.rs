@@ -14,6 +14,7 @@ mod infer;
 mod mcp;
 mod modules;
 mod parser;
+mod pybridge;
 mod patch;
 
 use diag::{esc, Diag};
@@ -216,6 +217,7 @@ fn main() {
         }
     };
     SEGS.set(segs).ok();
+    pybridge::set_file(&file);
     // `allow read, write` lines, and with --sandbox (or any allow line) a refusal of anything undeclared.
     let with_allow = src.clone();
     let (src, allowed, cap_errs) = caps::split(&src);
@@ -490,10 +492,29 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
 }
 
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
+    // pybridge: a function of a Python module that Brevi lacks (math.gcd, itertools.combinations) is run by
+    // CPython; build again with it.
+    let mut k = 0;
+    loop {
+        let r = compile_once(src, moves, hints);
+        k += 1;
+        match &r {
+            Err(ds) if k < 8 && python_style(src) && pybridge::learn(ds, src) => continue,
+            _ => return r,
+        }
+    }
+}
+
+fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
     let (src, mut foreign) = ffi::split(src);
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
     if gui::active() {
         foreign.rust_top.push_str(&gui::runtime());
+    }
+    // pybridge: CPython for the Python libraries the program uses.
+    if pybridge::active() {
+        pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
+        foreign.rust_top.push_str(&pybridge::runtime());
     }
     ffi::attach(&mut items, &foreign);
     used_consts_first(&mut items);

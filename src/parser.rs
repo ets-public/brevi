@@ -50,7 +50,23 @@ type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
 
 type R<T> = Result<T, Diag>;
 
+// pybridge: values of Python libraries (see pybridge.rs). The program is parsed again while new names that
+// hold them are found, so a use before the assignment (in an earlier function) counts.
 pub fn parse_program(src: &str) -> R<Vec<Item>> {
+    crate::pybridge::scan(src);
+    let mut k = 0;
+    loop {
+        crate::pybridge::start_parse();
+        let mut items = parse_once(src)?;
+        k += 1;
+        if !crate::pybridge::grew() || k >= 6 {
+            crate::pybridge::lower(&mut items);
+            return Ok(items);
+        }
+    }
+}
+
+fn parse_once(src: &str) -> R<Vec<Item>> {
     crate::gui::scan(src);
     let mut toks = crate::lexer::indent_blocks(lex(src)?);
     if crate::python_style(src) {
@@ -408,6 +424,7 @@ impl Parser {
             let ret = if self.eat_sym("->") { self.ty()? } else { Ty::Named("?".into()) };
             let fallible = self.eat_sym("!");
             self.ret_map = matches!(ret, Ty::Map(..));
+            crate::pybridge::enter_fn(&name, &params);
             let saved_children = std::mem::take(&mut self.children);
             let saved_yields = std::mem::replace(&mut self.yields, false);
             let body = if self.eat_sym("=") {
@@ -419,6 +436,7 @@ impl Parser {
                 return Err(self.err("expected '=', ':' or '{' to start the function body"));
             };
             self.ret_map = false;
+            crate::pybridge::leave_fn();
             let kids = std::mem::replace(&mut self.children, saved_children);
             let mut body = body;
             // `best: int` with no value only names a local's type; the local is made where it is set.
@@ -734,7 +752,9 @@ impl Parser {
         let saved_attrs = std::mem::take(&mut self.attr_tys);
         self.in_exc_class = self.exc_rich.contains(&name);
         self.exc_init_arg = None;
+        crate::pybridge::enter_class(&name);
         let body = self.block();
+        crate::pybridge::leave_class();
         self.in_exc_class = false;
         let body = body?;
         let attr_tys = std::mem::replace(&mut self.attr_tys, saved_attrs);
@@ -942,6 +962,9 @@ impl Parser {
         if matches!(self.peek(), Tok::Ident(w) if w == "del") && !matches!(self.peek_at(1), Tok::Newline | Tok::Sym("=" | "(" | "." | "[")) {
             self.next();
             let e = self.expr()?;
+            if let Some(d) = crate::pybridge::del(&e, line) {
+                return Ok(d);
+            }
             return match e {
                 Expr::Index(b, k) => Ok(Stmt::Expr { expr: Expr::Method(b, "remove".into(), vec![*k], line), line }),
                 // `del xs[a:]` and `del xs[a:b]` keep the items around the slice.
@@ -963,6 +986,21 @@ impl Parser {
             let mut opened = Vec::new();
             loop {
                 let e = self.expr()?;
+                // pybridge: `with lib_value as name:`.
+                if opened.is_empty() && crate::pybridge::is_py(&e) {
+                    let name = if matches!(self.peek(), Tok::Ident(w) if w == "as_" || w == "as") {
+                        self.next();
+                        Some(self.ident()?)
+                    } else {
+                        None
+                    };
+                    let body = self.block()?;
+                    let mut stmts = crate::pybridge::with(e, name, body, self.pos, line);
+                    let first = stmts.remove(0);
+                    stmts.append(&mut self.pending);
+                    self.pending = stmts;
+                    return Ok(first);
+                }
                 if !matches!(&e, Expr::Call(f, _, _) if f.starts_with("__open_")) {
                     return Err(self.err("with is only supported with open(path) or open(path, mode)").fix_hint("read the file with open(path).read(), or use open(path, 'w') for writing"));
                 }
@@ -1246,6 +1284,9 @@ impl Parser {
                 }
                 value = Some(Expr::Tuple(xs));
             }
+            if let Some(v) = &value {
+                crate::pybridge::note_return(v);
+            }
             return Ok(Stmt::Return { value, line });
         }
         if self.eat_kw("break") {
@@ -1391,6 +1432,7 @@ impl Parser {
                     }
                     value = Expr::Tuple(vs);
                 }
+                crate::pybridge::note_assign(&e, &value);
                 if let (Expr::Ident(n), Expr::Call(c, _, _)) = (&e, &value) {
                     if self.class_names.contains(c) {
                         self.held.push(n.clone());
@@ -1665,7 +1707,7 @@ impl Parser {
             &["&"],
             &["<<", ">>"],
             &["+", "-"],
-            &["*", "/", "%", "//"],
+            &["*", "/", "%", "//", "@"],
         ];
         if level == LEVELS.len() {
             return self.unary();
@@ -1703,6 +1745,11 @@ impl Parser {
                 }
             } else {
                 chain = None;
+            }
+            // pybridge: an operator on a Python library value is Python's.
+            if let Some(x) = crate::pybridge::binop(op, negate, &lhs, &rhs, self.line()) {
+                lhs = x;
+                continue;
             }
             let empty = |e: &Expr| matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(m) if m.is_empty());
             lhs = if op == ".." {
@@ -1805,6 +1852,45 @@ impl Parser {
                 }
             }
             let line = self.line();
+            // pybridge: `.name`, `.name(...)`, `[...]` and `(...)` on a Python library value.
+            if let (Tok::Sym("."), Tok::Ident(a)) = (self.peek().clone(), self.peek_at(1).clone()) {
+                if let Some(m) = crate::pybridge::native_attr(&e, &a, line) {
+                    e = m;
+                }
+            }
+            if crate::pybridge::is_py(&e) && (self.is_sym(".") || self.is_sym("[") || self.is_sym("(")) {
+                if self.eat_sym(".") {
+                    let name = match self.next() {
+                        Tok::Ident(n) => crate::pybridge::unkw(&n),
+                        Tok::Kw(k) => k.to_string(),
+                        _ => return Err(self.err("expected a name after '.'")),
+                    };
+                    let args = if self.eat_sym("(") { Some(self.args()?) } else { None };
+                    e = crate::pybridge::member(e, &name, args, line);
+                } else if self.eat_sym("(") {
+                    let args = self.args()?;
+                    e = crate::pybridge::invoke(e, args, line);
+                } else {
+                    self.next();
+                    let mut keys = vec![];
+                    loop {
+                        let a = if self.is_sym(":") { None } else { Some(self.expr()?) };
+                        if self.eat_sym(":") {
+                            let b = if self.is_sym(":") || self.is_sym("]") || self.is_sym(",") { None } else { Some(self.expr()?) };
+                            let c = if self.eat_sym(":") && !self.is_sym("]") && !self.is_sym(",") { Some(self.expr()?) } else { None };
+                            keys.push(crate::pybridge::slice(a, b, c, line));
+                        } else if let Some(a) = a {
+                            keys.push(a);
+                        }
+                        if !self.eat_sym(",") || self.is_sym("]") {
+                            break;
+                        }
+                    }
+                    self.expect_sym("]")?;
+                    e = crate::pybridge::index(e, keys, line);
+                }
+                continue;
+            }
             if self.eat_sym(".") {
                 match self.next() {
                     Tok::Int(n) => e = Expr::TupleField(Box::new(e), n as usize),
@@ -2344,6 +2430,11 @@ impl Parser {
             return Err(self.err("expected in").fix_hint("write [x * 2 for x in xs]"));
         }
         let mut e = self.expr()?;
+        if crate::pybridge::is_py(&e) {
+            crate::pybridge::note_for(&Pat::Tuple(names.iter().map(|n| Pat::Bind(n.clone())).collect()), &e);
+        } else if crate::pybridge::active() {
+            crate::pybridge::note_comp_native(&names);
+        }
         // Comprehensions sit inside brackets, where Python lets `for`/`if` start a new line.
         self.skip_newlines();
         // `x for a in A for x in a`: each a gives a list; they are joined.
@@ -2447,6 +2538,9 @@ impl Parser {
                 if self.eat_sym("(") {
                     let mut args = self.args()?;
                     if let Some(x) = crate::gui::bare_call(&name, &args, line) {
+                        return Ok(x);
+                    }
+                    if let Some(x) = crate::pybridge::call_hook(&name, &args, &self.user_fns, line) {
                         return Ok(x);
                     }
                     // Python's len(xs), sum(xs), sorted(xs), min(xs), max(xs) are the methods.
@@ -2601,6 +2695,8 @@ impl Parser {
                     // `map(int, xs)`, `key=len`: a built-in conversion used as a function value.
                     let v = Expr::Ident("v_".into());
                     Ok(Expr::Lambda(vec!["v_".into()], Box::new(Expr::Method(Box::new(v), name, vec![], line))))
+                } else if let Some(x) = crate::pybridge::ident(&name, line) {
+                    Ok(x)
                 } else {
                     Ok(Expr::Ident(name))
                 }
@@ -2790,6 +2886,7 @@ impl Parser {
                     return Err(self.err("expected 'in' after the loop variable"));
                 }
                 let mut iter = self.expr()?;
+                crate::pybridge::note_for(&p, &iter);
                 // `for line in open(p)`: the file's lines, each with its "\n".
                 if let Expr::Call(f, a, l) = &iter {
                     if f == "__open_r" {

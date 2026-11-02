@@ -1,0 +1,13 @@
+def main():
+    row = ["08:30 Ab", 3, [5, 1, 4], ["x", "y"]]
+    for v in row:
+        pass
+    s = row[0]
+    print(s[2], s[-1], s[:2] + s[3:5], s[:5].replace(":", "").isdigit(), s.lower(), s.upper())
+    print(s.split(" "), s.startswith("08"), s.endswith("b"), s.find("Ab"), s.isascii())
+    xs = row[2]
+    print(sorted(xs, key=lambda v: -v), xs[1:], xs[-1])
+    print("-".join(row[3]))
+
+
+main()
