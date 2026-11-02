@@ -3577,6 +3577,7 @@ impl<T: Clone + PartialOrd> AxSetSub for Vec<T> {
 // Python string methods on a value whose type is only known to Rust: s.count(sub), set(s), ljust/rjust.
 pub trait AxStrMore {
     fn ax_count(&self, sub: impl AsRef<str>) -> i64;
+    fn ax_count_of(&self, sub: impl AsRef<str>) -> i64;
     fn ax_unique(&self) -> Vec<String>;
     fn ax_ljust(&self, n: i64) -> String;
     fn ax_skip(&self, n: i64) -> Vec<String>;
@@ -3588,6 +3589,9 @@ pub trait AxStrMore {
 }
 impl AxStrMore for String {
     fn ax_count(&self, sub: impl AsRef<str>) -> i64 {
+        self.ax_count_sub(sub)
+    }
+    fn ax_count_of(&self, sub: impl AsRef<str>) -> i64 {
         self.ax_count_sub(sub)
     }
     fn ax_unique(&self) -> Vec<String> {
@@ -4071,6 +4075,31 @@ impl<T: Clone> AxGroupRuns<T> for Vec<T> {
 impl AxGroupRuns<String> for String {
     fn ax_group_runs<K: PartialEq>(&self, f: impl Fn(String) -> K) -> Vec<(K, Vec<String>)> {
         self.chars().map(|c| c.to_string()).collect::<Vec<_>>().ax_group_runs(f)
+    }
+}
+// Python's xs.count(x), min(xs, default=d), max(xs, default=d) and a sorted list's first item or d.
+pub trait AxCountOf<T> {
+    fn ax_count_of(&self, x: &T) -> i64;
+    fn ax_first_or(&self, d: T) -> T;
+}
+impl<T: Clone + PartialEq> AxCountOf<T> for Vec<T> {
+    fn ax_count_of(&self, x: &T) -> i64 {
+        self.iter().filter(|y| *y == x).count() as i64
+    }
+    fn ax_first_or(&self, d: T) -> T {
+        self.first().cloned().unwrap_or(d)
+    }
+}
+pub trait AxMinOr<T> {
+    fn ax_min_or(&self, d: T) -> T;
+    fn ax_max_or(&self, d: T) -> T;
+}
+impl<T: Clone + PartialOrd> AxMinOr<T> for Vec<T> {
+    fn ax_min_or(&self, d: T) -> T {
+        if self.is_empty() { d } else { self.ax_min().unwrap_or(d) }
+    }
+    fn ax_max_or(&self, d: T) -> T {
+        if self.is_empty() { d } else { self.ax_max().unwrap_or(d) }
     }
 }
 // @regex: only included in programs that use regexes.

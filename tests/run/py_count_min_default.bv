@@ -1,0 +1,24 @@
+def part1():
+    rs = ["A", "K", "A", "2"]
+    groups = sorted(((rs.count(r), r) for r in set(rs)), reverse=True)
+    print(groups)
+    s = "banana"
+    print(s.count("an"), s.count("a"))
+    xs = [1.5, 2.5, 1.5]
+    print(xs.count(1.5), [x for x in rs if rs.count(x) == 1])
+    hs = [3, 1]
+    print(min((h for h in hs), default=0))
+    print(max(["aa", "b"], key=len, default=""), min([w for w in rs if w == "Q"], key=len, default="z"))
+
+
+def part2():
+    rs = [5, 3, 5, 2]
+    print(rs.count(5), "abcab".count("ab"), [(rs.count(r), r) for r in sorted(set(rs))])
+    hs = [(1, 2), (2, 3)]
+    print(min([h[1] for h in hs], default=1), min([], default=7), max([], default=0), max([4, 9], default=0))
+    words = ["a", "bb"]
+    print(max(words, key=len, default=""))
+
+
+part1()
+part2()

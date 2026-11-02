@@ -1,0 +1,15 @@
+import datetime
+from datetime import date
+
+def p(s):
+    return date(*map(int, s.split("-")))
+
+def q(s):
+    y, m, d = s.split("-")
+    return datetime.date(*[int(x) for x in (y, m, d)])
+
+def main():
+    print(p("2026-03-01"), q("2026-12-31"))
+    print(date(*(int(x) for x in "2020-02-29".split("-"))))
+
+main()

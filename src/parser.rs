@@ -1434,6 +1434,8 @@ impl Parser {
                                 args.push(Expr::Call("none".into(), vec![], line));
                             }
                             let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
+                            // xs.count(x) in Python counts the items equal to x (s.count(sub) counts a substring).
+                            let name = if self.py && name == "count" && args.len() == 1 && !matches!(args[0], Expr::Lambda(..)) && !self.own_method(&e) { "count_of".to_string() } else { name };
                             // Python's `"{} of {:>5}".format(a, b)` fills the string.
                             if name == "format" {
                                 if let Expr::Str(parts) = &e {
@@ -1552,6 +1554,12 @@ impl Parser {
                                 continue;
                             }
                             // datetime.date(y, m, d) is date(y, m, d); datetime.strptime(s, "%Y-%m-%d") (any alias) reads the date.
+                            // `datetime.date(*parts)`: one spread argument.
+                            if name == "date" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "datetime") {
+                                let mut a: Vec<(Option<String>, Expr)> = vec![(Some("__star".into()), args.remove(0))];
+                                e = python_call("date", &mut a, line).unwrap();
+                                continue;
+                            }
                             if name == "date" && args.len() == 3 && matches!(&e, Expr::Ident(m) if m == "datetime") {
                                 let mut a: Vec<(Option<String>, Expr)> = args.drain(..).map(|x| (None, x)).collect();
                                 e = python_call("date", &mut a, line).unwrap();
@@ -1915,6 +1923,19 @@ impl Parser {
                         let start = args.remove(1).1;
                         let xs = args.remove(0).1;
                         return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![], line))));
+                    }
+                    // min(xs, default=d), max(xs, default=d) and with key=f too: d when xs is empty.
+                    if (name == "min" || name == "max") && !self.user_fns.contains(&name) && (2..=3).contains(&args.len()) && args[0].0.is_none() && args.last().is_some_and(|a| a.0.as_deref() == Some("default")) {
+                        let d = args.pop().unwrap().1;
+                        let xs = args.remove(0).1;
+                        if let Some((_, f)) = args.pop().filter(|a| a.0.as_deref() == Some("key")) {
+                            let mut a = vec![f];
+                            if name == "max" {
+                                a.push(Expr::Bool(true));
+                            }
+                            return Ok(Expr::Method(Box::new(Expr::Method(Box::new(xs), "sort_by".into(), a, line)), "first_or".into(), vec![d], line));
+                        }
+                        return Ok(Expr::Method(Box::new(xs), format!("{name}_or"), vec![d], line));
                     }
                     // min(xs, key=f) and max(xs, key=f): the first item with the smallest or largest key.
                     if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() == 2 && args[0].0.is_none() && args[1].0.as_deref() == Some("key") {
@@ -2481,6 +2502,12 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
 fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) -> Option<Expr> {
     let m = |e: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(e), n.into(), a, line);
     if args.iter().any(|(n, _)| n.as_deref() == Some("__star")) {
+        // `date(*map(int, s.split("-")))`: the three parts joined back into "y-m-d".
+        if name == "date" && args.len() == 1 {
+            let e = args.remove(0).1;
+            let parts = m(e, "map", vec![Expr::Lambda(vec!["ax_x".into()], Box::new(Expr::Call("str".into(), vec![(None, Expr::Ident("ax_x".into()))], line)))]);
+            return Some(Expr::Call("date".into(), vec![(None, m(parts, "join", vec![Expr::Str(vec![StrPart::Lit("-".into())])]))], line));
+        }
         if name != "print" {
             return None;
         }
