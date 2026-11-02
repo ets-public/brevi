@@ -148,8 +148,15 @@ fn is_module_path(m: &str) -> bool {
 
 fn drop_py_imports(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
+    // Inside `from m import (a,` ... `b)`: the names run on to the closing bracket.
+    let mut open = false;
     for l in src.split_inclusive('\n') {
         let t = l.trim();
+        if open {
+            open = !t.contains(')');
+            out.push_str(if l.ends_with('\n') { "\n" } else { "" });
+            continue;
+        }
         // Decorators (`@dataclass`, `@staticmethod`, `@lru_cache(None)`): the code works the same without them.
         if t.starts_with('@') && t[1..].chars().next().map_or(false, |c| c.is_alphabetic()) {
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
@@ -162,6 +169,7 @@ fn drop_py_imports(src: &str) -> String {
         });
         // Any Python import line: the modules Brevi maps are built in, and `import` means nothing else here.
         if module.is_some_and(|ms| ms.iter().all(|m| PY_BUILTIN_MODULES.contains(m) || is_module_path(m))) {
+            open = t.starts_with("from ") && t.contains('(') && !t.contains(')');
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
         } else {
             out.push_str(l);
