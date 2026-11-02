@@ -144,6 +144,31 @@ pub fn json_lists(items: &mut [Item]) {
         });
         // A list of bools with None in it (`[True, None]`) is held as JSON too: a bool has no spare value for None.
         let bool_none = |xs: &[Expr]| xs.iter().any(|x| kind(x) == Some("none")) && xs.iter().all(|x| matches!(kind(x), Some("bool" | "none"))) && xs.iter().any(|x| kind(x) == Some("bool"));
+        // A literal written out by json.dumps (`json.dumps({'a': [1, 2, {'b': None}], 'c': True})`): its
+        // lists of mixed kinds hold JSON values.
+        crate::parser::walk_mut(body, &mut |e| {
+            if let Expr::Method(r, m, _, _) = e {
+                if m == "py_dumps" && matches!(r.as_ref(), Expr::List(_) | Expr::Map(_)) {
+                    // Every value inside becomes JSON, so no list or dict needs one item type.
+                    let wrap = |v: Expr| if kind(&v) == Some("none") { Expr::Ident("Null".into()) } else { Expr::Call("ax_to_json".into(), vec![(None, v)], 0) };
+                    crate::parser::walk_mut(r, &mut |x| match x {
+                        Expr::List(xs) => {
+                            for x in xs.iter_mut() {
+                                let v = std::mem::replace(x, Expr::Int(0));
+                                *x = wrap(v);
+                            }
+                        }
+                        Expr::Map(ps) => {
+                            for (_, v) in ps.iter_mut() {
+                                let x = std::mem::replace(v, Expr::Int(0));
+                                *v = wrap(x);
+                            }
+                        }
+                        _ => {}
+                    });
+                }
+            }
+        });
         // A row pushed on a list (`self.students.append([name, {}])`): a name or value next to a fresh dict or
         // list is a fixed-slot row, read by index (`rows[i][1][q] = v`), so it is a tuple.
         crate::parser::walk_mut(body, &mut |e| {
