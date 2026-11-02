@@ -17,7 +17,7 @@ const RESERVED: &[&str] = &[
 fn key_name(k: &Expr) -> Option<String> {
     let Expr::Str(parts) = k else { return None };
     let [StrPart::Lit(s)] = parts.as_slice() else { return None };
-    let ok = s.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let ok = s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     ok.then(|| field_of(s))
 }
 
@@ -110,7 +110,11 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     let mut typed_mixed: Vec<Vec<String>> = vec![];
     let mut first_line = vec![];
     for it in items.iter() {
-        let (Item::Fn { body, line, .. } | Item::Test { body, line, .. }) = it else { continue };
+        let (fname, body, line) = match it {
+            Item::Fn { name, body, line, .. } => (name.as_str(), body, line),
+            Item::Test { body, line, .. } => ("", body, line),
+            _ => continue,
+        };
         crate::infer::walk(body, &mut |e| {
             if let Expr::Map(ps) = e {
                 if let Some(keys) = shape_of(ps) {
@@ -125,6 +129,27 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             }
             if let Expr::Block(stmts, _) = e {
                 for st in stmts {
+                    // Dicts a function returns in the same place (`return qid, {"type": "choice", ...}` and
+                    // `return qid, {"type": "number", ...}`) are one record.
+                    if let Stmt::Return { value: Some(v), .. } = st {
+                        let slots: Vec<(usize, &Expr)> = match v {
+                            Expr::Map(_) => vec![(0, v)],
+                            Expr::Tuple(xs) => xs.iter().enumerate().filter(|(_, x)| matches!(x, Expr::Map(_))).collect(),
+                            _ => vec![],
+                        };
+                        for (i, m) in slots {
+                            let Expr::Map(ps) = m else { continue };
+                            if let Some(keys) = shape_of(ps) {
+                                let n = format!("@ret {fname} {i}");
+                                if let Some(s) = sets.iter_mut().find(|(k, _)| same(k, &keys)) {
+                                    s.1.insert(n);
+                                } else {
+                                    sets.push((keys, HashSet::from([n])));
+                                    first_line.push(*line);
+                                }
+                            }
+                        }
+                    }
                     if let Some((n, Expr::Map(ps))) = holder(st) {
                         if let Some(keys) = shape_of(ps) {
                             if let Some(s) = sets.iter_mut().find(|(k, _)| same(k, &keys)) {
@@ -270,7 +295,10 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             let all_empty = s.fixed.iter().all(|f| matches!(f, Some(Expr::List(_) | Expr::Map(_)))) && fixed_use;
             let differ = all_empty || all.len() >= 2 || (none_slot && !all.is_empty()) || typed_mixed.iter().any(|k| s.sets.iter().any(|m| same(k, m)));
             // Keys set later may show kinds; the literals' own keys show none.
-            let own_plain = s.keys.iter().zip(&s.kinds).all(|(k, kd)| kd.is_empty() || !s.sets.iter().any(|set| set.contains(k)));
+            // A literal with some keys of unknown kind (`{"Name": name, "N": n, "big": True}`) may hide a mix too;
+            // the eager try falls back to a plain dict if the record doesn't type.
+            let own_plain = s.keys.iter().zip(&s.kinds).all(|(k, kd)| kd.is_empty() || !s.sets.iter().any(|set| set.contains(k)))
+                || s.keys.iter().zip(&s.kinds).any(|(k, kd)| kd.is_empty() && s.sets.iter().any(|set| set.contains(k)));
             let named = eager && own_plain && holders.iter().all(|h| !dynamic.contains(*h)) && s.keys.iter().zip(&s.fixed).all(|(k, f)| f.is_none() || !s.sets.iter().any(|set| set.contains(k)));
             s.keys.len() >= 2 && (differ || named) && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
         })

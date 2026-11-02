@@ -1,0 +1,54 @@
+# From the e17 trials: a map of maps on a field, a dict key set later to values of different kinds,
+# and dicts returned from two branches (with capitalised keys) as one record.
+class Quiz:
+    def __init__(self):
+        self.scores = {}
+
+    def record(self, name, qid, score):
+        if name not in self.scores:
+            self.scores[name] = {}
+        self.scores[name][qid] = score
+
+
+
+def parse(t):
+    qid, typ = t[0], t[1]
+    q = {'type': typ, 'points': len(t)}
+    if typ == 'choice':
+        q['spec'] = t[2]
+    elif typ == 'multi':
+        q['spec'] = set(t[2])
+    else:
+        q['spec'] = [x.lower() for x in t[2].split('|')]
+    return qid, q
+
+
+def make(name, n):
+    if n > 2:
+        return {"Name": name, "N": n, "big": True}
+    return {"Name": name, "N": n, "big": False}
+
+
+def main():
+    q = Quiz()
+    q.record("ann", "q1", 3)
+    q.record("ann", "q2", 5)
+    q.record("bob", "q1", 1)
+    for name in sorted(q.scores):
+        total = sum(q.scores[name].values())
+        print(name, total, len(q.scores[name]))
+    for t in [["a", "choice", "B"], ["b", "multi", "AB"], ["c", "text", "X|y"]]:
+        qid, p = parse(t)
+        if p['type'] == 'choice':
+            print(qid, p['spec'] == 'B', p['points'])
+        elif p['type'] == 'multi':
+            print(qid, 'A' in p['spec'], len(p['spec']))
+        else:
+            print(qid, 'x' in p['spec'])
+    r = make("z", 9)
+    print(r["Name"], r["big"])
+    for r in [make("a", 1), make("b", 4)]:
+        print(r["Name"], r["N"], r["big"])
+
+
+main()
