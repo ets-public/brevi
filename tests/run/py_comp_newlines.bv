@@ -1,0 +1,20 @@
+questions = [{"id": 1}, {"id": 2}]
+answers = {1: "a"}
+def grade(q, a):
+    return 1 if a == "a" else 0
+scores = {q["id"]: grade(q, answers.get(q["id"]))
+          for q in questions}
+print(scores)
+xs = [q["id"]
+      for q in questions]
+print(xs)
+ev = sorted({q["id"]
+      for q in questions
+      if q["id"] > 1})
+print(ev)
+d2 = {
+    q["id"]: q["id"] * 2
+    for q in questions
+    if q["id"] > 0
+}
+print(d2)

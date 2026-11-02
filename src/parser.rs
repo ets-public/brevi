@@ -1798,6 +1798,8 @@ impl Parser {
             return Err(self.err("expected in").fix_hint("write [x * 2 for x in xs]"));
         }
         let mut e = self.expr()?;
+        // Comprehensions sit inside brackets, where Python lets `for`/`if` start a new line.
+        self.skip_newlines();
         // `x for a in A for x in a`: each a gives a list; they are joined.
         if self.eat_kw("for") {
             let inner = wrap(self.comprehension(elem)?);
@@ -1806,6 +1808,7 @@ impl Parser {
         if self.eat_kw("if") {
             // The condition uses Python truth (`if s.trim()`): `not not c` reads it that way.
             let c = self.expr()?;
+            self.skip_newlines();
             let c = if matches!(&c, Expr::Binary(op, ..) if ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op)) || matches!(c, Expr::Bool(_)) { c } else { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(c)))) };
             e = Expr::Method(Box::new(e), "filter".into(), vec![Expr::Lambda(names.clone(), Box::new(wrap(c)))], line);
         }
@@ -2080,6 +2083,8 @@ impl Parser {
                 self.skip_seps();
                 while !self.is_sym("}") {
                     let k = self.expr()?;
+                    // Python lets a `for` or `:` start the next line inside braces.
+                    self.skip_newlines();
                     // Python's sets: `{a, b}` and `{w for w in ws}` are lists without repeats.
                     if pairs.is_empty() && !self.is_sym(":") {
                         let line = self.line();
@@ -2101,7 +2106,9 @@ impl Parser {
                         return Ok(Expr::Method(Box::new(list), "unique".into(), vec![], line));
                     }
                     self.expect_sym(":")?;
+                    self.skip_newlines();
                     let v = self.expr()?;
+                    self.skip_newlines();
                     // Python's `{k: v for x in xs}`: a map filled by a loop over the pairs.
                     if pairs.is_empty() && self.is_kw("for") {
                         let line = self.line();
