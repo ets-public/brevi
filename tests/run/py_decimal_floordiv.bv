@@ -1,0 +1,5 @@
+from decimal import Decimal
+x = Decimal("7.25")
+print(x // 2, x % 2, Decimal("-7") % 3, Decimal("-7") // 3, x // Decimal("0.5"))
+r = (x * 100 + Decimal("0.5")) // 1
+print("%d.%02d" % (r // 100, r % 100))
