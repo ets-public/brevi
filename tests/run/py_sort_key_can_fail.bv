@@ -1,0 +1,16 @@
+def main():
+    ws = ["line 10: x", "line 2: y"]
+    def wline(w):
+        return int(w.split()[1].rstrip(":"))
+    ws.sort(key=wline)
+    print(ws)
+    counters = []
+    for d in [1, 2, 2, 1]:
+        while len(counters) < d:
+            counters.append(0)
+        counters[d - 1] += 1
+        for i in range(d, len(counters)):
+            counters[i] = 0
+        print(".".join(str(c) for c in counters[:d]))
+
+main()

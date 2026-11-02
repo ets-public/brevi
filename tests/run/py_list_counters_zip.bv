@@ -1,0 +1,27 @@
+def ph(line):
+    if not line.startswith("#"):
+        return None
+    n = len(line) - len(line.lstrip("#"))
+    return n, line[n:].strip()
+
+def main():
+    headings = []
+    for idx, line in enumerate(["# a", "## b", "x", "### c"], start=1):
+        h = ph(line)
+        if h is not None:
+            headings.append((idx, h[0], h[1]))
+    top = min(level for _, level, _ in headings)
+    depths = []
+    for line_no, level, _ in headings:
+        depth = 1 + (level - top)
+        depths.append(depth)
+    counters = []
+    for (line_no, level, text), depth in zip(headings, depths):
+        while len(counters) < depth:
+            counters.append(0)
+        counters[depth - 1] += 1
+        for i in range(depth, len(counters)):
+            counters[i] = 0
+        print(counters[:depth], text)
+
+main()

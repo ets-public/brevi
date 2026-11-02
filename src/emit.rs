@@ -1751,6 +1751,13 @@ impl Emitter {
                     // A function used as a value (`ops = [add, mul]`) is a fn pointer, so
                     // different functions with the same signature fit in one list or map.
                     format!("({n} as {f})")
+                } else if let Some(sig) = self.fns.get(n).filter(|f| f.fallible && n != "main" && !f.params.is_empty()) {
+                    // A function that can fail, used as a value (`xs.sort(key=wline)` with wline calling int(s)): its
+                    // error stops the run.
+                    let ps: Vec<String> = sig.params.iter().enumerate().map(|(i, p)| format!("ax_a{i}: {}", rust_ty(&p.ty))).collect();
+                    let args: Vec<String> = (0..sig.params.len()).map(|i| format!("ax_a{i}")).collect();
+                    let ret = if matches!(sig.ret, Ty::Unit) { "()".to_string() } else { rust_ty(&sig.ret) };
+                    format!("(|{}| -> {ret} {{ match {n}({}) {{ Ok(v) => v, Err(AxErr(e)) => panic!(\"{{}}\", ax_exc_msg(&e)) }} }})", ps.join(", "), args.join(", "))
                 } else {
                     n.clone()
                 }
