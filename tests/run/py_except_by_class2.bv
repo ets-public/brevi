@@ -1,0 +1,52 @@
+class AppError(Exception):
+    pass
+
+class NotFound(AppError):
+    pass
+
+class Brk(Exception):
+    pass
+
+def find(d, k):
+    if k not in d:
+        raise NotFound("missing " + k)
+    return d[k]
+
+def run(d, keys):
+    out = []
+    for k in keys:
+        try:
+            out.append(find(d, k))
+        except NotFound as e:
+            out.append("nf:" + str(e))
+    return out
+
+def outer(d):
+    try:
+        try:
+            find(d, "zz")
+        except Brk:
+            return "brk"
+    except AppError as e:
+        return "app " + str(e)
+    return "none"
+
+def again(d):
+    try:
+        try:
+            find(d, "q")
+        except NotFound:
+            raise
+    except Exception as e:
+        return "re " + str(e)
+    return "x"
+
+
+d = {"a": 1, "b": 2}
+print(run(d, ["a", "c", "b"]))
+print(outer(d))
+print(again(d))
+try:
+    int("zz")
+except ValueError:
+    print("bad int")

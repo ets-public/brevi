@@ -1,0 +1,10 @@
+class W:
+    def __init__(self):
+        self.rooms = {'hall': 'Big Hall'}
+        self.items = {'key': ['hall', 2]}
+def check(w, refs):
+    for kind, x in refs:
+        d = w.rooms if kind == 'room' else w.items
+        if x not in d:
+            print('unknown', kind, x)
+check(W(), [('room', 'hall'), ('item', 'key'), ('room', 'cellar'), ('item', 'lamp')])

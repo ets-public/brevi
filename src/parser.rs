@@ -29,6 +29,12 @@ pub struct Parser {
     yields: bool,
     // `self.x: T = v` annotations met in the class being parsed.
     attr_tys: Vec<(String, Ty)>,
+    // Python's `t = type(v)` in the function being parsed: `t is bool` reads as `type(v) is bool`.
+    type_names: HashMap<String, Expr>,
+    // Python error classes (`class Brk(Exception): pass`) and their bases, so `except Brk:` catches only Brk.
+    exc_bases: HashMap<String, Vec<String>>,
+    // Inside an except block: a bare `raise` raises the error being handled again.
+    in_handler: usize,
 }
 
 type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
@@ -45,7 +51,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0 };
     p.py = crate::python_style(src);
     p.class_names = p.toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
         (Tok::Ident(c), Tok::Ident(n)) if c == "class" => Some(n.clone()),
@@ -734,22 +740,33 @@ impl Parser {
             return false;
         }
         let save = self.pos;
+        let cname = match self.peek_at(1) {
+            Tok::Ident(n) => n.clone(),
+            _ => String::new(),
+        };
         self.pos += 2;
         // `class BadInput(ValueError):` with any body is an error class too.
         let mut error_base = false;
         // `class Cat(Animal): pass` is a real class.
         let mut other_base = false;
+        let mut bases = vec![];
         if self.eat_sym("(") {
             let mut depth = 1;
             while depth > 0 && self.peek() != &Tok::Eof {
                 match self.next() {
                     Tok::Sym("(") => depth += 1,
                     Tok::Sym(")") => depth -= 1,
-                    Tok::Ident(b) if depth == 1 && (b.ends_with("Exception") || b.ends_with("Error")) => error_base = true,
+                    Tok::Ident(b) if depth == 1 && (b.ends_with("Exception") || b.ends_with("Error") || self.exc_bases.contains_key(&b)) => {
+                        error_base = true;
+                        bases.push(b);
+                    }
                     Tok::Ident(b) if depth == 1 && b != "object" => other_base = true,
                     _ => {}
                 }
             }
+        }
+        if error_base && !cname.is_empty() {
+            self.exc_bases.insert(cname, bases);
         }
         let kids = self.children.len();
         let body = self.block();
@@ -819,6 +836,7 @@ impl Parser {
             self.next();
             let body = self.block()?;
             let mut handler: Option<Expr> = None;
+            let mut clauses: Vec<(Vec<String>, Option<String>, Expr)> = vec![];
             let mut err_name = String::from("_");
             let mut els: Option<Expr> = None;
             let mut fin: Option<Expr> = None;
@@ -829,19 +847,27 @@ impl Parser {
                     self.next();
                     let mut depth = 0;
                     let mut name = None;
+                    let mut classes: Vec<String> = vec![];
+                    let mut after_as = false;
                     while !(depth == 0 && matches!(self.peek(), Tok::Sym("{" | ":"))) && self.peek() != &Tok::Eof && self.peek() != &Tok::Newline {
                         match self.next() {
                             Tok::Sym("(" | "[") => depth += 1,
                             Tok::Sym(")" | "]") => depth -= 1,
                             Tok::Ident(w) if w == "as_" => {
+                                after_as = true;
                                 if let Tok::Ident(n) = self.peek().clone() {
                                     name = Some(n);
                                 }
                             }
+                            Tok::Ident(w) if !after_as => classes.push(w),
                             _ => {}
                         }
                     }
-                    let h = self.block()?;
+                    self.in_handler += 1;
+                    let h = self.block();
+                    self.in_handler -= 1;
+                    let h = h?;
+                    clauses.push((classes, name.clone(), h.clone()));
                     // Brevi errors carry only a message, so the first handler serves every error.
                     if handler.is_none() {
                         handler = Some(h);
@@ -870,6 +896,29 @@ impl Parser {
                     *bt = et;
                 }
             }
+            // Python: several except clauses, or one naming an error class of the program, pick the handler by the
+            // error's class (`except Brk: break` / `except Cont: continue`); an error no clause names goes on up.
+            let user = |c: &String| self.exc_bases.contains_key(c);
+            if self.py && (clauses.len() > 1 || clauses.iter().any(|(cs, _, _)| cs.iter().any(|c| user(c)))) {
+                let mut chain: Option<Expr> = None;
+                for (cs, nm, h) in clauses.iter().rev() {
+                    let mut h = match h.clone() {
+                        Expr::Block(st, t) => (st, t),
+                        other => (vec![], Some(Box::new(other))),
+                    };
+                    if let Some(n) = nm {
+                        h.0.insert(0, Stmt::Let { name: Pat::Bind(n.clone()), ty: None, value: Expr::Call("__err".into(), vec![], line), mutable: false, line });
+                    }
+                    let h = Expr::Block(h.0, h.1);
+                    let builtin = cs.is_empty() || cs.iter().any(|c| !user(c));
+                    let names = if cs.is_empty() { "BaseException".to_string() } else { cs.join(",") };
+                    let cond = Expr::Call("__exc_is".into(), vec![(None, Expr::Str(vec![StrPart::Lit(names)])), (None, Expr::Bool(builtin))], line);
+                    let rest = chain.take().unwrap_or_else(|| Expr::Call("fail".into(), vec![(None, Expr::Call("__err_raw".into(), vec![], line))], line));
+                    chain = Some(Expr::If(Box::new(cond), Box::new(h), Some(Box::new(Expr::Block(vec![], Some(Box::new(rest)))))));
+                }
+                handler = chain.map(|c| Expr::Block(vec![], Some(Box::new(c))));
+                err_name = "_".into();
+            }
             // An if whose condition is `__try()`: every pass over branches (types, names set on some paths) applies as is.
             let mut handler = match handler {
                 Some(Expr::Block(st, t)) => (st, t),
@@ -892,7 +941,10 @@ impl Parser {
         // Python's `raise ValueError("bad")` is fail("bad"); a bare `raise` or `raise KeyError` fails with the name.
         if matches!(self.peek(), Tok::Ident(w) if w == "raise") {
             self.next();
-            let msg = if self.peek() == &Tok::Newline || self.is_sym("}") {
+            let msg = if (self.peek() == &Tok::Newline || self.is_sym("}")) && self.py && self.in_handler > 0 {
+                // A bare `raise` in an except block: the same error again.
+                Expr::Call("__err_raw".into(), vec![], line)
+            } else if self.peek() == &Tok::Newline || self.is_sym("}") {
                 Expr::Str(vec![StrPart::Lit("error".into())])
             } else {
                 let e = self.expr()?;
@@ -902,12 +954,32 @@ impl Parser {
                         self.expr()?;
                     }
                 }
-                match e {
+                let class = match &e {
+                    Expr::Call(n, _, _) | Expr::Ident(n) if n.chars().next().map_or(false, |c| c.is_uppercase()) => Some(n.clone()),
+                    _ => None,
+                };
+                let msg = match e {
                     Expr::Call(n, mut args, _) if n.chars().next().map_or(false, |c| c.is_uppercase()) => {
                         if args.is_empty() { Expr::Str(vec![StrPart::Lit(n)]) } else { Expr::Call("str".into(), vec![(None, args.remove(0).1)], line) }
                     }
                     Expr::Ident(n) => Expr::Str(vec![StrPart::Lit(n)]),
                     other => Expr::Call("str".into(), vec![(None, other)], line),
+                };
+                // Python: the error carries its class and the classes above it, for `except Base:`.
+                match class {
+                    Some(c) if self.py => {
+                        let mut chain = vec![c.clone()];
+                        let mut at = c;
+                        while let Some(b) = self.exc_bases.get(&at).and_then(|b| b.first()).cloned() {
+                            if chain.contains(&b) {
+                                break;
+                            }
+                            chain.push(b.clone());
+                            at = b;
+                        }
+                        Expr::Call("__exc".into(), vec![(None, Expr::Str(vec![StrPart::Lit(chain.join(","))])), (None, msg)], line)
+                    }
+                    _ => msg,
                 }
             };
             return Ok(Stmt::Expr { expr: Expr::Call("fail".into(), vec![(None, msg)], line), line });
@@ -1146,10 +1218,30 @@ impl Parser {
                         return Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line });
                     }
                 }
+                if let (true, Expr::Ident(t), "=", Expr::Call(f, a, _)) = (self.py, &e, op, &value) {
+                    if f == "ax_type_of" && a.len() == 1 {
+                        self.type_names.insert(t.clone(), value.clone());
+                        return Ok(Stmt::Expr { expr: Expr::Block(vec![], None), line });
+                    }
+                }
                 return Ok(Stmt::Assign { target: e, op, value, line });
             }
         }
         self.expr_stmt(e, line)
+    }
+
+    // `type(x)` (or a name set to it): x.
+    fn type_of(&self, e: &Expr) -> Option<Expr> {
+        match self.type_named(e) {
+            Expr::Call(f, a, _) if f == "ax_type_of" && a.len() == 1 => Some(a[0].1.clone()),
+            _ => None,
+        }
+    }
+    fn type_named(&self, e: &Expr) -> Expr {
+        match e {
+            Expr::Ident(t) => self.type_names.get(t).cloned().unwrap_or_else(|| e.clone()),
+            e => e.clone(),
+        }
     }
 
     // An expression used as a statement, with Python's in-place methods spelled out.
@@ -1413,7 +1505,20 @@ impl Parser {
                 let x = if empty(&rhs) { lhs } else { rhs };
                 let t = Expr::Method(Box::new(x), "is_empty".into(), vec![], self.line());
                 if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
-            } else if let (true, Some((x, t))) = (op == "==" || op == "!=", type_test(&lhs, &rhs).or_else(|| type_test(&rhs, &lhs))) {
+            } else if let (true, Some(x), Expr::Tuple(ts) | Expr::List(ts)) = (op == "in" || op == "not in", self.type_of(&lhs), &rhs) {
+                // `type(c) in (list, str)`: c's kind is exactly one of them.
+                let names: Option<Vec<String>> = ts.iter().map(|t| type_test(&Expr::Call("ax_type_of".into(), vec![(None, Expr::Int(0))], 0), t).map(|(_, n)| format!("={n}"))).collect();
+                match names {
+                    Some(names) => {
+                        let t = Expr::Method(Box::new(x), "isinstance".into(), vec![Expr::Str(vec![StrPart::Lit(names.join(","))])], self.line());
+                        if op == "in" { t } else { Expr::Unary("!", Box::new(t)) }
+                    }
+                    None => Expr::Binary(op, Box::new(lhs), Box::new(rhs)),
+                }
+            } else if let (true, Some(a), Some(b)) = (op == "==" || op == "!=", self.type_of(&lhs), self.type_of(&rhs)) {
+                // `type(a) is type(b)`: the same kind.
+                Expr::Binary(op, Box::new(Expr::Method(Box::new(a), "type_kind".into(), vec![], self.line())), Box::new(Expr::Method(Box::new(b), "type_kind".into(), vec![], self.line())))
+            } else if let (true, Some((x, t))) = (op == "==" || op == "!=", type_test(&self.type_named(&lhs), &rhs).or_else(|| type_test(&self.type_named(&rhs), &lhs))) {
                 // `type(v) is int`: v's kind is exactly int (a bool is not).
                 let t = Expr::Method(Box::new(x), "isinstance".into(), vec![Expr::Str(vec![StrPart::Lit(format!("={t}"))])], self.line());
                 if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
@@ -2492,7 +2597,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![] };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0 };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
@@ -3049,15 +3154,16 @@ fn pick_names(body: &mut Expr) {
         Expr::Block(st, Some(v)) if st.is_empty() => v.as_ref().clone(),
         x => x.clone(),
     };
-    let mut cands: Vec<(String, String, String)> = Vec::new();
+    let mut cands: Vec<(String, Expr, Expr)> = Vec::new();
     walk_mut(body, &mut |e| {
         if let Expr::Block(ss, _) = e {
             for st in ss.iter() {
                 if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::If(_, t, Some(f)), .. } = st {
-                    if let (Expr::Ident(a), Expr::Ident(b)) = (bare(t), bare(f)) {
-                        if a != *n && b != *n {
-                            cands.push((n.clone(), a, b));
-                        }
+                    // Plain names or fields (`w.rooms if kind == 'room' else w.items`).
+                    let place = |x: &Expr| matches!(x, Expr::Ident(_)) || matches!(x, Expr::Field(r, _) if matches!(r.as_ref(), Expr::Ident(_)));
+                    let (a, b) = (bare(t), bare(f));
+                    if place(&a) && place(&b) && !matches!(&a, Expr::Ident(x) if x == n) && !matches!(&b, Expr::Ident(x) if x == n) {
+                        cands.push((n.clone(), a, b));
                     }
                 }
             }
@@ -3087,7 +3193,7 @@ fn pick_names(body: &mut Expr) {
             if let Expr::Binary(op @ ("in" | "not in"), l, r) = e {
                 if matches!(r.as_ref(), Expr::Ident(x) if *x == n) {
                     let op: &'static str = op;
-                    let side = |d: &str| Expr::Block(vec![], Some(Box::new(Expr::Binary(op, l.clone(), Box::new(Expr::Ident(d.into()))))));
+                    let side = |d: &Expr| Expr::Block(vec![], Some(Box::new(Expr::Binary(op, l.clone(), Box::new(d.clone())))));
                     *e = Expr::If(Box::new(Expr::Ident(flag.clone())), Box::new(side(&a)), Some(Box::new(side(&b))));
                     return;
                 }

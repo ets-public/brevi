@@ -267,6 +267,15 @@ pub fn global_types(items: &[Item]) -> HashMap<String, Ty> {
     empty_cx(items).genv.iter().filter_map(|(n, t)| Some((n.clone(), to_ast(t).or_else(|| if py_on() && some_known(t) { to_ast(&none_slots(t)) } else { None })?))).collect()
 }
 
+fn ty_depth(t: &T) -> usize {
+    match t {
+        Tuple(xs) => 1 + xs.iter().map(ty_depth).max().unwrap_or(0),
+        List(e) | Heap(e) => 1 + ty_depth(e),
+        Map(k, v) => 1 + ty_depth(k).max(ty_depth(v)),
+        _ => 0,
+    }
+}
+
 // Hole slots of tuples (inside lists, maps and tuples) as JSON.
 fn none_slots(t: &T) -> T {
     match t {
@@ -1064,6 +1073,7 @@ impl Cx<'_> {
             "ints" => List(Box::new(Int)),
             "json" => Json,
             "is_null" | "is_none" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "is_ascii" | "is_leap" | "isinstance" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
+            "type_kind" => Str,
             "pop_item" => match &r {
                 Map(k, v) => Tuple(vec![*k.clone(), *v.clone()]),
                 _ => Hole,
@@ -1262,7 +1272,7 @@ fn json_slots(ts: &[T]) -> Vec<Vec<usize>> {
                 p.insert(0, i);
                 p
             }));
-        } else if known.iter().any(|a| known.iter().any(|b| ty_clash(a, b))) {
+        } else if known.iter().any(|a| known.iter().any(|b| ty_clash(a, b) || (py_on() && clash(a, b) && !matches!((a, b), (Int, F64) | (F64, Int))))) {
             out.push(vec![i]);
         }
     }
@@ -1395,6 +1405,36 @@ fn stmt_branch(e: &Expr) -> bool {
             !matches!(e, Expr::Call(n, _, _) if n == "fail") && no_value(e)
         }
         _ => false,
+    }
+}
+
+// `return x` in a function that gives dynamic values: `return ax_to_json(x)` (None is JSON null).
+fn whole_json_returns(body: &mut Expr) {
+    let wrap = |v: &mut Expr| {
+        if matches!(v, Expr::Call(f, _, _) if f == "ax_to_json" || f == "ax_tup_json") || matches!(v, Expr::Ident(n) if n == "Null") {
+            return;
+        }
+        if matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty()) {
+            *v = Expr::Ident("Null".into());
+            return;
+        }
+        let inner = std::mem::replace(v, Expr::Int(0));
+        *v = Expr::Call(if matches!(inner, Expr::Tuple(_)) { "ax_tup_json" } else { "ax_to_json" }.into(), vec![(None, inner)], 0);
+    };
+    crate::parser::walk_mut(body, &mut |e| {
+        if let Expr::Block(stmts, _) = e {
+            for st in stmts.iter_mut() {
+                if let Stmt::Return { value: Some(v), .. } = st {
+                    wrap(v);
+                }
+            }
+        }
+    });
+    if let Expr::Block(_, Some(t)) = body {
+        // A Python try at the end (`if __try() {..} else {..}`) gives no value: its returns are wrapped above.
+        if !no_value(t) && !(py_on() && matches!(&**t, Expr::If(c, _, _) if matches!(&**c, Expr::Call(f, _, _) if f == "__try"))) {
+            wrap(t);
+        }
     }
 }
 
@@ -1749,6 +1789,12 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     // Whether the last round still learned types from calls or returns (the evidence param_look waits for).
     let mut moving = true;
     let mut closing = false;
+    // Parameters written without a type: in Python files one that later gets values of a clashing type holds JSON.
+    let inferred: HashSet<(String, usize)> = items
+        .iter()
+        .filter_map(|i| if let Item::Fn { name, params, .. } = i { Some((name, params)) } else { None })
+        .flat_map(|(n, ps)| ps.iter().enumerate().filter(|(_, p)| q(&p.ty)).map(move |(i, _)| (n.clone(), i)))
+        .collect();
     for round in 0..12 {
         // Top-level names (`ts = {}` filled inside a function) are known by type where functions read them.
         let genv = empty_cx(items).genv;
@@ -1771,6 +1817,64 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
         }
         let last = round == 11;
+        if py_on() && round >= 1 {
+            let mut to_json: Vec<(String, usize)> = vec![];
+            for it in items.iter() {
+                let Item::Fn { params, body, .. } = it else { continue };
+                let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                cx.flat_env(body, &mut env);
+                // Calls inside `', '.join(rep(x) for x in v)` see x as an item of v.
+                let mut scopes: Vec<(Expr, Env)> = vec![(body.clone(), env.clone())];
+                walk(body, &mut |e| {
+                    if let Expr::Method(r, _, args, _) = e {
+                        for a in args {
+                            if let Expr::Lambda(ps, lb) = a {
+                                let mut inner = env.clone();
+                                bind_params(ps, &each_elem(&cx.ty(r, &env)), &mut inner);
+                                scopes.push((lb.as_ref().clone(), inner));
+                            }
+                        }
+                    }
+                });
+                for (sb, env) in &scopes {
+                let mut calls = Vec::new();
+                calls_in(sb, &mut calls);
+                for (f, args) in calls {
+                    let Some((ps, _)) = cx.fns.get(f) else { continue };
+                    for (j, (nm, a)) in args.iter().enumerate() {
+                        let pi = match nm {
+                            Some(nm) => ps.iter().position(|p| &p.0 == nm),
+                            None => Some(j),
+                        };
+                        let Some(pi) = pi else { continue };
+                        let Some((_, pt)) = ps.get(pi) else { continue };
+                        if !inferred.contains(&(f.to_string(), pi)) || !known(pt) || *pt == Json {
+                            continue;
+                        }
+                        let at = cx.ty(a, env);
+                        if (at == Json || known(&at) && clash(pt, &at) && !matches!((pt, &at), (F64, Int))) && !to_json.contains(&(f.to_string(), pi)) {
+                            to_json.push((f.to_string(), pi));
+                        }
+                    }
+                }
+                }
+            }
+            for it in items.iter_mut() {
+                if let Item::Fn { name, params, .. } = it {
+                    for (f, pi) in &to_json {
+                        if f == name {
+                            params[*pi].ty = Ty::Named("Json".into());
+                        }
+                    }
+                }
+            }
+            if !to_json.is_empty() {
+                closing = false;
+                if round < 9 {
+                    continue;
+                }
+            }
+        }
         // A field typed this round is seen by the functions only next round.
         let mut fields_moved = false;
         let mut errs = Vec::new();
@@ -1839,6 +1943,50 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     }
                 }
             });
+        }
+        // Python: a name set to values of clashing types anywhere in a function (`e = self.and_()` giving JSON,
+        // then `e = ('or', e, r)`) holds JSON values.
+        if py_on() {
+            for it in items.iter_mut() {
+                let Item::Fn { params, body, .. } = it else { continue };
+                let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                cx.flat_env(body, &mut env);
+                let mut sets: Vec<(String, T)> = vec![];
+                walk(body, &mut |e| {
+                    if let Expr::Block(stmts, _) = e {
+                        for st in stmts {
+                            if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } = st {
+                                sets.push((n.clone(), cx.ty(value, &env)));
+                            }
+                        }
+                    }
+                });
+                // (Not a plain value changed to another kind, `x = int(x)`: each setting is its own name then.)
+                let tuples = |a: &T, b: &T| matches!((a, b), (Tuple(x), Tuple(y)) if x.len() != y.len() || ty_clash(a, b) || x.iter().zip(y).any(|(p, q)| known(p) && known(q) && clash(p, q)));
+                let odd = |a: &T, b: &T| (known(a) && known(b) && tuples(a, b)) || (*a == Json && known(b) && *b != Json) || (*b == Json && known(a) && *a != Json);
+                let mut names: Vec<String> = vec![];
+                for (n, t) in &sets {
+                    if !names.contains(n) && params.iter().all(|p| &p.name != n) && sets.iter().any(|(m, u)| m == n && odd(t, u)) {
+                        names.push(n.clone());
+                    }
+                }
+                if names.is_empty() {
+                    continue;
+                }
+                crate::parser::walk_mut(body, &mut |e| {
+                    if let Expr::Block(stmts, _) = e {
+                        for st in stmts.iter_mut() {
+                            if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } = st {
+                                if names.contains(n) && cx.ty(value, &env) != Json && !matches!(value, Expr::Call(f, _, _) if f == "ax_to_json" || f == "ax_tup_json") {
+                                    let v = std::mem::replace(value, Expr::Int(0));
+                                    let f = if matches!(v, Expr::Tuple(_)) { "ax_tup_json" } else { "ax_to_json" };
+                                    *value = Expr::Call(f.into(), vec![(None, v)], *line);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
         }
         // A parameter written without a type (`fn chk(t: str, cc):`) takes the type of what the calls pass.
         let untyped: HashMap<String, usize> = items
@@ -1969,6 +2117,53 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 fills.retain(|(k, pi, _)| !clash.contains(&(*k, *pi)));
                 for (k, pi) in clash {
                     fills.push((k, pi, Ty::Named("Json".into())));
+                }
+            }
+            let mut json_params: Vec<(usize, usize)> = vec![];
+            // Python: a parameter nothing pins down by round 9 (minilang's `eval(node, env)` over mixed tuples)
+            // holds dynamic (JSON) values, unless the function calls it (a function value).
+            if py_on() && round == 9 {
+                // Only for functions called by name somewhere (a method still written `self._ordered(sku)` is typed
+                // from its calls once they are rewritten).
+                let mut by_name: HashSet<String> = HashSet::new();
+                for it in items.iter() {
+                    if let Item::Fn { body, .. } = it {
+                        walk(body, &mut |e| {
+                            if let Expr::Call(f, _, _) = e {
+                                by_name.insert(f.clone());
+                            }
+                        });
+                    }
+                }
+                for (k, it) in items.iter().enumerate() {
+                    let Item::Fn { name, params, body, .. } = it else { continue };
+                    if !by_name.contains(name) {
+                        continue;
+                    }
+                    for (pi, p) in params.iter().enumerate() {
+                        if !q(&p.ty) || fills.iter().any(|f| f.0 == k && f.1 == pi && !has_q(&f.2)) {
+                            continue;
+                        }
+                        let (mut called, mut read) = (false, false);
+                        walk(body, &mut |e| {
+                            if matches!(e, Expr::Call(f, _, _) if *f == p.name) {
+                                called = true;
+                            }
+                            if matches!(e, Expr::Ident(x) | Expr::Move(x) if *x == p.name) {
+                                read = true;
+                            }
+                        });
+                        // (An unused parameter is dropped later.)
+                        if !called && read {
+                            json_params.push((k, pi));
+                        }
+                    }
+                }
+            }
+            fills.retain(|f| !json_params.contains(&(f.0, f.1)));
+            for (k, pi) in json_params {
+                if let Item::Fn { params, .. } = &mut items[k] {
+                    params[pi].ty = Ty::Named("Json".into());
                 }
             }
             for (k, pi, t) in fills {
@@ -2224,9 +2419,12 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
         let mut to_json: Vec<(usize, Vec<Vec<usize>>)> = Vec::new();
         let mut to_tup: Vec<usize> = Vec::new();
         let mut to_bare: Vec<usize> = Vec::new();
+        let mut to_whole: Vec<usize> = Vec::new();
         for (k, it) in items.iter().enumerate() {
             let Item::Fn { name, params, ret, body, line, .. } = it else { continue };
-            if !has_q(ret) {
+            // Python: a function already typed is looked at again when one of its results became JSON since.
+            let settled = !has_q(ret);
+            if settled && !(py_on() && round >= 1 && !matches!(ret, Ty::Unit) && from_ast(ret) != Json && name != "main") {
                 continue;
             }
             let old_ret = ret.clone();
@@ -2288,7 +2486,46 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             if tup {
                 to_tup.push(k);
             }
-            let t = if json || tup { Json } else { ts.into_iter().fold(Hole, merge) };
+            // Python: a tuple slot not known on one path yet (`('name', t)` with t from a field typed later) stays
+            // open until it is, so `('lit', 1)` on another path does not decide it.
+            let open_slots: Vec<usize> = if py_on() && round < 9 {
+                let tuples: Vec<&Vec<T>> = ts.iter().filter_map(|t| if let Tuple(xs) = t { Some(xs) } else { None }).collect();
+                let n = tuples.first().map_or(0, |x| x.len());
+                if tuples.len() >= 2 && tuples.iter().all(|x| x.len() == n) {
+                    (0..n).filter(|&i| tuples.iter().any(|x| x[i] == Hole) && tuples.iter().any(|x| known(&x[i]))).collect()
+                } else {
+                    vec![]
+                }
+            } else {
+                vec![]
+            };
+            // Python: results of clashing kinds (`return e[1]` giving JSON, `return [...]`, `return not a`) are
+            // dynamic (JSON) values.
+            let odd = |a: &T, b: &T| known(a) && known(b) && (clash(a, b) || ty_clash(a, b)) && !matches!((a, b), (Int, F64) | (F64, Int));
+            let mixed = py_on() && !json && !tup && to_json.last().map_or(true, |(kk, _)| *kk != k) && (ts.iter().any(|a| ts.iter().any(|b| odd(a, b))) || (ts.contains(&Json) && ts.iter().any(|t| known(t) && *t != Json)));
+            if settled {
+                // Only a JSON result next to the settled type changes it.
+                let rt = from_ast(&old_ret);
+                if ts.iter().any(|t| *t == Json) && known(&rt) && !matches!(rt, Unit) {
+                    to_whole.push(k);
+                    found.push((k, Ty::Named("Json".into())));
+                } else if matches!(&rt, List(x) if scalar(x)) && ts.iter().any(|t| matches!(t, List(x) if **x == Json)) {
+                    // A list typed early from its first items, later found to hold mixed (JSON) items.
+                    found.push((k, Ty::List(Box::new(Ty::Named("Json".into())))));
+                }
+                continue;
+            }
+            if mixed {
+                to_whole.push(k);
+            }
+            let mut t = if json || tup || mixed { Json } else { ts.into_iter().fold(Hole, merge) };
+            if let Tuple(xs) = &mut t {
+                for &i in &open_slots {
+                    if let Some(x) = xs.get_mut(i) {
+                        *x = Hole;
+                    }
+                }
+            }
             match to_ast(&t) {
                 Some(t) => found.push((k, t)),
                 // No `return` and a last line of unclear type (`if c: print(x) else: m.remove(k)`): no value, as in Python.
@@ -2299,12 +2536,21 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         found.push((k, t));
                     }
                 }
+                // Python: a function whose results have no one type (parser functions giving `('lit', v)`,
+                // `('call', name, args)` ...) gives dynamic (JSON) values.
+                None if py_on() && round >= 9 && round < 11 && has_return && !matches!(t, Unit) && (to_ast_part(&t).is_none() || ty_depth(&t) > 4 || round == 10) && partner_ret(items, name, &cx.fns, &t).is_none() => {
+                    found.push((k, Ty::Named("Json".into())));
+                    to_whole.push(k);
+                }
                 None if last => {
                     let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out what {name} returns"));
                     d.fix = Some(format!("write the return type: fn {name}(...) -> TYPE"));
                     errs.push(d);
                 }
                 // Partly known (`(Board, str, ?)`): callers see the known parts this round.
+                // A partial type that nests deeper each round (`('or', e, ...)` built from its own result) is
+                // recursive: it is left open, and JSON from round 9.
+                None if ty_depth(&t) > 4 => {}
                 None => {
                     if let Some(p) = to_ast_part(&t) {
                         if format!("{p:?}") != format!("{old_ret:?}") {
@@ -2315,6 +2561,11 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
         }
         moving = !found.is_empty() || fields_moved;
+        for k in to_whole {
+            if let Item::Fn { body, .. } = &mut items[k] {
+                whole_json_returns(body);
+            }
+        }
         for k in to_bare {
             if let Item::Fn { body, .. } = &mut items[k] {
                 bare_returns(body);
