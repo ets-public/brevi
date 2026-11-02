@@ -20,7 +20,7 @@ use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--sandbox] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--sandbox] [--window] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -174,6 +174,9 @@ fn main() {
     }
     let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
     let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
+        gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let (cmd, file) = match (argv.first(), argv.get(1)) {
         (Some(c), Some(f)) => (c.as_str(), f.clone()),
         _ => {
@@ -211,7 +214,12 @@ fn main() {
         exit(1);
     }
     let foreign = ffi::split(&src).1;
-    DEPS.set(ffi::all_deps(&foreign)).ok();
+    let mut deps = ffi::all_deps(&foreign);
+    // A tkinter program built with --window draws through eframe.
+    if gui::window() && src.lines().any(|l| (l.starts_with("import tkinter") || l.starts_with("from tkinter")) && !deps.iter().any(|d| d.name == "eframe")) {
+        deps.push(gui::window_dep());
+    }
+    DEPS.set(deps).ok();
     RUST_LINES.set(foreign.rust_lines.clone()).ok();
     let (src, fixed) = autofix(&src, cmd == "fix");
     for (line, old, new) in &fixed {
