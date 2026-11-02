@@ -1621,11 +1621,32 @@ impl AxRef<i64, Json> for Json {
         match self {
             Json::Arr { v } | Json::Tup { v } => {
                 let j = if *i < 0 { v.len() as i64 + *i } else { *i };
-                v.get(j.max(0) as usize).unwrap_or(&AX_NULL)
+                match v.get(j.max(0) as usize) {
+                    Some(x) if j >= 0 => x,
+                    _ if ax_py_on() => panic!("IndexError: {} index out of range", if matches!(self, Json::Tup { .. }) { "tuple" } else { "list" }),
+                    _ => &AX_NULL,
+                }
+            }
+            // s[i] on dynamic text: the character, as a one-character string.
+            Json::Str { v } => {
+                let n = v.chars().count() as i64;
+                let j = if *i < 0 { n + *i } else { *i };
+                match v.chars().nth(j.max(0) as usize) {
+                    Some(c) if j >= 0 => ax_char_json(c),
+                    _ if ax_py_on() => panic!("IndexError: string index out of range"),
+                    _ => &AX_NULL,
+                }
             }
             _ => &AX_NULL,
         }
     }
+}
+// One shared Json string per character, so s[i] can hand out a reference (each character is made once).
+fn ax_char_json(c: char) -> &'static Json {
+    thread_local! {
+        static CHARS: std::cell::RefCell<HashMap<char, &'static Json>> = std::cell::RefCell::new(HashMap::new());
+    }
+    CHARS.with(|m| *m.borrow_mut().entry(c).or_insert_with(|| Box::leak(Box::new(Json::Str { v: c.to_string() }))))
 }
 // j[k] with a Json key: a string looks up an object field, a number an array item.
 impl AxRef<Json, Json> for Json {
@@ -4491,6 +4512,97 @@ impl AxTryList<Json> for Json {
     }
     fn ax_try_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(Json) -> R<K>, rev: bool) -> R<Vec<Json>> {
         self.ax_list().ax_try_sort_by_rev(f, rev)
+    }
+}
+// Text and list methods on a dynamic value (a parameter or slot whose type could not be fixed): each works on
+// the text or list inside, as Python's would; any other kind stops the run with Python's TypeError.
+impl Json {
+    fn ax_jtext(&self, m: &str) -> &String {
+        match self {
+            Json::Str { v } => v,
+            other => panic!("TypeError: {} has no method {m}", other.ax_kind()),
+        }
+    }
+    fn ax_jitems(&self, m: &str) -> Vec<Json> {
+        match self {
+            Json::Arr { v } | Json::Tup { v } => v.clone(),
+            Json::Str { v } => v.chars().map(|c| Json::Str { v: c.to_string() }).collect(),
+            Json::Obj { v } => v.m.keys().map(|k| Json::Str { v: k.clone() }).collect(),
+            other => panic!("TypeError: {} has no method {m}", other.ax_kind()),
+        }
+    }
+    pub fn ax_slice(&self, a: i64, b: i64) -> Json {
+        match self {
+            Json::Str { v } => Json::Str { v: AxStr::ax_slice(v, a, b) },
+            Json::Arr { v } => Json::Arr { v: AxList::ax_slice(v, a, b) },
+            Json::Tup { v } => Json::Tup { v: AxList::ax_slice(v, a, b) },
+            other => panic!("TypeError: {} cannot be sliced", other.ax_kind()),
+        }
+    }
+    pub fn ax_lower(&self) -> String {
+        self.ax_jtext("lower").ax_lower()
+    }
+    pub fn ax_upper(&self) -> String {
+        self.ax_jtext("upper").ax_upper()
+    }
+    pub fn ax_trim(&self) -> String {
+        self.ax_jtext("strip").ax_trim()
+    }
+    pub fn ax_split(&self, sep: String) -> Vec<String> {
+        self.ax_jtext("split").ax_split(sep)
+    }
+    pub fn ax_words(&self) -> Vec<String> {
+        self.ax_jtext("split").ax_words()
+    }
+    pub fn ax_lines(&self) -> Vec<String> {
+        self.ax_jtext("splitlines").ax_lines()
+    }
+    pub fn ax_chars(&self) -> Vec<String> {
+        self.ax_jtext("chars").ax_chars()
+    }
+    pub fn ax_starts_with(&self, x: String) -> bool {
+        self.ax_jtext("startswith").ax_starts_with(x)
+    }
+    pub fn ax_ends_with(&self, x: String) -> bool {
+        self.ax_jtext("endswith").ax_ends_with(x)
+    }
+    pub fn ax_replace(&self, a: String, b: String) -> String {
+        self.ax_jtext("replace").ax_replace(a, b)
+    }
+    pub fn ax_find(&self, x: String) -> i64 {
+        self.ax_jtext("find").ax_find(x)
+    }
+    pub fn ax_is_digit(&self) -> bool {
+        self.ax_jtext("isdigit").ax_is_digit()
+    }
+    pub fn ax_is_alpha(&self) -> bool {
+        self.ax_jtext("isalpha").ax_is_alpha()
+    }
+    pub fn ax_is_space(&self) -> bool {
+        self.ax_jtext("isspace").ax_is_space()
+    }
+    pub fn ax_is_ascii(&self) -> bool {
+        self.ax_jtext("isascii").ax_is_ascii()
+    }
+    pub fn ax_sort_by<K: PartialOrd>(&self, f: impl Fn(Json) -> K) -> Vec<Json> {
+        self.ax_jitems("sort").ax_sort_by(f)
+    }
+    pub fn ax_sort_by_rev<K: PartialOrd>(&self, f: impl Fn(Json) -> K, rev: bool) -> Vec<Json> {
+        self.ax_jitems("sort").ax_sort_by_rev(f, rev)
+    }
+    pub fn ax_rev(&self) -> Json {
+        match self {
+            Json::Str { v } => Json::Str { v: AxStrRev::ax_rev(v) },
+            Json::Tup { v } => Json::Tup { v: v.iter().rev().cloned().collect() },
+            other => Json::Arr { v: other.ax_jitems("reversed").into_iter().rev().collect() },
+        }
+    }
+    // sep.join(xs) with xs dynamic: its items' text.
+    pub fn ax_join(&self, sep: String) -> String {
+        self.ax_jitems("join").iter().map(|x| x.ax_text()).collect::<Vec<_>>().join(&sep)
+    }
+    pub fn ax_index_of(&self, x: &Json) -> i64 {
+        self.ax_jitems("index").iter().position(|y| y == x).map_or(-1, |i| i as i64)
     }
 }
 // A JSON list read item by item, as Python code does with json.loads values.
