@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__default", "__zero", "__truediv", "__readline"];
+const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__exc_obj", "__exc_get", "__default", "__zero", "__truediv", "__readline"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -2167,6 +2167,8 @@ impl Emitter {
             "__err_raw" => return "ax_err.clone()".to_string(),
             "__exc" => return format!("ax_exc({})", plain.join(", ")),
             "__exc_is" => return format!("ax_exc_is(&ax_err, {})", plain.join(", ")),
+            "__exc_obj" => return format!("ax_exc_obj({})", plain.join(", ")),
+            "__exc_get" => return "ax_exc_get(&ax_err)".to_string(),
             "__default" => return "AxFresh::ax_fresh()".to_string(),
             // The value type's zero (0, "", [], {}), for a key put in by `m.setdefault(k, [])`.
             "__zero" => return "Default::default()".to_string(),
@@ -2214,7 +2216,7 @@ impl Emitter {
             }
             return format!("{name}({})", ordered.join(", "));
         }
-        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
+        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
         }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();

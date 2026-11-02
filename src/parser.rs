@@ -35,6 +35,15 @@ pub struct Parser {
     exc_bases: HashMap<String, Vec<String>>,
     // Inside an except block: a bare `raise` raises the error being handled again.
     in_handler: usize,
+    // Error classes with their own fields (`class RErr(Exception): def __init__(self, msg, line)`): real classes,
+    // whose objects travel with the error (`except RErr as e: e.line`).
+    exc_rich: Vec<String>,
+    // Names set to `threading.Thread(...)`.
+    threads: Vec<String>,
+    // Parsing the body of a Python error class (`super().__init__(msg)` there does nothing).
+    in_exc_class: bool,
+    // What an error class passes up as its message: `super().__init__(msg)` gives Some(Some("msg")).
+    exc_init_arg: Option<Option<String>>,
 }
 
 type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
@@ -51,8 +60,12 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0 };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0, exc_rich: vec![], threads: vec![], in_exc_class: false, exc_init_arg: None };
     p.py = crate::python_style(src);
+    p.threads = p.toks.windows(5).filter_map(|w| match (&w[0].tok, &w[1].tok, &w[2].tok, &w[3].tok, &w[4].tok) {
+        (Tok::Ident(t), Tok::Sym("="), Tok::Ident(m), Tok::Sym("."), Tok::Ident(c)) if m == "threading" && c == "Thread" => Some(t.clone()),
+        _ => None,
+    }).collect();
     p.class_names = p.toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
         (Tok::Ident(c), Tok::Ident(n)) if c == "class" => Some(n.clone()),
         _ => None,
@@ -630,16 +643,62 @@ impl Parser {
                 match self.next() {
                     Tok::Sym("(") => depth += 1,
                     Tok::Sym(")") => depth -= 1,
-                    Tok::Ident(b) if depth == 1 => bases.push(b),
+                    // `Exception` above a Python error class is not a class of the program.
+                    Tok::Ident(b) if depth == 1 && !(self.exc_rich.contains(&name) && !self.class_names.contains(&b)) => bases.push(b),
                     _ => {}
                 }
             }
         }
         let kids = self.children.len();
         let saved_attrs = std::mem::take(&mut self.attr_tys);
-        let body = self.block()?;
+        self.in_exc_class = self.exc_rich.contains(&name);
+        self.exc_init_arg = None;
+        let body = self.block();
+        self.in_exc_class = false;
+        let body = body?;
         let attr_tys = std::mem::replace(&mut self.attr_tys, saved_attrs);
-        let methods: Vec<Item> = self.children.split_off(kids);
+        let mut methods: Vec<Item> = self.children.split_off(kids);
+        // Python: `str(e)` of an error object is the message it was made with. Without its own `__str__`, an error
+        // class gets one giving the field that holds that message, or one that stops the run if there is none.
+        if self.exc_rich.contains(&name) && !methods.iter().any(|m| matches!(m, Item::Fn { name: n, .. } if n == "__str__" || n == "__repr__")) {
+            let init = methods.iter().find_map(|m| match m {
+                Item::Fn { name: n, params, body, .. } if n == "__init__" => Some((params.clone(), body.clone())),
+                _ => None,
+            });
+            let msg_param = match (&self.exc_init_arg, &init) {
+                (Some(arg), _) => arg.clone(),
+                (None, Some((ps, _))) if ps.len() == 2 => Some(ps[1].name.clone()),
+                _ => None,
+            };
+            let mut field = None;
+            if let (Some(p), Some((_, b))) = (&msg_param, &init) {
+                let mut b = b.clone();
+                walk_mut(&mut b, &mut |e| {
+                    if let Expr::Block(ss, _) = e {
+                        for st in ss {
+                            if let Stmt::Assign { target: Expr::Field(r, f), op: "=", value: Expr::Ident(x), .. } = st {
+                                if *x == *p && matches!(r.as_ref(), Expr::Ident(s) if s == "self_") && field.is_none() {
+                                    field = Some(f.clone());
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            let value = match field {
+                Some(f) => Expr::Call("str".into(), vec![(None, Expr::Field(Box::new(Expr::Ident("self_".into())), f))], line),
+                None => Expr::Call("ax_unsupported".into(), vec![(None, Expr::Str(vec![StrPart::Lit(format!("str() of a {name} error is not supported yet"))]))], line),
+            };
+            methods.push(Item::Fn {
+                name: "__str__".into(),
+                params: vec![Param { name: "self_".into(), ty: Ty::Named("?".into()), is_mut: false }],
+                ret: Ty::Named("?".into()),
+                fallible: false,
+                body: Expr::Block(vec![Stmt::Return { value: Some(value), line }], None),
+                line,
+                script: false,
+            });
+        }
         // Fields written in the class body, as a dataclass has them: `x: int`, `tags: list[str] = field(default_factory=list)`.
         let mut declared: Vec<Field> = Vec::new();
         if let Expr::Block(stmts, _) = &body {
@@ -690,12 +749,18 @@ impl Parser {
             let Item::Fn { name: mname, mut params, ret, fallible, body, line, script } = m else { continue };
             // `def __len__(self)` is what `len(x)` calls.
             let mname = if mname == "__len__" { "len".to_string() } else { mname };
+            // A method named like a built-in (`def args(self)`) keeps its name: it is only called on objects.
+            let mname = match mname.strip_suffix('_') {
+                Some(b) if SHADOWABLE.contains(&b) => b.to_string(),
+                _ => mname,
+            };
             if params.first().map_or(true, |p| p.name != "self_") {
                 // A static method: a plain function.
                 fns.push(Item::Fn { name: format!("{name}_{mname}"), params, ret, fallible, body, line, script });
                 continue;
             }
-            if let Some(mut sig) = self.sigs.get(&mname).cloned() {
+            // Taken out, so a later class's method of the same name without defaults does not get this one's.
+            if let Some(mut sig) = self.sigs.remove(&mname) {
                 if mname == "__init__" {
                     sig.0.remove(0);
                     sig.1.remove(0);
@@ -766,7 +831,7 @@ impl Parser {
             }
         }
         if error_base && !cname.is_empty() {
-            self.exc_bases.insert(cname, bases);
+            self.exc_bases.insert(cname.clone(), bases.clone());
         }
         let kids = self.children.len();
         let body = self.block();
@@ -777,7 +842,12 @@ impl Parser {
             }
             _ => false,
         };
-        let trivial = error_base || (trivial && !other_base && self.children.len() == kids);
+        // Python: an error class with methods of its own (or below one that has them) is a real class too.
+        let rich = self.py && error_base && (self.children.len() > kids || bases.iter().any(|b| self.exc_rich.contains(b)));
+        if rich {
+            self.exc_rich.push(cname.clone());
+        }
+        let trivial = (error_base && !rich) || (trivial && !other_base && self.children.len() == kids);
         self.children.truncate(kids);
         if !trivial {
             self.pos = save;
@@ -899,7 +969,7 @@ impl Parser {
             // Python: several except clauses, or one naming an error class of the program, pick the handler by the
             // error's class (`except Brk: break` / `except Cont: continue`); an error no clause names goes on up.
             let user = |c: &String| self.exc_bases.contains_key(c);
-            if self.py && (clauses.len() > 1 || clauses.iter().any(|(cs, _, _)| cs.iter().any(|c| user(c)))) {
+            if self.py && (clauses.len() > 1 || clauses.iter().any(|(cs, _, _)| cs.iter().any(|c| user(c) || self.exc_rich.contains(c)))) {
                 let mut chain: Option<Expr> = None;
                 for (cs, nm, h) in clauses.iter().rev() {
                     let mut h = match h.clone() {
@@ -907,7 +977,12 @@ impl Parser {
                         other => (vec![], Some(Box::new(other))),
                     };
                     if let Some(n) = nm {
-                        h.0.insert(0, Stmt::Let { name: Pat::Bind(n.clone()), ty: None, value: Expr::Call("__err".into(), vec![], line), mutable: false, line });
+                        // `except RErr as e`: the error's own object (fields and methods); else its message.
+                        let (ty, value) = match cs.as_slice() {
+                            [c] if self.exc_rich.contains(c) => (Some(Ty::Named(c.clone())), Expr::Call("__exc_get".into(), vec![], line)),
+                            _ => (None, Expr::Call("__err".into(), vec![], line)),
+                        };
+                        h.0.insert(0, Stmt::Let { name: Pat::Bind(n.clone()), ty, value, mutable: false, line });
                     }
                     let h = Expr::Block(h.0, h.1);
                     let builtin = cs.is_empty() || cs.iter().any(|c| !user(c));
@@ -958,6 +1033,11 @@ impl Parser {
                     Expr::Call(n, _, _) | Expr::Ident(n) if n.chars().next().map_or(false, |c| c.is_uppercase()) => Some(n.clone()),
                     _ => None,
                 };
+                let raised = match &e {
+                    Expr::Call(..) => Some(e.clone()),
+                    Expr::Ident(n) if self.exc_rich.contains(n) => Some(Expr::Call(n.clone(), vec![], line)),
+                    _ => None,
+                };
                 let msg = match e {
                     Expr::Call(n, mut args, _) if n.chars().next().map_or(false, |c| c.is_uppercase()) => {
                         if args.is_empty() { Expr::Str(vec![StrPart::Lit(n)]) } else { Expr::Call("str".into(), vec![(None, args.remove(0).1)], line) }
@@ -968,6 +1048,7 @@ impl Parser {
                 // Python: the error carries its class and the classes above it, for `except Base:`.
                 match class {
                     Some(c) if self.py => {
+                        let rich = self.exc_rich.contains(&c);
                         let mut chain = vec![c.clone()];
                         let mut at = c;
                         while let Some(b) = self.exc_bases.get(&at).and_then(|b| b.first()).cloned() {
@@ -977,7 +1058,10 @@ impl Parser {
                             chain.push(b.clone());
                             at = b;
                         }
-                        Expr::Call("__exc".into(), vec![(None, Expr::Str(vec![StrPart::Lit(chain.join(","))])), (None, msg)], line)
+                        match raised {
+                            Some(obj) if rich => Expr::Call("__exc_obj".into(), vec![(None, Expr::Str(vec![StrPart::Lit(chain.join(","))])), (None, msg), (None, obj)], line),
+                            _ => Expr::Call("__exc".into(), vec![(None, Expr::Str(vec![StrPart::Lit(chain.join(","))])), (None, msg)], line),
+                        }
                     }
                     _ => msg,
                 }
@@ -1645,6 +1729,57 @@ impl Parser {
                             if name == "dumps" && !raw.is_empty() && raw[0].0.is_none() && matches!(&e, Expr::Ident(j) if j == "json") {
                                 e = py_dumps(raw, line);
                                 continue;
+                            }
+                            if self.py {
+                                let on = |m: &str| matches!(&e, Expr::Ident(x) if x == m);
+                                // `sys.stdout.flush()`, `threading.stack_size(n)`, `Exception.__init__(self, msg)`:
+                                // nothing to do in native code (output is flushed at exit and before input).
+                                let nothing = (name == "flush" && matches!(&e, Expr::Field(m, f) if (f == "stdout" || f == "stderr") && matches!(m.as_ref(), Expr::Ident(s) if s == "sys")))
+                                    || (name == "stack_size" && on("threading"))
+                                    || (name == "__init__" && matches!(&e, Expr::Ident(x) if x.ends_with("Exception") || x.ends_with("Error") || self.exc_bases.contains_key(x)))
+                                    || (name == "__init__" && self.in_exc_class && matches!(&e, Expr::Call(f, _, _) if f == "super" || f == "super_"));
+                                if nothing && name == "__init__" && self.in_exc_class {
+                                    let given: Vec<&Expr> = raw.iter().map(|a| &a.1).filter(|a| !matches!(a, Expr::Ident(x) if x == "self_")).collect();
+                                    self.exc_init_arg = Some(match given.as_slice() {
+                                        [Expr::Ident(x)] => Some(x.clone()),
+                                        _ => None,
+                                    });
+                                }
+                                if nothing {
+                                    e = Expr::Tuple(vec![]);
+                                    continue;
+                                }
+                                // `threading.Thread(target=f, args=(a,))`: run in place when started (`t.start()`,
+                                // then `t.join()`), which is what a program that starts one thread and waits sees.
+                                if name == "Thread" && on("threading") {
+                                    let f = raw.iter().find(|a| a.0.as_deref() == Some("target")).map(|a| a.1.clone());
+                                    let fargs = match raw.iter().find(|a| a.0.as_deref() == Some("args")).map(|a| a.1.clone()) {
+                                        Some(Expr::Tuple(xs)) | Some(Expr::List(xs)) => xs,
+                                        Some(x) => vec![x],
+                                        None => vec![],
+                                    };
+                                    if let Some(Expr::Ident(f)) = f {
+                                        e = Expr::Lambda(vec![], Box::new(Expr::Call(f, fargs.into_iter().map(|a| (None, a)).collect(), line)));
+                                        continue;
+                                    }
+                                }
+                                if raw.is_empty() && matches!(name.as_str(), "start" | "join") {
+                                    if let Expr::Ident(t) = &e {
+                                        if self.threads.contains(t) {
+                                            e = if name == "start" { Expr::Call(t.clone(), vec![], line) } else { Expr::Tuple(vec![]) };
+                                            continue;
+                                        }
+                                    }
+                                    // `threading.Thread(target=go).start()`
+                                    if name == "start" {
+                                        if let Expr::Lambda(ps, body) = &e {
+                                            if ps.is_empty() {
+                                                e = (**body).clone();
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             // `m.get(k)` is None when k is missing.
@@ -2597,7 +2732,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0 };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0, exc_rich: self.exc_rich.clone(), threads: self.threads.clone(), in_exc_class: false, exc_init_arg: None };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d

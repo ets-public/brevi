@@ -1,0 +1,21 @@
+class A(Exception):
+    def __init__(self, msg, line=None):
+        self.msg = msg
+        self.line = line
+
+class B(Exception):
+    def __init__(self, v):
+        self.v = v
+
+def f(n):
+    try:
+        if n > 1:
+            raise A("big")
+        raise B(n)
+    except A as e:
+        e.line = 4
+        return e.line
+    except B as r:
+        return r.v
+
+print(f(1), f(2))

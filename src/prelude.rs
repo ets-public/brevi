@@ -3720,9 +3720,45 @@ pub fn ax_jint(o: Json) -> i64 {
         o => panic!("cannot add {} to an int here", ax_json_py(&o, false)),
     }
 }
+// A Python form Brevi cannot give the same answer for: stop the run instead of printing something else.
+pub fn ax_unsupported(what: String) -> String {
+    panic!("{what}")
+}
+// A dynamic value given where an int or a str is taken.
+pub fn ax_jas_int(o: Json) -> i64 {
+    match o {
+        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
+        o => panic!("expected an int here, got {}", ax_json_py(&o, true)),
+    }
+}
+pub fn ax_jas_str(o: Json) -> String {
+    match o {
+        Json::Str { v } => v,
+        o => panic!("expected a str here, got {}", ax_json_py(&o, true)),
+    }
+}
 // Python errors with a class: "\u{1}Brk,Exception\u{1}message" (the class and the ones above it).
 pub fn ax_exc(chain: String, msg: String) -> String {
     format!("\u{1}{chain}\u{1}{msg}")
+}
+// An error class's object raised with the error (`raise RErr(msg, line)`): kept here, its number in the error.
+thread_local! {
+    static AX_EXC_OBJS: std::cell::RefCell<Vec<Box<dyn std::any::Any>>> = std::cell::RefCell::new(Vec::new());
+}
+pub fn ax_exc_obj<T: 'static>(chain: String, msg: String, obj: T) -> String {
+    let id = AX_EXC_OBJS.with(|o| {
+        let mut o = o.borrow_mut();
+        o.push(Box::new(obj));
+        o.len() - 1
+    });
+    format!("\u{1}{chain};{id}\u{1}{msg}")
+}
+pub fn ax_exc_get<T: 'static + Clone>(e: &String) -> T {
+    let id = e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')).and_then(|(c, _)| c.rsplit_once(';')).and_then(|(_, n)| n.parse::<usize>().ok());
+    match id.and_then(|id| AX_EXC_OBJS.with(|o| o.borrow().get(id).and_then(|b| b.downcast_ref::<T>().cloned()))) {
+        Some(v) => v,
+        None => panic!("this except clause caught an error of another class than it names (not supported yet)"),
+    }
 }
 pub fn ax_exc_msg(e: &String) -> String {
     match e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')) {
@@ -3739,6 +3775,7 @@ pub fn ax_exc_is(e: &String, names: String, builtin: bool) -> bool {
     }
     match e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')) {
         Some((chain, _)) => {
+            let chain = chain.rsplit_once(';').map_or(chain, |(c, _)| c);
             let mut cs: Vec<&str> = chain.split(',').collect();
             // Built-in classes above built-in errors.
             let more: Vec<&str> = cs.iter().flat_map(|c| match *c {

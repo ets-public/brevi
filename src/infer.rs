@@ -944,7 +944,7 @@ impl Cx<'_> {
                 let a0 = || args.first().map(|(_, a)| self.ty(a, env)).unwrap_or(Hole);
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
-                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" => Str,
+                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_unsupported" => Str,
                     "__truediv" if args.iter().any(|(_, a)| self.ty(a, env) == Dec) => Dec,
                     "__truediv" => F64,
                     "csv" => List(Box::new(List(Box::new(Str)))),
@@ -954,7 +954,7 @@ impl Cx<'_> {
                     "min" | "max" => args.iter().fold(Hole, |t, (_, a)| merge(t, self.ty(a, env))),
                     "heap" => Heap(Box::new(Hole)),
                     "ax_to_json" | "ax_tup_json" => Json,
-                    "ax_jint" => Int,
+                    "ax_jint" | "ax_jas_int" => Int,
                     "ax_json_dec" => Dec,
                     "ax_subset" => Bool,
                     "ax_json_strs" => List(Box::new(Str)),
@@ -2144,6 +2144,25 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         if !q(&p.ty) || fills.iter().any(|f| f.0 == k && f.1 == pi && !has_q(&f.2)) {
                             continue;
                         }
+                        // A constructor parameter only ever given None (`line=None`) is typed from its field
+                        // (`e.line = i` later).
+                        if name.ends_with("_new") {
+                            let mut only_none = true;
+                            for it2 in items.iter() {
+                                if let Item::Fn { body: b2, .. } = it2 {
+                                    walk(b2, &mut |e| {
+                                        if let Expr::Call(f, a, _) = e {
+                                            if f == name && !matches!(a.get(pi), Some((_, Expr::Call(n, x, _))) if n == "none" && x.is_empty()) {
+                                                only_none = false;
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                            if only_none {
+                                continue;
+                            }
+                        }
                         let (mut called, mut read) = (false, false);
                         walk(body, &mut |e| {
                             if matches!(e, Expr::Call(f, _, _) if *f == p.name) {
@@ -2381,6 +2400,37 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     for f in fields.iter_mut().filter(|f| q(&f.ty)) {
                         if let Some(t) = ev.get(&(name.clone(), f.name.clone())).and_then(to_ast) {
                             f.ty = t;
+                            fields_moved = true;
+                        }
+                    }
+                }
+            }
+            // Python: a constructor parameter only ever given None (`line=None`) whose field is set elsewhere
+            // (`e.line = i`) takes the field's type, None included.
+            if py_on() {
+                let ftys: HashMap<(String, String), Ty> = items
+                    .iter()
+                    .filter_map(|it| if let Item::Type { name, fields, .. } = it { Some((name, fields)) } else { None })
+                    .flat_map(|(n, fs)| fs.iter().filter(|f| !q(&f.ty)).map(move |f| ((n.clone(), f.name.clone()), f.ty.clone())))
+                    .collect();
+                for it in items.iter_mut() {
+                    let Item::Fn { name: fname, params, body, .. } = it else { continue };
+                    let Some(c) = fname.strip_suffix("_new") else { continue };
+                    for p in params.iter_mut().filter(|p| q(&p.ty)) {
+                        let mut ft = None;
+                        walk(body, &mut |e| {
+                            if let Expr::Block(ss, _) = e {
+                                for st in ss {
+                                    if let Stmt::Assign { target: Expr::Field(_, f), op: "=", value: Expr::Ident(x) | Expr::Move(x), .. } = st {
+                                        if *x == p.name {
+                                            ft = ftys.get(&(c.to_string(), f.clone())).cloned();
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        if let Some(t) = ft.filter(|t| scalar(&from_ast(t))) {
+                            p.ty = t;
                             fields_moved = true;
                         }
                     }
@@ -2922,6 +2972,20 @@ impl Ck<'_, '_> {
                     let b = v.pop().unwrap();
                     let a = v.pop().unwrap();
                     *e = Expr::Binary("/", Box::new(a), Box::new(b));
+                }
+            }
+        }
+        // Python: a dynamic (JSON) value passed where the function takes an int or a str (`SyntaxErr(st[-1]['line'])`)
+        // is checked to be one when the call runs.
+        if self.py {
+            if let Expr::Call(f, args, line) = &mut *e {
+                if let Some((ps, _)) = self.cx.fns.get(f.as_str()).cloned() {
+                    for ((_, a), (_, pt)) in args.iter_mut().zip(ps.iter()) {
+                        if matches!(pt, Int | Str) && self.cx.ty(a, env) == Json {
+                            let v = std::mem::replace(a, Expr::Int(0));
+                            *a = Expr::Call(if *pt == Int { "ax_jas_int" } else { "ax_jas_str" }.into(), vec![(None, v)], *line);
+                        }
+                    }
                 }
             }
         }
