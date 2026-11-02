@@ -1031,7 +1031,7 @@ impl Cx<'_> {
             }
         }
         match m {
-            "len" | "count" | "count_sub" | "count_of" | "re_start" | "re_end" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
+            "len" | "count" | "count_sub" | "count_of" | "re_start" | "re_end" | "isqrt" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "floor" | "ceil" if r == Dec => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" | "quantize" => Dec,

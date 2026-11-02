@@ -344,7 +344,10 @@ impl Show for i64 {
 }
 impl Show for f64 {
     fn show(&self) -> String {
-        if ax_py_on() {
+        // f64::MIN stands for None in a Python float slot.
+        if ax_py_on() && *self == f64::MIN {
+            "None".into()
+        } else if ax_py_on() {
             ax_py_float(*self)
         } else {
             self.to_string()
@@ -741,6 +744,60 @@ impl AxFloorDiv for f64 {
 pub fn ax_floordiv<T: AxFloorDiv>(a: T, b: T) -> T {
     a.floordiv(b)
 }
+// a % b in Python mode takes the sign of b, as Python's does (-7 % 3 is 2); Brevi's own % keeps Rust's.
+pub trait AxPyMod {
+    fn ax_pymod(self, b: Self) -> Self;
+}
+impl AxPyMod for i64 {
+    fn ax_pymod(self, b: i64) -> i64 {
+        let r = self % b;
+        if ax_py_on() && r != 0 && ((r < 0) != (b < 0)) { r + b } else { r }
+    }
+}
+impl AxPyMod for f64 {
+    fn ax_pymod(self, b: f64) -> f64 {
+        let r = self % b;
+        if ax_py_on() && r != 0.0 && ((r < 0.0) != (b < 0.0)) { r + b } else { r }
+    }
+}
+impl AxPyMod for Json {
+    fn ax_pymod(self, b: Json) -> Json {
+        self % b
+    }
+}
+// Python's math.isqrt(n): the largest whole number whose square is at most n.
+pub trait AxIsqrt {
+    fn ax_isqrt(&self) -> i64;
+}
+impl AxIsqrt for i64 {
+    fn ax_isqrt(&self) -> i64 {
+        if *self < 0 {
+            panic!("ValueError: isqrt() argument must be nonnegative");
+        }
+        let mut r = (*self as f64).sqrt() as i64;
+        while r * r > *self {
+            r -= 1;
+        }
+        while (r + 1) * (r + 1) <= *self {
+            r += 1;
+        }
+        r
+    }
+}
+// The step of a range counted through directly (range(a, b, k) with k > 0).
+pub fn ax_step_by(k: i64) -> usize {
+    if k <= 0 {
+        panic!("ValueError: range() step must be positive here, got {k}");
+    }
+    k as usize
+}
+// A Python set as print shows it.
+pub fn ax_show_set<T: Show + 'static>(xs: &Vec<T>) -> String {
+    if xs.is_empty() {
+        return "set()".into();
+    }
+    format!("{{{}}}", xs.iter().map(show_item).collect::<Vec<_>>().join(", "))
+}
 pub fn ax_approx(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-6 * (1.0 + a.abs().max(b.abs()))
 }
@@ -940,7 +997,8 @@ impl AxFloat for f64 {
         self.sqrt()
     }
     fn ax_round(&self) -> f64 {
-        self.round()
+        // Python's round(x) goes to the even neighbour on a tie: round(2.5) is 2.
+        if ax_py_on() { self.round_ties_even() } else { self.round() }
     }
     fn ax_floor(&self) -> f64 {
         self.floor()

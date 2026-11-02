@@ -1,0 +1,22 @@
+# Python arithmetic and printing that Brevi must match exactly: % and divmod, round half to even,
+# None in a float list, sets, math.isqrt and stepped ranges.
+import math
+
+
+def main():
+    print(-7 % 3, 7 % -3, -7 // 2, divmod(-7, 3), -7.5 % 2, divmod(7.5, -2))
+    print(round(2.5), round(3.5), round(-2.5), round(0.125, 2), round(2.675, 2))
+    xs = [1.5, None]
+    print(xs)
+    s = {1}
+    print(s, {1, 2} | {3})
+    print(math.isqrt(17))
+    total = 0
+    for j in range(3, 20, 4):
+        total += j
+    for j in range(20, 3, -5):
+        total += j * 100
+    print(total, list(range(1, 10, 3)), {5} - {5})
+
+
+main()

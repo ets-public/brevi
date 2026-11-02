@@ -1,0 +1,7 @@
+2 -2 -4 (-3, 2) 0.5 (-4.0, -0.5)
+2 4 -2 0.12 2.67
+[1.5, None]
+{1} {1, 2, 3}
+4
+5055 [1, 4, 7] set()
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

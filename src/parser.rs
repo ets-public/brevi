@@ -1682,6 +1682,11 @@ impl Parser {
                                     continue;
                                 }
                             }
+                            // math.isqrt(n): the whole square root of an int.
+                            if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && name == "isqrt" {
+                                e = Expr::Method(Box::new(args.remove(0)), "isqrt".into(), vec![], line);
+                                continue;
+                            }
                             // math.sqrt(x), math.floor(x), math.ceil(x); sys.stdin.read() is stdin().
                             if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && matches!(name.as_str(), "sqrt" | "floor" | "ceil") {
                                 let x = args.remove(0);

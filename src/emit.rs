@@ -16,7 +16,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "pop_or", "py_repr", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "tuple_items",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "pop_or", "py_repr", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "tuple_items",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -834,6 +834,17 @@ impl Emitter {
                 }
             }
         }
+    }
+
+    // What print shows for an argument: a Python set prints in braces ({1, 2}, or set() when empty).
+    fn print_arg(&mut self, e: &Expr) -> String {
+        let set = self.py_mode && match e {
+            Expr::Method(_, m, _, _) => m == "unique",
+            Expr::Ident(n) | Expr::Move(n) => self.set_vars.contains(n),
+            Expr::Binary("-" | "|" | "&", ..) => self.is_set_expr(e),
+            _ => false,
+        };
+        if set { format!("ax_show_set(&{})", self.expr(e)) } else { self.expr(e) }
     }
 
     fn is_set_expr(&self, e: &Expr) -> bool {
@@ -1800,6 +1811,7 @@ impl Emitter {
                     "&" => format!("AxBits::ax_band({a}, {b})"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
+                    "%" if self.py_mode => format!("AxPyMod::ax_pymod({a}, {b})"),
                     op => format!("({a} {op} {b})"),
                 }
             }
@@ -2007,6 +2019,16 @@ impl Emitter {
                 let it = match iter.as_ref() {
                     // A range is counted through directly instead of being built as a list.
                     Expr::Range(a, b) => format!("({}..{})", self.expr(a), self.expr(b)),
+                    // range(a, b, k) and range(b, a, -k): stepped through directly too.
+                    Expr::Method(r, m, k, _) if m == "step" && k.len() == 1 && matches!(r.as_ref(), Expr::Range(..)) => {
+                        let Expr::Range(a, b) = r.as_ref() else { unreachable!() };
+                        format!("({}..{}).step_by(ax_step_by({}))", self.expr(a), self.expr(b), self.expr(&k[0]))
+                    }
+                    Expr::Method(r, m, k, _) if m == "step" && k.len() == 1 && matches!(r.as_ref(), Expr::Method(q, rv, ra, _) if rv == "rev" && ra.is_empty() && matches!(q.as_ref(), Expr::Range(..))) => {
+                        let Expr::Method(q, _, _, _) = r.as_ref() else { unreachable!() };
+                        let Expr::Range(a, b) = q.as_ref() else { unreachable!() };
+                        format!("({}..{}).rev().step_by(ax_step_by({}))", self.expr(a), self.expr(b), self.expr(&k[0]))
+                    }
                     // A list that is still needed is read item by item instead of copied whole.
                     e @ (Expr::Ident(_) | Expr::Field(..) | Expr::TupleField(..) | Expr::Index(..))
                         if self.borrow_loops && root_name(e).map_or(false, |r| self.locals.contains(r) && self.global(r).is_none()) =>
@@ -2117,10 +2139,10 @@ impl Emitter {
             let named = |k: &str| args.iter().find(|(n, _)| n.as_deref() == Some(k)).map(|(_, a)| a.clone());
             let sep = named("sep").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "String::from(\" \")".to_string());
             let end = named("end").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "\"\\n\"".to_string());
-            let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.expr(a))).collect();
+            let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.print_arg(a))).collect();
             return format!("{{ use std::io::Write; let __s = [{}].join(&{sep}); print!(\"{{}}{{}}\", __s, {end}); let _ = std::io::stdout().flush(); }}", items.join(", "));
         }
-        let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
+        let plain: Vec<String> = args.iter().map(|(_, a)| if name == "print" { self.print_arg(a) } else { self.expr(a) }).collect();
         match name {
             // print(a, b) writes them with a space between, like Python.
             "print" if plain.len() > 1 => return format!("print([{}].join(\" \"))", plain.iter().map(|p| format!("Show::show(&{p})")).collect::<Vec<_>>().join(", ")),
