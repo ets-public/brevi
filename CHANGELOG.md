@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- `date(*map(int, s.split("-")))` and `datetime.date(*parts)`: a date from spread year, month and day.
 - tkinter apps built around a class work: a method as a callback (`command=self.inc`, `canvas.bind("<Button-1>", self.tap)`, `root.after(100, self.tick, n - 1)`) runs on the object itself, now that Python objects are shared. Haiku's tic-tac-toe from the `gui` set passes every test.
 - `itertools.groupby(xs, key=f)` (runs of neighbouring items with the same key) and `del xs[a:]` / `del xs[a:b]`, from the e17 trial.
 - `repr(x)` (Python's text for a value, e.g. `"a'b"` or `[1, 2]`) and `iter(xs)` (so `next(iter(s))` takes the first item).

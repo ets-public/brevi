@@ -1552,6 +1552,12 @@ impl Parser {
                                 continue;
                             }
                             // datetime.date(y, m, d) is date(y, m, d); datetime.strptime(s, "%Y-%m-%d") (any alias) reads the date.
+                            // `datetime.date(*parts)`: one spread argument.
+                            if name == "date" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "datetime") {
+                                let mut a: Vec<(Option<String>, Expr)> = vec![(Some("__star".into()), args.remove(0))];
+                                e = python_call("date", &mut a, line).unwrap();
+                                continue;
+                            }
                             if name == "date" && args.len() == 3 && matches!(&e, Expr::Ident(m) if m == "datetime") {
                                 let mut a: Vec<(Option<String>, Expr)> = args.drain(..).map(|x| (None, x)).collect();
                                 e = python_call("date", &mut a, line).unwrap();
@@ -2481,6 +2487,12 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
 fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) -> Option<Expr> {
     let m = |e: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(e), n.into(), a, line);
     if args.iter().any(|(n, _)| n.as_deref() == Some("__star")) {
+        // `date(*map(int, s.split("-")))`: the three parts joined back into "y-m-d".
+        if name == "date" && args.len() == 1 {
+            let e = args.remove(0).1;
+            let parts = m(e, "map", vec![Expr::Lambda(vec!["ax_x".into()], Box::new(Expr::Call("str".into(), vec![(None, Expr::Ident("ax_x".into()))], line)))]);
+            return Some(Expr::Call("date".into(), vec![(None, m(parts, "join", vec![Expr::Str(vec![StrPart::Lit("-".into())])]))], line));
+        }
         if name != "print" {
             return None;
         }
