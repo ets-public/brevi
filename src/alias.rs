@@ -50,7 +50,11 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                     let mut extra = vec![];
                     for (k, n) in names.iter().enumerate() {
                         let Some(n) = n else { continue };
-                        if n != &src && n != "_" && changed(n, &stmts[i + 1..], tail.as_deref()) {
+                        // Only up to a plain setting of n as a whole (`b = list(b)` makes a new list first).
+                        let rest = &stmts[i + 1..];
+                        let end = rest.iter().position(|s| matches!(s, Stmt::Assign { target: Expr::Ident(m), op: "=", .. } | Stmt::Let { name: Pat::Bind(m), .. } if m == n));
+                        let t = if end.is_none() { tail.as_deref() } else { None };
+                        if n != &src && n != "_" && changed(n, &rest[..end.unwrap_or(rest.len())], t) {
                             let item = Expr::Index(Box::new(Expr::Ident(src.clone())), Box::new(Expr::Int(k as i64)));
                             extra.push(Stmt::Assign { target: Expr::Ident(n.clone()), op: "=", value: item, line });
                         }
