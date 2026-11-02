@@ -1,0 +1,44 @@
+# Exits keyed by (room, direction) with the room a dynamic value from a mixed tuple; looked up with a plain
+# direction, also through a key kept in a name, and changed in place.
+def classify(w):
+    if w[0] == 'exit':
+        return ('exit', w[1], w[2], w[3])
+    if w[0] == 'room':
+        return ('room', w[1])
+    return None
+
+class World:
+    def __init__(self):
+        self.exits = {}
+        self.start = None
+
+def load(lines):
+    w = World()
+    for line in lines:
+        c = classify(line.split())
+        if c is None:
+            continue
+        if c[0] == 'exit':
+            _, frm, d, to = c
+            w.exits[(frm, d)] = {'to': to}
+        elif c[0] == 'room' and w.start is None:
+            w.start = c[1]
+    return w
+
+class Game:
+    def __init__(self, world):
+        self.loc = world.start
+        self.exits = {k: dict(v) for k, v in world.exits.items()}
+
+    def go(self, d):
+        e = self.exits.get((self.loc, d))
+        if e is None:
+            return "no"
+        self.loc = e['to']
+        return self.loc
+
+g = Game(load(["room a", "room b", "exit a north b"]))
+print(g.go("north"), g.go("north"))
+w = load(["room a", "room b", "exit a north b", "exit b south a"])
+g2 = Game(w)
+print(g2.go("north"), g2.go("south"), ("a", "north") in g2.exits)

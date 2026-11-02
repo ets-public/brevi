@@ -1,0 +1,39 @@
+# From the e24 trial: a function kept under another name (`_old = f`), int arithmetic with a value read
+# from a mixed dict, and a dict record whose list key is only made by setdefault.
+total = [0]
+
+
+def end_tx():
+    total[0] += 1
+
+
+def end_tx2():
+    _old_end_call()
+    total[0] += 10
+
+
+_old_end_call = end_tx
+end_tx2()
+end_tx2()
+print(total[0])
+
+qs = {"Q1": {"type": "choice", "pts": 3, "spec": "A"}, "Q2": {"type": "multi", "pts": 4, "spec": {"A", "B"}}}
+mx = sum(qs[q]["pts"] for q in qs)
+print(5 * 100 // mx, mx > 6)
+
+rounds = []
+cur = None
+for line in ["ann 1", "x", "bob 2", ""]:
+    if line == "":
+        rounds.append(cur)
+        cur = None
+        continue
+    if cur is None:
+        cur = {"players": {}, "dealt": []}
+    t = line.split()
+    if len(t) != 2:
+        cur.setdefault("msgs", []).append("bad " + line)
+        continue
+    cur["players"][t[0]] = int(t[1])
+for r in rounds:
+    print(r.get("msgs", []), sorted(r["players"]))

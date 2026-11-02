@@ -1722,6 +1722,12 @@ impl Cx<'_> {
                                 if let (Expr::Ident(n), Str) = (x, &t) {
                                     put(n, Str);
                                 }
+                                // `_, frm, d, to = c` with c a dynamic tuple: each name is a dynamic value.
+                                if let (Expr::Ident(n), Json) = (x, &t) {
+                                    if py_on() {
+                                        put(n, Json);
+                                    }
+                                }
                             }
                         }
                         Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } => self.flat_env(expr, env),
@@ -3268,6 +3274,77 @@ impl Ck<'_, '_> {
                         **a = Expr::Call(f.into(), vec![(None, v)], 0);
                     }
                 }
+                // `self.total(name) * 100 // self.max` with max a JSON value: checked to be an int when it runs.
+                Expr::Binary(op @ ("+" | "-" | "*" | "//" | "%" | "<" | "<=" | ">" | ">="), a, b) if {
+                    let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                    (ta == Int && tb == Json) || (ta == Json && tb == Int)
+                } => {
+                    let _ = op;
+                    let x = if self.cx.ty(a, env) == Json { a } else { b };
+                    let v = std::mem::replace(&mut **x, Expr::Int(0));
+                    **x = Expr::Call("ax_jas_int".into(), vec![(None, v)], 0);
+                }
+                // `out.append(name)` with name a JSON value and out a list of str (or int): checked when it runs.
+                Expr::Method(r, m, args, _) if m == "push" && args.len() == 1 && matches!(self.cx.ty(r, env), List(ref x) if matches!(**x, Str | Int)) && self.cx.ty(&args[0], env) == Json => {
+                    let f = if matches!(self.cx.ty(r, env), List(ref x) if **x == Int) { "ax_jas_int" } else { "ax_jas_str" };
+                    let v = std::mem::replace(&mut args[0], Expr::Int(0));
+                    args[0] = Expr::Call(f.into(), vec![(None, v)], 0);
+                }
+                // `self.items.get(iid)` on a dict keyed by JSON values, with a plain key: made a JSON value.
+                Expr::Method(r, m, args, _) if matches!(m.as_str(), "get" | "get_or" | "has" | "remove" | "pop") && !args.is_empty() && matches!(self.cx.ty(r, env), Map(ref k, _) if **k == Json) && matches!(self.cx.ty(&args[0], env), Int | Str | Bool) => {
+                    let v = std::mem::replace(&mut args[0], Expr::Int(0));
+                    args[0] = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);
+                }
+                Expr::Binary("in" | "not in", a, b) if matches!(self.cx.ty(b, env), Map(ref k, _) if **k == Json) && matches!(self.cx.ty(a, env), Int | Str | Bool) => {
+                    let v = std::mem::replace(&mut **a, Expr::Int(0));
+                    **a = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);
+                }
+                Expr::Index(b, k) if matches!(self.cx.ty(b, env), Map(ref kt, _) if **kt == Json) && matches!(self.cx.ty(k, env), Int | Str | Bool) => {
+                    let v = std::mem::replace(&mut **k, Expr::Int(0));
+                    **k = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);
+                }
+                // `self.exits.get((self.loc, d))` on a map keyed by tuples with a JSON slot: the key's plain
+                // values there are made JSON.
+                Expr::Method(r, m, args, _) if matches!(m.as_str(), "get" | "get_or" | "has" | "remove" | "pop") && !args.is_empty() && matches!(args[0], Expr::Tuple(_) | Expr::Ident(_)) => {
+                    if let Map(kt, _) = self.cx.ty(r, env) {
+                        if let Tuple(ts) = *kt {
+                            // A key held in a name (`ax_ak_ex = (self.loc, d)`): taken apart item by item.
+                            if let (Expr::Ident(_), Tuple(its)) = (&args[0], self.cx.ty(&args[0], env)) {
+                                if its.len() == ts.len() && its != ts && ts.contains(&Json) {
+                                    let k = args[0].clone();
+                                    args[0] = Expr::Tuple((0..ts.len()).map(|i| Expr::TupleField(Box::new(k.clone()), i)).collect());
+                                }
+                            }
+                            if ts.contains(&Json) && matches!(args[0], Expr::Tuple(_)) {
+                                json_slots_into(&mut args[0], &ts, self.cx, env);
+                            }
+                        }
+                    }
+                }
+                Expr::Binary("in" | "not in", a, b) if matches!(**a, Expr::Tuple(_)) => {
+                    if let Map(kt, _) = self.cx.ty(b, env) {
+                        if let Tuple(ts) = *kt {
+                            if ts.contains(&Json) {
+                                json_slots_into(a, &ts, self.cx, env);
+                            }
+                        }
+                    }
+                }
+                Expr::Index(b, k) if matches!(**k, Expr::Tuple(_) | Expr::Ident(_)) && matches!(self.cx.ty(b, env), Map(ref kt, _) if matches!(**kt, Tuple(ref ts) if ts.contains(&Json))) => {
+                    if let Map(kt, _) = self.cx.ty(b, env) {
+                        if let Tuple(ts) = *kt {
+                            if let (Expr::Ident(_), Tuple(its)) = (&**k, self.cx.ty(k, env)) {
+                                if its.len() == ts.len() && its != ts {
+                                    let kk = (**k).clone();
+                                    **k = Expr::Tuple((0..ts.len()).map(|i| Expr::TupleField(Box::new(kk.clone()), i)).collect());
+                                }
+                            }
+                            if matches!(**k, Expr::Tuple(_)) {
+                                json_slots_into(k, &ts, self.cx, env);
+                            }
+                        }
+                    }
+                }
                 // `env[n[1]]` with a JSON key: checked to be a str (or int) when it runs.
                 Expr::Index(b, k) => {
                     if self.cx.ty(k, env) == Json {
@@ -3940,6 +4017,13 @@ fn rec_field(e: &mut Expr, ty: &dyn Fn(&Expr) -> T, structs: &HashMap<String, Ve
             rec_key(&args[0]).and_then(|k| match has(b, &k) {
                 Some(true) => Some(Expr::Field(b.clone(), k)),
                 Some(false) => args.get(1).cloned(),
+                // A key set later on some paths (`cur.setdefault('msgs', []).append(m)`): the field, or the
+                // default while it is not set.
+                None if args.len() == 2 && field(b, &k) => {
+                    let f = Expr::Field(b.clone(), k);
+                    let blk = |x: Expr| Box::new(Expr::Block(vec![], Some(Box::new(x))));
+                    Some(Expr::If(Box::new(Expr::Method(Box::new(f.clone()), "is_none".into(), vec![], 0)), blk(args[1].clone()), Some(blk(f))))
+                }
                 None => None,
             })
         }

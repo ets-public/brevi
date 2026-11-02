@@ -247,6 +247,18 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
                             later.push((n.clone(), key, value.clone()));
                         }
                     }
+                    // `cur.setdefault("msgs", []).append(m)` (read as `cur["msgs"].push(m)`): a list key set later.
+                    if let Stmt::Expr { expr: Expr::Method(r, m, args, _), .. } = st {
+                        if let Expr::Index(b, k) = r.as_ref() {
+                            if let (Expr::Ident(n), Some(key)) = (b.as_ref(), key_name(k)) {
+                                match (m.as_str(), args.as_slice()) {
+                                    ("push" | "append" | "add", [a]) => later.push((n.clone(), key, Expr::List(vec![a.clone()]))),
+                                    ("extend" | "update", [a]) => later.push((n.clone(), key, a.clone())),
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
