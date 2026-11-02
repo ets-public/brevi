@@ -1,0 +1,19 @@
+{"a":1,"b":2},{"a":3,"b":4}
+{"name": "caf\u00e9 \"q\"\n", "ok": "yes"}
+{
+  "a": [
+    3
+  ],
+  "z": [
+    1,
+    2
+  ]
+}
+["x", "é"]
+"hi" 3 2.5 [1, 2]
+{
+    "x": 1
+}
+{"id": 7, "name": "bob", "tags": ["a", "b"], "paid": false, "total": 12.5}
+2 5 True
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
