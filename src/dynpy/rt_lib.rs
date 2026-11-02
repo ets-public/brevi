@@ -990,6 +990,10 @@ pub fn builtin_value(name: &str) -> Option<V> {
 }
 // int(x), list(x), dict(...) and so on when called through the class value.
 pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
+    // Other builtin classes (the exceptions) keep their arguments for the caller.
+    if !matches!(c.name, "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "defaultdict" | "Counter" | "OrderedDict" | "deque") {
+        return None;
+    }
     let a = Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) };
     Some(match c.name {
         "int" => bi_int(a),
@@ -1425,7 +1429,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                 "ljust" => format!("{t}{}", f(k)),
                 "rjust" => format!("{}{t}", f(k)),
                 _ => {
-                    let left = k / 2 + (k & n & 1);
+                    let left = k / 2 + (k & w & 1);
                     format!("{}{t}{}", f(left), f(k - left))
                 }
             })

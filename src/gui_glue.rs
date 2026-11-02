@@ -56,7 +56,7 @@ mod tkx_glue {
         match j {
             Json::Null => tk::Val::None,
             Json::Bool { v } => tk::Val::Bool(*v),
-            Json::Num { v } => {
+            Json::Num { v, .. } => {
                 if v.fract() == 0.0 && v.abs() < 9e15 {
                     tk::Val::Int(*v as i64)
                 } else {

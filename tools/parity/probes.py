@@ -71,4 +71,16 @@ PROBES = [
     ("abs_int_min", "print(abs(-9223372036854775808))"),
     ("float_int_conv", "print(int(3.999), int(-3.999), float(3), int('7') + 1)"),
     ("string_mult_neg", 'print("ab" * -1 == "", [0] * -2)'),
+    # Found by the 2026-11-02 bug hunt (each was a silent wrong answer).
+    ("slice_negative_step", 'xs = [1, 2, 3, 4, 5]\ns = "hello"\nprint(xs[::-2], xs[-1:-3:-1], xs[3:0:-1], xs[5::-1], s[::-2], s[4:0:-1], s[::2])'),
+    ("alias_sort_extend", 'xs = [3, 1, 2]\nzs = xs\nxs.sort()\nxs.extend([9])\nxs += [7]\nprint(xs, zs)'),
+    ("format_fill_align", "print('{:-^7}|{:*>5}|{:0>4}'.format('a', 'b', 7), f\"{'c':.<4}|{-3:=6}|{255:#x}|{5:b}|{1e16:g}|{1234567:_}\")"),
+    ("fstring_conversions", 'name = "al"\nw = 8\nprint(f"{name!r}|{name=}|{3.14159:{w}.2f}|{ name }|{7:03d}")'),
+    ("plain_string_braces", 'x = 5\nprint("{x}", \'{x}\', "{{x}}", f"{{x}}", f"{{{x}}}")'),
+    ("mixed_list_floats", 'out = [3]\nout.append(float("1e3"))\nout.append("s")\nprint(out)'),
+    ("set_print_order", "s = {-1, 5, 100, 7}\nprint(s, sorted(s))\nt = set()\nfor v in [10, 20, 30, 40, 100, 7]:\n    t.add(v)\nprint(t, list(t))"),
+    ("set_in_dict", "from collections import defaultdict\ng = defaultdict(set)\ng['a'].add(1)\ng['a'].add(2)\nprint(dict(g))"),
+    ("print_args_then_change", "from collections import deque\nq = deque([1, 2, 3])\nprint(q, q.popleft(), q)"),
+    ("raise_builtin_message", 'def f(x):\n    raise ValueError(f"bad {x}")\ntry:\n    f(1)\nexcept ValueError as e:\n    print(e, e.args)\ntry:\n    raise KeyError("k")\nexcept (TypeError, KeyError) as e:\n    print(e)'),
+    ("str_center_odd", 'print("x".center(4) + "|", "ab".center(5, "-"), "abc".center(8, "*"))'),
 ]

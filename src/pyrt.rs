@@ -736,8 +736,8 @@ impl AxToPy for Json {
         match self {
             Json::Null => ax_pyb_none(),
             Json::Bool { v } => v.ax_to_py(),
-            Json::Num { v } if v.fract() == 0.0 && v.abs() < 9e15 => (*v as i64).ax_to_py(),
-            Json::Num { v } => v.ax_to_py(),
+            Json::Num { v, f: false } if v.fract() == 0.0 && v.abs() < 9e15 => (*v as i64).ax_to_py(),
+            Json::Num { v, .. } => v.ax_to_py(),
             Json::Str { v } => v.ax_to_py(),
             Json::Arr { v } => v.ax_to_py(),
             Json::Tup { v } => {

@@ -2326,6 +2326,17 @@ impl Parser {
                     // Python's step: `xs[::-1]` reverses, `xs[::2]` takes every second item.
                     let step = if self.eat_sym(":") && !self.is_sym("]") { Some(self.expr()?) } else { None };
                     self.expect_sym("]")?;
+                    // Python's xs[a:b:k] with a step other than 1 (and not a bare xs[::-1]): picked as
+                    // Python does, counting down from a for a negative step.
+                    let one = |k: &Expr| matches!(k, Expr::Int(1));
+                    let minus_one = |k: &Expr| matches!(k, Expr::Int(-1)) || matches!(k, Expr::Unary("-", n) if matches!(n.as_ref(), Expr::Int(1)));
+                    if self.py && step.as_ref().is_some_and(|k| !one(k) && !(minus_one(k) && start.is_none() && args.len() == 1)) {
+                        let nosl = || Expr::Int(i64::MIN + 1);
+                        let a = start.clone().unwrap_or_else(nosl);
+                        let b = if args.len() > 1 { args.pop().unwrap() } else { nosl() };
+                        e = Expr::Method(Box::new(e), "slice_step".into(), vec![a, b, step.unwrap()], line);
+                        continue;
+                    }
                     if start.is_some() || args.len() > 1 || step.is_none() {
                         e = Expr::Method(Box::new(e), "slice".into(), args, line);
                     }
@@ -3004,7 +3015,22 @@ impl Parser {
                     }
                     let inner: String = chars[start..i - 1].iter().collect();
                     // Python's format spec: `{x:.2f}`, `{n:03d}`, `{s:<10}`, `{v:>8}`.
-                    let (inner, spec) = split_spec(&inner);
+                    let (inner, spec) = split_spec(&inner, self.py);
+                    // Python's `{x!r}` / `{x!s}` / `{x!a}` conversions and `{x=}` (the text, then the value).
+                    let (mut inner, mut conv, mut debug) = (inner, None::<char>, false);
+                    if self.py {
+                        let t = inner.trim_end();
+                        if let Some(c) = ["!r", "!s", "!a"].iter().find(|c| t.ends_with(**c)) {
+                            conv = c.chars().nth(1);
+                            inner = t[..t.len() - 2].to_string();
+                        }
+                        let t = inner.trim_end();
+                        if t.ends_with('=') && !t.ends_with("==") && !t.ends_with("!=") && !t.ends_with("<=") && !t.ends_with(">=") {
+                            debug = true;
+                            lit.push_str(&inner);
+                            inner = t[..t.len() - 1].to_string();
+                        }
+                    }
                     let toks = lex(&inner).map_err(|mut d| {
                         d.line = line;
                         d
@@ -3014,10 +3040,24 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
+                    if self.py {
+                        sub.skip_newlines();
+                        if sub.peek() != &Tok::Eof {
+                            return Err(Diag::new("parse", line, 1, &format!("cannot read the f-string value {{{inner}}}")).fix_hint("compute the value first: v = ...; then f\"{v}\""));
+                        }
+                    }
                     if !lit.is_empty() {
                         parts.push(StrPart::Lit(std::mem::take(&mut lit)));
                     }
+                    let e = match conv {
+                        Some('r' | 'a') => Expr::Method(Box::new(e), "py_repr".into(), vec![], line),
+                        Some(_) => Expr::Call("str".into(), vec![(None, e)], line),
+                        None if debug && spec.is_none() => Expr::Method(Box::new(e), "py_repr".into(), vec![], line),
+                        None => e,
+                    };
                     let e = match spec {
+                        // `{x:{w}.2f}`: the spec is itself filled in.
+                        Some(sp) if self.py && sp.contains('{') => Expr::Method(Box::new(e), "spec".into(), vec![Expr::Str(self.interp(&sp, line)?)], line),
                         Some(sp) => Expr::Method(Box::new(e), "spec".into(), vec![Expr::Str(vec![StrPart::Lit(sp)])], line),
                         None => e,
                     };
@@ -3041,8 +3081,50 @@ impl Parser {
 // Built-in functions a program may define for itself; its own version gets a suffix in the Rust.
 const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
 
+// A whole Python format spec: [[fill]align][sign][z][#][0][width][,|_][.precision][type].
+pub fn py_spec_ok(spec: &str) -> bool {
+    let c: Vec<char> = spec.chars().collect();
+    if c.iter().any(|&ch| ch == '{' || ch == '}') {
+        return false;
+    }
+    let mut i = 0;
+    if c.len() >= 2 && matches!(c[1], '<' | '>' | '^' | '=') {
+        i = 2;
+    } else if !c.is_empty() && matches!(c[0], '<' | '>' | '^' | '=') {
+        i = 1;
+    }
+    if i < c.len() && matches!(c[i], '+' | '-' | ' ') {
+        i += 1;
+    }
+    for flag in ['z', '#', '0'] {
+        if i < c.len() && c[i] == flag {
+            i += 1;
+        }
+    }
+    while i < c.len() && c[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i < c.len() && matches!(c[i], ',' | '_') {
+        i += 1;
+    }
+    if i < c.len() && c[i] == '.' {
+        i += 1;
+        let st = i;
+        while i < c.len() && c[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == st {
+            return false;
+        }
+    }
+    if i < c.len() && "bcdeEfFgGnosxX%".contains(c[i]) {
+        i += 1;
+    }
+    i == c.len()
+}
+
 // `x:.2f` -> ("x", Some(".2f")): a colon outside brackets and quotes followed by a Python format spec.
-fn split_spec(inner: &str) -> (String, Option<String>) {
+fn split_spec(inner: &str, py: bool) -> (String, Option<String>) {
     let (mut depth, mut quote) = (0i32, None::<char>);
     for (i, c) in inner.char_indices() {
         match (quote, c) {
@@ -3058,7 +3140,7 @@ fn split_spec(inner: &str) -> (String, Option<String>) {
                     let b = b.trim_start_matches(|c: char| c.is_ascii_digit() || c == ',');
                     let b = b.strip_prefix('.').map_or(b, |r| r.trim_start_matches(|c: char| c.is_ascii_digit()));
                     b.is_empty() || matches!(b, "d" | "f" | "s" | "x" | "%" | "e")
-                };
+                } || py && (py_spec_ok(spec) || spec.contains('{'));
                 return if ok { (inner[..i].to_string(), Some(spec.to_string())) } else { (inner.to_string(), None) };
             }
             _ => {}

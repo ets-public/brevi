@@ -17,6 +17,7 @@ mod modules;
 mod parser;
 mod pybridge;
 mod patch;
+mod typed_guard;
 
 use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
@@ -199,6 +200,27 @@ fn main() {
     }
     if cmd == "run" && file.ends_with(".py") && !native {
         run_or_fall_back(&file, &argv);
+    }
+    // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
+    // built over dynamic values, or refused, never built typed.
+    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
+        let guard = std::fs::read_to_string(&file).ok().and_then(|s| typed_guard::check(&s));
+        if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
+            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w)| format!("dyn {l}: {w}")));
+            exit(0);
+        }
+        if let Some((line, why)) = guard {
+            if cmd == "emit" {
+                dyn_cmd(cmd, &file, &argv);
+            }
+            if dyn_fallback(cmd, &file, &argv) {
+                exit(0);
+            }
+            let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
+            d.fix = Some("sort it first (sorted(s)) where the order shows".into());
+            print_diag(&d);
+            exit(1);
+        }
     }
     let release = argv.iter().any(|a| a == "--release");
     let out_path = argv.iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
@@ -1050,7 +1072,7 @@ fn report(rust: &str, stderr: &str) {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
         // A copy Brevi refuses because the value is not shared (a `__shared` marker from alias.rs).
-        if msg.contains("AxShared") || msg.contains("AxWhole") {
+        if msg.contains("AxShared") || msg.contains("AxWhole") || msg.contains("AxAug") {
             let src = primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("");
             if let Some(h) = src.split("axsh:").nth(1).map(|h| h.split("*/").next().unwrap_or("")) {
                 let bytes: Vec<u8> = (0..h.len() / 2).filter_map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()).collect();

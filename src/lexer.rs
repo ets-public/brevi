@@ -85,7 +85,24 @@ fn num_interp(chars: &[char], from: usize) -> Option<usize> {
     while chars.get(j).map_or(false, |c| c.is_ascii_digit() || matches!(c, '.' | '_')) {
         j += 1;
     }
-    (j > from && chars[from].is_ascii_digit() && matches!(chars.get(j), Some(':' | '}'))).then_some(j)
+    // An exponent: `{1e16:g}`, `{2.5E-3}`.
+    if j > from && matches!(chars.get(j), Some('e' | 'E')) {
+        let mut k = j + 1;
+        if matches!(chars.get(k), Some('+' | '-')) {
+            k += 1;
+        }
+        if chars.get(k).is_some_and(|c| c.is_ascii_digit()) {
+            while chars.get(k).is_some_and(|c| c.is_ascii_digit()) {
+                k += 1;
+            }
+            j = k;
+        }
+    }
+    let mut k = j;
+    while chars.get(k) == Some(&' ') {
+        k += 1;
+    }
+    (j > from && chars[from].is_ascii_digit() && matches!(chars.get(k), Some(':' | '}'))).then_some(j)
 }
 
 fn interp_closes(chars: &[char], from: usize) -> bool {
@@ -355,6 +372,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     let mut depth: Vec<char> = Vec::new();
     // The string just ahead is an f-string, where `{3.14:.2f}` formats a number written in place.
     let mut fstr = false;
+    // A .py file: only f-strings fill in `{...}`; braces in any other string are kept as written.
+    let py = crate::PY_FILE.load(std::sync::atomic::Ordering::Relaxed);
     // Functions defined with Python's `def var(...)`: the name is a name everywhere, even where Brevi has a keyword.
     let py_defs: Vec<String> = src
         .split(['\n', '\u{1}'])
@@ -428,6 +447,59 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 1;
                         col += 1;
                         break;
+                    }
+                    Some(&b @ ('{' | '}')) if py && !is_f => {
+                        s.push(b);
+                        s.push(b);
+                        i += 1;
+                        col += 1;
+                    }
+                    Some(&b @ ('{' | '}')) if py && chars.get(i + 1) == Some(&b) => {
+                        s.push(b);
+                        s.push(b);
+                        i += 2;
+                        col += 2;
+                    }
+                    // f'{7:03d}', f'{ x }': a number value is wrapped as `(7)`; spaces after the brace are dropped.
+                    Some('{') if py && is_f && chars.get(i + 1).is_some_and(|c| *c == ' ' || c.is_ascii_digit()) => {
+                        let j = (i + 1..chars.len()).find(|&j| chars[j] != ' ').unwrap_or(chars.len());
+                        s.push('{');
+                        if let Some(end) = num_interp(&chars, j) {
+                            s.push('(');
+                            s.extend(&chars[j..end]);
+                            s.push(')');
+                            col += end - i;
+                            i = end;
+                        } else {
+                            col += j - i;
+                            i = j;
+                        }
+                        let (mut depth, mut inner) = (1usize, false);
+                        while let Some(&ch) = chars.get(i) {
+                            s.push(ch);
+                            i += 1;
+                            col += 1;
+                            if inner {
+                                if ch == '\\' {
+                                    if let Some(&n) = chars.get(i) {
+                                        s.push(n);
+                                        i += 1;
+                                        col += 1;
+                                    }
+                                } else if ch == '"' {
+                                    inner = false;
+                                }
+                            } else if ch == '"' {
+                                inner = true;
+                            } else if ch == '{' {
+                                depth += 1;
+                            } else if ch == '}' {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                        }
                     }
                     Some('{') if chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(') || (is_f && matches!(c, '"' | '[' | '-' | '!'))) && interp_closes(&chars, i + 1) => {
                         // The value runs to its matching `}`; strings inside it are skipped.
@@ -514,7 +586,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             // `.split("{{")`, `.find("}}")`, `.push("{{" + p)`: a bare "{{" or "}}" handed straight to a method
             // is two braces, the way template code means it.
             let pair = matches!((chars.get(i), chars.get(i + 1), chars.get(i + 2)), (Some('{'), Some('{'), Some('"')) | (Some('}'), Some('}'), Some('"')));
-            if pair && method_arg_start(&chars, i - 1) {
+            if pair && !py && method_arg_start(&chars, i - 1) {
                 let b = chars[i];
                 s.extend([b, b, b, b]);
                 i += 3;
@@ -566,6 +638,26 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     None | Some('\n') => {
                         return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \""));
                     }
+                    Some(&b @ ('{' | '}')) if py && !is_f => {
+                        s.push(b);
+                        s.push(b);
+                        i += 1;
+                        col += 1;
+                    }
+                    Some('\\') if py && !is_f && matches!(chars.get(i + 1), Some('{' | '}')) => {
+                        let b = chars[i + 1];
+                        s.push('\\');
+                        s.push(b);
+                        s.push(b);
+                        i += 2;
+                        col += 2;
+                    }
+                    Some(&b @ ('{' | '}')) if py && chars.get(i + 1) == Some(&b) => {
+                        s.push(b);
+                        s.push(b);
+                        i += 2;
+                        col += 2;
+                    }
                     // A template tag such as "{{#each items}}", "{{/if}}" or "{{else}}" keeps both braces on each side.
                     Some('{') if chars.get(i + 1) == Some(&'{') && template_tag(&chars, i + 2).is_some() => {
                         let (end, closed) = template_tag(&chars, i + 2).unwrap();
@@ -595,6 +687,25 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         }
                         i += 2;
                         col += 2;
+                    }
+                    // f"{ x }": spaces after the brace are dropped, as Python reads them.
+                    Some('{') if is_f && !bs && chars.get(i + 1) == Some(&' ') && {
+                        let j = (i + 1..chars.len()).find(|&j| chars[j] != ' ').unwrap_or(chars.len());
+                        num_interp(&chars, j).is_some() || chars.get(j).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '"' | '\'')) && interp_closes(&chars, j)
+                    } => {
+                        let j = (i + 1..chars.len()).find(|&j| chars[j] != ' ').unwrap_or(chars.len());
+                        if let Some(end) = num_interp(&chars, j) {
+                            s.push_str("{(");
+                            s.extend(&chars[j..end]);
+                            s.push(')');
+                            col += end - i;
+                            i = end;
+                        } else {
+                            s.push('{');
+                            col += j - i;
+                            i = j;
+                        }
+                        depth = 1;
                     }
                     // f"{7:03d}": the number is wrapped as `(7)` so it reads as a value.
                     Some('{') if is_f && !bs && num_interp(&chars, i + 1).is_some() => {

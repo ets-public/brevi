@@ -338,6 +338,16 @@ pub fn ax_shared<T: AxShared>(_: &T) {}
 pub trait AxWhole {}
 impl<T> AxWhole for AxRow<T> {}
 pub fn ax_shared_whole<T: AxWhole>(_: &T) {}
+// A value `x += v` sets anew (a number, text, an object) rather than changing in place, as a list does.
+pub trait AxAug {}
+impl<T> AxAug for AxRow<T> {}
+impl AxAug for i64 {}
+impl AxAug for f64 {}
+impl AxAug for bool {}
+impl AxAug for String {}
+impl AxAug for Big {}
+impl AxAug for Dec {}
+pub fn ax_shared_aug<T: AxAug>(_: &T) {}
 pub trait AxIsNoneHandle {
     fn ax_null(&self) -> bool;
 }
@@ -717,7 +727,7 @@ impl AxTruth for Json {
         match self {
             Json::Null => false,
             Json::Bool { v } => *v,
-            Json::Num { v } => *v != 0.0,
+            Json::Num { v, .. } => *v != 0.0,
             Json::Str { v } => !v.is_empty(),
             Json::Arr { v } | Json::Tup { v } => !v.is_empty(),
             Json::Obj { v } => !v.m.is_empty(),
@@ -944,6 +954,305 @@ impl<T> Plus for Vec<T> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct AxPfSpec {
+    fill: char,
+    align: Option<char>,
+    sign: char,
+    alt: bool,
+    zero: bool,
+    width: usize,
+    group: Option<char>,
+    prec: Option<usize>,
+    ty: Option<char>,
+}
+fn ax_pf_parse(spec: &str) -> AxPfSpec {
+    let c: Vec<char> = spec.chars().collect();
+    let mut i = 0;
+    let mut sp = AxPfSpec { fill: ' ', align: None, sign: '-', alt: false, zero: false, width: 0, group: None, prec: None, ty: None };
+    if c.len() >= 2 && matches!(c[1], '<' | '>' | '^' | '=') {
+        sp.fill = c[0];
+        sp.align = Some(c[1]);
+        i = 2;
+    } else if !c.is_empty() && matches!(c[0], '<' | '>' | '^' | '=') {
+        sp.align = Some(c[0]);
+        i = 1;
+    }
+    if i < c.len() && matches!(c[i], '+' | '-' | ' ') {
+        sp.sign = c[i];
+        i += 1;
+    }
+    if i < c.len() && c[i] == 'z' {
+        i += 1;
+    }
+    if i < c.len() && c[i] == '#' {
+        sp.alt = true;
+        i += 1;
+    }
+    if i < c.len() && c[i] == '0' {
+        sp.zero = true;
+        i += 1;
+    }
+    let st = i;
+    while i < c.len() && c[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i > st {
+        sp.width = c[st..i].iter().collect::<String>().parse().unwrap_or(0);
+    }
+    if i < c.len() && matches!(c[i], ',' | '_') {
+        sp.group = Some(c[i]);
+        i += 1;
+    }
+    if i < c.len() && c[i] == '.' {
+        i += 1;
+        let st = i;
+        while i < c.len() && c[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == st {
+            panic!("ValueError: Format specifier missing precision");
+        }
+        sp.prec = Some(c[st..i].iter().collect::<String>().parse().unwrap_or(0));
+    }
+    if i < c.len() {
+        sp.ty = Some(c[i]);
+        i += 1;
+    }
+    if i < c.len() {
+        panic!("ValueError: Invalid format specifier '{spec}' for object");
+    }
+    sp
+}
+fn ax_pf_group_digits(int_part: &str, sep: char, every: usize) -> String {
+    let n = int_part.len();
+    let mut out = String::new();
+    for (i, ch) in int_part.chars().enumerate() {
+        if i > 0 && (n - i) % every == 0 {
+            out.push(sep);
+        }
+        out.push(ch);
+    }
+    out
+}
+fn ax_pf_pad(body: String, sign: &str, sp: &AxPfSpec, default_right: bool) -> String {
+    let len = body.chars().count() + sign.chars().count();
+    if len >= sp.width {
+        return format!("{sign}{body}");
+    }
+    let n = sp.width - len;
+    let (fill, align) = if sp.zero && sp.align.is_none() { ('0', '=') } else { (sp.fill, sp.align.unwrap_or(if default_right { '>' } else { '<' })) };
+    let f = |k: usize| std::iter::repeat(fill).take(k).collect::<String>();
+    match align {
+        '<' => format!("{sign}{body}{}", f(n)),
+        '>' => format!("{}{sign}{body}", f(n)),
+        '^' => format!("{}{sign}{body}{}", f(n / 2), f(n - n / 2)),
+        _ => format!("{sign}{}{body}", f(n)),
+    }
+}
+// Fixed/exponent digits for a float with Python's rules.
+fn ax_pf_float_body(x: f64, ty: char, prec: Option<usize>, alt: bool) -> String {
+    if x.is_nan() {
+        return if ty.is_ascii_uppercase() { "NAN".into() } else { "nan".into() };
+    }
+    if x.is_infinite() {
+        return if ty.is_ascii_uppercase() { "INF".into() } else { "inf".into() };
+    }
+    match ty {
+        'f' | 'F' => {
+            let p = prec.unwrap_or(6);
+            let mut s = format!("{:.*}", p, x.abs());
+            if alt && p == 0 {
+                s.push('.');
+            }
+            s
+        }
+        'e' | 'E' => {
+            let p = prec.unwrap_or(6);
+            let s = format!("{:.*e}", p, x.abs());
+            let (m, e) = s.split_once('e').unwrap();
+            let e: i32 = e.parse().unwrap();
+            let mut m = m.to_string();
+            if alt && p == 0 {
+                m.push('.');
+            }
+            let r = format!("{}e{}{:02}", m, if e < 0 { '-' } else { '+' }, e.abs());
+            if ty == 'E' {
+                r.to_uppercase()
+            } else {
+                r
+            }
+        }
+        '%' => {
+            let p = prec.unwrap_or(6);
+            format!("{:.*}%", p, x.abs() * 100.0)
+        }
+        'g' | 'G' | 'n' => {
+            let p = prec.unwrap_or(6).max(1);
+            if x == 0.0 {
+                return if alt { format!("{:.*}", p - 1, 0.0) } else { "0".into() };
+            }
+            let s = format!("{:.*e}", p - 1, x.abs());
+            let (_, e) = s.split_once('e').unwrap();
+            let e: i32 = e.parse().unwrap();
+            let r = if e >= -4 && e < p as i32 {
+                let mut s = format!("{:.*}", (p as i32 - 1 - e).max(0) as usize, x.abs());
+                if !alt && s.contains('.') {
+                    s = s.trim_end_matches('0').trim_end_matches('.').to_string();
+                }
+                s
+            } else {
+                let (m, _) = s.split_once('e').unwrap();
+                let mut m = m.to_string();
+                if !alt && m.contains('.') {
+                    m = m.trim_end_matches('0').trim_end_matches('.').to_string();
+                }
+                format!("{}e{}{:02}", m, if e < 0 { '-' } else { '+' }, e.abs())
+            };
+            if ty == 'G' {
+                r.to_uppercase()
+            } else {
+                r
+            }
+        }
+        _ => {
+            // no type: repr-like, or 'g'-like with at least one decimal when a precision is given
+            match prec {
+                None => ax_py_float(x.abs()),
+                Some(p) => {
+                    let p = p.max(1);
+                    let s = format!("{:.*e}", p - 1, x.abs());
+                    let (_, e) = s.split_once('e').unwrap();
+                    let e: i32 = e.parse().unwrap();
+                    if e >= -4 && e < p as i32 {
+                        let mut s = format!("{:.*}", (p as i32 - 1 - e).max(0) as usize, x.abs());
+                        if s.contains('.') {
+                            s = s.trim_end_matches('0').to_string();
+                            if s.ends_with('.') {
+                                s.push('0');
+                            }
+                        } else {
+                            s.push_str(".0");
+                        }
+                        s
+                    } else {
+                        let (m, _) = s.split_once('e').unwrap();
+                        let mut m = m.to_string();
+                        if m.contains('.') {
+                            m = m.trim_end_matches('0').trim_end_matches('.').to_string();
+                        }
+                        format!("{}e{}{:02}", m, if e < 0 { '-' } else { '+' }, e.abs())
+                    }
+                }
+            }
+        }
+    }
+}
+fn ax_pf_sign(neg: bool, sp: &AxPfSpec) -> &'static str {
+    if neg {
+        "-"
+    } else {
+        match sp.sign {
+            '+' => "+",
+            ' ' => " ",
+            _ => "",
+        }
+    }
+}
+fn ax_pf_group_num(body: &str, sp: &AxPfSpec) -> String {
+    match sp.group {
+        None => body.to_string(),
+        Some(g) => {
+            let (ip, rest) = match body.find(|c: char| !c.is_ascii_digit()) {
+                Some(i) => (&body[..i], &body[i..]),
+                None => (body, ""),
+            };
+            format!("{}{}", ax_pf_group_digits(ip, g, 3), rest)
+        }
+    }
+}
+
+// Python's format(v, spec) for the typed build's values, as CPython writes them.
+pub fn ax_pf_str(x: &str, spec: &str) -> String {
+    let sp = ax_pf_parse(spec);
+    if let Some(t) = sp.ty {
+        if t != 's' {
+            panic!("ValueError: Unknown format code '{t}' for object of type 'str'");
+        }
+    }
+    if sp.sign != '-' {
+        panic!("ValueError: Sign not allowed in string format specifier");
+    }
+    if sp.align == Some('=') {
+        panic!("ValueError: '=' alignment not allowed in string format specifier");
+    }
+    let body: String = match sp.prec {
+        Some(p) => x.chars().take(p).collect(),
+        None => x.to_string(),
+    };
+    ax_pf_pad(body, "", &sp, false)
+}
+pub fn ax_pf_int(v: i64, spec: &str) -> String {
+    let sp = ax_pf_parse(spec);
+    if matches!(sp.ty, Some('e' | 'E' | 'f' | 'F' | 'g' | 'G' | '%')) {
+        return ax_pf_float(v as f64, spec, true);
+    }
+    if sp.prec.is_some() {
+        panic!("ValueError: Precision not allowed in integer format specifier");
+    }
+    let neg = v < 0;
+    let a = v.unsigned_abs();
+    let (body, prefix) = match sp.ty {
+        None | Some('d') | Some('n') => (a.to_string(), ""),
+        Some('x') => (format!("{a:x}"), "0x"),
+        Some('X') => (format!("{a:X}"), "0X"),
+        Some('o') => (format!("{a:o}"), "0o"),
+        Some('b') => (format!("{a:b}"), "0b"),
+        Some('c') => (char::from_u32(v as u32).unwrap_or('?').to_string(), ""),
+        Some(t) => panic!("ValueError: Unknown format code '{t}' for object of type 'int'"),
+    };
+    let body = match sp.group {
+        Some(g) => ax_pf_group_digits(&body, g, if matches!(sp.ty, Some('x' | 'X' | 'o' | 'b')) { 4 } else { 3 }),
+        None => body,
+    };
+    let sign = format!("{}{}", ax_pf_sign(neg, &sp), if sp.alt { prefix } else { "" });
+    if sp.zero && sp.align.is_none() && sp.group.is_some() && body.len() + sign.len() < sp.width {
+        let digits: String = body.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        let g = sp.group.unwrap();
+        let mut d = digits;
+        loop {
+            let t = ax_pf_group_digits(&d, g, 3);
+            if t.len() + sign.len() >= sp.width {
+                return format!("{sign}{t}");
+            }
+            d.insert(0, '0');
+        }
+    }
+    ax_pf_pad(body, &sign, &sp, true)
+}
+pub fn ax_pf_float(x: f64, spec: &str, from_int: bool) -> String {
+    let sp = ax_pf_parse(spec);
+    if let Some(t) = sp.ty {
+        if !matches!(t, 'e' | 'E' | 'f' | 'F' | 'g' | 'G' | 'n' | '%') {
+            panic!("ValueError: Unknown format code '{t}' for object of type 'float'");
+        }
+    }
+    let neg = x.is_sign_negative() && !x.is_nan() && !(x == 0.0 && from_int);
+    let mut body = ax_pf_float_body(x, sp.ty.unwrap_or('\0'), sp.prec, sp.alt);
+    body = ax_pf_group_num(&body, &sp);
+    let sign = ax_pf_sign(neg, &sp);
+    if sp.zero && sp.align.is_none() && sp.group.is_some() {
+        let mut b = body.clone();
+        while b.len() + sign.len() < sp.width {
+            let ip: String = b.split(|c: char| c == '.' || c == 'e' || c == '%').next().unwrap().chars().filter(|c| c.is_ascii_digit()).collect();
+            let rest = b[b.find(|c: char| c == '.' || c == 'e' || c == '%').unwrap_or(b.len())..].to_string();
+            let t = ax_pf_group_digits(&format!("0{ip}"), sp.group.unwrap(), 3);
+            b = format!("{t}{rest}");
+        }
+        return format!("{sign}{b}");
+    }
+    ax_pf_pad(body, sign, &sp, true)
+}
 // Python format specs in strings: `{x:.2f}` `{n:03d}` `{s:<10}` `{v:>8,}`.
 pub trait AxSpec {
     fn ax_spec(&self, spec: String) -> String;
@@ -1024,11 +1333,17 @@ fn ax_spec_num(v: f64, int: Option<i64>, spec: &str) -> String {
 }
 impl AxSpec for i64 {
     fn ax_spec(&self, spec: String) -> String {
+        if ax_py_on() {
+            return ax_pf_int(*self, &spec);
+        }
         ax_spec_num(*self as f64, Some(*self), &spec)
     }
 }
 impl AxSpec for f64 {
     fn ax_spec(&self, spec: String) -> String {
+        if ax_py_on() {
+            return ax_pf_float(*self, &spec, false);
+        }
         ax_spec_num(*self, None, &spec)
     }
 }
@@ -1050,6 +1365,9 @@ impl AxSpec for Dec {
 }
 impl AxSpec for String {
     fn ax_spec(&self, spec: String) -> String {
+        if ax_py_on() {
+            return ax_pf_str(self, &spec);
+        }
         let (_, _, _, _, _, prec, _) = ax_spec_parts(&spec);
         let body: String = match prec {
             Some(p) => self.chars().take(p).collect(),
@@ -1060,6 +1378,9 @@ impl AxSpec for String {
 }
 impl AxSpec for bool {
     fn ax_spec(&self, spec: String) -> String {
+        if ax_py_on() {
+            return if spec.is_empty() { self.show() } else { ax_pf_int(*self as i64, &spec) };
+        }
         ax_spec_pad(self.show(), &spec, false)
     }
 }
@@ -1477,7 +1798,7 @@ impl AxSum<f64> for Vec<f64> {
 // Numbers held as JSON (a function returning `v` or `0`): their sum, as JSON.
 impl AxSum<Json> for Vec<Json> {
     fn ax_sum(&self) -> Json {
-        Json::Num { v: self.iter().map(|j| if let Json::Num { v } = j { *v } else { 0.0 }).sum() }
+        Json::Num { v: self.iter().map(|j| if let Json::Num { v, .. } = j { *v } else { 0.0 }).sum(), f: self.iter().any(|j| matches!(j, Json::Num { f: true, .. })) }
     }
 }
 pub trait AxJoin {
@@ -1663,7 +1984,7 @@ impl AxRef<Json, Json> for Json {
     fn ax_ref(&self, k: &Json) -> &Json {
         match k {
             Json::Str { v } => self.ax_ref(v),
-            Json::Num { v } => self.ax_ref(&(*v as i64)),
+            Json::Num { v, .. } => self.ax_ref(&(*v as i64)),
             _ => &AX_NULL,
         }
     }
@@ -1675,7 +1996,7 @@ impl AxIndex<Json, Json> for Json {
     fn ax_set(&mut self, k: Json, x: Json) {
         match k {
             Json::Str { v } => self.ax_set(v, x),
-            Json::Num { v } => self.ax_set(v as i64, x),
+            Json::Num { v, .. } => self.ax_set(v as i64, x),
             _ => {}
         }
     }
@@ -1727,7 +2048,8 @@ impl AxIndex<i64, String> for String {
 pub enum Json {
     Null,
     Bool { v: bool },
-    Num { v: f64 },
+    // f: written as a float (1.0), not an int (1); both are kept as f64.
+    Num { v: f64, f: bool },
     Str { v: String },
     Arr { v: Vec<Json> },
     // A Python tuple whose length differs by path (`("room", n, d)` or `("capacity", 9)`).
@@ -1742,7 +2064,7 @@ impl Hash for Json {
             Json::Null => 0u8.hash(h),
             Json::Bool { v } => v.hash(h),
             // Whole numbers hash like the int they equal; others by their bits.
-            Json::Num { v } => {
+            Json::Num { v, .. } => {
                 if v.fract() == 0.0 && v.abs() < 9e15 {
                     (*v as i64).hash(h)
                 } else {
@@ -1788,7 +2110,7 @@ impl Default for Json {
 // A Python list of ints and strings holds Json values: arithmetic and comparisons work on their numbers.
 fn ax_jnum(j: &Json) -> f64 {
     match j {
-        Json::Num { v } => *v,
+        Json::Num { v, .. } => *v,
         Json::Bool { v } => *v as i64 as f64,
         _ => panic!("unsupported operand type: {} is not a number", j.show()),
     }
@@ -1798,7 +2120,17 @@ fn ax_jn(v: f64) -> Json {
     if v.fract() == 0.0 && v.abs() > 9007199254740992.0 {
         panic!("number too big for a value of mixed type: {v}");
     }
-    Json::Num { v }
+    Json::Num { v, f: false }
+}
+// The same, marked as a float when either side was one (or, for true division, always).
+fn ax_jnk(v: f64, f: bool) -> Json {
+    match ax_jn(v) {
+        Json::Num { v, .. } => Json::Num { v, f },
+        j => j,
+    }
+}
+fn ax_jf(j: &Json) -> bool {
+    matches!(j, Json::Num { f: true, .. })
 }
 impl Plus for Json {
     type Out = Json;
@@ -1809,7 +2141,7 @@ impl Plus for Json {
                 a.extend(b);
                 Json::Arr { v: a }
             }
-            (a, b) => ax_jn(ax_jnum(&a) + ax_jnum(&b)),
+            (a, b) => ax_jnk(ax_jnum(&a) + ax_jnum(&b), ax_jf(&a) || ax_jf(&b)),
         }
     }
 }
@@ -1830,21 +2162,21 @@ macro_rules! ax_json_num_ops {
         impl Plus<$t> for Json {
             type Out = Json;
             fn plus(self, o: $t) -> Json {
-                ax_jn(ax_jnum(&self) + o as f64)
+                ax_jnk(ax_jnum(&self) + o as f64, ax_jf(&self) || ax_is_f64::<$t>())
             }
         }
         impl Plus<Json> for $t {
             type Out = Json;
             fn plus(self, o: Json) -> Json {
-                ax_jn(self as f64 + ax_jnum(&o))
+                ax_jnk(self as f64 + ax_jnum(&o), ax_jf(&o) || ax_is_f64::<$t>())
             }
         }
-        impl std::ops::Sub<$t> for Json { type Output = Json; fn sub(self, o: $t) -> Json { ax_jn(ax_jnum(&self) - o as f64) } }
-        impl std::ops::Sub<Json> for $t { type Output = Json; fn sub(self, o: Json) -> Json { ax_jn(self as f64 - ax_jnum(&o)) } }
-        impl std::ops::Mul<$t> for Json { type Output = Json; fn mul(self, o: $t) -> Json { ax_jn(ax_jnum(&self) * o as f64) } }
-        impl std::ops::Mul<Json> for $t { type Output = Json; fn mul(self, o: Json) -> Json { ax_jn(self as f64 * ax_jnum(&o)) } }
-        impl std::ops::Div<$t> for Json { type Output = Json; fn div(self, o: $t) -> Json { ax_jn(ax_jnum(&self) / o as f64) } }
-        impl std::ops::Div<Json> for $t { type Output = Json; fn div(self, o: Json) -> Json { ax_jn(self as f64 / ax_jnum(&o)) } }
+        impl std::ops::Sub<$t> for Json { type Output = Json; fn sub(self, o: $t) -> Json { ax_jnk(ax_jnum(&self) - o as f64, ax_jf(&self) || ax_is_f64::<$t>()) } }
+        impl std::ops::Sub<Json> for $t { type Output = Json; fn sub(self, o: Json) -> Json { ax_jnk(self as f64 - ax_jnum(&o), ax_jf(&o) || ax_is_f64::<$t>()) } }
+        impl std::ops::Mul<$t> for Json { type Output = Json; fn mul(self, o: $t) -> Json { ax_jnk(ax_jnum(&self) * o as f64, ax_jf(&self) || ax_is_f64::<$t>()) } }
+        impl std::ops::Mul<Json> for $t { type Output = Json; fn mul(self, o: Json) -> Json { ax_jnk(self as f64 * ax_jnum(&o), ax_jf(&o) || ax_is_f64::<$t>()) } }
+        impl std::ops::Div<$t> for Json { type Output = Json; fn div(self, o: $t) -> Json { ax_jnk(ax_jnum(&self) / o as f64, true) } }
+        impl std::ops::Div<Json> for $t { type Output = Json; fn div(self, o: Json) -> Json { ax_jnk(self as f64 / ax_jnum(&o), true) } }
         impl PartialEq<Json> for $t { fn eq(&self, o: &Json) -> bool { o == self } }
         impl PartialOrd<$t> for Json {
             fn partial_cmp(&self, o: &$t) -> Option<std::cmp::Ordering> {
@@ -1858,27 +2190,31 @@ macro_rules! ax_json_num_ops {
         }
     )*};
 }
+fn ax_is_f64<T: 'static>() -> bool {
+    std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>()
+}
 ax_json_num_ops!(i64, f64);
-impl std::ops::Sub for Json { type Output = Json; fn sub(self, o: Json) -> Json { ax_jn(ax_jnum(&self) - ax_jnum(&o)) } }
+impl std::ops::Sub for Json { type Output = Json; fn sub(self, o: Json) -> Json { ax_jnk(ax_jnum(&self) - ax_jnum(&o), ax_jf(&self) || ax_jf(&o)) } }
 impl std::ops::Mul for Json {
     type Output = Json;
     fn mul(self, o: Json) -> Json {
         match (self, o) {
             (Json::Str { v }, n @ Json::Num { .. }) | (n @ Json::Num { .. }, Json::Str { v }) => Json::Str { v: v.repeat(ax_jnum(&n).max(0.0) as usize) },
-            (a, b) => ax_jn(ax_jnum(&a) * ax_jnum(&b)),
+            (a, b) => ax_jnk(ax_jnum(&a) * ax_jnum(&b), ax_jf(&a) || ax_jf(&b)),
         }
     }
 }
-impl std::ops::Div for Json { type Output = Json; fn div(self, o: Json) -> Json { ax_jn(ax_jnum(&self) / ax_jnum(&o)) } }
-impl std::ops::Rem for Json { type Output = Json; fn rem(self, o: Json) -> Json { let (a, b) = (ax_jnum(&self), ax_jnum(&o)); ax_jn(a - b * (a / b).floor()) } }
-impl std::ops::Neg for Json { type Output = Json; fn neg(self) -> Json { ax_jn(-ax_jnum(&self)) } }
+impl std::ops::Div for Json { type Output = Json; fn div(self, o: Json) -> Json { ax_jnk(ax_jnum(&self) / ax_jnum(&o), true) } }
+impl std::ops::Rem for Json { type Output = Json; fn rem(self, o: Json) -> Json { let (a, b) = (ax_jnum(&self), ax_jnum(&o)); ax_jnk(a - b * (a / b).floor(), ax_jf(&self) || ax_jf(&o)) } }
+impl std::ops::Neg for Json { type Output = Json; fn neg(self) -> Json { let f = ax_jf(&self); ax_jnk(-ax_jnum(&self), f) } }
 impl std::ops::AddAssign for Json { fn add_assign(&mut self, o: Json) { *self = std::mem::take(self).plus(o) } }
 impl std::ops::SubAssign for Json { fn sub_assign(&mut self, o: Json) { *self = std::mem::take(self) - o } }
 impl std::ops::MulAssign for Json { fn mul_assign(&mut self, o: Json) { *self = std::mem::take(self) * o } }
 impl std::ops::DivAssign for Json { fn div_assign(&mut self, o: Json) { *self = std::mem::take(self) / o } }
 impl AxFloorDiv for Json {
     fn floordiv(self, b: Json) -> Json {
-        ax_jn((ax_jnum(&self) / ax_jnum(&b)).floor())
+        let f = ax_jf(&self) || ax_jf(&b);
+        ax_jnk((ax_jnum(&self) / ax_jnum(&b)).floor(), f)
     }
 }
 impl AxNum for Json {
@@ -1886,7 +2222,7 @@ impl AxNum for Json {
         format!("{:.*}", decimals.max(0) as usize, ax_jnum(self))
     }
     fn ax_abs(&self) -> Json {
-        ax_jn(ax_jnum(self).abs())
+        ax_jnk(ax_jnum(self).abs(), ax_jf(self))
     }
     fn ax_float(&self) -> f64 {
         ax_jnum(self)
@@ -1992,8 +2328,8 @@ fn ax_json_py(j: &Json, top: bool) -> String {
     match j {
         Json::Null => "None".into(),
         Json::Bool { v } => if *v { "True".into() } else { "False".into() },
-        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e16 => format!("{}", *v as i64),
-        Json::Num { v } => ax_py_float(*v),
+        Json::Num { v, f } if v.fract() == 0.0 && v.abs() < 1e16 && !(*f && ax_py_on()) => format!("{}", *v as i64),
+        Json::Num { v, .. } => ax_py_float(*v),
         Json::Str { v } if top => v.clone(),
         Json::Str { v } => ax_py_repr(v),
         Json::Tup { v } if v.len() == 1 => format!("({},)", ax_json_py(&v[0], false)),
@@ -2010,7 +2346,7 @@ impl Show for Json {
         match self {
             Json::Null => "null".into(),
             Json::Bool { v } => v.to_string(),
-            Json::Num { v } => v.to_string(),
+            Json::Num { v, .. } => v.to_string(),
             Json::Str { v } => format!("{v:?}"),
             Json::Arr { v } | Json::Tup { v } => format!("[{}]", v.iter().map(|x| x.show()).collect::<Vec<_>>().join(",")),
             Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{k:?}:{}", x.show())).collect::<Vec<_>>().join(",")),
@@ -2142,7 +2478,7 @@ fn json_value(c: &[char], i: &mut usize) -> R<Json> {
                 *i += 1;
             }
             let t: String = c[start..*i].iter().collect();
-            t.parse::<f64>().map(|v| Json::Num { v }).map_err(|_| bad(start))
+            t.parse::<f64>().map(|v| Json::Num { v, f: t.contains(['.', 'e', 'E']) }).map_err(|_| bad(start))
         }
         _ => Err(bad(*i)),
     }
@@ -2220,7 +2556,7 @@ impl Json {
     }
     pub fn ax_int(&self) -> i64 {
         match self {
-            Json::Num { v } => *v as i64,
+            Json::Num { v, .. } => *v as i64,
             Json::Bool { v } => *v as i64,
             // Python's int("12"); anything else is an error there, so it stops the run here too.
             Json::Str { v } if ax_py_on() => match v.trim().parse::<i64>() {
@@ -2233,7 +2569,7 @@ impl Json {
     }
     pub fn ax_float(&self) -> f64 {
         match self {
-            Json::Num { v } => *v,
+            Json::Num { v, .. } => *v,
             Json::Bool { v } => *v as i64 as f64,
             Json::Str { v } if ax_py_on() => match v.trim().parse::<f64>() {
                 Ok(n) => n,
@@ -2245,7 +2581,7 @@ impl Json {
     }
     pub fn ax_dec(&self) -> Dec {
         match self {
-            Json::Num { v } => Dec::parse(&v.to_string()).unwrap_or_default(),
+            Json::Num { v, .. } => Dec::parse(&v.to_string()).unwrap_or_default(),
             Json::Str { v } => Dec::parse(v.trim()).unwrap_or_default(),
             _ => Dec::default(),
         }
@@ -3306,6 +3642,42 @@ impl<T: Clone> AxStep<T> for Vec<T> {
         self.iter().step_by(n.max(1) as usize).cloned().collect()
     }
 }
+// Python's xs[a:b:k] (AX_NOSL for a missing a or b): the indexes picked, in order.
+pub const AX_NOSL: i64 = i64::MIN + 1;
+pub fn ax_slice_idx(n: usize, a: i64, b: i64, k: i64) -> Vec<usize> {
+    if k == 0 {
+        panic!("ValueError: slice step cannot be zero");
+    }
+    let n = n as i64;
+    let norm = |x: i64, dflt: i64| -> i64 {
+        if x == AX_NOSL {
+            return dflt;
+        }
+        let x = if x < 0 { x + n } else { x };
+        if k > 0 { x.clamp(0, n) } else { x.clamp(-1, n - 1) }
+    };
+    let (mut i, j) = if k > 0 { (norm(a, 0), norm(b, n)) } else { (norm(a, n - 1), norm(b, -1)) };
+    let mut out = vec![];
+    while (k > 0 && i < j) || (k < 0 && i > j) {
+        out.push(i as usize);
+        i += k;
+    }
+    out
+}
+pub trait AxSliceStep {
+    fn ax_slice_step(&self, a: i64, b: i64, k: i64) -> Self;
+}
+impl<T: Clone> AxSliceStep for Vec<T> {
+    fn ax_slice_step(&self, a: i64, b: i64, k: i64) -> Vec<T> {
+        ax_slice_idx(self.len(), a, b, k).into_iter().map(|i| self[i].clone()).collect()
+    }
+}
+impl AxSliceStep for String {
+    fn ax_slice_step(&self, a: i64, b: i64, k: i64) -> String {
+        let cs: Vec<char> = self.chars().collect();
+        ax_slice_idx(cs.len(), a, b, k).into_iter().map(|i| cs[i]).collect()
+    }
+}
 // [*xs for xs in xss] joins the lists; on strings it gives their characters.
 pub trait AxFlatten<T> {
     fn ax_flatten(&self) -> Vec<T>;
@@ -3838,17 +4210,17 @@ impl AxToJson for Json {
 }
 impl AxToJson for i64 {
     fn ax_json(&self) -> Json {
-        Json::Num { v: *self as f64 }
+        Json::Num { v: *self as f64, f: false }
     }
 }
 impl AxToJson for f64 {
     fn ax_json(&self) -> Json {
-        Json::Num { v: *self }
+        Json::Num { v: *self, f: true }
     }
 }
 impl AxToJson for Dec {
     fn ax_json(&self) -> Json {
-        Json::Num { v: self.ax_float() }
+        Json::Num { v: self.ax_float(), f: true }
     }
 }
 impl AxToJson for bool {
@@ -3895,7 +4267,7 @@ impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson, E: AxToJson, F: AxToJso
 // `total += c[3]` with c a JSON tuple: only a whole number keeps total an int, as in Python.
 pub fn ax_jint(o: Json) -> i64 {
     match o {
-        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
+        Json::Num { v, .. } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
         o => panic!("cannot add {} to an int here", ax_json_py(&o, false)),
     }
 }
@@ -3906,7 +4278,7 @@ pub fn ax_unsupported(what: String) -> String {
 // A dynamic value given where an int or a str is taken.
 pub fn ax_jas_int(o: Json) -> i64 {
     match o {
-        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
+        Json::Num { v, f } if v.fract() == 0.0 && v.abs() < 1e15 && !(f && ax_py_on()) => v as i64,
         o => panic!("expected an int here, got {}", ax_json_py(&o, true)),
     }
 }
@@ -4049,10 +4421,10 @@ fn ax_dump(j: &Json, item: &str, key: &str, indent: i64, sort: bool, ascii: bool
     match j {
         Json::Null => out.push_str("null"),
         Json::Bool { v } => out.push_str(if *v { "true" } else { "false" }),
-        Json::Num { v } if v.is_nan() => out.push_str("NaN"),
-        Json::Num { v } if v.is_infinite() => out.push_str(if *v > 0.0 { "Infinity" } else { "-Infinity" }),
-        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e16 => out.push_str(&format!("{}", *v as i64)),
-        Json::Num { v } => out.push_str(&ax_py_float(*v)),
+        Json::Num { v, .. } if v.is_nan() => out.push_str("NaN"),
+        Json::Num { v, .. } if v.is_infinite() => out.push_str(if *v > 0.0 { "Infinity" } else { "-Infinity" }),
+        Json::Num { v, f } if v.fract() == 0.0 && v.abs() < 1e16 && !(*f && ax_py_on()) => out.push_str(&format!("{}", *v as i64)),
+        Json::Num { v, .. } => out.push_str(&ax_py_float(*v)),
         Json::Str { v } => ax_dump_str(v, ascii, out),
         Json::Arr { v } | Json::Tup { v } if v.is_empty() => out.push_str("[]"),
         Json::Arr { v } | Json::Tup { v } => {
@@ -4568,7 +4940,7 @@ impl AxIsInstance for Json {
         match self {
             Json::Null => "NoneType",
             Json::Bool { .. } => "bool",
-            Json::Num { v } => if v.fract() == 0.0 && v.abs() < 1e15 { "int" } else { "float" },
+            Json::Num { v, f } => if v.fract() == 0.0 && v.abs() < 1e15 && !(*f && ax_py_on()) { "int" } else { "float" },
             Json::Str { .. } => "str",
             Json::Arr { .. } => "list", Json::Tup { .. } => "tuple",
             Json::Obj { .. } => "dict",
@@ -4583,12 +4955,12 @@ impl AxNone for Json {
 }
 impl PartialEq<i64> for Json {
     fn eq(&self, o: &i64) -> bool {
-        matches!(self, Json::Num { v } if *v == *o as f64)
+        matches!(self, Json::Num { v, .. } if *v == *o as f64)
     }
 }
 impl PartialEq<f64> for Json {
     fn eq(&self, o: &f64) -> bool {
-        matches!(self, Json::Num { v } if *v == *o)
+        matches!(self, Json::Num { v, .. } if *v == *o)
     }
 }
 impl AxTryList<Json> for Json {
