@@ -64,6 +64,15 @@ First run `h1` (1 Nov 2026, one run each):
 
 None of the six passing CPython solutions (199 to 727 lines) builds with Brevi unchanged. First blockers: adjacent f-strings joined across lines, a field set to `None` in `__init__` and to a tuple later, parameter types only known from a call in another file, and `type(v) is int` checks on values that hold several types (the interpreter's values).
 
+Run `h4` (2 Nov 2026, main after #88 and #91, one run each):
+
+| | Python passes | Python $ | Brevi-built Python passes | Brevi-built $ |
+|---|---|---|---|---|
+| Sonnet | 3/3 | $0.263 | 2/3 | $0.497 |
+| Haiku | 3/3 | $0.038 | 2/3 | $0.055 |
+
+`chess` and `adventure` now pass with both models at close to Python's cost (Haiku: chess $0.011 vs $0.007, adventure $0.010 vs $0.011; Sonnet: chess $0.078 vs $0.062, adventure $0.067 vs $0.068). Of the 18 saved CPython solutions from h1 to h3, 9 build unchanged and pass every test. All of the extra cost is `minilang`: no model's interpreter has built yet, because its runtime values hold int, str, bool, None or list in the same variable and its syntax tree is made of mixed tuples. Brevi needs a dynamic value type for this kind of code. Repros are in the project files under `brevi-huge/repros/`.
+
 ## End-to-end benchmark (`e2e.py`, 1 Nov 2026)
 
 `run.sh` scores code written plus errors read. `e2e.py` counts everything the Claude API bills for a finished task: the system prompt (the Brevi guide, cached), tool calls and results, thinking, text and retries, read from each response's `usage`, and prices it in dollars. Each task is a fresh conversation with the same tools in both languages (`write_file`, `edit_file`, `check`, plus `guide` for Brevi). `python3 e2e.py RUN --lang brevi --model sonnet --set xl3` runs a set; `python3 e2e.py --summary "logs/e2e/*.jsonl"` prints totals. Task sets live in `subject_prompt_sets.py`.
