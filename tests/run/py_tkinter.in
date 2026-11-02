@@ -1,3 +1,4 @@
+wait 60
 show
 click B
 click A

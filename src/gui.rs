@@ -431,6 +431,8 @@ impl Lower<'_> {
     fn pack_args(&mut self, method: &str, args: Vec<(Option<String>, Expr)>, line: usize) -> (Expr, Expr) {
         let mut pos = vec![];
         let mut kw = vec![];
+        // `after(500, lambda: f())`: the parser reads a lambda without parameters as a `lambda:` keyword.
+        let args: Vec<(Option<String>, Expr)> = args.into_iter().map(|(n, a)| if n.as_deref() == Some("lambda") { (None, Expr::Lambda(vec![], Box::new(a))) } else { (n, a) }).collect();
         let (mut plain, named): (Vec<_>, Vec<_>) = args.into_iter().partition(|(n, _)| n.is_none() || n.as_deref() == Some("__star"));
         // Which positional argument is a callback, and what it is given.
         let cb = match method {

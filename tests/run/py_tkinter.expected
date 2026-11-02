@@ -1,5 +1,5 @@
 window "Pad"
-  Label "ready"
+  Label "started"
   Entry ""
   Frame
     Button "A"
