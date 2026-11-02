@@ -1525,6 +1525,7 @@ impl Parser {
                                     ("fullmatch", 2) => Some(r(args.remove(1), "re_full", vec![args.remove(0)])),
                                     ("search", 2) => Some(r(args.remove(1), "re_find", vec![args.remove(0)])),
                                     ("findall", 2) => Some(r(args.remove(1), "re_findall", vec![args.remove(0)])),
+                                    ("finditer", 2) => Some(r(args.remove(1), "re_all", vec![args.remove(0)])),
                                     ("split", 2) => Some(r(args.remove(1), "re_split", vec![args.remove(0)])),
                                     ("sub", 3) => {
                                         let s = args.remove(2);
@@ -1546,6 +1547,7 @@ impl Parser {
                                     ("fullmatch", 1) => Some("re_full"),
                                     ("search", 1) => Some("re_find"),
                                     ("findall", 1) => Some("re_findall"),
+                                    ("finditer", 1) => Some("re_all"),
                                     _ => None,
                                 };
                                 if let Some(m) = m {
@@ -1565,7 +1567,14 @@ impl Parser {
                                 continue;
                             }
                             if name == "groups" && args.is_empty() && !self.user_fns.contains(&name) {
-                                e = Expr::Method(Box::new(e), "skip".into(), vec![Expr::Int(1)], line);
+                                let m = if self.py { "re_groups" } else { "skip" };
+                                e = Expr::Method(Box::new(e), m.into(), if self.py { vec![] } else { vec![Expr::Int(1)] }, line);
+                                continue;
+                            }
+                            // m.start(), m.end(n), m.span() on a Python match.
+                            if self.py && matches!(name.as_str(), "start" | "end" | "span") && args.len() <= 1 && !self.user_fns.contains(&name) && !self.own_method(&e) {
+                                let i = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
+                                e = Expr::Method(Box::new(e), format!("re_{name}"), vec![i], line);
                                 continue;
                             }
                             // csv.reader(sys.stdin), csv.reader(lines) or csv.reader(text.splitlines()) give the rows.
@@ -3368,7 +3377,7 @@ fn fill_args(items: &mut [Item], script: &mut [Stmt], sigs: &HashMap<String, Sig
 const PY_METHODS: &[&str] = &[
     "add", "extend", "append", "pop", "get", "update", "remove", "discard", "clear", "copy", "index", "count", "keys", "values",
     "items", "split", "strip", "replace", "find", "insert", "setdefault", "popleft", "appendleft", "most_common", "match", "search",
-    "sub", "group", "groups", "findall", "fullmatch", "lower", "upper", "startswith", "endswith", "format", "read", "write",
+    "sub", "group", "groups", "findall", "finditer", "start", "end", "span", "fullmatch", "lower", "upper", "startswith", "endswith", "format", "read", "write",
 ];
 
 // An expression that is plainly a bool already (a comparison, `not`, `and`/`or`, a test method).
