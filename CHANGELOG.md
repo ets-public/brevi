@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- brevi-lang.org, llms.txt and the README put AI agents first again: "The fast, safe target for AI-written Python." The agent writes plain Python; Brevi checks it, answers mistakes in one line and builds a native binary.
 - Decimal `a // b` and `a % b` (also with an int) in Python files, with Python's Decimal signs (toward zero; `%` follows a). Fraction uses the same rule, which differs from Python for negative values.
 - Benchmark: each e2e run tags its prompt, so `pyb` and `python` no longer share a prompt cache. Until now `pyb` ran first and paid the cache writes that `python` then read.
 - From the e22/e23 trials: a name set to a list in one loop and to a tuple later (`c = [...]`, then `c = (a, k, l)`) is a new name each time, as in Python (Sonnet's trains); a method's arguments are typed where the call is (`name = t[0]` then `g.has(name)`, before a later `for name in g.names`), and calls on a value known to be a class count (Sonnet's quiz); `a, b = cur` fills the tuple's slots from how a and b are used later (Sonnet's poker); a `def` inside an `if` at the top level; `sc = {}`, `self.students[name] = sc`, then `sc[q] = v` in a loop (the storing is moved after the loop when nothing reads the dict in between). 8 of the 10 programs that fell back to CPython in e22 and e23 now build natively and pass every test.
