@@ -36,6 +36,7 @@ type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
 type R<T> = Result<T, Diag>;
 
 pub fn parse_program(src: &str) -> R<Vec<Item>> {
+    crate::gui::scan(src);
     let toks = crate::lexer::indent_blocks(lex(src)?);
     let user_fns = toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
@@ -114,6 +115,9 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
             _ => true,
         });
         items.extend(classes.into_iter().map(|c| c.0));
+    }
+    if crate::gui::active() {
+        crate::gui::lower(&mut items, &mut script, &|f: &str| p.sigs.get(f).map_or(0, |s| s.0.len()))?;
     }
     if !p.sigs.is_empty() {
         fill_args(&mut items, &mut script, &p.sigs);
@@ -1377,6 +1381,11 @@ impl Parser {
                         };
                         if self.eat_sym("(") {
                             let raw = self.args()?;
+                            // tkinter: `tk.Label(...)`, `entry.get()` (see gui.rs).
+                            if let Some(x) = crate::gui::method(&e, &name, &raw, line) {
+                                e = x;
+                                continue;
+                            }
                             // Python's d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP): half to even unless ROUND_HALF_UP.
                             // OrderedDict's popitem(last=False) takes the oldest entry; popitem() the newest.
                             if name == "popitem" && raw.len() <= 1 {
@@ -1831,16 +1840,32 @@ impl Parser {
             // Python's `lambda x, y: expr`.
             Tok::Ident(name) if name == "lambda" && matches!(self.peek(), Tok::Ident(_) | Tok::Sym(":")) => {
                 let mut names = Vec::new();
+                // `lambda k=k: ...` keeps the value k has now.
+                let mut defaults: Vec<(Option<String>, Expr)> = Vec::new();
                 while let Tok::Ident(n) = self.peek().clone() {
                     self.next();
-                    names.push(n);
+                    if self.eat_sym("=") {
+                        let d = self.expr()?;
+                        defaults.push((Some(n), d));
+                    } else {
+                        names.push(n);
+                    }
                     if !self.eat_sym(",") {
                         break;
                     }
                 }
                 self.expect_sym(":")?;
                 let body = self.expr()?;
-                Ok(Expr::Lambda(names, Box::new(body)))
+                if defaults.is_empty() {
+                    return Ok(Expr::Lambda(names, Box::new(body)));
+                }
+                if crate::gui::active() {
+                    defaults.push((None, Expr::Lambda(names, Box::new(body))));
+                    return Ok(Expr::Call("tk:lambda".into(), defaults, line));
+                }
+                // Elsewhere: the names are bound to their values when the lambda runs.
+                let lets = defaults.into_iter().map(|(n, d)| Stmt::Let { name: Pat::Bind(n.unwrap_or_default()), ty: None, value: d, mutable: false, line }).collect();
+                Ok(Expr::Lambda(names, Box::new(Expr::Block(lets, Some(Box::new(body))))))
             }
             // Python's `if __name__ == "__main__":` is always true here.
             Tok::Ident(name) if name == "__name__" => Ok(Expr::Str(vec![StrPart::Lit("__main__".into())])),
@@ -1849,6 +1874,9 @@ impl Parser {
             Tok::Ident(name) => {
                 if self.eat_sym("(") {
                     let mut args = self.args()?;
+                    if let Some(x) = crate::gui::bare_call(&name, &args, line) {
+                        return Ok(x);
+                    }
                     // Python's len(xs), sum(xs), sorted(xs), min(xs), max(xs) are the methods.
                     let m = match name.as_str() {
                         "len" | "sum" | "min" | "max" | "enumerate" | "int" | "float" => Some(name.as_str()),

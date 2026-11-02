@@ -1,0 +1,61 @@
+window "Pad"
+  Label "ready"
+  Entry ""
+  Frame
+    Button "A"
+    Button "B"
+    Button "C"
+  Listbox []
+  Canvas 100x50
+  Button "Clear"
+  Button "Tick"
+window "Pad"
+  Label "pressed y (3)"
+  Entry " hello"
+  Frame
+    Button "A"
+    Button "B"
+    Button "C"
+  Listbox [b | a | y]
+  Canvas 100x50
+    oval 15 25 25 35 fill=red
+  Button "Clear"
+  Button "Tick"
+window "Pad"
+  Label "tick 2"
+  Entry " hello"
+  Frame
+    Button "A"
+    Button "B"
+    Button "C"
+  Listbox [b | a | y]
+  Canvas 100x50
+    oval 15 25 25 35 fill=red
+  Button "Clear"
+  Button "Tick"
+window "Pad"
+  Label "tick 3"
+  Entry " hello"
+  Frame
+    Button "A"
+    Button "B"
+    Button "C"
+  Listbox [b | a | y]
+  Canvas 100x50
+    oval 15 25 25 35 fill=red
+  Button "Clear"
+  Button "Tick"
+[askyesno] Pad: Clear 3 lines?
+[askyesno] Pad: Clear 3 lines?
+window "Pad"
+  Label "tick 3"
+  Entry " hello"
+  Frame
+    Button "A"
+    Button "B"
+    Button "C"
+  Listbox []
+  Canvas 100x50
+  Button "Clear"
+  Button "Tick"
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

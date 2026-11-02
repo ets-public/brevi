@@ -1,1 +1,1 @@
-{"line":1,"msg":"tkinter is not supported yet: Brevi has no GUI library","fix":"write a program without a window (print, input, files), or run this one with python3"}
+{"line":1,"msg":"pygame is not supported yet: the GUI library Brevi compiles is tkinter","fix":"write the window with tkinter, or run this program with python3"}
