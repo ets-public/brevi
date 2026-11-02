@@ -1716,7 +1716,7 @@ impl Em {
         let unpack: String = (0..nparams).map(|k| format!("__b.next().unwrap()")).collect::<Vec<_>>().join(", ");
         if captures.is_empty() && (at_top || in_class_top) {
             // a plain Rust function
-            write!(self.items, "fn {fname}({}) -> R {{ {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
+            write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
             let need_defaults = dflt_all.iter().any(|d| d != "V::Unbound");
             if is_def && at_top && !star && !kwstar && p.kwonly.is_empty() {
                 // direct calls: defaults kept in global slots
@@ -1742,7 +1742,7 @@ impl Em {
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
         let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
         Ok(format!(
-            "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}",
+            "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}",
             dflt_all.join(", ")
         ))
     }

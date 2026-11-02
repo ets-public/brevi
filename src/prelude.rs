@@ -763,9 +763,22 @@ pub fn write(path: String, text: String) -> R<()> {
 pub fn args() -> Vec<String> {
     std::env::args().skip(1).collect()
 }
+// Python's int("1_000") and float("1_0.5"): an underscore between two digits is dropped (a misplaced one
+// is kept, so the parse fails as Python's does).
+pub fn ax_py_digits(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains('_') || !ax_py_on() {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let cs: Vec<char> = s.chars().collect();
+    let ok = cs.iter().enumerate().all(|(i, c)| *c != '_' || (i > 0 && i + 1 < cs.len() && cs[i - 1].is_ascii_alphanumeric() && cs[i + 1].is_ascii_alphanumeric()));
+    if ok { std::borrow::Cow::Owned(s.replace('_', "")) } else { std::borrow::Cow::Borrowed(s) }
+}
 pub fn input() -> String {
     let mut s = String::new();
-    std::io::stdin().read_line(&mut s).ok();
+    // Python's input() at the end of the input raises EOFError.
+    if matches!(std::io::stdin().read_line(&mut s), Ok(0)) && ax_py_on() {
+        panic!("EOFError: EOF when reading a line");
+    }
     s.trim_end_matches(['\n', '\r']).to_string()
 }
 pub fn stdin() -> String {
@@ -1534,7 +1547,7 @@ impl AxStr for String {
         self.repeat(n.max(0) as usize)
     }
     fn ax_int(&self) -> R<i64> {
-        self.trim().parse::<i64>().map_err(|_| {
+        ax_py_digits(self.trim()).parse::<i64>().map_err(|_| {
             if ax_py_on() {
                 AxErr(format!("invalid literal for int() with base 10: {}", ax_py_repr(self)))
             } else {
@@ -1543,7 +1556,7 @@ impl AxStr for String {
         })
     }
     fn ax_float(&self) -> R<f64> {
-        self.trim().parse::<f64>().map_err(|_| AxErr(format!("not a float: {self:?}")))
+        ax_py_digits(self.trim()).parse::<f64>().map_err(|_| if ax_py_on() { AxErr(format!("could not convert string to float: {}", ax_py_repr(self))) } else { AxErr(format!("not a float: {self:?}")) })
     }
     fn ax_slice(&self, a: i64, b: i64) -> String {
         let cs: Vec<char> = self.chars().collect();
@@ -2576,7 +2589,7 @@ impl Json {
             Json::Num { v, .. } => *v as i64,
             Json::Bool { v } => *v as i64,
             // Python's int("12"); anything else is an error there, so it stops the run here too.
-            Json::Str { v } if ax_py_on() => match v.trim().parse::<i64>() {
+            Json::Str { v } if ax_py_on() => match ax_py_digits(v.trim()).parse::<i64>() {
                 Ok(n) => n,
                 Err(_) => panic!("ValueError: invalid literal for int() with base 10: {}", ax_py_repr(v)),
             },
@@ -4763,25 +4776,47 @@ impl AxPow<i64> for i64 {
         if b < 0 {
             panic!("int ** negative power gives a fraction: write a float, like 2.0 ** {b}");
         }
-        self.pow(b as u32)
+        match u32::try_from(b) {
+            Ok(e) => self.pow(e),
+            Err(_) if self == 0 || self == 1 => self,
+            Err(_) if self == -1 => if b % 2 == 0 { 1 } else { -1 },
+            Err(_) => panic!("attempt to multiply with overflow"),
+        }
     }
+}
+// Python's float ** float (C's pow): 0.0 ** -1 and an infinite result from finite numbers raise; a negative
+// number to a fractional power is complex in Python, which is refused rather than giving nan.
+fn ax_fpow(a: f64, b: f64) -> f64 {
+    let r = a.powf(b);
+    if ax_py_on() && a.is_finite() && b.is_finite() {
+        if a == 0.0 && b < 0.0 {
+            panic!("ZeroDivisionError: 0.0 cannot be raised to a negative power");
+        }
+        if a < 0.0 && b.fract() != 0.0 {
+            panic!("a negative number to a fractional power is a complex number in Python, which Brevi does not support");
+        }
+        if r.is_infinite() {
+            panic!("OverflowError: (34, 'Numerical result out of range')");
+        }
+    }
+    r
 }
 impl AxPow<f64> for f64 {
     type Out = f64;
     fn ax_pow(self, b: f64) -> f64 {
-        self.powf(b)
+        ax_fpow(self, b)
     }
 }
 impl AxPow<i64> for f64 {
     type Out = f64;
     fn ax_pow(self, b: i64) -> f64 {
-        self.powi(b as i32)
+        ax_fpow(self, b as f64)
     }
 }
 impl AxPow<f64> for i64 {
     type Out = f64;
     fn ax_pow(self, b: f64) -> f64 {
-        (self as f64).powf(b)
+        ax_fpow(self as f64, b)
     }
 }
 // Python 3's `a / b`: always a float.
