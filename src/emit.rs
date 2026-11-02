@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__default", "__zero", "__truediv"];
+const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__default", "__zero", "__truediv", "__readline"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -16,7 +16,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "tuple_items",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -24,7 +24,7 @@ const PURE_METHODS: &[&str] = &[
     "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten", "enumerate_from",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of",
 ];
-const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"];
+const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
 const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
 // Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
@@ -109,7 +109,8 @@ fn edit_distance(a: &str, b: &str) -> usize {
 fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     options
         .map(|o| (edit_distance(name, o), o))
-        .filter(|(d, _)| *d <= 2.max(name.len() / 2))
+        // Only a near miss: a looser match points at an unrelated name (`readline` -> `re_find`, `int` -> `input`).
+        .filter(|(d, _)| *d <= if name.len() <= 3 { 1 } else { 3.min(name.len() / 2) })
         .min()
         .map(|(_, o)| o)
 }
@@ -264,7 +265,7 @@ pub fn auto_try(items: &mut [Item]) {
 }
 
 // Conversions that fail on bad text (`"x".int()`); on numbers they cannot fail.
-const CONVERT_METHODS: &[&str] = &["int", "float", "ints", "big", "dec", "min", "max"];
+const CONVERT_METHODS: &[&str] = &["int", "int_base", "float", "ints", "big", "dec", "min", "max"];
 
 fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
     // Walks into a call or conversion whose error is handled here, without wrapping it.
@@ -571,7 +572,7 @@ fn nested_lists(body: &Expr) -> HashSet<String> {
             j += 1;
         }
         let rest = &text[(j + 1).min(text.len())..];
-        if ["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
+        if ["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
             out.insert(name.to_string());
         }
     }
@@ -620,7 +621,7 @@ fn changes(e: &Expr, name: &str) -> bool {
     if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) || d.contains(&format!("target: TupleField(Ident({name:?})")) {
         return true;
     }
-    ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
+    ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
 pub fn assigns_to(e: &Expr, name: &str) -> bool {
@@ -891,7 +892,7 @@ impl Emitter {
             Expr::Tuple(xs) => Some(Ty::Tuple(xs.iter().map(|x| self.infer_ty(x)).collect::<Option<Vec<_>>>()?)),
             Expr::Call(n, _, _) => match n.as_str() {
                 "lines" | "args" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
-                "stdin" | "input" | "str" => named("str"),
+                "stdin" | "input" | "str" | "__readline" => named("str"),
                 "csv" => Some(Ty::List(Box::new(Ty::List(Box::new(Ty::Named("str".into())))))),
                 "json" => named("Json"),
                 "date" => named("Date"),
@@ -2154,6 +2155,7 @@ impl Emitter {
             // print(a, b) writes them with a space between, like Python.
             "print" if plain.len() > 1 => return format!("print([{}].join(\" \"))", plain.iter().map(|p| format!("Show::show(&{p})")).collect::<Vec<_>>().join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
+            "__readline" => return "ax_readline()".to_string(),
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),
             "__global" => return "()".to_string(),

@@ -734,6 +734,11 @@ pub fn stdin() -> String {
     std::io::stdin().read_to_string(&mut s).ok();
     s
 }
+pub fn ax_readline() -> String {
+    let mut s = String::new();
+    std::io::stdin().read_line(&mut s).ok();
+    s
+}
 pub fn lines() -> Vec<String> {
     stdin().lines().map(String::from).collect()
 }
@@ -808,6 +813,40 @@ pub fn ax_show_set<T: Show + 'static>(xs: &Vec<T>) -> String {
         return "set()".into();
     }
     format!("{{{}}}", xs.iter().map(show_item).collect::<Vec<_>>().join(", "))
+}
+// Python's int(s, base): sign, then digits in that base (a 0x/0o/0b prefix allowed for 16/8/2, and needed
+// for base 0), underscores between digits, spaces around.
+pub trait AxIntBase {
+    fn ax_int_base(&self, base: i64) -> R<i64>;
+}
+impl AxIntBase for String {
+    fn ax_int_base(&self, base: i64) -> R<i64> {
+        let bad = || AxErr(format!("invalid literal for int() with base {base}: {}", ax_py_repr(self)));
+        let t = self.trim();
+        let (neg, t) = match t.strip_prefix('-') {
+            Some(r) => (true, r),
+            None => (false, t.strip_prefix('+').unwrap_or(t)),
+        };
+        let low = t.to_ascii_lowercase();
+        let pre = |p: &str| low.starts_with(p);
+        let (b, digits) = match base {
+            0 if pre("0x") => (16, &t[2..]),
+            0 if pre("0o") => (8, &t[2..]),
+            0 if pre("0b") => (2, &t[2..]),
+            0 => (10, t),
+            16 if pre("0x") => (16, &t[2..]),
+            8 if pre("0o") => (8, &t[2..]),
+            2 if pre("0b") => (2, &t[2..]),
+            2..=36 => (base as u32, t),
+            _ => return Err(AxErr("int() base must be >= 2 and <= 36, or 0".into())),
+        };
+        let digits = digits.strip_prefix('_').filter(|_| digits.len() < t.len()).unwrap_or(digits);
+        if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+            return Err(bad());
+        }
+        let v = i64::from_str_radix(&digits.replace('_', ""), b).map_err(|_| bad())?;
+        Ok(if neg { -v } else { v })
+    }
 }
 pub fn ax_approx(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-6 * (1.0 + a.abs().max(b.abs()))
@@ -3027,6 +3066,15 @@ impl<T: Default> AxNextOr<T> for Vec<T> {
     }
     fn ax_next_or_empty(&mut self) -> T {
         if self.is_empty() { T::default() } else { self.remove(0) }
+    }
+}
+// next(gen, None): the first item, or Python's None (in the slot type's own form) when there is none.
+pub trait AxNextOrNone<T> {
+    fn ax_next_or_none(&mut self) -> T;
+}
+impl<T: AxNone> AxNextOrNone<T> for Vec<T> {
+    fn ax_next_or_none(&mut self) -> T {
+        if self.is_empty() { T::ax_none() } else { self.remove(0) }
     }
 }
 // Python's d2 - d1 between dates: `.days` gives the number of days between them.

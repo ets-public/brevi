@@ -921,7 +921,7 @@ impl Cx<'_> {
                 let a0 = || args.first().map(|(_, a)| self.ty(a, env)).unwrap_or(Hole);
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
-                    "stdin" | "input" | "read" | "str" | "__err" => Str,
+                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" => Str,
                     "__truediv" if args.iter().any(|(_, a)| self.ty(a, env) == Dec) => Dec,
                     "__truediv" => F64,
                     "csv" => List(Box::new(List(Box::new(Str)))),
@@ -1032,7 +1032,7 @@ impl Cx<'_> {
             }
         }
         match m {
-            "len" | "count" | "count_sub" | "count_of" | "re_start" | "re_end" | "isqrt" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
+            "len" | "count" | "count_sub" | "count_of" | "re_start" | "re_end" | "isqrt" | "int_base" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "floor" | "ceil" if r == Dec => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" | "quantize" => Dec,
@@ -1057,7 +1057,7 @@ impl Cx<'_> {
                 Map(_, v) => *v.clone(),
                 _ => Hole,
             },
-            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" => match &r {
+            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
                 Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
                 _ => elem(&r),
             },
@@ -1363,7 +1363,7 @@ fn no_value(e: &Expr) -> bool {
         Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
         Expr::Call(n, _, _) => ["print", "write", "fail"].contains(&n.as_str()),
         // Changing a list or map is a statement even though remove and pop give a value.
-        Expr::Method(_, m, _, _) => ["push", "pop_or", "insert", "remove", "clear", "update", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].contains(&m.as_str()),
+        Expr::Method(_, m, _, _) => ["push", "pop_or", "insert", "remove", "clear", "update", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].contains(&m.as_str()),
         _ => false,
     }
 }
