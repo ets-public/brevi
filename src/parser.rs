@@ -126,6 +126,31 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     if !p.sigs.is_empty() {
         fill_args(&mut items, &mut script, &p.sigs);
     }
+    if p.py && !script.is_empty() {
+        // Top-level `sq = lambda x: x * x`, only ever called: Python's `def sq(x): return x * x`. Names a
+        // function reads as a value, or that are already a function or type, stay lambdas.
+        let mut skip: Vec<String> = vec![];
+        for it in items.iter_mut() {
+            match it {
+                Item::Fn { name, body, .. } => {
+                    skip.push(name.clone());
+                    walk_mut(body, &mut |e| {
+                        if let Expr::Ident(x) | Expr::Move(x) = e {
+                            skip.push(x.clone());
+                        }
+                    });
+                }
+                Item::Type { name, .. } | Item::Enum { name, .. } => skip.push(name.clone()),
+                _ => {}
+            }
+        }
+        let mut body = Expr::Block(std::mem::take(&mut script), None);
+        let mut kids: Vec<Item> = vec![];
+        lambdas_to_defs(&mut body, &mut kids, script_line, &skip);
+        let Expr::Block(st, _) = body else { unreachable!() };
+        script = st;
+        items.extend(kids);
+    }
     tuples_as_lists(&mut items, &mut script);
     if !script.is_empty() {
         // Top-level statements beside fn main run first, then main, as in a Python file that ends with main().
@@ -305,6 +330,10 @@ impl Parser {
             });
             if std::mem::replace(&mut self.yields, saved_yields) {
                 body = generator_body(body, line);
+            }
+            let mut kids = kids;
+            if self.py {
+                lambdas_to_defs(&mut body, &mut kids, line, &[]);
             }
             if !kids.is_empty() {
                 let lifted = lift_nested(&name, &params, &mut body, kids);
@@ -2770,6 +2799,56 @@ fn bind_upper(p: Pat) -> Pat {
         Pat::Variant(n, args) if args.is_empty() => Pat::Bind(n),
         Pat::Tuple(ps) => Pat::Tuple(ps.into_iter().map(bind_upper).collect()),
         p => p,
+    }
+}
+
+// Python's `bad = lambda n: out.append(...)` in a function, set once and only ever called, is the nested
+// `def bad(n): ...` (lifted with the rest), so its parameters are typed from the calls and it may change
+// the outer function's lists.
+fn lambdas_to_defs(body: &mut Expr, kids: &mut Vec<Item>, line: usize, skip: &[String]) {
+    let Expr::Block(stmts, tail) = body else { return };
+    let mut i = 0;
+    while i < stmts.len() {
+        let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Lambda(ps, lb), line: l } = &stmts[i] else {
+            i += 1;
+            continue;
+        };
+        let n = n.clone();
+        // Set once, and never read as a value (`key=bad`, `f = bad`) or named by a nested def already.
+        let mut sets = 0;
+        let mut idents = 0;
+        let mut whole = Expr::Block(stmts.clone(), tail.clone());
+        walk_mut(&mut whole, &mut |e| match e {
+            Expr::Ident(x) | Expr::Move(x) if *x == n => idents += 1,
+            Expr::Block(ss, _) => {
+                for s in ss.iter() {
+                    match s {
+                        Stmt::Assign { target: Expr::Ident(x), .. } if *x == n => sets += 1,
+                        Stmt::Let { name: Pat::Bind(x), .. } if *x == n => sets += 2,
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        });
+        let as_value = idents > sets;
+        let clash = kids.iter().any(|k| matches!(k, Item::Fn { name, .. } if name == &n));
+        if sets != 1 || as_value || clash || skip.contains(&n) || ps.iter().any(|p| p == &n) {
+            i += 1;
+            continue;
+        }
+        let l = *l;
+        let lb = lb.as_ref().clone();
+        // A lambda whose body changes something (`out.append(x)`, `print(x)`) gives None.
+        let none = match &lb {
+            Expr::Method(_, m, _, _) => ["push", "append", "extend", "insert", "remove", "add", "clear", "sort", "update", "discard", "reverse"].contains(&m.as_str()),
+            Expr::Call(f, _, _) => f == "print",
+            _ => false,
+        };
+        let fb = if none { Expr::Block(vec![Stmt::Expr { expr: lb, line: l }], None) } else { Expr::Block(vec![], Some(Box::new(lb))) };
+        let params = ps.iter().map(|p| Param { name: p.clone(), ty: Ty::Named("?".into()), is_mut: false }).collect();
+        kids.push(Item::Fn { name: n, params, ret: Ty::Named("?".into()), fallible: false, body: fb, line: l.max(line), script: false });
+        stmts.remove(i);
     }
 }
 
