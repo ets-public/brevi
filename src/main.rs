@@ -18,9 +18,10 @@ mod patch;
 
 use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
+use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--sandbox] [--window] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--native] [--sandbox] [--window] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -177,6 +178,9 @@ fn main() {
     if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
         gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    let native = argv[..dash].iter().position(|a| a == "--native").map(|i| argv.remove(i)).is_some()
+        || std::env::var("BREVI_NATIVE").map_or(false, |v| !v.is_empty() && v != "0");
     let (cmd, file) = match (argv.first(), argv.get(1)) {
         (Some(c), Some(f)) => (c.as_str(), f.clone()),
         _ => {
@@ -184,6 +188,13 @@ fn main() {
             exit(2);
         }
     };
+    // `brevi run x.py` falls back to CPython when Brevi cannot build the file; --native (or BREVI_NATIVE=1) keeps it strict.
+    if file.ends_with(".py") {
+        PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    if cmd == "run" && file.ends_with(".py") && !native {
+        run_or_fall_back(&file, &argv);
+    }
     let release = argv.iter().any(|a| a == "--release");
     let out_path = argv.iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let prog_args: Vec<String> = argv.iter().position(|a| a == "--").map(|i| argv[i + 1..].to_vec()).unwrap_or_default();
@@ -305,6 +316,85 @@ fn main() {
             exit(2);
         }
     }
+}
+
+// `brevi run x.py`: builds with Brevi and runs the program; when the build fails, runs the file with python3
+// instead and says so in one line on stderr. Never returns.
+fn run_or_fall_back(file: &str, argv: &[String]) -> ! {
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    let prog_args = argv.get(dash + 1..).unwrap_or(&[]).to_vec();
+    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let bin = build_dir(file).join(&stem);
+    let flags: Vec<&String> = argv[2..dash].iter().filter(|a| matches!(a.as_str(), "--release" | "--sandbox" | "--window" | "--explain")).collect();
+    let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
+    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").output();
+    let code = match built {
+        Ok(o) if o.status.success() => {
+            std::io::stderr().write_all(&o.stderr).ok();
+            Command::new(&bin).args(&prog_args).status().map(|s| s.code().unwrap_or(1)).unwrap_or_else(|e| {
+                println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+                1
+            })
+        }
+        Ok(o) => {
+            let out = String::from_utf8_lossy(&o.stdout).to_string();
+            let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+            match Command::new(&python).arg(file).args(&prog_args).spawn() {
+                Ok(mut child) => {
+                    eprintln!("note: ran with {python}; Brevi could not build {}", first_error(&out));
+                    child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1)
+                }
+                Err(_) => {
+                    // No Python here: show Brevi's errors as a strict run would.
+                    print!("{out}");
+                    std::io::stderr().write_all(&o.stderr).ok();
+                    1
+                }
+            }
+        }
+        Err(e) => {
+            println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+            1
+        }
+    };
+    exit(code)
+}
+
+// "line N: msg" from the first JSON error line of a failed build (or "it" when there is none).
+fn first_error(out: &str) -> String {
+    let field = |l: &str, k: &str| -> Option<String> {
+        let i = l.find(&format!("\"{k}\":"))? + k.len() + 3;
+        let rest = &l[i..];
+        if let Some(r) = rest.strip_prefix('"') {
+            let mut v = String::new();
+            let mut esc = false;
+            for c in r.chars() {
+                match (esc, c) {
+                    (true, 'n') => v.push(' '),
+                    (true, c) => v.push(c),
+                    (false, '\\') => {
+                        esc = true;
+                        continue;
+                    }
+                    (false, '"') => break,
+                    (false, c) => v.push(c),
+                }
+                esc = false;
+            }
+            Some(v)
+        } else {
+            Some(rest.chars().take_while(|c| c.is_ascii_digit()).collect())
+        }
+    };
+    for l in out.lines().filter(|l| l.starts_with('{')) {
+        if let Some(msg) = field(l, "msg") {
+            return match field(l, "line") {
+                Some(n) if !n.is_empty() => format!("line {n}: {msg}"),
+                _ => msg,
+            };
+        }
+    }
+    "it".into()
 }
 
 // Applies the edits that front-end errors suggest, a round at a time, until the program passes the front end.
@@ -1110,7 +1200,13 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
 
 // A program written as Python (`def`, `class`, `global`) prints values and orders dicts as Python does.
 // Also a script with spellings only Python code uses: `None`, `xs.append(x)` (Brevi code writes `True` too).
+// Set for a .py file: Python rules apply whatever the source looks like.
+pub static PY_FILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn python_style(src: &str) -> bool {
+    if PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
     let word = |l: &str, w: &str| {
         l.match_indices(w).any(|(i, _)| {
             let before = l[..i].chars().next_back();
@@ -1127,5 +1223,7 @@ pub fn python_style(src: &str) -> bool {
             || (l.starts_with("from ") && l.contains(" import "))
             || l.contains(".append(")
             || word(l, "None")
+            || (l.starts_with("with ") && l.contains(" as "))
+            || (word(l, "open") && l.contains("open("))
     })
 }

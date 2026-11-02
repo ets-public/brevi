@@ -983,7 +983,7 @@ impl Cx<'_> {
                 let a0 = || args.first().map(|(_, a)| self.ty(a, env)).unwrap_or(Hole);
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
-                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" => Str,
+                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "__try_read" => Str,
                     "__truediv" if args.iter().any(|(_, a)| self.ty(a, env) == Dec) => Dec,
                     "__truediv" => F64,
                     "csv" => List(Box::new(List(Box::new(Str)))),
@@ -1104,7 +1104,7 @@ impl Cx<'_> {
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
-            "words" | "lines" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
+            "words" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
             "re_groups" => List(Box::new(Str)),
@@ -2976,7 +2976,8 @@ impl Ck<'_, '_> {
         match (a, b) {
             (Str, Int | F64 | Bool | Dec) | (Int | F64 | Bool | Dec, Str) if op == "+" => {
                 let msg = format!("cannot {word} {} and {}", show_t(a), show_t(b));
-                self.err(msg, "turn the number into text with str(x), or write \"{x}\"".into())
+                let fix = if self.py { "turn the number into text with str(x), or use an f-string: f\"...{x}\"" } else { "turn the number into text with str(x), or write \"{x}\"" };
+                self.err(msg, fix.into())
             }
             (Int, F64) | (F64, Int) => {
                 let msg = format!("cannot {word} int and f64");

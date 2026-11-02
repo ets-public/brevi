@@ -126,6 +126,18 @@ pub fn json_lists(items: &mut [Item]) {
                 }
             }
         });
+        // A list of bools with None in it (`[True, None]`) is held as JSON too: a bool has no spare value for None.
+        let bool_none = |xs: &[Expr]| xs.iter().any(|x| kind(x) == Some("none")) && xs.iter().all(|x| matches!(kind(x), Some("bool" | "none"))) && xs.iter().any(|x| kind(x) == Some("bool"));
+        crate::parser::walk_mut(body, &mut |e| {
+            if let Expr::List(xs) = e {
+                if bool_none(xs) {
+                    for x in xs.iter_mut() {
+                        let v = std::mem::replace(x, Expr::Int(0));
+                        *x = if kind(&v) == Some("none") { Expr::Ident("Null".into()) } else { Expr::Call("ax_to_json".into(), vec![(None, v)], 0) };
+                    }
+                }
+            }
+        });
         if looped.is_empty() {
             continue;
         }

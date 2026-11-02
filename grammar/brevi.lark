@@ -39,6 +39,7 @@ opener: fn_sig
       | "try"
       | "except" (expr ("as" NAME)?)?
       | "finally"
+      | "with" expr "as" NAME ("," expr "as" NAME)*   // with open(p) as f:
       | targets ASSIGN (unary binop)* ("if" | "match") expr   // out = out + match n:
       | "return" (unary binop)* ("if" | "match") expr
 

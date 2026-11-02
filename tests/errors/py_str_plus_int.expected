@@ -1,0 +1,1 @@
+{"line":2,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or use an f-string: f\"...{x}\""}
