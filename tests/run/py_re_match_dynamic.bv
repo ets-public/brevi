@@ -1,0 +1,11 @@
+import re
+
+ID = re.compile(r'^\w+$')
+vals = ["ab", 3, "c d", None]
+for v in vals:
+    if isinstance(v, str) and ID.match(v):
+        print("id", v)
+    elif isinstance(v, str):
+        print("text", v)
+    else:
+        print("other", v)
