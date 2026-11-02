@@ -23,7 +23,7 @@ python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
 
 From e22 on (Adam's decision, 2 Nov 2026), the `pyb` check works like `brevi run x.py`: when Brevi cannot build the files, they run with CPython instead, and the model is not shown Brevi's build errors. Each task's log line records `native` (whether Brevi built the last check itself), and the summary's `nat` column counts those, so the share of programs that get Rust speed is reported next to the cost. `--native` gives the strict check used up to e21, where a build error went back to the model.
 
-The test passes when, averaged over two runs, `pyb` costs no more dollars than `python` for both Sonnet and Haiku, and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Results so far, each averaged over two runs against CPython on the same day. `e14` was a single run and came out lucky.
+The test passes (Adam's bar from 2 Nov 2026, since the fallback makes both sides run the same prompt and nearly the same sessions) when, over four runs per model, every task passes, `pyb` costs within 10% of `python` for both Sonnet and Haiku, and at least 90% of the final `pyb` programs are built natively by Brevi (the `nat` column) rather than run with CPython. Up to e21 the bar was: averaged over two runs, `pyb` costs no more dollars than `python` and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Results so far, each averaged over two runs against CPython on the same day. `e14` was a single run and came out lucky.
 
 | Run | Main at | Sonnet pyb / Python | Haiku pyb / Python | Tasks passed |
 | --- | --- | --- | --- | --- |
@@ -36,6 +36,9 @@ The test passes when, averaged over two runs, `pyb` costs no more dollars than `
 | e21a/b | #89 + #91 | $0.317 / $0.181 (1.75x; one model runaway of 32k output tokens on the first call, before any build) | $0.027 / $0.024 (1.16x; run a 0.94x) | pyb 20 of 24, Python 24 of 24 |
 | e22a/b | #97 (fallback on) | $0.176 / $0.172 (1.02x) | $0.026 / $0.024 (1.07x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 10 of 12, Haiku 8 of 12 |
 | e23a/b | #99 + #100 | $0.182 / $0.173 (1.06x; run b 1.00x) | $0.025 / $0.023 (1.08x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 9 of 12, Haiku 11 of 12 |
+| e24a/b | #103 | $0.181 / $0.174 (1.04x) | $0.024 / $0.023 (1.06x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 8 of 12, Haiku 11 of 12 |
+
+From e15 to e24, `pyb` and `python` sent the same prompt and `pyb` always ran first, so `pyb` paid the prompt-cache writes and `python` read them (the c.write and c.read columns show it in each run a). From e25 each run tags its prompt so neither side reads the other's cache.
 
 The test has not passed yet. When the model's first attempt builds, pyb costs the same as Python or less. The whole gap is retries after Brevi rejects valid Python. In e18 only 3 of 24 first attempts were rejected while CPython ran them, and every first attempt that built printed what CPython prints. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
