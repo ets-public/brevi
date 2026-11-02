@@ -3864,6 +3864,28 @@ impl<A: AxNone, B: AxNone, C: AxNone, D: AxNone, E: AxNone, F: AxNone> AxNone fo
         (A::ax_none(), B::ax_none(), C::ax_none(), D::ax_none(), E::ax_none(), F::ax_none())
     }
 }
+// itertools.groupby: runs of neighbouring items with the same key, as (key, items) pairs.
+pub trait AxGroupRuns<T> {
+    fn ax_group_runs<K: PartialEq>(&self, f: impl Fn(T) -> K) -> Vec<(K, Vec<T>)>;
+}
+impl<T: Clone> AxGroupRuns<T> for Vec<T> {
+    fn ax_group_runs<K: PartialEq>(&self, f: impl Fn(T) -> K) -> Vec<(K, Vec<T>)> {
+        let mut out: Vec<(K, Vec<T>)> = Vec::new();
+        for x in self {
+            let k = f(x.clone());
+            match out.last_mut() {
+                Some((lk, run)) if *lk == k => run.push(x.clone()),
+                _ => out.push((k, vec![x.clone()])),
+            }
+        }
+        out
+    }
+}
+impl AxGroupRuns<String> for String {
+    fn ax_group_runs<K: PartialEq>(&self, f: impl Fn(String) -> K) -> Vec<(K, Vec<String>)> {
+        self.chars().map(|c| c.to_string()).collect::<Vec<_>>().ax_group_runs(f)
+    }
+}
 // @regex: only included in programs that use regexes.
 // Regular expressions (a backtracking matcher): s.re_find(p), re_full, re_all, re_sub, re_split.
 #[derive(Debug)]

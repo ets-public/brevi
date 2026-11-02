@@ -481,7 +481,7 @@ impl Cx<'_> {
             Expr::Call(_, args, _) => args.iter().for_each(|(_, a)| self.scan_maps(a, env)),
             Expr::Method(r, m, args, _) => {
                 self.scan_maps(r, env);
-                let each = ["map", "filter", "any", "all", "count", "sort_by"].contains(&m.as_str());
+                let each = ["map", "filter", "any", "all", "count", "sort_by", "group_runs"].contains(&m.as_str());
                 let et = if each { each_elem(&self.ty(r, env)) } else { Hole };
                 for a in args {
                     match a {
@@ -1063,6 +1063,7 @@ impl Cx<'_> {
             },
             "or" => merge(r, a(0)),
             "map" => List(Box::new(lam(0, &each_elem(&r)))),
+            "group_runs" => List(Box::new(Tuple(vec![lam(0, &each_elem(&r)), List(Box::new(each_elem(&r)))]))),
             "fold" => merge(a(0), Hole),
             "add_days" | "delta_days" => Date,
             "month_range" => Tuple(vec![Int, Int]),
@@ -1629,7 +1630,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 // `map(double, xs)`) takes the item type.
                 walk(body, &mut |e| {
                     if let Expr::Method(r, m, args, _) = e {
-                        if ["sort_by", "map", "filter", "any", "all", "count", "min_by", "max_by", "group_by"].contains(&m.as_str()) {
+                        if ["sort_by", "map", "filter", "any", "all", "count", "min_by", "max_by", "group_by", "group_runs"].contains(&m.as_str()) {
                             for a in args {
                                 if let Expr::Ident(f) = a {
                                     if let Some(&k) = untyped.get(f) {
@@ -2461,7 +2462,7 @@ impl Ck<'_, '_> {
                     }
                 }
                 // Only these methods pass each item to their lambda.
-                let each = ["map", "filter", "any", "all", "count", "sort_by"].contains(&m.as_str());
+                let each = ["map", "filter", "any", "all", "count", "sort_by", "group_runs"].contains(&m.as_str());
                 let et = if each { each_elem(&self.cx.ty(r, env)) } else { Hole };
                 for a in args.iter_mut() {
                     match a {

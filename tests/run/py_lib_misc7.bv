@@ -1,0 +1,15 @@
+from itertools import groupby
+
+def main():
+    players = [("ann", 9, "flush"), ("bob", 9, "flush"), ("cat", 5, "pair")]
+    for key, grp in groupby(players, key=lambda p: p[2]):
+        names = [p[0] for p in grp]
+        print(key, names)
+    print([(k, len(list(g))) for k, g in groupby("aabccc")])
+    xs = [1, 2, 3, 4, 5]
+    del xs[3:]
+    ys = [1, 2, 3, 4, 5]
+    del ys[1:3]
+    print(xs, ys)
+
+main()
