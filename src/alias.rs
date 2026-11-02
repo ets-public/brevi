@@ -17,6 +17,8 @@ struct Cx {
     // Functions (and class methods, by method name) that return a filtered, sorted or sliced copy of a
     // list they did not build (`return [t for t in tasks if not t[1]]`, `return list(tasks)`).
     copy_fns: HashSet<String>,
+    // Class method name -> the fields of self its body names (`self.tx` in any way).
+    method_fields: std::collections::HashMap<String, HashSet<String>>,
 }
 
 thread_local! {
@@ -108,7 +110,25 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     }
-    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns };
+    let mut method_fields: std::collections::HashMap<String, HashSet<String>> = std::collections::HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { name, params, body, .. } = it {
+            if params.first().is_some_and(|p| p.name == "self_") {
+                if let Some(c) = classes.iter().find(|c| name.starts_with(c.as_str())) {
+                    let mut fs = HashSet::new();
+                    crate::infer::walk(body, &mut |e| {
+                        if let Expr::Field(b, f) = e {
+                            if matches!(b.as_ref(), Expr::Ident(n) if n == "self_") {
+                                fs.insert(f.clone());
+                            }
+                        }
+                    });
+                    method_fields.entry(name[c.len()..].to_string()).or_default().extend(fs);
+                }
+            }
+        }
+    }
+    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, method_fields };
     let inl: Inline = items
         .iter()
         .filter_map(|it| match it {
@@ -654,6 +674,49 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                         }
                     }
                     stmts.extend(rest);
+                } else if let Some((r, b, f, line)) = field_alias(&stmts[i]) {
+                    // `t = self.tx` then `t['postings'].append(p)`: in Python t is self.tx; here a copy, so it is
+                    // written back after each change, unless later lines set self.tx or a method that uses it runs.
+                    let mut rest = stmts.split_off(i + 1);
+                    if changed(&r, &rest, tail.as_deref()) {
+                        let target = Expr::Field(Box::new(Expr::Ident(b.clone())), f.clone());
+                        let ts = format!("{target:?}");
+                        let mf = cx.method_fields.clone();
+                        let clobber = any_stmt(&rest, tail.as_deref(), &mut |st| {
+                            let calls = |e: &Expr| {
+                                let mut hit = false;
+                                crate::infer::walk(e, &mut |x| {
+                                    if let Expr::Method(recv, m, _, _) = x {
+                                        if matches!(recv.as_ref(), Expr::Ident(n) if *n == b) && mf.get(m).is_some_and(|fs| fs.contains(&f)) {
+                                            hit = true;
+                                        }
+                                    }
+                                });
+                                hit
+                            };
+                            match st {
+                                Stmt::Assign { target: Expr::Ident(n), value, .. } => n == &r || n == &b || calls(value),
+                                Stmt::Let { name: Pat::Bind(n), value, .. } => n == &r || n == &b || calls(value),
+                                Stmt::Assign { target: t, value, .. } => format!("{t:?}") == ts || calls(value),
+                                Stmt::Expr { expr: Expr::For(p, it, _), .. } => format!("{p:?}").contains(&format!("{r:?}")) || calls(it),
+                                Stmt::Expr { expr, .. } if !matches!(expr, Expr::If(..) | Expr::For(..) | Expr::While(..) | Expr::Block(..) | Expr::Match(..)) => calls(expr),
+                                _ => false,
+                            }
+                        });
+                        if !clobber {
+                            let wb = Stmt::Assign { target, op: "=", value: Expr::Ident(r.clone()), line };
+                            add(&r, &wb, &mut rest, tail);
+                        } else {
+                            let (rs, from) = (r.trim_end_matches('_').to_string(), format!("{}.{}", b.trim_end_matches('_'), f));
+                            err(
+                                cx,
+                                line,
+                                format!("{rs} is a copy of {from}, and the code after changes {rs} where Brevi cannot copy it back ({from} is also set or used there), so {from} would not change (Brevi values are copies, not shared)"),
+                                format!("change {from} directly, or set {from} = {rs} after changing {rs}"),
+                            );
+                        }
+                    }
+                    stmts.extend(rest);
                 } else if let Some((r, from, line)) = picked(&stmts[i]) {
                     let rest = &stmts[i + 1..];
                     if any_stmt(rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
@@ -678,6 +741,22 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
         Expr::For(_, _, b) | Expr::While(_, b) => walk(b, cx),
         Expr::Match(_, arms) => arms.iter_mut().for_each(|(_, a)| walk(a, cx)),
         _ => {}
+    }
+}
+
+// `t = self.tx`: a local named after a field of a plain name.
+fn field_alias(st: &Stmt) -> Option<(String, String, String, usize)> {
+    let (r, value, line) = match st {
+        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
+        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        _ => return None,
+    };
+    match value {
+        Expr::Field(b, f) => match b.as_ref() {
+            Expr::Ident(b) if b != r => Some((r.clone(), b.clone(), f.clone(), line)),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -822,6 +901,8 @@ fn changed(r: &str, rest: &[Stmt], tail: Option<&Expr>) -> bool {
 fn direct_wb(r: &str, st: &Stmt) -> bool {
     let passes = |e: &Expr| match e {
         Expr::Call(f, args, _) => args.iter().enumerate().any(|(i, (_, a))| matches!(a, Expr::Ident(n) if n == r) && CHANGES_PARAM.with(|c| c.borrow().contains(&(f.clone(), i)))),
+        // `self.discard(t)` with discard changing its parameter (the method's own `self` is parameter 0).
+        Expr::Method(_, m, args, _) => args.iter().enumerate().any(|(i, a)| matches!(a, Expr::Ident(n) if n == r) && CHANGES_PARAM.with(|c| c.borrow().iter().any(|(f, j)| *j == i + 1 && f.ends_with(&format!("_{m}"))))),
         _ => false,
     };
     direct(r, st)
