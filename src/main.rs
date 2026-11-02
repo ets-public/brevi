@@ -283,9 +283,17 @@ fn main() {
         }
     }
     // Builds to try in order: with inferred types for empty values, then without (the errors shown come from the first).
-    let versions: Vec<(String, Option<String>)> = [true, false]
+    // Then the same two with Python's searched lists kept as plain Vecs (emit::FAST_SETS), should a hash
+    // index not fit (an item type without Hash).
+    let fast_sets = |on: bool| emit::FAST_SETS.store(on, std::sync::atomic::Ordering::Relaxed);
+    let versions: Vec<(String, Option<String>)> = [(true, true), (true, false), (false, true), (false, false)]
         .iter()
-        .filter_map(|&h| compile_to_rust(&src, true, h).ok().map(|r| (r, compile_to_rust(&src, false, h).ok())))
+        .filter_map(|&(f, h)| {
+            fast_sets(f);
+            let v = compile_to_rust(&src, true, h).ok().map(|r| (r, compile_to_rust(&src, false, h).ok()));
+            fast_sets(true);
+            v
+        })
         .fold(vec![], |mut vs, v| {
             if !vs.iter().any(|(r, _)| *r == v.0) {
                 vs.push(v);
