@@ -321,6 +321,12 @@ pub fn ax_none_attr() -> ! {
 pub trait AxFresh {
     fn ax_fresh() -> Self;
 }
+// Values Python and Brevi both share: objects, dicts made records, mixed-list rows, and lists of them.
+pub trait AxShared {}
+impl<T> AxShared for AxRow<T> {}
+impl<T: AxShared> AxShared for Vec<T> {}
+impl<K, V: AxShared> AxShared for AxM<K, V> {}
+pub fn ax_shared<T: AxShared>(_: &T) {}
 pub trait AxIsNoneHandle {
     fn ax_null(&self) -> bool;
 }
@@ -415,14 +421,115 @@ thread_local! {
     // Tuple types that hold Python lists of mixed kinds (`[oid, sku, n]`): they print as lists.
     static AX_ROWS: std::cell::RefCell<std::collections::HashSet<std::any::TypeId>> = std::cell::RefCell::new(std::collections::HashSet::new());
 }
-pub fn ax_row<T: 'static>(t: T) -> T {
+pub fn ax_row<T: 'static>(t: T) -> AxRow<T> {
     let id = std::any::TypeId::of::<T>();
     AX_ROWS.with(|r| {
         if !r.borrow().contains(&id) {
             r.borrow_mut().insert(id);
         }
     });
-    t
+    AxRow(Box::into_raw(Box::new(t)))
+}
+// A Python list of mixed kinds (`[oid, sku, n]`), shared as Python shares lists: a handle to a tuple that
+// lives for the whole run. Copies of the handle (in other lists, names, results) see the same row.
+pub struct AxRow<T>(*mut T);
+impl<T> Clone for AxRow<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for AxRow<T> {}
+impl<T: 'static> AxRow<T> {
+    #[inline]
+    pub fn ax_d(&self) -> &'static mut T {
+        if self.0.is_null() {
+            ax_none_attr()
+        }
+        unsafe { &mut *self.0 }
+    }
+}
+impl<T: 'static> std::ops::Deref for AxRow<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.ax_d()
+    }
+}
+impl<T: 'static> std::ops::DerefMut for AxRow<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.ax_d()
+    }
+}
+impl<T: Default + 'static> Default for AxRow<T> {
+    fn default() -> Self {
+        ax_row(T::default())
+    }
+}
+impl<T: PartialEq + 'static> PartialEq for AxRow<T> {
+    fn eq(&self, o: &Self) -> bool {
+        self.0 == o.0 || (!self.0.is_null() && !o.0.is_null() && **self == **o)
+    }
+}
+impl<T: Eq + 'static> Eq for AxRow<T> {}
+impl<T: PartialOrd + 'static> PartialOrd for AxRow<T> {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        (**self).partial_cmp(&**o)
+    }
+}
+impl<T: Ord + 'static> Ord for AxRow<T> {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        (**self).cmp(&**o)
+    }
+}
+impl<T: Hash + 'static> Hash for AxRow<T> {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        (**self).hash(h)
+    }
+}
+impl<T: std::fmt::Debug + 'static> std::fmt::Debug for AxRow<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.0.is_null() {
+            return write!(f, "None");
+        }
+        (**self).fmt(f)
+    }
+}
+impl<T: Show + 'static> Show for AxRow<T> {
+    fn show(&self) -> String {
+        if self.0.is_null() {
+            return "None".into();
+        }
+        (**self).show()
+    }
+}
+// A list is true unless it is None (a row is never empty).
+impl<T> AxTruth for AxRow<T> {
+    fn ax_truth(&self) -> bool {
+        !self.0.is_null()
+    }
+}
+impl<T> AxNone for AxRow<T> {
+    fn ax_none() -> Self {
+        AxRow(std::ptr::null_mut())
+    }
+    fn ax_is_none(&self) -> bool
+    where
+        Self: PartialEq + Sized,
+    {
+        self.0.is_null()
+    }
+}
+impl<T: AxToJson + 'static> AxToJson for AxRow<T> {
+    fn ax_json(&self) -> Json {
+        (**self).ax_json()
+    }
+}
+impl<T: Clone + 'static, U> AxUnpack<U> for AxRow<T>
+where
+    T: AxUnpack<U>,
+{
+    fn ax_unpack(self) -> U {
+        (*self).clone().ax_unpack()
+    }
 }
 fn ax_wrap<T: 'static>(parts: &[String]) -> String {
     if ax_py_on() && AX_ROWS.with(|r| r.borrow().contains(&std::any::TypeId::of::<T>())) {

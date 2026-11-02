@@ -1,0 +1,36 @@
+# Python lists of mixed kinds (rows) are shared: changing a row through a filtered copy, a picked item or
+# another name changes it everywhere, as in Python.
+tasks = [["a", False], ["b", True], ["c", False]]
+hide = True
+
+
+def visible_tasks():
+    if hide:
+        return [t for t in tasks if not t[1]]
+    return list(tasks)
+
+
+def toggle(index):
+    vis = visible_tasks()
+    vis[index][1] = not vis[index][1]
+
+
+toggle(1)
+print(tasks)
+
+# Rows picked by max(), and dicts made records, are shared too.
+rows = [["a", 1], ["b", 7]]
+best = max(rows, key=lambda r: r[1])
+best[1] = 0
+print(rows)
+
+
+def make(k, n):
+    return {"k": k, "n": n, "ok": True}
+
+
+recs = [make("x", 1), make("y", 2)]
+for r in [r for r in recs if r["n"] > 1]:
+    r["n"] += 10
+    r["ok"] = False
+print(recs)
