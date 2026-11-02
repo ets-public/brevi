@@ -500,6 +500,10 @@ fn shown(e: &Ex, g: &G) -> Option<String> {
                         return Some(format!("{n}() of a set takes CPython's hash order"));
                     }
                 }
+                // copy.copy(rows) shares the inner lists in Python; the typed build copies them too.
+                Ex::Attr(r, m) if m == "copy" && matches!(r.as_ref(), Ex::Name(n) if n == "copy") => {
+                    return Some("copy.copy() shares the items it copies".into());
+                }
                 Ex::Attr(r, m) => {
                     if m == "pop" && is_set(r, g) && pos.is_empty() {
                         return Some("set.pop() takes the first item in CPython's hash order".into());
@@ -615,6 +619,7 @@ mod tests {
         assert!(needs("try:\n    x = [1][3]\nexcept IndexError:\n    pass\n"));
         assert!(!needs("try:\n    x = int('q')\nexcept ValueError:\n    pass\n"));
         assert!(needs("d = {1: 2}\nfor k in d:\n    d[k + 1] = 0\n"));
+        assert!(needs("import copy\nb = copy.copy([[1]])\n"));
         assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
     }
 }
