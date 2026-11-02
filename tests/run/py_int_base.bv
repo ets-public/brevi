@@ -1,0 +1,20 @@
+# int(s, base), next(gen, None) and Decimal.scaleb, as Python gives them.
+import sys
+from decimal import Decimal
+
+
+def main():
+    print(int("0x1f", 16), int("1f", 16), int("-0b101", 0), int(" 777 ", 8), int("z", 36), int("1_000", 10))
+    try:
+        int("12", 2)
+    except ValueError as e:
+        print("bad", e)
+    print(int(Decimal("12.34").scaleb(2)), Decimal("5").scaleb(-1))
+    cards = ["a", "b"]
+    clash = next((c for c in cards if c in {"z"}), None)
+    hit = next((c for c in cards if c == "b"), None)
+    n = next((i for i in [1, 2] if i > 5), None)
+    print(clash is None, hit is None, hit, n is None)
+
+
+main()

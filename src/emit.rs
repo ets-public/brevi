@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const PRELUDE: &str = include_str!("prelude.rs");
 
-const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__default", "__truediv"];
+const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__default", "__zero", "__truediv", "__readline"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -16,7 +16,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "tuple_items",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -24,7 +24,7 @@ const PURE_METHODS: &[&str] = &[
     "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten", "enumerate_from",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of",
 ];
-const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"];
+const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
 const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
 // Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
@@ -109,7 +109,8 @@ fn edit_distance(a: &str, b: &str) -> usize {
 fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     options
         .map(|o| (edit_distance(name, o), o))
-        .filter(|(d, _)| *d <= 2.max(name.len() / 2))
+        // Only a near miss: a looser match points at an unrelated name (`readline` -> `re_find`, `int` -> `input`).
+        .filter(|(d, _)| *d <= if name.len() <= 3 { 1 } else { 3.min(name.len() / 2) })
         .min()
         .map(|(_, o)| o)
 }
@@ -264,7 +265,7 @@ pub fn auto_try(items: &mut [Item]) {
 }
 
 // Conversions that fail on bad text (`"x".int()`); on numbers they cannot fail.
-const CONVERT_METHODS: &[&str] = &["int", "float", "ints", "big", "dec", "min", "max"];
+const CONVERT_METHODS: &[&str] = &["int", "int_base", "float", "ints", "big", "dec", "min", "max"];
 
 fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
     // Walks into a call or conversion whose error is handled here, without wrapping it.
@@ -571,7 +572,7 @@ fn nested_lists(body: &Expr) -> HashSet<String> {
             j += 1;
         }
         let rest = &text[(j + 1).min(text.len())..];
-        if ["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
+        if ["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
             out.insert(name.to_string());
         }
     }
@@ -620,7 +621,7 @@ fn changes(e: &Expr, name: &str) -> bool {
     if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) || d.contains(&format!("target: TupleField(Ident({name:?})")) {
         return true;
     }
-    ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
+    ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
 pub fn assigns_to(e: &Expr, name: &str) -> bool {
@@ -836,6 +837,17 @@ impl Emitter {
         }
     }
 
+    // What print shows for an argument: a Python set prints in braces ({1, 2}, or set() when empty).
+    fn print_arg(&mut self, e: &Expr) -> String {
+        let set = self.py_mode && match e {
+            Expr::Method(_, m, _, _) => m == "unique",
+            Expr::Ident(n) | Expr::Move(n) => self.set_vars.contains(n),
+            Expr::Binary("-" | "|" | "&", ..) => self.is_set_expr(e),
+            _ => false,
+        };
+        if set { format!("ax_show_set(&{})", self.expr(e)) } else { self.expr(e) }
+    }
+
     fn is_set_expr(&self, e: &Expr) -> bool {
         match e {
             Expr::Method(_, m, _, _) => ["unique", "keys", "values", "set_sub"].contains(&m.as_str()),
@@ -880,7 +892,7 @@ impl Emitter {
             Expr::Tuple(xs) => Some(Ty::Tuple(xs.iter().map(|x| self.infer_ty(x)).collect::<Option<Vec<_>>>()?)),
             Expr::Call(n, _, _) => match n.as_str() {
                 "lines" | "args" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
-                "stdin" | "input" | "str" => named("str"),
+                "stdin" | "input" | "str" | "__readline" => named("str"),
                 "csv" => Some(Ty::List(Box::new(Ty::List(Box::new(Ty::Named("str".into())))))),
                 "json" => named("Json"),
                 "date" => named("Date"),
@@ -1181,6 +1193,7 @@ impl Emitter {
         }
         match value {
             Expr::Map(ps) if ps.is_empty() => ": AxM<_, Vec<_>>".into(),
+            Expr::Method(r, m, _, _) if m == "lax" && matches!(r.as_ref(), Expr::Map(ps) if ps.is_empty()) => ": AxM<_, Vec<_>>".into(),
             Expr::List(xs) if xs.is_empty() => ": Vec<Vec<_>>".into(),
             _ => String::new(),
         }
@@ -1809,6 +1822,7 @@ impl Emitter {
                     "&" => format!("AxBits::ax_band({a}, {b})"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
+                    "%" if self.py_mode => format!("AxPyMod::ax_pymod({a}, {b})"),
                     op => format!("({a} {op} {b})"),
                 }
             }
@@ -2016,6 +2030,16 @@ impl Emitter {
                 let it = match iter.as_ref() {
                     // A range is counted through directly instead of being built as a list.
                     Expr::Range(a, b) => format!("({}..{})", self.expr(a), self.expr(b)),
+                    // range(a, b, k) and range(b, a, -k): stepped through directly too.
+                    Expr::Method(r, m, k, _) if m == "step" && k.len() == 1 && matches!(r.as_ref(), Expr::Range(..)) => {
+                        let Expr::Range(a, b) = r.as_ref() else { unreachable!() };
+                        format!("({}..{}).step_by(ax_step_by({}))", self.expr(a), self.expr(b), self.expr(&k[0]))
+                    }
+                    Expr::Method(r, m, k, _) if m == "step" && k.len() == 1 && matches!(r.as_ref(), Expr::Method(q, rv, ra, _) if rv == "rev" && ra.is_empty() && matches!(q.as_ref(), Expr::Range(..))) => {
+                        let Expr::Method(q, _, _, _) = r.as_ref() else { unreachable!() };
+                        let Expr::Range(a, b) = q.as_ref() else { unreachable!() };
+                        format!("({}..{}).rev().step_by(ax_step_by({}))", self.expr(a), self.expr(b), self.expr(&k[0]))
+                    }
                     // A list that is still needed is read item by item instead of copied whole.
                     e @ (Expr::Ident(_) | Expr::Field(..) | Expr::TupleField(..) | Expr::Index(..))
                         if self.borrow_loops && root_name(e).map_or(false, |r| self.locals.contains(r) && self.global(r).is_none()) =>
@@ -2127,19 +2151,22 @@ impl Emitter {
             let named = |k: &str| args.iter().find(|(n, _)| n.as_deref() == Some(k)).map(|(_, a)| a.clone());
             let sep = named("sep").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "String::from(\" \")".to_string());
             let end = named("end").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "\"\\n\"".to_string());
-            let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.expr(a))).collect();
+            let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.print_arg(a))).collect();
             return format!("{{ use std::io::Write; let __s = [{}].join(&{sep}); print!(\"{{}}{{}}\", __s, {end}); let _ = std::io::stdout().flush(); }}", items.join(", "));
         }
-        let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
+        let plain: Vec<String> = args.iter().map(|(_, a)| if name == "print" { self.print_arg(a) } else { self.expr(a) }).collect();
         match name {
             // print(a, b) writes them with a space between, like Python.
             "print" if plain.len() > 1 => return format!("print([{}].join(\" \"))", plain.iter().map(|p| format!("Show::show(&{p})")).collect::<Vec<_>>().join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
+            "__readline" => return "ax_readline()".to_string(),
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),
             "__global" => return "()".to_string(),
             "__err" => return "ax_err.clone()".to_string(),
             "__default" => return "AxFresh::ax_fresh()".to_string(),
+            // The value type's zero (0, "", [], {}), for a key put in by `m.setdefault(k, [])`.
+            "__zero" => return "Default::default()".to_string(),
             "__truediv" => return format!("AxTrueDiv::ax_truediv({})", plain.join(", ")),
             "fail" if !self.catch.is_empty() => {
                 let lab = self.catch.last().unwrap().clone();
