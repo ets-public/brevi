@@ -92,11 +92,50 @@ fn merge(a: T, b: T) -> T {
         (List(x), List(y)) => List(Box::new(merge(*x, *y))),
         (Heap(x), Heap(y)) => Heap(Box::new(merge(*x, *y))),
         (Map(k1, v1), Map(k2, v2)) => Map(Box::new(merge(*k1, *k2)), Box::new(merge(*v1, *v2))),
-        (Tuple(x), Tuple(y)) if x.len() == y.len() => Tuple(x.into_iter().zip(y).map(|(a, b)| merge(a, b)).collect()),
+        // Python: tuples whose slot holds an int in one and a str in another (`('int', 2)`, `('sym', '+')`):
+        // that slot holds dynamic (JSON) values.
+        (Tuple(x), Tuple(y)) if x.len() == y.len() => Tuple(
+            x.into_iter()
+                .zip(y)
+                .map(|(a, b)| if py_on() && slot_clash(&a, &b) { Json } else { merge(a, b) })
+                .collect(),
+        ),
         // An int next to a dec or float is a literal that mixes in.
         (Int, b @ (Dec | F64)) => b,
         (a, _) => a,
     }
+}
+
+// Tuple literals (also the branches of `a if c else b`) put where tuples with JSON slots go: plain values there
+// are made JSON.
+fn json_slots_into(x: &mut Expr, ts: &[T], cx: &Cx, env: &Env) {
+    match x {
+        Expr::Tuple(items) if items.len() == ts.len() => {
+            for (it, t) in items.iter_mut().zip(ts) {
+                if *t == Json && matches!(cx.ty(it, env), Int | Str | Bool) {
+                    let v = std::mem::replace(it, Expr::Int(0));
+                    *it = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);
+                }
+            }
+        }
+        Expr::If(_, a, b) => {
+            json_slots_into(a, ts, cx, env);
+            if let Some(b) = b {
+                json_slots_into(b, ts, cx, env);
+            }
+        }
+        Expr::Block(_, Some(t)) => json_slots_into(t, ts, cx, env),
+        _ => {}
+    }
+}
+
+fn xs_len(t: &T) -> usize {
+    if let Tuple(xs) = t { xs.len() } else { usize::MAX }
+}
+
+fn slot_clash(a: &T, b: &T) -> bool {
+    let plain = |t: &T| matches!(t, Int | Str | Bool);
+    (plain(a) && plain(b) && a != b) || (*a == Json && plain(b)) || (*b == Json && plain(a))
 }
 
 // Unknown item types as int, for an empty value nothing reads.
@@ -944,7 +983,7 @@ impl Cx<'_> {
                 let a0 = || args.first().map(|(_, a)| self.ty(a, env)).unwrap_or(Hole);
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
-                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_unsupported" => Str,
+                    "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" => Str,
                     "__truediv" if args.iter().any(|(_, a)| self.ty(a, env) == Dec) => Dec,
                     "__truediv" => F64,
                     "csv" => List(Box::new(List(Box::new(Str)))),
@@ -1970,18 +2009,33 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         names.push(n.clone());
                     }
                 }
+                // A name set to a tuple holding itself (`l = ('or', l, self.and_())`, a tree grown in a loop).
+                walk(body, &mut |e| {
+                    if let Expr::Block(stmts, _) = e {
+                        for st in stmts {
+                            if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Tuple(xs), .. } = st {
+                                if xs.iter().any(|x| matches!(x, Expr::Ident(m) | Expr::Move(m) if m == n)) && !names.contains(n) && params.iter().all(|p| &p.name != n) {
+                                    names.push(n.clone());
+                                }
+                            }
+                        }
+                    }
+                });
                 if names.is_empty() {
                     continue;
                 }
                 crate::parser::walk_mut(body, &mut |e| {
                     if let Expr::Block(stmts, _) = e {
                         for st in stmts.iter_mut() {
-                            if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } = st {
-                                if names.contains(n) && cx.ty(value, &env) != Json && !matches!(value, Expr::Call(f, _, _) if f == "ax_to_json" || f == "ax_tup_json") {
-                                    let v = std::mem::replace(value, Expr::Int(0));
-                                    let f = if matches!(v, Expr::Tuple(_)) { "ax_tup_json" } else { "ax_to_json" };
-                                    *value = Expr::Call(f.into(), vec![(None, v)], *line);
-                                }
+                            let (n, value, line) = match st {
+                                Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } => (n, value, line),
+                                Stmt::Let { name: Pat::Bind(n), ty: None, value, line, .. } => (n, value, line),
+                                _ => continue,
+                            };
+                            if names.contains(n) && cx.ty(value, &env) != Json && !matches!(value, Expr::Call(f, _, _) if f == "ax_to_json" || f == "ax_tup_json") {
+                                let v = std::mem::replace(value, Expr::Int(0));
+                                let f = if matches!(v, Expr::Tuple(_)) { "ax_tup_json" } else { "ax_to_json" };
+                                *value = Expr::Call(f.into(), vec![(None, v)], *line);
                             }
                         }
                     }
@@ -2559,6 +2613,14 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 if ts.iter().any(|t| *t == Json) && known(&rt) && !matches!(rt, Unit) {
                     to_whole.push(k);
                     found.push((k, Ty::Named("Json".into())));
+                } else if let (Tuple(xs), Some(Tuple(ys))) = (&rt, ts.iter().find(|t| matches!(t, Tuple(ys) if ys.len() == xs_len(&rt) && ys.contains(&Json)))) {
+                    // A tuple typed early, a slot of which later holds JSON values.
+                    let m: Vec<T> = xs.iter().zip(ys).map(|(a, b)| if *b == Json || *a == Json { Json } else { a.clone() }).collect();
+                    if m != *xs {
+                        if let Some(t) = to_ast(&Tuple(m)) {
+                            found.push((k, t));
+                        }
+                    }
                 } else if matches!(&rt, List(x) if scalar(x)) && ts.iter().any(|t| matches!(t, List(x) if **x == Json)) {
                     // A list typed early from its first items, later found to hold mixed (JSON) items.
                     found.push((k, Ty::List(Box::new(Ty::Named("Json".into())))));
@@ -2708,6 +2770,8 @@ struct Ck<'a, 'b> {
     py: bool,
     // Names bound by the loop or function whose body the next block is.
     next_own: Vec<String>,
+    // The function's result type.
+    ret: T,
     // Names set from a value that may be None (a `None` or a call to a function that returns one).
     maybe_none: HashSet<String>,
     // Functions that return None somewhere.
@@ -2880,6 +2944,14 @@ impl Ck<'_, '_> {
                 Stmt::Return { value: Some(v), line } => {
                     self.line = *line;
                     self.expr(v, env);
+                    // A function giving tuples with a JSON slot: `return ('eof', '')` makes that slot JSON.
+                    if self.py {
+                        if let Tuple(ts) = &self.ret {
+                            if ts.contains(&Json) {
+                                json_slots_into(v, ts, self.cx, env);
+                            }
+                        }
+                    }
                 }
                 Stmt::Assert { cond, line } => {
                     self.line = *line;
@@ -2987,6 +3059,70 @@ impl Ck<'_, '_> {
                         }
                     }
                 }
+            }
+        }
+        // A list of tuples with a JSON slot is given tuples whose plain value there is made JSON.
+        if self.py {
+            let fix_tup = |x: &mut Expr, ts: &[T], cx: &Cx, env: &Env| json_slots_into(x, ts, cx, env);
+            match &mut *e {
+                // `self.peek() == ('sym', '+')` with a JSON slot.
+                Expr::Binary("==" | "!=", a, b) => {
+                    let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                    if let (Expr::Tuple(_), Tuple(ts)) = (&**a, &tb) {
+                        if ts.contains(&Json) {
+                            json_slots_into(a, ts, self.cx, env);
+                        }
+                    }
+                    if let (Expr::Tuple(_), Tuple(ts)) = (&**b, &ta) {
+                        if ts.contains(&Json) {
+                            json_slots_into(b, ts, self.cx, env);
+                        }
+                    }
+                }
+                // `v in '+-'` / `v in ('==', '!=')` with v a JSON value: checked to be a str when it runs.
+                Expr::Binary("in" | "not in", a, b) if self.cx.ty(a, env) == Json => {
+                    let bt = self.cx.ty(b, env);
+                    let strs = bt == Str || matches!(&bt, List(x) | Heap(x) if **x == Str) || matches!(&bt, Tuple(ts) if !ts.is_empty() && ts.iter().all(|t| *t == Str)) || matches!(&bt, Map(k, _) if **k == Str);
+                    if strs {
+                        // (`None in ('+', '-')` is false; `None in '+-'` is a TypeError, as in Python.)
+                        let f = if bt == Str { "ax_jas_str" } else { "ax_jkey_str" };
+                        let v = std::mem::replace(&mut **a, Expr::Int(0));
+                        **a = Expr::Call(f.into(), vec![(None, v)], 0);
+                    }
+                }
+                // `env[n[1]]` with a JSON key: checked to be a str (or int) when it runs.
+                Expr::Index(b, k) => {
+                    if let (Map(kt, _), Json) = (self.cx.ty(b, env), self.cx.ty(k, env)) {
+                        if matches!(*kt, Int | Str) {
+                            let v = std::mem::replace(&mut **k, Expr::Int(0));
+                            **k = Expr::Call(if *kt == Int { "ax_jas_int" } else { "ax_jas_str" }.into(), vec![(None, v)], 0);
+                        }
+                    }
+                }
+                Expr::List(items) if !items.is_empty() => {
+                    if let List(it) = self.cx.ty(e, env) {
+                        if let Tuple(ts) = *it {
+                            if ts.contains(&Json) {
+                                if let Expr::List(items) = &mut *e {
+                                    for x in items.iter_mut() {
+                                        fix_tup(x, &ts, &self.cx, env);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Expr::Method(r, m, args, _) if matches!(m.as_str(), "push" | "insert") && !args.is_empty() => {
+                    if let List(it) = self.cx.ty(r, env) {
+                        if let Tuple(ts) = *it {
+                            if ts.contains(&Json) {
+                                let k = args.len() - 1;
+                                fix_tup(&mut args[k], &ts, &self.cx, env);
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
         }
         // A list of JSON items (Python's mixed list) is given plain values as JSON.
@@ -3330,13 +3466,13 @@ pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
     let empties = ecx.hint_t;
     let mut errs = Vec::new();
     for it in items.iter_mut() {
-        let (params, body, line): (&[Param], &mut Expr, usize) = match it {
-            Item::Fn { params, body, line, .. } => (params.as_slice(), body, *line),
-            Item::Test { body, line, .. } => (&[][..], body, *line),
+        let (params, body, line, ret): (&[Param], &mut Expr, usize, T) = match it {
+            Item::Fn { params, body, line, ret, .. } => (params.as_slice(), body, *line, from_ast(ret)),
+            Item::Test { body, line, .. } => (&[][..], body, *line, Unit),
             _ => continue,
         };
         let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
-        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect(), maybe_none: none_or_empty_names.clone(), none_fns: &none_fns };
+        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect(), maybe_none: none_or_empty_names.clone(), none_fns: &none_fns, ret };
         if !matches!(body, Expr::Block(..)) {
             ck.next_own.clear();
         }

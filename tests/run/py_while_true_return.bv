@@ -1,0 +1,11 @@
+def f(xs):
+    l = xs[0]
+    i = 1
+    while True:
+        if i < len(xs):
+            l = ("add", l, xs[i])
+            i += 1
+        else:
+            return l
+
+print(f([1, 2, 3]))

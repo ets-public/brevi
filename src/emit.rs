@@ -1287,7 +1287,14 @@ impl Emitter {
             None if !unit => {
                 // A non-unit function must end in a value unless every path returns.
                 let ends_in_return = matches!(stmts.last(), Some(Stmt::Return { .. }));
-                if !ends_in_return {
+                // `while True:` with no break of its own, that leaves only by return, is the end too.
+                let forever = match stmts.last() {
+                    Some(Stmt::Expr { expr: Expr::While(c, body), .. }) if matches!(c.as_ref(), Expr::Bool(true)) => !own_break(body),
+                    _ => false,
+                };
+                if forever {
+                    out.push_str("    #[allow(unreachable_code)] unreachable!()\n");
+                } else if !ends_in_return {
                     self.diag(self.line, "function body ends without a value", Some("make the last line the value to return".into()));
                 }
             }
@@ -2216,7 +2223,7 @@ impl Emitter {
             }
             return format!("{name}({})", ordered.join(", "));
         }
-        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
+        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
         }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();
@@ -2288,4 +2295,21 @@ fn slug(s: &str) -> String {
 // The condition of the if that a Python try statement becomes.
 fn is_try(c: &Expr) -> bool {
     matches!(c, Expr::Call(n, a, _) if n == "__try" && a.is_empty())
+}
+
+// A `break` of this loop (not one of a loop inside it).
+fn own_break(body: &Expr) -> bool {
+    fn go(e: &Expr) -> bool {
+        match e {
+            Expr::Block(ss, t) => ss.iter().any(|s| match s {
+                Stmt::Break { .. } => true,
+                Stmt::Expr { expr, .. } => go(expr),
+                _ => false,
+            }) || t.as_ref().is_some_and(|t| go(t)),
+            Expr::If(_, a, b) => go(a) || b.as_ref().is_some_and(|b| go(b)),
+            Expr::Match(_, arms) => arms.iter().any(|a| go(&a.1)),
+            _ => false,
+        }
+    }
+    go(body)
 }

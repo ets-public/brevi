@@ -1,0 +1,13 @@
+def kinds(toks):
+    out = []
+    for t in toks:
+        k, v = t
+        if k == "sym" and v in "+-":
+            out.append("op")
+        elif k == "kw" and v in ("if", "while"):
+            out.append("kw")
+        else:
+            out.append(str(v))
+    return out
+
+print(kinds([("int", 3), ("sym", "+"), ("kw", "if"), ("name", "x")]))

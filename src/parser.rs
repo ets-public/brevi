@@ -62,6 +62,67 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     }).collect();
     let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0, exc_rich: vec![], threads: vec![], in_exc_class: false, exc_init_arg: None };
     p.py = crate::python_style(src);
+    // Python error classes, from every file, before any `except` that names one is read (the main file comes first).
+    if p.py {
+        let toks: Vec<Tok> = p.toks.iter().map(|t| t.tok.clone()).collect();
+        let mut found: Vec<(String, Vec<String>, bool)> = vec![];
+        let mut i = 0;
+        while i + 3 < toks.len() {
+            if let (Tok::Ident(c), Tok::Ident(n), Tok::Sym("(")) = (&toks[i], &toks[i + 1], &toks[i + 2]) {
+                if c == "class" {
+                    let mut j = i + 3;
+                    let mut bases = vec![];
+                    while j < toks.len() && toks[j] != Tok::Sym(")") {
+                        if let Tok::Ident(b) = &toks[j] {
+                            bases.push(b.clone());
+                        }
+                        j += 1;
+                    }
+                    // Its body: from the `{` after `:` to the matching `}`.
+                    while j < toks.len() && toks[j] != Tok::Sym("{") {
+                        j += 1;
+                    }
+                    let (mut depth, mut has_fn) = (0, false);
+                    while j < toks.len() {
+                        match &toks[j] {
+                            Tok::Sym("{") => depth += 1,
+                            Tok::Sym("}") => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            Tok::Kw("fn") => has_fn = true,
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+                    found.push((n.clone(), bases, has_fn));
+                }
+            }
+            i += 1;
+        }
+        // Error classes and the classes below them, until nothing new is found.
+        loop {
+            let mut more = false;
+            for (n, bases, has_fn) in &found {
+                if p.exc_bases.contains_key(n) {
+                    continue;
+                }
+                let errs: Vec<String> = bases.iter().filter(|b| b.ends_with("Exception") || b.ends_with("Error") || p.exc_bases.contains_key(*b)).cloned().collect();
+                if !errs.is_empty() {
+                    if *has_fn || errs.iter().any(|b| p.exc_rich.contains(b)) {
+                        p.exc_rich.push(n.clone());
+                    }
+                    p.exc_bases.insert(n.clone(), errs);
+                    more = true;
+                }
+            }
+            if !more {
+                break;
+            }
+        }
+    }
     p.threads = p.toks.windows(5).filter_map(|w| match (&w[0].tok, &w[1].tok, &w[2].tok, &w[3].tok, &w[4].tok) {
         (Tok::Ident(t), Tok::Sym("="), Tok::Ident(m), Tok::Sym("."), Tok::Ident(c)) if m == "threading" && c == "Thread" => Some(t.clone()),
         _ => None,
@@ -844,7 +905,7 @@ impl Parser {
         };
         // Python: an error class with methods of its own (or below one that has them) is a real class too.
         let rich = self.py && error_base && (self.children.len() > kids || bases.iter().any(|b| self.exc_rich.contains(b)));
-        if rich {
+        if rich && !self.exc_rich.contains(&cname) {
             self.exc_rich.push(cname.clone());
         }
         let trivial = (error_base && !rich) || (trivial && !other_base && self.children.len() == kids);

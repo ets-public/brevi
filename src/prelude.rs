@@ -628,6 +628,21 @@ impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T) {
         vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()]
     }
 }
+impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T) {
+    fn ax_tuple_items(&self) -> Vec<T> {
+        vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()]
+    }
+}
+impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T) {
+    fn ax_tuple_items(&self) -> Vec<T> {
+        vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone()]
+    }
+}
+impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T, T) {
+    fn ax_tuple_items(&self) -> Vec<T> {
+        vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone()]
+    }
+}
 pub fn print<T: Show>(x: T) {
     println!("{}", x.show());
 }
@@ -1721,6 +1736,10 @@ fn ax_jnum(j: &Json) -> f64 {
     }
 }
 fn ax_jn(v: f64) -> Json {
+    // A dynamic number is a float: a whole number past 2^53 would lose digits, so stop instead.
+    if v.fract() == 0.0 && v.abs() > 9007199254740992.0 {
+        panic!("number too big for a value of mixed type: {v}");
+    }
     Json::Num { v }
 }
 impl Plus for Json {
@@ -3729,6 +3748,13 @@ pub fn ax_jas_int(o: Json) -> i64 {
     match o {
         Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
         o => panic!("expected an int here, got {}", ax_json_py(&o, true)),
+    }
+}
+// A dynamic value looked for among strs: a non-str matches none of them.
+pub fn ax_jkey_str(o: Json) -> String {
+    match o {
+        Json::Str { v } => v,
+        _ => "\u{0}\u{1}not a str".to_string(),
     }
 }
 pub fn ax_jas_str(o: Json) -> String {
