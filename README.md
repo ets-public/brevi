@@ -2,13 +2,13 @@
 
 # Brevi
 
-A programming language for AI models to write. Brevi compiles to Rust, so programs get Rust's speed and safety, but the model never writes lifetimes, borrows or semicolons, and every compiler error comes back as one short JSON line with a suggested fix.
+The fast, safe target for AI-written Python. Brevi is built for AI coding agents: the agent writes the plain Python it knows best, and Brevi checks the whole program before it runs, reports each mistake as one short JSON line with a suggested fix, and compiles it through Rust to a native binary (1.3x to 10.8x faster than CPython on the speed set, measured 2 Nov 2026). The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
 
-The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 tokens (exact count, Sonnet tokenizer). Details live in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand.
+Brevi also has its own Python-like syntax (`.bv` files). Its guide is [BREVI.md](BREVI.md), 3,508 tokens (exact count, Sonnet tokenizer), with details in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand. Same-day runs show agents finish tasks more cheaply writing plain Python than writing Brevi syntax, so the agent skill asks for Python.
 
 ## For agents
 
-- **Skill:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package: setup, then the write, check, fix loop.
+- **Skill:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package: setup, then write plain Python and `brevi run main.py`, fixing only the lines an error names.
 - **MCP server:** `brevi mcp` serves the tools `guide`, `check`, `run`, `test`, `patch`, `edit` and `show` over stdio. The server keeps the program: the agent sends it as `code` once, then fixes it with `patch` (whole functions by name) or `edit` (a range of lines), which check again in the same call, so a retry costs only the lines that change. `run` with `cases` builds once and prints `ok` or the first line that differs for each case. No files needed. Add it to a client as the command `brevi` with the argument `mcp`.
 - **Guide on demand:** `brevi guide` prints the guide built into the compiler, `brevi guide WORD` only the lines about one name, and `--explain` on any command adds those lines under each error.
 - **Fast check:** `brevi check f.bv --fast` runs Brevi's own checks in about 3 ms, without rustc (a full check takes about 400 ms).
