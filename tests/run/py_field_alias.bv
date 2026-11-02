@@ -1,0 +1,43 @@
+# `t = self.tx` names the same dict as self.tx in Python: changes to t (directly or by a method that
+# changes its parameter) are written back. A class named like a built-in (Counter) is the class.
+class Ledger:
+    def __init__(self):
+        self.tx = None
+        self.rejected = 0
+
+    def start(self, n):
+        self.tx = {'line': n, 'discarded': False, 'postings': []}
+
+    def discard(self, t):
+        if not t['discarded']:
+            t['discarded'] = True
+            self.rejected += 1
+
+    def posting(self, name, amt):
+        t = self.tx
+        if t is None:
+            return
+        if amt < 0:
+            self.discard(t)
+            return
+        t['postings'].append((name, amt))
+
+
+class Counter:
+    def __init__(self):
+        self.n = 0
+
+    def bump(self):
+        self.n += 1
+
+
+led = Ledger()
+led.start(1)
+led.posting("cash", 5)
+led.posting("bank", 7)
+print(led.tx['postings'], led.tx['discarded'])
+led.posting("bank", -1)
+print(led.tx['discarded'], led.rejected)
+c = Counter()
+c.bump()
+print(c.n)

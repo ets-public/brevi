@@ -2003,7 +2003,7 @@ impl Parser {
                         return Ok(Expr::Method(Box::new(total.unwrap()), "delta_days".into(), vec![], line));
                     }
                     let star = args.iter().any(|a| a.0.as_deref() == Some("__star"));
-                    if !self.user_fns.contains(&name) && (star || args.iter().all(|a| a.0.is_none())) {
+                    if !self.user_fns.contains(&name) && !self.class_names.contains(&name) && (star || args.iter().all(|a| a.0.is_none())) {
                         if let Some(d) = python_call(&name, &mut args, line) {
                             return Ok(d);
                         }

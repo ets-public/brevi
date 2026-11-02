@@ -49,3 +49,24 @@ def main():
 
 
 main()
+
+
+class Calc:
+    def __init__(self):
+        self.shown = 1
+        self.acc = 2
+
+    def set_shown(self, v):
+        self.shown = v
+
+    def compute(self, a, b):
+        self.acc = a + b
+        return self.acc
+
+    def press(self, k):
+        self.set_shown(self.shown + k)
+        return self.compute(self.acc, self.shown)
+
+
+calc = Calc()
+print(calc.press(4), calc.shown, calc.acc)

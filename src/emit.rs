@@ -2151,6 +2151,9 @@ impl Emitter {
                 match found {
                     // A value that is not a variable (`f(0)`) is passed as a fresh copy the function may change.
                     Some(j) if p.is_mut && !matches!(args[j].1, Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleField(..)) => ordered.push(format!("&mut ({})", plain[j])),
+                    // A Python object is a shared handle: the function gets its own copy of the handle (changes reach
+                    // the same object), so the caller's place is not borrowed while the other arguments are read.
+                    Some(j) if p.is_mut && matches!(&p.ty, Ty::Named(n) if self.marked.contains(n)) => ordered.push(format!("&mut ({})", plain[j])),
                     Some(j) if p.is_mut => ordered.push(format!("&mut {}", self.place_mut(&args[j].1))),
                     Some(j) => ordered.push(plain[j].clone()),
                     None => {}
