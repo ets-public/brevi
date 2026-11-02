@@ -1,0 +1,42 @@
+import sys
+
+out = []
+cur = None
+sq = lambda x: x * x
+
+
+def finish():
+    global cur
+    if cur is None:
+        return
+    pl = cur[0]
+    pl.sort()
+    out.append("%d players %s seen %d" % (len(pl), pl, len(cur[2])))
+    cur = None
+
+
+def main():
+    log = []
+    bad = lambda n: log.append("line %d: bad line" % n)
+    twice = lambda a, b: (a + b) * 2
+    for i in range(4):
+        if i % 2:
+            bad(i)
+    print("\n".join(log), twice(1, 2), sq(5))
+
+
+for ln in range(5):
+    if ln == 3:
+        finish()
+        continue
+    if cur is None:
+        cur = ([], set(), set())
+    name = "p%d" % (ln % 2)
+    if name in cur[1]:
+        continue
+    cur[1].add(name)
+    cur[2].update(["c%d" % ln, "d"])
+    cur[0].append((ln * 7 % 5, name))
+finish()
+print(out)
+main()
