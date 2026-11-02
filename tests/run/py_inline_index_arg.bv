@@ -1,0 +1,35 @@
+class Orders:
+    def __init__(self):
+        self.back = []
+
+    def add_back(self, oid, sku, left):
+        self.back.append([oid, sku, left])
+
+    def waiting(self, sku):
+        return [b for b in self.back if b[1] == sku]
+
+    def clean(self):
+        self.back = [b for b in self.back if b[2] > 0]
+
+def take(s, q):
+    return min(q, 2)
+
+def main():
+    od = Orders()
+    od.add_back("o1", "a", 5)
+    od.add_back("o2", "b", 3)
+    shipped = 0
+    w = ["x", "a"]
+    for b in od.waiting(w[1]):
+        got = take(b[1], b[2])
+        if got:
+            b[2] -= got
+            shipped += got
+            if b[2]:
+                print(f"BACKORDER {b[0]}: shipped {got}, {b[2]} left")
+            else:
+                print(f"BACKORDER {b[0]}: done")
+    od.clean()
+    print([b[2] for b in od.back], shipped)
+
+main()

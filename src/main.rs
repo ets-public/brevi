@@ -341,7 +341,7 @@ fn has_untyped_map(items: &[ast::Item]) -> bool {
         if let ast::Item::Fn { body, .. } = it {
             infer::walk(body, &mut |e| {
                 if let ast::Expr::Map(ps) = e {
-                    if ps.len() > 1 && ps.iter().all(|(k, v)| matches!(k, ast::Expr::Str(_)) && matches!(v, ast::Expr::Ident(_) | ast::Expr::Field(..))) {
+                    if ps.len() > 1 && ps.iter().all(|(k, v)| matches!(k, ast::Expr::Str(_)) && matches!(v, ast::Expr::Ident(_) | ast::Expr::Field(..) | ast::Expr::Call(..))) {
                         hit = true;
                     }
                 }

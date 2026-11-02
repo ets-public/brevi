@@ -991,6 +991,12 @@ impl Cx<'_> {
             Some(Expr::Ident(f)) if !env.contains_key(f) => self.fns.get(f).map(|(_, r)| r.clone()).unwrap_or(Hole),
             _ => Hole,
         };
+        // A class's own method wins over the built-in of that name (`stock.take(sku, n)`).
+        if let Named(c) = &r {
+            if let Some((_, ret)) = self.fns.get(&format!("{c}_{m}")) {
+                return ret.clone();
+            }
+        }
         match m {
             "len" | "count" | "count_sub" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "floor" | "ceil" if r == Dec => Int,
@@ -2359,11 +2365,12 @@ impl Ck<'_, '_> {
             }
             Expr::For(p, it, body) => {
                 self.expr(it, env);
-                let it_t = self.cx.ty(it, env);
-                // Python's `for k in m:` reads the keys.
-                if matches!(it_t, Map(..)) && matches!(p, Pat::Bind(_)) {
+                let mut it_t = self.cx.ty(it, env);
+                // Python's `for k in m:` reads the keys (also `for (s, y) in m:` with tuple keys).
+                if matches!(it_t, Map(..)) && (matches!(p, Pat::Bind(_)) || self.py) {
                     let m = std::mem::replace(it.as_mut(), Expr::Int(0));
                     **it = Expr::Method(Box::new(m), "keys".into(), vec![], self.line);
+                    it_t = self.cx.ty(it, env);
                 }
                 let mut inner = env.clone();
                 bind(p, loop_elem(p, &it_t), &mut inner);
@@ -2660,6 +2667,25 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
             }
         }
         Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear", "heap_push", "heap_pop", "heap_push_pop", "heap_replace", "heapify", "pop_at", "pop_item", "update", "move_to_end"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
+        // `for b in self.backs: b[2] -= 1` changes the items of n's list in place.
+        Expr::For(p, it, body) => {
+            let mut src = it.as_ref();
+            while let Expr::Method(r, m, a, _) = src {
+                if a.is_empty() && matches!(m.as_str(), "values" | "iter") {
+                    src = r;
+                } else {
+                    break;
+                }
+            }
+            let items: Vec<String> = match p {
+                Pat::Bind(a) => vec![a.clone()],
+                Pat::Tuple(ps) => ps.iter().filter_map(|q| if let Pat::Bind(a) = q { Some(a.clone()) } else { None }).collect(),
+                _ => vec![],
+            };
+            if root_is(src, n) && !matches!(src, Expr::Ident(_)) && items.iter().any(|a| in_place(body, a, muts)) {
+                hit = true;
+            }
+        }
         Expr::Call(f, args, _) => {
             if let Some(ms) = muts.get(f) {
                 for (k, (_, a)) in args.iter().enumerate() {
@@ -2748,7 +2774,7 @@ fn scalar(t: &T) -> bool {
 // Set for a Python-style program (see main.rs): some Python forms are typed the Python way.
 pub static PY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn py_on() -> bool {
+pub(crate) fn py_on() -> bool {
     PY.load(std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -2785,12 +2811,15 @@ fn rec_key(i: &Expr) -> Option<String> {
 fn rec_field(e: &mut Expr, ty: &dyn Fn(&Expr) -> T, structs: &HashMap<String, Vec<(String, T)>>) {
     let has = |b: &Expr, k: &str| -> Option<bool> {
         match ty(b) {
+            // A key only some of the dicts have: not known from the type.
+            Named(r) if crate::records::is_record(&r) && crate::records::is_optional(&r, k) => None,
             Named(r) if crate::records::is_record(&r) => Some(structs.get(&r).is_some_and(|fs| fs.iter().any(|(n, _)| n == k))),
             _ => None,
         }
     };
+    let field = |b: &Expr, k: &str| matches!(ty(b), Named(r) if crate::records::is_record(&r) && structs.get(&r).is_some_and(|fs| fs.iter().any(|(n, _)| n == k)));
     let new = match &*e {
-        Expr::Index(b, i) => rec_key(i).and_then(|k| (has(b, &k) == Some(true)).then(|| Expr::Field(b.clone(), k))),
+        Expr::Index(b, i) => rec_key(i).and_then(|k| (field(b, &k)).then(|| Expr::Field(b.clone(), k))),
         Expr::Method(b, m, args, _) if matches!(m.as_str(), "get" | "get_or") && (1..=2).contains(&args.len()) => {
             rec_key(&args[0]).and_then(|k| match has(b, &k) {
                 Some(true) => Some(Expr::Field(b.clone(), k)),

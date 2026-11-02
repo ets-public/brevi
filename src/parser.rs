@@ -37,7 +37,10 @@ type R<T> = Result<T, Diag>;
 
 pub fn parse_program(src: &str) -> R<Vec<Item>> {
     crate::gui::scan(src);
-    let toks = crate::lexer::indent_blocks(lex(src)?);
+    let mut toks = crate::lexer::indent_blocks(lex(src)?);
+    if crate::python_style(src) {
+        print_aliases(&mut toks);
+    }
     let user_fns = toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
@@ -1932,7 +1935,15 @@ impl Parser {
                     if (name == "any" || name == "all") && args.len() == 1 && !self.user_fns.contains(&name) {
                         let arg = args.remove(0).1;
                         return Ok(match arg {
-                            Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => Expr::Method(base, name, vec![la.remove(0)], line),
+                            Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => {
+                                let f = la.remove(0);
+                                // `all(parts[i] for i in ...)`: each value by its truth.
+                                let f = match f {
+                                    Expr::Lambda(ps, body) if self.py && !is_bool_expr(&body) => Expr::Lambda(ps, Box::new(Expr::Unary("!", Box::new(Expr::Unary("!", body))))),
+                                    f => f,
+                                };
+                                Expr::Method(base, name, vec![f], line)
+                            }
                             // Python's `all(words)` tests each item's truth (`!!` is bool(x)).
                             other => {
                                 let b = Expr::Ident("b_".into());
@@ -3213,3 +3224,36 @@ const PY_METHODS: &[&str] = &[
     "items", "split", "strip", "replace", "find", "insert", "setdefault", "popleft", "appendleft", "most_common", "match", "search",
     "sub", "group", "groups", "findall", "fullmatch", "lower", "upper", "startswith", "endswith", "format", "read", "write",
 ];
+
+// An expression that is plainly a bool already (a comparison, `not`, `and`/`or`, a test method).
+fn is_bool_expr(e: &Expr) -> bool {
+    match e {
+        Expr::Bool(_) => true,
+        Expr::Unary("!", _) => true,
+        Expr::Binary(op, _, _) => matches!(*op, "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" | "in" | "not in"),
+        Expr::Method(_, m, _, _) => matches!(m.as_str(), "is_none" | "is_empty" | "contains" | "has" | "starts_with" | "ends_with" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "any" | "all" | "isinstance"),
+        _ => false,
+    }
+}
+
+// `out = print`, then `out(...)`: each call is a print (the name is set to 0, which nothing reads).
+fn print_aliases(toks: &mut [crate::lexer::Token]) {
+    let mut names = vec![];
+    for i in 0..toks.len().saturating_sub(3) {
+        if let (Tok::Ident(x), Tok::Sym("="), Tok::Ident(p), Tok::Newline) = (&toks[i].tok, &toks[i + 1].tok, &toks[i + 2].tok, &toks[i + 3].tok) {
+            if p == "print" && (i == 0 || matches!(toks[i - 1].tok, Tok::Newline | Tok::Sym("{") | Tok::Sym("}") | Tok::Sym(";"))) {
+                names.push((x.clone(), i));
+            }
+        }
+    }
+    // Only a name set nowhere else.
+    names.retain(|(x, at)| !toks.windows(2).enumerate().any(|(j, w)| j != *at && matches!((&w[0].tok, &w[1].tok), (Tok::Ident(y), Tok::Sym("=")) if y == x)));
+    for (x, at) in names {
+        toks[at + 2].tok = Tok::Int(0);
+        for j in 0..toks.len() - 1 {
+            if j != at && matches!(&toks[j].tok, Tok::Ident(y) if *y == x) && matches!(toks[j + 1].tok, Tok::Sym("(")) {
+                toks[j].tok = Tok::Ident("print".into());
+            }
+        }
+    }
+}

@@ -1,0 +1,24 @@
+from fractions import Fraction
+
+def parse(t):
+    i, p = t[0], len(t)
+    q = {"id": i, "points": p}
+    if t[1] == "c":
+        q["answer"] = t[2]
+    elif t[1] == "n":
+        q["value"] = Fraction(t[2])
+        q["tol"] = Fraction(t[3])
+    else:
+        return None
+    return q
+
+def main():
+    qs = [parse(["a", "c", "B"]), parse(["b", "n", "1.5", "0.1"])]
+    for q in qs:
+        if q["id"] == "a":
+            print(q["answer"] == "B")
+        else:
+            print(abs(Fraction("1.55") - q["value"]) <= q["tol"])
+    print(qs[0])
+
+main()

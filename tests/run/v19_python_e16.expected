@@ -1,0 +1,7 @@
+2 [4] [0] 3
+object is true
+{'accepted': 1, 'last': '2026-01-02'} {'names': ['ann'], 'dealt': [3]}
+a 1
+b 2
+False True
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
