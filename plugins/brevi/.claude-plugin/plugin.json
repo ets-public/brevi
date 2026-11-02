@@ -1,6 +1,6 @@
 {
   "name": "brevi",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "Write, check and run Brevi (.bv) programs: a language for AI models that compiles to Rust, with one-line JSON errors.",
   "author": { "name": "Adam" },
   "homepage": "https://brevi-lang.org",
