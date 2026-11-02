@@ -1,0 +1,1 @@
+{"line":15,"msg":"the items of vis are copies of the items visible_tasks(...) returned, so changing them does not change the original list (Brevi values are copies, not shared)","fix":"change the item in the original list, e.g. find its index there and set tasks[i][1] = v"}

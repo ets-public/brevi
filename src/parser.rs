@@ -1404,6 +1404,12 @@ impl Parser {
                             }
                             // Python's d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP): half to even unless ROUND_HALF_UP.
                             // OrderedDict's popitem(last=False) takes the oldest entry; popitem() the newest.
+                            // `d.update(k=v, ...)`: the same as `d.update({"k": v, ...})`.
+                            if name == "update" && !raw.is_empty() && raw.iter().all(|(k, _)| k.as_deref().is_some_and(|k| k != "__star")) {
+                                let ps = raw.iter().map(|(k, v)| (Expr::Str(vec![StrPart::Lit(k.clone().unwrap())]), v.clone())).collect();
+                                e = Expr::Method(Box::new(e), name, vec![Expr::Map(ps)], line);
+                                continue;
+                            }
                             if name == "popitem" && raw.len() <= 1 {
                                 let last = !raw.first().is_some_and(|a| matches!(&a.1, Expr::Bool(false)));
                                 e = Expr::Method(Box::new(e), "pop_item".into(), vec![Expr::Bool(last)], line);

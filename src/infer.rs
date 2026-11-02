@@ -214,6 +214,8 @@ fn empty_kind(e: &Expr) -> Option<T> {
         Expr::Call(n, a, _) if n == "heap" && a.is_empty() => Some(Heap(Box::new(Hole))),
         // `best = None`: typed by what is put there later.
         Expr::Call(n, a, _) if n == "none" && a.is_empty() => Some(Hole),
+        // `board = [None] * 9`: a list typed by what is put in its slots later.
+        Expr::Method(l, m, a, _) if m == "repeat" && a.len() == 1 && matches!(l.as_ref(), Expr::List(xs) if matches!(xs.as_slice(), [Expr::Call(n, a, _)] if n == "none" && a.is_empty())) => Some(List(Box::new(Hole))),
         // `inner = secs.get_or(k, {})`: typed by what is done with it, like a fresh `{}`.
         Expr::Method(_, m, a, _) if matches!(m.as_str(), "get_or" | "get") && a.len() == 2 => empty_kind(&a[1]),
         _ => None,
@@ -850,6 +852,7 @@ impl Cx<'_> {
             Expr::Bool(_) => Bool,
             Expr::Str(_) => Str,
             Expr::Ident(n) if n == "Null" && !env.contains_key(n) => Json,
+            Expr::Call(f, a, _) if f == "ax_row" && a.len() == 1 => self.ty(&a[0].1, env),
             Expr::Ident(n) | Expr::Move(n) => env.get(n).or_else(|| self.genv.get(n)).cloned().unwrap_or(Hole),
             // Python's `[expiry, seq, sku, qty]`: a record of mixed types is a tuple (its slots stay settable).
             Expr::List(xs) if mixed_record(xs, &|x| self.ty(x, env)) => Tuple(xs.iter().map(|x| self.ty(x, env)).collect()),
@@ -1035,6 +1038,11 @@ impl Cx<'_> {
                 Hole if m == "repeat" || m == "slice" => Hole,
                 Map(k, _) if m == "filter" || m == "sort" || m == "sort_by" || m == "sort_by_rev" || m == "skip" => List(k.clone()),
                 _ => r,
+            },
+            // A tuple of one type (`(0, 1, 2)`) walked as a list.
+            "tuple_items" => match &r {
+                Tuple(ts) if !ts.is_empty() => List(Box::new(ts[0].clone())),
+                _ => Hole,
             },
             "flatten" => match elem(&r) {
                 List(t) => List(t),
@@ -2390,9 +2398,26 @@ impl Ck<'_, '_> {
             }
         }
         rec_field(e, &|x| global_too(self.cx.ty(x, env), x, &self.cx.genv), &self.cx.structs);
+        // Python walks a tuple of one type like a list: `all(board[i] == p for i in line)`, `for i in line`.
+        let same_tuple = |t: &T| matches!(t, Tuple(ts) if ts.len() >= 2 && known(&ts[0]) && ts.iter().all(|x| x == &ts[0]));
+        match &mut *e {
+            Expr::Method(r, m, _, _) if self.py && matches!(m.as_str(), "all" | "any" | "map" | "filter" | "sum" | "min" | "max" | "contains" | "index_of" | "count" | "sort" | "sort_by" | "rev" | "enumerate" | "zip" | "join" | "len" | "slice" | "skip") && same_tuple(&self.cx.ty(r, env)) => {
+                let x = std::mem::replace(r.as_mut(), Expr::Int(0));
+                **r = Expr::Method(Box::new(x), "tuple_items".into(), vec![], self.line);
+            }
+            Expr::Binary("in" | "not in", _, b) if self.py && same_tuple(&self.cx.ty(b, env)) => {
+                let x = std::mem::replace(b.as_mut(), Expr::Int(0));
+                **b = Expr::Method(Box::new(x), "tuple_items".into(), vec![], self.line);
+            }
+            Expr::For(_, it, _) if self.py && same_tuple(&self.cx.ty(it, env)) => {
+                let x = std::mem::replace(it.as_mut(), Expr::Int(0));
+                **it = Expr::Method(Box::new(x), "tuple_items".into(), vec![], self.line);
+            }
+            _ => {}
+        }
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
-            Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Tuple(xs.clone())),
+            Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Call("ax_row".into(), vec![(None, Expr::Tuple(xs.clone()))], 0)),
             Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
                 (Tuple(_), Expr::Int(k)) if *k >= 0 => Some(Expr::TupleField(b.clone(), *k as usize)),
                 _ => None,
@@ -2405,6 +2430,19 @@ impl Ck<'_, '_> {
         };
         if let Some(f) = fix {
             *e = f;
+        }
+        // Count the tuple types made from mixed lists (rows) and those written as tuples: a type that is
+        // both can't print as a list for rows and a tuple for tuples, so then rows print as tuples.
+        match &*e {
+            Expr::Call(f, a, _) if f == "ax_row" && a.len() == 1 => {
+                let k = format!("{:?}", self.cx.ty(&a[0].1, env));
+                ROW_TUPLES.with(|r| r.borrow_mut().entry(k).or_insert((0, 0)).0 += 1);
+            }
+            Expr::Tuple(_) => {
+                let k = format!("{:?}", self.cx.ty(e, env));
+                ROW_TUPLES.with(|r| r.borrow_mut().entry(k).or_insert((0, 0)).1 += 1);
+            }
+            _ => {}
         }
         match e {
             Expr::Block(stmts, tail) => {
@@ -2880,6 +2918,18 @@ fn holes_json(t: T) -> T {
         Tuple(ts) => Tuple(ts.into_iter().map(holes_json).collect()),
         other => other,
     }
+}
+
+thread_local! {
+    // Per tuple type: (rows made from mixed lists, tuples seen, which counts the rows' own tuples too).
+    static ROW_TUPLES: std::cell::RefCell<HashMap<String, (usize, usize)>> = std::cell::RefCell::new(HashMap::new());
+}
+pub fn rows_reset() {
+    ROW_TUPLES.with(|r| r.borrow_mut().clear());
+}
+// Some tuple type is used both for mixed-list rows and for real tuples.
+pub fn rows_clash() -> bool {
+    ROW_TUPLES.with(|r| r.borrow().values().any(|(rows, all)| *rows > 0 && all > rows))
 }
 
 fn mixed_record(xs: &[Expr], ty: &dyn Fn(&Expr) -> T) -> bool {

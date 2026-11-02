@@ -364,6 +364,26 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
 // `cur = {"players": {}}` then `cur["res"] = []` right after: one literal with both keys, as Python
 // ends up with the same dict.
 fn fold_keys(stmts: &mut Vec<Stmt>) {
+    // `st.update({"cur": "0", "acc": None})` with literal keys: one assignment per key, so a record can hold it.
+    let mut j = 0;
+    while j < stmts.len() {
+        if let Stmt::Expr { expr: Expr::Method(r, m, args, _), line } = &stmts[j] {
+            if m == "update" && matches!(r.as_ref(), Expr::Ident(_)) {
+                if let [Expr::Map(ps)] = args.as_slice() {
+                    // Not when a value reads the dict (`d.update({"a": d["b"], "b": d["a"]})` reads before any change).
+                    if !ps.is_empty() && ps.iter().all(|(k, _)| key_name(k).is_some()) && !format!("{ps:?}").contains(&format!("{r:?}")) {
+                        let (r, line) = (r.clone(), *line);
+                        let sets: Vec<Stmt> = ps.iter().map(|(k, v)| Stmt::Assign { target: Expr::Index(r.clone(), Box::new(k.clone())), op: "=", value: v.clone(), line }).collect();
+                        let n = sets.len();
+                        stmts.splice(j..j + 1, sets);
+                        j += n;
+                        continue;
+                    }
+                }
+            }
+        }
+        j += 1;
+    }
     let mut i = 0;
     while i < stmts.len() {
         let n = match &stmts[i] {

@@ -1,0 +1,12 @@
+['X', 'O', 'O', None, 'X', None, None, None, 'X'] True
+X O O . X . . . X
+(0, 4, 8) None
+3 4 5 12 2 True
+[None, None, None, None, None, None, None, None, None]
+1 None None False
+12 None None False
+12+ 5 + False
+0 None None True
+7 None None False
+{'cur': '9', 'acc': None, 'op': None, 'new': False}
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

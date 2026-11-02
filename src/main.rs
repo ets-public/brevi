@@ -376,9 +376,24 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
     infer::returns(&mut items)?;
     // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.
     infer::auto_mut(&mut items);
+    infer::rows_reset();
     let errs = infer::check(&mut items, py);
     if !errs.is_empty() {
         return Err(errs);
+    }
+    // A tuple type used both for mixed-list rows and for real tuples: rows print as tuples then.
+    if infer::rows_clash() {
+        for it in items.iter_mut() {
+            if let ast::Item::Fn { body, .. } | ast::Item::Test { body, .. } = it {
+                parser::walk_mut(body, &mut |e| {
+                    if let ast::Expr::Call(f, a, _) = e {
+                        if f == "ax_row" && a.len() == 1 {
+                            *e = a.remove(0).1;
+                        }
+                    }
+                });
+            }
+        }
     }
     Ok(items)
 }

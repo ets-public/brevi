@@ -1,0 +1,11 @@
+# Python lists that mix kinds (`[oid, sku, n]`) are held as tuples but print as lists, unless the program
+# also has real tuples of the same types.
+rows = []
+for i in range(2):
+    rows.append(["o%d" % i, "sku", i + 1])
+for r in rows:
+    r[2] -= 1
+print(rows)
+print(rows[0], str(rows[1]))
+t = ("a", 3)
+print(t)
