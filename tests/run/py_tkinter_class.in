@@ -1,0 +1,13 @@
+show
+click +1
+key 0 +
+tap 1 10 20
+show
+click Auto
+wait 250
+show
+answer no
+click Reset
+answer yes
+click Reset
+show

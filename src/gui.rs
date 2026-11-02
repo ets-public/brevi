@@ -242,6 +242,7 @@ struct Callback {
     lets: Vec<(String, Expr)>,
     body: Expr,
     caps: Vec<String>, // captured names, in the order of their lists
+    self_ty: Option<String>, // the class of a captured `self_`
 }
 
 struct Lower<'a> {
@@ -253,6 +254,9 @@ struct Lower<'a> {
     locals: Option<HashSet<String>>,
     sigs: &'a dyn Fn(&str) -> usize,
     errs: Vec<(usize, String)>,
+    // The function being lowered (`App_build` for a method of class App).
+    cur_fn: String,
+    types: Vec<String>,
 }
 
 fn s(x: &str) -> Expr {
@@ -376,6 +380,35 @@ impl Lower<'_> {
                 self.free_caps(&b, &ps, &mut caps, &mut vals);
                 (lets, *b, caps, vals)
             }
+            // `command=self.on_click`: a method of the class whose method is being lowered, called on the
+            // object (a shared handle, so the callback changes the object itself).
+            Expr::Field(recv, m) if matches!(recv.as_ref(), Expr::Ident(x) if x == "self" || x == "self_") && self.method_fn(&m).is_some() => {
+                let f = self.method_fn(&m).unwrap();
+                let n = self.params.get(&f).map_or(1, |p| p.len()).saturating_sub(1);
+                let me = Expr::Ident("self_".into());
+                let lam = match mode {
+                    Mode::Event if n >= 1 => Expr::Lambda(vec!["e_".into()], Box::new(call(&f, vec![me, Expr::Ident("e_".into())], line))),
+                    Mode::Trace => Expr::Lambda(vec!["a_".into(), "b_".into(), "c_".into()], Box::new(call(&f, [me].into_iter().chain(["a_", "b_", "c_"].iter().take(n).map(|x| Expr::Ident(x.to_string()))).collect(), line))),
+                    _ => {
+                        // `after(ms, self.tick, n)`: the extra values are captured too.
+                        let mut a = vec![me];
+                        let mut caps = vec![];
+                        for (j, x) in extra.iter().enumerate() {
+                            let c = format!("x{j}_");
+                            a.push(Expr::Ident(c.clone()));
+                            caps.push((Some(c), x.clone()));
+                        }
+                        let lam = Expr::Lambda(vec![], Box::new(call(&f, a, line)));
+                        if caps.is_empty() {
+                            lam
+                        } else {
+                            caps.push((None, lam));
+                            Expr::Call("tk:lambda".into(), caps, line)
+                        }
+                    }
+                };
+                return self.callback(lam, mode, vec![], line);
+            }
             // `command=root.destroy`
             Expr::Field(recv, m) if reg_is_gui(&self.r, &recv) => {
                 let body = self.lower_expr(Expr::Call(format!("tk.{m}"), vec![(None, *recv)], line));
@@ -388,12 +421,27 @@ impl Lower<'_> {
         };
         let body = self.lower_expr(body);
         let caps_n = caps.len();
-        self.cbs.push(Callback { lets, body, caps });
+        let self_ty = if caps.iter().any(|c| c == "self_") { self.class_of_fn() } else { None };
+        self.cbs.push(Callback { lets, body, caps, self_ty });
         if caps_n == 0 {
             call("tkx_cbreg", vec![Expr::Int(k), Expr::Int(0)], line)
         } else {
             call(&format!("tkx_mk{k}"), cap_vals.into_iter().map(|v| self.lower_expr(v)).collect(), line)
         }
+    }
+
+    // The function for `self.m` inside a method: `App_m` when lowering `App_build`.
+    fn method_fn(&self, m: &str) -> Option<String> {
+        let suffix = format!("_{m}");
+        self.fns.iter().filter(|f| f.ends_with(&suffix)).find(|f| {
+            let class = &f[..f.len() - suffix.len()];
+            !class.is_empty() && self.cur_fn.starts_with(&format!("{class}_"))
+        }).cloned()
+    }
+
+    // The class whose method is being lowered.
+    fn class_of_fn(&self) -> Option<String> {
+        self.types.iter().filter(|t| self.cur_fn.starts_with(&format!("{t}_"))).max_by_key(|t| t.len()).cloned()
     }
 
     fn lambda_lets(&self, ps: &[String], mode: Mode, lets: &mut Vec<(String, Expr)>) {
@@ -635,9 +683,10 @@ pub fn lower(items: &mut Vec<Item>, script: &mut Vec<Stmt>, sig_len: &dyn Fn(&st
     let Some(r) = reg(|r| r.clone()) else { return Ok(()) };
     let fns: HashSet<String> = items.iter().filter_map(|i| match i { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
     let params: HashMap<String, Vec<String>> = items.iter().filter_map(|i| match i { Item::Fn { name, params, .. } => Some((name.clone(), params.iter().map(|p| p.name.clone()).collect())), _ => None }).collect();
-    let mut lw = Lower { r, fns, params, cbs: vec![], locals: None, sigs: sig_len, errs: vec![] };
+    let mut lw = Lower { r, fns, params, cbs: vec![], locals: None, sigs: sig_len, errs: vec![], cur_fn: String::new(), types: items.iter().filter_map(|i| match i { Item::Type { name, .. } => Some(name.clone()), _ => None }).collect() };
     for it in items.iter_mut() {
-        if let Item::Fn { params, body, .. } = it {
+        if let Item::Fn { name, params, body, .. } = it {
+            lw.cur_fn = name.clone();
             let mut loc: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
             assigned(body, &mut loc);
             lw.locals = Some(loc);
@@ -661,7 +710,12 @@ pub fn lower(items: &mut Vec<Item>, script: &mut Vec<Stmt>, sig_len: &dyn Fn(&st
             let mut mk = vec![];
             for (j, c) in cb.caps.iter().enumerate() {
                 let g = format!("tkx_cap{k}_{j}");
-                globals.push(Stmt::Let { name: Pat::Bind(g.clone()), ty: None, value: Expr::List(vec![]), mutable: true, line: 0 });
+                // A captured `self` is a handle to the object; its list is typed so nothing else has to infer it.
+                let lty = match (&cb.self_ty, c.as_str()) {
+                    (Some(t), "self_") => Some(Ty::List(Box::new(Ty::Named(t.clone())))),
+                    _ => None,
+                };
+                globals.push(Stmt::Let { name: Pat::Bind(g.clone()), ty: lty, value: Expr::List(vec![]), mutable: true, line: 0 });
                 mk.push(Stmt::Expr { expr: Expr::Method(Box::new(Expr::Ident(g.clone())), "push".into(), vec![Expr::Ident(format!("c{j}_"))], 0), line: 0 });
                 stmts.push(Stmt::Let { name: Pat::Bind(c.clone()), ty: None, value: Expr::Index(Box::new(Expr::Ident(g)), Box::new(Expr::Ident("i".into()))), mutable: true, line: 0 });
             }
@@ -669,7 +723,7 @@ pub fn lower(items: &mut Vec<Item>, script: &mut Vec<Stmt>, sig_len: &dyn Fn(&st
             mk.push(Stmt::Return { value: Some(call("tkx_cbreg", vec![Expr::Int(k), n], 0)), line: 0 });
             items.push(Item::Fn {
                 name: format!("tkx_mk{k}"),
-                params: (0..cb.caps.len()).map(|j| Param { name: format!("c{j}_"), ty: Ty::Named("?".into()), is_mut: false }).collect(),
+                params: cb.caps.iter().enumerate().map(|(j, c)| Param { name: format!("c{j}_"), ty: Ty::Named(match (&cb.self_ty, c.as_str()) { (Some(t), "self_") => t.clone(), _ => "?".into() }), is_mut: false }).collect(),
                 ret: Ty::Named("?".into()),
                 fallible: false,
                 body: Expr::Block(mk, None),
