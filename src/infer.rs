@@ -1037,7 +1037,7 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" | "quantize" => Dec,
             "big" => Big,
-            "char" | "fmt" | "spec" | "py_repr" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
+            "char" | "fmt" | "spec" | "py_repr" | "py_dumps" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
