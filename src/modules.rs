@@ -211,7 +211,28 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
         return Ok((src.to_string(), segs));
     }
     if !quals.is_empty() {
-        out = out.lines().map(|l| unqualify(l, &quals) + "\n").collect();
+        // Not inside a function with a parameter of the module's name (`def fill(self, sku, stock)`, then
+        // `stock.take(...)` is the parameter's method).
+        let mut scope: Vec<(usize, Vec<String>)> = vec![];
+        let mut joined = String::with_capacity(out.len());
+        for l in out.lines() {
+            let t = l.trim_start();
+            let ind = l.len() - t.len();
+            if !t.is_empty() && !t.starts_with('#') {
+                scope.retain(|(d, _)| ind > *d);
+            }
+            let shadow: Vec<String> = scope.iter().flat_map(|(_, ps)| ps.iter().cloned()).collect();
+            let names: Vec<String> = quals.iter().filter(|q| !shadow.contains(q)).cloned().collect();
+            joined.push_str(&unqualify(l, &names));
+            joined.push('\n');
+            if let Some(rest) = t.strip_prefix("def ") {
+                let ps = rest.split_once('(').and_then(|(_, r)| r.split_once(')')).map_or(vec![], |(ps, _)| {
+                    ps.split(',').map(|p| p.split(&[':', '='][..]).next().unwrap_or("").trim().trim_start_matches('*').to_string()).filter(|p| !p.is_empty()).collect()
+                });
+                scope.push((ind, ps));
+            }
+        }
+        out = joined;
     }
     Ok((out, segs))
 }

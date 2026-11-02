@@ -1,0 +1,20 @@
+class Grades:
+    def __init__(self):
+        self.names = []
+        self.scores = {}
+    def add(self, name):
+        self.names.append(name)
+        self.scores[name] = {}
+    def total(self, name):
+        return sum(self.scores[name].values())
+g = Grades()
+for line in ["ann q1=3 q2=4", "bob q1=1"]:
+    t = line.split()
+    g.add(t[0])
+    sc = g.scores[t[0]]
+    for tok in t[1:]:
+        q, _, v = tok.partition("=")
+        sc[q] = int(v)
+new = {"z": {5: ["a"], 3: ["b"]}}
+arr = min(new["z"])
+print([(n, g.total(n)) for n in g.names], arr, max(new["z"]), new["z"][arr])

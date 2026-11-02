@@ -638,6 +638,13 @@ impl Cx<'_> {
                         // Another empty value declared on the way: work out its type from the lines after it first.
                         (Expr::Ident(m), "=") if !env.contains_key(m) && empty_kind(value).is_some() && m != n => {
                             let mut mt = empty_kind(value).unwrap();
+                            // `al = run.get(k)` (a None default) with run typed by now: the entry's type.
+                            if matches!(value, Expr::Method(_, m, _, _) if m == "get_or" || m == "get") {
+                                let vt0 = self.ty(value, env);
+                                if some_known(&vt0) {
+                                    mt = merge(mt, vt0);
+                                }
+                            }
                             let mut later = env.clone();
                             later.insert(m.clone(), mt.clone());
                             self.look(m, &stmts[i + 1..], tail, &mut later, &mut mt);
@@ -690,6 +697,11 @@ impl Cx<'_> {
                         }
                         (Expr::Ident(m), "=") if !env.contains_key(m) => {
                             env.insert(m.clone(), vt);
+                        }
+                        // A name known only partly so far (`al = run.get(k)` with run typed by now) takes what this shows.
+                        (Expr::Ident(m), "=") if m != n && env.get(m).map_or(false, |t| !known(t)) && some_known(&vt) => {
+                            let old = env[m].clone();
+                            env.insert(m.clone(), merge(old, vt));
                         }
                         // A name set again to a value of another known type (a function's own `n` over a global `n`).
                         (Expr::Ident(m), "=") if m != n && env.get(m).map_or(false, |t| (known(&vt) && known(t) && *t != vt) || kind_clash(t, &vt)) => {
@@ -1178,6 +1190,8 @@ impl Cx<'_> {
             },
             "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
                 Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
+                // Python's `min(d)`: a key.
+                Map(k, _) if py_on() && (m == "min" || m == "max") => *k.clone(),
                 _ => elem(&r),
             },
             "remove" => match &r {
@@ -1691,6 +1705,12 @@ impl Cx<'_> {
                         // `out = []` then `out.push(x)`: the type comes from the lines after it.
                         Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if env.get(n).map_or(true, |t| !known(t)) && (empty_kind(value).is_some() || self.part_kind(value, env).is_some()) => {
                             let mut mt = empty_kind(value).or_else(|| self.part_kind(value, env)).unwrap();
+                            if matches!(value, Expr::Method(_, m, _, _) if m == "get_or" || m == "get") {
+                                let vt0 = self.ty(value, env);
+                                if some_known(&vt0) {
+                                    mt = merge(mt, vt0);
+                                }
+                            }
                             let mut later = env.clone();
                             later.insert(n.clone(), mt.clone());
                             self.unsure = false;
@@ -1771,7 +1791,8 @@ impl Cx<'_> {
                 // `q = parse(s)` above, then `for q in g.qids`.)
                 let single = matches!(p, Pat::Bind(_));
                 for (n, t) in tmp {
-                    if known(&t) || single || env.get(&n).map_or(true, |o| !known(o)) {
+                    // (A tuple where a list was, or the like, is a new name too: `for at, u, v in ...` after `for k, v in d.items()`.)
+                    if known(&t) || single || env.get(&n).map_or(true, |o| !known(o) || kind_clash(o, &t)) {
                         env.insert(n, t);
                     }
                 }
@@ -2150,9 +2171,16 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 let tuples = |a: &T, b: &T| matches!((a, b), (Tuple(x), Tuple(y)) if x.len() != y.len() || ty_clash(a, b) || x.iter().zip(y).any(|(p, q)| known(p) && known(q) && clash(p, q)));
                 let odd = |a: &T, b: &T| (known(a) && known(b) && tuples(a, b)) || (*a == Json && known(b) && *b != Json) || (*b == Json && known(a) && *a != Json);
                 let mut names: Vec<String> = vec![];
+                let mut split: Vec<String> = vec![];
                 for (n, t) in &sets {
-                    if !names.contains(n) && params.iter().all(|p| &p.name != n) && sets.iter().any(|(m, u)| m == n && odd(t, u)) {
-                        names.push(n.clone());
+                    if !names.contains(n) && !split.contains(n) && params.iter().all(|p| &p.name != n) && sets.iter().any(|(m, u)| m == n && odd(t, u)) {
+                        // Each setting read only by the lines after it in its own block (`c = (t, a, b)` used at
+                        // once, then `c = (n, path)` elsewhere): separate names, not one dynamic value.
+                        if split_name(body, n) {
+                            split.push(n.clone());
+                        } else {
+                            names.push(n.clone());
+                        }
                     }
                 }
                 // A name set to a tuple holding itself (`l = ('or', l, self.and_())`, a tree grown in a loop).
@@ -2525,6 +2553,32 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     }
                     ev.insert(k, merge(cur, t));
                 }
+                // `sc = g.scores[name]` then `sc[qid] = v` (Python shares the inner dict): the field's entries
+                // are dicts of that key and value.
+                walk(body, &mut |e| {
+                    if let Expr::Block(stmts, tail) = e {
+                        for (i, st) in stmts.iter().enumerate() {
+                            let Stmt::Assign { target: Expr::Ident(x), op: "=", value: Expr::Index(b, ix), .. } = st else { continue };
+                            let Some(k) = owner(b, &env) else { continue };
+                            let kt = cx.ty(ix, &env);
+                            let rest = Expr::Block(stmts[i + 1..].to_vec(), tail.clone());
+                            walk(&rest, &mut |y| {
+                                if let Expr::Block(st2, _) = y {
+                                    for s2 in st2 {
+                                        if let Stmt::Assign { target: Expr::Index(b2, k2), op: "=", value: v2, .. } = s2 {
+                                            if matches!(b2.as_ref(), Expr::Ident(m) if m == x) {
+                                                let (k2t, vt) = (cx.ty(k2, &env), cx.ty(v2, &env));
+                                                if known(&kt) && known(&k2t) && known(&vt) {
+                                                    add(&mut ev, k.clone(), Map(Box::new(kt.clone()), Box::new(Map(Box::new(k2t), Box::new(vt)))));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
                 walk(body, &mut |e| {
                     if let Expr::Block(stmts, _) = e {
                         for st in stmts {
@@ -2969,9 +3023,81 @@ fn clash(a: &T, b: &T) -> bool {
 
 // Values of plainly different kinds (a list, then a tuple), even with parts still unknown:
 // Python's `c = [...]` in one loop and `c = (a, k, l)` later makes a new name.
+// Gives each `n = v` its own name for the lines after it in its block, when every read of n is
+// such a line (none before a setting, none carried around a loop, none set again in a nested block).
+fn split_name(body: &mut Expr, n: &str) -> bool {
+    let mut work = body.clone();
+    let mut k = 0usize;
+    let mut bad = false;
+    let sets_n = |e: &Expr| {
+        let mut hit = false;
+        walk(e, &mut |x| {
+            if let Expr::Block(st, _) = x {
+                if st.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(m), .. } if m == n) || matches!(s, Stmt::Let { name: Pat::Bind(m), .. } if m == n)) {
+                    hit = true;
+                }
+            }
+            if let Expr::For(p, _, _) = x {
+                if format!("{p:?}").contains(&format!("{n:?}")) {
+                    hit = true;
+                }
+            }
+        });
+        hit
+    };
+    crate::parser::walk_mut(&mut work, &mut |e| {
+        let Expr::Block(stmts, tail) = e else { return };
+        let starts: Vec<usize> = stmts.iter().enumerate().filter(|(_, s)| matches!(s, Stmt::Assign { target: Expr::Ident(m), op: "=", .. } if m == n)).map(|(i, _)| i).collect();
+        for (j, &i) in starts.iter().enumerate() {
+            k += 1;
+            let fresh = format!("{n}_{k}");
+            let end = starts.get(j + 1).copied().unwrap_or(stmts.len());
+            if let Stmt::Assign { target, value, .. } = &mut stmts[i] {
+                if format!("{value:?}").contains(&format!("Ident({n:?})")) {
+                    bad = true;
+                }
+                *target = Expr::Ident(fresh.clone());
+            }
+            for s in stmts[i + 1..end].iter_mut() {
+                let mut b = Expr::Block(vec![s.clone()], None);
+                if sets_n(&b) {
+                    bad = true;
+                }
+                crate::parser::walk_mut(&mut b, &mut |x| {
+                    if matches!(x, Expr::Ident(m) | Expr::Move(m) if m == n) {
+                        *x = Expr::Ident(fresh.clone());
+                    }
+                });
+                if let Expr::Block(mut v, _) = b {
+                    *s = v.remove(0);
+                }
+            }
+            if j + 1 == starts.len() {
+                if let Some(t) = tail {
+                    if sets_n(t) {
+                        bad = true;
+                    }
+                    crate::parser::walk_mut(t, &mut |x| {
+                        if matches!(x, Expr::Ident(m) | Expr::Move(m) if m == n) {
+                            *x = Expr::Ident(fresh.clone());
+                        }
+                    });
+                }
+            }
+        }
+    });
+    let d = format!("{work:?}");
+    if bad || k < 2 || d.contains(&format!("Ident({n:?})")) || d.contains(&format!("Move({n:?})")) || d.contains(&format!("Bind({n:?})")) || d.contains(&format!("target: Ident({n:?})")) {
+        return false;
+    }
+    *body = work;
+    true
+}
+
 fn kind_clash(a: &T, b: &T) -> bool {
     let plain = |t: &T| matches!(t, List(_) | Map(..) | Tuple(_) | Str | Bool | Named(_));
-    plain(a) && plain(b) && std::mem::discriminant(a) != std::mem::discriminant(b)
+    // (Tuples of different lengths too: `c = (t, a, b)` in one place, `c = (n, path)` in another.)
+    plain(a) && plain(b) && (std::mem::discriminant(a) != std::mem::discriminant(b) || matches!((a, b), (Tuple(x), Tuple(y)) if x.len() != y.len()))
 }
 
 fn float_lit(e: &mut Expr) {
@@ -3352,6 +3478,11 @@ impl Ck<'_, '_> {
                     args[0] = Expr::Call(f.into(), vec![(None, v)], 0);
                 }
                 // `self.items.get(iid)` on a dict keyed by JSON values, with a plain key: made a JSON value.
+                // Python's `min(d)` / `max(d)` on a dict: its smallest or largest key.
+                Expr::Method(r, m, args, line) if matches!(m.as_str(), "min" | "max") && args.is_empty() && matches!(self.cx.ty(r, env), Map(..)) => {
+                    let inner = std::mem::replace(&mut **r, Expr::Int(0));
+                    **r = Expr::Method(Box::new(inner), "keys".into(), vec![], *line);
+                }
                 Expr::Method(r, m, args, _) if matches!(m.as_str(), "get" | "get_or" | "has" | "remove" | "pop") && !args.is_empty() && matches!(self.cx.ty(r, env), Map(ref k, _) if **k == Json) && matches!(self.cx.ty(&args[0], env), Int | Str | Bool) => {
                     let v = std::mem::replace(&mut args[0], Expr::Int(0));
                     args[0] = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);

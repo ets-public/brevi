@@ -232,6 +232,7 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
     if p.py {
         print_params(&mut items, &mut script, &mut p.sigs);
         stdout_params(&mut items, &mut script, &mut p.sigs);
+        bound_callbacks(&mut items, &mut script);
     }
     if !p.sigs.is_empty() {
         fill_args(&mut items, &mut script, &p.sigs);
@@ -4842,6 +4843,89 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
     }
 }
 
+
+// A parameter only ever called (`got = take(sku, n)`) that every call fills with a bound method
+// (`orders.fill(sku, stock.take)`): the call passes the object instead, and `take(a, b)` calls its method.
+fn bound_callbacks(items: &mut [Item], script: &mut [Stmt]) {
+    let fns: Vec<(String, Vec<String>)> = items.iter().filter_map(|it| match it {
+        Item::Fn { name, params, .. } => Some((name.clone(), params.iter().map(|q| q.name.clone()).collect())),
+        _ => None,
+    }).collect();
+    for (f, ps) in &fns {
+        let method = ps.first().is_some_and(|p| p == "self_");
+        let mname = if method { f.split_once('_').map(|(_, m)| m.to_string()) } else { None };
+        // A method name shared by two classes: calls can't be told apart.
+        if let Some(m) = &mname {
+            if fns.iter().filter(|(g, qs)| g.ends_with(&format!("_{m}")) && qs.first().is_some_and(|q| q == "self_")).count() != 1 {
+                continue;
+            }
+        }
+        let Some(fi) = items.iter().position(|it| matches!(it, Item::Fn { name, .. } if name == f)) else { continue };
+        for (pi, p) in ps.iter().enumerate() {
+            if method && pi == 0 {
+                continue;
+            }
+            let Item::Fn { body, .. } = &items[fi] else { continue };
+            let d = format!("{body:?}");
+            if d.contains(&format!("Ident({p:?})")) || d.contains(&format!("Move({p:?})")) || !d.contains(&format!("Call({p:?},")) {
+                continue;
+            }
+            // Every call's argument there: `obj.meth`, the same meth each time.
+            let ai = if method { pi - 1 } else { pi };
+            let (mut calls, mut meth, mut ok) = (0, None::<String>, true);
+            let mut check = |e: &Expr| {
+                let args: Vec<&Expr> = match e {
+                    Expr::Call(c, a, _) if c == f => a.iter().map(|(_, x)| x).collect::<Vec<_>>().into_iter().skip(if method { 1 } else { 0 }).collect(),
+                    Expr::Method(_, m, a, _) if Some(m) == mname.as_ref() => a.iter().collect(),
+                    _ => return,
+                };
+                calls += 1;
+                match args.get(ai) {
+                    Some(Expr::Field(_, m)) if meth.as_ref().map_or(true, |x| x == m) => meth = Some(m.clone()),
+                    _ => ok = false,
+                }
+            };
+            for it in items.iter() {
+                if let Item::Fn { body, .. } = it {
+                    crate::infer::walk(body, &mut check);
+                }
+            }
+            crate::infer::walk(&Expr::Block(script.to_vec(), None), &mut check);
+            let (true, Some(meth)) = (ok && calls > 0, meth) else { continue };
+            let fix = |e: &mut Expr| {
+                let arg = match e {
+                    Expr::Call(c, a, _) if c == f => a.get_mut(ai + if method { 1 } else { 0 }).map(|x| &mut x.1),
+                    Expr::Method(_, m, a, _) if Some(&*m) == mname.as_ref() => a.get_mut(ai),
+                    _ => None,
+                };
+                if let Some(x) = arg {
+                    if let Expr::Field(r, _) = x {
+                        *x = (**r).clone();
+                    }
+                }
+            };
+            for it in items.iter_mut() {
+                if let Item::Fn { body, .. } = it {
+                    walk_mut(body, &mut |e| fix(e));
+                }
+            }
+            let mut sc = Expr::Block(script.to_vec(), None);
+            walk_mut(&mut sc, &mut |e| fix(e));
+            if let Expr::Block(st, _) = sc {
+                script.clone_from_slice(&st);
+            }
+            if let Item::Fn { body, .. } = &mut items[fi] {
+                walk_mut(body, &mut |e| {
+                    if let Expr::Call(c, a, line) = e {
+                        if c == p {
+                            *e = Expr::Method(Box::new(Expr::Ident(p.clone())), meth.clone(), a.iter().map(|(_, x)| x.clone()).collect(), *line);
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
 
 // A class given `sys.stdout` by every call (`Interp(funcs, sys.stdout)`) that keeps it in a field used only
 // as `self.out.write(s)` (and `flush()`): the field goes, and `self.out.write(s)` prints s as it is.

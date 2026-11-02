@@ -1,0 +1,28 @@
+class Stock:
+    def __init__(self):
+        self.lots = {}
+    def add(self, sku, qty):
+        self.lots.setdefault(sku, []).append([sku, qty])
+    def take(self, sku, qty):
+        got = 0
+        for lot in sorted(self.lots.get(sku, []), key=lambda l: l[1]):
+            t = min(lot[1], qty - got)
+            lot[1] -= t
+            got += t
+        return got
+class Orders:
+    def __init__(self):
+        self.back = [["o1", "egg", 5], ["o2", "milk", 2]]
+    def fill(self, sku, take):
+        msgs = []
+        for b in self.back:
+            if b[1] != sku:
+                continue
+            got = take(sku, b[2])
+            b[2] -= got
+            msgs.append("%s %d left" % (b[0], b[2]))
+        return msgs
+s = Stock()
+s.add("egg", 3)
+o = Orders()
+print(o.fill("egg", s.take), o.fill("milk", s.take), s.lots)

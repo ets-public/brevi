@@ -1441,6 +1441,15 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
             _ => return None,
         }
     }
+    // With `m.get(k, [])`, a missing k loops over nothing (the length is read with the default).
+    let got_len = got.as_ref().and_then(|_| match cur {
+        Expr::Method(r, m, args, l) if m == "get_or" => Some(Expr::Method(Box::new(Expr::Method(r.clone(), m.clone(), args.clone(), *l)), "len".into(), vec![], *l)),
+        Expr::Method(r, _, _, _) => match r.as_ref() {
+            Expr::Method(r2, m2, a2, l2) if m2 == "get_or" => Some(Expr::Method(Box::new(Expr::Method(r2.clone(), m2.clone(), a2.clone(), *l2)), "len".into(), vec![], *l2)),
+            _ => None,
+        },
+        _ => None,
+    });
     let base = got.unwrap_or_else(|| cur.clone());
     let Some(b) = root(&base).map(String::from) else { return None };
     // A plain `for b in self.backs` changes the items in place, unless the body also reads the list's
@@ -1455,7 +1464,7 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
     }
     let i = format!("ax_li{line}");
     let at = |ix: &str| Expr::Index(Box::new(base.clone()), Box::new(Expr::Ident(ix.to_string())));
-    let len = Expr::Method(Box::new(base.clone()), "len".into(), vec![], line);
+    let len = got_len.unwrap_or_else(|| Expr::Method(Box::new(base.clone()), "len".into(), vec![], line));
     if copy_only {
         // `for b in list(xs)` that may remove b itself: later items move down one place each time.
         let removes = {
