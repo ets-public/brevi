@@ -340,11 +340,11 @@ print(<span class="s">"total: "</span> + n)</pre>
               <tr><th>Model cost, 6 XL tasks</th><th class="n">CPython</th><th class="n">Brevi</th></tr>
             </thead>
             <tbody>
-              <tr><td>Claude Sonnet</td><td class="n">$0.182</td><td class="n">$0.189</td></tr>
-              <tr><td>Claude Haiku</td><td class="n">$0.023</td><td class="n">$0.030</td></tr>
+              <tr><td>Claude Sonnet</td><td class="n">$0.174</td><td class="n">$0.182</td></tr>
+              <tr><td>Claude Haiku</td><td class="n">$0.023</td><td class="n">$0.025</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over two runs on the same day. Brevi's cost is close to Python's; the difference is the attempts where Brevi refused Python it cannot build yet, which each release reduces. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
+          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over four runs (2 November 2026, every task passed). Brevi's cost is within 7% of Python's. When Brevi cannot build a program yet, <code>brevi run</code> runs it with CPython instead; 39 of the 48 final programs built natively, and each release raises that share. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
         </div>
       </div>
     </div>
@@ -362,7 +362,7 @@ print(<span class="s">"total: "</span> + n)</pre>
       <div class="sec-head">
         <span></span>
         <ul class="agent-list">
-          <li><h3>MCP server</h3><div><code>brevi mcp</code> serves <code>guide</code>, <code>check</code>, <code>run</code>, <code>test</code> and <code>patch</code> over stdio. Each tool takes the program as text, so the agent needs no files.</div></li>
+          <li><h3>MCP server</h3><div><code>brevi mcp</code> serves <code>check</code>, <code>run</code>, <code>test</code>, <code>patch</code>, <code>edit</code>, <code>show</code> and <code>guide</code> over stdio. The server keeps the program, so the agent sends it once and then only the lines that change.</div></li>
           <li><h3>Agent skill</h3><div>An Agent Skills package that tells the agent to write ordinary Python and build it with Brevi: <a href="/skill.md">skill.md</a>.</div></li>
           <li><h3>llms.txt</h3><div>Machine-readable entry points at <a href="/llms.txt">/llms.txt</a> and <a href="/llms-full.txt">/llms-full.txt</a>, with the guide as plain Markdown at <a href="/guide.md">/guide.md</a>.</div></li>
           <li><h3>Edit by name</h3><div><code>brevi patch f.bv p.bv</code> replaces each function, type or test by name, so a fix costs only the lines that changed.</div></li>
