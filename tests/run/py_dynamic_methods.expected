@@ -1,0 +1,5 @@
+: b 0830 True 08:30 ab 08:30 AB
+['08:30', 'Ab'] True True 6 True
+[5, 4, 1] [1, 4] 4
+x-y
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
