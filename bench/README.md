@@ -33,6 +33,8 @@ The test passes when, averaged over two runs, `pyb` costs no more dollars than `
 
 The test has not passed yet. When the model's first attempt builds, pyb costs the same as Python or less. The whole gap is retries after Brevi rejects valid Python. In e18 only 3 of 24 first attempts were rejected while CPython ran them, and every first attempt that built printed what CPython prints. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
+Writing Brevi against writing Python for Brevi (run `r1`, 2 Nov, main 54140e8, one run each, all 36 tasks passed): Sonnet $0.270 writing Brevi with the guide, $0.190 writing Python built by Brevi, $0.177 with CPython; Haiku $0.046, $0.028 and $0.025. Plain Python is the cheaper way to use Brevi, so the agent skill now asks for it.
+
 ## GUI programs (set `gui`, since 1 Nov 2026)
 
 Three tkinter apps from `ref/gen_gui.py`: `todo_app` (entry, list, checkbox, dialogs), `calc_app` (grid of buttons, key bindings, history) and `tictactoe_app` (canvas clicks, drawing, `after` countdown). The model writes an ordinary tkinter program. Tests drive it without a screen: `mainloop()` reads actions from stdin (`click Add`, `type 1 milk`, `tap 1 50 50`, `wait 1000`, ...) and `show` prints the window as text. Under CPython that is the stand-in in `tkshim/` (on `PYTHONPATH` for `--lang python`); built by Brevi it will be `runtime/brevi_tk` in headless mode. `tools/gui_shim_check.sh` checks the two print the same. Expected outputs come from the reference programs in `ref/gui/`.
