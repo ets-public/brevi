@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- `'%d: %s' % e` with the tuple in a name (or a field or item), as in Sonnet's h2 adventure world file.
 - `json.dumps(x)` in Python files, with `indent=`, `separators=`, `sort_keys=` and `ensure_ascii=`, writes what Python's json module writes. `d.get(k, default)` and `k in d` work on JSON read with `json.loads`, also with a key that is itself a JSON value. From the saved-solutions sweep (16 solutions stopped at `json.dumps`).
 - `tools/parity_probe.py` runs short plain-Python probes (`tools/parity/probes.py`) with CPython and with `brevi run` and lists each one where Brevi prints something else (silent wrong answers) or refuses what CPython runs. First run: 17 silent differences and 24 refusals in 71 probes (missing dict keys, negative `%`, `round`, None in printed lists, list aliasing, mutable default arguments).
 - Regex match positions: `m.start()`, `m.end(n)`, `m.span()`, and `re.finditer(p, s)` / `pat.finditer(s)`; a bracketed import over several lines (`from grade import (a, b,` then `c)`). From the e19 trial.

@@ -1351,8 +1351,11 @@ impl Parser {
                 if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
             } else if let (true, Expr::Str(parts)) = (op == "%", &lhs) {
                 // Python's `"%d of %s" % (a, b)` fills the string.
+                // A tuple held in a name (`'%d: %s' % e`) gives one value per `%` mark.
+                let marks = parts.iter().map(|p| if let StrPart::Lit(s) = p { s.replace("%%", "").matches('%').count() } else { 0 }).sum::<usize>();
                 let args = match rhs.clone() {
                     Expr::Tuple(xs) => xs,
+                    x @ (Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) if marks >= 2 && !parts.iter().any(|p| matches!(p, StrPart::Lit(s) if s.contains("%("))) => (0..marks).map(|i| Expr::TupleField(Box::new(x.clone()), i)).collect(),
                     x => vec![x],
                 };
                 match fill_format(parts, args, true, self.line()) {
