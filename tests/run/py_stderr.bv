@@ -1,0 +1,9 @@
+import sys
+def warn(msg, code):
+    print("warning:", msg, code, file=sys.stderr)
+print("start")
+warn("low stock", 3)
+sys.stderr.write("raw\n")
+sys.stdout.write("out ")
+print("end", file=sys.stdout)
+print("a", "b", sep="-", end="!\n", file=sys.stderr)
