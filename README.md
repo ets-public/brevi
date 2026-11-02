@@ -27,7 +27,7 @@ The guide a model reads before writing Brevi is [BREVI.md](BREVI.md), 3,508 toke
 
 ## Status: v0.19
 
-**Release test:** models write plain Python and Brevi builds it (`bench/e2e.py --lang pyb`). The test passes when that costs no more than running the same models' Python with CPython, for Sonnet and Haiku. On 1 Nov 2026 it stood at 1.16x for Sonnet and 0.94x for Haiku ([bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026)). Of 580 saved Python solutions from earlier runs, 331 build with Brevi and give the right output unchanged (`bench/py_as_brevi.py --full --run`). The older notes below use the earlier token-count gate.
+**Release test:** models write plain Python and Brevi builds it (`bench/e2e.py --lang pyb`). The test passes when that costs no more than running the same models' Python with CPython, for Sonnet and Haiku. On 1 Nov 2026 it stood at 1.16x for Sonnet and 0.94x for Haiku ([bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026)). `brevi run x.py` always runs plain Python: when Brevi cannot build a file yet, it runs it with python3 and prints a one-line note saying which line stopped it (`--native` refuses instead). Of 580 saved Python solutions from earlier runs, 331 build with Brevi and give the right output unchanged (`bench/py_as_brevi.py --full --run`). The older notes below use the earlier token-count gate.
 
 Works today:
 - Parser for the full core syntax in BREVI.md
