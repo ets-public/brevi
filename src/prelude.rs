@@ -379,7 +379,8 @@ impl Show for &str {
 }
 impl Show for () {
     fn show(&self) -> String {
-        "()".into()
+        // A Python function that gives no value gives None.
+        if ax_py_on() { "None".into() } else { "()".into() }
     }
 }
 pub trait AxPyRepr {
@@ -588,6 +589,11 @@ impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static,
 pub trait AxTupleItems<T> {
     fn ax_tuple_items(&self) -> Vec<T>;
 }
+impl AxTupleItems<Json> for Json {
+    fn ax_tuple_items(&self) -> Vec<Json> {
+        self.ax_list()
+    }
+}
 impl<T: Clone> AxTupleItems<T> for (T, T) {
     fn ax_tuple_items(&self) -> Vec<T> {
         vec![self.0.clone(), self.1.clone()]
@@ -679,7 +685,7 @@ impl AxTruth for Json {
             Json::Bool { v } => *v,
             Json::Num { v } => *v != 0.0,
             Json::Str { v } => !v.is_empty(),
-            Json::Arr { v } => !v.is_empty(),
+            Json::Arr { v } | Json::Tup { v } => !v.is_empty(),
             Json::Obj { v } => !v.m.is_empty(),
         }
     }
@@ -1461,7 +1467,7 @@ impl AxRef<String, Json> for Json {
 impl AxRef<i64, Json> for Json {
     fn ax_ref(&self, i: &i64) -> &Json {
         match self {
-            Json::Arr { v } => {
+            Json::Arr { v } | Json::Tup { v } => {
                 let j = if *i < 0 { v.len() as i64 + *i } else { *i };
                 v.get(j.max(0) as usize).unwrap_or(&AX_NULL)
             }
@@ -1541,6 +1547,8 @@ pub enum Json {
     Num { v: f64 },
     Str { v: String },
     Arr { v: Vec<Json> },
+    // A Python tuple whose length differs by path (`("room", n, d)` or `("capacity", 9)`).
+    Tup { v: Vec<Json> },
     Obj { v: AxM<String, Json> },
 }
 // Json values can be map keys and set items (`qmap[q["id"]] = q` with q a mixed-type record).
@@ -1559,7 +1567,7 @@ impl Hash for Json {
                 }
             }
             Json::Str { v } => v.hash(h),
-            Json::Arr { v } => v.hash(h),
+            Json::Arr { v } | Json::Tup { v } => v.hash(h),
             // Equal objects may hold their keys in a different order, so only the size is hashed.
             Json::Obj { v } => v.m.len().hash(h),
         }
@@ -1572,7 +1580,7 @@ impl Ord for Json {
             Json::Bool { .. } => 1,
             Json::Num { .. } => 2,
             Json::Str { .. } => 3,
-            Json::Arr { .. } => 4,
+            Json::Arr { .. } => 4, Json::Tup { .. } => 6,
             Json::Obj { .. } => 5,
         };
         self.partial_cmp(o).unwrap_or_else(|| rank(self).cmp(&rank(o)).then_with(|| self.show().cmp(&o.show())))
@@ -1709,7 +1717,7 @@ impl AxIn<Json> for Vec<String> {
 impl AxIn<String> for Json {
     fn ax_in(&self, x: &String) -> bool {
         match self {
-            Json::Arr { v } => v.iter().any(|y| y == x),
+            Json::Arr { v } | Json::Tup { v } => v.iter().any(|y| y == x),
             Json::Obj { v } => v.contains_key(x),
             Json::Str { v } => v.contains(x.as_str()),
             _ => false,
@@ -1744,7 +1752,7 @@ impl PartialOrd<Json> for Dec {
 
 pub fn ax_json_strs(j: Json) -> Vec<String> {
     match j {
-        Json::Arr { v } => v.iter().map(|x| x.ax_text()).collect(),
+        Json::Arr { v } | Json::Tup { v } => v.iter().map(|x| x.ax_text()).collect(),
         Json::Str { v } => v.chars().map(|c| c.to_string()).collect(),
         Json::Obj { v } => v.keys().cloned().collect(),
         _ => vec![],
@@ -1752,7 +1760,7 @@ pub fn ax_json_strs(j: Json) -> Vec<String> {
 }
 pub fn ax_json_ints(j: Json) -> Vec<i64> {
     match j {
-        Json::Arr { v } => v.iter().map(|x| x.ax_int()).collect(),
+        Json::Arr { v } | Json::Tup { v } => v.iter().map(|x| x.ax_int()).collect(),
         _ => vec![],
     }
 }
@@ -1801,6 +1809,8 @@ fn ax_json_py(j: &Json, top: bool) -> String {
         Json::Num { v } => ax_py_float(*v),
         Json::Str { v } if top => v.clone(),
         Json::Str { v } => ax_py_repr(v),
+        Json::Tup { v } if v.len() == 1 => format!("({},)", ax_json_py(&v[0], false)),
+        Json::Tup { v } => format!("({})", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
         Json::Arr { v } => format!("[{}]", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
         Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{}: {}", ax_py_repr(k), ax_json_py(x, false))).collect::<Vec<_>>().join(", ")),
     }
@@ -1815,7 +1825,7 @@ impl Show for Json {
             Json::Bool { v } => v.to_string(),
             Json::Num { v } => v.to_string(),
             Json::Str { v } => format!("{v:?}"),
-            Json::Arr { v } => format!("[{}]", v.iter().map(|x| x.show()).collect::<Vec<_>>().join(",")),
+            Json::Arr { v } | Json::Tup { v } => format!("[{}]", v.iter().map(|x| x.show()).collect::<Vec<_>>().join(",")),
             Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{k:?}:{}", x.show())).collect::<Vec<_>>().join(",")),
         }
     }
@@ -1967,7 +1977,7 @@ impl AxIndex<String, Json> for Json {
 impl AxIndex<i64, Json> for Json {
     fn ax_at(&self, i: i64) -> Json {
         match self {
-            Json::Arr { v } => {
+            Json::Arr { v } | Json::Tup { v } => {
                 let j = if i < 0 { v.len() as i64 + i } else { i };
                 v.get(j.max(0) as usize).cloned().unwrap_or(Json::Null)
             }
@@ -2046,16 +2056,22 @@ impl Json {
     pub fn ax_is_null(&self) -> bool {
         matches!(self, Json::Null)
     }
+    // `sorted(q['answer'])` on a JSON list (or set) value.
+    pub fn ax_sort(&self) -> Vec<Json> {
+        let mut v = self.ax_list();
+        v.sort();
+        v
+    }
     pub fn ax_list(&self) -> Vec<Json> {
         match self {
-            Json::Arr { v } => v.clone(),
+            Json::Arr { v } | Json::Tup { v } => v.clone(),
             _ => vec![],
         }
     }
     pub fn ax_len(&self) -> i64 {
         match self {
             Json::Str { v } => v.chars().count() as i64,
-            Json::Arr { v } => v.len() as i64,
+            Json::Arr { v } | Json::Tup { v } => v.len() as i64,
             Json::Obj { v } => v.m.len() as i64,
             _ => 0,
         }
@@ -2085,7 +2101,7 @@ impl Json {
     pub fn ax_values(&self) -> Vec<Json> {
         match self {
             Json::Obj { v } => v.iter().map(|(_, x)| x.clone()).collect(),
-            Json::Arr { v } => v.clone(),
+            Json::Arr { v } | Json::Tup { v } => v.clone(),
             _ => vec![],
         }
     }
@@ -3555,6 +3571,30 @@ impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson> AxToJson for (A, B, C, 
         Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json()] }
     }
 }
+impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson, E: AxToJson> AxToJson for (A, B, C, D, E) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json(), self.4.ax_json()] }
+    }
+}
+impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson, E: AxToJson, F: AxToJson> AxToJson for (A, B, C, D, E, F) {
+    fn ax_json(&self) -> Json {
+        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json(), self.4.ax_json(), self.5.ax_json()] }
+    }
+}
+// `total += c[3]` with c a JSON tuple: only a whole number keeps total an int, as in Python.
+pub fn ax_jint(o: Json) -> i64 {
+    match o {
+        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
+        o => panic!("cannot add {} to an int here", ax_json_py(&o, false)),
+    }
+}
+// A tuple returned with other lengths on other paths: a JSON tuple, printed as Python prints it.
+pub fn ax_tup_json<T: AxToJson>(x: T) -> Json {
+    match x.ax_json() {
+        Json::Arr { v } => Json::Tup { v },
+        j => j,
+    }
+}
 impl<T: AxToJson> AxToJson for Vec<T> {
     fn ax_json(&self) -> Json {
         Json::Arr { v: self.iter().map(|x| x.ax_json()).collect() }
@@ -3622,8 +3662,8 @@ fn ax_dump(j: &Json, item: &str, key: &str, indent: i64, sort: bool, ascii: bool
         Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e16 => out.push_str(&format!("{}", *v as i64)),
         Json::Num { v } => out.push_str(&ax_py_float(*v)),
         Json::Str { v } => ax_dump_str(v, ascii, out),
-        Json::Arr { v } if v.is_empty() => out.push_str("[]"),
-        Json::Arr { v } => {
+        Json::Arr { v } | Json::Tup { v } if v.is_empty() => out.push_str("[]"),
+        Json::Arr { v } | Json::Tup { v } => {
             out.push('[');
             for (i, x) in v.iter().enumerate() {
                 if i > 0 {
@@ -4096,7 +4136,7 @@ impl AxIsInstance for Json {
             Json::Bool { .. } => "bool",
             Json::Num { v } => if v.fract() == 0.0 && v.abs() < 1e15 { "int" } else { "float" },
             Json::Str { .. } => "str",
-            Json::Arr { .. } => "list",
+            Json::Arr { .. } => "list", Json::Tup { .. } => "tuple",
             Json::Obj { .. } => "dict",
         }
     }

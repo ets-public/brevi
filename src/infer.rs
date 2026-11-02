@@ -262,7 +262,18 @@ pub fn empty_types(items: &[Item]) -> (HashMap<(String, usize), (String, bool)>,
 
 // Top-level names with the types functions see them with (`R = {c: i for i, c in enumerate(s)}`).
 pub fn global_types(items: &[Item]) -> HashMap<String, Ty> {
-    empty_cx(items).genv.iter().filter_map(|(n, t)| Some((n.clone(), to_ast(t)?))).collect()
+    // Python: a tuple slot only ever given None (`players.append((name, sc, None))`) holds JSON (None).
+    empty_cx(items).genv.iter().filter_map(|(n, t)| Some((n.clone(), to_ast(t).or_else(|| if py_on() && some_known(t) { to_ast(&none_slots(t)) } else { None })?))).collect()
+}
+
+// Hole slots of tuples (inside lists, maps and tuples) as JSON.
+fn none_slots(t: &T) -> T {
+    match t {
+        Tuple(xs) => Tuple(xs.iter().map(|x| if *x == Hole { Json } else { none_slots(x) }).collect()),
+        List(e) => List(Box::new(none_slots(e))),
+        Map(k, v) => Map(k.clone(), Box::new(none_slots(v))),
+        t => t.clone(),
+    }
 }
 
 fn empty_cx(items: &[Item]) -> Cx<'_> {
@@ -537,7 +548,8 @@ impl Cx<'_> {
                             let kt = self.ty(k, env);
                             // `key in memo` (read as a list of keys) and then `memo[key] = v` with a key that is
                             // the same type: memo is a dict (a list indexed by its own items would be odd).
-                            if py_on() && matches!(&*acc, List(e) if **e == kt) && known(&kt) {
+                            // (Not for int keys on a list made by `+= [0] * n` or the like: `counters[d - 1] += 1`.)
+                            if py_on() && matches!(&*acc, List(e) if **e == kt) && known(&kt) && !(kt == Int && *op != "=") {
                                 *acc = Map(Box::new(kt), Box::new(vt));
                                 continue;
                             }
@@ -575,6 +587,7 @@ impl Cx<'_> {
                                 self.look_expr(m, tl, &mut later, &mut mt);
                             }
                             env.insert(m.clone(), mt);
+                            keep_empties(&stmts[i + 1..], n, &later, env);
                         }
                         // `lq = m[k]` then `lq.push(x)`: what the copy is filled with is the entry's type.
                         (Expr::Ident(m), "=") if !env.contains_key(m) && m != n && matches!(value, Expr::Index(b, _) if matches!(b.as_ref(), Expr::Ident(x) if x == n)) => {
@@ -594,6 +607,7 @@ impl Cx<'_> {
                                 *acc = merge(acc.clone(), self.slot(acc, kt, mt.clone()));
                             }
                             env.insert(m.clone(), mt);
+                            keep_empties(&stmts[i + 1..], n, &later, env);
                         }
                         (Expr::Ident(m), "=") if !env.contains_key(m) => {
                             env.insert(m.clone(), vt);
@@ -929,7 +943,8 @@ impl Cx<'_> {
                     "abs" => a0(),
                     "min" | "max" => args.iter().fold(Hole, |t, (_, a)| merge(t, self.ty(a, env))),
                     "heap" => Heap(Box::new(Hole)),
-                    "ax_to_json" => Json,
+                    "ax_to_json" | "ax_tup_json" => Json,
+                    "ax_jint" => Int,
                     "ax_json_dec" => Dec,
                     "ax_subset" => Bool,
                     "ax_json_strs" => List(Box::new(Str)),
@@ -1309,6 +1324,35 @@ fn json_returns(body: &mut Expr, slots: &[Vec<usize>]) {
     }
 }
 
+// `return (a, b)` in a function whose tuples differ in length: `return ax_tup_json((a, b))`.
+fn tup_returns(body: &mut Expr) {
+    let wrap = |v: &mut Expr| {
+        if matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty()) {
+            *v = Expr::Ident("Null".into());
+        } else if let Expr::Tuple(xs) = v {
+            for x in xs.iter_mut() {
+                if matches!(x, Expr::Call(f, a, _) if f == "none" && a.is_empty()) {
+                    *x = Expr::Ident("Null".into());
+                }
+            }
+            let inner = std::mem::replace(v, Expr::Int(0));
+            *v = Expr::Call("ax_tup_json".into(), vec![(None, inner)], 0);
+        }
+    };
+    crate::parser::walk_mut(body, &mut |e| {
+        if let Expr::Block(stmts, _) = e {
+            for st in stmts.iter_mut() {
+                if let Stmt::Return { value: Some(v), .. } = st {
+                    wrap(v);
+                }
+            }
+        }
+    });
+    if let Expr::Block(_, Some(t)) = body {
+        wrap(t);
+    }
+}
+
 fn to_ast(t: &T) -> Option<Ty> {
     let n = |s: &str| Some(Ty::Named(s.into()));
     match t {
@@ -1352,10 +1396,71 @@ fn stmt_branch(e: &Expr) -> bool {
     }
 }
 
+// `return None` in a function that gives no value: a bare `return`.
+fn bare_returns(body: &mut Expr) {
+    let none = |v: &Expr| matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty());
+    crate::parser::walk_mut(body, &mut |e| {
+        if let Expr::Block(ss, _) = e {
+            for st in ss.iter_mut() {
+                if let Stmt::Return { value, .. } = st {
+                    if value.as_ref().is_some_and(|v| none(v)) {
+                        *value = None;
+                    }
+                }
+            }
+        }
+    });
+    if let Expr::Block(_, t) = body {
+        if t.as_ref().is_some_and(|v| none(v)) {
+            *t = None;
+        }
+    }
+}
+
+// A Python stub (`def f(x): return None`): every return gives None, so the function gives no value.
+fn only_none(body: &Expr) -> bool {
+    let none = |v: &Expr| matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty());
+    let (mut nones, mut others) = (0, 0);
+    let mut b = body.clone();
+    crate::parser::walk_mut(&mut b, &mut |e| {
+        if let Expr::Block(ss, _) = e {
+            for st in ss.iter() {
+                if let Stmt::Return { value: Some(v), .. } = st {
+                    if none(v) { nones += 1 } else { others += 1 }
+                }
+            }
+        }
+    });
+    match body {
+        Expr::Block(_, Some(t)) if !no_value(t) => {
+            if none(t) { nones += 1 } else { others += 1 }
+        }
+        _ => {}
+    }
+    nones > 0 && others == 0
+}
+
+// After looking ahead for one empty value (`a = []`), the later empty values (`b = {}`) it met on the way
+// were typed by their own look-ahead: keep those types so they are not worked out again (each would
+// otherwise be looked at twice per earlier empty value, which doubles with every one).
+fn keep_empties(stmts: &[Stmt], n: &str, later: &Env, env: &mut Env) {
+    for st in stmts {
+        if let Stmt::Assign { target: Expr::Ident(p), op: "=", value, .. } = st {
+            if p != n && empty_kind(value).is_some() && !env.contains_key(p) {
+                if let Some(t) = later.get(p) {
+                    env.insert(p.clone(), t.clone());
+                }
+            }
+        }
+    }
+}
+
 fn no_value(e: &Expr) -> bool {
     match e {
         Expr::For(..) | Expr::While(..) => true,
         Expr::If(_, _, None) => true,
+        // Python's `pass` (an empty block).
+        Expr::Block(st, None) => st.is_empty(),
         // `if store.has(k): store.remove(k) else: print("NOT FOUND")`: a branch that only prints or
         // changes a collection makes the whole if a statement (a branch ending in fail still has a value).
         Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
@@ -1999,6 +2104,73 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     }
                 });
             }
+            // `state = {'deb': 0, ...}` then `state['deb'] += amount` with a Decimal amount: the field is a dec
+            // (Python's int + Decimal is a Decimal).
+            if py_on() {
+                let mut promote: Vec<(String, String)> = vec![];
+                for it in items.iter() {
+                    let Item::Fn { params, body, .. } = it else { continue };
+                    let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                    cx.flat_env(body, &mut env);
+                    walk(body, &mut |e| {
+                        if let Expr::Block(stmts, _) = e {
+                            for st in stmts {
+                                let Stmt::Assign { target: Expr::Field(r, f), op: "+=" | "-=", value, .. } = st else { continue };
+                                if let Named(c) = cx.ty(r, &env) {
+                                    if cx.ty(value, &env) == Dec && cx.ty(&Expr::Field(r.clone(), f.clone()), &env) == Int {
+                                        promote.push((c, f.clone()));
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                for it in items.iter_mut() {
+                    if let Item::Type { name, fields, .. } = it {
+                        for f in fields.iter_mut() {
+                            if promote.contains(&(name.clone(), f.name.clone())) && from_ast(&f.ty) == Int {
+                                f.ty = Ty::Named("dec".into());
+                                fields_moved = true;
+                            }
+                        }
+                    }
+                }
+                // The record's `0` for such a field is `Decimal(0)`.
+                let decs: Vec<(String, String)> = items
+                    .iter()
+                    .filter_map(|it| if let Item::Type { name, fields, .. } = it { Some((name, fields)) } else { None })
+                    .flat_map(|(n, fs)| fs.iter().filter(|f| from_ast(&f.ty) == Dec).map(move |f| (n.clone(), f.name.clone())))
+                    .collect();
+                for it in items.iter_mut() {
+                    let Item::Fn { name: fname, params, body, .. } = it else { continue };
+                    if let Some(c) = fname.strip_suffix("_new") {
+                        let c = c.to_string();
+                        let ints: Vec<String> = params.iter().filter(|p| from_ast(&p.ty) == Int).map(|p| p.name.clone()).collect();
+                        crate::parser::walk_mut(body, &mut |e| {
+                            if let Expr::Block(ss, _) = e {
+                                for st in ss.iter_mut() {
+                                    if let Stmt::Assign { target: Expr::Field(_, f), op: "=", value, .. } = st {
+                                        if decs.contains(&(c.clone(), f.clone())) && matches!(value, Expr::Ident(x) | Expr::Move(x) if ints.contains(x)) {
+                                            let x = std::mem::replace(value, Expr::Int(0));
+                                            *value = Expr::Method(Box::new(x), "dec".into(), vec![], 0);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    crate::parser::walk_mut(body, &mut |e| {
+                        if let Expr::Call(c, args, _) = e {
+                            for (an, a) in args.iter_mut() {
+                                if an.as_ref().is_some_and(|an| promote.contains(&(c.clone(), an.clone()))) && matches!(a, Expr::Int(_)) {
+                                    let x = std::mem::replace(a, Expr::Int(0));
+                                    *a = Expr::Method(Box::new(x), "dec".into(), vec![], 0);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
             for (k, kt, vt) in idx_ev {
                 let t = match ev.get(&k) {
                     Some(List(_)) => List(Box::new(vt)),
@@ -2048,6 +2220,8 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
         }
         let mut found = Vec::new();
         let mut to_json: Vec<(usize, Vec<Vec<usize>>)> = Vec::new();
+        let mut to_tup: Vec<usize> = Vec::new();
+        let mut to_bare: Vec<usize> = Vec::new();
         for (k, it) in items.iter().enumerate() {
             let Item::Fn { name, params, ret, body, line, .. } = it else { continue };
             if !has_q(ret) {
@@ -2074,7 +2248,11 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
             // A bare `return` means the function gives no value; so does ending on a print
             // (`return 0` on the early paths is then only a way out, as in Python).
-            let bare = ts.contains(&Unit) || tail.map_or(false, ends_in_print);
+            let stub = only_none(body);
+            if stub {
+                to_bare.push(k);
+            }
+            let bare = ts.contains(&Unit) || tail.map_or(false, ends_in_print) || stub;
             let ts: Vec<T> = ts.into_iter().filter(|t| *t != Unit).collect();
             if ts.is_empty() || bare {
                 found.push((k, Ty::Unit));
@@ -2096,7 +2274,19 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     to_json.push((k, slots));
                 }
             }
-            let t = if json { Json } else { ts.into_iter().fold(Hole, merge) };
+            // Tuples of different lengths (`('room', n, d)`, `('capacity', 9)`, or None): JSON tuples, when every
+            // slot is a plain int, str, bool or None (a float would print as an int, so those are left to fail).
+            let tup = py_on() && !json && {
+                let tuples: Vec<&Vec<T>> = ts.iter().filter_map(|t| if let Tuple(xs) = t { Some(xs) } else { None }).collect();
+                tuples.len() >= 2
+                    && tuples.iter().any(|x| x.len() != tuples[0].len())
+                    && ts.iter().all(|t| matches!(t, Tuple(_) | Hole))
+                    && tuples.iter().all(|x| x.iter().all(|e| matches!(e, Int | Str | Bool | Hole)))
+            };
+            if tup {
+                to_tup.push(k);
+            }
+            let t = if json || tup { Json } else { ts.into_iter().fold(Hole, merge) };
             match to_ast(&t) {
                 Some(t) => found.push((k, t)),
                 // No `return` and a last line of unclear type (`if c: print(x) else: m.remove(k)`): no value, as in Python.
@@ -2123,6 +2313,16 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
         }
         moving = !found.is_empty() || fields_moved;
+        for k in to_bare {
+            if let Item::Fn { body, .. } = &mut items[k] {
+                bare_returns(body);
+            }
+        }
+        for k in to_tup {
+            if let Item::Fn { body, .. } = &mut items[k] {
+                tup_returns(body);
+            }
+        }
         for (k, slots) in to_json {
             if let Item::Fn { body, .. } = &mut items[k] {
                 json_returns(body, &slots);
@@ -2323,6 +2523,11 @@ impl Ck<'_, '_> {
                             }
                         }
                     }
+                    // `total += c[3]` with c a JSON tuple: a whole number keeps total an int (anything else stops the run).
+                    if self.py && matches!(*op, "+=" | "-=") && self.cx.ty(value, env) == Json && self.cx.ty(target, env) == Int {
+                        let v = std::mem::replace(value, Expr::Int(0));
+                        *value = Expr::Call("ax_jint".into(), vec![(None, v)], *line);
+                    }
                     if !matches!(target, Expr::Ident(_)) {
                         self.expr(target, env);
                     }
@@ -2515,6 +2720,21 @@ impl Ck<'_, '_> {
         }
         // t[0] on a tuple is t.0, and xs.0 on a list is xs[0].
         let fix = match &*e {
+            // `(p[1], p[3]) + tuple(p[5:])`: a tuple of like items joined with a list is a JSON tuple.
+            Expr::Binary("+", l, r) if self.py => {
+                let (lt, rt) = (self.cx.ty(l, env), self.cx.ty(r, env));
+                let like = |t: &T| matches!(t, Int | Str | Bool);
+                match (&lt, &rt) {
+                    (Tuple(ts), List(x)) if !ts.is_empty() && like(x) && ts.iter().all(|t| t == x.as_ref()) => {
+                        let items: Vec<Expr> = match l.as_ref() {
+                            Expr::Tuple(xs) => xs.clone(),
+                            _ => (0..ts.len()).map(|i| Expr::TupleField(l.clone(), i)).collect(),
+                        };
+                        Some(Expr::Call("ax_tup_json".into(), vec![(None, Expr::Binary("+", Box::new(Expr::List(items)), r.clone()))], self.line))
+                    }
+                    _ => None,
+                }
+            }
             Expr::List(xs) if mixed_record(xs, &|x| self.cx.ty(x, env)) => Some(Expr::Call("ax_row".into(), vec![(None, Expr::Tuple(xs.clone()))], 0)),
             Expr::Index(b, i) => match (self.cx.ty(b, env), i.as_ref()) {
                 (Tuple(_), Expr::Int(k)) if *k >= 0 => Some(Expr::TupleField(b.clone(), *k as usize)),

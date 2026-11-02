@@ -1,0 +1,5 @@
+[(1, '1', 'a'), (2, '1.1', 'b'), (2, '1.2', 'a'), (1, '2', 'c')]
+al 5 None
+bo 3 None
+[]
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

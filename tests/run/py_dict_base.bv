@@ -1,0 +1,33 @@
+from decimal import Decimal
+def parse(tokens, ids):
+    qid, typ = tokens[0], tokens[1]
+    if qid in ids:
+        return None
+    base = {'id': qid, 'points': 2}
+    if typ == 'choice':
+        return dict(base, type='choice', answer=tokens[2])
+    if typ == 'multi':
+        return dict(base, type='multi', answer=frozenset(tokens[2]))
+    if typ == 'number':
+        return dict(base, type='number', value=Decimal(tokens[2]), tol=Decimal('0.5'))
+    return None
+
+def main():
+    ids = set()
+    qs = []
+    for line in ["Q1 choice B", "Q2 multi AC", "Q1 choice C", "Q3 number 2.5"]:
+        q = parse(line.split(), ids)
+        if q is None:
+            print("dup")
+        else:
+            qs.append(q)
+            ids.add(q['id'])
+    for q in qs:
+        if q['type'] == 'choice':
+            print(q['id'], q['answer'] == 'B')
+        elif q['type'] == 'multi':
+            print(q['id'], sorted(q['answer']))
+        else:
+            print(q['id'], q['value'] + q['tol'])
+    print(sorted(ids))
+main()

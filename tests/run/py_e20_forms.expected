@@ -1,0 +1,4 @@
+None
+{'id': 'q1', 'points': 2, 'type': 'choice', 'letter': 'B'} {'id': 'q1', 'points': 2, 'type': 'text', 'letter': 'q'}
+2 2.50 1.25 1.25
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

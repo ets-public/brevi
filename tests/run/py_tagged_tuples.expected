@@ -1,0 +1,14 @@
+room hall = Big Hall
+exit hall north -> attic key None
+item key in hall weight 3 old key
+bad: bogus
+12
+('a', 1) 2 a
+1
+('b', 2, True, None) 4 b
+None
+('c', 0) 2 c
+0
+[('a', 1), ('b', 2, True, None)]
+True False
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
