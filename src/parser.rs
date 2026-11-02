@@ -2484,6 +2484,9 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
     Some(match (name, args.len()) {
         ("set" | "list" | "deque" | "frozenset", 0) => Expr::List(vec![]),
         ("frozenset", 1) => m(args.remove(0).1, "unique", vec![]),
+        // repr(x) is the text Python shows for x inside a list; iter(xs) is xs (next() takes its first item).
+        ("repr", 1) => m(args.remove(0).1, "py_repr", vec![]),
+        ("iter", 1) => args.remove(0).1,
         ("Decimal", 1) => m(args.remove(0).1, "dec", vec![]),
         // next(rows) takes the first item, as reading one from an iterator does.
         ("next", 1) => match args.remove(0).1 {

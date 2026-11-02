@@ -1,0 +1,10 @@
+import sys
+
+def show(xs):
+    print("x", len(xs))
+    sys.stdout.write("w\n")
+    print(repr("a'b"), repr(3), repr([1, 2]))
+    s = {"q"}
+    print(next(iter(s)), next(iter([4, 5])))
+
+show([1])
