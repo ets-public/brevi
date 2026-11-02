@@ -98,7 +98,8 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
                     let by_method = class_names.iter().filter(|c| name.starts_with(c.as_str())).any(|c| {
                         let m = &name[c.len()..];
                         let made = text.contains(&format!("Call(\"{c}new\"")) || !fn_names.contains(&format!("{c}new"));
-                        made && m != "new" && text.contains(&format!("{m:?}, ["))
+                        // A tkinter callback names the method without calling it: `command=self.on_click`.
+                        made && m != "new" && (text.contains(&format!("{m:?}, [")) || (crate::gui::active() && text.contains(&format!("Field(Ident(\"self_\"), {m:?})"))))
                     });
                     // `__str__` / `__repr__` are how the class prints.
                     let shows = name.ends_with("___str__") || name.ends_with("___repr__");

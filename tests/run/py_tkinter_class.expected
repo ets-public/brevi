@@ -1,0 +1,30 @@
+window "Counter"
+  Label "0"
+  Canvas 100x100
+  Button "+1"
+  Button "Reset"
+  Button "Auto"
+window "Counter"
+  Label "12"
+  Canvas 100x100
+    rectangle 10 20 14 24 fill=blue
+  Button "+1"
+  Button "Reset"
+  Button "Auto"
+window "Counter"
+  Label "15"
+  Canvas 100x100
+    rectangle 10 20 14 24 fill=blue
+  Button "+1"
+  Button "Reset"
+  Button "Auto"
+[askyesno] Counter: Reset 15?
+[askyesno] Counter: Reset 15?
+window "Counter"
+  Label "0"
+  Canvas 100x100
+    rectangle 10 20 14 24 fill=blue
+  Button "+1"
+  Button "Reset"
+  Button "Auto"
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
