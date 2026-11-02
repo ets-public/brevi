@@ -312,6 +312,18 @@ fn ax_py_float(x: f64) -> String {
     }
     format!("{x:?}")
 }
+// Reading a field of a Python object that is None.
+#[cold]
+pub fn ax_none_attr() -> ! {
+    panic!("'NoneType' object has no attribute")
+}
+// A new object for a class constructor to fill in.
+pub trait AxFresh {
+    fn ax_fresh() -> Self;
+}
+pub trait AxIsNoneHandle {
+    fn ax_null(&self) -> bool;
+}
 pub trait Show {
     fn show(&self) -> String;
 }

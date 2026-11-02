@@ -1,0 +1,51 @@
+# Python objects are shared: every name, list slot, dict value and field that holds an object sees the
+# same object, so a change through one is seen through all of them.
+class Lot:
+    def __init__(self, sku, qty):
+        self.sku = sku
+        self.qty = qty
+
+
+class Stock:
+    def __init__(self):
+        self.lots = []
+        self.by_sku = {}
+        self.last = None
+
+    def add(self, sku, q):
+        lot = Lot(sku, q)
+        self.lots.append(lot)
+        self.by_sku.setdefault(sku, []).append(lot)
+        self.last = lot
+
+    def for_sku(self, sku):
+        return [l for l in self.lots if l.sku == sku]
+
+
+def drain(lot, n):
+    lot.qty -= n
+
+
+def main():
+    st = Stock()
+    st.add("a", 3)
+    st.add("b", 2)
+    st.add("a", 5)
+    for l in st.for_sku("a"):
+        l.qty -= 1
+    first = st.lots[0]
+    alias = first
+    alias.qty += 10
+    drain(st.last, 2)
+    st.by_sku["b"][0].qty = 7
+    print([(l.sku, l.qty) for l in st.lots])
+    print([l.qty for l in st.by_sku["a"]], st.last.qty)
+    best = None
+    for l in st.lots:
+        if best is None or l.qty > best.qty:
+            best = l
+    best.qty = 0
+    print(best.sku, st.lots[0].qty, best is None)
+
+
+main()

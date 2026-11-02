@@ -82,6 +82,8 @@ pub struct Emitter {
     // Fields that hold their own type (directly or in a cycle) are boxed: (owner type, field), and the field names.
     boxed: HashSet<(String, String)>,
     boxed_names: HashSet<String>,
+    // Field names only Python objects (shared handles) have: read and written through the handle's data.
+    shared_fields: HashSet<String>,
     // Keys of map literals that are Json objects (values of different types).
     mixed: HashSet<String>,
     // Names bound to boxed fields in the pattern being emitted, unboxed at the start of the arm.
@@ -672,6 +674,7 @@ impl Emitter {
                 .collect(),
             boxed: HashSet::new(),
             boxed_names: HashSet::new(),
+            shared_fields: HashSet::new(),
             unbox: Vec::new(),
             hints: HashMap::new(),
             mixed: HashSet::new(),
@@ -706,6 +709,9 @@ impl Emitter {
                 Item::Test { .. } => {}
             }
         }
+        e.shared_fields = e.structs.iter().filter(|(n, _)| e.marked.contains(*n)).flat_map(|(_, fs)| fs.iter().map(|f| f.name.clone())).collect();
+        let plain_fields: HashSet<String> = e.structs.iter().filter(|(n, _)| !e.marked.contains(*n)).flat_map(|(_, fs)| fs.iter().map(|f| f.name.clone())).collect();
+        e.shared_fields.retain(|f| !plain_fields.contains(f));
         let (h, mixed) = crate::infer::empty_types(items);
         e.mixed = mixed;
         if hints {
@@ -1031,14 +1037,27 @@ impl Emitter {
         for it in items {
             match it {
                 Item::Type { name, fields, line } => {
-                    out.push_str(&format!("/*@L{line}*/#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]\npub struct {name} {{\n"));
+                    // A Python object is shared, as in Python: the value is a handle to data that lives for the
+                    // whole run, so copies of it (in lists, fields, other names) all see the same object.
+                    let marked = self.marked.contains(name);
+                    let data = if marked { format!("{name}_D") } else { name.clone() };
+                    out.push_str(&format!("/*@L{line}*/#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]\npub struct {data} {{\n"));
                     for f in fields {
                         out.push_str(&format!("    pub {}: {},\n", f.name, self.field_ty(name, f)));
                     }
-                    // A Python object that is None is told apart from a real one with all-zero fields.
-                    let marked = self.marked.contains(name);
                     if marked {
-                        out.push_str("    pub ax_none_: bool,\n");
+                        out.push_str(&format!("}}\n#[derive(Clone, Copy)]\npub struct {name}(*mut {data});\n"));
+                        out.push_str(&format!("impl {name} {{ pub fn ax_new(d: {data}) -> Self {{ {name}(Box::into_raw(Box::new(d))) }} #[inline] pub fn ax_d(&self) -> &'static mut {data} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &mut *self.0 }} }} }}\n"));
+                        out.push_str(&format!("impl Default for {name} {{ fn default() -> Self {{ {name}(std::ptr::null_mut()) }} }}\n"));
+                        out.push_str(&format!("impl std::ops::Deref for {name} {{ type Target = {data}; fn deref(&self) -> &{data} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &*self.0 }} }} }}\n"));
+                        out.push_str(&format!("impl std::ops::DerefMut for {name} {{ fn deref_mut(&mut self) -> &mut {data} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &mut *self.0 }} }} }}\n"));
+                        // Equal when the same object, or (as before) when both hold equal data.
+                        out.push_str(&format!("impl PartialEq for {name} {{ fn eq(&self, o: &Self) -> bool {{ self.0 == o.0 || (!self.0.is_null() && !o.0.is_null() && **self == **o) }} }}\n"));
+                        out.push_str(&format!("impl PartialOrd for {name} {{ fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {{ if self.0.is_null() || o.0.is_null() {{ return self.0.is_null().partial_cmp(&o.0.is_null()).map(|c| c.reverse()); }} (**self).partial_cmp(&**o) }} }}\n"));
+                        out.push_str(&format!("impl std::fmt::Debug for {name} {{ fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {{ if self.0.is_null() {{ write!(f, \"None\") }} else {{ (**self).fmt(f) }} }} }}\n"));
+                        out.push_str(&format!("impl AxIsNoneHandle for {name} {{ fn ax_null(&self) -> bool {{ self.0.is_null() }} }}\n"));
+                        // The `}` that ends the struct in the other cases ends this empty impl.
+                        out.push_str(&format!("impl {data} {{\n"));
                     }
                     // Python's `__str__` (or `__repr__`) is how the object prints.
                     let dunder = ["___str__", "___repr__"].iter().map(|d| format!("{name}{d}")).find(|f| self.fns.get(f).is_some_and(|s| s.params.len() == 1 && !s.fallible));
@@ -1057,8 +1076,10 @@ impl Emitter {
                     }
                     // Python's None in a slot of this type: the zero value.
                     if marked {
-                        out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Self {{ ax_none_: true, ..Default::default() }} }} }}\n"));
+                        out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Default::default() }} fn ax_is_none(&self) -> bool {{ self.0.is_null() }} }}\n"));
+                        out.push_str(&format!("impl AxFresh for {name} {{ fn ax_fresh() -> Self {{ {name}::ax_new(Default::default()) }} }}\n"));
                     } else {
+                        out.push_str(&format!("impl AxFresh for {name} {{ fn ax_fresh() -> Self {{ Default::default() }} }}\n"));
                         out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Default::default() }} }}\n"));
                     }
                     // `if obj:` is true for any object (so false only for None), unless the class says how.
@@ -1575,6 +1596,7 @@ impl Emitter {
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
             }
             Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place_mut(b)),
+            Expr::Field(b, f) if self.shared_fields.contains(f) => format!("(*{}.ax_d()).{f}", self.place(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place_mut(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place_mut(b)),
             Expr::Index(b, i) => {
@@ -1603,6 +1625,7 @@ impl Emitter {
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
             }
             Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place(b)),
+            Expr::Field(b, f) if self.shared_fields.contains(f) => format!("(*{}.ax_d()).{f}", self.place(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
             Expr::Index(b, i) => {
@@ -2094,7 +2117,7 @@ impl Emitter {
             "none" => return "ax_none()".to_string(),
             "__global" => return "()".to_string(),
             "__err" => return "ax_err.clone()".to_string(),
-            "__default" => return "Default::default()".to_string(),
+            "__default" => return "AxFresh::ax_fresh()".to_string(),
             "__truediv" => return format!("AxTrueDiv::ax_truediv({})", plain.join(", ")),
             "fail" if !self.catch.is_empty() => {
                 let lab = self.catch.last().unwrap().clone();
@@ -2194,7 +2217,7 @@ impl Emitter {
             }
         }
         if self.marked.contains(owner) && !path.contains("::") {
-            parts.push("ax_none_: false".into());
+            return format!("{path}::ax_new({path}_D {{ {} }})", parts.join(", "));
         }
         format!("{path} {{ {} }}", parts.join(", "))
     }

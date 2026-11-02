@@ -1,0 +1,4 @@
+[('a', 12), ('b', 7), ('a', 2)]
+[12, 2] 2
+a 0 False
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
