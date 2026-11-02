@@ -1,0 +1,65 @@
+# Python libraries used through CPython: values they return, their methods, comprehensions over them.
+import sqlite3
+import urllib.parse
+import hashlib
+import base64
+from datetime import date, timedelta
+from collections import Counter
+import csv, io
+from itertools import permutations, product
+import math
+
+class Store:
+    def __init__(self):
+        self.db = sqlite3.connect(":memory:")
+        self.db.execute("create table items (name text, qty int)")
+
+    def add(self, name, qty):
+        self.db.execute("insert into items values (?, ?)", (name, qty))
+
+    def total(self):
+        row = self.db.execute("select sum(qty) from items").fetchone()
+        return row[0]
+
+    def names(self):
+        return [r[0] for r in self.db.execute("select name from items order by name")]
+
+s = Store()
+s.add("apple", 3)
+s.add("pear", 5)
+print(s.total(), s.names())
+
+
+q = urllib.parse.urlencode({"a": 1, "b": "x y"})
+print(q)
+u = urllib.parse.urlparse("https://example.com/p?x=1#f")
+print(u.netloc, u.path, u.query)
+h = hashlib.sha256("abc".encode()).hexdigest()
+print(h[:16])
+print(base64.b64encode("hello".encode()).decode())
+
+
+start = date(2024, 1, 1)
+days = [start + timedelta(days=i * 3) for i in range(10)]
+c = Counter(d.strftime("%A") for d in days)
+for name, n in c.most_common(3):
+    print(name, n)
+buf = io.StringIO()
+w = csv.writer(buf)
+w.writerow(["day", "n"])
+for name, n in sorted(c.items()):
+    w.writerow([name, n])
+print(buf.getvalue().strip().splitlines()[:3])
+
+
+best = None
+for p in permutations(range(6)):
+    score = sum(i * v for i, v in enumerate(p))
+    if best is None or score > best:
+        best = score
+print(best)
+count = 0
+for a, b in product(range(50), repeat=2):
+    if math.gcd(a, b) == 1:
+        count += 1
+print(count)

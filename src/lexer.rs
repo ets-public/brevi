@@ -126,7 +126,7 @@ fn interp_closes(chars: &[char], from: usize) -> bool {
 // Longest symbols first so the scanner can take the first match.
 const SYMBOLS: &[&str] = &[
     "**", "<<=", ">>=", "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "%=", "|=", "&=", "^=", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
-    "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?", ";", "|", "&", "^",
+    "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?", ";", "|", "&", "^", "@",
 ];
 
 // After a value, `a // b` is floor division unless what follows reads like words (`x = 5 // the count`).

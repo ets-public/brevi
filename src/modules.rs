@@ -57,7 +57,11 @@ fn py_imports(l: &str, dirs: &[&Path]) -> Vec<(String, Option<String>)> {
             let base = m.replace('.', "/");
             let base = &base;
             let mut found = dirs.iter().flat_map(|d| ["bv", "py"].iter().map(move |e| d.join(format!("{base}.{e}"))));
-            found.find(|p| p.is_file()).map(|p| (p.to_string_lossy().to_string(), a))
+            let f = found.find(|p| p.is_file());
+            if f.is_some() {
+                crate::pybridge::note_local(&m); // pybridge: a file of the program, not a Python library
+            }
+            f.map(|p| (p.to_string_lossy().to_string(), a))
         })
         .collect()
 }
