@@ -14,7 +14,7 @@ usage: python3 e2e.py RUN --lang brevi|python --model sonnet|haiku --set xl3 [--
 Needs BENCH_ANTHROPIC_KEY and `pip install anthropic`. Writes logs/e2e/RUN-MODEL-LANG.jsonl, one line per task,
 and keeps each task's files in work/e2e/RUN-MODEL-LANG/TASK/.
 """
-import argparse, concurrent.futures as cf, glob, json, os, subprocess, sys, tempfile, time
+import argparse, concurrent.futures as cf, glob, hashlib, json, os, subprocess, sys, tempfile, time
 from pathlib import Path
 
 B = Path(__file__).resolve().parent
@@ -116,7 +116,11 @@ def run_check(lang, task, work, native_only=False):
 
 def solve(client, model, lang, task, work, effort, thinking="adaptive", native_only=False):
     work.mkdir(parents=True, exist_ok=True)
-    system = [{"type": "text", "text": system_prompt(lang), "cache_control": {"type": "ephemeral"}}]
+    # A short tag per run (e.g. e25a-sonnet-pyb) keeps each run's prompt cache to itself. Without it, pyb and python
+    # share one prompt, so whichever ran first paid the cache writes and the other read them (before e25 that was
+    # always pyb, about $0.007 per Sonnet task).
+    tag = hashlib.sha1(work.parent.name.encode()).hexdigest()[:8]
+    system = [{"type": "text", "text": system_prompt(lang) + f"\n\nSession {tag}.", "cache_control": {"type": "ephemeral"}}]
     messages = [{"role": "user", "content": (B / "tasks" / task / "prompt.md").read_text()}]
     use = {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}
     checks, passed, calls, stop, native = 0, False, 0, "", None

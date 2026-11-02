@@ -768,8 +768,8 @@ pub fn lines() -> Vec<String> {
     stdin().lines().map(String::from).collect()
 }
 // a // b rounds down, as in Python.
-pub trait AxFloorDiv {
-    fn floordiv(self, b: Self) -> Self;
+pub trait AxFloorDiv<B = Self> {
+    fn floordiv(self, b: B) -> Self;
 }
 impl AxFloorDiv for i64 {
     fn floordiv(self, b: i64) -> i64 {
@@ -782,12 +782,37 @@ impl AxFloorDiv for f64 {
         (self / b).floor()
     }
 }
-pub fn ax_floordiv<T: AxFloorDiv>(a: T, b: T) -> T {
+// Decimal a // b: the whole part of the quotient (toward zero, as Python's Decimal does; with a % b it gives a back).
+impl AxFloorDiv for Dec {
+    fn floordiv(self, b: Dec) -> Dec {
+        let q = self / b;
+        Dec(q.0 / DEC_ONE * DEC_ONE, 0)
+    }
+}
+impl AxFloorDiv<i64> for Dec {
+    fn floordiv(self, b: i64) -> Dec {
+        self.floordiv(dec_of(b))
+    }
+}
+pub fn ax_floordiv<T: AxFloorDiv<B>, B>(a: T, b: B) -> T {
     a.floordiv(b)
 }
 // a % b in Python mode takes the sign of b, as Python's does (-7 % 3 is 2); Brevi's own % keeps Rust's.
-pub trait AxPyMod {
-    fn ax_pymod(self, b: Self) -> Self;
+pub trait AxPyMod<B = Self> {
+    fn ax_pymod(self, b: B) -> Self;
+}
+// Decimal a % b: the sign follows a, as Python's Decimal does (a - b * trunc(a / b)).
+impl AxPyMod for Dec {
+    fn ax_pymod(self, b: Dec) -> Dec {
+        let q = self / b;
+        let t = Dec(q.0 / DEC_ONE * DEC_ONE, 0);
+        self - b * t
+    }
+}
+impl AxPyMod<i64> for Dec {
+    fn ax_pymod(self, b: i64) -> Dec {
+        self.ax_pymod(dec_of(b))
+    }
 }
 impl AxPyMod for i64 {
     fn ax_pymod(self, b: i64) -> i64 {
