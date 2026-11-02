@@ -4,6 +4,7 @@ mod ast;
 mod bigint;
 mod caps;
 mod diag;
+mod dynpy;
 mod emit;
 mod ffi;
 mod gui;
@@ -193,6 +194,9 @@ fn main() {
     if file.ends_with(".py") {
         PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "emit") && std::env::var("BREVI_DYN").map_or(false, |v| v == "1") {
+        dyn_cmd(cmd, &file, &argv);
+    }
     if cmd == "run" && file.ends_with(".py") && !native {
         run_or_fall_back(&file, &argv);
     }
@@ -264,14 +268,31 @@ fn main() {
             }
             vs
         });
+    // A Python file the typed path cannot build is built over dynamic values instead (still native, no CPython).
+    let dyn_ok = matches!(cmd, "build" | "run" | "check") && file.ends_with(".py");
     let rust = match compile_to_rust(&src, true, true) {
         Ok(r) => r,
         Err(diags) => {
+            if dyn_ok && dyn_fallback(cmd, &file, &argv) {
+                exit(0);
+            }
             for d in diags {
                 print_diag(&d);
             }
             exit(1);
         }
+    };
+    if dyn_ok {
+        DEFER_REPORT.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    let fail = |cmd: &str| -> ! {
+        if dyn_ok && dyn_fallback(cmd, &file, &argv) {
+            exit(0);
+        }
+        if let Some((rust, stderr)) = DEFERRED.lock().unwrap().take() {
+            report(&rust, &stderr);
+        }
+        exit(1);
     };
 
     match cmd {
@@ -281,7 +302,7 @@ fn main() {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
             if !rustc(&versions, &dir, &dir.join("check"), &["--emit=metadata"], false) {
-                exit(1);
+                fail(cmd);
             }
         }
         "build" | "run" | "test" => {
@@ -296,7 +317,7 @@ fn main() {
                 extra.extend(["-C", "opt-level=3"]);
             }
             if !rustc(&versions, &dir, &bin, &extra, true) {
-                exit(1);
+                fail(cmd);
             }
             if cmd == "build" {
                 return;
@@ -318,6 +339,69 @@ fn main() {
             exit(2);
         }
     }
+}
+
+// The dynamic build for a Python file the typed path could not build: false (nothing printed) if it cannot
+// be built that way either. For run, runs the program and exits with its status.
+fn dyn_fallback(cmd: &str, file: &str, argv: &[String]) -> bool {
+    if std::env::var("BREVI_DYN").map_or(false, |v| v == "0") {
+        return false;
+    }
+    let Ok(rust) = dynpy::to_rust(file) else { return false };
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    let release = argv[..dash].iter().any(|a| a == "--release");
+    let dir = build_dir(file);
+    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
+    let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
+    if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
+        if std::env::var("BREVI_DYN_DEBUG").is_ok() {
+            eprintln!("{e}");
+        }
+        return false;
+    }
+    if cmd == "run" {
+        let status = Command::new(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+            println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+            exit(1);
+        });
+        exit(status.code().unwrap_or(1));
+    }
+    true
+}
+
+// Builds (and runs) a Python file through the dynamic-value path. Never returns.
+fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    let release = argv[..dash].iter().any(|a| a == "--release");
+    let rust = match dynpy::to_rust(file) {
+        Ok(r) => r,
+        Err((f, line, msg)) => {
+            println!("{{\"e\":\"dyn\",\"at\":\"{}\",\"line\":{line},\"msg\":\"{}\"}}", esc(&f), esc(&msg));
+            exit(1);
+        }
+    };
+    if cmd == "emit" {
+        print!("{rust}");
+        exit(0);
+    }
+    let dir = build_dir(file);
+    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
+    let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
+    if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
+        println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}");
+        eprintln!("{e}");
+        exit(1);
+    }
+    if cmd == "build" {
+        exit(0);
+    }
+    let status = Command::new(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+        println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+        exit(1);
+    });
+    exit(status.code().unwrap_or(1));
 }
 
 // `brevi run x.py`: builds with Brevi and runs the program; when the build fails, runs the file with python3
@@ -635,11 +719,15 @@ fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &
         }
     }
     match last {
+        Some((rust, stderr)) if DEFER_REPORT.load(std::sync::atomic::Ordering::Relaxed) => *DEFERRED.lock().unwrap() = Some((rust.to_string(), stderr)),
         Some((rust, stderr)) => report(rust, &stderr),
         None => {}
     }
     false
 }
+// Python files keep rustc's errors until the dynamic build has been tried.
+static DEFER_REPORT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static DEFERRED: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
 
 // Crates the program uses (`use` lines, and crate paths in rust fns). With any, builds go through cargo.
 static DEPS: std::sync::OnceLock<Vec<ffi::Dep>> = std::sync::OnceLock::new();

@@ -73,11 +73,11 @@ def run_check(lang, task, work, native_only=False):
     main = work / f"main.{ext}"
     binp = Path(tempfile.mkdtemp()) / "prog"
     if lang == "pyb":
-        # The same Python files, built by Brevi: each f.py is copied to f.bv so imports between files resolve.
+        # The same Python files, built by Brevi as `brevi build main.py` would (typed build first, then the dynamic one).
         bdir = Path(tempfile.mkdtemp())
         for f in work.glob("*.py"):
-            (bdir / (f.stem + ".bv")).write_text(f.read_text())
-        r = subprocess.run([BREVI, "build", str(bdir / "main.bv"), "-o", str(binp)], capture_output=True, text=True, cwd=work)
+            (bdir / f.name).write_text(f.read_text())
+        r = subprocess.run([BREVI, "build", str(bdir / "main.py"), "-o", str(binp)], capture_output=True, text=True, cwd=work)
         native = not r.returncode
         if not native and native_only:
             return (r.stdout + r.stderr).strip().replace(".bv", ".py"), False
