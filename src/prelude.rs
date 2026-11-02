@@ -35,10 +35,12 @@ pub struct AxM<K, V> {
     // Keys in insertion order, kept for JSON objects, which list keys as written, and in Python mode,
     // where dicts keep insertion order.
     ord: Option<Vec<K>>,
+    // A Python defaultdict or Counter: a missing key reads as the value type's zero instead of raising KeyError.
+    lax: bool,
 }
 impl<K, V> Default for AxM<K, V> {
     fn default() -> Self {
-        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None } }
+        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None }, lax: false }
     }
 }
 impl<K: Hash + Eq + Ord, V> AxM<K, V> {
@@ -46,7 +48,7 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
         AxM::default()
     }
     pub fn ordered() -> Self {
-        AxM { m: HashMap::default(), ord: Some(Vec::new()) }
+        AxM { m: HashMap::default(), ord: Some(Vec::new()), lax: false }
     }
     pub fn from<const N: usize>(xs: [(K, V); N]) -> Self
     where
@@ -60,6 +62,11 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
     }
     pub fn len(&self) -> usize {
         self.m.len()
+    }
+    // Python's defaultdict(...) and Counter(): missing keys read as zero.
+    pub fn ax_lax(mut self) -> Self {
+        self.lax = true;
+        self
     }
     pub fn is_empty(&self) -> bool {
         self.m.is_empty()
@@ -348,7 +355,10 @@ impl Show for i64 {
 }
 impl Show for f64 {
     fn show(&self) -> String {
-        if ax_py_on() {
+        // f64::MIN stands for None in a Python float slot.
+        if ax_py_on() && *self == f64::MIN {
+            "None".into()
+        } else if ax_py_on() {
             ax_py_float(*self)
         } else {
             self.to_string()
@@ -724,6 +734,11 @@ pub fn stdin() -> String {
     std::io::stdin().read_to_string(&mut s).ok();
     s
 }
+pub fn ax_readline() -> String {
+    let mut s = String::new();
+    std::io::stdin().read_line(&mut s).ok();
+    s
+}
 pub fn lines() -> Vec<String> {
     stdin().lines().map(String::from).collect()
 }
@@ -744,6 +759,94 @@ impl AxFloorDiv for f64 {
 }
 pub fn ax_floordiv<T: AxFloorDiv>(a: T, b: T) -> T {
     a.floordiv(b)
+}
+// a % b in Python mode takes the sign of b, as Python's does (-7 % 3 is 2); Brevi's own % keeps Rust's.
+pub trait AxPyMod {
+    fn ax_pymod(self, b: Self) -> Self;
+}
+impl AxPyMod for i64 {
+    fn ax_pymod(self, b: i64) -> i64 {
+        let r = self % b;
+        if ax_py_on() && r != 0 && ((r < 0) != (b < 0)) { r + b } else { r }
+    }
+}
+impl AxPyMod for f64 {
+    fn ax_pymod(self, b: f64) -> f64 {
+        let r = self % b;
+        if ax_py_on() && r != 0.0 && ((r < 0.0) != (b < 0.0)) { r + b } else { r }
+    }
+}
+impl AxPyMod for Json {
+    fn ax_pymod(self, b: Json) -> Json {
+        self % b
+    }
+}
+// Python's math.isqrt(n): the largest whole number whose square is at most n.
+pub trait AxIsqrt {
+    fn ax_isqrt(&self) -> i64;
+}
+impl AxIsqrt for i64 {
+    fn ax_isqrt(&self) -> i64 {
+        if *self < 0 {
+            panic!("ValueError: isqrt() argument must be nonnegative");
+        }
+        let mut r = (*self as f64).sqrt() as i64;
+        while r * r > *self {
+            r -= 1;
+        }
+        while (r + 1) * (r + 1) <= *self {
+            r += 1;
+        }
+        r
+    }
+}
+// The step of a range counted through directly (range(a, b, k) with k > 0).
+pub fn ax_step_by(k: i64) -> usize {
+    if k <= 0 {
+        panic!("ValueError: range() step must be positive here, got {k}");
+    }
+    k as usize
+}
+// A Python set as print shows it.
+pub fn ax_show_set<T: Show + 'static>(xs: &Vec<T>) -> String {
+    if xs.is_empty() {
+        return "set()".into();
+    }
+    format!("{{{}}}", xs.iter().map(show_item).collect::<Vec<_>>().join(", "))
+}
+// Python's int(s, base): sign, then digits in that base (a 0x/0o/0b prefix allowed for 16/8/2, and needed
+// for base 0), underscores between digits, spaces around.
+pub trait AxIntBase {
+    fn ax_int_base(&self, base: i64) -> R<i64>;
+}
+impl AxIntBase for String {
+    fn ax_int_base(&self, base: i64) -> R<i64> {
+        let bad = || AxErr(format!("invalid literal for int() with base {base}: {}", ax_py_repr(self)));
+        let t = self.trim();
+        let (neg, t) = match t.strip_prefix('-') {
+            Some(r) => (true, r),
+            None => (false, t.strip_prefix('+').unwrap_or(t)),
+        };
+        let low = t.to_ascii_lowercase();
+        let pre = |p: &str| low.starts_with(p);
+        let (b, digits) = match base {
+            0 if pre("0x") => (16, &t[2..]),
+            0 if pre("0o") => (8, &t[2..]),
+            0 if pre("0b") => (2, &t[2..]),
+            0 => (10, t),
+            16 if pre("0x") => (16, &t[2..]),
+            8 if pre("0o") => (8, &t[2..]),
+            2 if pre("0b") => (2, &t[2..]),
+            2..=36 => (base as u32, t),
+            _ => return Err(AxErr("int() base must be >= 2 and <= 36, or 0".into())),
+        };
+        let digits = digits.strip_prefix('_').filter(|_| digits.len() < t.len()).unwrap_or(digits);
+        if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+            return Err(bad());
+        }
+        let v = i64::from_str_radix(&digits.replace('_', ""), b).map_err(|_| bad())?;
+        Ok(if neg { -v } else { v })
+    }
 }
 pub fn ax_approx(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-6 * (1.0 + a.abs().max(b.abs()))
@@ -944,7 +1047,8 @@ impl AxFloat for f64 {
         self.sqrt()
     }
     fn ax_round(&self) -> f64 {
-        self.round()
+        // Python's round(x) goes to the even neighbour on a tie: round(2.5) is 2.
+        if ax_py_on() { self.round_ties_even() } else { self.round() }
     }
     fn ax_floor(&self) -> f64 {
         self.floor()
@@ -1406,6 +1510,8 @@ impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRef<K, V> for 
         // A missing key reads as the type's zero value (0, "", [] ...), like Python's defaultdict.
         match self.get(k) {
             Some(v) => v,
+            // A plain Python dict raises KeyError (Brevi's own maps and defaultdicts read zero).
+            None if ax_py_on() && !self.lax => panic!("KeyError: {}", show_item(k)),
             None => ax_zero::<V>(),
         }
     }
@@ -2760,7 +2866,7 @@ pub trait AxTally<T> {
 }
 impl<T: Hash + Eq + Ord + Clone> AxTally<T> for Vec<T> {
     fn ax_tally(&self) -> AxM<T, i64> {
-        let mut m = AxM::default();
+        let mut m = AxM::default().ax_lax();
         for x in self {
             match m.get_mut(x) {
                 Some(n) => *n += 1,
@@ -2824,7 +2930,7 @@ impl AxTallyWords for String {
                 }
             }
         }
-        let mut m = AxM::default();
+        let mut m = AxM::default().ax_lax();
         for (w, n) in seen {
             m.insert(w.to_string(), n);
         }
@@ -2960,6 +3066,15 @@ impl<T: Default> AxNextOr<T> for Vec<T> {
     }
     fn ax_next_or_empty(&mut self) -> T {
         if self.is_empty() { T::default() } else { self.remove(0) }
+    }
+}
+// next(gen, None): the first item, or Python's None (in the slot type's own form) when there is none.
+pub trait AxNextOrNone<T> {
+    fn ax_next_or_none(&mut self) -> T;
+}
+impl<T: AxNone> AxNextOrNone<T> for Vec<T> {
+    fn ax_next_or_none(&mut self) -> T {
+        if self.is_empty() { T::ax_none() } else { self.remove(0) }
     }
 }
 // Python's d2 - d1 between dates: `.days` gives the number of days between them.

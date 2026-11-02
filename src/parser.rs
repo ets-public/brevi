@@ -1179,8 +1179,9 @@ impl Parser {
             // `m.setdefault(k, 0)` / `m.setdefault(k, set())` alone on a line (read as `m[k]`) puts the key in:
             // a missing key reads as the empty value, which is set back.
             Expr::Index(recv, k) if self.py && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) => {
-                let x = Expr::Index(recv, k);
-                Ok(Stmt::Assign { target: x.clone(), op: "=", value: x, line })
+                let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![(*k).clone()], line)));
+                let set = Stmt::Assign { target: Expr::Index(recv, k), op: "=", value: Expr::Call("__zero".into(), vec![], line), line };
+                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line })
             }
             // `m.setdefault(k, v)` as a statement sets m[k] to v when k is missing.
             Expr::Method(recv, m, mut a, l) if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(&m) => {
@@ -1749,6 +1750,11 @@ impl Parser {
                                     continue;
                                 }
                             }
+                            // math.isqrt(n): the whole square root of an int.
+                            if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && name == "isqrt" {
+                                e = Expr::Method(Box::new(args.remove(0)), "isqrt".into(), vec![], line);
+                                continue;
+                            }
                             // math.sqrt(x), math.floor(x), math.ceil(x); sys.stdin.read() is stdin().
                             if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && matches!(name.as_str(), "sqrt" | "floor" | "ceil") {
                                 let x = args.remove(0);
@@ -1756,12 +1762,28 @@ impl Parser {
                                 e = if name == "sqrt" { f } else { Expr::Method(Box::new(f), "int".into(), vec![], line) };
                                 continue;
                             }
+                            // d.scaleb(k) on a Decimal: d times 10**k.
+                            if name == "scaleb" && args.len() == 1 {
+                                let k = match &args[0] { Expr::Int(k) => Some(*k), Expr::Unary("-", x) => if let Expr::Int(k) = x.as_ref() { Some(-k) } else { None }, _ => None };
+                                if let Some(k) = k.filter(|k| (-18..=18).contains(k)) {
+                                    let ten = |n: i64| Expr::Method(Box::new(Expr::Int(10i64.pow(n as u32))), "dec".into(), vec![], line);
+                                    e = if k >= 0 { Expr::Binary("*", Box::new(e), Box::new(ten(k))) } else { Expr::Binary("/", Box::new(e), Box::new(ten(-k))) };
+                                    continue;
+                                }
+                            }
+                            // sys.stdin.readline(): the next line with its "\n" ("" at the end of input).
+                            if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty()) && name == "readline" && args.is_empty() {
+                                e = Expr::Call("__readline".into(), vec![], line);
+                                continue;
+                            }
                             if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty()) && name == "read" && args.is_empty() {
                                 e = Expr::Call("stdin".into(), vec![], line);
                                 continue;
                             }
                             // `m.setdefault(k, [])` is `m[k]`: a missing key reads as the empty value.
-                            if name == "setdefault" && args.len() == 2 && empty_literal(&args[1]) {
+                            // (Only when a method follows, `m.setdefault(k, []).append(x)`: alone or assigned it puts the key in
+                            // first, so that a plain dict, whose missing keys raise KeyError, has it.)
+                            if name == "setdefault" && args.len() == 2 && empty_literal(&args[1]) && (!self.py || self.is_sym(".")) {
                                 e = Expr::Index(Box::new(e), Box::new(args.remove(0)));
                                 continue;
                             }
@@ -2105,7 +2127,7 @@ impl Parser {
                     }
                     // defaultdict(lambda: 0) (read as a `lambda:` named argument) with an empty default is a map.
                     if name == "defaultdict" && args.len() == 1 && args[0].0.as_deref() == Some("lambda") && empty_literal(&args[0].1) && !self.user_fns.contains(&name) {
-                        return Ok(Expr::Map(vec![]));
+                        return Ok(lax_map(line));
                     }
                     // enumerate(xs, start=1)
                     if name == "enumerate" && args.len() == 2 && args[1].0.as_deref() == Some("start") && !self.user_fns.contains(&name) {
@@ -2670,7 +2692,8 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             let d = args.remove(1).1;
             let x = args.remove(0).1;
             if matches!(&d, Expr::Call(n, a, _) if n == "none" && a.is_empty()) {
-                m(x, "next_or_empty", vec![])
+                // Python's None itself, so `x is None` tests true afterwards.
+                m(x, "next_or_none", vec![])
             } else {
                 m(x, "next_or", vec![d])
             }
@@ -2713,7 +2736,8 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             let f = args.remove(0).1;
             m(args.remove(0).1, name, vec![f])
         }
-        ("dict" | "Counter", 0) | ("defaultdict", 1) => Expr::Map(vec![]),
+        ("dict", 0) => Expr::Map(vec![]),
+        ("Counter", 0) | ("defaultdict", 1) => lax_map(line),
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         // dict(m) copies a map; maps are values in Brevi already.
         ("OrderedDict", 1) => args.remove(0).1,
@@ -2743,6 +2767,11 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             m(args.remove(0).1, "isinstance", vec![Expr::Str(vec![StrPart::Lit(names.join(","))])])
         }
         // bool(x) is x's truth: not not x.
+        // int(s, base): the text read in that base (base 0 reads a 0x, 0o or 0b prefix).
+        ("int", 2) => {
+            let b = args.remove(1).1;
+            m(args.remove(0).1, "int_base", vec![b])
+        }
         ("bool", 1) => Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(args.remove(0).1)))),
         ("divmod", 2) => {
             let (a, b) = (args[0].1.clone(), args[1].1.clone());
@@ -2849,6 +2878,11 @@ fn fill_format(parts: &[StrPart], args: Vec<Expr>, percent: bool, line: usize) -
         out.push(StrPart::Lit(lit));
     }
     used.iter().all(|u| *u).then_some(out)
+}
+
+// defaultdict(...) and Counter(): an empty map whose missing keys read as zero.
+fn lax_map(line: usize) -> Expr {
+    Expr::Method(Box::new(Expr::Map(vec![])), "lax".into(), vec![], line)
 }
 
 // `[]`, `{}`, `0`, `0.0`, `""` and `set()`/`list()`/`dict()`: the value a missing map key reads as.

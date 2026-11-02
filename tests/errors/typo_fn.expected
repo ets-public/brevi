@@ -1,1 +1,1 @@
-{"line":3,"msg":"unknown function ttl()","fix":"did you mean Str()?"}
+{"line":3,"msg":"unknown function ttl()"}
