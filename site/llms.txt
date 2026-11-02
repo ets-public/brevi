@@ -1,14 +1,14 @@
 # Brevi
 
-> Brevi is a programming language for AI models to write. It reads like Python, compiles to Rust for native speed, and reports each error as one short JSON line with a suggested fix. On its benchmark, models finish tasks in Brevi with 5 to 21% fewer tokens than in Python, counting retries.
+> Brevi compiles ordinary Python to Rust and builds a fast native binary. Write plain Python (standard library) and run it with `brevi run main.py`; there is no guide to read first. Brevi checks types across the whole program before it runs and reports each error as one short JSON line with a suggested fix.
 
 ## Docs
 
-- [Language guide](https://brevi-lang.org/guide.md): the core language in one page, written for models. Read it once before writing Brevi.
+- [Agent skill](https://brevi-lang.org/skill.md): setup and the write, run, fix loop for coding agents. Start here.
+- [Language guide](https://brevi-lang.org/guide.md): Brevi's own syntax, for .bv files only. Not needed to build Python.
 - [Reference](https://brevi-lang.org/reference.md): details for string braces and format specs, list methods and Python spellings. Look up one name with `brevi guide WORD` instead of reading it all.
 - [Libraries](https://brevi-lang.org/libraries.md): using other .bv files, Rust crates (`use sha2 "0.10"` plus `rust fn`) and Python (`py fn`) from Brevi.
-- [Agent skill](https://brevi-lang.org/skill.md): setup and the write, check, fix loop for coding agents.
-- [Benchmarks](https://brevi-lang.org/bench.md): tokens per finished task against Python, with method and raw logs.
+- [Benchmarks](https://brevi-lang.org/bench.md): speed against CPython and cost per finished task, with method and raw logs.
 
 ## Tools
 

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Brevi programming language</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Brevi is a programming language for AI models to write. It reads like Python, compiles to Rust, and reports each error as one short JSON line with a fix.">
+<meta name="description" content="Brevi compiles ordinary Python to Rust: write the Python you know, get a fast, memory-safe native binary, with mistakes found before the program runs.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -165,20 +165,20 @@ footer .end { margin-left: auto; }
 <main>
   <div class="wrap intro">
     <div>
-      <h1>A programming language for AI models to write.</h1>
-      <p class="lede">Brevi reads like Python and compiles to Rust. Models finish tasks in <strong>fewer tokens than in Python</strong>, the programs run at native speed, and every compiler error comes back as one short line the model can act on.</p>
+      <h1>Write Python. Ship a fast, safe native binary.</h1>
+      <p class="lede">Brevi compiles ordinary Python to Rust. You, or your coding agent, write the Python you already know; Brevi checks the whole program before it runs and builds a native binary that runs <strong>up to 11 times faster than CPython</strong>, with memory safety and overflow checks from Rust underneath.</p>
       <p class="status">Status: preview. The compiler, written in Rust, opens under the Apache-2.0 license with the first public release.</p>
     </div>
     <div class="term" aria-label="Example program and output">
-      <div class="bar"><span>top.bv</span><span>Brevi</span></div>
-<pre><span class="c"># Three most common words on stdin</span>
-counts = {}
-<span class="k">for</span> w <span class="k">in</span> stdin().lower().words():
-  counts[w] += 1
-top = counts.pairs().sort_by(p => (-p.1, p.0)).take(3)
-<span class="k">for</span> w, n <span class="k">in</span> top:
-  print(<span class="s">"{w}: {n}"</span>)</pre>
-      <div class="bar"><span>$ brevi run top.bv &lt; text.txt</span><span>native binary</span></div>
+      <div class="bar"><span>top.py</span><span>plain Python</span></div>
+<pre><span class="k">import</span> sys
+<span class="k">from</span> collections <span class="k">import</span> Counter
+
+<span class="c"># Three most common words on stdin</span>
+counts = Counter(sys.stdin.read().lower().split())
+<span class="k">for</span> word, n <span class="k">in</span> counts.most_common(3):
+    print(<span class="s">f"{word}: {n}"</span>)</pre>
+      <div class="bar"><span>$ brevi run top.py &lt; text.txt</span><span>native binary</span></div>
 <pre class="out">the: 3
 and: 2
 bat: 1</pre>
@@ -190,164 +190,29 @@ bat: 1</pre>
       <div class="sec-head">
         <p class="label">Why Brevi</p>
         <div>
-          <h2>Built for the model in the loop, not for a person at a keyboard.</h2>
-          <p>Every language in common use was designed for people. People type slowly, read error messages once, and remember the libraries they know. A model works differently. It pays for every token it writes, it rereads every error message in full, and each failed attempt costs another round of both. Brevi is designed around that cost.</p>
+          <h2>Python's ease, Rust's speed and safety.</h2>
+          <p>Python is the language people and models write best. It is also slow, and it finds most mistakes only when the broken line finally runs. Rust is fast and safe, but slow to write. Brevi takes the Python you would write anyway and gives it Rust's speed and checks, without a new language to learn.</p>
         </div>
-      </div>
-      <div class="sec-head">
-        <span></span>
-        <div>
-          <h3 class="sub">What a finished task really costs</h3>
-          <ol class="costs">
-            <li><b>The code it writes.</b> Fewer lines and fewer tokens for the same program. Brevi has no semicolons, braces, lifetimes or import lines, and the common tasks (CSV, JSON, dates, money, regular expressions) need no setup code.</li>
-            <li><b>The errors it reads.</b> An error message goes back into the model's context and is paid for in full. Brevi's errors are one short line. In the examples below they are 42% to 86% shorter than the same mistake reported by Python or Rust.</li>
-            <li><b>The retries it needs.</b> Each failed attempt adds another edit and another error. Brevi accepts the Python habits models fall back on, fixes small typos itself, and points to the exact line to change, so fewer attempts fail and each fix is small.</li>
-          </ol>
-          <p>The benchmark counts all three together, with exact token counts. On that measure models finish tasks with up to 21% fewer tokens in Brevi than in Python. On the hard tasks, writing the same programs in Rust, the language Brevi compiles to, takes about 2.4 times as many tokens as Brevi.</p>
-        </div>
-      </div>
-
-      <div class="sec-head block">
-        <span></span>
-        <div>
-          <h3 class="sub">The same task in both languages</h3>
-          <p>A sales report from a CSV file: skip bad rows, total revenue by region and month with exact cents, and find the top product. This is one of the held-out tasks, written after the language was tuned. Both programs below are Claude Haiku's own passing solutions, unedited.</p>
-        </div>
-      </div>
-      <div class="pair">
-        <div class="term">
-          <div class="bar"><span>sales_report.bv</span><span>Brevi · 30 lines · 502 tokens</span></div>
-<pre class="tall">rows = csv(stdin())
-valid = 0
-skipped = 0
-region_tot = {}
-prod_qty = {}
-month_tot = {}
-for i in 1..rows.len():
-  row = rows[i]
-  if row.join(&quot;&quot;).trim().is_empty(): continue
-  ok = row.len() == 5 and row[0].re_full(&quot;\d{4}-\d{2}-\d{2}&quot;).len() &gt; 0 and row[3].re_full(&quot;\d+&quot;).len() &gt; 0 and row[4].re_full(&quot;\d+(\.\d{1,2})?&quot;).len() &gt; 0
-  if not ok:
-    skipped += 1
-    continue
-  valid += 1
-  rev = row[4].dec() * row[3].int()
-  region_tot[row[1]] += rev
-  prod_qty[row[2]] += row[3].int()
-  month_tot[row[0].slice(0, 7)] += rev
-print(&quot;rows {valid}&quot;)
-print(&quot;skipped {skipped}&quot;)
-if valid &gt; 0:
-  print(&quot;regions&quot;)
-  for rp in region_tot.pairs().sort_by(rp =&gt; (-rp.1, rp.0)):
-    print(&quot;  {rp.0} {rp.1.fmt(2)}&quot;)
-  top = prod_qty.pairs().sort_by(pp =&gt; (-pp.1, pp.0))
-  t = top[0]
-  print(&quot;top_product {t.0} {t.1}&quot;)
-  print(&quot;months&quot;)
-  for mp in month_tot.pairs().sort_by(mp =&gt; mp.0):
-    print(&quot;  {mp.0} {mp.1.fmt(2)}&quot;)</pre>
-        </div>
-        <div class="term">
-          <div class="bar"><span>sales_report.py</span><span>Python · 66 lines · 812 tokens</span></div>
-<pre class="tall">import csv
-import re
-import sys
-from collections import defaultdict
-
-DATE_RE = re.compile(r&quot;[0-9]{4}-[0-9]{2}-[0-9]{2}&quot;)
-QTY_RE = re.compile(r&quot;[0-9]+&quot;)
-PRICE_RE = re.compile(r&quot;[0-9]+(\.[0-9]{1,2})?&quot;)
-
-
-def to_cents(price):
-    if &quot;.&quot; in price:
-        whole, frac = price.split(&quot;.&quot;)
-        frac = (frac + &quot;00&quot;)[:2]
-    else:
-        whole, frac = price, &quot;00&quot;
-    return int(whole) * 100 + int(frac)
-
-
-def fmt(cents):
-    return &quot;%d.%02d&quot; % (cents // 100, cents % 100)
-
-
-def main():
-    reader = csv.reader(sys.stdin)
-    rows = 0
-    skipped = 0
-    region_rev = defaultdict(int)
-    product_qty = defaultdict(int)
-    month_rev = defaultdict(int)
-    first = True
-    for row in reader:
-        if first:
-            first = False
-            continue
-        if not row or (len(row) == 1 and row[0].strip() == &quot;&quot;):
-            continue
-        if len(row) != 5:
-            skipped += 1
-            continue
-        date, region, product, qty, price = row
-        if not DATE_RE.fullmatch(date) or not QTY_RE.fullmatch(qty) or not PRICE_RE.fullmatch(price):
-            skipped += 1
-            continue
-        q = int(qty)
-        revenue = q * to_cents(price)
-        rows += 1
-        region_rev[region] += revenue
-        product_qty[product] += q
-        month_rev[date[:7]] += revenue
-
-    out = [&quot;rows %d&quot; % rows, &quot;skipped %d&quot; % skipped]
-    if rows &gt; 0:
-        out.append(&quot;regions&quot;)
-        for region, rev in sorted(region_rev.items(), key=lambda kv: (-kv[1], kv[0])):
-            out.append(&quot;  %s %s&quot; % (region, fmt(rev)))
-        best = min(product_qty.items(), key=lambda kv: (-kv[1], kv[0]))
-        out.append(&quot;top_product %s %d&quot; % (best[0], best[1]))
-        out.append(&quot;months&quot;)
-        for month in sorted(month_rev):
-            out.append(&quot;  %s %s&quot; % (month, fmt(month_rev[month])))
-    sys.stdout.write(&quot;\n&quot;.join(out) + &quot;\n&quot;)
-
-
-if __name__ == &quot;__main__&quot;:
-    main()</pre>
-        </div>
-      </div>
-      <div class="sec-head">
-        <span></span>
-        <ul class="diffs">
-          <li><b>Exact money is built in.</b> <code>row[4].dec()</code> is an exact decimal, so the Brevi program adds up prices directly. The Python program writes its own <code>to_cents</code> and <code>fmt</code> helpers to avoid floating-point errors in the totals.</li>
-          <li><b>No setup code.</b> CSV parsing and regular expressions are part of the language, so there are no imports, no compiled patterns and no <code>main()</code> wrapper.</li>
-          <li><b>Missing map keys read as zero.</b> <code>region_tot[row[1]] += rev</code> just works, with no <code>defaultdict</code> or <code>.get(k, 0)</code>.</li>
-          <li><b>And it runs as native code.</b> The Brevi version compiles to a Rust binary, with the speed that comes with it.</li>
-        </ul>
       </div>
 
       <div class="sec-head block">
         <span></span>
         <div>
           <h3 class="sub">Brevi against the usual choices</h3>
-          <p>Python is what models write best today, and Rust is what you would pick for speed and safety. Brevi aims to keep the strengths of both.</p>
         </div>
       </div>
       <div class="sec-head">
         <span></span>
         <div class="table-wrap">
           <table class="vs">
-            <thead><tr><th></th><th>Python</th><th>Rust</th><th>Brevi</th></tr></thead>
+            <thead><tr><th></th><th>Python (CPython)</th><th>Rust</th><th>Brevi</th></tr></thead>
             <tbody>
-              <tr><td>Tokens to finish a task</td><td>Baseline</td><td>About 2.4 times Brevi (hard tasks)</td><td class="win">Up to 21% fewer than Python</td></tr>
-              <tr><td>Run time (Dijkstra, 100k nodes)</td><td>2.90 s</td><td>0.30 s</td><td class="win">0.47 s</td></tr>
+              <tr><td>What you write</td><td>Python</td><td>Rust: lifetimes, borrows, types everywhere</td><td class="win">The same Python</td></tr>
+              <tr><td>Run time (Dijkstra, 100k nodes)</td><td>2.19 s</td><td>0.21 s</td><td class="win">0.40 s</td></tr>
               <tr><td>Type mistakes found</td><td>When the line runs</td><td>Before running</td><td class="win">Before running</td></tr>
-              <tr><td>Size of the two errors in the next section</td><td>76 to 80 tokens</td><td>106 to 159 tokens</td><td class="win">44 tokens, or none</td></tr>
-              <tr><td>Memory management</td><td>Garbage collector</td><td>Written by hand: lifetimes and borrows</td><td class="win">Worked out by the compiler</td></tr>
-              <tr><td>Exact decimals, CSV, JSON, dates</td><td>Imports and helpers</td><td>Crates and setup</td><td class="win">Built in</td></tr>
-              <tr><td>Libraries</td><td>pip packages</td><td>Crates</td><td class="win">Rust crates, Python functions and other .bv files</td></tr>
+              <tr><td>Memory safety</td><td>Garbage collector</td><td>Checked by the compiler</td><td class="win">Checked by the compiler, with no annotations</td></tr>
+              <tr><td>Integer overflow</td><td>Unlimited integers</td><td>Wraps in release builds unless checked</td><td class="win">Checked: a clear error, never a wrong number</td></tr>
+              <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary</td></tr>
             </tbody>
           </table>
         </div>
@@ -357,44 +222,44 @@ if __name__ == &quot;__main__&quot;:
         <span></span>
         <div class="benefits">
           <div>
-            <span class="fig">up to 21% fewer tokens</span>
-            <h3>Less to write, less to read</h3>
-            <p>Counted end to end, including errors read and retries, models used fewer tokens in Brevi than in Python on seven of ten task sets, including tasks written after the language was tuned. On the largest programs Python is still ahead, which is what the next versions work on.</p>
+            <span class="fig">up to 11x faster</span>
+            <h3>Native speed from plain Python</h3>
+            <p>Brevi builds a Rust binary from your <code>.py</code> files. On the speed set below, the same Python programs run 1.3 to 11 times faster than under CPython, and close to hand-written Rust.</p>
+          </div>
+          <div>
+            <span class="fig">checked before it runs</span>
+            <h3>Mistakes found before running</h3>
+            <p>Brevi works out the type of every value across the whole program and reports mismatches before the first run, where Python would fail halfway through, or not at all.</p>
+          </div>
+          <div>
+            <span class="fig">refuse, never guess</span>
+            <h3>Same answer as Python, or a clear refusal</h3>
+            <p>When Brevi cannot run a piece of Python exactly as CPython does, the aim is a clear refusal at build time, never a quietly different answer. A growing set of probe programs checks this against CPython.</p>
+          </div>
+          <div>
+            <span class="fig">one file to ship</span>
+            <h3>One binary, no interpreter</h3>
+            <p>The result is a single native executable. Nothing to install next to it: no interpreter, no virtual environment, no packages to match.</p>
           </div>
           <div>
             <span class="fig">{"line":N,"msg":…,"fix":…}</span>
             <h3>Errors a model can act on</h3>
-            <p>No file paths, columns or pages of notes. Each error is one JSON line with the Brevi line number and a suggested fix. Small typos of known names are fixed during the build.</p>
+            <p>Each error is one JSON line with the line number and a suggested fix, a fraction of the size of a traceback. Small typos of known names are fixed during the build.</p>
           </div>
           <div>
-            <span class="fig">2.90 s → 0.47 s</span>
-            <h3>Rust speed and safety underneath</h3>
-            <p>Brevi compiles to Rust and builds a native binary. The model never writes lifetimes, borrows or semicolons; ownership is worked out by the compiler.</p>
-          </div>
-          <div>
-            <span class="fig">True · .append() · range()</span>
-            <h3>Python habits are accepted</h3>
-            <p>Models write Python by reflex, so Brevi accepts the common spellings instead of rejecting them. Indented blocks, comprehensions, <code>len()</code>, <code>sorted()</code> and <code>", ".join(xs)</code> all work.</p>
-          </div>
-          <div>
-            <span class="fig">__GUIDE_TOKENS__ tokens</span>
-            <h3>The core language in one short guide</h3>
-            <p>A model reads one page before writing Brevi. The guide is built into the compiler, and <code>brevi guide WORD</code> serves the details only when a program needs them.</p>
-          </div>
-          <div>
-            <span class="fig">36 of 36 first try</span>
-            <h3>Programs that work the first time</h3>
-            <p>On the 18 small tasks, Claude Sonnet's Brevi programs passed on the first attempt every time, against 35 of 36 in Python. A first-try pass means no error to read and no retry to pay for.</p>
+            <span class="fig">no guide to read</span>
+            <h3>Nothing new for a model to learn</h3>
+            <p>Agents write ordinary Python, so there is no language guide to load into every session. Brevi's own syntax and its guide are there for anyone who wants them.</p>
           </div>
           <div>
             <span class="fig">Rust 1.99 · Python 3.15</span>
             <h3>Keeps working as Rust and Python move</h3>
-            <p>Brevi is rebuilt every day on Rust stable and the newest and next Python, and every week on Rust beta and nightly. Each time, every benchmark program that ever passed is run again. A break is fixed before it reaches a release, so programs written today keep building as the toolchains update.</p>
+            <p>Brevi is rebuilt every day on Rust stable and the newest and next Python, and every week on Rust beta and nightly. Each time, every benchmark program that ever passed is run again, so programs written today keep building as the toolchains update.</p>
           </div>
           <div>
             <span class="fig">crates · Python packages</span>
             <h3>Not limited to the standard library</h3>
-            <p>A program can split over several files, call any Rust crate from crates.io, and run Python code with any installed package. The model writes a short Brevi signature and the library does the rest.</p>
+            <p>A program can split over several files, call any Rust crate from crates.io, and run Python code with any installed package.</p>
           </div>
         </div>
       </div>
@@ -407,20 +272,21 @@ if __name__ == &quot;__main__&quot;:
         <p class="label">Errors</p>
         <div>
           <h2>One line per mistake, with the fix.</h2>
-          <p>Brevi runs its own checks before Rust sees the code, in about 3 ms. Anything Rust still rejects is mapped back to the Brevi line and rewritten in Brevi's own type names, so the model never reads generated Rust.</p>
+          <p>Brevi runs its own checks before Rust sees the code, in milliseconds. Anything Rust still rejects is mapped back to your line and rewritten in plain terms, so nobody reads generated Rust.</p>
         </div>
       </div>
       <div class="sec-head">
         <span></span>
         <div class="compare">
           <div class="term">
-            <div class="bar"><span>total.bv</span><span>Brevi</span></div>
-<pre>n = stdin().ints().sum()
+            <div class="bar"><span>total.py</span><span>plain Python</span></div>
+<pre><span class="k">import</span> sys
+n = sum(int(x) <span class="k">for</span> x <span class="k">in</span> sys.stdin.read().split())
 print(<span class="s">"total: "</span> + n)</pre>
           </div>
           <div class="term">
-            <div class="bar"><span>$ brevi run total.bv</span><span>1 line</span></div>
-<pre class="out" style="white-space: pre-wrap; word-break: break-word;">{"line":2,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or write \"{x}\""}</pre>
+            <div class="bar"><span>$ brevi run total.py</span><span>1 line</span></div>
+<pre class="out" style="white-space: pre-wrap; word-break: break-word;">{"line":3,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or write \"{x}\""}</pre>
           </div>
         </div>
       </div>
@@ -438,7 +304,7 @@ print(<span class="s">"total: "</span> + n)</pre>
               </tbody>
             </table>
           </div>
-          <p class="note" style="margin-top: 14px;">Python reports the first mistake only when that line runs. Brevi fixes the misspelling during the build and prints a one-line note instead of failing, so no retry is needed.</p>
+          <p class="note" style="margin-top: 14px;">Python reports the first mistake only when that line runs. Brevi reports it before running, and fixes the misspelling during the build with a one-line note instead of failing.</p>
         </div>
       </div>
     </div>
@@ -449,45 +315,36 @@ print(<span class="s">"total: "</span> + n)</pre>
       <div class="sec-head">
         <p class="label">Benchmarks</p>
         <div>
-          <h2>Tokens per finished task, against Python.</h2>
-          <p>Each figure is everything a model spends to finish every task in a set: the code it writes, the error output it reads, and each retry counted as the lines it changed. Counts are exact, from Anthropic's token counter, averaged over two or more runs. Lower is better.</p>
+          <h2>The same Python, run by CPython and built by Brevi.</h2>
+          <p>Four programs from Brevi's speed set, written the plain way in Python and in Rust. The Python files are built by Brevi unchanged, and every program prints the same output in all three columns. Best of three runs, in seconds; lower is better.</p>
         </div>
       </div>
       <div class="tables">
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Task set</th><th>Model</th><th class="n">Brevi</th><th class="n">Python</th><th class="n">Saved</th></tr>
+              <tr><th>Run time, seconds</th><th class="n">CPython</th><th class="n">Built by Brevi</th><th class="n">Faster</th><th class="n">Hand-written Rust</th></tr>
             </thead>
             <tbody>
-              <tr><td>6 held-out big tasks</td><td>Haiku</td><td class="n win">4,604</td><td class="n">5,847</td><td class="n save">21%</td></tr>
-              <tr><td>6 held-out big tasks</td><td>Sonnet</td><td class="n win">4,020</td><td class="n">4,220</td><td class="n save">5%</td></tr>
-              <tr><td>8 big tasks</td><td>Haiku</td><td class="n win">9,398</td><td class="n">10,556</td><td class="n save">11%</td></tr>
-              <tr><td>8 big tasks</td><td>Sonnet</td><td class="n win">8,284</td><td class="n">8,721</td><td class="n save">5%</td></tr>
-              <tr><td>18 small tasks</td><td>Sonnet</td><td class="n win">4,488</td><td class="n">5,052</td><td class="n save">11%</td></tr>
-              <tr><td>18 small tasks</td><td>Haiku</td><td class="n win">5,306</td><td class="n">5,794</td><td class="n save">8%</td></tr>
-              <tr><td>6 XL tasks, 2 multi-file</td><td>Sonnet</td><td class="n win">12,630</td><td class="n">13,128</td><td class="n save">4%</td></tr>
-              <tr><td>6 XL tasks, 2 multi-file</td><td>Haiku</td><td class="n">15,908</td><td class="n">15,658</td><td class="n">&minus;2%</td></tr>
-              <tr><td>6 held-out XL tasks (v0.19)</td><td>Sonnet</td><td class="n">9,042</td><td class="n win">7,990</td><td class="n">&minus;13%</td></tr>
-              <tr><td>6 held-out XL tasks (v0.19)</td><td>Haiku</td><td class="n">12,405</td><td class="n win">11,394</td><td class="n">&minus;9%</td></tr>
+              <tr><td>Word counts, 2M words</td><td class="n">0.28</td><td class="n win">0.06</td><td class="n save">4.7x</td><td class="n">0.07</td></tr>
+              <tr><td>Dijkstra, 100k nodes</td><td class="n">2.19</td><td class="n win">0.40</td><td class="n save">5.5x</td><td class="n">0.21</td></tr>
+              <tr><td>Prime sieve to 5M</td><td class="n">0.86</td><td class="n win">0.08</td><td class="n save">10.8x</td><td class="n">0.03</td></tr>
+              <tr><td>Group 1M records</td><td class="n">0.49</td><td class="n win">0.37</td><td class="n save">1.3x</td><td class="n">0.10</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">Held-out tasks were written after the language was tuned and never used to change it. Big tasks are programs of 50 to 200 lines; XL tasks are 150 to 400 lines, two of them split over several files. Brevi was improved using the XL runs, and single runs vary by about 10%, so the XL rows are close to level. The held-out XL rows are a fresh set written after that and show where Brevi still trails. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
-          <p class="note" style="margin-top: 14px;">Next goal: plain Python in, Rust speed out. Models write ordinary Python and Brevi builds it to a native program. The release test compares the full API cost of that against running the same models&rsquo; Python with CPython. On 1 November 2026 it stood at 1.16 times the cost for Sonnet and 0.94 times for Haiku, and 331 of 580 saved Python solutions already build and run correctly without a single change.</p>
+          <p class="note" style="margin-top: 14px;">Measured 2 November 2026 on one Linux machine. Grouping records is mostly string handling and map updates, where Brevi's generated code still has the most room to improve.</p>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Run time, seconds</th><th class="n">Python</th><th class="n">Brevi</th><th class="n">Rust</th></tr>
+              <tr><th>Model cost, 6 XL tasks</th><th class="n">CPython</th><th class="n">Brevi</th></tr>
             </thead>
             <tbody>
-              <tr><td>Word counts</td><td class="n">0.35</td><td class="n win">0.18</td><td class="n">0.09</td></tr>
-              <tr><td>Dijkstra</td><td class="n">2.90</td><td class="n win">0.47</td><td class="n">0.30</td></tr>
-              <tr><td>Prime sieve</td><td class="n">1.33</td><td class="n win">0.05</td><td class="n">0.02</td></tr>
-              <tr><td>Group records</td><td class="n">0.76</td><td class="n win">0.31</td><td class="n">0.12</td></tr>
+              <tr><td>Claude Sonnet</td><td class="n">$0.182</td><td class="n">$0.189</td></tr>
+              <tr><td>Claude Haiku</td><td class="n">$0.023</td><td class="n">$0.030</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">Best of three runs. On the hard tasks, models spend about 2.4 times as many tokens writing Rust as writing Brevi.</p>
+          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over two runs on the same day. Brevi's cost is close to Python's; the difference is the attempts where Brevi refused Python it cannot build yet, which each release reduces. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
         </div>
       </div>
     </div>
@@ -499,18 +356,18 @@ print(<span class="s">"total: "</span> + n)</pre>
         <p class="label">For agents</p>
         <div>
           <h2>Ready for coding agents from the first call.</h2>
-          <p>The compiler ships with the pieces an agent needs to write, check and fix Brevi without a human setting anything up.</p>
+          <p>The compiler ships with the pieces an agent needs to build, check and fix programs without a human setting anything up.</p>
         </div>
       </div>
       <div class="sec-head">
         <span></span>
         <ul class="agent-list">
           <li><h3>MCP server</h3><div><code>brevi mcp</code> serves <code>guide</code>, <code>check</code>, <code>run</code>, <code>test</code> and <code>patch</code> over stdio. Each tool takes the program as text, so the agent needs no files.</div></li>
-          <li><h3>Agent skill</h3><div>An Agent Skills package with setup and the write, check, fix loop: <a href="/skill.md">skill.md</a>.</div></li>
+          <li><h3>Agent skill</h3><div>An Agent Skills package that tells the agent to write ordinary Python and build it with Brevi: <a href="/skill.md">skill.md</a>.</div></li>
           <li><h3>llms.txt</h3><div>Machine-readable entry points at <a href="/llms.txt">/llms.txt</a> and <a href="/llms-full.txt">/llms-full.txt</a>, with the guide as plain Markdown at <a href="/guide.md">/guide.md</a>.</div></li>
           <li><h3>Edit by name</h3><div><code>brevi patch f.bv p.bv</code> replaces each function, type or test by name, so a fix costs only the lines that changed.</div></li>
           <li><h3>Libraries</h3><div><code>use "util.bv"</code> splits a program over files, and <code>use sha2 "0.10"</code> with <code>rust fn</code> or <code>py fn</code> calls Rust crates and Python code: <a href="/libraries.md">libraries.md</a>.</div></li>
-          <li><h3>Fast checks</h3><div><code>brevi check f.bv --fast</code> runs Brevi's own checks in about 3 ms without invoking rustc.</div></li>
+          <li><h3>Fast checks</h3><div><code>brevi check main.py --fast</code> runs Brevi's own checks in milliseconds without invoking rustc.</div></li>
         </ul>
       </div>
     </div>
@@ -534,7 +391,7 @@ print(<span class="s">"total: "</span> + n)</pre>
     <span>Brevi · Apache-2.0</span>
     <a href="/llms.txt">llms.txt</a>
     <a href="https://brevi.run">brevi.run</a>
-    <span class="end">Files end in <code>.bv</code></span>
+    <span class="end">Builds <code>.py</code> and <code>.bv</code></span>
   </div>
 </footer>
 </body>
