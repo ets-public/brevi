@@ -155,6 +155,29 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             }
         });
     }
+    // Names used as a dict proper: indexed by a computed key, looped over, or asked for its keys.
+    let mut dynamic: HashSet<String> = HashSet::new();
+    for it in items.iter() {
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        crate::infer::walk(body, &mut |e| match e {
+            Expr::Index(b, k) if key_name(k).is_none() => {
+                if let Expr::Ident(n) = b.as_ref() {
+                    dynamic.insert(n.clone());
+                }
+            }
+            Expr::Method(b, m, _, _) if matches!(m.as_str(), "pairs" | "keys" | "values" | "items" | "len" | "update" | "copy" | "pop" | "setdefault") => {
+                if let Expr::Ident(n) = b.as_ref() {
+                    dynamic.insert(n.clone());
+                }
+            }
+            Expr::For(_, it, _) => {
+                if let Expr::Ident(n) = it.as_ref() {
+                    dynamic.insert(n.clone());
+                }
+            }
+            _ => {}
+        });
+    }
     // Key sets put in the same name are one record (`cur = {'silent': True}` and the full one).
     let mut group: Vec<usize> = (0..sets.len()).collect();
     loop {
@@ -238,10 +261,17 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
         .iter()
         .filter(|s| {
             let all: HashSet<&str> = s.kinds.iter().flatten().copied().collect();
-            let differ = all.len() >= 2 || typed_mixed.iter().any(|k| s.sets.iter().any(|m| same(k, m)));
+            // A key that starts as None next to keys of plain kinds (`"last": None, "count": 0`) gets its own type later.
+            let none_slot = s.keys.iter().zip(&s.fixed).any(|(k, f)| matches!(f, Some(Expr::Call(n, _, _)) if n == "none") && s.sets.iter().any(|set| set.contains(k)));
+            // Every value an empty collection (`{"players": [], "names": set()}`) and the dict only ever read by
+            // its literal keys: each key gets its own type from later lines.
+            let holders: Vec<&String> = sets.iter().filter(|(k, _)| s.sets.iter().any(|m| same(k, m))).flat_map(|(_, h)| h.iter()).collect();
+            let fixed_use = !holders.is_empty() && holders.iter().all(|h| !dynamic.contains(*h));
+            let all_empty = s.fixed.iter().all(|f| matches!(f, Some(Expr::List(_) | Expr::Map(_)))) && fixed_use;
+            let differ = all_empty || all.len() >= 2 || (none_slot && !all.is_empty()) || typed_mixed.iter().any(|k| s.sets.iter().any(|m| same(k, m)));
             // Keys set later may show kinds; the literals' own keys show none.
             let own_plain = s.keys.iter().zip(&s.kinds).all(|(k, kd)| kd.is_empty() || !s.sets.iter().any(|set| set.contains(k)));
-            let named = eager && own_plain && s.keys.iter().zip(&s.fixed).all(|(k, f)| f.is_none() || !s.sets.iter().any(|set| set.contains(k)));
+            let named = eager && own_plain && holders.iter().all(|h| !dynamic.contains(*h)) && s.keys.iter().zip(&s.fixed).all(|(k, f)| f.is_none() || !s.sets.iter().any(|set| set.contains(k)));
             s.keys.len() >= 2 && (differ || named) && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
         })
         .collect();

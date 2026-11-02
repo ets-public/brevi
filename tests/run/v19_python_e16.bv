@@ -1,0 +1,69 @@
+# From the e16 trial's first attempts.
+state = {"accepted": 0, "last": None}
+seen = {"names": [], "dealt": []}
+
+
+class Stock:
+    def __init__(self):
+        self.lots = []
+        self.n = 0
+
+    def add(self, sku, qty, seq):
+        self.lots.append([sku, qty, seq])
+
+    def take(self, sku, qty):
+        cand = sorted((l for l in self.lots if l[0] == sku and l[1] > 0), key=lambda l: l[2])
+        taken = 0
+        for l in cand:
+            if taken == qty:
+                break
+            n = min(l[1], qty - taken)
+            l[1] -= n
+            taken += n
+        self.lots = [l for l in self.lots if l[1] > 0]
+        return taken
+
+
+class Orders:
+    def __init__(self):
+        self.backs = []
+        self.shipped = 0
+
+    def fill(self, stock, sku):
+        for b in self.backs:
+            if b[1] != sku:
+                continue
+            got = stock.take(sku, b[2])
+            b[2] -= got
+            self.shipped += got
+
+
+def ship(stock, q):
+    return stock.take("a", q)
+
+
+def main():
+    out = print
+    s = Stock()
+    s.add("a", 5, 2)
+    s.add("a", 4, 1)
+    o = Orders()
+    o.backs.append(["o1", "a", 3])
+    o.fill(s, "a")
+    out(ship(s, 2), [l[1] for l in s.lots], [b[2] for b in o.backs], o.shipped)
+    g = Stock() if s.lots else None
+    if g:
+        out("object is true")
+    state["last"] = "2026-01-02"
+    state["accepted"] += 1
+    seen["names"].append("ann")
+    seen["dealt"].append(3)
+    print(state, seen)
+    front = {("a", 1): [1], ("b", 2): [2]}
+    for (k, y) in front:
+        print(k, y)
+    p = ["x", "", "y"]
+    print(all(p[i] for i in range(2)), any(x for x in p))
+
+
+main()

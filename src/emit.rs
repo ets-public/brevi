@@ -1029,6 +1029,11 @@ impl Emitter {
                     for f in fields {
                         out.push_str(&format!("    pub {}: {},\n", f.name, self.field_ty(name, f)));
                     }
+                    // A Python object that is None is told apart from a real one with all-zero fields.
+                    let marked = crate::infer::py_on() && !crate::records::is_record(name);
+                    if marked {
+                        out.push_str("    pub ax_none_: bool,\n");
+                    }
                     // Python's `__str__` (or `__repr__`) is how the object prints.
                     let dunder = ["___str__", "___repr__"].iter().map(|d| format!("{name}{d}")).find(|f| self.fns.get(f).is_some_and(|s| s.params.len() == 1 && !s.fallible));
                     match dunder {
@@ -1045,7 +1050,21 @@ impl Emitter {
                         None => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n")),
                     }
                     // Python's None in a slot of this type: the zero value.
-                    out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Default::default() }} }}\n"));
+                    if marked {
+                        out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Self {{ ax_none_: true, ..Default::default() }} }} }}\n"));
+                    } else {
+                        out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Default::default() }} }}\n"));
+                    }
+                    // `if obj:` is true for any object (so false only for None), unless the class says how.
+                    let has = |d: &str| self.fns.get(&format!("{name}{d}")).is_some_and(|s| s.params.len() == 1 && !s.fallible);
+                    let truth = if has("___bool__") {
+                        format!("{name}___bool__(self.clone())")
+                    } else if has("___len__") {
+                        format!("{name}___len__(self.clone()) != 0")
+                    } else {
+                        "!AxNone::ax_is_none(self)".to_string()
+                    };
+                    out.push_str(&format!("impl AxTruth for {name} {{ fn ax_truth(&self) -> bool {{ {truth} }} }}\n"));
                 }
                 Item::Enum { name, variants, line } => {
                     out.push_str(&format!("/*@L{line}*/#[derive(Debug, Clone, PartialEq, PartialOrd)]\npub enum {name} {{\n"));
@@ -2167,6 +2186,9 @@ impl Emitter {
                 }
                 _ => {}
             }
+        }
+        if crate::infer::py_on() && !crate::records::is_record(owner) && !path.contains("::") {
+            parts.push("ax_none_: false".into());
         }
         format!("{path} {{ {} }}", parts.join(", "))
     }

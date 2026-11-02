@@ -247,6 +247,11 @@ fn split_pairs(stmts: &mut Vec<Stmt>) {
     }
 }
 
+// The names a statement's debug text mentions.
+fn idents(d: &str) -> Vec<String> {
+    d.split("Ident(\"").skip(1).filter_map(|r| r.split('"').next()).map(String::from).collect()
+}
+
 fn names(e: &Expr, n: &str) -> bool {
     let d = format!("{e:?}");
     d.contains(&format!("Ident({n:?})")) || d.contains(&format!("Move({n:?})"))
@@ -268,21 +273,32 @@ fn fold_local_copies(stmts: &mut Vec<Stmt>, tail: &Option<Box<Expr>>) {
         // The setting of x, then at most an in-place sort, right before the loop.
         let mut def = None;
         let mut sort: Option<(String, Vec<Expr>, usize)> = None;
+        // Statements between that touch nothing the setting reads (`taken = 0`) may stay before the loop.
+        let mut between: Vec<Stmt> = vec![];
+        let mut sort_at = None;
         for j in (0..k).rev() {
             match &stmts[j] {
-                Stmt::Expr { expr: Expr::Method(r, m, args, l), .. } if matches!(r.as_ref(), Expr::Ident(n) if *n == x) && matches!(m.as_str(), "sort" | "sort_by") && sort.is_none() && j + 1 == k => {
+                Stmt::Expr { expr: Expr::Method(r, m, args, l), .. } if matches!(r.as_ref(), Expr::Ident(n) if *n == x) && matches!(m.as_str(), "sort" | "sort_by") && sort.is_none() && between.is_empty() => {
                     sort = Some((m.clone(), args.clone(), *l));
+                    sort_at = Some(j);
                 }
                 Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if *n == x => {
                     let next = if sort.is_some() { j + 2 } else { j + 1 };
-                    if next == k && matches!(value, Expr::Method(_, m, _, _) if m == "filter" || m == "sort_by" || m == "sort") {
+                    let ok_between = between.iter().all(|b| {
+                        let d = format!("{b:?}");
+                        let reads = format!("{value:?}");
+                        !names(&Expr::Block(vec![b.clone()], None), &x) && !d.contains("Call(") && !d.contains("Method(") && idents(&d).iter().all(|i| !reads.contains(&format!("Ident({i:?})")))
+                    });
+                    if next + between.len() == k && ok_between && matches!(value, Expr::Method(_, m, _, _) if m == "filter" || m == "sort_by" || m == "sort") {
                         def = Some((j, value.clone()));
                     }
                     break;
                 }
+                st if sort.is_none() && !names(&Expr::Block(vec![st.clone()], None), &x) => between.push(st.clone()),
                 _ => break,
             }
         }
+        let _ = sort_at;
         let Some((j, value)) = def else { k += 1; continue };
         // x must not be read after the loop.
         let later = stmts[k + 1..].iter().any(|st| names(&Expr::Block(vec![st.clone()], None), &x)) || tail.as_ref().is_some_and(|t| names(t, &x));
@@ -297,8 +313,10 @@ fn fold_local_copies(stmts: &mut Vec<Stmt>, tail: &Option<Box<Expr>>) {
         if let Stmt::Expr { expr: Expr::For(_, it, _), .. } = &mut stmts[k] {
             **it = new_it;
         }
-        stmts.drain(j..k);
-        k = j + 1;
+        // Drop the setting (and its sort); the statements between stay, in order.
+        let drop_to = k - between.len();
+        stmts.drain(j..drop_to);
+        k = j + between.len() + 1;
     }
 }
 
@@ -385,6 +403,17 @@ fn stored(st: &Stmt) -> Option<(String, String, usize)> {
 fn derived_loops(e: &Expr, cx: &mut Cx) {
     let mut found: Vec<(String, String, usize)> = vec![];
     let muts = cx.mutators.clone();
+    // Locals set to a filtered, sorted or sliced copy of a list (`cand = sorted(l for l in self.lots if ...)`):
+    // their items are copies too.
+    let mut copies: HashSet<String> = HashSet::new();
+    any_expr(e, &mut |st| {
+        if let Stmt::Let { name: Pat::Bind(x), value: Expr::Method(r, m, _, _), .. } | Stmt::Assign { target: Expr::Ident(x), op: "=", value: Expr::Method(r, m, _, _), .. } = st {
+            if matches!(m.as_str(), "filter" | "sort" | "sort_by" | "rev" | "slice" | "take" | "skip" | "unique") && mentions_name(r) {
+                copies.insert(x.clone());
+            }
+        }
+        false
+    });
     any_expr(e, &mut |st| {
         if let Stmt::Expr { expr: Expr::For(p, it, body), line } = st {
             let names: Vec<String> = match p {
@@ -395,6 +424,7 @@ fn derived_loops(e: &Expr, cx: &mut Cx) {
             let derived = match it.as_ref() {
                 Expr::Method(r, m, _, _) => !["keys", "lines", "words", "split", "chars", "range"].contains(&m.as_str()) && mentions_name(r),
                 Expr::Call(f, args, _) => f != "range" && args.iter().any(|(_, a)| mentions_name(a)),
+                Expr::Ident(x) => copies.contains(x),
                 _ => false,
             };
             if derived {
@@ -779,6 +809,14 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
     // `m.get(k, [])` at the bottom: the list m[k].
     let mut got: Option<Expr> = None;
     loop {
+        if steps.is_empty() && matches!(cur, Expr::Ident(_) | Expr::Field(..)) {
+            // A plain list: name the index after the body's first line.
+            line = match body.as_ref() {
+                Expr::Block(st, _) => st.first().map(stmt_line).unwrap_or(0),
+                _ => 0,
+            };
+            break;
+        }
         match cur {
             Expr::Method(r, m, args, l) if m == "get_or" && matches!(args.as_slice(), [k, Expr::List(d)] if d.is_empty() && plain_key(k)) && matches!(r.as_ref(), Expr::Ident(_) | Expr::Field(..)) => {
                 got = Some(Expr::Index(r.clone(), Box::new(args[0].clone())));
@@ -811,7 +849,9 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
     }
     let base = got.unwrap_or_else(|| cur.clone());
     let Some(b) = root(&base).map(String::from) else { return None };
-    if steps.is_empty() && !matches!(base, Expr::Index(..)) {
+    // A plain `for b in self.backs` changes the items in place, unless the body also reads the list's
+    // owner (`self.shipped += got`): then it goes by index too, so each change is written back.
+    if steps.is_empty() && !matches!(base, Expr::Index(..)) && !names(body, &b) {
         return None;
     }
     steps.reverse();
