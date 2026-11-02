@@ -1,0 +1,15 @@
+show
+tap 1 50 50
+tap 1 60 60
+tap 1 150 50
+tap 1 50 150
+tap 1 250 50
+tap 1 50 250
+show
+tap 1 150 150
+wait 1000
+show
+wait 1999
+show
+wait 1
+show

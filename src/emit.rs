@@ -44,6 +44,8 @@ pub struct Emitter {
     // Files the program uses: (name, first line in the combined source, line count).
     pub files: Vec<(String, usize, usize)>,
     structs: HashMap<String, Vec<Field>>,
+    // Python classes, which carry a None mark (types the runtime builds itself, at line 0, do not).
+    marked: HashSet<String>,
     variants: HashMap<String, (String, Vec<Field>)>,
     fns: HashMap<String, FnSig>,
     // Per-function state.
@@ -640,6 +642,7 @@ impl Emitter {
             foreign: Default::default(),
             files: vec![],
             structs: HashMap::new(),
+            marked: HashSet::new(),
             variants: HashMap::new(),
             fns: HashMap::new(),
             locals: HashSet::new(),
@@ -681,8 +684,11 @@ impl Emitter {
         }
         for it in items {
             match it {
-                Item::Type { name, fields, .. } => {
+                Item::Type { name, fields, line } => {
                     e.structs.insert(name.clone(), fields.clone());
+                    if *line > 0 && crate::infer::py_on() && !crate::records::is_record(name) {
+                        e.marked.insert(name.clone());
+                    }
                 }
                 Item::Enum { name, variants, .. } => {
                     for v in variants {
@@ -1029,21 +1035,42 @@ impl Emitter {
                     for f in fields {
                         out.push_str(&format!("    pub {}: {},\n", f.name, self.field_ty(name, f)));
                     }
+                    // A Python object that is None is told apart from a real one with all-zero fields.
+                    let marked = self.marked.contains(name);
+                    if marked {
+                        out.push_str("    pub ax_none_: bool,\n");
+                    }
                     // Python's `__str__` (or `__repr__`) is how the object prints.
                     let dunder = ["___str__", "___repr__"].iter().map(|d| format!("{name}{d}")).find(|f| self.fns.get(f).is_some_and(|s| s.params.len() == 1 && !s.fallible));
                     match dunder {
                         // A Python dict made a record prints as the dict, and is a JSON object for json.dumps.
                         None if crate::records::is_record(name) => {
-                            let parts: Vec<String> = fields.iter().map(|f| format!("format!(\"'{1}': {{}}\", show_item(&self.{0}))", f.name, crate::records::key_of(&f.name))).collect();
-                            let pairs: Vec<String> = fields.iter().map(|f| format!("(String::from(\"{1}\"), AxToJson::ax_json(&self.{0}))", f.name, crate::records::key_of(&f.name))).collect();
-                            out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{{{{{}}}}}}\", [{}].join(\", \")) }} }}\n", parts.join(", ")));
-                            out.push_str(&format!("impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ ax_obj(vec![{}]) }} }}\n", pairs.join(", ")));
+                            // A key only some of the dicts have is left out while it is None, as Python's dict lacks it.
+                            let when = |f: &Field| if crate::records::is_optional(name, &f.name) { format!("if !AxNone::ax_is_none(&self.{}) ", f.name) } else { String::new() };
+                            let parts: Vec<String> = fields.iter().map(|f| format!("{2}{{ v.push(format!(\"'{1}': {{}}\", show_item(&self.{0}))); }}", f.name, crate::records::key_of(&f.name), when(f))).collect();
+                            let pairs: Vec<String> = fields.iter().map(|f| format!("{2}{{ v.push((String::from(\"{1}\"), AxToJson::ax_json(&self.{0}))); }}", f.name, crate::records::key_of(&f.name), when(f))).collect();
+                            out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ let mut v: Vec<String> = vec![]; {} format!(\"{{{{{{}}}}}}\", v.join(\", \")) }} }}\n", parts.join(" ")));
+                            out.push_str(&format!("impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ let mut v = vec![]; {} ax_obj(v) }} }}\n", pairs.join(" ")));
                         }
                         Some(f) => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ {f}(self.clone()).to_string() }} }}\n")),
                         None => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n")),
                     }
                     // Python's None in a slot of this type: the zero value.
-                    out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Default::default() }} }}\n"));
+                    if marked {
+                        out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Self {{ ax_none_: true, ..Default::default() }} }} }}\n"));
+                    } else {
+                        out.push_str(&format!("impl AxNone for {name} {{ fn ax_none() -> Self {{ Default::default() }} }}\n"));
+                    }
+                    // `if obj:` is true for any object (so false only for None), unless the class says how.
+                    let has = |d: &str| self.fns.get(&format!("{name}{d}")).is_some_and(|s| s.params.len() == 1 && !s.fallible);
+                    let truth = if has("___bool__") {
+                        format!("{name}___bool__(self.clone())")
+                    } else if has("___len__") {
+                        format!("{name}___len__(self.clone()) != 0")
+                    } else {
+                        "!AxNone::ax_is_none(self)".to_string()
+                    };
+                    out.push_str(&format!("impl AxTruth for {name} {{ fn ax_truth(&self) -> bool {{ {truth} }} }}\n"));
                 }
                 Item::Enum { name, variants, line } => {
                     out.push_str(&format!("/*@L{line}*/#[derive(Debug, Clone, PartialEq, PartialOrd)]\npub enum {name} {{\n"));
@@ -2165,6 +2192,9 @@ impl Emitter {
                 }
                 _ => {}
             }
+        }
+        if self.marked.contains(owner) && !path.contains("::") {
+            parts.push("ax_none_: false".into());
         }
         format!("{path} {{ {} }}", parts.join(", "))
     }

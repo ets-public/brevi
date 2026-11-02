@@ -11,4 +11,6 @@ XL2 = "grep_lite payroll league crafting tiny_cpu parking".split()
 XL3 = "books toc poker trains quiz warehouse".split()
 # "Huge" held-out set (ref/gen_huge.py, 1 Nov 2026): 300-800 line programs over 3-4 files, for the big-programs push.
 HUGE = "minilang chess adventure".split()
-SETS = {"small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3, "huge": HUGE}
+# GUI set (ref/gen_gui.py, 1 Nov 2026): tkinter apps tested headlessly (tkshim/ for CPython, runtime/brevi_tk for Brevi).
+GUI = "todo_app calc_app tictactoe_app".split()
+SETS = {"gui": GUI, "small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3, "huge": HUGE}

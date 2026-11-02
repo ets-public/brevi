@@ -500,6 +500,12 @@ impl<T> AxTruth for AxHeap<T> {
         !self.0.is_empty()
     }
 }
+// A date is always true; only a date still None is false.
+impl AxTruth for Date {
+    fn ax_truth(&self) -> bool {
+        self.days != i64::MIN
+    }
+}
 impl AxTruth for Dec {
     fn ax_truth(&self) -> bool {
         self.0 != 0

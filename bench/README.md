@@ -23,6 +23,12 @@ python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
 
 The test passes when, averaged over two runs, `pyb` costs no more dollars than `python` for both Sonnet and Haiku, and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Latest result is run `e14` (1 Nov 2026, one run): Sonnet $0.205 against $0.176 (1.16x), Haiku $0.024 against $0.025 (0.94x). Not yet passed. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
+## GUI programs (set `gui`, since 1 Nov 2026)
+
+Three tkinter apps from `ref/gen_gui.py`: `todo_app` (entry, list, checkbox, dialogs), `calc_app` (grid of buttons, key bindings, history) and `tictactoe_app` (canvas clicks, drawing, `after` countdown). The model writes an ordinary tkinter program. Tests drive it without a screen: `mainloop()` reads actions from stdin (`click Add`, `type 1 milk`, `tap 1 50 50`, `wait 1000`, ...) and `show` prints the window as text. Under CPython that is the stand-in in `tkshim/` (on `PYTHONPATH` for `--lang python`); built by Brevi it will be `runtime/brevi_tk` in headless mode. `tools/gui_shim_check.sh` checks the two print the same. Expected outputs come from the reference programs in `ref/gui/`.
+
+First run `g1` (1 Nov 2026, Python only): Sonnet 3/3, all first try ($0.054); Haiku 3/3, all first try ($0.007). Brevi cannot build tkinter programs yet, so `--lang pyb` fails every task; this set measures that work.
+
 ## Huge programs (set `huge`, since 1 Nov 2026)
 
 Programs of 200 to 750 lines over 3 or 4 files, where Brevi's plain-Python acceptance drops off (on 1 Nov, 95% of saved solutions under 40 lines built unchanged, 11% of those over 150 lines). Three held-out tasks from `ref/gen_huge.py`: `minilang` (an interpreter for a small language), `chess` (a referee with castling, en passant, promotion, mate and undo) and `adventure` (a text-adventure engine with world checking). Run like the release test with `--set huge`.

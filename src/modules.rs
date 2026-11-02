@@ -137,9 +137,9 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                 // A docstring that does not close on its own line.
                 in_doc = !t[3..].contains(q);
             }
-            if let Some(g) = gui_import(l) {
+            if let Some(g) = gui_import(l).filter(|g| *g != "tkinter") {
                 let at = if name.is_empty() { String::new() } else { format!("\"file\":\"{}\",", crate::diag::esc(&name)) };
-                return Err(format!("{{{at}\"line\":{},\"msg\":\"{g} is not supported yet: Brevi has no GUI library\",\"fix\":\"write a program without a window (print, input, files), or run this one with python3\"}}", i + 1));
+                return Err(format!("{{{at}\"line\":{},\"msg\":\"{g} is not supported yet: the GUI library Brevi compiles is tkinter\",\"fix\":\"write the window with tkinter, or run this program with python3\"}}", i + 1));
             }
             // Each file to bring in, as written (or found) and its path on disk.
             let mut paths: Vec<(String, PathBuf)> = use_path(l.trim_end()).map(|p| vec![(p.to_string(), dir.join(p))]).unwrap_or_default();

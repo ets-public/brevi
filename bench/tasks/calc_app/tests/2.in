@@ -1,0 +1,16 @@
+click 0
+click 0
+click 7
+click +
+click =
+click 1
+click =
+key 0 +
+key 0 2
+key 0 *
+key 0 3
+key 0 =
+show
+key 0 x
+key 0 Escape
+show

@@ -1,0 +1,21 @@
+type 1 a
+click Add
+type 1 b
+click Add
+type 1 c
+click Add
+select 1 1
+click Done
+click Clear done
+show
+type 1 b
+click Add
+select 1 1
+click Done
+show
+click Hide done
+select 1 0
+click Done
+show
+click Hide done
+show

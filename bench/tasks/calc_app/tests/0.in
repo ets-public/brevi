@@ -1,0 +1,28 @@
+show
+click 1
+click 2
+click +
+click 3
+click =
+show
+click *
+click 4
+click -
+click 6
+click =
+key 0 5
+key 0 /
+key 0 0
+key 0 Return
+show
+click 7
+key 0 Escape
+key 0 9
+key 0 0
+key 0 /
+key 0 7
+key 0 =
+click 0
+click 0
+click 3
+show

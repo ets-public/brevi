@@ -1,0 +1,13 @@
+type 1 one
+click Add
+type 1 two
+click Add
+click Hide done
+select 1 0
+click Done
+show
+select 1 0
+click Done
+show
+click Hide done
+show

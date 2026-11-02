@@ -6,6 +6,7 @@ mod caps;
 mod diag;
 mod emit;
 mod ffi;
+mod gui;
 mod json;
 mod lexer;
 mod moves;
@@ -19,7 +20,7 @@ use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--sandbox] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--sandbox] [--window] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -173,6 +174,9 @@ fn main() {
     }
     let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
     let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
+        gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let (cmd, file) = match (argv.first(), argv.get(1)) {
         (Some(c), Some(f)) => (c.as_str(), f.clone()),
         _ => {
@@ -210,7 +214,12 @@ fn main() {
         exit(1);
     }
     let foreign = ffi::split(&src).1;
-    DEPS.set(ffi::all_deps(&foreign)).ok();
+    let mut deps = ffi::all_deps(&foreign);
+    // A tkinter program built with --window draws through eframe.
+    if gui::window() && src.lines().any(|l| (l.starts_with("import tkinter") || l.starts_with("from tkinter")) && !deps.iter().any(|d| d.name == "eframe")) {
+        deps.push(gui::window_dep());
+    }
+    DEPS.set(deps).ok();
     RUST_LINES.set(foreign.rust_lines.clone()).ok();
     let (src, fixed) = autofix(&src, cmd == "fix");
     for (line, old, new) in &fixed {
@@ -332,7 +341,7 @@ fn has_untyped_map(items: &[ast::Item]) -> bool {
         if let ast::Item::Fn { body, .. } = it {
             infer::walk(body, &mut |e| {
                 if let ast::Expr::Map(ps) = e {
-                    if ps.len() > 1 && ps.iter().all(|(k, v)| matches!(k, ast::Expr::Str(_)) && matches!(v, ast::Expr::Ident(_) | ast::Expr::Field(..))) {
+                    if ps.len() > 1 && ps.iter().all(|(k, v)| matches!(k, ast::Expr::Str(_)) && matches!(v, ast::Expr::Ident(_) | ast::Expr::Field(..) | ast::Expr::Call(..))) {
                         hit = true;
                     }
                 }
@@ -373,8 +382,11 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
 }
 
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
-    let (src, foreign) = ffi::split(src);
+    let (src, mut foreign) = ffi::split(src);
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
+    if gui::active() {
+        foreign.rust_top.push_str(&gui::runtime());
+    }
     ffi::attach(&mut items, &foreign);
     used_consts_first(&mut items);
     if python_style(&src) {
