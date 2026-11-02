@@ -1,0 +1,43 @@
+class Backorder:
+    def __init__(self, oid, sku, remaining):
+        self.id = oid
+        self.sku = sku
+        self.remaining = remaining
+
+class Orders:
+    def __init__(self):
+        self.backorders = []
+
+    def add(self, oid, sku, n):
+        self.backorders.append(Backorder(oid, sku, n))
+
+    def waiting(self, sku):
+        return [b for b in self.backorders if b.sku == sku]
+
+    def remove(self, bo):
+        self.backorders = [b for b in self.backorders if b is not bo]
+
+
+
+def main():
+    orders = Orders()
+    orders.add(1, "a", 3)
+    orders.add(2, "a", 5)
+    stock = 6
+    for line in ["x", "y"]:
+        if line == "z":
+            print("no")
+        elif stock < 0:
+            print("neg")
+        else:
+            for bo in orders.waiting("a"):
+                got = min(stock, bo.remaining)
+                stock -= got
+                bo.remaining -= got
+                if bo.remaining == 0:
+                    orders.remove(bo)
+                    print("done", bo.id)
+                else:
+                    print("left", bo.id, bo.remaining)
+
+main()
