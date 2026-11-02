@@ -1,0 +1,56 @@
+def initial():
+    return [['.'] * 3 for _ in range(3)]
+
+def new_state():
+    return (initial(), 'w', None)
+
+def render(b):
+    return "\n".join(" ".join(r) for r in b)
+
+def apply(st, m):
+    b = [row[:] for row in st[0]]
+    b[m[0]][m[1]] = 'X'
+    ep = (m[0], m[1]) if m[0] == 1 else None
+    return (b, 'b' if st[1] == 'w' else 'w', ep)
+
+def main():
+    state = new_state()
+    print(render(state[0]))
+    state = apply(state, (1, 2))
+    print(render(state[0]), state[1], state[2])
+main()
+
+
+class State:
+    def __init__(self, board, white, ep):
+        self.board = board
+        self.turn = white
+        self.ep = ep
+
+    def copy(self):
+        return State(list(self.board), self.turn, self.ep)
+
+
+def push(st, frm, to):
+    ns = st.copy()
+    ns.ep = None
+    if abs(to - frm) == 2:
+        ns.ep = (frm + to) // 2
+    ns.turn = not st.turn
+    return ns
+
+
+def find(b, k):
+    for r in range(2):
+        for f in range(2):
+            if b[r][f] == k:
+                return r, f
+
+
+s = State(['.'] * 8, True, None)
+s = push(s, 1, 3)
+print(s.ep, s.ep == 2, s.turn)
+s = push(s, 3, 4)
+print(s.ep, s.ep == 2)
+P, N, K = ("PNK" if s.turn else "pnk")
+print(P + N + K, "N" in (P, N), find([["a", "b"], ["c", "d"]], "c"), find([["a", "b"], ["c", "d"]], "z"))

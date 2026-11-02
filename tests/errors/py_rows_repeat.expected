@@ -1,0 +1,1 @@
+{"line":2,"msg":"[[...]] * n makes every row the same list in Python, so changing one row changes them all","fix":"write [[0] * 3 for _ in range(3)] for separate rows"}

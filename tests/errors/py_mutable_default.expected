@@ -1,0 +1,1 @@
+{"line":1,"msg":"the default value of acc is made once in Python and kept between calls, so changing it inside the function changes it for later calls","fix":"write acc=None and set acc = [] (or {}) inside the function when it is None"}

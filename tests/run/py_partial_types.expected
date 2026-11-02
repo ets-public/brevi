@@ -1,0 +1,10 @@
+. . .
+. . .
+. . .
+. . .
+. . X
+. . . b (1, 2)
+2 True False
+None False
+PNK True (1, 0) None
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

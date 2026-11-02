@@ -327,6 +327,10 @@ impl<T> AxShared for AxRow<T> {}
 impl<T: AxShared> AxShared for Vec<T> {}
 impl<K, V: AxShared> AxShared for AxM<K, V> {}
 pub fn ax_shared<T: AxShared>(_: &T) {}
+// A value that is itself shared (an object, a row), so a second name for it sees appends and item changes.
+pub trait AxWhole {}
+impl<T> AxWhole for AxRow<T> {}
+pub fn ax_shared_whole<T: AxWhole>(_: &T) {}
 pub trait AxIsNoneHandle {
     fn ax_null(&self) -> bool;
 }
@@ -3425,6 +3429,22 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone> AxIn<K> for AxM<K, V> {
         self.contains_key(x)
     }
 }
+// `c in (R, Q)` on a tuple of like items.
+impl<T: PartialEq> AxIn<T> for (T, T) {
+    fn ax_in(&self, x: &T) -> bool {
+        self.0 == *x || self.1 == *x
+    }
+}
+impl<T: PartialEq> AxIn<T> for (T, T, T) {
+    fn ax_in(&self, x: &T) -> bool {
+        self.0 == *x || self.1 == *x || self.2 == *x
+    }
+}
+impl<T: PartialEq> AxIn<T> for (T, T, T, T) {
+    fn ax_in(&self, x: &T) -> bool {
+        self.0 == *x || self.1 == *x || self.2 == *x || self.3 == *x
+    }
+}
 impl<T: PartialEq> AxIn<T> for Vec<T> {
     fn ax_in(&self, x: &T) -> bool {
         self.iter().any(|y| y == x)
@@ -3867,6 +3887,15 @@ ax_unpack_many!(9; A B C D E F G H I);
 ax_unpack_many!(10; A B C D E F G H I J);
 ax_unpack_many!(11; A B C D E F G H I J K);
 ax_unpack_many!(12; A B C D E F G H I J K L);
+// Python's `P, N, K = "PNK"`: a string unpacks into its characters.
+impl<U> AxUnpack<U> for String
+where
+    Vec<String>: AxUnpack<U>,
+{
+    fn ax_unpack(self) -> U {
+        self.chars().map(|c| c.to_string()).collect::<Vec<String>>().ax_unpack()
+    }
+}
 // Python's `a ** b`: an int to a whole power stays an int; with a float on either side it is a float.
 pub trait AxPow<B> {
     type Out;

@@ -1051,6 +1051,10 @@ impl Emitter {
                         out.push_str(&format!("}}\n#[derive(Clone, Copy)]\npub struct {name}(*mut {data});\n"));
                         out.push_str(&format!("impl {name} {{ pub fn ax_new(d: {data}) -> Self {{ {name}(Box::into_raw(Box::new(d))) }} #[inline] pub fn ax_d(&self) -> &'static mut {data} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &mut *self.0 }} }} }}\n"));
                         out.push_str(&format!("impl Default for {name} {{ fn default() -> Self {{ {name}(std::ptr::null_mut()) }} }}\n"));
+                        if crate::records::is_record(name) {
+                            // `dict(v)` / `v.copy()` on a dict record: a new dict with the same values.
+                            out.push_str(&format!("impl {name} {{ pub fn ax_to_dict(&self) -> Self {{ Self::ax_new((**self).clone()) }} pub fn skip(&self, _n: i64) -> Self {{ self.ax_to_dict() }} }}\n"));
+                        }
                         out.push_str(&format!("impl std::ops::Deref for {name} {{ type Target = {data}; fn deref(&self) -> &{data} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &*self.0 }} }} }}\n"));
                         out.push_str(&format!("impl std::ops::DerefMut for {name} {{ fn deref_mut(&mut self) -> &mut {data} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &mut *self.0 }} }} }}\n"));
                         // Equal when the same object, or (as before) when both hold equal data.
@@ -1059,6 +1063,7 @@ impl Emitter {
                         out.push_str(&format!("impl std::fmt::Debug for {name} {{ fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {{ if self.0.is_null() {{ write!(f, \"None\") }} else {{ (**self).fmt(f) }} }} }}\n"));
                         out.push_str(&format!("impl AxIsNoneHandle for {name} {{ fn ax_null(&self) -> bool {{ self.0.is_null() }} }}\n"));
                         out.push_str(&format!("impl AxShared for {name} {{}}\n"));
+                        out.push_str(&format!("impl AxWhole for {name} {{}}\n"));
                         // The `}` that ends the struct in the other cases ends this empty impl.
                         out.push_str(&format!("impl {data} {{\n"));
                     }
@@ -2096,12 +2101,13 @@ impl Emitter {
         }
         // A copy that is only wrong when the value is not shared: the Rust compiler checks the value's type,
         // and an error there reports the message carried (hex) in the comment.
-        if name == "__shared" && args.len() == 2 {
+        if name == "__shared" && (args.len() == 2 || args.len() == 3) {
             let hex = match &args[1].1 {
                 Expr::Str(parts) => parts.iter().map(|p| if let StrPart::Lit(t) = p { t.clone() } else { String::new() }).collect::<String>(),
                 _ => String::new(),
             };
-            return format!("ax_shared(&{}) /*axsh:{hex}*/", self.place(&args[0].1));
+            let f = if args.len() == 3 { "ax_shared_whole" } else { "ax_shared" };
+            return format!("{f}(&{}) /*axsh:{hex}*/", self.place(&args[0].1));
         }
         // `str({"id": i, "error": m})` writes the keys in the order given, as Python does.
         if name == "str" && args.len() == 1 {

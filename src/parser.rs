@@ -331,10 +331,44 @@ impl Parser {
             if std::mem::replace(&mut self.yields, saved_yields) {
                 body = generator_body(body, line);
             }
+            // Python makes a default `[]` or `{}` once, so a function that changes it sees the earlier calls'
+            // changes. Brevi makes it fresh at each call: refused.
+            if self.py {
+                if let Some((names, defaults, _)) = self.sigs.get(&name) {
+                    for (pn, d) in names.iter().zip(defaults) {
+                        let mutable = matches!(d, Some(Expr::List(_) | Expr::Map(_))) || matches!(d, Some(Expr::Call(f, _, _)) if f == "set" || f == "dict" || f == "list");
+                        if !mutable {
+                            continue;
+                        }
+                        let mut changed = false;
+                        let mut b = body.clone();
+                        walk_mut(&mut b, &mut |e| {
+                            if let Expr::Method(r, m, _, _) = e {
+                                if matches!(r.as_ref(), Expr::Ident(n) if n == pn) && ["push", "append", "pop", "insert", "remove", "clear", "extend", "update", "add", "discard", "setdefault", "sort", "reverse", "popleft", "appendleft"].contains(&m.as_str()) {
+                                    changed = true;
+                                }
+                            }
+                            if let Expr::Block(ss, _) = e {
+                                for s in ss.iter() {
+                                    match s {
+                                        Stmt::Assign { target: Expr::Index(r, _), .. } if matches!(r.as_ref(), Expr::Ident(n) if n == pn) => changed = true,
+                                        Stmt::Assign { target: Expr::Ident(n), op, .. } if n == pn && *op != "=" => changed = true,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        });
+                        if changed {
+                            return Err(Diag::new("parse", line, 1, &format!("the default value of {pn} is made once in Python and kept between calls, so changing it inside the function changes it for later calls")).fix_hint(&format!("write {pn}=None and set {pn} = [] (or {{}}) inside the function when it is None")));
+                        }
+                    }
+                }
+            }
             let mut kids = kids;
             if self.py {
                 lambdas_to_defs(&mut body, &mut kids, line, &[]);
                 unbox_cells(&mut body, &mut kids);
+                fall_off_none(&mut body, line);
             }
             if !kids.is_empty() {
                 let lifted = lift_nested(&name, &params, &mut body, kids);
@@ -1384,6 +1418,9 @@ impl Parser {
                     Some(p) => Expr::Str(p),
                     None => Expr::Binary(op, Box::new(lhs), Box::new(rhs)),
                 }
+            } else if self.py && op == "*" && [&lhs, &rhs].iter().any(|x| matches!(x, Expr::List(xs) if xs.iter().any(|i| matches!(i, Expr::List(_) | Expr::Map(_) | Expr::Method(_, _, _, _))))) {
+                // Python's `[[0] * 3] * 3` repeats one inner list, so all rows are the same list.
+                return Err(self.err("[[...]] * n makes every row the same list in Python, so changing one row changes them all").fix_hint("write [[0] * 3 for _ in range(3)] for separate rows"));
             } else if op == "*" && matches!(lhs, Expr::List(_)) {
                 // Python's `[0] * n` repeats the list.
                 Expr::Method(Box::new(lhs), "repeat".into(), vec![rhs], self.line())
@@ -1729,7 +1766,9 @@ impl Parser {
                                 continue;
                             }
                             // `xs.to_list()` / `xs.copy()`: a list already is one, so this is a copy.
-                            let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() {
+                            // (A Python program with its own `def copy(self)` keeps `.copy()` until the value's type is known.)
+                            let own_copy = name == "copy" && self.py && self.user_fns.iter().any(|f| f == "copy");
+                            let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() && !own_copy {
                                 args.push(Expr::Int(0));
                                 "skip".to_string()
                             } else {
@@ -2829,6 +2868,41 @@ fn bind_upper(p: Pat) -> Pat {
         Pat::Variant(n, args) if args.is_empty() => Pat::Bind(n),
         Pat::Tuple(ps) => Pat::Tuple(ps.into_iter().map(bind_upper).collect()),
         p => p,
+    }
+}
+
+// Python: a function that returns a value on some paths (`return r, f` inside a loop) and can run off its end
+// gives None there.
+fn fall_off_none(body: &mut Expr, line: usize) {
+    let mut has_value = false;
+    walk_mut(body, &mut |e| {
+        if let Expr::Block(ss, _) = e {
+            has_value |= ss.iter().any(|s| matches!(s, Stmt::Return { value: Some(_), .. }));
+        }
+        // A lambda's body is its own function.
+        if let Expr::Lambda(..) = e {}
+    });
+    let Expr::Block(stmts, tail) = body else { return };
+    if !has_value {
+        return;
+    }
+    // The block's last line is often held as its value (a loop that gives no value).
+    if let Some(t) = tail.take() {
+        if matches!(t.as_ref(), Expr::For(..) | Expr::While(..) | Expr::If(_, _, None)) {
+            stmts.push(Stmt::Expr { expr: *t, line });
+        } else {
+            *tail = Some(t);
+            return;
+        }
+    }
+    let falls = match stmts.last() {
+        Some(Stmt::Expr { expr: Expr::For(..), .. }) => true,
+        Some(Stmt::Expr { expr: Expr::While(c, _), .. }) => !matches!(c.as_ref(), Expr::Bool(true)),
+        Some(Stmt::Expr { expr: Expr::If(_, _, None), .. }) => true,
+        _ => false,
+    };
+    if falls {
+        *tail = Some(Box::new(Expr::Call("none".into(), vec![], line)));
     }
 }
 

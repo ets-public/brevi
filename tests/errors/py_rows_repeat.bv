@@ -1,0 +1,5 @@
+def main():
+    g = [[0] * 2] * 2
+    g[0][0] = 5
+    print(g)
+main()
