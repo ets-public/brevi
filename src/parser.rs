@@ -707,6 +707,15 @@ impl Parser {
             let e = self.expr()?;
             return match e {
                 Expr::Index(b, k) => Ok(Stmt::Expr { expr: Expr::Method(b, "remove".into(), vec![*k], line), line }),
+                // `del xs[a:]` and `del xs[a:b]` keep the items around the slice.
+                Expr::Method(b, m, mut a, _) if m == "slice" && (a.len() == 1 || a.len() == 2) => {
+                    let from = a.remove(0);
+                    let mut value = Expr::Method(b.clone(), "slice".into(), vec![Expr::Int(0), from], line);
+                    if let Some(to) = a.pop() {
+                        value = Expr::Binary("+", Box::new(value), Box::new(Expr::Method(b.clone(), "slice".into(), vec![to], line)));
+                    }
+                    Ok(Stmt::Assign { target: *b, op: "=", value, line })
+                }
                 _ => Err(self.err("del takes m[k] or xs[i]").fix_hint("write del m[k]")),
             };
         }
@@ -1960,6 +1969,16 @@ impl Parser {
                     if name == "enumerate" && args.len() == 2 && args[1].0.as_deref() == Some("start") && !self.user_fns.contains(&name) {
                         let n = args.remove(1).1;
                         return Ok(Expr::Method(Box::new(args.remove(0).1), "enumerate_from".into(), vec![n], line));
+                    }
+                    // itertools.groupby(xs, key=f): runs of neighbours with the same key, as (key, items) pairs.
+                    if name == "groupby" && !self.user_fns.contains(&name) && (args.len() == 1 || (args.len() == 2 && args[1].0.as_deref() == Some("key"))) {
+                        let xs = args.remove(0).1;
+                        let f = if args.is_empty() {
+                            Expr::Lambda(vec!["v_".into()], Box::new(Expr::Ident("v_".into())))
+                        } else {
+                            args.remove(0).1
+                        };
+                        return Ok(Expr::Method(Box::new(xs), "group_runs".into(), vec![f], line));
                     }
                     // timedelta(days=n, weeks=w) is a span of days that adds to a date.
                     if name == "timedelta" && !args.is_empty() && !self.user_fns.contains(&name) && args.iter().all(|a| matches!(a.0.as_deref(), None | Some("days") | Some("weeks"))) {

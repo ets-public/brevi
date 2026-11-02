@@ -21,7 +21,15 @@ python3 e2e.py RUN --lang python --model sonnet --set xl3 --jobs 1
 python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
 ```
 
-The test passes when, averaged over two runs, `pyb` costs no more dollars than `python` for both Sonnet and Haiku, and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Latest result is run `e14` (1 Nov 2026, one run): Sonnet $0.205 against $0.176 (1.16x), Haiku $0.024 against $0.025 (0.94x). Not yet passed. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
+The test passes when, averaged over two runs, `pyb` costs no more dollars than `python` for both Sonnet and Haiku, and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Results so far, each averaged over two runs against CPython on the same day. `e14` was a single run and came out lucky.
+
+| Run | Main at | Sonnet pyb / Python | Haiku pyb / Python | Tasks passed |
+| --- | --- | --- | --- | --- |
+| e15a/b | #63 | $0.252 / $0.165 (1.53x) | $0.037 / $0.024 (1.50x) | pyb 21 of 24, Python 24 of 24 |
+| e16a/b | #67 | $0.266 / $0.165 (1.61x) | $0.036 / $0.024 (1.45x) | pyb 22 of 24 |
+| e17a/b | #70 + #69 | $0.219 / $0.178 (1.23x) | $0.028 / $0.027 (1.03x) | pyb 24 of 24, Python 24 of 24 |
+
+The test has not passed yet. When the model's first attempt builds, pyb costs the same as Python or less. The whole gap is retries after Brevi rejects valid Python. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
 ## GUI programs (set `gui`, since 1 Nov 2026)
 
