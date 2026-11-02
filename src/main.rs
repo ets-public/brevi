@@ -260,7 +260,9 @@ fn main() {
     }
     DEPS.set(deps).ok();
     RUST_LINES.set(foreign.rust_lines.clone()).ok();
-    let (src, fixed) = autofix(&src, cmd == "fix");
+    // A Python file is never "fixed": CPython would not rename `s.rpartition` to `s.partition`, so a name
+    // the typed build lacks sends the file to the dynamic build instead.
+    let (src, fixed) = if PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && cmd != "fix" { (src, vec![]) } else { autofix(&src, cmd == "fix") };
     for (line, old, new) in &fixed {
         eprintln!("{}", at(&format!("{{\"line\":{line},\"fixed\":\"{} -> {}\"}}", esc(old), esc(new))));
     }
@@ -627,15 +629,17 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     if python_style(&src) {
         bigint::promote(&mut items);
     }
+    // Set before alias.rs runs: its Python-only checks read it (once set after, the first build of every
+    // Python file skipped them, so `zs = xs; xs.sort(); print(zs)` printed the unsorted copy).
+    let py = python_style(&src);
+    infer::PY.store(py, std::sync::atomic::Ordering::Relaxed);
     // Python names share objects (`r = rows[k]; r[0] -= 1` changes rows); Brevi programs keep copies.
-    if python_style(&src) {
+    if py {
         let errs = alias::writeback(&mut items);
         if !errs.is_empty() {
             return Err(errs);
         }
     }
-    let py = python_style(&src);
-    infer::PY.store(py, std::sync::atomic::Ordering::Relaxed);
     // Python dicts built from names (`{"sku": sku, "qty": qty}` in a method) are tried as records first;
     // if that does not type, the program is typed as before.
     let mut items = if py && has_untyped_map(&items) {

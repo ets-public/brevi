@@ -1938,7 +1938,8 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
     })
 }
 pub fn set_method(o: &V, name: &str, a: Args) -> R {
-    let me = set_of(o).unwrap();
+    // A copy only for the methods that read the whole set (set_of copies; add must not).
+    let me = || set_of(o).unwrap();
     let others = |a: &Args| -> Result<Vec<PSet>, E> {
         let mut v = vec![];
         for x in &a.p {
@@ -1988,7 +1989,7 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
             mutable(o)?.borrow_mut().clear();
             V::None
         }
-        "copy" => wrap(me.copy()),
+        "copy" => wrap(me().copy()),
         "union" | "intersection" | "difference" | "symmetric_difference" => {
             let op = match name {
                 "union" => "|",
@@ -1996,7 +1997,7 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
                 "difference" => "-",
                 _ => "^",
             };
-            let mut r = me.copy();
+            let mut r = me().copy();
             for x in others(&a)? {
                 r = set_op(&r, &x, op)?;
             }
@@ -2032,13 +2033,18 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
         }
         "issubset" | "issuperset" | "isdisjoint" => {
             let x = others(&a)?.pop().unwrap_or_else(PSet::new);
+            let me = me();
             V::Bool(match name {
                 "issubset" => me.keys().iter().all(|k| x.contains(k).unwrap_or(false)),
                 "issuperset" => x.keys().iter().all(|k| me.contains(k).unwrap_or(false)),
                 _ => !me.keys().iter().any(|k| x.contains(k).unwrap_or(false)),
             })
         }
-        "__len__" => V::Int(me.used as i64),
+        "__len__" => V::Int(match o {
+            V::Set(x) => x.borrow().used,
+            V::FSet(x) => x.used,
+            _ => 0,
+        } as i64),
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
         "__iter__" => iter_v(o)?,
         _ => return bad_method(o, name),

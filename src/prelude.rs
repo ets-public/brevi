@@ -845,7 +845,17 @@ impl AxPyMod for i64 {
 impl AxPyMod for f64 {
     fn ax_pymod(self, b: f64) -> f64 {
         let r = self % b;
-        if ax_py_on() && r != 0.0 && ((r < 0.0) != (b < 0.0)) { r + b } else { r }
+        if !ax_py_on() {
+            return r;
+        }
+        if b == 0.0 {
+            panic!("ZeroDivisionError: float modulo");
+        }
+        // A zero remainder takes b's sign too: -0.0 % 5.0 is 0.0 and 0.0 % -2.0 is -0.0.
+        if r == 0.0 {
+            return 0.0f64.copysign(b);
+        }
+        if (r < 0.0) != (b < 0.0) { r + b } else { r }
     }
 }
 impl AxPyMod for Json {
@@ -2204,8 +2214,14 @@ impl std::ops::Mul for Json {
         }
     }
 }
-impl std::ops::Div for Json { type Output = Json; fn div(self, o: Json) -> Json { ax_jnk(ax_jnum(&self) / ax_jnum(&o), true) } }
-impl std::ops::Rem for Json { type Output = Json; fn rem(self, o: Json) -> Json { let (a, b) = (ax_jnum(&self), ax_jnum(&o)); ax_jnk(a - b * (a / b).floor(), ax_jf(&self) || ax_jf(&o)) } }
+// Dividing by zero raises in Python, as it does for a plain number.
+fn ax_jzero(b: f64, f: bool, what: &str) {
+    if b == 0.0 && ax_py_on() {
+        panic!("ZeroDivisionError: {}", if f { format!("float {what}") } else if what == "modulo" { "integer modulo by zero".into() } else { "integer division or modulo by zero".to_string() });
+    }
+}
+impl std::ops::Div for Json { type Output = Json; fn div(self, o: Json) -> Json { let b = ax_jnum(&o); if b == 0.0 && ax_py_on() { panic!("ZeroDivisionError: division by zero") } ax_jnk(ax_jnum(&self) / b, true) } }
+impl std::ops::Rem for Json { type Output = Json; fn rem(self, o: Json) -> Json { let (a, b) = (ax_jnum(&self), ax_jnum(&o)); let f = ax_jf(&self) || ax_jf(&o); ax_jzero(b, f, "modulo"); if f { ax_jnk(a.ax_pymod(b), true) } else { ax_jnk(a - b * (a / b).floor(), false) } } }
 impl std::ops::Neg for Json { type Output = Json; fn neg(self) -> Json { let f = ax_jf(&self); ax_jnk(-ax_jnum(&self), f) } }
 impl std::ops::AddAssign for Json { fn add_assign(&mut self, o: Json) { *self = std::mem::take(self).plus(o) } }
 impl std::ops::SubAssign for Json { fn sub_assign(&mut self, o: Json) { *self = std::mem::take(self) - o } }
@@ -2214,6 +2230,7 @@ impl std::ops::DivAssign for Json { fn div_assign(&mut self, o: Json) { *self = 
 impl AxFloorDiv for Json {
     fn floordiv(self, b: Json) -> Json {
         let f = ax_jf(&self) || ax_jf(&b);
+        ax_jzero(ax_jnum(&b), f, "floor division by zero");
         ax_jnk((ax_jnum(&self) / ax_jnum(&b)).floor(), f)
     }
 }

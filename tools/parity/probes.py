@@ -83,4 +83,9 @@ PROBES = [
     ("print_args_then_change", "from collections import deque\nq = deque([1, 2, 3])\nprint(q, q.popleft(), q)"),
     ("raise_builtin_message", 'def f(x):\n    raise ValueError(f"bad {x}")\ntry:\n    f(1)\nexcept ValueError as e:\n    print(e, e.args)\ntry:\n    raise KeyError("k")\nexcept (TypeError, KeyError) as e:\n    print(e)'),
     ("str_center_odd", 'print("x".center(4) + "|", "ab".center(5, "-"), "abc".center(8, "*"))'),
+    ("alias_change_then_rebind", "xs = list(range(5))\nzs = xs\nxs.sort(reverse=True)\nxs = [0]\nys = [1, 2]\nws = ys\nys = ys\nys.clear()\nprint(xs, zs, ys, ws)"),
+    ("join_on_text", "print('-'.join('xyz'), len(''.join(\"it's\") * 2), ','.join(('a', 'b')))"),
+    ("float_mod_zero_sign", "print(round(-0.001, 2) % 0.25, -0.0 % 5.0, 0.0 % -2.0, -3.5 % 2)"),
+    ("rpartition", "print('a,b,c'.rpartition(','), 'abc'.rpartition('/'))"),
+    ("print_re_match", "import re\nm = re.match(r'\\d+', '12x')\nprint(m, re.search('z', 'abc'), m.group())"),
 ]

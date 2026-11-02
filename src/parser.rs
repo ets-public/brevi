@@ -2295,7 +2295,7 @@ impl Parser {
                                 continue;
                             }
                             // Python's `", ".join(xs)` is `xs.join(", ")`.
-                            e = if name == "join" && args.len() == 1 && matches!(e, Expr::Str(_)) && !matches!(args[0], Expr::Str(_)) {
+                            e = if name == "join" && args.len() == 1 && matches!(e, Expr::Str(_)) && (self.py || !matches!(args[0], Expr::Str(_))) {
                                 Expr::Method(Box::new(args.remove(0)), name, vec![e], line)
                             } else {
                                 Expr::Method(Box::new(e), name, args, line)

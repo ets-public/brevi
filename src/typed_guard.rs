@@ -18,6 +18,7 @@ struct G {
     set_fns: HashSet<String>,    // functions returning a set
     holder_fns: HashSet<String>, // functions returning a container of sets
     params: Vec<(String, Vec<String>)>,
+    matches: HashSet<String>,    // names holding a re match (a Match object or None)
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
@@ -142,10 +143,24 @@ fn is_holder(e: &Ex, g: &G) -> bool {
     }
 }
 
+// re.match(...), pat.search(...): the typed build keeps a match as its list of groups, so printing one
+// shows `[]` or `['12']` where CPython shows None or `<re.Match object; ...>`.
+fn is_match(e: &Ex, g: &G) -> bool {
+    match e {
+        Ex::Call(f, _) => matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "match" | "search" | "fullmatch")),
+        Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.matches.contains(&k)),
+        Ex::Walrus(_, v) => is_match(v, g),
+        _ => false,
+    }
+}
+
 fn bind(t: &Ex, v: &Ex, g: &mut G) {
     match t {
         Ex::Name(_) | Ex::Attr(..) => {
             let k = key(t).unwrap();
+            if is_match(v, g) {
+                g.matches.insert(k.clone());
+            }
             if is_set(v, g) {
                 g.sets.insert(k);
             } else if is_holder(v, g) {
@@ -381,6 +396,9 @@ fn shown(e: &Ex, g: &G) -> Option<String> {
                     if pos.iter().any(|x| set_or_holder(x)) {
                         return Some(format!("{n}() of a set shows CPython's hash order"));
                     }
+                    if pos.iter().any(|x| is_match(x, g)) {
+                        return Some(format!("{n}() of a re match shows a Match object or None"));
+                    }
                     if n == "print" {
                         return print_changes(&pos);
                     }
@@ -404,7 +422,14 @@ fn shown(e: &Ex, g: &G) -> Option<String> {
         }
         Ex::FStr(parts) => {
             let mut bad = false;
-            fparts(parts, &mut |x| bad |= set_or_holder(x));
+            let mut m = false;
+            fparts(parts, &mut |x| {
+                bad |= set_or_holder(x);
+                m |= is_match(x, g);
+            });
+            if m {
+                return Some("an f-string of a re match shows a Match object or None".into());
+            }
             bad.then(|| "an f-string of a set shows CPython's hash order".to_string())
         }
         Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && (set_or_holder(r) || matches!(r.as_ref(), Ex::Tuple(v) if v.iter().any(|x| set_or_holder(x)))) => Some("% of a set shows CPython's hash order".into()),

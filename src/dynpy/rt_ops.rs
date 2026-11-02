@@ -758,28 +758,30 @@ pub fn iop(a: &V, b: &V, op: &str) -> R {
             return Ok(a.clone());
         }
         (V::Set(s), "|" | "&" | "-" | "^") if matches!(b, V::Set(_) | V::FSet(_)) => {
-            let r = {
-                let me = s.borrow();
-                match op {
-                    "|" => {
-                        let mut m = me.clone();
-                        m.merge(&set_of(b).unwrap());
-                        m
-                    }
-                    _ => set_op(&me, &set_of(b).unwrap(), op)?,
-                }
-            };
-            if op == "-" || op == "&" {
-                // in place: remove the others (keeps table positions as CPython does)
-                let keep: Vec<V> = r.keys();
-                let mut me = s.borrow_mut();
-                for k in me.keys() {
-                    if !keep.iter().any(|x| eq(x, &k).unwrap_or(false)) {
+            // In place and in time with the other set's size, as CPython's are (`seen |= new` in a loop
+            // must not copy seen each time).
+            let other = set_of(b).unwrap();
+            match op {
+                "|" => s.borrow_mut().merge(&other),
+                "-" => {
+                    let mut me = s.borrow_mut();
+                    for k in other.keys() {
                         me.discard(&k)?;
                     }
                 }
-            } else {
-                *s.borrow_mut() = r;
+                "&" => {
+                    // remove the others (keeps table positions)
+                    let mut me = s.borrow_mut();
+                    for k in me.keys() {
+                        if !other.contains(&k)? {
+                            me.discard(&k)?;
+                        }
+                    }
+                }
+                _ => {
+                    let r = set_op(&s.borrow(), &other, op)?;
+                    *s.borrow_mut() = r;
+                }
             }
             return Ok(a.clone());
         }

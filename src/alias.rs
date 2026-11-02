@@ -771,7 +771,6 @@ fn name_alias(e: &Expr, cx: &mut Cx) {
             let rest = &stmts[i + 1..];
             // Up to the next setting of either name as a whole.
             let end = rest.iter().position(|s| rebinds_in(s, bn) || rebinds_in(s, an)).unwrap_or(rest.len());
-            let t = if end == rest.len() { tail.as_deref() } else { None };
             let muts = cx.mutators.clone();
             for (x, y) in [(bn, an), (an, bn)] {
                 // The first change through x, and a read of y after it. `x += v` changes a list or dict in
@@ -789,8 +788,12 @@ fn name_alias(e: &Expr, cx: &mut Cx) {
                 }) else {
                     continue;
                 };
-                let later = &rest[k + 1..end];
-                let read = later.iter().any(|s| names(&Expr::Block(vec![s.clone()], None), y)) || t.is_some_and(|t| names(t, y)) || any_stmt(std::slice::from_ref(&rest[k]), None, &mut |s| matches!(s, Stmt::Expr { .. } | Stmt::Assign { .. }) && loops_back(s, y));
+                // y still holds the changed list after x is set anew (`zs = xs; xs.sort(); xs = []; print(zs)`),
+                // so reads of y count up to y's own next setting.
+                let end_y = rest.iter().position(|s| rebinds_in(s, y)).unwrap_or(rest.len()).max(k + 1);
+                let t_y = if end_y == rest.len() { tail.as_deref() } else { None };
+                let later = &rest[k + 1..end_y];
+                let read = later.iter().any(|s| names(&Expr::Block(vec![s.clone()], None), y)) || t_y.is_some_and(|t| names(t, y)) || any_stmt(std::slice::from_ref(&rest[k]), None, &mut |s| matches!(s, Stmt::Expr { .. } | Stmt::Assign { .. }) && loops_back(s, y));
                 if read {
                     let (bs, as_) = (bn.trim_end_matches('_'), an.trim_end_matches('_'));
                     defer(
@@ -813,7 +816,9 @@ fn loops_back(s: &Stmt, y: &str) -> bool {
 }
 
 fn rebinds_in(s: &Stmt, x: &str) -> bool {
-    any_stmt(std::slice::from_ref(s), None, &mut |t| matches!(t, Stmt::Assign { target: Expr::Ident(n), op: "=", .. } if n == x) && !in_place(x, t))
+    // `xs = xs` keeps the same list.
+    let same = |v: &Expr| matches!(v, Expr::Ident(m) | Expr::Move(m) if m == x);
+    any_stmt(std::slice::from_ref(s), None, &mut |t| matches!(t, Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x && !same(value)) && !in_place(x, t))
 }
 
 // Python statements that change x in place but are spelled otherwise in Brevi: `xs.sort()`,
