@@ -1031,7 +1031,7 @@ impl Cx<'_> {
             }
         }
         match m {
-            "len" | "count" | "count_sub" | "count_of" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
+            "len" | "count" | "count_sub" | "count_of" | "re_start" | "re_end" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "floor" | "ceil" if r == Dec => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" | "quantize" => Dec,
@@ -1043,6 +1043,8 @@ impl Cx<'_> {
             "words" | "lines" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
+            "re_groups" => List(Box::new(Str)),
+            "re_span" => Tuple(vec![Int, Int]),
             "ints" => List(Box::new(Int)),
             "json" => Json,
             "is_null" | "is_none" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "is_ascii" | "is_leap" | "isinstance" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,

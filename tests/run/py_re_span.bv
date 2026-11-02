@@ -1,0 +1,29 @@
+# m.start(), m.end(), m.span(), re.finditer, and a bracketed multi-line from-import.
+from lib.pyshop.models import (Order,
+                               Item)
+import re
+
+CLOSE_RE = re.compile(r"\s+#+\s*$")
+H = re.compile(r"^(#+)\s+(.*)$")
+
+
+def main():
+    rest = "Title here ##"
+    cm = CLOSE_RE.search(rest)
+    if cm:
+        print(repr(rest[:cm.start()].rstrip()), cm.end(), cm.span())
+    m = H.match("## Intro")
+    print(list(m.groups()), m.start(2), m.end(1), m.span(2), len(m.groups()))
+    a, b = m.groups()
+    print(a, b)
+    print(re.findall(r"(\d+)", "a1 b22"), re.findall(r"\d+", "a1 b22"))
+    for mm in re.finditer(r"\d+", "x12 y3"):
+        print(mm.group(), mm.start(), mm.end())
+    print(re.sub(r"(\d)", r"<\1>", "a1b2"), re.split(r",\s*", "a, b,c"))
+    it = Item("a", 2.0, 3)
+    print(it.price * it.qty)
+    m2 = re.search(r"z", "abc")
+    print(m2 is None)
+
+
+main()

@@ -5,6 +5,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 ## Unreleased
 
 - Also from e19: Python's one-item box (`cur = [None]`, read and set only as `cur[0]`, also inside nested defs) is a plain name the nested defs share; a dict record field that starts as `[None] * 9` gets its type from what is put in it later (the g2 tic-tac-toe). Fixed wrong output: `(gone if old else keep).append(l)` now appends to the list the condition picks instead of to a copy.
+- Regex match positions: `m.start()`, `m.end(n)`, `m.span()`, and `re.finditer(p, s)` / `pat.finditer(s)`; a bracketed import over several lines (`from grade import (a, b,` then `c)`). From the e19 trial.
 - From the e19 trial: a lambda given a name and only ever called (`bad = lambda n: out.append(...)` inside a function, or `sq = lambda x: x * x` at the top) is a nested or top-level `def`, so its parameters are typed from the calls and it can change the outer function's lists. A top-level name that starts as None and is later set to a tuple of empty lists and sets (`cur = ([], set(), set())`, filled through `cur[0].append(x)`, `cur[1].add(n)`, `cur[2].update(xs)`) takes its type from those uses, also when functions read it through `global cur`.
 - A comprehension split over lines inside braces (`{k: f(q)` then `for q in qs}` on the next line, or an `if` on its own line) parses, as in Python. From Haiku's e18 quiz first attempt.
 - `xs.count(x)` on a list (it used to need a closure) and `min(xs, default=d)` / `max(xs, default=d)`, also with `key=f`, from the e18 trial.
