@@ -45,7 +45,7 @@ fn kind(e: &Expr) -> Option<&'static str> {
         Expr::Method(l, m, _, _) if m == "repeat" && matches!(l.as_ref(), Expr::List(_)) => Some("list"),
         Expr::Map(_) => Some("map"),
         Expr::Tuple(_) => Some("tuple"),
-        Expr::Method(_, m, _, _) if m == "dec" => Some("dec"),
+        Expr::Method(_, m, _, _) if m == "dec" || m == "frac" || m == "frac_div" => Some("dec"),
         _ => None,
     }
 }
@@ -87,6 +87,16 @@ fn holder(st: &Stmt) -> Option<(String, &Expr)> {
     match st {
         Stmt::Assign { target: Expr::Ident(n) | Expr::Field(_, n), op: "=", value, .. } => Some((n.clone(), value)),
         Stmt::Let { name: Pat::Bind(n), value, .. } => Some((n.clone(), value)),
+        // A dict kept in a one-slot holder (`cur = [None]`, then `cur[0] = {"line": n, ...}`).
+        Stmt::Assign { target: Expr::Index(b, k), op: "=", value: value @ Expr::Map(_), .. } if matches!(k.as_ref(), Expr::Int(_)) => match b.as_ref() {
+            Expr::Ident(n) => Some((format!("@list {n}"), value)),
+            _ => None,
+        },
+        // A dict kept under one key of another (`state['cur'] = {'bad': True}`, `state['cur'] = {...}`).
+        Stmt::Assign { target: Expr::Index(b, k), op: "=", value: value @ Expr::Map(_), .. } if key_name(k).is_some() => match b.as_ref() {
+            Expr::Ident(n) => Some((format!("@key {n} {}", key_name(k).unwrap()), value)),
+            _ => None,
+        },
         // Dicts pushed on one list (`stack.append({'kind': 'if', ...})`, `stack.append({'kind': 'while', ...})`)
         // are one record, as Python reads them alike.
         Stmt::Expr { expr: Expr::Method(r, m, args, _), .. } if matches!(m.as_str(), "push" | "append" | "insert" | "ax_push") => match (r.as_ref(), args.last()) {
@@ -134,6 +144,22 @@ pub fn json_lists(items: &mut [Item]) {
         });
         // A list of bools with None in it (`[True, None]`) is held as JSON too: a bool has no spare value for None.
         let bool_none = |xs: &[Expr]| xs.iter().any(|x| kind(x) == Some("none")) && xs.iter().all(|x| matches!(kind(x), Some("bool" | "none"))) && xs.iter().any(|x| kind(x) == Some("bool"));
+        // A row pushed on a list (`self.students.append([name, {}])`): a name or value next to a fresh dict or
+        // list is a fixed-slot row, read by index (`rows[i][1][q] = v`), so it is a tuple.
+        crate::parser::walk_mut(body, &mut |e| {
+            if let Expr::Method(_, m, args, _) = e {
+                if matches!(m.as_str(), "push" | "append") && args.len() == 1 {
+                    if let Expr::List(xs) = &args[0] {
+                        let fresh = |x: &Expr| matches!(x, Expr::Map(p) if p.is_empty()) || matches!(x, Expr::List(p) if p.is_empty());
+                        let plain = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_) | Expr::Field(..));
+                        if xs.len() >= 2 && xs.iter().any(fresh) && xs.iter().any(plain) && xs.iter().all(|x| fresh(x) || plain(x)) {
+                            let xs = xs.clone();
+                            args[0] = Expr::Tuple(xs);
+                        }
+                    }
+                }
+            }
+        });
         crate::parser::walk_mut(body, &mut |e| {
             if let Expr::List(xs) = e {
                 if bool_none(xs) {
@@ -234,6 +260,39 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
                 }
             }
         });
+    }
+    // A name set from a call to a function that returns a record (`cur = new()`) holds that record,
+    // so keys set on it later (`cur.setdefault("out", []).append(m)`) belong to it.
+    let mut from_calls: Vec<(String, String)> = vec![];
+    for it in items.iter() {
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        crate::infer::walk(body, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for st in stmts {
+                    match holder(st) {
+                        Some((n, Expr::Call(f, _, _))) if !n.starts_with('@') => from_calls.push((n, format!("@ret {f} 0"))),
+                        // `t = state['cur']`
+                        Some((n, Expr::Index(h, k))) if !n.starts_with('@') && key_name(k).is_some() => {
+                            if let Expr::Ident(h) = h.as_ref() {
+                                from_calls.push((n, format!("@key {h} {}", key_name(k).unwrap())));
+                            }
+                        }
+                        // `tx = cur[0]` from a holder of records.
+                        Some((n, Expr::Index(h, k))) if !n.starts_with('@') && matches!(k.as_ref(), Expr::Int(_)) => {
+                            if let Expr::Ident(h) = h.as_ref() {
+                                from_calls.push((n, format!("@list {h}")));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+    }
+    for (n, r) in from_calls {
+        if let Some(s) = sets.iter_mut().find(|(_, names)| names.contains(&r)) {
+            s.1.insert(n);
+        }
     }
     // Keys set later on a name that holds a literal (`q = {...}`, then `q["answer"] = a` in a branch).
     let mut later: Vec<(String, String, Expr)> = vec![];

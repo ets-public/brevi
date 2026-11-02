@@ -1,0 +1,12 @@
+import sys
+class Interp:
+    def __init__(self, funcs, out):
+        self.funcs = funcs
+        self.out = out
+    def run(self, xs):
+        for x in xs:
+            self.out.write(self.funcs[0] + str(x) + "\n")
+        self.out.flush()
+def main():
+    Interp(["v"], sys.stdout).run([1, 2])
+main()

@@ -1,0 +1,24 @@
+rounds = []
+cur = None
+def new():
+    return {"players": {}, "cards": set()}
+for line in ["a 1", "b 2", "", "a 3", "a 4"]:
+    t = line.split()
+    if not t:
+        if cur is not None:
+            rounds.append(cur)
+        cur = None
+        continue
+    if cur is None:
+        cur = new()
+    if t[0] in cur["players"]:
+        cur.setdefault("out", []).append("duplicate " + t[0])
+        continue
+    cur["cards"].add(t[1])
+    cur["players"][t[0]] = int(t[1])
+if cur is not None:
+    rounds.append(cur)
+for rd in rounds:
+    for m in rd.get("out", []):
+        print(m)
+    print(sorted(rd["cards"]), rd["players"])

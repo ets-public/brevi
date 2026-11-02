@@ -150,12 +150,32 @@ fn drop_py_imports(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     // Inside `from m import (a,` ... `b)`: the names run on to the closing bracket.
     let mut open = false;
-    for l in src.split_inclusive('\n') {
+    let all: Vec<&str> = src.split_inclusive('\n').collect();
+    // The def a memo decorator wraps: (its line, its name).
+    let mut memo: Option<(usize, String)> = None;
+    for (at, l) in all.iter().enumerate() {
+        let l = *l;
         let t = l.trim();
         if open {
             open = !t.contains(')');
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
             continue;
+        }
+        // `@lru_cache` / `@cache` on a def: the def becomes NAME__raw, and NAME looks results up in a
+        // dict first, so a memoised recursion stays fast (dropping the decorator would make it exponential).
+        if let Some(w) = memo_wrapper(t, &all[at + 1..], at) {
+            let ind = &l[..l.len() - l.trim_start().len()];
+            out.push_str(&format!("{ind}{}{}", w.1.replace('\u{1}', &format!("\u{1}{ind}")), if l.ends_with('\n') { "\n" } else { "" }));
+            memo = Some((w.0, w.2));
+            continue;
+        }
+        if let Some((n, name)) = &memo {
+            if *n == at {
+                let i = l.find("def ").unwrap_or(0) + 4;
+                out.push_str(&format!("{}{name}__raw{}", &l[..i], &l[i + name.len()..]));
+                memo = None;
+                continue;
+            }
         }
         // Decorators (`@dataclass`, `@staticmethod`, `@lru_cache(None)`): the code works the same without them.
         if t.starts_with('@') && t[1..].chars().next().map_or(false, |c| c.is_alphabetic()) {
@@ -176,6 +196,47 @@ fn drop_py_imports(src: &str) -> String {
         }
     }
     out
+}
+
+// `@lru_cache(...)`, `@cache`, `@functools.cache` (maybe under other decorators) on `def f(a, b):`:
+// gives (the def's line, `ax_memo_f = {}` and the wrapper f joined by a soft newline, f).
+// Methods, `*args` and parameter lists split over lines keep the old behaviour (the decorator is dropped).
+fn memo_wrapper(t: &str, rest: &[&str], at: usize) -> Option<(usize, String, String)> {
+    let d = t.strip_prefix('@')?.trim_start_matches("functools.");
+    let d = d.split('(').next()?.trim();
+    if d != "lru_cache" && d != "cache" {
+        return None;
+    }
+    let (k, def) = rest.iter().enumerate().map(|(k, l)| (k, l.trim())).find(|(_, l)| !l.starts_with('@'))?;
+    let sig = def.strip_prefix("def ")?;
+    let (name, after) = sig.split_once('(')?;
+    let name = name.trim();
+    let (params, _) = after.split_once(')')?;
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') || !def.ends_with(':') {
+        return None;
+    }
+    let names: Vec<String> = params.split(',').map(|p| p.split(&[':', '='][..]).next().unwrap_or("").trim().to_string()).filter(|p| !p.is_empty()).collect();
+    if names.iter().any(|p| p.starts_with('*') || p == "self" || p == "cls" || p == "/") {
+        return None;
+    }
+    let m = format!("ax_memo_{name}");
+    let key = match names.len() {
+        0 => "0".to_string(),
+        1 => names[0].clone(),
+        _ => format!("({})", names.join(", ")),
+    };
+    let args = names.join(", ");
+    let w = [
+        format!("{m} = {{}}"),
+        format!("def {name}({args}):"),
+        format!("    if {key} in {m}:"),
+        format!("        return {m}[{key}]"),
+        format!("    ax_memo_r = {name}__raw({args})"),
+        format!("    {m}[{key}] = ax_memo_r"),
+        "    return ax_memo_r".to_string(),
+    ]
+    .join("\u{1}");
+    Some((at + 1 + k, w, name.to_string()))
 }
 
 // Python's triple-quoted strings (`"""doc"""`, multi-line text) become one-line strings with `\n` in them;
@@ -296,7 +357,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     let mut fstr = false;
     // Functions defined with Python's `def var(...)`: the name is a name everywhere, even where Brevi has a keyword.
     let py_defs: Vec<String> = src
-        .lines()
+        .split(['\n', '\u{1}'])
         .filter_map(|l| l.trim_start().strip_prefix("def "))
         .map(|r| r.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("").to_string())
         .collect();
@@ -312,6 +373,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             i += 1;
             line += 1;
+            col = 1;
+            continue;
+        }
+        // A soft newline (from memo_wrapper): a new statement on the same source line.
+        if c == '\u{1}' {
+            push(&mut out, Tok::Newline);
+            i += 1;
             col = 1;
             continue;
         }

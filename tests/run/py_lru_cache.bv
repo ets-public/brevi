@@ -1,0 +1,22 @@
+import functools
+from functools import lru_cache, cache
+
+
+@lru_cache(maxsize=None)
+def fib(n: int) -> int:
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
+
+
+def grid(w, h):
+    @functools.lru_cache(None)
+    def paths(i, j):
+        if i == 0 or j == 0:
+            return 1
+        return paths(i - 1, j) + paths(i, j - 1)
+    return paths(w, h)
+
+
+@cache
+def words(s):
+    return [s] if len(s) < 2 else words(s[1:]) + [s]
+print(fib(90), grid(16, 16), words("abc"))

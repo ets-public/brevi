@@ -1,0 +1,17 @@
+class Book:
+    def __init__(self):
+        self.rows = []
+    def add(self, name):
+        self.rows.append([name, {}])
+        return len(self.rows) - 1
+    def set(self, i, q, v):
+        self.rows[i][1][q] = v
+    def total(self, i):
+        return sum(self.rows[i][1].values())
+b = Book()
+i = b.add("ann")
+b.set(i, "q1", 3)
+b.set(i, "q2", 4)
+j = b.add("bob")
+b.set(j, "q1", 1)
+print([(r[0], b.total(k)) for k, r in enumerate(b.rows)], b.rows[0][1])

@@ -1,0 +1,12 @@
+def f(xs):
+    out = []
+    for x in xs:
+        try:
+            if x == "":
+                continue
+            v = int(x)
+        except ValueError:
+            v = -1
+        out.append(v)
+    return out
+print(f(["1", "", "z", "3"]))

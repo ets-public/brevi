@@ -1,0 +1,20 @@
+def route(frm, T):
+    ev = {(frm, T, None): []}
+    best = None
+    level = 0
+    while ev:
+        nxt = {}
+        for (s, a, cur), L in ev.items():
+            cand = (a, level, L)
+            if best is None or cand < best:
+                best = cand
+            if level < 2:
+                nxt[(s, a + 1, "t")] = L + ["t%d" % level]
+        ev = nxt
+        level += 1
+    return best
+b = route("x", 5)
+if b is None:
+    print("none")
+else:
+    print(b[0], ",".join(b[2]))

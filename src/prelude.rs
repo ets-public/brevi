@@ -409,7 +409,10 @@ fn show_item<T: Show + 'static>(x: &T) -> String {
         Some(s) if ax_py_on() => ax_py_repr(s),
         Some(s) => format!("{s:?}"),
         // Python's repr of a Decimal inside a list or dict: Decimal('1.50').
-        None if ax_py_on() && any.is::<Dec>() => format!("Decimal('{}')", x.show()),
+        None if ax_py_on() && any.is::<Dec>() => match any.downcast_ref::<Dec>().filter(|d| d.is_frac()).map(|d| d.frac_parts()) {
+            Some((n, d)) => format!("Fraction({n}, {d})"),
+            None => format!("Decimal('{}')", x.show()),
+        },
         None => match any.downcast_ref::<Json>() {
             Some(j) if ax_py_on() => ax_json_py(j, false),
             _ => x.show(),
@@ -785,6 +788,10 @@ impl AxFloorDiv for f64 {
 // Decimal a // b: the whole part of the quotient (toward zero, as Python's Decimal does; with a % b it gives a back).
 impl AxFloorDiv for Dec {
     fn floordiv(self, b: Dec) -> Dec {
+        // Fraction // floors (Python gives an int); Decimal truncates toward zero.
+        if let Some((x, y)) = frac_pair(self, b) {
+            return Dec(frac_floor_div(x, y) * DEC_ONE, 0);
+        }
         let q = self / b;
         Dec(q.0 / DEC_ONE * DEC_ONE, 0)
     }
@@ -804,6 +811,9 @@ pub trait AxPyMod<B = Self> {
 // Decimal a % b: the sign follows a, as Python's Decimal does (a - b * trunc(a / b)).
 impl AxPyMod for Dec {
     fn ax_pymod(self, b: Dec) -> Dec {
+        if let Some((x, y)) = frac_pair(self, b) {
+            return Dec(x - y * frac_floor_div(x, y), FRAC);
+        }
         let q = self / b;
         let t = Dec(q.0 / DEC_ONE * DEC_ONE, 0);
         self - b * t
@@ -3316,7 +3326,7 @@ pub fn max<T: PartialOrd>(a: T, b: T) -> T {
 pub struct Dec(pub i128, pub u8);
 impl PartialEq for Dec {
     fn eq(&self, o: &Dec) -> bool {
-        self.0 == o.0
+        self.cmp(o) == std::cmp::Ordering::Equal
     }
 }
 impl Eq for Dec {}
@@ -3327,27 +3337,83 @@ impl PartialOrd for Dec {
 }
 impl Ord for Dec {
     fn cmp(&self, o: &Dec) -> std::cmp::Ordering {
-        self.0.cmp(&o.0)
+        if self.is_frac() == o.is_frac() {
+            return self.0.cmp(&o.0);
+        }
+        (self.0 * o.scale()).cmp(&(o.0 * self.scale()))
     }
 }
 impl Hash for Dec {
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        self.0.hash(h)
+        // By the reduced fraction, so a Fraction and a Decimal of the same value hash alike.
+        self.frac_parts().hash(h)
     }
 }
 // A dec compares directly with an int: `price > 0`.
 impl PartialEq<i64> for Dec {
     fn eq(&self, o: &i64) -> bool {
-        self.0 == (*o as i128) * 1_000_000_000
+        self.0 == (*o as i128) * self.scale()
     }
 }
 impl PartialOrd<i64> for Dec {
     fn partial_cmp(&self, o: &i64) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(&((*o as i128) * 1_000_000_000))
+        self.0.partial_cmp(&((*o as i128) * self.scale()))
     }
 }
 const DEC_ONE: i128 = 1_000_000_000;
+// Python's Fraction is a Dec marked FRAC, held in units of 1/FRAC_ONE: exact for every
+// denominator that divides lcm(1..=32) * 10 (so 1/3, 1/7, 1/64, 1/1000). A result outside
+// that, or too large, stops the program with an error rather than rounding.
+const FRAC: u8 = 255;
+const FRAC_ONE: i128 = 1_444_035_528_936_000;
+fn frac_fail(what: String) -> ! {
+    panic!("{what} can't be held exactly by Brevi's Fraction (denominators must divide lcm(1..32)*10); run this program with CPython")
+}
+fn frac_mul(a: i128, b: i128) -> i128 {
+    a.checked_mul(b).unwrap_or_else(|| frac_fail("a Fraction this large".into()))
+}
+fn frac_pair(a: Dec, b: Dec) -> Option<(i128, i128)> {
+    if a.is_frac() || b.is_frac() { Some((a.frac_of().0, b.frac_of().0)) } else { None }
+}
+fn frac_floor_div(x: i128, y: i128) -> i128 {
+    if y == 0 {
+        panic!("division by zero");
+    }
+    x / y - (x % y != 0 && (x < 0) != (y < 0)) as i128
+}
+fn ax_gcd128(a: i128, b: i128) -> i128 {
+    if b == 0 { a.abs() } else { ax_gcd128(b, a % b) }
+}
 impl Dec {
+    pub fn ax_frac(&self) -> Dec {
+        self.frac_of()
+    }
+    // Fraction(a, b)
+    pub fn ax_frac_div(&self, o: Dec) -> Dec {
+        self.frac_of() / o.frac_of()
+    }
+    fn is_frac(&self) -> bool {
+        self.1 == FRAC
+    }
+    // Units per 1: FRAC_ONE for a Fraction, DEC_ONE for a Decimal.
+    fn scale(&self) -> i128 {
+        if self.is_frac() { FRAC_ONE } else { DEC_ONE }
+    }
+    fn frac_of(&self) -> Dec {
+        if self.is_frac() {
+            return *self;
+        }
+        let v = frac_mul(self.0, FRAC_ONE);
+        if v % DEC_ONE != 0 {
+            frac_fail(format!("Decimal {}", self.show()))
+        }
+        Dec(v / DEC_ONE, FRAC)
+    }
+    // (numerator, denominator), reduced.
+    fn frac_parts(&self) -> (i128, i128) {
+        let g = ax_gcd128(self.0, self.scale()).max(1);
+        (self.0 / g, self.scale() / g)
+    }
     fn parse(s: &str) -> R<Dec> {
         let t = s.trim();
         let (neg, body) = match t.strip_prefix('-') { Some(b) => (true, b), None => (false, t.strip_prefix('+').unwrap_or(t)) };
@@ -3363,8 +3429,9 @@ impl Dec {
     }
     pub fn ax_fmt(&self, decimals: i64) -> String {
         let d = decimals.clamp(0, 9) as u32;
-        let unit = 10i128.pow(9 - d);
-        let (q, r) = (self.0.div_euclid(unit), self.0.rem_euclid(unit));
+        let unit = self.scale();
+        let v = frac_mul(self.0, 10i128.pow(d));
+        let (q, r) = (v.div_euclid(unit), v.rem_euclid(unit));
         // Round half to even, like Python's Decimal.
         let q = if r * 2 > unit || (r * 2 == unit && q % 2 != 0) { q + 1 } else { q };
         let neg = q < 0;
@@ -3378,16 +3445,16 @@ impl Dec {
     }
     // Python's math.floor / math.ceil (and `x.__floor__()`) on a Decimal or Fraction: an int.
     pub fn ax_floor(&self) -> i64 {
-        self.0.div_euclid(DEC_ONE) as i64
+        self.0.div_euclid(self.scale()) as i64
     }
     pub fn ax_ceil(&self) -> i64 {
-        -((-self.0).div_euclid(DEC_ONE)) as i64
+        -((-self.0).div_euclid(self.scale())) as i64
     }
     pub fn ax_float(&self) -> f64 {
-        self.0 as f64 / DEC_ONE as f64
+        self.0 as f64 / self.scale() as f64
     }
     pub fn ax_int(&self) -> i64 {
-        (self.0 / DEC_ONE) as i64
+        (self.0 / self.scale()) as i64
     }
     pub fn ax_round(&self) -> Dec {
         Dec::parse(&self.ax_fmt(0)).unwrap()
@@ -3420,6 +3487,10 @@ impl Show for Dec {
         if self.0 == i128::MIN && ax_py_on() {
             return "None".into();
         }
+        if self.is_frac() {
+            let (n, d) = self.frac_parts();
+            return if d == 1 { format!("{n}") } else { format!("{n}/{d}") };
+        }
         if ax_py_on() {
             return self.ax_fmt(self.1.max(self.places()) as i64);
         }
@@ -3431,18 +3502,31 @@ impl Show for Dec {
 impl Plus for Dec {
     type Out = Dec;
     fn plus(self, o: Dec) -> Dec {
+        if let Some((x, y)) = frac_pair(self, o) {
+            return Dec(x.checked_add(y).unwrap_or_else(|| frac_fail("a Fraction this large".into())), FRAC);
+        }
         Dec(self.0 + o.0, self.1.max(o.1))
     }
 }
 impl std::ops::Sub for Dec {
     type Output = Dec;
     fn sub(self, o: Dec) -> Dec {
+        if let Some((x, y)) = frac_pair(self, o) {
+            return Dec(x.checked_sub(y).unwrap_or_else(|| frac_fail("a Fraction this large".into())), FRAC);
+        }
         Dec(self.0 - o.0, self.1.max(o.1))
     }
 }
 impl std::ops::Mul for Dec {
     type Output = Dec;
     fn mul(self, o: Dec) -> Dec {
+        if let Some((x, y)) = frac_pair(self, o) {
+            let v = frac_mul(x, y);
+            if v % FRAC_ONE != 0 {
+                frac_fail(format!("{} * {}", self.show(), o.show()))
+            }
+            return Dec(v / FRAC_ONE, FRAC);
+        }
         Dec(self.0 * o.0 / DEC_ONE, (self.1 + o.1).min(9))
     }
 }
@@ -3451,6 +3535,13 @@ impl std::ops::Div for Dec {
     fn div(self, o: Dec) -> Dec {
         if o.0 == 0 {
             panic!("division by zero");
+        }
+        if let Some((x, y)) = frac_pair(self, o) {
+            let v = frac_mul(x, FRAC_ONE);
+            if v % y != 0 {
+                frac_fail(format!("{} / {}", self.show(), o.show()))
+            }
+            return Dec(v / y, FRAC);
         }
         let v = self.0 * DEC_ONE / o.0;
         // An exact quotient keeps Python's places (a's minus b's, or as many as it needs); otherwise all 9.
@@ -3466,12 +3557,18 @@ fn dec_of(n: i64) -> Dec {
 impl Plus<i64> for Dec {
     type Out = Dec;
     fn plus(self, o: i64) -> Dec {
+        if self.is_frac() {
+            return self.plus(dec_of(o));
+        }
         Dec(self.0 + dec_of(o).0, self.1)
     }
 }
 impl Plus<Dec> for i64 {
     type Out = Dec;
     fn plus(self, o: Dec) -> Dec {
+        if o.is_frac() {
+            return dec_of(self).plus(o);
+        }
         Dec(dec_of(self).0 + o.0, o.1)
     }
 }
@@ -3530,6 +3627,9 @@ impl std::ops::DivAssign for Dec {
 }
 impl AxSum<Dec> for Vec<Dec> {
     fn ax_sum(&self) -> Dec {
+        if self.iter().any(|d| d.is_frac()) {
+            return self.iter().fold(Dec(0, FRAC), |a, b| a.plus(*b));
+        }
         Dec(self.iter().map(|d| d.0).sum(), self.iter().map(|d| d.1).max().unwrap_or(0))
     }
 }
@@ -4424,6 +4524,9 @@ impl AxIsInstance for String {
 }
 impl AxIsInstance for Dec {
     fn ax_kind(&self) -> &'static str {
+        if self.is_frac() {
+            return "Fraction";
+        }
         "Decimal"
     }
 }

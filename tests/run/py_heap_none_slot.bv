@@ -1,0 +1,28 @@
+import heapq
+def go(start, frm, members):
+    heap = [(start, 0, (), frm, None)]
+    best = {}
+    while heap:
+        arr, n, ids, stop, last = heapq.heappop(heap)
+        state = (stop, last)
+        if state in best and best[state] < (arr, n, ids):
+            continue
+        if n > 2:
+            return ",".join(ids)
+        for tid, i in members.get(stop, []):
+            if tid == last:
+                continue
+            key = (arr + 1, n + 1, ids + (tid,))
+            st2 = (stop, tid)
+            if st2 in best and best[st2] <= key:
+                continue
+            best[st2] = key
+            heapq.heappush(heap, (arr + 1, n + 1, ids + (tid,), stop, tid))
+    return "none"
+def main():
+    members = {}
+    for s in ["x", "y"]:
+        members.setdefault(s, []).append(("a", 1))
+        members.setdefault(s, []).append(("b", 2))
+    print(go(0, "x", members))
+main()

@@ -1,0 +1,9 @@
+def pt(s):
+    if len(s) != 5:
+        return None
+    return int(s[:2])
+tk = "A B 10:00 x 11:00".split()
+ts = [pt(x) for x in tk[2::2]]
+print(ts)
+for i, x in enumerate([1, 2]):
+    print(x + 1)

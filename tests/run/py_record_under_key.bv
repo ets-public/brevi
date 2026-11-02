@@ -1,0 +1,27 @@
+state = {'cur': None, 'last': None, 'K': 0}
+out = []
+def finish():
+    t = state['cur']
+    state['cur'] = None
+    if t is None or t['bad']:
+        return
+    state['K'] += 1
+    out.append("%d %s" % (t['line'], sum(c for _, c in t['postings'])))
+    state['last'] = t['line']
+def posting(name, c):
+    t = state['cur']
+    if t is None or t['bad']:
+        return
+    t['postings'].append((name, c))
+for n, line in enumerate(["TX", "a 1", "b 2", "BAD", "a 1", "TX", "c 3"], 1):
+    w = line.split()
+    if len(w) == 2:
+        posting(w[0], int(w[1]))
+        continue
+    finish()
+    if line == "BAD":
+        state['cur'] = {'bad': True}
+    else:
+        state['cur'] = {'bad': False, 'postings': [], 'line': n}
+finish()
+print(out, state['K'], state['last'])

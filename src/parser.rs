@@ -215,6 +215,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     }
     if p.py {
         print_params(&mut items, &mut script, &mut p.sigs);
+        stdout_params(&mut items, &mut script, &mut p.sigs);
     }
     if !p.sigs.is_empty() {
         fill_args(&mut items, &mut script, &p.sigs);
@@ -1746,7 +1747,7 @@ impl Parser {
                     Some(p) => Expr::Str(p),
                     None => Expr::Binary(op, Box::new(lhs), Box::new(rhs)),
                 }
-            } else if self.py && op == "*" && [&lhs, &rhs].iter().any(|x| matches!(x, Expr::List(xs) if xs.iter().any(|i| matches!(i, Expr::List(_) | Expr::Map(_) | Expr::Method(_, _, _, _))))) {
+            } else if self.py && op == "*" && [&lhs, &rhs].iter().any(|x| matches!(x, Expr::List(xs) if xs.iter().any(|i| match i { Expr::List(_) | Expr::Map(_) => true, Expr::Method(_, m, _, _) => !matches!(m.as_str(), "dec" | "frac" | "frac_div" | "float" | "int"), _ => false }))) {
                 // Python's `[[0] * 3] * 3` repeats one inner list, so all rows are the same list.
                 return Err(self.err("[[...]] * n makes every row the same list in Python, so changing one row changes them all").fix_hint("write [[0] * 3 for _ in range(3)] for separate rows"));
             } else if op == "*" && matches!(lhs, Expr::List(_)) {
@@ -3179,10 +3180,11 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             let spec = args.remove(1).1;
             m(args.remove(0).1, "spec", vec![spec])
         }
-        ("Fraction", 1) => m(args.remove(0).1, "dec", vec![]),
+        // A Fraction is an exact decimal marked to print as n/d (and to refuse 1/3 loudly).
+        ("Fraction", 1) => m(m(args.remove(0).1, "dec", vec![]), "frac", vec![]),
         ("Fraction", 2) => {
             let b = m(args.remove(1).1, "dec", vec![]);
-            Expr::Binary("/", Box::new(m(args.remove(0).1, "dec", vec![])), Box::new(b))
+            m(m(args.remove(0).1, "dec", vec![]), "frac_div", vec![b])
         }
 
         // tuple(xs) is kept as a list: it sorts, compares and hashes the same way (it prints with [ ]).
@@ -4743,6 +4745,124 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
     }
 }
 
+
+// A class given `sys.stdout` by every call (`Interp(funcs, sys.stdout)`) that keeps it in a field used only
+// as `self.out.write(s)` (and `flush()`): the field goes, and `self.out.write(s)` prints s as it is.
+fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<String, Sig>) {
+    let is_out = |v: &Expr| matches!(v, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
+    let names: Vec<(String, Vec<String>)> = items.iter().filter_map(|it| match it {
+        Item::Fn { name, params, .. } if name.ends_with("_new") => Some((name.clone(), params.iter().map(|q| q.name.clone()).collect())),
+        _ => None,
+    }).collect();
+    for (f, pnames) in names {
+        let Some(class) = f.strip_suffix("_new").map(String::from) else { continue };
+        if sigs.get(&f).is_some_and(|s| s.2.is_some() || s.0.len() != pnames.len()) {
+            continue;
+        }
+        for i in 0..pnames.len() {
+            let p = pnames[i].clone();
+            // Every call passes sys.stdout there, by position.
+            let (mut calls, mut all) = (0, true);
+            let mut check = |e: &Expr| {
+                if let Expr::Call(c, args, _) = e {
+                    if *c == f || *c == class {
+                        calls += 1;
+                        let ok = args.get(i).is_some_and(|(n, v)| n.is_none() && is_out(v)) && args[..i].iter().all(|(n, _)| n.is_none());
+                        all &= ok;
+                    }
+                }
+            };
+            for it in items.iter() {
+                if let Item::Fn { body, .. } = it {
+                    crate::infer::walk(body, &mut check);
+                }
+            }
+            crate::infer::walk(&Expr::Block(script.to_vec(), None), &mut check);
+            if calls == 0 || !all {
+                continue;
+            }
+            let Some(fi) = items.iter().position(|it| matches!(it, Item::Fn { name, .. } if *name == f)) else { continue };
+            let mut field: Option<String> = None;
+            if let Item::Fn { body, .. } = &items[fi] {
+                crate::infer::walk(body, &mut |e| {
+                    if let Expr::Block(st, _) = e {
+                        for s in st {
+                            if let Stmt::Assign { target: Expr::Field(o, fld), op: "=", value: Expr::Ident(v), .. } = s {
+                                if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && *v == p {
+                                    field = Some(fld.clone());
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            let Some(fld) = field else { continue };
+            let pre = format!("{class}_");
+            // The field read only as `self.F.write(..)` / `self.F.flush()` in the class, nowhere else; p used once.
+            let recv = format!("Method(Field(Ident(\"self_\"), {fld:?}), ");
+            let read = format!("Field(Ident(\"self_\"), {fld:?})");
+            let bad = items.iter().any(|it| match it {
+                Item::Fn { name, body, .. } => {
+                    let d = format!("{body:?}");
+                    let uses = d.matches(&read).count();
+                    let ok = d.matches(&format!("{recv}\"write\"")).count() + d.matches(&format!("{recv}\"flush\"")).count() + if *name == f { 1 } else { 0 };
+                    (!name.starts_with(pre.as_str()) && uses > 0) || uses > ok || (*name == f && d.matches(&format!("Ident({p:?})")).count() > 1)
+                }
+                _ => false,
+            });
+            if bad {
+                continue;
+            }
+            for it in items.iter_mut() {
+                let Item::Fn { name, params, body, .. } = it else { continue };
+                if *name == f {
+                    params.retain(|q| q.name != p);
+                }
+                let mine = name.starts_with(pre.as_str());
+                walk_mut(body, &mut |e| {
+                    let flush = |x: &Expr| matches!(x, Expr::Method(o, m, a, _) if m == "flush" && a.is_empty() && matches!(o.as_ref(), Expr::Field(s, fl) if *fl == fld && matches!(s.as_ref(), Expr::Ident(x) if x == "self_")));
+                    if let Expr::Block(st, tail) = e {
+                        st.retain(|s| !matches!(s, Stmt::Assign { target: Expr::Field(o, fl), value: Expr::Ident(v), .. } if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && *fl == fld && *v == p));
+                        st.retain(|s| !matches!(s, Stmt::Expr { expr, .. } if flush(expr)));
+                        if tail.as_deref().is_some_and(flush) {
+                            *tail = None;
+                        }
+                    }
+                    if mine {
+                        if let Expr::Method(o, m, args, line) = e {
+                            if matches!(o.as_ref(), Expr::Field(s, fl) if *fl == fld && matches!(s.as_ref(), Expr::Ident(x) if x == "self_")) {
+                                if m == "write" && args.len() == 1 {
+                                    *e = Expr::Call("print".into(), vec![(None, args[0].clone()), (Some("end".into()), Expr::Str(vec![]))], *line);
+                                }
+                            }
+                        }
+                    }
+                    if let Expr::Call(c, args, _) = e {
+                        if (*c == f || *c == class) && args.len() > i {
+                            args.remove(i);
+                        }
+                    }
+                });
+            }
+            let mut sc = Expr::Block(script.to_vec(), None);
+            walk_mut(&mut sc, &mut |e| {
+                if let Expr::Call(c, args, _) = e {
+                    if (*c == f || *c == class) && args.len() > i {
+                        args.remove(i);
+                    }
+                }
+            });
+            if let Expr::Block(st, _) = sc {
+                script.clone_from_slice(&st);
+            }
+            if let Some(sig) = sigs.get_mut(&f) {
+                sig.0.remove(i);
+                sig.1.remove(i);
+            }
+            break;
+        }
+    }
+}
 
 // Python's `_old_end = end_tx` at the top level, set once, with end_tx a function of the program: the name
 // is another name for the function, so `_old_end()` calls end_tx (also inside functions defined above it).
