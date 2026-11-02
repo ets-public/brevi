@@ -1346,6 +1346,10 @@ impl Cx<'_> {
                             if !env.contains_key(n) || env[n] == Hole {
                                 let t = self.ty(value, env);
                                 env.insert(n.clone(), t);
+                            } else if !known(&env[n]) && known(&self.ty(value, env)) {
+                                // `xs = []` in one branch, `xs = [e for e in ...]` in the other.
+                                let t = self.ty(value, env);
+                                env.insert(n.clone(), t);
                             } else {
                                 // Python's `st = int(st)`: the name holds the new type from here on.
                                 let t = self.ty(value, env);
@@ -1509,6 +1513,38 @@ fn calls_in<'a>(e: &'a Expr, out: &mut Vec<(&'a str, &'a [(Option<String>, Expr)
 }
 
 // Fills in the return type of every function written without `->`, from what it returns.
+// The type another function gives a name that also takes f's value, when it fills f's unknown parts.
+fn partner_ret(items: &[Item], f: &str, fns: &HashMap<String, (Vec<(String, T)>, T)>, t: &T) -> Option<T> {
+    let mut found = None;
+    for it in items {
+        let Item::Fn { body, .. } = it else { continue };
+        let mut from: HashMap<String, Vec<String>> = HashMap::new();
+        walk(body, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for st in stmts {
+                    match st {
+                        Stmt::Let { name: Pat::Bind(n), value: Expr::Call(c, _, _), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Call(c, _, _), .. } => {
+                            from.entry(n.clone()).or_default().push(c.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        for cs in from.values().filter(|cs| cs.iter().any(|c| c == f)) {
+            for g in cs.iter().filter(|c| *c != f) {
+                if let Some((_, gt)) = fns.get(g) {
+                    let m = merge(t.clone(), gt.clone());
+                    if known(gt) && known(&m) {
+                        found = Some(m);
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
 pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     let q = |t: &Ty| matches!(t, Ty::Named(n) if n == "?");
     let open = |items: &[Item]| {
@@ -1812,6 +1848,11 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 };
                 fn add(ev: &mut HashMap<(String, String), T>, k: (String, String), t: T) {
                     let cur = ev.remove(&k).unwrap_or(Hole);
+                    // Python: a field set to a string on one path and a list on another holds JSON values.
+                    if py_on() && known(&cur) && known(&t) && ty_clash(&cur, &t) {
+                        ev.insert(k, Json);
+                        return;
+                    }
                     ev.insert(k, merge(cur, t));
                 }
                 walk(body, &mut |e| {
@@ -1830,6 +1871,14 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                                 if let Some(k) = owner(b, &env) {
                                     // Whether the field is a list or a map shows from all functions: decided below.
                                     idx_ev.push((k, cx.ty(ix, &env), cx.ty(value, &env)));
+                                } else if let Expr::Index(b2, ix2) = b.as_ref() {
+                                    // `self.scores[name][qid] = score`: a map of maps (keyed by a non-int).
+                                    let (t2, t1) = (cx.ty(ix2, &env), cx.ty(ix, &env));
+                                    if let Some(k) = owner(b2, &env) {
+                                        if *op == "=" && known(&t2) && t2 != Int && known(&t1) {
+                                            add(&mut ev, k, Map(Box::new(t2), Box::new(Map(Box::new(t1), Box::new(cx.ty(value, &env))))));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1958,6 +2007,12 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 Some(t) => found.push((k, t)),
                 // No `return` and a last line of unclear type (`if c: print(x) else: m.remove(k)`): no value, as in Python.
                 None if last && !has_return && matches!(tail, Some(Expr::If(..) | Expr::Match(..))) => found.push((k, Ty::Unit)),
+                // `s = new_state()` and later `s = step(s, k)`: a None slot takes the type the other call gives it.
+                None if last && py_on() && partner_ret(items, name, &cx.fns, &t).is_some() => {
+                    if let Some(t) = partner_ret(items, name, &cx.fns, &t).and_then(|p| to_ast(&p)) {
+                        found.push((k, t));
+                    }
+                }
                 None if last => {
                     let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out what {name} returns"));
                     d.fix = Some(format!("write the return type: fn {name}(...) -> TYPE"));
@@ -2149,6 +2204,14 @@ impl Ck<'_, '_> {
                         if let Expr::Index(b, _) = &*target {
                             let vt = self.cx.ty(value, env);
                             if self.cx.ty(b, env) == Json && vt != Json && (scalar(&vt) || matches!(vt, List(_) | Map(..))) {
+                                let v = std::mem::replace(value, Expr::Int(0));
+                                *value = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                            }
+                        }
+                        // A field (or a dict record's key) that holds JSON values: `q['spec'] = set(s)`.
+                        if matches!(&*target, Expr::Index(..) | Expr::Field(..)) && self.cx.ty(target, env) == Json {
+                            let vt = self.cx.ty(value, env);
+                            if vt != Json && vt != Hole && (scalar(&vt) || matches!(vt, List(_) | Map(..))) && !matches!(value, Expr::Call(f, _, _) if f == "ax_to_json") {
                                 let v = std::mem::replace(value, Expr::Int(0));
                                 *value = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
                             }
@@ -2558,6 +2621,35 @@ pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
             _ => None,
         })
         .collect();
+    // Names set to None in one place and to an empty list or dict in another (`players = None`, later
+    // `players = {}`): Brevi keeps None for them as the empty value, so `is None` can't tell them apart.
+    let none_or_empty_names: HashSet<String> = {
+        let (mut nones, mut empties_set) = (HashSet::new(), HashSet::new());
+        for it in items.iter() {
+            let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+            walk(body, &mut |e| {
+                if let Expr::Block(stmts, _) = e {
+                    for st in stmts {
+                        if let Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } = st {
+                            match value {
+                                Expr::Call(f, a, _) if f == "none" && a.is_empty() => {
+                                    nones.insert(n.clone());
+                                }
+                                Expr::List(x) if x.is_empty() => {
+                                    empties_set.insert(n.clone());
+                                }
+                                Expr::Map(x) if x.is_empty() => {
+                                    empties_set.insert(n.clone());
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        nones.intersection(&empties_set).cloned().collect()
+    };
     // Top-level names, as functions see them (`for p in postings: s += p[1]` with postings a global list of pairs).
     let ecx = empty_cx(items);
     cx.genv = ecx.genv;
@@ -2571,7 +2663,7 @@ pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
             _ => continue,
         };
         let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
-        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect(), maybe_none: HashSet::new(), none_fns: &none_fns };
+        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect(), maybe_none: none_or_empty_names.clone(), none_fns: &none_fns };
         if !matches!(body, Expr::Block(..)) {
             ck.next_own.clear();
         }

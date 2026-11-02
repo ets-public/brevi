@@ -1,0 +1,8 @@
+[1, 2, 0] b (0, 1)
+[1, 2, 0, 1] w None
+[1, 2, 0, 1, 2] b (2, 3)
+2 b
+True False True
+False False False
+False True True
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

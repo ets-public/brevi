@@ -16,7 +16,39 @@ struct Cx {
     getters: std::collections::HashMap<String, (Result<usize, String>, usize)>,
 }
 
+thread_local! {
+    // (function, parameter index) pairs whose function changes that parameter in place (`dq.popleft()`, `lot[0] -= t`).
+    static CHANGES_PARAM: std::cell::RefCell<HashSet<(String, usize)>> = std::cell::RefCell::new(HashSet::new());
+}
+
 pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
+    CHANGES_PARAM.with(|c| {
+        let mut c = c.borrow_mut();
+        c.clear();
+        for it in items.iter() {
+            if let Item::Fn { name, params, body, .. } = it {
+                for (i, p) in params.iter().enumerate() {
+                    // Directly, or through an item taken from it (`lot = dq[0]`, then `lot[0] -= t`).
+                    let mut hit = any_expr(body, &mut |st| direct(&p.name, st));
+                    if !hit {
+                        let mut items_of: Vec<String> = vec![];
+                        any_expr(body, &mut |st| {
+                            if let Stmt::Assign { target: Expr::Ident(x), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(x), value, .. } = st {
+                                if root(value) == Some(p.name.as_str()) && matches!(value, Expr::Index(..)) {
+                                    items_of.push(x.clone());
+                                }
+                            }
+                            false
+                        });
+                        hit = items_of.iter().any(|x| any_expr(body, &mut |st| direct(x, st)));
+                    }
+                    if hit {
+                        c.insert((name.clone(), i));
+                    }
+                }
+            }
+        }
+    });
     let classes: Vec<String> = items.iter().filter_map(|i| if let Item::Type { name, .. } = i { Some(format!("{name}_")) } else { None }).collect();
     let mut mutators = HashSet::new();
     for it in items.iter() {
@@ -693,7 +725,22 @@ fn any_expr(e: &Expr, f: &mut dyn FnMut(&Stmt) -> bool) -> bool {
 }
 
 fn changed(r: &str, rest: &[Stmt], tail: Option<&Expr>) -> bool {
-    any_stmt(rest, tail, &mut |st| direct(r, st))
+    any_stmt(rest, tail, &mut |st| direct_wb(r, st))
+}
+
+// `direct`, or r handed to a function of the program (`cogs = take(dq, q)`), which may change it: the
+// copy is written back after the call (unchanged, that changes nothing).
+fn direct_wb(r: &str, st: &Stmt) -> bool {
+    let passes = |e: &Expr| match e {
+        Expr::Call(f, args, _) => args.iter().enumerate().any(|(i, (_, a))| matches!(a, Expr::Ident(n) if n == r) && CHANGES_PARAM.with(|c| c.borrow().contains(&(f.clone(), i)))),
+        _ => false,
+    };
+    direct(r, st)
+        || match st {
+            Stmt::Expr { expr, .. } => passes(expr),
+            Stmt::Assign { value, .. } | Stmt::Let { value, .. } => passes(value),
+            _ => false,
+        }
 }
 
 // Nothing later sets r, the key name or the container as a whole, or the same slot; and r is not a loop
@@ -729,7 +776,7 @@ fn safe(r: &str, base: &Expr, key: &Expr, rest: &[Stmt], tail: Option<&Expr>) ->
 fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) {
     let old = std::mem::take(stmts);
     for mut st in old {
-        let d = direct(r, &st);
+        let d = direct_wb(r, &st);
         match &mut st {
             Stmt::Expr { expr, .. } => add_expr(r, wb, expr),
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } => add_expr(r, wb, value),

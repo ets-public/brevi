@@ -1,0 +1,40 @@
+# From the huge set: a tuple state whose last slot starts None, a list set to [] or to a comprehension in
+# the branches of an if, and type(v) is int.
+def new_state():
+    return ([1, 2], 'w', None)
+
+
+def step(state, k):
+    xs, side, ep = state
+    nep = (k, k + 1) if k % 2 == 0 else None
+    return (xs + [k], 'b' if side == 'w' else 'w', nep)
+
+
+def run(cmds):
+    for lineno, text in cmds:
+        print(lineno, text)
+
+
+def main():
+    s = new_state()
+    for k in range(3):
+        s = step(s, k)
+        print(s[0], s[1], s[2])
+    entries = [(1, "a"), (2, "b")]
+    sep = None
+    if len(entries) > 1:
+        sep = 0
+    if sep is None:
+        cmd_lines = []
+    else:
+        cmd_lines = [e for e in entries if e[0] - 1 > sep]
+    run(cmd_lines)
+    vals = []
+    vals.append(1)
+    vals.append("a")
+    vals.append(True)
+    for v in vals:
+        print(type(v) is int, type(v) == bool, isinstance(v, int))
+
+
+main()
