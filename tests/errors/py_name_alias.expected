@@ -1,0 +1,1 @@
+{"line":3,"msg":"b = a makes b a copy in Brevi, but in Python both names are the same list or dict, so changing one changes the other","fix":"use one name, or write b = a.copy() if a separate copy is meant"}

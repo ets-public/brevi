@@ -851,7 +851,7 @@ fn report(rust: &str, stderr: &str) {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
         // A copy Brevi refuses because the value is not shared (a `__shared` marker from alias.rs).
-        if msg.contains("AxShared") {
+        if msg.contains("AxShared") || msg.contains("AxWhole") {
             let src = primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("");
             if let Some(h) = src.split("axsh:").nth(1).map(|h| h.split("*/").next().unwrap_or("")) {
                 let bytes: Vec<u8> = (0..h.len() / 2).filter_map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()).collect();
