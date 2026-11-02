@@ -1,0 +1,17 @@
+int 5
+str ababab
+list [1, 'two', None, 4.5]
+{'a': [1, 2.5, 'x', None, True], 'b': {'c': []}} {"a": [1, 2.5, "x", null, true], "b": {"c": []}} {
+  "a": [
+    1,
+    2.5,
+    "x",
+    null,
+    true
+  ],
+  "b": {
+    "c": []
+  }
+}
+[('bob', None, [1, 2]), ('ann', 3, 2.5)] {'bob': (None, [1, 2]), 'ann': (3, 2.5)}
+TypeError: unsupported operand type(s) for +: 'int' and 'str'
