@@ -189,6 +189,9 @@ fn main() {
         }
     };
     // `brevi run x.py` falls back to CPython when Brevi cannot build the file; --native (or BREVI_NATIVE=1) keeps it strict.
+    if file.ends_with(".py") {
+        PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if cmd == "run" && file.ends_with(".py") && !native {
         run_or_fall_back(&file, &argv);
     }
@@ -1197,7 +1200,13 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
 
 // A program written as Python (`def`, `class`, `global`) prints values and orders dicts as Python does.
 // Also a script with spellings only Python code uses: `None`, `xs.append(x)` (Brevi code writes `True` too).
+// Set for a .py file: Python rules apply whatever the source looks like.
+pub static PY_FILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn python_style(src: &str) -> bool {
+    if PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
     let word = |l: &str, w: &str| {
         l.match_indices(w).any(|(i, _)| {
             let before = l[..i].chars().next_back();
@@ -1214,5 +1223,7 @@ pub fn python_style(src: &str) -> bool {
             || (l.starts_with("from ") && l.contains(" import "))
             || l.contains(".append(")
             || word(l, "None")
+            || (l.starts_with("with ") && l.contains(" as "))
+            || (word(l, "open") && l.contains("open("))
     })
 }

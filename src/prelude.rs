@@ -3868,6 +3868,15 @@ impl<T: Clone + PartialOrd> AxSetSub for Vec<T> {
     }
 }
 // Python string methods on a value whose type is only known to Rust: s.count(sub), set(s), ljust/rjust.
+// s.splitlines(True), and a file's lines as `for line in f` gives them: each keeps its "\n".
+pub trait AxLinesKeep {
+    fn ax_lines_keep(&self) -> Vec<String>;
+}
+impl AxLinesKeep for String {
+    fn ax_lines_keep(&self) -> Vec<String> {
+        self.split_inclusive('\n').map(String::from).collect()
+    }
+}
 pub trait AxStrMore {
     fn ax_count(&self, sub: impl AsRef<str>) -> i64;
     fn ax_count_of(&self, sub: impl AsRef<str>) -> i64;

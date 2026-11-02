@@ -80,6 +80,9 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
             }
         }
     }
+    if p.py {
+        fix_opens(&mut script);
+    }
     items.append(&mut p.hoisted);
     if !classes.is_empty() {
         inherit(&mut items, &mut classes);
@@ -599,6 +602,9 @@ impl Parser {
                     .fix_hint("put one statement per line"));
             }
         }
+        if self.py {
+            fix_opens(&mut stmts);
+        }
         // The last expression statement is the block's value.
         let tail = match stmts.last() {
             Some(Stmt::Expr { .. }) => match stmts.pop() {
@@ -787,6 +793,48 @@ impl Parser {
                 }
                 _ => Err(self.err("del takes m[k] or xs[i]").fix_hint("write del m[k]")),
             };
+        }
+        // Python's `with open(p) as f:` (also several, comma-separated): `f = open(p)`, the body, then `f.close()`,
+        // all in the enclosing block (fix_opens then works on them like any opened file).
+        if self.py && matches!(self.peek(), Tok::Ident(w) if w == "with") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            self.next();
+            let mut opened = Vec::new();
+            loop {
+                let e = self.expr()?;
+                if !matches!(&e, Expr::Call(f, _, _) if f.starts_with("__open_")) {
+                    return Err(self.err("with is only supported with open(path) or open(path, mode)").fix_hint("read the file with open(path).read(), or use open(path, 'w') for writing"));
+                }
+                if !matches!(self.peek(), Tok::Ident(w) if w == "as_" || w == "as") {
+                    return Err(self.err("expected 'as NAME' after open(...)").fix_hint("write with open(path) as f:"));
+                }
+                self.next();
+                let name = self.ident()?;
+                opened.push((name, e));
+                if !self.eat_sym(",") {
+                    break;
+                }
+            }
+            let body = self.block()?;
+            let (mut stmts, tail) = match body {
+                Expr::Block(st, t) => (st, t),
+                other => (vec![], Some(Box::new(other))),
+            };
+            if let Some(t) = tail {
+                stmts.push(Stmt::Expr { expr: *t, line });
+            }
+            // A file being written is saved at the end of the body (before a final return); one being read needs nothing.
+            let at = if matches!(stmts.last(), Some(Stmt::Return { .. })) { stmts.len() - 1 } else { stmts.len() };
+            for (name, e) in opened.iter() {
+                if !matches!(e, Expr::Call(k, _, _) if k == "__open_r") {
+                    stmts.insert(at, Stmt::Expr { expr: Expr::Method(Box::new(Expr::Ident(name.clone())), "close".into(), vec![], line), line });
+                }
+            }
+            let mut lets: Vec<Stmt> = opened.into_iter().map(|(name, e)| Stmt::Let { name: Pat::Bind(name), ty: None, value: e, mutable: true, line }).collect();
+            let first = lets.remove(0);
+            lets.extend(stmts);
+            lets.append(&mut self.pending);
+            self.pending = lets;
+            return Ok(first);
         }
         // Python's `pass`.
         if matches!(self.peek(), Tok::Ident(w) if w == "pass") && matches!(self.peek_at(1), Tok::Newline | Tok::Sym("}")) {
@@ -1547,6 +1595,10 @@ impl Parser {
                                 args.push(Expr::Call("none".into(), vec![], line));
                             }
                             let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
+                            // s.splitlines(True): the flag is in the name now.
+                            if name == "lines_keep" {
+                                args.clear();
+                            }
                             // xs.count(x) in Python counts the items equal to x (s.count(sub) counts a substring).
                             let name = if self.py && name == "count" && args.len() == 1 && !matches!(args[0], Expr::Lambda(..)) && !self.own_method(&e) { "count_of".to_string() } else { name };
                             // Python's `"{} of {:>5}".format(a, b)` fills the string.
@@ -1790,6 +1842,15 @@ impl Parser {
                             // sys.stdin.readline(): the next line with its "\n" ("" at the end of input).
                             if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty()) && name == "readline" && args.is_empty() {
                                 e = Expr::Call("__readline".into(), vec![], line);
+                                continue;
+                            }
+                            // open(p).read() is the file's text; open(p).readlines() its lines, each with its "\n".
+                            if matches!(&e, Expr::Call(f, _, _) if f == "__open_r") && args.is_empty() && matches!(name.as_str(), "read" | "readlines") {
+                                let Expr::Call(_, a, _) = e else { unreachable!() };
+                                e = Expr::Call("read".into(), a, line);
+                                if name == "readlines" {
+                                    e = Expr::Method(Box::new(e), "lines_keep".into(), vec![], line);
+                                }
                                 continue;
                             }
                             if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty()) && name == "read" && args.is_empty() {
@@ -2172,6 +2233,12 @@ impl Parser {
                         }
                         return Ok(Expr::Method(Box::new(total.unwrap()), "delta_days".into(), vec![], line));
                     }
+                    // open(path, mode=..., encoding=...): keyword arguments too.
+                    if name == "open" && self.py && !self.user_fns.contains(&name) {
+                        if let Some(d) = python_call(&name, &mut args, line) {
+                            return Ok(d);
+                        }
+                    }
                     let star = args.iter().any(|a| a.0.as_deref() == Some("__star"));
                     if !self.user_fns.contains(&name) && !self.class_names.contains(&name) && (star || args.iter().all(|a| a.0.is_none())) {
                         if let Some(d) = python_call(&name, &mut args, line) {
@@ -2376,7 +2443,13 @@ impl Parser {
                 if !self.eat_kw("in") {
                     return Err(self.err("expected 'in' after the loop variable"));
                 }
-                let iter = self.expr()?;
+                let mut iter = self.expr()?;
+                // `for line in open(p)`: the file's lines, each with its "\n".
+                if let Expr::Call(f, a, l) = &iter {
+                    if f == "__open_r" {
+                        iter = Expr::Method(Box::new(Expr::Call("read".into(), a.clone(), *l)), "lines_keep".into(), vec![], *l);
+                    }
+                }
                 let body = self.block()?;
                 let lp = Expr::For(p, Box::new(iter), Box::new(body));
                 self.loop_else(lp)
@@ -2613,6 +2686,7 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("lstrip", 0) => "trim_start",
         ("lstrip", 1) => "trim_start_of",
         ("splitlines", 0) => "lines",
+        ("splitlines", 1) => "lines_keep",
         // xs.pop(i) and m.pop(k) take the item out and give it back.
         ("pop", 1) => "pop_at",
         // m.pop(k, d): the value taken out, or d when k is missing.
@@ -2685,6 +2759,26 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         let mut a = vec![(None, joined)];
         a.extend(rest);
         return Some(Expr::Call("print".into(), a, line));
+    }
+    // open(path, mode): "__open_r" / "__open_w" / "__open_a" with the path; fix_opens turns the file into its text
+    // (reading) or a list of written pieces that is written out at close (writing). Binary modes are not handled.
+    if name == "open" && !args.is_empty() && args[0].0.is_none() {
+        let mode_at = args.iter().position(|(n, _)| n.as_deref() == Some("mode")).or(if args.len() > 1 && args[1].0.is_none() { Some(1) } else { None });
+        let mode = match mode_at.map(|i| &args[i].1) {
+            None => "r".to_string(),
+            Some(Expr::Str(p)) => match p.as_slice() {
+                [StrPart::Lit(m)] => m.clone(),
+                [] => "r".to_string(),
+                _ => return None,
+            },
+            Some(_) => return None,
+        };
+        if mode.contains('b') || mode.contains('+') || mode.contains('x') {
+            return None;
+        }
+        let kind = if mode.contains('w') { "__open_w" } else if mode.contains('a') { "__open_a" } else { "__open_r" };
+        let path = args.remove(0).1;
+        return Some(Expr::Call(kind.into(), vec![(None, path)], line));
     }
     if let Some(hm) = heapq_method(name, args.len()) {
         let h = args.remove(0).1;
@@ -3483,6 +3577,83 @@ fn tuples_as_lists(items: &mut [Item], script: &mut [Stmt]) {
     if let Expr::Block(v, _) = b {
         for (st, n) in script.iter_mut().zip(v) {
             *st = n;
+        }
+    }
+}
+
+// Files opened in a block (`f = open(p)`, or from `with open(p) as f:`). Read mode: f holds the file's text, so
+// `f.read()` is f, `f.readlines()` and `for line in f` give its lines with their "\n", and `f.close()` does nothing.
+// Write and append mode: f is a list of the pieces written (`f.write(s)`, `print(..., file=f)`), and `f.close()`
+// writes them out (append mode adds them after the file's text, if the file is there).
+fn fix_opens(stmts: &mut [Stmt]) {
+    for i in 0..stmts.len() {
+        let (name, kind, path, line) = match &stmts[i] {
+            Stmt::Let { name: Pat::Bind(n), value: Expr::Call(k, a, l), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Call(k, a, l), .. }
+                if k.starts_with("__open_") && a.len() == 1 =>
+            {
+                (n.clone(), k.clone(), a[0].1.clone(), *l)
+            }
+            _ => continue,
+        };
+        let id = || Expr::Ident(name.clone());
+        let is_f = |e: &Expr| matches!(e, Expr::Ident(n) if *n == name);
+        let read = kind == "__open_r";
+        let value = if read { Expr::Call("read".into(), vec![(None, path.clone())], line) } else { Expr::List(vec![]) };
+        match &mut stmts[i] {
+            Stmt::Let { value: v, mutable, .. } => {
+                *v = value;
+                *mutable = true;
+            }
+            Stmt::Assign { value: v, .. } => *v = value,
+            _ => {}
+        }
+        // Written out at close: the pieces joined, after the old text in append mode.
+        let joined = Expr::Method(Box::new(id()), "join".into(), vec![Expr::Str(vec![])], line);
+        let text = if kind == "__open_a" {
+            let old = Expr::Call("__try_read".into(), vec![(None, path.clone())], line);
+            Expr::Binary("+", Box::new(old), Box::new(joined))
+        } else {
+            joined
+        };
+        let save = Expr::Call("write".into(), vec![(None, path.clone()), (None, text)], line);
+        let mut fix = |e: &mut Expr| {
+            let new = match e {
+                Expr::Method(r, m, a, l) if is_f(r) => match (m.as_str(), a.len(), read) {
+                    ("read", 0, true) => Some(id()),
+                    ("readlines", 0, true) => Some(Expr::Method(Box::new(id()), "lines_keep".into(), vec![], *l)),
+                    ("close", 0, true) => Some(Expr::Block(vec![], None)),
+                    ("close", 0, false) => Some(save.clone()),
+                    ("write", 1, false) => Some(Expr::Method(Box::new(id()), "push".into(), vec![a[0].clone()], *l)),
+                    ("flush", 0, _) => Some(Expr::Block(vec![], None)),
+                    _ => None,
+                },
+                Expr::For(_, it, _) if read && is_f(it) => {
+                    **it = Expr::Method(Box::new(id()), "lines_keep".into(), vec![], line);
+                    None
+                }
+                Expr::Call(p, a, l) if p == "print" && !read && a.iter().any(|(n, v)| n.as_deref() == Some("file") && is_f(v)) => {
+                    let end = a.iter().find(|(n, _)| n.as_deref() == Some("end")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit("\n".into())]));
+                    let sep = a.iter().find(|(n, _)| n.as_deref() == Some("sep")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
+                    let items: Vec<Expr> = a.iter().filter(|(n, _)| n.is_none()).map(|(_, v)| Expr::Call("str".into(), vec![(None, v.clone())], *l)).collect();
+                    let body = Expr::Method(Box::new(Expr::List(items)), "join".into(), vec![sep], *l);
+                    Some(Expr::Method(Box::new(id()), "push".into(), vec![Expr::Binary("+", Box::new(body), Box::new(end))], *l))
+                }
+                _ => None,
+            };
+            if let Some(n) = new {
+                *e = n;
+            }
+        };
+        for st in stmts[i + 1..].iter_mut() {
+            let mut b = Expr::Block(vec![st.clone()], None);
+            walk_mut(&mut b, &mut fix);
+            if let Expr::Block(mut v, _) = b {
+                *st = v.remove(0);
+            }
+            // Stop at the next `f = ...`: f is something else from there on.
+            if matches!(st, Stmt::Let { name: Pat::Bind(n), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", .. } if *n == name) {
+                break;
+            }
         }
     }
 }
