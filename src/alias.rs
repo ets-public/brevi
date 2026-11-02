@@ -214,6 +214,14 @@ fn place_mark(e: &mut Expr, line: usize, var: &str, mark: &Stmt) -> bool {
                                 return true;
                             }
                         }
+                        // A loop made to walk indexes (`for i in ...: bo = xs[i]`): right after var is set.
+                        if let Expr::Block(b, _) = body.as_mut() {
+                            let at = b.iter().position(|st| matches!(st, Stmt::Let { name: Pat::Bind(n), .. } | Stmt::Assign { target: Expr::Ident(n), .. } if n == var));
+                            if let Some(k) = at {
+                                b.insert(k + 1, mark.clone());
+                                return true;
+                            }
+                        }
                     }
                     if !matches!(&stmts[i], Stmt::Expr { expr: Expr::For(..) | Expr::If(..) | Expr::While(..), .. }) {
                         stmts.insert(i + 1, mark.clone());
@@ -235,6 +243,14 @@ fn place_mark(e: &mut Expr, line: usize, var: &str, mark: &Stmt) -> bool {
             false
         }
         Expr::If(_, a, b) => place_mark(a, line, var, mark) || b.as_mut().is_some_and(|b| place_mark(b, line, var, mark)),
+        // A loop that is the last thing in its block (no statement line of its own): the one binding var.
+        Expr::For(p, it, b) if format!("{p:?}").contains(&format!("{var:?}")) && format!("{it:?}").contains(&format!(", {line})")) => {
+            if let Expr::Block(st, _) = b.as_mut() {
+                st.insert(0, mark.clone());
+                return true;
+            }
+            place_mark(b, line, var, mark)
+        }
         Expr::For(_, _, b) | Expr::While(_, b) => place_mark(b, line, var, mark),
         Expr::Match(_, arms) => arms.iter_mut().any(|(_, a)| place_mark(a, line, var, mark)),
         _ => false,

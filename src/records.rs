@@ -83,10 +83,16 @@ fn same(a: &[String], b: &[String]) -> bool {
 
 // The name a dict literal is put in (`cur = {...}`, `self.cur = {...}`), which ties its keys to the
 // other literals put there.
-fn holder(st: &Stmt) -> Option<(&str, &Expr)> {
+fn holder(st: &Stmt) -> Option<(String, &Expr)> {
     match st {
-        Stmt::Assign { target: Expr::Ident(n) | Expr::Field(_, n), op: "=", value, .. } => Some((n, value)),
-        Stmt::Let { name: Pat::Bind(n), value, .. } => Some((n, value)),
+        Stmt::Assign { target: Expr::Ident(n) | Expr::Field(_, n), op: "=", value, .. } => Some((n.clone(), value)),
+        Stmt::Let { name: Pat::Bind(n), value, .. } => Some((n.clone(), value)),
+        // Dicts pushed on one list (`stack.append({'kind': 'if', ...})`, `stack.append({'kind': 'while', ...})`)
+        // are one record, as Python reads them alike.
+        Stmt::Expr { expr: Expr::Method(r, m, args, _), .. } if matches!(m.as_str(), "push" | "append" | "insert" | "ax_push") => match (r.as_ref(), args.last()) {
+            (Expr::Ident(n) | Expr::Field(_, n), Some(v @ Expr::Map(_))) => Some((format!("@list {n}"), v)),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -190,8 +196,10 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
                     }
                 }
             }
-            if let Expr::Block(stmts, _) = e {
-                for st in stmts {
+            if let Expr::Block(stmts, tail) = e {
+                // (A branch's one statement is its tail: `stack.append({...})`.)
+                let tail_st = tail.as_ref().map(|t| Stmt::Expr { expr: (**t).clone(), line: 0 });
+                for st in stmts.iter().chain(tail_st.iter()) {
                     // Dicts a function returns in the same place (`return qid, {"type": "choice", ...}` and
                     // `return qid, {"type": "number", ...}`) are one record.
                     if let Stmt::Return { value: Some(v), .. } = st {

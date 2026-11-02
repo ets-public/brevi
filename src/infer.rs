@@ -100,6 +100,9 @@ fn merge(a: T, b: T) -> T {
                 .map(|(a, b)| if py_on() && slot_clash(&a, &b) { Json } else { merge(a, b) })
                 .collect(),
         ),
+        // Python: tuples of different lengths in one place (`('say', ln, w)` and `('if', ln, c, body)` in one
+        // list) are dynamic (JSON) values.
+        (Tuple(x), Tuple(y)) if py_on() && x.len() != y.len() && !x.is_empty() && !y.is_empty() => Json,
         // An int next to a dec or float is a literal that mixes in.
         (Int, b @ (Dec | F64)) => b,
         (a, _) => a,
@@ -284,6 +287,8 @@ struct Cx<'a> {
     unsure: bool,
     // Working out an entry read out of a map (`dd = nxt[s]`): `dd[t] = v` makes it a map.
     entry_look: bool,
+    // The name being looked at was set to `[]`: a Python list, never a dict.
+    list_lit: Option<String>,
 }
 
 pub fn map_key(ps: &[(Expr, Expr)]) -> String {
@@ -326,7 +331,7 @@ fn none_slots(t: &T) -> T {
 }
 
 fn empty_cx(items: &[Item]) -> Cx<'_> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false, entry_look: false };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false, entry_look: false, list_lit: None };
     for it in items {
         match it {
             Item::Fn { name, params, ret, body, script, .. } => {
@@ -435,6 +440,7 @@ impl Cx<'_> {
             if let Some((n, value, line)) = decl {
                 if let Some(base) = empty_kind(value) {
                     let mut t = base.clone();
+                    let was_lit = std::mem::replace(&mut self.list_lit, matches!(value, Expr::List(_)).then(|| n.clone()));
                     {
                         // The block's last expression (often a loop or an if) is part of what follows.
                         let mut later = env.clone();
@@ -458,6 +464,7 @@ impl Cx<'_> {
                             self.look_expr(n, body, &mut fenv, &mut t);
                         }
                     }
+                    self.list_lit = was_lit;
                     // A later pass that learns less (the name already typed from the first) keeps what was found.
                     if let Some(old) = self.hint_t.get(&(n.clone(), line)) {
                         t = merge(t, old.clone());
@@ -598,7 +605,7 @@ impl Cx<'_> {
                             // `key in memo` (read as a list of keys) and then `memo[key] = v` with a key that is
                             // the same type: memo is a dict (a list indexed by its own items would be odd).
                             // (Not for int keys on a list made by `+= [0] * n` or the like: `counters[d - 1] += 1`.)
-                            if py_on() && matches!(&*acc, List(e) if **e == kt) && known(&kt) && !(kt == Int && *op != "=") {
+                            if py_on() && matches!(&*acc, List(e) if **e == kt) && known(&kt) && !(kt == Int && *op != "=") && self.list_lit.as_deref() != Some(n) {
                                 *acc = Map(Box::new(kt), Box::new(vt));
                                 continue;
                             }
@@ -954,6 +961,18 @@ impl Cx<'_> {
             Expr::List(xs) => List(Box::new(xs.iter().fold(Hole, |a, x| merge(a, self.ty(x, env))))),
             Expr::Map(ps) if self.mixed.contains(&map_key(ps)) => Json,
             Expr::Map(ps) => {
+                // A dict literal with str keys and values of different kinds (`{'to': c[3], 'locked': k is not None}`
+                // with c[3] dynamic) is a JSON object, as emit makes it.
+                if py_on() && ps.len() >= 2 && ps.iter().all(|(k, _)| matches!(k, Expr::Str(_))) {
+                    let vs: Vec<T> = ps.iter().map(|(_, b)| self.ty(b, env)).collect();
+                    if vs.iter().any(|v| *v == Json) && vs.iter().any(|v| known(v) && *v != Json) {
+                        return Json;
+                    }
+                    // (A value not known yet may turn out dynamic: the dict's value type waits for it.)
+                    if vs.iter().any(|v| *v == Hole) && vs.iter().any(|v| known(v)) {
+                        return Hole;
+                    }
+                }
                 let (k, v) = ps.iter().fold((Hole, Hole), |(k, v), (a, b)| (merge(k, self.ty(a, env)), merge(v, self.ty(b, env))));
                 Map(Box::new(k), Box::new(v))
             }
@@ -1178,8 +1197,8 @@ impl Cx<'_> {
             "to_dict" => match elem(&r) {
                 Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
                 _ => match &r {
-                    // `dict(v)` on a dict record: a copy of it.
-                    Map(..) | Named(_) => r,
+                    // `dict(v)` on a dict record (or a dynamic value): a copy of it.
+                    Map(..) | Named(_) | Json => r,
                     _ => Hole,
                 },
             },
@@ -1837,7 +1856,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     for round in 0..12 {
         // Top-level names (`ts = {}` filled inside a function) are known by type where functions read them.
         let genv = empty_cx(items).genv;
-        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv, param_look: false, unsure: false, entry_look: false };
+        let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: mixed.clone(), genv, param_look: false, unsure: false, entry_look: false, list_lit: None };
         for it in items.iter() {
             match it {
                 Item::Fn { name, params, ret, .. } => {
@@ -2176,7 +2195,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             let mut json_params: Vec<(usize, usize)> = vec![];
             // Python: a parameter nothing pins down by round 9 (minilang's `eval(node, env)` over mixed tuples)
             // holds dynamic (JSON) values, unless the function calls it (a function value).
-            if py_on() && round == 9 {
+            if py_on() && (round == 9 || round == 10) {
                 // Only for functions called by name somewhere (a method still written `self._ordered(sku)` is typed
                 // from its calls once they are rewritten).
                 let mut by_name: HashSet<String> = HashSet::new();
@@ -2192,6 +2211,11 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 for (k, it) in items.iter().enumerate() {
                     let Item::Fn { name, params, body, .. } = it else { continue };
                     if !by_name.contains(name) {
+                        continue;
+                    }
+                    // A method's calls (`g.has(name)` with g set later) are rewritten late: one round more first.
+                    let method = params.first().is_some_and(|p| p.name == "self_");
+                    if (round == 10) != method {
                         continue;
                     }
                     for (pi, p) in params.iter().enumerate() {
@@ -2621,7 +2645,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                             found.push((k, t));
                         }
                     }
-                } else if matches!(&rt, List(x) if scalar(x)) && ts.iter().any(|t| matches!(t, List(x) if **x == Json)) {
+                } else if matches!(&rt, List(x) if scalar(x) || matches!(**x, Tuple(_))) && ts.iter().any(|t| matches!(t, List(x) if **x == Json)) {
                     // A list typed early from its first items, later found to hold mixed (JSON) items.
                     found.push((k, Ty::List(Box::new(Ty::Named("Json".into())))));
                 }
@@ -2881,6 +2905,14 @@ impl Ck<'_, '_> {
                                 *value = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
                             }
                         }
+                        // `w.capacity = c[1]` with c dynamic and the field an int (or str): checked when it runs.
+                        if matches!(&*target, Expr::Field(..)) && self.cx.ty(value, env) == Json {
+                            let ft = self.cx.ty(target, env);
+                            if matches!(ft, Int | Str) {
+                                let v = std::mem::replace(value, Expr::Int(0));
+                                *value = Expr::Call(if ft == Int { "ax_jas_int" } else { "ax_jas_str" }.into(), vec![(None, v)], *line);
+                            }
+                        }
                         // A field (or a dict record's key) that holds JSON values: `q['spec'] = set(s)`.
                         if matches!(&*target, Expr::Index(..) | Expr::Field(..)) && self.cx.ty(target, env) == Json {
                             let vt = self.cx.ty(value, env);
@@ -3093,10 +3125,16 @@ impl Ck<'_, '_> {
                 }
                 // `env[n[1]]` with a JSON key: checked to be a str (or int) when it runs.
                 Expr::Index(b, k) => {
-                    if let (Map(kt, _), Json) = (self.cx.ty(b, env), self.cx.ty(k, env)) {
-                        if matches!(*kt, Int | Str) {
+                    if self.cx.ty(k, env) == Json {
+                        let kt = match self.cx.ty(b, env) {
+                            Map(kt, _) => *kt,
+                            // `CATS[key[0]]`: a list read at a JSON index.
+                            List(_) | Str => Int,
+                            _ => Hole,
+                        };
+                        if matches!(kt, Int | Str) {
                             let v = std::mem::replace(&mut **k, Expr::Int(0));
-                            **k = Expr::Call(if *kt == Int { "ax_jas_int" } else { "ax_jas_str" }.into(), vec![(None, v)], 0);
+                            **k = Expr::Call(if kt == Int { "ax_jas_int" } else { "ax_jas_str" }.into(), vec![(None, v)], 0);
                         }
                     }
                 }
@@ -3131,9 +3169,14 @@ impl Ck<'_, '_> {
             if matches!(m.as_str(), "push" | "insert") && !args.is_empty() {
                 if let List(it) = self.cx.ty(r, env) {
                     let k = args.len() - 1;
-                    if *it == Json && scalar(&self.cx.ty(&args[k], env)) && self.cx.ty(&args[k], env) != Json {
+                    let at = self.cx.ty(&args[k], env);
+                    if *it == Json && scalar(&at) && at != Json {
                         let v = std::mem::replace(&mut args[k], Expr::Int(0));
                         args[k] = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                    } else if *it == Json && self.py && matches!(at, Tuple(_)) && !matches!(&args[k], Expr::Call(f, _, _) if f == "ax_tup_json") {
+                        // A tuple put in a list of dynamic values (a syntax tree's `body.append(('say', ln, w))`).
+                        let v = std::mem::replace(&mut args[k], Expr::Int(0));
+                        args[k] = Expr::Call("ax_tup_json".into(), vec![(None, v)], *line);
                     }
                 }
             }
@@ -3144,6 +3187,11 @@ impl Ck<'_, '_> {
             if m == "skip" && matches!(args.as_slice(), [Expr::Int(0)]) && matches!(self.cx.ty(r, env), Map(..)) {
                 *m = "keys".into();
                 args.clear();
+            }
+            // `set(d)` of a dict is the set of its keys.
+            if m == "unique" && args.is_empty() && matches!(self.cx.ty(r, env), Map(..)) {
+                let x = std::mem::replace(&mut **r, Expr::Int(0));
+                **r = Expr::Method(Box::new(x), "keys".into(), vec![], 0);
             }
             if m == "get_or" && args.len() == 2 {
                 if let Map(_, v) = self.cx.ty(r, env) {
@@ -3406,7 +3454,7 @@ fn returned_texts(d: &str) -> Vec<&str> {
 
 // Checks every function and fixes the forms that have one obvious meaning.
 pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
-    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false, entry_look: false };
+    let mut cx = Cx { fns: HashMap::new(), structs: HashMap::new(), variants: HashMap::new(), others: vec![], ret: Hole, hints: HashMap::new(), known_hints: HashMap::new(), hint_t: HashMap::new(), mixed: HashSet::new(), genv: Env::new(), param_look: false, unsure: false, entry_look: false, list_lit: None };
     for it in items.iter() {
         match it {
             Item::Fn { name, params, ret, .. } => {
