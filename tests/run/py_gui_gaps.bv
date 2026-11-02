@@ -1,0 +1,70 @@
+# From the GUI set: a list of None filled later by functions, a tuple of one type walked like a list,
+# None inside a printed list, and dict.update with keywords on a dict used as a record.
+board = [None] * 9
+turn = "X"
+
+
+def play(i):
+    global turn
+    if board[i] is not None:
+        return False
+    board[i] = turn
+    turn = "O" if turn == "X" else "X"
+    return True
+
+
+def reset():
+    global turn
+    for i in range(9):
+        board[i] = None
+    turn = "X"
+
+
+
+LINES = [(0, 1, 2), (3, 4, 5), (0, 4, 8)]
+
+
+def won(p):
+    for l in LINES:
+        if all(board[i] == p for i in l):
+            return l
+    return None
+
+
+def main2():
+    print(won("X"), won("O"))
+    for i in LINES[1]:
+        print(i, end=" ")
+    print(sum(LINES[2]), max(LINES[0]), 4 in LINES[1])
+
+
+
+play(0)
+play(1)
+play(4)
+play(2)
+play(8)
+print(board, board[3] is None)
+print(" ".join(c if c else "." for c in board))
+main2()
+reset()
+print(board)
+st = {"cur": "0", "acc": None, "op": None, "new": True}
+
+
+def press(d):
+    if d == "C":
+        st.update(cur="0", acc=None, op=None, new=True)
+        return
+    st["cur"] = d if st["new"] else st["cur"] + d
+    st["new"] = False
+    if d == "+":
+        st["acc"] = 5
+        st["op"] = "+"
+
+
+for d in ["1", "2", "+", "C", "7"]:
+    press(d)
+    print(st["cur"], st["acc"], st["op"], st["new"])
+st.update({"cur": "9"})
+print(st)
