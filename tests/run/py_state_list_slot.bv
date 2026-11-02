@@ -1,0 +1,27 @@
+CORNER = {0: 'Q', 7: 'K', 56: 'q', 63: 'k'}
+
+def opposite(c):
+    return 'b' if c == 'w' else 'w'
+
+def initial_state():
+    return [list('.' * 64), 'w', 'KQkq', -1]
+
+def make(state, move):
+    b = list(state[0])
+    turn, castle, ep = state[1], state[2], state[3]
+    fr, to = move
+    b[to] = b[fr]
+    b[fr] = '.'
+    newep = -1
+    for sq in (fr, to):
+        for ch in CORNER.get(sq, ''):
+            castle = castle.replace(ch, '')
+    return [b, opposite(turn), castle, newep]
+
+def pseudo(state):
+    b, me, castle, ep = state
+    return [1 for s in range(64) if 'K' in castle and b[s] == '.' and ep == -1 and me == 'w']
+
+s = initial_state()
+s = make(s, (0, 8))
+print(s[1], s[2], s[3], len(pseudo(s)))

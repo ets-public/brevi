@@ -3439,6 +3439,16 @@ impl Ck<'_, '_> {
                 // `self.peek() == ('sym', '+')` with a JSON slot.
                 Expr::Binary("==" | "!=", a, b) => {
                     let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                    // `pat == (4, 1)` with pat = tuple(counts), a list of any length: compared as a list.
+                    for (x, other) in [(&mut *a, &tb), (&mut *b, &ta)] {
+                        if let (Expr::Tuple(xs), List(t)) = (&**x, other) {
+                            if !xs.is_empty() && xs.iter().all(|y| self.cx.ty(y, env) == **t) {
+                                let xs = xs.clone();
+                                **x = Expr::List(xs);
+                            }
+                        }
+                    }
+                    let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
                     if let (Expr::Tuple(_), Tuple(ts)) = (&**a, &tb) {
                         if ts.contains(&Json) {
                             json_slots_into(a, ts, self.cx, env);
@@ -3589,8 +3599,10 @@ impl Ck<'_, '_> {
                         args[k] = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
                     } else if *it == Json && self.py && matches!(at, Tuple(_)) && !matches!(&args[k], Expr::Call(f, _, _) if f == "ax_tup_json") {
                         // A tuple put in a list of dynamic values (a syntax tree's `body.append(('say', ln, w))`).
+                        // (A mixed Python list kept as a tuple is still a list: `[expiry, qty]` prints with [ ].)
+                        let f = if matches!(&args[k], Expr::List(_)) { "ax_to_json" } else { "ax_tup_json" };
                         let v = std::mem::replace(&mut args[k], Expr::Int(0));
-                        args[k] = Expr::Call("ax_tup_json".into(), vec![(None, v)], *line);
+                        args[k] = Expr::Call(f.into(), vec![(None, v)], *line);
                     }
                 }
             }
@@ -4179,7 +4191,9 @@ fn mixed_record(xs: &[Expr], ty: &dyn Fn(&Expr) -> T) -> bool {
         return false;
     }
     let ts: Vec<T> = xs.iter().map(ty).collect();
-    ts.iter().all(|t| matches!(t, Int | F64 | Str | Bool | Dec | Date)) && ts.iter().any(|t| clash(t, &ts[0]) && !matches!((t, &ts[0]), (Int, F64) | (F64, Int)))
+    let scalar = |t: &T| matches!(t, Int | F64 | Str | Bool | Dec | Date);
+    // A slot may hold a list of plain values (chess's `[board, 'w', 'KQkq', -1]`), next to at least one plain slot.
+    ts.iter().all(|t| scalar(t) || matches!(t, List(x) if scalar(x))) && ts.iter().any(scalar) && ts.iter().any(|t| clash(t, &ts[0]) && !matches!((t, &ts[0]), (Int, F64) | (F64, Int)))
 }
 
 fn rec_key(i: &Expr) -> Option<String> {
