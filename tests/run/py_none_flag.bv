@@ -1,0 +1,33 @@
+# Python's None and an empty container are different: `cur is None` stays false after
+# `cur = ({}, [])` even while both are still empty.
+cur = None
+rounds = 0
+for line in ["a 1", "", "b x", "c 2", ""]:
+    if line == "":
+        if cur is not None:
+            rounds += 1
+            print("round", rounds, len(cur[0]))
+        cur = None
+        continue
+    if cur is None:
+        cur = ({}, [])
+    t = line.split()
+    if not t[1].isdigit():
+        continue
+    cur[0][t[0]] = int(t[1])
+    cur[1].append(t[0])
+print(rounds)
+
+def scan(xs):
+    seen = None
+    out = []
+    for x in xs:
+        if seen is None:
+            seen = []
+            out.append("start")
+        if x < 0:
+            continue
+        seen.append(x)
+    return out, seen
+
+print(scan([-1, -2, 3]))

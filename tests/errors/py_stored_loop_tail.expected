@@ -1,0 +1,1 @@
+{"line":6,"msg":"grid gets a copy of row here, so changing row later does not change grid (Brevi values are copies, not shared)","fix":"finish row before putting it in grid, or change it through grid"}

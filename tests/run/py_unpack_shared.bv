@@ -1,0 +1,28 @@
+# `players, dealt = cur` names the containers the tuple holds; a def inside an if at the top level;
+# a dict stored in another and filled after.
+cur = ({}, [])
+players, dealt = cur
+players["ann"] = 3
+dealt.append("AS")
+print(len(cur[0]), cur[1])
+
+if len(cur[1]) == 1:
+    def show(x):
+        return "<" + x + ">"
+    print(show("top"))
+
+class Grades:
+    def __init__(self):
+        self.students = {}
+
+    def add(self, name, toks):
+        sc = {}
+        self.students[name] = sc
+        for tok in toks:
+            if tok in sc:
+                continue
+            sc[tok] = len(tok)
+
+g = Grades()
+g.add("ann", ["a", "bb", "a"])
+print(g.students)

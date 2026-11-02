@@ -1,0 +1,37 @@
+# Method arguments are typed where the call is: `name` is text there, before a later loop over
+# a list whose items are not known yet.
+class Book:
+    def __init__(self):
+        self.names = []
+        self.scores = {}
+
+    def has(self, name):
+        return name in self.scores
+
+    def add(self, name, per):
+        self.names.append(name)
+        self.scores[name] = per
+
+    def total(self, name):
+        return sum(self.scores[name].values())
+
+def main():
+    g = None
+    for line in ["START", "ann a=1 b=2", "bob a=3", "ann a=4"]:
+        if line == "START":
+            g = Book()
+            continue
+        t = line.split()
+        name = t[0]
+        if g.has(name):
+            print("duplicate", name)
+            continue
+        per = {}
+        for tok in t[1:]:
+            q, v = tok.split("=")
+            per[q] = int(v)
+        g.add(name, per)
+    for name in g.names:
+        print(name, g.total(name))
+
+main()

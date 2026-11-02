@@ -163,6 +163,12 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     if p.py {
         fix_opens(&mut script);
     }
+    if p.py {
+        inline_fn_maps(&mut items, &mut script);
+    }
+    // Python's `def` inside an if or loop outside any function: a plain top-level function
+    // (what it reads from outside is a top-level name either way).
+    items.append(&mut p.children);
     items.append(&mut p.hoisted);
     if !classes.is_empty() {
         inherit(&mut items, &mut classes);
@@ -206,8 +212,14 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     if crate::gui::active() {
         crate::gui::lower(&mut items, &mut script, &|f: &str| p.sigs.get(f).map_or(0, |s| s.0.len()))?;
     }
+    if p.py {
+        print_params(&mut items, &mut script, &mut p.sigs);
+    }
     if !p.sigs.is_empty() {
         fill_args(&mut items, &mut script, &p.sigs);
+    }
+    if p.py {
+        none_flags(&mut items, &mut script);
     }
     if p.py && !script.is_empty() {
         // Top-level `sq = lambda x: x * x`, only ever called: Python's `def sq(x): return x * x`. Names a
@@ -2199,6 +2211,9 @@ impl Parser {
                             } else {
                                 Expr::Method(Box::new(e), name, args, line)
                             };
+                        } else if self.py && matches!(&e, Expr::Ident(m) if m == "operator") && operator_fn(&name, line).is_some() {
+                            // `operator.lt` as a value: a two-argument lambda.
+                            e = operator_fn(&name, line).unwrap();
                         } else if name == "argv" && matches!(&e, Expr::Ident(m) if m == "sys") {
                             // sys.argv: the program's name, then its arguments.
                             e = Expr::Binary("+", Box::new(Expr::List(vec![Expr::Str(vec![StrPart::Lit("main".into())])])), Box::new(Expr::Call("args".into(), vec![], line)));
@@ -4336,3 +4351,394 @@ fn py_dumps(mut raw: Vec<(Option<String>, Expr)>, line: usize) -> Expr {
     let (item, key) = seps.unwrap_or_else(|| (lit(if has_indent { "," } else { ", " }), lit(": ")));
     Expr::Method(Box::new(x), "py_dumps".into(), vec![item, key, indent, sort, ascii], line)
 }
+
+// Python's `operator.lt`, `operator.add` and the like as a lambda of two arguments.
+fn operator_fn(name: &str, line: usize) -> Option<Expr> {
+    let op: &'static str = match name {
+        "lt" => "<",
+        "le" => "<=",
+        "gt" => ">",
+        "ge" => ">=",
+        "eq" => "==",
+        "ne" => "!=",
+        "add" => "+",
+        "sub" => "-",
+        "mul" => "*",
+        "mod" => "%",
+        "floordiv" => "//",
+        "truediv" => "/",
+        _ => return None,
+    };
+    let (a, b) = (Box::new(Expr::Ident("ax_oa".into())), Box::new(Expr::Ident("ax_ob".into())));
+    let body = if op == "/" { Expr::Call("__truediv".into(), vec![(None, *a), (None, *b)], line) } else { Expr::Binary(op, a, b) };
+    Some(Expr::Lambda(vec!["ax_oa".into(), "ax_ob".into()], Box::new(body)))
+}
+
+// Python's `CMP = {'<': operator.lt, '>': lambda a, b: a > b}` set once at the top level and only called
+// as `CMP[op](a, b)`: each call picks the function by its key in place (a missing key is a KeyError),
+// so no map of functions is needed.
+fn inline_fn_maps(items: &mut [Item], script: &mut Vec<Stmt>) {
+    let mut i = 0;
+    while i < script.len() {
+        let (name, ps) = match &script[i] {
+            Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Map(ps), .. } | Stmt::Let { name: Pat::Bind(n), value: Expr::Map(ps), .. } => (n.clone(), ps.clone()),
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        let mut arms: Vec<(String, Vec<String>, Expr)> = vec![];
+        for (k, v) in &ps {
+            match (k, v) {
+                (Expr::Str(parts), Expr::Lambda(params, body)) if matches!(parts.as_slice(), [StrPart::Lit(_)]) => {
+                    let [StrPart::Lit(k)] = parts.as_slice() else { unreachable!() };
+                    arms.push((k.clone(), params.clone(), (**body).clone()));
+                }
+                _ => break,
+            }
+        }
+        let n_args = arms.first().map_or(0, |a| a.1.len());
+        if arms.is_empty() || arms.len() != ps.len() || arms.iter().any(|a| a.1.len() != n_args || format!("{:?}", a.2).contains(&format!("Ident({name:?})"))) {
+            i += 1;
+            continue;
+        }
+        // Never set again or changed (nor a local of that name somewhere).
+        let bad = [format!("target: Ident({name:?})"), format!("target: Index(Ident({name:?})"), format!("Method(Ident({name:?})"), format!("Bind({name:?})"), format!("Field(Ident({name:?})")];
+        let texts: Vec<String> = items.iter().filter_map(|it| if let Item::Fn { body, .. } = it { Some(format!("{body:?}")) } else { None }).chain(script.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, st)| format!("{st:?}"))).collect();
+        if texts.iter().any(|t| bad.iter().any(|b| t.contains(b.as_str()))) {
+            i += 1;
+            continue;
+        }
+        let call = |e: &mut Expr| {
+            let Expr::Method(r, m, args, line) = e else { return };
+            if m != "__call" || args.len() != n_args {
+                return;
+            }
+            let Expr::Index(b, k) = r.as_ref() else { return };
+            if !matches!(b.as_ref(), Expr::Ident(x) if *x == name) {
+                return;
+            }
+            let line = *line;
+            let tmp = |j: usize| format!("ax_fm{j}");
+            let mut lets = vec![Stmt::Let { name: Pat::Bind("ax_fmk".into()), ty: None, value: (**k).clone(), mutable: false, line }];
+            for (j, a) in args.iter().enumerate() {
+                lets.push(Stmt::Let { name: Pat::Bind(tmp(j)), ty: None, value: a.clone(), mutable: false, line });
+            }
+            let missing = Expr::Call("fail".into(), vec![(None, Expr::Call("__exc".into(), vec![(None, Expr::Str(vec![StrPart::Lit("KeyError".into())])), (None, Expr::Str(vec![StrPart::Lit("'".into()), StrPart::Interp(Expr::Ident("ax_fmk".into())), StrPart::Lit("'".into())]))], line))], line);
+            let mut chain = Expr::Block(vec![Stmt::Expr { expr: missing, line }], None);
+            for (key, params, body) in arms.iter().rev() {
+                let binds = params.iter().enumerate().map(|(j, p)| Stmt::Let { name: Pat::Bind(p.clone()), ty: None, value: Expr::Ident(tmp(j)), mutable: false, line }).collect();
+                let cond = Expr::Binary("==", Box::new(Expr::Ident("ax_fmk".into())), Box::new(Expr::Str(vec![StrPart::Lit(key.clone())])));
+                chain = Expr::If(Box::new(cond), Box::new(Expr::Block(binds, Some(Box::new(body.clone())))), Some(Box::new(chain)));
+            }
+            *e = Expr::Block(lets, Some(Box::new(chain)));
+        };
+        let mut call = call;
+        for it in items.iter_mut() {
+            if let Item::Fn { body, .. } = it {
+                walk_mut(body, &mut call);
+            }
+        }
+        for st in script.iter_mut() {
+            match st {
+                Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } | Stmt::Expr { expr: e, .. } | Stmt::Return { value: Some(e), .. } => walk_mut(e, &mut call),
+                _ => {}
+            }
+        }
+        // Nothing else uses the map: it is left out.
+        let used = items.iter().any(|it| matches!(it, Item::Fn { body, .. } if format!("{body:?}").contains(&format!("Ident({name:?})"))))
+            || script.iter().enumerate().any(|(j, st)| j != i && format!("{st:?}").contains(&format!("Ident({name:?})")));
+        if !used {
+            script.remove(i);
+            continue;
+        }
+        i += 1;
+    }
+}
+
+// Python's None in a name that holds a list, dict, set or a tuple of them is kept as an empty one, so
+// `cur is None` after `cur = ({}, set())` would wrongly be true. Such a name (set to None, set to an empty
+// container, and tested with `is None`) gets a flag kept next to it: `ax_nn_cur` is true while it is None.
+fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
+    fn empty(e: &Expr) -> bool {
+        match e {
+            Expr::List(xs) => xs.is_empty(),
+            Expr::Map(ps) => ps.is_empty(),
+            Expr::Tuple(xs) => !xs.is_empty() && xs.iter().all(empty),
+            _ => false,
+        }
+    }
+    fn is_none(e: &Expr) -> bool {
+        matches!(e, Expr::Call(n, a, _) if n == "none" && a.is_empty())
+    }
+    // Every setting of n in e: Some(value) for a plain `n = v`, None for any other kind (a loop name, a tuple).
+    fn sets(e: &Expr, n: &str, out: &mut Vec<Option<Expr>>) {
+        let mut e = e.clone();
+        walk_mut(&mut e, &mut |x| {
+            if let Expr::Block(st, _) = x {
+                for s in st.iter() {
+                    match s {
+                        Stmt::Assign { target: Expr::Ident(m), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(m), value, .. } if m == n => out.push(Some(value.clone())),
+                        Stmt::Assign { target, .. } if format!("{target:?}") == format!("Ident({n:?})") => out.push(None),
+                        Stmt::Assign { target: Expr::Tuple(xs), .. } if xs.iter().any(|x| matches!(x, Expr::Ident(m) if m == n)) => out.push(None),
+                        Stmt::Let { name, .. } if !matches!(name, Pat::Bind(_)) && format!("{name:?}").contains(&format!("Bind({n:?})")) => out.push(None),
+                        _ => {}
+                    }
+                }
+            }
+            if let Expr::For(p, _, _) = x {
+                if format!("{p:?}").contains(&format!("Bind({n:?})")) {
+                    out.push(None);
+                }
+            }
+            if let Expr::Lambda(ps, _) = x {
+                if ps.iter().any(|p| p == n) {
+                    out.push(None);
+                }
+            }
+        });
+    }
+    fn tested(e: &Expr, n: &str) -> bool {
+        format!("{e:?}").contains(&format!("Method(Ident({n:?}), \"is_none\", [],"))
+    }
+    fn declares_global(e: &Expr, n: &str) -> bool {
+        format!("{e:?}").contains(&format!("Call(\"__global\", [")) && {
+            let mut hit = false;
+            let mut e = e.clone();
+            walk_mut(&mut e, &mut |x| {
+                if let Expr::Call(f, args, _) = x {
+                    if f == "__global" && args.iter().any(|(_, a)| matches!(a, Expr::Ident(m) if m == n)) {
+                        hit = true;
+                    }
+                }
+            });
+            hit
+        }
+    }
+    fn rewrite(e: &mut Expr, n: &str, flag: &str) {
+        walk_mut(e, &mut |x| {
+            match x {
+                Expr::Method(r, m, a, _) if m == "is_none" && a.is_empty() && matches!(r.as_ref(), Expr::Ident(k) if k == n) => {
+                    *x = Expr::Ident(flag.to_string());
+                }
+                Expr::Call(f, args, _) if f == "__global" && args.iter().any(|(_, a)| matches!(a, Expr::Ident(m) if m == n)) => {
+                    args.push((None, Expr::Ident(flag.to_string())));
+                }
+                Expr::Block(st, _) => {
+                    let mut i = 0;
+                    while i < st.len() {
+                        let add = match &st[i] {
+                            Stmt::Assign { target: Expr::Ident(m), op: "=", value, line } if m == n => Some((is_none(value), *line, false)),
+                            Stmt::Let { name: Pat::Bind(m), value, line, .. } if m == n => Some((is_none(value), *line, true)),
+                            _ => None,
+                        };
+                        if let Some((none, line, is_let)) = add {
+                            let v = Expr::Bool(none);
+                            let s = if is_let { Stmt::Let { name: Pat::Bind(flag.to_string()), ty: None, value: v, mutable: true, line } } else { Stmt::Assign { target: Expr::Ident(flag.to_string()), op: "=", value: v, line } };
+                            st.insert(i + 1, s);
+                            i += 1;
+                        }
+                        i += 1;
+                    }
+                }
+                _ => {}
+            }
+        });
+    }
+    // Names set at the top level (shared with functions that declare them global).
+    let script_e = Expr::Block(script.clone(), None);
+    let mut cands: Vec<String> = vec![];
+    crate::infer::walk(&script_e, &mut |x| {
+        if let Expr::Block(st, _) = x {
+            for s in st {
+                if let Stmt::Assign { target: Expr::Ident(m), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(m), value, .. } = s {
+                    if empty(value) && !cands.contains(m) {
+                        cands.push(m.clone());
+                    }
+                }
+            }
+        }
+    });
+    for n in cands {
+        let flag = format!("ax_nn_{n}");
+        let mut all = vec![];
+        sets(&script_e, &n, &mut all);
+        let mut ok = true;
+        let mut any_test = tested(&script_e, &n);
+        for it in items.iter() {
+            if let Item::Fn { params, body, .. } = it {
+                let mut fs = vec![];
+                sets(body, &n, &mut fs);
+                let g = declares_global(body, &n);
+                if params.iter().any(|p| p.name == n) || (!fs.is_empty() && !g) {
+                    // Its own local of that name: tests there are not about the top-level one.
+                    if tested(body, &n) {
+                        ok = false;
+                    }
+                    continue;
+                }
+                any_test |= tested(body, &n);
+                all.extend(fs);
+            }
+        }
+        if !ok || !any_test || all.iter().any(|v| v.is_none()) || !all.iter().any(|v| v.as_ref().is_some_and(is_none)) {
+            continue;
+        }
+        for it in items.iter_mut() {
+            if let Item::Fn { params, body, .. } = it {
+                if params.iter().any(|p| p.name == n) {
+                    continue;
+                }
+                let mut fs = vec![];
+                sets(body, &n, &mut fs);
+                if !fs.is_empty() && !declares_global(body, &n) {
+                    continue;
+                }
+                rewrite(body, &n, &flag);
+            }
+        }
+        let mut b = Expr::Block(std::mem::take(script), None);
+        rewrite(&mut b, &n, &flag);
+        if let Expr::Block(st, _) = b {
+            *script = st;
+        }
+    }
+    // Names local to one function.
+    for it in items.iter_mut() {
+        let Item::Fn { params, body, .. } = it else { continue };
+        let mut cands: Vec<String> = vec![];
+        crate::infer::walk(body, &mut |x| {
+            if let Expr::Block(st, _) = x {
+                for s in st {
+                    if let Stmt::Assign { target: Expr::Ident(m), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(m), value, .. } = s {
+                        if empty(value) && !cands.contains(m) {
+                            cands.push(m.clone());
+                        }
+                    }
+                }
+            }
+        });
+        for n in cands {
+            if params.iter().any(|p| p.name == n) || declares_global(body, &n) || !tested(body, &n) {
+                continue;
+            }
+            let mut all = vec![];
+            sets(body, &n, &mut all);
+            if all.iter().any(|v| v.is_none()) || !all.iter().any(|v| v.as_ref().is_some_and(is_none)) {
+                continue;
+            }
+            let flag = format!("ax_nn_{n}");
+            rewrite(body, &n, &flag);
+        }
+    }
+}
+
+// Python's `def __init__(self, funcs, out=print)` with `self.out = out` and `self.out(text)`, where no call
+// passes `out`: the parameter is left out and `self.out(text)` prints. (Likewise `def run(src, emit=print)`
+// calling `emit(x)`.)
+fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<String, Sig>) {
+    let names: Vec<String> = sigs.keys().cloned().collect();
+    for f in names {
+        let Some((pnames, defaults, star)) = sigs.get(&f).cloned() else { continue };
+        let Some(i) = defaults.iter().position(|d| matches!(d, Some(Expr::Ident(n)) if n == "print")) else { continue };
+        if star.is_some_and(|s| s <= i) {
+            continue;
+        }
+        let p = pnames[i].clone();
+        // No call passes it: count the arguments of every call to f (or to its class, for `C_new`).
+        let class = f.strip_suffix("_new").map(String::from);
+        let mut passes = false;
+        let mut calls = 0;
+        let mut check = |e: &Expr| {
+            if let Expr::Call(c, args, _) = e {
+                if *c == f || class.as_deref() == Some(c.as_str()) {
+                    calls += 1;
+                    let pos = args.iter().filter(|(n, _)| n.is_none()).count();
+                    if pos > i || args.iter().any(|(n, _)| n.as_deref() == Some(p.as_str())) {
+                        passes = true;
+                    }
+                }
+            }
+        };
+        for it in items.iter() {
+            if let Item::Fn { body, .. } = it {
+                crate::infer::walk(body, &mut check);
+            }
+        }
+        crate::infer::walk(&Expr::Block(script.to_vec(), None), &mut check);
+        if passes || calls == 0 {
+            continue;
+        }
+        let Some(fi) = items.iter().position(|it| matches!(it, Item::Fn { name, .. } if *name == f)) else { continue };
+        // In a class: `self.F = p` once, and self.F only ever called.
+        let mut field: Option<String> = None;
+        if let Item::Fn { body, .. } = &items[fi] {
+            crate::infer::walk(body, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    for s in st {
+                        if let Stmt::Assign { target: Expr::Field(o, fld), op: "=", value: Expr::Ident(v), .. } = s {
+                            if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && *v == p {
+                                field = Some(fld.clone());
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        let prefix = class.as_ref().map(|c| format!("{c}_"));
+        if let (Some(fld), Some(pre)) = (&field, &prefix) {
+            // Read only as a call in the class's methods.
+            let other = items.iter().any(|it| match it {
+                Item::Fn { name, body, .. } => {
+                    let d = format!("{body:?}");
+                    // Any other use of the field: read as a value, or set elsewhere.
+                    let reads = d.matches(&format!("Field(Ident(\"self_\"), {fld:?})")).count();
+                    let set = if *name == f { 1 } else { 0 };
+                    let calls = d.matches(&format!("Method(Ident(\"self_\"), {fld:?},")).count();
+                    (!name.starts_with(pre.as_str()) && calls > 0) || reads > set
+                }
+                _ => false,
+            });
+            if other {
+                continue;
+            }
+        } else {
+            // A plain function: p only ever called.
+            let Item::Fn { body, .. } = &items[fi] else { continue };
+            let d = format!("{body:?}");
+            if d.matches(&format!("Ident({p:?})")).count() > 0 || d.matches(&format!("Call({p:?},")).count() == 0 {
+                continue;
+            }
+        }
+        // Rewrite.
+        for it in items.iter_mut() {
+            let Item::Fn { name, params, body, .. } = it else { continue };
+            let own = *name == f;
+            let in_class = prefix.as_ref().is_some_and(|pre| name.starts_with(pre.as_str()));
+            if !own && !in_class {
+                continue;
+            }
+            if own {
+                params.retain(|q| q.name != p);
+            }
+            walk_mut(body, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    st.retain(|s| !matches!(s, Stmt::Assign { target: Expr::Field(o, fl), value: Expr::Ident(v), .. } if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && Some(fl) == field.as_ref() && *v == p));
+                }
+                let to = match e {
+                    Expr::Method(o, m, args, line) if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && Some(&*m) == field.as_ref() => Some((args.clone(), *line)),
+                    Expr::Call(c, args, line) if own && field.is_none() && *c == p => Some((args.iter().map(|(_, a)| a.clone()).collect(), *line)),
+                    _ => None,
+                };
+                if let Some((args, line)) = to {
+                    *e = Expr::Call("print".into(), args.into_iter().map(|a| (None, a)).collect(), line);
+                }
+            });
+        }
+        if let Some(sig) = sigs.get_mut(&f) {
+            sig.0.remove(i);
+            sig.1.remove(i);
+        }
+    }
+}
+
