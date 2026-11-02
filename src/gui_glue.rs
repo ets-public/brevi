@@ -64,7 +64,7 @@ mod tkx_glue {
                 }
             }
             Json::Str { v } => tk::Val::Str(v.clone()),
-            Json::Arr { v } => tk::Val::List(v.iter().map(val).collect()),
+            Json::Arr { v } | Json::Tup { v } => tk::Val::List(v.iter().map(val).collect()),
             Json::Obj { .. } => tk::Val::None,
         }
     }

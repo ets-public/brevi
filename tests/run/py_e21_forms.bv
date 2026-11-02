@@ -1,0 +1,24 @@
+def toc2(entries):
+    counters = []
+    slug_counts = {}
+    out = []
+    for depth, text in entries:
+        counters = counters[:depth]
+        counters += [0] * (depth - len(counters))
+        counters[depth - 1] += 1
+        number = '.'.join(str(c) for c in counters)
+        count = slug_counts.get(text, 0)
+        slug_counts[text] = count + 1
+        out.append((depth, number, text))
+    print(out)
+toc2([(1, 'a'), (2, 'b'), (2, 'a'), (1, 'c')])
+players = []
+def finish():
+    global players
+    for name, sc, cat in sorted(players):
+        print(name, sc, cat)
+    players = []
+players.append(('bo', 3, None))
+players.append(('al', 5, None))
+finish()
+print(players)

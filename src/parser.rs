@@ -146,6 +146,8 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         }
         let mut body = Expr::Block(std::mem::take(&mut script), None);
         let mut kids: Vec<Item> = vec![];
+        pick_names(&mut body);
+        dict_with_base(&mut body);
         lambdas_to_defs(&mut body, &mut kids, script_line, &skip);
         let Expr::Block(st, _) = body else { unreachable!() };
         script = st;
@@ -366,6 +368,8 @@ impl Parser {
             }
             let mut kids = kids;
             if self.py {
+                pick_names(&mut body);
+                dict_with_base(&mut body);
                 lambdas_to_defs(&mut body, &mut kids, line, &[]);
                 unbox_cells(&mut body, &mut kids);
                 fall_off_none(&mut body, line);
@@ -1150,6 +1154,18 @@ impl Parser {
 
     // An expression used as a statement, with Python's in-place methods spelled out.
     fn expr_stmt(&mut self, e: Expr, line: usize) -> R<Stmt> {
+        // `q.update(type='choice', letter=x)` (or `q.update({'type': 'choice'})`) as a statement on a name:
+        // one `q['type'] = ...` per key, so dicts used as records see every key.
+        if self.py {
+            if let Expr::Method(recv, m, a, _) = &e {
+                if let (Expr::Ident(_), "update", [Expr::Map(ps)]) = (recv.as_ref(), m.as_str(), a.as_slice()) {
+                    if !ps.is_empty() && ps.iter().all(|(k, _)| matches!(k, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)]))) {
+                        let sets = ps.iter().map(|(k, v)| Stmt::Assign { target: Expr::Index(recv.clone(), Box::new(k.clone())), op: "=", value: v.clone(), line }).collect();
+                        return Ok(Stmt::Expr { expr: Expr::Block(sets, None), line });
+                    }
+                }
+            }
+        }
         // `(gone if old else keep).append(l)`: the call on the list the condition picks (not on a copy).
         if let Expr::Method(recv, m, a, l) = &e {
             if let Expr::If(c, t, Some(f)) = recv.as_ref() {
@@ -3026,10 +3042,140 @@ fn unbox_cells(body: &mut Expr, kids: &mut [Item]) {
 // Python's `bad = lambda n: out.append(...)` in a function, set once and only ever called, is the nested
 // `def bad(n): ...` (lifted with the rest), so its parameters are typed from the calls and it may change
 // the outer function's lists.
+// `d = rooms if kind == 'room' else items` with d then only used as `x in d` / `x not in d` (two dicts whose
+// values differ): `d_pick = kind == 'room'` and each test asks the dict the condition picks.
+fn pick_names(body: &mut Expr) {
+    let bare = |x: &Expr| match x {
+        Expr::Block(st, Some(v)) if st.is_empty() => v.as_ref().clone(),
+        x => x.clone(),
+    };
+    let mut cands: Vec<(String, String, String)> = Vec::new();
+    walk_mut(body, &mut |e| {
+        if let Expr::Block(ss, _) = e {
+            for st in ss.iter() {
+                if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::If(_, t, Some(f)), .. } = st {
+                    if let (Expr::Ident(a), Expr::Ident(b)) = (bare(t), bare(f)) {
+                        if a != *n && b != *n {
+                            cands.push((n.clone(), a, b));
+                        }
+                    }
+                }
+            }
+        }
+    });
+    for (n, a, b) in cands {
+        let (mut sets, mut idents, mut tests) = (0, 0, 0);
+        walk_mut(body, &mut |e| match e {
+            Expr::Ident(x) | Expr::Move(x) if *x == n => idents += 1,
+            Expr::Binary("in" | "not in", _, r) if matches!(r.as_ref(), Expr::Ident(x) if *x == n) => tests += 1,
+            Expr::Block(ss, _) => {
+                for st in ss.iter() {
+                    match st {
+                        Stmt::Assign { target: Expr::Ident(x), .. } if *x == n => sets += 1,
+                        Stmt::Let { name: Pat::Bind(x), .. } if *x == n => sets += 2,
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        });
+        if sets != 1 || tests == 0 || idents != tests + sets {
+            continue;
+        }
+        let flag = format!("{n}_pick");
+        walk_mut(body, &mut |e| {
+            if let Expr::Binary(op @ ("in" | "not in"), l, r) = e {
+                if matches!(r.as_ref(), Expr::Ident(x) if *x == n) {
+                    let op: &'static str = op;
+                    let side = |d: &str| Expr::Block(vec![], Some(Box::new(Expr::Binary(op, l.clone(), Box::new(Expr::Ident(d.into()))))));
+                    *e = Expr::If(Box::new(Expr::Ident(flag.clone())), Box::new(side(&a)), Some(Box::new(side(&b))));
+                    return;
+                }
+            }
+            if let Expr::Block(ss, _) = e {
+                for st in ss.iter_mut() {
+                    if let Stmt::Assign { target, op: "=", value: Expr::If(c, _, _), .. } = st {
+                        if matches!(target, Expr::Ident(x) if *x == n) {
+                            *target = Expr::Ident(flag.clone());
+                            let c = c.as_ref().clone();
+                            if let Stmt::Assign { value, .. } = st {
+                                *value = c;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
+// `base = {'id': qid, 'points': n}` then `return dict(base, type='choice', answer=a)`: the dict written out
+// (`{'id': qid, 'points': n, 'type': 'choice', 'answer': a}`), when base is set once from plain names and
+// literals, so each shape is a record of its own.
+fn dict_with_base(body: &mut Expr) {
+    let simple = |v: &Expr| matches!(v, Expr::Ident(_) | Expr::Int(_) | Expr::Float(_) | Expr::Bool(_)) || matches!(v, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)] | []));
+    let mut bases: Vec<(String, Vec<(Expr, Expr)>)> = Vec::new();
+    let mut sets: HashMap<String, usize> = HashMap::new();
+    walk_mut(body, &mut |e| {
+        if let Expr::Block(ss, _) = e {
+            for st in ss.iter() {
+                if let Stmt::Assign { target: Expr::Ident(n), op, value, .. } = st {
+                    *sets.entry(n.clone()).or_default() += 1;
+                    if let (true, Expr::Map(es)) = (*op == "=", value) {
+                        if !es.is_empty() && es.iter().all(|(k, v)| matches!(k, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)])) && simple(v)) {
+                            bases.push((n.clone(), es.clone()));
+                        }
+                    }
+                }
+            }
+        }
+    });
+    // The names the entries read must not change after base is set.
+    bases.retain(|(n, es)| sets.get(n) == Some(&1) && es.iter().all(|(_, v)| !matches!(v, Expr::Ident(x) if sets.get(x).copied().unwrap_or(0) > 1)));
+    if bases.is_empty() {
+        return;
+    }
+    walk_mut(body, &mut |e| {
+        if let Expr::Call(f, args, _) = e {
+            if f != "dict" || args.len() < 2 || args[0].0.is_some() || args[1..].iter().any(|(k, _)| k.as_deref().map_or(true, |k| k == "__star")) {
+                return;
+            }
+            let Expr::Ident(b) = &args[0].1 else { return };
+            let Some((_, es)) = bases.iter().find(|(n, _)| n == b) else { return };
+            let mut out = es.clone();
+            for (k, v) in &args[1..] {
+                let key = Expr::Str(vec![StrPart::Lit(k.clone().unwrap())]);
+                out.retain(|(ok, _)| format!("{ok:?}") != format!("{key:?}"));
+                out.push((key, v.clone()));
+            }
+            *e = Expr::Map(out);
+        }
+    });
+}
+
 fn lambdas_to_defs(body: &mut Expr, kids: &mut Vec<Item>, line: usize, skip: &[String]) {
     let Expr::Block(stmts, tail) = body else { return };
     let mut i = 0;
     while i < stmts.len() {
+        // `up = (lambda s: s.upper()) if by == 'w' else (lambda s: s)`: the condition is kept in `up_cond`
+        // and `up` is one lambda that picks its body by it.
+        if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::If(c, t, Some(f)), line: l } = &stmts[i] {
+            let bare = |x: &Expr| match x {
+                Expr::Block(st, Some(v)) if st.is_empty() => v.as_ref().clone(),
+                x => x.clone(),
+            };
+            if let (Expr::Lambda(pa, ba), Expr::Lambda(pb, bb)) = (bare(t), bare(f)) {
+                if pa == pb {
+                    let (n, l) = (n.clone(), *l);
+                    let flag = format!("{n}_cond");
+                    let cond = Stmt::Assign { target: Expr::Ident(flag.clone()), op: "=", value: c.as_ref().clone(), line: l };
+                    let body = Expr::If(Box::new(Expr::Ident(flag)), Box::new(Expr::Block(vec![], Some(ba))), Some(Box::new(Expr::Block(vec![], Some(bb)))));
+                    stmts[i] = Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Lambda(pa, Box::new(body)), line: l };
+                    stmts.insert(i, cond);
+                    i += 1;
+                }
+            }
+        }
         let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Lambda(ps, lb), line: l } = &stmts[i] else {
             i += 1;
             continue;

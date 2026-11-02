@@ -1,0 +1,28 @@
+def unused():
+    return 0
+# Sonnet adventure (h1) world.py line 33: a tuple joined with tuple(list slice).
+p = 'exit hall north attic locked key'.split(' ')
+print(all(len(x) > 1 for x in (p[1], p[3]) + tuple(p[5:])))
+q = 'exit hall north attic'.split(' ')
+t = (q[1], q[3]) + tuple(q[5:])
+print(t, len(t))
+rooms = {'hall': 'Big Hall', 'attic': 'Attic'}
+items = {'key': ['hall', 2, 'old key']}
+refs = [(1, 'room', 'hall'), (2, 'item', 'key'), (3, 'room', 'cellar'), (4, 'item', 'lamp')]
+for n, kind, x in refs:
+    d = rooms if kind == 'room' else items
+    if x not in d:
+        print('line %d: unknown %s %s' % (n, kind, x))
+def attacked(grid, by):
+    up = (lambda s: s.upper()) if by == 'w' else (lambda s: s)
+    return [c for c in grid if c == up('p')]
+
+print(attacked(['p', 'P', 'n'], 'w'), attacked(['p', 'P', 'n'], 'b'))
+def nothing():
+    pass
+print(nothing())
+def go(by):
+    up = (lambda s: s.upper()) if by == 'w' else (lambda s: s + '!')
+    by = 'x'
+    return [up(c) for c in 'ab']
+print(go('w'), go('b'))

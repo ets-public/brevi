@@ -1,0 +1,8 @@
+True
+('hall', 'attic') 2
+line 3: unknown room cellar
+line 4: unknown item lamp
+['P'] ['p']
+None
+['A', 'B'] ['a!', 'b!']
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

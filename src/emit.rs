@@ -1468,6 +1468,10 @@ impl Emitter {
                                 format!("{}: {}", f.name, self.pat(a))
                             })
                             .collect();
+                        // A JSON tuple (a Python tuple whose length differs by path) matches as an array.
+                        if en == "Json" && name == "Arr" {
+                            return format!("(Json::Arr {{ {0} }} | Json::Tup {{ {0} }})", parts.join(", "));
+                        }
                         format!("{en}::{name} {{ {} }}", parts.join(", "))
                     }
                 }
@@ -2207,7 +2211,7 @@ impl Emitter {
             }
             return format!("{name}({})", ordered.join(", "));
         }
-        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
+        if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
         }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();

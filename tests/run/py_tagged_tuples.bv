@@ -1,0 +1,42 @@
+def classify(words):
+    k = words[0]
+    if k == 'room':
+        return ('room', words[1], ' '.join(words[2:]))
+    if k == 'exit':
+        return ('exit', words[1], words[2], words[3], None)
+    if k == 'item':
+        return ('item', words[1], words[2], int(words[3]), ' '.join(words[4:]))
+    if k == 'capacity':
+        return ('capacity', int(words[1]))
+    return None
+
+total = 0
+for line in ["room hall Big Hall", "exit hall north attic", "item key hall 3 old key", "capacity 9", "bogus"]:
+    c = classify(line.split(' '))
+    if c is None:
+        print("bad:", line)
+        continue
+    if c[0] == 'room':
+        print("room", c[1], "=", c[2])
+    elif c[0] == 'exit':
+        print("exit", c[1], c[2], "->", c[3], "key", c[4])
+    elif c[0] == 'item':
+        total += c[3]
+        print("item", c[1], "in", c[2], "weight", c[3], c[4])
+    elif c[0] == 'capacity':
+        total += c[1]
+print(total)
+def f(k):
+    if k == 1:
+        return ('a', 1)
+    if k == 2:
+        return ('b', 2, True, None)
+    return ("c", 0)
+for k in [1, 2, 3]:
+    t = f(k)
+    print(t, len(t), t[0])
+    a = t[-1]
+    print(a)
+xs = [f(k) for k in [1, 2]]
+print(xs)
+print(f(1) == f(1), f(1) == f(2))

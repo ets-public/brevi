@@ -1,0 +1,27 @@
+from decimal import Decimal
+
+state = {'last': None, 'acc': 0, 'deb': 0, 'cred': 0}
+
+def stub(line):
+    return None
+
+def make(kind, x):
+    q = {'id': 'q1', 'points': 2}
+    if kind == 'choice':
+        q.update(type='choice', letter=x)
+    else:
+        q.update({'type': 'text', 'letter': x.lower()})
+    return q
+
+def post(a):
+    state['acc'] += 1
+    if a > 0:
+        state['deb'] += a
+    else:
+        state['cred'] -= a
+
+print(stub('x'))
+print(make('choice', 'B'), make('text', 'Q'))
+post(Decimal('2.50'))
+post(Decimal('-1.25'))
+print(state['acc'], state['deb'], state['cred'], state['deb'] - state['cred'])
