@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- `tools/parity_probe.py` runs short plain-Python probes (`tools/parity/probes.py`) with CPython and with `brevi run` and lists each one where Brevi prints something else (silent wrong answers) or refuses what CPython runs. First run: 17 silent differences and 24 refusals in 71 probes (missing dict keys, negative `%`, `round`, None in printed lists, list aliasing, mutable default arguments).
 - Regex match positions: `m.start()`, `m.end(n)`, `m.span()`, and `re.finditer(p, s)` / `pat.finditer(s)`; a bracketed import over several lines (`from grade import (a, b,` then `c)`). From the e19 trial.
 - From the e19 trial: a lambda given a name and only ever called (`bad = lambda n: out.append(...)` inside a function, or `sq = lambda x: x * x` at the top) is a nested or top-level `def`, so its parameters are typed from the calls and it can change the outer function's lists. A top-level name that starts as None and is later set to a tuple of empty lists and sets (`cur = ([], set(), set())`, filled through `cur[0].append(x)`, `cur[1].add(n)`, `cur[2].update(xs)`) takes its type from those uses, also when functions read it through `global cur`.
 - A comprehension split over lines inside braces (`{k: f(q)` then `for q in qs}` on the next line, or an `if` on its own line) parses, as in Python. From Haiku's e18 quiz first attempt.
