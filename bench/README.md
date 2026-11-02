@@ -37,6 +37,7 @@ The test passes (Adam's bar from 2 Nov 2026, since the fallback makes both sides
 | e22a/b | #97 (fallback on) | $0.176 / $0.172 (1.02x) | $0.026 / $0.024 (1.07x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 10 of 12, Haiku 8 of 12 |
 | e23a/b | #99 + #100 | $0.182 / $0.173 (1.06x; run b 1.00x) | $0.025 / $0.023 (1.08x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 9 of 12, Haiku 11 of 12 |
 | e24a/b | #103 | $0.181 / $0.174 (1.04x) | $0.024 / $0.023 (1.06x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 8 of 12, Haiku 11 of 12 |
+| e25 + e26 | #104 + #105 (fair cache) | $0.191 / $0.192 (0.99x) | $0.024 / $0.024 (0.98x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 10 of 12, Haiku 6 of 12 (67%; the bar is 90%) |
 
 From e15 to e24, `pyb` and `python` sent the same prompt and `pyb` always ran first, so `pyb` paid the prompt-cache writes and `python` read them (the c.write and c.read columns show it in each run a). From e25 each run tags its prompt so neither side reads the other's cache.
 
