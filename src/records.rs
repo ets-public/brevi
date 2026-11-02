@@ -62,7 +62,7 @@ struct Shape {
 }
 
 fn empty(e: &Expr) -> bool {
-    matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(xs) if xs.is_empty()) || matches!(e, Expr::Call(f, a, _) if f == "none" && a.is_empty())
+    matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(xs) if xs.is_empty()) || matches!(e, Expr::Method(r, m, _, _) if m == "lax" && matches!(r.as_ref(), Expr::Map(xs) if xs.is_empty())) || matches!(e, Expr::Call(f, a, _) if f == "none" && a.is_empty())
 }
 
 fn shape_of(ps: &[(Expr, Expr)]) -> Option<Vec<String>> {

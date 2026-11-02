@@ -4,4 +4,5 @@
 {1} {1, 2, 3}
 4
 5055 [1, 4, 7] set()
+2 0 2 0 {'k': 0} {'a': [1]}
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

@@ -35,10 +35,12 @@ pub struct AxM<K, V> {
     // Keys in insertion order, kept for JSON objects, which list keys as written, and in Python mode,
     // where dicts keep insertion order.
     ord: Option<Vec<K>>,
+    // A Python defaultdict or Counter: a missing key reads as the value type's zero instead of raising KeyError.
+    lax: bool,
 }
 impl<K, V> Default for AxM<K, V> {
     fn default() -> Self {
-        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None } }
+        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None }, lax: false }
     }
 }
 impl<K: Hash + Eq + Ord, V> AxM<K, V> {
@@ -46,7 +48,7 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
         AxM::default()
     }
     pub fn ordered() -> Self {
-        AxM { m: HashMap::default(), ord: Some(Vec::new()) }
+        AxM { m: HashMap::default(), ord: Some(Vec::new()), lax: false }
     }
     pub fn from<const N: usize>(xs: [(K, V); N]) -> Self
     where
@@ -60,6 +62,11 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
     }
     pub fn len(&self) -> usize {
         self.m.len()
+    }
+    // Python's defaultdict(...) and Counter(): missing keys read as zero.
+    pub fn ax_lax(mut self) -> Self {
+        self.lax = true;
+        self
     }
     pub fn is_empty(&self) -> bool {
         self.m.is_empty()
@@ -1460,6 +1467,8 @@ impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRef<K, V> for 
         // A missing key reads as the type's zero value (0, "", [] ...), like Python's defaultdict.
         match self.get(k) {
             Some(v) => v,
+            // A plain Python dict raises KeyError (Brevi's own maps and defaultdicts read zero).
+            None if ax_py_on() && !self.lax => panic!("KeyError: {}", show_item(k)),
             None => ax_zero::<V>(),
         }
     }
@@ -2780,7 +2789,7 @@ pub trait AxTally<T> {
 }
 impl<T: Hash + Eq + Ord + Clone> AxTally<T> for Vec<T> {
     fn ax_tally(&self) -> AxM<T, i64> {
-        let mut m = AxM::default();
+        let mut m = AxM::default().ax_lax();
         for x in self {
             match m.get_mut(x) {
                 Some(n) => *n += 1,
@@ -2844,7 +2853,7 @@ impl AxTallyWords for String {
                 }
             }
         }
-        let mut m = AxM::default();
+        let mut m = AxM::default().ax_lax();
         for (w, n) in seen {
             m.insert(w.to_string(), n);
         }

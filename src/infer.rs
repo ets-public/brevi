@@ -212,6 +212,7 @@ fn empty_kind(e: &Expr) -> Option<T> {
     match e {
         Expr::List(xs) if xs.is_empty() => Some(List(Box::new(Hole))),
         Expr::Map(ps) if ps.is_empty() => Some(Map(Box::new(Hole), Box::new(Hole))),
+        Expr::Method(r, m, a, _) if m == "lax" && a.is_empty() => empty_kind(r),
         Expr::Call(n, a, _) if n == "heap" && a.is_empty() => Some(Heap(Box::new(Hole))),
         // `best = None`: typed by what is put there later.
         Expr::Call(n, a, _) if n == "none" && a.is_empty() => Some(Hole),
@@ -1109,6 +1110,7 @@ impl Cx<'_> {
             "month_range" => Tuple(vec![Int, Int]),
             "tally" => Map(Box::new(elem(&r)), Box::new(Int)),
             "tally_words" => Map(Box::new(Str), Box::new(Int)),
+            "lax" => r,
             "to_dict" => match elem(&r) {
                 Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
                 _ => match &r {

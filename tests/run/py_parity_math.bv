@@ -1,3 +1,4 @@
+from collections import Counter, defaultdict
 # Python arithmetic and printing that Brevi must match exactly: % and divmod, round half to even,
 # None in a float list, sets, math.isqrt and stepped ranges.
 import math
@@ -17,6 +18,15 @@ def main():
     for j in range(20, 3, -5):
         total += j * 100
     print(total, list(range(1, 10, 3)), {5} - {5})
+    c = Counter("abca")
+    dd = defaultdict(int)
+    dd["x"] += 2
+    seen = {}
+    seen.setdefault("k", 0)
+    rows = {}
+    r = rows.setdefault("a", [])
+    r.append(1)
+    print(c["a"], c["z"], dd["x"], dd["y"], seen, rows)
 
 
 main()
