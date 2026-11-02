@@ -36,7 +36,16 @@ The test has not passed yet. When the model's first attempt builds, pyb costs th
 
 Three tkinter apps from `ref/gen_gui.py`: `todo_app` (entry, list, checkbox, dialogs), `calc_app` (grid of buttons, key bindings, history) and `tictactoe_app` (canvas clicks, drawing, `after` countdown). The model writes an ordinary tkinter program. Tests drive it without a screen: `mainloop()` reads actions from stdin (`click Add`, `type 1 milk`, `tap 1 50 50`, `wait 1000`, ...) and `show` prints the window as text. Under CPython that is the stand-in in `tkshim/` (on `PYTHONPATH` for `--lang python`); built by Brevi it will be `runtime/brevi_tk` in headless mode. `tools/gui_shim_check.sh` checks the two print the same. Expected outputs come from the reference programs in `ref/gui/`.
 
-First run `g1` (1 Nov 2026, Python only): Sonnet 3/3, all first try ($0.054); Haiku 3/3, all first try ($0.007). Brevi cannot build tkinter programs yet, so `--lang pyb` fails every task; this set measures that work.
+First run `g1` (1 Nov 2026, Python only): Sonnet 3/3, all first try ($0.054); Haiku 3/3, all first try ($0.007). At that point Brevi could not build tkinter programs, so `--lang pyb` failed every task.
+
+By 2 Nov (main 3eebb01: #71, #76, #79 and #80) all six `g1` solutions build with Brevi unchanged and pass every test. Fresh run `g2` (2 Nov, one run each, same compiler):
+
+| | Python passes | Python $ | Brevi-built Python passes | Brevi-built $ |
+|---|---|---|---|---|
+| Sonnet | 3/3 first try | $0.057 | 3/3 first try | $0.060 |
+| Haiku | 3/3 first try | $0.006 | 2/3 | $0.007 |
+
+Haiku's tictactoe failed on a dict field that starts as `[None] * 9` and later holds strings (repro sent to the roadmap work).
 
 ## Huge programs (set `huge`, since 1 Nov 2026)
 
