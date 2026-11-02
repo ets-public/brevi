@@ -1,0 +1,7 @@
+# Sonnet adventure (h2) world.py: '%d: %s' % e where e is a tuple held in a variable.
+errs = [(7, 'unknown room attic'), (3, 'unknown item key')]
+errs.sort(key=lambda e: e[0])
+out = ['world line %d: %s' % e for e in errs]
+print('\n'.join(out))
+for e in errs:
+    print('%s=%s' % e)
