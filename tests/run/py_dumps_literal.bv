@@ -1,0 +1,5 @@
+import json
+s=json.dumps({'a':[1,2,{'b':None}],'c':True}, indent=2, sort_keys=True)
+print(s)
+d=json.loads('{"x": [1, 2.5, "s"]}')
+print(d['x'][1])

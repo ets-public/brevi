@@ -16,7 +16,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -67,6 +67,8 @@ pub struct Emitter {
     // Labels of the try blocks being emitted: a failure inside one jumps to its handler.
     catch: Vec<String>,
     try_n: usize,
+    // Open loops: (label, how many try blocks were open at the loop, whether a break/continue used the label).
+    loops: Vec<(String, usize, bool)>,
     line: usize,
     pub diags: Vec<Diag>,
     // Names whose items are lists changed in place (`m[k].push(x)`), so an empty `m = {}` gets a partial type.
@@ -659,6 +661,7 @@ impl Emitter {
             must: false,
             py_mode: false,
             catch: vec![],
+            loops: vec![],
             try_n: 0,
             borrow_loops: false,
             nested: HashSet::new(),
@@ -904,7 +907,7 @@ impl Emitter {
                 Expr::Method(_, m, _, _) if m == "int" => named("int"),
                 Expr::Method(_, m, _, _) if m == "float" => named("f64"),
                 Expr::Method(_, m, _, _) if m == "dec" || m == "big" => named(m),
-                Expr::Method(_, m, _, _) if m == "quantize" => named("dec"),
+                Expr::Method(_, m, _, _) if m == "quantize" || m == "frac" || m == "frac_div" => named("dec"),
                 Expr::Method(_, m, _, _) if m == "csv_rows" => Some(Ty::List(Box::new(Ty::List(Box::new(Ty::Named("str".into())))))),
                 Expr::Method(_, m, _, _) if m == "ints" => Some(Ty::List(Box::new(Ty::Named("int".into())))),
                 Expr::Call(n, _, _) if n == "read" => named("str"),
@@ -1402,6 +1405,28 @@ impl Emitter {
         }
     }
 
+    // A `break`/`continue` inside a try block (a labeled block in Rust) names its loop.
+    fn loop_label(&mut self) -> String {
+        let depth = self.catch.len();
+        match self.loops.last_mut() {
+            Some((lab, d, used)) if depth > *d => {
+                *used = true;
+                format!(" '{lab}")
+            }
+            _ => String::new(),
+        }
+    }
+    fn open_loop(&mut self) {
+        self.try_n += 1;
+        self.loops.push((format!("ax_lp{}", self.try_n), self.catch.len(), false));
+    }
+    fn close_loop(&mut self) -> String {
+        match self.loops.pop() {
+            Some((lab, _, true)) => format!("'{lab}: "),
+            _ => String::new(),
+        }
+    }
+
     // An expression whose value is not used: if/match branches need not agree on a type.
     fn stmt_expr(&mut self, e: &Expr) -> String {
         match e {
@@ -1615,8 +1640,8 @@ impl Emitter {
                 }
                 if self.fallible { format!("return Ok({v});") } else { format!("return {v};") }
             }
-            Stmt::Break { .. } => "break;".into(),
-            Stmt::Continue { .. } => "continue;".into(),
+            Stmt::Break { .. } => format!("break{};", self.loop_label()),
+            Stmt::Continue { .. } => format!("continue{};", self.loop_label()),
             Stmt::Assert { cond, .. } => format!("assert!({}, \"assert failed at line {line}\");", self.expr(cond)),
         };
         format!("    /*@L{line}*/ax_l({line}); {body}\n")
@@ -2041,9 +2066,11 @@ impl Emitter {
                         let it = self.place_mut(iter);
                         self.locals.insert(n.clone());
                         self.refs.insert(n.clone());
+                        self.open_loop();
                         let b = self.block_d(body, true);
+                        let lab = self.close_loop();
                         self.refs.remove(n);
-                        return format!("for {n} in {it}.iter_mut() {b}");
+                        return format!("{lab}for {n} in {it}.iter_mut() {b}");
                     }
                 }
                 let it = match iter.as_ref() {
@@ -2095,15 +2122,23 @@ impl Emitter {
                     }
                     _ => it,
                 };
+                self.open_loop();
                 let b = self.block_d(body, true);
+                let lab = self.close_loop();
                 self.locals = outer;
-                format!("for {p} in {it} {b}")
+                format!("{lab}for {p} in {it} {b}")
             }
             // `while true:` is Rust's `loop`, so a function may end in it and return from inside.
-            Expr::While(c, body) if matches!(c.as_ref(), Expr::Bool(true)) => format!("loop {}", self.block_d(body, true)),
+            Expr::While(c, body) if matches!(c.as_ref(), Expr::Bool(true)) => {
+                self.open_loop();
+                let b = self.block_d(body, true);
+                format!("{}loop {b}", self.close_loop())
+            }
             Expr::While(c, body) => {
                 let c = self.cond(c);
-                format!("while {c} {}", self.block_d(body, true))
+                self.open_loop();
+                let b = self.block_d(body, true);
+                format!("{}while {c} {b}", self.close_loop())
             }
             Expr::Range(a, b) => format!("({}..{}).collect::<Vec<i64>>()", self.expr(a), self.expr(b)),
             Expr::Block(..) => self.block(e),

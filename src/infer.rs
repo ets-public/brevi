@@ -30,7 +30,7 @@ fn from_ast(t: &Ty) -> T {
             "f64" | "float" => F64,
             "bool" => Bool,
             "str" => Str,
-            "dec" | "quantize" => Dec,
+            "dec" | "quantize" | "frac" | "frac_div" => Dec,
             "big" => Big,
             "date" | "Date" => Date,
             "json" | "Json" => Json,
@@ -258,6 +258,8 @@ fn empty_kind(e: &Expr) -> Option<T> {
         Expr::Call(n, a, _) if n == "heap" && a.is_empty() => Some(Heap(Box::new(Hole))),
         // `best = None`: typed by what is put there later.
         Expr::Call(n, a, _) if n == "none" && a.is_empty() => Some(Hole),
+        // `cur = [None]` (a one-slot holder, set with `cur[0] = ...`): typed by what is put in later.
+        Expr::List(xs) if py_on() && !xs.is_empty() && xs.iter().all(|x| matches!(x, Expr::Call(n, a, _) if n == "none" && a.is_empty())) => Some(List(Box::new(Hole))),
         // `board = [None] * 9`: a list typed by what is put in its slots later.
         Expr::Method(l, m, a, _) if m == "repeat" && a.len() == 1 && matches!(l.as_ref(), Expr::List(xs) if matches!(xs.as_slice(), [Expr::Call(n, a, _)] if n == "none" && a.is_empty())) => Some(List(Box::new(Hole))),
         // `inner = secs.get_or(k, {})`: typed by what is done with it, like a fresh `{}`.
@@ -438,7 +440,7 @@ impl Cx<'_> {
                 _ => None,
             };
             if let Some((n, value, line)) = decl {
-                if let Some(base) = empty_kind(value) {
+                if let Some(base) = empty_kind(value).or_else(|| self.part_kind(value, env)) {
                     let mut t = base.clone();
                     let was_lit = std::mem::replace(&mut self.list_lit, matches!(value, Expr::List(_)).then(|| n.clone()));
                     {
@@ -597,7 +599,7 @@ impl Cx<'_> {
                     match (target, *op) {
                         (Expr::Ident(m), "=" | "+=") if m == n => *acc = merge(acc.clone(), vt),
                         // Python's `rec[3] -= n` on a list of unknown items may be a slot of a mixed record: no evidence.
-                        (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) && py_on() && matches!(k.as_ref(), Expr::Int(_)) && matches!(acc, List(e) if **e == Hole) => {}
+                        (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) && py_on() && matches!(k.as_ref(), Expr::Int(_)) && matches!(acc, List(e) if **e == Hole) && !(*op == "=" && matches!(vt, Named(_))) => {}
                         // `st = stats[sku]` then `st[0] += q`: a list entry, not a dict keyed by ints.
                         (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) && self.entry_look && matches!(k.as_ref(), Expr::Int(_)) && *acc == Hole => {}
                         (Expr::Index(b, k), _) if matches!(b.as_ref(), Expr::Ident(m) if m == n) => {
@@ -1151,7 +1153,7 @@ impl Cx<'_> {
             "len" | "count" | "count_sub" | "count_of" | "re_start" | "re_end" | "isqrt" | "int_base" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "floor" | "ceil" if r == Dec => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
-            "dec" | "quantize" => Dec,
+            "dec" | "quantize" | "frac" | "frac_div" => Dec,
             "big" => Big,
             "char" | "fmt" | "spec" | "py_repr" | "py_dumps" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
@@ -1671,14 +1673,24 @@ impl Cx<'_> {
         }
     }
 
+    // Python: `heap = [(start, 0, (), frm, None)]`, `ev = {(frm, t, None): []}`: a literal with slots typed
+    // only by what is put in later, worked out from the lines after it like an empty one.
+    fn part_kind(&mut self, value: &Expr, env: &Env) -> Option<T> {
+        if !py_on() || !matches!(value, Expr::List(xs) if !xs.is_empty()) && !matches!(value, Expr::Map(xs) if !xs.is_empty()) {
+            return None;
+        }
+        let t = self.ty(value, env);
+        (!known(&t) && some_known(&t)).then_some(t)
+    }
+
     fn flat_env(&mut self, e: &Expr, env: &mut Env) {
         match e {
             Expr::Block(stmts, tail) => {
                 for (i, st) in stmts.iter().enumerate() {
                     match st {
                         // `out = []` then `out.push(x)`: the type comes from the lines after it.
-                        Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if empty_kind(value).is_some() && env.get(n).map_or(true, |t| !known(t)) => {
-                            let mut mt = empty_kind(value).unwrap();
+                        Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if env.get(n).map_or(true, |t| !known(t)) && (empty_kind(value).is_some() || self.part_kind(value, env).is_some()) => {
+                            let mut mt = empty_kind(value).or_else(|| self.part_kind(value, env)).unwrap();
                             let mut later = env.clone();
                             later.insert(n.clone(), mt.clone());
                             self.unsure = false;
@@ -1986,7 +1998,18 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
                 cx.flat_env(body, &mut env);
                 // Calls inside `', '.join(rep(x) for x in v)` see x as an item of v.
-                let mut scopes: Vec<(Expr, Env)> = vec![(body.clone(), env.clone())];
+                // (The whole body without those lambdas: their names are their own, not the function's.)
+                let mut no_lams = body.clone();
+                crate::parser::walk_mut(&mut no_lams, &mut |e| {
+                    if let Expr::Method(_, _, args, _) = e {
+                        for a in args.iter_mut() {
+                            if let Expr::Lambda(_, lb) = a {
+                                **lb = Expr::Block(vec![], None);
+                            }
+                        }
+                    }
+                });
+                let mut scopes: Vec<(Expr, Env)> = vec![(no_lams, env.clone())];
                 walk(body, &mut |e| {
                     if let Expr::Method(r, _, args, _) = e {
                         for a in args {
@@ -2523,7 +2546,22 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                                     let (t2, t1) = (cx.ty(ix2, &env), cx.ty(ix, &env));
                                     if let Some(k) = owner(b2, &env) {
                                         if *op == "=" && known(&t2) && t2 != Int && known(&t1) {
-                                            add(&mut ev, k, Map(Box::new(t2), Box::new(Map(Box::new(t1), Box::new(cx.ty(value, &env))))));
+                                            add(&mut ev, k, Map(Box::new(t2), Box::new(Map(Box::new(t1.clone()), Box::new(cx.ty(value, &env))))));
+                                        }
+                                    }
+                                    // `self.students[i][1][qid] = score` with rows `(name, {})`: the row's dict slot.
+                                    if let (Expr::Index(b3, _), Expr::Int(c)) = (b2.as_ref(), ix2.as_ref()) {
+                                        if let Some(k) = owner(b3, &env) {
+                                            if let Some(List(row)) = ev.get(&k) {
+                                                if let Tuple(ts) = row.as_ref() {
+                                                    let c = *c as usize;
+                                                    if *op == "=" && known(&t1) && matches!(ts.get(c), Some(Map(a, b)) if **a == Hole && **b == Hole) {
+                                                        let mut ts = ts.clone();
+                                                        ts[c] = Map(Box::new(t1.clone()), Box::new(cx.ty(value, &env)));
+                                                        add(&mut ev, k, List(Box::new(Tuple(ts))));
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

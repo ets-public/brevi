@@ -1,0 +1,23 @@
+def main():
+    out = []
+    cur = [None]
+    def finalize(tx):
+        if tx is None or tx["bad"]:
+            return
+        total = sum(c for _, c in tx["postings"])
+        out.append("tx %d: %d %s" % (tx["line"], total, ",".join(n for n, _ in tx["postings"])))
+    for n, line in enumerate(["TX", "  a 5", "  b -5", "TX", "  c 1", "X"], 1):
+        if line.startswith("  "):
+            tx = cur[0]
+            if tx is None:
+                continue
+            name, amt = line.split()
+            tx["postings"].append((name, int(amt)))
+            continue
+        finalize(cur[0])
+        cur[0] = None
+        if line == "TX":
+            cur[0] = {"line": n, "bad": False, "postings": []}
+    finalize(cur[0])
+    print("\n".join(out))
+main()
