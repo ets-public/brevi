@@ -1,0 +1,14 @@
+import json
+xs = [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
+print(",".join(json.dumps(x, separators=(",", ":")) for x in xs))
+def f(x):
+    return json.dumps(x)
+print(f({"name": "café \"q\"\n", "ok": "yes"}))
+print(json.dumps({"z": [1, 2], "a": [3]}, indent=2, sort_keys=True))
+print(json.dumps(["x", "é"], ensure_ascii=False))
+print(json.dumps("hi"), json.dumps(3), json.dumps(2.5), json.dumps([1, 2]))
+print(json.dumps({"x": 1}, indent=4))
+rec = {"id": 7, "name": "bob", "tags": ["a", "b"], "paid": False, "total": 12.5}
+print(json.dumps(rec))
+data = json.loads('{"a": {"x": 1}, "n": 2}')
+print(data.get("n", 0), data.get("zz", 5), "a" in data)

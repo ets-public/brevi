@@ -1983,6 +1983,33 @@ impl AxIndex<i64, Json> for Json {
 }
 
 
+// A JSON object key: text as it is, or a JSON value read from other data (`prods[ln["sku"]]`).
+pub trait AxJKey {
+    fn ax_jkey(&self) -> String;
+}
+impl AxJKey for str {
+    fn ax_jkey(&self) -> String {
+        self.to_string()
+    }
+}
+impl AxJKey for String {
+    fn ax_jkey(&self) -> String {
+        self.clone()
+    }
+}
+impl AxJKey for &str {
+    fn ax_jkey(&self) -> String {
+        self.to_string()
+    }
+}
+impl AxJKey for Json {
+    fn ax_jkey(&self) -> String {
+        match self {
+            Json::Str { v } => v.clone(),
+            other => ax_json_py(other, true),
+        }
+    }
+}
 // Reading Json values directly: j.text(), j.int(), j.list(), j.is_null(), `for x in j`.
 impl Json {
     pub fn ax_text(&self) -> String {
@@ -2036,9 +2063,16 @@ impl Json {
     pub fn ax_is_empty(&self) -> bool {
         self.ax_len() == 0
     }
-    pub fn ax_has(&self, k: &String) -> bool {
+    // d.get(k, default) on a JSON object: the value under k, else the default as JSON.
+    pub fn ax_get_or<K: AxJKey + ?Sized, D: AxToJson>(&self, k: &K, d: D) -> Json {
         match self {
-            Json::Obj { v } => v.get(k).is_some(),
+            Json::Obj { v } => v.get(&k.ax_jkey()).cloned().unwrap_or_else(|| d.ax_json()),
+            _ => d.ax_json(),
+        }
+    }
+    pub fn ax_has<K: AxJKey + ?Sized>(&self, k: &K) -> bool {
+        match self {
+            Json::Obj { v } => v.get(&k.ax_jkey()).is_some(),
             _ => false,
         }
     }
@@ -3538,6 +3572,88 @@ impl<K: Show + Hash + Eq + Ord + Clone, V: AxToJson> AxToJson for AxM<K, V> {
             m.insert(k.show(), v.ax_json());
         }
         Json::Obj { v: m }
+    }
+}
+// json.dumps: any value Brevi can turn into JSON, written as Python's json module writes it.
+pub trait AxDumps {
+    fn ax_py_dumps<A: AsRef<str>, B: AsRef<str>>(&self, item: A, key: B, indent: i64, sort: bool, ascii: bool) -> String;
+}
+impl<T: AxToJson> AxDumps for T {
+    fn ax_py_dumps<A: AsRef<str>, B: AsRef<str>>(&self, item: A, key: B, indent: i64, sort: bool, ascii: bool) -> String {
+        let mut out = String::new();
+        ax_dump(&self.ax_json(), item.as_ref(), key.as_ref(), indent, sort, ascii, 0, &mut out);
+        out
+    }
+}
+fn ax_dump_str(s: &str, ascii: bool, out: &mut String) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 || (ascii && (c as u32) > 0x7f) => {
+                let mut b = [0u16; 2];
+                for u in c.encode_utf16(&mut b) {
+                    out.push_str(&format!("\\u{:04x}", u));
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+fn ax_dump(j: &Json, item: &str, key: &str, indent: i64, sort: bool, ascii: bool, depth: usize, out: &mut String) {
+    let nl = |out: &mut String, d: usize| {
+        if indent >= 0 {
+            out.push('\n');
+            out.push_str(&" ".repeat(indent as usize * d));
+        }
+    };
+    match j {
+        Json::Null => out.push_str("null"),
+        Json::Bool { v } => out.push_str(if *v { "true" } else { "false" }),
+        Json::Num { v } if v.is_nan() => out.push_str("NaN"),
+        Json::Num { v } if v.is_infinite() => out.push_str(if *v > 0.0 { "Infinity" } else { "-Infinity" }),
+        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e16 => out.push_str(&format!("{}", *v as i64)),
+        Json::Num { v } => out.push_str(&ax_py_float(*v)),
+        Json::Str { v } => ax_dump_str(v, ascii, out),
+        Json::Arr { v } if v.is_empty() => out.push_str("[]"),
+        Json::Arr { v } => {
+            out.push('[');
+            for (i, x) in v.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(item);
+                }
+                nl(out, depth + 1);
+                ax_dump(x, item, key, indent, sort, ascii, depth + 1, out);
+            }
+            nl(out, depth);
+            out.push(']');
+        }
+        Json::Obj { v } if v.is_empty() => out.push_str("{}"),
+        Json::Obj { v } => {
+            let mut kv: Vec<(&String, &Json)> = v.iter().collect();
+            if sort {
+                kv.sort_by(|a, b| a.0.cmp(b.0));
+            }
+            out.push('{');
+            for (i, (k, x)) in kv.into_iter().enumerate() {
+                if i > 0 {
+                    out.push_str(item);
+                }
+                nl(out, depth + 1);
+                ax_dump_str(k, ascii, out);
+                out.push_str(key);
+                ax_dump(x, item, key, indent, sort, ascii, depth + 1, out);
+            }
+            nl(out, depth);
+            out.push('}');
+        }
     }
 }
 // A map literal whose values differ in type is a JSON object, keys in written order.

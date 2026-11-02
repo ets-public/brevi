@@ -1407,8 +1407,11 @@ impl Parser {
                 if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
             } else if let (true, Expr::Str(parts)) = (op == "%", &lhs) {
                 // Python's `"%d of %s" % (a, b)` fills the string.
+                // A tuple held in a name (`'%d: %s' % e`) gives one value per `%` mark.
+                let marks = parts.iter().map(|p| if let StrPart::Lit(s) = p { s.replace("%%", "").matches('%').count() } else { 0 }).sum::<usize>();
                 let args = match rhs.clone() {
                     Expr::Tuple(xs) => xs,
+                    x @ (Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) if marks >= 2 && !parts.iter().any(|p| matches!(p, StrPart::Lit(s) if s.contains("%("))) => (0..marks).map(|i| Expr::TupleField(Box::new(x.clone()), i)).collect(),
                     x => vec![x],
                 };
                 match fill_format(parts, args, true, self.line()) {
@@ -1515,6 +1518,11 @@ impl Parser {
                                     e = s;
                                     continue;
                                 }
+                            }
+                            // json.dumps(x, indent=, separators=, sort_keys=, ensure_ascii=) writes x as Python's json module does.
+                            if name == "dumps" && !raw.is_empty() && raw[0].0.is_none() && matches!(&e, Expr::Ident(j) if j == "json") {
+                                e = py_dumps(raw, line);
+                                continue;
                             }
                             let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             // `m.get(k)` is None when k is missing.
@@ -3612,4 +3620,38 @@ fn type_test(a: &Expr, b: &Expr) -> Option<(Expr, String)> {
         _ => name,
     };
     Some((args[0].1.clone(), name))
+}
+
+// `json.dumps(x, ...)` becomes `x.py_dumps(item_sep, key_sep, indent, sort_keys, ensure_ascii)`.
+// indent -1 is none; Python's default separators are ", " and ": ", or "," and ": " with an indent.
+fn py_dumps(mut raw: Vec<(Option<String>, Expr)>, line: usize) -> Expr {
+    let x = raw.remove(0).1;
+    let lit = |s: &str| Expr::Str(vec![StrPart::Lit(s.to_string())]);
+    let mut indent = Expr::Unary("-", Box::new(Expr::Int(1)));
+    let mut seps: Option<(Expr, Expr)> = None;
+    let mut sort = Expr::Bool(false);
+    let mut ascii = Expr::Bool(true);
+    for (k, v) in raw {
+        match k.as_deref() {
+            Some("indent") => {
+                if !matches!(&v, Expr::Ident(n) if n == "None") && !matches!(&v, Expr::Call(n, a, _) if n == "none" && a.is_empty()) {
+                    indent = v;
+                }
+            }
+            Some("separators") => {
+                if let Expr::Tuple(mut xs) = v {
+                    if xs.len() == 2 {
+                        let b = xs.pop().unwrap();
+                        seps = Some((xs.pop().unwrap(), b));
+                    }
+                }
+            }
+            Some("sort_keys") => sort = v,
+            Some("ensure_ascii") => ascii = v,
+            _ => {}
+        }
+    }
+    let has_indent = !matches!(&indent, Expr::Unary("-", _));
+    let (item, key) = seps.unwrap_or_else(|| (lit(if has_indent { "," } else { ", " }), lit(": ")));
+    Expr::Method(Box::new(x), "py_dumps".into(), vec![item, key, indent, sort, ascii], line)
 }
