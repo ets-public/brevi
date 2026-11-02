@@ -30,6 +30,40 @@ thread_local! {
 }
 
 pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
+    // Python's `players, dealt = cur` names the same lists the tuple holds: when one is changed later,
+    // it is also set as `players = cur[0]`, so the change is written back like any item taken out.
+    for it in items.iter_mut() {
+        if let Item::Fn { body, .. } = it {
+            crate::parser::walk_mut(body, &mut |e| {
+                let Expr::Block(stmts, tail) = e else { return };
+                move_stores(stmts, tail);
+                let mut i = 0;
+                while i < stmts.len() {
+                    let (names, src, line): (Vec<Option<String>>, String, usize) = match &stmts[i] {
+                        Stmt::Let { name: Pat::Tuple(ps), value: Expr::Ident(c), line, .. } => (ps.iter().map(|p| if let Pat::Bind(n) = p { Some(n.clone()) } else { None }).collect(), c.clone(), *line),
+                        Stmt::Assign { target: Expr::Tuple(xs), op: "=", value: Expr::Ident(c), line } => (xs.iter().map(|x| if let Expr::Ident(n) = x { Some(n.clone()) } else { None }).collect(), c.clone(), *line),
+                        _ => {
+                            i += 1;
+                            continue;
+                        }
+                    };
+                    let mut extra = vec![];
+                    for (k, n) in names.iter().enumerate() {
+                        let Some(n) = n else { continue };
+                        if n != &src && n != "_" && changed(n, &stmts[i + 1..], tail.as_deref()) {
+                            let item = Expr::Index(Box::new(Expr::Ident(src.clone())), Box::new(Expr::Int(k as i64)));
+                            extra.push(Stmt::Assign { target: Expr::Ident(n.clone()), op: "=", value: item, line });
+                        }
+                    }
+                    let k = extra.len();
+                    for (j, st) in extra.into_iter().enumerate() {
+                        stmts.insert(i + 1 + j, st);
+                    }
+                    i += 1 + k;
+                }
+            });
+        }
+    }
     CHANGES_PARAM.with(|c| {
         let mut c = c.borrow_mut();
         c.clear();
@@ -191,8 +225,123 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
         }
     }
     let mut seen = HashSet::new();
+    cx.errs.extend(none_or_empty(items));
     cx.errs.retain(|d| seen.insert((d.line, d.msg.clone())));
     cx.errs
+}
+
+// Python's None in a list, dict or set slot is kept as an empty one, so `cur is None` cannot tell None
+// from a container set empty (`cur = ({}, set())`). Where such a test can run after the name was set to
+// an empty container (later in the same function, in a loop around both, or in another function for a
+// top-level name), the program is refused. (`if xs is None: xs = []` on a parameter is fine.)
+fn none_or_empty(items: &[Item]) -> Vec<Diag> {
+    fn empty(e: &Expr) -> bool {
+        match e {
+            Expr::List(xs) => xs.is_empty(),
+            Expr::Map(ps) => ps.is_empty(),
+            Expr::Tuple(xs) => !xs.is_empty() && xs.iter().all(empty),
+            _ => false,
+        }
+    }
+    // (name, line, enclosing loops, is a test)
+    type Seen = Vec<(String, usize, Vec<usize>, bool)>;
+    fn go(e: &Expr, loops: &mut Vec<usize>, next: &mut usize, out: &mut Seen) {
+        let tests = |x: &Expr, line: usize, out: &mut Seen, loops: &Vec<usize>| {
+            crate::infer::walk(x, &mut |y| {
+                if let Expr::Method(r, m, a, _) = y {
+                    if m == "is_none" && a.is_empty() {
+                        if let Expr::Ident(n) = r.as_ref() {
+                            out.push((n.clone(), line, loops.clone(), true));
+                        }
+                    }
+                }
+            });
+        };
+        match e {
+            Expr::Block(stmts, tail) => {
+                for st in stmts {
+                    match st {
+                        Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } | Stmt::Let { name: Pat::Bind(n), value, line, .. } => {
+                            tests(value, *line, out, loops);
+                            if empty(value) {
+                                out.push((n.clone(), *line, loops.clone(), false));
+                            }
+                            go(value, loops, next, out);
+                        }
+                        Stmt::Assign { value, line, .. } | Stmt::Let { value, line, .. } => {
+                            tests(value, *line, out, loops);
+                            go(value, loops, next, out);
+                        }
+                        Stmt::Expr { expr, line } => {
+                            if !matches!(expr, Expr::Block(..) | Expr::For(..) | Expr::While(..) | Expr::If(..) | Expr::Match(..)) {
+                                tests(expr, *line, out, loops);
+                            }
+                            go(expr, loops, next, out);
+                        }
+                        Stmt::Return { value: Some(v), line } | Stmt::Assert { cond: v, line, .. } => tests(v, *line, out, loops),
+                        _ => {}
+                    }
+                }
+                if let Some(t) = tail {
+                    go(t, loops, next, out);
+                }
+            }
+            Expr::For(_, _, b) | Expr::While(_, b) => {
+                if let Expr::While(c, _) = e {
+                    let line = first_line(b);
+                    tests(c, line, out, loops);
+                }
+                *next += 1;
+                loops.push(*next);
+                go(b, loops, next, out);
+                loops.pop();
+            }
+            Expr::If(c, a, b) => {
+                let line = first_line(a).saturating_sub(1).max(1);
+                tests(c, line, out, loops);
+                go(a, loops, next, out);
+                if let Some(b) = b {
+                    go(b, loops, next, out);
+                }
+            }
+            Expr::Match(_, arms) => arms.iter().for_each(|(_, a)| go(a, loops, next, out)),
+            _ => {}
+        }
+    }
+    fn first_line(e: &Expr) -> usize {
+        match e {
+            Expr::Block(st, _) => st.first().map_or(0, |s| match s {
+                Stmt::Return { line, .. } => *line,
+                s => stmt_line(s),
+            }),
+            _ => 0,
+        }
+    }
+    let mut per_fn: Vec<(bool, Seen)> = vec![];
+    for it in items {
+        if let Item::Fn { body, script, .. } = it {
+            let mut out = vec![];
+            go(body, &mut vec![], &mut 0, &mut out);
+            per_fn.push((*script, out));
+        }
+    }
+    let globals: HashSet<String> = per_fn.iter().filter(|(s, _)| *s).flat_map(|(_, o)| o.iter().filter(|x| !x.3).map(|x| x.0.clone())).collect();
+    let mut errs = vec![];
+    for (fi, (_, seen)) in per_fn.iter().enumerate() {
+        for (n, tl, tloops, is_test) in seen {
+            if !is_test {
+                continue;
+            }
+            let same = seen.iter().any(|(m, al, aloops, t)| !t && m == n && (al < tl || aloops.iter().any(|l| tloops.contains(l))));
+            let other = globals.contains(n) && per_fn.iter().enumerate().any(|(fj, (_, o))| fj != fi && o.iter().any(|x| !x.3 && &x.0 == n));
+            if same || other {
+                let mut d = Diag::new("type", *tl, 1, &format!("{n} is None cannot be told apart from {n} set to an empty list, dict or set here (Brevi keeps None in such a name as an empty one)"));
+                d.fix = Some(format!("test `not {n}` if empty means the same, or keep a separate flag such as {n}_set = False"));
+                errs.push(d);
+            }
+        }
+    }
+    errs
 }
 
 // A copy that is wrong only when `var`'s value is not shared: the Rust compiler decides (see `__shared`).
@@ -481,6 +630,91 @@ fn fold_local_copies(stmts: &mut Vec<Stmt>, tail: &Option<Box<Expr>>) {
         let drop_to = k - between.len();
         stmts.drain(j..drop_to);
         k = j + between.len() + 1;
+    }
+}
+
+// Python's `sc = {}`, `self.students[name] = sc`, then `sc[q] = v` in a loop: the dict in self.students
+// is the one changed. When nothing between reads the container (or could: a method on self, a return),
+// the storing is moved after the last change, which gives the same result with copies.
+fn move_stores(stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) {
+    let mut i = 0;
+    while i < stmts.len() {
+        let (x, base) = match &stmts[i] {
+            Stmt::Assign { target: Expr::Index(b, k), op: "=", value: Expr::Ident(x), .. } if matches!(k.as_ref(), Expr::Ident(_) | Expr::Str(_) | Expr::Int(_)) => (x.clone(), (**b).clone()),
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        let key = match &stmts[i] {
+            Stmt::Assign { target: Expr::Index(_, k), .. } => (**k).clone(),
+            _ => unreachable!(),
+        };
+        let Some(broot) = root(&base).map(String::from) else {
+            i += 1;
+            continue;
+        };
+        if broot == x {
+            i += 1;
+            continue;
+        }
+        let rest = &stmts[i + 1..];
+        let changes = |st: &Stmt| any_stmt(std::slice::from_ref(st), None, &mut |s| direct(&x, s));
+        // The last statement of the block (or its loop tail) that changes x.
+        let last = rest.iter().rposition(|st| changes(st));
+        let tail_changes = tail.as_ref().is_some_and(|t| matches!(t.as_ref(), Expr::For(..) | Expr::While(..)) && any_expr(t, &mut |s| direct(&x, s)));
+        if last.is_none() && !tail_changes {
+            i += 1;
+            continue;
+        }
+        let upto = if tail_changes { rest.len() } else { last.unwrap() + 1 };
+        let mut between: Vec<Expr> = rest[..upto].iter().map(|st| Expr::Block(vec![st.clone()], None)).collect();
+        if tail_changes {
+            between.push((**tail.as_ref().unwrap()).clone());
+        }
+        let bt = format!("{base:?}");
+        let key_name = if let Expr::Ident(k) = &key { Some(k.clone()) } else { None };
+        let ok = between.iter().all(|b| {
+            let d = format!("{b:?}");
+            // Not read or set, nor could a call read it: a method on the container's root, or the root passed on.
+            !d.contains(&bt)
+                && !d.contains("Return")
+                && !d.contains("Break")
+                && !d.contains("Call(\"fail\"")
+                && !own_continue(b)
+                && !d.contains(&format!("Method(Ident({broot:?})"))
+                && !d.contains(&format!("(None, Ident({broot:?}))"))
+                && !any_expr(b, &mut |s| matches!(s, Stmt::Assign { target: Expr::Ident(n), .. } | Stmt::Let { name: Pat::Bind(n), .. } if *n == x || *n == broot || key_name.as_ref() == Some(n)))
+                && !(matches!(b, Expr::Block(st, _) if st.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(n), .. } | Stmt::Let { name: Pat::Bind(n), .. } if *n == x || *n == broot || key_name.as_ref() == Some(n)))))
+        });
+        if !ok {
+            i += 1;
+            continue;
+        }
+        let st = stmts.remove(i);
+        if tail_changes {
+            let t = *tail.take().unwrap();
+            let line = stmts.last().map_or(0, stmt_line) + 1;
+            stmts.push(Stmt::Expr { expr: t, line });
+            stmts.push(st);
+            return;
+        }
+        stmts.insert(i + upto, st);
+        i += 1;
+    }
+}
+
+// A `continue` of the enclosing loop (not one of a loop inside e).
+fn own_continue(e: &Expr) -> bool {
+    match e {
+        Expr::Block(st, t) => st.iter().any(|s| match s {
+            Stmt::Continue { .. } => true,
+            Stmt::Expr { expr, .. } | Stmt::Let { value: expr, .. } | Stmt::Assign { value: expr, .. } => own_continue(expr),
+            _ => false,
+        }) || t.as_ref().is_some_and(|t| own_continue(t)),
+        Expr::If(_, a, b) => own_continue(a) || b.as_ref().is_some_and(|b| own_continue(b)),
+        Expr::Match(_, arms) => arms.iter().any(|(_, a)| own_continue(a)),
+        _ => false,
     }
 }
 
@@ -1001,6 +1235,13 @@ fn any_stmt(stmts: &[Stmt], tail: Option<&Expr>, f: &mut dyn FnMut(&Stmt) -> boo
             if f(&Stmt::Expr { expr: t.clone(), line }) {
                 return true;
             }
+        }
+    }
+    // A call that ends a block (`for c in cs: row.push(c)`, kept as the body's value) is a statement too.
+    if let Some(t @ Expr::Method(..)) = tail {
+        let line = stmts.last().map_or(0, stmt_line);
+        if f(&Stmt::Expr { expr: t.clone(), line }) {
+            return true;
         }
     }
     tail.map_or(false, |t| any_expr(t, f))

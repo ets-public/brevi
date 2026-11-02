@@ -1,0 +1,11 @@
+# The row is changed by the loop after it was put in grid, and a `continue` can skip the end of the
+# body, so the change cannot simply be moved before the storing.
+grid = {}
+for r in range(3):
+    row = []
+    grid[r] = row
+    if r == 1:
+        continue
+    for c in range(2):
+        row.append(r * c)
+print(grid)

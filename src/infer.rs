@@ -645,6 +645,27 @@ impl Cx<'_> {
                             env.insert(m.clone(), mt);
                             keep_empties(&stmts[i + 1..], n, &later, env);
                         }
+                        // `players, dealt = cur` then `players[k] = v` and `dealt.update(xs)`: each name fills
+                        // its slot of the tuple (Python shares the containers).
+                        (Expr::Tuple(xs), "=") if py_on() && matches!(value, Expr::Ident(x) if x == n) && matches!(&*acc, Tuple(ts) if ts.len() == xs.len()) => {
+                            let Tuple(mut ts) = acc.clone() else { unreachable!() };
+                            for (k, x) in xs.iter().enumerate() {
+                                let Expr::Ident(m) = x else { continue };
+                                if m == n {
+                                    continue;
+                                }
+                                let mut mt = ts[k].clone();
+                                let mut later = env.clone();
+                                later.insert(m.clone(), mt.clone());
+                                self.look(m, &stmts[i + 1..], tail, &mut later, &mut mt);
+                                if let Some(tl) = tail {
+                                    self.look_expr(m, tl, &mut later, &mut mt);
+                                }
+                                ts[k] = merge(ts[k].clone(), mt.clone());
+                                env.insert(m.clone(), ts[k].clone());
+                            }
+                            *acc = Tuple(ts);
+                        }
                         // `lq = m[k]` then `lq.push(x)`: what the copy is filled with is the entry's type.
                         (Expr::Ident(m), "=") if !env.contains_key(m) && m != n && matches!(value, Expr::Index(b, _) if matches!(b.as_ref(), Expr::Ident(x) if x == n)) => {
                             let Expr::Index(_, k) = value else { unreachable!() };
@@ -669,20 +690,22 @@ impl Cx<'_> {
                             env.insert(m.clone(), vt);
                         }
                         // A name set again to a value of another known type (a function's own `n` over a global `n`).
-                        (Expr::Ident(m), "=") if m != n && known(&vt) && env.get(m).map_or(false, |t| known(t) && *t != vt) => {
+                        (Expr::Ident(m), "=") if m != n && env.get(m).map_or(false, |t| (known(&vt) && known(t) && *t != vt) || kind_clash(t, &vt)) => {
                             env.insert(m.clone(), vt);
                         }
                         (Expr::Tuple(xs), "=") => {
                             for (k, x) in xs.iter().enumerate() {
                                 if let Expr::Ident(m) = x {
-                                    if !env.contains_key(m) {
-                                        // `qid, ans = tok.split("=", 1)`: a list gives its items.
-                                        let et = match &vt {
-                                            Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
-                                            List(e) => (**e).clone(),
-                                            Json => Json,
-                                            _ => Hole,
-                                        };
+                                    // `qid, ans = tok.split("=", 1)`: a list gives its items.
+                                    let et = match &vt {
+                                        Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
+                                        List(e) => (**e).clone(),
+                                        Json => Json,
+                                        _ => Hole,
+                                    };
+                                    // Set again to a value of another known type (`a, l = cur[to][0]` after
+                                    // a loop's own `a, l` that was not known yet): the new type.
+                                    if !env.contains_key(m) || (m != n && known(&et) && env.get(m).map_or(false, |t| *t != et)) {
                                         env.insert(m.clone(), et);
                                     }
                                 }
@@ -1573,6 +1596,70 @@ fn no_value(e: &Expr) -> bool {
 
 impl Cx<'_> {
     // Types of every name set in a body, in order (first setting wins), for reading return values.
+    // Calls `f` on every expression with the names' types at that point: a loop's or branch's own
+    // names stay inside it, and each statement's names are known from the next one on.
+    fn env_walk(&mut self, e: &Expr, env: &mut Env, f: &mut dyn FnMut(&mut Self, &Expr, &Env)) {
+        match e {
+            Expr::Block(stmts, tail) => {
+                let mut inner = env.clone();
+                for st in stmts {
+                    match st {
+                        Stmt::Let { value, .. } => self.env_walk(value, &mut inner, f),
+                        Stmt::Assign { target, value, .. } => {
+                            self.env_walk(target, &mut inner, f);
+                            self.env_walk(value, &mut inner, f);
+                        }
+                        Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => self.env_walk(expr, &mut inner, f),
+                        _ => {}
+                    }
+                    self.flat_env(&Expr::Block(vec![st.clone()], None), &mut inner);
+                }
+                if let Some(t) = tail {
+                    self.env_walk(t, &mut inner, f);
+                }
+            }
+            Expr::For(p, it, body) => {
+                self.env_walk(it, env, f);
+                let t = loop_elem(p, &self.ty(it, env));
+                let mut inner = env.clone();
+                bind(p, t, &mut inner);
+                self.env_walk(body, &mut inner, f);
+            }
+            Expr::While(c, body) => {
+                self.env_walk(c, env, f);
+                self.env_walk(body, &mut env.clone(), f);
+            }
+            Expr::If(c, a, b) => {
+                self.env_walk(c, env, f);
+                self.env_walk(a, &mut env.clone(), f);
+                if let Some(b) = b {
+                    self.env_walk(b, &mut env.clone(), f);
+                }
+            }
+            Expr::Match(s, arms) => {
+                self.env_walk(s, env, f);
+                let st = self.ty(s, env);
+                for (p, a) in arms {
+                    let mut inner = env.clone();
+                    bind_arm(p, &st, &mut inner);
+                    self.env_walk(a, &mut inner, f);
+                }
+            }
+            e => {
+                let env2 = env.clone();
+                let mut seen: Vec<Expr> = Vec::new();
+                walk(e, &mut |x| {
+                    if matches!(x, Expr::Call(..) | Expr::Method(..)) {
+                        seen.push(x.clone());
+                    }
+                });
+                for x in &seen {
+                    f(self, x, &env2);
+                }
+            }
+        }
+    }
+
     fn flat_env(&mut self, e: &Expr, env: &mut Env) {
         match e {
             Expr::Block(stmts, tail) => {
@@ -1610,7 +1697,7 @@ impl Cx<'_> {
                             } else {
                                 // Python's `st = int(st)`: the name holds the new type from here on.
                                 let t = self.ty(value, env);
-                                if clash(&env[n], &t) {
+                                if clash(&env[n], &t) || kind_clash(&env[n], &t) {
                                     env.insert(n.clone(), t);
                                 }
                             }
@@ -2133,7 +2220,40 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     }
                 }
                 let mut calls = Vec::new();
-                calls_in(body, &mut calls);
+                // (Not inside `fmt(self.ev(e, loc)) for e in s[2]`: the lambdas above have their own names,
+                // which the whole-function view would mix up with an `except RErr as e` elsewhere.)
+                let mut no_lams = body.clone();
+                crate::parser::walk_mut(&mut no_lams, &mut |e| {
+                    if let Expr::Method(_, _, args, _) = e {
+                        for a in args.iter_mut() {
+                            if let Expr::Lambda(_, lb) = a {
+                                **lb = Expr::Block(vec![], None);
+                            }
+                        }
+                    }
+                });
+                calls_in(&no_lams, &mut calls);
+                // The same calls with the names' types where each call is (`name = t[0]` then `g.has(name)`,
+                // before a later `for name in g.names` over a list not known yet), and method calls on a value
+                // known to be a class (`g.has(name)` calls Grades_has(g, name)).
+                let mut at: Vec<(String, Vec<(Option<String>, Expr)>, Env)> = Vec::new();
+                if py_on() {
+                    let mut env0 = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
+                    cx.env_walk(body, &mut env0, &mut |cx, e, env| match e {
+                        Expr::Call(f, args, _) if untyped.contains_key(f) => at.push((f.clone(), args.clone(), env.clone())),
+                        Expr::Method(r, m, args, _) => {
+                            if let Named(c) = cx.ty(r, env) {
+                                let f = format!("{c}_{m}");
+                                if untyped.contains_key(&f) {
+                                    let mut a = vec![(None, (**r).clone())];
+                                    a.extend(args.iter().map(|x| (None, x.clone())));
+                                    at.push((f, a, env.clone()));
+                                }
+                            }
+                        }
+                        _ => {}
+                    });
+                }
                 for (f, args) in calls {
                     let Some(&k) = untyped.get(f) else { continue };
                     let Item::Fn { params: ps, .. } = &items[k] else { continue };
@@ -2145,6 +2265,24 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         let Some(pi) = pi.filter(|&pi| pi < ps.len() && q(&ps[pi].ty)) else { continue };
                         if let Some(t) = to_ast_part(&cx.ty(a, &env)) {
                             fills.push((k, pi, t));
+                        }
+                    }
+                }
+                for (f, args, aenv) in &at {
+                    let Some(&k) = untyped.get(f) else { continue };
+                    let Item::Fn { params: ps, .. } = &items[k] else { continue };
+                    for (j, (nm, a)) in args.iter().enumerate() {
+                        let pi = match nm {
+                            Some(nm) => ps.iter().position(|p| &p.name == nm),
+                            None => Some(j),
+                        };
+                        let Some(pi) = pi.filter(|&pi| pi < ps.len() && q(&ps[pi].ty)) else { continue };
+                        // Only where the whole-function view knew nothing about the value.
+                        let flat = to_ast_part(&cx.ty(a, &env));
+                        if flat.as_ref().map_or(true, has_q) {
+                            if let Some(t) = to_ast_part(&cx.ty(a, aenv)).filter(|t| !has_q(t)) {
+                                fills.push((k, pi, t));
+                            }
                         }
                     }
                 }
@@ -2772,6 +2910,13 @@ fn clash(a: &T, b: &T) -> bool {
         (Tuple(x), Tuple(y)) => x.len() != y.len() || x.iter().zip(y).any(|(a, b)| clash(a, b)),
         (a, b) => std::mem::discriminant(a) != std::mem::discriminant(b),
     }
+}
+
+// Values of plainly different kinds (a list, then a tuple), even with parts still unknown:
+// Python's `c = [...]` in one loop and `c = (a, k, l)` later makes a new name.
+fn kind_clash(a: &T, b: &T) -> bool {
+    let plain = |t: &T| matches!(t, List(_) | Map(..) | Tuple(_) | Str | Bool | Named(_));
+    plain(a) && plain(b) && std::mem::discriminant(a) != std::mem::discriminant(b)
 }
 
 fn float_lit(e: &mut Expr) {
@@ -3813,3 +3958,5 @@ fn global_too(t: T, x: &Expr, genv: &Env) -> T {
         _ => t,
     }
 }
+
+

@@ -1,0 +1,1 @@
+{"line":5,"msg":"acc is None cannot be told apart from acc set to an empty list, dict or set here (Brevi keeps None in such a name as an empty one)","fix":"test `not acc` if empty means the same, or keep a separate flag such as acc_set = False"}
