@@ -706,7 +706,7 @@ impl Cx<'_> {
                         ("insert", List(_)) => List(Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
                         ("has" | "remove", Map(..)) => Map(Box::new(a0), Box::new(Hole)),
                         ("get_or", Map(..)) => Map(Box::new(a0), Box::new(args.get(1).map(|a| self.ty(a, env)).unwrap_or(Hole))),
-                        ("contains" | "index_of", List(_)) => List(Box::new(a0)),
+                        ("contains" | "index_of" | "count_of" | "min_or" | "max_or" | "first_or", List(_)) => List(Box::new(a0)),
                         _ => Hole,
                     };
                     *acc = merge(acc.clone(), ev);
@@ -1002,7 +1002,7 @@ impl Cx<'_> {
             }
         }
         match m {
-            "len" | "count" | "count_sub" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
+            "len" | "count" | "count_sub" | "count_of" | "find" | "find_from" | "index_of" | "digit" | "code" | "int" | "days" | "day" | "month" | "year" | "weekday" => Int,
             "floor" | "ceil" if r == Dec => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "dec" | "quantize" => Dec,
@@ -1025,7 +1025,7 @@ impl Cx<'_> {
                 Map(_, v) => *v.clone(),
                 _ => Hole,
             },
-            "first" | "last" | "pop" | "min" | "max" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" => match &r {
+            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" => match &r {
                 Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
                 _ => elem(&r),
             },

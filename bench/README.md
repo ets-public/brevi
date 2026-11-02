@@ -28,8 +28,9 @@ The test passes when, averaged over two runs, `pyb` costs no more dollars than `
 | e15a/b | #63 | $0.252 / $0.165 (1.53x) | $0.037 / $0.024 (1.50x) | pyb 21 of 24, Python 24 of 24 |
 | e16a/b | #67 | $0.266 / $0.165 (1.61x) | $0.036 / $0.024 (1.45x) | pyb 22 of 24 |
 | e17a/b | #70 + #69 | $0.219 / $0.178 (1.23x) | $0.028 / $0.027 (1.03x) | pyb 24 of 24, Python 24 of 24 |
+| e18a/b | #80 | $0.192 / $0.170 (1.13x) | $0.027 / $0.025 (1.04x) | pyb 24 of 24, Python 24 of 24 |
 
-The test has not passed yet. When the model's first attempt builds, pyb costs the same as Python or less. The whole gap is retries after Brevi rejects valid Python. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
+The test has not passed yet. When the model's first attempt builds, pyb costs the same as Python or less. The whole gap is retries after Brevi rejects valid Python. In e18 only 3 of 24 first attempts were rejected while CPython ran them, and every first attempt that built printed what CPython prints. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
 ## GUI programs (set `gui`, since 1 Nov 2026)
 

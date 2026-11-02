@@ -1,0 +1,9 @@
+[(2, 'A'), (1, 'K'), (1, '2')]
+2 3
+2 ['K', '2']
+1
+aa z
+2 2 [(1, 2), (1, 3), (2, 5)]
+2 7 0 9
+bb
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
