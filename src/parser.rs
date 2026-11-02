@@ -165,6 +165,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
     }
     if p.py {
         inline_fn_maps(&mut items, &mut script);
+        fn_aliases(&mut items, &mut script);
     }
     // Python's `def` inside an if or loop outside any function: a plain top-level function
     // (what it reads from outside is a top-level name either way).
@@ -4742,3 +4743,50 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
     }
 }
 
+
+// Python's `_old_end = end_tx` at the top level, set once, with end_tx a function of the program: the name
+// is another name for the function, so `_old_end()` calls end_tx (also inside functions defined above it).
+fn fn_aliases(items: &mut [Item], script: &mut Vec<Stmt>) {
+    let fns: Vec<String> = items.iter().filter_map(|it| if let Item::Fn { name, .. } = it { Some(name.clone()) } else { None }).collect();
+    let mut i = 0;
+    while i < script.len() {
+        let (x, f) = match &script[i] {
+            Stmt::Assign { target: Expr::Ident(x), op: "=", value: Expr::Ident(f), .. } | Stmt::Let { name: Pat::Bind(x), value: Expr::Ident(f), .. } if fns.contains(f) && !fns.contains(x) && x != f => (x.clone(), f.clone()),
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        // Set nowhere else, and no parameter or local of that name.
+        let bad = [format!("target: Ident({x:?})"), format!("Bind({x:?})"), format!("name: {x:?}"), format!("{x:?}.into()")];
+        let others = script.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, st)| format!("{st:?}")).chain(items.iter().map(|it| format!("{it:?}")));
+        let mut clash = false;
+        for t in others {
+            if bad.iter().any(|b| t.contains(b.as_str())) {
+                clash = true;
+                break;
+            }
+        }
+        if clash {
+            i += 1;
+            continue;
+        }
+        let mut fix = |e: &mut Expr| match e {
+            Expr::Call(c, _, _) if *c == x => *c = f.clone(),
+            Expr::Ident(c) | Expr::Move(c) if *c == x => *c = f.clone(),
+            _ => {}
+        };
+        for it in items.iter_mut() {
+            if let Item::Fn { body, .. } = it {
+                walk_mut(body, &mut fix);
+            }
+        }
+        script.remove(i);
+        for st in script.iter_mut() {
+            match st {
+                Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } | Stmt::Expr { expr: e, .. } | Stmt::Return { value: Some(e), .. } => walk_mut(e, &mut fix),
+                _ => {}
+            }
+        }
+    }
+}

@@ -1,0 +1,14 @@
+# `b, turn, rights = state` then `b = list(b)`: b is a new list before it changes, so state keeps its own.
+def move(state, i):
+    b, turn, rights = state
+    b = list(b)
+    b[i] = '.'
+    return (b, 'b' if turn == 'w' else 'w', rights)
+
+s = (list('RNB'), 'w', 'KQ')
+t = move(s, 1)
+print(''.join(s[0]), ''.join(t[0]), t[1])
+cur = ([1], [2])
+x, y = cur
+x.append(5)
+print(cur)
