@@ -44,6 +44,8 @@ pub struct Emitter {
     // Files the program uses: (name, first line in the combined source, line count).
     pub files: Vec<(String, usize, usize)>,
     structs: HashMap<String, Vec<Field>>,
+    // Python classes, which carry a None mark (types the runtime builds itself, at line 0, do not).
+    marked: HashSet<String>,
     variants: HashMap<String, (String, Vec<Field>)>,
     fns: HashMap<String, FnSig>,
     // Per-function state.
@@ -640,6 +642,7 @@ impl Emitter {
             foreign: Default::default(),
             files: vec![],
             structs: HashMap::new(),
+            marked: HashSet::new(),
             variants: HashMap::new(),
             fns: HashMap::new(),
             locals: HashSet::new(),
@@ -681,8 +684,11 @@ impl Emitter {
         }
         for it in items {
             match it {
-                Item::Type { name, fields, .. } => {
+                Item::Type { name, fields, line } => {
                     e.structs.insert(name.clone(), fields.clone());
+                    if *line > 0 && crate::infer::py_on() && !crate::records::is_record(name) {
+                        e.marked.insert(name.clone());
+                    }
                 }
                 Item::Enum { name, variants, .. } => {
                     for v in variants {
@@ -1030,7 +1036,7 @@ impl Emitter {
                         out.push_str(&format!("    pub {}: {},\n", f.name, self.field_ty(name, f)));
                     }
                     // A Python object that is None is told apart from a real one with all-zero fields.
-                    let marked = crate::infer::py_on() && !crate::records::is_record(name);
+                    let marked = self.marked.contains(name);
                     if marked {
                         out.push_str("    pub ax_none_: bool,\n");
                     }
@@ -2187,7 +2193,7 @@ impl Emitter {
                 _ => {}
             }
         }
-        if crate::infer::py_on() && !crate::records::is_record(owner) && !path.contains("::") {
+        if self.marked.contains(owner) && !path.contains("::") {
             parts.push("ax_none_: false".into());
         }
         format!("{path} {{ {} }}", parts.join(", "))
