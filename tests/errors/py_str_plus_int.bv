@@ -1,0 +1,4 @@
+def label(n):
+    return "n=" + n
+
+print(label(3))

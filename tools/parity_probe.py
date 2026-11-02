@@ -43,7 +43,7 @@ def main():
             continue
         stdin = rest[0] if rest else ""
         py, prc = run([sys.executable], src, stdin)
-        bv, brc = run([BREVI, "run"], src, stdin)
+        bv, brc = run([BREVI, "run", "--native"], src, stdin)
         if py == bv:
             kind = "SAME"
         elif prc and brc:

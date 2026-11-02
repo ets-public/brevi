@@ -21,6 +21,8 @@ python3 e2e.py RUN --lang python --model sonnet --set xl3 --jobs 1
 python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
 ```
 
+From e22 on (Adam's decision, 2 Nov 2026), the `pyb` check works like `brevi run x.py`: when Brevi cannot build the files, they run with CPython instead, and the model is not shown Brevi's build errors. Each task's log line records `native` (whether Brevi built the last check itself), and the summary's `nat` column counts those, so the share of programs that get Rust speed is reported next to the cost. `--native` gives the strict check used up to e21, where a build error went back to the model.
+
 The test passes when, averaged over two runs, `pyb` costs no more dollars than `python` for both Sonnet and Haiku, and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Results so far, each averaged over two runs against CPython on the same day. `e14` was a single run and came out lucky.
 
 | Run | Main at | Sonnet pyb / Python | Haiku pyb / Python | Tasks passed |

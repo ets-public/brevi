@@ -1,0 +1,35 @@
+import sys
+OUT = "/tmp/brevi_py_files_test.txt"
+
+def save(path, rows):
+    with open(path, "w") as f:
+        for r in rows:
+            f.write(f"{r}\n")
+        print("total", len(rows), file=f)
+
+def load(path):
+    out = []
+    with open(path) as f:
+        for line in f:
+            out.append(line.strip())
+    return out
+
+def first_word(path):
+    try:
+        with open(path) as f:
+            return f.read().split()[0]
+    except FileNotFoundError:
+        return "missing"
+
+save(OUT, [1, 2, 3])
+print(load(OUT))
+with open(OUT, "a") as g:
+    g.write("more\n")
+f = open(OUT)
+data = f.read()
+f.close()
+print(repr(data))
+print(open(OUT).readlines())
+print("a\nb\n".splitlines(True))
+print(first_word(OUT), first_word("/tmp/brevi_no_such_file.txt"))
+print([True, None], [None, False])

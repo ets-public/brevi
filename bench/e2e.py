@@ -61,14 +61,15 @@ def tools(lang):
     return ts
 
 
-def run_check(lang, task, work):
-    """The same feedback as run.sh, without its logging."""
+def run_check(lang, task, work, native_only=False):
+    """The same feedback as run.sh, without its logging. Returns (feedback, native): for pyb, native says whether
+    Brevi built the files; when it could not, the files run with CPython, as `brevi run x.py` does (unless native_only)."""
     ext = {"brevi": "bv", "python": "py", "pyb": "py"}[lang]
     tdir = B / "tasks" / task
     files = (tdir / "files").read_text().split() if (tdir / "files").exists() else ["main"]
     missing = [f"{f}.{ext}" for f in files if not (work / f"{f}.{ext}").exists()]
     if missing:
-        return f"missing files: {' '.join(missing)}"
+        return f"missing files: {' '.join(missing)}", None
     main = work / f"main.{ext}"
     binp = Path(tempfile.mkdtemp()) / "prog"
     if lang == "pyb":
@@ -77,22 +78,23 @@ def run_check(lang, task, work):
         for f in work.glob("*.py"):
             (bdir / (f.stem + ".bv")).write_text(f.read_text())
         r = subprocess.run([BREVI, "build", str(bdir / "main.bv"), "-o", str(binp)], capture_output=True, text=True, cwd=work)
-        if r.returncode:
-            return (r.stdout + r.stderr).strip().replace(".bv", ".py")
-        cmd = [str(binp)]
+        native = not r.returncode
+        if not native and native_only:
+            return (r.stdout + r.stderr).strip().replace(".bv", ".py"), False
+        cmd = [str(binp)] if native else [sys.executable, str(main)]
     elif lang == "brevi":
         r = subprocess.run([BREVI, "build", str(main), "-o", str(binp)], capture_output=True, text=True, cwd=work)
         if r.returncode:
-            return (r.stdout + r.stderr).strip()
+            return (r.stdout + r.stderr).strip(), None
         cmd = [str(binp)]
     else:
         for f in files:
             r = subprocess.run([sys.executable, "-m", "py_compile", f"{f}.py"], capture_output=True, text=True, cwd=work)
             if r.returncode:
-                return (r.stdout + r.stderr).strip()
+                return (r.stdout + r.stderr).strip(), None
         cmd = [sys.executable, str(main)]
     # GUI tasks (tasks/NAME/gui): CPython runs tkinter programs through the headless stand-in in tkshim/.
-    env = dict(os.environ, PYTHONPATH=str(B / "tkshim")) if (tdir / "gui").exists() and lang == "python" else None
+    env = dict(os.environ, PYTHONPATH=str(B / "tkshim")) if (tdir / "gui").exists() and cmd[0] == sys.executable else None
     tests = sorted(glob.glob(str(tdir / "tests" / "*.in")))
     passed, first = 0, None
     for t in tests:
@@ -106,17 +108,18 @@ def run_check(lang, task, work):
             passed += 1
         elif first is None:
             first = f"test {Path(t).stem} failed\ninput:\n{Path(t).read_text().rstrip()}\nexpected:\n{want.rstrip()}\ngot:\n{out}"
+    native = native if lang == "pyb" else None
     if passed == len(tests):
-        return f"PASS {passed}/{len(tests)}"
-    return f"{first}\npassed {passed}/{len(tests)}"
+        return f"PASS {passed}/{len(tests)}", native
+    return f"{first}\npassed {passed}/{len(tests)}", native
 
 
-def solve(client, model, lang, task, work, effort, thinking="adaptive"):
+def solve(client, model, lang, task, work, effort, thinking="adaptive", native_only=False):
     work.mkdir(parents=True, exist_ok=True)
     system = [{"type": "text", "text": system_prompt(lang), "cache_control": {"type": "ephemeral"}}]
     messages = [{"role": "user", "content": (B / "tasks" / task / "prompt.md").read_text()}]
     use = {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}
-    checks, passed, calls, stop = 0, False, 0, ""
+    checks, passed, calls, stop, native = 0, False, 0, "", None
     while calls < 40:
         calls += 1
         for attempt in range(6):
@@ -162,7 +165,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive"):
                         out = f"edited {p.name}"
                 elif b.name == "check":
                     checks += 1
-                    out = run_check(lang, task, work)
+                    out, native = run_check(lang, task, work, native_only)
                     passed = out.startswith("PASS")
                     err = not passed
                 elif b.name == "guide":
@@ -181,7 +184,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive"):
     (work / "conversation.json").write_text(json.dumps([{"role": m["role"], "content": plain(m["content"])} for m in messages], indent=1))
     pin, pout, pread = PRICES[model]
     cost = (use["input"] * pin + use["cache_write"] * pin * 1.25 + use["cache_read"] * pread + use["output"] * pout) / 1e6
-    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, **use, "usd": round(cost, 5)}
+    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **use, "usd": round(cost, 5)}
 
 
 def summary(pattern):
@@ -189,12 +192,14 @@ def summary(pattern):
     for f in sorted(glob.glob(pattern)):
         rs = [json.loads(l) for l in open(f) if l.strip()]
         rows[Path(f).stem] = rs
-    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
+    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
     for name, rs in rows.items():
         t = {k: sum(r[k] for r in rs) for k in ("input", "cache_write", "cache_read", "output", "usd")}
         first = sum(1 for r in rs if r["pass"] and r["checks"] == 1)
         total = t["input"] + t["cache_write"] + t["cache_read"] + t["output"]
-        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
+        # nat: pyb tasks whose last check Brevi built natively (the rest ran with CPython); "-" for other languages
+        nat = sum(1 for r in rs if r.get("native")) if any("native" in r and r["native"] is not None for r in rs) else "-"
+        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
 
 
 def main():
@@ -208,6 +213,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--thinking", default="adaptive", choices=["adaptive", "between_tools"], help="between_tools turns thinking off (Sonnet)")
     ap.add_argument("--guide", help="a guide file to send instead of BREVI.md (for A/B tests)")
+    ap.add_argument("--native", action="store_true", help="pyb: report Brevi build errors instead of running with CPython (the strict check used before e22)")
     ap.add_argument("--summary")
     a = ap.parse_args()
     if a.guide:
@@ -225,7 +231,7 @@ def main():
     log = B / "logs" / "e2e" / f"{name}.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     with cf.ThreadPoolExecutor(a.jobs) as ex:
-        futs = {ex.submit(solve, client, model, a.lang, t, B / "work" / "e2e" / name / t, a.effort, a.thinking): t for t in tasks}
+        futs = {ex.submit(solve, client, model, a.lang, t, B / "work" / "e2e" / name / t, a.effort, a.thinking, a.native): t for t in tasks}
         for f in cf.as_completed(futs):
             r = {"run": name, "model": model, "lang": a.lang, "effort": a.effort, "thinking": a.thinking, **f.result()}
             with open(log, "a") as fh:
