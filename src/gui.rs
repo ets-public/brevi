@@ -723,15 +723,33 @@ pub fn lower(items: &mut Vec<Item>, script: &mut Vec<Stmt>, sig_len: &dyn Fn(&st
     Ok(())
 }
 
-// The runtime and the glue, pasted into the program as a `rust:` block would be.
+// `brevi build --window`: the program draws a real window (through egui) instead of running headless.
+pub static WINDOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn window() -> bool {
+    WINDOW.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+// The crate a window build needs.
+pub fn window_dep() -> crate::ffi::Dep {
+    crate::ffi::Dep { name: "eframe".into(), version: "0.31".into(), features: vec![], line: 0 }
+}
+
+// The runtime and the glue, pasted into the program as a `rust:` block would be. A window build also pastes
+// the window front end; the runtime's `window` feature is then always on.
 pub fn runtime() -> String {
     let lib = include_str!("../runtime/brevi_tk/src/lib.rs");
     let headless = include_str!("../runtime/brevi_tk/src/headless.rs");
+    let win = include_str!("../runtime/brevi_tk/src/window.rs");
     let strip = |s: &str| s.lines().filter(|l| !l.trim_start().starts_with("//!")).collect::<Vec<_>>().join("\n");
-    let lib = strip(lib)
-        .replace("mod headless;", &format!("mod headless {{\n{}\n}}", strip(headless).replace("use crate::*;", "use super::*;")))
-        .replace("#[cfg(feature = \"window\")]\nmod window;", "");
-    format!("#[allow(dead_code, unused)]\nmod brevi_tk {{\n{}\n}}\n{}\n", lib.replace("crate::headless", "self::headless"), GLUE)
+    let module = |name: &str, src: &str| format!("mod {name} {{\n{}\n}}", strip(src).replace("use crate::*;", "use super::*;").replace("crate::headless", "super::headless"));
+    let mut lib = strip(lib).replace("mod headless;", &module("headless", headless));
+    if window() {
+        lib = lib.replace("#[cfg(feature = \"window\")]\nmod window;", &module("window", win)).replace("#[cfg(feature = \"window\")]", "").replace("cfg!(feature = \"window\")", "true");
+    } else {
+        lib = lib.replace("#[cfg(feature = \"window\")]\nmod window;", "");
+    }
+    format!("#[allow(dead_code, unused)]\nmod brevi_tk {{\n{}\n}}\n{}\n", lib, GLUE)
 }
 
 const GLUE: &str = include_str!("gui_glue.rs");
