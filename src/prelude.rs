@@ -412,10 +412,12 @@ fn show_item<T: Show + 'static>(x: &T) -> String {
         None if ax_py_on() && any.is::<Dec>() => format!("Decimal('{}')", x.show()),
         None => match any.downcast_ref::<Json>() {
             Some(j) if ax_py_on() => ax_json_py(j, false),
-            _ => x.show(),
+            // A Python library value (see the pybridge runtime): its repr.
+            _ => AX_SHOW_ITEM.get().and_then(|f| f(any)).unwrap_or_else(|| x.show()),
         },
     }
 }
+pub static AX_SHOW_ITEM: std::sync::OnceLock<fn(&dyn std::any::Any) -> Option<String>> = std::sync::OnceLock::new();
 impl<T: Show + 'static> Show for Vec<T> {
     fn show(&self) -> String {
         // A Python regex match's hidden group positions (see ax_rx_groups) are not shown.
