@@ -88,4 +88,9 @@ PROBES = [
     ("float_mod_zero_sign", "print(round(-0.001, 2) % 0.25, -0.0 % 5.0, 0.0 % -2.0, -3.5 % 2)"),
     ("rpartition", "print('a,b,c'.rpartition(','), 'abc'.rpartition('/'))"),
     ("print_re_match", "import re\nm = re.match(r'\\d+', '12x')\nprint(m, re.search('z', 'abc'), m.group())"),
+    ("except_panicking_errors", "xs = [1]\nd = {}\nfor f in (lambda: xs[5], lambda: d['k'], lambda: 1 // len(d)):\n    try:\n        f()\n    except (IndexError, KeyError, ZeroDivisionError) as e:\n        print(type(e).__name__)"),
+    ("input_eof", "try:\n    input()\nexcept EOFError:\n    print('eof')", ""),
+    ("float_pow_overflow", "try:\n    print(2.0 ** 5000)\nexcept OverflowError as e:\n    print('overflow', e)"),
+    ("int_underscores", "print(int('1_000'), int(' -7 '), float('1_0.5'), int('+5'))"),
+    ("dict_grows_in_loop", "d = {1: 2}\ntry:\n    for k in d:\n        d[k + 1] = 0\nexcept RuntimeError as e:\n    print('rt', e)\nfor k in d:\n    d[k] = 5\nprint(d)"),
 ]

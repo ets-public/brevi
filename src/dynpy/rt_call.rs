@@ -144,6 +144,22 @@ pub fn enter() -> Result<(), E> {
 pub fn leave() {
     DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
 }
+// One per running Python function: RecursionError past sys.getrecursionlimit(), as in CPython, instead of
+// running out of stack.
+pub struct Depth;
+impl Depth {
+    #[inline]
+    pub fn new() -> Result<Depth, E> {
+        enter()?;
+        Ok(Depth)
+    }
+}
+impl Drop for Depth {
+    #[inline]
+    fn drop(&mut self) {
+        leave();
+    }
+}
 
 // ---------- classes ----------
 

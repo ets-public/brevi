@@ -19,6 +19,7 @@ struct G {
     holder_fns: HashSet<String>, // functions returning a container of sets
     params: Vec<(String, Vec<String>)>,
     matches: HashSet<String>,    // names holding a re match (a Match object or None)
+    dicts: HashSet<String>,      // names holding a dict
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
@@ -154,12 +155,80 @@ fn is_match(e: &Ex, g: &G) -> bool {
     }
 }
 
+fn is_dict(e: &Ex) -> bool {
+    match e {
+        Ex::Dict(_) | Ex::Comp('d', ..) => true,
+        Ex::Call(f, _) => matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "dict" | "defaultdict" | "Counter" | "OrderedDict")),
+        _ => false,
+    }
+}
+
+// `for k in d: d[k2] = v`: CPython stops with "dictionary changed size during iteration" (and for a set,
+// "Set changed size"); the typed build walks a copy and goes on.
+fn grows_while_walked(target: &Ex, it: &Ex, body: &[Stmt], g: &G) -> bool {
+    // `for k in d: d[k] = v` sets keys that are there: no change of size.
+    let mut own: Vec<String> = vec![];
+    walk_ex(target, &mut |e| {
+        if let Ex::Name(n) = e {
+            own.push(n.clone());
+        }
+    });
+    let base = match it {
+        Ex::Call(f, a) if a.is_empty() => match f.as_ref() {
+            Ex::Attr(r, m) if matches!(m.as_str(), "keys" | "items" | "values") => r.as_ref(),
+            _ => return false,
+        },
+        x => x,
+    };
+    let Some(k) = key(base) else { return false };
+    if !g.dicts.contains(&k) && !g.sets.contains(&k) {
+        return false;
+    }
+    let mut hit = false;
+    fn go(body: &[Stmt], k: &str, own: &[String], hit: &mut bool) {
+        for s in body {
+            let on_k = |e: &Ex| key(e).as_deref() == Some(k);
+            match &s.st {
+                St::Assign(ts, _) => {
+                    if ts.iter().any(|t| matches!(t, Ex::Index(b, i) if on_k(b) && !matches!(i.as_ref(), Ex::Name(n) if own.contains(n)))) {
+                        *hit = true;
+                    }
+                }
+                St::Del(xs) => {
+                    if xs.iter().any(|t| matches!(t, Ex::Index(b, _) if on_k(b))) {
+                        *hit = true;
+                    }
+                }
+                _ => {}
+            }
+            walk_st(&s.st, &mut |e| {
+                if let Ex::Call(f, _) = e {
+                    if let Ex::Attr(r, m) = f.as_ref() {
+                        if on_k(r) && matches!(m.as_str(), "pop" | "popitem" | "setdefault" | "update" | "clear" | "add" | "discard" | "remove") {
+                            *hit = true;
+                        }
+                    }
+                }
+            });
+            if let St::Def(_) | St::Class(_) = &s.st {
+                continue;
+            }
+            each_block(&s.st, &mut |b| go(b, k, own, hit));
+        }
+    }
+    go(body, &k, &own, &mut hit);
+    hit
+}
+
 fn bind(t: &Ex, v: &Ex, g: &mut G) {
     match t {
         Ex::Name(_) | Ex::Attr(..) => {
             let k = key(t).unwrap();
             if is_match(v, g) {
                 g.matches.insert(k.clone());
+            }
+            if is_dict(v) {
+                g.dicts.insert(k.clone());
             }
             if is_set(v, g) {
                 g.sets.insert(k);
@@ -367,6 +436,29 @@ fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
                 hit = Some("a loop over a set walks it in CPython's hash order".into());
             }
         }
+        // The typed build stops at these errors (a Rust panic) instead of raising them where an except can
+        // catch them; only errors from failing calls (int("x"): ValueError) are caught there.
+        if let St::Try(_, hs, _, _) = &s.st {
+            const UNCAUGHT: &[&str] = &["ZeroDivisionError", "ArithmeticError", "AssertionError", "EOFError", "IndexError", "KeyError", "LookupError", "OverflowError", "RecursionError"];
+            for h in hs {
+                let mut names = vec![];
+                if let Some(t) = &h.types {
+                    walk_ex(t, &mut |e| {
+                        if let Ex::Name(n) = e {
+                            names.push(n.clone());
+                        }
+                    });
+                }
+                if let Some(n) = names.iter().find(|n| UNCAUGHT.contains(&n.as_str())) {
+                    hit = Some(format!("except {n}: the typed build stops at this error instead of raising it"));
+                }
+            }
+        }
+        if let St::For(t, it, body, _) = &s.st {
+            if hit.is_none() && grows_while_walked(t, it, body, g) {
+                hit = Some("changing a dict or set while a loop walks it stops CPython with a RuntimeError".into());
+            }
+        }
         walk_st(&s.st, &mut |e| {
             if hit.is_some() {
                 return;
@@ -515,5 +607,14 @@ mod tests {
     fn print_argument_changed_later() {
         assert!(needs("from collections import deque\nq = deque([1, 2])\nprint(q, q.popleft())\n"));
         assert!(!needs("q = [1, 2]\nprint(q.pop(), len([]))\n"));
+    }
+    #[test]
+    fn matches_errors_and_loops() {
+        assert!(needs("import re\nprint(re.match('a', 'b'))\n"));
+        assert!(!needs("import re\nm = re.match('a', 'ab')\nprint(m.group() if m else '')\n"));
+        assert!(needs("try:\n    x = [1][3]\nexcept IndexError:\n    pass\n"));
+        assert!(!needs("try:\n    x = int('q')\nexcept ValueError:\n    pass\n"));
+        assert!(needs("d = {1: 2}\nfor k in d:\n    d[k + 1] = 0\n"));
+        assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
     }
 }
