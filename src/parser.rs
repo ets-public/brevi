@@ -334,6 +334,7 @@ impl Parser {
             let mut kids = kids;
             if self.py {
                 lambdas_to_defs(&mut body, &mut kids, line, &[]);
+                unbox_cells(&mut body, &mut kids);
             }
             if !kids.is_empty() {
                 let lifted = lift_nested(&name, &params, &mut body, kids);
@@ -1108,6 +1109,27 @@ impl Parser {
                     }
                 }
                 return Ok(Stmt::Assign { target: e, op, value, line });
+            }
+        }
+        self.expr_stmt(e, line)
+    }
+
+    // An expression used as a statement, with Python's in-place methods spelled out.
+    fn expr_stmt(&mut self, e: Expr, line: usize) -> R<Stmt> {
+        // `(gone if old else keep).append(l)`: the call on the list the condition picks (not on a copy).
+        if let Expr::Method(recv, m, a, l) = &e {
+            if let Expr::If(c, t, Some(f)) = recv.as_ref() {
+                let bare = |x: &Expr| match x {
+                    Expr::Block(st, Some(v)) if st.is_empty() => v.as_ref().clone(),
+                    x => x.clone(),
+                };
+                let (t, f) = (bare(t), bare(f));
+                let place = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Field(..) | Expr::Index(..));
+                if place(&t) && place(&f) {
+                    let st = self.expr_stmt(Expr::Method(Box::new(t), m.clone(), a.clone(), *l), line)?;
+                    let sf = self.expr_stmt(Expr::Method(Box::new(f), m.clone(), a.clone(), *l), line)?;
+                    return Ok(Stmt::Expr { expr: Expr::If(c.clone(), Box::new(Expr::Block(vec![st], None)), Some(Box::new(Expr::Block(vec![sf], None)))), line });
+                }
             }
         }
         // Python's `xs.extend(ys)` is `xs += ys`; `s.add(x)` on a set() list adds x unless it is there.
@@ -2807,6 +2829,89 @@ fn bind_upper(p: Pat) -> Pat {
         Pat::Variant(n, args) if args.is_empty() => Pat::Bind(n),
         Pat::Tuple(ps) => Pat::Tuple(ps.into_iter().map(bind_upper).collect()),
         p => p,
+    }
+}
+
+// Python's one-item list used as a box so nested defs can change it (`cur = [None]`, then `cur[0] = tx` and
+// `tx = cur[0]` in the function and in `def finalize()`), read and written only as `cur[0]`: a plain name
+// that the nested defs which set it declare `nonlocal`.
+fn unbox_cells(body: &mut Expr, kids: &mut [Item]) {
+    let Expr::Block(stmts, _) = body else { return };
+    let cands: Vec<String> = stmts
+        .iter()
+        .filter_map(|st| match st {
+            Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::List(xs), .. } if xs.len() == 1 => Some(n.clone()),
+            _ => None,
+        })
+        .collect();
+    for x in cands {
+        let count = |e: &mut Expr| {
+            let (mut idents, mut cells, mut sets) = (0, 0, 0);
+            walk_mut(e, &mut |e| match e {
+                Expr::Ident(n) | Expr::Move(n) if *n == x => idents += 1,
+                Expr::Index(b, k) if matches!(b.as_ref(), Expr::Ident(n) if *n == x) && matches!(k.as_ref(), Expr::Int(0)) => cells += 1,
+                Expr::Block(ss, _) => {
+                    for s in ss.iter() {
+                        match s {
+                            Stmt::Assign { target: Expr::Ident(n), .. } if *n == x => sets += 1,
+                            Stmt::Let { name: Pat::Bind(n), .. } if *n == x => sets += 2,
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            });
+            (idents, cells, sets)
+        };
+        let (mut idents, mut cells, mut sets) = count(body);
+        let mut in_kids = false;
+        for k in kids.iter_mut() {
+            if let Item::Fn { body: kb, params, .. } = k {
+                let (i, c, st) = count(kb);
+                idents += i;
+                cells += c;
+                sets += st;
+                in_kids |= i > 0;
+                if params.iter().any(|p| p.name == x) {
+                    sets += 2;
+                }
+            }
+        }
+        if sets != 1 || idents != cells + 1 || !in_kids {
+            continue;
+        }
+        let unbox = |e: &mut Expr| {
+            walk_mut(e, &mut |e| {
+                if matches!(e, Expr::Index(b, k) if matches!(b.as_ref(), Expr::Ident(n) if *n == x) && matches!(k.as_ref(), Expr::Int(0))) {
+                    *e = Expr::Ident(x.clone());
+                }
+            });
+        };
+        let Expr::Block(stmts, _) = body else { return };
+        for st in stmts.iter_mut() {
+            if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } = st {
+                if *n == x {
+                    if let Expr::List(xs) = value {
+                        let v = xs.remove(0);
+                        *value = v;
+                    }
+                }
+            }
+        }
+        unbox(body);
+        for k in kids.iter_mut() {
+            let Item::Fn { body: kb, line, .. } = k else { continue };
+            unbox(kb);
+            let mut assigns = false;
+            walk_mut(kb, &mut |e| {
+                if let Expr::Block(ss, _) = e {
+                    assigns |= ss.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(n), .. } if *n == x));
+                }
+            });
+            if let (true, Expr::Block(ss, _)) = (assigns, kb) {
+                ss.insert(0, Stmt::Expr { expr: Expr::Call("__global".into(), vec![(None, Expr::Ident(x.clone()))], *line), line: *line });
+            }
+        }
     }
 }
 
