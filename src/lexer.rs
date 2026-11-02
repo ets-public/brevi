@@ -744,6 +744,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     push(&mut out, Tok::Ident(format!("{word}_")));
                     continue;
                 }
+                // Python's `type(v)`, only ever compared with a type (`type(v) is int`).
+                if word == "type" && next == '(' {
+                    push(&mut out, Tok::Ident("ax_type_of".into()));
+                    continue;
+                }
             }
             // Python's True and False are true and false.
             let word = match word.as_str() { "True" => "true".to_string(), "False" => "false".to_string(), _ => word };

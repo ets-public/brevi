@@ -1301,6 +1301,10 @@ impl Parser {
                 let x = if empty(&rhs) { lhs } else { rhs };
                 let t = Expr::Method(Box::new(x), "is_empty".into(), vec![], self.line());
                 if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
+            } else if let (true, Some((x, t))) = (op == "==" || op == "!=", type_test(&lhs, &rhs).or_else(|| type_test(&rhs, &lhs))) {
+                // `type(v) is int`: v's kind is exactly int (a bool is not).
+                let t = Expr::Method(Box::new(x), "isinstance".into(), vec![Expr::Str(vec![StrPart::Lit(format!("={t}"))])], self.line());
+                if op == "==" { t } else { Expr::Unary("!", Box::new(t)) }
             } else if (op == "==" || op == "!=") && [&lhs, &rhs].iter().any(|e| matches!(e, Expr::Call(n, a, _) if n == "none" && a.is_empty())) {
                 // `x is None` / `x == None`.
                 let x = if matches!(&rhs, Expr::Call(n, _, _) if n == "none") { lhs } else { rhs };
@@ -3259,4 +3263,26 @@ fn print_aliases(toks: &mut [crate::lexer::Token]) {
             }
         }
     }
+}
+
+// `type(v)` on one side and a type name on the other.
+fn type_test(a: &Expr, b: &Expr) -> Option<(Expr, String)> {
+    let Expr::Call(f, args, _) = a else { return None };
+    if f != "ax_type_of" || args.len() != 1 {
+        return None;
+    }
+    let name = match b {
+        Expr::Ident(n) => n.clone(),
+        Expr::Lambda(_, body) => match body.as_ref() {
+            Expr::Method(_, n, a, _) if a.is_empty() => n.clone(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let name = match name.as_str() {
+        "set" | "List" | "tuple" => "list".to_string(),
+        "Dict" | "OrderedDict" | "defaultdict" => "dict".to_string(),
+        _ => name,
+    };
+    Some((args[0].1.clone(), name))
 }

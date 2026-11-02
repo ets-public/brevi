@@ -1345,6 +1345,10 @@ impl Cx<'_> {
                             if !env.contains_key(n) || env[n] == Hole {
                                 let t = self.ty(value, env);
                                 env.insert(n.clone(), t);
+                            } else if !known(&env[n]) && known(&self.ty(value, env)) {
+                                // `xs = []` in one branch, `xs = [e for e in ...]` in the other.
+                                let t = self.ty(value, env);
+                                env.insert(n.clone(), t);
                             } else {
                                 // Python's `st = int(st)`: the name holds the new type from here on.
                                 let t = self.ty(value, env);
@@ -1508,6 +1512,38 @@ fn calls_in<'a>(e: &'a Expr, out: &mut Vec<(&'a str, &'a [(Option<String>, Expr)
 }
 
 // Fills in the return type of every function written without `->`, from what it returns.
+// The type another function gives a name that also takes f's value, when it fills f's unknown parts.
+fn partner_ret(items: &[Item], f: &str, fns: &HashMap<String, (Vec<(String, T)>, T)>, t: &T) -> Option<T> {
+    let mut found = None;
+    for it in items {
+        let Item::Fn { body, .. } = it else { continue };
+        let mut from: HashMap<String, Vec<String>> = HashMap::new();
+        walk(body, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for st in stmts {
+                    match st {
+                        Stmt::Let { name: Pat::Bind(n), value: Expr::Call(c, _, _), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Call(c, _, _), .. } => {
+                            from.entry(n.clone()).or_default().push(c.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+        for cs in from.values().filter(|cs| cs.iter().any(|c| c == f)) {
+            for g in cs.iter().filter(|c| *c != f) {
+                if let Some((_, gt)) = fns.get(g) {
+                    let m = merge(t.clone(), gt.clone());
+                    if known(gt) && known(&m) {
+                        found = Some(m);
+                    }
+                }
+            }
+        }
+    }
+    found
+}
+
 pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     let q = |t: &Ty| matches!(t, Ty::Named(n) if n == "?");
     let open = |items: &[Item]| {
@@ -1957,6 +1993,12 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 Some(t) => found.push((k, t)),
                 // No `return` and a last line of unclear type (`if c: print(x) else: m.remove(k)`): no value, as in Python.
                 None if last && !has_return && matches!(tail, Some(Expr::If(..) | Expr::Match(..))) => found.push((k, Ty::Unit)),
+                // `s = new_state()` and later `s = step(s, k)`: a None slot takes the type the other call gives it.
+                None if last && py_on() && partner_ret(items, name, &cx.fns, &t).is_some() => {
+                    if let Some(t) = partner_ret(items, name, &cx.fns, &t).and_then(|p| to_ast(&p)) {
+                        found.push((k, t));
+                    }
+                }
                 None if last => {
                     let mut d = crate::diag::Diag::new("check", *line, 1, &format!("cannot work out what {name} returns"));
                     d.fix = Some(format!("write the return type: fn {name}(...) -> TYPE"));

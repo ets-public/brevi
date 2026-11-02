@@ -400,22 +400,42 @@ impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> 
 }
 impl<A: Show + 'static, B: Show + 'static> Show for (A, B) {
     fn show(&self) -> String {
-        format!("({}, {})", show_item(&self.0), show_item(&self.1))
+        let parts = [show_item(&self.0), show_item(&self.1)];
+        // A tuple that is still None (each slot None) prints as Python's None.
+        if ax_py_on() && parts.iter().all(|p| p == "None") {
+            return "None".to_string();
+        }
+        format!("({})", parts.join(", "))
     }
 }
 impl<A: Show + 'static, B: Show + 'static, C: Show + 'static> Show for (A, B, C) {
     fn show(&self) -> String {
-        format!("({}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2))
+        let parts = [show_item(&self.0), show_item(&self.1), show_item(&self.2)];
+        // A tuple that is still None (each slot None) prints as Python's None.
+        if ax_py_on() && parts.iter().all(|p| p == "None") {
+            return "None".to_string();
+        }
+        format!("({})", parts.join(", "))
     }
 }
 impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static> Show for (A, B, C, D) {
     fn show(&self) -> String {
-        format!("({}, {}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3))
+        let parts = [show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3)];
+        // A tuple that is still None (each slot None) prints as Python's None.
+        if ax_py_on() && parts.iter().all(|p| p == "None") {
+            return "None".to_string();
+        }
+        format!("({})", parts.join(", "))
     }
 }
 impl<A: Show + 'static, B: Show + 'static, C: Show + 'static, D: Show + 'static, E: Show + 'static> Show for (A, B, C, D, E) {
     fn show(&self) -> String {
-        format!("({}, {}, {}, {}, {})", show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3), show_item(&self.4))
+        let parts = [show_item(&self.0), show_item(&self.1), show_item(&self.2), show_item(&self.3), show_item(&self.4)];
+        // A tuple that is still None (each slot None) prints as Python's None.
+        if ax_py_on() && parts.iter().all(|p| p == "None") {
+            return "None".to_string();
+        }
+        format!("({})", parts.join(", "))
     }
 }
 
@@ -3713,7 +3733,11 @@ pub trait AxIsInstance {
     fn ax_kind(&self) -> &'static str;
     fn ax_isinstance(&self, kinds: String) -> bool {
         let k = self.ax_kind();
-        kinds.split(',').any(|t| t == k || (t == "int" && k == "bool") || (t == "object"))
+        // `=int` (from `type(v) is int`) is the exact kind.
+        kinds.split(',').any(|t| match t.strip_prefix('=') {
+            Some(e) => e == k,
+            None => t == k || (t == "int" && k == "bool") || (t == "object"),
+        })
     }
 }
 impl AxIsInstance for i64 {
