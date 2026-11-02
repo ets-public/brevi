@@ -1,0 +1,20 @@
+# Haiku adventure: dict-of-dict records with mixed value types (None-or-str, int, str, bool),
+# then dict(v) copies and sum over a field.
+items = {}
+exits = {}
+items['key'] = {'where': None, 'weight': 2, 'name': 'old key'}
+items['lamp'] = {'where': 'hall', 'weight': 5, 'name': 'lamp'}
+exits[('hall', 'north')] = {'to': 'attic', 'key': 'key', 'locked': True}
+exits[('attic', 'south')] = {'to': 'hall', 'key': None, 'locked': False}
+mine = {k: dict(v) for k, v in items.items()}
+load = sum(it['weight'] for it in mine.values() if it['where'] is None)
+print(load)
+mine['lamp']['where'] = None
+print(sum(mine[i]['weight'] for i in mine if mine[i]['where'] is None), items['lamp']['where'])
+ex = exits.get(('hall', 'north'))
+if ex is None:
+    print("no way")
+elif ex['locked']:
+    print("locked by", ex['key'])
+ex['locked'] = False
+print(exits[('hall', 'north')]['locked'], ex['to'])

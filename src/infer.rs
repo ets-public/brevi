@@ -1112,7 +1112,8 @@ impl Cx<'_> {
             "to_dict" => match elem(&r) {
                 Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
                 _ => match &r {
-                    Map(..) => r,
+                    // `dict(v)` on a dict record: a copy of it.
+                    Map(..) | Named(_) => r,
                     _ => Hole,
                 },
             },
@@ -1137,6 +1138,7 @@ fn bind(p: &Pat, t: T, env: &mut Env) {
                     Tuple(ts) => ts.get(k).cloned().unwrap_or(Hole),
                     List(e) => (**e).clone(),
                     Json => Json,
+                    Str => Str,
                     _ => Hole,
                 };
                 bind(p, et, env);
@@ -1184,7 +1186,17 @@ fn bind_params(ps: &[String], et: &T, env: &mut Env) {
 // one of the guesses is off than a slot that really holds both.
 fn ty_clash(a: &T, b: &T) -> bool {
     let coll = |t: &T| matches!(t, List(_) | Tuple(_) | Map(..));
-    a != b && to_ast(a).is_some() && to_ast(b).is_some() && (coll(a) || coll(b))
+    // `[]` next to `[Item(...)]` (a default and a passed list) is one type with the item not known yet.
+    fn fits(a: &T, b: &T) -> bool {
+        match (a, b) {
+            (Hole, _) | (_, Hole) => true,
+            (List(x), List(y)) => fits(x, y),
+            (Map(k1, v1), Map(k2, v2)) => fits(k1, k2) && fits(v1, v2),
+            (Tuple(x), Tuple(y)) => x.len() == y.len() && x.iter().zip(y).all(|(a, b)| fits(a, b)),
+            _ => a == b,
+        }
+    }
+    a != b && to_ast(a).is_some() && to_ast(b).is_some() && (coll(a) || coll(b)) && !fits(a, b)
 }
 
 // `n = v` as the last use of n in each branch of an if chain becomes `n = ax_to_json(v)`.
@@ -1414,6 +1426,10 @@ impl Cx<'_> {
                                 if let (Expr::Ident(n), List(e)) = (x, &t) {
                                     put(n, *e.clone());
                                 }
+                                // `P, N, K = "PNK"`: each name is a character.
+                                if let (Expr::Ident(n), Str) = (x, &t) {
+                                    put(n, Str);
+                                }
                             }
                         }
                         Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } => self.flat_env(expr, env),
@@ -1585,8 +1601,36 @@ fn partner_ret(items: &[Item], f: &str, fns: &HashMap<String, (Vec<(String, T)>,
     found
 }
 
+// A type with an unknown part (`(Board, str, ?)`): partly worked out, still open.
+fn has_q(t: &Ty) -> bool {
+    match t {
+        Ty::Named(n) => n == "?",
+        Ty::List(e) => has_q(e),
+        Ty::Map(k, v) => has_q(k) || has_q(v),
+        Ty::Tuple(ts) => ts.iter().any(has_q),
+        _ => false,
+    }
+}
+
+// Like to_ast, with an unknown part written `?` (from_ast reads it back as a hole), when some part is known.
+fn to_ast_part(t: &T) -> Option<Ty> {
+    fn go(t: &T) -> Option<Ty> {
+        match t {
+            Hole => Some(Ty::Named("?".into())),
+            List(e) => Some(Ty::List(Box::new(go(e)?))),
+            Map(k, v) => Some(Ty::Map(Box::new(go(k)?), Box::new(go(v)?))),
+            Tuple(ts) => Some(Ty::Tuple(ts.iter().map(go).collect::<Option<Vec<_>>>()?)),
+            t => to_ast(t),
+        }
+    }
+    if *t == Hole || !some_known(t) || !py_on() {
+        return to_ast(t);
+    }
+    go(t)
+}
+
 pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
-    let q = |t: &Ty| matches!(t, Ty::Named(n) if n == "?");
+    let q = |t: &Ty| has_q(t);
     let open = |items: &[Item]| {
         items.iter().any(|i| matches!(i, Item::Fn { ret, params, .. } if q(ret) || params.iter().any(|p| q(&p.ty))) || matches!(i, Item::Type { fields, .. } if fields.iter().any(|f| q(&f.ty))))
     };
@@ -1597,6 +1641,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
     let (_, mixed) = empty_types(items);
     // Whether the last round still learned types from calls or returns (the evidence param_look waits for).
     let mut moving = true;
+    let mut closing = false;
     for round in 0..12 {
         // Top-level names (`ts = {}` filled inside a function) are known by type where functions read them.
         let genv = empty_cx(items).genv;
@@ -1672,6 +1717,11 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             crate::parser::walk_mut(body, &mut |e| {
                 rec_field(e, &|x| global_too(cx.ty(x, &env), x, &cx.genv), &cx.structs);
                 if let Expr::Method(r, m, args, line) = e {
+                    // `xs.copy()` left as written because the program has a copy method: on a list or dict it is a copy.
+                    if m == "copy" && args.is_empty() && matches!(cx.ty(r, &env), List(_) | Map(..) | Str) {
+                        *m = "skip".into();
+                        args.push(Expr::Int(0));
+                    }
                     if let Named(c) = cx.ty(r, &env) {
                         let f = format!("{c}_{m}");
                         if cx.fns.contains_key(&f) {
@@ -1748,7 +1798,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                                 None => Some(j),
                             };
                             let Some(pi) = pi.filter(|&pi| pi < ps.len() && q(&ps[pi].ty)) else { continue };
-                            if let Some(t) = to_ast(&cx.ty(a, lenv)) {
+                            if let Some(t) = to_ast_part(&cx.ty(a, lenv)) {
                                 fills.push((k, pi, t));
                             }
                         }
@@ -1765,7 +1815,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                             None => Some(j),
                         };
                         let Some(pi) = pi.filter(|&pi| pi < ps.len() && q(&ps[pi].ty)) else { continue };
-                        if let Some(t) = to_ast(&cx.ty(a, &env)) {
+                        if let Some(t) = to_ast_part(&cx.ty(a, &env)) {
                             fills.push((k, pi, t));
                         }
                     }
@@ -1773,13 +1823,13 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             }
             // A parameter no call pins down takes the type its own function's uses show
             // (`lots.push(Lot(...))`, `st[t]`, `p.qty`).
-            let from_calls = !fills.is_empty();
+            let from_calls = fills.iter().any(|f| !has_q(&f.2));
             for (k, it) in items.iter().enumerate() {
                 let Item::Fn { params, body, .. } = it else { continue };
                 for (pi, p) in params.iter().enumerate() {
                     // Calls are the better evidence, so this waits until they have had two rounds and stopped
                     // teaching anything new.
-                    if round < 2 || ((from_calls || moving) && round < 9) || !q(&p.ty) || fills.iter().any(|f| f.0 == k && f.1 == pi) {
+                    if round < 2 || ((from_calls || moving) && round < 9) || !q(&p.ty) || fills.iter().any(|f| f.0 == k && f.1 == pi && !has_q(&f.2)) {
                         continue;
                     }
                     let mut env: Env = params.iter().filter(|o| !q(&o.ty)).map(|o| (o.name.clone(), from_ast(&o.ty))).collect();
@@ -1817,7 +1867,10 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             for (k, pi, t) in fills {
                 if let Item::Fn { params, .. } = &mut items[k] {
                     if q(&params[pi].ty) {
-                        params[pi].ty = t;
+                        let m = merge(from_ast(&params[pi].ty), from_ast(&t));
+                        if let Some(m) = to_ast_part(&m) {
+                            params[pi].ty = m;
+                        }
                     }
                 }
             }
@@ -1996,10 +2049,11 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
         let mut found = Vec::new();
         let mut to_json: Vec<(usize, Vec<Vec<usize>>)> = Vec::new();
         for (k, it) in items.iter().enumerate() {
-            let Item::Fn { name, params, ret: Ty::Named(q), body, line, .. } = it else { continue };
-            if q != "?" {
+            let Item::Fn { name, params, ret, body, line, .. } = it else { continue };
+            if !has_q(ret) {
                 continue;
             }
+            let old_ret = ret.clone();
             if name == "main" {
                 found.push((k, Ty::Unit));
                 continue;
@@ -2058,7 +2112,14 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                     d.fix = Some(format!("write the return type: fn {name}(...) -> TYPE"));
                     errs.push(d);
                 }
-                None => {}
+                // Partly known (`(Board, str, ?)`): callers see the known parts this round.
+                None => {
+                    if let Some(p) = to_ast_part(&t) {
+                        if format!("{p:?}") != format!("{old_ret:?}") {
+                            found.push((k, p));
+                        }
+                    }
+                }
             }
         }
         moving = !found.is_empty() || fields_moved;
@@ -2075,8 +2136,13 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
         if !errs.is_empty() {
             return Err(errs);
         }
+        // One more round once everything is typed, so calls on values typed in this round (`st.copy()` with st
+        // now a class) are turned into method calls too.
         if !open(items) {
-            break;
+            if closing {
+                break;
+            }
+            closing = true;
         }
     }
     Ok(())

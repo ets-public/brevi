@@ -170,11 +170,20 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                 st.splice(0..0, pre);
             }
             stored_then_changed(body, &mut cx);
+            if crate::infer::py_on() {
+                name_alias(body, &mut cx);
+            }
             walk(body, &mut cx);
             derived_loops(body, &mut cx);
             for (line, var, msg, fix) in std::mem::take(&mut cx.pending) {
                 let hex: String = format!("{msg}\u{1}{fix}").bytes().map(|b| format!("{b:02x}")).collect();
-                let mark = Stmt::Expr { expr: Expr::Call("__shared".into(), vec![(None, Expr::Ident(var.clone())), (None, Expr::Str(vec![StrPart::Lit(hex)]))], line), line };
+                // `@name`: the value itself must be shared (an object or a row), not just its items.
+                let (var, whole) = match var.strip_prefix('@') { Some(v) => (v.to_string(), true), None => (var.clone(), false) };
+                let mut margs = vec![(None, Expr::Ident(var.clone())), (None, Expr::Str(vec![StrPart::Lit(hex)]))];
+                if whole {
+                    margs.push((None, Expr::Bool(true)));
+                }
+                let mark = Stmt::Expr { expr: Expr::Call("__shared".into(), margs, line), line };
                 if !place_mark(body, line, &var, &mark) {
                     err(&mut cx, line, msg, fix);
                 }
@@ -484,6 +493,49 @@ fn stored_then_changed(e: &Expr, cx: &mut Cx) {
             }
         }
     }
+}
+
+// Python's `b = a` gives a second name for the same list or dict: `b.append(x)` changes a too. Brevi copies
+// plain lists and dicts, so a change through one name that the other is read after is refused.
+fn name_alias(e: &Expr, cx: &mut Cx) {
+    let mut blocks: Vec<&Expr> = vec![];
+    collect_blocks(e, &mut blocks);
+    for b in blocks {
+        let Expr::Block(stmts, tail) = b else { continue };
+        for (i, st) in stmts.iter().enumerate() {
+            let Stmt::Assign { target: Expr::Ident(bn), op: "=", value: Expr::Ident(an) | Expr::Move(an), line } = st else { continue };
+            if bn == an {
+                continue;
+            }
+            let rest = &stmts[i + 1..];
+            // Up to the next setting of either name as a whole.
+            let end = rest.iter().position(|s| rebinds_in(s, bn) || rebinds_in(s, an)).unwrap_or(rest.len());
+            let t = if end == rest.len() { tail.as_deref() } else { None };
+            let muts = cx.mutators.clone();
+            for (x, y) in [(bn, an), (an, bn)] {
+                // The first change through x, and a read of y after it.
+                let Some(k) = rest[..end].iter().position(|s| any_stmt(std::slice::from_ref(s), None, &mut |s| direct_strict(x, s, &muts))) else { continue };
+                let later = &rest[k + 1..end];
+                let read = later.iter().any(|s| names(&Expr::Block(vec![s.clone()], None), y)) || t.is_some_and(|t| names(t, y)) || any_stmt(std::slice::from_ref(&rest[k]), None, &mut |s| matches!(s, Stmt::Expr { .. } | Stmt::Assign { .. }) && loops_back(s, y));
+                if read {
+                    let (bs, as_) = (bn.trim_end_matches('_'), an.trim_end_matches('_'));
+                    defer(
+                        cx,
+                        *line,
+                        &format!("@{bn}"),
+                        format!("{bs} = {as_} makes {bs} a copy in Brevi, but in Python both names are the same list or dict, so changing one changes the other"),
+                        format!("use one name, or write {bs} = {as_}.copy() if a separate copy is meant"),
+                    );
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// A loop statement that changes one name and reads the other (`for ...: b.append(x); print(a)`).
+fn loops_back(s: &Stmt, y: &str) -> bool {
+    matches!(s, Stmt::Expr { expr: Expr::For(..) | Expr::While(..), .. }) && names(&Expr::Block(vec![s.clone()], None), y)
 }
 
 fn rebinds_in(s: &Stmt, x: &str) -> bool {
