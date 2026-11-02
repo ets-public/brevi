@@ -1429,7 +1429,7 @@ fn to_ast(t: &T) -> Option<Ty> {
 // The value is a print on every path (`if c: print(a) else: print(b)`).
 fn ends_in_print(e: &Expr) -> bool {
     match e {
-        Expr::Call(f, _, _) => f == "print" || f == "write",
+        Expr::Call(f, _, _) => f == "print" || f == "write" || f == "__eprint",
         Expr::Block(_, Some(t)) => ends_in_print(t),
         Expr::If(_, a, Some(b)) => ends_in_print(a) && ends_in_print(b),
         Expr::Match(_, arms) => !arms.is_empty() && arms.iter().all(|(_, a)| ends_in_print(a)),
@@ -1545,7 +1545,7 @@ fn no_value(e: &Expr) -> bool {
         // `if store.has(k): store.remove(k) else: print("NOT FOUND")`: a branch that only prints or
         // changes a collection makes the whole if a statement (a branch ending in fail still has a value).
         Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
-        Expr::Call(n, _, _) => ["print", "write", "fail"].contains(&n.as_str()),
+        Expr::Call(n, _, _) => ["print", "write", "fail", "__eprint"].contains(&n.as_str()),
         // Changing a list or map is a statement even though remove and pop give a value.
         Expr::Method(_, m, _, _) => ["push", "pop_or", "insert", "remove", "clear", "update", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].contains(&m.as_str()),
         _ => false,
