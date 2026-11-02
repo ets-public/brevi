@@ -21,6 +21,7 @@ start: _NL? (line _NL)* line?
      | ("global" | "nonlocal") NAME ("," NAME)*   // Python scope: see BREVI.md
      | "import" module ("as" NAME)? ("," module ("as" NAME)?)*   // import sys, or a stock.bv next to the file
      | "from" module "import" NAME ("as" NAME)? ("," NAME ("as" NAME)?)*
+     | "from" module "import" "(" _n NAME ("as" NAME)? ("," _n NAME ("as" NAME)?)* ","? _n ")"   // the names may run over lines
      | "@" postfix                   // decorators such as @dataclass are skipped
      | simples
 
