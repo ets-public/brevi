@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- Regex match positions: `m.start()`, `m.end(n)`, `m.span()`, and `re.finditer(p, s)` / `pat.finditer(s)`; a bracketed import over several lines (`from grade import (a, b,` then `c)`). From the e19 trial.
 - `xs.count(x)` on a list (it used to need a closure) and `min(xs, default=d)` / `max(xs, default=d)`, also with `key=f`, from the e18 trial.
 - `date(*map(int, s.split("-")))` and `datetime.date(*parts)`: a date from spread year, month and day.
 - tkinter apps built around a class work: a method as a callback (`command=self.inc`, `canvas.bind("<Button-1>", self.tap)`, `root.after(100, self.tick, n - 1)`) runs on the object itself, now that Python objects are shared. Haiku's tic-tac-toe from the `gui` set passes every test.

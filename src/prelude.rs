@@ -403,7 +403,9 @@ fn show_item<T: Show + 'static>(x: &T) -> String {
 }
 impl<T: Show + 'static> Show for Vec<T> {
     fn show(&self) -> String {
-        format!("[{}]", self.iter().map(show_item).collect::<Vec<_>>().join(", "))
+        // A Python regex match's hidden group positions (see ax_rx_groups) are not shown.
+        let hidden = |x: &&T| (*x as &dyn std::any::Any).downcast_ref::<String>().is_some_and(|s| s.starts_with('\u{1}'));
+        format!("[{}]", self.iter().filter(|x| !hidden(x)).map(show_item).collect::<Vec<_>>().join(", "))
     }
 }
 impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> {
@@ -4419,7 +4421,38 @@ fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool)
     None
 }
 fn ax_rx_groups(s: &[char], caps: &AxCaps) -> Vec<String> {
-    caps.iter().map(|g| g.map_or(String::new(), |(a, b)| s[a..b].iter().collect())).collect()
+    let mut v: Vec<String> = caps.iter().map(|g| g.map_or(String::new(), |(a, b)| s[a..b].iter().collect())).collect();
+    // In Python mode a match also carries where each group starts and ends, for m.start(), m.end() and m.span().
+    if ax_py_on() {
+        let spans: Vec<String> = caps.iter().map(|g| g.map_or("-1:-1".to_string(), |(a, b)| format!("{a}:{b}"))).collect();
+        v.push(format!("\u{1}{}", spans.join(",")));
+    }
+    v
+}
+// Python's m.start(n), m.end(n), m.span(n) and m.groups() on a match made by ax_rx_groups.
+pub trait AxReSpan {
+    fn ax_re_span(&self, n: i64) -> (i64, i64);
+    fn ax_re_start(&self, n: i64) -> i64;
+    fn ax_re_end(&self, n: i64) -> i64;
+    fn ax_re_groups(&self) -> Vec<String>;
+}
+impl AxReSpan for Vec<String> {
+    fn ax_re_span(&self, n: i64) -> (i64, i64) {
+        let Some(last) = self.last().filter(|l| l.starts_with('\u{1}')) else { return (-1, -1) };
+        let Some(sp) = last[1..].split(',').nth(n.max(0) as usize) else { return (-1, -1) };
+        let (a, b) = sp.split_once(':').unwrap_or(("-1", "-1"));
+        (a.parse().unwrap_or(-1), b.parse().unwrap_or(-1))
+    }
+    fn ax_re_start(&self, n: i64) -> i64 {
+        self.ax_re_span(n).0
+    }
+    fn ax_re_end(&self, n: i64) -> i64 {
+        self.ax_re_span(n).1
+    }
+    fn ax_re_groups(&self) -> Vec<String> {
+        let k = if self.last().is_some_and(|l| l.starts_with('\u{1}')) { self.len() - 1 } else { self.len() };
+        self.iter().take(k).skip(1).cloned().collect()
+    }
 }
 pub trait AxRe {
     fn ax_re_find(&self, p: String) -> Vec<String>;
@@ -4522,6 +4555,6 @@ impl AxRePy for String {
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         let all = self.ax_re_all(p.as_ref().to_string());
-        all.into_iter().map(|g| if g.len() == 2 { g[1].clone() } else { g[0].clone() }).collect()
+        all.into_iter().map(|g| if g.ax_re_groups().len() == 1 { g[1].clone() } else { g[0].clone() }).collect()
     }
 }
