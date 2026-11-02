@@ -10,7 +10,7 @@ const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
-    "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
+    "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "slice_step", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
@@ -21,7 +21,7 @@ pub const METHODS: &[&str] = &[
 
 // Methods that return a new value; calling one as a statement does nothing.
 const PURE_METHODS: &[&str] = &[
-    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "flatten", "enumerate_from",
+    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "slice_step", "flatten", "enumerate_from",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of",
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
@@ -1509,6 +1509,10 @@ impl Emitter {
                         if en == "Json" && name == "Arr" {
                             return format!("(Json::Arr {{ {0} }} | Json::Tup {{ {0} }})", parts.join(", "));
                         }
+                        // Json::Num also says whether the number was written as a float.
+                        if en == "Json" && name == "Num" {
+                            return format!("Json::Num {{ {}, .. }}", parts.join(", "));
+                        }
                         format!("{en}::{name} {{ {} }}", parts.join(", "))
                     }
                 }
@@ -2188,7 +2192,11 @@ impl Emitter {
                 Expr::Str(parts) => parts.iter().map(|p| if let StrPart::Lit(t) = p { t.clone() } else { String::new() }).collect::<String>(),
                 _ => String::new(),
             };
-            let f = if args.len() == 3 { "ax_shared_whole" } else { "ax_shared" };
+            let f = match args.get(2).map(|a| &a.1) {
+                Some(Expr::Int(2)) => "ax_shared_aug",
+                Some(_) => "ax_shared_whole",
+                None => "ax_shared",
+            };
             return format!("{f}(&{}) /*axsh:{hex}*/", self.place(&args[0].1));
         }
         // `str({"id": i, "error": m})` writes the keys in the order given, as Python does.
@@ -2246,7 +2254,11 @@ impl Emitter {
             return self.construct(name, name, name, &fields, args, plain);
         }
         if let Some((en, fields)) = self.variants.get(name).cloned() {
-            return self.construct(&format!("{en}::{name}"), name, &en, &fields, args, plain);
+            let made = self.construct(&format!("{en}::{name}"), name, &en, &fields, args, plain);
+            if en == "Json" && name == "Num" {
+                return made.replacen("Json::Num {", "Json::Num { f: true,", 1);
+            }
+            return made;
         }
         if let Some(sig) = self.fns.get(name) {
             let params = sig.params.clone();

@@ -17,6 +17,7 @@ mod modules;
 mod parser;
 mod pybridge;
 mod patch;
+mod typed_guard;
 
 use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
@@ -200,6 +201,27 @@ fn main() {
     if cmd == "run" && file.ends_with(".py") && !native {
         run_or_fall_back(&file, &argv);
     }
+    // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
+    // built over dynamic values, or refused, never built typed.
+    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
+        let guard = std::fs::read_to_string(&file).ok().and_then(|s| typed_guard::check(&s));
+        if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
+            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w)| format!("dyn {l}: {w}")));
+            exit(0);
+        }
+        if let Some((line, why)) = guard {
+            if cmd == "emit" {
+                dyn_cmd(cmd, &file, &argv);
+            }
+            if dyn_fallback(cmd, &file, &argv) {
+                exit(0);
+            }
+            let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
+            d.fix = Some("sort it first (sorted(s)) where the order shows".into());
+            print_diag(&d);
+            exit(1);
+        }
+    }
     let release = argv.iter().any(|a| a == "--release");
     let out_path = argv.iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let prog_args: Vec<String> = argv.iter().position(|a| a == "--").map(|i| argv[i + 1..].to_vec()).unwrap_or_default();
@@ -238,7 +260,9 @@ fn main() {
     }
     DEPS.set(deps).ok();
     RUST_LINES.set(foreign.rust_lines.clone()).ok();
-    let (src, fixed) = autofix(&src, cmd == "fix");
+    // A Python file is never "fixed": CPython would not rename `s.rpartition` to `s.partition`, so a name
+    // the typed build lacks sends the file to the dynamic build instead.
+    let (src, fixed) = if PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && cmd != "fix" { (src, vec![]) } else { autofix(&src, cmd == "fix") };
     for (line, old, new) in &fixed {
         eprintln!("{}", at(&format!("{{\"line\":{line},\"fixed\":\"{} -> {}\"}}", esc(old), esc(new))));
     }
@@ -605,15 +629,17 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     if python_style(&src) {
         bigint::promote(&mut items);
     }
+    // Set before alias.rs runs: its Python-only checks read it (once set after, the first build of every
+    // Python file skipped them, so `zs = xs; xs.sort(); print(zs)` printed the unsorted copy).
+    let py = python_style(&src);
+    infer::PY.store(py, std::sync::atomic::Ordering::Relaxed);
     // Python names share objects (`r = rows[k]; r[0] -= 1` changes rows); Brevi programs keep copies.
-    if python_style(&src) {
+    if py {
         let errs = alias::writeback(&mut items);
         if !errs.is_empty() {
             return Err(errs);
         }
     }
-    let py = python_style(&src);
-    infer::PY.store(py, std::sync::atomic::Ordering::Relaxed);
     // Python dicts built from names (`{"sku": sku, "qty": qty}` in a method) are tried as records first;
     // if that does not type, the program is typed as before.
     let mut items = if py && has_untyped_map(&items) {
@@ -1050,7 +1076,7 @@ fn report(rust: &str, stderr: &str) {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
         // A copy Brevi refuses because the value is not shared (a `__shared` marker from alias.rs).
-        if msg.contains("AxShared") || msg.contains("AxWhole") {
+        if msg.contains("AxShared") || msg.contains("AxWhole") || msg.contains("AxAug") {
             let src = primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("");
             if let Some(h) = src.split("axsh:").nth(1).map(|h| h.split("*/").next().unwrap_or("")) {
                 let bytes: Vec<u8> = (0..h.len() / 2).filter_map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()).collect();

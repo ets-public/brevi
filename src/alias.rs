@@ -216,10 +216,17 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             for (line, var, msg, fix) in std::mem::take(&mut cx.pending) {
                 let hex: String = format!("{msg}\u{1}{fix}").bytes().map(|b| format!("{b:02x}")).collect();
                 // `@name`: the value itself must be shared (an object or a row), not just its items.
-                let (var, whole) = match var.strip_prefix('@') { Some(v) => (v.to_string(), true), None => (var.clone(), false) };
+                // `%name`: changed by `name += v`, which is wrong only for a list, dict or set.
+                let (var, whole, aug) = match (var.strip_prefix('@'), var.strip_prefix('%')) {
+                    (Some(v), _) => (v.to_string(), true, false),
+                    (_, Some(v)) => (v.to_string(), false, true),
+                    _ => (var.clone(), false, false),
+                };
                 let mut margs = vec![(None, Expr::Ident(var.clone())), (None, Expr::Str(vec![StrPart::Lit(hex)]))];
                 if whole {
                     margs.push((None, Expr::Bool(true)));
+                } else if aug {
+                    margs.push((None, Expr::Int(2)));
                 }
                 let mark = Stmt::Expr { expr: Expr::Call("__shared".into(), margs, line), line };
                 if !place_mark(body, line, &var, &mark) {
@@ -764,19 +771,35 @@ fn name_alias(e: &Expr, cx: &mut Cx) {
             let rest = &stmts[i + 1..];
             // Up to the next setting of either name as a whole.
             let end = rest.iter().position(|s| rebinds_in(s, bn) || rebinds_in(s, an)).unwrap_or(rest.len());
-            let t = if end == rest.len() { tail.as_deref() } else { None };
             let muts = cx.mutators.clone();
             for (x, y) in [(bn, an), (an, bn)] {
-                // The first change through x, and a read of y after it.
-                let Some(k) = rest[..end].iter().position(|s| any_stmt(std::slice::from_ref(s), None, &mut |s| direct_strict(x, s, &muts))) else { continue };
-                let later = &rest[k + 1..end];
-                let read = later.iter().any(|s| names(&Expr::Block(vec![s.clone()], None), y)) || t.is_some_and(|t| names(t, y)) || any_stmt(std::slice::from_ref(&rest[k]), None, &mut |s| matches!(s, Stmt::Expr { .. } | Stmt::Assign { .. }) && loops_back(s, y));
+                // The first change through x, and a read of y after it. `x += v` changes a list or dict in
+                // place but sets a number or text anew, so that one is refused only for a list or dict.
+                let mut aug = false;
+                let Some(k) = rest[..end].iter().position(|s| {
+                    any_stmt(std::slice::from_ref(s), None, &mut |s| {
+                        if direct_strict(x, s, &muts) || in_place(x, s) {
+                            return true;
+                        }
+                        let hit = matches!(s, Stmt::Assign { target: Expr::Ident(n), op, .. } if n == x && *op != "=");
+                        aug |= hit;
+                        hit
+                    })
+                }) else {
+                    continue;
+                };
+                // y still holds the changed list after x is set anew (`zs = xs; xs.sort(); xs = []; print(zs)`),
+                // so reads of y count up to y's own next setting.
+                let end_y = rest.iter().position(|s| rebinds_in(s, y)).unwrap_or(rest.len()).max(k + 1);
+                let t_y = if end_y == rest.len() { tail.as_deref() } else { None };
+                let later = &rest[k + 1..end_y];
+                let read = later.iter().any(|s| names(&Expr::Block(vec![s.clone()], None), y)) || t_y.is_some_and(|t| names(t, y)) || any_stmt(std::slice::from_ref(&rest[k]), None, &mut |s| matches!(s, Stmt::Expr { .. } | Stmt::Assign { .. }) && loops_back(s, y));
                 if read {
                     let (bs, as_) = (bn.trim_end_matches('_'), an.trim_end_matches('_'));
                     defer(
                         cx,
                         *line,
-                        &format!("@{bn}"),
+                        &format!("{}{bn}", if aug { "%" } else { "@" }),
                         format!("{bs} = {as_} makes {bs} a copy in Brevi, but in Python both names are the same list or dict, so changing one changes the other"),
                         format!("use one name, or write {bs} = {as_}.copy() if a separate copy is meant"),
                     );
@@ -793,7 +816,26 @@ fn loops_back(s: &Stmt, y: &str) -> bool {
 }
 
 fn rebinds_in(s: &Stmt, x: &str) -> bool {
-    any_stmt(std::slice::from_ref(s), None, &mut |t| matches!(t, Stmt::Assign { target: Expr::Ident(n), op: "=", .. } if n == x))
+    // `xs = xs` keeps the same list.
+    let same = |v: &Expr| matches!(v, Expr::Ident(m) | Expr::Move(m) if m == x);
+    any_stmt(std::slice::from_ref(s), None, &mut |t| matches!(t, Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x && !same(value)) && !in_place(x, t))
+}
+
+// Python statements that change x in place but are spelled otherwise in Brevi: `xs.sort()`,
+// `xs.reverse()`, and `del xs[a:b]` (set as `xs = xs.slice(0, a) + xs.slice(b)`).
+fn in_place(x: &str, st: &Stmt) -> bool {
+    let own_slice = |e: &Expr| matches!(e, Expr::Method(r, m, _, _) if m == "slice" && matches!(r.as_ref(), Expr::Ident(n) if n == x));
+    match st {
+        Stmt::Expr { expr: Expr::Method(recv, m, _, _), .. } => {
+            root(recv) == Some(x) && ["sort", "sort_by", "rev", "reverse", "heapify", "heap_push_pop", "heap_replace", "move_to_end", "pop_item", "pop_or", "setdefault", "rotate", "appendleft", "popleft"].contains(&m.as_str())
+        }
+        Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x => match value {
+            Expr::Method(_, _, a, _) if own_slice(value) => matches!(a.first(), Some(Expr::Int(0))) && a.len() == 2,
+            Expr::Binary("+", l, r) => own_slice(l) && own_slice(r) && matches!(l.as_ref(), Expr::Method(_, _, a, _) if matches!(a.first(), Some(Expr::Int(0)))),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 fn collect_blocks<'a>(e: &'a Expr, out: &mut Vec<&'a Expr>) {

@@ -705,7 +705,23 @@ impl Em {
             Ex::Tuple(v) => format!("tup({})", self.seq(v, line)?),
             Ex::Set(v) => {
                 let s = self.seq(v, line)?;
-                self.q(&format!("set_of_vec({s})"))
+                // CPython builds a literal of 3 or more constants as a frozenset constant copied into a new
+                // set, which can order the items differently from adding them one by one.
+                fn konst(e: &Ex) -> bool {
+                    match e {
+                        Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False => true,
+                        Ex::Unary("-", x) => matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)),
+                        Ex::Tuple(xs) => xs.iter().all(konst),
+                        _ => false,
+                    }
+                }
+                let one = self.q(&format!("set_of_vec({s})"));
+                if v.len() >= 3 && v.iter().all(konst) {
+                    let fs = self.q(&format!("bi_frozenset(Args::p(vec![{one}]))"));
+                    self.q(&format!("bi_set(Args::p(vec![{fs}]))"))
+                } else {
+                    one
+                }
             }
             Ex::Dict(items) => {
                 let mut b = String::from("{ let mut __d = Dict::new(); ");

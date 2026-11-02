@@ -1169,7 +1169,7 @@ impl Cx<'_> {
             "big" => Big,
             "char" | "fmt" | "spec" | "py_repr" | "py_dumps" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
-            "repeat" | "slice" | "rev" if matches!(r, Str) => Str,
+            "repeat" | "slice" | "slice_step" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
             "words" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
@@ -1198,7 +1198,7 @@ impl Cx<'_> {
                 Map(_, v) => *v.clone(),
                 _ => elem(&r),
             },
-            "slice" | "sort" | "sort_by" | "rev" | "take" | "skip" | "filter" | "unique" | "step" | "repeat" | "abs" | "round" => match &r {
+            "slice" | "slice_step" | "sort" | "sort_by" | "rev" | "take" | "skip" | "filter" | "unique" | "step" | "repeat" | "abs" | "round" => match &r {
                 // list(s) and set(s) on a string: its characters.
                 Str if m == "skip" || m == "unique" => List(Box::new(Str)),
                 Hole if m == "repeat" || m == "slice" => Hole,

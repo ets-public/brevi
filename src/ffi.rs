@@ -416,12 +416,12 @@ impl AxFromJson for () {
 }
 impl AxFromJson for i64 {
     fn ax_from(j: &Json) -> Result<Self, String> {
-        match j { Json::Num { v } if v.fract() == 0.0 => Ok(*v as i64), Json::Bool { v } => Ok(*v as i64), _ => Err("expected int".into()) }
+        match j { Json::Num { v, .. } if v.fract() == 0.0 => Ok(*v as i64), Json::Bool { v } => Ok(*v as i64), _ => Err("expected int".into()) }
     }
 }
 impl AxFromJson for f64 {
     fn ax_from(j: &Json) -> Result<Self, String> {
-        match j { Json::Num { v } => Ok(*v), _ => Err("expected f64".into()) }
+        match j { Json::Num { v, .. } => Ok(*v), _ => Err("expected f64".into()) }
     }
 }
 impl AxFromJson for bool {
@@ -436,7 +436,7 @@ impl AxFromJson for String {
 }
 impl AxFromJson for Dec {
     fn ax_from(j: &Json) -> Result<Self, String> {
-        match j { Json::Num { v } => v.to_string().ax_dec().map_err(|e| e.0), Json::Str { v } => v.clone().ax_dec().map_err(|e| e.0), _ => Err("expected dec".into()) }
+        match j { Json::Num { v, .. } => v.to_string().ax_dec().map_err(|e| e.0), Json::Str { v } => v.clone().ax_dec().map_err(|e| e.0), _ => Err("expected dec".into()) }
     }
 }
 impl<T: AxFromJson> AxFromJson for Vec<T> {
