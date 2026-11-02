@@ -358,6 +358,7 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
     if py {
         // Dicts used as records (values of different types under fixed keys) become record types.
         let (_, mixed) = infer::empty_types(&items);
+        records::json_lists(&mut items);
         records::records_with(&mut items, &mixed, eager);
         // A dict literal built from untyped parameters shows its mixed types only once the parameters
         // are inferred: infer a copy, then make those dicts records too. Even when the copy fails to

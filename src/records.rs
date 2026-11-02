@@ -95,6 +95,54 @@ pub fn records(items: &mut Vec<Item>, mixed: &HashSet<String>) {
 // `eager`: also make a record of a dict literal whose values are all names, fields or calls (no plain
 // literal shows their kinds), as Python code builds records from parameters. The caller retries
 // without it when that does not type.
+// Python lists of mixed literal kinds that are looped over (`vals = [1, 'a', True, None]`, `for v in vals`)
+// are lists of JSON values, not fixed-slot rows: each item is wrapped as JSON.
+pub fn json_lists(items: &mut [Item]) {
+    fn kind(e: &Expr) -> Option<&'static str> {
+        match e {
+            Expr::Int(_) | Expr::Float(_) => Some("num"),
+            Expr::Str(_) => Some("str"),
+            Expr::Bool(_) => Some("bool"),
+            Expr::List(_) => Some("list"),
+            Expr::Map(_) => Some("map"),
+            Expr::Call(n, a, _) if n == "none" && a.is_empty() => Some("none"),
+            _ => None,
+        }
+    }
+    fn mixed(xs: &[Expr]) -> bool {
+        let ks: Option<HashSet<&str>> = xs.iter().map(kind).collect();
+        xs.len() >= 2 && ks.is_some_and(|k| k.len() >= 2)
+    }
+    for it in items.iter_mut() {
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        let mut looped: HashSet<String> = HashSet::new();
+        crate::infer::walk(body, &mut |e| {
+            if let Expr::For(_, it, _) = e {
+                if let Expr::Ident(n) = it.as_ref() {
+                    looped.insert(n.clone());
+                }
+            }
+        });
+        if looped.is_empty() {
+            continue;
+        }
+        crate::parser::walk_mut(body, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for st in stmts.iter_mut() {
+                    if let Stmt::Let { name: Pat::Bind(n), value: Expr::List(xs), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::List(xs), .. } = st {
+                        if looped.contains(n) && mixed(xs) {
+                            for x in xs.iter_mut() {
+                                let v = std::mem::replace(x, Expr::Int(0));
+                                *x = if kind(&v) == Some("none") { Expr::Ident("Null".into()) } else { Expr::Call("ax_to_json".into(), vec![(None, v)], 0) };
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
 pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool) {
     for it in items.iter_mut() {
         if let Item::Fn { body, .. } | Item::Test { body, .. } = it {
