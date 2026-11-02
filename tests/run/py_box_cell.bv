@@ -1,0 +1,46 @@
+def main():
+    bal = {}
+    cur = [None]
+    def fin():
+        tx = cur[0]
+        cur[0] = None
+        if tx is None or tx["d"]:
+            return
+        for name, a in tx["p"]:
+            bal[name] = bal.get(name, 0) + a
+    for i in range(3):
+        fin()
+        cur[0] = {"n": i, "p": [], "d": False}
+        cur[0]["p"].append(("a", i))
+    fin()
+    print(bal)
+main()
+
+
+class S:
+    def __init__(self):
+        self.lots = {"a": [[1, "x", 5], [3, "y", 2]], "b": [[0, "z", 1]]}
+
+    def expire(self, today):
+        out = []
+        for sku in sorted(self.lots):
+            keep = []
+            gone = []
+            for l in self.lots[sku]:
+                (gone if l[0] < today else keep).append(l)
+            out += [(sku, l[2], l[0]) for l in gone]
+            if keep:
+                self.lots[sku] = keep
+            else:
+                del self.lots[sku]
+        return out
+
+
+s = S()
+print(s.expire(2), s.lots)
+state = {"board": [None] * 4, "cur": "X", "n": 0}
+for i in (2, 0):
+    if state["board"][i] is None:
+        state["board"][i] = state["cur"]
+        state["cur"] = "O" if state["cur"] == "X" else "X"
+print(state["board"], state["board"][1] is None)

@@ -42,6 +42,7 @@ fn kind(e: &Expr) -> Option<&'static str> {
         Expr::Str(_) => Some("str"),
         Expr::Bool(_) => Some("bool"),
         Expr::List(_) => Some("list"),
+        Expr::Method(l, m, _, _) if m == "repeat" && matches!(l.as_ref(), Expr::List(_)) => Some("list"),
         Expr::Map(_) => Some("map"),
         Expr::Tuple(_) => Some("tuple"),
         Expr::Method(_, m, _, _) if m == "dec" => Some("dec"),
@@ -62,7 +63,9 @@ struct Shape {
 }
 
 fn empty(e: &Expr) -> bool {
-    matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(xs) if xs.is_empty()) || matches!(e, Expr::Call(f, a, _) if f == "none" && a.is_empty())
+    // `[None] * 9`: a list of None slots, typed by what later lines put in them.
+    let nones = |e: &Expr| matches!(e, Expr::Method(l, m, a, _) if m == "repeat" && matches!(a.as_slice(), [Expr::Int(_)]) && matches!(l.as_ref(), Expr::List(xs) if !xs.is_empty() && xs.iter().all(|x| matches!(x, Expr::Call(f, a, _) if f == "none" && a.is_empty()))));
+    nones(e) || matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(xs) if xs.is_empty()) || matches!(e, Expr::Call(f, a, _) if f == "none" && a.is_empty())
 }
 
 fn shape_of(ps: &[(Expr, Expr)]) -> Option<Vec<String>> {
