@@ -1840,6 +1840,20 @@ impl Parser {
                                 continue;
                             }
                             if self.py {
+                                // sys.stderr.write(s) and sys.stdout.write(s): the text as is, no line end added.
+                                if name == "write" && raw.len() == 1 {
+                                    if let Expr::Field(m, f) = &e {
+                                        if matches!(m.as_ref(), Expr::Ident(s) if s == "sys") && (f == "stderr" || f == "stdout") {
+                                            let s = raw[0].1.clone();
+                                            e = if f == "stderr" {
+                                                Expr::Call("__eprint".into(), vec![(None, s)], line)
+                                            } else {
+                                                Expr::Call("print".into(), vec![(None, s), (Some("end".into()), Expr::Str(vec![]))], line)
+                                            };
+                                            continue;
+                                        }
+                                    }
+                                }
                                 let on = |m: &str| matches!(&e, Expr::Ident(x) if x == m);
                                 // `sys.stdout.flush()`, `threading.stack_size(n)`, `Exception.__init__(self, msg)`:
                                 // nothing to do in native code (output is flushed at exit and before input).
@@ -2533,6 +2547,20 @@ impl Parser {
                             });
                         }
                         return Ok(Expr::Method(Box::new(total.unwrap()), "delta_days".into(), vec![], line));
+                    }
+                    // print(..., file=sys.stderr): the same line, written to stderr.
+                    if name == "print" && self.py && !self.user_fns.contains(&name) {
+                        let to_out = |v: &Expr| matches!(v, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
+                        args.retain(|(n, v)| !(n.as_deref() == Some("file") && to_out(v)));
+                        let to_err = |v: &Expr| matches!(v, Expr::Field(m, f) if f == "stderr" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
+                        if let Some(i) = args.iter().position(|(n, v)| n.as_deref() == Some("file") && to_err(v)) {
+                            args.remove(i);
+                            let sep = args.iter().find(|(n, _)| n.as_deref() == Some("sep")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
+                            let end = args.iter().find(|(n, _)| n.as_deref() == Some("end")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit("\n".into())]));
+                            let items: Vec<Expr> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, v)| Expr::Call("str".into(), vec![(None, v.clone())], line)).collect();
+                            let body = Expr::Method(Box::new(Expr::List(items)), "join".into(), vec![sep], line);
+                            return Ok(Expr::Call("__eprint".into(), vec![(None, Expr::Binary("+", Box::new(body), Box::new(end)))], line));
+                        }
                     }
                     // open(path, mode=..., encoding=...): keyword arguments too.
                     if name == "open" && self.py && !self.user_fns.contains(&name) {
