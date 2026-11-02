@@ -34,6 +34,7 @@ The test passes when, averaged over two runs, `pyb` costs no more dollars than `
 | e19a/b | #81 | $0.203 / $0.188 (1.08x) | $0.028 / $0.025 (1.10x) | pyb 24 of 24, Python 24 of 24 |
 | e20a/b | #86 + #89 | $0.189 / $0.182 (1.04x) | $0.030 / $0.023 (1.29x) | pyb 23 of 24, Python 24 of 24 |
 | e21a/b | #89 + #91 | $0.317 / $0.181 (1.75x; one model runaway of 32k output tokens on the first call, before any build) | $0.027 / $0.024 (1.16x; run a 0.94x) | pyb 20 of 24, Python 24 of 24 |
+| e22a/b | #97 (fallback on) | $0.176 / $0.172 (1.02x) | $0.026 / $0.024 (1.07x) | pyb 24 of 24, Python 24 of 24; built natively: Sonnet 10 of 12, Haiku 8 of 12 |
 
 The test has not passed yet. When the model's first attempt builds, pyb costs the same as Python or less. The whole gap is retries after Brevi rejects valid Python. In e18 only 3 of 24 first attempts were rejected while CPython ran them, and every first attempt that built printed what CPython prints. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
