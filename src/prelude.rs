@@ -2989,6 +2989,18 @@ impl AxTallyWords for String {
         m
     }
 }
+// `dict(v)` on a dynamic value: a copy (a dict stays a dict; pairs become one).
+pub trait AxJsonToDict {
+    fn ax_to_dict(&self) -> Json;
+}
+impl AxJsonToDict for Json {
+    fn ax_to_dict(&self) -> Json {
+        match self {
+            Json::Obj { .. } => self.clone(),
+            other => panic!("TypeError: cannot convert {} to a dict", ax_json_py(other, true)),
+        }
+    }
+}
 pub trait AxToDict<K, V> {
     fn ax_to_dict(&self) -> AxM<K, V>;
 }
@@ -4122,6 +4134,32 @@ impl AxUnpack<(Json, Json, Json)> for Json {
         let v = self.ax_list();
         let g = |i: usize| v.get(i).cloned().unwrap_or(Json::Null);
         (g(0), g(1), g(2))
+    }
+}
+// `_, frm, d, to, key = c` with c a dynamic tuple: as many items as names, or the run stops (Python's ValueError).
+fn ax_junpack(j: Json, n: usize) -> Vec<Json> {
+    let v = j.ax_list();
+    if v.len() != n {
+        panic!("ValueError: expected {n} values to unpack, got {}", v.len());
+    }
+    v
+}
+impl AxUnpack<(Json, Json, Json, Json)> for Json {
+    fn ax_unpack(self) -> (Json, Json, Json, Json) {
+        let mut v = ax_junpack(self, 4).into_iter();
+        (v.next().unwrap(), v.next().unwrap(), v.next().unwrap(), v.next().unwrap())
+    }
+}
+impl AxUnpack<(Json, Json, Json, Json, Json)> for Json {
+    fn ax_unpack(self) -> (Json, Json, Json, Json, Json) {
+        let mut v = ax_junpack(self, 5).into_iter();
+        (v.next().unwrap(), v.next().unwrap(), v.next().unwrap(), v.next().unwrap(), v.next().unwrap())
+    }
+}
+impl AxUnpack<(Json, Json, Json, Json, Json, Json)> for Json {
+    fn ax_unpack(self) -> (Json, Json, Json, Json, Json, Json) {
+        let mut v = ax_junpack(self, 6).into_iter();
+        (v.next().unwrap(), v.next().unwrap(), v.next().unwrap(), v.next().unwrap(), v.next().unwrap(), v.next().unwrap())
     }
 }
 impl<T> AxUnpack<(T, T)> for Vec<T> {

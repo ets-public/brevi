@@ -100,6 +100,9 @@ fn merge(a: T, b: T) -> T {
                 .map(|(a, b)| if py_on() && slot_clash(&a, &b) { Json } else { merge(a, b) })
                 .collect(),
         ),
+        // Python: tuples of different lengths in one place (`('say', ln, w)` and `('if', ln, c, body)` in one
+        // list) are dynamic (JSON) values.
+        (Tuple(x), Tuple(y)) if py_on() && x.len() != y.len() && !x.is_empty() && !y.is_empty() => Json,
         // An int next to a dec or float is a literal that mixes in.
         (Int, b @ (Dec | F64)) => b,
         (a, _) => a,
@@ -958,6 +961,18 @@ impl Cx<'_> {
             Expr::List(xs) => List(Box::new(xs.iter().fold(Hole, |a, x| merge(a, self.ty(x, env))))),
             Expr::Map(ps) if self.mixed.contains(&map_key(ps)) => Json,
             Expr::Map(ps) => {
+                // A dict literal with str keys and values of different kinds (`{'to': c[3], 'locked': k is not None}`
+                // with c[3] dynamic) is a JSON object, as emit makes it.
+                if py_on() && ps.len() >= 2 && ps.iter().all(|(k, _)| matches!(k, Expr::Str(_))) {
+                    let vs: Vec<T> = ps.iter().map(|(_, b)| self.ty(b, env)).collect();
+                    if vs.iter().any(|v| *v == Json) && vs.iter().any(|v| known(v) && *v != Json) {
+                        return Json;
+                    }
+                    // (A value not known yet may turn out dynamic: the dict's value type waits for it.)
+                    if vs.iter().any(|v| *v == Hole) && vs.iter().any(|v| known(v)) {
+                        return Hole;
+                    }
+                }
                 let (k, v) = ps.iter().fold((Hole, Hole), |(k, v), (a, b)| (merge(k, self.ty(a, env)), merge(v, self.ty(b, env))));
                 Map(Box::new(k), Box::new(v))
             }
@@ -1182,8 +1197,8 @@ impl Cx<'_> {
             "to_dict" => match elem(&r) {
                 Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
                 _ => match &r {
-                    // `dict(v)` on a dict record: a copy of it.
-                    Map(..) | Named(_) => r,
+                    // `dict(v)` on a dict record (or a dynamic value): a copy of it.
+                    Map(..) | Named(_) | Json => r,
                     _ => Hole,
                 },
             },
@@ -2630,7 +2645,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                             found.push((k, t));
                         }
                     }
-                } else if matches!(&rt, List(x) if scalar(x)) && ts.iter().any(|t| matches!(t, List(x) if **x == Json)) {
+                } else if matches!(&rt, List(x) if scalar(x) || matches!(**x, Tuple(_))) && ts.iter().any(|t| matches!(t, List(x) if **x == Json)) {
                     // A list typed early from its first items, later found to hold mixed (JSON) items.
                     found.push((k, Ty::List(Box::new(Ty::Named("Json".into())))));
                 }
@@ -2890,6 +2905,14 @@ impl Ck<'_, '_> {
                                 *value = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
                             }
                         }
+                        // `w.capacity = c[1]` with c dynamic and the field an int (or str): checked when it runs.
+                        if matches!(&*target, Expr::Field(..)) && self.cx.ty(value, env) == Json {
+                            let ft = self.cx.ty(target, env);
+                            if matches!(ft, Int | Str) {
+                                let v = std::mem::replace(value, Expr::Int(0));
+                                *value = Expr::Call(if ft == Int { "ax_jas_int" } else { "ax_jas_str" }.into(), vec![(None, v)], *line);
+                            }
+                        }
                         // A field (or a dict record's key) that holds JSON values: `q['spec'] = set(s)`.
                         if matches!(&*target, Expr::Index(..) | Expr::Field(..)) && self.cx.ty(target, env) == Json {
                             let vt = self.cx.ty(value, env);
@@ -3146,9 +3169,14 @@ impl Ck<'_, '_> {
             if matches!(m.as_str(), "push" | "insert") && !args.is_empty() {
                 if let List(it) = self.cx.ty(r, env) {
                     let k = args.len() - 1;
-                    if *it == Json && scalar(&self.cx.ty(&args[k], env)) && self.cx.ty(&args[k], env) != Json {
+                    let at = self.cx.ty(&args[k], env);
+                    if *it == Json && scalar(&at) && at != Json {
                         let v = std::mem::replace(&mut args[k], Expr::Int(0));
                         args[k] = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                    } else if *it == Json && self.py && matches!(at, Tuple(_)) && !matches!(&args[k], Expr::Call(f, _, _) if f == "ax_tup_json") {
+                        // A tuple put in a list of dynamic values (a syntax tree's `body.append(('say', ln, w))`).
+                        let v = std::mem::replace(&mut args[k], Expr::Int(0));
+                        args[k] = Expr::Call("ax_tup_json".into(), vec![(None, v)], *line);
                     }
                 }
             }
