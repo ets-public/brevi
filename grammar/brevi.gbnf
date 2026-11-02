@@ -13,7 +13,8 @@ targets ::= postfix (ws "," ws postfix)*
 inline-if ::= "if" ws expr ws ":" ws simples (ws "elif" ws expr ws ":" ws simples)* (ws "else" ws (inline-if | ":" ws simples))?
 for-target ::= pattern (ws "," ws pattern)*
 expr ::= binary (ws "if" ws binary ws "else" ws expr)? | lambda
-lambda ::= t-name ws "=>" ws expr | "(" (ws t-name (ws "," ws t-name)*)? ws ")" ws "=>" ws expr | "lambda" (ws t-name (ws "," ws t-name)*)? ws ":" ws expr
+lambda ::= t-name ws "=>" ws expr | "(" (ws t-name (ws "," ws t-name)*)? ws ")" ws "=>" ws expr | "lambda" (ws lambda-param (ws "," ws lambda-param)*)? ws ":" ws expr
+lambda-param ::= t-name (ws "=" ws binary)?
 binary ::= unary (ws binop ws n ws unary)*
 binop ::= "or" | "and" | "||" | "&&" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "~=" | "in" | "not" ws "in" | "is" | "is" ws "not" | ".." | "+" | "-" | "*" | "/" | "%" | "//" | "|" | "&" | "^" | "<<" | ">>" | "**"
 unary ::= ("-" | "!" | "not") ws unary | postfix
