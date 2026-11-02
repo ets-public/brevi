@@ -1,0 +1,4 @@
+["2 players [(0, 'p0'), (2, 'p1')] seen 3", "1 players [(3, 'p0')] seen 2"]
+line 1: bad line
+line 3: bad line 6 25
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

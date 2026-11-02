@@ -398,6 +398,10 @@ impl Cx<'_> {
                             self.look_expr(n, body, &mut fenv, &mut t);
                         }
                     }
+                    // A later pass that learns less (the name already typed from the first) keeps what was found.
+                    if let Some(old) = self.hint_t.get(&(n.clone(), line)) {
+                        t = merge(t, old.clone());
+                    }
                     if some_known(&t) {
                         self.hints.insert((n.clone(), line), rust(&t));
                         self.known_hints.insert((n.clone(), line), known(&t));
@@ -714,10 +718,35 @@ impl Cx<'_> {
                     if Self::is_n(b, n) {
                         let kt = self.ty(k, env);
                         let inner = match m.as_str() {
-                            "push" => List(Box::new(a0)),
+                            "push" | "contains" => List(Box::new(a0)),
+                            "update" | "extend" if matches!(a0, List(_)) => a0.clone(),
                             _ => Hole,
                         };
-                        *acc = merge(acc.clone(), self.slot(acc, kt, inner));
+                        // `cur = ([], set())`, then `cur[0].append(x)`: that slot of the tuple.
+                        if let (Tuple(ts), Expr::Int(i)) = (&*acc, k.as_ref()) {
+                            let i = *i as usize;
+                            if i < ts.len() && inner != Hole {
+                                let mut ts = ts.clone();
+                                ts[i] = merge(ts[i].clone(), inner);
+                                *acc = Tuple(ts);
+                            }
+                        } else {
+                            *acc = merge(acc.clone(), self.slot(acc, kt, inner));
+                        }
+                    }
+                } else if let Expr::TupleField(b, i) = recv.as_ref() {
+                    if let (true, Tuple(ts)) = (Self::is_n(b, n), &*acc) {
+                        let inner = match m.as_str() {
+                            "push" | "contains" => List(Box::new(a0.clone())),
+                            "update" | "extend" if matches!(a0, List(_)) => a0.clone(),
+                            _ => Hole,
+                        };
+                        let i = *i as usize;
+                        if i < ts.len() && inner != Hole {
+                            let mut ts = ts.clone();
+                            ts[i] = merge(ts[i].clone(), inner);
+                            *acc = Tuple(ts);
+                        }
                     }
                 }
                 self.look_expr(n, recv, env, acc);
