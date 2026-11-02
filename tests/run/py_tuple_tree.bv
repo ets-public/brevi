@@ -1,0 +1,33 @@
+class P:
+    def __init__(self, toks):
+        self.t = toks
+        self.p = 0
+
+    def peek(self):
+        return self.t[self.p] if self.p < len(self.t) else ("eof", "")
+
+    def expr(self):
+        l = self.term()
+        while self.peek() == ("sym", "+"):
+            self.p += 1
+            l = ("add", l, self.term())
+        return l
+
+    def term(self):
+        k, v = self.peek()
+        self.p += 1
+        if k == "int":
+            return ("num", v)
+        return ("name", v)
+
+def ev(n, env):
+    if n[0] == "num":
+        return n[1]
+    if n[0] == "name":
+        return env[n[1]]
+    return ev(n[1], env) + ev(n[2], env)
+
+toks = [("int", 2), ("sym", "+"), ("name", "x"), ("sym", "+"), ("int", 5)]
+tree = P(toks).expr()
+print(tree)
+print(ev(tree, {"x": 10}))

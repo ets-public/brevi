@@ -1,0 +1,18 @@
+def show(v):
+    t = type(v)
+    if t is bool:
+        return 'true' if v else 'false'
+    if v is None:
+        return 'none'
+    if t is int:
+        return str(v)
+    if t is str:
+        return v
+    return str(v)
+
+def rep(v):
+    if type(v) is str:
+        return '"' + v + '"'
+    return show(v)
+
+print(show(True), show(3), rep('a'), rep(4))

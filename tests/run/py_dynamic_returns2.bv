@@ -1,0 +1,21 @@
+class P:
+    def __init__(self, toks):
+        self.toks = toks
+        self.i = 0
+    def expr(self):
+        e = self.atom()
+        while self.i < len(self.toks) and self.toks[self.i] == '+':
+            self.i += 1
+            e = ('bin', e, self.atom())
+        return e
+    def atom(self):
+        t = self.toks[self.i]
+        self.i += 1
+        if t == '(':
+            e = self.expr()
+            self.i += 1
+            return e
+        if t.isdigit():
+            return ('lit', int(t))
+        return ('name', t)
+print(P(['(', '1', '+', 'x', ')', '+', '2']).expr())

@@ -1,0 +1,13 @@
+def find(d, k):
+    return d[k]
+
+def run(d, keys):
+    out = []
+    for k in keys:
+        if k in d:
+            out.append(find(d, k))
+        else:
+            out.append("nf:" + k)
+    return out
+
+print(run({"a": 1}, ["a", "c"]))

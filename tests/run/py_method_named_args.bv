@@ -1,0 +1,16 @@
+class P:
+    def __init__(self, xs):
+        self.xs = xs
+        self.i = 0
+
+    def args(self):
+        out = []
+        while self.i < len(self.xs):
+            out.append(self.xs[self.i])
+            self.i += 1
+        return out
+
+    def read(self):
+        return self.args()
+
+print(P([1, 2]).read())

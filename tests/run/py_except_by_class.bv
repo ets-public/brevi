@@ -1,0 +1,21 @@
+class Brk(Exception):
+    pass
+class Cont(Exception):
+    pass
+def step(i):
+    if i == 2:
+        raise Cont()
+    if i == 4:
+        raise Brk()
+    return i
+def main():
+    out = []
+    for i in range(6):
+        try:
+            out.append(step(i))
+        except Brk:
+            break
+        except Cont:
+            continue
+    print(out)
+main()

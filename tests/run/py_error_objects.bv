@@ -1,0 +1,43 @@
+class RErr(Exception):
+    def __init__(self, msg, line=None):
+        self.msg = msg
+        self.line = line
+
+class Ret(Exception):
+    def __init__(self, v):
+        self.v = v
+
+class Brk(Exception):
+    pass
+
+def check(x, line):
+    if x < 0:
+        raise RErr("negative " + str(x))
+    return x
+
+def block(xs):
+    out = []
+    for i, x in enumerate(xs):
+        try:
+            out.append(check(x, i))
+        except RErr as e:
+            if e.line is None:
+                e.line = i
+            raise
+    return out
+
+def call(n):
+    try:
+        if n > 2:
+            raise Ret(n * 10)
+        raise Brk()
+    except Ret as r:
+        return r.v
+    except Brk:
+        return -1
+
+try:
+    print(block([1, 2, -3]))
+except RErr as e:
+    print("error at", e.line, e.msg)
+print(call(5), call(1))

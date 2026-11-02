@@ -536,8 +536,12 @@ impl<T> AxNone for AxRow<T> {
     }
 }
 impl<T: AxToJson + 'static> AxToJson for AxRow<T> {
+    // A mixed Python list (kept as a tuple inside): a JSON list.
     fn ax_json(&self) -> Json {
-        (**self).ax_json()
+        match (**self).ax_json() {
+            Json::Tup { v } => Json::Arr { v },
+            j => j,
+        }
     }
 }
 impl<T: Clone + 'static, U> AxUnpack<U> for AxRow<T>
@@ -622,6 +626,21 @@ impl<T: Clone> AxTupleItems<T> for (T, T, T, T) {
 impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T) {
     fn ax_tuple_items(&self) -> Vec<T> {
         vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()]
+    }
+}
+impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T) {
+    fn ax_tuple_items(&self) -> Vec<T> {
+        vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()]
+    }
+}
+impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T) {
+    fn ax_tuple_items(&self) -> Vec<T> {
+        vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone()]
+    }
+}
+impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T, T) {
+    fn ax_tuple_items(&self) -> Vec<T> {
+        vec![self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone()]
     }
 }
 pub fn print<T: Show>(x: T) {
@@ -1717,6 +1736,10 @@ fn ax_jnum(j: &Json) -> f64 {
     }
 }
 fn ax_jn(v: f64) -> Json {
+    // A dynamic number is a float: a whole number past 2^53 would lose digits, so stop instead.
+    if v.fract() == 0.0 && v.abs() > 9007199254740992.0 {
+        panic!("number too big for a value of mixed type: {v}");
+    }
     Json::Num { v }
 }
 impl Plus for Json {
@@ -2131,6 +2154,8 @@ impl Json {
     pub fn ax_text(&self) -> String {
         match self {
             Json::Str { v } => v.clone(),
+            // Python's str(None).
+            Json::Null if ax_py_on() => "None".into(),
             Json::Null => String::new(),
             other => other.show(),
         }
@@ -2139,6 +2164,12 @@ impl Json {
         match self {
             Json::Num { v } => *v as i64,
             Json::Bool { v } => *v as i64,
+            // Python's int("12"); anything else is an error there, so it stops the run here too.
+            Json::Str { v } if ax_py_on() => match v.trim().parse::<i64>() {
+                Ok(n) => n,
+                Err(_) => panic!("ValueError: invalid literal for int() with base 10: {}", ax_py_repr(v)),
+            },
+            other if ax_py_on() => panic!("TypeError: int() argument must be a string or a number, not {}", other.ax_kind()),
             _ => 0,
         }
     }
@@ -2146,6 +2177,11 @@ impl Json {
         match self {
             Json::Num { v } => *v,
             Json::Bool { v } => *v as i64 as f64,
+            Json::Str { v } if ax_py_on() => match v.trim().parse::<f64>() {
+                Ok(n) => n,
+                Err(_) => panic!("ValueError: could not convert string to float: {}", ax_py_repr(v)),
+            },
+            other if ax_py_on() => panic!("TypeError: float() argument must be a string or a number, not {}", other.ax_kind()),
             _ => 0.0,
         }
     }
@@ -3673,27 +3709,27 @@ impl AxToJson for &str {
 // A tuple is a JSON list, as json.dumps writes it.
 impl<A: AxToJson, B: AxToJson> AxToJson for (A, B) {
     fn ax_json(&self) -> Json {
-        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json()] }
+        ax_tuple_json(vec![self.0.ax_json(), self.1.ax_json()])
     }
 }
 impl<A: AxToJson, B: AxToJson, C: AxToJson> AxToJson for (A, B, C) {
     fn ax_json(&self) -> Json {
-        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json()] }
+        ax_tuple_json(vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json()])
     }
 }
 impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson> AxToJson for (A, B, C, D) {
     fn ax_json(&self) -> Json {
-        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json()] }
+        ax_tuple_json(vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json()])
     }
 }
 impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson, E: AxToJson> AxToJson for (A, B, C, D, E) {
     fn ax_json(&self) -> Json {
-        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json(), self.4.ax_json()] }
+        ax_tuple_json(vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json(), self.4.ax_json()])
     }
 }
 impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson, E: AxToJson, F: AxToJson> AxToJson for (A, B, C, D, E, F) {
     fn ax_json(&self) -> Json {
-        Json::Arr { v: vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json(), self.4.ax_json(), self.5.ax_json()] }
+        ax_tuple_json(vec![self.0.ax_json(), self.1.ax_json(), self.2.ax_json(), self.3.ax_json(), self.4.ax_json(), self.5.ax_json()])
     }
 }
 // `total += c[3]` with c a JSON tuple: only a whole number keeps total an int, as in Python.
@@ -3702,6 +3738,87 @@ pub fn ax_jint(o: Json) -> i64 {
         Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
         o => panic!("cannot add {} to an int here", ax_json_py(&o, false)),
     }
+}
+// A Python form Brevi cannot give the same answer for: stop the run instead of printing something else.
+pub fn ax_unsupported(what: String) -> String {
+    panic!("{what}")
+}
+// A dynamic value given where an int or a str is taken.
+pub fn ax_jas_int(o: Json) -> i64 {
+    match o {
+        Json::Num { v } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
+        o => panic!("expected an int here, got {}", ax_json_py(&o, true)),
+    }
+}
+// A dynamic value looked for among strs: a non-str matches none of them.
+pub fn ax_jkey_str(o: Json) -> String {
+    match o {
+        Json::Str { v } => v,
+        _ => "\u{0}\u{1}not a str".to_string(),
+    }
+}
+pub fn ax_jas_str(o: Json) -> String {
+    match o {
+        Json::Str { v } => v,
+        o => panic!("expected a str here, got {}", ax_json_py(&o, true)),
+    }
+}
+// Python errors with a class: "\u{1}Brk,Exception\u{1}message" (the class and the ones above it).
+pub fn ax_exc(chain: String, msg: String) -> String {
+    format!("\u{1}{chain}\u{1}{msg}")
+}
+// An error class's object raised with the error (`raise RErr(msg, line)`): kept here, its number in the error.
+thread_local! {
+    static AX_EXC_OBJS: std::cell::RefCell<Vec<Box<dyn std::any::Any>>> = std::cell::RefCell::new(Vec::new());
+}
+pub fn ax_exc_obj<T: 'static>(chain: String, msg: String, obj: T) -> String {
+    let id = AX_EXC_OBJS.with(|o| {
+        let mut o = o.borrow_mut();
+        o.push(Box::new(obj));
+        o.len() - 1
+    });
+    format!("\u{1}{chain};{id}\u{1}{msg}")
+}
+pub fn ax_exc_get<T: 'static + Clone>(e: &String) -> T {
+    let id = e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')).and_then(|(c, _)| c.rsplit_once(';')).and_then(|(_, n)| n.parse::<usize>().ok());
+    match id.and_then(|id| AX_EXC_OBJS.with(|o| o.borrow().get(id).and_then(|b| b.downcast_ref::<T>().cloned()))) {
+        Some(v) => v,
+        None => panic!("this except clause caught an error of another class than it names (not supported yet)"),
+    }
+}
+pub fn ax_exc_msg(e: &String) -> String {
+    match e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')) {
+        Some((_, m)) => m.to_string(),
+        None => e.clone(),
+    }
+}
+// `except A, B:` for this error: one of its classes is named (Exception catches every class); an error without
+// a class (a failed call) is caught by any built-in error name.
+pub fn ax_exc_is(e: &String, names: String, builtin: bool) -> bool {
+    let names: Vec<&str> = names.split(',').collect();
+    if names.iter().any(|n| matches!(*n, "Exception" | "BaseException")) {
+        return true;
+    }
+    match e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')) {
+        Some((chain, _)) => {
+            let chain = chain.rsplit_once(';').map_or(chain, |(c, _)| c);
+            let mut cs: Vec<&str> = chain.split(',').collect();
+            // Built-in classes above built-in errors.
+            let more: Vec<&str> = cs.iter().flat_map(|c| match *c {
+                "KeyError" | "IndexError" => vec!["LookupError"],
+                "ZeroDivisionError" | "OverflowError" => vec!["ArithmeticError"],
+                "FileNotFoundError" => vec!["OSError", "IOError"],
+                _ => vec![],
+            }).collect();
+            cs.extend(more);
+            names.iter().any(|n| cs.contains(n))
+        }
+        None => builtin,
+    }
+}
+// A tuple as JSON: in Python files it stays a tuple (prints `('lit', 1)`; json.dumps writes a list).
+pub fn ax_tuple_json(v: Vec<Json>) -> Json {
+    if ax_py_on() { Json::Tup { v } } else { Json::Arr { v } }
 }
 // A tuple returned with other lengths on other paths: a JSON tuple, printed as Python prints it.
 pub fn ax_tup_json<T: AxToJson>(x: T) -> Json {
@@ -4209,6 +4326,10 @@ impl AxNum for Dec {
 // Fixed types answer from their own type; a JSON value answers from what it holds (bool counts as int, as in Python).
 pub trait AxIsInstance {
     fn ax_kind(&self) -> &'static str;
+    // `type(a) is type(b)`: the names of the two kinds.
+    fn ax_type_kind(&self) -> String {
+        self.ax_kind().to_string()
+    }
     fn ax_isinstance(&self, kinds: String) -> bool {
         let k = self.ax_kind();
         // `=int` (from `type(v) is int`) is the exact kind.

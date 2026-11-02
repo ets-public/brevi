@@ -1,0 +1,13 @@
+import sys
+import threading
+
+def go(n):
+    sys.stdout.write("hi %d\n" % n)
+    sys.stdout.flush()
+
+sys.setrecursionlimit(10000)
+threading.stack_size(64 * 1024 * 1024)
+t = threading.Thread(target=go, args=(3,))
+t.start()
+t.join()
+threading.Thread(target=go, args=(4,)).start()
