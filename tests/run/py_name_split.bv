@@ -1,0 +1,11 @@
+def f(xs):
+    out = []
+    for t, a in xs:
+        if t > 1:
+            c = (t, a, [a])
+            out.append(c[0] + len(c[2]))
+        for b in range(2):
+            c = (b, [a])
+            out.append(c[0] + len(c[1]))
+    return out
+print(f([(1, "x"), (2, "y")]))
