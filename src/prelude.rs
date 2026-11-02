@@ -4988,3 +4988,11 @@ impl AxRePy for String {
         all.into_iter().map(|g| if g.ax_re_groups().len() == 1 { g[1].clone() } else { g[0].clone() }).collect()
     }
 }
+impl AxRePy for Json {
+    fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String> {
+        match self { Json::Str { v } => v.ax_re_match(p), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+    fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
+        match self { Json::Str { v } => v.ax_re_findall(p), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+}
