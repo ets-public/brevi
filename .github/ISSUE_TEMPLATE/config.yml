@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/ets-public/brevi/security/advisories/new
+    about: Please report vulnerabilities privately, not as an issue.
+  - name: Documentation
+    url: https://brevi-lang.org
+    about: The agent skill, language guide, reference and benchmarks.
