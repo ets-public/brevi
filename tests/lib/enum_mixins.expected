@@ -1,0 +1,6 @@
+2 H ['HEARTS', 'SPADES']
+[<Ordered.LOW: 1>, <Ordered.HIGH: 2>] Ordered.HIGH 0
+['b', 'a', 'm']
+True RED Color.BLUE Color.RED Color.RED <Color.RED: 'red'>
+True 6 Lvl.HI [<Lvl.LO: 1>, <Lvl.HI: 5>] True 1
+{"c": "red"}

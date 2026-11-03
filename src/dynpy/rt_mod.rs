@@ -1731,6 +1731,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
     match m {
         "re" => re_fn(n, a),
         "json" => json_fn(n, a),
+        "enum" => enum_fn(n, a),
         _ => Err(unsupported(&format!("{m}.{n}"))),
     }
 }
@@ -1746,6 +1747,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("re", "ASCII" | "A") => Some(V::Int(256)),
         ("re", "error") => Some(V::Class(exc_class("error"))),
         ("json", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
+        ("enum", "Enum") => Some(V::Class(enum_base())),
         _ => None,
     })
 }
