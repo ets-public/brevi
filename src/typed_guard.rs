@@ -9,7 +9,7 @@
 // - print(q, q.popleft()): CPython reads every argument before printing; the typed build writes each one
 //   as it goes, so a later argument that changes an earlier one shows the old value.
 use crate::dynpy::parse::{Arg, CompFor, Ex, FPart, St, Stmt};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 struct G {
@@ -73,6 +73,9 @@ pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
             let line = body.iter().find(|s| matches!(&s.st, St::Assign(..) | St::AugAssign(..))).map_or(1, |s| s.line);
             return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int"), vec![]));
         }
+    }
+    if let Some((line, why)) = findall_groups(&body).or_else(|| default_reads(&body)) {
+        return Some((line, why, vec![]));
     }
     let mut hits = vec![];
     uses(&body, &g, &mut hits);
@@ -1155,5 +1158,193 @@ mod tests {
         assert!(!needs("a = [1]\nb = [2]\nbook = a if len(a) else b\nprint(len(book))\n"));
         assert!(needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.group(2) is None)\n"));
         assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
+    }
+}
+
+// Capturing groups in a regular expression: `(` not escaped, not in a class, not `(?:`, `(?=`... (`(?P<n>` counts).
+pub(crate) fn re_groups(p: &str) -> usize {
+    let b: Vec<char> = p.chars().collect();
+    let (mut i, mut n, mut class) = (0, 0, false);
+    while i < b.len() {
+        match b[i] {
+            '\\' => i += 1,
+            '[' if !class => {
+                class = true;
+                // `[]...]` and `[^]...]`: a first `]` is a member.
+                if b.get(i + 1) == Some(&'^') {
+                    i += 1;
+                }
+                if b.get(i + 1) == Some(&']') {
+                    i += 1;
+                }
+            }
+            ']' if class => class = false,
+            '(' if !class => {
+                if b.get(i + 1) != Some(&'?') || (b.get(i + 2) == Some(&'P') && b.get(i + 3) == Some(&'<')) {
+                    n += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    n
+}
+
+// `re.findall` with two or more groups gives a list of tuples, which the typed build (a list of strings)
+// cannot hold; a pattern it cannot see (not a literal, or a name set once by re.compile of one) may have them.
+fn findall_groups(body: &[Stmt]) -> Option<(usize, String)> {
+    fn all(body: &[Stmt], f: &mut dyn FnMut(usize, &Ex)) {
+        for s in body {
+            let line = s.line;
+            walk_st(&s.st, &mut |e| f(line, e));
+            match &s.st {
+                St::Def(d) => all(&d.body, f),
+                St::Class(c) => all(&c.body, f),
+                st => each_block(st, &mut |b| all(b, f)),
+            }
+        }
+    }
+    let lit = |e: &Ex| if let Ex::Str(p) = e { Some(p.clone()) } else { None };
+    let pos = |a: &[Arg], k: usize| match a.get(k) {
+        Some(Arg::Pos(x)) => Some(x.clone()),
+        _ => None,
+    };
+    // name -> the pattern of each `name = re.compile("...")` (None: set some other way too).
+    let mut pats: HashMap<String, Option<String>> = HashMap::new();
+    fn sets(body: &[Stmt], f: &mut dyn FnMut(&St)) {
+        for s in body {
+            f(&s.st);
+            match &s.st {
+                St::Def(d) => sets(&d.body, f),
+                St::Class(c) => sets(&c.body, f),
+                st => each_block(st, &mut |b| sets(b, f)),
+            }
+        }
+    }
+    sets(body, &mut |st| {
+        if let St::Assign(ts, v) = st {
+            for t in ts {
+                let n = match t {
+                    Ex::Name(n) => n.clone(),
+                    Ex::Attr(_, n) => format!(".{n}"),
+                    _ => continue,
+                };
+                let p = match v {
+                    Ex::Call(f, a) if matches!(f.as_ref(), Ex::Attr(m, c) if c == "compile" && matches!(m.as_ref(), Ex::Name(r) if r == "re")) => pos(a, 0).as_ref().and_then(lit),
+                    _ => None,
+                };
+                let e = pats.entry(n).or_insert(p.clone());
+                if *e != p {
+                    *e = None;
+                }
+            }
+        }
+    });
+    let mut hit = None;
+    all(body, &mut |line, e| {
+        if hit.is_some() {
+            return;
+        }
+        let Ex::Call(f, a) = e else { return };
+        let Ex::Attr(on, m) = f.as_ref() else { return };
+        if m != "findall" {
+            return;
+        }
+        let pat = match on.as_ref() {
+            Ex::Name(r) if r == "re" => pos(a, 0).as_ref().and_then(lit),
+            Ex::Name(n) => pats.get(n).cloned().flatten(),
+            Ex::Attr(_, n) => pats.get(&format!(".{n}")).cloned().flatten(),
+            _ => None,
+        };
+        if pat.as_deref().map_or(true, |p| re_groups(p) >= 2) {
+            hit = Some((line, "re.findall with two or more groups gives tuples (or a pattern the typed build cannot see)".to_string()));
+        }
+    });
+    hit
+}
+
+// Reading a missing key of a defaultdict puts it in (Python calls the factory), where the typed build reads
+// the zero value and leaves the dict as it was. That shows only when the program looks at the dict's keys
+// (len, a loop, `in`, print, passing it on): then a read that may miss sends the file to the dynamic build.
+fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
+    fn sts(body: &[Stmt], f: &mut dyn FnMut(&Stmt)) {
+        for s in body {
+            f(s);
+            match &s.st {
+                St::Def(d) => sts(&d.body, f),
+                St::Class(c) => sts(&c.body, f),
+                st => each_block(st, &mut |b| sts(b, f)),
+            }
+        }
+    }
+    let key = |e: &Ex| match e {
+        Ex::Name(n) => Some(n.clone()),
+        Ex::Attr(o, n) if matches!(o.as_ref(), Ex::Name(s) if s == "self") => Some(format!("self.{n}")),
+        _ => None,
+    };
+    let is_dd = |v: &Ex| matches!(v, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Name(n) if n == "defaultdict") || matches!(f.as_ref(), Ex::Attr(m, n) if n == "defaultdict" && matches!(m.as_ref(), Ex::Name(c) if c == "collections")));
+    let mut dds: HashSet<String> = HashSet::new();
+    sts(body, &mut |s| match &s.st {
+        St::Assign(ts, v) if is_dd(v) => ts.iter().filter_map(key).for_each(|k| {
+            dds.insert(k);
+        }),
+        St::AnnAssign(t, Some(v)) if is_dd(v) => {
+            if let Some(k) = key(t) {
+                dds.insert(k);
+            }
+        }
+        _ => {}
+    });
+    if dds.is_empty() {
+        return None;
+    }
+    // Methods on d[k] that change it (and so go through the typed build's insert-on-miss path).
+    const CHANGES: &[&str] = &["append", "extend", "add", "update", "insert", "appendleft", "discard", "remove", "pop", "popleft", "clear", "setdefault", "sort"];
+    let mut read_at: Option<usize> = None;
+    let mut seen = false;
+    sts(body, &mut |s| {
+        let mut safe: Vec<*const Ex> = vec![];
+        let mut inner: Vec<*const Ex> = vec![];
+        match &s.st {
+            St::Assign(ts, _) => ts.iter().for_each(|t| safe.push(t as *const Ex)),
+            St::AugAssign(t, _, _) => safe.push(t as *const Ex),
+            St::Del(xs) => xs.iter().for_each(|t| safe.push(t as *const Ex)),
+            _ => {}
+        }
+        walk_st(&s.st, &mut |e| {
+            match e {
+                Ex::Call(f, _) => {
+                    if let Ex::Attr(o, m) = f.as_ref() {
+                        if CHANGES.contains(&m.as_str()) && matches!(o.as_ref(), Ex::Index(..)) {
+                            safe.push(o.as_ref() as *const Ex);
+                        }
+                        // `d.get(k)`, `d.setdefault(...)`, `d.pop(k, ...)`: the dict itself is not looked at.
+                        if key(o).is_some_and(|k| dds.contains(&k)) && matches!(m.as_str(), "get" | "setdefault" | "pop") {
+                            inner.push(o.as_ref() as *const Ex);
+                        }
+                    }
+                }
+                Ex::Index(b, _) if key(b).is_some_and(|k| dds.contains(&k)) => {
+                    inner.push(b.as_ref() as *const Ex);
+                    if !safe.contains(&(e as *const Ex)) {
+                        read_at.get_or_insert(s.line);
+                    }
+                }
+                // `self.d` reached through its Attr: the Name `self` under it is not the dict.
+                Ex::Attr(o, _) if key(e).is_some_and(|k| dds.contains(&k)) => {
+                    if !inner.contains(&(e as *const Ex)) {
+                        seen = true;
+                    }
+                    inner.push(o.as_ref() as *const Ex);
+                }
+                Ex::Name(n) if dds.contains(n) && !inner.contains(&(e as *const Ex)) && !safe.contains(&(e as *const Ex)) => seen = true,
+                _ => {}
+            }
+        });
+    });
+    match (read_at, seen) {
+        (Some(line), true) => Some((line, "reading a missing key of a defaultdict puts the key in, which the typed build does not".into())),
+        _ => None,
     }
 }

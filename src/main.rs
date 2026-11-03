@@ -364,6 +364,15 @@ fn main() {
             exit(1);
         }
     };
+    // Typed only with CPython running some of Brevi's own modules' functions (math.gcd, itertools.product):
+    // the dynamic build has them natively, so it goes first (no libpython at run time, fine under --sandbox).
+    if dyn_ok && !forced_dyn() && pybridge::active() && pybridge::stdlib_only() {
+        let why = format!("{} not in the typed build", pybridge::uses().join(", "));
+        if dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
+            exit(0);
+        }
+        *DYN_BLOCKED.lock().unwrap() = None;
+    }
     if dyn_ok {
         DEFER_REPORT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
