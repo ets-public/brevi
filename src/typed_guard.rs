@@ -21,6 +21,7 @@ struct G {
     matches: HashSet<String>,    // names holding a re match (a Match object or None)
     dicts: HashSet<String>,      // names holding a dict
     pure_gens: HashSet<String>,  // generator functions the typed build may run eagerly
+    tups: HashSet<String>,       // names holding tuple(...) of a list or iterator, or containers of them
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
@@ -49,9 +50,9 @@ pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
     let mut g = G::default();
     collect_params(&body, &mut g);
     for _ in 0..8 {
-        let before = (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len());
+        let before = (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len());
         learn(&body, None, &mut g);
-        if before == (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len()) {
+        if before == (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len()) {
             break;
         }
     }
@@ -257,6 +258,25 @@ fn is_set(e: &Ex, g: &G) -> bool {
     }
 }
 
+// tuple(xs): the typed build keeps it as a list, so printing it shows [1, 2] where CPython shows (1, 2).
+fn is_tup(e: &Ex, g: &G) -> bool {
+    match e {
+        Ex::Call(f, args) => match f.as_ref() {
+            Ex::Name(n) if n == "tuple" => !args.is_empty(),
+            Ex::Name(n) if matches!(n.as_str(), "sorted" | "list" | "reversed" | "set" | "frozenset" | "dict") => args.iter().any(|a| matches!(a, Arg::Pos(x) if is_tup(x, g))),
+            Ex::Attr(r, m) if matches!(m.as_str(), "copy" | "items" | "keys" | "values" | "get" | "pop") => is_tup(r, g),
+            _ => false,
+        },
+        Ex::Comp(_, elt, val, _) => is_tup(elt, g) || val.as_deref().is_some_and(|v| is_tup(v, g)),
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().any(|x| is_tup(x, g)),
+        Ex::Dict(items) => items.iter().any(|(k, v)| k.as_ref().is_some_and(|k| is_tup(k, g)) || is_tup(v, g)),
+        Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.tups.contains(&k)),
+        Ex::Index(b, _) => is_tup(b, g),
+        Ex::IfExp(_, a, b) | Ex::Or(a, b) => is_tup(a, g) || is_tup(b, g),
+        _ => false,
+    }
+}
+
 fn is_holder(e: &Ex, g: &G) -> bool {
     match e {
         Ex::List(v) | Ex::Tuple(v) => v.iter().any(|x| is_set(x, g) || is_holder(x, g)),
@@ -360,6 +380,9 @@ fn bind(t: &Ex, v: &Ex, g: &mut G) {
     match t {
         Ex::Name(_) | Ex::Attr(..) => {
             let k = key(t).unwrap();
+            if is_tup(v, g) {
+                g.tups.insert(k.clone());
+            }
             if is_match(v, g) {
                 g.matches.insert(k.clone());
             }
@@ -372,7 +395,12 @@ fn bind(t: &Ex, v: &Ex, g: &mut G) {
                 g.holders.insert(k);
             }
         }
-        Ex::Index(b, _) => {
+        Ex::Index(b, i) => {
+            if is_tup(v, g) || is_tup(i, g) {
+                if let Some(r) = root(b) {
+                    g.tups.insert(r);
+                }
+            }
             if is_set(v, g) || is_holder(v, g) {
                 if let Some(r) = root(b) {
                     g.holders.insert(r);
@@ -433,6 +461,11 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
             if let Ex::Call(f, args) = e {
                 let pos: Vec<&Ex> = args.iter().filter_map(|a| if let Arg::Pos(x) = a { Some(x) } else { None }).collect();
                 if let Ex::Attr(r, m) = f.as_ref() {
+                    if matches!(m.as_str(), "append" | "appendleft" | "insert" | "extend" | "add" | "setdefault" | "update" | "put" | "push") && pos.iter().any(|x| is_tup(x, g)) {
+                        if let Some(k) = root(r) {
+                            g.tups.insert(k);
+                        }
+                    }
                     if matches!(m.as_str(), "append" | "appendleft" | "insert" | "extend" | "add" | "setdefault" | "update" | "put" | "push") && pos.iter().any(|x| is_set(x, g) || is_holder(x, g)) {
                         if let Some(k) = root(r) {
                             g.holders.insert(k);
@@ -957,6 +990,9 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
                     if pos.iter().any(|x| is_match(x, g)) {
                         return Some(format!("{n}() of a re match shows a Match object or None"));
                     }
+                    if pos.iter().any(|x| is_tup(x, g)) {
+                        return Some(format!("{n}() of tuple(...) shows a tuple, which the typed build keeps as a list"));
+                    }
                     if n == "print" {
                         return print_changes(&pos);
                     }
@@ -985,15 +1021,21 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
         Ex::FStr(parts) => {
             let mut bad = false;
             let mut m = false;
+            let mut tup = false;
             fparts(parts, &mut |x| {
                 bad |= set_or_holder(x);
                 m |= is_match(x, g);
+                tup |= is_tup(x, g);
             });
+            if tup {
+                return Some("an f-string of tuple(...) shows a tuple, which the typed build keeps as a list".into());
+            }
             if m {
                 return Some("an f-string of a re match shows a Match object or None".into());
             }
             bad.then(|| "an f-string of a set shows CPython's hash order".to_string())
         }
+        Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && matches!(r.as_ref(), Ex::Tuple(v) if v.iter().any(|x| is_tup(x, g))) => Some("% of tuple(...) shows a tuple, which the typed build keeps as a list".into()),
         Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && (set_or_holder(r) || matches!(r.as_ref(), Ex::Tuple(v) if v.iter().any(|x| set_or_holder(x)))) => Some("% of a set shows CPython's hash order".into()),
         Ex::Comp(k, _, _, fors) if *k != 's' && fors.iter().any(|c| is_set(&c.iter, g)) => Some("a comprehension over a set walks it in CPython's hash order".into()),
         // `2 ** 100` is past 64 bits (`3 ** 50 % m`, taken modulo a number, is worked out by the typed build).
@@ -1074,6 +1116,8 @@ mod tests {
         assert!(needs("s = {1, 2}\nxs = list(s)\n"));
         assert!(needs("s = {1, 2}\nprint(f'{s}')\n"));
         assert!(needs("s = {1, 2}\nprint([x for x in s])\n"));
+        assert!(needs("t = tuple(map(int, '1 2'.split()))\nprint(t)\n"));
+        assert!(needs("u = []\nu.append(tuple([1, 2]))\nprint(f'{u}')\n"));
     }
     #[test]
     fn order_free_set_use_stays_typed() {

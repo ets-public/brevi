@@ -2060,7 +2060,8 @@ impl Emitter {
                 } else {
                     self.place(recv)
                 };
-                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if contains_try(b)));
+                // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.
+                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if can_fail(b)));
                 // Outside a function that can fail and outside try/except, a failure inside the lambda stops the
                 // program with its message, as an uncaught Python exception does (`(int(x) for x in parts)`).
                 let tries = tries && (self.fallible || !self.catch.is_empty());
