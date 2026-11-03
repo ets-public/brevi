@@ -82,6 +82,7 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
     let src = crate::modules::fill_file_name(&src, Path::new(file));
+    let src = crate::pygen::rewrite(&src);
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let mut mods = vec![emit::Module { name: "__main__".into(), body }];
