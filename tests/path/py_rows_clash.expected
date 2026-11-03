@@ -1,0 +1,3 @@
+{"path":"dynamic","line":1,"why":"a mixed list such as [1, 'a'] and a tuple such as (1, 'a') have the same item types here, which the typed build can't keep apart"}
+{"path":"dynamic","line":1,"why":"a mixed list such as [1, 'a'] and a tuple such as (1, 'a') have the same item types here, which the typed build can't keep apart"}
+{"path":"dynamic","line":1,"why":"a mixed list such as [1, 'a'] and a tuple such as (1, 'a') have the same item types here, which the typed build can't keep apart"}

@@ -164,9 +164,9 @@ The typed build copies the CPython behaviour that shows in a program's output: i
 Some Python programs type cleanly but would still print something different from CPython. `typed_guard.rs` finds them on the Python syntax tree (it reuses the dynamic build's parser) and sends them straight to the dynamic build. Current cases:
 
 - **Set order.** The typed build keeps a set sorted. CPython walks a set in hash-table order (`{3, -1, 5}` prints `{3, 5, -1}`). Printing, iterating, `list(s)`, `s.pop()` or joining a set goes dynamic. Order-free uses (`x in s`, `len`, `sorted`, `min`, `sum`, set algebra, and a comprehension over a set handed straight to `max`, `sorted`, `any`, `len` and the like) stay typed. A set of strings (or of tuples led by one) has no fixed order in CPython, whose string hashes change every run, so walking or printing it stays typed too: `check_soft` names the sets, `emit` adds an `ax_rand_set(&name)` mark after each place one is set, and rustc only accepts it when the elements are strings (`AxRandElem` in `prelude.rs`). If any mark fails, the file goes where the guard would have sent it.
-- **`tuple(xs)` printed.** The typed build holds such a tuple as a list, so `print(tuple(xs))` would show `[1, 2]`.
+- **`tuple(xs)` printed.** The typed build holds such a tuple as a list, so `print(tuple(xs))` would show `[1, 2]`. The guard follows such values into lists, through a helper's parameter (`out.append(tuple(cur))`) and through returns; `m.groups()` counts as one too.
 - **Argument order.** `print(q, q.popleft())`: CPython reads every argument first; the typed build would print `q` before the pop.
-- **Regex matches** printed directly (`<re.Match object ...>` versus a list of groups).
+- **Regex matches** printed directly (`<re.Match object ...>` versus a list of groups). (A group that did not match is the None string in a typed match, so `m.group(2) is None` and printing it stay typed.)
 - **Changing a dict or set while looping over it**, which CPython stops with an error.
 - **Generators** that cannot safely be run early. The typed build turns a generator into a function that returns a list, which is only correct when running it early cannot be told apart.
 

@@ -1651,6 +1651,15 @@ impl Parser {
     }
 
     // Is this a value of one of the program's classes (`self`, or a name set from `C(...)`)?
+    // `re.sub(p, repl, s)` with repl a def of the program: called on each match, as a lambda would be.
+    fn repl_fn(&self, f: &mut Expr, line: usize) {
+        if let Expr::Ident(n) = f {
+            if self.py && self.user_fns.contains(n) {
+                let call = Expr::Call(n.clone(), vec![(None, Expr::Ident("ax_m".into()))], line);
+                *f = Expr::Lambda(vec!["ax_m".into()], Box::new(call));
+            }
+        }
+    }
     fn own_method(&self, recv: &Expr) -> bool {
         matches!(recv, Expr::Ident(n) if n == "self_" || self.held.contains(n))
     }
@@ -2171,7 +2180,9 @@ impl Parser {
                                     ("split", 2) => Some(r(args.remove(1), "re_split", vec![args.remove(0)])),
                                     ("sub", 3) => {
                                         let s = args.remove(2);
-                                        Some(r(s, "re_sub", args.drain(..).collect()))
+                                        let mut a: Vec<Expr> = args.drain(..).collect();
+                                        self.repl_fn(&mut a[1], line);
+                                        Some(r(s, "re_sub", a))
                                     }
                                     _ => None,
                                 };
@@ -2198,7 +2209,9 @@ impl Parser {
                                 }
                                 if name == "sub" && args.len() == 2 {
                                     let s = args.remove(1);
-                                    e = r(s, "re_sub", vec![e, args.remove(0)]);
+                                    let mut f = args.remove(0);
+                                    self.repl_fn(&mut f, line);
+                                    e = r(s, "re_sub", vec![e, f]);
                                     continue;
                                 }
                             }

@@ -28,7 +28,7 @@ const PURE_METHODS: &[&str] = &[
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "splice", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
-const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
+const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by", "re_sub"];
 // Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
 const ONE_ARG_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "sort_by"];
 
@@ -2019,6 +2019,8 @@ impl Emitter {
                     op => format!("({a} {op} {b})"),
                 }
             }
+            // A None put in a JSON slot: JSON null (no type to take ax_none's from).
+            Expr::Call(name, args, _) if name == "ax_to_json" && matches!(args.as_slice(), [(_, Expr::Call(n, a, _))] if n == "none" && a.is_empty()) => "Json::Null".to_string(),
             Expr::Call(name, args, line) => {
                 self.line = *line;
                 let c = self.call(name, args, false);
@@ -2298,6 +2300,8 @@ impl Emitter {
                 let b = self.block_d(body, true);
                 let lab = self.close_loop();
                 self.locals = outer;
+                // Passed to a Python library call that may change it (`w.writerow(r)`): a fresh copy too.
+                let p = if !p.starts_with("mut ") && !p.starts_with('(') && b.contains(&format!("ax_pyb_argm(&mut {p})")) { format!("mut {p}") } else { p };
                 format!("{lab}for {p} in {it} {b}")
             }
             // `while true:` is Rust's `loop`, so a function may end in it and return from inside.

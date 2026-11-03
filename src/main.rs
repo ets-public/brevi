@@ -1011,7 +1011,11 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
     if !errs.is_empty() {
         return Err(errs);
     }
-    // A tuple type used both for mixed-list rows and for real tuples: rows print as tuples then.
+    // A tuple type used both for mixed-list rows and for real tuples: rows would print as tuples (and be
+    // copied where Python shares them), so a Python file goes to the dynamic build.
+    if infer::rows_clash() && py {
+        return Err(vec![diag::Diag::new("check", 1, 1, "a mixed list such as [1, 'a'] and a tuple such as (1, 'a') have the same item types here, which the typed build can't keep apart")]);
+    }
     if infer::rows_clash() {
         for it in items.iter_mut() {
             if let ast::Item::Fn { body, .. } | ast::Item::Test { body, .. } = it {

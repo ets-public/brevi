@@ -4163,8 +4163,16 @@ impl Ord for Dec {
         if !self.is_frac() && !o.is_frac() {
             return self.0.cmp(&o.0);
         }
+        // None (ax_none) next to a Fraction: equal only to None.
+        let none = |x: &Dec| x.0 == i128::MIN && !x.is_frac();
+        if none(self) || none(o) {
+            return none(o).cmp(&none(self));
+        }
         let ((a, b), (c, d)) = (self.nd(), o.nd());
-        (a * d).cmp(&(c * b))
+        match (a.checked_mul(d), c.checked_mul(b)) {
+            (Some(x), Some(y)) => x.cmp(&y),
+            _ => (a as f64 / b as f64).partial_cmp(&(c as f64 / d as f64)).unwrap_or(std::cmp::Ordering::Equal),
+        }
     }
 }
 impl Hash for Dec {
@@ -6092,6 +6100,28 @@ struct AxRxP {
     i: usize,
     groups: usize,
 }
+impl AxRxP {
+    // The character after a backslash (already read): `\x00`, `\u00e9` and `\n` name characters.
+    fn esc(&mut self, e: char) -> char {
+        let n = match e {
+            'x' => 2,
+            'u' => 4,
+            'U' => 8,
+            'f' => return '\x0c',
+            'v' => return '\x0b',
+            'a' => return '\x07',
+            _ => return ax_rx_esc(e),
+        };
+        let h: String = self.c.iter().skip(self.i).take(n).collect();
+        match u32::from_str_radix(&h, 16).ok().filter(|_| h.len() == n).and_then(char::from_u32) {
+            Some(c) => {
+                self.i += n;
+                c
+            }
+            None => e,
+        }
+    }
+}
 fn ax_rx_class(e: char) -> Option<(Vec<(char, char)>, bool)> {
     let d = vec![('0', '9')];
     let w = vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')];
@@ -6218,7 +6248,7 @@ impl AxRxP {
                             rs.extend(cs);
                             continue;
                         }
-                        ax_rx_esc(e)
+                        self.esc(e)
                     } else {
                         c
                     };
@@ -6226,8 +6256,9 @@ impl AxRxP {
                         let mut hi = self.c[self.i + 1];
                         self.i += 2;
                         if hi == '\\' {
-                            hi = ax_rx_esc(self.c[self.i]);
+                            let e = self.c[self.i];
                             self.i += 1;
+                            hi = self.esc(e);
                         }
                         rs.push((lo, hi));
                     } else {
@@ -6252,7 +6283,7 @@ impl AxRxP {
                 }
                 match ax_rx_class(e) {
                     Some((cs, neg)) => AxRx::Class(cs, neg),
-                    None => AxRx::Char(ax_rx_esc(e)),
+                    None => AxRx::Char(self.esc(e)),
                 }
             }
             c => AxRx::Char(c),
@@ -6389,7 +6420,9 @@ fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool)
     None
 }
 fn ax_rx_groups(s: &[char], caps: &AxCaps) -> Vec<String> {
-    let mut v: Vec<String> = caps.iter().map(|g| g.map_or(String::new(), |(a, b)| s[a..b].iter().collect())).collect();
+    // A group that took no part in the match is None in Python (the None string; findall and sub read it as "").
+    let none = || if ax_py_on() { String::ax_none() } else { String::new() };
+    let mut v: Vec<String> = caps.iter().map(|g| g.map_or_else(none, |(a, b)| s[a..b].iter().collect())).collect();
     // In Python mode a match also carries where each group starts and ends, for m.start(), m.end() and m.span().
     if ax_py_on() {
         let spans: Vec<String> = caps.iter().map(|g| g.map_or("-1:-1".to_string(), |(a, b)| format!("{a}:{b}"))).collect();
@@ -6429,6 +6462,7 @@ pub trait AxRe {
     fn ax_re_list(&self, p: String) -> Vec<String>;
     fn ax_re_sub(&self, p: String, r: String) -> String;
     fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, f: F) -> String;
+    fn ax_try_re_sub_with<F: FnMut(Vec<String>) -> R<String>>(&self, p: String, f: F) -> R<String>;
     fn ax_re_split(&self, p: String) -> Vec<String>;
 }
 fn ax_rx_each(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps)) -> Vec<char> {
@@ -6467,7 +6501,7 @@ impl AxRe for String {
             let mut i = 0;
             while i < rc.len() {
                 if rc[i] == '\\' && i + 1 < rc.len() && rc[i + 1].is_ascii_digit() {
-                    o.push_str(g.get(rc[i + 1] as usize - '0' as usize).map_or("", |s| s.as_str()));
+                    o.push_str(g.get(rc[i + 1] as usize - '0' as usize).filter(|s| !s.ax_is_none()).map_or("", |s| s.as_str()));
                     i += 2;
                 } else {
                     o.push(rc[i]);
@@ -6490,6 +6524,26 @@ impl AxRe for String {
         });
         out.extend(&cs[last.min(cs.len())..]);
         out
+    }
+    // The same with a function that can raise: the first error stops the substitution and is passed on.
+    fn ax_try_re_sub_with<F: FnMut(Vec<String>) -> R<String>>(&self, p: String, mut f: F) -> R<String> {
+        let mut err = None;
+        let out = self.ax_re_sub_with(p, |g| {
+            if err.is_some() {
+                return String::new();
+            }
+            match f(g) {
+                Ok(s) => s,
+                Err(e) => {
+                    err = Some(e);
+                    String::new()
+                }
+            }
+        });
+        match err {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
     }
     fn ax_re_split(&self, p: String) -> Vec<String> {
         let mut out = vec![];
@@ -6523,7 +6577,7 @@ impl AxRePy for String {
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         let all = self.ax_re_all(p.as_ref().to_string());
-        all.into_iter().map(|g| if g.ax_re_groups().len() == 1 { g[1].clone() } else { g[0].clone() }).collect()
+        all.into_iter().map(|g| if g.ax_re_groups().len() == 1 { if g[1].ax_is_none() { String::new() } else { g[1].clone() } } else { g[0].clone() }).collect()
     }
 }
 impl AxRePy for Json {

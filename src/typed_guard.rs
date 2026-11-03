@@ -254,8 +254,13 @@ fn is_tup(e: &Ex, g: &G) -> bool {
     match e {
         Ex::Call(f, args) => match f.as_ref() {
             Ex::Name(n) if n == "tuple" => !args.is_empty(),
+            // A function that returns tuple(...) values (or a list of them).
+            Ex::Name(n) if g.tups.contains(&format!("{n}()")) => true,
+            Ex::Attr(_, m) if g.tups.contains(&format!("{m}()")) => true,
             Ex::Name(n) if matches!(n.as_str(), "sorted" | "list" | "reversed" | "set" | "frozenset" | "dict") => args.iter().any(|a| matches!(a, Arg::Pos(x) if is_tup(x, g))),
             Ex::Attr(r, m) if matches!(m.as_str(), "copy" | "items" | "keys" | "values" | "get" | "pop") => is_tup(r, g),
+            // m.groups() is a tuple.
+            Ex::Attr(_, m) if m == "groups" => true,
             _ => false,
         },
         Ex::Comp(_, elt, val, _) => is_tup(elt, g) || val.as_deref().is_some_and(|v| is_tup(v, g)),
@@ -438,6 +443,9 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
             }
             St::Return(Some(v)) => {
                 if let Some(f) = func {
+                    if is_tup(v, g) {
+                        g.tups.insert(format!("{f}()"));
+                    }
                     if is_set(v, g) {
                         g.set_fns.insert(f.to_string());
                     } else if is_holder(v, g) {
@@ -470,6 +478,12 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
                                 g.sets.insert(p.clone());
                             } else if is_holder(a, g) {
                                 g.holders.insert(p.clone());
+                            }
+                            // `perms(xs, cur, out)` whose body does `out.append(tuple(cur))`: the caller's list holds tuples.
+                            if g.tups.contains(p) {
+                                if let Some(r) = root(a) {
+                                    g.tups.insert(r);
+                                }
                             }
                         }
                     }
@@ -960,16 +974,6 @@ fn shown(e: &Ex, g: &G) -> Option<(String, Option<Vec<String>>)> {
 
 fn shown_why(e: &Ex, g: &G) -> Option<String> {
     let set_or_holder = |x: &Ex| is_set(x, g) || is_holder(x, g);
-    // `m.group(3) is None`: a group that took no part in the match is None in Python; the typed build
-    // reads it as "".
-    if let Ex::Cmp(l, ops) = e {
-        let group = |x: &Ex| matches!(x, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Attr(_, m) if m == "group"));
-        let mut sides = vec![l.as_ref()];
-        sides.extend(ops.iter().map(|(_, x)| x));
-        if ops.iter().any(|(op, _)| matches!(*op, "is" | "is not" | "==" | "!=")) && sides.iter().any(|x| group(x)) && sides.iter().any(|x| matches!(x, Ex::NoneV)) {
-            return Some("a re group compared with None (None when the group did not match)".into());
-        }
-    }
     match e {
         Ex::Call(f, args) => {
             let pos: Vec<&Ex> = args.iter().filter_map(|a| if let Arg::Pos(x) | Arg::Star(x) = a { Some(x) } else { None }).collect();
@@ -1109,6 +1113,9 @@ mod tests {
         assert!(needs("s = {1, 2}\nprint([x for x in s])\n"));
         assert!(needs("t = tuple(map(int, '1 2'.split()))\nprint(t)\n"));
         assert!(needs("u = []\nu.append(tuple([1, 2]))\nprint(f'{u}')\n"));
+        // Through a helper's parameter, and through a function's result.
+        assert!(needs("def go(cur, out):\n    out.append(tuple(cur))\ndef main():\n    res = []\n    go([1, 2], res)\n    print(res)\nmain()\n"));
+        assert!(needs("def f():\n    out = []\n    out.append(tuple([1, 2]))\n    return out\nprint(f())\n"));
     }
     #[test]
     fn order_free_set_use_stays_typed() {
@@ -1144,7 +1151,8 @@ mod tests {
         assert!(needs("a = []\nb = []\nbook = a if len(a) else b\nbook.append(1)\nprint(b)\n"));
         assert!(needs("a = [1]\nb = []\ndef f(c):\n    book = a if c else b\n    if book:\n        book.remove(1)\n"));
         assert!(!needs("a = [1]\nb = [2]\nbook = a if len(a) else b\nprint(len(book))\n"));
-        assert!(needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.group(2) is None)\n"));
+        assert!(!needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.group(2) is None)\n"));
+        assert!(needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.groups())\n"));
         assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
     }
 }
