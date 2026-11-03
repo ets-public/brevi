@@ -1,4 +1,4 @@
 {"line":3,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
 check exit 1
-note: ran with python3; Brevi could not build line 3: name 'totl' is not defined
+{"path":"cpython","line":3,"why":"Brevi could not build it: name 'totl' is not defined","by":"python3"}
 run exit 1

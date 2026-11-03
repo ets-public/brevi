@@ -1,3 +1,4 @@
+{"path":"dynamic","line":2,"why":"unknown method .gcd()"}
 Traceback (most recent call last):
 TypeError: 'method' object is not subscriptable
 exit 1

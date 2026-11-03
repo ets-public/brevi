@@ -1,4 +1,4 @@
 {"line":2,"msg":"no Python type has a method .uppr()","fix":"did you mean .upper()?"}
 check exit 1
-note: ran with python3; Brevi could not build line 2: no Python type has a method .uppr()
+{"path":"cpython","line":2,"why":"Brevi could not build it: no Python type has a method .uppr()","by":"python3"}
 run exit 1

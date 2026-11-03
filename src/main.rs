@@ -596,7 +596,8 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         }
         Ok(o) if held => {
             print!("{}", String::from_utf8_lossy(&o.stdout));
-            std::io::stderr().write_all(&o.stderr).ok();
+            let err = String::from_utf8_lossy(&o.stderr);
+            err.lines().filter(|l| !l.starts_with("{\"dyn_blocked\":")).for_each(|l| eprintln!("{l}"));
             eprintln!("note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines");
             1
         }
@@ -680,15 +681,17 @@ fn typed_refusal(diags: &[Diag], src: &str) -> (usize, Option<String>, String, S
     let Some(d) = diags.first() else { return (0, None, "typed build refused".into(), String::new()) };
     let mut extra = String::new();
     if EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
-        if let Some(f) = &d.fix {
-            extra.push_str(&format!(",\"fix\":\"{}\"", esc(f)));
+        if let Some(f) = json::parse(&d.to_json()).and_then(|j| j.get("fix").and_then(|v| v.str()).map(String::from)) {
+            extra.push_str(&format!(",\"fix\":\"{}\"", esc(&f)));
         }
         let more: Vec<String> = diags[1..].iter().take(5).map(|d| at(&d.to_json())).collect();
         if !more.is_empty() {
             extra.push_str(&format!(",\"also\":[{}]", more.join(",")));
         }
     }
-    (d.line, def_at_joined(src, d.line), d.msg.clone(), extra)
+    // The message as the error line gives it (no internal names: `type`, not `ax_type_of`).
+    let msg = json::parse(&d.to_json()).and_then(|j| j.get("msg").and_then(|v| v.str()).map(String::from)).unwrap_or_else(|| d.msg.clone());
+    (d.line, def_at_joined(src, d.line), msg, extra)
 }
 
 // enclosing_def for a line of the joined source (main file and its modules), looked up in the file it is in.
