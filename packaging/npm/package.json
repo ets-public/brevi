@@ -1,5 +1,5 @@
 {
-  "name": "brevi-lang",
+  "name": "brevi",
   "version": "0.23.0",
   "description": "Brevi: a programming language for AI models that compiles to Rust, with one-line JSON errors.",
   "homepage": "https://brevi-lang.org",
