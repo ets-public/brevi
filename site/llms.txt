@@ -12,7 +12,7 @@
 - [Architecture](https://brevi-lang.org/docs/architecture.md): how a source file becomes a native program.
 - [Language guide](https://brevi-lang.org/guide.md): Brevi's own syntax, for .bv files only. Not needed to build Python.
 - [Reference](https://brevi-lang.org/reference.md): details for string braces and format specs, list methods and Python spellings. Look up one name with `brevi guide WORD` instead of reading it all.
-- [Libraries](https://brevi-lang.org/libraries.md): using other .bv files, Rust crates (`use sha2 "0.10"` plus `rust fn`) and Python (`py fn`) from Brevi.
+- [Libraries](https://brevi-lang.org/libraries.md): using other .bv files, Rust crates (`use sha2 "0.11.1"` plus `rust fn`) and Python (`py fn`) from Brevi.
 - [Changelog](https://brevi-lang.org/docs/changelog.md): what changed in each release, and what is on main for the next.
 - [Benchmarks](https://brevi-lang.org/bench.md): speed against CPython and cost per finished task, with method and raw logs.
 

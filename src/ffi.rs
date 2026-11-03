@@ -1,9 +1,9 @@
 // Using code outside Brevi: Rust crates and Python.
 //
-//   use sha2 "0.10"                 # a crate (version and features optional: use reqwest "0.12" "blocking json")
+//   use sha2 "0.11.1"               # a crate (version and features optional: use reqwest "0.12" "blocking json")
 //   rust fn hex(s: str) -> str:     # a function written in Rust, called like any Brevi function
 //     use sha2::Digest;
-//     format!("{:x}", sha2::Sha256::digest(s.as_bytes()))
+//     sha2::Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 //   py fn mean(xs: [f64]) -> f64:   # a function written in Python; values cross as JSON
 //     import statistics
 //     return statistics.mean(xs)

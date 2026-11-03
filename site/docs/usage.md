@@ -194,7 +194,7 @@ window "tk"
 
 - **Python packages** in Python files: `import numpy as np`, `pandas`, `sqlite3`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
 - **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py`, about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux only.
-- **Rust crates and Python code from Brevi programs**: `use sha2 "0.10"` with a `rust fn`, or a `py fn` with a Python body. See [Libraries](/docs/libraries).
+- **Rust crates and Python code from Brevi programs**: `use sha2 "0.11.1"` with a `rust fn`, or a `py fn` with a Python body. See [Libraries](/docs/libraries).
 
 ## Speed and the build cache
 

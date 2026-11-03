@@ -15,7 +15,7 @@ start: _NL? (line _NL)* line?
      | pattern ("=>" | ":") simple?  // match arm; with nothing after it the body is the block below
      | NAME ":" (type | STRING) ("=" expr)?     // field, or typed variable
      | postfix ":" type "=" expr     // self.names: list[str] = []
-     | "use" STRING STRING*          // use "util.bv", use sha2 "0.10"
+     | "use" STRING STRING*          // use "util.bv", use sha2 "0.11.1"
      | "use" NAME STRING*
      | "allow" NAME ("," NAME)*       // allow read, write, native
      | ("global" | "nonlocal") NAME ("," NAME)*   // Python scope: see BREVI.md

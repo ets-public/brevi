@@ -1,6 +1,6 @@
 # A crate from crates.io (fetched and built once, then cached).
-use sha2 "0.10"
+use sha2 "0.11.1"
 rust fn sha256(s: str) -> str:
   use sha2::{Digest, Sha256};
-  format!("{:x}", Sha256::digest(s.as_bytes()))
+  Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 print(sha256("abc"))
