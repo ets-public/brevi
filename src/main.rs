@@ -342,7 +342,7 @@ fn main() {
             };
             if !sure.is_empty() {
                 sure.iter().for_each(print_diag);
-                // `brevi run` asks for its own exit code here, so it shows the error instead of running CPython.
+                // A test hook: tools that scan many files tell these refusals apart by exit code 3.
                 exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
             }
             if dyn_ok && dyn_fallback(cmd, &file, &argv) {
@@ -496,7 +496,7 @@ fn run_or_fall_back(file: &str, argv: &[String]) -> ! {
     let bin = build_dir(file).join(&stem);
     let flags: Vec<&String> = argv[2..dash].iter().filter(|a| matches!(a.as_str(), "--release" | "--sandbox" | "--window" | "--explain")).collect();
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
-    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").env("BREVI_SURE_EXIT", "3").output();
+    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").output();
     let code = match built {
         Ok(o) if o.status.success() => {
             std::io::stderr().write_all(&o.stderr).ok();
@@ -507,12 +507,6 @@ fn run_or_fall_back(file: &str, argv: &[String]) -> ! {
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
-            // A mistake CPython would also stop on: show it, as a compiler would, instead of running the file.
-            if o.status.code() == Some(3) {
-                print!("{out}");
-                std::io::stderr().write_all(&o.stderr).ok();
-                exit(1);
-            }
             let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
             match Command::new(&python).arg(file).args(&prog_args).spawn() {
                 Ok(mut child) => {

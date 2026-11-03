@@ -17,11 +17,13 @@ for f in tests/run/*.bv tests/errors/*.bv; do
     echo "ok   $f"
   fi
 done
-# Python mistakes CPython would also stop on: check and run report them (exit 1) instead of building the file
-# over dynamic values; py_valid.py is the control (a caught TypeError, a function defined below its caller).
+# Python mistakes CPython would also stop on: check reports them (exit 1) instead of building the file over
+# dynamic values, and run says so in its note when it runs the file with python3 (traceback lines left out:
+# they change between Python versions). py_valid.py and py_unreached.py are controls (a caught TypeError, a
+# function defined below its caller, mistakes in branches that never run).
 for f in tests/errors/*.py; do
   exp="${f%.py}.expected"
-  out=$(cd tests/errors && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; echo "check exit $?"; ../../$BREVI run "$b" 2>&1; echo "run exit $?")
+  out=$(cd tests/errors && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; echo "check exit $?"; r=$(../../$BREVI run "$b" 2>&1); c=$?; printf '%s\n' "$r" | grep -v '^  \|^Traceback\|^[A-Za-z]*Error'; echo "run exit $c")
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
