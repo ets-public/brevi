@@ -43,6 +43,17 @@ pub fn check(src: &str) -> Option<(usize, String)> {
         }
     }
     let mut out = None;
+    // Top-level code: a growing name that a function reads.
+    {
+        let mut gr = HashSet::new();
+        growing(&body, &mut gr);
+        let mut used = HashSet::new();
+        nested_names(&body, &mut used);
+        if let Some(n) = gr.iter().find(|n| used.contains(*n)) {
+            let line = body.iter().find(|s| matches!(&s.st, St::Assign(..) | St::AugAssign(..))).map_or(1, |s| s.line);
+            return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int")));
+        }
+    }
     uses(&body, &g, &mut out);
     out
 }
@@ -518,6 +529,11 @@ fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
             }
         }
         if let St::Def(d) = &s.st {
+            if hit.is_none() {
+                if let Some(n) = shared_growth(d) {
+                    hit = Some(format!("`{n}` can grow past 64 bits and is shared with another function (a closure, nonlocal or global), where the typed build keeps it a 64-bit int"));
+                }
+            }
             if hit.is_none() && own_yield(&d.body) && !pure_gen(d, g) {
                 hit = Some("the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller".into());
             }
@@ -538,6 +554,118 @@ fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
             st => each_block(st, &mut |b| uses(b, g, out)),
         }
     }
+}
+
+// Names this body (not a function defined inside it) makes grow without bound: `f *= i`, `h = h * 31 + c`,
+// `a, b = b, a + b`.
+fn growing(body: &[Stmt], out: &mut HashSet<String>) {
+    fn has_mul_of(e: &Ex, n: &str) -> bool {
+        let mut found = false;
+        walk_ex(e, &mut |x| {
+            if let Ex::Bin("*" | "**" | "<<", a, b) = x {
+                if matches!(a.as_ref(), Ex::Name(m) if m == n) || matches!(b.as_ref(), Ex::Name(m) if m == n) {
+                    found = true;
+                }
+            }
+        });
+        found
+    }
+    fn name_sum(e: &Ex, k: &mut usize) -> bool {
+        match e {
+            Ex::Bin("+", a, b) => name_sum(a, k) && name_sum(b, k),
+            Ex::Name(_) => {
+                *k += 1;
+                true
+            }
+            _ => false,
+        }
+    }
+    for s in body {
+        match &s.st {
+            St::AugAssign(Ex::Name(n), op, _) if matches!(*op, "*" | "**" | "<<") => {
+                out.insert(n.clone());
+            }
+            St::AugAssign(Ex::Name(n), "+", v) if has_mul_of(v, n) => {
+                out.insert(n.clone());
+            }
+            St::Assign(ts, v) => {
+                for t in ts {
+                    match (t, v) {
+                        (Ex::Name(n), v) if has_mul_of(v, n) => {
+                            out.insert(n.clone());
+                        }
+                        (Ex::Tuple(ns), Ex::Tuple(vs)) if ns.len() == vs.len() => {
+                            for (n, v) in ns.iter().zip(vs) {
+                                let mut k = 0;
+                                if let Ex::Name(n) = n {
+                                    if (name_sum(v, &mut k) && k >= 2) || has_mul_of(v, n) {
+                                        out.insert(n.clone());
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            St::Def(_) | St::Class(_) => {}
+            st => each_block(st, &mut |b| growing(b, out)),
+        }
+    }
+}
+
+fn declared(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        match &s.st {
+            St::Global(ns) | St::Nonlocal(ns) => out.extend(ns.iter().cloned()),
+            St::Def(_) | St::Class(_) => {}
+            st => each_block(st, &mut |b| declared(b, out)),
+        }
+    }
+}
+
+// Names read inside the functions (and classes) defined in body.
+fn nested_names(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        match &s.st {
+            St::Def(d) => names_in(&d.body, out),
+            St::Class(c) => names_in(&c.body, out),
+            st => each_block(st, &mut |b| nested_names(b, out)),
+        }
+    }
+}
+
+fn names_in(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        walk_st(&s.st, &mut |e| {
+            if let Ex::Name(n) = e {
+                out.insert(n.clone());
+            }
+        });
+        match &s.st {
+            St::Def(d) => names_in(&d.body, out),
+            St::Class(c) => names_in(&c.body, out),
+            st => each_block(st, &mut |b| names_in(b, out)),
+        }
+    }
+}
+
+// A growing int the typed build cannot make big because another function shares it: a name that grows here
+// and that a function defined inside reads, or that this function declares global or nonlocal.
+fn shared_growth(d: &crate::dynpy::parse::FuncDef) -> Option<String> {
+    let mut g = HashSet::new();
+    growing(&d.body, &mut g);
+    if g.is_empty() {
+        return None;
+    }
+    let mut decl = HashSet::new();
+    declared(&d.body, &mut decl);
+    if let Some(n) = g.iter().find(|n| decl.contains(*n)) {
+        return Some(n.clone());
+    }
+    let mut used = HashSet::new();
+    nested_names(&d.body, &mut used);
+    g.iter().find(|n| used.contains(*n)).cloned()
 }
 
 // A yield in this body (not in a function defined inside it).
