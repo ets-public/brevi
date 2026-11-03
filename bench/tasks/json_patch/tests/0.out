@@ -1,0 +1,5 @@
+["x","b","z"]
+{"debug":false,"level":4,"paths":{"home":"/h"}}
+line 13: test failed
+line 14: error
+{"conf":{"debug":false,"level":4,"paths":{"home":"/h"}},"conf2":{"debug":true,"level":4,"paths":{"home":"/h"}},"name":"app","tags":["x","b","z"],"temp":"/t"}

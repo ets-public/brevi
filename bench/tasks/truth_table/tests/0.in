@@ -1,0 +1,9 @@
+table a & b
+table a -> b
+taut a | !a
+taut a -> b
+sat a & !a
+sat (a | b) & !a
+equiv a -> b ; !a | b
+equiv a ^ b ; (a | b) & !(a & b)
+equiv a <-> b ; a ^ b

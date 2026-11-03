@@ -1,0 +1,28 @@
+ITEM tea drinks 4.99
+ITEM mug kitchen 7.50
+ITEM tea drinks 1.00
+PROMO d1 percent drinks 15
+PROMO d2 percent drinks 50
+PROMO m1 bogo cup
+PROMO d1 bogo tea
+COUPON BIG 100 5
+COUPON BIG 1 1
+CART a
+ADD tea 3
+ADD mug 1
+USE BIG
+CHECKOUT
+CART b
+USE BIG
+ADD tea 1
+REMOVE tea 2
+REMOVE tea 1
+CHECKOUT
+ADD tea 1
+CART c
+ADD milk 1
+ADD tea 0
+ADD tea two
+FOO
+CART d
+ADD mug 2

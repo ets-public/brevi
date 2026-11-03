@@ -1,0 +1,17 @@
+JOIN amy #gen
+JOIN bob #gen
+JOIN cal #gen
+SAY amy #gen hello all
+SAY bob #gen hi @amy and @cal @amy
+SAY cal #gen @bob   welcome
+READ amy #gen
+READ amy #gen
+INBOX bob
+WHO #gen
+MUTE amy bob #gen
+SAY bob #gen am I muted
+WHO #gen
+UNMUTE amy bob #gen
+SAY bob #gen back
+READ cal #gen
+STATS

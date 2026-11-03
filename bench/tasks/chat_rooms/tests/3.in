@@ -1,0 +1,18 @@
+JOIN zed #z
+SAY zed #z talking to myself
+READ zed #z
+JOIN amy #z
+SAY zed #z m1
+SAY zed #z m2
+SAY amy #z reply
+SAY zed #z m3 @amy
+SAY zed #z m4
+READ amy #z
+INBOX amy
+INBOX zed
+READ zed #z
+WHO #z
+READ bob #z
+UNMUTE amy zed #z
+MUTE zed amy #q
+INBOX nobody

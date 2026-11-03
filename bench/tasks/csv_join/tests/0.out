@@ -1,0 +1,22 @@
+id,name,city,amount,city_b
+1,Ann,Oslo,10.5,Oslo
+1,Ann,Oslo,4.25,Bergen
+3,Cid,Oslo,2,Oslo
+(3 rows)
+id,name,city,amount,city_b
+1,Ann,Oslo,10.5,Oslo
+1,Ann,Oslo,4.25,Bergen
+2,Bob,"Bergen, west",,
+3,Cid,Oslo,2,Oslo
+4,Dee,Turku,,
+(5 rows)
+city,count
+Oslo,2
+"Bergen, west",1
+Turku,1
+(3 rows)
+id,amount
+1,14.75
+3,2.00
+5,1.00
+(3 rows)

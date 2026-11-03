@@ -1,0 +1,8 @@
+line 4: conflict
+line 5: already known
+1 a = 3 d
+7 d = 2.33333 a
+1000000 a = 3e+06 b
+123456789 b = 4.11523e+07 a
+1 KM = 1000 m
+unknown unit Km

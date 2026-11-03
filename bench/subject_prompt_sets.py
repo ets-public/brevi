@@ -13,4 +13,8 @@ XL3 = "books toc poker trains quiz warehouse".split()
 HUGE = "minilang chess adventure".split()
 # GUI set (ref/gen_gui.py, 1 Nov 2026): tkinter apps tested headlessly (tkshim/ for CPython, runtime/brevi_tk for Brevi).
 GUI = "todo_app calc_app tictactoe_app".split()
-SETS = {"gui": GUI, "small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3, "huge": HUGE}
+# Release suite (ref/gen_rel.py, 3 Nov 2026): 18 held-out tasks of mixed size and kind (6 small, 8 medium, 4 large,
+# 3 of them multi-file) plus the six xl3 tasks, so one run measures 24 tasks instead of 6.
+RELNEW = "bowling text_table huffman units life wordle json_patch csv_join matrix router sudoku tellers cron_next truth_table shop chat_rooms scheduler json_query".split()
+REL = XL3 + RELNEW
+SETS = {"gui": GUI, "small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3, "huge": HUGE, "relnew": RELNEW, "rel": REL}

@@ -1,0 +1,19 @@
+[1, 2, 3]
+add /3 4
+add /5 6
+add /01 9
+remove /-
+add / {"a/b": 1, "c~d": [true, null]}
+print /a~1b
+replace /c~0d/1 "set"
+remove /c~0d/0
+print /c~0d
+remove /
+move /c~0d /c~0d/0
+move /a~1b /a~1b
+copy /c~0d /c~0d/0
+print /
+
+oops /a
+add a 1
+add /x {bad json}

@@ -1,0 +1,16 @@
+k,v
+x,1
+y,2
+x,3
+
+---
+k,v,w
+x,10,a
+z,30,b
+x,20,c
+---
+join k
+left k
+count a k
+sum a v k
+sum b v w

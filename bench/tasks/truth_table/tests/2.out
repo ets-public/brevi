@@ -1,0 +1,31 @@
+long s | long & s
+0    0 | 0
+0    1 | 0
+1    0 | 0
+1    1 | 1
+line 2: syntax error
+line 3: syntax error
+line 4: syntax error
+line 5: syntax error
+line 6: syntax error
+line 7: syntax error
+line 8: syntax error
+tautology
+a b c | a | b & c
+0 0 0 | 0
+0 0 1 | 0
+0 1 0 | 0
+0 1 1 | 1
+1 0 0 | 1
+1 0 1 | 1
+1 1 0 | 1
+1 1 1 | 1
+a b c | (a | b) & c
+0 0 0 | 0
+0 0 1 | 0
+0 1 0 | 0
+0 1 1 | 1
+1 0 0 | 0
+1 0 1 | 1
+1 1 0 | 0
+1 1 1 | 1

@@ -1,0 +1,22 @@
+cart early abandoned
+receipt w
+  pad 2 x 3.33 = 6.66
+  pen 2 x 1.25 = 2.50
+  percent o1 pad -1.33
+  percent o1 pen -0.50
+subtotal 7.33
+  coupon HALF -5.50
+total 1.83
+line 14: coupon used
+receipt v
+  pad 1 x 3.33 = 3.33
+  percent o1 pad -0.67
+subtotal 2.66
+total 2.66
+line 18: coupon used
+receipt u
+  pen 1 x 1.25 = 1.25
+  percent o1 pen -0.25
+subtotal 1.00
+total 1.00
+sales 5.49 in 3 carts

@@ -1,0 +1,11 @@
+line 2: bad route
+200 status
+200 api rest=status
+405 /api/status allow: GET,POST
+200 nstatus n=12
+400 /api/12/status/
+200 v _ver=abc
+404 /v1/abc/x/y
+200 dotted
+line 15: bad line
+5 routes, 8 requests, 5 ok

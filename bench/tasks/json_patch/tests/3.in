@@ -1,0 +1,12 @@
+{"a": {"b": {"c": [1, {"d": 2}]}}, "e": 1.5, "f": "~/x"}
+print /a/b/c/1/d
+move /a/b /e
+print /e
+add /e/c/1/d/x 1
+add /e/c/1/e [1, 2, [3]]
+remove /e/c/0
+test /e/c/0/e/2 [3]
+replace / [{"z": 0}]
+print /0/z
+add /0/z/q 1
+print /f

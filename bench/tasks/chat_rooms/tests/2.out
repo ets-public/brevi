@@ -1,0 +1,14 @@
+x1: #r1 new=2 at=1
+x3: #r1 new=1 at=1
+#r1: x2*, x3
+#r1: 2 new for x2
+  x3: @x1, hi
+  x3: free again
+#r1: nothing new for x2
+line 17: not in room
+line 18: bad line
+line 19: bad line
+line 20: bad line
+line 21: bad line
+line 22: bad line
+rooms 1, users 2, messages 3

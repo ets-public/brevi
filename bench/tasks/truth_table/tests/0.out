@@ -1,0 +1,17 @@
+a b | a & b
+0 0 | 0
+0 1 | 0
+1 0 | 0
+1 1 | 1
+a b | a -> b
+0 0 | 1
+0 1 | 1
+1 0 | 0
+1 1 | 1
+tautology
+not a tautology: a=1 b=0
+unsatisfiable
+satisfiable: a=0 b=1
+equivalent
+equivalent
+differ at a=0 b=0

@@ -1,0 +1,12 @@
+M = [1/2 1/4 -1; 2 -3/4 0]
+P = [21/16 13/16; 13/16 73/16]
+det P = 341/64
+Q = [292/341 -52/341; -52/341 84/341]
+line 9: not square
+line 10: size mismatch
+line 11: size mismatch
+line 12: unknown X
+rank M = 2
+rank K = 2
+det K = 0
+line 17: singular

@@ -1,0 +1,26 @@
+receipt r1
+  a 5 x 1.00 = 5.00
+  b 2 x 2.00 = 4.00
+  c 7 x 0.99 = 6.93
+  bundle z2 x2 -1.00
+  bogo z3 a -1.00
+  percent z4 a -0.33
+  percent z5 c -0.35
+subtotal 13.25
+  coupon TEN needs 20.00
+total 13.25
+receipt r2
+  c 1 x 0.99 = 0.99
+  percent z5 c -0.05
+subtotal 0.94
+  coupon ONE -0.94
+total 0.00
+line 24: coupon used
+cart r3 abandoned
+receipt r4
+  a 3 x 1.00 = 3.00
+  bogo z3 a -1.00
+  percent z4 a -0.33
+subtotal 1.67
+total 1.67
+sales 14.92 in 3 carts

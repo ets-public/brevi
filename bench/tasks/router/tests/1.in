@@ -1,0 +1,19 @@
+ROUTE GET /files/<path:rest> files
+ROUTE GET /files/<name>/raw raw
+ROUTE GET /files/readme.md readme
+ROUTE GET /files/<path:p>/x bad
+ROUTE GET /a/<x>/<x> bad2
+ROUTE GET /a/<int:> bad3
+ROUTE GET /files/<other> one_file
+ROUTE GET /files/<path:all> dup
+ROUTE HEAD /files/<path:rest> head_files
+GET /files/readme.md
+GET /files/notes.txt
+GET /files/docs/a/b.txt
+GET /files/x/raw
+HEAD /files/x/raw
+HEAD /files/x
+GET /files
+GET //files
+ROUTE GET nopath bad5
+FETCH

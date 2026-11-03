@@ -1,0 +1,7 @@
+Work out when cron schedules run next. The first line of stdin is `NOW YYYY-MM-DD HH:MM`. Every later non-blank line is `NAME MIN HOUR DAY MONTH WEEKDAY`: a name and five fields.
+
+Each field is a comma-separated list of items. An item is `*` (every value), a number `V`, a range `A-B` (A at most B), or `*` or a range followed by `/S` (every S-th value of it, starting from its first value; S at least 1). Allowed values: minute 0 to 59, hour 0 to 23, day of month 1 to 31, month 1 to 12, weekday 0 to 7, where 0 and 7 both mean Sunday and 1 is Monday. A value outside its range, or an item that does not fit these forms, makes the field bad.
+
+A minute matches when its minute, hour and month are in their fields and its day matches: if both the DAY and WEEKDAY fields are exactly `*`, every day matches; if only one of them is `*`, the other must contain the day; if neither is `*`, the day matches when either field contains it.
+
+For each schedule print `NAME: T1, T2, T3`: the first three matching minutes strictly after NOW, as `YYYY-MM-DD HH:MM`. Only look up to 2 years after NOW (up to and including the same date and time two years later); if fewer than three are found, print the ones found followed by `, no more` (`NAME: T1, no more`), or `NAME: never` if none. A line with the wrong number of fields prints `NAME: bad line`; otherwise if a field is bad print `NAME: bad field K` with K the number of the first bad field (1 to 5).

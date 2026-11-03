@@ -1,0 +1,11 @@
+table long & s
+taut a -> -> b
+sat (a & b
+table a b
+sat a & B
+equiv a ; b ; c
+equiv a | b
+check a
+taut a <-> b <-> a <-> b
+table a | b & c
+table (a | b) & c

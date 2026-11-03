@@ -1,0 +1,14 @@
+{"name": "app", "tags": ["a", "b"], "conf": {"debug": false, "level": 3}}
+add /tags/1 "x"
+add /tags/- "z"
+replace /conf/level 4
+remove /tags/0
+print /tags
+add /conf/paths {"home": "/h", "tmp": "/t"}
+move /conf/paths/tmp /temp
+copy /conf /conf2
+replace /conf2/debug true
+print /conf
+test /conf/level 4.0
+test /conf/debug 0
+print /missing

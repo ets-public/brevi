@@ -1,0 +1,13 @@
+line 4: already in room
+#a: ben*
+line 7: not owner
+line 8: not in room
+line 9: not allowed
+#a: 1 new for ann
+  ben: six
+line 20: no such room
+line 21: no such room
+line 22: not in room
+ann: #b new=0 at=0
+ben: no rooms
+rooms 1, users 1, messages 6
