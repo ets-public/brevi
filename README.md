@@ -25,7 +25,9 @@ Brevi also has its own Python-like syntax (`.bv` files). Its guide is [BREVI.md]
 - **Changes:** [CHANGELOG.md](CHANGELOG.md), one section per release.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
-## Status: v0.21
+## Status: v0.22
+
+**Against Codon and Nuitka** ([bench/compare](bench/compare/README.md), 3 Nov 2026): on the same unchanged Python files, Brevi builds all 591 saved agent programs and all 18 large programs, and every one matches CPython's output and exit status. Codon builds 206 of the 591 and gets 36 of them wrong. Nuitka matches all of them. Brevi's default build beats CPython on all 12 speed programs (1.7x to 40x), and `--release` is level with Codon.
 
 **Release test:** models write plain Python and Brevi builds it (`bench/e2e.py --lang pyb`), against the same models' Python run with CPython, for Sonnet and Haiku. It passes when, over four runs per model, every task passes, Brevi's cost is within 10% of CPython's, and at least 90% of the final programs build natively ([bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026)). The release test passed on 2 Nov 2026 (runs e31 to e34, each side's prompt cache kept apart): every task passed, the cost was 1.10x CPython for Sonnet and 0.95x for Haiku, and all 48 final programs built natively (files the typed build rejects now build over dynamic values). `brevi run x.py` always runs plain Python: when Brevi cannot build a file yet, it runs it with python3 and prints a one-line note saying which line stopped it (`--native` refuses instead). Of 580 saved Python solutions from earlier runs, 344 build with Brevi and give the right output unchanged (`bench/py_as_brevi.py --full --run`). The older notes below use the earlier token-count gate.
 
