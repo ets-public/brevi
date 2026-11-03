@@ -47,7 +47,7 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | builtins and `str` | most, including `bin`, `hex`, `oct`, `str.startswith`/`endswith` with a start index | a tuple of prefixes, an end index |
 | `math` | `sqrt`, `floor`, `ceil`, `isqrt`, `gcd`, `lcm`, `comb`, `perm`, `factorial`, `isclose`, `log` (with a base too), `log2`, `log10`, `log1p`, `exp`, `expm1`, trig and hyperbolic functions, `atan2`, `hypot`, `fabs`, `trunc`, `degrees`, `radians`, `copysign`, `fmod`, `isnan`, `isinf`, `isfinite`, `pi`, `e`, `tau`, `inf`, `nan`; domain errors are `ValueError`s an `except` catches | the rest (`fsum`, `prod`, `dist`, ...) |
 | `time` | `time`, `perf_counter`, `monotonic` | `sleep`, `process_time` |
-| `re` | `match`, `search`, `fullmatch`, `findall` (no group or one), `finditer`, `split`, `sub`, `compile`, flags | `findall` with two or more groups, `sub` with a function, groups tested against None, `groupdict` |
+| `re` | `match`, `search`, `fullmatch`, `findall` (no group or one), `finditer`, `split`, `sub`, `compile`, flags `I`, `S`, `M`, `A` | `findall` with two or more groups, `sub` with a function, groups tested against None, `groupdict` |
 | `json` | `loads`, `load`, `dumps` | `dumps(indent=..., sort_keys=...)` on mixed values, `JSONDecoder().raw_decode` and `decode`, `json.decoder.scanstring` |
 | `collections` | `Counter`, `defaultdict`, `deque` (`popleft`, `appendleft`), `OrderedDict` | `namedtuple`, `deque(maxlen=...)`, `rotate`, a defaultdict read whose missing key matters |
 | `itertools` | `groupby` | `chain`, `product`, `permutations`, `combinations`, `accumulate`, `islice`, `zip_longest`, `pairwise`, `count`, `cycle` and the rest |
