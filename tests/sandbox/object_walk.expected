@@ -1,4 +1,4 @@
-{"path":"dynamic","line":2,"why":"math.gcd runs in CPython, which needs allow native"}
+{"path":"dynamic","line":3,"why":"unknown method .__subclasses__()"}
 Traceback (most recent call last):
 TypeError: 'method' object is not subscriptable
 exit 1
@@ -7,6 +7,5 @@ Traceback (most recent call last):
 TypeError: 'method' object is not subscriptable
 exit 1
 -- typed
-{"line":2,"msg":"math.gcd runs in CPython, which needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
 {"line":3,"msg":"unknown method .__subclasses__()"}
 exit 1
