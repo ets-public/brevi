@@ -1,0 +1,16 @@
+id,name
+1,"a,b"
+2,"say ""hi"""
+31 31
+[{'a': '1', 'b': '2'}, {'a': '3', 'b': '4'}]
+'line one\n' 'line' 13
+[' two\n', 'last']
+['line one\n', 'line two\n', 'last']
+LINE one
+line two
+last
+'LINE' 1 LINE!
+2
+'hello 42\nx-y?\n' True
+ValueError: I/O operation on closed file
+TypeError: string argument expected, got 'int'

@@ -149,11 +149,13 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
   {"line":3,"msg":"os.listdir needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); add the line `# allow native` at the top, or do without it"}
   ```
 
+- **io:** `io.StringIO`, an in-memory text file (so `csv.writer(io.StringIO())` works too). Other `io` names (`io.BytesIO`, `io.open`) are refused by name.
+
 - **random:** `seed`, `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits` and `random.Random`, using CPython's own generator, so a seeded program draws the same numbers as in CPython. Seeds must be ints. Other functions (`random.betavariate`, ...) give one error naming them.
 
 The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `allow native`, the library bridge is off completely, so no path from the program reaches CPython.
 
-The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox, the path text functions above are Brevi's own copies too, so a program that only joins and splits paths stays native (since v0.24.3); `random` and the rest of `os` and `pathlib` are then CPython's own.
+The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox the path-text and `io.StringIO` copies are used too, whenever a program needs nothing more of those modules; `random` outside the sandbox is CPython's own (the copy draws about 25 times slower).
 
 > This is the behaviour from v0.24.1. In v0.24.0 and earlier the check covered only Brevi programs and typed Python builds: a Python file that fell to the dynamic build, a library call or the CPython fallback was not held to it. Whatever the version, running code you do not trust inside a container or VM is still wise.
 

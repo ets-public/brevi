@@ -1,4 +1,4 @@
-{"path":"dynamic","line":1,"why":"a call CPython runs needs allow native"}
+{"path":"dynamic","line":1,"why":"pathlib not in the typed build"}
 data.txt
 Traceback (most recent call last):
 AttributeError: 'PurePosixPath' object has no attribute 'read_text'
@@ -9,5 +9,5 @@ Traceback (most recent call last):
 AttributeError: 'PurePosixPath' object has no attribute 'read_text'
 exit 1
 -- typed
-{"line":1,"msg":"a call CPython runs needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
+{"line":1,"msg":"pathlib not in the typed build","fix":"the dynamic build has them: build it without BREVI_DYN=0"}
 exit 1
