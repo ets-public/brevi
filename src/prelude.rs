@@ -170,8 +170,8 @@ impl AxEach for String {
 pub trait AxStrSeq {
     fn ax_map<U>(&self, f: impl Fn(String) -> U) -> Vec<U>;
     fn ax_filter(&self, f: impl Fn(String) -> bool) -> Vec<String>;
-    fn ax_any(&self, f: impl Fn(String) -> bool) -> bool;
-    fn ax_all(&self, f: impl Fn(String) -> bool) -> bool;
+    fn ax_any(&self, f: impl FnMut(String) -> bool) -> bool;
+    fn ax_all(&self, f: impl FnMut(String) -> bool) -> bool;
     fn ax_enumerate(&self) -> Vec<(i64, String)>;
 }
 impl AxStrSeq for String {
@@ -181,10 +181,10 @@ impl AxStrSeq for String {
     fn ax_filter(&self, f: impl Fn(String) -> bool) -> Vec<String> {
         self.ax_chars().into_iter().filter(|c| f(c.clone())).collect()
     }
-    fn ax_any(&self, f: impl Fn(String) -> bool) -> bool {
+    fn ax_any(&self, mut f: impl FnMut(String) -> bool) -> bool {
         self.ax_chars().into_iter().any(f)
     }
-    fn ax_all(&self, f: impl Fn(String) -> bool) -> bool {
+    fn ax_all(&self, mut f: impl FnMut(String) -> bool) -> bool {
         self.ax_chars().into_iter().all(f)
     }
     fn ax_enumerate(&self) -> Vec<(i64, String)> {
@@ -1912,8 +1912,8 @@ pub trait AxList<T: Clone> {
     fn ax_last(&self) -> T;
     fn ax_map<U>(&self, f: impl Fn(T) -> U) -> Vec<U>;
     fn ax_filter(&self, f: impl Fn(T) -> bool) -> Vec<T>;
-    fn ax_any(&self, f: impl Fn(T) -> bool) -> bool;
-    fn ax_all(&self, f: impl Fn(T) -> bool) -> bool;
+    fn ax_any(&self, f: impl FnMut(T) -> bool) -> bool;
+    fn ax_all(&self, f: impl FnMut(T) -> bool) -> bool;
     fn ax_count(&self, f: impl Fn(T) -> bool) -> i64;
     fn ax_fold<A>(&self, init: A, f: impl Fn(A, T) -> A) -> A;
     fn ax_sort_by<K: PartialOrd>(&self, f: impl Fn(T) -> K) -> Vec<T>;
@@ -1958,10 +1958,10 @@ impl<T: Clone> AxList<T> for Vec<T> {
     fn ax_filter(&self, f: impl Fn(T) -> bool) -> Vec<T> {
         self.iter().cloned().filter(|x| f(x.clone())).collect()
     }
-    fn ax_any(&self, f: impl Fn(T) -> bool) -> bool {
+    fn ax_any(&self, mut f: impl FnMut(T) -> bool) -> bool {
         self.iter().cloned().any(f)
     }
-    fn ax_all(&self, f: impl Fn(T) -> bool) -> bool {
+    fn ax_all(&self, mut f: impl FnMut(T) -> bool) -> bool {
         self.iter().cloned().all(f)
     }
     fn ax_count(&self, f: impl Fn(T) -> bool) -> i64 {
@@ -2145,11 +2145,32 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxGetEmpty<K, V> for AxM<K,
         self.get(k).cloned().unwrap_or_default()
     }
 }
+// A key to look up in a map keyed by K: a K, or (in a map keyed by str) a JSON value, which matches no key
+// unless it is a str.
+pub trait AxKeyOf<K: Clone> {
+    fn ax_key_of(&self) -> Option<std::borrow::Cow<'_, K>>;
+}
+impl<K: Clone> AxKeyOf<K> for K {
+    #[inline]
+    fn ax_key_of(&self) -> Option<std::borrow::Cow<'_, K>> {
+        Some(std::borrow::Cow::Borrowed(self))
+    }
+}
+impl AxKeyOf<String> for Json {
+    fn ax_key_of(&self) -> Option<std::borrow::Cow<'_, String>> {
+        match self {
+            Json::Str { v } => Some(std::borrow::Cow::Borrowed(v)),
+            _ => None,
+        }
+    }
+}
 pub trait AxMap<K, V> {
     fn ax_len(&self) -> i64;
     fn ax_is_empty(&self) -> bool;
     fn ax_has(&self, k: &K) -> bool;
-    fn ax_get_or(&self, k: &K, d: V) -> V;
+    fn ax_get_or<Q: AxKeyOf<K> + ?Sized>(&self, k: &Q, d: V) -> V
+    where
+        K: Clone;
     fn ax_remove(&mut self, k: K);
     fn ax_keys(&self) -> Vec<K>;
     fn ax_values(&self) -> Vec<V>;
@@ -2165,8 +2186,11 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMap<K, V> for AxM<K, V> {
     fn ax_has(&self, k: &K) -> bool {
         self.contains_key(k)
     }
-    fn ax_get_or(&self, k: &K, d: V) -> V {
-        self.get(k).cloned().unwrap_or(d)
+    fn ax_get_or<Q: AxKeyOf<K> + ?Sized>(&self, k: &Q, d: V) -> V {
+        match k.ax_key_of() {
+            Some(k) => self.get(&*k).cloned().unwrap_or(d),
+            None => d,
+        }
     }
     fn ax_remove(&mut self, k: K) {
         self.remove(&k);
@@ -2610,6 +2634,19 @@ impl AxIn<String> for Json {
             Json::Obj { v } => v.contains_key(x),
             Json::Str { v } => v.contains(x.as_str()),
             _ => false,
+        }
+    }
+}
+// `ln["sku"] in prods` with both JSON values.
+impl AxIn<Json> for Json {
+    fn ax_in(&self, x: &Json) -> bool {
+        match (self, x) {
+            (Json::Arr { v } | Json::Tup { v }, x) => v.iter().any(|y| y == x),
+            (Json::Obj { v }, Json::Str { v: k }) => v.contains_key(k),
+            (Json::Obj { .. }, _) => false,
+            (Json::Str { v }, Json::Str { v: k }) => v.contains(k.as_str()),
+            (Json::Str { .. }, _) => panic!("TypeError: 'in <string>' requires string as left operand"),
+            _ => panic!("TypeError: argument of type is not iterable"),
         }
     }
 }
@@ -5054,6 +5091,11 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone> AxIn<K> for AxM<K, V> {
         self.contains_key(x)
     }
 }
+impl<V: Clone> AxIn<Json> for AxM<String, V> {
+    fn ax_in(&self, x: &Json) -> bool {
+        matches!(x, Json::Str { v } if self.contains_key(v))
+    }
+}
 // `c in (R, Q)` on a tuple of like items.
 impl<T: PartialEq> AxIn<T> for (T, T) {
     fn ax_in(&self, x: &T) -> bool {
@@ -5537,8 +5579,8 @@ impl AxStrMore for String {
 pub trait AxMapSeq<K> {
     fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U>;
     fn ax_filter(&self, f: impl Fn(K) -> bool) -> Vec<K>;
-    fn ax_any(&self, f: impl Fn(K) -> bool) -> bool;
-    fn ax_all(&self, f: impl Fn(K) -> bool) -> bool;
+    fn ax_any(&self, f: impl FnMut(K) -> bool) -> bool;
+    fn ax_all(&self, f: impl FnMut(K) -> bool) -> bool;
 }
 impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMapSeq<K> for AxM<K, V> {
     fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U> {
@@ -5547,10 +5589,10 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMapSeq<K> for AxM<K, V> {
     fn ax_filter(&self, f: impl Fn(K) -> bool) -> Vec<K> {
         self.ax_keys().into_iter().filter(|k| f(k.clone())).collect()
     }
-    fn ax_any(&self, f: impl Fn(K) -> bool) -> bool {
+    fn ax_any(&self, mut f: impl FnMut(K) -> bool) -> bool {
         self.ax_keys().into_iter().any(f)
     }
-    fn ax_all(&self, f: impl Fn(K) -> bool) -> bool {
+    fn ax_all(&self, mut f: impl FnMut(K) -> bool) -> bool {
         self.ax_keys().into_iter().all(f)
     }
 }
@@ -6074,8 +6116,8 @@ impl Json {
 pub trait AxJsonSeq {
     fn ax_map<U>(&self, f: impl Fn(Json) -> U) -> Vec<U>;
     fn ax_filter(&self, f: impl Fn(Json) -> bool) -> Vec<Json>;
-    fn ax_any(&self, f: impl Fn(Json) -> bool) -> bool;
-    fn ax_all(&self, f: impl Fn(Json) -> bool) -> bool;
+    fn ax_any(&self, f: impl FnMut(Json) -> bool) -> bool;
+    fn ax_all(&self, f: impl FnMut(Json) -> bool) -> bool;
     fn ax_enumerate(&self) -> Vec<(i64, Json)>;
 }
 impl AxJsonSeq for Json {
@@ -6085,10 +6127,10 @@ impl AxJsonSeq for Json {
     fn ax_filter(&self, f: impl Fn(Json) -> bool) -> Vec<Json> {
         self.ax_seq().into_iter().filter(|x| f(x.clone())).collect()
     }
-    fn ax_any(&self, f: impl Fn(Json) -> bool) -> bool {
+    fn ax_any(&self, mut f: impl FnMut(Json) -> bool) -> bool {
         self.ax_seq().into_iter().any(f)
     }
-    fn ax_all(&self, f: impl Fn(Json) -> bool) -> bool {
+    fn ax_all(&self, mut f: impl FnMut(Json) -> bool) -> bool {
         self.ax_seq().into_iter().all(f)
     }
     fn ax_enumerate(&self) -> Vec<(i64, Json)> {
