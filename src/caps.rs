@@ -465,7 +465,7 @@ mod tests {
             for l in src.lines().map(str::trim) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["math", "time", "posixpath"].contains(&m), "{name}.py imports {m}");
+                    assert!(["math", "time", "posixpath", "_brevi_mt"].contains(&m), "{name}.py imports {m}");
                 }
                 for bad in ["open(", "__import__", "exec(", "eval(", "getattr(", "sys."] {
                     assert!(!l.contains(bad), "{name}.py uses {bad}");

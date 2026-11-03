@@ -1739,6 +1739,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "json.decoder" if n == "scanstring" => json_scanstring(a),
         "json" => json_fn(n, a),
         "enum" => enum_fn(n, a),
+        "_brevi_mt" => brevi_mt_fn(n, a),
         _ => Err(unsupported(&format!("{m}.{n}"))),
     }
 }

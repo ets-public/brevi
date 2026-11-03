@@ -155,7 +155,7 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `allow native`, the library bridge is off completely, so no path from the program reaches CPython.
 
-The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox the path-text and `io.StringIO` copies are used too, whenever a program needs nothing more of those modules; `random` outside the sandbox is CPython's own (the copy draws about 25 times slower).
+The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox the path-text, `io.StringIO` and `random` copies are used too, whenever a program needs nothing more of those modules (its generator core is native).
 
 > This is the behaviour from v0.24.1. In v0.24.0 and earlier the check covered only Brevi programs and typed Python builds: a Python file that fell to the dynamic build, a library call or the CPython fallback was not held to it. Whatever the version, running code you do not trust inside a container or VM is still wise.
 
