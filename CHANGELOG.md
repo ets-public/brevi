@@ -5,6 +5,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 ## Unreleased
 
 - **Faster cold builds.** A build without `--release` (what `brevi run` uses) of a program it has not seen takes about 35% less time: the 12 speed programs in `bench/compare` went from 405 ms to 257 ms each on average on a 4-core machine (a hello world from 186 ms to 148 ms), and they run as fast as before (all 12 still beat CPython; all 591 saved solutions still match it). Brevi now calls rustc directly instead of through the rustup proxy (the proxy's choice of toolchain is remembered until PATH, rustup's settings or a rust-toolchain file change), uses one codegen unit per core (4 to 16) instead of rustc's 16, looks up rustc while the front end works, and no longer compiles a program twice when the build cache is off (`BREVI_NO_CACHE=1`, which `bench/compare` uses, so its build times there were doubled).
+- **Architecture doc.** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains, with diagrams, what Brevi does between a `.bv` or `.py` file and a native program: front end, typed build, the guard that sends Python to the dynamic build, `src/dynpy`, library calls through pybridge, rustc and the build cache, and the CPython fallback.
 
 ## v0.22.0 (3 Nov 2026)
 
