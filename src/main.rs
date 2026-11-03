@@ -517,7 +517,7 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     let (wfile, line, func, why, extra, relocate) = why;
     say_path("dynamic", &wfile, line, func, &why, &extra, relocate);
     if cmd == "run" {
-        let status = proc::program(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+        let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
             println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
             exit(1);
         });
@@ -612,7 +612,7 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     if cmd == "build" {
         exit(0);
     }
-    let status = proc::program(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+    let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
@@ -652,7 +652,7 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
     if cmd != "run" || !done.ok() {
         exit(done.code.unwrap_or(1));
     }
-    let status = proc::program(bin.as_ref().unwrap()).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+    let status = proc::script(bin.as_ref().unwrap(), file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
@@ -699,7 +699,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     let code = match built {
         Ok(o) if o.ok() => {
             std::io::stderr().write_all(&o.stderr).ok();
-            proc::program(&bin).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
+            proc::script(&bin, file).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 1
             })

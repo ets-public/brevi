@@ -1451,6 +1451,7 @@ pub fn init_builtin_classes() {
         ("ValueError", "Exception"),
         ("UnicodeError", "ValueError"),
         ("UnicodeDecodeError", "UnicodeError"),
+        ("UnicodeEncodeError", "UnicodeError"),
         ("TypeError", "Exception"),
         ("AttributeError", "Exception"),
         ("NameError", "Exception"),
@@ -1491,6 +1492,8 @@ pub fn init_builtin_classes() {
         };
         m.insert(n, Class::new(n, module, vec![parent], BT::Exc));
     }
+    let ve = m["ValueError"].clone();
+    m.insert("binascii.Error", Class::new("Error", "binascii", vec![ve], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
 }
 

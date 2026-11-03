@@ -56,11 +56,14 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
 | `os`, `os.path`, `pathlib` | | path text: `os.path.join`, `basename`, `dirname`, `split`, `splitext`, `normpath`, `os.sep`, `pathlib.PurePath` (from v0.24.4 outside the sandbox too); files, processes and the environment run in CPython |
 | `random` | | `seed` (int), `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits`, `Random`: CPython's generator, so seeded draws match |
+| `textwrap` | | `wrap`, `fill`, `shorten`, `dedent`, `indent`, `TextWrapper` (also under `--sandbox`) |
+| bytes, `hashlib`, `base64`, `binascii` | | `b"..."` literals, `bytes(...)`, `str.encode` and `bytes.decode` (UTF-8, ASCII, Latin-1), indexing, slicing, `in`, `+`, `split`, `strip`, `join`, `hex`, `fromhex` and the other common methods; `hashlib.md5`, `sha1`, `sha224`, `sha256`, `sha384`, `sha512` and `new` (`update`, `digest`, `hexdigest`, `copy`); `base64` b64/urlsafe/b16 encode and decode, with CPython 3.13's padding rules and errors; `binascii.hexlify`, `unhexlify`, `Error` |
+| `argparse` | | all of it but `FileType` and `fromfile_prefix_chars` (also under `--sandbox`): CPython 3.13's own argparse, so usage lines, help text and error messages match it |
 | `io` | | `StringIO` (also under `--sandbox`); `BytesIO` and the rest run in CPython |
 | `enum` | | `Enum` (members, aliases, `auto()`, methods and properties, `__init__` on tuple values, `C(value)`, `C[name]`, iteration, `len`, `in`, `__members__`), `class C(str, Enum)` and `(int, Enum)`, `@unique`; `IntEnum`, `StrEnum` and `Flag` still run in CPython |
 | `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `csv.DictReader`, `csv.writer(sys.stdout)`, `Fraction`) | the rest |
 
-Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`): `random` beyond the common functions (`betavariate`, a str seed, ...), `textwrap`, `argparse`, `io` beyond `StringIO`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
+Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`): `random` beyond the common functions (`betavariate`, a str seed, ...), `textwrap` with `fix_sentence_endings`, `argparse.FileType`, `io` beyond `StringIO`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `bytearray`, binary files and `sys.stdout.buffer`, and `hashlib` beyond MD5 and the SHA-1/SHA-2 family. These are next on the [roadmap](/docs/roadmap).
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 

@@ -19,6 +19,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_gen.rs"),
     include_str!("rt_enum.rs"),
     include_str!("rt_rand.rs"),
+    include_str!("rt_bytes.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -91,9 +92,40 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "os.path" => include_str!("py/posixpath.py"),
         "pathlib" => include_str!("py/pathlib.py"),
         "io" => include_str!("py/io.py"),
+        "textwrap" => include_str!("py/textwrap.py"),
+        "argparse" => include_str!("py/argparse.py"),
         _ => return None,
     })
 }
+
+// shutil.get_terminal_size().columns, for argparse's help outside the sandbox: $COLUMNS when it is a positive
+// int, else the width of the terminal on stdout, else 80.
+const TERM_COLS_FN: &str = r#"
+fn __term_cols() -> i64 {
+    if let Some(n) = std::env::var("COLUMNS").ok().and_then(|v| v.trim().parse::<i64>().ok()) {
+        if n > 0 {
+            return n;
+        }
+    }
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        #[repr(C)]
+        struct Ws(u16, u16, u16, u16);
+        extern "C" {
+            fn ioctl(fd: i32, req: std::os::raw::c_ulong, ...) -> i32;
+        }
+        #[cfg(target_os = "linux")]
+        const REQ: std::os::raw::c_ulong = 0x5413;
+        #[cfg(target_os = "macos")]
+        const REQ: std::os::raw::c_ulong = 0x40087468;
+        let mut w = Ws(0, 0, 0, 0);
+        if unsafe { ioctl(1, REQ, &mut w as *mut Ws) } == 0 && w.1 > 0 {
+            return w.1 as i64;
+        }
+    }
+    80
+}
+"#;
 
 // Every `seed(...)` and `Random(...)` in the text takes no argument or an int literal: the copy of random
 // takes only int seeds (CPython hashes a str or float one), and a seed it cannot see may be either.
@@ -161,9 +193,13 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
         k += 1;
     }
     if own_used && !own_ok && !crate::pybridge::no_native() {
-        return Err((file.to_string(), 0, "os, pathlib, random or io beyond Brevi's own copies runs in CPython".into()));
+        return Err((file.to_string(), 0, "os, pathlib, random, io, textwrap or argparse beyond Brevi's own copies runs in CPython".into()));
     }
-    let rust = emit::program(&mods).map_err(|(l, m)| (file.to_string(), l, m))?;
+    let mut rust = emit::program(&mods).map_err(|(l, m)| (file.to_string(), l, m))?;
+    if mods.iter().any(|m| m.name == "argparse") && !crate::pybridge::no_native() {
+        rust = rust.replacen("fn main() { run_main(__run); }", "fn main() { TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);
+        rust.push_str(TERM_COLS_FN);
+    }
     Ok(format!("{HEADER}{rust}"))
 }
 

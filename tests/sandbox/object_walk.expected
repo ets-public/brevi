@@ -1,10 +1,10 @@
 {"path":"dynamic","line":3,"why":"unknown method .__subclasses__()"}
 Traceback (most recent call last):
-TypeError: 'method' object is not subscriptable
+AttributeError: 'method' object has no attribute '__mro__'
 exit 1
 -- dynamic
 Traceback (most recent call last):
-TypeError: 'method' object is not subscriptable
+AttributeError: 'method' object has no attribute '__mro__'
 exit 1
 -- typed
 {"line":3,"msg":"unknown method .__subclasses__()"}
