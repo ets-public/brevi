@@ -4,6 +4,17 @@
 
 The fast, safe target for AI-written Python. Brevi is built for AI coding agents: the agent writes the plain Python it knows best, and Brevi checks the whole program before it runs, reports each mistake as one short JSON line with a suggested fix, and compiles it through Rust to a native binary (1.3x to 10.8x faster than CPython on the speed set, measured 2 Nov 2026). The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
 
+**Public preview.** Brevi works today and is tested against CPython on every change, but it is young: expect rough edges, and expect the CLI and Brevi's own syntax to change between releases. Bug reports are very welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
+
+## Install
+
+```
+curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
+brevi run main.py
+```
+
+The script installs the Rust toolchain if it is missing, then a prebuilt `brevi` for Linux or macOS from the [latest release](https://github.com/ets-public/brevi/releases/latest), or builds it with `cargo install` when none fits. On Windows, take `brevi-x86_64-pc-windows-msvc.zip` from the release page (Brevi needs `rustc` there too). For agents, add the MCP server as the command `brevi` with the argument `mcp`, or in Claude Code run `/plugin marketplace add ets-public/brevi` and `/plugin install brevi@brevi`. Packages for npm, PyPI and crates.io come later in the preview; the names there are only placeholders for now.
+
 Brevi also has its own Python-like syntax (`.bv` files). Its guide is [BREVI.md](BREVI.md), 3,508 tokens (exact count, Sonnet tokenizer), with details in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand. Same-day runs show agents finish tasks more cheaply writing plain Python than writing Brevi syntax, so the agent skill asks for Python.
 
 Documentation: [brevi-lang.org/docs](https://brevi-lang.org/docs/) (source in `site/docs/`).
@@ -17,7 +28,7 @@ Documentation: [brevi-lang.org/docs](https://brevi-lang.org/docs/) (source in `s
 - **Edit by name:** `brevi patch f.bv p.bv` replaces each `fn`, `type`, `enum` or `test` in p.bv by name, or adds it; `del fn name` removes one.
 - **Libraries:** [LIBRARIES.md](LIBRARIES.md) (`brevi guide Libraries`). `use "util.bv"` brings in another file's items. `use sha2 "0.10"` adds a crate from crates.io, and a `rust fn` with a Rust body and Brevi types calls it; programs with crates build through cargo, and each crate is compiled once and cached in `~/.cache/brevi`. A `py fn` has a Python body and runs in one Python process per program run, with values passed as JSON, so any installed Python package works. Python files that import numpy, pandas or other packages call CPython directly; `brevi build x.py --standalone` packs that CPython and the packages into the binary, so it runs on Linux machines with no Python installed.
 - **llms.txt:** `site/build.sh` builds llms.txt, llms-full.txt and .md pages for brevi-lang.org into site/out.
-- **Install:** `sh install.sh` fetches the Rust toolchain if it is missing, then downloads a prebuilt brevi for Linux, macOS or Windows from the latest GitHub release (built by `.github/workflows/release.yml`), or builds it with `cargo install` when no release fits (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
+- **Install:** `sh install.sh` fetches the Rust toolchain if it is missing, then downloads a prebuilt brevi for Linux, macOS or Windows from the latest GitHub release (built by `.github/workflows/release.yml`), or builds it with `cargo install` when no release fits. The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
 - **Editor rules:** `skills/rules/` has ready-made Brevi rules for Cursor, Copilot, Windsurf and Cline, built from BREVI.md by `skills/gen_rules.py`.
 - **GUI (tkinter):** Python tkinter programs build too (widgets, variables, callbacks, key and mouse bindings, timers, canvas, message boxes) onto the built-in `brevi_tk` runtime. By default they run headless: `mainloop` reads test actions from stdin and prints the window as text, so a GUI can be tested like any other program. `brevi build --window` gives a real window (egui). Apps built around a class work too (`command=self.on_click`).
 - **Sandbox:** `allow read, write` at the top of a program declares what it touches (`read`, `write`, or `native` for rust fn, py fn, crates and Python libraries that CPython runs, such as `import os` or `import numpy`). `brevi run --sandbox` refuses anything undeclared, and the MCP tools sandbox by default (pass `sandbox: false` to turn it off). A refusal is final: the program is not built another way or run with python3, and a sandboxed program never falls back to python3 at all. Brevi's library, typed or dynamic, has no other way to reach files, the network or the environment.
@@ -208,6 +219,10 @@ Brevi must never fall behind Rust or Python, and code that once passed must neve
 
 After a change that makes more solutions pass, run `python3 tools/compat.py baseline` to lock them in.
 Never remove a line from `compat/baseline.txt` to make a check pass.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
 ## License
 

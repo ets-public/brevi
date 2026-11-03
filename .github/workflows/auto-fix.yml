@@ -21,10 +21,15 @@ permissions:
 
 jobs:
   fix:
+    # Only issues opened by the watch workflows or by people with write access: the issue text becomes
+    # Claude's prompt, and this job can push and open PRs, so an outsider's issue must never reach it,
+    # even after someone adds the label.
     if: >
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.issue.labels.*.name, 'toolchain') ||
-      contains(github.event.issue.labels.*.name, 'upstream')
+      ((contains(github.event.issue.labels.*.name, 'toolchain') ||
+        contains(github.event.issue.labels.*.name, 'upstream')) &&
+       (github.event.issue.user.login == 'github-actions[bot]' ||
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     concurrency:
