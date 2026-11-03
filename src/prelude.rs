@@ -3046,6 +3046,28 @@ impl AxToBig for i64 {
         Big::from_i64(*self)
     }
 }
+impl AxToBig for Big {
+    fn ax_big(&self) -> Big {
+        self.clone()
+    }
+}
+// int(b) where an int is needed: the value of a function that returns a big integer, used as an index or count.
+pub trait AxBigInt {
+    fn ax_int(&self) -> R<i64>;
+}
+impl AxBigInt for Big {
+    fn ax_int(&self) -> R<i64> {
+        let mut v: i128 = 0;
+        for d in self.mag.iter().rev() {
+            v = v * BIG_BASE as i128 + *d as i128;
+            if v > i64::MAX as i128 + 1 {
+                return Err(AxErr("OverflowError: Python int too large to convert to C long".into()));
+            }
+        }
+        let v = if self.neg { -v } else { v };
+        i64::try_from(v).map_err(|_| AxErr("OverflowError: Python int too large to convert to C long".into()))
+    }
+}
 pub trait AxStrBig {
     fn ax_big(&self) -> R<Big>;
 }
