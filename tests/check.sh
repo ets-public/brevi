@@ -51,6 +51,18 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# brevi run --sandbox on a .py file: a capability refusal is final on every path (the default run, dynamic
+# builds, typed --native), and nothing falls back to python3 or reaches CPython through a library.
+for f in tests/sandbox/*.py; do
+  exp="${f%.py}.expected"
+  out=$($BREVI run --sandbox "$f" 2>&1; echo "exit $?"; echo "-- dynamic"; BREVI_DYN=1 $BREVI run --sandbox "$f" 2>&1; echo "exit $?"; echo "-- typed"; BREVI_DYN=0 $BREVI run --sandbox --native "$f" 2>&1; echo "exit $?")
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # brevi build --standalone: a program calling Python libraries carries its own CPython. Run without python3 on
 # PATH and, where user namespaces allow it, in an empty root holding only the C library.
 for f in tests/standalone/*.py; do

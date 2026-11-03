@@ -1,0 +1,18 @@
+P(x=1, y=0)
+[P(x=1, y=2), P(x=3, y=0)]
+{'a': P(x=5, y=0)}
+(P(x=1, y=0), 2)
+Item(name='pen', price=1.5, tags=['x', 'y'])
+Box(p=P(x=2, y=3), items=[Item(name='pen', price=1.5, tags=['x', 'y'])])
+P(x=1, y=0) P(x=1, y=0)
+P(x=1, y=0) P(x=1, y=0)
+Rp<3> [Rp<4>]
+S:5 [S(v=6)] S(v=7) S(v=8)
+str 1 [Both(2)] Both(3)
+True False
+P(x=9, y=5)
+[Base(a=1, b='q'), Base(a=3, b='q')]
+Pt(x=1, y=2)
+Acc(owner='bob', hist=[3])
+[None, Pt(x=0, y=0)]
+[Pt(x=1, y=1)] 'x'

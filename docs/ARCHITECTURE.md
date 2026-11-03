@@ -94,7 +94,7 @@ These steps run on the source text before parsing.
 | Step | File | What it does |
 | --- | --- | --- |
 | Join files | `modules.rs` | `use "x.bv"`, and `import x` of a sibling `.py` file or package, are joined into one program. A segment table maps every line back to its file, so errors name the right file. |
-| Capabilities | `caps.rs` | `allow read, write` lines. With `--sandbox`, or any `allow` line, a program that uses something it did not declare is refused. |
+| Capabilities | `caps.rs` | `allow read, write` lines. With `--sandbox`, or any `allow` line, a program that uses something it did not declare is refused, before any other path runs: a refused program is never built over dynamic values, through pybridge or run with python3. Python libraries (pybridge) need `allow native`, and a sandboxed program never falls back to python3. |
 | Foreign code | `ffi.rs` | `use CRATE "VER"`, `rust fn`, `py fn`, `rust:` and `py:` blocks. Foreign bodies are cut out and replaced by a stub on the same line, so line numbers stay put. Any crate switches the build to cargo. |
 | Autofix | `main.rs` `autofix` | For `.bv` only: errors with a sure one-word fix (a typo of a known name) are fixed before the build and reported on stderr. Python files are never rewritten, because CPython would not rename `s.rpartition` either. |
 

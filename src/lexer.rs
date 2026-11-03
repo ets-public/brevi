@@ -163,6 +163,32 @@ fn is_module_path(m: &str) -> bool {
     !name.is_empty() && name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_'))
 }
 
+thread_local! {
+    // Python classes under `@dataclass`: the `class` line (1-based) -> the class's Python name. The parser reads it
+    // (dataclass_at) so the class prints as CPython's generated __repr__ does: `P(x=1, y=0)`.
+    static DATACLASS: std::cell::RefCell<std::collections::HashMap<usize, String>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+pub fn dataclass_at(line: usize) -> Option<String> {
+    DATACLASS.with(|d| d.borrow().get(&line).cloned())
+}
+
+// The Python name a lexed name stands for: `Box_` (renamed for Rust) is `Box`.
+pub fn py_ident(n: &str) -> &str {
+    match n.strip_suffix('_') {
+        Some(k) if RUST_KEYWORDS.contains(&k) || RUST_PRELUDE.contains(&k) || KEYWORDS.contains(&k) => k,
+        _ => n,
+    }
+}
+
+// `@dataclass`, `@dataclasses.dataclass`, `@dataclass(order=True)`, but not `@dataclass(repr=False)`.
+fn dataclass_decorator(t: &str) -> bool {
+    let d = t.trim_start_matches('@').trim_start_matches("dataclasses.");
+    let Some(rest) = d.strip_prefix("dataclass") else { return false };
+    let rest = rest.split('#').next().unwrap_or("").trim();
+    (rest.is_empty() || rest.starts_with('(')) && !rest.replace(' ', "").contains("repr=False")
+}
+
 fn drop_py_imports(src: &str) -> String {
     let mut out = String::with_capacity(src.len());
     // Inside `from m import (a,` ... `b)`: the names run on to the closing bracket.
@@ -194,8 +220,18 @@ fn drop_py_imports(src: &str) -> String {
                 continue;
             }
         }
-        // Decorators (`@dataclass`, `@staticmethod`, `@lru_cache(None)`): the code works the same without them.
+        // Decorators (`@dataclass`, `@staticmethod`, `@lru_cache(None)`): the code works the same without them,
+        // except that a dataclass prints its fields (noted for the parser).
         if t.starts_with('@') && t[1..].chars().next().map_or(false, |c| c.is_alphabetic()) {
+            if dataclass_decorator(t) {
+                let class = all[at + 1..].iter().enumerate().map(|(k, l)| (k, l.trim())).find(|(_, l)| !l.starts_with('@') && !l.is_empty() && !l.starts_with('#'));
+                if let Some((k, c)) = class {
+                    if let Some(rest) = c.strip_prefix("class ") {
+                        let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                        DATACLASS.with(|d| d.borrow_mut().insert(at + k + 2, name));
+                    }
+                }
+            }
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
             continue;
         }

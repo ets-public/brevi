@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+KeyError: 'os'
+exit 1
+-- dynamic
+Traceback (most recent call last):
+KeyError: 'os'
+exit 1
+-- typed
+{"line":3,"msg":"unknown method .system()","fix":"sys.modules would run in CPython, which needs `allow native` at the top; or do without it"}
+{"line":3,"msg":"unknown name 'sys'","fix":"set it first: sys = ..."}
+exit 1
