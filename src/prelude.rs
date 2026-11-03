@@ -892,6 +892,177 @@ impl AxPyMod for Json {
         self % b
     }
 }
+// Python's math functions (math.log(x) is x.ax_m_log()), on floats and ints; a domain error is Python's
+// ValueError, as math raises it (Rust would give NaN or an infinity).
+pub trait AxMath {
+    fn ax_f(&self) -> f64;
+    fn ax_m_log(&self) -> f64 {
+        let x = self.ax_f();
+        if !(x > 0.0) && !x.is_nan() {
+            panic!("ValueError: math domain error");
+        }
+        x.ln()
+    }
+    fn ax_m_logb<B: AxMath>(&self, b: B) -> f64 {
+        let d = b.ax_m_log();
+        if d == 0.0 {
+            panic!("ZeroDivisionError: float division by zero");
+        }
+        self.ax_m_log() / d
+    }
+    fn ax_m_log2(&self) -> f64 {
+        self.ax_m_log();
+        self.ax_f().log2()
+    }
+    fn ax_m_log10(&self) -> f64 {
+        self.ax_m_log();
+        self.ax_f().log10()
+    }
+    fn ax_m_log1p(&self) -> f64 {
+        let x = self.ax_f();
+        if x <= -1.0 {
+            panic!("ValueError: math domain error");
+        }
+        x.ln_1p()
+    }
+    fn ax_m_exp(&self) -> f64 {
+        let r = self.ax_f().exp();
+        if r.is_infinite() && self.ax_f().is_finite() {
+            panic!("OverflowError: math range error");
+        }
+        r
+    }
+    fn ax_m_expm1(&self) -> f64 {
+        let r = self.ax_f().exp_m1();
+        if r.is_infinite() && self.ax_f().is_finite() {
+            panic!("OverflowError: math range error");
+        }
+        r
+    }
+    fn ax_m_trig(&self) -> f64 {
+        let x = self.ax_f();
+        if x.is_infinite() {
+            panic!("ValueError: math domain error");
+        }
+        x
+    }
+    fn ax_m_sin(&self) -> f64 {
+        self.ax_m_trig().sin()
+    }
+    fn ax_m_cos(&self) -> f64 {
+        self.ax_m_trig().cos()
+    }
+    fn ax_m_tan(&self) -> f64 {
+        self.ax_m_trig().tan()
+    }
+    fn ax_m_asin(&self) -> f64 {
+        let x = self.ax_f();
+        if x.abs() > 1.0 {
+            panic!("ValueError: math domain error");
+        }
+        x.asin()
+    }
+    fn ax_m_acos(&self) -> f64 {
+        let x = self.ax_f();
+        if x.abs() > 1.0 {
+            panic!("ValueError: math domain error");
+        }
+        x.acos()
+    }
+    fn ax_m_atan(&self) -> f64 {
+        self.ax_f().atan()
+    }
+    fn ax_m_atan2<B: AxMath>(&self, x: B) -> f64 {
+        self.ax_f().atan2(x.ax_f())
+    }
+    fn ax_m_sinh(&self) -> f64 {
+        self.ax_f().sinh()
+    }
+    fn ax_m_cosh(&self) -> f64 {
+        self.ax_f().cosh()
+    }
+    fn ax_m_tanh(&self) -> f64 {
+        self.ax_f().tanh()
+    }
+    fn ax_m_hypot<B: AxMath>(&self, y: B) -> f64 {
+        self.ax_f().hypot(y.ax_f())
+    }
+    fn ax_m_fabs(&self) -> f64 {
+        self.ax_f().abs()
+    }
+    fn ax_m_trunc(&self) -> i64 {
+        let x = self.ax_f();
+        if !x.is_finite() {
+            panic!("{}", if x.is_nan() { "ValueError: cannot convert float NaN to integer" } else { "OverflowError: cannot convert float infinity to integer" });
+        }
+        x.trunc() as i64
+    }
+    fn ax_m_degrees(&self) -> f64 {
+        self.ax_f().to_degrees()
+    }
+    fn ax_m_radians(&self) -> f64 {
+        self.ax_f().to_radians()
+    }
+    fn ax_m_copysign<B: AxMath>(&self, y: B) -> f64 {
+        self.ax_f().copysign(y.ax_f())
+    }
+    fn ax_m_fmod<B: AxMath>(&self, y: B) -> f64 {
+        let (x, y) = (self.ax_f(), y.ax_f());
+        if y == 0.0 || x.is_infinite() {
+            panic!("ValueError: math domain error");
+        }
+        x % y
+    }
+    fn ax_m_isnan(&self) -> bool {
+        self.ax_f().is_nan()
+    }
+    fn ax_m_isinf(&self) -> bool {
+        self.ax_f().is_infinite()
+    }
+    fn ax_m_isfinite(&self) -> bool {
+        self.ax_f().is_finite()
+    }
+    fn ax_m_inf(&self) -> f64 {
+        f64::INFINITY
+    }
+    fn ax_m_nan(&self) -> f64 {
+        f64::NAN
+    }
+    fn ax_m_time(&self) -> f64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
+    }
+    fn ax_m_perf_counter(&self) -> f64 {
+        static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        T0.get_or_init(std::time::Instant::now).elapsed().as_secs_f64()
+    }
+    fn ax_m_monotonic(&self) -> f64 {
+        self.ax_m_perf_counter()
+    }
+}
+impl AxMath for f64 {
+    fn ax_f(&self) -> f64 {
+        *self
+    }
+}
+impl AxMath for i64 {
+    fn ax_f(&self) -> f64 {
+        *self as f64
+    }
+}
+impl AxMath for bool {
+    fn ax_f(&self) -> f64 {
+        *self as i64 as f64
+    }
+}
+impl AxMath for Json {
+    fn ax_f(&self) -> f64 {
+        match self {
+            Json::Num { v, .. } => *v,
+            Json::Bool { v } => *v as i64 as f64,
+            _ => panic!("TypeError: must be real number"),
+        }
+    }
+}
 // Python's math.isqrt(n): the largest whole number whose square is at most n.
 pub trait AxIsqrt {
     fn ax_isqrt(&self) -> i64;

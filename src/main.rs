@@ -21,6 +21,7 @@ mod pydiag;
 mod patch;
 mod typed_guard;
 mod pysentinel;
+mod pystd;
 mod pygen;
 mod scoped;
 mod runcache;
@@ -274,7 +275,7 @@ fn main() {
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
     let src = modules::fill_file_name(&src, Path::new(&file));
-    let src = if file.ends_with(".py") { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
+    let src = if file.ends_with(".py") { pystd::rewrite(&pysentinel::rewrite(&pygen::rewrite(&src))) } else { src };
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
@@ -1124,7 +1125,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     let rust = em.program(&items);
     tm("compile: emitted");
     if em.diags.is_empty() {
-        Ok(rust)
+        Ok(pystd::drop_shim_lines(rust))
     } else {
         Err(em.diags)
     }

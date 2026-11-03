@@ -39,7 +39,7 @@ $ brevi check broken.py
 {"line":8,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
 ```
 
-Mistakes that Python itself only finds when a line runs raise there, as in CPython. When Brevi cannot build a file natively yet, or it has a sure mistake, `brevi run` runs it with `python3` and prints one JSON line naming the line and function that stopped it; `brevi build`, `brevi check` and `brevi run --native` never fall back. Files can import their sibling modules and installed packages (numpy, pandas, sqlite3, ...), whose calls run in CPython inside the native program; `brevi build x.py --standalone` packs CPython and those packages into the binary (Linux). More in [Using Brevi](https://brevi-lang.org/docs/usage).
+Mistakes that Python itself only finds when a line runs raise there, as in CPython. When Brevi cannot build a file natively yet, or it has a sure mistake, `brevi run` runs it with `python3` and prints one JSON line naming the line and function that stopped it; `brevi build`, `brevi check` and `brevi run --native` never fall back. Files can import their sibling modules and the standard library, which Brevi builds natively itself ([what runs native](https://brevi-lang.org/docs/compatibility#what-runs-native)), and installed packages (numpy, pandas, sqlite3, ...), whose calls run in CPython inside the native program; `brevi build x.py --standalone` packs CPython and those packages into the binary (Linux). More in [Using Brevi](https://brevi-lang.org/docs/usage).
 
 ## For agents
 

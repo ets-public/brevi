@@ -38,7 +38,24 @@ Works in native builds:
 - Multi-file programs: sibling modules and packages imported as usual
 - Reading stdin, arguments, files (`open`, `pathlib` reads and writes)
 
-Built natively by Brevi itself in the dynamic build: `sys`, `math`, `collections`, `heapq`, `bisect`, `functools`, `itertools`, `copy`, `operator`, `string`, `time`, `typing`, `dataclasses`, `abc`, `re`, `json`, `decimal`, `fractions`, `datetime`, `csv`, `html`, `statistics`, `threading`. The typed build covers most of the same, plus pieces of others.
+### What runs native
+
+Standard-library modules are built by Brevi itself, with no CPython. The typed build is the fast path; what it lacks runs in the dynamic build, which is still native code. A program never needs CPython for the modules below (from v0.24.3):
+
+| Module | Typed build (fastest) | Dynamic build (native) |
+|---|---|---|
+| `math` | `sqrt`, `floor`, `ceil`, `isqrt`, `gcd`, `lcm`, `comb`, `perm`, `factorial`, `isclose`, `log` (with a base too), `log2`, `log10`, `log1p`, `exp`, `expm1`, trig and hyperbolic functions, `atan2`, `hypot`, `fabs`, `trunc`, `degrees`, `radians`, `copysign`, `fmod`, `isnan`, `isinf`, `isfinite`, `pi`, `e`, `tau`, `inf`, `nan`; domain errors are `ValueError`s an `except` catches | the rest (`fsum`, `prod`, `dist`, ...) |
+| `time` | `time`, `perf_counter`, `monotonic` | `sleep`, `process_time` |
+| `re` | `match`, `search`, `fullmatch`, `findall` (no group or one), `finditer`, `split`, `sub`, `compile`, flags | `findall` with two or more groups, `sub` with a function, groups tested against None, `groupdict` |
+| `json` | `loads`, `load`, `dumps` | `dumps(indent=..., sort_keys=...)` on mixed values |
+| `collections` | `Counter`, `defaultdict`, `deque` (`popleft`, `appendleft`), `OrderedDict` | `namedtuple`, `deque(maxlen=...)`, `rotate`, a defaultdict read whose missing key matters |
+| `itertools` | `groupby` | `chain`, `product`, `permutations`, `combinations`, `accumulate`, `islice`, `zip_longest`, `pairwise`, `count`, `cycle` and the rest |
+| `functools` | `lru_cache`, `cache` | `reduce`, `partial`, `cmp_to_key`, `total_ordering` |
+| `dataclasses` | `@dataclass` (defaults, `field(default_factory=...)`, `order`, `frozen`) | `asdict`, `astuple`, `replace` |
+| `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
+| `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `Fraction`) | the rest |
+
+Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io`, `os`, `enum`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
@@ -49,7 +66,7 @@ Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
 ## Libraries (numpy, pandas, ...)
 
-A Python file that imports a module Brevi does not build itself (numpy, pandas, requests, sqlite3, Pillow, ...) still builds natively: each library call runs in CPython, loaded into the native program, so results are CPython's own, and the rest of the program stays native and fast. Brevi's own modules (math, re, json, datetime, ...) stay native, and what they lack (`math.gcd`, `d.strftime`) is taken from CPython.
+A Python file that imports a module Brevi does not build itself (numpy, pandas, requests, sqlite3, Pillow, ...) still builds natively: each library call runs in CPython, loaded into the native program, so results are CPython's own, and the rest of the program stays native and fast. Brevi's own modules (math, re, json, datetime, ...) stay native: what the typed build lacks of them goes to the dynamic build, never to CPython (from v0.24.3; see [What runs native](#what-runs-native)).
 
 Limits today:
 

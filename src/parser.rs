@@ -2305,6 +2305,20 @@ impl Parser {
                                     continue;
                                 }
                             }
+                            // math.log(x), math.sin(x), math.hypot(x, y)...: the typed build's float methods (m_log...),
+                            // which raise ValueError where Python's do (math.log(0), math.sqrt(-1)).
+                            if self.py && matches!(&e, Expr::Ident(m) if m == "math") && !kws_given {
+                                if let Some(m) = math_method(&name, args.len()) {
+                                    let x = args.remove(0);
+                                    e = Expr::Method(Box::new(x), m.into(), args, line);
+                                    continue;
+                                }
+                            }
+                            // time.time(), time.perf_counter(), time.monotonic(): seconds as a float.
+                            if self.py && matches!(&e, Expr::Ident(m) if m == "time") && args.is_empty() && matches!(name.as_str(), "time" | "perf_counter" | "monotonic") {
+                                e = Expr::Method(Box::new(Expr::Float(0.0)), format!("m_{name}"), vec![], line);
+                                continue;
+                            }
                             // math.isqrt(n): the whole square root of an int.
                             if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && name == "isqrt" {
                                 e = Expr::Method(Box::new(args.remove(0)), "isqrt".into(), vec![], line);
@@ -2379,6 +2393,14 @@ impl Parser {
                         } else if self.py && matches!(&e, Expr::Ident(m) if m == "operator") && operator_fn(&name, line).is_some() {
                             // `operator.lt` as a value: a two-argument lambda.
                             e = operator_fn(&name, line).unwrap();
+                        } else if self.py && matches!(&e, Expr::Ident(m) if m == "math") && matches!(name.as_str(), "pi" | "e" | "tau" | "inf" | "nan") {
+                            // math.pi, math.e, math.tau; math.inf and math.nan come from a float method.
+                            e = match name.as_str() {
+                                "pi" => Expr::Float(std::f64::consts::PI),
+                                "e" => Expr::Float(std::f64::consts::E),
+                                "tau" => Expr::Float(std::f64::consts::TAU),
+                                n => Expr::Method(Box::new(Expr::Float(0.0)), format!("m_{n}"), vec![], self.line()),
+                            };
                         } else if name == "argv" && matches!(&e, Expr::Ident(m) if m == "sys") {
                             // sys.argv: the program's name, then its arguments.
                             e = Expr::Binary("+", Box::new(Expr::List(vec![Expr::Str(vec![StrPart::Lit("main".into())])])), Box::new(Expr::Call("args".into(), vec![], line)));
@@ -3281,6 +3303,40 @@ fn rename_main(e: &mut Expr) -> bool {
         }
         _ => false,
     }
+}
+
+// math functions as the typed build's float methods (receiver: the first argument), by argument count.
+pub(crate) fn math_method(name: &str, nargs: usize) -> Option<&'static str> {
+    Some(match (name, nargs) {
+        ("log", 1) => "m_log",
+        ("log", 2) => "m_logb",
+        ("log2", 1) => "m_log2",
+        ("log10", 1) => "m_log10",
+        ("log1p", 1) => "m_log1p",
+        ("exp", 1) => "m_exp",
+        ("expm1", 1) => "m_expm1",
+        ("sin", 1) => "m_sin",
+        ("cos", 1) => "m_cos",
+        ("tan", 1) => "m_tan",
+        ("asin", 1) => "m_asin",
+        ("acos", 1) => "m_acos",
+        ("atan", 1) => "m_atan",
+        ("atan2", 2) => "m_atan2",
+        ("sinh", 1) => "m_sinh",
+        ("cosh", 1) => "m_cosh",
+        ("tanh", 1) => "m_tanh",
+        ("hypot", 2) => "m_hypot",
+        ("fabs", 1) => "m_fabs",
+        ("trunc", 1) => "m_trunc",
+        ("degrees", 1) => "m_degrees",
+        ("radians", 1) => "m_radians",
+        ("copysign", 2) => "m_copysign",
+        ("fmod", 2) => "m_fmod",
+        ("isnan", 1) => "m_isnan",
+        ("isinf", 1) => "m_isinf",
+        ("isfinite", 1) => "m_isfinite",
+        _ => return None,
+    })
 }
 
 // Python's heapq functions (`from heapq import heappush` or `heapq.heappush`) as list methods.
