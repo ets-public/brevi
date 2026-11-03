@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Brevi: the fast, safe target for AI-written Python</title>
-<meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, Brevi checks the whole program before it runs and builds a fast, memory-safe native binary.">
+<meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, and Brevi builds it through Rust into a fast, memory-safe native binary with the same output as CPython.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -13,164 +12,26 @@
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1d5b4f">
 <link rel="preload" href="/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
-<style>
-/* IBM Plex (SIL Open Font License 1.1, see /OFL.txt), served from this site: no third-party request blocks the first paint. */
-@font-face { font-family: 'IBM Plex Sans'; font-weight: 400 600; font-display: swap; src: url(/plex-sans.woff2) format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url(/plex-mono-400.woff2) format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url(/plex-mono-500.woff2) format('woff2'); }
-@font-face { font-family: 'IBM Plex Serif'; font-weight: 500; font-display: swap; src: url(/plex-serif-500.woff2) format('woff2'); }
-/* Layout: a documentation-style page on a 12-column measure, text left, code and tables at full width, no cards. */
-:root {
-  --bg: #fbfbfa;
-  --panel: #f1f2f0;
-  --fg: #1b1e1d;
-  --muted: #5d6462;
-  --rule: #d9dcd9;
-  --accent: #1d5b4f;
-  --mark: #e8efe9;
-  --code-fg: #22302c;
-  --kw: #1d5b4f;
-  --str: #7a4a12;
-  --com: #7b827f;
-  --serif: "IBM Plex Serif", Georgia, serif;
-  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230;
-    --accent: #7cc4b1; --mark: #1d2a26; --code-fg: #d6dcd9; --kw: #7cc4b1; --str: #e0b072; --com: #7d8683;
-    color-scheme: dark;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230;
-  --accent: #7cc4b1; --mark: #1d2a26; --code-fg: #d6dcd9; --kw: #7cc4b1; --str: #e0b072; --com: #7d8683;
-  color-scheme: dark;
-}
-* { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body {
-  margin: 0; background: var(--bg); color: var(--fg);
-  font: 16px/1.6 var(--sans);
-}
-.wrap {
-  max-width: 1080px; margin: 0 auto;
-  padding-left: max(20px, env(safe-area-inset-left, 0px));
-  padding-right: max(20px, env(safe-area-inset-right, 0px));
-}
-a { color: var(--accent); text-underline-offset: 3px; }
-a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-code, pre { font-family: var(--mono); font-size: 0.9em; }
-:not(pre) > code { background: var(--panel); padding: 0.1em 0.35em; border-radius: 3px; }
-
-header.top { border-bottom: 1px solid var(--rule); }
-header.top .wrap { display: flex; align-items: center; gap: 24px; padding-block: 14px; flex-wrap: wrap; }
-.brand { font: 500 1.3rem/1 var(--serif); color: var(--fg); text-decoration: none; letter-spacing: -0.01em; }
-.brand { display: inline-flex; align-items: center; gap: 10px; }
-.brand .mark { flex: none; }
-.brand span { font: 400 0.75rem var(--mono); color: var(--muted); margin-left: -2px; letter-spacing: 0; }
-nav { display: flex; gap: 20px; flex-wrap: wrap; margin-left: auto; font-size: 0.93rem; }
-nav a { color: var(--muted); text-decoration: none; }
-nav a:hover { color: var(--fg); }
-
-.intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; padding-block: 64px 56px; align-items: start; }
-.intro > * { min-width: 0; }
-h1 { font: 500 clamp(2rem, 4.2vw, 2.9rem)/1.12 var(--serif); letter-spacing: -0.015em; margin: 0 0 20px; text-wrap: balance; }
-.lede { font-size: 1.12rem; color: var(--muted); margin: 0 0 28px; max-width: 34em; }
-.lede strong { color: var(--fg); font-weight: 500; }
-.status { font: 0.85rem/1.5 var(--mono); color: var(--muted); border-left: 2px solid var(--accent); padding-left: 12px; margin: 0; }
-
-.term { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--panel); }
-.term .bar { display: flex; justify-content: space-between; font: 0.78rem var(--mono); color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--rule); }
-.term pre { margin: 0; padding: 16px 18px; overflow-x: auto; line-height: 1.55; color: var(--code-fg); }
-.term pre + .bar { border-top: 1px solid var(--rule); }
-.k { color: var(--kw); font-weight: 500; }
-.s { color: var(--str); }
-.c { color: var(--com); }
-.out { color: var(--muted); }
-
-section { border-top: 1px solid var(--rule); padding-block: 56px; }
-.sec-head { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
-.sec-head > * { min-width: 0; }
-.label { font: 500 0.78rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 6px 0 0; }
-h2 { font: 500 1.75rem/1.25 var(--serif); margin: 0 0 14px; letter-spacing: -0.01em; text-wrap: balance; }
-h3 { font: 600 1.02rem/1.35 var(--sans); margin: 0 0 6px; }
-p { margin: 0 0 14px; max-width: 40em; }
-.note { color: var(--muted); font-size: 0.92rem; }
-
-.benefits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 36px 48px; margin-top: 28px; }
-.benefits > div { min-width: 0; }
-.benefits p { color: var(--muted); margin: 0; }
-.fig { font: 500 0.88rem var(--mono); color: var(--accent); display: block; margin-bottom: 4px; }
-
-.sec-head.block { margin-top: 48px; }
-h3.sub { font: 500 1.25rem/1.3 var(--serif); margin: 0 0 12px; }
-.costs, .diffs { margin: 0 0 18px; padding-left: 1.2em; max-width: 42em; display: grid; gap: 10px; }
-.costs b, .diffs b { font-weight: 600; }
-.diffs { list-style: square; margin-top: 20px; }
-.pair { display: grid; grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr); gap: 20px; margin-top: 20px; }
-.pair > * { min-width: 0; }
-.pair .bar span:last-child { font-variant-numeric: tabular-nums; }
-pre.tall { max-height: 560px; overflow: auto; font-size: 0.8rem; }
-table.vs td { white-space: normal; min-width: 140px; vertical-align: top; }
-table.vs td:first-child { color: var(--muted); }
-.compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 24px; }
-.compare > * { min-width: 0; }
-
-.table-wrap { overflow-x: auto; margin-top: 24px; }
-table { border-collapse: collapse; width: 100%; font-size: 0.93rem; font-variant-numeric: tabular-nums; }
-th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
-th { font-weight: 500; color: var(--muted); font-size: 0.82rem; }
-td.n, th.n { text-align: right; padding-right: 20px; }
-td.win { font-weight: 600; }
-td.save { color: var(--accent); font-weight: 500; }
-.tables { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 48px; }
-.tables > * { min-width: 0; }
-
-.agent-list { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 0; }
-.agent-list li { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
-.agent-list li > * { min-width: 0; }
-.agent-list code { font-size: 0.86rem; }
-
-footer { border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.88rem; }
-footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 32px; padding-block: 28px 40px; }
-footer .end { margin-left: auto; }
-
-@media (max-width: 860px) {
-  .intro, .tables, .compare, .pair { grid-template-columns: minmax(0, 1fr); gap: 32px; }
-  .intro { padding-block: 40px; }
-  .sec-head { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .benefits { grid-template-columns: minmax(0, 1fr); gap: 28px; }
-  .agent-list li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  nav { margin-left: 0; width: 100%; }
-  footer .end { margin-left: 0; }
-}
-</style>
+<link rel="stylesheet" href="/style.css?v=__CSSV__">
 </head>
 <body>
+__HEADER__
 
-<header class="top">
-  <div class="wrap">
-    <a class="brand" href="/"><svg class="mark" aria-hidden="true" width="26" height="26" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="13" fill="#1d5b4f"/><g fill="none" stroke="#fbfbfa" stroke-width="7"><path d="M15 10v42"/><circle cx="25.5" cy="40" r="8.5"/></g><rect x="40" y="45" width="12" height="7" fill="#7cc4b1"/></svg>Brevi<span>v__VERSION__ preview</span></a>
-    <nav aria-label="Main">
-      <a href="#why">Why Brevi</a>
-      <a href="#benchmarks">Benchmarks</a>
-      <a href="#agents">For agents</a>
-      <a href="/guide.md">Language guide</a>
-    </nav>
-  </div>
-</header>
-
-<main>
-  <div class="wrap intro">
+<main id="main">
+  <div class="wrap hero">
     <div>
+      <p class="eyebrow">Built for AI coding agents</p>
       <h1>The fast, safe target for AI-written Python.</h1>
-      <p class="lede">Brevi is built for AI coding agents. The agent writes the Python it already writes best; Brevi checks the whole program before it runs, answers each mistake with one short line the agent can act on, and builds a native binary that runs <strong>2 to 40 times faster than CPython</strong>, with memory safety and overflow checks from Rust underneath.</p>
-      <p class="status">Status: preview. The compiler, written in Rust, opens under the Apache-2.0 license with the first public release.</p>
+      <p class="lede">The agent writes the plain Python it already writes best. Brevi builds it through Rust into a native binary that gives <strong>the same output as CPython</strong> and runs <strong>2 to 40 times faster</strong>, and answers anything it cannot build with one short line the agent can act on.</p>
+<!--public-->      <div class="install" aria-label="Install command"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh</code></div>
+<!--/public-->      <div class="actions">
+        <a class="btn primary" href="/docs/install">Get started</a>
+        <a class="btn ghost" href="/docs/agents">Set up an agent</a>
+      </div>
+      <p class="status">__STATUS__</p>
     </div>
     <div class="term" aria-label="Example program and output">
-      <div class="bar"><span>top.py</span><span>plain Python</span></div>
+      <div class="tbar"><span>top.py</span><span>plain Python</span></div>
 <pre><span class="k">import</span> sys
 <span class="k">from</span> collections <span class="k">import</span> Counter
 
@@ -178,153 +39,93 @@ footer .end { margin-left: auto; }
 counts = Counter(sys.stdin.read().lower().split())
 <span class="k">for</span> word, n <span class="k">in</span> counts.most_common(3):
     print(<span class="s">f"{word}: {n}"</span>)</pre>
-      <div class="bar"><span>$ brevi run top.py &lt; text.txt</span><span>native binary</span></div>
+      <div class="tbar"><span>$ brevi run top.py &lt; text.txt</span><span>native binary</span></div>
 <pre class="out">the: 3
 and: 2
-bat: 1</pre>
+cat: 1</pre>
     </div>
   </div>
 
-  <section id="why">
+  <section class="band" id="how">
     <div class="wrap">
-      <div class="sec-head">
-        <p class="label">Why Brevi</p>
-        <div>
-          <h2>Built for the agent in the loop.</h2>
-          <p>Python is the language models have seen most and write most reliably. It is also slow, and it finds most mistakes only when the broken line finally runs, which costs an agent another round of reading and fixing. Rust is fast and safe, but slow and expensive for a model to write. Brevi lets the agent keep writing the Python it knows, and gives the result Rust's speed and checks: nothing new to learn, no guide to load, and errors made for a model to read.</p>
-        </div>
+      <div class="band-head">
+        <h2>Python in, Rust speed out.</h2>
+        <p>Nothing new for the model to learn and no guide to load. Brevi sits where <code>python3</code> sat in the agent's loop.</p>
       </div>
+      <ol class="steps">
+        <li><h3>The agent writes Python</h3><p>Ordinary Python 3, standard library or installed packages, one file or many. No annotations, no new syntax, no hand-tuning for speed.</p></li>
+        <li><h3>Brevi builds it natively</h3><p>It works out every type across the program and writes Rust, or, where types change at run time, Rust over Python-like dynamic values. <code>rustc</code> makes the binary.</p></li>
+        <li><h3>Same answer, much faster</h3><p>The program prints what CPython prints. If Brevi cannot match CPython exactly, it refuses at build time; <code>brevi run</code> then runs the file with python3 and says so in one line.</p></li>
+      </ol>
+    </div>
+  </section>
 
-      <div class="sec-head block">
-        <span></span>
-        <div>
-          <h3 class="sub">Brevi against the usual choices</h3>
-        </div>
+  <section class="band" id="why">
+    <div class="wrap">
+      <div class="band-head">
+        <h2>Speed and safety, without asking the model for Rust.</h2>
+        <p>Python is what models write most reliably, but it is slow and finds many mistakes only when the broken line runs. Rust is fast and safe, but slow and expensive for a model to write. Brevi keeps the Python and adds what Rust gives.</p>
       </div>
-      <div class="sec-head">
-        <span></span>
-        <div class="table-wrap">
-          <table class="vs">
-            <thead><tr><th></th><th>Python (CPython)</th><th>Rust</th><th>Brevi</th></tr></thead>
-            <tbody>
-              <tr><td>What you write</td><td>Python</td><td>Rust: lifetimes, borrows, types everywhere</td><td class="win">The same Python</td></tr>
-              <tr><td>Run time (Dijkstra, 100k nodes)</td><td>2.19 s</td><td>0.21 s</td><td class="win">0.40 s</td></tr>
-              <tr><td>Type mistakes found</td><td>When the line runs</td><td>Before running</td><td class="win">Before running</td></tr>
-              <tr><td>Memory safety</td><td>Garbage collector</td><td>Checked by the compiler</td><td class="win">Checked by the compiler, with no annotations</td></tr>
-              <tr><td>Integer overflow</td><td>Unlimited integers</td><td>Wraps in release builds unless checked</td><td class="win">Checked: a clear error, never a wrong number</td></tr>
-              <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary</td></tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="table-wrap">
+        <table class="vs">
+          <thead><tr><th></th><th>Python (CPython)</th><th>Rust</th><th>Brevi</th></tr></thead>
+          <tbody>
+            <tr><td>What the agent writes</td><td>Python</td><td>Rust: lifetimes, borrows, types</td><td class="win">The same Python</td></tr>
+            <tr><td>Run time (Dijkstra, 100k nodes)</td><td>2.19 s</td><td>0.21 s</td><td class="win">0.40 s</td></tr>
+            <tr><td>Memory safety</td><td>Garbage collector</td><td>Checked by the compiler</td><td class="win">Checked by the compiler, no annotations</td></tr>
+            <tr><td>Integer overflow</td><td>Unlimited integers</td><td>Wraps in release builds unless checked</td><td class="win">Unlimited, like Python: past 64 bits a value becomes a big integer</td></tr>
+            <tr><td>Errors the agent reads</td><td>Multi-line tracebacks</td><td>Long compiler messages</td><td class="win">One JSON line with the line number and a fix</td></tr>
+            <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary (<code>--standalone</code> carries CPython for library programs)</td></tr>
+          </tbody>
+        </table>
       </div>
-
-      <div class="sec-head block">
-        <span></span>
-        <div class="benefits">
-          <div>
-            <span class="fig">2x to 40x faster</span>
-            <h3>Native speed from plain Python</h3>
-            <p>Brevi builds a Rust binary from your <code>.py</code> files. On the 12 programs below, the same Python files run 1.7 to 40 times faster than under CPython with a plain <code>brevi run</code>, and level with Codon with <code>--release</code>.</p>
-          </div>
-          <div>
-            <span class="fig">checked before it runs</span>
-            <h3>Mistakes found before running</h3>
-            <p>Brevi works out the type of every value across the whole program and reports mismatches before the first run, where Python would fail halfway through, or not at all.</p>
-          </div>
-          <div>
-            <span class="fig">refuse, never guess</span>
-            <h3>Same answer as Python, or a clear refusal</h3>
-            <p>When Brevi cannot run a piece of Python exactly as CPython does, the aim is a clear refusal at build time, never a quietly different answer. A growing set of probe programs checks this against CPython.</p>
-          </div>
-          <div>
-            <span class="fig">one file to ship</span>
-            <h3>One binary, no interpreter</h3>
-            <p>The result is a single native executable. Nothing to install next to it: no interpreter, no virtual environment, no packages to match.</p>
-          </div>
-          <div>
-            <span class="fig">{"line":N,"msg":…,"fix":…}</span>
-            <h3>Errors a model can act on</h3>
-            <p>Each error is one JSON line with the line number and a suggested fix, a fraction of the size of a traceback. Small typos of known names are fixed during the build.</p>
-          </div>
-          <div>
-            <span class="fig">no guide to read</span>
-            <h3>Nothing new for a model to learn</h3>
-            <p>Agents write ordinary Python, so there is no language guide to load into every session. Brevi's own syntax and its guide are there for anyone who wants them.</p>
-          </div>
-          <div>
-            <span class="fig">Rust 1.99 · Python 3.15</span>
-            <h3>Keeps working as Rust and Python move</h3>
-            <p>Brevi is rebuilt every day on Rust stable and the newest and next Python, and every week on Rust beta and nightly. Each time, every benchmark program that ever passed is run again, so programs written today keep building as the toolchains update.</p>
-          </div>
-          <div>
-            <span class="fig">crates · Python packages</span>
-            <h3>Not limited to the standard library</h3>
-            <p>A program can split over several files, call any Rust crate from crates.io, and <code>import</code> numpy, pandas, sqlite3 or any other installed Python module, which runs through CPython inside the native binary.</p>
-          </div>
-        </div>
+      <div class="grid3" style="margin-top: 40px;">
+        <div class="point"><span class="fig">591 of 591</span><h3>The same output as CPython</h3><p>Every saved agent program Brevi builds prints exactly what CPython prints, byte for byte, with the same exit status. Codon gets 36 of them wrong.</p></div>
+        <div class="point"><span class="fig">refuse, never guess</span><h3>A clear refusal, not a quiet difference</h3><p>When Brevi cannot match CPython for some piece of Python, it stops at build time and names the line. It does not build a program that might answer differently.</p></div>
+        <div class="point"><span class="fig">{"line":N,"msg":…,"fix":…}</span><h3>Errors made for a model</h3><p>Build and run-time errors are one line naming the source line, a fraction of a traceback's tokens. The agent fixes that line and runs again.</p></div>
+        <div class="point"><span class="fig">allow read, write</span><h3>A sandbox the agent can declare</h3><p>A Brevi program states what it touches. <code>brevi run --sandbox</code> and the MCP tools refuse anything undeclared.</p></div>
+        <div class="point"><span class="fig">numpy · pandas · tkinter</span><h3>Not limited to the standard library</h3><p>Imports of numpy, pandas, sqlite3 and other installed packages run through CPython inside the native program. tkinter apps build too, and can be tested without a screen.</p></div>
+        <div class="point"><span class="fig">Rust stable · beta · nightly</span><h3>Keeps working as toolchains move</h3><p>Rebuilt daily on Rust stable and the newest and next Python, weekly on beta and nightly. Every benchmark program that ever passed must keep passing.</p></div>
       </div>
     </div>
   </section>
 
-  <section id="errors">
+  <section class="band" id="errors">
     <div class="wrap">
-      <div class="sec-head">
-        <p class="label">Errors</p>
-        <div>
-          <h2>One line per mistake, with the fix.</h2>
-          <p>Brevi runs its own checks before Rust sees the code, in milliseconds. Anything Rust still rejects is mapped back to your line and rewritten in plain terms, so nobody reads generated Rust.</p>
+      <div class="band-head">
+        <h2>One line per mistake.</h2>
+        <p>An agent pays for every token it reads. A Brevi error names the line, says what went wrong in plain words and, where it can, gives the fix.</p>
+      </div>
+      <div class="split">
+        <div class="term">
+          <div class="tbar"><span>$ python3 rows.py</span><span>CPython</span></div>
+<pre class="out">Traceback (most recent call last):
+  File "/work/rows.py", line 2, in &lt;module&gt;
+    print(xs[5])
+          ~~^^^
+IndexError: list index out of range</pre>
+        </div>
+        <div class="term">
+          <div class="tbar"><span>$ brevi run rows.py</span><span>1 line</span></div>
+<pre class="out wrapline">{"e":"runtime","line":2,"msg":"index 5 out of range for length 1"}</pre>
+          <div class="tbar"><span>$ brevi check broken.py</span><span>before running</span></div>
+<pre class="out wrapline">{"line":2,"msg":"expected ')', found end of line","fix":"insert ')'"}</pre>
         </div>
       </div>
-      <div class="sec-head">
-        <span></span>
-        <div class="compare">
-          <div class="term">
-            <div class="bar"><span>total.py</span><span>plain Python</span></div>
-<pre><span class="k">import</span> sys
-n = sum(int(x) <span class="k">for</span> x <span class="k">in</span> sys.stdin.read().split())
-print(<span class="s">"total: "</span> + n)</pre>
-          </div>
-          <div class="term">
-            <div class="bar"><span>$ brevi run total.py</span><span>1 line</span></div>
-<pre class="out" style="white-space: pre-wrap; word-break: break-word;">{"line":3,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or write \"{x}\""}</pre>
-          </div>
-        </div>
-      </div>
-      <div class="sec-head block">
-        <span></span>
-        <div>
-          <h3 class="sub">The same two mistakes in three languages</h3>
-          <p>Tokens the model has to read before it can fix each mistake, counted with Anthropic's tokenizer.</p>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>Mistake</th><th class="n">Python</th><th class="n">Rust</th><th class="n">Brevi</th></tr></thead>
-              <tbody>
-                <tr><td>Adding a number to text</td><td class="n">76</td><td class="n">106</td><td class="n win">44</td></tr>
-                <tr><td>Misspelled variable name</td><td class="n">80</td><td class="n">159</td><td class="n win">22, and the program runs</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <p class="note" style="margin-top: 14px;">Python reports the first mistake only when that line runs. Brevi reports it before running, and fixes the misspelling during the build with a one-line note instead of failing.</p>
-        </div>
-      </div>
+      <p class="note" style="margin-top: 16px;">In Brevi's own <code>.bv</code> language every type mistake is reported before the program runs. For Python files Brevi keeps CPython's behaviour, so code that Python would only fail at run time fails there too. <a href="/docs/usage#errors">How errors work</a></p>
     </div>
   </section>
 
-  <section id="benchmarks">
+  <section class="band" id="benchmarks">
     <div class="wrap">
-      <div class="sec-head">
-        <p class="label">Benchmarks</p>
-        <div>
-          <h2>The same Python, built by Brevi, Codon and Nuitka.</h2>
-          <p>Unchanged Python files given to each compiler and checked against CPython's exact output. Speed is the best of three runs in seconds (lower is better), with Brevi's <code>--release</code> build; Codon refuses two of the programs.</p>
-        </div>
+      <div class="band-head">
+        <h2>The same Python, built by Brevi, Codon and Nuitka.</h2>
+        <p>Unchanged Python files given to each compiler and checked against CPython's exact output. Speed is the best of three runs in seconds, with Brevi's <code>--release</code> build.</p>
       </div>
-      <div class="tables">
-        <div class="table-wrap">
+      <div class="split" style="grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 40px;">
+        <div class="table-wrap" style="margin-top: 0;">
           <table>
-            <thead>
-              <tr><th>Run time, seconds</th><th class="n">CPython</th><th class="n">Brevi</th><th class="n">Codon</th><th class="n">Nuitka</th></tr>
-            </thead>
+            <thead><tr><th>Run time, seconds</th><th class="n">CPython</th><th class="n">Brevi</th><th class="n">Codon</th><th class="n">Nuitka</th></tr></thead>
             <tbody>
               <tr><td>Spectral norm</td><td class="n">2.67</td><td class="n">0.06</td><td class="n win">0.03</td><td class="n">3.41</td></tr>
               <tr><td>N-body</td><td class="n">2.33</td><td class="n">0.08</td><td class="n win">0.05</td><td class="n">4.08</td></tr>
@@ -340,85 +141,78 @@ print(<span class="s">"total: "</span> + n)</pre>
               <tr><td>Group records</td><td class="n">0.68</td><td class="n win">0.26</td><td class="n">0.34</td><td class="n">0.64</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">Measured 3 November 2026 on one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 40x faster than CPython on every program. Nuitka links its own libpython and ran near CPython here.</p>
+          <p class="note">3 November 2026, one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 40x faster than CPython on every program.</p>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Same result as CPython</th><th class="n">Brevi</th><th class="n">Codon</th><th class="n">Nuitka</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Agent programs (591)</td><td class="n win">591</td><td class="n">170</td><td class="n">591</td></tr>
-              <tr><td>Built, wrong output</td><td class="n win">0</td><td class="n">36</td><td class="n">0</td></tr>
-              <tr><td>Large programs (18)</td><td class="n win">18</td><td class="n">0</td><td class="n">18</td></tr>
-              <tr><td>Behaviour traps (13)</td><td class="n win">13</td><td class="n">4</td><td class="n">12</td></tr>
-            </tbody>
-          </table>
-          <p class="note" style="margin-top: 14px;">Agent programs are saved solutions from earlier benchmark runs; large programs have 200 to 750 lines over several files; traps cover big ints, <code>%</code> signs, float printing and the like. Each built program's output and exit status are compared byte for byte with CPython's. Method and logs: <code>bench/compare</code>.</p>
-        </div>
-      </div>
-      <div class="tables">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Model cost per run</th><th class="n">CPython</th><th class="n">Brevi</th></tr>
-            </thead>
-            <tbody>
-              <tr><td>Sonnet, 4 heavy tasks</td><td class="n">$0.111</td><td class="n">$0.064</td></tr>
-              <tr><td>Haiku, 4 heavy tasks</td><td class="n">$0.011</td><td class="n">$0.006</td></tr>
-              <tr><td>Sonnet, 24 release tasks</td><td class="n">$0.686</td><td class="n">$0.737</td></tr>
-              <tr><td>Haiku, 24 release tasks</td><td class="n">$0.087</td><td class="n">$0.087</td></tr>
-            </tbody>
-          </table>
-          <p class="note" style="margin-top: 14px;">The full API bill, in US dollars, for a model writing ordinary Python and checking it until the tests pass, averaged over two runs per model on 3 November 2026, with each side's prompt cache kept apart. Heavy tasks (Game of Life, knapsack, edit distance, Collatz chains) must finish in 10 seconds, which plain Python cannot. Told that Brevi compiles their code, models write the plain solution and it runs natively in time; on CPython they hand-optimise and spend about twice the output. Brevi cost 0.58x Python's with Sonnet and 0.53x with Haiku (runs sp2a, sp2b; with 4 tasks the range is wide, 0.40x to 0.87x). On the 24-task release suite, ordinary work where speed does not matter, Brevi cost 1.07x with Sonnet and 1.00x with Haiku (runs v1a, v1b; four runs average about 1.02x for Sonnet). Every task passed on both sides, 94 to 100% of final programs were built natively, and no check failed because of Brevi. Full method and logs: <a href="/bench.md">bench.md</a>.</p>
+        <div>
+          <div class="table-wrap" style="margin-top: 0;">
+            <table>
+              <thead><tr><th>Same result as CPython</th><th class="n">Brevi</th><th class="n">Codon</th><th class="n">Nuitka</th></tr></thead>
+              <tbody>
+                <tr><td>Agent programs (591)</td><td class="n win">591</td><td class="n">170</td><td class="n">591</td></tr>
+                <tr><td>Built, wrong output</td><td class="n win">0</td><td class="n">36</td><td class="n">0</td></tr>
+                <tr><td>Large programs (18)</td><td class="n win">18</td><td class="n">0</td><td class="n">18</td></tr>
+                <tr><td>Behaviour traps (13)</td><td class="n win">13</td><td class="n">4</td><td class="n">12</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Model cost, Brevi vs CPython</th><th class="n">Sonnet</th><th class="n">Haiku</th></tr></thead>
+              <tbody>
+                <tr><td>Release test, 24 tasks</td><td class="n">0.97x</td><td class="n">1.01x</td></tr>
+                <tr><td>4 heavy tasks, "write it plainly"</td><td class="n win">0.58x</td><td class="n win">0.53x</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">The whole API bill for a model writing Python until the tests pass, built by Brevi against run by CPython, 3 November 2026. On heavy tasks a plain loop is fast enough under Brevi, so the agent stops hand-optimising. <a href="/docs/benchmarks">Method and all results</a></p>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="agents">
+  <section class="band" id="agents">
     <div class="wrap">
-      <div class="sec-head">
-        <p class="label">For agents</p>
-        <div>
-          <h2>Ready for coding agents from the first call.</h2>
-          <p>The compiler ships with the pieces an agent needs to build, check and fix programs without a human setting anything up.</p>
-        </div>
+      <div class="band-head">
+        <h2>Ready for coding agents from the first call.</h2>
+        <p>The compiler ships with what an agent needs to build, check and fix programs without a person setting anything up.</p>
       </div>
-      <div class="sec-head">
-        <span></span>
-        <ul class="agent-list">
-          <li><h3>MCP server</h3><div><code>brevi mcp</code> serves <code>check</code>, <code>run</code>, <code>test</code>, <code>patch</code>, <code>edit</code>, <code>show</code> and <code>guide</code> over stdio. The server keeps the program, so the agent sends it once and then only the lines that change.</div></li>
-          <li><h3>Agent skill</h3><div>An Agent Skills package that tells the agent to write ordinary Python and build it with Brevi: <a href="/skill.md">skill.md</a>.</div></li>
-          <li><h3>llms.txt</h3><div>Machine-readable entry points at <a href="/llms.txt">/llms.txt</a> and <a href="/llms-full.txt">/llms-full.txt</a>, with the guide as plain Markdown at <a href="/guide.md">/guide.md</a>.</div></li>
-          <li><h3>Edit by name</h3><div><code>brevi patch f.bv p.bv</code> replaces each function, type or test by name, so a fix costs only the lines that changed.</div></li>
-          <li><h3>Libraries</h3><div><code>use "util.bv"</code> splits a program over files, and <code>use sha2 "0.10"</code> with <code>rust fn</code> or <code>py fn</code> calls Rust crates and Python code: <a href="/libraries.md">libraries.md</a>.</div></li>
-          <li><h3>Fast checks</h3><div><code>brevi check main.py --fast</code> runs Brevi's own checks in milliseconds without invoking rustc.</div></li>
-        </ul>
+      <div class="cards">
+        <a class="card" href="/docs/agents#mcp-server"><h3>MCP server</h3><p><code>brevi mcp</code> serves check, run, test, patch, edit, show and guide. The server keeps the program, so a fix sends only the lines that change.</p><span class="go">Set it up →</span></a>
+        <a class="card" href="/docs/agents#agent-skill-and-claude-code-plugin"><h3>Skill and plugin</h3><p>An Agent Skills package and a Claude Code plugin that tell the agent to write plain Python and build it with Brevi.</p><span class="go">Read the skill →</span></a>
+        <a class="card" href="/docs/agents#llmstxt-and-markdown-docs"><h3>llms.txt</h3><p><a href="/llms.txt">/llms.txt</a>, <a href="/llms-full.txt">/llms-full.txt</a>, and every docs page as Markdown for agents to read.</p><span class="go">Agent docs →</span></a>
       </div>
     </div>
   </section>
 
-  <section id="hosted">
+  <section class="band" id="docs">
     <div class="wrap">
-      <div class="sec-head">
-        <p class="label">Coming next</p>
-        <div>
-          <h2>brevi.run: compile, run and test in the cloud.</h2>
-          <p>A hosted service for agents that need to run Brevi without installing a Rust toolchain. Send a program, get the output or the error lines back. It opens after the public release of the compiler.</p>
-        </div>
+      <div class="band-head">
+        <h2>Documentation</h2>
+        <p>Everything from the first install to how the compiler is put together.</p>
       </div>
+      <div class="cards">
+        <a class="card" href="/docs/install"><h3>Install</h3><p>Release binaries for Linux, macOS and Windows, the install script, and building from source.</p></a>
+        <a class="card" href="/docs/usage"><h3>Using Brevi</h3><p>run, build, check and test; release, native and standalone builds; errors, sandbox and GUI tests.</p></a>
+        <a class="card" href="/docs/architecture"><h3>Architecture</h3><p>How a source file becomes a native program: typed and dynamic builds, the library bridge, rustc.</p></a>
+        <a class="card" href="/docs/compatibility"><h3>What works, and limits</h3><p>Python compatibility, libraries, big integers and the known gaps.</p></a>
+        <a class="card" href="/docs/benchmarks"><h3>Benchmarks</h3><p>The release test, model cost, and the Codon and Nuitka comparison.</p></a>
+        <a class="card" href="/docs/faq"><h3>FAQ</h3><p>Short answers to the questions people ask first.</p></a>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="hosted">
+    <div class="wrap split" style="align-items: center;">
+      <div class="band-head" style="margin: 0;">
+        <p class="eyebrow">Coming</p>
+        <h2>brevi.run: compile, run and test in the cloud.</h2>
+        <p>A hosted service for agents that need native-speed Python without installing a Rust toolchain. Send a program, get the output or the error lines back.</p>
+      </div>
+      <div class="actions" style="margin: 0;"><a class="btn ghost" href="https://brevi.run">About brevi.run</a><a class="btn ghost" href="/pricing#hosted">Join the waitlist</a></div>
     </div>
   </section>
 </main>
 
-<footer>
-  <div class="wrap">
-    <span>Brevi · Apache-2.0</span>
-    <a href="/llms.txt">llms.txt</a>
-    <a href="https://brevi.run">brevi.run</a>
-    <span class="end">Builds <code>.py</code> and <code>.bv</code></span>
-  </div>
-</footer>
+__FOOTER__
 </body>
 </html>

@@ -3,62 +3,71 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>brevi.run</title>
-<meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Hosted compile, run and test for Brevi programs. Coming after the public release.">
+<title>brevi.run: hosted Brevi for AI agents</title>
+<meta name="description" content="brevi.run will compile, run and test Python and Brevi programs for AI coding agents, with no toolchain on the agent's machine. Coming soon; the compiler is available now.">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1d5b4f">
 <link rel="preload" href="/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
-<style>
-/* IBM Plex (SIL Open Font License 1.1, see /OFL.txt), served from this site. */
-@font-face { font-family: 'IBM Plex Sans'; font-weight: 400 600; font-display: swap; src: url(/plex-sans.woff2) format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url(/plex-mono-400.woff2) format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url(/plex-mono-500.woff2) format('woff2'); }
-@font-face { font-family: 'IBM Plex Serif'; font-weight: 500; font-display: swap; src: url(/plex-serif-500.woff2) format('woff2'); }
-/* Layout: one left-aligned column, a request and response pair as the only illustration. */
-:root {
-  --bg: #fbfbfa; --panel: #f1f2f0; --fg: #1b1e1d; --muted: #5d6462; --rule: #d9dcd9; --accent: #1d5b4f;
-  --serif: "IBM Plex Serif", Georgia, serif;
-  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230; --accent: #7cc4b1; color-scheme: dark; }
-}
-:root[data-theme="dark"] { --bg: #121514; --panel: #1a1e1d; --fg: #e6e8e6; --muted: #9aa29f; --rule: #2c3230; --accent: #7cc4b1; color-scheme: dark; }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 var(--sans); }
-.wrap { max-width: 720px; margin: 0 auto; padding-block: 72px 56px;
-  padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
-a { color: var(--accent); text-underline-offset: 3px; }
-.name { font: 500 0.85rem var(--mono); color: var(--muted); margin: 0 0 28px; display: flex; align-items: center; gap: 10px; }
-h1 { font: 500 clamp(1.9rem, 5vw, 2.6rem)/1.15 var(--serif); letter-spacing: -0.015em; margin: 0 0 18px; text-wrap: balance; }
-p { margin: 0 0 14px; color: var(--muted); max-width: 36em; }
-.term { border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); margin: 36px 0; overflow: hidden; }
-.bar { font: 0.78rem var(--mono); color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--rule); }
-pre { margin: 0; padding: 14px 16px; font: 0.86rem/1.55 var(--mono); overflow-x: auto; }
-pre + .bar { border-top: 1px solid var(--rule); }
-.status { font: 0.85rem/1.5 var(--mono); border-left: 2px solid var(--accent); padding-left: 12px; color: var(--muted); }
-footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 0.88rem; color: var(--muted); }
-</style>
+<link rel="stylesheet" href="/style.css?v=__CSSV__">
 </head>
 <body>
-<div class="wrap">
-  <p class="name"><svg class="mark" aria-hidden="true" width="22" height="22" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="13" fill="#1d5b4f"/><g fill="none" stroke="#fbfbfa" stroke-width="7"><path d="M15 10v42"/><circle cx="25.5" cy="40" r="8.5"/></g><rect x="40" y="45" width="12" height="7" fill="#7cc4b1"/></svg>brevi.run</p>
-  <h1>Compile, run and test Brevi without a toolchain.</h1>
-  <p>A hosted service for coding agents. Send a Brevi program and its input, and get back the output, the test results or the error lines. Nothing to install, no Rust compiler on the agent's machine.</p>
-  <div class="term" aria-label="Example request and response">
-    <div class="bar">request</div>
-<pre>POST /run
-{"code": "print(stdin().ints().sum())", "stdin": "3 4 5"}</pre>
-    <div class="bar">response</div>
-<pre>{"ok": true, "stdout": "12\n", "ms": 41}</pre>
+__HEADER__
+
+<main id="main">
+  <div class="wrap hero">
+    <div>
+      <p class="eyebrow">Hosted service · coming</p>
+      <h1>Native-speed Python for agents, with nothing to install.</h1>
+      <p class="lede">brevi.run will be the Brevi compiler as an API. An agent sends a Python or Brevi program with its input and tests, and gets back the output, the test results or the error lines. <strong>No Rust toolchain, no Python, no sandbox to set up</strong> on the agent's side.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://brevi-lang.org/pricing#hosted">Join the waitlist</a>
+        <a class="btn ghost" href="https://brevi-lang.org/docs/install">Use the compiler today</a>
+      </div>
+      <p class="status">Not open yet. The API below is a sketch and may change before launch. A playground in the browser is planned too.</p>
+    </div>
+    <div class="term" aria-label="Example request and response">
+      <div class="tbar"><span>POST /run</span><span>request</span></div>
+<pre class="wrapline">{"files": {"main.py": "import sys\nprint(sum(map(int, sys.stdin.read().split())))"},
+ "stdin": "3 4 5"}</pre>
+      <div class="tbar"><span>200 OK</span><span>response</span></div>
+<pre class="wrapline">{"ok": true, "native": true, "stdout": "12\n", "ms": 4}</pre>
+      <div class="tbar"><span>POST /check</span><span>when something is wrong</span></div>
+<pre class="out wrapline">{"ok": false, "errors": [{"line": 2, "msg": "expected ')', found end of line", "fix": "insert ')'"}]}</pre>
+    </div>
   </div>
-  <p class="status">Not open yet. The service launches after the first public release of the Brevi compiler.</p>
-  <footer>Learn about the language at <a href="https://brevi-lang.org">brevi-lang.org</a>.</footer>
-</div>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="band-head">
+        <h2>What it is for</h2>
+        <p>Agents that run in someone else's cloud, in a browser, or on a machine where nobody wants to install compilers.</p>
+      </div>
+      <div class="grid3">
+        <div class="point"><span class="fig">run · check · test</span><h3>The same tools as the MCP server</h3><p>The calls <code>brevi mcp</code> serves locally, over HTTPS: check a program, run it with input, run test cases and get <code>ok</code> or the first differing line for each.</p></div>
+        <div class="point"><span class="fig">sandboxed</span><h3>Untrusted code, safely</h3><p>Every program runs isolated, with the capabilities it declares and nothing else. No files, network or environment unless the request allows them.</p></div>
+        <div class="point"><span class="fig">cached builds</span><h3>Fast on the second call</h3><p>Builds are cached by content, so an agent re-running its tests after a one-line fix pays only for that change.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap split" style="align-items: start;">
+      <div class="band-head" style="margin: 0;">
+        <h2>Until then, run Brevi yourself.</h2>
+        <p><!--public-->The compiler is open source under Apache-2.0 and runs on Linux, macOS and Windows.<!--/public--><!--private-->The compiler runs on Linux, macOS and Windows, and opens under Apache-2.0 with the public release.<!--/private--> <code>brevi mcp</code> gives any MCP client the same tools locally.</p>
+      </div>
+      <div class="cards" style="grid-template-columns: minmax(0, 1fr);">
+        <a class="card" href="https://brevi-lang.org/docs/install"><h3>Install Brevi</h3><p>Release binaries, the install script, or build from source.</p></a>
+        <a class="card" href="https://brevi-lang.org/docs/agents"><h3>Connect an agent</h3><p>MCP server, Agent Skill, Claude Code plugin and llms.txt.</p></a>
+        <a class="card" href="https://brevi-lang.org/docs/roadmap"><h3>Roadmap</h3><p>What comes next, brevi.run included.</p></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+__FOOTER__
 </body>
 </html>
