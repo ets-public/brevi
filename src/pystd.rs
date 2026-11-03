@@ -104,7 +104,58 @@ fn known(m: &str, n: &str) -> bool {
     shim(m, n).is_some() || MAPPED.contains(&(m, n))
 }
 
+// `out = sys.stdout` whose only use is `csv.writer(out, ...)`: the writer takes sys.stdout itself, which the
+// typed build has, and the assignment line becomes `pass` (lines keep their numbers).
+fn stdout_alias(src: &str) -> Option<String> {
+    if !src.contains("sys.stdout") || !src.contains("csv.writer(") {
+        return None;
+    }
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    let words = |n: &str| {
+        let mut k = 0;
+        for (i, _) in src.match_indices(n) {
+            let before = src[..i].chars().next_back().map_or(false, ident);
+            let after = src[i + n.len()..].chars().next().map_or(false, ident);
+            if !before && !after {
+                k += 1;
+            }
+        }
+        k
+    };
+    let mut lines: Vec<String> = src.lines().map(String::from).collect();
+    let mut changed = false;
+    for i in 0..lines.len() {
+        let t = lines[i].trim().to_string();
+        let Some((n, rhs)) = t.split_once('=') else { continue };
+        let n = n.trim().to_string();
+        let n = n.as_str();
+        if rhs.trim() != "sys.stdout" || n.is_empty() || !n.chars().all(ident) || n.chars().next().unwrap().is_ascii_digit() {
+            continue;
+        }
+        let calls = src.matches(&format!("csv.writer({n},")).count() + src.matches(&format!("csv.writer({n})")).count();
+        if calls == 0 || words(n) != 1 + calls {
+            continue;
+        }
+        let indent: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
+        lines[i] = format!("{indent}pass");
+        for l in lines.iter_mut() {
+            *l = l.replace(&format!("csv.writer({n},"), "csv.writer(sys.stdout,").replace(&format!("csv.writer({n})"), "csv.writer(sys.stdout)");
+        }
+        changed = true;
+    }
+    if !changed {
+        return None;
+    }
+    let mut out = lines.join("\n");
+    if src.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
+}
+
 pub fn rewrite(src: &str) -> String {
+    let aliased = stdout_alias(src);
+    let src = aliased.as_deref().unwrap_or(src);
     if !SHIMS.iter().any(|s| src.contains(s.0)) && !MAPPED.iter().any(|s| src.contains(s.0)) {
         return src.to_string();
     }
@@ -395,6 +446,14 @@ mod tests {
         assert_eq!(lines[1], "x = __bv_math_gcd(4, 6) * math.pi");
         assert_eq!(lines[2], "print(\"gcd(\", x)  # gcd(");
         assert!(out.contains("def __bv_math_gcd(a, b):"));
+    }
+
+    #[test]
+    fn stdout_alias_for_csv_writer() {
+        let src = "import csv, sys\ndef f():\n    out = sys.stdout\n    w = csv.writer(out, lineterminator='\\n')\n";
+        assert_eq!(super::stdout_alias(src).unwrap(), "import csv, sys\ndef f():\n    pass\n    w = csv.writer(sys.stdout, lineterminator='\\n')\n");
+        // Used for something else too: left alone.
+        assert!(super::stdout_alias("import csv, sys\nout = sys.stdout\nw = csv.writer(out)\nprint(1, file=out)\n").is_none());
     }
 
     #[test]

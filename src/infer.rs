@@ -1168,6 +1168,7 @@ impl Cx<'_> {
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "m_trunc" => Int,
             "bin_text" | "hex_text" | "oct_text" => Str,
+            "csv_writerow" | "csv_writerows" => Unit,
             "starts_with_at" | "ends_with_at" => Bool,
             "m_isnan" | "m_isinf" | "m_isfinite" => Bool,
             m if m.starts_with("m_") => F64,

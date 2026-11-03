@@ -56,7 +56,7 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
 | `io` | | `StringIO` (also under `--sandbox`); `BytesIO` and the rest run in CPython |
 | `enum` | | `Enum` (members, aliases, `auto()`, methods and properties, `__init__` on tuple values, `C(value)`, `C[name]`, iteration, `len`, `in`, `__members__`), `class C(str, Enum)` and `(int, Enum)`, `@unique`; `IntEnum`, `StrEnum` and `Flag` still run in CPython |
-| `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `Fraction`) | the rest |
+| `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `csv.DictReader`, `csv.writer(sys.stdout)`, `Fraction`) | the rest |
 
 Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io` beyond `StringIO`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
 
