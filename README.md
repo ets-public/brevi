@@ -2,173 +2,79 @@
 
 # Brevi
 
-The fast, safe target for AI-written Python. Brevi is built for AI coding agents: the agent writes the plain Python it knows best, and Brevi checks the whole program before it runs, reports each mistake as one short JSON line with a suggested fix, and compiles it through Rust to a native binary (1.3x to 10.8x faster than CPython on the speed set, measured 2 Nov 2026). The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
+**The fast, safe target for AI-written Python.** Brevi is a compiler built for AI coding agents. The agent writes the plain Python it already writes best; Brevi builds it through Rust into a native binary that prints exactly what CPython prints and runs 1.7x to 40x faster with the default build, and it answers anything it cannot build with one short JSON line the agent can act on. The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
 
-Brevi also has its own Python-like syntax (`.bv` files). Its guide is [BREVI.md](BREVI.md), 3,508 tokens (exact count, Sonnet tokenizer), with details in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand. Same-day runs show agents finish tasks more cheaply writing plain Python than writing Brevi syntax, so the agent skill asks for Python.
+Docs: **[brevi-lang.org/docs](https://brevi-lang.org/docs/)** · Releases: [GitHub](https://github.com/ets-public/brevi/releases/latest) · Changes: [CHANGELOG.md](CHANGELOG.md)
 
-Documentation: [brevi-lang.org/docs](https://brevi-lang.org/docs/) (source in `site/docs/`).
+**Public preview.** Brevi works today and is tested against CPython on every change, but it is young: expect rough edges, and expect the CLI and Brevi's own syntax to change between releases. Bug reports are very welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
+
+## Install
+
+Linux and macOS:
+
+```
+curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
+```
+
+The script installs the Rust toolchain if it is missing (Brevi compiles through `rustc`), then the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, or builds it with `cargo install` when no prebuilt one fits.
+
+Windows: install Rust with [rustup](https://rustup.rs), then unzip `brevi-x86_64-pc-windows-msvc.zip` from the [latest release](https://github.com/ets-public/brevi/releases/latest) and put `brevi.exe` on your PATH. Python files that import libraries such as numpy run with CPython there for now.
+
+Docker, building from source and the release archives: [Install](https://brevi-lang.org/docs/install). Packages for npm, PyPI, Homebrew and crates.io come later in the preview; the names there are only placeholders for now.
+
+## Quick start
+
+```
+$ printf 'print(sum(i * i for i in range(10)))\n' > main.py
+$ brevi run main.py                     # build natively (cached), then run
+285
+$ brevi check main.py                   # build without running: errors only
+$ brevi build main.py -o app --release  # an optimised binary to keep or ship
+```
+
+A sure mistake is reported before anything runs, as one line with a fix:
+
+```
+$ brevi check broken.py
+{"line":8,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
+```
+
+Mistakes that Python itself only finds when a line runs raise there, as in CPython. When Brevi cannot build a file natively yet, `brevi run` runs it with `python3` and prints a one-line note naming the line that stopped it; `brevi build`, `brevi check` and `brevi run --native` never fall back. Files can import their sibling modules and installed packages (numpy, pandas, sqlite3, ...), whose calls run in CPython inside the native program; `brevi build x.py --standalone` packs CPython and those packages into the binary (Linux). More in [Using Brevi](https://brevi-lang.org/docs/usage).
 
 ## For agents
 
-- **Skill:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package: setup, then write plain Python and `brevi run main.py`, fixing only the lines an error names.
-- **MCP server:** `brevi mcp` serves the tools `guide`, `check`, `run`, `test`, `patch`, `edit` and `show` over stdio. The agent writes plain Python (kept as `main.py` and built like `brevi run main.py`; Brevi code is recognised too), and the server keeps the program: the agent sends it as `code` once, then fixes it with `patch` (whole `def`s and classes by name) or `edit` (a range of lines), which check again in the same call, so a retry costs only the lines that change. `run` with `cases` builds once and prints `ok` or the first line that differs for each case. No files needed. Add it to a client as the command `brevi` with the argument `mcp`.
-- **Guide on demand:** `brevi guide` prints the guide built into the compiler, `brevi guide WORD` only the lines about one name, and `--explain` on any command adds those lines under each error.
-- **Fast check:** `brevi check f.bv --fast` runs Brevi's own checks in about 3 ms, without rustc (a full check takes about 400 ms).
-- **Edit by name:** `brevi patch f.bv p.bv` replaces each `fn`, `type`, `enum` or `test` in p.bv by name, or adds it; `del fn name` removes one.
-- **Libraries:** [LIBRARIES.md](LIBRARIES.md) (`brevi guide Libraries`). `use "util.bv"` brings in another file's items. `use sha2 "0.10"` adds a crate from crates.io, and a `rust fn` with a Rust body and Brevi types calls it; programs with crates build through cargo, and each crate is compiled once and cached in `~/.cache/brevi`. A `py fn` has a Python body and runs in one Python process per program run, with values passed as JSON, so any installed Python package works. Python files that import numpy, pandas or other packages call CPython directly; `brevi build x.py --standalone` packs that CPython and the packages into the binary, so it runs on Linux machines with no Python installed.
-- **llms.txt:** `site/build.sh` builds llms.txt, llms-full.txt and .md pages for brevi-lang.org into site/out.
-- **Install:** `sh install.sh` fetches the Rust toolchain if it is missing, then downloads a prebuilt brevi for Linux, macOS or Windows from the latest GitHub release (built by `.github/workflows/release.yml`), or builds it with `cargo install` when no release fits (it needs access to this repo while it is private). The [Dockerfile](Dockerfile) bundles brevi with rustc: `docker run --rm -i brevi mcp`.
-- **Editor rules:** `skills/rules/` has ready-made Brevi rules for Cursor, Copilot, Windsurf and Cline, built from BREVI.md by `skills/gen_rules.py`.
-- **GUI (tkinter):** Python tkinter programs build too (widgets, variables, callbacks, key and mouse bindings, timers, canvas, message boxes) onto the built-in `brevi_tk` runtime. By default they run headless: `mainloop` reads test actions from stdin and prints the window as text, so a GUI can be tested like any other program. `brevi build --window` gives a real window (egui). Apps built around a class work too (`command=self.on_click`).
-- **Sandbox:** `allow read, write` at the top of a program declares what it touches (`read`, `write`, or `native` for rust fn, py fn and crates). `brevi run --sandbox` refuses anything undeclared, and the MCP tools sandbox by default (pass `sandbox: false` to turn it off). Brevi's library has no other way to reach files, the network or the environment.
-- **Agent frameworks:** [integrations/](integrations/README.md) has short, tested examples for LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK, each connecting to `brevi mcp`.
-- **Grammar:** [grammar/](grammar/README.md) has a Lark grammar and a llama.cpp GBNF copy for constrained decoding, so a local model can only write lines Brevi accepts.
-- **Leaderboard:** [bench/LEADERBOARD.md](bench/LEADERBOARD.md), built by `bench/leaderboard.py` from the logs.
-- **Changes:** [CHANGELOG.md](CHANGELOG.md), one section per release.
-- Working on the compiler itself: [AGENTS.md](AGENTS.md).
+- **MCP server:** `brevi mcp` serves `check`, `run`, `test`, `patch`, `edit`, `show` and `guide` over stdio. Add it as the command `brevi` with the argument `mcp` (Claude Code: `claude mcp add brevi -- brevi mcp`). The agent sends plain Python as `code` once; the server keeps it, and `patch` (whole `def`s and classes by name) or `edit` (a range of lines) change only what they are sent and check again, so a retry costs only the changed lines. `run` with `cases` builds once and prints `ok` or the first differing line per case. The tools sandbox by default.
+- **Skill and plugin:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package (setup, then write plain Python and fix only the lines an error names). In Claude Code, `/plugin marketplace add ets-public/brevi` and `/plugin install brevi@brevi` add the skill and the MCP server together.
+- **llms.txt:** [brevi-lang.org/llms.txt](https://brevi-lang.org/llms.txt), [llms-full.txt](https://brevi-lang.org/llms-full.txt), and every docs page as Markdown (add `.md` to its address).
+- **Editor rules** for Cursor, Copilot, Windsurf and Cline in [skills/rules/](skills/rules/), and tested examples for LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK in [integrations/](integrations/README.md).
+- **Prompting:** ask for the plain, direct solution and say it will be compiled. Models that expect CPython hand-optimise, which costs tokens and is often slower under Brevi. Details in [For AI agents](https://brevi-lang.org/docs/agents).
+
+## How it works
+
+Brevi tries the fastest exact path first. The **typed build** works out a fixed type for every value and writes plain Rust; most programs build this way. A program whose values change type, or that the typed build cannot match exactly, gets the **dynamic build**: still native Rust, over values that behave like CPython's objects. **Library calls** (numpy, pandas, ...) run in CPython loaded into the native program. Only when none of these can build a file does `brevi run` fall back to `python3`. Integers grow past 64 bits as in Python and never silently wrap. A program can declare what it touches (`allow read, write`, `allow native` for libraries), and `--sandbox` and the MCP tools refuse anything undeclared. Diagrams and details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Brevi also has its own shorter Python-like language for `.bv` files, checked fully before it runs: [BREVI.md](BREVI.md) (3,508 tokens, served by `brevi guide`), [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md) (Rust crates and Python from Brevi). Agents finish tasks more cheaply in plain Python, so the agent tools ask for Python.
 
 ## Status: v0.24
 
-**Cheaper for agents on heavy work** (3 Nov 2026): on four tasks that must finish in 10 seconds (Game of Life, knapsack, edit distance, Collatz chains), a model told that Brevi compiles its Python writes the plain solution, which runs natively in time, while on CPython it hand-optimises. The whole job cost 0.58x as much as Python with Sonnet and 0.53x with Haiku (runs sp2a and sp2b, two runs each; every task passed, every program built natively, no check failed because of Brevi). Builds are also faster: a first build without `--release` takes about 35% less time than in v0.23.
+- **Same answers as CPython.** On unchanged Python files, Brevi builds all 591 saved agent programs and all 18 large programs (chess, a text adventure, an interpreter), and every one matches CPython's output and exit status. Codon builds 206 of the 591 and gets 36 of those wrong; Nuitka matches all of them but runs at about CPython's speed ([bench/compare](bench/compare/README.md)).
+- **Faster.** The default build beats CPython on all 12 speed programs (1.7x to 40x); `--release` is level with Codon where Codon builds.
+- **No more expensive for agents.** In the release test, Claude Sonnet and Haiku solve 24 tasks in plain Python, once checked by CPython and once by Brevi, and the whole API bill is compared. The bar: every task passes, Brevi's cost is within 10% of CPython's, and at least 90% of final programs build natively. v0.24.0 meets it: 1.07x for Sonnet and 1.00x for Haiku, every task passed, 94% and 98% of final programs native, and no check failed because of Brevi. On four heavy tasks where a model writing for CPython must hand-optimise, telling it the code is compiled brought the cost to 0.58x (Sonnet) and 0.53x (Haiku).
+- **Known gaps:** `async`, `match` statements and `eval` are not built natively yet, library programs the typed build rejects fall back to CPython, library calls and `--standalone` are not on Windows yet. See [What works, and limits](https://brevi-lang.org/docs/compatibility) and the [roadmap](https://brevi-lang.org/docs/roadmap).
 
-**Against Codon and Nuitka** ([bench/compare](bench/compare/README.md), 3 Nov 2026): on the same unchanged Python files, Brevi builds all 591 saved agent programs and all 18 large programs, and every one matches CPython's output and exit status. Codon builds 206 of the 591 and gets 36 of them wrong. Nuitka matches all of them. Brevi's default build beats CPython on all 12 speed programs (1.7x to 40x), and `--release` is level with Codon.
+Method and logs: [bench/README.md](bench/README.md) and [Benchmarks](https://brevi-lang.org/docs/benchmarks). Results from v0.8 to v0.23, when Brevi's own language was the main target, are in [bench/HISTORY.md](bench/HISTORY.md).
 
-**Release test:** models write plain Python and Brevi builds it (`bench/e2e.py --lang pyb`), against the same models' Python run with CPython, for Sonnet and Haiku. It passes when, over four runs per model, every task passes, Brevi's cost is within 10% of CPython's, and at least 90% of the final programs build natively ([bench/README.md](bench/README.md#release-test-plain-python-since-1-nov-2026)). The release test passed on 2 Nov 2026 (runs e31 to e34, each side's prompt cache kept apart): every task passed, the cost was 1.10x CPython for Sonnet and 0.95x for Haiku, and all 48 final programs built natively (files the typed build rejects now build over dynamic values). Since 3 Nov the test uses a 24-task release suite (the six XL tasks plus 18 held-out tasks never used to tune Brevi). On v0.24 (runs v1a, v1b) it meets the bar: every task passed, the cost was 1.07x CPython for Sonnet and 1.00x for Haiku (four runs, with u2a and u2b, average about 1.02x for Sonnet), 94% and 98% of the final programs built natively, and no check failed because of Brevi (each check also runs CPython on the same files to tell). `brevi run x.py` always runs plain Python: when Brevi cannot build a file yet, it runs it with python3 and prints a one-line note saying which line stopped it (`--native` refuses instead). Of 580 saved Python solutions from earlier runs, 344 build with Brevi and give the right output unchanged (`bench/py_as_brevi.py --full --run`). The older notes below use the earlier token-count gate.
-
-Works today:
-- Parser for the full core syntax in BREVI.md
-- Front-end checks with short JSON errors: unknown names and methods with "did you mean" hints, wrong argument counts, names used outside their block
-- Brevi's own type check before rustc: a name changing type, `str + int`, int/f64 mixing and wrong argument types get plain one-line errors with the line where the name was set. `t[1]` on a tuple, `xs.1` on a list and whole-number literals next to an f64 are fixed silently
-- Emits Rust and builds it with `rustc`. rustc errors are mapped back to the Brevi line and rewritten in Brevi's type names
-- `run`, `test`, `check`, `build`, `emit`, and `fix`, which writes every suggested rename into the file
-- Errors are `{"line":N,"msg":...,"fix":...}`: no file path, column, kind or rustc code. A small typo of a known name (`totl` for `total`) is fixed during the build without an error
-- Python spellings models write by habit are accepted: `True`/`False`, `a if c else b`, `range()`, `for c in s`, `enumerate()`, `int()`, `ord()`, `chr()`, `.append()`, `.strip()`, `.split()`, `.items()`, `.get(k, d)`, `", ".join(xs)` and more. `let` names can be changed, and `xs.sort()` as a statement sorts xs
-- Runtime prelude with strings, lists, maps (hash lookups, listed in key order), files, stdin, JSON, CSV, dates, big integers, exact decimals and a min-heap
-- JSON objects from map literals (`str({"id": 1, "name": n})`), `x.json()`, and Python-syntax regexes (`re_full`, `re_find`, `re_all`, `re_sub`, `re_split`)
-- Python-style indented blocks (`if x:` and an indented body), with braces still accepted
-- Empty lists, maps and heaps need no type: the compiler works it out from later use
-- Short syntax: `x = 1` declares, `x: [str] = []` gives a type, `(a, b) = pair`, errors pass up without `?`, field defaults and shorthand constructors
-- `.or(default)` and `match f(x) { Ok(v) => ... Err(m) => ... }` handle failures; runtime errors are one JSON line with the Brevi line
-- Ownership inference: a variable's last read moves its value, keys, comparisons and indexes read in place, and loops read lists without copying them. If a move would break Rust's borrow rules, the compiler quietly builds the copying version instead
-- Benchmarks in `bench/`: 8 bigger tasks (50 to 200 lines), 10 hard tasks, 8 held-out tasks written after the language was tuned, 4 edits to an existing program, and 4 speed tests, with results for Claude Sonnet and Haiku in Brevi, Python and Rust
-
-Bigger tasks and multi-file programs, v0.18 (31 Oct 2026, exact tokens, retries scored as patches). Full table in [bench/LEADERBOARD.md](bench/LEADERBOARD.md).
-
-| Task set | Model | Brevi | Python | Brevi saves | First try (Brevi / Python) |
-| --- | --- | --- | --- | --- | --- |
-| 8 big | Sonnet | **8,284** | 8,721 | 5% | 22 of 24 / 48 of 48 |
-| 8 big | Haiku | **9,398** | 10,556 | 11% | 15 of 16 / 45 of 48 |
-| 6 XL | Sonnet | **12,630** | 13,128 | 4% | 11 of 12 / 20 of 24 |
-| 6 XL | Haiku | 15,908 | **15,658** | -2% | 9 of 12 / 21 of 24 |
-| 6 held-out XL, set 2 (v0.18) | Sonnet | 10,997 | **9,222** | -19% | 5 of 12 / 10 of 12 |
-| 6 held-out XL, set 2 (v0.18) | Haiku | 11,851 | **11,426** | -4% | 7 of 12 / 9 of 12 |
-| 6 held-out XL, set 3 (v0.19) | Sonnet | 9,042 | **7,990** | -13% | 9 of 12 / 12 of 12 |
-| 6 held-out XL, set 3 (v0.19) | Haiku | 12,405 | **11,394** | -9% | 10 of 12 / 9 of 12 |
-
-Sonnet now passes first time on 22 of 24 big tasks (39 of 48 in v0.15), so Brevi is ahead of Python on the original big tasks for both models. v0.17 fixes the failures behind that: `"{{"` and `"}}"` as a method's first argument are two braces, `j.int()`/`j.float()` give 0 for JSON strings, `s.find(sub, start)`, `s.char_at(i)`, `{[...]}` in strings, untyped parameters typed from their calls, and a program's own `fn min`, `fn args` or type `Ord` that shares a built-in's name.
-
-The six XL tasks (`bench/ref/gen_big3.py`: 150 to 400 lines, two split over several files with `use "file.bv"`) started 8% (Sonnet) and 13% (Haiku) behind Python. v0.18 closes most of that over six rounds of fixes found by rerunning them: Python's `sorted(xs, key=f, reverse=True)`, `min(xs, key=f)`, `lambda`, format specs like `{x:.2f}` and `print(x, end="")`; `fail` used like Python's raise with one `match` at the top; editing rows and nested fields in place (`for r in rows: r[i] = v`, `books[id].wait.push(x)`); global maps filled through a copy inside a function; `return 0` in a function that otherwise prints; `while True:` with a return inside; and names reused across sibling blocks. Sonnet is now 4% ahead of Python on these tasks and Haiku 2% behind, within run-to-run noise (single runs vary by about 1,500 tokens). Because Brevi was tuned on these runs, the XL set is no longer held out; two fresh held-out sets since (v0.18 and v0.19) still put Brevi behind Python, so the release gate is not met. At this size Brevi's finished programs are about as long as Python's, so the next work is on inference that removes type annotations and on fewer wrong-output retries.
-
-That fresh set (`bench/ref/gen_big4.py`: grep_lite, payroll, league, crafting, and the multi-file tiny_cpu and parking) was written after v0.18 and run twice per model and language (y1, y2). Brevi is behind on it: 19% for Sonnet and 4% for Haiku, so the release gate is not met. The gaps it shows are f-strings (`f"..."`), a program's own type named `Result`, a return type the compiler could not work out, and wordier code where Python would use `None`, a list of tuples or a list of functions. Every run in both languages also tripped on an unstated rule in league (a score like "01" is a bad line).
-
-Held-out check and full re-run, v0.16 (31 Oct 2026, exact tokens, retries scored as patches). Six new big tasks (`bench/ref/gen_big2.py`: sales_report, route_planner, ini_config, stack_vm, line_diff, room_booking) were written after v0.15 and never used to tune Brevi. Each cell is the average of two runs; the small and Haiku big tasks were run again on the v0.15 compiler.
-
-| Task set | Model | Brevi | Python | Brevi saves | First try (Brevi / Python) |
-| --- | --- | --- | --- | --- | --- |
-| 6 held-out big | Sonnet | **4,020** | 4,220 | 5% | 11 of 12 / 12 of 12 |
-| 6 held-out big | Haiku | **4,604** | 5,847 | 21% | 10 of 12 / 10 of 12 |
-| 18 small | Sonnet | **4,488** | 5,053 | 11% | 36 of 36 / 35 of 36 |
-| 18 small | Haiku | **5,306** | 5,795 | 8% | 34 of 36 / 36 of 36 |
-| 8 big | Haiku | **10,382** | 10,556 | 2% | 11 of 16 / 45 of 48 |
-
-Brevi is ahead on every set, including tasks it was never tuned on. The Haiku big-task margin is small because run p20 hit three compiler gaps; v0.16 fixes all of them, so those three programs now pass as written: a fallible call saved to a name and then matched with `Ok`/`Err`, a top-level `x = 0.dec()` used inside a function, and `e[1]` on a tuple taken from a list whose type comes from later pushes. v0.16 also lets a loop variable be changed in place (`for k, g in m.pairs(): g.sort()`), the one small-task failure, and accepts `Ok(x):` as a match arm. The held-out runs found four more gaps, fixed before the re-run: nested `m[a][b] = v` into an empty map, an empty value never used again, `_` in partial unpacking, and `d.year`/`d.weekday` on dates. All 889 old solutions print the same.
-
-Sonnet on big tasks, v0.15 (31 Oct 2026, exact tokens, retries scored as patches): six fresh Brevi runs (p13 to p18) against all six Python runs.
-
-| Task set | Model | Brevi | Python | Brevi finished code | Python finished code | First try (Brevi / Python) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 8 big | Sonnet | 8,721 | 8,721 | **8,061** | 8,665 | 39 of 48 / 48 of 48 |
-
-Sonnet is now level with Python on big tasks (the last three runs, on the final v0.15 compiler, average 8,623). Brevi's finished code is 7% shorter; the retries after first-try failures use up that saving. v0.15 fixes the failures seen in runs p9 to p15: template tags in double-quoted strings (`"{{#each "`, `"{{/if}}"`, `"{{else}}"`) keep both braces, `'single quotes'` work inside `{...}` values, a function that ends in an if or match needs no return type, and a match can be written inside brackets. Of the 15 Sonnet first-try failures in runs p3 to p12, 12 now pass as written. All 829 old solutions print the same.
-
-Big tasks on v0.14 (31 Oct 2026, exact tokens, retries scored as patches). Brevi runs p9 to p12 on the v0.14 compiler; Python is all six of its runs:
-
-| Task set | Model | Brevi | Python | Brevi finished code | Python finished code | First try (Brevi / Python) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 8 big | Sonnet | 9,784 | **8,721** | **8,214** | 8,665 | 28 of 32 / 48 of 48 |
-| 8 big | Haiku | **9,523** | 10,556 | **9,346** | 10,138 | 21 of 24 / 45 of 48 |
-
-Haiku now uses 10% fewer tokens than Python on big tasks, with every Brevi run (9,180 to 9,890) below the Python average. Sonnet's finished Brevi code is 5% shorter than Python's, but Sonnet passes first time less often in Brevi, so its total is 12% higher; one Sonnet run (p11) also gave up on template after writing `"{{#each "` and expecting two braces (12,042 tokens). Without that run Sonnet is 9,032 vs 8,721. Two of the Sonnet failures are fixed in the compiler since (`str({...})` now keeps keys in written order; `'{{'` in single quotes is two braces).
-
-v0.14 adds `'single-quoted'` strings (no `\"` needed, so JSON text is short), `s.re_list(p)` for tokenizers, `s.partition(sep)`, `_` in tuple unpacking, names set on only some paths starting at their type's zero (as Python code expects), and `str({...})` keeping written key order. All 828 old solutions print the same, and every recent Brevi solution that passed still passes.
-
-Big tasks with more runs (v0.13, 31 Oct 2026, exact tokens, retries scored as patches). Six fresh Brevi runs (p3 to p8) and five Python runs (p1, p2, p5, p6, p7) per model:
-
-| Task set | Model | Brevi | Python | Brevi range | Python range |
-| --- | --- | --- | --- | --- | --- |
-| 8 big | Sonnet | 9,179 | **8,663** | 8,677 to 9,936 | 8,233 to 9,303 |
-| 8 big | Haiku | 10,931 | **10,507** | 10,143 to 12,233 | 9,099 to 11,612 |
-
-With more runs the big-task picture is a loss, not a tie: Brevi uses about 6% (Sonnet) and 4% (Haiku) more tokens than Python. Most of the gap is now the finished code, not retries: Brevi is shorter on access_report and kv_store, but longer on template, spreadsheet, bank_api and invoices, which read JSON and build small parsers. v0.13 adds direct JSON reads (`j.text()`, `j.int()`, `j.dec()`, `j.is_null()`, `for x in j`, `j == "gold"`, Json keys), `.or()` after steps that cannot fail, conversions inside plain lambdas, and fixes for globals updated as `n = max(n, x)`, lambda names leaking out and `.json()` results. All 807 old solutions print the same and all 168 recent Brevi solutions still pass.
-
-Exact tokens (v0.12, 31 Oct 2026), counted with Anthropic's count_tokens endpoint (Sonnet tokenizer). Each figure is code written plus errors read for the whole task set, averaged over 2 fresh runs; every task was solved in every run. Retries are counted as patches: the first check counts the whole file and each retry counts only the lines it changed (old plus new), the same for both languages, and subjects are told to edit only the lines that need it.
-
-| Task set | Model | Brevi | Python | Brevi finished code | Python finished code | First try (Brevi / Python) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 18 small | Sonnet | **4,654** | 5,016 | 4,487 | 4,890 | 35 / 36 of 36 |
-| 18 small | Haiku | **5,307** | 5,671 | 5,125 | 5,545 | 34 / 36 of 36 |
-| 8 big | Sonnet | **8,833** | 9,141 | 8,597 | 9,085 | 13 / 16 of 16 |
-| 8 big | Haiku | **11,161** | 11,259 | 10,214 | 10,620 | 12 / 14 of 16 |
-
-Brevi now uses fewer tokens than Python on all four: 7% fewer on the small tasks for both models, 3% (Sonnet) and 1% (Haiku) fewer on the big ones. The big-task lead is smaller than run-to-run noise, so call those two a tie for now. The big-task Brevi figures are from 2 fresh runs on the final v0.12 compiler (runs p3, p4); the small-task and Python figures are from runs p1 and p2. Python still passes first time more often on big tasks, and 5 of the 7 failed first tries left are empty lists or maps whose type the compiler could not work out, the next thing to fix.
-Counted the old way, with every retry rewriting the whole file, big tasks stay behind Python (Sonnet 11,051 vs 9,141, Haiku 14,592 vs 12,688), so the patch-style retries matter as much as the compiler fixes.
-
-What changed since v0.11: shorter error lines, typo fixes applied during the build, `brevi fix`, the Python spellings above, and fixes for every other first-try failure seen in runs p1 and p2 (8 of those 14 failed first attempts now pass as written). All 795 saved solutions that the v0.11 compiler builds print the same with v0.12.
-
-Older results (v0.11, exact tokens, every retry counted as a whole file): small Sonnet 4,712 vs Python 4,453, small Haiku 7,341 vs 6,882, big Sonnet 12,461 vs 8,697, big Haiku 14,821 vs 10,613. Python's own totals moved between the two sessions (small Sonnet 4,453 then 5,016 on the same tasks), so compare languages within a session. Scored as patches, those same v0.11 runs give small Sonnet 4,712 vs 4,453, small Haiku 6,331 vs 6,882, big Sonnet 10,868 vs 8,697 and big Haiku 11,516 vs 10,184.
-
-Tokens per finished task set (estimated; 18 tasks: code written plus errors read, average of 2 runs; Python from earlier runs of the same tasks):
-
-| Model | Brevi v0.8 | Brevi v0.7 | Python | First try (Brevi v0.8) |
-| --- | --- | --- | --- | --- |
-| Sonnet | 4,309 | 4,363 | 4,021 | 36 of 36 |
-| Haiku | 4,987 | 5,631 | 5,266 | 35 of 36 |
-
-With v0.10 (Python truth, comprehensions, len/sum/sorted/any/all, optional return types), Sonnet's 18-task total is 4,074 tokens over 3 runs against Python's 4,021, with 54 of 54 tasks passing on the first try. Haiku was already below Python.
-
-On the 8 bigger tasks (v0.9, 2 runs each), finished code is close to Python's size, but retries still cost more:
-
-| Model | Brevi finished code | Python finished code | Brevi with retries | Python with retries | First try (Brevi) |
-| --- | --- | --- | --- | --- | --- |
-| Sonnet | 7,786 | 7,418 | 11,121 | 7,450 | 14 of 16 |
-| Haiku | 9,705 | 9,751 | 17,107 | 10,634 | 9 of 16 |
-
-Rust takes about 2.4 times as many tokens as Brevi on the hard tasks.
-
-Speed (best of 3, seconds):
-
-| Program | Python | Brevi | Rust |
-| --- | --- | --- | --- |
-| Word counts | 0.35 | 0.18 | 0.09 |
-| Dijkstra | 2.90 | 0.47 | 0.30 |
-| Prime sieve | 1.33 | 0.05 | 0.02 |
-| Group records | 0.76 | 0.31 | 0.12 |
-
-Not done yet:
-- Full type inference: the check covers the common mistakes, and rarer type errors still come from rustc, translated
-- Type inference for empty lists and maps that are only filled inside functions from values of unknown type
-- Edit-by-name patches and compact output printing
-
-## Build and try
+## Build from source
 
 ```
+git clone https://github.com/ets-public/brevi
+cd brevi
 cargo build --release
-./target/release/brevi run examples/shapes.bv
-./target/release/brevi test examples/shapes.bv
-tests/check.sh            # regression tests: sample programs and error cases
+./target/release/brevi run examples/top.py < examples/input.txt
+sh tools/ci_local.sh      # the checks a pull request runs
 ```
 
-Needs `rustc` on the PATH.
+Needs Rust stable and `python3`. Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
 ## Layout
 
@@ -208,6 +114,10 @@ Brevi must never fall behind Rust or Python, and code that once passed must neve
 
 After a change that makes more solutions pass, run `python3 tools/compat.py baseline` to lock them in.
 Never remove a line from `compat/baseline.txt` to make a check pass.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
 
 ## License
 
