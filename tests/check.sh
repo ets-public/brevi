@@ -51,4 +51,26 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# brevi build --standalone: a program calling Python libraries carries its own CPython. Run without python3 on
+# PATH and, where user namespaces allow it, in an empty root holding only the C library.
+for f in tests/standalone/*.py; do
+  exp="${f%.py}.expected"
+  t=$(mktemp -d)
+  $BREVI build "$f" --native --standalone -o "$t/prog" >/dev/null 2>&1
+  out=$(env -i HOME="$t" PATH=/nonexistent BREVI_PY_CACHE="$t/cache" "$t/prog" 2>&1; ls "$t"/cache/*/.brevi-ok >/dev/null 2>&1 || echo "bundle not unpacked")
+  if unshare -r true 2>/dev/null; then
+    mkdir -p "$t/root/tmp"; cp "$t/prog" "$t/root/prog"
+    for l in $(ldd "$t/prog" | grep -o '/[^ ]*') $(ldconfig -p | grep -E '/(libm|libpthread|libdl|librt|libutil)\.so\.[0-9]+$' | grep -o '/[^ ]*$'); do mkdir -p "$t/root$(dirname "$l")"; cp -L "$l" "$t/root$l"; done
+    bare=$(unshare -r env -i HOME=/tmp "$(command -v chroot)" "$t/root" /prog 2>&1)
+    [ "$bare" = "$out" ] || out="$out
+in an empty root: $bare"
+  fi
+  rm -rf "$t"
+  if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 exit $fail
