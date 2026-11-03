@@ -25,6 +25,14 @@ struct G {
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
 pub fn check(src: &str) -> Option<(usize, String)> {
+    check_soft(src).map(|(l, w, _)| (l, w))
+}
+
+// As check, with the names the typed build may still take the file on (empty: it may not). Every reason
+// found is a set walked or shown in CPython's hash order, on sets named there; when rustc finds that each of
+// those holds strings (or tuples led by one), whose hashes CPython draws afresh each run (PYTHONHASHSEED), no
+// order is CPython's own, and the typed build's is as good as any run's.
+pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
     let body = crate::dynpy::parse::parse(src).ok()?;
     // The typed build's Fraction holds only denominators that divide lcm(1..32)*10, so unit tables and
     // exact ratios (1/86400, 1/127) stop with an error CPython never gives.
@@ -35,7 +43,7 @@ pub fn check(src: &str) -> Option<(usize, String)> {
             _ => false,
         };
         if frac {
-            return Some((s.line, "fractions.Fraction can hold any denominator, which the typed build's Fraction cannot".into()));
+            return Some((s.line, "fractions.Fraction can hold any denominator, which the typed build's Fraction cannot".into(), vec![]));
         }
     }
     let mut g = G::default();
@@ -54,7 +62,6 @@ pub fn check(src: &str) -> Option<(usize, String)> {
             break;
         }
     }
-    let mut out = None;
     // Top-level code: a growing name that a function reads.
     {
         let mut gr = HashSet::new();
@@ -63,11 +70,109 @@ pub fn check(src: &str) -> Option<(usize, String)> {
         nested_names(&body, &mut used);
         if let Some(n) = gr.iter().find(|n| used.contains(*n)) {
             let line = body.iter().find(|s| matches!(&s.st, St::Assign(..) | St::AugAssign(..))).map_or(1, |s| s.line);
-            return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int")));
+            return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int"), vec![]));
         }
     }
-    uses(&body, &g, &mut out);
-    out
+    let mut hits = vec![];
+    uses(&body, &g, &mut hits);
+    let (line, why, _) = hits.first().cloned()?;
+    if let Some(h) = hits.iter().find(|h| h.2.is_none()) {
+        return Some((h.0, h.1.clone(), vec![]));
+    }
+    let mut names: Vec<String> = hits.iter().flat_map(|h| h.2.clone().unwrap_or_default()).collect();
+    names.sort();
+    names.dedup();
+    // Each name must be set only by `name = ...` (or be a def's parameter), where the typed build checks it.
+    if names.iter().any(|k| bound_oddly(&body, k.split_once(':').map_or(k.as_str(), |x| x.1))) {
+        return Some((line, why, vec![]));
+    }
+    Some((line, why, names))
+}
+
+// Is `n` bound other than by `n = ...` or as a plain def parameter (a loop variable, a tuple target,
+// `with ... as n`, `except E as n`, a comprehension's variable, `n :=`, a lambda's or a starred parameter)?
+fn bound_oddly(body: &[Stmt], n: &str) -> bool {
+    fn names_in(t: &Ex, n: &str) -> bool {
+        let mut f = false;
+        walk_ex(t, &mut |e| f |= matches!(e, Ex::Name(m) if m == n));
+        f
+    }
+    let mut odd = false;
+    for s in body {
+        match &s.st {
+            St::For(t, ..) => odd |= names_in(t, n),
+            St::Assign(ts, _) => odd |= ts.iter().any(|t| !matches!(t, Ex::Name(_)) && matches!(t, Ex::Tuple(_) | Ex::List(_) | Ex::Star(_)) && names_in(t, n)),
+            St::With(items, _) => odd |= items.iter().any(|(_, t)| t.as_ref().is_some_and(|t| names_in(t, n))),
+            St::Try(_, hs, _, _) => odd |= hs.iter().any(|h| h.name.as_deref() == Some(n)),
+            St::Import(v) | St::ImportFrom(_, v) => odd |= v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n),
+            St::Def(d) => odd |= d.params.star.as_deref() == Some(n) || d.params.kwstar.as_deref() == Some(n) || d.params.kwonly.iter().any(|p| p.0 == n),
+            _ => {}
+        }
+        walk_st(&s.st, &mut |e| match e {
+            Ex::Comp(_, _, _, fors) => odd |= fors.iter().any(|c| names_in(&c.target, n)),
+            Ex::Walrus(m, _) => odd |= m == n,
+            Ex::Lambda(p, _) => odd |= p.pos.iter().any(|x| x.0 == n) || p.star.as_deref() == Some(n),
+            _ => {}
+        });
+        each_block(&s.st, &mut |b| odd |= bound_oddly(b, n));
+    }
+    odd
+}
+
+// The names whose sets `e` (a set, or a container of sets) walks, tagged `s:` (a set, or what set(...) was
+// made of) or `h:` (a list or dict of sets): None when it is not just such names.
+fn soft_keys(e: &Ex, g: &G) -> Option<Vec<String>> {
+    match e {
+        Ex::Name(n) if g.sets.contains(n) && !g.holders.contains(n) => Some(vec![format!("s:{n}")]),
+        Ex::Name(n) if g.holders.contains(n) && !g.sets.contains(n) => Some(vec![format!("h:{n}")]),
+        Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if n == "set" || n == "frozenset") => match args.as_slice() {
+            [Arg::Pos(Ex::Name(m))] => Some(vec![format!("s:{m}")]),
+            _ => None,
+        },
+        Ex::Call(f, args) if args.is_empty() => match f.as_ref() {
+            Ex::Attr(r, m) if m == "copy" => soft_keys(r, g),
+            _ => None,
+        },
+        Ex::Index(b, _) => match b.as_ref() {
+            Ex::Name(h) if g.holders.contains(h) && !g.sets.contains(h) => Some(vec![format!("h:{h}")]),
+            _ => None,
+        },
+        Ex::Bin("|" | "&" | "-" | "^", a, b) => {
+            let mut v = soft_keys(a, g).or_else(|| (!is_set(a, g) && !is_holder(a, g)).then(Vec::new))?;
+            v.extend(soft_keys(b, g).or_else(|| (!is_set(b, g) && !is_holder(b, g)).then(Vec::new))?);
+            (!v.is_empty()).then_some(v)
+        }
+        _ => None,
+    }
+}
+
+// soft_keys over every set (or container of sets) among xs; None if one of them is not just names.
+fn soft_all<'a>(xs: impl IntoIterator<Item = &'a Ex>, g: &G) -> Option<Vec<String>> {
+    let mut v = vec![];
+    for x in xs {
+        if is_set(x, g) || is_holder(x, g) {
+            v.extend(soft_keys(x, g)?);
+        }
+    }
+    (!v.is_empty()).then_some(v)
+}
+
+// Calls whose answer does not depend on the order their argument is walked in (no key=: ties would show it).
+fn order_free_call(e: &Ex) -> Option<&Ex> {
+    let Ex::Call(f, args) = e else { return None };
+    let Ex::Name(n) = f.as_ref() else { return None };
+    if !matches!(n.as_str(), "max" | "min" | "sorted" | "any" | "all" | "len" | "set" | "frozenset" | "sum") {
+        return None;
+    }
+    if args.iter().any(|a| !matches!(a, Arg::Pos(_) | Arg::Kw(..)) || matches!(a, Arg::Kw(k, _) if k != "reverse" && k != "default")) {
+        return None;
+    }
+    let [Arg::Pos(x), ..] = args.as_slice() else { return None };
+    // sum: only counting (`sum(1 for ...)`); float sums depend on the order.
+    if n == "sum" && !matches!(x, Ex::Comp(_, elt, None, _) if matches!(elt.as_ref(), Ex::Int(_))) {
+        return None;
+    }
+    matches!(x, Ex::Comp(..)).then_some(x)
 }
 
 fn collect_params(body: &[Stmt], g: &mut G) {
@@ -83,7 +188,7 @@ fn collect_params(body: &[Stmt], g: &mut G) {
     }
 }
 
-fn each_block(st: &St, f: &mut dyn FnMut(&[Stmt])) {
+pub(crate) fn each_block(st: &St, f: &mut dyn FnMut(&[Stmt])) {
     match st {
         St::If(arms, els) => {
             arms.iter().for_each(|(_, b)| f(b));
@@ -391,7 +496,7 @@ fn changes_name(st: &St, x: &str) -> bool {
     inner
 }
 
-fn walk_st(st: &St, f: &mut dyn FnMut(&Ex)) {
+pub(crate) fn walk_st(st: &St, f: &mut dyn FnMut(&Ex)) {
     let mut go = |e: &Ex| walk_ex(e, f);
     match st {
         St::Expr(e) | St::Return(Some(e)) => go(e),
@@ -428,7 +533,7 @@ fn walk_st(st: &St, f: &mut dyn FnMut(&Ex)) {
     }
 }
 
-fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
+pub(crate) fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
     f(e);
     // `3 ** 50 % m` of number literals: one value, worked out when the typed build compiles.
     if let Ex::Bin("%", l, r) = e {
@@ -496,13 +601,18 @@ fn fparts(parts: &[FPart], go: &mut dyn FnMut(&Ex)) {
     }
 }
 
-fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
+// Each hit: (line, why, the names a set-order hit is on; None when the typed build cannot take it). Stops
+// at the first hit that is not a set-order one.
+type Hit = (usize, String, Option<Vec<String>>);
+
+fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
     for (k, s) in body.iter().enumerate() {
-        if out.is_some() {
+        if out.iter().any(|h| h.2.is_none()) {
             return;
         }
         let line = s.line;
         let mut hit: Option<String> = None;
+        let mut soft: Option<Vec<String>> = None;
         // `book = asks if buy else bids`, then `book.remove(o)`: in Python book is one of the two lists, so
         // the change shows in it; the typed build changes a copy.
         if let St::Assign(ts, Ex::IfExp(_, a, b)) = &s.st {
@@ -515,6 +625,7 @@ fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
         if let St::For(_, it, _, _) = &s.st {
             if is_set(it, g) {
                 hit = Some("a loop over a set walks it in CPython's hash order".into());
+                soft = soft_keys(it, g);
             }
         }
         // The typed build stops at these errors (a Rust panic) instead of raising them where an except can
@@ -550,15 +661,29 @@ fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
                 hit = Some("the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller".into());
             }
         }
+        // A comprehension handed straight to max/sorted/any/len...: its order does not show.
+        let mut free: Vec<*const Ex> = vec![];
         walk_st(&s.st, &mut |e| {
             if hit.is_some() {
                 return;
             }
-            hit = shown(e, g);
+            if let Some(x) = order_free_call(e) {
+                free.push(x as *const Ex);
+            }
+            if free.contains(&(e as *const Ex)) {
+                return;
+            }
+            if let Some((w, k)) = shown(e, g) {
+                hit = Some(w);
+                soft = k;
+            }
         });
         if let Some(why) = hit {
-            *out = Some((line, why));
-            return;
+            let set_order = why.contains("hash order");
+            out.push((line, why, soft.filter(|_| set_order)));
+            if out.last().unwrap().2.is_none() {
+                return;
+            }
         }
         match &s.st {
             St::Def(d) => uses(&d.body, g, out),
@@ -779,8 +904,37 @@ fn lit_int(e: &Ex) -> Option<i64> {
     }
 }
 
-// An order-dependent use of a set at this expression (not looking inside it: walk_ex does that).
-fn shown(e: &Ex, g: &G) -> Option<String> {
+// An order-dependent use of a set at this expression (not looking inside it: walk_ex does that), with the
+// names it is on (see soft_keys).
+fn shown(e: &Ex, g: &G) -> Option<(String, Option<Vec<String>>)> {
+    let why = shown_why(e, g)?;
+    let keys = match e {
+        Ex::Call(_, args) => soft_all(args.iter().filter_map(|a| if let Arg::Pos(x) | Arg::Star(x) = a { Some(x) } else { None }).chain(match e {
+            Ex::Call(f, _) => match f.as_ref() {
+                Ex::Attr(r, _) => Some(r.as_ref()),
+                _ => None,
+            },
+            _ => None,
+        }), g),
+        Ex::FStr(parts) => {
+            let mut xs = vec![];
+            fparts(parts, &mut |x| xs.push(x.clone()));
+            soft_all(xs.iter(), g)
+        }
+        Ex::Bin("%", _, r) => match r.as_ref() {
+            Ex::Tuple(v) => soft_all(v.iter(), g),
+            x => soft_all([x], g),
+        },
+        Ex::Comp(_, _, _, fors) => {
+            let sets: Vec<&Ex> = fors.iter().map(|c| &c.iter).filter(|x| is_set(x, g)).collect();
+            sets.iter().map(|x| soft_keys(x, g)).collect::<Option<Vec<_>>>().map(|v| v.concat())
+        }
+        _ => None,
+    };
+    Some((why, keys))
+}
+
+fn shown_why(e: &Ex, g: &G) -> Option<String> {
     let set_or_holder = |x: &Ex| is_set(x, g) || is_holder(x, g);
     // `m.group(3) is None`: a group that took no part in the match is None in Python; the typed build
     // reads it as "".

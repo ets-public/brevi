@@ -4488,6 +4488,31 @@ impl<T> AxToJson for AxSet<T> where Vec<T>: AxToJson {
         self.v.ax_json()
     }
 }
+// ---- sets of strings: CPython draws str hashes afresh each run (PYTHONHASHSEED), so a set of strings (or
+// of tuples led by one) has no order of its own there, and any order the typed build walks it in is one a
+// CPython run could give. typed_guard::check_soft lets such walks through; these marks make rustc prove the
+// element type. ----
+pub trait AxRandElem {}
+impl AxRandElem for String {}
+impl AxRandElem for &str {}
+impl<T: AxRandElem> AxRandElem for Vec<T> {}
+impl<A: AxRandElem> AxRandElem for (A,) {}
+impl<A: AxRandElem, B> AxRandElem for (A, B) {}
+impl<A: AxRandElem, B, C> AxRandElem for (A, B, C) {}
+impl<A: AxRandElem, B, C, D> AxRandElem for (A, B, C, D) {}
+impl<A: AxRandElem, B, C, D, E> AxRandElem for (A, B, C, D, E) {}
+pub trait AxRandSet {}
+impl<T: AxRandElem> AxRandSet for Vec<T> {}
+impl<T: AxRandElem> AxRandSet for AxSet<T> {}
+impl<T: AxRandElem> AxRandSet for AxQueue<T> {}
+impl<K: AxRandElem, V> AxRandSet for AxM<K, V> {}
+// set(word): its letters.
+impl AxRandSet for String {}
+pub trait AxRandHolder {}
+impl<K, S: AxRandSet> AxRandHolder for AxM<K, S> {}
+impl<S: AxRandSet> AxRandHolder for Vec<S> {}
+pub fn ax_rand_set<T: AxRandSet + ?Sized>(_: &T) {}
+pub fn ax_rand_holder<T: AxRandHolder + ?Sized>(_: &T) {}
 // ---- queue: a Python deque (or a list taken from the front) whose popleft is O(1) ----
 pub struct AxQueue<T>(std::collections::VecDeque<T>);
 impl<T: Clone + PartialEq> AxQueue<T> {

@@ -1343,6 +1343,8 @@ impl Emitter {
         }
         let rret = if fallible { format!(" -> R<{}>", rust_ty(ret)) } else if matches!(ret, Ty::Unit) { String::new() } else { format!(" -> {}", rust_ty(ret)) };
         let b = self.body(body, ret, fallible);
+        let marks: String = params.iter().filter_map(|p| self.rand_order_mark(&p.name)).map(|m| format!("{m}\n    ")).collect();
+        let init = format!("{init}{marks}");
         let b = if init.is_empty() { b } else { b.replacen("{\n", &format!("{{\n    {init}"), 1) };
         format!("/*@L{line}*/fn {rname}({}){rret} {b}\n", ps.join(", "))
     }
@@ -1610,7 +1612,37 @@ impl Emitter {
         }
     }
 
+    // A statement, then for a name typed_guard::check_soft lets through, a check rustc makes on its type.
     fn stmt(&mut self, s: &Stmt) -> String {
+        let out = self.stmt_inner(s);
+        let n = match s {
+            Stmt::Let { name: Pat::Bind(n), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", .. } => n,
+            _ => return out,
+        };
+        match self.rand_order_mark(n) {
+            Some(m) => format!("{out}\n    {m}"),
+            None => out,
+        }
+    }
+
+    // `ax_rand_set(&n);` when n is one of the names in RAND_ORDER (a set walked in hash order): it compiles
+    // only if n holds strings, whose order CPython draws afresh each run. The comment lets main.rs see that
+    // every such name was checked.
+    fn rand_order_mark(&self, n: &str) -> Option<String> {
+        let names = RAND_ORDER.get()?;
+        let kind = names.iter().find_map(|k| k.split_once(':').filter(|x| x.1 == n).map(|x| x.0))?;
+        let f = if kind == "h" { "ax_rand_holder" } else { "ax_rand_set" };
+        let r = if self.refs.contains(n) {
+            format!("&*{n}")
+        } else if self.locals.contains(n) {
+            format!("&{n}")
+        } else {
+            format!("&{}", self.global(n)?)
+        };
+        Some(format!("/*axr:{kind}:{n}*/{f}({r});"))
+    }
+
+    fn stmt_inner(&mut self, s: &Stmt) -> String {
         let line = match s {
             Stmt::Let { line, .. } | Stmt::Assign { line, .. } | Stmt::Expr { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line } | Stmt::Continue { line } | Stmt::Assert { line, .. } => *line,
         };
@@ -2507,6 +2539,8 @@ fn own_break(body: &Expr) -> bool {
 // the front (`q.popleft()`, `q.pop(0)`) and otherwise only added to, popped, read or walked is kept as an
 // AxQueue (a VecDeque), so taking from the front is O(1) as on a CPython deque. Builds with both off are
 // tried when one fails.
+// Names whose sets the program walks in hash order, tagged `s:` or `h:` (see typed_guard::check_soft).
+pub static RAND_ORDER: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 pub static FAST_SETS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 #[derive(Clone, Copy, PartialEq)]

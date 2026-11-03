@@ -20,6 +20,7 @@ mod pybridge;
 mod pydiag;
 mod patch;
 mod typed_guard;
+mod pysentinel;
 mod pygen;
 
 use diag::{esc, Diag};
@@ -226,38 +227,20 @@ fn main() {
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
         let guard = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
-            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w, _)| format!("dyn {l}: {w}")));
+            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w, _, k)| if k.is_empty() { format!("dyn {l}: {w}") } else { format!("typed if {}: {l}: {w}", k.join(" ")) }));
             exit(0);
         }
+        // Set walks on names that may hold strings: the typed build tries, with rustc checking each name.
+        let guard = match guard {
+            Some((line, why, gfile, names)) if !names.is_empty() => {
+                emit::RAND_ORDER.set(names).ok();
+                *SOFT_GUARD.lock().unwrap() = Some((line, why, gfile));
+                None
+            }
+            g => g.map(|(l, w, f, _)| (l, w, f)),
+        };
         if let Some((line, why, gfile)) = guard {
-            // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
-            if cmd != "emit" {
-                let sure = std::fs::read_to_string(&file).map(|t| pydiag::scan(&t, Path::new(&file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
-                if !sure.is_empty() {
-                    sure.iter().for_each(print_diag);
-                    exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
-                }
-            }
-            if cmd == "emit" {
-                dyn_cmd(cmd, &file, &argv);
-            }
-            let gsrc = std::fs::read_to_string(&gfile).unwrap_or_default();
-            let gname = gfile.file_name().unwrap_or_default().to_string_lossy().to_string();
-            let main_file = Path::new(&file).file_name().map(|n| n.to_string_lossy().to_string()) == Some(gname.clone());
-            let gshown = if main_file { String::new() } else { gname.clone() };
-            let gwhy = format!("{}, so the typed build would differ from CPython", why.split_once(": ").filter(|_| !main_file).map_or(why.as_str(), |(_, w)| w));
-            if dyn_fallback(cmd, &file, &argv, (gshown, line, enclosing_def(&gsrc, line), gwhy, String::new(), false)) {
-                exit(0);
-            }
-            dyn_blocked_note();
-            let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
-            if why.contains(" set") {
-                d.fix = Some("sort it first (sorted(s)) where the order shows".into());
-            } else if why.contains("generator") {
-                d.fix = Some("move the yield out of the try/finally or with block, or build a list and return it".into());
-            }
-            print_diag(&d);
-            exit(1);
+            guard_refusal(cmd, &file, &argv, line, &why, &gfile);
         }
     }
     let release = argv.iter().any(|a| a == "--release");
@@ -274,7 +257,7 @@ fn main() {
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
     let src = modules::fill_file_name(&src, Path::new(&file));
-    let src = if file.ends_with(".py") { pygen::rewrite(&src) } else { src };
+    let src = if file.ends_with(".py") { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
@@ -342,9 +325,22 @@ fn main() {
         });
     // A Python file the typed path cannot build is built over dynamic values instead (still native, no CPython).
     let dyn_ok = matches!(cmd, "build" | "run" | "check") && file.ends_with(".py");
+    // The set-order guard let the file through on names rustc must prove hold strings: any failure from here
+    // on is reported as the guard's reason, and goes where the guard would have sent it.
+    let soft_fail = |cmd: &str| {
+        if let Some((line, why, gfile)) = SOFT_GUARD.lock().unwrap().clone() {
+            guard_refusal(cmd, &file, &argv, line, &why, &gfile);
+        }
+    };
     let rust = match compile_to_rust(&src, true, true) {
-        Ok(r) => r,
+        Ok(r) => {
+            if emit::RAND_ORDER.get().is_some_and(|ns| ns.iter().any(|k| !r.contains(&format!("/*axr:{k}*/")))) {
+                soft_fail(cmd);
+            }
+            r
+        }
         Err(diags) => {
+            soft_fail(cmd);
             // A mistake CPython would also stop on (a name defined nowhere, `x.uppr()`, `"n=" + len(xs)`) is
             // reported, not handed to the dynamic build, where it would only show when the line ran.
             let dir = Path::new(&file).parent().unwrap_or(Path::new("."));
@@ -373,6 +369,7 @@ fn main() {
         DEFER_REPORT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let fail = |cmd: &str| -> ! {
+        soft_fail(cmd);
         let why = DEFERRED.lock().unwrap().as_ref().map_or_else(|| "the typed build's Rust did not compile".to_string(), |(_, e)| rustc_first_error(e));
         if dyn_ok && dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
             exit(0);
@@ -517,6 +514,43 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     }
     true
 }
+
+// A file typed_guard sends off the typed path (why, at line of gfile): built over dynamic values, or refused.
+fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str, gfile: &Path) -> ! {
+    let file = file.to_string();
+    let why = why.to_string();
+        // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
+        if cmd != "emit" {
+            let sure = std::fs::read_to_string(&file).map(|t| pydiag::scan(&t, Path::new(&file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
+            if !sure.is_empty() {
+                sure.iter().for_each(print_diag);
+                exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
+            }
+        }
+        if cmd == "emit" {
+            dyn_cmd(cmd, &file, &argv);
+        }
+        let gsrc = std::fs::read_to_string(&gfile).unwrap_or_default();
+        let gname = gfile.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let main_file = Path::new(&file).file_name().map(|n| n.to_string_lossy().to_string()) == Some(gname.clone());
+        let gshown = if main_file { String::new() } else { gname.clone() };
+        let gwhy = format!("{}, so the typed build would differ from CPython", why.split_once(": ").filter(|_| !main_file).map_or(why.as_str(), |(_, w)| w));
+        if dyn_fallback(cmd, &file, argv, (gshown, line, enclosing_def(&gsrc, line), gwhy, String::new(), false)) {
+            exit(0);
+        }
+        dyn_blocked_note();
+        let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
+        if why.contains(" set") {
+            d.fix = Some("sort it first (sorted(s)) where the order shows".into());
+        } else if why.contains("generator") {
+            d.fix = Some("move the yield out of the try/finally or with block, or build a list and return it".into());
+        }
+        print_diag(&d);
+        exit(1);
+}
+
+// The set-order guard reason the typed build was let past (see guard_files), for when it fails after all.
+static SOFT_GUARD: std::sync::Mutex<Option<(usize, String, PathBuf)>> = std::sync::Mutex::new(None);
 
 // Why the dynamic build refused the file (file, line, msg), for the path report of a CPython run.
 static DYN_BLOCKED: std::sync::Mutex<Option<(String, usize, String)>> = std::sync::Mutex::new(None);
@@ -1209,20 +1243,27 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 
 // None when rustc could not be started.
 // The typed-build guard over the file and the local modules it imports (directly or through each other).
-fn guard_files(file: &str) -> Option<(usize, String, PathBuf)> {
+// With the names (see typed_guard::check_soft) when every reason found is a set walked in hash order on them.
+fn guard_files(file: &str) -> Option<(usize, String, PathBuf, Vec<String>)> {
     let dir = Path::new(file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let mut todo = vec![PathBuf::from(file)];
     let mut seen: Vec<PathBuf> = vec![];
+    let mut first: Option<(usize, String, PathBuf)> = None;
+    let mut soft: Vec<String> = vec![];
     while let Some(f) = todo.pop() {
         if seen.contains(&f) {
             continue;
         }
         seen.push(f.clone());
         let Ok(src) = std::fs::read_to_string(&f) else { continue };
-        let src = if seen.len() == 1 { pygen::rewrite(&src) } else { src };
-        if let Some((line, why)) = typed_guard::check(&src) {
+        let src = if seen.len() == 1 { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
+        if let Some((line, why, names)) = typed_guard::check_soft(&src) {
             let why = if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
-            return Some((line, why, f));
+            if names.is_empty() {
+                return Some((line, why, f, vec![]));
+            }
+            first.get_or_insert((line, why, f.clone()));
+            soft.extend(names);
         }
         for l in src.lines() {
             let t = l.trim_start();
@@ -1241,7 +1282,7 @@ fn guard_files(file: &str) -> Option<(usize, String, PathBuf)> {
             }
         }
     }
-    None
+    first.map(|(l, w, f)| (l, w, f, soft))
 }
 
 // Builds are cached by a hash of the generated code, the flags and the rustc version, so running the same
