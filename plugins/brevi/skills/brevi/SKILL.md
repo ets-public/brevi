@@ -13,7 +13,7 @@ Check that `brevi --version` works. If it does not, run the repository's `instal
 
 ## Loop
 
-1. Write normal Python to `main.py` (standard library only; split big programs into `.py` files that import each other). There is no guide to read first.
+1. Write normal Python to `main.py` (standard library only; split big programs into `.py` files that import each other). There is no guide to read first. Brevi compiles it to native code, which runs plain loops over ints, lists and strings 10 to 50 times faster than CPython: write the plain, direct solution and do not hand-optimise it for speed (no bit-packing tricks or big-int bitboards).
 2. Run it with `brevi run main.py < input.txt`, or `brevi check main.py` to build without running. `brevi build main.py -o app --release` makes the fast binary.
 3. Each error is `{"line":N,"msg":...,"fix":...}`. Change only the lines it names, then run again. Do not rewrite the whole file.
 4. If Brevi still cannot build a Python construct after one small change, keep the Python as it is, run it with `python3 main.py`, and say that it ran without Brevi.

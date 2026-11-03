@@ -82,6 +82,7 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
     let src = crate::modules::fill_file_name(&src, Path::new(file));
+    let src = crate::pygen::rewrite(&src);
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let mut mods = vec![emit::Module { name: "__main__".into(), body }];
@@ -119,7 +120,7 @@ fn runtime_lib(cache: &Path, rustc_v: &str) -> Result<PathBuf, String> {
     let tmp = dir.join(format!("build-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
     std::fs::write(tmp.join("rt.rs"), RUNTIME).map_err(|e| e.to_string())?;
-    let o = Command::new("rustc")
+    let o = crate::rustc_cmd()
         .args(["--edition", "2021", "--crate-type", "rlib", "--crate-name", "brevi_dyn", "-A", "warnings", "-C", "opt-level=3", "-C", "overflow-checks=off"])
         .arg("-o")
         .arg(tmp.join("libbrevi_dyn.rlib"))
@@ -151,8 +152,9 @@ pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, 
     }
     let rs = dir.join("dyn_main.rs");
     std::fs::write(&rs, rust).map_err(|e| e.to_string())?;
-    let o = Command::new("rustc")
+    let o = crate::rustc_cmd()
         .args(["--edition", "2021", "--crate-name", "brevi_prog", "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", "strip=debuginfo"])
+        .args(if release { None } else { Some(["-C", crate::codegen_units()]) }.into_iter().flatten())
         .arg("--extern")
         .arg(format!("brevi_dyn={}", lib.display()))
         .arg("-o")

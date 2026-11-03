@@ -25,7 +25,7 @@ Brevi main d7fe346 (after #127 and #128), Codon 0.20.6, Nuitka 4.3.4, CPython 3.
 | Built but behave differently | 0 | 36 (16 silent wrong output, 20 crashes) | 0 |
 | Huge-set programs (18): build / match | 18 / 18 | 0 / 0 | 18 / 18 |
 | Traps (13): match CPython | 13 | 4 | 12 |
-| Median cold build of a small program, default / --release | 1.8 s / 3.1 s | 4.9 s | 2.5 s (ccache warm) |
+| Median cold build of a small program, default / --release | 1.2 s / 3.1 s (default was 1.8 s before the cold-build speedup) | 4.9 s | 2.5 s (ccache warm) |
 | Median run time of a test (mostly process start) | 3.4 ms | 18.6 ms | 43 ms (CPython 22 ms) |
 
 Both Brevi builds (default and `--release`) give the same correctness figures. Speed, best of 3 runs, times CPython's speed in brackets:

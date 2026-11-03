@@ -22,7 +22,7 @@ fn to_json(j: &J) -> String {
 }
 
 const TOOLS: &str = r#"[
-{"name":"guide","description":"The Brevi language guide. Not needed to start: write plain Python (a .py file) and Brevi builds it. Ask with a word (sections: Strings, Lists, Python, Libraries) for only the lines about it, e.g. when a build error names something; with no word, the whole core.","inputSchema":{"type":"object","properties":{"word":{"type":"string"}}}},
+{"name":"guide","description":"The Brevi language guide. Not needed to start: write plain Python (a .py file) and Brevi builds it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. Ask with a word (sections: Strings, Lists, Python, Libraries) for only the lines about it, e.g. when a build error names something; with no word, the whole core.","inputSchema":{"type":"object","properties":{"word":{"type":"string"}}}},
 {"name":"check","description":"Compile without running. OK or one JSON error per line: {line, msg, fix}. The server keeps the program: pass code once, then omit it and change it with patch or edit.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string","description":"Default main.bv; other files are for use \"x.bv\""},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested fix to the kept program"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
 {"name":"run","description":"Compile and run the kept program (or code). With cases, runs each and prints ok or the first differing line.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cases":{"type":"array","items":{"type":"object","properties":{"stdin":{"type":"string"},"expect":{"type":"string"}}}},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
 {"name":"test","description":"Run the test blocks of the kept program (or code).","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
@@ -268,7 +268,7 @@ pub fn serve() {
         let result = match method {
             "initialize" => {
                 let v = params.get("protocolVersion").and_then(|v| v.str()).unwrap_or("2025-06-18");
-                Ok(format!(r#"{{"protocolVersion":"{}","capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"brevi","version":"{}"}},"instructions":"Call guide once before writing Brevi. Pass your program as code once; then fix errors with patch or edit, which change only what you send and check again."}}"#, esc(v), env!("CARGO_PKG_VERSION")))
+                Ok(format!(r#"{{"protocolVersion":"{}","capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"brevi","version":"{}"}},"instructions":"Python programs are compiled to native code, which runs plain loops 10 to 50 times faster than CPython: write the plain, direct solution and do not hand-optimise it. Call guide once before writing Brevi syntax (.bv). Pass your program as code once; then fix errors with patch or edit, which change only what you send and check again."}}"#, esc(v), env!("CARGO_PKG_VERSION")))
             }
             "ping" => Ok("{}".into()),
             "tools/list" => Ok(format!(r#"{{"tools":{}}}"#, TOOLS.replace('\n', ""))),
