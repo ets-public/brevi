@@ -4,6 +4,10 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **Silent wrong output fixed: comparing JSON values.** In typed builds `j == []` (and `j == {}`) was true for a JSON null, 0, False or `""`, and `False == 0` on a JSON value was false; both now answer as Python does. `v is True` / `v is False` on a JSON value is now an identity test (a JSON 1 equals True but is not True), so template renderers that use it build typed.
+- **Silent wrong output fixed: a list name set to None by a nested function.** `players = None` in a nested `def` with `nonlocal players` was not seen by the outer function's `players is None`, so a typed poker program printed an extra empty round and read later hands as duplicates. The outer test now sees it.
+- **Silent wrong output fixed: nested `setdefault` changes lost.** `d = labels.setdefault(s, {})`, `lst = d.setdefault(k, [])`, then changing `lst` changed only copies in typed builds, so every trip of a typed trains program printed "no route". The change now reaches `labels`.
+- **Fixed: joining tuples.** `(tm,) + lab[k]` gave a list in typed builds (a wrong result, or a TypeError where CPython ran fine); it is now one tuple, also when the right side is held as a JSON value.
 - **Crate pins.** The crate test and `examples/checksums.bv` now use `sha2` 0.11 and `base64` 0.23. In sha2 0.11 a digest no longer formats with `{:x}`; the examples build the hex string byte by byte. The docs keep `sha2 "0.10"`, which still works.
 
 ## v0.24.4 (3 Nov 2026)

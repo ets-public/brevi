@@ -2524,6 +2524,11 @@ impl Plus for Json {
                 a.extend(b);
                 Json::Arr { v: a }
             }
+            // `(tm,) + t` with t a tuple held as JSON: one tuple.
+            (Json::Tup { v: mut a } | Json::Arr { v: mut a }, Json::Tup { v: b }) | (Json::Tup { v: mut a }, Json::Arr { v: b }) => {
+                a.extend(b);
+                Json::Tup { v: a }
+            }
             (a, b) => ax_jnk(ax_jnum(&a) + ax_jnum(&b), ax_jf(&a) || ax_jf(&b)),
         }
     }
@@ -3015,8 +3020,13 @@ impl Json {
             _ => 0,
         }
     }
+    // Reached from Python's `j == []` / `j == {}`: an empty list or object (not null, 0, False or "").
     pub fn ax_is_empty(&self) -> bool {
-        self.ax_len() == 0
+        match self {
+            Json::Arr { v } => v.is_empty(),
+            Json::Obj { v } => v.is_empty(),
+            _ => false,
+        }
     }
     // d.get(k, default) on a JSON object: the value under k, else the default as JSON.
     pub fn ax_get_or<K: AxJKey + ?Sized, D: AxToJson>(&self, k: &K, d: D) -> Json {
@@ -5973,14 +5983,15 @@ impl AxNone for Json {
         Json::Null
     }
 }
+// As in Python, False == 0 and True == 1.
 impl PartialEq<i64> for Json {
     fn eq(&self, o: &i64) -> bool {
-        matches!(self, Json::Num { v, .. } if *v == *o as f64)
+        matches!(self, Json::Num { v, .. } if *v == *o as f64) || matches!(self, Json::Bool { v } if (*v as i64) == *o)
     }
 }
 impl PartialEq<f64> for Json {
     fn eq(&self, o: &f64) -> bool {
-        matches!(self, Json::Num { v, .. } if *v == *o)
+        matches!(self, Json::Num { v, .. } if *v == *o) || matches!(self, Json::Bool { v } if (*v as i64 as f64) == *o)
     }
 }
 impl AxTryList<Json> for Json {
@@ -6757,5 +6768,57 @@ impl AxRePy for Json {
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         match self { Json::Str { v } => v.ax_re_findall(p), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+}
+
+// Python's `v is True` / `v is False`: only the bool itself (a JSON 1 == True, but is not True).
+pub trait AxIsBool {
+    fn ax_bool_obj(&self) -> Option<bool>;
+    fn ax_is_true_obj(&self) -> bool {
+        self.ax_bool_obj() == Some(true)
+    }
+    fn ax_is_false_obj(&self) -> bool {
+        self.ax_bool_obj() == Some(false)
+    }
+    fn ax_not_true_obj(&self) -> bool {
+        !self.ax_is_true_obj()
+    }
+    fn ax_not_false_obj(&self) -> bool {
+        !self.ax_is_false_obj()
+    }
+}
+impl AxIsBool for bool {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        Some(*self)
+    }
+}
+impl AxIsBool for Json {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        match self {
+            Json::Bool { v } => Some(*v),
+            _ => None,
+        }
+    }
+}
+macro_rules! ax_not_bool { ($($t:ty),*) => { $(impl AxIsBool for $t { fn ax_bool_obj(&self) -> Option<bool> { None } })* } }
+ax_not_bool!(i64, f64, String, Dec);
+impl<T> AxIsBool for Vec<T> {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        None
+    }
+}
+impl<'a, T: AxIsBool + ?Sized> AxIsBool for &'a T {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        (**self).ax_bool_obj()
+    }
+}
+// Python's `v == True`: a bool, or a number equal to 1 (0 for False).
+impl PartialEq<bool> for Json {
+    fn eq(&self, o: &bool) -> bool {
+        match self {
+            Json::Bool { v } => v == o,
+            Json::Num { v, .. } => *v == if *o { 1.0 } else { 0.0 },
+            _ => false,
+        }
     }
 }
