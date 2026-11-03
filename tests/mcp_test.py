@@ -62,6 +62,16 @@ expect("python module", call("check", file="util.py", code="def inc(x):\n    ret
 expect("python import", call("run", code="from util import inc\nprint(inc(41))\n"), "42", False)
 expect("python def patch", call("patch", file="util.py", patch="def inc(x):\n    return x + 2\n"), "replaced def inc", None)
 expect("python cases", call("run", cases=[{"stdin": "", "expect": "43\n"}]), "passed 1/1", False)
+# The default sandbox holds Python too: a file read, a Python library or a write is refused, never run.
+start()
+expect("sandbox read", call("run", code="with open('/etc/hostname') as f:\n    print(f.read().strip())\n"), "needs allow read", True)
+expect("sandbox library", call("run", code="import os\nprint(os.listdir('.'))\n"), "needs allow native", True)
+esc = call("run", code="import sys\nsys.modules['os'].system('echo escaped')\n")
+if "escaped" in esc[0].replace("echo escaped", "") or not esc[1]:
+    fails += 1
+    print(f"FAIL sandbox sys.modules: {esc!r}")
+expect("sandbox write", call("run", code="open('x.txt', 'w').write('x')\n"), "needs allow write", True)
+expect("sandbox off", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", sandbox=False), "True", False)
 
 # Brevi code, recognised by its fn items.
 start()

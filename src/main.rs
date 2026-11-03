@@ -208,11 +208,13 @@ fn main() {
     if file.ends_with(".py") {
         PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    // Capabilities first: a refusal here is final, before any dynamic, pybridge or python3 path can run.
+    let held = matches!(cmd, "build" | "run" | "check" | "emit" | "test" | "fix") && hold_to_caps(&file, sandbox);
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "emit") && std::env::var("BREVI_DYN").map_or(false, |v| v == "1") {
         dyn_cmd(cmd, &file, &argv);
     }
     if cmd == "run" && file.ends_with(".py") && !native {
-        run_or_fall_back(&file, &argv);
+        run_or_fall_back(&file, &argv, sandbox, held);
     }
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
@@ -424,6 +426,30 @@ fn main() {
     }
 }
 
+// --sandbox, or an allow line in the program: refuses (prints the errors and exits) any use of a capability it
+// did not declare. Without `allow native`, also turns pybridge off for this run. Runs before every other path,
+// so a refusal is final. True when the program is held to its allow lines.
+fn hold_to_caps(file: &str, sandbox: bool) -> bool {
+    let Ok(src) = std::fs::read_to_string(file) else { return sandbox };
+    let src = modules::fill_file_name(&src, Path::new(file));
+    // A program whose `use` lines do not resolve is reported by the build; check what is there.
+    let src = modules::expand(file, &src).map(|x| x.0).unwrap_or(src);
+    let (code, allowed, mut errs) = caps::split(&src);
+    let held = sandbox || allowed.is_some();
+    if held {
+        let allowed = allowed.unwrap_or_default();
+        if !allowed.iter().any(|a| a == "native") {
+            pybridge::NO_NATIVE.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        errs.extend(caps::check_src(&code, &allowed));
+    }
+    if !errs.is_empty() {
+        errs.iter().for_each(print_diag);
+        exit(1);
+    }
+    held
+}
+
 // The dynamic build for a Python file the typed path could not build: false (nothing printed) if it cannot
 // be built that way either. For run, runs the program and exits with its status.
 fn dyn_fallback(cmd: &str, file: &str, argv: &[String]) -> bool {
@@ -489,12 +515,24 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
 
 // `brevi run x.py`: builds with Brevi and runs the program; when the build fails, runs the file with python3
 // instead and says so in one line on stderr. Never returns.
-fn run_or_fall_back(file: &str, argv: &[String]) -> ! {
+// A held program (--sandbox or an allow line) never runs with python3, which cannot hold it to its allow lines.
+fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> ! {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let prog_args = argv.get(dash + 1..).unwrap_or(&[]).to_vec();
     let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
     let bin = build_dir(file).join(&stem);
-    let flags: Vec<&String> = argv[2..dash].iter().filter(|a| matches!(a.as_str(), "--release" | "--sandbox" | "--window" | "--explain")).collect();
+    // main removed --sandbox, --window and --explain from argv when it read them: pass them on again (the child
+    // build once ran without --sandbox, unchecked).
+    let mut flags: Vec<String> = argv[2..dash].iter().filter(|a| a.as_str() == "--release").cloned().collect();
+    if sandbox {
+        flags.push("--sandbox".into());
+    }
+    if gui::window() {
+        flags.push("--window".into());
+    }
+    if EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
+        flags.push("--explain".into());
+    }
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
     let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").env("BREVI_SURE_EXIT", "3").output();
     let code = match built {
@@ -504,6 +542,12 @@ fn run_or_fall_back(file: &str, argv: &[String]) -> ! {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 1
             })
+        }
+        Ok(o) if held => {
+            print!("{}", String::from_utf8_lossy(&o.stdout));
+            std::io::stderr().write_all(&o.stderr).ok();
+            eprintln!("note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines");
+            1
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
@@ -673,6 +717,18 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
         k += 1;
         match &r {
             Err(ds) if k < 8 && python_style(src) && pybridge::learn(ds, src) => continue,
+            // --sandbox without allow native: say that CPython would have run it, not just that Brevi lacks it.
+            Err(ds) if !pybridge::blocked().is_empty() => {
+                let mut ds = ds.clone();
+                let mut b = pybridge::blocked();
+                b.sort();
+                b.dedup();
+                let names: Vec<String> = b.iter().map(|(m, n)| format!("{m}.{n}")).collect();
+                if let Some(d) = ds.first_mut() {
+                    d.fix = Some(format!("{} would run in CPython, which needs `allow native` at the top; or do without it", names.join(", ")));
+                }
+                return Err(ds);
+            }
             _ => return r,
         }
     }
@@ -685,6 +741,9 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         foreign.rust_top.push_str(&gui::runtime());
     }
     // pybridge: CPython for the Python libraries the program uses.
+    if pybridge::active() && pybridge::no_native() {
+        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint("add the line `allow native` at the top, or do without it")]);
+    }
     if pybridge::active() {
         pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
         foreign.rust_top.push_str(&pybridge::runtime());

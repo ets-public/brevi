@@ -1,0 +1,8 @@
+{"line":2,"msg":"read() needs allow read","fix":"add the line `allow read` at the top, or do without it"}
+exit 1
+-- dynamic
+{"line":2,"msg":"read() needs allow read","fix":"add the line `allow read` at the top, or do without it"}
+exit 1
+-- typed
+{"line":2,"msg":"read() needs allow read","fix":"add the line `allow read` at the top, or do without it"}
+exit 1

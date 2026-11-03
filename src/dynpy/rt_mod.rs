@@ -1474,9 +1474,12 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
             let df = a.kw("default_factory");
             let d = a.kw("default");
             let _ = a.kw("compare");
-            let _ = a.kw("repr");
+            let r = a.kw("repr");
             let _ = a.kw("init");
             let o = Obj::new(field_class());
+            if let Some(r) = r {
+                o.set("repr", r);
+            }
             if let Some(f) = df {
                 o.set("default_factory", f);
             }
@@ -1580,6 +1583,19 @@ fn make_dataclass(c: &Rc<Class>, order: bool, frozen: bool, eqf: bool) -> Result
     let fields = all_fields(c);
     // defaults: class attributes with the field names
     let mut defs: Vec<(Sym, Option<V>, Option<V>)> = vec![];
+    // field(repr=False): left out of __repr__, here and in subclasses (kept as a class attribute).
+    let mut hidden: Vec<V> = match c.lookup("__brevi_norepr__") {
+        Some(V::Tuple(t)) => t.as_ref().clone(),
+        _ => vec![],
+    };
+    for f in &fields {
+        if let Some(V::Obj(o)) = c.own(f) {
+            if Rc::ptr_eq(&o.cls, &field_class()) && matches!(o.get("repr"), Some(r) if !truth(&r)?) {
+                hidden.push(s(f));
+            }
+        }
+    }
+    c.set("__brevi_norepr__", tup(hidden.clone()));
     for f in &fields {
         let d = c.lookup(f);
         let (dv, df) = match &d {
@@ -1650,7 +1666,7 @@ fn make_dataclass(c: &Rc<Class>, order: bool, frozen: bool, eqf: bool) -> Result
         }));
     }
     if c.own("__repr__").is_none() {
-        let fs = fields.clone();
+        let fs: Vec<Sym> = fields.iter().copied().filter(|f| !hidden.iter().any(|h| matches!(h, V::Str(x) if x.s == *f))).collect();
         c.set("__repr__", func("__repr__", move |a: Args| {
             if let V::Obj(o) = &a.p[0] {
                 let mut parts = vec![];
