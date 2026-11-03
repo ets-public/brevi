@@ -1,0 +1,12 @@
+200 item cat=toys id=12
+200 item_slug cat=toys slug=robot
+200 sale_item id=12
+200 item_slug cat=sale slug=x
+200 item_put c=sale i=3
+405 /shop/toys/3 allow: GET,PUT
+200 sale_patch id=3
+200 shop_any p=a/b/c
+405 /shop/a/b/c allow: GET
+200 sale_item id=1 (head)
+line 17: duplicate route
+6 routes, 10 requests, 8 ok

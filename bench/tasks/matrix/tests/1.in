@@ -1,0 +1,17 @@
+M = [1/2 0.25 -1; 2 -3/4 0]
+print M
+N = M'
+P = M * N
+print P
+det P
+Q = inv P
+print Q
+det M
+R = M * M
+R = M + N
+S = X + M
+rank M
+K = [1 2 3; 2 4 6; 1 1 1]
+rank K
+det K
+L = inv K

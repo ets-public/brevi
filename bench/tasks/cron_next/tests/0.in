@@ -1,0 +1,6 @@
+NOW 2026-11-03 07:34
+every * * * * *
+hourly 0 * * * *
+morning 30 9 * * 1-5
+twice 0,30 12 * * *
+monthly 15 3 1 * *

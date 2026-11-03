@@ -1,0 +1,25 @@
+plan with 1 workers
+makespan 0
+critical path none
+plan with 4 workers
+  0 start m5 on w1
+  0 start m1 on w2
+  0 start m2 on w3
+  0 start m3 on w4
+  1 start m4 on w1
+  4 start k on w2
+  5 start j on w1
+  7 start end on w1
+makespan 8
+critical path m1 > k > end (7)
+plan with 1 workers
+  0 start m5 on w1
+  1 start m1 on w1
+  5 start m2 on w1
+  9 start m3 on w1
+  13 start m4 on w1
+  17 start j on w1
+  19 start k on w1
+  21 start end on w1
+makespan 22
+critical path m1 > k > end (7)

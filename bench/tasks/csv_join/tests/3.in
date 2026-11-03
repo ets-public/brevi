@@ -1,0 +1,15 @@
+name,team,points
+"Lee, A",red,10
+Kim,blue,-3.5
+Ola,red,7
+Pat,green,
+Uma,blue,2
+---
+team,coach
+red,"Sam ""Coach"" Hill"
+blue,Joe
+---
+left team
+join team
+count a team
+sum a points team

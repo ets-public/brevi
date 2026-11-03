@@ -1,0 +1,13 @@
+1 a = 3 b
+1 c = 5 b
+1 d = 0.2 c
+1 a = 0.6 d
+1 d = 1 b
+? 1 a in d
+? 7 d in a
+
+? 1000000 a in b
+? 123456789 b in a
+1 KM = 1000 m
+? 1 KM in m
+? 1 Km in m

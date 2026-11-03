@@ -1,0 +1,7 @@
+| word  | len | code |
+|-------|----:|------|
+| a     |   1 | x1   |
+| bb    |   2 | 2    |
+| ccc   |     | 3    |
+| total |   3 |      |
+3 rows, 3 columns

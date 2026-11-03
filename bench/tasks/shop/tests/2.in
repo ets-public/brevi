@@ -1,0 +1,28 @@
+ITEM a x 1.00
+ITEM b x 2.00
+ITEM c y 0.99
+PROMO z1 bundle a b 3.50
+PROMO z2 bundle a b 2.50
+PROMO z3 bogo a
+PROMO z4 percent x 33
+PROMO z5 percent y 5
+COUPON TEN 10 20
+COUPON ONE 1 0
+CART r1
+ADD a 5
+ADD b 2
+ADD c 7
+USE TEN
+CHECKOUT
+CART r2
+ADD c 1
+USE TEN
+USE ONE
+CHECKOUT
+CART r3
+ADD c 1
+USE ONE
+CART r4
+ADD a 1
+ADD a 2
+CHECKOUT

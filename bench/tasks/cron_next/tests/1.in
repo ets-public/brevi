@@ -1,0 +1,8 @@
+NOW 2027-06-01 00:00
+leap 0 12 29 2 *
+never 0 0 30 2 *
+fri13 0 0 13 * 5
+sundays 0 6 * * 0
+sevens 59 23 * * 7
+steps */20 */6 * * *
+quarter 0 0 1 */3 *

@@ -1,0 +1,12 @@
+B = [1 0; 0 1]
+C = [32 0; 0 32]
+F = [89 55; 55 34]
+line 9: bad line
+line 10: bad line
+line 11: bad line
+rank Z = 0
+line 14: singular
+line 15: unknown W
+line 16: unknown Q9
+y = [1/7]
+det x1 = 7

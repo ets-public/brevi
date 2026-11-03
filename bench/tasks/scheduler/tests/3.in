@@ -1,0 +1,13 @@
+RUN
+WORKERS 4
+JOB m1 4
+JOB m2 4
+JOB m3 4
+JOB m4 4
+JOB m5 1 prio=5
+JOB k 2 after=m1,m2
+JOB j 2 after=m3,m4
+JOB end 1 after=k,j,m5
+RUN
+WORKERS 1
+RUN

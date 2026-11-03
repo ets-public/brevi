@@ -1,0 +1,15 @@
+ROUTE GET /v1/<_ver>/x v
+ROUTE GET /v1/<9a>/x bad
+ROUTE POST /api/<path:rest> api
+ROUTE GET /api/status status
+ROUTE GET /api/<int:n>/status nstatus
+GET /api/status
+POST /api/status
+DELETE /api/status
+GET /api/12/status
+POST /api/12/status/
+GET /v1/abc/x
+GET /v1/abc/x/y
+ROUTE GET /dot.ted/a-b_c dotted
+GET /dot.ted/a-b_c
+ROUTE GET /bad seg/x bad6

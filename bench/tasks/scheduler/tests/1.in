@@ -1,0 +1,16 @@
+JOB a 2
+JOB b 2
+JOB c 4 prio=-1
+RUN
+WORKERS 3
+JOB d 1 after=a,b,c
+JOB e 3 prio=2 after=a
+RUN
+JOB a 9
+JOB f 1 after=g
+JOB h 1 after=zz,f,yy
+RUN
+JOB g 2
+JOB zz 1
+JOB yy 1
+RUN

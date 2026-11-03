@@ -1,0 +1,19 @@
+CART early
+COUPON HALF 5.5 5.5
+ITEM pen office 1.25
+PROMO o1 percent office 20
+ITEM pad office 3.33
+CART w
+ADD pen 2
+ADD pad 3
+USE HALF
+REMOVE pad 1
+CHECKOUT
+CART v
+ADD pad 1
+USE HALF
+CHECKOUT
+CART u
+ADD pen 1
+USE HALF
+CHECKOUT

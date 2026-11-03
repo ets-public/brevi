@@ -1,0 +1,15 @@
+line 4: bad route
+line 5: bad route
+line 6: bad route
+line 8: duplicate route
+200 readme
+200 one_file other=notes.txt
+200 files rest=docs/a/b.txt
+200 raw name=x
+200 head_files rest=x/raw
+200 head_files rest=x
+404 /files
+400 //files
+line 18: bad route
+line 19: bad line
+5 routes, 8 requests, 6 ok

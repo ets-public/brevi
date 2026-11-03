@@ -1,0 +1,8 @@
+sat a1&a2&a3&!a4
+taut (a & (a -> b)) -> b
+taut a ^ a ^ a
+equiv !(a & b) ; !a | !b
+equiv !(a | b) ; !a | !b
+table !!a
+sat !1
+table ab <-> b

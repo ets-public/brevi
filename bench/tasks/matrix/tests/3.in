@@ -1,0 +1,17 @@
+T = [1 2 3; 0 1 4; 5 6 0]
+U = inv T
+print U
+V = U * T
+print V
+det T
+det U
+W = T - T
+print W
+rank W
+X = [1.5 -2.25]
+Y = X'
+Z = X * Y
+print Z
+Z2 = Y * X
+print Z2
+rank Z2

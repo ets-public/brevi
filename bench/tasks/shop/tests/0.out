@@ -1,0 +1,19 @@
+receipt c1
+  apple 4 x 0.50 = 2.00
+  bread 3 x 2.20 = 6.60
+  jam 1 x 3.10 = 3.10
+  pear 3 x 0.75 = 2.25
+  bundle k1 x1 -0.80
+  bogo b1 bread -2.20
+  percent p1 apple -0.20
+  percent p1 pear -0.23
+subtotal 10.52
+total 10.52
+receipt c2
+  bread 1 x 2.20 = 2.20
+  jam 2 x 3.10 = 6.20
+  bundle k1 x1 -0.80
+subtotal 7.60
+  coupon SAVE2 needs 10.00
+total 7.60
+sales 18.12 in 2 carts

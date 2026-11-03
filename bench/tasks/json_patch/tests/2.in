@@ -1,0 +1,15 @@
+{"users": [{"id": 1, "roles": ["admin"]}, {"id": 2, "roles": []}], "count": 2}
+copy /users/0 /users/-
+replace /users/2/id 3
+add /users/2/roles/0 "owner"
+print /users/0/roles
+test /users/0 {"roles": ["admin"], "id": 1}
+test /users/2 {"roles": ["owner", "admin"], "id": 3.0}
+test /count "2"
+replace /count 3
+move /users/1 /users/0
+print /users
+remove /users/5
+replace /users/2/name "x"
+add /users/2/name "x"
+test /users/2/name "x"

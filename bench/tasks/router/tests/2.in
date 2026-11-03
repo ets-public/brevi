@@ -1,0 +1,17 @@
+ROUTE GET /shop/<cat>/<int:id> item
+ROUTE GET /shop/<cat>/<slug> item_slug
+ROUTE GET /shop/sale/<int:id> sale_item
+ROUTE PUT /shop/<c>/<int:i> item_put
+ROUTE GET /shop/<path:p> shop_any
+ROUTE PATCH /shop/sale/<int:id> sale_patch
+GET /shop/toys/12
+GET /shop/toys/robot
+GET /shop/sale/0012
+GET /shop/sale/x
+PUT /shop/sale/3
+PATCH /shop/toys/3
+PATCH /shop/sale/3
+GET /shop/a/b/c
+POST /shop/a/b/c
+HEAD /shop/sale/1
+ROUTE GET /shop/<c2>/<int:i2> dup_item

@@ -1,0 +1,26 @@
+k,v,v_b,w
+x,1,10,a
+x,1,20,c
+x,3,10,a
+x,3,20,c
+(4 rows)
+k,v,v_b,w
+x,1,10,a
+x,1,20,c
+y,2,,
+x,3,10,a
+x,3,20,c
+(5 rows)
+k,count
+x,2
+y,1
+(2 rows)
+k,v
+x,4
+y,2
+(2 rows)
+w,v
+a,10
+b,30
+c,20
+(3 rows)
