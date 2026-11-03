@@ -16,41 +16,41 @@ Tools: `brevi` is `brevi build --release`, `brevi-dev` is `brevi build` (what `b
 
 ## Results (3 Nov 2026)
 
-Brevi main 2413e64 plus this PR, Codon 0.20.6, Nuitka 4.3.4, CPython 3.13, rustc 1.97, on a 4-core Linux container.
+Brevi main d7fe346 (after #127 and #128), Codon 0.20.6, Nuitka 4.3.4, CPython 3.13, rustc 1.97, on a 4-core Linux container. Codon and Nuitka figures are from the first run (main 2413e64), against CPython timed in that run.
 
 | | Brevi | Codon | Nuitka |
 | --- | --- | --- | --- |
-| Saved solutions that build unchanged (591) | 589 | 206 | 591 |
-| ... and match CPython on every test | 588 | 170 | 591 |
-| Built but print something else (silent or crash) | 1 (stops with an error) | 36 (16 silent wrong output, 20 crashes) | 0 |
-| Huge-set programs (18): build / match | 17 / 17 | 0 / 0 | 18 / 18 |
-| Traps (13): match CPython | 10 | 4 | 12 |
-| Median build time, small program (cold, no build cache) | 2.2 s | 4.9 s | 2.5 s (ccache warm) |
+| Saved solutions that build unchanged (591) | 591 | 206 | 591 |
+| ... and match CPython on every test | 591 | 170 | 591 |
+| Built but behave differently | 0 | 36 (16 silent wrong output, 20 crashes) | 0 |
+| Huge-set programs (18): build / match | 18 / 18 | 0 / 0 | 18 / 18 |
+| Traps (13): match CPython | 13 | 4 | 12 |
+| Median cold build of a small program, default / --release | 1.8 s / 3.1 s | 4.9 s | 2.5 s (ccache warm) |
 | Median run time of a test (mostly process start) | 3.4 ms | 18.6 ms | 43 ms (CPython 22 ms) |
 
-Speed, best of 3 runs, times CPython's speed in brackets:
+Both Brevi builds (default and `--release`) give the same correctness figures. Speed, best of 3 runs, times CPython's speed in brackets:
 
-| Program | CPython | Brevi --release | Brevi default | Codon | Nuitka |
+| Program | CPython | Brevi default (`brevi run`) | Brevi --release | Codon | Nuitka |
 | --- | --- | --- | --- | --- | --- |
-| nbody | 1.75s | 0.05s (38x) | 1.22s (1.4x) | 0.05s (39x) | 4.08s (0.4x) |
-| fannkuch | 4.18s | 9.31s (0.4x) | 10.04s (0.4x) | 1.26s (3.3x) | 3.90s (1.1x) |
-| spectral | 1.96s | 0.04s (47x) | 0.68s (2.9x) | 0.03s (75x) | 3.41s (0.6x) |
-| trees | 4.28s | 1.59s (2.7x) | 4.97s (0.9x) | no build | 2.45s (1.7x) |
-| set_bfs | 1.16s | 0.11s (10x) | 0.78s (1.5x) | 0.18s (6.4x) | 1.21s (1.0x) |
-| strings | 1.73s | 1.26s (1.4x) | 3.78s (0.5x) | 1.82s (0.9x) | 2.14s (0.8x) |
-| objects | 1.63s | 0.06s (28x) | 0.33s (4.9x) | no build | 1.77s (0.9x) |
-| dp_lcs | 1.18s | 0.05s (24x) | 0.59s (2.0x) | 0.05s (22x) | 1.02s (1.1x) |
-| words | 0.32s | 0.05s (6.4x) | 0.58s (0.5x) | 0.18s (1.8x) | 0.28s (1.1x) |
-| graph | 2.38s | 0.43s (5.6x) | 1.46s (1.6x) | 0.37s (6.4x) | 2.57s (0.9x) |
-| sieve | 0.84s | 0.08s (10x) | 0.48s (1.7x) | 0.03s (30x) | 0.75s (1.1x) |
-| records | 0.51s | 0.32s (1.6x) | 1.76s (0.3x) | 0.34s (1.5x) | 0.64s (0.8x) |
+| spectral | 2.67 s | 0.07 s (39.5x) | 0.06 s (44.5x) | 0.03 s (74.6x) | 3.41 s (0.6x) |
+| nbody | 2.33 s | 0.11 s (20.8x) | 0.08 s (29.3x) | 0.05 s (38.5x) | 4.08 s (0.4x) |
+| objects | 1.97 s | 0.11 s (18.4x) | 0.07 s (29.7x) | no build | 1.77 s (0.9x) |
+| dp_lcs | 1.94 s | 0.14 s (14.0x) | 0.06 s (32.2x) | 0.05 s (21.9x) | 1.02 s (1.1x) |
+| sieve | 1.06 s | 0.10 s (10.7x) | 0.08 s (13.0x) | 0.03 s (30.3x) | 0.75 s (1.1x) |
+| set_bfs | 1.40 s | 0.15 s (9.6x) | 0.13 s (10.6x) | 0.18 s (6.4x) | 1.21 s (1.0x) |
+| trees | 5.29 s | 0.71 s (7.4x) | 0.96 s (5.5x) | no build | 2.45 s (1.7x) |
+| words | 0.34 s | 0.06 s (5.6x) | 0.06 s (5.7x) | 0.18 s (1.8x) | 0.28 s (1.1x) |
+| graph | 2.34 s | 0.44 s (5.3x) | 0.38 s (6.1x) | 0.37 s (6.4x) | 2.57 s (0.9x) |
+| fannkuch | 5.37 s | 1.61 s (3.3x) | 1.26 s (4.3x) | 1.26 s (3.3x) | 3.90 s (1.1x) |
+| strings | 2.36 s | 1.07 s (2.2x) | 0.82 s (2.9x) | 1.82 s (0.9x) | 2.14 s (0.8x) |
+| records | 0.68 s | 0.39 s (1.7x) | 0.26 s (2.6x) | 0.34 s (1.5x) | 0.64 s (0.8x) |
 
 Every built speed program printed what CPython prints. Nuitka ran slower than CPython on several here; this container's python3 is an optimised build, while Nuitka links its own libpython, so treat its column as this machine's result, not a general one.
 
 ## What it shows
 
-- **Correctness.** Brevi and Nuitka run nearly every agent-written program exactly as CPython does; Codon builds about a third of them, and of those, 1 in 6 prints something else, often silently (64-bit ints wrap, `json` and dict-of-mixed-values programs print 0, `print` output is lost when the program crashes, exceptions print without quotes). Brevi's failures are loud: a refused build or an error naming the line.
-- **Speed.** On typed code Brevi `--release` matches Codon (nbody, spectral, dp_lcs, graph, set_bfs) and is far ahead of Nuitka, which stays near CPython. Brevi also runs object-heavy code Codon refuses (`objects` 28x, `trees` 2.7x).
-- **Gaps** (on the roadmap): `brevi run`'s default build is 3x to 20x slower than `--release` and slower than CPython on 5 of 12 programs; list slice assignment (`perm[:k+1] = perm[k::-1]`) is refused by the typed build, so fannkuch runs in the dynamic build at 0.4x CPython; typed ints stop with an overflow error where Python grows a big int (`f *= i` for a factorial, `2 ** 100`); generators are not in dynamic builds yet (one huge-set chess program and the generators trap); `__file__`; csv.DictReader rows used as dict keys guess int keys.
+- **Correctness.** Brevi and Nuitka run every agent-written program exactly as CPython does. Codon builds about a third of them, and of those, 1 in 6 prints something else, often silently (64-bit ints wrap, `json` and dict-of-mixed-value programs print 0, `print` output is lost when the program crashes, exceptions print without quotes).
+- **Speed.** Even `brevi run`'s default build beats CPython on all 12 programs (1.7x to 40x); `--release` is level with Codon where Codon builds, and also runs object-heavy code Codon refuses. Nuitka stays near CPython.
+- **Open gap:** a big int that grows inside a function and is returned still stops with an overflow error (loud, not wrong).
 
-Brevi bugs this comparison found, fixed with it: `book = asks if buy else bids` then `book.remove(o)` changed a copy; `m.group(3) is None` was False for an unmatched group (also when the test sits in an imported module: the typed-build guard now reads local imports too); an f-string value starting with a number printed as text; `raise SystemExit(3)` gave the wrong exit status; `d.setdefault(k, set()).add(x)` raised KeyError; `10 ** -2` was refused.
+History: the first run (main 2413e64) found six Brevi bugs, four of them silent wrong answers, fixed in #127; its follow-ups (fast default build, typed slice assignment, big-int growth, generators in dynamic builds, faster small objects and strings, csv.DictReader, `__file__`) landed in #128. Before them, the default build was slower than CPython on 5 of 12 programs and Brevi matched 588 of 591 solutions and 17 of 18 huge-set programs.
