@@ -4,6 +4,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **Crate pins.** The crate test and `examples/checksums.bv` now use `sha2` 0.11 and `base64` 0.23. In sha2 0.11 a digest no longer formats with `{:x}`; the examples build the hex string byte by byte. The docs keep `sha2 "0.10"`, which still works.
+
 ## v0.24.4 (3 Nov 2026)
 
 Every one of the 48 final release-test programs from v0.24.3's runs now builds natively, with no CPython: `enum`, `io.StringIO`, `json.JSONDecoder().raw_decode` and path text from `os` and `pathlib` run natively, and exact `fractions.Fraction`, `bin`/`hex`/`oct`, `startswith` with a start index `re.S`/`re.M` and `csv.writer(sys.stdout)` are on the typed path. On the 813-program corpus 550 programs build typed, up from 496, and eight silent wrong outputs are fixed (re groups and tuples, rows changed in a loop, typed `$` and `re.split`, dict keys printed as None). Release test over five runs (four on main before #171 and #172, one on the release commit): Sonnet 1.06x of Python's cost (95% range 1.03x to 1.10x), Haiku 1.03x (0.98x to 1.10x), every task passed on both sides, 120 of 120 and 117 of 120 final programs native. The run on the release commit alone gave 1.02x and 1.03x. Five checks along the way (of 2 tasks, `trains` and `poker`) failed under Brevi where CPython passed the same files; the models fixed their code and passed, and those typed-build wrong outputs are being fixed for the next release. The 3 programs that ran in CPython were split into several files, where a module Brevi could not build (a `with` other than `open`, `except IndexError`) sends the whole program to CPython.
