@@ -2379,6 +2379,8 @@ impl Emitter {
         match name {
             // print(a, b) writes them with a space between, like Python.
             "print" if plain.len() > 1 => return format!("print([{}].join(\" \"))", plain.iter().map(|p| format!("Show::show(&{p})")).collect::<Vec<_>>().join(", ")),
+            // A local of the same name (`date = parts[1]`) would hide the runtime's function.
+            "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" if self.locals.contains(name) => return format!("crate::{name}({})", plain.join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "__readline" => return "ax_readline()".to_string(),
             "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
