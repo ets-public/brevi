@@ -1366,6 +1366,15 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
     let old = std::mem::take(stmts);
     for mut st in old {
         let d = direct_wb(r, &st);
+        // `nrow = new[r]`, then `for c in ...: nrow[c] = v`: write back once after the loop, not after every
+        // change inside it (a whole-row copy per cell), when nothing in the loop could see the difference.
+        if let Stmt::Expr { expr: lp @ (Expr::For(..) | Expr::While(..)), .. } = &st {
+            if quiet_loop(lp, wb) && any_expr(lp, &mut |s| direct_wb(r, s)) {
+                stmts.push(st);
+                stmts.push(wb.clone());
+                continue;
+            }
+        }
         match &mut st {
             Stmt::Expr { expr, .. } => add_expr(r, wb, expr),
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } => add_expr(r, wb, value),
@@ -1377,6 +1386,16 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
         }
     }
     if let Some(t) = tail {
+        if matches!(t.as_ref(), Expr::For(..) | Expr::While(..)) && quiet_loop(t, wb) && any_expr(t, &mut |s| direct_wb(r, s)) {
+            let line = match wb {
+                Stmt::Assign { line, .. } => *line,
+                _ => 0,
+            };
+            let t = tail.take().unwrap();
+            stmts.push(Stmt::Expr { expr: *t, line });
+            stmts.push(wb.clone());
+            return;
+        }
         // A branch ending in `r.push(x)`: it is a statement, so the write-back can follow it.
         if matches!(t.as_ref(), Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()) && !m.starts_with("pop") && m != "heap_pop" && m != "remove") {
             let line = match wb {
@@ -1390,6 +1409,28 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
             add_expr(r, wb, t);
         }
     }
+}
+
+// A loop that neither reads the container written back to, nor returns, raises or calls a function of the
+// program (which could read it): the container may be stale while it runs.
+fn quiet_loop(lp: &Expr, wb: &Stmt) -> bool {
+    let Stmt::Assign { target, .. } = wb else { return false };
+    let Some(b) = root(target) else { return false };
+    let d = format!("{lp:?}");
+    if d.contains(&format!("Ident({b:?})")) || d.contains("Return") || d.contains("Lambda") || d.contains("Method(Ident(\"self_\")") {
+        return false;
+    }
+    const PURE: &[&str] = &["int", "str", "float", "len", "abs", "min", "max", "range", "round", "print", "none", "ord", "chr", "bool"];
+    let mut calls_ok = true;
+    let mut probe = lp.clone();
+    crate::parser::walk_mut(&mut probe, &mut |e| {
+        if let Expr::Call(f, _, _) = e {
+            if !PURE.contains(&f.as_str()) {
+                calls_ok = false;
+            }
+        }
+    });
+    calls_ok
 }
 
 fn add_expr(r: &str, wb: &Stmt, e: &mut Expr) {

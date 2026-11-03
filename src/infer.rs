@@ -3963,7 +3963,7 @@ pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
 // change in place (`fn add(lots, x): lots.push(x)`). Such a parameter becomes `mut`: changed in place
 // (push, pop, insert, remove, `p[k] = v`, `p.f = v`, `p[k] += 1`) or passed on to a `mut` parameter,
 // and never set as a whole (`p = ...`, which in Python makes a new local).
-pub fn auto_mut(items: &mut [Item]) {
+pub fn auto_mut(items: &mut [Item], py: bool) {
     loop {
         let muts: HashMap<String, Vec<bool>> = items
             .iter()
@@ -3976,8 +3976,13 @@ pub fn auto_mut(items: &mut [Item]) {
         for it in items.iter_mut() {
             let Item::Fn { params, body, script: false, .. } = it else { continue };
             for p in params.iter_mut() {
-                // `r[ci] = v; return r` changes a copy and hands it back, so it stays a copy.
-                if !p.is_mut && in_place(body, &p.name, &muts) && !crate::emit::assigns_to(body, &p.name) && !rebinds(body, &p.name) && !returns_name(body, &p.name) {
+                // `r[ci] = v; return r` changes a copy and hands it back, so it stays a copy (in Brevi files).
+                // On a list, `p += ys` (and `p.extend(ys)`, which the parser writes that way) changes it in place.
+                let list = matches!(p.ty, Ty::List(_));
+                let changed_in_place = in_place(body, &p.name, &muts) || (list && aug_assigns(body, &p.name));
+                let set_whole = if list { set_whole(body, &p.name) } else { crate::emit::assigns_to(body, &p.name) || rebinds(body, &p.name) };
+                // In Python the caller's list changes even when the function also returns it.
+                if !p.is_mut && changed_in_place && !set_whole && (py || !returns_name(body, &p.name)) {
                     p.is_mut = true;
                     changed = true;
                 }
@@ -4011,6 +4016,41 @@ fn root_is(e: &Expr, n: &str) -> bool {
 }
 
 // `p = ...` or `p += ...` anywhere, also as a `for p in` / pattern binding.
+// `n += v` anywhere in the body.
+fn aug_assigns(e: &Expr, n: &str) -> bool {
+    let mut hit = false;
+    walk(e, &mut |x| {
+        if let Expr::Block(stmts, _) = x {
+            if stmts.iter().any(|st| matches!(st, Stmt::Assign { target: Expr::Ident(m), op: "+=", .. } if m == n)) {
+                hit = true;
+            }
+        }
+    });
+    hit
+}
+
+// `n = v`, `let n`, `for n in ...` or any other assignment to n than `n += v`.
+fn set_whole(e: &Expr, n: &str) -> bool {
+    let mut hit = false;
+    walk(e, &mut |x| {
+        if let Expr::Block(stmts, _) = x {
+            for st in stmts {
+                match st {
+                    Stmt::Assign { target: Expr::Ident(m), op, .. } if m == n && *op != "+=" => hit = true,
+                    Stmt::Let { name: Pat::Bind(m), .. } if m == n => hit = true,
+                    _ => {}
+                }
+            }
+        }
+        if let Expr::For(Pat::Bind(m), _, _) = x {
+            if m == n {
+                hit = true;
+            }
+        }
+    });
+    hit
+}
+
 fn rebinds(e: &Expr, n: &str) -> bool {
     let mut hit = false;
     walk(e, &mut |x| {

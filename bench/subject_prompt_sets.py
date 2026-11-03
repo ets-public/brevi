@@ -17,4 +17,6 @@ GUI = "todo_app calc_app tictactoe_app".split()
 # 3 of them multi-file) plus the six xl3 tasks, so one run measures 24 tasks instead of 6.
 RELNEW = "bowling text_table huffman units life wordle json_patch csv_join matrix router sudoku tellers cron_next truth_table shop chat_rooms scheduler json_query".split()
 REL = XL3 + RELNEW
-SETS = {"gui": GUI, "small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3, "huge": HUGE, "relnew": RELNEW, "rel": REL}
+# Time-limited set (ref/gen_speed.py, 3 Nov 2026): plain solutions do tens of millions of steps; tests time out after 10 s.
+SPEED = "conway knapsack edits chains".split()
+SETS = {"speed": SPEED, "gui": GUI, "small": SMALL, "big": BIG, "new": NEW, "xl": XL, "xl2": XL2, "xl3": XL3, "huge": HUGE, "relnew": RELNEW, "rel": REL}

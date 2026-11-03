@@ -70,6 +70,23 @@ The test has not passed yet. When the model's first attempt builds, pyb costs th
 
 Writing Brevi against writing Python for Brevi (run `r1`, 2 Nov, main 54140e8, one run each, all 36 tasks passed): Sonnet $0.270 writing Brevi with the guide, $0.190 writing Python built by Brevi, $0.177 with CPython; Haiku $0.046, $0.028 and $0.025. Plain Python is the cheaper way to use Brevi, so the agent skill now asks for it.
 
+## Where pyb loses tokens (3 Nov 2026)
+
+In the release test both sides get the same prompt, so pyb can only lose tokens when Brevi itself makes a check fail. Since run `t1`, every pyb check also runs the same files with CPython and logs the pair (`shadow`: `[pyb passed, CPython passed]`); the summary's `bug` column counts checks that failed only because of Brevi. In four Haiku runs on xl3 (`t1a` to `t1d`, main 9408924), 0 of 9 failed first checks were Brevi's: CPython failed the same code. The other numbers from those runs: about 65% of output tokens are hidden thinking and 30% code, and retries add little output, so Brevi cannot save much on these tasks by changing what a failed check prints. `replay.py` measured that: replaying the 9 failed checks 3 times each with a shorter feedback (only the differing output lines) cost 14% less after the branch point than the current feedback, which is about 2% of a whole run.
+
+A replay found one real bug: `out.extend(errs)` on a list parameter was lost in typed builds, and the model spent 7 checks on it and failed the task.
+
+### Time-limited set (`speed`)
+
+Four tasks from `ref/gen_speed.py` with small inputs and heavy work (`conway`: Game of Life up to 600x600 for 500 generations, 0/1 knapsack up to 1000 items and capacity 300,000, edit distance up to 10,000 letters, Collatz chains up to 3,000,000), under the usual 10 s test limit. The plain solutions take CPython 15 to 80 s. The question was whether Brevi's speed saves the retries an agent spends making CPython code fast enough. Run `s1a` (one run each, main 9408924 plus the first fixes) said no: the models wrote fast Python from the start (big-int bitboards, bit-parallel edit distance, bit-packed knapsack), and Brevi built those programs badly.
+
+| s1a | Python passes | Python $ | pyb passes | pyb $ | pyb checks failed only because of Brevi |
+| --- | --- | --- | --- | --- | --- |
+| Sonnet | 4/4, all first try | $0.087 | 4/4, 1 first try | $0.306 | 4 |
+| Haiku | 4/4, 3 first try | $0.012 | 3/4, 1 first try | $0.019 | 2 |
+
+The causes, all fixed since: big-int `&`, `|`, `^` raised NotImplementedError in dynamic builds; `bin()` and `int(s, 2)` of big ints were quadratic; `2 ** n` squared huge numbers; `>>` by more than about a million bits shifted by a million; bit-packed ints in typed builds overflowed 64 bits; a grid row changed cell by cell was copied back after every cell (Game of Life 16 s typed, now 2.6 s against CPython's 30 s); `min(a, b, c)` and `map(sum, rows)` sent programs to the slower dynamic build.
+
 ## GUI programs (set `gui`, since 1 Nov 2026)
 
 Three tkinter apps from `ref/gen_gui.py`: `todo_app` (entry, list, checkbox, dialogs), `calc_app` (grid of buttons, key bindings, history) and `tictactoe_app` (canvas clicks, drawing, `after` countdown). The model writes an ordinary tkinter program. Tests drive it without a screen: `mainloop()` reads actions from stdin (`click Add`, `type 1 milk`, `tap 1 50 50`, `wait 1000`, ...) and `show` prints the window as text. Under CPython that is the stand-in in `tkshim/` (on `PYTHONPATH` for `--lang python`); built by Brevi it will be `runtime/brevi_tk` in headless mode. `tools/gui_shim_check.sh` checks the two print the same. Expected outputs come from the reference programs in `ref/gui/`.
