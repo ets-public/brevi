@@ -4274,6 +4274,105 @@ impl<T: Hash + Eq + Clone> Plus<Vec<T>> for AxSet<T> {
         self
     }
 }
+impl<T: PartialOrd> PartialOrd for AxSet<T> {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        self.v.partial_cmp(&o.v)
+    }
+}
+impl<T: Hash> Hash for AxSet<T> {
+    fn hash<H: Hasher>(&self, h: &mut H) {
+        self.v.hash(h)
+    }
+}
+impl<T> AxToJson for AxSet<T> where Vec<T>: AxToJson {
+    fn ax_json(&self) -> Json {
+        self.v.ax_json()
+    }
+}
+// ---- queue: a Python deque (or a list taken from the front) whose popleft is O(1) ----
+pub struct AxQueue<T>(std::collections::VecDeque<T>);
+impl<T: Clone + PartialEq> AxQueue<T> {
+    pub fn ax_push(&mut self, x: T) {
+        self.0.push_back(x)
+    }
+    pub fn ax_pop(&mut self) -> T {
+        self.0.pop_back().expect("pop from an empty deque")
+    }
+    pub fn ax_pop_at(&mut self, i: i64) -> T {
+        if i == 0 {
+            return self.0.pop_front().expect("pop from an empty deque");
+        }
+        let j = ax_idx(i, self.0.len());
+        self.0.remove(j).unwrap()
+    }
+    pub fn ax_insert(&mut self, i: i64, x: T) {
+        if i == 0 {
+            return self.0.push_front(x);
+        }
+        let j = if i == self.0.len() as i64 { self.0.len() } else { ax_idx(i, self.0.len()) };
+        self.0.insert(j, x)
+    }
+    pub fn ax_len(&self) -> i64 {
+        self.0.len() as i64
+    }
+    pub fn ax_is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    pub fn ax_contains(&self, x: &T) -> bool {
+        self.0.iter().any(|y| y == x)
+    }
+    pub fn ax_ref(&self, i: &i64) -> &T {
+        &self.0[ax_idx(*i, self.0.len())]
+    }
+}
+impl<T> From<Vec<T>> for AxQueue<T> {
+    fn from(v: Vec<T>) -> Self {
+        AxQueue(v.into())
+    }
+}
+impl<T> Default for AxQueue<T> {
+    fn default() -> Self {
+        AxQueue(Default::default())
+    }
+}
+impl<T: Clone> Clone for AxQueue<T> {
+    fn clone(&self) -> Self {
+        AxQueue(self.0.clone())
+    }
+}
+impl<T: PartialEq> PartialEq for AxQueue<T> {
+    fn eq(&self, o: &Self) -> bool {
+        self.0 == o.0
+    }
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for AxQueue<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl<T> AxTruth for AxQueue<T> {
+    fn ax_truth(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
+impl<T> AxEach for AxQueue<T> {
+    type It = std::collections::vec_deque::IntoIter<T>;
+    fn ax_each(self) -> Self::It {
+        self.0.into_iter()
+    }
+}
+impl<T: PartialEq> AxIn<T> for AxQueue<T> {
+    fn ax_in(&self, x: &T) -> bool {
+        self.0.iter().any(|y| y == x)
+    }
+}
+impl<T> Plus<Vec<T>> for AxQueue<T> {
+    type Out = AxQueue<T>;
+    fn plus(mut self, o: Vec<T>) -> AxQueue<T> {
+        self.0.extend(o);
+        self
+    }
+}
 // ---- end of prelude ----
 
 // `x in xs`: a map key, a list item, or a substring.
