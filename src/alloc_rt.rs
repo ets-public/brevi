@@ -4,6 +4,15 @@
 // programs make and drop many small objects, where this is several times quicker than malloc and free.
 // A block freed on another thread joins that thread's lists; chunks are never handed back.
 pub struct AxAlloc;
+// The last long text found to be all ASCII (its address, length and capacity), so indexing it again need not
+// scan it; freeing or moving that block forgets it (see ax_ascii in the prelude).
+pub static AX_ASCII: [std::sync::atomic::AtomicUsize; 3] = [const { std::sync::atomic::AtomicUsize::new(0) }; 3];
+#[inline(always)]
+fn ax_forget_ascii(p: *mut u8) {
+    if AX_ASCII[0].load(std::sync::atomic::Ordering::Relaxed) == p as usize {
+        AX_ASCII[0].store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
 const AX_SMALL: usize = 256;
 const AX_CHUNK: usize = 256 << 10;
 struct AxPool {
@@ -57,6 +66,7 @@ unsafe impl std::alloc::GlobalAlloc for AxAlloc {
     #[inline]
     unsafe fn dealloc(&self, p: *mut u8, l: std::alloc::Layout) {
         if !ax_small(&l) {
+            ax_forget_ascii(p);
             return std::alloc::System.dealloc(p, l);
         }
         let c = (l.size() + 15) >> 4;
@@ -67,6 +77,9 @@ unsafe impl std::alloc::GlobalAlloc for AxAlloc {
     }
     #[inline]
     unsafe fn realloc(&self, p: *mut u8, l: std::alloc::Layout, new: usize) -> *mut u8 {
+        if !ax_small(&l) {
+            ax_forget_ascii(p);
+        }
         if !ax_small(&l) && new > AX_SMALL {
             return std::alloc::System.realloc(p, l, new);
         }
