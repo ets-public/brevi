@@ -16,6 +16,7 @@ Each side's prompt cache is kept apart so neither pays the other's cache writes.
 
 | Runs (3 Nov 2026) | Sonnet cost, Brevi vs CPython | Haiku cost, Brevi vs CPython | Tasks passed | Built natively | Failed because of Brevi |
 | --- | --- | --- | --- | --- | --- |
+| v1a, v1b (v0.24.0) | **1.07x** | **1.00x** | 24 of 24, both sides | 45 of 48 and 47 of 48 | 0 |
 | u2a, u2b | **0.97x** (95% range 0.93x to 1.01x) | **1.01x** (0.96x to 1.05x) | 24 of 24, both sides | 44 of 48 and 46 of 48 | 0 |
 
 **Passed.** The earlier runs e31 to e34 (2 November) also passed: 48 of 48 tasks, all 48 final programs native, cost 1.10x (Sonnet) and 0.95x (Haiku).

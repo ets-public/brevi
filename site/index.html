@@ -109,10 +109,10 @@ IndexError: list index out of range</pre>
           <div class="tbar"><span>$ brevi run rows.py</span><span>1 line</span></div>
 <pre class="out wrapline">{"e":"runtime","line":2,"msg":"index 5 out of range for length 1"}</pre>
           <div class="tbar"><span>$ brevi check broken.py</span><span>before running</span></div>
-<pre class="out wrapline">{"line":2,"msg":"expected ')', found end of line","fix":"insert ')'"}</pre>
+<pre class="out wrapline">{"line":8,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
         </div>
       </div>
-      <p class="note" style="margin-top: 16px;">In Brevi's own <code>.bv</code> language every type mistake is reported before the program runs. For Python files Brevi keeps CPython's behaviour, so code that Python would only fail at run time fails there too. <a href="/docs/usage#errors">How errors work</a></p>
+      <p class="note" style="margin-top: 16px;">Sure mistakes in Python, a name that is never defined, a method no type has, text added to a number, are reported by <code>brevi check</code> before the program runs, with a fix. Mistakes Python only finds at run time (an index out of range) fail there, as in CPython. In Brevi's own <code>.bv</code> language every type mistake is caught before it runs. <a href="/docs/usage#errors">How errors work</a></p>
     </div>
   </section>
 
@@ -159,7 +159,7 @@ IndexError: list index out of range</pre>
             <table>
               <thead><tr><th>Model cost, Brevi vs CPython</th><th class="n">Sonnet</th><th class="n">Haiku</th></tr></thead>
               <tbody>
-                <tr><td>Release test, 24 tasks</td><td class="n">0.97x</td><td class="n">1.01x</td></tr>
+                <tr><td>Release test, 24 tasks (v0.24.0)</td><td class="n">1.07x</td><td class="n">1.00x</td></tr>
                 <tr><td>4 heavy tasks, "write it plainly"</td><td class="n win">0.58x</td><td class="n win">0.53x</td></tr>
               </tbody>
             </table>
