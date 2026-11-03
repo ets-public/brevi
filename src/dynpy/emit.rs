@@ -28,7 +28,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
         "fractions" => &["Fraction"],
-        "datetime" => &["date", "datetime", "timedelta", "MINYEAR", "MAXYEAR"],
+        "datetime" => &["date", "datetime", "time", "timedelta", "MINYEAR", "MAXYEAR"],
         "csv" => &["DictReader", "DictWriter", "reader", "writer", "QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE", "Error"],
         "statistics" => &["fmean", "mean", "median", "median_high", "median_low", "mode", "multimode", "pstdev", "pvariance", "stdev", "variance", "StatisticsError"],
         "threading" => &["Lock", "RLock", "Thread", "active_count", "current_thread", "main_thread", "stack_size"],

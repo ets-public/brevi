@@ -5,7 +5,7 @@ calls up to that check, the check's result is replaced by the feedback under tes
 there as in e2e.py. Only the tokens spent after the branch point are counted, so the first attempt (which the
 feedback cannot change) does not add noise.
 
-usage: python3 replay.py OUT --from "work/e2e/t1*-haiku-pyb/*" --feedback plain|diff [--samples 2] [--jobs 4]
+usage: python3 replay.py OUT --from "work/e2e/sh1*-haiku-pyb/*" --feedback plain|diff [--samples 2] [--jobs 4]
        python3 replay.py --summary "logs/replay/*.jsonl"
 """
 import argparse, concurrent.futures as cf, difflib, glob, json, os, shutil, subprocess, sys, tempfile

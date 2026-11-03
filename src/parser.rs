@@ -2520,7 +2520,9 @@ impl Parser {
             let c = if matches!(&c, Expr::Binary(op, ..) if ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op)) || matches!(c, Expr::Bool(_)) { c } else { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(c)))) };
             e = Expr::Method(Box::new(e), "filter".into(), vec![Expr::Lambda(names.clone(), Box::new(wrap(c)))], line);
         }
-        if !matches!(&elem, Expr::Ident(n) if names.len() == 1 && n == &names[0]) || !pre.is_empty() {
+        // `[c for c in s]` over a text is a list of its characters, so Python keeps the map there.
+        let filtered = matches!(&e, Expr::Method(_, m, _, _) if m == "filter");
+        if !matches!(&elem, Expr::Ident(n) if names.len() == 1 && n == &names[0]) || !pre.is_empty() || (self.py && !filtered) {
             e = Expr::Method(Box::new(e), "map".into(), vec![Expr::Lambda(names, Box::new(wrap(elem)))], line);
         }
         Ok(e)
@@ -3475,7 +3477,7 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
                 x => vec![type_name(x)?],
             };
             let names: Vec<String> = names.into_iter().map(|n| match n.as_str() {
-                "set" | "List" | "tuple" => "list".to_string(),
+                "set" | "List" => "list".to_string(),
                 "Dict" | "OrderedDict" | "defaultdict" => "dict".to_string(),
                 _ => n,
             }).collect();

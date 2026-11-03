@@ -1568,6 +1568,20 @@ fn bare_returns(body: &mut Expr) {
     }
 }
 
+// Does some `return None` (not a bare `return`) give this function's result?
+fn some_none_return(body: &Expr) -> bool {
+    let none = |v: &Expr| matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty());
+    let mut found = false;
+    let mut b = body.clone();
+    crate::parser::walk_mut(&mut b, &mut |e| {
+        if let Expr::Block(ss, t) = e {
+            found |= ss.iter().any(|st| matches!(st, Stmt::Return { value: Some(v), .. } if none(v)));
+            found |= t.as_ref().is_some_and(|t| none(t));
+        }
+    });
+    found
+}
+
 // A Python stub (`def f(x): return None`): every return gives None, so the function gives no value.
 fn only_none(body: &Expr) -> bool {
     let none = |v: &Expr| matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty());
@@ -2878,7 +2892,10 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
             // Python: results of clashing kinds (`return e[1]` giving JSON, `return [...]`, `return not a`) are
             // dynamic (JSON) values.
             let odd = |a: &T, b: &T| known(a) && known(b) && (clash(a, b) || ty_clash(a, b)) && !matches!((a, b), (Int, F64) | (F64, Int));
-            let mixed = py_on() && !json && !tup && to_json.last().map_or(true, |(kk, _)| *kk != k) && (ts.iter().any(|a| ts.iter().any(|b| odd(a, b))) || (ts.contains(&Json) && ts.iter().any(|t| known(t) && *t != Json)));
+            // Python: `return None` on one path and a list or dict on another. The typed build's None for a list
+            // is the empty list, so `parse([])` would test as None: such results are dynamic (JSON) values.
+            let none_or_coll = py_on() && ts.iter().any(|t| matches!(t, List(_) | Map(..))) && some_none_return(body);
+            let mixed = py_on() && !json && !tup && to_json.last().map_or(true, |(kk, _)| *kk != k) && (none_or_coll || ts.iter().any(|a| ts.iter().any(|b| odd(a, b))) || (ts.contains(&Json) && ts.iter().any(|t| known(t) && *t != Json)));
             if settled {
                 // Only a JSON result next to the settled type changes it.
                 let rt = from_ast(&old_ret);

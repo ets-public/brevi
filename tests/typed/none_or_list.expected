@@ -1,0 +1,8 @@
+False []
+0 0
+False [1, 2]
+2 3
+True None
+a False {}
+b False {'x': 1}
+c True None
