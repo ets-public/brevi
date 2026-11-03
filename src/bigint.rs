@@ -55,6 +55,7 @@ pub fn promote(items: &mut [Item]) {
             fold_pows(body);
         }
     }
+    int_consts(items);
     big_fns(items);
     // Names each function reads: a top-level name read by another function must stay an int.
     let names: Vec<HashSet<String>> = items.iter().map(|it| match it {
@@ -82,6 +83,31 @@ pub fn promote(items: &mut [Item]) {
             }
         }
     }
+}
+
+// Names the top-level code sets once to an int literal and that nothing else sets.
+fn int_consts(items: &[Item]) {
+    let mut sets: HashMap<String, (usize, bool)> = HashMap::new();
+    for it in items {
+        let Item::Fn { body, script, .. } = it else { continue };
+        let mut b = body.clone();
+        crate::parser::walk_mut(&mut b, &mut |e| {
+            if let Expr::Block(ss, _) = e {
+                for st in ss {
+                    let (n, lit) = match st {
+                        Stmt::Let { name: Pat::Bind(n), value, .. } => (n.clone(), matches!(value, Expr::Int(_)) && *script),
+                        Stmt::Assign { target: Expr::Ident(n), op, value, .. } => (n.clone(), *op == "=" && matches!(value, Expr::Int(_)) && *script),
+                        _ => continue,
+                    };
+                    let en = sets.entry(n).or_insert((0, true));
+                    en.0 += 1;
+                    en.1 &= lit;
+                }
+            }
+        });
+    }
+    let cs = sets.into_iter().filter(|(_, (k, lit))| *k == 1 && *lit).map(|(n, _)| n).collect();
+    CONSTS.with(|c| *c.borrow_mut() = cs);
 }
 
 // Functions that return an int that can outgrow 64 bits (`f *= i ... return f`, `return n * fact(n - 1)`,
@@ -302,7 +328,7 @@ fn idents(dbg: &str) -> HashSet<String> {
     out
 }
 
-const ARITH: &[&str] = &["+", "-", "*"];
+const ARITH: &[&str] = &["+", "-", "*", "//", "%"];
 const CMP: &[&str] = &["==", "!=", "<", ">", "<=", ">="];
 
 // int(x) on something that reads as text: parts[0], s.strip(), input().
@@ -322,6 +348,8 @@ fn from_text(e: &Expr) -> bool {
 // Names that only ever hold small ints (a `for i in range(...)` loop's name): fine next to a big integer.
 thread_local! {
     static SMALL: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
+    // Top-level names only ever set to one int literal (`MOD = 10 ** 9 + 7`).
+    static CONSTS: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
     // The parameters of a function being made to return a big integer (ints, made big where they meet one).
     static RET_PARAMS: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
 }
@@ -329,7 +357,7 @@ thread_local! {
 // An int that cannot be big itself: a range loop's name, ord(c), len(xs).
 fn small(e: &Expr) -> bool {
     match e {
-        Expr::Ident(n) | Expr::Move(n) => SMALL.with(|s| s.borrow().contains(n)) || RET_PARAMS.with(|s| s.borrow().contains(n)),
+        Expr::Ident(n) | Expr::Move(n) => SMALL.with(|s| s.borrow().contains(n)) || RET_PARAMS.with(|s| s.borrow().contains(n)) || CONSTS.with(|s| s.borrow().contains(n)),
         Expr::Method(_, m, a, _) => (m == "code" || m == "len") && a.is_empty(),
         _ => false,
     }
@@ -479,9 +507,16 @@ impl Scan<'_> {
             Stmt::Assign { target: Expr::Ident(n), op, value, .. } => {
                 if *op == "=" {
                     self.def(&Pat::Bind(n.clone()), Some(value));
-                } else if ["+=", "-=", "*="].contains(op) {
+                } else if ["+=", "-=", "*=", "//=", "%="].contains(op) {
                     // n += v is n = n + v.
-                    let whole = Expr::Binary(&op[..1], Box::new(Expr::Ident(n.clone())), Box::new(value.clone()));
+                    let bop: &'static str = match *op {
+                        "+=" => "+",
+                        "-=" => "-",
+                        "*=" => "*",
+                        "//=" => "//",
+                        _ => "%",
+                    };
+                    let whole = Expr::Binary(bop, Box::new(Expr::Ident(n.clone())), Box::new(value.clone()));
                     self.defs.entry(n.clone()).or_default().push(whole);
                     let ok = self.c.contains(n);
                     self.expr(value, ok);

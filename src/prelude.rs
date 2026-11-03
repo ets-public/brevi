@@ -3038,6 +3038,81 @@ impl std::ops::MulAssign for Big {
         *self = self.clone() * o;
     }
 }
+// Magnitude division: (quotient, remainder), long division in base 10^9 with each digit found by bisection.
+fn mag_divmod(a: &[u32], b: &[u32]) -> (Vec<u32>, Vec<u32>) {
+    if mag_cmp(a, b) == std::cmp::Ordering::Less {
+        return (vec![0], a.to_vec());
+    }
+    if b.len() == 1 {
+        let d = b[0] as u64;
+        let mut q = vec![0u32; a.len()];
+        let mut r = 0u64;
+        for i in (0..a.len()).rev() {
+            let cur = r * BIG_BASE + a[i] as u64;
+            q[i] = (cur / d) as u32;
+            r = cur % d;
+        }
+        return (mag_trim(q), vec![r as u32]);
+    }
+    let mut q = vec![0u32; a.len()];
+    let mut r: Vec<u32> = vec![0];
+    for i in (0..a.len()).rev() {
+        r.insert(0, a[i]);
+        r = mag_trim(r);
+        let (mut lo, mut hi) = (0u32, (BIG_BASE - 1) as u32);
+        while lo < hi {
+            let mid = lo + (hi - lo + 1) / 2;
+            if mag_cmp(&mag_mul(b, &[mid]), &r) != std::cmp::Ordering::Greater {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        if lo > 0 {
+            r = mag_sub(&r, &mag_mul(b, &[lo]));
+        }
+        q[i] = lo;
+    }
+    (mag_trim(q), mag_trim(r))
+}
+impl Big {
+    fn is_zero(&self) -> bool {
+        self.mag.iter().all(|d| *d == 0)
+    }
+    // Python's floor division and modulo: the remainder takes the divisor's sign.
+    fn py_divmod(&self, o: &Big) -> (Big, Big) {
+        if o.is_zero() {
+            panic!("ZeroDivisionError: integer division or modulo by zero");
+        }
+        let (q, r) = mag_divmod(&self.mag, &o.mag);
+        let (mut q, mut r) = (Big::make(self.neg != o.neg, q), Big::make(self.neg, r));
+        if !r.is_zero() && self.neg != o.neg {
+            q = q - Big::from_i64(1);
+            r = r.plus(o.clone());
+        }
+        (q, r)
+    }
+}
+impl AxFloorDiv for Big {
+    fn floordiv(self, b: Big) -> Big {
+        self.py_divmod(&b).0
+    }
+}
+impl AxFloorDiv<i64> for Big {
+    fn floordiv(self, b: i64) -> Big {
+        self.py_divmod(&Big::from_i64(b)).0
+    }
+}
+impl AxPyMod for Big {
+    fn ax_pymod(self, b: Big) -> Big {
+        self.py_divmod(&b).1
+    }
+}
+impl AxPyMod<i64> for Big {
+    fn ax_pymod(self, b: i64) -> Big {
+        self.py_divmod(&Big::from_i64(b)).1
+    }
+}
 pub trait AxToBig {
     fn ax_big(&self) -> Big;
 }

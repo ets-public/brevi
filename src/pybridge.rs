@@ -477,7 +477,7 @@ pub fn is_py(e: &Expr) -> bool {
     match e {
         Expr::Try(x) => is_py(x),
         Expr::Call(f, _, _) => {
-            matches!(f.as_str(), "ax_pyb_mod" | "ax_pyb_get" | "ax_pyb_call" | "ax_pyb_idx" | "ax_pyb_op" | "ax_pyb_unary" | "ax_pyb_builtin" | "ax_pyb" | "ax_pyb_none" | "ax_pyb_slice") || reg(|r| r.rets.contains(f)).unwrap_or(false)
+            matches!(f.as_str(), "ax_pyb_mod" | "ax_pyb_from" | "ax_pyb_get" | "ax_pyb_call" | "ax_pyb_idx" | "ax_pyb_op" | "ax_pyb_unary" | "ax_pyb_builtin" | "ax_pyb" | "ax_pyb_none" | "ax_pyb_slice") || reg(|r| r.rets.contains(f)).unwrap_or(false)
         }
         Expr::Ident(n) | Expr::Move(n) => reg(|r| held_in(r, &scope(r), n)).unwrap_or(false),
         Expr::Field(b, f) => matches!(b.as_ref(), Expr::Ident(s) if s == "self_" || s == "self") && reg(|r| r.class.as_ref().is_some_and(|c| r.held.contains(&(format!("{c}."), f.clone())))).unwrap_or(false),
@@ -604,7 +604,7 @@ pub fn ident(name: &str, line: usize) -> Option<Expr> {
 
 // `from m import a`: a submodule (`from os import path`) or an attribute of m.
 fn from_name(m: &str, a: &str, line: usize) -> Expr {
-    tcall("ax_pyb_get", vec![tcall("ax_pyb_mod", vec![s(m)], line), s(a)], line)
+    tcall("ax_pyb_from", vec![s(m), s(a)], line)
 }
 
 // The parser's hook for `name(args)`: a name imported from a bridged module, a name holding a Python value
@@ -1066,4 +1066,35 @@ pub fn runtime() -> String {
     };
     let subs = SUBS.with(|x| x.borrow().clone());
     format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n{RUNTIME}")
+}
+
+// ------------------------------------------------------------------------------------------- standalone builds
+
+const BUNDLER: &str = include_str!("pybundle.py");
+
+// `brevi build --standalone`: appends CPython (libpython, its shared libraries, the standard library and the
+// packages the program imports) to the binary, which then runs where no Python is installed. pyrt.rs unpacks
+// it into a cache folder on first run. Linux only for now.
+pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
+    if !cfg!(target_os = "linux") {
+        return Err("--standalone builds of programs that use Python libraries need Linux for now".into());
+    }
+    let conf = conf().clone()?;
+    let lib = conf.split('\u{1}').next().unwrap_or_default().to_string();
+    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let out = std::process::Command::new(&exe)
+        .args(["-c", BUNDLER, file, &bin.to_string_lossy(), &lib])
+        .output()
+        .map_err(|e| format!("cannot start {exe}: {e}"))?;
+    let err = String::from_utf8_lossy(&out.stderr).to_string();
+    if !out.status.success() {
+        return Err(format!("bundling Python failed: {}", err.trim().lines().last().unwrap_or("")));
+    }
+    let w: Vec<u64> = String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|x| x.parse().ok()).collect();
+    let mut note = format!("bundled Python: {} files, {:.1} MB", w.first().unwrap_or(&0), *w.get(1).unwrap_or(&0) as f64 / 1e6);
+    for l in err.lines().filter(|l| l.starts_with("brevi:")) {
+        note.push_str("\n");
+        note.push_str(l);
+    }
+    Ok(note)
 }

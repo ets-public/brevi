@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--native] [--sandbox] [--window] [--explain] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--native] [--sandbox] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -184,6 +184,7 @@ fn main() {
     }
     let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
     let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    let standalone = argv.iter().position(|a| a == "--standalone").map(|i| argv.remove(i)).is_some();
     if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
         gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -364,6 +365,16 @@ fn main() {
                 fail(cmd);
             }
             if cmd == "build" {
+                // --standalone: a program that calls Python libraries carries its own CPython.
+                if standalone && pybridge::active() {
+                    match pybridge::bundle(&file, &bin) {
+                        Ok(note) => eprintln!("note: {note}"),
+                        Err(m) => {
+                            print_diag(&Diag::new("build", 1, 1, &m).fix_hint("build without --standalone; the program then needs python3 and its libraries installed"));
+                            exit(1);
+                        }
+                    }
+                }
                 return;
             }
             let mut c = Command::new(&bin);
