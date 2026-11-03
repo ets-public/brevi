@@ -30,6 +30,9 @@ pub fn definite(diags: &[Diag], src: &str, dir: &std::path::Path) -> Vec<Diag> {
     for d in diags {
         let named = |pre: &str, post: &str| d.msg.strip_prefix(pre).and_then(|r| r.strip_suffix(post)).map(String::from);
         let line_code = code.lines().nth(d.line.wrapping_sub(1)).unwrap_or("");
+        if maybe_unreached(&code, d.line) {
+            continue;
+        }
         let found = if let Some(n) = named("unknown function ", "()").or_else(|| named("unknown name '", "'")) {
             (!caught(&code, "NameError") && undefined(&n, &stmts, &builtins, line_code)).then(|| {
                 let words = words(&code);
@@ -96,6 +99,55 @@ pub fn scan(src: &str, dir: &std::path::Path) -> Vec<Diag> {
     let mut out = definite(&diags, src, dir);
     out.truncate(5);
     out
+}
+
+// Whether the line may never run: inside (or after, on one line) a test of the Python version, the platform or
+// TYPE_CHECKING, a constant false test, or any branch of such an if chain, or an except block. CPython would
+// not stop there, so neither does Brevi.
+fn maybe_unreached(code: &str, line: usize) -> bool {
+    let lines: Vec<&str> = code.lines().collect();
+    let Some(l) = lines.get(line.wrapping_sub(1)) else { return false };
+    let guard = |t: &str| {
+        let t = t.trim();
+        let cond = t.trim_start_matches("elif ").trim_start_matches("if ").trim_start_matches("while ").trim_end_matches(':').trim();
+        ["sys.version", "version_info", "sys.platform", "os.name", "platform.", "TYPE_CHECKING", "hasattr("].iter().any(|g| t.contains(g))
+            || matches!(cond, "False" | "0" | "None" | "not True" | "not 1")
+    };
+    // Inline: `x if False else y`, `if PY2: a = unicode`.
+    if [" if False", " if 0 ", " if 0:", "sys.version", "version_info", "sys.platform", "TYPE_CHECKING"].iter().any(|g| l.contains(g)) {
+        return true;
+    }
+    let indent = |s: &str| s.len() - s.trim_start().len();
+    let mut want = indent(l);
+    let mut i = line - 1;
+    // Walk up through the enclosing blocks; for an else/elif, also through the earlier branches of its chain.
+    let mut in_chain = false;
+    while i > 0 {
+        i -= 1;
+        let h = lines[i];
+        if h.trim().is_empty() {
+            continue;
+        }
+        let ind = indent(h);
+        let t = h.trim_start();
+        let opens = ind < want || (in_chain && ind == want);
+        if !opens {
+            continue;
+        }
+        if t.starts_with("except") || t.starts_with("finally") {
+            return true;
+        }
+        if (t.starts_with("if ") || t.starts_with("elif ") || t.starts_with("while ")) && guard(t) {
+            return true;
+        }
+        // An else/elif: the tests above it in the same chain decide whether it runs too.
+        in_chain = t.starts_with("else") || t.starts_with("elif ");
+        if ind == 0 && !in_chain {
+            break;
+        }
+        want = ind;
+    }
+    false
 }
 
 // Whether the program catches this error anywhere (a test of it: `try: 1 + "a" except TypeError`).
@@ -407,6 +459,19 @@ mod tests {
             r#"{"line":5,"msg":"name 'cellvall' is not defined","fix":"did you mean cellval?"}"#.to_string(),
             r#"{"line":5,"msg":"no Python type has a method .stripp()","fix":"did you mean .strip()?"}"#.to_string(),
         ]);
+    }
+
+    #[test]
+    fn unreached_branches() {
+        let v = "import sys\nif sys.version_info[0] < 3:\n    text = unicode\nelse:\n    text = str\nprint(text(5))\n";
+        assert!(sure(v, "unknown name 'unicode'", 3).is_empty());
+        let v2 = "import sys\nif sys.version_info[0] >= 3:\n    text = str\nelse:\n    text = unicode\nprint(text(5))\n";
+        assert!(sure(v2, "unknown name 'unicode'", 5).is_empty());
+        assert!(sure("if False:\n    print(undefined_name)\n", "unknown name 'undefined_name'", 2).is_empty());
+        assert!(sure("print(\"a\" + 1 if False else \"ok\")\n", "cannot add str and int", 1).is_empty());
+        assert!(sure("try:\n    import x\nexcept ImportError:\n    y = fallbak()\n", "unknown function fallbak()", 4).is_empty());
+        // An ordinary branch still counts.
+        assert_eq!(sure("n = 3\nif n > 2:\n    print(totl(n))\n", "unknown function totl()", 3).len(), 1);
     }
 
     #[test]
