@@ -10,7 +10,7 @@ Brevi's promise for a Python file is simple: **the native program prints exactly
 | Saved agent programs (591, from benchmark runs) built unchanged | 591 build, 591 match CPython on every test |
 | Large programs (18; chess, a text adventure, an interpreter; 200 to 750 lines over 3 to 4 files) | 18 build, 18 match |
 | Behaviour traps (13: big ints, `//` and `%` signs, float printing, dict order, unicode, aliasing, deep recursion, ...) | 13 match |
-| Release test (24 tasks, Sonnet and Haiku writing fresh Python) | 92 to 96% of final programs native, the rest via the CPython fallback |
+| Release test (24 tasks, Sonnet and Haiku writing fresh Python) | 92 to 98% of final programs native, the rest via the CPython fallback (the two that needed it in run w156a, both `json_query`, now build natively on main) |
 | Random generated programs (bug hunt, 2 Nov 2026) | 400 of 400 match |
 
 "Match" means stdout byte for byte and the same exit status. See [Benchmarks](/docs/benchmarks) for the method.
@@ -23,7 +23,7 @@ Brevi has two native ways to build a Python file, and picks between them on its 
 
 **Dynamic build**, the exact path. When a value changes type, a list mixes types, or the typed build would print something different from CPython (iterating a set, for example, where CPython's hash order shows), the whole program is built over a dynamic value type with CPython's own semantics: hashing and set order, formatting, exceptions, classes and method lookup. Still native, with no CPython involved, but slower than typed: typically somewhat faster than CPython rather than many times faster.
 
-You do not choose; Brevi tries typed first. `BREVI_GUARD=print brevi build x.py` shows why a file went dynamic.
+You do not choose; Brevi tries typed first. A file that does not build typed prints one [`{"path":...}` line](/docs/usage#which-path-ran) naming the function that kept it off the fast path; `brevi check --explain x.py` lists every reason.
 
 ## Python features
 

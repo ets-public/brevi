@@ -37,7 +37,7 @@ Check it worked:
 
 ```
 $ brevi --version
-brevi __VERSION__.0
+brevi __FULLVERSION__
 $ printf 'print(sum(range(10)))\n' > hello.py && brevi run hello.py
 45
 ```
