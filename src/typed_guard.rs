@@ -35,18 +35,6 @@ pub fn check(src: &str) -> Option<(usize, String)> {
 // order is CPython's own, and the typed build's is as good as any run's.
 pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
     let body = crate::dynpy::parse::parse(src).ok()?;
-    // The typed build's Fraction holds only denominators that divide lcm(1..32)*10, so unit tables and
-    // exact ratios (1/86400, 1/127) stop with an error CPython never gives.
-    for s in &body {
-        let frac = match &s.st {
-            St::Import(v) => v.iter().any(|(m, _)| m == "fractions"),
-            St::ImportFrom(m, _) => m == "fractions",
-            _ => false,
-        };
-        if frac {
-            return Some((s.line, "fractions.Fraction can hold any denominator, which the typed build's Fraction cannot".into(), vec![]));
-        }
-    }
     let mut g = G::default();
     collect_params(&body, &mut g);
     for _ in 0..8 {

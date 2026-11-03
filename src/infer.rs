@@ -1074,6 +1074,7 @@ impl Cx<'_> {
             Expr::Field(b, f) => match self.ty(b, env) {
                 Named(s) => self.structs.get(&s).and_then(|fs| fs.iter().find(|(n, _)| n == f).map(|(_, t)| t.clone())).unwrap_or(Hole),
                 Date if matches!(f.as_str(), "days" | "day" | "month" | "year" | "weekday") => Int,
+                Dec if matches!(f.as_str(), "numerator" | "denominator") => Int,
                 _ => Hole,
             },
             Expr::TupleField(b, i) => match self.ty(b, env) {
@@ -2287,6 +2288,26 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         }
                     }
                 });
+                // And inside those: `" ".join(fmt(x) for x in r) for r in m`, where r is the outer lambda's.
+                let mut i = 0;
+                while i < lams.len() && i < 64 {
+                    let (lb, lenv) = lams[i].clone();
+                    walk(&lb, &mut |e| {
+                        if let Expr::Method(r, _, args, _) = e {
+                            for a in args {
+                                if let Expr::Lambda(ps, inner_b) = a {
+                                    let et = each_elem(&cx.ty(r, &lenv));
+                                    if et != Hole && cx.ty(r, &env) != cx.ty(r, &lenv) {
+                                        let mut inner = lenv.clone();
+                                        bind_params(ps, &et, &mut inner);
+                                        lams.push((inner_b.as_ref().clone(), inner));
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    i += 1;
+                }
                 for (lb, lenv) in &lams {
                     let mut calls = Vec::new();
                     calls_in(lb, &mut calls);

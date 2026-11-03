@@ -1836,6 +1836,7 @@ impl Emitter {
             }
             Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place(b)),
             Expr::Field(b, f) if self.shared_fields.contains(f) => format!("(*{}.ax_d()).{f}", self.place(b)),
+            Expr::Field(b, f) if (f == "numerator" || f == "denominator") && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => format!("({}).ax_{f}()", self.expr(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
             Expr::Index(b, i) => {
@@ -2157,7 +2158,7 @@ impl Emitter {
                 }
             }
             // `d.year`, `d.weekday` without brackets read a date's parts.
-            Expr::Field(b, f) if ["year", "month", "day", "weekday"].contains(&f.as_str()) && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => {
+            Expr::Field(b, f) if ["year", "month", "day", "weekday", "numerator", "denominator"].contains(&f.as_str()) && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => {
                 format!("({}).ax_{f}()", self.expr(b))
             }
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),

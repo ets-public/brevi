@@ -27,15 +27,18 @@ def programs():
                 out.append(('repro', os.path.join(root, x), None))
     return out
 SHADOW = '--shadow' in sys.argv
-def shadow(f, binp, cwd):
-    tests = REPO/'bench/tasks'/Path(f).stem/'tests'
+def shadow(f, binp, cwd, run=None):
+    stem = Path(f).stem
+    if stem == 'main':  # a repro folder named <model>_<task> or <run>-<model>-<task>
+        stem = Path(f).parent.name.replace('-', '_').split('_', 1)[-1].split('_', 1)[-1] if '-' in Path(f).parent.name else Path(f).parent.name.split('_', 1)[-1]
+    tests = REPO/'bench/tasks'/stem/'tests'
     if not tests.is_dir(): return 'no tests'
     bad = []
     for i in sorted(tests.glob('*.in')):
         data = i.read_bytes()
         try:
-            p1 = subprocess.run([sys.executable, f], input=data, capture_output=True, timeout=20, env=dict(os.environ, PYTHONHASHSEED='1'), cwd=cwd)
-            p2 = subprocess.run([sys.executable, f], input=data, capture_output=True, timeout=20, env=dict(os.environ, PYTHONHASHSEED='2'), cwd=cwd)
+            p1 = subprocess.run([sys.executable, run or f], input=data, capture_output=True, timeout=20, env=dict(os.environ, PYTHONHASHSEED='1'), cwd=cwd)
+            p2 = subprocess.run([sys.executable, run or f], input=data, capture_output=True, timeout=20, env=dict(os.environ, PYTHONHASHSEED='2'), cwd=cwd)
         except subprocess.TimeoutExpired:
             continue
         try:
@@ -72,8 +75,8 @@ def one(p):
         if rec is None:
             rec = {'path': 'error' if r.returncode else 'none', 'why': r.stderr.strip().splitlines()[0][:300] if r.stderr.strip() else ''}
         rec.update(kind=kind, f=f, rc=r.returncode)
-        if SHADOW and r.returncode == 0 and kind == 'sol':
-            rec['shadow'] = shadow(f, os.path.join(t, 'bin'), t)
+        if SHADOW and r.returncode == 0:
+            rec['shadow'] = shadow(f, os.path.join(t, 'bin'), t, main)
         return rec
     finally:
         shutil.rmtree(t, ignore_errors=True)

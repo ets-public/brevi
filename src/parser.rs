@@ -491,6 +491,15 @@ impl Parser {
                 fall_off_none(&mut body, line);
             }
             if !kids.is_empty() {
+                // A nested def's defaults and keywords are filled in before lifting adds the captured names.
+                let ksigs: HashMap<String, Sig> = kids.iter().filter_map(|k| match k { Item::Fn { name: kn, .. } => self.sigs.get(kn).map(|s| (kn.clone(), s.clone())), _ => None }).collect();
+                if !ksigs.is_empty() {
+                    let mut st = vec![Stmt::Expr { expr: std::mem::replace(&mut body, Expr::Int(0)), line }];
+                    fill_args(&mut kids, &mut st, &ksigs);
+                    if let Some(Stmt::Expr { expr, .. }) = st.pop() {
+                        body = expr;
+                    }
+                }
                 let lifted = lift_nested(&name, &params, &mut body, kids);
                 self.hoisted.extend(lifted);
             }
@@ -1499,6 +1508,19 @@ impl Parser {
                             self.pending.push(Stmt::Assign { target: n, op, value: v, line });
                         }
                         return Ok(Stmt::Assign { target: n0, op, value: v0, line });
+                    }
+                }
+                // `m.setdefault(k, {})[j] = v`: set m[k] when missing, then m[k][j] = v (k is read twice, so only a plain one).
+                if let Expr::Index(inner, j) = &e {
+                    if let Expr::Method(recv, m, a, l) = inner.as_ref() {
+                        let pure = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_)) || matches!(x, Expr::Tuple(xs) if xs.iter().all(|y| matches!(y, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_))));
+                        if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(m) && self.py && pure(&a[0]) && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..)) {
+                            let (recv, k, v, l) = (recv.clone(), a[0].clone(), a[1].clone(), *l);
+                            let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)));
+                            let set = Stmt::Assign { target: Expr::Index(recv.clone(), Box::new(k.clone())), op: "=", value: v, line };
+                            self.pending.push(Stmt::Assign { target: Expr::Index(Box::new(Expr::Index(recv, Box::new(k))), j.clone()), op, value, line });
+                            return Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line });
+                        }
                     }
                 }
                 // `x = m.setdefault(k, v)`: set m[k] when missing, then x is m[k] (shared, as in Python).
