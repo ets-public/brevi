@@ -4334,6 +4334,8 @@ fn rec_field(e: &mut Expr, ty: &dyn Fn(&Expr) -> T, structs: &HashMap<String, Ve
         }
     };
     let field = |b: &Expr, k: &str| matches!(ty(b), Named(r) if crate::records::is_record(&r) && structs.get(&r).is_some_and(|fs| fs.iter().any(|(n, _)| n == k)));
+    // A key only some literals have, and no literal gives as None (records.rs): absent while None.
+    let opt = |b: &Expr, k: &str| crate::infer::py_on() && matches!(ty(b), Named(r) if crate::records::is_record(&r) && crate::records::is_optional(&r, k) && crate::records::is_partial(&r, k)) && field(b, k);
     let new = match &*e {
         Expr::Index(b, i) => rec_key(i).and_then(|k| (field(b, &k)).then(|| Expr::Field(b.clone(), k))),
         Expr::Method(b, m, args, _) if matches!(m.as_str(), "get" | "get_or") && (1..=2).contains(&args.len()) => {
@@ -4347,8 +4349,15 @@ fn rec_field(e: &mut Expr, ty: &dyn Fn(&Expr) -> T, structs: &HashMap<String, Ve
                     let blk = |x: Expr| Box::new(Expr::Block(vec![], Some(Box::new(x))));
                     Some(Expr::If(Box::new(Expr::Method(Box::new(f.clone()), "is_none".into(), vec![], 0)), blk(args[1].clone()), Some(blk(f))))
                 }
+                // `r.get(k)` on a key only some of the dicts have: the field, None while it is left out.
+                None if args.len() == 1 && opt(b, &k) => Some(Expr::Field(b.clone(), k)),
                 None => None,
             })
+        }
+        // `k in r` on a key only some of the dicts have: whether it holds a value.
+        Expr::Binary(op @ ("in" | "not in"), a, b) if rec_key(a).is_some_and(|k| opt(b, &k)) => {
+            let f = Expr::Method(Box::new(Expr::Field(b.clone(), rec_key(a).unwrap())), "is_none".into(), vec![], 0);
+            Some(if *op == "in" { Expr::Unary("!", Box::new(f)) } else { f })
         }
         Expr::Binary(op @ ("in" | "not in"), a, b) => rec_key(a).and_then(|k| has(b, &k).map(|h| Expr::Bool(h == (*op == "in")))),
         _ => None,

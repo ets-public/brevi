@@ -238,27 +238,65 @@ fn safe(body: &[Stmt], n: &str) -> bool {
     if !none_ok || (!never_apart && makes_none(body, &paired)) {
         return false;
     }
-    // No carrier is tested for truth.
-    let truth = |e: &Ex| matches!(e, Ex::Name(m) if carriers.contains(m) || m == n);
+    // No carrier is tested for truth, unless an earlier `if v is MISSING ...: return` in the same block
+    // already left (then v is not the sentinel there: `if isinstance(v, bool): return 'true' if v else ...`).
     let mut tested = false;
-    each_stmt(body, &mut |s| {
+    truth_tests(body, n, &carriers, &HashSet::new(), &mut tested);
+    !tested
+}
+
+fn truth_tests(stmts: &[Stmt], n: &str, carriers: &HashSet<String>, guarded: &HashSet<String>, tested: &mut bool) {
+    let mut g = guarded.clone();
+    for s in stmts {
+        // A name set again here may hold the sentinel again.
+        let mut sets: Vec<String> = vec![];
+        each_stmt(std::slice::from_ref(s), &mut |x| {
+            match &x.st {
+                St::Assign(ts, _) => ts.iter().for_each(|t| walk_ex(t, &mut |e| if let Ex::Name(m) = e { sets.push(m.clone()) })),
+                St::For(t, ..) => walk_ex(t, &mut |e| if let Ex::Name(m) = e { sets.push(m.clone()) }),
+                _ => {}
+            }
+        });
+        for m in &sets {
+            g.remove(m);
+        }
+        let truth = |e: &Ex| matches!(e, Ex::Name(m) if (carriers.contains(m) || m == n) && !g.contains(m));
         match &s.st {
-            St::If(arms, _) => tested |= arms.iter().any(|(c, _)| truth(c)),
-            St::While(c, ..) | St::Assert(c, _) => tested |= truth(c),
+            St::If(arms, _) => *tested |= arms.iter().any(|(c, _)| truth(c)),
+            St::While(c, ..) | St::Assert(c, _) => *tested |= truth(c),
             _ => {}
         }
         walk_st(&s.st, &mut |e| match e {
-            Ex::Unary("not", x) => tested |= truth(x),
-            Ex::And(a, b) | Ex::Or(a, b) => tested |= truth(a) || truth(b),
-            Ex::IfExp(c, _, _) => tested |= truth(c),
+            Ex::Unary("not", x) => *tested |= truth(x),
+            Ex::And(a, b) | Ex::Or(a, b) => *tested |= truth(a) || truth(b),
+            Ex::IfExp(c, _, _) => *tested |= truth(c),
             Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(p) if p == "bool" || p == "filter" || p == "any" || p == "all") => {
-                tested |= args.iter().any(|a| matches!(a, Arg::Pos(x) if truth(x)))
+                *tested |= args.iter().any(|a| matches!(a, Arg::Pos(x) if truth(x)))
             }
-            Ex::Comp(_, _, _, fors) => tested |= fors.iter().any(|c| c.ifs.iter().any(&truth)),
+            Ex::Comp(_, _, _, fors) => *tested |= fors.iter().any(|c| c.ifs.iter().any(&truth)),
             _ => {}
         });
-    });
-    !tested
+        // Nested blocks: a function body starts with nothing guarded.
+        let inner = if matches!(s.st, St::Def(_) | St::Class(_)) { HashSet::new() } else { g.clone() };
+        each_block(&s.st, &mut |b| truth_tests(b, n, carriers, &inner, tested));
+        // `if v is MISSING or ...: return` (one arm, no else): v is not the sentinel after it.
+        if let St::If(arms, None) = &s.st {
+            if let [(c, b)] = arms.as_slice() {
+                let leaves_block = matches!(b.last().map(|x| &x.st), Some(St::Return(_) | St::Raise(..) | St::Continue | St::Break));
+                let mut leaves = vec![];
+                chain(c, true, &mut leaves);
+                if leaves_block {
+                    for l in leaves {
+                        if let Some((Ex::Name(m), op)) = sentinel_test(l, n) {
+                            if !negated(op) {
+                                g.insert(m.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Could a value the program passes around be None, which the sentinel would then be mistaken for

@@ -509,7 +509,11 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     for ((name, _, _), s) in names.iter().zip(&chosen) {
         for k in &s.keys {
             // Python mode: a key only some literals have is left out where they lack it.
-            if s.sets.iter().all(|set| !set.contains(k)) || (py && s.sets.iter().any(|set| !set.contains(k))) {
+            let partial = py && s.sets.iter().any(|set| !set.contains(k)) && s.sets.iter().any(|set| set.contains(k));
+            if partial {
+                PARTIAL.with(|o| o.borrow_mut().insert((name.clone(), k.clone())));
+            }
+            if s.sets.iter().all(|set| !set.contains(k)) || partial {
                 OPTIONAL.with(|o| o.borrow_mut().insert((name.clone(), k.clone())));
             }
         }
@@ -591,6 +595,12 @@ thread_local! {
     // (record, field) pairs no literal of the record has: set later (`q["answer"] = a` in one branch). `'k' in d` can't be answered from the type for these, and
     // printing leaves them out while they are None.
     static OPTIONAL: std::cell::RefCell<HashSet<(String, String)>> = std::cell::RefCell::new(HashSet::new());
+    // Of those, the keys some literals have and others leave out (never given as None).
+    static PARTIAL: std::cell::RefCell<HashSet<(String, String)>> = std::cell::RefCell::new(HashSet::new());
+}
+
+pub fn is_partial(rec: &str, field: &str) -> bool {
+    PARTIAL.with(|o| o.borrow().contains(&(rec.to_string(), field.to_string())))
 }
 
 pub fn is_optional(rec: &str, field: &str) -> bool {

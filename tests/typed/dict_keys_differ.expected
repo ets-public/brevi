@@ -1,0 +1,6 @@
+[{"id": 0, "total": "0"}, {"id": 1, "error": "bad"}, {"id": 2, "total": "4"}, {"id": 3, "error": "bad"}]
+[{'id': 0, 'total': '0'}, {'id': 1, 'error': 'bad'}, {'id': 2, 'total': '4'}, {'id': 3, 'error': 'bad'}]
+- True
+bad False
+- True
+bad False
