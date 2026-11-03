@@ -896,6 +896,59 @@ impl AxPyMod for Json {
 }
 // Python's math functions (math.log(x) is x.ax_m_log()), on floats and ints; a domain error is Python's
 // ValueError, as math raises it (Rust would give NaN or an infinity).
+// bin(x), hex(x), oct(x): Python's prefixed text, a minus sign first for negatives.
+pub trait AxRadix {
+    fn ax_bin_text(&self) -> String;
+    fn ax_hex_text(&self) -> String;
+    fn ax_oct_text(&self) -> String;
+}
+impl AxRadix for i64 {
+    fn ax_bin_text(&self) -> String {
+        if *self < 0 { format!("-0b{:b}", self.unsigned_abs()) } else { format!("0b{:b}", self) }
+    }
+    fn ax_hex_text(&self) -> String {
+        if *self < 0 { format!("-0x{:x}", self.unsigned_abs()) } else { format!("0x{:x}", self) }
+    }
+    fn ax_oct_text(&self) -> String {
+        if *self < 0 { format!("-0o{:o}", self.unsigned_abs()) } else { format!("0o{:o}", self) }
+    }
+}
+impl AxRadix for bool {
+    fn ax_bin_text(&self) -> String {
+        (*self as i64).ax_bin_text()
+    }
+    fn ax_hex_text(&self) -> String {
+        (*self as i64).ax_hex_text()
+    }
+    fn ax_oct_text(&self) -> String {
+        (*self as i64).ax_oct_text()
+    }
+}
+// s.startswith(p, start) and s.endswith(p, end_from): as s[start:].startswith(p) (start may be negative).
+pub trait AxStrAt {
+    fn ax_starts_with_at(&self, p: String, start: i64) -> bool;
+    fn ax_ends_with_at(&self, p: String, start: i64) -> bool;
+}
+impl AxStrAt for String {
+    fn ax_starts_with_at(&self, p: String, start: i64) -> bool {
+        let n = self.chars().count() as i64;
+        if start > n {
+            return false;
+        }
+        let st = if start < 0 { (n + start).max(0) } else { start } as usize;
+        let off: usize = self.char_indices().nth(st).map_or(self.len(), |(b, _)| b);
+        self[off..].starts_with(p.as_str())
+    }
+    fn ax_ends_with_at(&self, p: String, start: i64) -> bool {
+        let n = self.chars().count() as i64;
+        if start > n {
+            return false;
+        }
+        let st = if start < 0 { (n + start).max(0) } else { start } as usize;
+        let off: usize = self.char_indices().nth(st).map_or(self.len(), |(b, _)| b);
+        self[off..].ends_with(p.as_str())
+    }
+}
 pub trait AxMath {
     fn ax_f(&self) -> f64;
     fn ax_m_log(&self) -> f64 {
@@ -5317,6 +5370,7 @@ impl AxBits for i64 {
         self & o
     }
 }
+// a | b and a & b on JSON values: bools give a bool, ints an int, as in Python; a float is a TypeError.
 impl AxBits for bool {
     fn ax_bor(self, o: bool) -> bool {
         self | o

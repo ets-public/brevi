@@ -44,6 +44,7 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 
 | Module | Typed build (fastest) | Dynamic build (native) |
 |---|---|---|
+| builtins and `str` | most, including `bin`, `hex`, `oct`, `str.startswith`/`endswith` with a start index | a tuple of prefixes, an end index |
 | `math` | `sqrt`, `floor`, `ceil`, `isqrt`, `gcd`, `lcm`, `comb`, `perm`, `factorial`, `isclose`, `log` (with a base too), `log2`, `log10`, `log1p`, `exp`, `expm1`, trig and hyperbolic functions, `atan2`, `hypot`, `fabs`, `trunc`, `degrees`, `radians`, `copysign`, `fmod`, `isnan`, `isinf`, `isfinite`, `pi`, `e`, `tau`, `inf`, `nan`; domain errors are `ValueError`s an `except` catches | the rest (`fsum`, `prod`, `dist`, ...) |
 | `time` | `time`, `perf_counter`, `monotonic` | `sleep`, `process_time` |
 | `re` | `match`, `search`, `fullmatch`, `findall` (no group or one), `finditer`, `split`, `sub`, `compile`, flags | `findall` with two or more groups, `sub` with a function, groups tested against None, `groupdict` |
