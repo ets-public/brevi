@@ -19,6 +19,7 @@ mod pybridge;
 mod pydiag;
 mod patch;
 mod typed_guard;
+mod pygen;
 
 use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
@@ -260,6 +261,7 @@ fn main() {
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
     let src = modules::fill_file_name(&src, Path::new(&file));
+    let src = if file.ends_with(".py") { pygen::rewrite(&src) } else { src };
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
@@ -932,6 +934,7 @@ fn guard_files(file: &str) -> Option<(usize, String)> {
         }
         seen.push(f.clone());
         let Ok(src) = std::fs::read_to_string(&f) else { continue };
+        let src = if seen.len() == 1 { pygen::rewrite(&src) } else { src };
         if let Some((line, why)) = typed_guard::check(&src) {
             let why = if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
             return Some((line, why));
