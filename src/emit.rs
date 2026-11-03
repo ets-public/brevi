@@ -14,7 +14,7 @@ pub const METHODS: &[&str] = &[
     "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "slice_step", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
     "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
+    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none", "is_true_obj", "is_false_obj", "not_true_obj", "not_false_obj",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
     "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "csv_dicts", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "splice", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
@@ -2534,6 +2534,14 @@ impl Emitter {
         }
         if name == "ax_json_null" {
             return "Json::Null".into();
+        }
+        // `f(())` / `f([])` into a JSON parameter: an empty JSON tuple or list (no item type to pick).
+        if name == "ax_to_json" {
+            match args.first().map(|a| &a.1) {
+                Some(Expr::Tuple(xs)) if xs.is_empty() => return "Json::Tup { v: vec![] }".into(),
+                Some(Expr::List(xs)) if xs.is_empty() => return "Json::Arr { v: vec![] }".into(),
+                _ => {}
+            }
         }
         if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));

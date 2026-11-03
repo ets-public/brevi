@@ -17,7 +17,7 @@ A program where Brevi prints a different answer from CPython is the most serious
 1. Build with `cargo build --release` (needs `rustc` on the PATH).
 2. Add a test: a program and its expected output under `tests/run/`, or an error case under `tests/errors/`.
 3. Run `sh tools/ci_local.sh` before you open the PR. It runs the same checks as CI.
-4. Keep each PR to one change, and add a line under "Unreleased" in [CHANGELOG.md](CHANGELOG.md).
+4. Keep each PR to one change, and add a line under "Unreleased" in [CHANGELOG.md](CHANGELOG.md). Merged changes ship in the next weekly release (Mondays).
 
 [AGENTS.md](AGENTS.md) explains how the compiler is laid out and the rules for working on it, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) shows how a file becomes a native program. Never remove a line from `compat/baseline.txt` to make a check pass.
 
