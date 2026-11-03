@@ -76,7 +76,11 @@ fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
                 }
                 out.push(char::from_u32(v).unwrap_or('?'));
             }
-            'N' => return Err(err(line, "\\N{...} escapes are not supported")),
+            'N' => {
+                let (ch, k) = crate::unicode_names::escape(&cs[i..]).ok_or_else(|| err(line, "cannot read this \\N{...} escape"))?;
+                out.push(ch);
+                i += k;
+            }
             other => {
                 out.push('\\');
                 out.push(other);
@@ -1479,6 +1483,13 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
     };
     while i < cs.len() {
         let c = cs[i];
+        // `\\` before a brace is one backslash, and the braces of `\N{BULLET}` are no value: unescape reads them.
+        if c == '\\' && !raw && matches!(cs.get(i + 1), Some('\\' | 'N')) {
+            let n = if cs[i + 1] == 'N' && cs.get(i + 2) == Some(&'{') { cs[i..].iter().position(|c| *c == '}').map_or(cs.len() - i, |e| e + 1) } else { 2 };
+            lit.extend(&cs[i..i + n]);
+            i += n;
+            continue;
+        }
         if c == '{' {
             if i + 1 < cs.len() && cs[i + 1] == '{' {
                 lit.push('{');
@@ -1573,7 +1584,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
             let spec_parts = match spec_start {
                 Some(s0) => {
                     let spec_text: String = cs[s0..j].iter().collect();
-                    parse_fstring(&spec_text, true, line)?
+                    parse_fstring(&spec_text, raw, line)?
                 }
                 None => vec![],
             };

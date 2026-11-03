@@ -20,6 +20,7 @@ mod pybridge;
 mod pydiag;
 mod patch;
 mod typed_guard;
+mod unicode_names;
 mod pysentinel;
 mod pystd;
 mod pygen;
