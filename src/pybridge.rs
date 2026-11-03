@@ -60,6 +60,47 @@ thread_local! {
     static SUBS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
+// --sandbox (or an allow line) without `allow native`: CPython must not run any of the program. A Python value
+// reaches everything CPython can (`x.__class__.__mro__[1].__subclasses__()`, `sys.modules["os"]`), so there is
+// no safe subset: bridged imports are refused by caps.rs, nothing is learned, and compile_once refuses a build
+// that still needs the bridge.
+pub static NO_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn no_native() -> bool {
+    NO_NATIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+thread_local! {
+    // What learn would have handed to CPython while NO_NATIVE is set: (module, name).
+    static BLOCKED: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn blocked() -> Vec<(String, String)> {
+    BLOCKED.with(|b| b.borrow().clone())
+}
+
+// The import lines of Python libraries CPython would run (not Brevi's built-in modules, not files of the
+// program): (line, module), for caps.rs.
+pub fn bridged_imports(src: &str) -> Vec<(usize, String)> {
+    let mut out = vec![];
+    for (i, l) in src.lines().enumerate() {
+        let t = l.split(" #").next().unwrap_or("").trim();
+        let mods: Vec<&str> = if let Some(rest) = t.strip_prefix("import ") {
+            rest.split(',').filter_map(|p| p.split_whitespace().next()).collect()
+        } else if let Some(rest) = t.strip_prefix("from ") {
+            rest.split_once(" import ").map(|(m, _)| vec![m.trim()]).unwrap_or_default()
+        } else {
+            vec![]
+        };
+        for m in mods {
+            if ok_name(m) && bridged(m) {
+                out.push((i + 1, m.to_string()));
+            }
+        }
+    }
+    out
+}
+
 fn extra(m: &str, a: &str) -> bool {
     EXTRA.with(|x| x.borrow().contains(&(m.to_string(), a.to_string())))
 }
@@ -180,6 +221,10 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
     }
     if std::env::var("BREVI_PYB_DEBUG").is_ok() {
         eprintln!("pybridge learn: {new:?}");
+    }
+    if no_native() {
+        BLOCKED.with(|b| b.borrow_mut().extend(new));
+        return false;
     }
     EXTRA.with(|x| {
         let mut x = x.borrow_mut();

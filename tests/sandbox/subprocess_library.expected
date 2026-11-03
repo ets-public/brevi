@@ -1,0 +1,8 @@
+{"line":1,"msg":"import subprocess (a Python library, run by CPython) needs allow native","fix":"add the line `allow native` at the top, or do without it"}
+exit 1
+-- dynamic
+{"line":1,"msg":"import subprocess (a Python library, run by CPython) needs allow native","fix":"add the line `allow native` at the top, or do without it"}
+exit 1
+-- typed
+{"line":1,"msg":"import subprocess (a Python library, run by CPython) needs allow native","fix":"add the line `allow native` at the top, or do without it"}
+exit 1
