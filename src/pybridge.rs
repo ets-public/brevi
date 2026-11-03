@@ -178,7 +178,15 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
         }
         out
     };
-    for d in diags {
+    let mut methods = diags.iter().any(|d| d.msg.starts_with("unknown method .") || d.msg.starts_with("unknown function "));
+    // A second time through, only when the methods taught nothing: the unknown names.
+    for (i, d) in diags.iter().chain(diags.iter()).enumerate() {
+        if i == diags.len() {
+            if !new.is_empty() || !methods {
+                break;
+            }
+            methods = false;
+        }
         let Some(l) = lines.get(d.line.wrapping_sub(1)) else { continue };
         let l = l.split(" #").next().unwrap_or("");
         let named = |pre: &str, post: &str| d.msg.strip_prefix(pre).and_then(|r| r.strip_suffix(post)).map(String::from);
@@ -224,7 +232,10 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
             if let Some((m, real)) = froms.get(&f) {
                 new.push((m.clone(), real.clone()));
             }
-        } else if let Some(n) = named("unknown name '", "'") {
+        } else if let Some(n) = named("unknown name '", "'").filter(|_| !methods) {
+            // `unknown name 'math'` also follows each `unknown method .gcd()` on the line: those are learned
+            // first, so that `math.sqrt` next to `math.gcd` stays native; a name still unknown after they are
+            // bridged (`math.pi`) is learned on the next round.
             if let Some(m) = mods.get(&n) {
                 for a in uses(l, &n) {
                     new.push((m.clone(), a));
@@ -235,6 +246,9 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
         }
     }
     if std::env::var("BREVI_PYB_DEBUG").is_ok() {
+        for d in diags {
+            eprintln!("pybridge diag: line {}: {}", d.line, d.msg);
+        }
         eprintln!("pybridge learn: {new:?}");
     }
     if no_native() {
@@ -264,6 +278,13 @@ pub fn uses() -> Vec<String> {
     v.sort();
     v.dedup();
     v
+}
+
+// The program's CPython calls are all functions of Brevi's own modules (`math.gcd`, `itertools.product`), not
+// libraries Brevi lacks: the dynamic build, which has them natively, is tried first.
+pub fn stdlib_only() -> bool {
+    let u = uses();
+    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)))
 }
 
 pub fn active() -> bool {

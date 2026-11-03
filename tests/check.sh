@@ -66,6 +66,20 @@ for f in tests/typed/*.py; do
     echo "ok   $f"
   fi
 done
+# Standard-library programs must print what python3 prints, natively: whichever path the build takes
+# (typed or dynamic), never CPython (pybridge or the python3 fallback).
+for f in tests/lib/*.py; do
+  exp="${f%.py}.expected"
+  out=$(BREVI_PATH=1 timeout 120 $BREVI run "$f" --native 2>/tmp/brevi_lib_err)
+  if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
+  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_lib_err; then
+    echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_lib_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; cat /tmp/brevi_lib_err; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"
