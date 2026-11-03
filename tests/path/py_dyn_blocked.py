@@ -1,6 +1,6 @@
-# The typed build cannot take get() (a caught KeyError), and the dynamic build cannot take argparse:
+# The typed build cannot take get() (a caught KeyError), and the dynamic build cannot take shlex:
 # check names both, so fixing the first alone is not mistaken for enough.
-import argparse
+import shlex
 
 
 class Box:
@@ -17,8 +17,6 @@ class Box:
             return default
 
 
-ap = argparse.ArgumentParser()
-ap.add_argument("--key", default="a")
-args = ap.parse_args([])
+key = shlex.split("a b")[0]
 b = Box({"a": 1})
-print(b.get(args.key), b.get("z", 7))
+print(b.get(key), b.get("z", 7))
