@@ -1150,7 +1150,10 @@ pub fn has_method(o: &V, name: &str) -> bool {
         V::Ext(_) => return true,
         _ => &[],
     };
-    names.contains(&name) || name.starts_with("__")
+    // Dunder methods (`__len__`, `__add__`, ...) are there; dunder data that only functions, classes and modules
+    // carry is not: `hasattr("s", "__name__")` is False, as in CPython (argparse tests it on every value).
+    const NOT_ON_VALUES: &[&str] = &["__name__", "__qualname__", "__dict__", "__module__", "__wrapped__", "__self__", "__func__", "__code__", "__defaults__", "__kwdefaults__", "__annotations__", "__file__", "__all__", "__mro__", "__bases__", "__members__", "__dataclass_fields__", "__slots__", "__origin__", "__args__", "__version__", "__path__", "__closure__", "__globals__", "__match_args__"];
+    names.contains(&name) || (name.starts_with("__") && !NOT_ON_VALUES.contains(&name))
 }
 fn bad_method(o: &V, name: &str) -> R {
     Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", tn(o), name)))

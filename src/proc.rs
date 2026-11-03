@@ -29,6 +29,18 @@ pub fn die_with_parent(c: &mut Command) {
 
 // A command for a built program (or the python3 fallback). With BREVI_MEM_MB set (Linux), the program gets at
 // most that much address space, so a runaway allocation stops with an error instead of taking the machine.
+// `brevi run x.py`: the program sees argv[0] = "x.py", as under `python3 x.py` (argparse's usage line names it).
+pub fn script(bin: impl AsRef<std::ffi::OsStr>, file: &str) -> Command {
+    #[allow(unused_mut)]
+    let mut c = program(bin);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        c.arg0(file);
+    }
+    c
+}
+
 pub fn program(bin: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut c = Command::new(bin);
     die_with_parent(&mut c);

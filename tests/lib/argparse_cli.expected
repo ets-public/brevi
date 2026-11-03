@@ -1,0 +1,103 @@
+usage: tool [-h] [-v] [-o PATH] [--mode {fast,slow}] [--tag TAGS]
+            [--limit LIMIT] [--ratio RATIO] [--dry-run] [--color | --no-color]
+            [--pair A B] [--opt [OPT]] [--json | --csv] [--threads THREADS]
+            [files ...]
+
+Process some files. This description is long enough to wrap over more than one
+line of help.
+
+positional arguments:
+  files                input files
+
+options:
+  -h, --help           show this help message and exit
+  -v, --verbose        more output
+  -o, --output PATH    where to write
+  --mode {fast,slow}   speed (default: fast)
+  --tag TAGS
+  --limit LIMIT
+  --ratio RATIO
+  --dry-run
+  --color, --no-color
+  --pair A B
+  --opt [OPT]
+  --json
+  --csv
+
+advanced:
+  knobs for experts
+
+  --threads THREADS
+
+See the docs.
+
+Namespace(files=[], verbose=0, output=None, mode='fast', tags=None, limit=10, ratio=None, dry_run=False, color=True, pair=None, opt='D', json=False, csv=False, threads=1)
+Namespace(files=['a', 'b'], verbose=3, output=None, mode='fast', tags=None, limit=10, ratio=None, dry_run=False, color=True, pair=None, opt='D', json=False, csv=False, threads=1)
+Namespace(files=[], verbose=0, output='x', mode='slow', tags=['t1', 't2'], limit=10, ratio=None, dry_run=False, color=True, pair=None, opt='D', json=False, csv=False, threads=1)
+error: argument --mode: invalid choice: 'bogus' (choose from 'fast', 'slow')
+exit 2
+error: argument --limit: 0 is not positive
+exit 2
+error: argument --limit: invalid positive value: 'x'
+exit 2
+Namespace(files=[], verbose=0, output=None, mode='fast', tags=None, limit=10, ratio=2.5, dry_run=True, color=False, pair=None, opt='D', json=False, csv=False, threads=1)
+error: argument --pair: expected 2 arguments
+exit 2
+Namespace(files=[], verbose=0, output=None, mode='fast', tags=None, limit=10, ratio=None, dry_run=False, color=True, pair=None, opt='C', json=False, csv=False, threads=1)
+error: argument --csv: not allowed with argument --json
+exit 2
+Namespace(files=[], verbose=0, output=None, mode='fast', tags=None, limit=10, ratio=None, dry_run=False, color=True, pair=None, opt='D', json=False, csv=False, threads=4)
+error: unrecognized arguments: --unknown
+exit 2
+Namespace(files=['-x'], verbose=0, output=None, mode='fast', tags=None, limit=10, ratio=None, dry_run=False, color=True, pair=None, opt='D', json=False, csv=False, threads=1)
+error: argument --limit: -3 is not positive
+exit 2
+usage: git [-h] [--debug] {add,a,rm} ...
+
+positional arguments:
+  {add,a,rm}  sub-command help
+    add (a)   add a thing
+    rm        remove things
+
+options:
+  -h, --help  show this help message and exit
+  --debug
+
+usage: git rm [-h] [-n N] names [names ...]
+
+positional arguments:
+  names
+
+options:
+  -h, --help  show this help message and exit
+  -n N        how many (default: 5)
+
+error: the following arguments are required: cmd
+exit 2
+Namespace(debug=False, cmd='add', name='x', force=False)
+Namespace(debug=False, cmd='a', name='x', force=True)
+Namespace(debug=True, cmd='rm', names=['p', 'q'], n=5, func=<built-in function len>)
+error: the following arguments are required: names
+exit 2
+error: argument cmd: invalid choice: 'nope' (choose from 'add', 'a', 'rm')
+exit 2
+Namespace(debug=False, cmd='add', name='x', force=False) ['--extra', 'y']
+usage: raw [options] N
+
+Lines:
+  one
+  two
+
+positional arguments:
+  n           a number with a very long help text that keeps going so that it
+              must wrap onto several lines
+
+options:
+  -h, --help  show this help message and exit
+  -x X
+  --version   show program's version number and exit
+
+usage: raw [options] N
+Namespace(n=5, hidden=None, x='7') Namespace(n=5, hidden=None)
+Namespace(a=1, b='x') 1 True True {'a': 1, 'b': 'x'}
+caught argument --k: invalid int value: 'z'

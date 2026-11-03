@@ -285,7 +285,7 @@ pub fn uses() -> Vec<String> {
 pub fn stdlib_only() -> bool {
     let u = uses();
     // os and pathlib too: the dynamic build has their path text (and refuses a program that needs more).
-    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap"))
+    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"))
 }
 
 pub fn active() -> bool {

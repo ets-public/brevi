@@ -409,6 +409,15 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Ok(V::Dict(Rc::new(RefCell::new(d))));
                 }
                 "args" if ob.cls.base_bt() == BT::Exc => return Ok(tup(vec![])),
+                // `raise SystemExit(2)` sets only args: code is the one arg, None for none, else the args tuple.
+                "code" if ob.cls.base_bt() == BT::Exc && is_exc(o, "SystemExit") => {
+                    return Ok(match ob.get("args") {
+                        Some(V::Tuple(t)) if t.len() == 1 => t[0].clone(),
+                        Some(V::Tuple(t)) if t.is_empty() => V::None,
+                        Some(a) => a,
+                        None => V::None,
+                    });
+                }
                 _ => {}
             }
             if let Some(ga) = ob.cls.lookup("__getattr__") {
