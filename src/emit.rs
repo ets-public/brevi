@@ -18,6 +18,7 @@ pub const METHODS: &[&str] = &[
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
     "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "csv_dicts", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "splice", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
+    "m_log", "m_logb", "m_log2", "m_log10", "m_log1p", "m_exp", "m_expm1", "m_sin", "m_cos", "m_tan", "m_asin", "m_acos", "m_atan", "m_atan2", "m_sinh", "m_cosh", "m_tanh", "m_hypot", "m_fabs", "m_trunc", "m_degrees", "m_radians", "m_copysign", "m_fmod", "m_isnan", "m_isinf", "m_isfinite", "m_inf", "m_nan", "m_time", "m_perf_counter", "m_monotonic",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
