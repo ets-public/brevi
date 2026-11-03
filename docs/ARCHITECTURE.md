@@ -204,7 +204,7 @@ flowchart LR
 - The parser asks `pybridge.rs` about every name: a bridged module, a name imported from one, and every value made from those (`a = np.array(xs)`, `a.sum()`, `a * 2`) has type `Py`.
 - Each operation on a `Py` value becomes a call into the runtime (`ax_pyb_call(o, "sum", ...)`, `ax_pyb_op("+", a, b)`). The runtime (`pyrt.rs`, pasted into the program only when needed) loads `libpython` the first time a library is used, so the result is CPython's own.
 - The rest of the program stays native. Brevi values are converted on the way in; Python values come back as Brevi values only through `int()`, `float()`, `str()`, `bool()` and `len()`.
-- The program needs `libpython` on the machine where it runs. Not supported on Windows.
+- The program needs `libpython` on the machine where it runs, unless it is built with `--standalone`. That build appends CPython, the shared libraries it needs (glibc aside), the standard library and the imported packages to the binary (`src/pybundle.py`), and `pyrt.rs` unpacks them once into `~/.cache/brevi/py/<hash>` and loads libpython from there. Standalone builds are Linux only, and nothing here runs on Windows.
 - This is part of the **typed** build only. A library program the typed build rejects goes to the dynamic build, which refuses unknown imports, so `brevi run` falls back to CPython.
 
 ## Stage 4: compiling the Rust
