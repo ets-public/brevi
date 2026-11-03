@@ -1,3 +1,4 @@
+{"path":"dynamic","line":5,"why":"expected an expression, found ."}
 0.333 6 1.50 0.5 3
 0.25 6
 a{1}b 3 0.01 0.5 9

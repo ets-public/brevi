@@ -40,6 +40,18 @@ for f in tests/fallback/*.py; do
     echo "ok   $f"
   fi
 done
+# Which path a Python file took ({"path":...} on stderr): check, run (stderr only) and run --explain.
+# Files starting with _ are modules the tests import.
+for f in tests/path/py_*.py; do
+  exp="${f%.py}.expected"
+  out=$(cd tests/path && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; ../../$BREVI run "$b" 2>&1 >/dev/null; ../../$BREVI run "$b" --explain 2>&1 >/dev/null)
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # Python programs built typed (BREVI_DYN=0 --native) must print what python3 prints, in time: the set
 # tests take minutes if `in` scans a list instead of using AxSet's hash index.
 for f in tests/typed/*.py; do

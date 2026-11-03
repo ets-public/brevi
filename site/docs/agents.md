@@ -58,6 +58,8 @@ The server **keeps the program**. The agent sends its code once, then fixes it w
 
 The tools sandbox by default: a program that reads or writes files must declare `allow read` or `allow write`, and from v0.24.1 one that imports a Python library CPython runs (numpy, requests, subprocess, ...) must declare `allow native`. Pass `sandbox: false` to turn that off.
 
+**Every `check`, `run` and `patch`/`edit` result says which path built the program**, in the result's `structuredContent`: `{"path":"typed"}` on the fast path, or `pybridge`, `dynamic` or `cpython` with `why`, `line`, `fn` (and `file`) naming the code that kept it off the typed path. When the path is not `typed`, the same JSON line is also the last line of the text, so a client that ignores structured results still sees it. To get the typed path back, rewrite only the function it names.
+
 ## Agent Skill and Claude Code plugin
 
 `skills/brevi/SKILL.md` is an [Agent Skills](https://agentskills.io) package: setup (check `brevi --version`, install if missing), then the loop above. Copy the `skills/brevi` folder into your agent's skills folder (for Claude Code, `~/.claude/skills/` or a project's `.claude/skills/`). The text is on this site as [skill.md](/skill.md).

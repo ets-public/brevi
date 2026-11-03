@@ -32,9 +32,28 @@ flowchart LR
 | Typed build (every `.bv`, most `.py`) | **Brevi native** | Plain Rust with fixed types. The fastest path. |
 | Dynamic build (`src/dynpy`) | **Brevi native** | Rust over a dynamic value type. No CPython anywhere. Slower than typed, usually faster than CPython. |
 | Library calls (pybridge) | **Partly native** | The program is native; each call into numpy, pandas, etc. runs in CPython loaded into the program. |
-| CPython fallback (`brevi run` only) | **Not native** | The whole file runs on `python3`, with a one-line note on stderr. |
+| CPython fallback (`brevi run` only) | **Not native** | The whole file runs on `python3`, with a one-line path report on stderr. |
 
 The release test counts how many final programs build natively (typed or dynamic, no fallback); the bar is 90%.
+
+### Which path ran
+
+`brevi run`, `brevi build` and `brevi check` say which of these paths a Python file took, as one JSON line on stderr, so an agent can tell when it is off the fast path and which function to rewrite:
+
+```
+{"path":"dynamic","line":12,"fn":"parse","why":"rows holds [int] (set on line 9) but is set to [str] here"}
+{"path":"pybridge","why":"numpy run in CPython","py":["numpy"]}
+{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function eval()","by":"python3"}
+```
+
+| `path` | Meaning |
+| --- | --- |
+| `typed` | Typed build: the fast path. Not printed unless `--explain` or `BREVI_PATH=1`. |
+| `pybridge` | Typed build; `py` lists the modules (and functions of Brevi's own modules it lacks, like `math.gcd`) that run in CPython. |
+| `dynamic` | Dynamic build. `why` is the typed build's first refusal (or the guard's reason), `line` and `fn` where it is, `file` when it is in an imported module. |
+| `cpython` | `brevi run` handed the file to `python3` (`by`). `why` is Brevi's first build error. |
+
+With `--explain` the line also carries the error's `fix`, up to five more typed errors (`also`), and for `cpython` why the dynamic build refused the file (`dynamic`). `BREVI_PATH=1` prints the line for every path, `BREVI_PATH=0` never. A failed build prints only its errors. The MCP server always sets `BREVI_PATH=1` and returns the report as `structuredContent` (see `mcp.rs`). The code is `say_path` in `main.rs`.
 
 ## The big picture
 
@@ -243,7 +262,7 @@ flowchart TD
 
 `brevi run` runs the built program with the arguments after `--` and exits with its status. A runtime error prints one JSON line: `{"e":"runtime","line":N,"msg":"..."}`, with the message in Python's words for Python files.
 
-For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as a child process. If that fails, it runs `python3 x.py` (or `$BREVI_PYTHON`) and prints `note: ran with python3; Brevi could not build line N: ...` on stderr, so an agent always gets a result. If there is no Python either, it prints Brevi's errors.
+For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as a child process. If that fails, it runs `python3 x.py` (or `$BREVI_PYTHON`) and prints a `{"path":"cpython",...}` line on stderr naming the line, function and error that stopped Brevi, so an agent always gets a result and knows it ran on CPython. If there is no Python either, it prints Brevi's errors.
 
 ## Other pieces
 

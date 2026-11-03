@@ -1,0 +1,3 @@
+{"path":"dynamic","file":"_shelf.py","line":9,"fn":"show","why":"print() of a set shows CPython's hash order, so the typed build would differ from CPython"}
+{"path":"dynamic","file":"_shelf.py","line":9,"fn":"show","why":"print() of a set shows CPython's hash order, so the typed build would differ from CPython"}
+{"path":"dynamic","file":"_shelf.py","line":9,"fn":"show","why":"print() of a set shows CPython's hash order, so the typed build would differ from CPython"}

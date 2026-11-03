@@ -38,7 +38,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
 | `--sandbox` | run, check, test | Refuse anything the program did not declare with an `allow` line (see [Sandbox](#sandbox)). |
 | `--window` | run, build | tkinter programs open a real window instead of running headless (see [GUI programs](#gui-programs)). |
-| `--explain` | any | Under each error, add the lines of the guide about the names it mentions. |
+| `--explain` | any | Under each error, add the lines of the guide about the names it mentions. For Python files, also print [which path ran](#which-path-ran) even when it is the typed one, with every reason. |
 | `--fast` | check | Brevi's own checks only, without `rustc`. |
 | `-o OUT` | build | Where to write the binary. |
 
@@ -47,18 +47,30 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 Brevi tries the fastest way first and only moves on when it cannot match CPython:
 
 1. **Typed build.** Brevi works out the type of every value and writes plain Rust. This is where the big speedups come from, and it covers most programs.
-2. **Dynamic build.** If the program changes a value's type, mixes types in a list, or uses something the typed build cannot match exactly, Brevi builds it over dynamic values that behave like CPython's objects. Still native, no CPython involved, and silent: you just get a program.
+2. **Dynamic build.** If the program changes a value's type, mixes types in a list, or uses something the typed build cannot match exactly, Brevi builds it over dynamic values that behave like CPython's objects. Still native, no CPython involved, with [one line](#which-path-ran) saying why the typed build was not used.
 3. **Library calls.** Imports Brevi does not build itself (numpy, pandas, sqlite3, requests, ...) run in CPython loaded into the native program; the rest of the program stays native.
 4. **CPython fallback.** Only `brevi run`, only when nothing above can build the file.
 
 [Architecture](/docs/architecture) explains each step in detail.
 
-## The CPython fallback
+## Which path ran
 
-`brevi run x.py` always gives a result. When Brevi cannot build a file natively, it runs it with `python3` (or `$BREVI_PYTHON`) and prints one note on stderr naming the first line that stopped it:
+For a Python file, `brevi run`, `build` and `check` print one JSON line on stderr whenever the file is off the typed path, so you (or your agent) know what ran and what to change to get the fast path back:
 
 ```
-note: ran with python3; Brevi could not build line 2: expected ')', found end of line
+{"path":"dynamic","line":12,"fn":"parse","why":"rows holds [int] (set on line 9) but is set to [str] here"}
+{"path":"pybridge","why":"numpy run in CPython","py":["numpy"]}
+{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function eval()","by":"python3"}
+```
+
+`path` is `typed`, `pybridge` (typed, with library calls in CPython), `dynamic` (native over dynamic values) or `cpython` (the fallback below). `line` and `fn` point at the code that kept the file off the typed path; rewriting that one function is usually enough. The typed path prints nothing. `--explain` adds the suggested fix and the other reasons; `BREVI_PATH=1` prints the line for every path, `BREVI_PATH=0` never. The MCP tools return the same report as structured data.
+
+## The CPython fallback
+
+`brevi run x.py` always gives a result. When Brevi cannot build a file natively, it runs it with `python3` (or `$BREVI_PYTHON`) and prints one line on stderr naming the first line that stopped it:
+
+```
+{"path":"cpython","line":2,"why":"Brevi could not build it: expected ')', found end of line","by":"python3"}
 ```
 
 Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a file builds natively: they never fall back, and print the errors instead.
@@ -167,6 +179,7 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists 10 t
 | `BREVI_PY_CACHE` | Where `--standalone` binaries unpack CPython (default `~/.cache/brevi/py`). |
 | `BREVI_GUI=headless` | Run a `--window` GUI build headless. |
 | `BREVI_DYN=1` / `BREVI_DYN=0` | Force the dynamic build, or turn it off (to see the typed build's errors). |
+| `BREVI_PATH=1` / `BREVI_PATH=0` | Print [which path ran](#which-path-ran) for every build, including typed ones, or never. |
 | `BREVI_GUARD=print` | Print why a Python file was sent to the dynamic build. |
 | `BREVI_DYN_DEBUG=1` | Print `rustc` errors from generated dynamic code. |
 

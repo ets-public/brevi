@@ -196,6 +196,16 @@ fn class_has(m: &str, f: &str) -> bool {
     std::process::Command::new(exe).args(["-c", q, m, f]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
 }
 
+// What CPython runs for the program, for the path report: bridged modules (`numpy`) and the functions of
+// Brevi's own modules that it lacks (`math.gcd`), sorted.
+pub fn uses() -> Vec<String> {
+    let mut v: Vec<String> = reg(|r| r.mods.values().cloned().chain(r.names.values().filter(|(m, _)| bridged(m)).map(|(m, _)| m.clone())).collect()).unwrap_or_default();
+    v.extend(EXTRA.with(|x| x.borrow().iter().map(|(m, n)| format!("{m}.{n}")).collect::<Vec<_>>()));
+    v.sort();
+    v.dedup();
+    v
+}
+
 pub fn active() -> bool {
     REG.with(|r| r.borrow().is_some())
 }
