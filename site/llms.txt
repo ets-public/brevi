@@ -1,6 +1,6 @@
 # Brevi
 
-> Brevi is a compiler built for AI coding agents: it turns ordinary Python into a fast, memory-safe native binary through Rust. Write plain Python (standard library) and run it with `brevi run main.py`; there is no guide to read first. Brevi checks types across the whole program before it runs and reports each error as one short JSON line with a suggested fix.
+> Brevi is a compiler built for AI coding agents: it turns ordinary Python into a fast, memory-safe native binary through Rust. Write plain Python (standard library) and run it with `brevi run main.py`; there is no guide to read first. The program is compiled to native code, which runs plain loops over ints, lists and strings 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it for speed. Brevi checks types across the whole program before it runs and reports each error as one short JSON line with a suggested fix.
 
 ## Docs
 

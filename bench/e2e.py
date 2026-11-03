@@ -33,8 +33,15 @@ from subject_prompt_sets import SETS  # noqa: E402
 GUIDE = ROOT / "BREVI.md"
 
 
+# What Brevi's skill, MCP server and llms.txt tell an agent: its plain code runs natively, so it need not
+# hand-optimise (on the speed set this halved Sonnet's output). pyb runs get it unless --no-hint.
+NATIVE_HINT = "Your program is compiled to native code, which runs plain loops over ints and lists 10 to 50 times faster than CPython. Write the plain, direct solution; do not hand-optimise it for speed."
+HINT = True
+
+
 def system_prompt(lang):
-    # "pyb": the model is told exactly what the Python runs are told; check builds its .py files with Brevi.
+    # "pyb": the model is told what the Python runs are told, plus NATIVE_HINT; check builds its .py files with Brevi.
+    hint = lang == "pyb" and HINT
     lang = "python" if lang == "pyb" else lang
     name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
     ext = {"brevi": "bv", "python": "py"}[lang]
@@ -45,6 +52,8 @@ def system_prompt(lang):
         "When a check fails, change only what needs to change with edit_file, then check again. "
         "Stop calling tools once check prints PASS. Write code directly, without long planning notes."
     )
+    if hint:
+        text += "\n\n" + NATIVE_HINT
     if lang == "brevi":
         text += "\n\nThe Brevi language guide follows. For details it points to, call guide with a word.\n\n" + Path(GUIDE).read_text()
     return text
@@ -261,6 +270,7 @@ def main():
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--thinking", default="adaptive", choices=["adaptive", "between_tools"], help="between_tools turns thinking off (Sonnet)")
     ap.add_argument("--guide", help="a guide file to send instead of BREVI.md (for A/B tests)")
+    ap.add_argument("--no-hint", action="store_true", help="pyb: leave out the native-code line (the prompt is then exactly the Python one)")
     ap.add_argument("--native", action="store_true", help="pyb: report Brevi build errors instead of running with CPython (the strict check used before e22)")
     ap.add_argument("--summary")
     ap.add_argument("--verdict", help="log glob: check the release bar over these runs (e.g. \"logs/e2e/w1[a-d]-*.jsonl\")")
@@ -268,6 +278,9 @@ def main():
     if a.guide:
         global GUIDE
         GUIDE = Path(a.guide).resolve()
+    if a.no_hint:
+        global HINT
+        HINT = False
     if a.summary:
         return summary(a.summary)
     if a.verdict:
