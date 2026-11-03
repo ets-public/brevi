@@ -949,6 +949,48 @@ impl AxStrAt for String {
         self[off..].ends_with(p.as_str())
     }
 }
+// csv.writer(sys.stdout, ...) in the typed build is its delimiter followed by its line ending; writerow
+// prints one row as CPython's csv module writes it (QUOTE_MINIMAL: a field holding the delimiter, a quote,
+// \r, \n or a line-ending character is quoted, quotes doubled; None is empty; a row of one empty field is "").
+pub trait AxCsvW {
+    fn ax_csv_writerow<T: Show>(&self, row: Vec<T>);
+    fn ax_csv_writerows<T: Show>(&self, rows: Vec<Vec<T>>);
+}
+fn ax_csv_line<T: Show>(w: &str, row: Vec<T>) -> String {
+    let mut cs = w.chars();
+    let d = cs.next().unwrap_or(',');
+    let term: String = cs.collect();
+    let n = row.len();
+    let mut out = String::new();
+    for (i, x) in row.into_iter().enumerate() {
+        if i > 0 {
+            out.push(d);
+        }
+        let mut t = x.show();
+        if t == "\u{0}None" {
+            t = String::new();
+        }
+        if (n == 1 && t.is_empty()) || t.chars().any(|c| c == d || c == '"' || c == '\r' || c == '\n' || term.contains(c)) {
+            out.push('"');
+            out.push_str(&t.replace('"', "\"\""));
+            out.push('"');
+        } else {
+            out.push_str(&t);
+        }
+    }
+    out.push_str(&term);
+    out
+}
+impl AxCsvW for String {
+    fn ax_csv_writerow<T: Show>(&self, row: Vec<T>) {
+        print!("{}", ax_csv_line(self, row));
+    }
+    fn ax_csv_writerows<T: Show>(&self, rows: Vec<Vec<T>>) {
+        for r in rows {
+            self.ax_csv_writerow(r);
+        }
+    }
+}
 pub trait AxMath {
     fn ax_f(&self) -> f64;
     fn ax_m_log(&self) -> f64 {

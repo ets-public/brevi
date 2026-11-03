@@ -2103,6 +2103,38 @@ impl Parser {
                                     }
                                 }
                             }
+                            // csv.writer(sys.stdout, delimiter=..., lineterminator=...): the writer is its delimiter
+                            // followed by its line ending (literals only), and w.writerow(row) prints the row.
+                            if self.py && name == "writer" && matches!(&e, Expr::Ident(m) if m == "csv") && !raw.is_empty() && raw[0].0.is_none() {
+                                let is_out = matches!(&raw[0].1, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
+                                let lit = |x: &Expr| match x {
+                                    Expr::Str(p) => match p.as_slice() {
+                                        [] => Some(String::new()),
+                                        [StrPart::Lit(l)] => Some(l.clone()),
+                                        _ => None,
+                                    },
+                                    _ => None,
+                                };
+                                let mut delim = Some(",".to_string());
+                                let mut term = Some("\r\n".to_string());
+                                let mut ok = is_out;
+                                for (k, v) in &raw[1..] {
+                                    match k.as_deref() {
+                                        Some("delimiter") => delim = lit(v).filter(|d| d.chars().count() == 1),
+                                        Some("lineterminator") => term = lit(v),
+                                        _ => ok = false,
+                                    }
+                                }
+                                if let (true, Some(d), Some(t)) = (ok, delim, term) {
+                                    e = Expr::Str(vec![StrPart::Lit(format!("{d}{t}"))]);
+                                    continue;
+                                }
+                            }
+                            if self.py && matches!(name.as_str(), "writerow" | "writerows") && raw.len() == 1 && raw[0].0.is_none() && !self.user_fns.contains(&name) && !self.own_method(&e) {
+                                let row = raw.into_iter().next().unwrap().1;
+                                e = Expr::Method(Box::new(e), format!("csv_{name}"), vec![row], line);
+                                continue;
+                            }
                             let kws_given = raw.iter().any(|(k, _)| k.is_some());
                             let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             // `m.get(k)` is None when k is missing.
