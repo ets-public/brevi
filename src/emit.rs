@@ -2346,6 +2346,13 @@ impl Emitter {
             let mut ordered = Vec::new();
             for (i, p) in params.iter().enumerate() {
                 let found = args.iter().position(|(n, _)| n.as_deref() == Some(p.name.as_str())).or(if args.get(i).map_or(false, |(n, _)| n.is_none()) { Some(i) } else { None });
+                // A variable changed by the function but converted on the way in (`f(ax_to_json(xs))`): the
+                // function would change the converted copy and the caller would never see it.
+                if let Some(j) = found {
+                    if p.is_mut && matches!(&args[j].1, Expr::Call(f, a, _) if (f == "ax_to_json" || f == "ax_tup_json") && matches!(a.first().map(|x| &x.1), Some(Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..)))) {
+                        self.diag(self.line, &format!("{name}() changes `{}` but it holds a different type here", p.name), Some("give the variable one type".into()));
+                    }
+                }
                 match found {
                     // A value that is not a variable (`f(0)`) is passed as a fresh copy the function may change.
                     Some(j) if p.is_mut && !matches!(args[j].1, Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleField(..)) => ordered.push(format!("&mut ({})", plain[j])),

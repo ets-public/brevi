@@ -1,1 +1,0 @@
-{"line":9,"msg":"this list may be None or empty, and Brevi can't tell those apart","fix":"use an empty list instead of None, and test it with `not x`"}
