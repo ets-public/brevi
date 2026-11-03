@@ -4,6 +4,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **Path text from `os` and `pathlib` builds natively everywhere.** A program whose only uses of `os` and `pathlib` are path text (`os.path.join`, `basename`, `dirname`, `splitext`, `normpath`, `os.sep`, `pathlib.PurePath`) used Brevi's own copies of those functions only under `--sandbox`; outside it the program ran in CPython. It now builds natively in both. A program that also reaches files, processes or the environment (`os.environ`, `os.listdir`, `pathlib.Path`, `os.path.exists`) still runs those in CPython, as before.
+
 ## v0.24.3 (3 Nov 2026)
 
 `brevi check` gives its verdict in well under a second, and checking or running an unchanged program again replays the cached result in about 10 ms: the median check of a new file went from 559 ms to 144 ms (60 of 65 programs under a second, up from 40), and a re-check from 60 ms to 8 ms median. Standard-library calls now run natively instead of in CPython (of 47 probe programs, 19 needed CPython before and 5 now), `math` and `time` are on the fast typed path (a `math.sqrt`/`math.log` loop over 20 million numbers takes 0.09 s, CPython 1.9 s), and two silent wrong outputs are fixed (`re.findall` with groups, reading a missing defaultdict key). No new release-test run; the v0.24.2 figures stand.

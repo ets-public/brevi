@@ -55,7 +55,7 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
 | `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `Fraction`) | the rest |
 
-Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io`, `os`, `enum`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
+Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io`, `os` beyond path text, `enum`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
