@@ -1,0 +1,26 @@
+-- run
+{"path":"typed"}
+42
+-- run
+time: replayed from the result cache
+{"path":"typed"}
+42
+-- check
+{"path":"typed"}
+-- check
+time: replayed from the result cache
+{"path":"typed"}
+-- run --native
+{"path":"typed"}
+42
+-- run
+{"path":"typed"}
+43
+-- run --no-cache
+{"path":"typed"}
+43
+-- check
+{"line":1,"msg":"name 'undefined_name' is not defined","fix":"define it before this line, or check the spelling"}
+-- check
+time: replayed from the result cache
+{"line":1,"msg":"name 'undefined_name' is not defined","fix":"define it before this line, or check the spelling"}

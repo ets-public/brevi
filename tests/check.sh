@@ -111,4 +111,20 @@ in an empty root: $bare"
     echo "ok   $f"
   fi
 done
+# The result cache: an unchanged program is replayed (path report line included), a changed module is built
+# again, and --no-cache always builds.
+t=$(mktemp -d)
+printf 'import helper\nprint(helper.twice(21))\n' > "$t/main.py"
+printf 'def twice(n):\n    return n * 2\n' > "$t/helper.py"
+r() { echo "-- $*"; env BREVI_CACHE="$t/cache" BREVI_TIME=1 BREVI_PATH=1 $BREVI "$@" "$t/main.py" 2>&1 | grep -v ' ms  [^r]' | sed 's/^time .* ms  /time: /'; }
+out=$(r run; r run; r check; r check; r run --native
+  printf 'def twice(n):\n    return n + n + 1\n' > "$t/helper.py"
+  r run; r run --no-cache
+  printf 'print(undefined_name)\n' > "$t/main.py"
+  r check; r check)
+rm -rf "$t"
+exp=tests/cache.expected
+if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
+elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+else echo "ok   result cache"; fi
 exit $fail

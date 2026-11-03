@@ -22,6 +22,8 @@ mod patch;
 mod typed_guard;
 mod pysentinel;
 mod pygen;
+mod scoped;
+mod runcache;
 
 use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
@@ -136,6 +138,7 @@ fn print_diag(d: &Diag) {
 }
 
 fn main() {
+    tm("start");
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.first().map(|a| a.as_str()) == Some("mcp") {
         mcp::serve(&argv[1..]);
@@ -191,6 +194,10 @@ fn main() {
         EXPLAIN.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
+    let dash0 = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    if argv[..dash0].iter().position(|a| a == "--no-cache").map(|i| argv.remove(i)).is_some() {
+        runcache::turn_off();
+    }
     let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
     let traceback = argv.iter().position(|a| a == "--").map_or(argv.len(), |d| d);
     if argv[..traceback].iter().position(|a| a == "--traceback").map(|i| argv.remove(i)).is_some() || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0") {
@@ -213,6 +220,16 @@ fn main() {
     // `brevi run x.py` falls back to CPython when Brevi cannot build the file; --native (or BREVI_NATIVE=1) keeps it strict.
     if file.ends_with(".py") {
         PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    // An unchanged program is not built again: check, build and strict runs replay the build from the cache.
+    if matches!(cmd, "check" | "build" | "run") && !(cmd == "run" && file.ends_with(".py") && !native) && !standalone && runcache::on() && !runcache::in_child() {
+        let mut flags: Vec<String> = vec![];
+        for (on, f) in [(fast, "--fast"), (sandbox, "--sandbox"), (gui::window(), "--window"), (EXPLAIN.load(std::sync::atomic::Ordering::Relaxed), "--explain"), (native, "--native")] {
+            if on {
+                flags.push(f.to_string());
+            }
+        }
+        cached(cmd, &file, &argv, &flags);
     }
     // Capabilities first: a refusal here is final, before any dynamic, pybridge or python3 path can run.
     let held = matches!(cmd, "build" | "run" | "check" | "emit" | "test" | "fix") && hold_to_caps(&file, sandbox);
@@ -305,24 +322,6 @@ fn main() {
             }
         }
     }
-    // Builds to try in order: with inferred types for empty values, then without (the errors shown come from the first).
-    // Then the same two with Python's searched lists kept as plain Vecs (emit::FAST_SETS), should a hash
-    // index not fit (an item type without Hash).
-    let fast_sets = |on: bool| emit::FAST_SETS.store(on, std::sync::atomic::Ordering::Relaxed);
-    let versions: Vec<(String, Option<String>)> = [(true, true), (true, false), (false, true), (false, false)]
-        .iter()
-        .filter_map(|&(f, h)| {
-            fast_sets(f);
-            let v = compile_to_rust(&src, true, h).ok().map(|r| (r, compile_to_rust(&src, false, h).ok()));
-            fast_sets(true);
-            v
-        })
-        .fold(vec![], |mut vs, v| {
-            if !vs.iter().any(|(r, _)| *r == v.0) {
-                vs.push(v);
-            }
-            vs
-        });
     // A Python file the typed path cannot build is built over dynamic values instead (still native, no CPython).
     let dyn_ok = matches!(cmd, "build" | "run" | "check") && file.ends_with(".py");
     // The set-order guard let the file through on names rustc must prove hold strings: any failure from here
@@ -368,6 +367,7 @@ fn main() {
     if dyn_ok {
         DEFER_REPORT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
+    let mut versions = Versions { src: &src, first: rust.clone() };
     let fail = |cmd: &str| -> ! {
         soft_fail(cmd);
         let why = DEFERRED.lock().unwrap().as_ref().map_or_else(|| "the typed build's Rust did not compile".to_string(), |(_, e)| rustc_first_error(e));
@@ -391,7 +391,7 @@ fn main() {
         "check" | "fix" => {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
-            if !rustc(&versions, &dir, &dir.join("check"), &["--emit=metadata"], false) {
+            if !rustc(&mut versions, &dir, &dir.join("check"), &["--emit=metadata"], false) {
                 fail(cmd);
             }
             if cmd == "check" {
@@ -410,7 +410,7 @@ fn main() {
             // comparison programs this runs 3x to 20x faster than an unoptimised build, within about 2x of
             // --release, for about 0.3 s more build time (--release takes about 1.5 s more).
             extra.extend(["-C", if release { "opt-level=3" } else { "opt-level=1" }]);
-            if !rustc(&versions, &dir, &bin, &extra, true) {
+            if !rustc(&mut versions, &dir, &bin, &extra, true) {
                 fail(cmd);
             }
             if cmd == "build" {
@@ -496,7 +496,8 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
-    if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
+    let built = if cmd == "check" { dynpy::check(&rust, &dir, &cache_dir(), rustc_version()) } else { dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) };
+    if let Err(e) = built {
         if std::env::var("BREVI_DYN_DEBUG").is_ok() {
             eprintln!("{e}");
         }
@@ -602,6 +603,46 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     exit(proc::code(status));
 }
 
+// check, build and run through the result cache (src/runcache.rs): the build runs as a child `brevi check` or
+// `brevi build`, and what it printed (and the binary it made) is replayed while the files stay the same.
+fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    let mut opts: Vec<String> = argv[2..dash].to_vec();
+    let out = opts.iter().position(|a| a == "-o").and_then(|i| {
+        let o = opts.get(i + 1).cloned();
+        opts.drain(i..(i + 2).min(opts.len()));
+        o
+    });
+    let stem = Path::new(file).file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let bin = match cmd {
+        "check" => None,
+        "build" => Some(PathBuf::from(out.unwrap_or_else(|| stem.clone()))),
+        _ => Some(build_dir(file).join(&stem)),
+    };
+    let mut args: Vec<String> = vec![if cmd == "check" { "check" } else { "build" }.into(), file.into()];
+    if let Some(b) = &bin {
+        args.extend(["-o".to_string(), b.to_string_lossy().to_string()]);
+    }
+    args.extend(opts);
+    args.extend(flags.iter().cloned());
+    // A refusal of `build -o OUT` may be about OUT (a missing folder), which the key leaves out: not kept.
+    let done = runcache::phase(&args, file, bin.as_deref(), &[], cmd != "build");
+    if done.hit {
+        tm("replayed from the result cache");
+    }
+    std::io::stdout().write_all(&done.stdout).ok();
+    std::io::stdout().flush().ok();
+    std::io::stderr().write_all(&done.stderr).ok();
+    if cmd != "run" || !done.ok() {
+        exit(done.code.unwrap_or(1));
+    }
+    let status = proc::program(bin.as_ref().unwrap()).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+        println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+        exit(1);
+    });
+    exit(proc::code(status));
+}
+
 // `brevi run x.py`: builds with Brevi and runs the program; when the build fails, runs the file with python3
 // instead and says so in one line on stderr. Never returns.
 // A held program (--sandbox or an allow line) never runs with python3, which cannot hold it to its allow lines.
@@ -624,9 +665,23 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     }
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
     // Exit code 3 from the build: a sure mistake (pydiag), which CPython stops on too.
-    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").env("BREVI_SURE_EXIT", "3").env("BREVI_DYN_WHY", "1").output();
+    let mut args: Vec<String> = vec!["build".into(), file.into(), "-o".into(), bin.to_string_lossy().to_string()];
+    args.extend(flags);
+    let envs = [("BREVI_NATIVE", "1"), ("BREVI_SURE_EXIT", "3"), ("BREVI_DYN_WHY", "1")];
+    // Through the result cache: an unchanged file is not built again, and one Brevi could not build is not
+    // tried again before it runs with python3.
+    let built: std::io::Result<runcache::Done> = if runcache::on() {
+        Ok(runcache::phase(&args, file, Some(&bin), &envs, true))
+    } else {
+        let mut c = Command::new(&me);
+        c.args(&args).envs(envs).env("BREVI_NO_CACHE", "1");
+        c.output().map(|o| runcache::Done { stdout: o.stdout, stderr: o.stderr, code: o.status.code(), hit: false })
+    };
+    if built.as_ref().is_ok_and(|d| d.hit) {
+        tm("replayed from the result cache");
+    }
     let code = match built {
-        Ok(o) if o.status.success() => {
+        Ok(o) if o.ok() => {
             std::io::stderr().write_all(&o.stderr).ok();
             proc::program(&bin).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
@@ -645,7 +700,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
             let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
             // On a sure mistake the note already names the error, so CPython's traceback is cut to its last
             // line (`--traceback` or BREVI_TRACEBACK=1 shows all of it).
-            let short = o.status.code() == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
+            let short = o.code == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
             let mut cmd = proc::program(&python);
             cmd.arg(file).args(&prog_args);
             if short {
@@ -933,12 +988,16 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
             }
         }
     }
+    tm("typed: records");
     infer::auto_mut(&mut items, py);
+    tm("typed: auto_mut");
     infer::returns(&mut items)?;
+    tm("typed: returns");
     // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.
     infer::auto_mut(&mut items, py);
     infer::rows_reset();
     let errs = infer::check(&mut items, py);
+    tm("typed: check");
     if !errs.is_empty() {
         return Err(errs);
     }
@@ -957,6 +1016,16 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
         }
     }
     Ok(items)
+}
+
+// BREVI_TIME=1: how long each stage took, on stderr (ms since start).
+pub(crate) fn tm(what: &str) {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let t0 = *T0.get_or_init(std::time::Instant::now);
+    if *ON.get_or_init(|| std::env::var("BREVI_TIME").is_ok_and(|v| v == "1")) {
+        eprintln!("time {:>7.1} ms  {what}", t0.elapsed().as_secs_f64() * 1000.0);
+    }
 }
 
 pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
@@ -991,7 +1060,9 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
 
 fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>> {
     let (src, mut foreign) = ffi::split(src);
+    tm("compile: start");
     let mut items = parser::parse_program(&src).map_err(|d| vec![lib_hint(d, &src)])?;
+    tm("compile: parsed");
     if gui::active() {
         foreign.rust_top.push_str(&gui::runtime());
     }
@@ -1031,6 +1102,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     } else {
         typed(items, py, false)?
     };
+    tm("compile: typed");
     emit::auto_try(&mut items);
     let mut em = emit::Emitter::new(&items, hints);
     em.foreign = foreign;
@@ -1041,6 +1113,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     }
     em.borrow_loops = moves;
     let rust = em.program(&items);
+    tm("compile: emitted");
     if em.diags.is_empty() {
         Ok(rust)
     } else {
@@ -1093,39 +1166,67 @@ pub fn build_dir_path(file: &str) -> PathBuf {
     std::env::temp_dir().join(format!("brevi-{h:x}"))
 }
 
+// The builds to try in order: with inferred types for empty values, then without (the errors shown come
+// from the first). Then the same two with Python's searched lists kept as plain Vecs (emit::FAST_SETS),
+// should a hash index not fit (an item type without Hash). Each is (program, the same program without moves).
+// Only the first is made up front: every other one is a whole front-end pass (about as long as inference),
+// made only when the builds before it failed. Making all eight first cost a check or a cached run up to 5 s.
+struct Versions<'a> {
+    src: &'a str,
+    first: String,
+}
+const VERSIONS: [(bool, bool); 4] = [(true, true), (true, false), (false, true), (false, false)];
+impl Versions<'_> {
+    fn make(&self, i: usize, moves: bool) -> Option<String> {
+        if i == 0 && moves {
+            return Some(self.first.clone());
+        }
+        let (f, h) = VERSIONS[i];
+        emit::FAST_SETS.store(f, std::sync::atomic::Ordering::Relaxed);
+        let r = compile_to_rust(self.src, moves, h).ok();
+        emit::FAST_SETS.store(true, std::sync::atomic::Ordering::Relaxed);
+        r
+    }
+}
+
 // Compiles generated Rust. rustc errors are mapped back to Brevi lines and printed as JSON.
-// Each version is (program, the same program without moves). The plain one is used if moving a value broke
-// the borrow rules. Errors are reported from the last version tried.
-fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &[&str], link: bool) -> bool {
+// The program without moves is used if moving a value broke the borrow rules. Errors are reported from the
+// first version tried.
+fn rustc(versions: &mut Versions, dir: &Path, out: &Path, extra: &[&str], link: bool) -> bool {
     const MOVE_CODES: [&str; 8] = ["E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597"];
     let release = extra.contains(&"opt-level=3");
-    let lib: Vec<(String, Option<String>)> = versions.iter().map(|(r, p)| (use_runtime_lib(r, release), p.as_ref().map(|p| use_runtime_lib(p, release)))).collect();
     // A program that implements a prelude trait for a prelude type cannot use the library: paste the prelude.
     let orphan = |e: &str| ["E0117", "E0116", "E0210"].iter().any(|c| e.contains(&format!("\"code\":\"{c}\"")));
-    // The first library build's result is kept, so it is not compiled a second time below.
-    let mut first = None;
-    let versions = match lib.first() {
-        Some((r, _)) if r.starts_with(RT_HEADER) => {
-            let res = compile(r, dir, out, extra, link);
-            if matches!(&res, Some(Err(e)) if orphan(e)) {
-                versions.to_vec()
-            } else {
-                first = Some(res);
-                lib
-            }
+    // The first build's result is kept, so it is not compiled a second time below.
+    let mut lib = true;
+    let mut probe = None;
+    let first = use_runtime_lib(&versions.first, release);
+    if first.starts_with(RT_HEADER) {
+        let res = compile(&first, dir, out, extra, link);
+        if matches!(&res, Some(Err(e)) if orphan(e)) {
+            lib = false;
+        } else {
+            probe = Some(res);
         }
-        _ => lib,
-    };
+    }
+    let shape = |r: String| if lib { use_runtime_lib(&r, release) } else { r };
+    let mut seen: Vec<String> = vec![];
     let mut last = None;
-    for (rust, plain) in &versions {
-        let mut r = (rust.as_str(), match first.take().unwrap_or_else(|| compile(rust, dir, out, extra, link)) {
+    for i in 0..VERSIONS.len() {
+        let Some(rust) = versions.make(i, true) else { continue };
+        if seen.contains(&rust) {
+            continue;
+        }
+        seen.push(rust.clone());
+        let rust = shape(rust);
+        let mut r = (rust.clone(), match probe.take().unwrap_or_else(|| compile(&rust, dir, out, extra, link)) {
             Some(Ok(())) => return true,
             Some(Err(e)) => e,
             None => return false,
         });
-        if let Some(p) = plain {
-            if MOVE_CODES.iter().any(|c| r.1.contains(&format!("\"code\":\"{c}\""))) {
-                r = (p.as_str(), match compile(p, dir, out, extra, link) {
+        if MOVE_CODES.iter().any(|c| r.1.contains(&format!("\"code\":\"{c}\""))) {
+            if let Some(p) = versions.make(i, false).map(shape) {
+                r = (p.clone(), match compile(&p, dir, out, extra, link) {
                     Some(Ok(())) => return true,
                     Some(Err(e)) => e,
                     None => return false,
@@ -1139,8 +1240,8 @@ fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &
         }
     }
     match last {
-        Some((rust, stderr)) if DEFER_REPORT.load(std::sync::atomic::Ordering::Relaxed) => *DEFERRED.lock().unwrap() = Some((rust.to_string(), stderr)),
-        Some((rust, stderr)) => report(rust, &stderr),
+        Some((rust, stderr)) if DEFER_REPORT.load(std::sync::atomic::Ordering::Relaxed) => *DEFERRED.lock().unwrap() = Some((rust, stderr)),
+        Some((rust, stderr)) => report(&rust, &stderr),
         None => {}
     }
     false
@@ -1155,7 +1256,7 @@ static DEPS: std::sync::OnceLock<Vec<ffi::Dep>> = std::sync::OnceLock::new();
 static RUST_LINES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLock::new();
 
 // Where crates are built once and shared by every program: $BREVI_CACHE, else ~/.cache/brevi.
-fn cache_dir() -> PathBuf {
+pub(crate) fn cache_dir() -> PathBuf {
     if let Ok(d) = std::env::var("BREVI_CACHE") {
         return PathBuf::from(d);
     }
@@ -1293,7 +1394,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     }
     let release = extra.contains(&"opt-level=3");
     let rt = if rust.starts_with(RT_HEADER) { runtime_lib(release) } else { None };
-    let use_cache = std::env::var("BREVI_NO_CACHE").map_or(true, |v| v.is_empty() || v == "0");
+    let use_cache = runcache::on();
     // The prelude is linked from a prebuilt library rather than pasted in, so its own hash is part of the key:
     // a changed runtime (a brevi upgrade) must not reuse a binary or error built against the old one.
     static PRELUDE_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -1342,17 +1443,26 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
         let saved = match &r {
             Ok(()) if link => std::fs::copy(out, &tmp).is_ok(),
             Ok(()) => std::fs::write(&tmp, "").is_ok(),
-            Err(e) if e.contains("\"level\":\"error\"") => std::fs::write(&tmp, e).is_ok(),
+            Err(e) if e.contains("\"level\":\"error\"") && about_the_code(e) => std::fs::write(&tmp, e).is_ok(),
             Err(_) => false,
         };
         let dest = if r.is_ok() { cached.clone() } else { cached.with_extension("err") };
         if saved && std::fs::rename(&tmp, &dest).is_ok() {
-            prune_cache(&cdir);
+            runcache::prune(&cdir);
         } else {
             std::fs::remove_file(&tmp).ok();
         }
     }
     Some(r)
+}
+
+// True when every rustc error points into the program. An error with no place in it (a folder that could not
+// be written, a full disk) is about the machine: kept out of the cache, so it goes once the machine is fixed.
+fn about_the_code(stderr: &str) -> bool {
+    stderr.lines().filter_map(json::parse).filter(|j| j.get("level").and_then(|v| v.str()) == Some("error")).all(|j| {
+        let msg = j.get("message").and_then(|v| v.str()).unwrap_or("");
+        msg.starts_with("aborting due to") || j.get("spans").is_some_and(|v| !v.arr().is_empty())
+    })
 }
 
 // The first line of a program built against the runtime library instead of a pasted prelude.
@@ -1460,7 +1570,7 @@ pub(crate) fn rustc_cmd() -> Command {
 }
 
 // What rustup's choice of toolchain depends on, hashed. None (always ask the proxy) without a working directory.
-fn toolchain_key() -> Option<String> {
+pub(crate) fn toolchain_key() -> Option<String> {
     let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).map_or(String::from("-"), |t| format!("{t:?}"));
     let mut parts: Vec<String> = ["PATH", "RUSTUP_TOOLCHAIN", "RUSTUP_HOME", "CARGO_HOME", "HOME"].iter().map(|v| std::env::var(v).unwrap_or_default()).collect();
     let home = std::env::var("RUSTUP_HOME").map(PathBuf::from).ok().or_else(|| std::env::var("HOME").ok().map(|h| Path::new(&h).join(".rustup")));
@@ -1489,7 +1599,7 @@ pub(crate) fn codegen_units() -> &'static str {
     })
 }
 
-fn fnv(parts: &[&str], seed: u64) -> u64 {
+pub(crate) fn fnv(parts: &[&str], seed: u64) -> u64 {
     let mut h: u64 = 1469598103934665603 ^ seed.wrapping_mul(0x9e3779b97f4a7c15);
     for p in parts {
         for b in p.bytes().chain([0xff]) {
@@ -1500,7 +1610,7 @@ fn fnv(parts: &[&str], seed: u64) -> u64 {
 }
 
 // Copies a cached program into place: a hard link when possible, else a copy (written aside, then renamed).
-fn copy_bin(from: &Path, to: &Path) -> bool {
+pub(crate) fn copy_bin(from: &Path, to: &Path) -> bool {
     std::fs::remove_file(to).ok();
     if std::fs::hard_link(from, to).is_ok() {
         return true;
@@ -1509,25 +1619,9 @@ fn copy_bin(from: &Path, to: &Path) -> bool {
     std::fs::copy(from, &tmp).is_ok() && std::fs::rename(&tmp, to).is_ok()
 }
 
-fn touch(p: &Path) {
+pub(crate) fn touch(p: &Path) {
     if let Ok(f) = std::fs::File::options().append(true).open(p) {
         f.set_modified(std::time::SystemTime::now()).ok();
-    }
-}
-
-// Keeps the build cache small: past 400 entries, the least recently used half goes.
-fn prune_cache(dir: &Path) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    let mut es: Vec<(std::time::SystemTime, PathBuf)> = rd
-        .flatten()
-        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
-        .collect();
-    if es.len() <= 400 {
-        return;
-    }
-    es.sort();
-    for (_, p) in es.iter().take(es.len() - 200) {
-        std::fs::remove_file(p).ok();
     }
 }
 

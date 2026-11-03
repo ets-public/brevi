@@ -97,7 +97,7 @@ The names are reserved and the packaging is ready in `packaging/`, but nothing i
 
 ## Where Brevi keeps things
 
-Brevi caches built programs and its runtime libraries in `~/.cache/brevi` (`$BREVI_CACHE` moves it), so running the same program again skips `rustc`. The very first build, and the first after a Rust update, also builds Brevi's runtime once, which takes about 5 to 15 seconds; after that a new small program builds in well under a second. Deleting the folder is always safe.
+Brevi caches built programs and its runtime libraries in `~/.cache/brevi` (`$BREVI_CACHE` moves it, `BREVI_CACHE_MB` caps it, default 1024 MB), so checking or running an unchanged program again replays the last result in about 10 ms. The very first build, and the first after a Rust update, also builds Brevi's runtime once, which takes about 5 to 15 seconds; after that a new small program builds in well under a second. Deleting the folder is always safe.
 
 ## Next
 
