@@ -1,0 +1,47 @@
+b"hello\x00\xff'" 8 104 39 b'ell' b"'\x00le" [104, 101, 108] True True False
+b'ab' b'\\n' b'\\u12' b'AA' b'"' b'\'"'
+b'h\xc3\xa9llo' héllo abc b'\xe9'
+b'\x00\x00\x00' b'AB' b'ab' b'x' deadbeef 01:ab
+[b'a', b'b', b'', b'c'] [b'x', b'y'] b'x' b'a-b' b'abcd' b'abab' b'zz'
+True bytes True False 1 [b'a', b'ab', b'b']
+b'X' True 2 2 b'a-b-' True
+b'xy' b'q' [65, 66] [b'line1', b'line2']
+md5 a2004f37730b9445670a738fa0fc9ee5
+sha1 c519c1a06cdbeb2bc499e22137fb48683858b345
+sha224 146129bd31db775c819f4c28929cc5ac7130d4bac470e97134857c1a
+sha256 5cac4f980fedc3d3f1f99b4be3472c9b30d56523e632d151237ec9309048bda9
+sha384 2e45933dd1a1e6a6928a732d58abeb180c225e5e7b99c64eb6f233a7b99ee4635c17f44ca544cf620cf4289deb4c08cf
+sha512 015e6d23e760f612cca616c54f110cb12dd54213f1e046c7607081372402eff4936b379296ed549236020afb37bd3e728a044a4243754f095498c98bc24f77e0
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb sha256 32 64 32
+9dd4e461268c8034f5c8564e155c67a6 da39a3ee5e6b4b0d3255bfef95601890afd80709 4b11459c33f52a22ee82
+b'aGVsbG8gd29ybGQ=' b'hello world' b'-_8=' b'\xfb\xff'
+aGk= b'01AB' b'\x01\xab' b'abcd' b'eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4\n'
+b'00ff' b'\x00\xff'
+'abc' False Error Incorrect padding True
+'abc' True Error Incorrect padding True
+'a' False Error Invalid base64-encoded string: number of data characters (1) cannot be 1 more than a multiple of 4 True
+'a' True Error Invalid base64-encoded string: number of data characters (1) cannot be 1 more than a multiple of 4 True
+'ab=c' False Error Incorrect padding True
+'ab=c' True Error Discontinuous padding not allowed True
+'ab==cd==' False b'i\xb7\x1d'
+'ab==cd==' True Error Excess data after padding True
+'@@YWJj' False b'abc'
+'@@YWJj' True Error Only base64 data is allowed True
+'=Zm9v' False b'foo'
+'=Zm9v' True Error Leading padding not allowed True
+decode: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+� 
+decode: 'utf-8' codec can't decode bytes in position 1-2: invalid continuation byte
+a�( a(
+decode: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+�� 
+decode: 'utf-8' codec can't decode bytes in position 2-3: unexpected end of data
+ok� ok
+UnicodeEncodeError 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128)
+UnicodeEncodeError 'latin-1' codec can't encode character '\U0001f600' in position 1: ordinal not in range(256)
+TypeError Strings must be encoded before hashing
+TypeError can't concat str to bytes
+ValueError bytes must be in range(0, 256)
+TypeError string argument without an encoding
+IndexError index out of range
+ValueError unsupported hash type nope

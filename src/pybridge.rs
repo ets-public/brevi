@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 // Modules the parser maps onto Brevi's own library (see the lexer's PY_BUILTIN_MODULES and PY_ALIAS_MODULES).
 const NATIVE: &[&str] = &[
     "sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools", "datetime", "json", "calendar", "decimal", "heapq", "bisect", "string",
-    "statistics", "random", "time", "copy", "operator", "csv", "threading", "__future__", "fractions", "enum", "abc",
+    "statistics", "random", "time", "copy", "operator", "csv", "threading", "__future__", "fractions", "enum", "abc", "hashlib", "base64", "binascii",
 ];
 // GUI libraries (gui.rs handles tkinter; the others are refused in modules.rs).
 const NOT_BRIDGED: &[&str] = &["tkinter", "Tkinter", "turtle", "pygame", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "kivy", "customtkinter", "pyglet", "arcade", "dearpygui"];

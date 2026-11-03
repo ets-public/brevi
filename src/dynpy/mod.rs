@@ -19,6 +19,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_gen.rs"),
     include_str!("rt_enum.rs"),
     include_str!("rt_rand.rs"),
+    include_str!("rt_bytes.rs"),
     include_str!("../alloc_rt.rs"),
 );
 

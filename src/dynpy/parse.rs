@@ -10,7 +10,7 @@ pub enum Tok {
     Imag,
     Str(String, bool),
     FStr(String, bool),
-    Bytes,
+    Bytes(String),
     Op(&'static str),
     Newline,
     Indent,
@@ -28,6 +28,29 @@ const OPS: [&str; 49] = [
 
 pub fn err(line: usize, msg: &str) -> (usize, String) {
     (line, msg.to_string())
+}
+
+// A bytes literal's escapes: a str's, without \u, \U and \N (kept as written); every char is below 256.
+fn bytes_unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
+    let cs: Vec<char> = body.chars().collect();
+    let mut pre = String::new();
+    let mut i = 0;
+    while i < cs.len() {
+        if cs[i] == '\\' && i + 1 < cs.len() {
+            if matches!(cs[i + 1], 'u' | 'U' | 'N') {
+                pre.push_str("\\\\");
+            } else {
+                pre.push('\\');
+            }
+            pre.push(cs[i + 1]);
+            i += 2;
+            continue;
+        }
+        pre.push(cs[i]);
+        i += 1;
+    }
+    let v = unescape(&pre, line)?;
+    Ok(v.chars().map(|c| char::from_u32(c as u32 & 0xff).unwrap()).collect())
 }
 
 fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
@@ -206,7 +229,12 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
             let body: String = cs[body_start..k].iter().collect();
             i = if triple { k + 3 } else { k + 1 };
             if prefix.contains('b') {
-                toks.push((Tok::Bytes, start_line));
+                if let Some(c) = body.chars().find(|c| !c.is_ascii()) {
+                    let _ = c;
+                    return Err(err(start_line, "bytes can only contain ASCII literal characters"));
+                }
+                let v = if raw { body } else { bytes_unescape(&body, start_line)? };
+                toks.push((Tok::Bytes(v), start_line));
                 continue;
             }
             if prefix.contains('f') {
@@ -1295,7 +1323,21 @@ impl P {
             Tok::Int(t) => Ok(Ex::Int(t)),
             Tok::Float(f) => Ok(Ex::Float(f)),
             Tok::Imag => Err(err(line, "complex numbers are not supported")),
-            Tok::Bytes => Err(err(line, "bytes literals are not supported")),
+            Tok::Bytes(b0) => {
+                // adjacent literals concatenate; b'...' 'x' mixes kinds, a SyntaxError in Python
+                let mut b = b0;
+                loop {
+                    match self.peek().clone() {
+                        Tok::Bytes(x) => {
+                            b.push_str(&x);
+                            self.next();
+                        }
+                        Tok::Str(..) | Tok::FStr(..) => return Err(err(line, "cannot mix bytes and nonbytes literals")),
+                        _ => break,
+                    }
+                }
+                Ok(Ex::Call(Box::new(Ex::Name("__bytes_lit".into())), vec![Arg::Pos(Ex::Str(b))]))
+            }
             Tok::Op("...") => Ok(Ex::Ellipsis),
             Tok::Str(s0, _) | Tok::FStr(s0, _) => {
                 self.i -= 1;
@@ -1314,7 +1356,7 @@ impl P {
                             parts.extend(parse_fstring(&body, raw, l)?);
                             self.next();
                         }
-                        Tok::Bytes => return Err(err(line, "bytes literals are not supported")),
+                        Tok::Bytes(_) => return Err(err(line, "cannot mix bytes and nonbytes literals")),
                         _ => break,
                     }
                 }

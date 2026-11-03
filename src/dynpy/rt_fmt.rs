@@ -69,7 +69,10 @@ pub fn str_repr(s: &str) -> String {
             }
             c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
             c if (0x80..0xa0).contains(&(c as u32)) => out.push_str(&format!("\\x{:02x}", c as u32)),
-            c if c as u32 == 0xad => out.push_str("\\xad"),
+            c if c as u32 == 0xad || c as u32 == 0xa0 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            // the common separators, format and private-use characters Python's repr escapes
+            c if matches!(c as u32, 0x1680 | 0x2000..=0x200f | 0x2028..=0x202f | 0x205f..=0x2064 | 0x2066..=0x206f | 0x3000 | 0xe000..=0xf8ff | 0xfeff | 0xfff9..=0xfffb | 0xfffe | 0xffff) => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c if (c as u32) >= 0xf0000 => out.push_str(&format!("\\U{:08x}", c as u32)),
             c => out.push(c),
         }
     }

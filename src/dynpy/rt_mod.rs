@@ -1740,6 +1740,9 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "json" => json_fn(n, a),
         "enum" => enum_fn(n, a),
         "_brevi_mt" => brevi_mt_fn(n, a),
+        "hashlib" => hashlib_fn(n, a),
+        "base64" => base64_fn(n, a),
+        "binascii" => binascii_fn(n, a),
         "_brevi_term" if n == "columns" => Ok(V::Int(term_columns())),
         _ => Err(unsupported(&format!("{m}.{n}"))),
     }
@@ -1757,6 +1760,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("re", "error") => Some(V::Class(exc_class("error"))),
         ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("enum", "Enum") => Some(V::Class(enum_base())),
+        ("binascii", "Error") => Some(V::Class(exc_class("binascii.Error"))),
         _ => None,
     })
 }
