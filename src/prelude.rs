@@ -759,7 +759,7 @@ impl AxTruth for Date {
 }
 impl AxTruth for Dec {
     fn ax_truth(&self) -> bool {
-        self.0 != 0
+        self.nd().0 != 0
     }
 }
 #[inline]
@@ -828,8 +828,8 @@ impl AxFloorDiv for f64 {
 impl AxFloorDiv for Dec {
     fn floordiv(self, b: Dec) -> Dec {
         // Fraction // floors (Python gives an int); Decimal truncates toward zero.
-        if let Some((x, y)) = frac_pair(self, b) {
-            return Dec(frac_floor_div(x, y) * DEC_ONE, 0);
+        if let Some(((a, b), (c, d))) = frac_pair(self, b) {
+            return Dec(frac_floor_div(frac_mul(a, d), frac_mul(c, b)) * DEC_ONE, 0);
         }
         let q = self / b;
         Dec(q.0 / DEC_ONE * DEC_ONE, 0)
@@ -850,8 +850,10 @@ pub trait AxPyMod<B = Self> {
 // Decimal a % b: the sign follows a, as Python's Decimal does (a - b * trunc(a / b)).
 impl AxPyMod for Dec {
     fn ax_pymod(self, b: Dec) -> Dec {
-        if let Some((x, y)) = frac_pair(self, b) {
-            return Dec(x - y * frac_floor_div(x, y), FRAC);
+        if let Some(((a, b), (c, d))) = frac_pair(self, b) {
+            // a/b - (c/d) * floor((a/b) / (c/d))
+            let q = frac_floor_div(frac_mul(a, d), frac_mul(c, b));
+            return frac_new(frac_add(frac_mul(a, d), -frac_mul(frac_mul(c, b), q)), frac_mul(b, d));
         }
         let q = self / b;
         let t = Dec(q.0 / DEC_ONE * DEC_ONE, 0);
@@ -4158,10 +4160,19 @@ impl PartialOrd for Dec {
 }
 impl Ord for Dec {
     fn cmp(&self, o: &Dec) -> std::cmp::Ordering {
-        if self.is_frac() == o.is_frac() {
+        if !self.is_frac() && !o.is_frac() {
             return self.0.cmp(&o.0);
         }
-        (self.0 * o.scale()).cmp(&(o.0 * self.scale()))
+        // None (ax_none) next to a Fraction: equal only to None.
+        let none = |x: &Dec| x.0 == i128::MIN && !x.is_frac();
+        if none(self) || none(o) {
+            return none(o).cmp(&none(self));
+        }
+        let ((a, b), (c, d)) = (self.nd(), o.nd());
+        match (a.checked_mul(d), c.checked_mul(b)) {
+            (Some(x), Some(y)) => x.cmp(&y),
+            _ => (a as f64 / b as f64).partial_cmp(&(c as f64 / d as f64)).unwrap_or(std::cmp::Ordering::Equal),
+        }
     }
 }
 impl Hash for Dec {
@@ -4173,28 +4184,48 @@ impl Hash for Dec {
 // A dec compares directly with an int: `price > 0`.
 impl PartialEq<i64> for Dec {
     fn eq(&self, o: &i64) -> bool {
-        self.0 == (*o as i128) * self.scale()
+        let (n, d) = self.nd();
+        n == (*o as i128) * d
     }
 }
 impl PartialOrd<i64> for Dec {
     fn partial_cmp(&self, o: &i64) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(&((*o as i128) * self.scale()))
+        let (n, d) = self.nd();
+        n.partial_cmp(&((*o as i128) * d))
     }
 }
 const DEC_ONE: i128 = 1_000_000_000;
-// Python's Fraction is a Dec marked FRAC, held in units of 1/FRAC_ONE: exact for every
-// denominator that divides lcm(1..=32) * 10 (so 1/3, 1/7, 1/64, 1/1000). A result outside
-// that, or too large, stops the program with an error rather than rounding.
+// Python's Fraction is a Dec marked FRAC whose i128 holds a reduced numerator (high 64 bits)
+// over a positive denominator (low 64 bits). Arithmetic runs in i128 and reduces; a result whose
+// numerator or denominator needs more than 64 bits stops the program loudly rather than rounding.
 const FRAC: u8 = 255;
-const FRAC_ONE: i128 = 1_444_035_528_936_000;
 fn frac_fail(what: String) -> ! {
-    panic!("{what} can't be held exactly by Brevi's Fraction (denominators must divide lcm(1..32)*10); run this program with CPython")
+    panic!("{what} is too large for Brevi's typed Fraction (numerator and denominator must fit in 64 bits); run this program with CPython")
 }
 fn frac_mul(a: i128, b: i128) -> i128 {
-    a.checked_mul(b).unwrap_or_else(|| frac_fail("a Fraction this large".into()))
+    a.checked_mul(b).unwrap_or_else(|| frac_fail("a Fraction".into()))
 }
-fn frac_pair(a: Dec, b: Dec) -> Option<(i128, i128)> {
-    if a.is_frac() || b.is_frac() { Some((a.frac_of().0, b.frac_of().0)) } else { None }
+fn frac_add(a: i128, b: i128) -> i128 {
+    a.checked_add(b).unwrap_or_else(|| frac_fail("a Fraction".into()))
+}
+// n/d reduced, as a Fraction.
+pub fn frac_new(n: i128, d: i128) -> Dec {
+    if d == 0 {
+        panic!("Fraction({n}, 0)");
+    }
+    let g = ax_gcd128(n, d).max(1);
+    let (mut n, mut d) = (n / g, d / g);
+    if d < 0 {
+        n = -n;
+        d = -d;
+    }
+    if n < i64::MIN as i128 || n > i64::MAX as i128 || d > i64::MAX as i128 {
+        frac_fail(format!("Fraction({n}, {d})"))
+    }
+    Dec(((n as i64 as i128) << 64) | d, FRAC)
+}
+fn frac_pair(a: Dec, b: Dec) -> Option<((i128, i128), (i128, i128))> {
+    if a.is_frac() || b.is_frac() { Some((a.frac_of().nd(), b.frac_of().nd())) } else { None }
 }
 fn frac_floor_div(x: i128, y: i128) -> i128 {
     if y == 0 {
@@ -4216,27 +4247,44 @@ impl Dec {
     fn is_frac(&self) -> bool {
         self.1 == FRAC
     }
-    // Units per 1: FRAC_ONE for a Fraction, DEC_ONE for a Decimal.
-    fn scale(&self) -> i128 {
-        if self.is_frac() { FRAC_ONE } else { DEC_ONE }
+    // The value as numerator over a positive denominator: a Fraction's own pair, or a Decimal's units over DEC_ONE.
+    fn nd(&self) -> (i128, i128) {
+        if self.is_frac() { (self.0 >> 64, self.0 & 0xFFFF_FFFF_FFFF_FFFF) } else { (self.0, DEC_ONE) }
     }
     fn frac_of(&self) -> Dec {
         if self.is_frac() {
             return *self;
         }
-        let v = frac_mul(self.0, FRAC_ONE);
-        if v % DEC_ONE != 0 {
-            frac_fail(format!("Decimal {}", self.show()))
-        }
-        Dec(v / DEC_ONE, FRAC)
+        frac_new(self.0, DEC_ONE)
     }
     // (numerator, denominator), reduced.
     fn frac_parts(&self) -> (i128, i128) {
-        let g = ax_gcd128(self.0, self.scale()).max(1);
-        (self.0 / g, self.scale() / g)
+        let (n, d) = self.nd();
+        let g = ax_gcd128(n, d).max(1);
+        (n / g, d / g)
+    }
+    // Python's x.numerator / x.denominator.
+    pub fn ax_numerator(&self) -> i64 {
+        self.frac_parts().0 as i64
+    }
+    pub fn ax_denominator(&self) -> i64 {
+        self.frac_parts().1 as i64
     }
     fn parse(s: &str) -> R<Dec> {
         let t = s.trim();
+        // Fraction("3/4"): an exact ratio of two whole numbers.
+        if let Some((a, b)) = t.split_once('/') {
+            let whole = |x: &str| x.strip_prefix(['-', '+']).unwrap_or(x).chars().all(|c| c.is_ascii_digit()) && !x.is_empty();
+            if whole(a) && !b.is_empty() && b.chars().all(|c| c.is_ascii_digit()) {
+                if let (Ok(n), Ok(d)) = (a.parse::<i128>(), b.parse::<i128>()) {
+                    if d == 0 {
+                        panic!("Fraction({n}, 0)");
+                    }
+                    return Ok(frac_new(n, d));
+                }
+            }
+            return Err(AxErr(format!("Invalid literal for Fraction: {:?}", s)));
+        }
         let (neg, body) = match t.strip_prefix('-') { Some(b) => (true, b), None => (false, t.strip_prefix('+').unwrap_or(t)) };
         let (ip, fp) = body.split_once('.').unwrap_or((body, ""));
         let ok = !(ip.is_empty() && fp.is_empty()) && ip.chars().all(|c| c.is_ascii_digit()) && fp.chars().all(|c| c.is_ascii_digit()) && fp.len() <= 9;
@@ -4250,8 +4298,8 @@ impl Dec {
     }
     pub fn ax_fmt(&self, decimals: i64) -> String {
         let d = decimals.clamp(0, 9) as u32;
-        let unit = self.scale();
-        let v = frac_mul(self.0, 10i128.pow(d));
+        let (n, unit) = self.nd();
+        let v = frac_mul(n, 10i128.pow(d));
         let (q, r) = (v.div_euclid(unit), v.rem_euclid(unit));
         // Round half to even, like Python's Decimal.
         let q = if r * 2 > unit || (r * 2 == unit && q % 2 != 0) { q + 1 } else { q };
@@ -4262,20 +4310,28 @@ impl Dec {
         if neg { format!("-{s}") } else { s }
     }
     pub fn ax_abs(&self) -> Dec {
+        if self.is_frac() {
+            let (n, d) = self.nd();
+            return frac_new(n.abs(), d);
+        }
         Dec(self.0.abs(), self.1)
     }
     // Python's math.floor / math.ceil (and `x.__floor__()`) on a Decimal or Fraction: an int.
     pub fn ax_floor(&self) -> i64 {
-        self.0.div_euclid(self.scale()) as i64
+        let (n, d) = self.nd();
+        n.div_euclid(d) as i64
     }
     pub fn ax_ceil(&self) -> i64 {
-        -((-self.0).div_euclid(self.scale())) as i64
+        let (n, d) = self.nd();
+        -((-n).div_euclid(d)) as i64
     }
     pub fn ax_float(&self) -> f64 {
-        self.0 as f64 / self.scale() as f64
+        let (n, d) = self.nd();
+        n as f64 / d as f64
     }
     pub fn ax_int(&self) -> i64 {
-        (self.0 / self.scale()) as i64
+        let (n, d) = self.nd();
+        (n / d) as i64
     }
     pub fn ax_round(&self) -> Dec {
         Dec::parse(&self.ax_fmt(0)).unwrap()
@@ -4323,8 +4379,8 @@ impl Show for Dec {
 impl Plus for Dec {
     type Out = Dec;
     fn plus(self, o: Dec) -> Dec {
-        if let Some((x, y)) = frac_pair(self, o) {
-            return Dec(x.checked_add(y).unwrap_or_else(|| frac_fail("a Fraction this large".into())), FRAC);
+        if let Some(((a, b), (c, d))) = frac_pair(self, o) {
+            return frac_new(frac_add(frac_mul(a, d), frac_mul(c, b)), frac_mul(b, d));
         }
         Dec(self.0 + o.0, self.1.max(o.1))
     }
@@ -4332,8 +4388,8 @@ impl Plus for Dec {
 impl std::ops::Sub for Dec {
     type Output = Dec;
     fn sub(self, o: Dec) -> Dec {
-        if let Some((x, y)) = frac_pair(self, o) {
-            return Dec(x.checked_sub(y).unwrap_or_else(|| frac_fail("a Fraction this large".into())), FRAC);
+        if let Some(((a, b), (c, d))) = frac_pair(self, o) {
+            return frac_new(frac_add(frac_mul(a, d), -frac_mul(c, b)), frac_mul(b, d));
         }
         Dec(self.0 - o.0, self.1.max(o.1))
     }
@@ -4341,12 +4397,10 @@ impl std::ops::Sub for Dec {
 impl std::ops::Mul for Dec {
     type Output = Dec;
     fn mul(self, o: Dec) -> Dec {
-        if let Some((x, y)) = frac_pair(self, o) {
-            let v = frac_mul(x, y);
-            if v % FRAC_ONE != 0 {
-                frac_fail(format!("{} * {}", self.show(), o.show()))
-            }
-            return Dec(v / FRAC_ONE, FRAC);
+        if let Some(((a, b), (c, d))) = frac_pair(self, o) {
+            // Cross-reduce first so the products stay small.
+            let (g1, g2) = (ax_gcd128(a, d).max(1), ax_gcd128(c, b).max(1));
+            return frac_new(frac_mul(a / g1, c / g2), frac_mul(b / g2, d / g1));
         }
         Dec(self.0 * o.0 / DEC_ONE, (self.1 + o.1).min(9))
     }
@@ -4354,15 +4408,15 @@ impl std::ops::Mul for Dec {
 impl std::ops::Div for Dec {
     type Output = Dec;
     fn div(self, o: Dec) -> Dec {
+        if let Some(((a, b), (c, d))) = frac_pair(self, o) {
+            if c == 0 {
+                panic!("Fraction({}, 0)", a * d);
+            }
+            let (g1, g2) = (ax_gcd128(a, c).max(1), ax_gcd128(d, b).max(1));
+            return frac_new(frac_mul(a / g1, d / g2), frac_mul(b / g2, c / g1));
+        }
         if o.0 == 0 {
             panic!("division by zero");
-        }
-        if let Some((x, y)) = frac_pair(self, o) {
-            let v = frac_mul(x, FRAC_ONE);
-            if v % y != 0 {
-                frac_fail(format!("{} / {}", self.show(), o.show()))
-            }
-            return Dec(v / y, FRAC);
         }
         let v = self.0 * DEC_ONE / o.0;
         // An exact quotient keeps Python's places (a's minus b's, or as many as it needs); otherwise all 9.
@@ -4428,6 +4482,10 @@ impl PartialOrd<Dec> for i64 {
 impl std::ops::Neg for Dec {
     type Output = Dec;
     fn neg(self) -> Dec {
+        if self.is_frac() {
+            let (n, d) = self.nd();
+            return frac_new(-n, d);
+        }
         Dec(-self.0, self.1)
     }
 }
@@ -4449,7 +4507,7 @@ impl std::ops::DivAssign for Dec {
 impl AxSum<Dec> for Vec<Dec> {
     fn ax_sum(&self) -> Dec {
         if self.iter().any(|d| d.is_frac()) {
-            return self.iter().fold(Dec(0, FRAC), |a, b| a.plus(*b));
+            return self.iter().fold(frac_new(0, 1), |a, b| a.plus(*b));
         }
         Dec(self.iter().map(|d| d.0).sum(), self.iter().map(|d| d.1).max().unwrap_or(0))
     }
@@ -4683,6 +4741,16 @@ impl<T: Hash> Hash for AxSet<T> {
 impl<T> AxToJson for AxSet<T> where Vec<T>: AxToJson {
     fn ax_json(&self) -> Json {
         self.v.ax_json()
+    }
+}
+// `(x,) = xs`: the only item; Python's ValueError otherwise.
+pub fn ax_one<I: IntoIterator>(xs: I) -> I::Item {
+    let mut it = xs.into_iter();
+    let first = it.next();
+    match (first, it.next()) {
+        (Some(x), None) => x,
+        (None, _) => panic!("not enough values to unpack (expected 1, got 0)"),
+        (Some(_), Some(_)) => panic!("too many values to unpack (expected 1)"),
     }
 }
 // ---- t[a:b] with number bounds: on a tuple, a shorter tuple; on a list, string or JSON value, as
@@ -4924,6 +4992,10 @@ pub trait AxRoundTo {
 }
 impl AxRoundTo for Dec {
     fn ax_round_to(&self, n: i64) -> Dec {
+        if self.is_frac() {
+            // round(Fraction, n) stays a Fraction.
+            return Dec::parse(&self.ax_fmt(n.clamp(0, 9))).unwrap().frac_of();
+        }
         Dec::parse(&self.ax_fmt(n.clamp(0, 9))).unwrap()
     }
 }
@@ -6028,6 +6100,28 @@ struct AxRxP {
     i: usize,
     groups: usize,
 }
+impl AxRxP {
+    // The character after a backslash (already read): `\x00`, `\u00e9` and `\n` name characters.
+    fn esc(&mut self, e: char) -> char {
+        let n = match e {
+            'x' => 2,
+            'u' => 4,
+            'U' => 8,
+            'f' => return '\x0c',
+            'v' => return '\x0b',
+            'a' => return '\x07',
+            _ => return ax_rx_esc(e),
+        };
+        let h: String = self.c.iter().skip(self.i).take(n).collect();
+        match u32::from_str_radix(&h, 16).ok().filter(|_| h.len() == n).and_then(char::from_u32) {
+            Some(c) => {
+                self.i += n;
+                c
+            }
+            None => e,
+        }
+    }
+}
 fn ax_rx_class(e: char) -> Option<(Vec<(char, char)>, bool)> {
     let d = vec![('0', '9')];
     let w = vec![('a', 'z'), ('A', 'Z'), ('0', '9'), ('_', '_')];
@@ -6154,7 +6248,7 @@ impl AxRxP {
                             rs.extend(cs);
                             continue;
                         }
-                        ax_rx_esc(e)
+                        self.esc(e)
                     } else {
                         c
                     };
@@ -6162,8 +6256,9 @@ impl AxRxP {
                         let mut hi = self.c[self.i + 1];
                         self.i += 2;
                         if hi == '\\' {
-                            hi = ax_rx_esc(self.c[self.i]);
+                            let e = self.c[self.i];
                             self.i += 1;
+                            hi = self.esc(e);
                         }
                         rs.push((lo, hi));
                     } else {
@@ -6188,7 +6283,7 @@ impl AxRxP {
                 }
                 match ax_rx_class(e) {
                     Some((cs, neg)) => AxRx::Class(cs, neg),
-                    None => AxRx::Char(ax_rx_esc(e)),
+                    None => AxRx::Char(self.esc(e)),
                 }
             }
             c => AxRx::Char(c),
@@ -6325,7 +6420,9 @@ fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool)
     None
 }
 fn ax_rx_groups(s: &[char], caps: &AxCaps) -> Vec<String> {
-    let mut v: Vec<String> = caps.iter().map(|g| g.map_or(String::new(), |(a, b)| s[a..b].iter().collect())).collect();
+    // A group that took no part in the match is None in Python (the None string; findall and sub read it as "").
+    let none = || if ax_py_on() { String::ax_none() } else { String::new() };
+    let mut v: Vec<String> = caps.iter().map(|g| g.map_or_else(none, |(a, b)| s[a..b].iter().collect())).collect();
     // In Python mode a match also carries where each group starts and ends, for m.start(), m.end() and m.span().
     if ax_py_on() {
         let spans: Vec<String> = caps.iter().map(|g| g.map_or("-1:-1".to_string(), |(a, b)| format!("{a}:{b}"))).collect();
@@ -6365,6 +6462,7 @@ pub trait AxRe {
     fn ax_re_list(&self, p: String) -> Vec<String>;
     fn ax_re_sub(&self, p: String, r: String) -> String;
     fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, f: F) -> String;
+    fn ax_try_re_sub_with<F: FnMut(Vec<String>) -> R<String>>(&self, p: String, f: F) -> R<String>;
     fn ax_re_split(&self, p: String) -> Vec<String>;
 }
 fn ax_rx_each(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps)) -> Vec<char> {
@@ -6403,7 +6501,7 @@ impl AxRe for String {
             let mut i = 0;
             while i < rc.len() {
                 if rc[i] == '\\' && i + 1 < rc.len() && rc[i + 1].is_ascii_digit() {
-                    o.push_str(g.get(rc[i + 1] as usize - '0' as usize).map_or("", |s| s.as_str()));
+                    o.push_str(g.get(rc[i + 1] as usize - '0' as usize).filter(|s| !s.ax_is_none()).map_or("", |s| s.as_str()));
                     i += 2;
                 } else {
                     o.push(rc[i]);
@@ -6426,6 +6524,26 @@ impl AxRe for String {
         });
         out.extend(&cs[last.min(cs.len())..]);
         out
+    }
+    // The same with a function that can raise: the first error stops the substitution and is passed on.
+    fn ax_try_re_sub_with<F: FnMut(Vec<String>) -> R<String>>(&self, p: String, mut f: F) -> R<String> {
+        let mut err = None;
+        let out = self.ax_re_sub_with(p, |g| {
+            if err.is_some() {
+                return String::new();
+            }
+            match f(g) {
+                Ok(s) => s,
+                Err(e) => {
+                    err = Some(e);
+                    String::new()
+                }
+            }
+        });
+        match err {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
     }
     fn ax_re_split(&self, p: String) -> Vec<String> {
         let mut out = vec![];
@@ -6459,7 +6577,7 @@ impl AxRePy for String {
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         let all = self.ax_re_all(p.as_ref().to_string());
-        all.into_iter().map(|g| if g.ax_re_groups().len() == 1 { g[1].clone() } else { g[0].clone() }).collect()
+        all.into_iter().map(|g| if g.ax_re_groups().len() == 1 { if g[1].ax_is_none() { String::new() } else { g[1].clone() } } else { g[0].clone() }).collect()
     }
 }
 impl AxRePy for Json {

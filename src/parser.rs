@@ -491,6 +491,15 @@ impl Parser {
                 fall_off_none(&mut body, line);
             }
             if !kids.is_empty() {
+                // A nested def's defaults and keywords are filled in before lifting adds the captured names.
+                let ksigs: HashMap<String, Sig> = kids.iter().filter_map(|k| match k { Item::Fn { name: kn, .. } => self.sigs.get(kn).map(|s| (kn.clone(), s.clone())), _ => None }).collect();
+                if !ksigs.is_empty() {
+                    let mut st = vec![Stmt::Expr { expr: std::mem::replace(&mut body, Expr::Int(0)), line }];
+                    fill_args(&mut kids, &mut st, &ksigs);
+                    if let Some(Stmt::Expr { expr, .. }) = st.pop() {
+                        body = expr;
+                    }
+                }
                 let lifted = lift_nested(&name, &params, &mut body, kids);
                 self.hoisted.extend(lifted);
             }
@@ -1283,7 +1292,8 @@ impl Parser {
             return Ok(Stmt::Let { name, ty, value, mutable: true, line });
         }
         // A generator collects what it yields in a list, which it returns (see item()).
-        if matches!(self.peek(), Tok::Ident(w) if w == "yield_") && !matches!(self.peek_at(1), Tok::Sym("=" | "." | "[" | ")" | ",")) {
+        // (`yield [x for x in xs]` yields a list; only a Brevi name `yield_` is indexed.)
+        if matches!(self.peek(), Tok::Ident(w) if w == "yield_") && !matches!(self.peek_at(1), Tok::Sym("=" | "." | ")" | ",")) && (self.py || !matches!(self.peek_at(1), Tok::Sym("["))) {
             self.next();
             self.yields = true;
             let acc = Expr::Ident("ax_gen".into());
@@ -1500,6 +1510,19 @@ impl Parser {
                         return Ok(Stmt::Assign { target: n0, op, value: v0, line });
                     }
                 }
+                // `m.setdefault(k, {})[j] = v`: set m[k] when missing, then m[k][j] = v (k is read twice, so only a plain one).
+                if let Expr::Index(inner, j) = &e {
+                    if let Expr::Method(recv, m, a, l) = inner.as_ref() {
+                        let pure = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_)) || matches!(x, Expr::Tuple(xs) if xs.iter().all(|y| matches!(y, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_))));
+                        if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(m) && self.py && pure(&a[0]) && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..)) {
+                            let (recv, k, v, l) = (recv.clone(), a[0].clone(), a[1].clone(), *l);
+                            let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)));
+                            let set = Stmt::Assign { target: Expr::Index(recv.clone(), Box::new(k.clone())), op: "=", value: v, line };
+                            self.pending.push(Stmt::Assign { target: Expr::Index(Box::new(Expr::Index(recv, Box::new(k))), j.clone()), op, value, line });
+                            return Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line });
+                        }
+                    }
+                }
                 // `x = m.setdefault(k, v)`: set m[k] when missing, then x is m[k] (shared, as in Python).
                 if let (Expr::Ident(_), "=", Expr::Method(recv, m, a, l)) = (&e, op, &value) {
                     if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(m) && self.py {
@@ -1628,6 +1651,15 @@ impl Parser {
     }
 
     // Is this a value of one of the program's classes (`self`, or a name set from `C(...)`)?
+    // `re.sub(p, repl, s)` with repl a def of the program: called on each match, as a lambda would be.
+    fn repl_fn(&self, f: &mut Expr, line: usize) {
+        if let Expr::Ident(n) = f {
+            if self.py && self.user_fns.contains(n) {
+                let call = Expr::Call(n.clone(), vec![(None, Expr::Ident("ax_m".into()))], line);
+                *f = Expr::Lambda(vec!["ax_m".into()], Box::new(call));
+            }
+        }
+    }
     fn own_method(&self, recv: &Expr) -> bool {
         matches!(recv, Expr::Ident(n) if n == "self_" || self.held.contains(n))
     }
@@ -1879,6 +1911,11 @@ impl Parser {
     fn unary(&mut self) -> R<Expr> {
         if self.eat_sym("-") {
             return Ok(Expr::Unary("-", Box::new(self.unary()?)));
+        }
+        // Python's `~x` on an int is -x - 1.
+        if self.py && self.eat_sym("~") {
+            let x = self.unary()?;
+            return Ok(Expr::Binary("-", Box::new(Expr::Unary("-", Box::new(x))), Box::new(Expr::Int(1))));
         }
         // `not` is accepted as a spelling of `!`.
         if self.eat_sym("!") || self.eat_kw("not") {
@@ -2143,7 +2180,9 @@ impl Parser {
                                     ("split", 2) => Some(r(args.remove(1), "re_split", vec![args.remove(0)])),
                                     ("sub", 3) => {
                                         let s = args.remove(2);
-                                        Some(r(s, "re_sub", args.drain(..).collect()))
+                                        let mut a: Vec<Expr> = args.drain(..).collect();
+                                        self.repl_fn(&mut a[1], line);
+                                        Some(r(s, "re_sub", a))
                                     }
                                     _ => None,
                                 };
@@ -2170,7 +2209,9 @@ impl Parser {
                                 }
                                 if name == "sub" && args.len() == 2 {
                                     let s = args.remove(1);
-                                    e = r(s, "re_sub", vec![e, args.remove(0)]);
+                                    let mut f = args.remove(0);
+                                    self.repl_fn(&mut f, line);
+                                    e = r(s, "re_sub", vec![e, f]);
                                     continue;
                                 }
                             }

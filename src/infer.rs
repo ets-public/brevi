@@ -1074,6 +1074,7 @@ impl Cx<'_> {
             Expr::Field(b, f) => match self.ty(b, env) {
                 Named(s) => self.structs.get(&s).and_then(|fs| fs.iter().find(|(n, _)| n == f).map(|(_, t)| t.clone())).unwrap_or(Hole),
                 Date if matches!(f.as_str(), "days" | "day" | "month" | "year" | "weekday") => Int,
+                Dec if matches!(f.as_str(), "numerator" | "denominator") => Int,
                 _ => Hole,
             },
             Expr::TupleField(b, i) => match self.ty(b, env) {
@@ -2050,11 +2051,12 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 });
                 let mut scopes: Vec<(Expr, Env)> = vec![(no_lams, env.clone())];
                 walk(body, &mut |e| {
-                    if let Expr::Method(r, _, args, _) = e {
+                    if let Expr::Method(r, m, args, _) = e {
                         for a in args {
                             if let Expr::Lambda(ps, lb) = a {
                                 let mut inner = env.clone();
-                                bind_params(ps, &each_elem(&cx.ty(r, &env)), &mut inner);
+                                let et = if m == "re_sub" { List(Box::new(Str)) } else { each_elem(&cx.ty(r, &env)) };
+                                bind_params(ps, &et, &mut inner);
                                 scopes.push((lb.as_ref().clone(), inner));
                             }
                         }
@@ -2277,16 +2279,37 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 // Calls inside `all(valid(c) for c in t[1:])`: the lambda's names take the items' type.
                 let mut lams: Vec<(Expr, Env)> = Vec::new();
                 walk(body, &mut |e| {
-                    if let Expr::Method(r, _, args, _) = e {
+                    if let Expr::Method(r, m, args, _) = e {
                         for a in args {
                             if let Expr::Lambda(ps, lb) = a {
                                 let mut inner = env.clone();
-                                bind_params(ps, &each_elem(&cx.ty(r, &env)), &mut inner);
+                                let et = if m == "re_sub" { List(Box::new(Str)) } else { each_elem(&cx.ty(r, &env)) };
+                                bind_params(ps, &et, &mut inner);
                                 lams.push((lb.as_ref().clone(), inner));
                             }
                         }
                     }
                 });
+                // And inside those: `" ".join(fmt(x) for x in r) for r in m`, where r is the outer lambda's.
+                let mut i = 0;
+                while i < lams.len() && i < 64 {
+                    let (lb, lenv) = lams[i].clone();
+                    walk(&lb, &mut |e| {
+                        if let Expr::Method(r, _, args, _) = e {
+                            for a in args {
+                                if let Expr::Lambda(ps, inner_b) = a {
+                                    let et = each_elem(&cx.ty(r, &lenv));
+                                    if et != Hole && cx.ty(r, &env) != cx.ty(r, &lenv) {
+                                        let mut inner = lenv.clone();
+                                        bind_params(ps, &et, &mut inner);
+                                        lams.push((inner_b.as_ref().clone(), inner));
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    i += 1;
+                }
                 for (lb, lenv) in &lams {
                     let mut calls = Vec::new();
                     calls_in(lb, &mut calls);
@@ -3831,7 +3854,8 @@ impl Ck<'_, '_> {
                 }
                 // Only these methods pass each item to their lambda.
                 let each = ["map", "filter", "any", "all", "count", "sort_by", "group_runs"].contains(&m.as_str());
-                let et = if each { each_elem(&self.cx.ty(r, env)) } else { Hole };
+                // re.sub's function takes the match ([whole, group1, ...]).
+                let et = if each { each_elem(&self.cx.ty(r, env)) } else if m == "re_sub" { List(Box::new(Str)) } else { Hole };
                 for a in args.iter_mut() {
                     match a {
                         Expr::Lambda(ps, body) => {

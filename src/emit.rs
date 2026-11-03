@@ -28,7 +28,7 @@ const PURE_METHODS: &[&str] = &[
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "splice", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
-const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
+const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by", "re_sub"];
 // Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
 const ONE_ARG_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "sort_by"];
 
@@ -627,6 +627,11 @@ fn changes(e: &Expr, name: &str) -> bool {
     if assigns_to(e, name) {
         return true;
     }
+    changes_in_place(e, name)
+}
+
+// `row[i] = v`, `p.x = v` or `row.append(v)`: the item itself changes (not the name rebound).
+pub(crate) fn changes_in_place(e: &Expr, name: &str) -> bool {
     let d = format!("{e:?}");
     // `row[i] = v` or `p.x = v` changes the item itself.
     if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) || d.contains(&format!("target: TupleField(Ident({name:?})")) {
@@ -1648,6 +1653,13 @@ impl Emitter {
     }
 
     fn stmt_inner(&mut self, s: &Stmt) -> String {
+        // `(ch,) = d.keys()` / `[x] = xs`: the one item, or Python's ValueError.
+        if let Stmt::Assign { target: Expr::List(xs) | Expr::Tuple(xs), op: "=", value, line } = s {
+            if let [Expr::Ident(n)] = xs.as_slice() {
+                let one = Expr::Call("__one".into(), vec![(None, value.clone())], *line);
+                return self.stmt_inner(&Stmt::Assign { target: Expr::Ident(n.clone()), op: "=", value: one, line: *line });
+            }
+        }
         let line = match s {
             Stmt::Let { line, .. } | Stmt::Assign { line, .. } | Stmt::Expr { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line } | Stmt::Continue { line } | Stmt::Assert { line, .. } => *line,
         };
@@ -1829,6 +1841,7 @@ impl Emitter {
             }
             Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place(b)),
             Expr::Field(b, f) if self.shared_fields.contains(f) => format!("(*{}.ax_d()).{f}", self.place(b)),
+            Expr::Field(b, f) if (f == "numerator" || f == "denominator") && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => format!("({}).ax_{f}()", self.expr(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
             Expr::Index(b, i) => {
@@ -2011,6 +2024,8 @@ impl Emitter {
                     op => format!("({a} {op} {b})"),
                 }
             }
+            // A None put in a JSON slot: JSON null (no type to take ax_none's from).
+            Expr::Call(name, args, _) if name == "ax_to_json" && matches!(args.as_slice(), [(_, Expr::Call(n, a, _))] if n == "none" && a.is_empty()) => "Json::Null".to_string(),
             Expr::Call(name, args, line) => {
                 self.line = *line;
                 let c = self.call(name, args, false);
@@ -2150,7 +2165,7 @@ impl Emitter {
                 }
             }
             // `d.year`, `d.weekday` without brackets read a date's parts.
-            Expr::Field(b, f) if ["year", "month", "day", "weekday"].contains(&f.as_str()) && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => {
+            Expr::Field(b, f) if ["year", "month", "day", "weekday", "numerator", "denominator"].contains(&f.as_str()) && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => {
                 format!("({}).ax_{f}()", self.expr(b))
             }
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
@@ -2223,7 +2238,7 @@ impl Emitter {
             Expr::Match(subj, arms) => self.match_expr(subj, arms, false),
             Expr::For(p, iter, body) => {
                 // Assigning to the loop variable edits the list in place.
-                if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..)) = (p, iter.as_ref()) {
+                if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..) | Expr::TupleField(..)) = (p, iter.as_ref()) {
                     // (Not when the body also reads the list's owner: it then works on a copy of each row.)
                     let root_read = root_name(iter).map_or(false, |r| { let t = format!("{body:?}"); t.contains(&format!("Ident({r:?})")) || t.contains(&format!("Move({r:?})")) });
                     if changes(body, n) && root_name(iter).is_some() && !root_read {
@@ -2235,6 +2250,10 @@ impl Emitter {
                         let lab = self.close_loop();
                         self.refs.remove(n);
                         return format!("{lab}for {n} in {it}.iter_mut() {b}");
+                    }
+                    // Python changes the list's own items (`r[1] = v` on each row); a copy of each row would lose that.
+                    if crate::infer::py_on() && root_read && changes_in_place(body, n) && !matches!(self.infer_ty(iter), Some(Ty::List(x)) if matches!(x.as_ref(), Ty::Named(k) if k != "Json")) {
+                        self.diag(self.line, &format!("the loop changes each item of a list in place ({n}[...] = ...) while also reading the list's owner"), None);
                     }
                 }
                 let it = match iter.as_ref() {
@@ -2290,6 +2309,8 @@ impl Emitter {
                 let b = self.block_d(body, true);
                 let lab = self.close_loop();
                 self.locals = outer;
+                // Passed to a Python library call that may change it (`w.writerow(r)`): a fresh copy too.
+                let p = if !p.starts_with("mut ") && !p.starts_with('(') && b.contains(&format!("ax_pyb_argm(&mut {p})")) { format!("mut {p}") } else { p };
                 format!("{lab}for {p} in {it} {b}")
             }
             // `while true:` is Rust's `loop`, so a function may end in it and return from inside.
@@ -2384,6 +2405,7 @@ impl Emitter {
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" if self.locals.contains(name) => return format!("crate::{name}({})", plain.join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "__readline" => return "ax_readline()".to_string(),
+            "__one" => return format!("ax_one({})", plain.join(", ")),
             "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
             "__try_read" => return format!("std::fs::read_to_string({}.to_string()).unwrap_or_default()", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
