@@ -1,0 +1,5 @@
+n = int(input())
+print(0.1 + 0.2, 1e16, 1e-5, 123456789.0 * 1000, float(n))
+print(1 / 3 * n, 2 ** 60 * 1.0, 1e22, 1.5e300 * 1e10)
+print(str(0.1), repr(1.0), f"{1/3:.3f}", f"{n:5.1f}|", f"{1e6:g}", f"{12345.678:,.2f}")
+print(float("inf"), -float("inf"), float("nan") == float("nan"))

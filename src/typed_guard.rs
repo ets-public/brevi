@@ -333,6 +333,41 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
 }
 
 // Every expression in a statement (not in nested blocks' statements, which each_block visits).
+// Does this statement (or a block inside it) change the list, dict or set named x in place?
+fn changes_name(st: &St, x: &str) -> bool {
+    const MUT: &[&str] = &["append", "extend", "insert", "remove", "pop", "clear", "sort", "reverse", "add", "discard", "update", "setdefault", "popitem", "appendleft", "popleft", "difference_update", "intersection_update"];
+    let is_x = |e: &Ex| matches!(e, Ex::Name(n) if n == x);
+    let target_in = |e: &Ex| matches!(e, Ex::Index(b, _) if is_x(b));
+    let hit = match st {
+        St::Assign(ts, _) => ts.iter().any(|t| target_in(t)),
+        St::AugAssign(t, _, _) => is_x(t) || target_in(t),
+        St::Del(xs) => xs.iter().any(|t| target_in(t)),
+        _ => false,
+    };
+    if hit {
+        return true;
+    }
+    let mut found = false;
+    walk_st(st, &mut |e| {
+        if let Ex::Call(f, _) = e {
+            if let Ex::Attr(r, m) = f.as_ref() {
+                if is_x(r) && MUT.contains(&m.as_str()) {
+                    found = true;
+                }
+            }
+        }
+    });
+    if found {
+        return true;
+    }
+    if matches!(st, St::Def(_) | St::Class(_)) {
+        return false;
+    }
+    let mut inner = false;
+    each_block(st, &mut |b| inner = inner || b.iter().any(|s| changes_name(&s.st, x)));
+    inner
+}
+
 fn walk_st(st: &St, f: &mut dyn FnMut(&Ex)) {
     let mut go = |e: &Ex| walk_ex(e, f);
     match st {
@@ -439,12 +474,21 @@ fn fparts(parts: &[FPart], go: &mut dyn FnMut(&Ex)) {
 }
 
 fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
-    for s in body {
+    for (k, s) in body.iter().enumerate() {
         if out.is_some() {
             return;
         }
         let line = s.line;
         let mut hit: Option<String> = None;
+        // `book = asks if buy else bids`, then `book.remove(o)`: in Python book is one of the two lists, so
+        // the change shows in it; the typed build changes a copy.
+        if let St::Assign(ts, Ex::IfExp(_, a, b)) = &s.st {
+            if let ([Ex::Name(x)], true) = (ts.as_slice(), matches!(a.as_ref(), Ex::Name(_) | Ex::Attr(..)) && matches!(b.as_ref(), Ex::Name(_) | Ex::Attr(..))) {
+                if body[k + 1..].iter().any(|st| changes_name(&st.st, x)) {
+                    hit = Some(format!("{x} is one of two lists picked by a condition and is changed later; Python changes that list itself"));
+                }
+            }
+        }
         if let St::For(_, it, _, _) = &s.st {
             if is_set(it, g) {
                 hit = Some("a loop over a set walks it in CPython's hash order".into());
@@ -598,6 +642,16 @@ fn lit_int(e: &Ex) -> Option<i64> {
 // An order-dependent use of a set at this expression (not looking inside it: walk_ex does that).
 fn shown(e: &Ex, g: &G) -> Option<String> {
     let set_or_holder = |x: &Ex| is_set(x, g) || is_holder(x, g);
+    // `m.group(3) is None`: a group that took no part in the match is None in Python; the typed build
+    // reads it as "".
+    if let Ex::Cmp(l, ops) = e {
+        let group = |x: &Ex| matches!(x, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Attr(_, m) if m == "group"));
+        let mut sides = vec![l.as_ref()];
+        sides.extend(ops.iter().map(|(_, x)| x));
+        if ops.iter().any(|(op, _)| matches!(*op, "is" | "is not" | "==" | "!=")) && sides.iter().any(|x| group(x)) && sides.iter().any(|x| matches!(x, Ex::NoneV)) {
+            return Some("a re group compared with None (None when the group did not match)".into());
+        }
+    }
     match e {
         Ex::Call(f, args) => {
             let pos: Vec<&Ex> = args.iter().filter_map(|a| if let Arg::Pos(x) | Arg::Star(x) = a { Some(x) } else { None }).collect();
@@ -743,6 +797,10 @@ mod tests {
         assert!(!needs("try:\n    x = int('q')\nexcept ValueError:\n    pass\n"));
         assert!(needs("d = {1: 2}\nfor k in d:\n    d[k + 1] = 0\n"));
         assert!(needs("import copy\nb = copy.copy([[1]])\n"));
+        assert!(needs("a = []\nb = []\nbook = a if len(a) else b\nbook.append(1)\nprint(b)\n"));
+        assert!(needs("a = [1]\nb = []\ndef f(c):\n    book = a if c else b\n    if book:\n        book.remove(1)\n"));
+        assert!(!needs("a = [1]\nb = [2]\nbook = a if len(a) else b\nprint(len(book))\n"));
+        assert!(needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.group(2) is None)\n"));
         assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
     }
 }

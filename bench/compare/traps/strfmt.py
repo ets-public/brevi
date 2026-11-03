@@ -1,0 +1,6 @@
+n = int(input())
+print("%5d|%-5s|%.2f|%x|%o|%e" % (n, "ab", 3.14159, 255, 8, 12345.678))
+print("{:>8}|{:<8}|{:^8}|{:08.3f}|{:+d}".format("r", "l", "c", -3.5, n))
+print(str(n).zfill(5), "a,b,,c".split(","), "  x  ".strip(), "x".join("abc"))
+print(repr("it's"), repr('say "hi"'), str([1, "a", 2.0, None, True]))
+print(f"{n!r} {n=} {'q'!r:>5}", "%s and %r" % ("s", "s"))

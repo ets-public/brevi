@@ -1,0 +1,6 @@
+n = int(input())
+print(-7 // 2, -7 % 2, 7 // -2, 7 % -2, divmod(-n, 3))
+print(-7 / 2, 7 / 2, 1 / 3, 2 / 3 * 3)
+print(round(2.5), round(3.5), round(-0.5), round(2.675, 2))
+print(int(-3.7), int(3.7), -n ** 2, (-n) ** 2)
+print(10 ** -2, 2 ** 0.5, 7.0 // 2, -7.0 % 3)
