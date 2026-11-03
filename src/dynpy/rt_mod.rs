@@ -1760,7 +1760,11 @@ pub fn run_main(f: fn() -> Result<(), E>) {
             Err(E(e)) => {
                 if is_exc(&e, "SystemExit") {
                     let code = match &e {
-                        V::Obj(o) => o.get("code").unwrap_or(V::None),
+                        // `raise SystemExit(3)` sets only args; sys.exit(3) sets code.
+                        V::Obj(o) => o.get("code").or_else(|| match o.get("args") {
+                            Some(V::Tuple(t)) if t.len() == 1 => Some(t[0].clone()),
+                            _ => None,
+                        }).unwrap_or(V::None),
                         _ => V::None,
                     };
                     match code {

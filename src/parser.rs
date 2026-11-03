@@ -1191,6 +1191,17 @@ impl Parser {
                         self.expr()?;
                     }
                 }
+                // `raise SystemExit(3)` ends the program like sys.exit(3).
+                match &e {
+                    Expr::Call(n, args, _) if self.py && n == "SystemExit" && args.len() <= 1 && args.iter().all(|a| a.0.is_none()) => {
+                        let code = args.first().map_or(Expr::Int(0), |a| a.1.clone());
+                        return Ok(Stmt::Expr { expr: Expr::Method(Box::new(code), "exit_with".into(), vec![], line), line });
+                    }
+                    Expr::Ident(n) if self.py && n == "SystemExit" => {
+                        return Ok(Stmt::Expr { expr: Expr::Method(Box::new(Expr::Int(0)), "exit_with".into(), vec![], line), line });
+                    }
+                    _ => {}
+                }
                 let class = match &e {
                     Expr::Call(n, _, _) | Expr::Ident(n) if n.chars().next().map_or(false, |c| c.is_uppercase()) => Some(n.clone()),
                     _ => None,
@@ -1530,6 +1541,20 @@ impl Parser {
             Expr::Method(recv, m, mut a, _) if m == "extend" && a.len() == 1 && !self.own_method(&recv) => Ok(Stmt::Assign { target: *recv, op: "+=", value: a.remove(0), line }),
             Expr::Method(recv, m, mut a, l) if m == "add" && a.len() == 1 && !self.own_method(&recv) => {
                 let x = a.remove(0);
+                if let Expr::Method(inner, sd, _, _) = recv.as_ref() {
+                    if sd == "__setdefault_add" {
+                        let Expr::Index(b, k) = inner.as_ref() else { unreachable!() };
+                        let has = Expr::Unary("!", Box::new(Expr::Method(b.clone(), "has".into(), vec![(**k).clone()], l)));
+                        let put = Stmt::Assign { target: (**inner).clone(), op: "=", value: Expr::Call("__zero".into(), vec![], line), line };
+                        let first = Stmt::Expr { expr: Expr::If(Box::new(has), Box::new(Expr::Block(vec![put], None)), None), line };
+                        let recv = inner.clone();
+                        let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l)));
+                        let push = Expr::Method(recv, "push".into(), vec![x], l);
+                        let then = Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line };
+                        self.pending.push(then);
+                        return Ok(first);
+                    }
+                }
                 let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l)));
                 let push = Expr::Method(recv, "push".into(), vec![x], l);
                 Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line })
@@ -1832,6 +1857,11 @@ impl Parser {
         // Python's `a ** b`: binds tighter than a minus on its left, and groups to the right.
         if self.eat_sym("**") {
             let e = self.unary()?;
+            // `10 ** -2` is 0.01 in Python: a negative literal power makes the result a float.
+            let base = match &e {
+                Expr::Unary("-", x) if self.py && matches!(x.as_ref(), Expr::Int(_)) => Expr::Method(Box::new(base), "float".into(), vec![], self.line()),
+                _ => base,
+            };
             return Ok(Expr::Binary("**", Box::new(base), Box::new(e)));
         }
         Ok(base)
@@ -2278,6 +2308,11 @@ impl Parser {
                             // first, so that a plain dict, whose missing keys raise KeyError, has it.)
                             if name == "setdefault" && args.len() == 2 && empty_literal(&args[1]) && (!self.py || self.is_sym(".")) {
                                 e = Expr::Index(Box::new(e), Box::new(args.remove(0)));
+                                // `m.setdefault(k, set()).add(x)`: add() first reads m[k] to test x, so the key
+                                // must be put in before (a plain dict's missing key raises KeyError).
+                                if self.py && matches!(self.peek_at(1), Tok::Ident(a) if a == "add") && !self.user_fns.iter().any(|f| f == "add") {
+                                    e = Expr::Method(Box::new(e), "__setdefault_add".into(), vec![], line);
+                                }
                                 continue;
                             }
                             // `xs.to_list()` / `xs.copy()`: a list already is one, so this is a copy.
@@ -2994,7 +3029,9 @@ impl Parser {
                     lit.push('}');
                     i += 2;
                 }
-                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) => {
+                // In Python files a lone `{` only reaches here from an f-string (the lexer doubles the braces of
+                // plain strings), so `{1/3:.3f}` and `{2*n}` are values too.
+                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'') || (self.py && (c.is_ascii_digit() || *c == '.'))) => {
                     lit.push('{');
                     i += 1;
                 }

@@ -1,0 +1,5 @@
+s = input()
+print(len(s), s.upper(), s[::-1], s[1:3])
+print([ord(c) for c in s[:3]], "é".encode("utf-8") if False else "ok")
+print(s.center(12, "*"), "|" + s.ljust(10) + "|")
+print(sorted(s.split()), "ß".upper(), "İ".lower() == "i̇")

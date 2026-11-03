@@ -204,7 +204,7 @@ fn main() {
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
-        let guard = std::fs::read_to_string(&file).ok().and_then(|s| typed_guard::check(&s));
+        let guard = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
             println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w)| format!("dyn {l}: {w}")));
             exit(0);
@@ -856,6 +856,41 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 }
 
 // None when rustc could not be started.
+// The typed-build guard over the file and the local modules it imports (directly or through each other).
+fn guard_files(file: &str) -> Option<(usize, String)> {
+    let dir = Path::new(file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    let mut todo = vec![PathBuf::from(file)];
+    let mut seen: Vec<PathBuf> = vec![];
+    while let Some(f) = todo.pop() {
+        if seen.contains(&f) {
+            continue;
+        }
+        seen.push(f.clone());
+        let Ok(src) = std::fs::read_to_string(&f) else { continue };
+        if let Some((line, why)) = typed_guard::check(&src) {
+            let why = if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
+            return Some((line, why));
+        }
+        for l in src.lines() {
+            let t = l.trim_start();
+            let names: Vec<&str> = if let Some(r) = t.strip_prefix("from ") {
+                r.split_whitespace().next().into_iter().collect()
+            } else if let Some(r) = t.strip_prefix("import ") {
+                r.split(',').filter_map(|x| x.split_whitespace().next()).collect()
+            } else {
+                vec![]
+            };
+            for n in names {
+                let m = dir.join(format!("{}.py", n.trim_start_matches('.')));
+                if m.exists() {
+                    todo.push(m);
+                }
+            }
+        }
+    }
+    None
+}
+
 // Builds are cached by a hash of the generated code, the flags and the rustc version, so running the same
 // program again (an agent re-running its tests, or an MCP call) skips rustc. BREVI_NO_CACHE=1 turns this off.
 fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
