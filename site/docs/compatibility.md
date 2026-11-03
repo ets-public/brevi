@@ -65,7 +65,7 @@ Python integers have no size limit, and neither do Brevi's. In typed builds a va
 
 ## Errors and run-time behaviour
 
-A Python file keeps Python's run-time behaviour: a mistake Python only finds when a line runs (an index out of range, a bad `int()` argument) raises at that point, with the same exception type. The exception is a sure mistake, a name that is never defined, a method no Python type has, or text added to a number: Brevi reports that before the program runs, with a fix, even inside a branch that might not run. Run-time error messages are shorter than CPython's tracebacks; error text on stderr is not part of the "same output" promise, but stdout and the exit status are.
+A Python file keeps Python's run-time behaviour: a mistake Python only finds when a line runs (an index out of range, a bad `int()` argument) raises at that point, with the same exception type. The exception is a sure mistake, a name that is never defined, a method no Python type has, or text added to a number: `brevi check` and `brevi build` report that before the program runs, with a fix, and `brevi run` names it in its fallback note. Code that may never run (under `sys.version_info`, `TYPE_CHECKING` or `if False`, or in an `except` block) is left alone. Run-time error messages are shorter than CPython's tracebacks; error text on stderr is not part of the "same output" promise, but stdout and the exit status are.
 
 ## Platforms
 

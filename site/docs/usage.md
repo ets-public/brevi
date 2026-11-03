@@ -55,13 +55,13 @@ Brevi tries the fastest way first and only moves on when it cannot match CPython
 
 ## The CPython fallback
 
-`brevi run x.py` gives a result whenever CPython would. When Brevi cannot build a file natively, it runs it with `python3` (or `$BREVI_PYTHON`) and prints one note on stderr naming the first line that stopped it:
+`brevi run x.py` always gives a result. When Brevi cannot build a file natively, it runs it with `python3` (or `$BREVI_PYTHON`) and prints one note on stderr naming the first line that stopped it:
 
 ```
 note: ran with python3; Brevi could not build line 2: expected ')', found end of line
 ```
 
-The one exception is a sure mistake (see [Errors](#errors)): `brevi run` reports it instead of running the file. A sandboxed program also never falls back.
+A sure mistake (see [Errors](#errors)) is named in the note the same way. A sandboxed program never falls back.
 
 Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a file builds natively: they never fall back, and print the errors instead.
 
@@ -86,11 +86,12 @@ There is no file path, column, error code or Rust in them. In a program over sev
 
 The program exits with status 101 after a runtime error, and with its own status after `sys.exit(n)`.
 
-**Sure mistakes in Python files are reported before the program runs.** A name that is never defined, a method no Python type has, and adding text to a number stop `check`, `build` and `run` with one error line and a hint, even inside a branch that might not run:
+**Sure mistakes in Python files are reported before the program runs.** A name that is never defined, a method no Python type has, and adding text to a number stop `check` and `build` with one error line and a hint. Code that may never run is left alone (branches under `sys.version_info`, `sys.platform`, `TYPE_CHECKING` or `if False`, and `except` blocks). `brevi run` falls back to python3 instead and names the mistake in its note:
 
 ```
 {"line":3,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
 {"line":2,"msg":"no Python type has a method .uppr()","fix":"did you mean .upper()?"}
+note: ran with python3; Brevi could not build line 3: name 'totl' is not defined
 ```
 
 Other mistakes that Python only finds when the line runs (an index out of range, a call with too few arguments, a failed `int("x")`) are left to run time: the program raises Python's own exception at that point, as CPython would. In Brevi's own `.bv` language every type mistake is reported before the program runs. To see everything Brevi's typed checks think of a Python file, run `BREVI_DYN=0 brevi check x.py`.
