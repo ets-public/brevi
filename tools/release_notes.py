@@ -9,5 +9,6 @@ m = re.search(r"^## " + re.escape(tag) + r"\b[^\n]*\n(.*?)(?=^## |\Z)", text, re
 body = m.group(1).strip() if m else "See CHANGELOG.md."
 print(body)
 print()
-print("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs; "
-      "`sh install.sh` fetches it and picks the right download.")
+print("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs. "
+      "On Linux and macOS, `sh install.sh` installs rustc if it is missing and picks the right download; on Windows, "
+      "install Rust with rustup and unzip the .zip. Details: https://brevi-lang.org/docs/install")

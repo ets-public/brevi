@@ -1,6 +1,6 @@
 # How Brevi works
 
-This document explains what Brevi does between a source file and a native program: which parts of `src/` run, in what order, and why. It describes `main` as of v0.22.
+This document explains what Brevi does between a source file and a native program: which parts of `src/` run, in what order, and why. It describes `main` as of v0.24.
 
 Brevi reads two kinds of input:
 
@@ -64,7 +64,7 @@ In words, for a Python file:
 
 1. **Guard.** `typed_guard.rs` reads the file (and the local modules it imports) and looks for code the typed build would answer differently from CPython, such as printing a set. If it finds any, the typed build is skipped.
 2. **Typed build (Brevi native).** The normal path: infer types, check, and emit plain Rust with fixed types. This is where the big speedups come from.
-3. **Dynamic build (Brevi native).** If the typed build fails at any stage (its own checks or `rustc`), the file is rebuilt over a dynamic value type that behaves like CPython's objects. Still native, no CPython involved, and silent: the user just gets a program.
+3. **Dynamic build (Brevi native).** If the typed build fails at any stage (its own checks or `rustc`), `pydiag.rs` first looks at the typed errors for sure mistakes: a name that is never defined, a method no Python type has, or text added to a number. Those are reported as errors (by every command, `brevi run` included) instead of being built. Otherwise the file is rebuilt over a dynamic value type that behaves like CPython's objects. Still native, no CPython involved, and silent: the user just gets a program.
 4. **CPython fallback (not native).** Only if the dynamic build refuses too. `brevi run x.py` then runs the file with `python3` and prints one note on stderr. `brevi build`, `brevi check` and `--native` (or `BREVI_NATIVE=1`) never fall back; they print the errors.
 
 A Brevi file only takes the typed path. Its errors go straight back to the model as JSON.

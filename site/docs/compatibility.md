@@ -65,7 +65,7 @@ Python integers have no size limit, and neither do Brevi's. In typed builds a va
 
 ## Errors and run-time behaviour
 
-A Python file keeps Python's run-time behaviour: a mistake Python only finds when a line runs raises at that point, with the same exception type. Brevi does not report it earlier, because that would change what the program does. Run-time error messages are shorter than CPython's tracebacks; error text on stderr is not part of the "same output" promise, but stdout and the exit status are.
+A Python file keeps Python's run-time behaviour: a mistake Python only finds when a line runs (an index out of range, a bad `int()` argument) raises at that point, with the same exception type. The exception is a sure mistake, a name that is never defined, a method no Python type has, or text added to a number: Brevi reports that before the program runs, with a fix, even inside a branch that might not run. Run-time error messages are shorter than CPython's tracebacks; error text on stderr is not part of the "same output" promise, but stdout and the exit status are.
 
 ## Platforms
 
@@ -83,4 +83,4 @@ These are tracked on the [roadmap](/docs/roadmap):
 - **Library programs the typed build rejects** fall back to CPython instead of building natively.
 - **Dynamic builds are slower** than typed ones; widening what the typed build accepts is ongoing work.
 - **`async`, `match` and `eval`** are not built natively.
-- **Cold builds** take about a second for a small program (a few seconds with `--release`), which matters for agents that build many one-off programs; repeat builds are cached.
+- **Cold builds** take about 0.15 to 0.3 seconds for a small program (a few seconds with `--release`), plus 5 to 15 seconds once for Brevi's runtime on the very first build. That still matters for agents that build many one-off programs; repeat builds are cached.
