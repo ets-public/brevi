@@ -170,6 +170,7 @@ Needs `rustc` on the PATH.
 
 | Path | What it is |
 | --- | --- |
+| `docs/ARCHITECTURE.md` | How a source file becomes a native program, with diagrams |
 | `src/lexer.rs`, `src/parser.rs`, `src/ast.rs` | Source to syntax tree |
 | `src/emit.rs` | Checks and Rust generation |
 | `src/prelude.rs` | Runtime pasted into every generated program |
