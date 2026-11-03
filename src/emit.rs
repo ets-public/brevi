@@ -4,7 +4,8 @@ use crate::ast::*;
 use crate::diag::Diag;
 use std::collections::{HashMap, HashSet};
 
-pub const PRELUDE: &str = include_str!("prelude.rs");
+// The allocator comes first so that the inner attribute can lead the file.
+pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("prelude.rs"));
 
 const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__exc_obj", "__exc_get", "__default", "__zero", "__truediv", "__readline", "__try_read", "__eprint"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
@@ -16,7 +17,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "csv_dicts", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "splice", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -24,7 +25,7 @@ const PURE_METHODS: &[&str] = &[
     "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "slice_step", "flatten", "enumerate_from",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of",
 ];
-const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
+const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "splice", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
 // Methods whose lambda may use `?`; the whole call then fails with the first error.
 const TRY_METHODS: &[&str] = &["map", "filter", "any", "all", "count", "fold", "sort_by"];
 // Methods whose lambda takes one item: `(a, b) => ...` there unpacks a tuple item.
@@ -39,6 +40,13 @@ struct FnSig {
 pub struct Emitter {
     // Locals set from set(...) / a - b on sets in this function, so `s - k` on them is set difference.
     set_vars: HashSet<String>,
+    // Local lists kept as AxSet (a list with a hash index, so `x in s` is O(1)); see fast_sets.
+    hash_sets: HashSet<String>,
+    // Per function: the parameters taken as AxSet (callers wrap a list they pass there).
+    set_params: HashMap<String, Vec<usize>>,
+    // Fields (".name") kept as AxSet everywhere, and the function's own lists kept as AxQueue.
+    set_fields: HashSet<String>,
+    queues: HashSet<String>,
     // Crates, rust fn and py fn code (see ffi.rs).
     pub foreign: crate::ffi::Foreign,
     // Files the program uses: (name, first line in the combined source, line count).
@@ -574,7 +582,7 @@ fn nested_lists(body: &Expr) -> HashSet<String> {
             j += 1;
         }
         let rest = &text[(j + 1).min(text.len())..];
-        if ["push", "pop_or", "pop", "insert", "remove", "clear", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
+        if ["push", "pop_or", "pop", "insert", "remove", "clear", "splice", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| rest.starts_with(&format!(", \"{m}\""))) {
             out.insert(name.to_string());
         }
     }
@@ -623,7 +631,7 @@ fn changes(e: &Expr, name: &str) -> bool {
     if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) || d.contains(&format!("target: TupleField(Ident({name:?})")) {
         return true;
     }
-    ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
+    ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "splice", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
 pub fn assigns_to(e: &Expr, name: &str) -> bool {
@@ -669,6 +677,10 @@ impl Emitter {
             json_ret: false,
             own_locals: HashSet::new(),
             set_vars: HashSet::new(),
+            hash_sets: HashSet::new(),
+            set_params: HashMap::new(),
+            set_fields: HashSet::new(),
+            queues: HashSet::new(),
             fn_texts: items
                 .iter()
                 .filter_map(|i| match i {
@@ -768,6 +780,8 @@ impl Emitter {
     fn field_ty(&self, owner: &str, f: &Field) -> String {
         if self.boxed.contains(&(owner.to_string(), f.name.clone())) {
             format!("AxB<{}>", rust_ty(&f.ty))
+        } else if self.set_fields.contains(&format!(".{}", f.name)) {
+            format!("AxSet<{}", &rust_ty(&f.ty)[4..])
         } else {
             rust_ty(&f.ty)
         }
@@ -909,6 +923,7 @@ impl Emitter {
                 Expr::Method(_, m, _, _) if m == "dec" || m == "big" => named(m),
                 Expr::Method(_, m, _, _) if m == "quantize" || m == "frac" || m == "frac_div" => named("dec"),
                 Expr::Method(_, m, _, _) if m == "csv_rows" => Some(Ty::List(Box::new(Ty::List(Box::new(Ty::Named("str".into())))))),
+                Expr::Method(_, m, _, _) if m == "csv_dicts" => Some(Ty::List(Box::new(Ty::Map(Box::new(Ty::Named("str".into())), Box::new(Ty::Named("str".into())))))),
                 Expr::Method(_, m, _, _) if m == "ints" => Some(Ty::List(Box::new(Ty::Named("int".into())))),
                 Expr::Call(n, _, _) if n == "read" => named("str"),
                 Expr::Call(n, _, _) if n == "json" => named("Json"),
@@ -1003,7 +1018,11 @@ impl Emitter {
             Expr::Method(_, m, _, _) => ["has", "is_empty", "contains", "starts_with", "ends_with", "any", "all", "is_digit", "is_alpha", "is_null", "bool", "is_upper", "is_lower", "is_alnum", "is_ascii", "is_leap", "isinstance"].contains(&m.as_str()),
             e => self.infer_ty(e).map_or(false, |t| matches!(&t, Ty::Named(n) if n == "bool")),
         };
-        let e = self.expr(c);
+        // `while q:` reads q in place (no copy of the whole list per test).
+        let e = match c {
+            Expr::Ident(n) if !plain && self.locals.contains(n) && self.global(n).is_none() => self.place(c),
+            _ => self.expr(c),
+        };
         if plain { e } else { format!("ax_t(&{e})") }
     }
 
@@ -1039,6 +1058,31 @@ impl Emitter {
         let prelude = if format!("{items:?}").contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
         let mut out = String::from(prelude);
         out.push('\n');
+        if self.py_mode && FAST_SETS.load(std::sync::atomic::Ordering::Relaxed) {
+            let mut fields = fast_set_fields(items);
+            for it in items {
+                if let Item::Type { fields: fs, .. } = it {
+                    for f in fs {
+                        if !rust_ty(&f.ty).starts_with("Vec<") || self.boxed.iter().any(|(_, b)| b == &f.name) {
+                            fields.remove(&format!(".{}", f.name));
+                        }
+                    }
+                }
+            }
+            self.set_fields = fields;
+            for it in items {
+                if let Item::Fn { name, params, body, script: false, .. } = it {
+                    if crate::ffi::foreign_body(body).is_some() {
+                        continue;
+                    }
+                    let good = fast_sets(body, &[]);
+                    let at: Vec<usize> = (0..params.len()).filter(|&i| !params[i].is_mut && good.contains(&params[i].name) && rust_ty(&params[i].ty).starts_with("Vec<")).collect();
+                    if !at.is_empty() {
+                        self.set_params.insert(name.clone(), at);
+                    }
+                }
+            }
+        }
         let fs: Vec<String> = self.files.iter().map(|(f, a, n)| format!("({f:?}, {a}, {n})")).collect();
         out.push_str(&format!("static AX_FILES: &[(&str, usize, usize)] = &[{}];\n", fs.join(", ")));
         out.push_str(&self.foreign.rust_top);
@@ -1210,6 +1254,8 @@ impl Emitter {
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
         self.own_locals.clear();
         self.set_vars.clear();
+        self.hash_sets.clear();
+        self.queues.clear();
         self.locals = params.iter().map(|p| p.name.clone()).collect();
         self.refs = params.iter().filter(|p| p.is_mut).map(|p| p.name.clone()).collect();
         self.fallible = fallible;
@@ -1219,6 +1265,17 @@ impl Emitter {
         self.begin_fn(params, fallible);
         self.nested = nested_lists(body);
         self.cur_body = format!("{body:?}");
+        if self.py_mode && FAST_SETS.load(std::sync::atomic::Ordering::Relaxed) {
+            self.hash_sets = fast_sets(body, params);
+            self.queues = fast_queues(body, params);
+            self.queues.retain(|n| !self.globals.contains_key(n));
+            let q = self.queues.clone();
+            self.hash_sets.retain(|n| !self.globals.contains_key(n) && !q.contains(n));
+            for &i in self.set_params.get(name).map_or(&[][..], |v| v.as_slice()) {
+                self.hash_sets.insert(params[i].name.clone());
+            }
+        }
+        let set_at: Vec<usize> = self.set_params.get(name).cloned().unwrap_or_default();
         // A top-level name that this function first sets to a value of another type is the function's own.
         let text = format!("{body:?}");
         // A program with `global x` lines follows Python: setting a top-level name anywhere in a
@@ -1252,7 +1309,8 @@ impl Emitter {
         self.json_ret = matches!(ret, Ty::Named(n) if n == "json" || n == "Json");
         let ps: Vec<String> = params
             .iter()
-            .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
+            .enumerate()
+            .map(|(i, p)| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else if set_at.contains(&i) { format!("mut {}: AxSet<{}", p.name, &rust_ty(&p.ty)[4..]) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
         let init = if name == "main" && !fallible { if self.py_mode { "ax_init(AX_FILES);\n    ax_py_mode();\n" } else { "ax_init(AX_FILES);\n" } } else { "" };
@@ -1558,6 +1616,11 @@ impl Emitter {
                     (None, Pat::Bind(n)) => self.empty_hint(n, line, value),
                     _ => String::new(),
                 };
+                let (v, t) = match name {
+                    Pat::Bind(n) if self.hash_sets.contains(n) => as_hash_set(v, t),
+                    Pat::Bind(n) if self.queues.contains(n) => as_wrap("AxQueue", v, t),
+                    _ => (v, t),
+                };
                 // `let` names can be changed too: Python has no constants, and models reassign them.
                 let p = if let Pat::Tuple(ps) = name { mut_binds(ps, &p) } else { p };
                 format!("let {}{p}{t} = {v};", if *mutable || matches!(name, Pat::Bind(_)) { "mut " } else { "" })
@@ -1578,6 +1641,13 @@ impl Emitter {
                 if hint.is_empty() && matches!(value, Expr::Call(f, a, _) if f == "none" && a.is_empty()) && !self.set_later(n) {
                     hint = ": i64".into();
                 }
+                let (v, hint) = if self.hash_sets.contains(n) {
+                    as_hash_set(v, hint)
+                } else if self.queues.contains(n) {
+                    as_wrap("AxQueue", v, hint)
+                } else {
+                    (v, hint)
+                };
                 format!("let mut {n}{hint} = {v};")
             }
             // `(a, b) = v` unpacks; new names are declared.
@@ -1616,6 +1686,12 @@ impl Emitter {
             }
             Stmt::Assign { target, op, value, .. } => {
                 let v = self.expr(value);
+                let v = match (target, *op) {
+                    (Expr::Ident(n), "=") if self.hash_sets.contains(n) => format!("AxSet::from({v})"),
+                    (Expr::Ident(n), "=") if self.queues.contains(n) => format!("AxQueue::from({v})"),
+                    (Expr::Field(_, f), "=") if self.set_fields.contains(&format!(".{f}")) => format!("AxSet::from({v})"),
+                    _ => v,
+                };
                 match (target, *op) {
                     (Expr::Index(base, idx), "=") => {
                         let b = self.place_mut(base);
@@ -2278,6 +2354,9 @@ impl Emitter {
                     // (Only `self`: other names passed by reference may be set to a new object, which the caller must see.)
                     Some(j) if p.is_mut && p.name == "self_" && matches!(&p.ty, Ty::Named(n) if self.marked.contains(n)) => ordered.push(format!("&mut ({})", plain[j])),
                     Some(j) if p.is_mut => ordered.push(format!("&mut {}", self.place_mut(&args[j].1))),
+                    Some(j) if self.set_params.get(name).is_some_and(|v| v.contains(&i)) && !matches!(&args[j].1, Expr::Ident(n) | Expr::Move(n) if self.hash_sets.contains(n)) => {
+                        ordered.push(format!("AxSet::from({})", plain[j]))
+                    }
                     Some(j) => ordered.push(plain[j].clone()),
                     None => {}
                 }
@@ -2349,6 +2428,7 @@ impl Emitter {
             let boxed = self.boxed.contains(&(owner.to_string(), f.name.clone()));
             match (s, &f.default) {
                 (Some(j), _) if boxed => parts.push(format!("{}: AxB::new({})", f.name, plain[*j])),
+                (Some(j), _) if self.set_fields.contains(&format!(".{}", f.name)) => parts.push(format!("{}: AxSet::from({})", f.name, plain[*j])),
                 (Some(j), _) => parts.push(format!("{}: {}", f.name, plain[*j])),
                 (None, Some(d)) => {
                     let v = self.expr(d);
@@ -2388,4 +2468,239 @@ fn own_break(body: &Expr) -> bool {
         }
     }
     go(body)
+}
+
+// Python's `in` on a list scans it; a local list (or a field of the program's classes) that is searched with
+// `in` and otherwise only added to, popped, counted, sorted or walked (a `seen` set, a `visited` list) is
+// kept as an AxSet, a Vec with a hash index, so `in` takes O(1) as on a CPython set. A local list taken from
+// the front (`q.popleft()`, `q.pop(0)`) and otherwise only added to, popped, read or walked is kept as an
+// AxQueue (a VecDeque), so taking from the front is O(1) as on a CPython deque. Builds with both off are
+// tried when one fails.
+pub static FAST_SETS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[derive(Clone, Copy, PartialEq)]
+enum FsMode {
+    Set,
+    Queue,
+}
+
+fn as_wrap(kind: &str, v: String, hint: String) -> (String, String) {
+    let hint = match hint.strip_prefix(": Vec<").and_then(|h| h.strip_suffix('>')) {
+        Some(inner) => format!(": {kind}<{inner}>"),
+        None => hint,
+    };
+    (format!("{kind}::from({v})"), hint)
+}
+
+fn as_hash_set(v: String, hint: String) -> (String, String) {
+    as_wrap("AxSet", v, hint)
+}
+
+fn fast_sets(body: &Expr, params: &[Param]) -> HashSet<String> {
+    fast_places(body, params, FsMode::Set).into_iter().filter(|k| !k.starts_with('.')).collect()
+}
+
+fn fast_queues(body: &Expr, params: &[Param]) -> HashSet<String> {
+    fast_places(body, params, FsMode::Queue).into_iter().filter(|k| !k.starts_with('.')).collect()
+}
+
+fn fast_places(body: &Expr, params: &[Param], mode: FsMode) -> HashSet<String> {
+    let mut good = HashSet::new();
+    let mut bad: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    fs_expr(body, mode, &mut good, &mut bad);
+    good.retain(|n| !bad.contains(n));
+    good
+}
+
+// Fields (as ".name") used only as sets in every function of the program.
+fn fast_set_fields(items: &[Item]) -> HashSet<String> {
+    let mut good = HashSet::new();
+    let mut bad = HashSet::new();
+    for it in items {
+        match it {
+            Item::Fn { body, .. } | Item::Test { body, .. } => fs_expr(body, FsMode::Set, &mut good, &mut bad),
+            Item::Type { fields, .. } => {
+                // A field with a default value (`seen: [int] = []`) is filled in where AxSet is not known.
+                for f in fields.iter().filter(|f| f.default.is_some()) {
+                    bad.insert(format!(".{}", f.name));
+                }
+            }
+            _ => {}
+        }
+    }
+    good.into_iter().filter(|k| k.starts_with('.') && !bad.contains(k)).collect()
+}
+
+// Methods an AxSet answers (its own, or the Vec's through Deref, which all read through &self).
+const FS_METHODS: [&str; 24] = [
+    "contains", "push", "pop", "remove", "len", "is_empty", "index_of", "sort", "min", "max", "sum", "any", "all", "count", "map", "filter",
+    "first", "last", "join", "rev", "sort_by", "enumerate", "count_of", "fold",
+];
+// Methods an AxQueue has.
+const FQ_METHODS: [&str; 7] = ["push", "pop", "pop_at", "insert", "len", "is_empty", "contains"];
+
+// The name (or ".field") of a place that could be kept as an AxSet or AxQueue.
+fn fs_key(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Ident(n) | Expr::Move(n) => Some(n.clone()),
+        Expr::Field(_, f) => Some(format!(".{f}")),
+        _ => None,
+    }
+}
+
+fn fs_base(e: &Expr, mode: FsMode, good: &mut HashSet<String>, bad: &mut HashSet<String>) {
+    if let Expr::Field(b, _) = e {
+        fs_expr(b, mode, good, bad);
+    }
+}
+
+fn fs_pat(p: &Pat, bad: &mut HashSet<String>) {
+    match p {
+        Pat::Bind(n) => {
+            bad.insert(n.clone());
+        }
+        Pat::Tuple(ps) | Pat::Variant(_, ps) => ps.iter().for_each(|q| fs_pat(q, bad)),
+        _ => {}
+    }
+}
+
+fn fs_root(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Index(b, _) | Expr::TupleField(b, _) => fs_root(b).or_else(|| fs_key(b)),
+        Expr::Field(b, _) => fs_key(e).or_else(|| fs_root(b)),
+        _ => None,
+    }
+}
+
+fn fs_expr(e: &Expr, mode: FsMode, good: &mut HashSet<String>, bad: &mut HashSet<String>) {
+    let go = |x: &Expr, good: &mut HashSet<String>, bad: &mut HashSet<String>| fs_expr(x, mode, good, bad);
+    let methods: &[&str] = if mode == FsMode::Set { &FS_METHODS } else { &FQ_METHODS };
+    match e {
+        Expr::Ident(n) | Expr::Move(n) => {
+            bad.insert(n.clone());
+        }
+        Expr::Method(r, m, args, _) if fs_key(r).is_some() && methods.contains(&m.as_str()) => {
+            let k = fs_key(r).unwrap();
+            let front = m == "pop_at" && matches!(args.as_slice(), [Expr::Int(0)]);
+            if mode == FsMode::Set && m == "contains" || mode == FsMode::Queue && front {
+                good.insert(k.clone());
+            }
+            if m == "pop_at" && !front {
+                bad.insert(k);
+            }
+            fs_base(r, mode, good, bad);
+            args.iter().for_each(|a| go(a, good, bad));
+        }
+        Expr::Binary("in", a, b) if fs_key(b).is_some() => {
+            if mode == FsMode::Set {
+                good.insert(fs_key(b).unwrap());
+            }
+            fs_base(b, mode, good, bad);
+            go(a, good, bad);
+        }
+        Expr::Index(b, i) if mode == FsMode::Queue && matches!(b.as_ref(), Expr::Ident(_) | Expr::Move(_)) => go(i, good, bad),
+        Expr::For(p, it, b) => {
+            fs_pat(p, bad);
+            if fs_key(it).is_some() {
+                fs_base(it, mode, good, bad);
+            } else {
+                go(it, good, bad);
+            }
+            go(b, good, bad);
+        }
+        Expr::Unary("!", x) if fs_key(x).is_some() => fs_base(x, mode, good, bad),
+        Expr::If(c, t, f) => {
+            if fs_key(c).is_some() {
+                fs_base(c, mode, good, bad);
+            } else {
+                go(c, good, bad);
+            }
+            go(t, good, bad);
+            if let Some(f) = f {
+                go(f, good, bad);
+            }
+        }
+        Expr::While(c, b) => {
+            if fs_key(c).is_some() {
+                fs_base(c, mode, good, bad);
+            } else {
+                go(c, good, bad);
+            }
+            go(b, good, bad);
+        }
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) => {}
+        Expr::Str(ps) => ps.iter().for_each(|p| {
+            if let StrPart::Interp(x) = p {
+                go(x, good, bad)
+            }
+        }),
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| go(x, good, bad)),
+        Expr::Map(ps) => ps.iter().for_each(|(k, v)| {
+            go(k, good, bad);
+            go(v, good, bad);
+        }),
+        Expr::Field(x, f) => {
+            bad.insert(format!(".{f}"));
+            go(x, good, bad);
+        }
+        Expr::Unary(_, x) | Expr::TupleField(x, _) | Expr::Try(x) => go(x, good, bad),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) => {
+            go(a, good, bad);
+            go(b, good, bad);
+        }
+        Expr::Call(_, args, _) => args.iter().for_each(|(_, a)| go(a, good, bad)),
+        Expr::Method(r, _, args, _) => {
+            go(r, good, bad);
+            args.iter().for_each(|a| go(a, good, bad));
+        }
+        Expr::Lambda(ps, b) => {
+            ps.iter().for_each(|p| {
+                bad.insert(p.clone());
+            });
+            go(b, good, bad);
+        }
+        Expr::Match(x, arms) => {
+            go(x, good, bad);
+            for (p, a) in arms {
+                fs_pat(p, bad);
+                go(a, good, bad);
+            }
+        }
+        Expr::Block(stmts, tail) => {
+            for s in stmts {
+                match s {
+                    // A string searched with `in` stays a string.
+                    Stmt::Let { name: Pat::Bind(n), value: Expr::Str(_), .. } | Stmt::Assign { target: Expr::Ident(n), value: Expr::Str(_), .. } => {
+                        bad.insert(n.clone());
+                    }
+                    Stmt::Let { name: Pat::Bind(_), value, .. } => go(value, good, bad),
+                    Stmt::Let { name, value, .. } => {
+                        fs_pat(name, bad);
+                        go(value, good, bad);
+                    }
+                    Stmt::Assign { target: Expr::Ident(_), op: "=" | "+=", value, .. } => go(value, good, bad),
+                    Stmt::Assign { target: t @ Expr::Field(b, _), op: "=" | "+=", value, .. } => {
+                        if matches!(value, Expr::Str(_)) {
+                            bad.insert(fs_key(t).unwrap());
+                        }
+                        go(b, good, bad);
+                        go(value, good, bad);
+                    }
+                    Stmt::Assign { target, value, .. } => {
+                        if let Some(r) = fs_root(target) {
+                            bad.insert(r);
+                        }
+                        go(target, good, bad);
+                        go(value, good, bad);
+                    }
+                    Stmt::Expr { expr, .. } | Stmt::Assert { cond: expr, .. } => go(expr, good, bad),
+                    Stmt::Return { value: Some(v), .. } => go(v, good, bad),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                go(t, good, bad);
+            }
+        }
+    }
 }

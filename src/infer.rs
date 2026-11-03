@@ -1174,6 +1174,7 @@ impl Cx<'_> {
             "words" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
+            "csv_dicts" => List(Box::new(Map(Box::new(Str), Box::new(Str)))),
             "re_groups" => List(Box::new(Str)),
             "re_span" => Tuple(vec![Int, Int]),
             "ints" => List(Box::new(Int)),
@@ -1616,7 +1617,7 @@ fn no_value(e: &Expr) -> bool {
         Expr::If(_, a, Some(b)) => stmt_branch(a) || stmt_branch(b),
         Expr::Call(n, _, _) => ["print", "write", "fail", "__eprint"].contains(&n.as_str()),
         // Changing a list or map is a statement even though remove and pop give a value.
-        Expr::Method(_, m, _, _) => ["push", "pop_or", "insert", "remove", "clear", "update", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].contains(&m.as_str()),
+        Expr::Method(_, m, _, _) => ["push", "pop_or", "insert", "remove", "clear", "splice", "update", "pop", "heap_push", "heap_pop", "heapify", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].contains(&m.as_str()),
         _ => false,
     }
 }
@@ -4043,7 +4044,7 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
                 }
             }
         }
-        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear", "heap_push", "heap_pop", "heap_push_pop", "heap_replace", "heapify", "pop_at", "pop_item", "update", "move_to_end"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
+        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear", "splice", "heap_push", "heap_pop", "heap_push_pop", "heap_replace", "heapify", "pop_at", "pop_item", "update", "move_to_end"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
         // `for b in self.backs: b[2] -= 1` changes the items of n's list in place.
         Expr::For(p, it, body) => {
             let mut src = it.as_ref();

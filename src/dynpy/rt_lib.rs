@@ -565,7 +565,21 @@ pub fn bi_iter(a: Args) -> R {
 pub fn bi_next(a: Args) -> R {
     a.want("next", 1, 2)?;
     let r = match &a.p[0] {
-        V::Iter(it) => it.borrow_mut().next()?,
+        V::Iter(it) => match coro_of(it) {
+            // A generator's return value travels on the StopIteration that next() raises.
+            Some(c) => {
+                let r = c.borrow_mut().resume(V::None);
+                match r {
+                    Ok(Some(v)) => Some(v),
+                    Ok(None) if a.p.len() == 1 => return Err(stop_with(V::None)),
+                    Ok(None) => None,
+                    Err(E(e)) if is_exc(&e, "StopIteration") && a.p.len() == 1 => return Err(E(e)),
+                    Err(E(e)) if is_exc(&e, "StopIteration") => None,
+                    Err(e) => return Err(e),
+                }
+            }
+            None => it.borrow_mut().next()?,
+        },
         V::Obj(o) => match o.cls.lookup("__next__") {
             Some(f) => match call(&f, Args::p(vec![a.p[0].clone()])) {
                 Ok(v) => Some(v),
@@ -2246,11 +2260,26 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
             _ => bad_method(o, name),
         },
         V::Iter(it) => match name {
-            "__next__" => match it.borrow_mut().next()? {
-                Some(v) => Ok(v),
-                None => Err(exc0("StopIteration")),
-            },
+            "__next__" => bi_next(Args::p(vec![o.clone()])),
             "__iter__" => Ok(o.clone()),
+            "send" => {
+                let c = match &*it.borrow() {
+                    It::Coro(c) => c.clone(),
+                    _ => return bad_method(o, name),
+                };
+                let r = c.borrow_mut().resume(a1(&a, name)?);
+                match r? {
+                    Some(v) => Ok(v),
+                    None => Err(stop_with(V::None)),
+                }
+            }
+            // A dropped or closed generator just stops (finally blocks around a yield are refused at build).
+            "close" => {
+                if let It::Coro(c) = &*it.borrow() {
+                    c.borrow_mut().close();
+                }
+                Ok(V::None)
+            }
             _ => bad_method(o, name),
         },
         V::View(v) => match name {

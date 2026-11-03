@@ -166,7 +166,7 @@ footer .end { margin-left: auto; }
   <div class="wrap intro">
     <div>
       <h1>The fast, safe target for AI-written Python.</h1>
-      <p class="lede">Brevi is built for AI coding agents. The agent writes the Python it already writes best; Brevi checks the whole program before it runs, answers each mistake with one short line the agent can act on, and builds a native binary that runs <strong>up to 11 times faster than CPython</strong>, with memory safety and overflow checks from Rust underneath.</p>
+      <p class="lede">Brevi is built for AI coding agents. The agent writes the Python it already writes best; Brevi checks the whole program before it runs, answers each mistake with one short line the agent can act on, and builds a native binary that runs <strong>2 to 40 times faster than CPython</strong>, with memory safety and overflow checks from Rust underneath.</p>
       <p class="status">Status: preview. The compiler, written in Rust, opens under the Apache-2.0 license with the first public release.</p>
     </div>
     <div class="term" aria-label="Example program and output">
@@ -222,9 +222,9 @@ bat: 1</pre>
         <span></span>
         <div class="benefits">
           <div>
-            <span class="fig">up to 11x faster</span>
+            <span class="fig">2x to 40x faster</span>
             <h3>Native speed from plain Python</h3>
-            <p>Brevi builds a Rust binary from your <code>.py</code> files. On the speed set below, the same Python programs run 1.3 to 11 times faster than under CPython, and close to hand-written Rust.</p>
+            <p>Brevi builds a Rust binary from your <code>.py</code> files. On the 12 programs below, the same Python files run 1.7 to 40 times faster than under CPython with a plain <code>brevi run</code>, and level with Codon with <code>--release</code>.</p>
           </div>
           <div>
             <span class="fig">checked before it runs</span>
@@ -315,25 +315,49 @@ print(<span class="s">"total: "</span> + n)</pre>
       <div class="sec-head">
         <p class="label">Benchmarks</p>
         <div>
-          <h2>The same Python, run by CPython and built by Brevi.</h2>
-          <p>Four programs from Brevi's speed set, written the plain way in Python and in Rust. The Python files are built by Brevi unchanged, and every program prints the same output in all three columns. Best of three runs, in seconds; lower is better.</p>
+          <h2>The same Python, built by Brevi, Codon and Nuitka.</h2>
+          <p>Unchanged Python files given to each compiler and checked against CPython's exact output. Speed is the best of three runs in seconds (lower is better), with Brevi's <code>--release</code> build; Codon refuses two of the programs.</p>
         </div>
       </div>
       <div class="tables">
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Run time, seconds</th><th class="n">CPython</th><th class="n">Built by Brevi</th><th class="n">Faster</th><th class="n">Hand-written Rust</th></tr>
+              <tr><th>Run time, seconds</th><th class="n">CPython</th><th class="n">Brevi</th><th class="n">Codon</th><th class="n">Nuitka</th></tr>
             </thead>
             <tbody>
-              <tr><td>Word counts, 2M words</td><td class="n">0.28</td><td class="n win">0.06</td><td class="n save">4.7x</td><td class="n">0.07</td></tr>
-              <tr><td>Dijkstra, 100k nodes</td><td class="n">2.19</td><td class="n win">0.40</td><td class="n save">5.5x</td><td class="n">0.21</td></tr>
-              <tr><td>Prime sieve to 5M</td><td class="n">0.86</td><td class="n win">0.08</td><td class="n save">10.8x</td><td class="n">0.03</td></tr>
-              <tr><td>Group 1M records</td><td class="n">0.49</td><td class="n win">0.37</td><td class="n save">1.3x</td><td class="n">0.10</td></tr>
+              <tr><td>Spectral norm</td><td class="n">2.67</td><td class="n">0.06</td><td class="n win">0.03</td><td class="n">3.41</td></tr>
+              <tr><td>N-body</td><td class="n">2.33</td><td class="n">0.08</td><td class="n win">0.05</td><td class="n">4.08</td></tr>
+              <tr><td>Objects</td><td class="n">1.97</td><td class="n win">0.07</td><td class="n">no build</td><td class="n">1.77</td></tr>
+              <tr><td>LCS table</td><td class="n">1.94</td><td class="n">0.06</td><td class="n win">0.05</td><td class="n">1.02</td></tr>
+              <tr><td>Prime sieve</td><td class="n">1.06</td><td class="n">0.08</td><td class="n win">0.03</td><td class="n">0.75</td></tr>
+              <tr><td>Grid BFS with a set</td><td class="n">1.40</td><td class="n win">0.13</td><td class="n">0.18</td><td class="n">1.21</td></tr>
+              <tr><td>Binary trees</td><td class="n">5.29</td><td class="n win">0.96</td><td class="n">no build</td><td class="n">2.45</td></tr>
+              <tr><td>Word counts</td><td class="n">0.34</td><td class="n win">0.06</td><td class="n">0.18</td><td class="n">0.28</td></tr>
+              <tr><td>Dijkstra</td><td class="n">2.34</td><td class="n">0.38</td><td class="n win">0.37</td><td class="n">2.57</td></tr>
+              <tr><td>Fannkuch</td><td class="n">5.37</td><td class="n win">1.26</td><td class="n win">1.26</td><td class="n">3.90</td></tr>
+              <tr><td>String building</td><td class="n">2.36</td><td class="n win">0.82</td><td class="n">1.82</td><td class="n">2.14</td></tr>
+              <tr><td>Group records</td><td class="n">0.68</td><td class="n win">0.26</td><td class="n">0.34</td><td class="n">0.64</td></tr>
             </tbody>
           </table>
-          <p class="note" style="margin-top: 14px;">Measured 2 November 2026 on one Linux machine. Grouping records is mostly string handling and map updates, where Brevi's generated code still has the most room to improve.</p>
+          <p class="note" style="margin-top: 14px;">Measured 3 November 2026 on one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 40x faster than CPython on every program. Nuitka links its own libpython and ran near CPython here.</p>
         </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Same result as CPython</th><th class="n">Brevi</th><th class="n">Codon</th><th class="n">Nuitka</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Agent programs (591)</td><td class="n win">591</td><td class="n">170</td><td class="n">591</td></tr>
+              <tr><td>Built, wrong output</td><td class="n win">0</td><td class="n">36</td><td class="n">0</td></tr>
+              <tr><td>Large programs (18)</td><td class="n win">18</td><td class="n">0</td><td class="n">18</td></tr>
+              <tr><td>Behaviour traps (13)</td><td class="n win">13</td><td class="n">4</td><td class="n">12</td></tr>
+            </tbody>
+          </table>
+          <p class="note" style="margin-top: 14px;">Agent programs are saved solutions from earlier benchmark runs; large programs have 200 to 750 lines over several files; traps cover big ints, <code>%</code> signs, float printing and the like. Each built program's output and exit status are compared byte for byte with CPython's. Method and logs: <code>bench/compare</code>.</p>
+        </div>
+      </div>
+      <div class="tables">
         <div class="table-wrap">
           <table>
             <thead>

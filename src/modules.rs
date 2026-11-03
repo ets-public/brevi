@@ -172,6 +172,7 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                     let at = if name.is_empty() { String::new() } else { format!("\"file\":\"{}\",", crate::diag::esc(&name)) };
                     format!("{{{at}\"line\":{},\"msg\":\"cannot read {}: {}\"}}", i + 1, crate::diag::esc(p), crate::diag::esc(&e.to_string()))
                 })?;
+                let body = fill_file_name(&body, &full);
                 seen.push(canon);
                 let shown = if name.is_empty() || py { p.to_string() } else { Path::new(&name).parent().map_or(p.into(), |d| d.join(p).to_string_lossy().to_string()) };
                 queue.push((shown, full, body, Some((name.clone(), i + 1))));
@@ -268,4 +269,81 @@ pub fn split_back(segs: &[Seg], joined: &str) -> Vec<(PathBuf, String)> {
             (s.path.clone(), format!("{}\n", part.join("\n")))
         })
         .collect()
+}
+
+// Python's `__file__`: the file's absolute path, written into the source as a string (outside strings and
+// comments), as CPython 3.9+ gives it for a script run by path.
+pub fn fill_file_name(src: &str, path: &Path) -> String {
+    if !src.contains("__file__") {
+        return src.to_string();
+    }
+    // `sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))` lets CPython find the program's
+    // other files; a build finds them already, so the line does nothing.
+    let src: String = src
+        .split_inclusive('\n')
+        .map(|l| {
+            let t = l.trim();
+            if (t.starts_with("sys.path.insert(") || t.starts_with("sys.path.append(")) && t.ends_with(')') && t.contains("__file__") {
+                let ind = &l[..l.len() - l.trim_start().len()];
+                format!("{ind}pass{}", if l.ends_with('\n') { "\n" } else { "" })
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+    // Then an `import os` that only served that line goes too (os itself would be run by CPython).
+    let os_used = src.lines().filter(|l| l.trim() != "import os").any(|l| {
+        let b = l.as_bytes();
+        l.match_indices("os").any(|(i, _)| (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_')) && b.get(i + 2).is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_')))
+    });
+    let src: String = if os_used { src } else { src.split_inclusive('\n').map(|l| if l.trim() == "import os" { l.replacen("import os", "pass", 1) } else { l.to_string() }).collect() };
+    let src = src.as_str();
+    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let lit = format!("\"{}\"", abs.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\""));
+    let b = src.as_bytes();
+    let mut out = String::with_capacity(src.len());
+    let mut i = 0;
+    let mut last = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'#' {
+            while i < b.len() && b[i] != b'\n' {
+                i += 1;
+            }
+        } else if c == b'"' || c == b'\'' {
+            let triple = i + 2 < b.len() && b[i + 1] == c && b[i + 2] == c;
+            let q = if triple { 3 } else { 1 };
+            i += q;
+            while i < b.len() {
+                if b[i] == b'\\' {
+                    i += 2;
+                } else if b[i] == c && (!triple || i + 2 < b.len() && b[i + 1] == c && b[i + 2] == c) {
+                    i += q;
+                    break;
+                } else if !triple && b[i] == b'\n' {
+                    break;
+                } else {
+                    i += 1;
+                }
+            }
+        } else if c.is_ascii_alphabetic() || c == b'_' {
+            let st = i;
+            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+                i += 1;
+            }
+            // A string prefix (r"", f'', b"") is read with its string on the next turn.
+            if i < b.len() && (b[i] == b'"' || b[i] == b'\'') && i - st <= 2 {
+                continue;
+            }
+            if &src[st..i] == "__file__" && (st == 0 || b[st - 1] != b'.') {
+                out.push_str(&src[last..st]);
+                out.push_str(&lit);
+                last = i;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out.push_str(&src[last..]);
+    out
 }

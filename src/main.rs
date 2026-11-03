@@ -204,7 +204,7 @@ fn main() {
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
-        let guard = std::fs::read_to_string(&file).ok().and_then(|s| typed_guard::check(&s));
+        let guard = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
             println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w)| format!("dyn {l}: {w}")));
             exit(0);
@@ -217,7 +217,11 @@ fn main() {
                 exit(0);
             }
             let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
-            d.fix = Some("sort it first (sorted(s)) where the order shows".into());
+            if why.contains(" set") {
+                d.fix = Some("sort it first (sorted(s)) where the order shows".into());
+            } else if why.contains("generator") {
+                d.fix = Some("move the yield out of the try/finally or with block, or build a list and return it".into());
+            }
             print_diag(&d);
             exit(1);
         }
@@ -235,6 +239,7 @@ fn main() {
     };
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
+    let src = modules::fill_file_name(&src, Path::new(&file));
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
@@ -283,9 +288,17 @@ fn main() {
         }
     }
     // Builds to try in order: with inferred types for empty values, then without (the errors shown come from the first).
-    let versions: Vec<(String, Option<String>)> = [true, false]
+    // Then the same two with Python's searched lists kept as plain Vecs (emit::FAST_SETS), should a hash
+    // index not fit (an item type without Hash).
+    let fast_sets = |on: bool| emit::FAST_SETS.store(on, std::sync::atomic::Ordering::Relaxed);
+    let versions: Vec<(String, Option<String>)> = [(true, true), (true, false), (false, true), (false, false)]
         .iter()
-        .filter_map(|&h| compile_to_rust(&src, true, h).ok().map(|r| (r, compile_to_rust(&src, false, h).ok())))
+        .filter_map(|&(f, h)| {
+            fast_sets(f);
+            let v = compile_to_rust(&src, true, h).ok().map(|r| (r, compile_to_rust(&src, false, h).ok()));
+            fast_sets(true);
+            v
+        })
         .fold(vec![], |mut vs, v| {
             if !vs.iter().any(|(r, _)| *r == v.0) {
                 vs.push(v);
@@ -337,9 +350,10 @@ fn main() {
             if cmd == "test" {
                 extra.push("--test");
             }
-            if release {
-                extra.extend(["-C", "opt-level=3"]);
-            }
+            // Without --release: opt-level 1 against the runtime library built at opt-level 3. On the
+            // comparison programs this runs 3x to 20x faster than an unoptimised build, within about 2x of
+            // --release, for about 0.3 s more build time (--release takes about 1.5 s more).
+            extra.extend(["-C", if release { "opt-level=3" } else { "opt-level=1" }]);
             if !rustc(&versions, &dir, &bin, &extra, true) {
                 fail(cmd);
             }
@@ -848,6 +862,41 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 }
 
 // None when rustc could not be started.
+// The typed-build guard over the file and the local modules it imports (directly or through each other).
+fn guard_files(file: &str) -> Option<(usize, String)> {
+    let dir = Path::new(file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    let mut todo = vec![PathBuf::from(file)];
+    let mut seen: Vec<PathBuf> = vec![];
+    while let Some(f) = todo.pop() {
+        if seen.contains(&f) {
+            continue;
+        }
+        seen.push(f.clone());
+        let Ok(src) = std::fs::read_to_string(&f) else { continue };
+        if let Some((line, why)) = typed_guard::check(&src) {
+            let why = if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
+            return Some((line, why));
+        }
+        for l in src.lines() {
+            let t = l.trim_start();
+            let names: Vec<&str> = if let Some(r) = t.strip_prefix("from ") {
+                r.split_whitespace().next().into_iter().collect()
+            } else if let Some(r) = t.strip_prefix("import ") {
+                r.split(',').filter_map(|x| x.split_whitespace().next()).collect()
+            } else {
+                vec![]
+            };
+            for n in names {
+                let m = dir.join(format!("{}.py", n.trim_start_matches('.')));
+                if m.exists() {
+                    todo.push(m);
+                }
+            }
+        }
+    }
+    None
+}
+
 // Builds are cached by a hash of the generated code, the flags and the rustc version, so running the same
 // program again (an agent re-running its tests, or an MCP call) skips rustc. BREVI_NO_CACHE=1 turns this off.
 fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
@@ -945,7 +994,7 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
                 return None;
             }
             let src = runtime_lib_source();
-            let mode = if release { "release" } else { "debug" };
+            let mode = if release { "release" } else { "dev-o3" };
             let dir = cache_dir().join("rt").join(format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1)));
             let lib = dir.join("libbrevi_rt.rlib");
             if lib.exists() {
@@ -957,9 +1006,8 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             std::fs::write(tmp.join("rt.rs"), &src).ok()?;
             let mut c = Command::new("rustc");
             c.args(["--edition", "2021", "--crate-type", "rlib", "--crate-name", "brevi_rt", "-A", "warnings", "-C", "overflow-checks=on"]);
-            if release {
-                c.args(["-C", "opt-level=3"]);
-            }
+            // Built once, so always optimised: programs built without --release call into it too.
+            c.args(["-C", "opt-level=3"]);
             c.arg("-o").arg(tmp.join("libbrevi_rt.rlib")).arg(tmp.join("rt.rs"));
             let ok = c.output().map_or(false, |o| o.status.success());
             let moved = ok && std::fs::rename(tmp.join("libbrevi_rt.rlib"), &lib).is_ok();

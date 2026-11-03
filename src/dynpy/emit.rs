@@ -482,6 +482,41 @@ fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
     }
     out
 }
+// Generators switch stacks with a few lines of assembly (rt_gen.rs), written for these targets.
+const GEN_OK: bool = cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(windows)));
+
+// The line of a yield inside a try that has a finally, or inside a with block.
+fn yield_in_cleanup(body: &[Stmt], inside: bool) -> Option<usize> {
+    for s in body {
+        let here = |b: &[Stmt]| -> Option<usize> { if has_yield(b) { Some(s.line) } else { None } };
+        let found = match &s.st {
+            St::Try(b, hs, e, f) => {
+                let guarded = f.is_some() || inside;
+                let mut r = yield_in_cleanup(b, guarded);
+                for h in hs {
+                    r = r.or_else(|| yield_in_cleanup(&h.body, guarded));
+                }
+                if let Some(e) = e {
+                    r = r.or_else(|| yield_in_cleanup(e, guarded));
+                }
+                if let Some(f) = f {
+                    r = r.or_else(|| here(f));
+                }
+                r
+            }
+            St::With(_, b) => here(b),
+            St::If(arms, els) => arms.iter().find_map(|(_, b)| yield_in_cleanup(b, inside)).or_else(|| els.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
+            St::While(_, b, e) | St::For(_, _, b, e) => yield_in_cleanup(b, inside).or_else(|| e.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
+            _ if inside => here(std::slice::from_ref(s)),
+            _ => None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
 fn has_yield(body: &[Stmt]) -> bool {
     let mut ex = vec![];
     stmt_exprs(body, &mut ex);
@@ -831,7 +866,17 @@ impl Em {
                 let st = self.store(n, "__w.clone()");
                 format!("{{ let __w = {vv}; {st} __w }}")
             }
-            Ex::Yield(_) | Ex::YieldFrom(_) => return Err(err(line, "generators (yield) are not supported in dynamic builds yet")),
+            Ex::Yield(x) => {
+                let xx = match x {
+                    Some(x) => self.ex(x, line)?,
+                    None => "V::None".into(),
+                };
+                self.q(&format!("gen_yield({xx})"))
+            }
+            Ex::YieldFrom(x) => {
+                let xx = self.ex(x, line)?;
+                self.q(&format!("gen_yield_from(&{xx})"))
+            }
         })
     }
     fn seq(&mut self, v: &[Ex], line: usize) -> ER<String> {
@@ -1602,7 +1647,14 @@ impl Em {
     // ---- functions and classes ----
     fn def(&mut self, d: &FuncDef) -> ER<String> {
         if has_yield(&d.body) {
-            return Err(err(d.line, "generators (yield) are not supported in dynamic builds yet"));
+            if !GEN_OK {
+                return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
+            }
+            // CPython runs a finally (or a with block's exit) when a generator left part way is dropped;
+            // here a dropped generator just stops.
+            if let Some(l) = yield_in_cleanup(&d.body, false) {
+                return Err(err(l, "a yield inside try/finally or with is not supported in dynamic builds"));
+            }
         }
         let mut v = self.closure(&d.name, &d.params, &d.body, d.line, true)?;
         for dec in d.decorators.iter().rev() {
@@ -1615,6 +1667,7 @@ impl Em {
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
     fn closure(&mut self, name: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
         let id = self.id();
+        let is_gen = has_yield(body);
         let params = lambda_params(p);
         let sc = scope_of(body, &params);
         let inner_free = nested_free(body);
@@ -1716,7 +1769,11 @@ impl Em {
         let unpack: String = (0..nparams).map(|k| format!("__b.next().unwrap()")).collect::<Vec<_>>().join(", ");
         if captures.is_empty() && (at_top || in_class_top) {
             // a plain Rust function
-            write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
+            if is_gen {
+                write!(self.items, "fn {fname}({}) -> R {{ Ok(make_gen(move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
+            } else {
+                write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
+            }
             let need_defaults = dflt_all.iter().any(|d| d != "V::Unbound");
             if is_def && at_top && !star && !kwstar && p.kwonly.is_empty() {
                 // direct calls: defaults kept in global slots
@@ -1741,6 +1798,12 @@ impl Em {
         // a closure
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
         let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
+        if is_gen {
+            return Ok(format!(
+                "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok(make_gen(move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
+                dflt_all.join(", ")
+            ));
+        }
         Ok(format!(
             "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}",
             dflt_all.join(", ")
