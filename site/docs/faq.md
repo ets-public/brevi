@@ -48,7 +48,7 @@ Brevi programs are memory-safe, and integers never silently overflow. A program 
 
 ## Does it cost more tokens than Python?
 
-No. In the release test for v0.24.0, Brevi cost 1.07x (Sonnet) and 1.00x (Haiku) of the same models running Python with CPython, within the 10% bar, with every task passing (the two runs before, on the same tasks, gave 0.97x and 1.01x). The latest check, on main after v0.24.3, gave 1.06x and 0.96x. On heavy tasks, where the model would otherwise hand-optimise for CPython, it costs about half.
+No. In the release test for v0.24.0, Brevi cost 1.07x (Sonnet) and 1.00x (Haiku) of the same models running Python with CPython, within the 10% bar, with every task passing (the two runs before, on the same tasks, gave 0.97x and 1.01x). For v0.24.4, over four runs, it gave 1.07x and 1.03x. On heavy tasks, where the model would otherwise hand-optimise for CPython, it costs about half.
 
 ## Which platforms?
 
