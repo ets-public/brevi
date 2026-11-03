@@ -374,8 +374,15 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     }
     None
 }
-fn big2(a: &V, b: &V) -> (Big, Big) {
-    (big_of(a).unwrap(), big_of(b).unwrap())
+// Borrows a big int instead of copying it (its limbs can be megabytes).
+fn big_cow(a: &V) -> std::borrow::Cow<'_, Big> {
+    match a {
+        V::Big(b) => std::borrow::Cow::Borrowed(&**b),
+        _ => std::borrow::Cow::Owned(big_of(a).unwrap()),
+    }
+}
+fn big2<'a>(a: &'a V, b: &'a V) -> (std::borrow::Cow<'a, Big>, std::borrow::Cow<'a, Big>) {
+    (big_cow(a), big_cow(b))
 }
 fn zdiv(f: bool) -> E {
     if f {
@@ -493,7 +500,8 @@ pub fn binop(a: &V, b: &V, op: &str) -> R {
     }
     match (a, b) {
         (x, y) if is_intlike(x) && is_intlike(y) => {
-            let (p, q) = big2(x, y);
+            let (pc, qc) = big2(x, y);
+            let (p, q): (&Big, &Big) = (&pc, &qc);
             match op {
                 "+" => return Ok(p.add(&q).norm()),
                 "-" => return Ok(p.sub(&q).norm()),
