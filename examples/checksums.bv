@@ -1,5 +1,5 @@
 use sha2 "0.10"
-use base64 "0.22"
+use base64 "0.23.1"
 rust fn sha256(s: str) -> str:
   use sha2::{Digest, Sha256};
   format!("{:x}", Sha256::digest(s.as_bytes()))

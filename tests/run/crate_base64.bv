@@ -1,0 +1,12 @@
+# base64 0.23: Engine encode/decode, a decode error becomes a Brevi error.
+use base64 "0.23.1"
+rust fn b64(s: str) -> str:
+  use base64::Engine;
+  base64::engine::general_purpose::STANDARD.encode(s.as_bytes())
+rust fn unb64(s: str) -> str !:
+  use base64::Engine;
+  let bytes = base64::engine::general_purpose::STANDARD.decode(s.as_bytes())?;
+  Ok(String::from_utf8(bytes)?)
+print(b64("hello"))
+print(unb64("aGVsbG8=").or("error"))
+print(unb64("!!").or("error"))
