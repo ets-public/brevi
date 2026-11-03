@@ -1301,48 +1301,121 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
     }
     // Methods on d[k] that change it (and so go through the typed build's insert-on-miss path).
     const CHANGES: &[&str] = &["append", "extend", "add", "update", "insert", "appendleft", "discard", "remove", "pop", "popleft", "clear", "setdefault", "sort"];
-    let mut read_at: Option<usize> = None;
-    let mut seen = false;
-    sts(body, &mut |s| {
-        let mut safe: Vec<*const Ex> = vec![];
-        let mut inner: Vec<*const Ex> = vec![];
-        match &s.st {
-            St::Assign(ts, _) => ts.iter().for_each(|t| safe.push(t as *const Ex)),
-            St::AugAssign(t, _, _) => safe.push(t as *const Ex),
-            St::Del(xs) => xs.iter().for_each(|t| safe.push(t as *const Ex)),
-            _ => {}
+    // A loop over a defaultdict's keys (`for k in d`, `sorted(d)`, `d.items()`): reading `d2[k]` with that k
+    // finds the key (in d; also taken as found in another defaultdict filled by the same loop, `inn[mo]` and
+    // `out[mo]`), so it puts nothing in.
+    fn over_keys(it: &Ex, dds: &HashSet<String>, key: &dyn Fn(&Ex) -> Option<String>) -> bool {
+        match it {
+            Ex::Call(f, a) => match (f.as_ref(), a.first()) {
+                (Ex::Attr(o, m), _) if matches!(m.as_str(), "keys" | "items") => key(o).is_some_and(|k| dds.contains(&k)),
+                (Ex::Name(n), Some(Arg::Pos(x))) if matches!(n.as_str(), "sorted" | "list" | "reversed") => over_keys(x, dds, key),
+                _ => false,
+            },
+            x => key(x).is_some_and(|k| dds.contains(&k)),
         }
-        walk_st(&s.st, &mut |e| {
-            match e {
-                Ex::Call(f, _) => {
-                    if let Ex::Attr(o, m) = f.as_ref() {
-                        if CHANGES.contains(&m.as_str()) && matches!(o.as_ref(), Ex::Index(..)) {
-                            safe.push(o.as_ref() as *const Ex);
-                        }
-                        // `d.get(k)`, `d.setdefault(...)`, `d.pop(k, ...)`: the dict itself is not looked at.
-                        if key(o).is_some_and(|k| dds.contains(&k)) && matches!(m.as_str(), "get" | "setdefault" | "pop") {
-                            inner.push(o.as_ref() as *const Ex);
-                        }
+    }
+    struct Scan<'a> {
+        dds: &'a HashSet<String>,
+        key: &'a dyn Fn(&Ex) -> Option<String>,
+        read_at: Option<usize>,
+        seen: bool,
+    }
+    fn scan(body: &[Stmt], keys: &[String], sc: &mut Scan) {
+        let mut keys = keys.to_vec();
+        for s in body {
+            // `a = min(d, key=...)`: a is one of d's keys from here on.
+            if let St::Assign(ts, Ex::Call(f, a)) = &s.st {
+                if let ([Ex::Name(n)], Ex::Name(m), Some(Arg::Pos(x))) = (ts.as_slice(), f.as_ref(), a.first()) {
+                    if matches!(m.as_str(), "min" | "max") && over_keys(x, sc.dds, sc.key) {
+                        keys.push(n.clone());
                     }
                 }
-                Ex::Index(b, _) if key(b).is_some_and(|k| dds.contains(&k)) => {
-                    inner.push(b.as_ref() as *const Ex);
-                    if !safe.contains(&(e as *const Ex)) {
-                        read_at.get_or_insert(s.line);
-                    }
-                }
-                // `self.d` reached through its Attr: the Name `self` under it is not the dict.
-                Ex::Attr(o, _) if key(e).is_some_and(|k| dds.contains(&k)) => {
-                    if !inner.contains(&(e as *const Ex)) {
-                        seen = true;
-                    }
-                    inner.push(o.as_ref() as *const Ex);
-                }
-                Ex::Name(n) if dds.contains(n) && !inner.contains(&(e as *const Ex)) && !safe.contains(&(e as *const Ex)) => seen = true,
+            }
+            let keys = keys.as_slice();
+            let mut safe: Vec<*const Ex> = vec![];
+            let mut inner: Vec<*const Ex> = vec![];
+            match &s.st {
+                St::Assign(ts, _) => ts.iter().for_each(|t| safe.push(t as *const Ex)),
+                St::AugAssign(t, _, _) => safe.push(t as *const Ex),
+                St::Del(xs) => xs.iter().for_each(|t| safe.push(t as *const Ex)),
                 _ => {}
             }
-        });
-    });
+            let (dds, key) = (sc.dds, sc.key);
+            let (mut read_at, mut seen) = (sc.read_at, sc.seen);
+            // `max(d, key=lambda k: d[k])`: the lambda is given the keys.
+            let mut lam: Vec<String> = vec![];
+            walk_st(&s.st, &mut |e| {
+                match e {
+                    Ex::Call(f, a) => {
+                        if let (Ex::Name(n), Some(Arg::Pos(x))) = (f.as_ref(), a.first()) {
+                            if matches!(n.as_str(), "min" | "max" | "sorted") && over_keys(x, dds, key) {
+                                for k in a {
+                                    if let Arg::Kw(w, Ex::Lambda(p, _)) = k {
+                                        if w == "key" {
+                                            lam.extend(p.pos.first().map(|q| q.0.clone()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if let Ex::Attr(o, m) = f.as_ref() {
+                            if CHANGES.contains(&m.as_str()) && matches!(o.as_ref(), Ex::Index(..)) {
+                                safe.push(o.as_ref() as *const Ex);
+                            }
+                            // `d.get(k)`, `d.setdefault(...)`, `d.pop(k, ...)`: the dict itself is not looked at.
+                            if key(o).is_some_and(|k| dds.contains(&k)) && matches!(m.as_str(), "get" | "setdefault" | "pop") {
+                                inner.push(o.as_ref() as *const Ex);
+                            }
+                        }
+                    }
+                    Ex::Index(b, i) if key(b).is_some_and(|k| dds.contains(&k)) => {
+                        inner.push(b.as_ref() as *const Ex);
+                        let found = matches!(i.as_ref(), Ex::Name(k) if keys.contains(k) || lam.contains(k));
+                        if !safe.contains(&(e as *const Ex)) && !found {
+                            read_at.get_or_insert(s.line);
+                        }
+                    }
+                    // `self.d` reached through its Attr: the Name `self` under it is not the dict.
+                    Ex::Attr(o, _) if key(e).is_some_and(|k| dds.contains(&k)) => {
+                        if !inner.contains(&(e as *const Ex)) {
+                            seen = true;
+                        }
+                        inner.push(o.as_ref() as *const Ex);
+                    }
+                    Ex::Name(n) if dds.contains(n) && !inner.contains(&(e as *const Ex)) && !safe.contains(&(e as *const Ex)) => seen = true,
+                    _ => {}
+                }
+            });
+            sc.read_at = read_at;
+            sc.seen = seen;
+            match &s.st {
+                St::Def(d) => scan(&d.body, &[], sc),
+                St::Class(c) => scan(&c.body, &[], sc),
+                St::For(t, it, b, els) => {
+                    let mut ks = keys.to_vec();
+                    if over_keys(it, sc.dds, sc.key) {
+                        match t {
+                            Ex::Name(k) => ks.push(k.clone()),
+                            Ex::Tuple(v) => {
+                                if let Some(Ex::Name(k)) = v.first() {
+                                    ks.push(k.clone());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    scan(b, &ks, sc);
+                    if let Some(e) = els {
+                        scan(e, keys, sc);
+                    }
+                }
+                st => each_block(st, &mut |b| scan(b, keys, sc)),
+            }
+        }
+    }
+    let mut sc = Scan { dds: &dds, key: &key, read_at: None, seen: false };
+    scan(body, &[], &mut sc);
+    let (read_at, seen) = (sc.read_at, sc.seen);
     match (read_at, seen) {
         (Some(line), true) => Some((line, "reading a missing key of a defaultdict puts the key in, which the typed build does not".into())),
         _ => None,
