@@ -1126,6 +1126,18 @@ mod tests {
         assert!(!needs("xs = [3, 1]\nprint(xs, sorted(set(xs)))\n"));
     }
     #[test]
+    fn string_set_walks_wait_for_rustc() {
+        use super::check_soft;
+        // Named for the typed build to check (rustc proves the items are strings), not refused outright.
+        assert_eq!(check_soft("ws = set('a b a'.split())\nfor w in ws:\n    print(w)\n").map(|x| x.2), Some(vec!["s:ws".to_string()]));
+        // A set made by a function, or bound as a loop variable, cannot be checked by name.
+        assert_eq!(check_soft("def f():\n    return {'a'}\nfor w in f():\n    print(w)\n").map(|x| x.2), Some(vec![]));
+        assert_eq!(check_soft("for s in [{'a'}]:\n    for w in s:\n        print(w)\n").map(|x| x.2.is_empty()), Some(true));
+        // Order-free consumers of a comprehension over a set.
+        assert!(!needs("s = {3, 1}\nprint(max(x * 2 for x in s), sorted(x for x in s), any(x > 2 for x in s))\n"));
+        assert!(needs("s = {3, 1}\nprint(max((x for x in s), key=lambda v: v % 2))\n"));
+    }
+    #[test]
     fn print_argument_changed_later() {
         assert!(needs("from collections import deque\nq = deque([1, 2])\nprint(q, q.popleft())\n"));
         assert!(!needs("q = [1, 2]\nprint(q.pop(), len([]))\n"));
