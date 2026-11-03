@@ -4147,6 +4147,133 @@ pub fn ax_gp<T>(p: *mut Option<T>, name: &str) -> &'static mut T {
         None => panic!("{name} is used before it is set"),
     }
 }
+// ---- hash-indexed list: a Python set (or a list only added to, searched and walked) whose `in` is O(1) ----
+// The items stay in a Vec in the order they were added, so everything that reads the list sees what it
+// would see in a plain Vec; past a few items a count of each item answers `in` without a scan.
+pub struct AxSet<T> {
+    v: Vec<T>,
+    // Built on the first search past AX_SET_SCAN items, then kept up to date; a cell so `x in s` can
+    // build it through a shared reference.
+    n: std::cell::UnsafeCell<Option<HashMap<T, u32, BuildHasherDefault<AxHasher>>>>,
+}
+const AX_SET_SCAN: usize = 12;
+impl<T: Hash + Eq + Clone> AxSet<T> {
+    fn ax_ix(&self) -> &HashMap<T, u32, BuildHasherDefault<AxHasher>> {
+        // Only this type touches the cell, and no reference into it outlives a call.
+        let n = unsafe { &mut *self.n.get() };
+        if n.is_none() {
+            let mut m: HashMap<T, u32, BuildHasherDefault<AxHasher>> = HashMap::default();
+            m.reserve(self.v.len());
+            for x in &self.v {
+                *m.entry(x.clone()).or_insert(0) += 1;
+            }
+            *n = Some(m);
+        }
+        n.as_ref().unwrap()
+    }
+    fn ax_drop(&mut self, x: &T) {
+        if let Some(m) = self.n.get_mut().as_mut() {
+            if let Some(c) = m.get_mut(x) {
+                *c -= 1;
+                if *c == 0 {
+                    m.remove(x);
+                }
+            }
+        }
+    }
+    pub fn ax_contains(&self, x: &T) -> bool {
+        if self.v.len() <= AX_SET_SCAN && unsafe { (*self.n.get()).is_none() } {
+            return self.v.iter().any(|y| y == x);
+        }
+        self.ax_ix().contains_key(x)
+    }
+    pub fn ax_push(&mut self, x: T) {
+        if let Some(m) = self.n.get_mut().as_mut() {
+            *m.entry(x.clone()).or_insert(0) += 1;
+        }
+        self.v.push(x);
+    }
+    pub fn ax_pop(&mut self) -> T {
+        let x = self.v.pop().expect("pop from empty list");
+        self.ax_drop(&x);
+        x
+    }
+    pub fn ax_remove(&mut self, i: i64) -> T {
+        let j = ax_idx(i, self.v.len());
+        let x = self.v.remove(j);
+        self.ax_drop(&x);
+        x
+    }
+}
+impl<T> std::ops::Deref for AxSet<T> {
+    type Target = Vec<T>;
+    fn deref(&self) -> &Vec<T> {
+        &self.v
+    }
+}
+impl<T> From<Vec<T>> for AxSet<T> {
+    fn from(v: Vec<T>) -> Self {
+        AxSet { v, n: Default::default() }
+    }
+}
+impl<T> Default for AxSet<T> {
+    fn default() -> Self {
+        AxSet { v: Vec::new(), n: Default::default() }
+    }
+}
+impl<T: Clone> Clone for AxSet<T> {
+    // A copy starts without the index; it is built again when searched.
+    fn clone(&self) -> Self {
+        AxSet { v: self.v.clone(), n: Default::default() }
+    }
+}
+impl<T: PartialEq> PartialEq for AxSet<T> {
+    fn eq(&self, o: &Self) -> bool {
+        self.v == o.v
+    }
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for AxSet<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        self.v.fmt(f)
+    }
+}
+impl<T: Show + 'static> Show for AxSet<T> {
+    fn show(&self) -> String {
+        self.v.show()
+    }
+}
+impl<T> AxTruth for AxSet<T> {
+    fn ax_truth(&self) -> bool {
+        !self.v.is_empty()
+    }
+}
+impl<T> AxEach for AxSet<T> {
+    type It = std::vec::IntoIter<T>;
+    fn ax_each(self) -> Self::It {
+        self.v.into_iter()
+    }
+}
+impl<'a, T> IntoIterator for &'a AxSet<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.v.iter()
+    }
+}
+impl<T: Hash + Eq + Clone> AxIn<T> for AxSet<T> {
+    fn ax_in(&self, x: &T) -> bool {
+        self.ax_contains(x)
+    }
+}
+impl<T: Hash + Eq + Clone> Plus<Vec<T>> for AxSet<T> {
+    type Out = AxSet<T>;
+    fn plus(mut self, o: Vec<T>) -> AxSet<T> {
+        for x in o {
+            self.ax_push(x);
+        }
+        self
+    }
+}
 // ---- end of prelude ----
 
 // `x in xs`: a map key, a list item, or a substring.
@@ -4529,10 +4656,27 @@ impl<T: Clone + PartialOrd> AxBits for Vec<T> {
         v
     }
     fn ax_band(self, o: Vec<T>) -> Vec<T> {
-        let mut v: Vec<T> = self.into_iter().filter(|x| o.contains(x)).collect();
+        let o = ax_sorted_for_search(o);
+        let mut v: Vec<T> = self.into_iter().filter(|x| ax_sorted_has(&o, x)).collect();
         v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         v.dedup_by(|a, b| a == b);
         v
+    }
+}
+// Set algebra on lists: the other side sorted once, then binary searched (O(n log m), not O(n * m)).
+fn ax_sorted_for_search<T: PartialOrd>(mut o: Vec<T>) -> Vec<T> {
+    if o.len() > 8 {
+        o.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    }
+    o
+}
+fn ax_sorted_has<T: PartialOrd>(o: &[T], x: &T) -> bool {
+    if o.len() <= 8 {
+        return o.iter().any(|y| y == x);
+    }
+    match o.binary_search_by(|y| y.partial_cmp(x).unwrap_or(std::cmp::Ordering::Equal)) {
+        Ok(i) => o[i] == *x,
+        Err(_) => false,
     }
 }
 pub trait AxSetSub {
@@ -4540,7 +4684,8 @@ pub trait AxSetSub {
 }
 impl<T: Clone + PartialOrd> AxSetSub for Vec<T> {
     fn ax_set_sub(self, o: Vec<T>) -> Vec<T> {
-        let mut v: Vec<T> = self.into_iter().filter(|x| !o.contains(x)).collect();
+        let o = ax_sorted_for_search(o);
+        let mut v: Vec<T> = self.into_iter().filter(|x| !ax_sorted_has(&o, x)).collect();
         v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         v.dedup_by(|a, b| a == b);
         v

@@ -39,6 +39,10 @@ struct FnSig {
 pub struct Emitter {
     // Locals set from set(...) / a - b on sets in this function, so `s - k` on them is set difference.
     set_vars: HashSet<String>,
+    // Local lists kept as AxSet (a list with a hash index, so `x in s` is O(1)); see fast_sets.
+    hash_sets: HashSet<String>,
+    // Per function: the parameters taken as AxSet (callers wrap a list they pass there).
+    set_params: HashMap<String, Vec<usize>>,
     // Crates, rust fn and py fn code (see ffi.rs).
     pub foreign: crate::ffi::Foreign,
     // Files the program uses: (name, first line in the combined source, line count).
@@ -669,6 +673,8 @@ impl Emitter {
             json_ret: false,
             own_locals: HashSet::new(),
             set_vars: HashSet::new(),
+            hash_sets: HashSet::new(),
+            set_params: HashMap::new(),
             fn_texts: items
                 .iter()
                 .filter_map(|i| match i {
@@ -1003,7 +1009,11 @@ impl Emitter {
             Expr::Method(_, m, _, _) => ["has", "is_empty", "contains", "starts_with", "ends_with", "any", "all", "is_digit", "is_alpha", "is_null", "bool", "is_upper", "is_lower", "is_alnum", "is_ascii", "is_leap", "isinstance"].contains(&m.as_str()),
             e => self.infer_ty(e).map_or(false, |t| matches!(&t, Ty::Named(n) if n == "bool")),
         };
-        let e = self.expr(c);
+        // `while q:` reads q in place (no copy of the whole list per test).
+        let e = match c {
+            Expr::Ident(n) if !plain && self.locals.contains(n) && self.global(n).is_none() => self.place(c),
+            _ => self.expr(c),
+        };
         if plain { e } else { format!("ax_t(&{e})") }
     }
 
@@ -1039,6 +1049,20 @@ impl Emitter {
         let prelude = if format!("{items:?}").contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
         let mut out = String::from(prelude);
         out.push('\n');
+        if self.py_mode && FAST_SETS.load(std::sync::atomic::Ordering::Relaxed) {
+            for it in items {
+                if let Item::Fn { name, params, body, script: false, .. } = it {
+                    if crate::ffi::foreign_body(body).is_some() {
+                        continue;
+                    }
+                    let good = fast_sets(body, &[]);
+                    let at: Vec<usize> = (0..params.len()).filter(|&i| !params[i].is_mut && good.contains(&params[i].name) && rust_ty(&params[i].ty).starts_with("Vec<")).collect();
+                    if !at.is_empty() {
+                        self.set_params.insert(name.clone(), at);
+                    }
+                }
+            }
+        }
         let fs: Vec<String> = self.files.iter().map(|(f, a, n)| format!("({f:?}, {a}, {n})")).collect();
         out.push_str(&format!("static AX_FILES: &[(&str, usize, usize)] = &[{}];\n", fs.join(", ")));
         out.push_str(&self.foreign.rust_top);
@@ -1210,6 +1234,7 @@ impl Emitter {
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
         self.own_locals.clear();
         self.set_vars.clear();
+        self.hash_sets.clear();
         self.locals = params.iter().map(|p| p.name.clone()).collect();
         self.refs = params.iter().filter(|p| p.is_mut).map(|p| p.name.clone()).collect();
         self.fallible = fallible;
@@ -1219,6 +1244,14 @@ impl Emitter {
         self.begin_fn(params, fallible);
         self.nested = nested_lists(body);
         self.cur_body = format!("{body:?}");
+        if self.py_mode && FAST_SETS.load(std::sync::atomic::Ordering::Relaxed) {
+            self.hash_sets = fast_sets(body, params);
+            self.hash_sets.retain(|n| !self.globals.contains_key(n));
+            for &i in self.set_params.get(name).map_or(&[][..], |v| v.as_slice()) {
+                self.hash_sets.insert(params[i].name.clone());
+            }
+        }
+        let set_at: Vec<usize> = self.set_params.get(name).cloned().unwrap_or_default();
         // A top-level name that this function first sets to a value of another type is the function's own.
         let text = format!("{body:?}");
         // A program with `global x` lines follows Python: setting a top-level name anywhere in a
@@ -1252,7 +1285,8 @@ impl Emitter {
         self.json_ret = matches!(ret, Ty::Named(n) if n == "json" || n == "Json");
         let ps: Vec<String> = params
             .iter()
-            .map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
+            .enumerate()
+            .map(|(i, p)| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else if set_at.contains(&i) { format!("mut {}: AxSet<{}", p.name, &rust_ty(&p.ty)[4..]) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
         let init = if name == "main" && !fallible { if self.py_mode { "ax_init(AX_FILES);\n    ax_py_mode();\n" } else { "ax_init(AX_FILES);\n" } } else { "" };
@@ -1558,6 +1592,10 @@ impl Emitter {
                     (None, Pat::Bind(n)) => self.empty_hint(n, line, value),
                     _ => String::new(),
                 };
+                let (v, t) = match name {
+                    Pat::Bind(n) if self.hash_sets.contains(n) => as_hash_set(v, t),
+                    _ => (v, t),
+                };
                 // `let` names can be changed too: Python has no constants, and models reassign them.
                 let p = if let Pat::Tuple(ps) = name { mut_binds(ps, &p) } else { p };
                 format!("let {}{p}{t} = {v};", if *mutable || matches!(name, Pat::Bind(_)) { "mut " } else { "" })
@@ -1578,6 +1616,7 @@ impl Emitter {
                 if hint.is_empty() && matches!(value, Expr::Call(f, a, _) if f == "none" && a.is_empty()) && !self.set_later(n) {
                     hint = ": i64".into();
                 }
+                let (v, hint) = if self.hash_sets.contains(n) { as_hash_set(v, hint) } else { (v, hint) };
                 format!("let mut {n}{hint} = {v};")
             }
             // `(a, b) = v` unpacks; new names are declared.
@@ -1616,6 +1655,10 @@ impl Emitter {
             }
             Stmt::Assign { target, op, value, .. } => {
                 let v = self.expr(value);
+                let v = match (target, *op) {
+                    (Expr::Ident(n), "=") if self.hash_sets.contains(n) => format!("AxSet::from({v})"),
+                    _ => v,
+                };
                 match (target, *op) {
                     (Expr::Index(base, idx), "=") => {
                         let b = self.place_mut(base);
@@ -2278,6 +2321,9 @@ impl Emitter {
                     // (Only `self`: other names passed by reference may be set to a new object, which the caller must see.)
                     Some(j) if p.is_mut && p.name == "self_" && matches!(&p.ty, Ty::Named(n) if self.marked.contains(n)) => ordered.push(format!("&mut ({})", plain[j])),
                     Some(j) if p.is_mut => ordered.push(format!("&mut {}", self.place_mut(&args[j].1))),
+                    Some(j) if self.set_params.get(name).is_some_and(|v| v.contains(&i)) && !matches!(&args[j].1, Expr::Ident(n) | Expr::Move(n) if self.hash_sets.contains(n)) => {
+                        ordered.push(format!("AxSet::from({})", plain[j]))
+                    }
                     Some(j) => ordered.push(plain[j].clone()),
                     None => {}
                 }
@@ -2388,4 +2434,150 @@ fn own_break(body: &Expr) -> bool {
         }
     }
     go(body)
+}
+
+// Python's `in` on a list scans it; a local list that is searched with `in` and otherwise only added to,
+// popped, counted, sorted or walked (a `seen` set, a `visited` list) is kept as an AxSet, a Vec with a
+// hash index, so `in` takes O(1) as on a CPython set. Builds with this off are tried when one fails.
+pub static FAST_SETS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+fn as_hash_set(v: String, hint: String) -> (String, String) {
+    let hint = match hint.strip_prefix(": Vec<").and_then(|h| h.strip_suffix('>')) {
+        Some(inner) => format!(": AxSet<{inner}>"),
+        None => hint,
+    };
+    (format!("AxSet::from({v})"), hint)
+}
+
+fn fast_sets(body: &Expr, params: &[Param]) -> HashSet<String> {
+    let mut good = HashSet::new();
+    let mut bad: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
+    fs_expr(body, &mut good, &mut bad);
+    good.retain(|n| !bad.contains(n));
+    good
+}
+
+// Methods an AxSet answers (its own, or the Vec's through Deref, which all read through &self).
+const FS_METHODS: [&str; 24] = [
+    "contains", "push", "pop", "remove", "len", "is_empty", "index_of", "sort", "min", "max", "sum", "any", "all", "count", "map", "filter",
+    "first", "last", "join", "rev", "sort_by", "enumerate", "count_of", "fold",
+];
+
+fn fs_name(e: &Expr) -> Option<&String> {
+    match e {
+        Expr::Ident(n) | Expr::Move(n) => Some(n),
+        _ => None,
+    }
+}
+
+fn fs_pat(p: &Pat, bad: &mut HashSet<String>) {
+    match p {
+        Pat::Bind(n) => {
+            bad.insert(n.clone());
+        }
+        Pat::Tuple(ps) | Pat::Variant(_, ps) => ps.iter().for_each(|q| fs_pat(q, bad)),
+        _ => {}
+    }
+}
+
+fn fs_expr(e: &Expr, good: &mut HashSet<String>, bad: &mut HashSet<String>) {
+    let go = |x: &Expr, good: &mut HashSet<String>, bad: &mut HashSet<String>| fs_expr(x, good, bad);
+    match e {
+        Expr::Ident(n) | Expr::Move(n) => {
+            bad.insert(n.clone());
+        }
+        Expr::Method(r, m, args, _) if fs_name(r).is_some() && FS_METHODS.contains(&m.as_str()) => {
+            if m == "contains" {
+                good.insert(fs_name(r).unwrap().clone());
+            }
+            args.iter().for_each(|a| go(a, good, bad));
+        }
+        Expr::Binary("in", a, b) if fs_name(b).is_some() => {
+            good.insert(fs_name(b).unwrap().clone());
+            go(a, good, bad);
+        }
+        Expr::For(p, it, b) => {
+            fs_pat(p, bad);
+            if fs_name(it).is_none() {
+                go(it, good, bad);
+            }
+            go(b, good, bad);
+        }
+        Expr::Unary("!", x) if fs_name(x).is_some() => {}
+        Expr::If(c, t, f) => {
+            if fs_name(c).is_none() {
+                go(c, good, bad);
+            }
+            go(t, good, bad);
+            if let Some(f) = f {
+                go(f, good, bad);
+            }
+        }
+        Expr::While(c, b) => {
+            if fs_name(c).is_none() {
+                go(c, good, bad);
+            }
+            go(b, good, bad);
+        }
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) => {}
+        Expr::Str(ps) => ps.iter().for_each(|p| {
+            if let StrPart::Interp(x) = p {
+                go(x, good, bad)
+            }
+        }),
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| go(x, good, bad)),
+        Expr::Map(ps) => ps.iter().for_each(|(k, v)| {
+            go(k, good, bad);
+            go(v, good, bad);
+        }),
+        Expr::Unary(_, x) | Expr::Field(x, _) | Expr::TupleField(x, _) | Expr::Try(x) => go(x, good, bad),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) => {
+            go(a, good, bad);
+            go(b, good, bad);
+        }
+        Expr::Call(_, args, _) => args.iter().for_each(|(_, a)| go(a, good, bad)),
+        Expr::Method(r, _, args, _) => {
+            go(r, good, bad);
+            args.iter().for_each(|a| go(a, good, bad));
+        }
+        Expr::Lambda(ps, b) => {
+            ps.iter().for_each(|p| {
+                bad.insert(p.clone());
+            });
+            go(b, good, bad);
+        }
+        Expr::Match(x, arms) => {
+            go(x, good, bad);
+            for (p, a) in arms {
+                fs_pat(p, bad);
+                go(a, good, bad);
+            }
+        }
+        Expr::Block(stmts, tail) => {
+            for s in stmts {
+                match s {
+                    // A string searched with `in` stays a string.
+                    Stmt::Let { name: Pat::Bind(n), value: Expr::Str(_), .. } | Stmt::Assign { target: Expr::Ident(n), value: Expr::Str(_), .. } => {
+                        bad.insert(n.clone());
+                    }
+                    Stmt::Let { name: Pat::Bind(_), value, .. } => go(value, good, bad),
+                    Stmt::Let { name, value, .. } => {
+                        fs_pat(name, bad);
+                        go(value, good, bad);
+                    }
+                    Stmt::Assign { target: Expr::Ident(_), op: "=" | "+=", value, .. } => go(value, good, bad),
+                    Stmt::Assign { target, value, .. } => {
+                        go(target, good, bad);
+                        go(value, good, bad);
+                    }
+                    Stmt::Expr { expr, .. } | Stmt::Assert { cond: expr, .. } => go(expr, good, bad),
+                    Stmt::Return { value: Some(v), .. } => go(v, good, bad),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                go(t, good, bad);
+            }
+        }
+    }
 }
