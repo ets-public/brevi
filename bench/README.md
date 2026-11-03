@@ -15,15 +15,37 @@ Each check also logs `patch_tok`: for a retry, the tokens of the lines changed s
 Brevi's release test is the plain-Python trial: the model gets the ordinary Python prompt and tools, writes `.py` files, and Brevi builds and runs them in place of CPython. Plain Python runs the same day as the baseline:
 
 ```
-python3 e2e.py RUN --lang pyb --model sonnet --set xl3 --jobs 1
-python3 e2e.py RUN --lang python --model sonnet --set xl3 --jobs 1
-# the same with --model haiku, then a second run
+python3 e2e.py RUNa --lang pyb --model sonnet --set rel --jobs 4
+python3 e2e.py RUNa --lang python --model sonnet --set rel --jobs 4
+# the same with --model haiku, then runs RUNb, RUNc, RUNd
 python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
+python3 e2e.py --verdict "logs/e2e/RUN[a-d]-*.jsonl"   # checks the bar below and prints a 95% range for each cost ratio
 ```
+
+### Release suite (set `rel`, since 3 Nov 2026)
+
+Up to e34 the release test used the six xl3 tasks, so one task that took an extra check moved a run's cost ratio by several percent. On the four runs that passed the bar (e31 to e34) Sonnet's ratio was 1.098x, but resampling the tasks puts its 95% range at 1.02x to 1.20x: the pass was not decisive. The set `rel` adds 18 held-out tasks from `ref/gen_rel.py` to the six xl3 tasks, 24 in all. They were written for this test and have not been used to tune Brevi:
+
+| Size | Tasks | What they exercise |
+| --- | --- | --- |
+| small | bowling, text_table, huffman, units, life, wordle | edge rules, column formatting, heapq tie-breaks, fractions and `.6g` floats, a 48x48 simulation, letter counting |
+| medium | json_patch, csv_join, matrix, router, sudoku, tellers, cron_next, truth_table | nested JSON values, the csv module, exact fractions, regex routes, backtracking, an event simulation, dates, a recursive-descent parser |
+| large | shop, scheduler, json_query (3 files each), chat_rooms (one file) | promotions with Decimal money, list scheduling with a critical path, a query language with a lexer, stateful rooms |
+
+Each has four tests (inputs written by hand, outputs from the reference solution). A plain-Python pilot (p1) passed all 18 with both models, 14 of 18 (Haiku) and 15 of 18 (Sonnet) at the first check, with no failures caused by an unclear prompt. A run of `rel` costs about $0.70 per language with Sonnet and $0.08 with Haiku, so one run of the whole test (both languages, both models) is about $1.55 and four runs about $6.20.
+
+First two runs (t1, t2; 3 Nov 2026, main 9408924, `--jobs 4`):
+
+| Model | pyb per run | Python per run | Ratio (95% range) | Tasks passed | Built natively |
+| --- | --- | --- | --- | --- | --- |
+| Sonnet | $0.717 | $0.678 | 1.057x (1.00x to 1.13x) | pyb 48 of 48, Python 48 of 48 | 45 of 48 (94%) |
+| Haiku | $0.082 | $0.086 | 0.962x (0.89x to 1.04x) | pyb 48 of 48, Python 48 of 48 | 44 of 48 (92%) |
+
+Two runs of `rel` give a narrower range than the four xl3 runs did (Sonnet: 0.13 wide against 0.18), and four runs should narrow it to about 0.09. The 7 programs that fell back to CPython are kept in the project files under `brevi-repro/rel/`: module-level statements in imported files (`sys.setrecursionlimit`, a compiled regex), `with localcontext()`, a Json value where an int was expected, `in` on a bool, and a helper called with rows of tuples. The pilot also found two native builds that stop with a runtime error where CPython runs: an unmatched optional regex group read as `''` instead of `None`, and a Fraction whose denominator Brevi cannot hold.
 
 From e22 on (Adam's decision, 2 Nov 2026), the `pyb` check works like `brevi run x.py`: when Brevi cannot build the files, they run with CPython instead, and the model is not shown Brevi's build errors. Each task's log line records `native` (whether Brevi built the last check itself), and the summary's `nat` column counts those, so the share of programs that get Rust speed is reported next to the cost. `--native` gives the strict check used up to e21, where a build error went back to the model.
 
-The test passes (Adam's bar from 2 Nov 2026, since the fallback makes both sides run the same prompt and nearly the same sessions) when, over four runs per model, every task passes, `pyb` costs within 10% of `python` for both Sonnet and Haiku, and at least 90% of the final `pyb` programs are built natively by Brevi (the `nat` column) rather than run with CPython. Up to e21 the bar was: averaged over two runs, `pyb` costs no more dollars than `python` and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test. Results so far, each averaged over two runs against CPython on the same day. `e14` was a single run and came out lucky.
+The test passes (Adam's bar from 2 Nov 2026, since the fallback makes both sides run the same prompt and nearly the same sessions) when, over four runs per model, every task passes, `pyb` costs within 10% of `python` for both Sonnet and Haiku, and at least 90% of the final `pyb` programs are built natively by Brevi (the `nat` column) rather than run with CPython. Up to e21 the bar was: averaged over two runs, `pyb` costs no more dollars than `python` and passes at least as many tasks. A task whose solution is also wrong under CPython is not counted. The weekly Monday benchmark runs this test (on `rel` from 3 Nov 2026). Results on xl3 up to e34, each averaged over two runs against CPython on the same day. `e14` was a single run and came out lucky.
 
 | Run | Main at | Sonnet pyb / Python | Haiku pyb / Python | Tasks passed |
 | --- | --- | --- | --- | --- |
@@ -47,6 +69,23 @@ From e15 to e24, `pyb` and `python` sent the same prompt and `pyb` always ran fi
 The test has not passed yet. When the model's first attempt builds, pyb costs the same as Python or less. The whole gap is retries after Brevi rejects valid Python. In e18 only 3 of 24 first attempts were rejected while CPython ran them, and every first attempt that built printed what CPython prints. `py_as_brevi.py` tracks the share of saved Python solutions that Brevi builds and runs correctly unchanged.
 
 Writing Brevi against writing Python for Brevi (run `r1`, 2 Nov, main 54140e8, one run each, all 36 tasks passed): Sonnet $0.270 writing Brevi with the guide, $0.190 writing Python built by Brevi, $0.177 with CPython; Haiku $0.046, $0.028 and $0.025. Plain Python is the cheaper way to use Brevi, so the agent skill now asks for it.
+
+## Where pyb loses tokens (3 Nov 2026)
+
+In the release test both sides get the same prompt, so pyb can only lose tokens when Brevi itself makes a check fail. Since run `t1`, every pyb check also runs the same files with CPython and logs the pair (`shadow`: `[pyb passed, CPython passed]`); the summary's `bug` column counts checks that failed only because of Brevi. In four Haiku runs on xl3 (`t1a` to `t1d`, main 9408924), 0 of 9 failed first checks were Brevi's: CPython failed the same code. The other numbers from those runs: about 65% of output tokens are hidden thinking and 30% code, and retries add little output, so Brevi cannot save much on these tasks by changing what a failed check prints. `replay.py` measured that: replaying the 9 failed checks 3 times each with a shorter feedback (only the differing output lines) cost 14% less after the branch point than the current feedback, which is about 2% of a whole run.
+
+A replay found one real bug: `out.extend(errs)` on a list parameter was lost in typed builds, and the model spent 7 checks on it and failed the task.
+
+### Time-limited set (`speed`)
+
+Four tasks from `ref/gen_speed.py` with small inputs and heavy work (`conway`: Game of Life up to 600x600 for 500 generations, 0/1 knapsack up to 1000 items and capacity 300,000, edit distance up to 10,000 letters, Collatz chains up to 3,000,000), under the usual 10 s test limit. The plain solutions take CPython 15 to 80 s. The question was whether Brevi's speed saves the retries an agent spends making CPython code fast enough. Run `s1a` (one run each, main 9408924 plus the first fixes) said no: the models wrote fast Python from the start (big-int bitboards, bit-parallel edit distance, bit-packed knapsack), and Brevi built those programs badly.
+
+| s1a | Python passes | Python $ | pyb passes | pyb $ | pyb checks failed only because of Brevi |
+| --- | --- | --- | --- | --- | --- |
+| Sonnet | 4/4, all first try | $0.087 | 4/4, 1 first try | $0.306 | 4 |
+| Haiku | 4/4, 3 first try | $0.012 | 3/4, 1 first try | $0.019 | 2 |
+
+The causes, all fixed since: big-int `&`, `|`, `^` raised NotImplementedError in dynamic builds; `bin()` and `int(s, 2)` of big ints were quadratic; `2 ** n` squared huge numbers; `>>` by more than about a million bits shifted by a million; bit-packed ints in typed builds overflowed 64 bits; a grid row changed cell by cell was copied back after every cell (Game of Life 16 s typed, now 2.6 s against CPython's 30 s); `min(a, b, c)` and `map(sum, rows)` sent programs to the slower dynamic build.
 
 ## GUI programs (set `gui`, since 1 Nov 2026)
 

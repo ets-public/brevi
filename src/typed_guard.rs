@@ -833,8 +833,11 @@ fn shown(e: &Ex, g: &G) -> Option<String> {
         // `2 ** 100` is past 64 bits (`3 ** 50 % m`, taken modulo a number, is worked out by the typed build).
         Ex::Bin("**", a, b) => match (lit_int(a), lit_int(b)) {
             (Some(a), Some(b)) if b >= 0 && (b > u32::MAX as i64 || a.checked_pow(b as u32).is_none()) => Some("this power is past 64 bits, where Python's ints keep growing".into()),
+            // `2 ** (F * K)`: many fields packed into one int (a bit-parallel trick), far past 64 bits.
+            (Some(2), None) if matches!(b.as_ref(), Ex::Bin("*", ..)) => Some("2 ** (a * b) packs many fields into one int, past 64 bits".into()),
             _ => None,
         },
+        Ex::Bin("<<", _, b) if matches!(b.as_ref(), Ex::Bin("*", ..)) => Some("x << (a * b) packs many fields into one int, past 64 bits".into()),
         _ => None,
     }
 }

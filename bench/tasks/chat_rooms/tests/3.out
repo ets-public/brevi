@@ -1,0 +1,15 @@
+#z: nothing new for zed
+#z: 4 new for amy
+  (1 earlier)
+  zed: m2
+  zed: m3 @amy
+  zed: m4
+amy: #z new=0 at=0
+zed: #z new=1 at=0
+#z: 1 new for zed
+  amy: reply
+#z: amy, zed*
+line 15: not in room
+line 16: not owner
+line 17: no such room
+nobody: no rooms

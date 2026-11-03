@@ -1,0 +1,12 @@
+ny: 2027-01-01 00:00, 2028-01-01 00:00, no more
+range: 2027-01-01 08:05, 2027-01-01 08:07, 2027-01-01 08:09
+mixed: 2027-01-01 08:00, 2027-01-04 08:00, 2027-01-11 08:00
+bad1: bad field 1
+bad2: bad field 2
+bad3: bad field 3
+bad4: bad field 4
+bad5: bad field 5
+short: bad line
+step0: bad field 1
+odd: bad field 1
+junk: bad field 1

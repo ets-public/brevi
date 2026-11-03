@@ -1,0 +1,7 @@
+city , country, pop, note
+Oslo, NO, 709000, capital
+Bergen,NO,285900
+Lyon ,FR, 522250 , big, extra
+Nice, FR, , sunny
+
+Turku,FI,-12.5,odd

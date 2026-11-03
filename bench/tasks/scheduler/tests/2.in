@@ -1,0 +1,15 @@
+JOB x 1 after=y
+JOB y 1 after=z
+JOB z 1 after=x
+JOB w 2 after=w
+JOB v 1 after=x
+JOB u 1
+RUN
+WORKERS 0
+WORKERS two
+JOB q 0
+JOB r 1 prio=high
+JOB s 1 after=
+JOB t 1 after=u after=u
+JOB t2 1 color=red
+PLAN

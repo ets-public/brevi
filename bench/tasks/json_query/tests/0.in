@@ -1,0 +1,29 @@
+{
+  "store": {
+    "name": "Corner Books",
+    "open": true,
+    "books": [
+      {"title": "Dune", "author": "Herbert", "price": 9.5, "tags": ["sf", "classic"], "stock": 3},
+      {"title": "Emma", "author": "Austen", "price": 4, "tags": ["classic"], "stock": 0},
+      {"title": "Neuromancer", "author": "Gibson", "price": 12.25, "tags": ["sf"], "stock": 7},
+      {"title": "Odd", "author": null, "price": "n/a", "tags": [], "stock": 1}
+    ],
+    "staff": {"mgr": "Kim", "clerk": "Lou"}
+  },
+  "visits": [12, 7, 30, 5]
+}
+%%
+.store.name
+.store.books[0].title
+.store.books[*].title
+.store.books[?price < 10].title
+.store.books[-1]
+.visits[*] | sum
+.visits | count
+.store.books[*].tags | length
+.store.staff | keys
+.store.staff[*]
+.store.books[?author == null].title
+.store.books[?stock > 0] | count
+.store.books[9].title
+.

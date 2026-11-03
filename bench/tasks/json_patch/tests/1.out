@@ -1,0 +1,12 @@
+line 3: error
+line 4: error
+line 5: error
+1
+["set"]
+line 11: error
+line 12: error
+{"a/b":1,"c~d":[["set"],"set"]}
+line 17: bad line
+line 18: bad line
+line 19: bad line
+{"a/b":1,"c~d":[["set"],"set"]}

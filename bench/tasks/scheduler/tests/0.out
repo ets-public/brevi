@@ -1,0 +1,8 @@
+plan with 2 workers
+  0 start design on w1
+  3 start docs on w1
+  3 start build on w2
+  8 start test on w1
+  10 start ship on w1
+makespan 11
+critical path design > build > test > ship (11)

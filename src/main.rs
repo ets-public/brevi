@@ -596,7 +596,7 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
         // type (often because those dicts are not records yet), what it worked out shows which mix types.
         if !eager && has_untyped_map(&items) {
             let mut copy = items.clone();
-            infer::auto_mut(&mut copy);
+            infer::auto_mut(&mut copy, py);
             let _ = infer::returns(&mut copy);
             let (_, mixed) = infer::empty_types(&copy);
             if !mixed.is_empty() {
@@ -604,10 +604,10 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
             }
         }
     }
-    infer::auto_mut(&mut items);
+    infer::auto_mut(&mut items, py);
     infer::returns(&mut items)?;
     // Again: returns can turn `obj.m(x)` into a call of the class method `C_m(obj, x)`, which may change obj.
-    infer::auto_mut(&mut items);
+    infer::auto_mut(&mut items, py);
     infer::rows_reset();
     let errs = infer::check(&mut items, py);
     if !errs.is_empty() {

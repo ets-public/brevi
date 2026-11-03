@@ -25,7 +25,7 @@ Brevi also has its own Python-like syntax (`.bv` files). Its guide is [BREVI.md]
 - **Changes:** [CHANGELOG.md](CHANGELOG.md), one section per release.
 - Working on the compiler itself: [AGENTS.md](AGENTS.md).
 
-## Status: v0.22
+## Status: v0.23
 
 **Against Codon and Nuitka** ([bench/compare](bench/compare/README.md), 3 Nov 2026): on the same unchanged Python files, Brevi builds all 591 saved agent programs and all 18 large programs, and every one matches CPython's output and exit status. Codon builds 206 of the 591 and gets 36 of them wrong. Nuitka matches all of them. Brevi's default build beats CPython on all 12 speed programs (1.7x to 40x), and `--release` is level with Codon.
 

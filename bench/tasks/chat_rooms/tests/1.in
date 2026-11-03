@@ -1,0 +1,25 @@
+JOIN ann #a
+JOIN ben #a
+JOIN ann #b
+JOIN ann #a
+LEAVE ann #a
+WHO #a
+MUTE ann ben #a
+MUTE ben ann #a
+MUTE ben ben #a
+SAY ben #a one
+SAY ben #a two
+SAY ben #a three
+SAY ben #a four
+SAY ben #a five
+JOIN ann #a
+SAY ben #a six
+READ ann #a
+LEAVE ben #a
+LEAVE ann #a
+WHO #a
+SAY ann #a ghost
+READ ben #b
+INBOX ann
+INBOX ben
+STATS

@@ -1,0 +1,10 @@
+line 7: bad line
+0 p1 starts at teller 1, waited 0
+0 p2 starts at teller 2, waited 0
+4 p3 starts at teller 1, waited 4
+4 p4 starts at teller 2, waited 4
+8 p5 starts at teller 1, waited 8
+served 5, left 0, average wait 3.20
+teller 1: busy 12
+teller 2: busy 8
+done at 12

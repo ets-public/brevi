@@ -1,0 +1,23 @@
+JOIN x1 #r1
+JOIN x2 #r1
+JOIN x3 #r1
+SAY x2 #r1 @x1 @x1 @x3 @x2 @nobody
+SAY x3 #r1 @x1, hi
+INBOX x1
+INBOX x3
+MUTE x1 x3 #r1
+LEAVE x3 #r1
+JOIN x3 #r1
+SAY x3 #r1 free again
+LEAVE x1 #r1
+WHO #r1
+MUTE x2 x3 #r1
+READ x2 #r1
+READ x2 #r1
+SAY x1 #r1 not here
+JOIN bad name #r1
+JOIN x1 room
+JOIN x1
+SAY x2 #r1
+SHOUT x2 #r1 hey
+STATS

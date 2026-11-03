@@ -1,0 +1,9 @@
+| city   | country | pop      | note    |
+|--------|---------|---------:|---------|
+| Oslo   | NO      | 709000.0 | capital |
+| Bergen | NO      | 285900.0 |         |
+| Nice   | FR      |          | sunny   |
+| Turku  | FI      |    -12.5 | odd     |
+| total  |         | 994887.5 |         |
+skipped line 4: 5 cells
+4 rows, 4 columns

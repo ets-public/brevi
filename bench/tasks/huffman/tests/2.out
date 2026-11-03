@@ -1,0 +1,11 @@
+line 1: 4 symbols, 14 bits, ratio 0.194
+' ' 6 1
+'x' 1 010
+'y' 1 011
+'z' 1 00
+line 2: 5 symbols, 33 bits, ratio 0.275
+'A' 5 11
+'B' 4 10
+'C' 3 00
+'D' 2 011
+'E' 1 010

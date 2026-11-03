@@ -1,0 +1,17 @@
+line 1: 5 symbols, 23 bits, ratio 0.261
+'a' 5 0
+'b' 2 110
+'c' 1 1110
+'d' 1 1111
+'r' 2 10
+line 2: 1 symbols, 4 bits, ratio 0.125
+'a' 4 0
+line 3: 8 symbols, 46 bits, ratio 0.338
+' ' 1 0000
+'e' 1 0001
+'i' 5 11
+'m' 1 0010
+'p' 2 010
+'r' 2 011
+'s' 4 10
+'v' 1 0011

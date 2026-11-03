@@ -9,8 +9,9 @@ Each task is a fresh conversation. The model gets the same tools in both languag
 check() builds the program and runs the task's tests, printing PASS, the compiler errors, or the first
 failing test, exactly as run.sh does. The run ends when the model stops calling tools or after 8 checks.
 
-usage: python3 e2e.py RUN --lang brevi|python --model sonnet|haiku --set xl3 [--effort medium] [--jobs 3]
+usage: python3 e2e.py RUN --lang brevi|python --model sonnet|haiku --set rel [--effort medium] [--jobs 3]
        python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
+       python3 e2e.py --verdict "logs/e2e/RUN[a-d]-*.jsonl"   (the release bar over several runs)
 Needs BENCH_ANTHROPIC_KEY and `pip install anthropic`. Writes logs/e2e/RUN-MODEL-LANG.jsonl, one line per task,
 and keeps each task's files in work/e2e/RUN-MODEL-LANG/TASK/.
 """
@@ -114,16 +115,19 @@ def run_check(lang, task, work, native_only=False):
     return f"{first}\npassed {passed}/{len(tests)}", native
 
 
-def solve(client, model, lang, task, work, effort, thinking="adaptive", native_only=False):
+def solve(client, model, lang, task, work, effort, thinking="adaptive", native_only=False, start_messages=None, start_checks=0, tag_of=None):
+    """start_messages/start_checks: carry on from a saved conversation (replay.py); only later calls are counted."""
     work.mkdir(parents=True, exist_ok=True)
     # A short tag per run (e.g. e25a-sonnet-pyb) keeps each run's prompt cache to itself. Without it, pyb and python
     # share one prompt, so whichever ran first paid the cache writes and the other read them (before e25 that was
     # always pyb, about $0.007 per Sonnet task).
-    tag = hashlib.sha1(work.parent.name.encode()).hexdigest()[:8]
+    tag = hashlib.sha1((tag_of or work.parent.name).encode()).hexdigest()[:8]
     system = [{"type": "text", "text": system_prompt(lang) + f"\n\nSession {tag}.", "cache_control": {"type": "ephemeral"}}]
-    messages = [{"role": "user", "content": (B / "tasks" / task / "prompt.md").read_text()}]
+    messages = start_messages or [{"role": "user", "content": (B / "tasks" / task / "prompt.md").read_text()}]
     use = {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}
-    checks, passed, calls, stop, native = 0, False, 0, "", None
+    checks, passed, calls, stop, native = start_checks, False, 0, "", None
+    # pyb only: for each check, whether CPython passes the same files (a False where pyb failed is a Brevi bug)
+    shadow = []
     while calls < 40:
         calls += 1
         for attempt in range(6):
@@ -171,6 +175,8 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
                     checks += 1
                     out, native = run_check(lang, task, work, native_only)
                     passed = out.startswith("PASS")
+                    if lang == "pyb":
+                        shadow.append([passed, run_check("python", task, work)[0].startswith("PASS")])
                     err = not passed
                 elif b.name == "guide":
                     out = subprocess.run([BREVI, "guide", a["word"]], capture_output=True, text=True).stdout or "nothing found"
@@ -188,7 +194,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     (work / "conversation.json").write_text(json.dumps([{"role": m["role"], "content": plain(m["content"])} for m in messages], indent=1))
     pin, pout, pread = PRICES[model]
     cost = (use["input"] * pin + use["cache_write"] * pin * 1.25 + use["cache_read"] * pread + use["output"] * pout) / 1e6
-    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **use, "usd": round(cost, 5)}
+    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **({"shadow": shadow} if lang == "pyb" else {}), **use, "usd": round(cost, 5)}
 
 
 def summary(pattern):
@@ -196,14 +202,52 @@ def summary(pattern):
     for f in sorted(glob.glob(pattern)):
         rs = [json.loads(l) for l in open(f) if l.strip()]
         rows[Path(f).stem] = rs
-    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
+    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'bug':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
     for name, rs in rows.items():
         t = {k: sum(r[k] for r in rs) for k in ("input", "cache_write", "cache_read", "output", "usd")}
         first = sum(1 for r in rs if r["pass"] and r["checks"] == 1)
         total = t["input"] + t["cache_write"] + t["cache_read"] + t["output"]
         # nat: pyb tasks whose last check Brevi built natively (the rest ran with CPython); "-" for other languages
         nat = sum(1 for r in rs if r.get("native")) if any("native" in r and r["native"] is not None for r in rs) else "-"
-        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
+        # bug: pyb checks that failed where CPython passed the same files (from e2e's shadow check, since s1a)
+        bug = sum(1 for r in rs for p, c in r.get("shadow", []) if c and not p) if any("shadow" in r for r in rs) else "-"
+        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {bug:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
+
+
+def verdict(pattern):
+    """The release bar over every run matching pattern (Adam, 2 Nov 2026): every task passes, pyb costs within 10% of
+    python for each model, and at least 90% of the final pyb programs are built natively. Also prints a rough noise
+    figure: the spread of the cost ratio when tasks are resampled (a bootstrap over the run's tasks)."""
+    import random
+    rows = [json.loads(l) for f in sorted(glob.glob(pattern)) for l in open(f) if l.strip()]
+    ok = True
+    for model in sorted({r["model"] for r in rows}):
+        rs = [r for r in rows if r["model"] == model]
+        side = {lang: [r for r in rs if r["lang"] == lang] for lang in ("pyb", "python")}
+        if not side["pyb"] or not side["python"]:
+            print(f"{model}: needs both pyb and python runs"); ok = False; continue
+        runs = sorted({r["run"].split("-")[0] for r in side["pyb"]})
+        usd = {lang: sum(r["usd"] for r in side[lang]) / len(runs) for lang in side}
+        ratio = usd["pyb"] / usd["python"]
+        fails = {lang: sum(not r["pass"] for r in side[lang]) for lang in side}
+        nat = sum(1 for r in side["pyb"] if r.get("native"))
+        # bootstrap: resample (run, task) pairs, keeping each pair's pyb and python cost together
+        cost = {}
+        for r in rs:
+            cost.setdefault((r["run"].split("-")[0], r["task"]), {})[r["lang"]] = r["usd"]
+        pairs = [v for v in cost.values() if len(v) == 2]
+        rnd, sims = random.Random(1), []
+        for _ in range(2000):
+            pick = [rnd.choice(pairs) for _ in pairs]
+            sims.append(sum(p["pyb"] for p in pick) / sum(p["python"] for p in pick))
+        sims.sort()
+        lo, hi = sims[50], sims[-51]
+        good = fails["pyb"] == 0 and ratio <= 1.10 and nat >= 0.9 * len(side["pyb"])
+        ok &= good
+        print(f"{model}: {len(runs)} runs, {len(side['pyb'])} pyb tasks, pyb ${usd['pyb']:.4f} / python ${usd['python']:.4f} per run = {ratio:.3f}x "
+              f"(95% range {lo:.2f}x to {hi:.2f}x), failed pyb {fails['pyb']} python {fails['python']}, native {nat}/{len(side['pyb'])} "
+              f"({100 * nat / len(side['pyb']):.0f}%): {'meets the bar' if good else 'misses the bar'}")
+    print("release test PASSED" if ok else "release test not passed")
 
 
 def main():
@@ -211,7 +255,7 @@ def main():
     ap.add_argument("run", nargs="?")
     ap.add_argument("--lang", choices=["brevi", "python", "pyb"], help="pyb: the Python prompt, built with Brevi")
     ap.add_argument("--model", choices=list(MODELS), default="sonnet")
-    ap.add_argument("--set", default="xl3", choices=list(SETS))
+    ap.add_argument("--set", default="rel", choices=list(SETS))
     ap.add_argument("--tasks", help="comma-separated, instead of --set")
     ap.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--jobs", type=int, default=3)
@@ -219,12 +263,15 @@ def main():
     ap.add_argument("--guide", help="a guide file to send instead of BREVI.md (for A/B tests)")
     ap.add_argument("--native", action="store_true", help="pyb: report Brevi build errors instead of running with CPython (the strict check used before e22)")
     ap.add_argument("--summary")
+    ap.add_argument("--verdict", help="log glob: check the release bar over these runs (e.g. \"logs/e2e/w1[a-d]-*.jsonl\")")
     a = ap.parse_args()
     if a.guide:
         global GUIDE
         GUIDE = Path(a.guide).resolve()
     if a.summary:
         return summary(a.summary)
+    if a.verdict:
+        return verdict(a.verdict)
     if not (a.run and a.lang):
         ap.error("RUN and --lang are needed")
     import anthropic

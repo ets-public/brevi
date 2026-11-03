@@ -1,0 +1,7 @@
+| name   | qty | price |
+|--------|----:|------:|
+| apple  |   3 |  0.50 |
+| banana |  12 |  0.25 |
+| cherry | 100 |  2.00 |
+| total  | 115 |  2.75 |
+3 rows, 3 columns

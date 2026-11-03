@@ -2630,6 +2630,12 @@ impl Parser {
                         let xs = args.remove(0).1;
                         return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![], line))));
                     }
+                    // min(a, b, c, ...): min(min(a, b), c), ... (the prelude's min and max take two values).
+                    if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() > 2 && args.iter().all(|a| a.0.is_none()) {
+                        let mut it = args.into_iter().map(|a| a.1);
+                        let first = it.next().unwrap();
+                        return Ok(it.fold(first, |acc, x| Expr::Call(name.clone(), vec![(None, acc), (None, x)], line)));
+                    }
                     // min(xs, default=d), max(xs, default=d) and with key=f too: d when xs is empty.
                     if (name == "min" || name == "max") && !self.user_fns.contains(&name) && (2..=3).contains(&args.len()) && args[0].0.is_none() && args.last().is_some_and(|a| a.0.as_deref() == Some("default")) {
                         let d = args.pop().unwrap().1;
@@ -3431,7 +3437,19 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         // tuple(xs) is kept as a list: it sorts, compares and hashes the same way (it prints with [ ]).
         ("deque" | "list" | "tuple", 1) => m(args.remove(0).1, "skip", vec![Expr::Int(0)]),
         ("map" | "filter", 2) => {
-            let f = args.remove(0).1;
+            // `map(sum, rows)`, `map(abs, xs)`: a built-in used as the function value.
+            let f = match args.remove(0).1 {
+                Expr::Ident(b) if matches!(b.as_str(), "sum" | "abs" | "max" | "min" | "sorted") => {
+                    let v = Expr::Ident("v_".into());
+                    let body = match b.as_str() {
+                        "abs" => Expr::Call(b, vec![(None, v)], line),
+                        "sorted" => m(v, "sort", vec![]),
+                        _ => m(v, &b, vec![]),
+                    };
+                    Expr::Lambda(vec!["v_".into()], Box::new(body))
+                }
+                f => f,
+            };
             m(args.remove(0).1, name, vec![f])
         }
         ("dict", 0) => Expr::Map(vec![]),

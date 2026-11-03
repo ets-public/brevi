@@ -1,0 +1,16 @@
+id,name,city
+1,Ann,Oslo
+2,Bob,"Bergen, west"
+3,Cid,Oslo
+4,Dee,Turku
+---
+id,amount,city
+1,10.5,Oslo
+3,2,Oslo
+1,4.25,Bergen
+5,1,Nowhere
+---
+join id
+left id
+count a city
+sum b amount id

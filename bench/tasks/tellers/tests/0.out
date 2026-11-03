@@ -1,0 +1,9 @@
+0 ann starts at teller 1, waited 0
+1 bob starts at teller 2, waited 0
+4 dee starts at teller 2, waited 2
+5 cid starts at teller 1, waited 3
+6 eve starts at teller 2, waited 3
+served 5, left 0, average wait 1.60
+teller 1: busy 9
+teller 2: busy 6
+done at 9

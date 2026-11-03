@@ -1,0 +1,12 @@
+200 home
+200 users_list
+200 user_show id=42
+200 user_show id=7
+200 me
+200 user_by_name name=bob
+405 /users/bob allow: GET
+405 /users allow: GET,POST
+404 /posts
+200 user_show id=5 (head)
+400 /users/
+7 routes, 11 requests, 7 ok

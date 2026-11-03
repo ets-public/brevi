@@ -1,0 +1,20 @@
+A = [2 0; 0 2]
+B = A ^ 0
+print B
+C = A ^ 5
+print C
+D = [1 1; 1 0]
+F = D ^ 10
+print F
+G = D ^ -1
+H = [1 2; 3]
+J = [1 2/0]
+Z = [0 0; 0 0]
+rank Z
+W = inv Z
+print W
+print Q9
+x1 = [7]
+y = inv x1
+print y
+det x1
