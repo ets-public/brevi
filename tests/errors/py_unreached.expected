@@ -4,3 +4,4 @@ check exit 0
 5
 ok
 run exit 0
+run tracebacks 0

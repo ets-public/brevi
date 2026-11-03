@@ -55,7 +55,7 @@ Brevi tries the fastest exact path first. The **typed build** works out a fixed 
 
 Brevi also has its own shorter Python-like language for `.bv` files, checked fully before it runs: [BREVI.md](BREVI.md) (3,508 tokens, served by `brevi guide`), [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md) (Rust crates and Python from Brevi). Agents finish tasks more cheaply in plain Python, so the agent tools ask for Python.
 
-## Status: v0.24
+## Status: v0.24.1
 
 - **Same answers as CPython.** On unchanged Python files, Brevi builds all 591 saved agent programs and all 18 large programs (chess, a text adventure, an interpreter), and every one matches CPython's output and exit status. Codon builds 206 of the 591 and gets 36 of those wrong; Nuitka matches all of them but runs at about CPython's speed ([bench/compare](bench/compare/README.md)).
 - **Faster.** The default build beats CPython on all 12 speed programs (1.7x to 40x); `--release` is level with Codon where Codon builds.

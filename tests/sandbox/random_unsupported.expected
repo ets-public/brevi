@@ -1,0 +1,8 @@
+{"line":4,"msg":"random.betavariate needs allow native","fix":"Brevi's own random has Random, seed, random, getrandbits, randrange, randint, choice, choices, shuffle, sample, uniform, gauss; for the rest, add the line `# allow native` at the top, or do without it"}
+exit 1
+-- dynamic
+{"line":4,"msg":"random.betavariate needs allow native","fix":"Brevi's own random has Random, seed, random, getrandbits, randrange, randint, choice, choices, shuffle, sample, uniform, gauss; for the rest, add the line `# allow native` at the top, or do without it"}
+exit 1
+-- typed
+{"line":4,"msg":"random.betavariate needs allow native","fix":"Brevi's own random has Random, seed, random, getrandbits, randrange, randint, choice, choices, shuffle, sample, uniform, gauss; for the rest, add the line `# allow native` at the top, or do without it"}
+exit 1

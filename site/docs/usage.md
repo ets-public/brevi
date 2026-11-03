@@ -37,6 +37,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--native` | run | Never fall back to CPython: print Brevi's errors instead. `BREVI_NATIVE=1` does the same. |
 | `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
 | `--sandbox` | run, check, test | Refuse anything the program did not declare with an `allow` line (see [Sandbox](#sandbox)). |
+| `--traceback` | run | When run falls back to CPython on a sure mistake, show CPython's whole traceback instead of its last line. `BREVI_TRACEBACK=1` does the same. |
 | `--window` | run, build | tkinter programs open a real window instead of running headless (see [GUI programs](#gui-programs)). |
 | `--explain` | any | Under each error, add the lines of the guide about the names it mentions. For Python files, also print [which path ran](#which-path-ran) even when it is the typed one, with every reason. |
 | `--fast` | check | Brevi's own checks only, without `rustc`. |
@@ -73,7 +74,14 @@ For a Python file, `brevi run`, `build` and `check` print one JSON line on stder
 {"path":"cpython","line":2,"why":"Brevi could not build it: expected ')', found end of line","by":"python3"}
 ```
 
-A sure mistake (see [Errors](#errors)) is named in the note the same way. A sandboxed program never falls back.
+A sure mistake (see [Errors](#errors)) is named in that line the same way. CPython's traceback for it is then cut to its last line, the error itself, with the file and line it was raised at (from v0.24.2), so the error is not read twice:
+
+```
+{"path":"cpython","line":3,"why":"Brevi could not build it: name 'totl' is not defined","by":"python3"}
+NameError: name 'totl' is not defined (main.py line 3)
+```
+
+Pass `--traceback` (or set `BREVI_TRACEBACK=1`) to see the whole traceback. Other fallbacks show CPython's output as it is. A sandboxed program never falls back.
 
 Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a file builds natively: they never fall back, and print the errors instead.
 
@@ -110,28 +118,41 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
-A program, Brevi or Python, can declare what it touches with an `allow` line at the top:
+A program can declare what it touches with an `allow` line at the top. In a Python file write it as a comment, so the file stays valid Python; in a `.bv` file write it bare:
 
 ```
-allow read, write
+# allow read, write        (Python file)
+allow read, write          (.bv file)
 ```
+
+A comment counts only when it holds nothing but capability names, so `# allow me to explain` stays an ordinary comment. The bare form still works in a `.py` file, but CPython then refuses the file.
 
 | Capability | Covers |
 | --- | --- |
 | `read` | reading files |
 | `write` | writing files |
-| `native` | `rust fn`, `py fn`, `rust:` and `py:` blocks, crates, and Python libraries that CPython runs (`import os`, `subprocess`, `numpy`, `requests`, ...), which can do anything |
+| `native` | `rust fn`, `py fn`, `rust:` and `py:` blocks, crates, and Python libraries that CPython runs (`subprocess`, `numpy`, `requests`, file and process calls of `os` and `pathlib`, ...), which can do anything |
 | `none` | nothing beyond stdin, stdout and arguments |
 
 stdin, stdout, program arguments and `use "file.bv"` are always allowed. With `brevi run --sandbox`, or as soon as a program has any `allow` line, a program that uses something it did not declare is refused at build time:
 
 ```
-{"line":1,"msg":"read() needs allow read","fix":"add the line `allow read` at the top, or do without it"}
+{"line":1,"msg":"read() needs allow read","fix":"add the line `# allow read` at the top, or do without it"}
 ```
+
+Some modules work without `allow native`, because Brevi builds its own copy of the part that touches nothing (from v0.24.2):
+
+- **Path text:** `os.path.join`, `basename`, `dirname`, `split`, `splitext`, `normpath`, `normcase`, `isabs`, `commonprefix`, `os.sep` and the other path constants, and `pathlib.PurePath` / `PurePosixPath` (`/`, `name`, `stem`, `suffix`, `parent`, `parts`, `with_suffix`, `relative_to`, ...). They follow POSIX rules, as CPython does on Linux and macOS. Any other use of `os` or `pathlib` (`os.listdir`, `os.environ`, `os.system`, `pathlib.Path`, `os.path.exists`, or `os` passed around as a value) is refused with the name of the call:
+
+  ```
+  {"line":3,"msg":"os.listdir needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); add the line `# allow native` at the top, or do without it"}
+  ```
+
+- **random:** `seed`, `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits` and `random.Random`, using CPython's own generator, so a seeded program draws the same numbers as in CPython. Seeds must be ints. Other functions (`random.betavariate`, ...) give one error naming them.
 
 The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `allow native`, the library bridge is off completely, so no path from the program reaches CPython.
 
-The MCP tools sandbox by default (pass `sandbox: false` to turn it off).
+The MCP tools sandbox by default (pass `sandbox: false` to turn it off). These copies are used only when the sandbox has turned CPython off; otherwise `os`, `pathlib` and `random` are CPython's own.
 
 > This is the behaviour from v0.24.1. In v0.24.0 and earlier the check covered only Brevi programs and typed Python builds: a Python file that fell to the dynamic build, a library call or the CPython fallback was not held to it. Whatever the version, running code you do not trust inside a container or VM is still wise.
 
@@ -183,6 +204,7 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists 10 t
 | Variable | Effect |
 | --- | --- |
 | `BREVI_NATIVE=1` | Same as `--native`: never fall back to CPython. |
+| `BREVI_TRACEBACK=1` | Same as `--traceback`: show the whole CPython traceback after a fallback on a sure mistake. |
 | `BREVI_PYTHON` | The Python used for the fallback (default `python3`). |
 | `BREVI_CACHE` | Where builds and runtimes are cached (default `~/.cache/brevi`). |
 | `BREVI_NO_CACHE=1` | Do not use the build cache. |

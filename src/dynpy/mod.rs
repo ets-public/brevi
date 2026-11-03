@@ -77,6 +77,21 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
     }
 }
 
+// Python modules that CPython would run (pybridge), written in plain Python and built with the program instead
+// when the sandbox turns CPython off (no `allow native`). Each holds only what needs no file, process, network
+// or environment access: os is os.path and its constants, pathlib is PurePath. caps.rs refuses any other use
+// of os and pathlib before this runs. Their results match CPython's on POSIX systems.
+fn sandbox_module(m: &str) -> Option<&'static str> {
+    Some(match m {
+        "random" => include_str!("py/random.py"),
+        "os" => include_str!("py/os.py"),
+        "posixpath" => include_str!("py/posixpath.py"),
+        "os.path" => include_str!("py/posixpath.py"),
+        "pathlib" => include_str!("py/pathlib.py"),
+        _ => return None,
+    })
+}
+
 // The Rust program for a Python file and the modules it imports from its own directory.
 // Err is (file, line, message).
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
@@ -97,6 +112,13 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
                 continue;
             }
             let p = dir.join(format!("{m}.py"));
+            if !p.exists() && crate::pybridge::no_native() {
+                if let Some(src) = sandbox_module(&m) {
+                    let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
+                    mods.push(emit::Module { name: m, body });
+                    continue;
+                }
+            }
             if p.exists() {
                 let ps = p.to_string_lossy().to_string();
                 let src = std::fs::read_to_string(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;

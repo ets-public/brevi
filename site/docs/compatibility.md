@@ -53,7 +53,7 @@ A Python file that imports a module Brevi does not build itself (numpy, pandas, 
 
 Limits today:
 
-- Under `--sandbox` (and in the MCP tools, which sandbox by default) a program that imports such a library must declare `allow native` (from v0.24.1).
+- Under `--sandbox` (and in the MCP tools, which sandbox by default) a program that imports such a library must declare `# allow native` (from v0.24.1). Path functions of `os` and `pathlib` and the common `random` functions work without it (from v0.24.2; see [Sandbox](/docs/usage#sandbox)).
 - The built program needs `python3` with its shared library (`libpython`) on the machine where it runs, unless built with `--standalone`, which carries CPython and the imported packages in the binary (Linux only).
 - Library calls are part of the **typed** build only. A library program the typed build rejects falls back to CPython, because the dynamic build does not bridge to CPython.
 - Not on Windows: library programs run with CPython there.

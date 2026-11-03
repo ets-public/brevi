@@ -7,6 +7,6 @@ Traceback (most recent call last):
 KeyError: 'os'
 exit 1
 -- typed
-{"line":3,"msg":"unknown method .system()","fix":"sys.modules would run in CPython, which needs `allow native` at the top; or do without it"}
-{"line":3,"msg":"unknown name 'sys'","fix":"set it first: sys = ..."}
+{"line":3,"msg":"sys.modules runs in CPython, which needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
+{"line":3,"msg":"unknown method .system()","fix":"did you mean .step()?"}
 exit 1

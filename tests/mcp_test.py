@@ -97,6 +97,11 @@ if "escaped" in esc[0].replace("echo escaped", "") or not esc[1]:
     fails += 1
     print(f"FAIL sandbox sys.modules: {esc!r}")
 expect("sandbox write", call("run", code="open('x.txt', 'w').write('x')\n"), "needs allow write", True)
+# Path text and seeded random need nothing: Brevi's own os.path, PurePath and random run in the sandbox.
+expect("sandbox pure paths", call("run", code="import os\nfrom pathlib import PurePath\nprint(os.path.join('a', 'b.txt'), PurePath('/x') / 'y.py')\n"), "a/b.txt /x/y.py", False)
+expect("sandbox random", call("run", code="import random\nrandom.seed(1)\nprint(random.randint(1, 6))\n"), "2", False)
+expect("sandbox random one error", call("run", code="import random\nprint(random.betavariate(1, 2))\n"), "random.betavariate needs allow native", True)
+expect("sandbox comment allow", call("run", code="# allow read\nwith open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n"), "True", False)
 expect("sandbox off", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", sandbox=False), "True", False)
 
 # Brevi code, recognised by its fn items.
