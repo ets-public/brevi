@@ -1648,6 +1648,13 @@ impl Emitter {
     }
 
     fn stmt_inner(&mut self, s: &Stmt) -> String {
+        // `(ch,) = d.keys()` / `[x] = xs`: the one item, or Python's ValueError.
+        if let Stmt::Assign { target: Expr::List(xs) | Expr::Tuple(xs), op: "=", value, line } = s {
+            if let [Expr::Ident(n)] = xs.as_slice() {
+                let one = Expr::Call("__one".into(), vec![(None, value.clone())], *line);
+                return self.stmt_inner(&Stmt::Assign { target: Expr::Ident(n.clone()), op: "=", value: one, line: *line });
+            }
+        }
         let line = match s {
             Stmt::Let { line, .. } | Stmt::Assign { line, .. } | Stmt::Expr { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line } | Stmt::Continue { line } | Stmt::Assert { line, .. } => *line,
         };
@@ -2384,6 +2391,7 @@ impl Emitter {
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" if self.locals.contains(name) => return format!("crate::{name}({})", plain.join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "__readline" => return "ax_readline()".to_string(),
+            "__one" => return format!("ax_one({})", plain.join(", ")),
             "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
             "__try_read" => return format!("std::fs::read_to_string({}.to_string()).unwrap_or_default()", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),

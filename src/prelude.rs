@@ -4685,6 +4685,16 @@ impl<T> AxToJson for AxSet<T> where Vec<T>: AxToJson {
         self.v.ax_json()
     }
 }
+// `(x,) = xs`: the only item; Python's ValueError otherwise.
+pub fn ax_one<I: IntoIterator>(xs: I) -> I::Item {
+    let mut it = xs.into_iter();
+    let first = it.next();
+    match (first, it.next()) {
+        (Some(x), None) => x,
+        (None, _) => panic!("not enough values to unpack (expected 1, got 0)"),
+        (Some(_), Some(_)) => panic!("too many values to unpack (expected 1)"),
+    }
+}
 // ---- t[a:b] with number bounds: on a tuple, a shorter tuple; on a list, string or JSON value, as
 // ax_slice. B = usize::MAX is "to the end". ----
 pub trait AxTSlice<const A: usize, const B: usize> {

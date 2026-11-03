@@ -1283,7 +1283,8 @@ impl Parser {
             return Ok(Stmt::Let { name, ty, value, mutable: true, line });
         }
         // A generator collects what it yields in a list, which it returns (see item()).
-        if matches!(self.peek(), Tok::Ident(w) if w == "yield_") && !matches!(self.peek_at(1), Tok::Sym("=" | "." | "[" | ")" | ",")) {
+        // (`yield [x for x in xs]` yields a list; only a Brevi name `yield_` is indexed.)
+        if matches!(self.peek(), Tok::Ident(w) if w == "yield_") && !matches!(self.peek_at(1), Tok::Sym("=" | "." | ")" | ",")) && (self.py || !matches!(self.peek_at(1), Tok::Sym("["))) {
             self.next();
             self.yields = true;
             let acc = Expr::Ident("ax_gen".into());
@@ -1879,6 +1880,11 @@ impl Parser {
     fn unary(&mut self) -> R<Expr> {
         if self.eat_sym("-") {
             return Ok(Expr::Unary("-", Box::new(self.unary()?)));
+        }
+        // Python's `~x` on an int is -x - 1.
+        if self.py && self.eat_sym("~") {
+            let x = self.unary()?;
+            return Ok(Expr::Binary("-", Box::new(Expr::Unary("-", Box::new(x))), Box::new(Expr::Int(1))));
         }
         // `not` is accepted as a spelling of `!`.
         if self.eat_sym("!") || self.eat_kw("not") {
