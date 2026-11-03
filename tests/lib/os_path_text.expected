@@ -1,0 +1,3 @@
+data/in/file.tar.gz file.tar.gz data/in ('data/in/file.tar', '.gz')
+a/c True /
+main.py .py main /srv/app ('/', 'srv', 'app', 'main.py')
