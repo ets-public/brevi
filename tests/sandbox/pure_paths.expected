@@ -1,3 +1,4 @@
+{"path":"dynamic","line":1,"why":"a call CPython runs needs allow native"}
 data/runs/r1.json r1.json data/runs ('data/runs/r1', '.json') ('data/runs', 'r1.json')
 a/b/d False /x/y /
 /srv/app/main.tar.gz PurePosixPath('/srv/app/main.tar.gz') main.tar.gz main.tar .gz ['.tar', '.gz'] /srv/app ('/', 'srv', 'app', 'main.tar.gz')

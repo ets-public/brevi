@@ -1,4 +1,4 @@
-{"path":"dynamic","line":3,"why":"unknown method .system()"}
+{"path":"dynamic","line":3,"why":"sys.modules runs in CPython, which needs allow native"}
 Traceback (most recent call last):
 KeyError: 'os'
 exit 1
