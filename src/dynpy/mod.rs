@@ -84,6 +84,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let src = crate::modules::fill_file_name(&src, Path::new(file));
     // `allow` lines (checked in main.rs before this runs) are not Python.
     let src = crate::caps::split(&src).0;
+    let src = crate::pygen::rewrite(&src);
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let mut mods = vec![emit::Module { name: "__main__".into(), body }];
