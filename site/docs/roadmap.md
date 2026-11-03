@@ -6,7 +6,7 @@ Brevi's direction stays the same: **AI-first**, with speed and safety as the rea
 ## Now
 
 - **Public preview on GitHub.** The source, the releases and these docs, under Apache-2.0.
-- **Close the sandbox gap.** Hold dynamic builds, library calls and the CPython fallback to a program's `allow` lines, as typed builds already are.
+- **Sandbox on every path** (v0.24.1). The `allow` check runs before every build path, Python libraries need `allow native`, and a sandboxed program never falls back to CPython.
 - **Cheaper heavy tasks.** Tell agents their Python is compiled so they write the plain solution, and make plain idioms (generators, string indexing) build typed and fast.
 
 ## Next

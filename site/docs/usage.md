@@ -88,7 +88,7 @@ The program exits with status 101 after a runtime error, and with its own status
 
 ## Sandbox
 
-A Brevi program can declare what it touches with an `allow` line at the top:
+A program, Brevi or Python, can declare what it touches with an `allow` line at the top:
 
 ```
 allow read, write
@@ -98,7 +98,7 @@ allow read, write
 | --- | --- |
 | `read` | reading files |
 | `write` | writing files |
-| `native` | `rust fn`, `py fn`, `rust:` and `py:` blocks and crates, which can do anything |
+| `native` | `rust fn`, `py fn`, `rust:` and `py:` blocks, crates, and Python libraries that CPython runs (`import os`, `subprocess`, `numpy`, `requests`, ...), which can do anything |
 | `none` | nothing beyond stdin, stdout and arguments |
 
 stdin, stdout, program arguments and `use "file.bv"` are always allowed. With `brevi run --sandbox`, or as soon as a program has any `allow` line, a program that uses something it did not declare is refused at build time:
@@ -107,9 +107,11 @@ stdin, stdout, program arguments and `use "file.bv"` are always allowed. With `b
 {"line":1,"msg":"read() needs allow read","fix":"add the line `allow read` at the top, or do without it"}
 ```
 
+The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `allow native`, the library bridge is off completely, so no path from the program reaches CPython.
+
 The MCP tools sandbox by default (pass `sandbox: false` to turn it off).
 
-> The sandbox is enforced in Brevi programs and in Python files that take the typed build. Python files that build over dynamic values, use library calls, or fall back to CPython are not yet held to it, so do not rely on `--sandbox` alone to contain untrusted Python. Running untrusted code in a container or VM is still the safe choice. This is on the [roadmap](/docs/roadmap).
+> This is the behaviour from v0.24.1. In v0.24.0 and earlier the check covered only Brevi programs and typed Python builds: a Python file that fell to the dynamic build, a library call or the CPython fallback was not held to it. Whatever the version, running code you do not trust inside a container or VM is still wise.
 
 ## GUI programs
 
