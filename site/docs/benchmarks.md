@@ -1,0 +1,87 @@
+# Benchmarks
+<!-- description: Brevi's release test with Claude models, model cost against CPython, heavy-task results, and the comparison with Codon and Nuitka. -->
+
+Brevi is measured two ways: **what it costs an AI model** to reach a working program, and **how the built programs behave**, against CPython and against the other Python compilers. All benchmarks, logs and scripts are in the repository's `bench/` folder, so every number here can be rerun.
+
+## The release test
+
+The release test is the bar every release has to pass. Claude Sonnet and Claude Haiku each solve the 24 tasks of the `rel` suite twice per side:
+
+- **python:** the model writes Python and checks it with CPython until the tests pass;
+- **pyb:** the same prompt, and the same Python, checked with Brevi.
+
+Each side's prompt cache is kept apart so neither pays the other's cache writes. The whole API bill is counted, retries included. Since 3 November every Brevi check also runs the same files with CPython (the "shadow check"), so a check that failed only because of Brevi is counted as a Brevi bug.
+
+**The bar:** every task passes, Brevi's cost is within 10% of CPython's averaged over the runs for both models, and at least 90% of final programs build natively, with no CPython fallback.
+
+| Runs (3 Nov 2026) | Sonnet cost, Brevi vs CPython | Haiku cost, Brevi vs CPython | Tasks passed | Built natively | Failed because of Brevi |
+| --- | --- | --- | --- | --- | --- |
+| u2a, u2b | **0.97x** (95% range 0.93x to 1.01x) | **1.01x** (0.96x to 1.05x) | 24 of 24, both sides | 44 of 48 and 46 of 48 | 0 |
+
+**Passed.** The earlier runs e31 to e34 (2 November) also passed: 48 of 48 tasks, all 48 final programs native, cost 1.10x (Sonnet) and 0.95x (Haiku).
+
+The bar is "no more expensive than Python", not "cheaper", on purpose: on ordinary tasks a model writes much the same Python either way, so the cost should come out level, and the speed and safety of the result come free. The test exists to catch Brevi making an agent work harder, by rejecting valid Python or answering differently.
+
+## Heavy tasks and the plain-solution line
+
+The `speed` set has four tasks with small inputs and tens of millions of steps under a 10-second limit: Game of Life up to 600x600, 0/1 knapsack, edit distance on 10,000-letter texts, and Collatz chains. A plain Python solution takes CPython 15 to 80 seconds, so a model writing for CPython has to hand-optimise.
+
+With one extra line in the prompt telling the model its code is compiled and to write the plain solution (see [For AI agents](/docs/agents#write-the-plain-solution)):
+
+| Runs sp2a, sp2b (3 Nov 2026) | CPython, model told nothing | Brevi, plain-solution line | Ratio |
+| --- | --- | --- | --- |
+| Sonnet | $0.222 | $0.128 | **0.58x** |
+| Haiku | $0.0221 | $0.0117 | **0.53x** |
+
+Every task passed on both sides, every Brevi program built natively, and no check failed because of Brevi. The saving is the model not hand-optimising: output tokens fell by about half for Sonnet and a quarter for Haiku. On the ordinary release-suite tasks the same line made no clear difference (runs v1a, v1b: Sonnet 1.07x, Haiku 1.00x, bar still met).
+
+## Brevi, Codon and Nuitka
+
+The same unchanged Python files were given to each compiler, and every built program was checked against CPython: stdout byte for byte and the exit status. Brevi is `brevi build --release`; Codon is `codon build -release -exe`; Nuitka is `python -m nuitka --follow-imports`.
+
+| Same result as CPython | Brevi | Codon | Nuitka |
+| --- | --- | --- | --- |
+| Saved agent programs that build unchanged (591) | **591** | 206 | 591 |
+| ... and match CPython on every test | **591** | 170 | 591 |
+| Built but behave differently | **0** | 36 (16 silent wrong output, 20 crashes) | 0 |
+| Large programs (18): build / match | **18 / 18** | 0 / 0 | 18 / 18 |
+| Behaviour traps (13) | **13** | 4 | 12 |
+| Median cold build, small program | 1.2 s (default), 3.1 s (`--release`) | 4.9 s | 2.5 s (ccache warm) |
+| Median run time of a test (mostly start-up) | **3.4 ms** | 18.6 ms | 43 ms (CPython 22 ms) |
+
+Speed, best of 3 runs, in seconds:
+
+| Program | CPython | Brevi default | Brevi `--release` | Codon | Nuitka |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Spectral norm | 2.67 | 0.07 | 0.06 | **0.03** | 3.41 |
+| N-body | 2.33 | 0.11 | 0.08 | **0.05** | 4.08 |
+| Objects | 1.97 | 0.11 | **0.07** | no build | 1.77 |
+| LCS table | 1.94 | 0.14 | 0.06 | **0.05** | 1.02 |
+| Prime sieve | 1.06 | 0.10 | 0.08 | **0.03** | 0.75 |
+| Grid BFS with a set | 1.40 | 0.15 | **0.13** | 0.18 | 1.21 |
+| Binary trees | 5.29 | **0.71** | 0.96 | no build | 2.45 |
+| Word counts | 0.34 | 0.06 | **0.06** | 0.18 | 0.28 |
+| Dijkstra | 2.34 | 0.44 | 0.38 | **0.37** | 2.57 |
+| Fannkuch | 5.37 | 1.61 | **1.26** | **1.26** | 3.90 |
+| String building | 2.36 | 1.07 | **0.82** | 1.82 | 2.14 |
+| Group records | 0.68 | 0.39 | **0.26** | 0.34 | 0.64 |
+
+Brevi's default build (what `brevi run` uses) is 1.7x to 40x faster than CPython on every program; `--release` is level with Codon overall, and Brevi builds programs Codon cannot. Nuitka matches CPython's behaviour like Brevi, but runs close to CPython's speed because it keeps CPython's object model. Measured 3 November 2026 on one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13, rustc 1.97).
+
+## Rerunning
+
+```
+cd bench
+python3 e2e.py RUNa --lang pyb --model sonnet --set rel --jobs 4      # the release test (needs an Anthropic API key)
+python3 e2e.py RUNa --lang python --model sonnet --set rel --jobs 4
+python3 e2e.py --verdict "logs/e2e/RUN[a-d]-*.jsonl"
+cd ..
+python3 bench/compare/compare.py --corpus solutions --tools brevi,codon,nuitka --jobs 4
+python3 bench/compare/compare.py --corpus speed --tools brevi,brevi-dev,codon,nuitka
+```
+
+`bench/README.md` has the full method and every run since the project began, including older token-count benchmarks of Brevi's own `.bv` language against Python and Rust.<!--public--> Browse it on [GitHub](repo:bench/README.md).<!--/public-->
+
+## The history, briefly
+
+Brevi began as a language of its own for models to write, measured by tokens per finished task against Python. It got close (within a few percent either way on most sets), but the measurements kept showing that models write Python more cheaply and more reliably than any new syntax, however short. So the goal moved: take the Python models already write, and make it fast and safe. The `.bv` language is still there for anyone who wants it.

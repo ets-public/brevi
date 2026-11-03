@@ -5,6 +5,11 @@
 ## Docs
 
 - [Agent skill](https://brevi-lang.org/skill.md): setup and the write, run, fix loop for coding agents. Start here.
+- [For AI agents](https://brevi-lang.org/docs/agents.md): the MCP server's tools, the skill and plugin, and prompting advice.
+- [Using Brevi](https://brevi-lang.org/docs/usage.md): commands, flags, error formats, the CPython fallback, sandbox and GUI test mode.
+- [Install](https://brevi-lang.org/docs/install.md): release binaries, the install script, Docker and building from source.
+- [What works, and limits](https://brevi-lang.org/docs/compatibility.md): Python coverage, libraries and known gaps.
+- [Architecture](https://brevi-lang.org/docs/architecture.md): how a source file becomes a native program.
 - [Language guide](https://brevi-lang.org/guide.md): Brevi's own syntax, for .bv files only. Not needed to build Python.
 - [Reference](https://brevi-lang.org/reference.md): details for string braces and format specs, list methods and Python spellings. Look up one name with `brevi guide WORD` instead of reading it all.
 - [Libraries](https://brevi-lang.org/libraries.md): using other .bv files, Rust crates (`use sha2 "0.10"` plus `rust fn`) and Python (`py fn`) from Brevi.
