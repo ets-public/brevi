@@ -1730,6 +1730,13 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
     }
     match m {
         "re" => re_fn(n, a),
+        "json" | "json.decoder" if n == "JSONDecoder" => {
+            if !a.p.is_empty() || !a.k.is_empty() {
+                return Err(unsupported("json.JSONDecoder options"));
+            }
+            Ok(V::Obj(Obj::new(json_decoder_class())))
+        }
+        "json.decoder" if n == "scanstring" => json_scanstring(a),
         "json" => json_fn(n, a),
         "enum" => enum_fn(n, a),
         _ => Err(unsupported(&format!("{m}.{n}"))),
@@ -1746,7 +1753,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("re", "VERBOSE" | "X") => Some(V::Int(64)),
         ("re", "ASCII" | "A") => Some(V::Int(256)),
         ("re", "error") => Some(V::Class(exc_class("error"))),
-        ("json", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
+        ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("enum", "Enum") => Some(V::Class(enum_base())),
         _ => None,
     })
