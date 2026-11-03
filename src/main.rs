@@ -141,6 +141,12 @@ fn main() {
         println!("brevi {}", env!("CARGO_PKG_VERSION"));
         return;
     }
+    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "test" | "check" | "fix")) {
+        // Find rustc and its version while the front end works.
+        std::thread::spawn(|| {
+            rustc_version();
+        });
+    }
     if argv.first().map(|a| a.as_str()) == Some("guide") {
         let q = argv[1..].join(" ");
         let g = if q.is_empty() { GUIDE.to_string() } else { guide_lookup(&q) };
@@ -743,13 +749,23 @@ fn rustc(versions: &[(String, Option<String>)], dir: &Path, out: &Path, extra: &
     let lib: Vec<(String, Option<String>)> = versions.iter().map(|(r, p)| (use_runtime_lib(r, release), p.as_ref().map(|p| use_runtime_lib(p, release)))).collect();
     // A program that implements a prelude trait for a prelude type cannot use the library: paste the prelude.
     let orphan = |e: &str| ["E0117", "E0116", "E0210"].iter().any(|c| e.contains(&format!("\"code\":\"{c}\"")));
+    // The first library build's result is kept, so it is not compiled a second time below.
+    let mut first = None;
     let versions = match lib.first() {
-        Some((r, _)) if r.starts_with(RT_HEADER) && matches!(compile(r, dir, out, extra, link), Some(Err(e)) if orphan(&e)) => versions.to_vec(),
+        Some((r, _)) if r.starts_with(RT_HEADER) => {
+            let res = compile(r, dir, out, extra, link);
+            if matches!(&res, Some(Err(e)) if orphan(e)) {
+                versions.to_vec()
+            } else {
+                first = Some(res);
+                lib
+            }
+        }
         _ => lib,
     };
     let mut last = None;
     for (rust, plain) in &versions {
-        let mut r = (rust.as_str(), match compile(rust, dir, out, extra, link) {
+        let mut r = (rust.as_str(), match first.take().unwrap_or_else(|| compile(rust, dir, out, extra, link)) {
             Some(Ok(())) => return true,
             Some(Err(e)) => e,
             None => return false,
@@ -935,9 +951,12 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     }
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
-    let mut c = Command::new("rustc");
+    let mut c = rustc_cmd();
     c.args(["--edition", "2021", "--error-format=json", "--crate-name", "brevi_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
     c.args(extra);
+    if !release {
+        c.args(["-C", codegen_units()]);
+    }
     if let Some(lib) = &rt {
         c.arg("--extern").arg(format!("brevi_rt={}", lib.display()));
     }
@@ -1015,7 +1034,7 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             let tmp = dir.join(format!("build-{}", std::process::id()));
             std::fs::create_dir_all(&tmp).ok()?;
             std::fs::write(tmp.join("rt.rs"), &src).ok()?;
-            let mut c = Command::new("rustc");
+            let mut c = rustc_cmd();
             c.args(["--edition", "2021", "--crate-type", "rlib", "--crate-name", "brevi_rt", "-A", "warnings", "-C", "overflow-checks=on"]);
             // Built once, so always optimised: programs built without --release call into it too.
             c.args(["-C", "opt-level=3"]);
@@ -1044,8 +1063,68 @@ fn runtime_lib_source() -> String {
 // `rustc -vV`, asked once per run. Part of every cache key, so a new toolchain never reuses old builds.
 fn rustc_version() -> &'static str {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    V.get_or_init(|| {
-        Command::new("rustc").arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default()
+    V.get_or_init(|| rustc_cmd().arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default())
+}
+
+// rustc itself rather than the rustup proxy on PATH: each call through the proxy costs 20 to 50 ms, and a
+// build makes two or three. The toolchain is still the one the proxy picks. Its answer is remembered in the
+// cache under a key of everything rustup decides by (PATH, RUSTUP_* settings, rustup's settings file and any
+// rust-toolchain file above the working directory), so a toolchain switch asks the proxy again.
+pub(crate) fn rustc_cmd() -> Command {
+    static P: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    Command::new(P.get_or_init(|| {
+        let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
+        if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
+            if p.is_file() {
+                return p;
+            }
+        }
+        let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
+            PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
+        });
+        match real.filter(|p| p.is_file()) {
+            Some(p) => {
+                if let Some(f) = saved {
+                    let tmp = f.with_extension(format!("tmp{}", std::process::id()));
+                    let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
+                    if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
+                        std::fs::remove_file(&tmp).ok();
+                    }
+                }
+                p
+            }
+            None => PathBuf::from("rustc"),
+        }
+    }))
+}
+
+// What rustup's choice of toolchain depends on, hashed. None (always ask the proxy) without a working directory.
+fn toolchain_key() -> Option<String> {
+    let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).map_or(String::from("-"), |t| format!("{t:?}"));
+    let mut parts: Vec<String> = ["PATH", "RUSTUP_TOOLCHAIN", "RUSTUP_HOME", "CARGO_HOME", "HOME"].iter().map(|v| std::env::var(v).unwrap_or_default()).collect();
+    let home = std::env::var("RUSTUP_HOME").map(PathBuf::from).ok().or_else(|| std::env::var("HOME").ok().map(|h| Path::new(&h).join(".rustup")));
+    if let Some(h) = home {
+        parts.push(mtime(&h.join("settings.toml")));
+    }
+    let cwd = std::env::current_dir().ok()?;
+    parts.push(cwd.to_string_lossy().to_string());
+    for d in cwd.ancestors() {
+        for f in ["rust-toolchain", "rust-toolchain.toml"] {
+            parts.push(mtime(&d.join(f)));
+        }
+    }
+    let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
+    Some(format!("{:016x}", fnv(&refs, 11)))
+}
+
+// Codegen units for builds without --release: one per core (4 to 16). rustc's default of 16 spends more time
+// splitting and re-joining (ThinLTO) a small program than it saves on a machine with few cores: on 4 cores
+// the 12 comparison programs build about 20% faster, and run as fast.
+pub(crate) fn codegen_units() -> &'static str {
+    static C: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    C.get_or_init(|| {
+        let n = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(4, 16);
+        format!("codegen-units={n}")
     })
 }
 
