@@ -275,6 +275,7 @@ pub static AX_PY_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 pub fn ax_py_mode() {
     AX_PY_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
+#[inline]
 fn ax_py_on() -> bool {
     AX_PY_MODE.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -665,17 +666,20 @@ pub trait AxTruth {
     fn ax_truth(&self) -> bool;
 }
 impl AxTruth for bool {
+    #[inline]
     fn ax_truth(&self) -> bool {
         *self
     }
 }
 // Python's None (held as i64::MIN, f64::MIN or "\0None") is false too.
 impl AxTruth for i64 {
+    #[inline]
     fn ax_truth(&self) -> bool {
         *self != 0 && *self != i64::MIN
     }
 }
 impl AxTruth for f64 {
+    #[inline]
     fn ax_truth(&self) -> bool {
         *self != 0.0 && *self != f64::MIN
     }
@@ -799,12 +803,14 @@ pub trait AxFloorDiv<B = Self> {
     fn floordiv(self, b: B) -> Self;
 }
 impl AxFloorDiv for i64 {
+    #[inline]
     fn floordiv(self, b: i64) -> i64 {
         let q = self / b;
         if (self % b != 0) && ((self < 0) != (b < 0)) { q - 1 } else { q }
     }
 }
 impl AxFloorDiv for f64 {
+    #[inline]
     fn floordiv(self, b: f64) -> f64 {
         (self / b).floor()
     }
@@ -849,12 +855,14 @@ impl AxPyMod<i64> for Dec {
     }
 }
 impl AxPyMod for i64 {
+    #[inline]
     fn ax_pymod(self, b: i64) -> i64 {
         let r = self % b;
         if ax_py_on() && r != 0 && ((r < 0) != (b < 0)) { r + b } else { r }
     }
 }
 impl AxPyMod for f64 {
+    #[inline]
     fn ax_pymod(self, b: f64) -> f64 {
         let r = self % b;
         if !ax_py_on() {
@@ -952,12 +960,14 @@ pub trait Plus<Rhs = Self> {
 }
 impl Plus for i64 {
     type Out = i64;
+    #[inline]
     fn plus(self, o: i64) -> i64 {
         self + o
     }
 }
 impl Plus for f64 {
     type Out = f64;
+    #[inline]
     fn plus(self, o: f64) -> f64 {
         self + o
     }
@@ -1604,6 +1614,7 @@ impl AxStr for String {
     }
 }
 
+#[inline]
 fn ax_idx(i: i64, len: usize) -> usize {
     // Negative indexes count from the end: xs[-1] is the last item.
     let j = if i < 0 { len as i64 + i } else { i };
@@ -3273,11 +3284,13 @@ pub fn ax_none<T: AxNone>() -> T {
     T::ax_none()
 }
 impl AxNone for i64 {
+    #[inline]
     fn ax_none() -> Self {
         i64::MIN
     }
 }
 impl AxNone for f64 {
+    #[inline]
     fn ax_none() -> Self {
         f64::MIN
     }
@@ -3293,6 +3306,7 @@ impl AxNone for Date {
     }
 }
 impl AxNone for bool {
+    #[inline]
     fn ax_none() -> Self {
         false
     }

@@ -115,16 +115,19 @@ def run_check(lang, task, work, native_only=False):
     return f"{first}\npassed {passed}/{len(tests)}", native
 
 
-def solve(client, model, lang, task, work, effort, thinking="adaptive", native_only=False):
+def solve(client, model, lang, task, work, effort, thinking="adaptive", native_only=False, start_messages=None, start_checks=0, tag_of=None):
+    """start_messages/start_checks: carry on from a saved conversation (replay.py); only later calls are counted."""
     work.mkdir(parents=True, exist_ok=True)
     # A short tag per run (e.g. e25a-sonnet-pyb) keeps each run's prompt cache to itself. Without it, pyb and python
     # share one prompt, so whichever ran first paid the cache writes and the other read them (before e25 that was
     # always pyb, about $0.007 per Sonnet task).
-    tag = hashlib.sha1(work.parent.name.encode()).hexdigest()[:8]
+    tag = hashlib.sha1((tag_of or work.parent.name).encode()).hexdigest()[:8]
     system = [{"type": "text", "text": system_prompt(lang) + f"\n\nSession {tag}.", "cache_control": {"type": "ephemeral"}}]
-    messages = [{"role": "user", "content": (B / "tasks" / task / "prompt.md").read_text()}]
+    messages = start_messages or [{"role": "user", "content": (B / "tasks" / task / "prompt.md").read_text()}]
     use = {"input": 0, "cache_write": 0, "cache_read": 0, "output": 0}
-    checks, passed, calls, stop, native = 0, False, 0, "", None
+    checks, passed, calls, stop, native = start_checks, False, 0, "", None
+    # pyb only: for each check, whether CPython passes the same files (a False where pyb failed is a Brevi bug)
+    shadow = []
     while calls < 40:
         calls += 1
         for attempt in range(6):
@@ -172,6 +175,8 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
                     checks += 1
                     out, native = run_check(lang, task, work, native_only)
                     passed = out.startswith("PASS")
+                    if lang == "pyb":
+                        shadow.append([passed, run_check("python", task, work)[0].startswith("PASS")])
                     err = not passed
                 elif b.name == "guide":
                     out = subprocess.run([BREVI, "guide", a["word"]], capture_output=True, text=True).stdout or "nothing found"
@@ -189,7 +194,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     (work / "conversation.json").write_text(json.dumps([{"role": m["role"], "content": plain(m["content"])} for m in messages], indent=1))
     pin, pout, pread = PRICES[model]
     cost = (use["input"] * pin + use["cache_write"] * pin * 1.25 + use["cache_read"] * pread + use["output"] * pout) / 1e6
-    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **use, "usd": round(cost, 5)}
+    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **({"shadow": shadow} if lang == "pyb" else {}), **use, "usd": round(cost, 5)}
 
 
 def summary(pattern):
@@ -197,14 +202,16 @@ def summary(pattern):
     for f in sorted(glob.glob(pattern)):
         rs = [json.loads(l) for l in open(f) if l.strip()]
         rows[Path(f).stem] = rs
-    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
+    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'bug':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
     for name, rs in rows.items():
         t = {k: sum(r[k] for r in rs) for k in ("input", "cache_write", "cache_read", "output", "usd")}
         first = sum(1 for r in rs if r["pass"] and r["checks"] == 1)
         total = t["input"] + t["cache_write"] + t["cache_read"] + t["output"]
         # nat: pyb tasks whose last check Brevi built natively (the rest ran with CPython); "-" for other languages
         nat = sum(1 for r in rs if r.get("native")) if any("native" in r and r["native"] is not None for r in rs) else "-"
-        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
+        # bug: pyb checks that failed where CPython passed the same files (from e2e's shadow check, since s1a)
+        bug = sum(1 for r in rs for p, c in r.get("shadow", []) if c and not p) if any("shadow" in r for r in rs) else "-"
+        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {bug:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
 
 
 def verdict(pattern):

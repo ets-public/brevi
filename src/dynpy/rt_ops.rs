@@ -521,6 +521,11 @@ pub fn binop(a: &V, b: &V, op: &str) -> R {
                         return Ok(V::Float(p.to_f64().powf(q.to_f64())));
                     }
                     let e = q.to_i64().ok_or_else(|| exc("OverflowError", "exponent too large".into()))?;
+                    // 2 ** n (and 4 ** n, ...) is a shift: squaring a huge number over and over is slow.
+                    if let Some(b) = p.to_i64().filter(|b| *b > 0 && (*b as u64).is_power_of_two()) {
+                        let k = (b as u64).trailing_zeros() as u64;
+                        return Ok(Big::from_i64(1).shl((k * e as u64) as usize).norm());
+                    }
                     return Ok(p.pow(e as u64).norm());
                 }
                 "<<" => {
@@ -535,7 +540,11 @@ pub fn binop(a: &V, b: &V, op: &str) -> R {
                     if n < 0 {
                         return val_err("negative shift count".into());
                     }
-                    return Ok(p.shr(n.min(1 << 20) as usize).norm());
+                    // Past the top bit: 0, or -1 for a negative number.
+                    if n as u64 >= p.bits() as u64 + 1 {
+                        return Ok(V::Int(if p.neg { -1 } else { 0 }));
+                    }
+                    return Ok(p.shr(n as usize).norm());
                 }
                 "&" | "|" | "^" => {
                     if let (Some(x), Some(y)) = (p.to_i128(), q.to_i128()) {
@@ -546,7 +555,7 @@ pub fn binop(a: &V, b: &V, op: &str) -> R {
                         };
                         return Ok(Big::from_i128(r).norm());
                     }
-                    return Err(unsupported("bitwise operators on very large integers"));
+                    return Ok(p.bitop(&q, op).norm());
                 }
                 _ => {}
             }

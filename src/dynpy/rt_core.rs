@@ -486,6 +486,29 @@ impl Big {
             return "0".into();
         }
         let mut ds = vec![];
+        if r.is_power_of_two() {
+            // Read the digits straight from the bits (linear; dividing over and over is quadratic).
+            let k = r.trailing_zeros() as usize;
+            let bits = mbits(&self.mag);
+            let bit = |i: usize| (self.mag[i / 32] >> (i % 32)) & 1;
+            let mut i = 0;
+            while i < bits {
+                let mut d = 0;
+                for j in 0..k {
+                    if i + j < bits {
+                        d |= bit(i + j) << j;
+                    }
+                }
+                ds.push(std::char::from_digit(d, r).unwrap());
+                i += k;
+            }
+            let mut s = String::new();
+            if self.neg {
+                s.push('-');
+            }
+            s.extend(ds.iter().rev());
+            return s;
+        }
         let mut m = self.mag.clone();
         while !m.is_empty() {
             let (q, x) = mdivsmall(&m, r);
@@ -506,6 +529,22 @@ impl Big {
         };
         if t.is_empty() {
             return None;
+        }
+        if radix.is_power_of_two() && radix > 1 {
+            // Set the bits straight from the digits, last digit first (linear).
+            let k = radix.trailing_zeros() as usize;
+            let ds: Vec<u32> = t.chars().map(|c| c.to_digit(radix)).collect::<Option<Vec<u32>>>()?;
+            let mut m = vec![0u32; (ds.len() * k + 31) / 32 + 1];
+            for (n, d) in ds.iter().rev().enumerate() {
+                for j in 0..k {
+                    if (d >> j) & 1 == 1 {
+                        let i = n * k + j;
+                        m[i / 32] |= 1 << (i % 32);
+                    }
+                }
+            }
+            let m = mtrim(m);
+            return Some(Big { neg: neg && !m.is_empty(), mag: m });
         }
         let mut m: Vec<u32> = vec![];
         for c in t.chars() {
@@ -544,6 +583,67 @@ impl Big {
             f = ((f - r) / 4294967296.0).trunc();
         }
         let m = mtrim(ws);
+        Big { neg: neg && !m.is_empty(), mag: m }
+    }
+    // Python's &, | and ^ on ints of any size: two's complement with an endless sign.
+    pub fn bitop(&self, o: &Big, op: &str) -> Big {
+        if !self.neg && !o.neg {
+            // The usual case: no sign to extend.
+            let (a, b) = (&self.mag, &o.mag);
+            let m = match op {
+                "&" => a.iter().zip(b.iter()).map(|(x, y)| x & y).collect(),
+                _ => {
+                    let (long, short) = if a.len() >= b.len() { (a, b) } else { (b, a) };
+                    let mut v = long.clone();
+                    if op == "|" {
+                        v.iter_mut().zip(short.iter()).for_each(|(x, y)| *x |= y);
+                    } else {
+                        v.iter_mut().zip(short.iter()).for_each(|(x, y)| *x ^= y);
+                    }
+                    v
+                }
+            };
+            return Big { neg: false, mag: mtrim(m) };
+        }
+        let n = self.mag.len().max(o.mag.len()) + 1;
+        let twos = |b: &Big| -> Vec<u32> {
+            let mut v = b.mag.clone();
+            v.resize(n, 0);
+            if b.neg {
+                // -m is !(m - 1)
+                for w in v.iter_mut() {
+                    let (r, borrow) = w.overflowing_sub(1);
+                    *w = r;
+                    if !borrow {
+                        break;
+                    }
+                }
+                for w in v.iter_mut() {
+                    *w = !*w;
+                }
+            }
+            v
+        };
+        let (x, y) = (twos(self), twos(o));
+        let mut r: Vec<u32> = x.iter().zip(&y).map(|(a, b)| match op {
+            "&" => a & b,
+            "|" => a | b,
+            _ => a ^ b,
+        }).collect();
+        let neg = r[n - 1] >> 31 == 1;
+        if neg {
+            for w in r.iter_mut() {
+                *w = !*w;
+            }
+            for w in r.iter_mut() {
+                let (v, carry) = w.overflowing_add(1);
+                *w = v;
+                if !carry {
+                    break;
+                }
+            }
+        }
+        let m = mtrim(r);
         Big { neg: neg && !m.is_empty(), mag: m }
     }
     pub fn shl(&self, n: usize) -> Big {
