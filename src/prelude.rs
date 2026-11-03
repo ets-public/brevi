@@ -1966,16 +1966,41 @@ impl<K: Hash + Eq + Ord + Clone, V: Default> AxMut<K, V> for AxM<K, V> {
         self.entry(k.clone()).or_default()
     }
 }
+// Is s all ASCII (so its i-th character is its i-th byte)? A long text is scanned once: the answer is kept
+// for its block of memory until that block is freed or moved, so `s[i]` in a loop stays constant time.
+#[inline]
+pub fn ax_ascii(s: &String) -> bool {
+    use std::sync::atomic::Ordering::Relaxed;
+    if s.len() <= 256 {
+        return s.is_ascii();
+    }
+    let key = [s.as_ptr() as usize, s.len(), s.capacity()];
+    if (0..3).all(|k| AX_ASCII[k].load(Relaxed) == key[k]) {
+        return true;
+    }
+    let a = s.is_ascii();
+    if a {
+        AX_ASCII[0].store(0, Relaxed);
+        AX_ASCII[1].store(key[1], Relaxed);
+        AX_ASCII[2].store(key[2], Relaxed);
+        AX_ASCII[0].store(key[0], Relaxed);
+    }
+    a
+}
+#[inline]
+pub fn ax_char_at(s: &String, i: i64) -> char {
+    if ax_ascii(s) {
+        s.as_bytes()[ax_idx(i, s.len())] as char
+    } else {
+        let n = s.chars().count();
+        s.chars().nth(ax_idx(i, n)).unwrap()
+    }
+}
 impl AxRef<i64, String> for String {
     fn ax_ref(&self, i: &i64) -> &String {
         // One-character strings live in a table (ASCII) or are kept for the program's life.
         static ASCII: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-        let c = if self.is_ascii() {
-            self.as_bytes()[ax_idx(*i, self.len())] as char
-        } else {
-            let cs: Vec<char> = self.chars().collect();
-            cs[ax_idx(*i, cs.len())]
-        };
+        let c = ax_char_at(self, *i);
         if c.is_ascii() {
             &ASCII.get_or_init(|| (0..128u8).map(|b| (b as char).to_string()).collect())[c as usize]
         } else {
@@ -2080,8 +2105,7 @@ impl<K: Hash + Eq + Ord + Clone, V: Default> AxIndexMut<K, V> for AxM<K, V> {
 }
 impl AxIndex<i64, String> for String {
     fn ax_at(&self, i: i64) -> String {
-        let cs: Vec<char> = self.chars().collect();
-        cs[ax_idx(i, cs.len())].to_string()
+        ax_char_at(self, i).to_string()
     }
     fn ax_set(&mut self, _i: i64, _v: String) {
         panic!("strings cannot be changed by index")
