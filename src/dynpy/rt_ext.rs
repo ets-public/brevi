@@ -601,6 +601,18 @@ impl Ext for DecV {
                 "is_infinite" => V::Bool(d.sp == 1),
                 "is_finite" => V::Bool(d.sp == 0),
                 "adjusted" => V::Int(d.e + ndig(&d.c) as i64 - 1),
+                "scaleb" => {
+                    let k = match a.p.first() {
+                        Some(V::Int(k)) => *k,
+                        Some(o) => Dec::of(o).and_then(|x| x.trunc().ok()).and_then(|x| x.to_i64()).ok_or_else(|| exc("TypeError", "conversion from object to Decimal is not supported".into()))?,
+                        None => return type_err("scaleb() missing required argument 'other' (pos 1)".into()),
+                    };
+                    let mut x = d.clone();
+                    if x.sp == 0 {
+                        x.e += k;
+                    }
+                    decv(x.fix())
+                }
                 "sqrt" => {
                     if d.neg && !d.is_zero() {
                         return Err(dec_err("InvalidOperation"));
@@ -1378,6 +1390,118 @@ fn dt_of(v: &V) -> Option<DT> {
         _ => None,
     }
 }
+
+// datetime.time: a time of day, kept as microseconds since midnight.
+pub struct TMV(pub i64);
+fn tmv(us: i64) -> V {
+    V::Ext(Rc::new(TMV(us)))
+}
+fn tm_of(v: &V) -> Option<i64> {
+    match v {
+        V::Ext(x) => x.any().downcast_ref::<TMV>().map(|t| t.0),
+        _ => None,
+    }
+}
+fn tm_dt(us: i64) -> DT {
+    DT { ord: ymd_to_ord(1900, 1, 1), us, has_time: true }
+}
+fn tm_new(mut a: Args) -> R {
+    let v = int_args(&mut a, &["hour", "minute", "second", "microsecond"], 0, "time")?;
+    let get = |k: usize| v.get(k).copied().unwrap_or(0);
+    let (h, m, s, us) = (get(0), get(1), get(2), get(3));
+    if !(0..24).contains(&h) {
+        return val_err("hour must be in 0..23".into());
+    }
+    if !(0..60).contains(&m) {
+        return val_err("minute must be in 0..59".into());
+    }
+    if !(0..60).contains(&s) {
+        return val_err("second must be in 0..59".into());
+    }
+    if !(0..1_000_000).contains(&us) {
+        return val_err("microsecond must be in 0..999999".into());
+    }
+    Ok(tmv(((h * 60 + m) * 60 + s) * 1_000_000 + us))
+}
+impl Ext for TMV {
+    fn tname(&self) -> &'static str {
+        "datetime.time"
+    }
+    fn repr(&self) -> String {
+        let (h, mi, s, us) = tm_dt(self.0).hms();
+        let mut t = format!("datetime.time({h}, {mi}");
+        if s != 0 || us != 0 {
+            let _ = write!(t, ", {s}");
+        }
+        if us != 0 {
+            let _ = write!(t, ", {us}");
+        }
+        t.push(')');
+        t
+    }
+    fn str_(&self) -> String {
+        let (h, mi, s, us) = tm_dt(self.0).hms();
+        if us != 0 {
+            format!("{h:02}:{mi:02}:{s:02}.{us:06}")
+        } else {
+            format!("{h:02}:{mi:02}:{s:02}")
+        }
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some(hash_int(self.0))
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(tm_of(o) == Some(self.0))
+    }
+    fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
+        tm_of(o).map(|t| self.0.cmp(&t))
+    }
+    fn truth(&self) -> bool {
+        true
+    }
+    fn fmt(&self, spec: &str) -> Option<R> {
+        if spec.is_empty() {
+            return Some(Ok(st(self.str_())));
+        }
+        Some(Ok(st(tm_dt(self.0).strftime(spec))))
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        let (h, mi, s, us) = tm_dt(self.0).hms();
+        Some(Ok(match n {
+            "hour" => V::Int(h),
+            "minute" => V::Int(mi),
+            "second" => V::Int(s),
+            "microsecond" => V::Int(us),
+            "tzinfo" => V::None,
+            _ => return None,
+        }))
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        let us = self.0;
+        Some((|| -> R {
+            Ok(match n {
+                "isoformat" => st(self.str_()),
+                "strftime" | "__format__" => st(tm_dt(us).strftime(&to_str(&a.p[0])?)),
+                "replace" => {
+                    let (h, mi, s, u) = tm_dt(us).hms();
+                    let mut v = [h, mi, s, u];
+                    for (k, nm) in ["hour", "minute", "second", "microsecond"].iter().enumerate() {
+                        match a.kw(nm).or_else(|| a.p.get(k).cloned()) {
+                            Some(V::Int(i)) => v[k] = i,
+                            Some(_) => return type_err("an integer is required".into()),
+                            None => {}
+                        }
+                    }
+                    tm_new(Args::p(v.iter().map(|x| V::Int(*x)).collect()))?
+                }
+                _ => return Err(exc("AttributeError", format!("'datetime.time' object has no attribute '{n}'"))),
+            })
+        })())
+    }
+}
 impl Ext for TDV {
     fn tname(&self) -> &'static str {
         "datetime.timedelta"
@@ -1619,6 +1743,7 @@ impl Ext for DTV {
                     tup(vec![V::Int(y), V::Int(w), V::Int(d)])
                 }
                 "date" => dtv(DT { ord: t.ord, us: 0, has_time: false }),
+                "time" | "timetz" if t.has_time => tmv(t.us),
                 "timetuple" => return Err(unsupported("timetuple")),
                 "ctime" => st(t.strftime("%c")),
                 "timestamp" => return Err(unsupported("datetime.timestamp")),
@@ -1701,7 +1826,7 @@ fn date_class_attr(cls: &'static str, n: &str) -> Option<V> {
         }),
         "combine" if has_time => builtin(f, |a: Args| {
             let d = dt_of(a.p.first().unwrap_or(&V::None)).ok_or_else(|| exc("TypeError", "combine() argument 1 must be datetime.date".into()))?;
-            let t = a.p.get(1).and_then(dt_of).map(|t| t.us).unwrap_or(0);
+            let t = a.p.get(1).and_then(|v| tm_of(v).or_else(|| dt_of(v).map(|t| t.us))).unwrap_or(0);
             Ok(dtv(DT { ord: d.ord, us: t, has_time: true }))
         }),
         "today" | "now" | "utcnow" => builtin(f, move |_a: Args| {
@@ -2209,6 +2334,7 @@ pub fn ext_construct(cls: &str, a: Args) -> Option<R> {
         "datetime.date" => date_new(a),
         "datetime.datetime" => datetime_new(a),
         "datetime.timedelta" => td_new(a),
+        "datetime.time" => tm_new(a),
         _ => return None,
     })
 }
@@ -2264,6 +2390,7 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("datetime", "date") => V::Class(ext_class("datetime.date")),
         ("datetime", "datetime") => V::Class(ext_class("datetime.datetime")),
         ("datetime", "timedelta") => V::Class(ext_class("datetime.timedelta")),
+        ("datetime", "time") => V::Class(ext_class("datetime.time")),
         ("datetime", "MINYEAR") => V::Int(1),
         ("datetime", "MAXYEAR") => V::Int(9999),
         ("csv", "QUOTE_MINIMAL") => V::Int(0),

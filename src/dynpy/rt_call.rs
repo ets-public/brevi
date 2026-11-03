@@ -183,7 +183,7 @@ pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -
     Ok(V::Class(c))
 }
 pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
-    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta") {
+    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time") {
         return ext_construct(c.name, a).unwrap();
     }
     // builtin types called as constructors

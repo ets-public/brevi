@@ -5346,6 +5346,9 @@ impl AxNum for Dec {
 // Fixed types answer from their own type; a JSON value answers from what it holds (bool counts as int, as in Python).
 pub trait AxIsInstance {
     fn ax_kind(&self) -> &'static str;
+    fn ax_dyn(&self) -> bool {
+        false
+    }
     // `type(a) is type(b)`: the names of the two kinds.
     fn ax_type_kind(&self) -> String {
         self.ax_kind().to_string()
@@ -5355,7 +5358,8 @@ pub trait AxIsInstance {
         // `=int` (from `type(v) is int`) is the exact kind.
         kinds.split(',').any(|t| match t.strip_prefix('=') {
             Some(e) => e == k,
-            None => t == k || (t == "int" && k == "bool") || (t == "object"),
+            // A typed tuple may be kept as a list; a dynamic value knows whether it is a tuple.
+            None => t == k || (t == "int" && k == "bool") || (t == "object") || (t == "tuple" && k == "list" && !self.ax_dyn()),
         })
     }
 }
@@ -5398,6 +5402,9 @@ impl<K, V> AxIsInstance for AxM<K, V> {
     }
 }
 impl AxIsInstance for Json {
+    fn ax_dyn(&self) -> bool {
+        true
+    }
     fn ax_kind(&self) -> &'static str {
         match self {
             Json::Null => "NoneType",
@@ -5458,6 +5465,18 @@ impl Json {
         match self {
             Json::Str { v } => v,
             other => panic!("TypeError: {} has no method {m}", other.ax_kind()),
+        }
+    }
+    // sum(j) of a dynamic list.
+    pub fn ax_sum(&self) -> Json {
+        self.ax_seq().into_iter().fold(Json::Num { v: 0.0, f: false }, |a, b| Plus::plus(a, b))
+    }
+    // What `for x in j` walks: a list's items, a text's characters, a dict's keys.
+    fn ax_seq(&self) -> Vec<Json> {
+        match self {
+            Json::Str { v } => v.chars().map(|c| Json::Str { v: c.to_string() }).collect(),
+            Json::Obj { v } => v.m.keys().map(|k| Json::Str { v: k.clone() }).collect(),
+            _ => self.ax_list(),
         }
     }
     fn ax_jitems(&self, m: &str) -> Vec<Json> {
@@ -5552,19 +5571,19 @@ pub trait AxJsonSeq {
 }
 impl AxJsonSeq for Json {
     fn ax_map<U>(&self, f: impl Fn(Json) -> U) -> Vec<U> {
-        self.ax_list().into_iter().map(f).collect()
+        self.ax_seq().into_iter().map(f).collect()
     }
     fn ax_filter(&self, f: impl Fn(Json) -> bool) -> Vec<Json> {
-        self.ax_list().into_iter().filter(|x| f(x.clone())).collect()
+        self.ax_seq().into_iter().filter(|x| f(x.clone())).collect()
     }
     fn ax_any(&self, f: impl Fn(Json) -> bool) -> bool {
-        self.ax_list().into_iter().any(f)
+        self.ax_seq().into_iter().any(f)
     }
     fn ax_all(&self, f: impl Fn(Json) -> bool) -> bool {
-        self.ax_list().into_iter().all(f)
+        self.ax_seq().into_iter().all(f)
     }
     fn ax_enumerate(&self) -> Vec<(i64, Json)> {
-        self.ax_list().into_iter().enumerate().map(|(i, x)| (i as i64, x)).collect()
+        self.ax_seq().into_iter().enumerate().map(|(i, x)| (i as i64, x)).collect()
     }
 }
 // `total = None` then a Decimal later: the unset value is a sentinel no sum reaches.
