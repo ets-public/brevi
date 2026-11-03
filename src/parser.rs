@@ -2049,6 +2049,7 @@ impl Parser {
                                     }
                                 }
                             }
+                            let kws_given = raw.iter().any(|(k, _)| k.is_some());
                             let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             // `m.get(k)` is None when k is missing.
                             if name == "get" && args.len() == 1 && !self.own_method(&e) {
@@ -2174,12 +2175,21 @@ impl Parser {
                                 continue;
                             }
                             // csv.reader(sys.stdin), csv.reader(lines) or csv.reader(text.splitlines()) give the rows.
-                            if name == "reader" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "csv") {
+                            if name == "reader" && args.len() == 1 && !kws_given && matches!(&e, Expr::Ident(m) if m == "csv") {
                                 let src = match args.remove(0) {
                                     Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
                                     other => other,
                                 };
                                 e = Expr::Method(Box::new(src), "csv_rows".into(), vec![], line);
+                                continue;
+                            }
+                            // csv.DictReader(src) with the default comma and the first row as the header.
+                            if name == "DictReader" && args.len() == 1 && !kws_given && matches!(&e, Expr::Ident(m) if m == "csv") {
+                                let src = match args.remove(0) {
+                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    other => other,
+                                };
+                                e = Expr::Method(Box::new(src), "csv_dicts".into(), vec![], line);
                                 continue;
                             }
                             // date.fromisoformat(s) and datetime.date.fromisoformat(s) are date(s).

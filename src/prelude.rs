@@ -1,6 +1,5 @@
 // Runtime prelude pasted at the top of every generated Rust file.
 // Brevi methods map to ax_-prefixed trait methods so Brevi controls their names and int types.
-#![allow(warnings)]
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
@@ -1216,6 +1215,14 @@ pub fn ax_pf_str(x: &str, spec: &str) -> String {
     ax_pf_pad(body, "", &sp, false)
 }
 pub fn ax_pf_int(v: i64, spec: &str) -> String {
+    // `{i:06d}`, `{i:5}`, `{i:d}`: plain widths, written straight away.
+    let b = spec.as_bytes();
+    let digits = b.strip_suffix(b"d").unwrap_or(b);
+    if digits.len() <= 3 && digits.iter().all(|c| c.is_ascii_digit()) {
+        let zero = digits.first() == Some(&b'0');
+        let w: usize = std::str::from_utf8(digits).unwrap().parse().unwrap_or(0);
+        return if zero { format!("{v:0w$}") } else { format!("{v:>w$}") };
+    }
     let sp = ax_pf_parse(spec);
     if matches!(sp.ty, Some('e' | 'E' | 'f' | 'F' | 'g' | 'G' | '%')) {
         return ax_pf_float(v as f64, spec, true);
@@ -1520,6 +1527,10 @@ impl AxStr for String {
         }
     }
     fn ax_split(&self, sep: String) -> Vec<String> {
+        // A one-byte separator: a byte search, not the general substring search.
+        if sep.len() == 1 {
+            return self.split(sep.as_bytes()[0] as char).map(String::from).collect();
+        }
         self.split(sep.as_str()).map(String::from).collect()
     }
     fn ax_lower(&self) -> String {
@@ -3597,6 +3608,37 @@ impl AxCsvRows for String {
 impl AxCsvRows for Vec<String> {
     fn ax_csv_rows(&self) -> Vec<Vec<String>> {
         csv(self.join("\n"))
+    }
+}
+// csv.DictReader(src): each row after the header as a dict from column name to field, in column order.
+// Blank lines are skipped. A row with fewer or more fields than the header has None values (or a None key)
+// in CPython, which a dict of strings cannot hold, so it stops with an error instead.
+pub trait AxCsvDicts {
+    fn ax_csv_dicts(&self) -> Vec<AxM<String, String>>;
+}
+fn ax_csv_dicts_of(rows: Vec<Vec<String>>) -> Vec<AxM<String, String>> {
+    let mut it = rows.into_iter().filter(|r| !r.is_empty());
+    let Some(head) = it.next() else { return Vec::new() };
+    it.map(|r| {
+        if r.len() != head.len() {
+            panic!("ValueError: csv.DictReader row has {} fields where the header has {} (CPython fills them with None)", r.len(), head.len());
+        }
+        let mut m = AxM::ordered();
+        for (k, v) in head.iter().zip(r) {
+            m.insert(k.clone(), v);
+        }
+        m
+    })
+    .collect()
+}
+impl AxCsvDicts for String {
+    fn ax_csv_dicts(&self) -> Vec<AxM<String, String>> {
+        ax_csv_dicts_of(csv(self.clone()))
+    }
+}
+impl AxCsvDicts for Vec<String> {
+    fn ax_csv_dicts(&self) -> Vec<AxM<String, String>> {
+        ax_csv_dicts_of(csv(self.join("\n")))
     }
 }
 // Python's strip family: rstrip()/lstrip() trim whitespace at one end; strip(cs)/rstrip(cs)/lstrip(cs)

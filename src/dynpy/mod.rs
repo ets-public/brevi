@@ -17,6 +17,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_ext.rs"),
     include_str!("rt_glue.rs"),
     include_str!("rt_gen.rs"),
+    include_str!("../alloc_rt.rs"),
 );
 
 const HEADER: &str = "#![allow(warnings)] #[macro_use] extern crate brevi_dyn; use brevi_dyn::*; use std::rc::Rc; use std::cell::{Cell, RefCell};\n";
@@ -80,6 +81,7 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
 // Err is (file, line, message).
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
+    let src = crate::modules::fill_file_name(&src, Path::new(file));
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let mut mods = vec![emit::Module { name: "__main__".into(), body }];
@@ -95,6 +97,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
             if p.exists() {
                 let ps = p.to_string_lossy().to_string();
                 let src = std::fs::read_to_string(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;
+                let src = crate::modules::fill_file_name(&src, &p);
                 let body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
                 mods.push(emit::Module { name: m, body });
             }

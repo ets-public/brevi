@@ -1174,6 +1174,7 @@ impl Cx<'_> {
             "words" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
+            "csv_dicts" => List(Box::new(Map(Box::new(Str), Box::new(Str)))),
             "re_groups" => List(Box::new(Str)),
             "re_span" => Tuple(vec![Int, Int]),
             "ints" => List(Box::new(Int)),

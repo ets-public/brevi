@@ -239,6 +239,7 @@ fn main() {
     };
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
+    let src = modules::fill_file_name(&src, Path::new(&file));
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
