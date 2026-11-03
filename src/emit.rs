@@ -1451,6 +1451,41 @@ impl Emitter {
         if let Stmt::Expr { expr, .. } = s {
             out.push_str(&self.loop_hoist(expr));
         }
+        // Python: a name set in a loop body (`v = el; break`) is still there after the loop.
+        let lp = match s {
+            Stmt::Expr { expr: e @ (Expr::For(..) | Expr::While(..)), .. } if self.py_mode => Some(e),
+            // A loop with an else part: `ax_broke = false; for ...; if !ax_broke {...}`.
+            Stmt::Expr { expr: Expr::Block(st, _), .. } if self.py_mode && matches!(st.first(), Some(Stmt::Assign { target: Expr::Ident(f), .. } | Stmt::Let { name: Pat::Bind(f), .. }) if f.starts_with("ax_broke")) => st.iter().find_map(|x| match x {
+                Stmt::Expr { expr: e @ (Expr::For(..) | Expr::While(..)), .. } => Some(e),
+                _ => None,
+            }),
+            _ => None,
+        };
+        if let Some(Expr::For(_, _, b) | Expr::While(_, b)) = lp {
+            let pat = match lp {
+                Some(Expr::For(p, _, _)) => format!("{p:?}"),
+                _ => String::new(),
+            };
+            let mut names = Vec::new();
+            branch_sets(b, &mut names);
+            // Names a later lambda (a comprehension) mentions: it may set its own.
+            let mut in_lambda = String::new();
+            let whole = Expr::Block(rest_stmts.to_vec(), tail.map(|t| Box::new(t.clone())));
+            crate::infer::walk(&whole, &mut |e| {
+                if let Expr::Lambda(..) = e {
+                    in_lambda.push_str(&format!("{e:?}"));
+                }
+            });
+            names.retain(|n| !in_lambda.contains(&format!("Ident({n:?})")));
+            let rest = format!("{rest:?} {tail:?}");
+            // Not a name a later loop or comprehension binds for itself (`for sku, (q, c) in ...`).
+            for n in names.into_iter().filter(|n| n != "_" && !n.starts_with("ax_broke") && !pat.contains(&format!("{n:?}")) && !rest.contains(&format!("Bind({n:?})"))) {
+                if !self.locals.contains(&n) && self.global(&n).is_none() && (rest.contains(&format!("Ident({n:?})")) || rest.contains(&format!("Move({n:?})"))) && !stmts_set_first(rest_stmts, tail, &n) {
+                    out.push_str(&format!("    let mut {n} = Default::default();\n"));
+                    self.locals.insert(n);
+                }
+            }
+        }
         if let Stmt::Expr { expr: e @ (Expr::If(..) | Expr::Match(..)), .. } = s {
             let mut names = Vec::new();
             branch_sets(e, &mut names);
@@ -1784,7 +1819,10 @@ impl Emitter {
             Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
                 let mut v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
-                if self.json_ret && value.is_some() {
+                if self.json_ret && matches!(value, Some(Expr::Call(n, a, _)) if n == "none" && a.is_empty()) {
+                    // `return None` from a function giving JSON values: JSON null.
+                    v = "Json::Null".into();
+                } else if self.json_ret && value.is_some() {
                     v = format!("AxToJson::ax_json(&{v})");
                 }
                 if self.unit_fn && value.is_some() && !self.must {
@@ -1901,8 +1939,9 @@ impl Emitter {
                 for p in parts {
                     match p {
                         StrPart::Lit(s) => {
-                            let lit = rust_str_lit(s);
-                            fmt.push_str(&lit[1..lit.len() - 1].replace('{', "{{").replace('}', "}}"));
+                            // Braces doubled before escaping, so a `\u{1}` escape keeps its own.
+                            let lit = rust_str_lit(&s.replace('{', "{{").replace('}', "}}"));
+                            fmt.push_str(&lit[1..lit.len() - 1]);
                         }
                         StrPart::Interp(e) => {
                             fmt.push_str("{}");
@@ -2492,6 +2531,9 @@ impl Emitter {
                 return format!("{name}({})", plain.join(", ").replacen("(|", "(move |", 1));
             }
             return format!("{name}({})", plain.join(", "));
+        }
+        if name == "ax_json_null" {
+            return "Json::Null".into();
         }
         if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
