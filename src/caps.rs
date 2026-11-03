@@ -4,7 +4,13 @@
 //
 //   read    read(path)
 //   write   write(path, text)
-//   native  rust fn, py fn, rust: and py: blocks, and crates (use NAME "VER"): these can do anything
+//   native  rust fn, py fn, rust: and py: blocks, crates (use NAME "VER"), and Python libraries CPython runs
+//           (import os, import numpy: pybridge.rs): these can do anything
+//
+// A capability refusal is final: main.rs checks before any build, so a refused program is never built over
+// dynamic values, by pybridge or run by python3 instead. A held program (--sandbox or an allow line) never falls
+// back to python3 at all, since CPython cannot hold it to its allow lines. Dynamic builds (src/dynpy) have no
+// file, network, environment or library access, so a program that passes this check may be built that way.
 //
 // stdin, stdout, args() and `use "file.bv"` are always allowed. Brevi's own library has no other way to reach
 // files, the network or the environment, so checking these calls covers everything outside native code.
@@ -64,6 +70,9 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
             uses.push((i + 1, "native", w.to_string()));
         }
     }
+    for (line, m) in crate::pybridge::bridged_imports(src) {
+        uses.push((line, "native", format!("import {m} (a Python library, run by CPython)")));
+    }
     uses.sort();
     let mut seen = Vec::new();
     let mut errs = Vec::new();
@@ -84,8 +93,8 @@ fn expr(e: &Expr, out: &mut Vec<(usize, &'static str, String)>) {
     match e {
         Expr::Call(n, args, line) => {
             match n.as_str() {
-                "read" => out.push((*line, "read", "read()".into())),
-                "write" => out.push((*line, "write", "write()".into())),
+                "read" | "__try_read" | "__open_r" => out.push((*line, "read", "read()".into())),
+                "write" | "__open_w" | "__open_a" => out.push((*line, "write", "write()".into())),
                 _ => {}
             }
             args.iter().for_each(|(_, a)| expr(a, out));
@@ -158,11 +167,32 @@ pub fn restore(orig: &str, edited: &str) -> String {
 }
 
 // The check on a whole program, for main.rs: parses it as compile_to_rust does. A program that does not
-// parse gets no capability errors here; the compiler reports why it does not parse.
+// parse still gets the line checks (native code, Python library imports); the compiler reports why it does
+// not parse.
 pub fn check_src(src: &str, allowed: &[String]) -> Vec<Diag> {
     let (code, _) = crate::ffi::split(src);
     match crate::parser::parse_program(&code) {
         Ok(items) => check(src, &items, allowed),
-        Err(_) => Vec::new(),
+        Err(_) => check(src, &[], allowed),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // A program that passes the check may be built over dynamic values (main.rs relies on it under --sandbox),
+    // so the dynamic runtime must have no way out: no files, processes, network, environment or CPython.
+    #[test]
+    fn dynamic_runtime_reaches_nothing() {
+        let rt = crate::dynpy::RUNTIME;
+        for bad in ["std::fs", "std::process::Command", "std::net", "std::env::var", "std::env::set", "File::", "libpython", "Py_Initialize", "dlopen", "#[link"] {
+            assert!(!rt.contains(bad), "the dynamic runtime uses {bad}: check it in caps.rs before --sandbox builds over it");
+        }
+        // C functions it declares: only the generator stacks' memory calls.
+        for block in rt.split("extern \"C\" {").skip(1) {
+            let decls = &block[..block.find('}').unwrap()];
+            for d in decls.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                assert!(["fn mmap(", "fn munmap(", "fn mprotect("].iter().any(|ok| d.starts_with(ok)), "the dynamic runtime declares {d}");
+            }
+        }
     }
 }

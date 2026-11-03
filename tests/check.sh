@@ -17,6 +17,20 @@ for f in tests/run/*.bv tests/errors/*.bv; do
     echo "ok   $f"
   fi
 done
+# Python mistakes CPython would also stop on: check reports them (exit 1) instead of building the file over
+# dynamic values, and run says so in its note when it runs the file with python3 (traceback lines left out:
+# they change between Python versions). py_valid.py and py_unreached.py are controls (a caught TypeError, a
+# function defined below its caller, mistakes in branches that never run).
+for f in tests/errors/*.py; do
+  exp="${f%.py}.expected"
+  out=$(cd tests/errors && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; echo "check exit $?"; r=$(../../$BREVI run "$b" 2>&1); c=$?; printf '%s\n' "$r" | grep -v '^  \|^Traceback\|^[A-Za-z]*Error'; echo "run exit $c")
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # brevi run on a .py file: runs with python3 when Brevi cannot build it (with a note), unless --native.
 for f in tests/fallback/*.py; do
   exp="${f%.py}.expected"
@@ -45,6 +59,18 @@ for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"
   out=$(BREVI_DYN=1 $BREVI run "$f" 2>&1)
   if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+# brevi run --sandbox on a .py file: a capability refusal is final on every path (the default run, dynamic
+# builds, typed --native), and nothing falls back to python3 or reaches CPython through a library.
+for f in tests/sandbox/*.py; do
+  exp="${f%.py}.expected"
+  out=$($BREVI run --sandbox "$f" 2>&1; echo "exit $?"; echo "-- dynamic"; BREVI_DYN=1 $BREVI run --sandbox "$f" 2>&1; echo "exit $?"; echo "-- typed"; BREVI_DYN=0 $BREVI run --sandbox --native "$f" 2>&1; echo "exit $?")
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else

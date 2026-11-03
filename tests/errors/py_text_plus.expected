@@ -1,0 +1,4 @@
+{"line":2,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or use an f-string: f\"...{x}\""}
+check exit 1
+note: ran with python3; Brevi could not build line 2: cannot add str and int
+run exit 1

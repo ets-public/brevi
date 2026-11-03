@@ -24,7 +24,7 @@ HERE = Path(__file__).resolve().parent
 BENCH = HERE.parent
 BREVI = os.environ.get("BREVI", str(BENCH.parent / "target" / "release" / "brevi"))
 CODON = os.environ.get("CODON") or shutil.which("codon") or "codon"
-HUGE = Path(os.environ.get("BREVI_HUGE", "/mnt/project-files/brevi-huge/solutions"))
+HUGE = Path(os.environ.get("BREVI_HUGE", "bench/work/huge"))
 PY = sys.executable
 RUN_TIMEOUT = 60
 

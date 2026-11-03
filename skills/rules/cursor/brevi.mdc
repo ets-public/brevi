@@ -1,33 +1,24 @@
 ---
-description: Write, check and run Brevi (.bv) programs, a language built for AI models that compiles to Rust. Use when a task asks for Brevi, when a .bv file is involved, or when a small fast command-line program is wanted with the fewest tokens.
+description: Build and run Python programs as fast native binaries with Brevi, or write Brevi (.bv) programs. Use when a small fast command-line program is wanted, when a task mentions Brevi, or when a .bv file is involved.
 globs: "**/*.bv"
 alwaysApply: false
 ---
 
 # Brevi
 
-Brevi is a programming language for models to write. It reads like Python, compiles to Rust, and reports every error as one short JSON line with a suggested fix.
+Brevi compiles ordinary Python to Rust and builds a native binary. Write the program in plain Python, as you normally would; Brevi reports anything it cannot build as one short JSON line with a suggested fix.
 
 ## Setup
 
 Check that `brevi --version` works. If it does not, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
 
-## Before writing code
-
-Run `brevi guide` once and read the whole guide it prints. It is short and matches the installed compiler. Rare details are not in it: `brevi guide WORD` prints the lines about one name (`brevi guide partition`) and `brevi guide Strings` the full brace and format rules.
-
 ## Loop
 
-1. Write the whole program to `NAME.bv`. Programs read stdin and write stdout.
-2. Run `brevi run NAME.bv < input.txt`, or `brevi check NAME.bv` to compile without running, or `brevi test NAME.bv` for `test` blocks.
+1. Write normal Python to `main.py` (standard library or installed packages such as numpy; split big programs into `.py` files that import each other). There is no guide to read first. Brevi compiles it to native code, which runs plain loops over ints, lists and strings 10 to 50 times faster than CPython: write the plain, direct solution and do not hand-optimise it for speed (no bit-packing tricks or big-int bitboards).
+2. Run it with `brevi run main.py < input.txt`, or `brevi check main.py` to build without running. `brevi build main.py -o app --release` makes the fast binary.
 3. Each error is `{"line":N,"msg":...,"fix":...}`. Change only the lines it names, then run again. Do not rewrite the whole file.
-4. `brevi fix NAME.bv` writes every suggested rename into the file. Adding `--explain` to any command adds the guide lines for each error.
-5. To replace a whole function, write just the new `fn` (or `type`, `enum`, `test`) to a patch file and run `brevi patch NAME.bv patch.bv`.
+4. If Brevi still cannot build a Python construct after one small change, keep the Python as it is, run it with `python3 main.py`, and say that it ran without Brevi.
 
-## Notes
+## Writing Brevi itself
 
-- `brevi check NAME.bv --fast` runs only Brevi's own checks, in milliseconds, without rustc.
-- `brevi build NAME.bv -o app --release` makes a native binary.
-- When Brevi has no built-in for something (hashing, HTTP, a data science library), run `brevi guide Libraries`: write that one function as a `rust fn` (with `use CRATE "VERSION"`) or a `py fn`, and keep the rest in Brevi. Split big programs into files with `use "other.bv"`.
-- Python habits are accepted (`True`, `.append()`, `range()`, `", ".join(xs)`), so write what comes naturally and let the errors guide you.
-- Plain Python (`.py`) builds too: `brevi run main.py`. It is compiled to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it for speed.
+Only for `.bv` files or when Brevi syntax is asked for: run `brevi guide` once and read the guide it prints; `brevi guide WORD` prints the lines about one name. `brevi patch NAME.bv patch.bv` replaces whole functions by name, `brevi fix NAME.bv` applies suggested renames, and `brevi guide Libraries` covers Rust crates (`rust fn`) and Python (`py fn`) inside Brevi.

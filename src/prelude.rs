@@ -353,6 +353,11 @@ pub trait AxIsNoneHandle {
 }
 pub trait Show {
     fn show(&self) -> String;
+    // repr() when it differs from str(): a Python class with both __str__ and __repr__ (or a dataclass's
+    // generated one) shows its repr inside lists, dicts and tuples, and for repr() and !r.
+    fn show_repr(&self) -> Option<String> {
+        None
+    }
 }
 impl Show for i64 {
     fn show(&self) -> String {
@@ -412,6 +417,9 @@ impl<T: Show + 'static> AxPyRepr for T {
     }
 }
 fn show_item<T: Show + 'static>(x: &T) -> String {
+    if let Some(r) = x.show_repr() {
+        return r;
+    }
     // Strings inside collections get quotes so [a, b] and ["a, b"] differ.
     let any = x as &dyn std::any::Any;
     match any.downcast_ref::<String>() {

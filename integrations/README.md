@@ -1,6 +1,6 @@
 # Brevi in agent frameworks
 
-Each framework reaches Brevi through its own MCP client and `brevi mcp`, so nothing here needs a package of its own. The server gives the agent seven tools: `guide`, `check`, `run`, `test`, `patch`, `edit` and `show`. The agent sends its program as text once; the server keeps it, so fixes send only the changed function or lines, and the agent needs no files. Install `brevi` first (see the main README), so it is on PATH.
+Each framework reaches Brevi through its own MCP client and `brevi mcp`, so nothing here needs a package of its own. The server gives the agent seven tools: `guide`, `check`, `run`, `test`, `patch`, `edit` and `show`. The agent sends its program, plain Python, as text once; the server keeps it, so fixes send only the changed function or lines, and the agent needs no files. Install `brevi` first (see the main README), so it is on PATH.
 
 | Framework | Example | Install |
 | --- | --- | --- |

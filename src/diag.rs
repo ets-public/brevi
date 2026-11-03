@@ -50,13 +50,29 @@ impl Diag {
 
     // No file name, column or error kind: programs are one file, and the line is enough to find the mistake.
     pub fn to_json(&self) -> String {
-        let mut s = format!("{{\"line\":{},\"msg\":\"{}\"", self.line, esc(&self.msg));
-        if let Some(f) = &self.fix {
+        let (msg, fix) = public(&self.msg, self.fix.as_deref());
+        let mut s = format!("{{\"line\":{},\"msg\":\"{}\"", self.line, esc(&msg));
+        if let Some(f) = &fix {
             s.push_str(&format!(",\"fix\":\"{}\"", esc(f)));
         }
         s.push('}');
         s
     }
+}
+
+// Brevi's own helper names (ax_...) never reach the reader: `type(v)` is `ax_type_of(v)` inside the compiler.
+// A message about some other internal name is about Brevi, not the program, and says so.
+fn public(msg: &str, fix: Option<&str>) -> (String, Option<String>) {
+    let named = |s: &str| s.replace("ax_type_of", "type");
+    let (msg, fix) = (named(msg), fix.map(named));
+    let internal = |s: &str| s.match_indices("ax_").any(|(i, _)| i == 0 || !s[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_'));
+    if internal(&msg) || fix.as_deref().is_some_and(internal) {
+        if internal(&msg) {
+            return ("Brevi cannot build this line yet (a gap in Brevi, not a mistake in the program)".into(), Some("write it another way, or run the file with python3".into()));
+        }
+        return (msg, None);
+    }
+    (msg, fix)
 }
 
 pub fn esc(s: &str) -> String {

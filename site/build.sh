@@ -1,9 +1,9 @@
 #!/bin/bash
-# Builds brevi-lang.org into site/out: the home page plus the files it serves for agents
-# (llms.txt, llms-full.txt, .md pages), and the brevi.run holding page into site/out-run.
+# Builds brevi-lang.org into site/out (home page, docs section, and the files it serves for agents:
+# llms.txt, llms-full.txt, .md pages) and brevi.run into site/out-run. Pages are made by site/gen.py.
 set -e
 S=$(dirname "$(readlink -f "$0")"); R=$S/..; O=$S/out
-mkdir -p $O $S/out-run
+rm -rf $O $S/out-run; mkdir -p $O $S/out-run
 # The version shown in the header comes from Cargo.toml (major.minor), so it cannot go stale.
 V=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\).*/\1/p' $R/Cargo.toml | head -1)
 [ -n "$V" ] || { echo "no version in Cargo.toml"; exit 1; }
@@ -11,18 +11,25 @@ V=$(sed -n 's/^version = "\([0-9]*\.[0-9]*\).*/\1/p' $R/Cargo.toml | head -1)
 # needs BENCH_ANTHROPIC_KEY once).
 G=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import tokcount; print(f"{tokcount.count(open(sys.argv[2]).read()):,}")' $R/bench $R/BREVI.md) \
   || { echo "could not count BREVI.md tokens (set BENCH_ANTHROPIC_KEY)"; exit 1; }
-sed "s/__VERSION__/$V/g; s/__GUIDE_TOKENS__/$G/g" $S/index.html > $O/index.html
-sed "s/__VERSION__/$V/g" $S/run/index.html > $S/out-run/index.html
+# Public or private repo: GitHub links, the install one-liner and the status line appear only once the
+# repo is public (it answers 404 while private). BREVI_PUBLIC=1 or 0 overrides the check.
+if [ -z "$BREVI_PUBLIC" ]; then
+  code=$(curl -s -o /dev/null -w '%{http_code}' https://github.com/ets-public/brevi || true)
+  [ "$code" = 200 ] && BREVI_PUBLIC=1 || BREVI_PUBLIC=0
+fi
+echo "repo public: $BREVI_PUBLIC"
+python3 $S/gen.py $O $S/out-run "$V" "$G" "$BREVI_PUBLIC"
 # Logo and favicons (favicon.svg is the source; node site/icons/make.js redraws the PNG and ICO sizes).
 for d in $O $S/out-run; do cp $S/icons/*.{svg,ico,png,webmanifest} $d/; done
 # Fonts are served from the site itself (IBM Plex, latin subset; the licence goes with them).
 for d in $O $S/out-run; do cp $S/fonts/*.woff2 $S/fonts/OFL.txt $d/; done
-# The repo is private until the public release, so leave its link out of the served llms.txt.
-grep -v 'github.com/ets-public/brevi' $S/llms.txt | sed '/^## Tools$/{N;/\n$/d}' | cat -s > $O/llms.txt
+# While the repo is private, leave its link out of the served llms.txt.
+if [ "$BREVI_PUBLIC" = 1 ]; then cp $S/llms.txt $O/llms.txt; else
+  grep -v 'github.com/ets-public/brevi' $S/llms.txt | sed '/^## Tools$/{N;/\n$/d}' | cat -s > $O/llms.txt; fi
 cp $R/BREVI.md $O/guide.md
 cp $R/LIBRARIES.md $O/libraries.md
 cp $R/REFERENCE.md $O/reference.md
 sed '1,/^---$/{/^---$/!d};1,/^---$/d' $R/skills/brevi/SKILL.md > $O/skill.md
 sed -n '/^## Status/,$p' $R/README.md > $O/bench.md
 { cat $O/llms.txt; echo; cat $O/guide.md; echo; cat $O/reference.md; echo; cat $O/libraries.md; echo; cat $O/skill.md; } > $O/llms-full.txt
-echo "built $(ls $O | wc -l) files in $O"
+echo "built $(find $O -type f | wc -l) files in $O, $(find $S/out-run -type f | wc -l) in $S/out-run"

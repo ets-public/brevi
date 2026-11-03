@@ -1,0 +1,34 @@
+name: Bug report
+description: Brevi builds, runs or reports something wrongly
+labels: ["bug"]
+body:
+  - type: textarea
+    id: program
+    attributes:
+      label: Smallest program that shows it
+      description: Python or .bv source, plus its stdin if it reads any.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What python3 prints (or what you expected)
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What brevi prints
+      description: The output or the error lines, and the command you ran.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Output of `brevi --version` and `rustc --version`, and your OS.
+    validations:
+      required: true

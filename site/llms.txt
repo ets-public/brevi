@@ -1,10 +1,15 @@
 # Brevi
 
-> Brevi is a compiler built for AI coding agents: it turns ordinary Python into a fast, memory-safe native binary through Rust. Write plain Python (standard library) and run it with `brevi run main.py`; there is no guide to read first. The program is compiled to native code, which runs plain loops over ints, lists and strings 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it for speed. Brevi checks types across the whole program before it runs and reports each error as one short JSON line with a suggested fix.
+> Brevi is a compiler built for AI coding agents: it turns ordinary Python into a fast, memory-safe native binary through Rust. Write plain Python (standard library or installed packages) and run it with `brevi run main.py`; there is no guide to read first. The program is compiled to native code, which runs plain loops over ints, lists and strings 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it for speed. Brevi checks the whole program before it runs, reports sure mistakes (unknown names and methods, text plus a number) as one short JSON line with a suggested fix, and otherwise prints exactly what CPython prints.
 
 ## Docs
 
 - [Agent skill](https://brevi-lang.org/skill.md): setup and the write, run, fix loop for coding agents. Start here.
+- [For AI agents](https://brevi-lang.org/docs/agents.md): the MCP server's tools, the skill and plugin, and prompting advice.
+- [Using Brevi](https://brevi-lang.org/docs/usage.md): commands, flags, error formats, the CPython fallback, sandbox and GUI test mode.
+- [Install](https://brevi-lang.org/docs/install.md): release binaries, the install script, Docker and building from source.
+- [What works, and limits](https://brevi-lang.org/docs/compatibility.md): Python coverage, libraries and known gaps.
+- [Architecture](https://brevi-lang.org/docs/architecture.md): how a source file becomes a native program.
 - [Language guide](https://brevi-lang.org/guide.md): Brevi's own syntax, for .bv files only. Not needed to build Python.
 - [Reference](https://brevi-lang.org/reference.md): details for string braces and format specs, list methods and Python spellings. Look up one name with `brevi guide WORD` instead of reading it all.
 - [Libraries](https://brevi-lang.org/libraries.md): using other .bv files, Rust crates (`use sha2 "0.10"` plus `rust fn`) and Python (`py fn`) from Brevi.

@@ -819,6 +819,23 @@ impl Parser {
                 }
             }
         }
+        // A dataclass prints as CPython's generated __repr__: its fields (a base dataclass's first), in order,
+        // except those declared with field(repr=False).
+        if let Some(py_name) = crate::lexer::dataclass_at(line) {
+            let mut shown: Vec<String> = bases.iter().find_map(|b| dataclass(b)).map(|(_, f)| f).unwrap_or_default();
+            if let Expr::Block(stmts, _) = &body {
+                for st in stmts {
+                    if let Stmt::Let { name: Pat::Bind(n), value, ty, .. } = st {
+                        let hidden = matches!(value, Expr::Call(f, a, _) if f == "field" && a.iter().any(|(k, v)| k.as_deref() == Some("repr") && matches!(v, Expr::Bool(false))));
+                        let class_var = matches!(ty, Some(Ty::Named(t)) if t.starts_with("ClassVar"));
+                        if !hidden && !class_var && !shown.contains(n) {
+                            shown.push(n.clone());
+                        }
+                    }
+                }
+            }
+            DATACLASSES.with(|d| d.borrow_mut().insert(name.clone(), (py_name, shown)));
+        }
         let mut fields: Vec<String> = declared.iter().map(|f| f.name.clone()).collect();
         let mut fns = Vec::new();
         for m in &methods {
@@ -3148,6 +3165,15 @@ impl Parser {
 // A declared name like `MAX = 10` is a variable even though it is capitalised.
 // Python method names models write by habit, as the Brevi method they mean.
 // Built-in functions a program may define for itself; its own version gets a suffix in the Rust.
+thread_local! {
+    // Dataclasses: class -> (its Python name, the fields its __repr__ shows).
+    static DATACLASSES: std::cell::RefCell<std::collections::HashMap<String, (String, Vec<String>)>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+pub fn dataclass(name: &str) -> Option<(String, Vec<String>)> {
+    DATACLASSES.with(|d| d.borrow().get(name).cloned())
+}
+
 const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
 
 // A whole Python format spec: [[fill]align][sign][z][#][0][width][,|_][.precision][type].

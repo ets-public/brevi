@@ -116,7 +116,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
-fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+pub(crate) fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     options
         .map(|o| (edit_distance(name, o), o))
         // Only a near miss: a looser match points at an unrelated name (`readline` -> `re_find`, `int` -> `input`).
@@ -1143,8 +1143,32 @@ impl Emitter {
                                 out.push_str(&format!("impl AxToPy for {name} {{ fn ax_to_py(&self) -> AxPy {{ let mut v = vec![]; {} ax_pyb_dict(v) }} }}\n", pys.join(" ")));
                             }
                         }
-                        Some(f) => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ {f}(self.clone()).to_string() }} }}\n")),
-                        None => out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ format!(\"{{:?}}\", self) }} }}\n")),
+                        dunder => {
+                            // A dataclass prints as CPython's generated __repr__ does: `P(x=1, y=0)`.
+                            let dc = crate::parser::dataclass(name).filter(|_| self.py_mode).map(|(py, shown)| {
+                                let parts: Vec<String> = shown
+                                    .iter()
+                                    .filter(|n| fields.iter().any(|f| &f.name == *n))
+                                    .map(|n| format!("format!(\"{}={{}}\", show_item(&self.{n}))", crate::lexer::py_ident(n)))
+                                    .collect();
+                                format!("format!(\"{py}({{}})\", [{}].join(\", \"))", parts.join(", "))
+                            });
+                            let fn_ok = |d: &str| Some(format!("{name}{d}")).filter(|f| self.fns.get(f).is_some_and(|s| s.params.len() == 1 && !s.fallible));
+                            let repr_fn = fn_ok("___repr__").map(|f| format!("{f}(self.clone()).to_string()"));
+                            let show = match (&dunder, &dc) {
+                                (Some(f), _) => format!("{f}(self.clone()).to_string()"),
+                                (None, Some(d)) => d.clone(),
+                                // A Python object without __str__ or __repr__: CPython's default repr.
+                                (None, None) if self.py_mode && marked => format!("format!(\"<__main__.{} object at {{:p}}>\", self.0)", crate::lexer::py_ident(name)),
+                                (None, None) => "format!(\"{:?}\", self)".to_string(),
+                            };
+                            // With __str__, repr() (and lists of it) still use __repr__, or the dataclass's.
+                            let repr = if fn_ok("___str__").is_some() { repr_fn.or(dc) } else { None };
+                            let null = if marked { "if self.0.is_null() { return \"None\".into(); } " } else { "" };
+                            let null_r = if marked { "if self.0.is_null() { return Some(\"None\".into()); } " } else { "" };
+                            let repr = repr.map_or(String::new(), |r| format!(" fn show_repr(&self) -> Option<String> {{ {null_r}Some({r}) }}"));
+                            out.push_str(&format!("}}\nimpl Show for {name} {{ fn show(&self) -> String {{ {null}{show} }}{repr} }}\n"));
+                        }
                     }
                     // Python's None in a slot of this type: the zero value.
                     if marked {

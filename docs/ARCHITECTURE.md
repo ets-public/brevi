@@ -1,6 +1,6 @@
 # How Brevi works
 
-This document explains what Brevi does between a source file and a native program: which parts of `src/` run, in what order, and why. It describes `main` as of v0.22.
+This document explains what Brevi does between a source file and a native program: which parts of `src/` run, in what order, and why. It describes `main` as of v0.24.
 
 Brevi reads two kinds of input:
 
@@ -64,7 +64,7 @@ In words, for a Python file:
 
 1. **Guard.** `typed_guard.rs` reads the file (and the local modules it imports) and looks for code the typed build would answer differently from CPython, such as printing a set. If it finds any, the typed build is skipped.
 2. **Typed build (Brevi native).** The normal path: infer types, check, and emit plain Rust with fixed types. This is where the big speedups come from.
-3. **Dynamic build (Brevi native).** If the typed build fails at any stage (its own checks or `rustc`), the file is rebuilt over a dynamic value type that behaves like CPython's objects. Still native, no CPython involved, and silent: the user just gets a program.
+3. **Dynamic build (Brevi native).** If the typed build fails at any stage (its own checks or `rustc`), `pydiag.rs` first looks at the typed errors for sure mistakes: a name that is never defined, a method no Python type has, or text added to a number. Code that may never run (under `sys.version_info`, `sys.platform`, `TYPE_CHECKING` or `if False`, and `except` blocks) is skipped. `check` and `build` report these as errors instead of building; `brevi run` falls back to python3 and names the mistake in its note. Otherwise the file is rebuilt over a dynamic value type that behaves like CPython's objects. Still native, no CPython involved, and silent: the user just gets a program.
 4. **CPython fallback (not native).** Only if the dynamic build refuses too. `brevi run x.py` then runs the file with `python3` and prints one note on stderr. `brevi build`, `brevi check` and `--native` (or `BREVI_NATIVE=1`) never fall back; they print the errors.
 
 A Brevi file only takes the typed path. Its errors go straight back to the model as JSON.
@@ -94,7 +94,7 @@ These steps run on the source text before parsing.
 | Step | File | What it does |
 | --- | --- | --- |
 | Join files | `modules.rs` | `use "x.bv"`, and `import x` of a sibling `.py` file or package, are joined into one program. A segment table maps every line back to its file, so errors name the right file. |
-| Capabilities | `caps.rs` | `allow read, write` lines. With `--sandbox`, or any `allow` line, a program that uses something it did not declare is refused. |
+| Capabilities | `caps.rs` | `allow read, write` lines. With `--sandbox`, or any `allow` line, a program that uses something it did not declare is refused, before any other path runs: a refused program is never built over dynamic values, through pybridge or run with python3. Python libraries (pybridge) need `allow native`, and a sandboxed program never falls back to python3. |
 | Foreign code | `ffi.rs` | `use CRATE "VER"`, `rust fn`, `py fn`, `rust:` and `py:` blocks. Foreign bodies are cut out and replaced by a stub on the same line, so line numbers stay put. Any crate switches the build to cargo. |
 | Autofix | `main.rs` `autofix` | For `.bv` only: errors with a sure one-word fix (a typo of a known name) are fixed before the build and reported on stderr. Python files are never rewritten, because CPython would not rename `s.rpartition` either. |
 
