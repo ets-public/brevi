@@ -54,6 +54,7 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | `functools` | `lru_cache`, `cache` | `reduce`, `partial`, `cmp_to_key`, `total_ordering` |
 | `dataclasses` | `@dataclass` (defaults, `field(default_factory=...)`, `order`, `frozen`) | `asdict`, `astuple`, `replace` |
 | `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
+| `os`, `os.path`, `pathlib` | | path text: `os.path.join`, `basename`, `dirname`, `split`, `splitext`, `normpath`, `os.sep`, `pathlib.PurePath` (from v0.24.4 outside the sandbox too); files, processes and the environment run in CPython |
 | `random` | | `seed` (int), `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits`, `Random`: CPython's generator, so seeded draws match |
 | `io` | | `StringIO` (also under `--sandbox`); `BytesIO` and the rest run in CPython |
 | `enum` | | `Enum` (members, aliases, `auto()`, methods and properties, `__init__` on tuple values, `C(value)`, `C[name]`, iteration, `len`, `in`, `__members__`), `class C(str, Enum)` and `(int, Enum)`, `@unique`; `IntEnum`, `StrEnum` and `Flag` still run in CPython |

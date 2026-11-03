@@ -1025,6 +1025,8 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
             if let Some(t) = tail {
                 walk(t, cx);
             }
+            // Write-backs added here, by name: (r, `base[key] = r`).
+            let mut wbs: Vec<(String, Stmt)> = vec![];
             let mut i = 0;
             while i < stmts.len() {
                 // `m = months[date[:7]]` then `m[0] += x`: the key is worked out once, into a name, so the
@@ -1070,6 +1072,7 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                                 set
                             };
                             add(&r, &wb, &mut rest, tail);
+                            wbs.push((r.clone(), wb));
                         } else if any_stmt(&rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
                             let (rs, from) = (r.trim_end_matches('_').to_string(), show(&Expr::Index(Box::new(base.clone()), Box::new(key.clone()))));
                             defer(
@@ -1140,6 +1143,41 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                     }
                 }
                 i += 1;
+            }
+            // `d = labels.setdefault(state, {})`, `lst = d.setdefault(k, [])`, then `lst.append(x)`: the
+            // write-back `d[k] = lst` changes d, so d's own write-back `labels[state] = d` follows it too.
+            for _ in 0..3 {
+                let mut more = false;
+                for (r2, wb2) in wbs.clone() {
+                    for (_, wb1) in wbs.iter() {
+                        let Stmt::Assign { target: Expr::Index(b1, _), .. } = wb1 else { continue };
+                        if root(b1) != Some(r2.as_str()) {
+                            continue;
+                        }
+                        let (w1, w2) = (format!("{wb1:?}"), format!("{wb2:?}"));
+                        fn chain(st: &mut Vec<Stmt>, w1: &str, w2: &str, wb2: &Stmt, more: &mut bool) {
+                            let mut j = 0;
+                            while j < st.len() {
+                                if format!("{:?}", st[j]) == w1 && st.get(j + 1).map_or(true, |n| format!("{n:?}") != w2) {
+                                    st.insert(j + 1, wb2.clone());
+                                    *more = true;
+                                }
+                                if let Stmt::Expr { expr, .. } | Stmt::Let { value: expr, .. } | Stmt::Assign { value: expr, .. } = &mut st[j] {
+                                    crate::parser::walk_mut(expr, &mut |e| {
+                                        if let Expr::Block(inner, _) = e {
+                                            chain(inner, w1, w2, wb2, more);
+                                        }
+                                    });
+                                }
+                                j += 1;
+                            }
+                        }
+                        chain(stmts, &w1, &w2, &wb2, &mut more);
+                    }
+                }
+                if !more {
+                    break;
+                }
             }
         }
         Expr::If(_, a, b) => {

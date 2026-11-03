@@ -50,7 +50,7 @@ Please report security problems privately, as described in the repository's `SEC
 
 - Keep each change focused, with a test in `tests/` that fails before it and passes after.
 - Run `sh tools/ci_local.sh` before opening the pull request.
-- Add a line under "Unreleased" in `CHANGELOG.md` describing the change in plain words.
+- Add a line under "Unreleased" in `CHANGELOG.md` describing the change in plain words. Merged changes ship in the next weekly release (Mondays), after the release test passes.
 
 ## License
 
