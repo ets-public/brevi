@@ -116,7 +116,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
-fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+pub(crate) fn closest<'a>(name: &str, options: impl Iterator<Item = &'a str>) -> Option<&'a str> {
     options
         .map(|o| (edit_distance(name, o), o))
         // Only a near miss: a looser match points at an unrelated name (`readline` -> `re_find`, `int` -> `input`).

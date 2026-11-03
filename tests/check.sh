@@ -17,6 +17,18 @@ for f in tests/run/*.bv tests/errors/*.bv; do
     echo "ok   $f"
   fi
 done
+# Python mistakes CPython would also stop on: check and run report them (exit 1) instead of building the file
+# over dynamic values; py_valid.py is the control (a caught TypeError, a function defined below its caller).
+for f in tests/errors/*.py; do
+  exp="${f%.py}.expected"
+  out=$(cd tests/errors && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; echo "check exit $?"; ../../$BREVI run "$b" 2>&1; echo "run exit $?")
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # brevi run on a .py file: runs with python3 when Brevi cannot build it (with a note), unless --native.
 for f in tests/fallback/*.py; do
   exp="${f%.py}.expected"
