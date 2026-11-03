@@ -995,6 +995,10 @@ pub fn len(v: &V) -> Result<usize, E> {
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
     Ok(match c {
         V::Class(k) if is_enum(k) => enum_contains(k, x)?,
+        V::Ext(e) if e.any().is::<BytesV>() => match e.method(c, "__contains__", &mut Args::p(vec![x.clone()])) {
+            Some(r) => truth(&r?)?,
+            None => false,
+        },
         V::Str(s) => match x {
             V::Str(n) => s.s.contains(n.s.as_str()),
             _ => return type_err(format!("'in <string>' requires string as left operand, not {}", tn(x))),

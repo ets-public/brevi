@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 // Modules the parser maps onto Brevi's own library (see the lexer's PY_BUILTIN_MODULES and PY_ALIAS_MODULES).
 const NATIVE: &[&str] = &[
     "sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools", "datetime", "json", "calendar", "decimal", "heapq", "bisect", "string",
-    "statistics", "random", "time", "copy", "operator", "csv", "threading", "__future__", "fractions", "enum", "abc",
+    "statistics", "random", "time", "copy", "operator", "csv", "threading", "__future__", "fractions", "enum", "abc", "hashlib", "base64", "binascii",
 ];
 // GUI libraries (gui.rs handles tkinter; the others are refused in modules.rs).
 const NOT_BRIDGED: &[&str] = &["tkinter", "Tkinter", "turtle", "pygame", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "kivy", "customtkinter", "pyglet", "arcade", "dearpygui"];
@@ -285,7 +285,7 @@ pub fn uses() -> Vec<String> {
 pub fn stdlib_only() -> bool {
     let u = uses();
     // os and pathlib too: the dynamic build has their path text (and refuses a program that needs more).
-    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io"))
+    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"))
 }
 
 pub fn active() -> bool {

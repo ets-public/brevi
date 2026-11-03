@@ -88,6 +88,8 @@ fn path_module(m: &str) -> Option<&'static str> {
         "pathlib" => Some("pathlib"),
         "random" => Some("random"),
         "io" => Some("io"),
+        "textwrap" => Some("textwrap"),
+        "argparse" => Some("argparse"),
         _ => None,
     }
 }
@@ -98,6 +100,9 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "os.path" => PURE_OS_PATH.contains(&attr),
         "random" => OWN_RANDOM.contains(&attr),
         "io" => attr == "StringIO",
+        "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
+        // all of argparse but FileType, which opens files
+        "argparse" => attr != "FileType",
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -240,6 +245,12 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     }
     if !any {
         return None;
+    }
+    // argparse's `@file` arguments read files; Brevi's copy has no way to.
+    if names.values().any(|m| *m == "argparse") {
+        if let Some((n, _)) = lines.iter().find(|(_, l)| l.contains("fromfile_prefix_chars")) {
+            bad.push((*n, "argparse fromfile_prefix_chars".into()));
+        }
     }
     let word = |c: char| c.is_alphanumeric() || c == '_';
     for (n, l) in &lines {
@@ -461,7 +472,7 @@ mod tests {
     // and Brevi's own math and time, and open nothing.
     #[test]
     fn sandbox_modules_reach_nothing() {
-        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py"))] {
+        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py")), ("textwrap", include_str!("dynpy/py/textwrap.py"))] {
             for l in src.lines().map(str::trim) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();
@@ -470,6 +481,21 @@ mod tests {
                 for bad in ["open(", "__import__", "exec(", "eval(", "getattr(", "sys."] {
                     assert!(!l.contains(bad), "{name}.py uses {bad}");
                 }
+            }
+        }
+    }
+
+    // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it
+    // uses sys and getattr, but imports only Brevi's own modules and opens nothing.
+    #[test]
+    fn argparse_copy_reaches_nothing() {
+        for l in include_str!("dynpy/py/argparse.py").lines().map(str::trim) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                let m = m.split_whitespace().next().unwrap();
+                assert!(["os", "re", "sys", "textwrap", "_brevi_term"].contains(&m), "argparse.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "_sys.stdin", "environ"] {
+                assert!(!l.contains(bad), "argparse.py uses {bad}");
             }
         }
     }
@@ -502,6 +528,8 @@ mod tests {
         assert_eq!(uses("from os import *\n"), ["from os import *"]);
         assert_eq!(uses("import os\nx = (os.environ\n     ['HOME'])\n"), ["os.environ"]);
         assert_eq!(uses("import random\nrandom.seed(1)\nrandom.betavariate(1, 2)\n"), ["random.betavariate"]);
+        assert!(uses("import argparse\np = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)\n").is_empty());
+        assert_eq!(uses("import argparse\np = argparse.ArgumentParser(fromfile_prefix_chars='@')\np.add_argument('f', type=argparse.FileType('r'))\n"), ["argparse fromfile_prefix_chars", "argparse.FileType"]);
     }
 
     // A program that passes the check may be built over dynamic values (main.rs relies on it under --sandbox),

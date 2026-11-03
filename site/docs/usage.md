@@ -151,11 +151,15 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 - **io:** `io.StringIO`, an in-memory text file (so `csv.writer(io.StringIO())` works too). Other `io` names (`io.BytesIO`, `io.open`) are refused by name.
 
+- **textwrap:** `wrap`, `fill`, `shorten`, `dedent`, `indent` and `TextWrapper`.
+
+- **argparse:** everything but `argparse.FileType` and `fromfile_prefix_chars` (both open files). Help text is 80 columns wide under the sandbox, which reads no environment; outside it, it follows `$COLUMNS` or the terminal's width, as in CPython.
+
 - **random:** `seed`, `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits` and `random.Random`, using CPython's own generator, so a seeded program draws the same numbers as in CPython. Seeds must be ints. Other functions (`random.betavariate`, ...) give one error naming them.
 
 The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `allow native`, the library bridge is off completely, so no path from the program reaches CPython.
 
-The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox the path-text, `io.StringIO` and `random` copies are used too, whenever a program needs nothing more of those modules (random's generator core is native).
+The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox the path-text, `io.StringIO`, `textwrap`, `argparse` and `random` copies are used too, whenever a program needs nothing more of those modules (random's generator core is native).
 
 > This is the behaviour from v0.24.1. In v0.24.0 and earlier the check covered only Brevi programs and typed Python builds: a Python file that fell to the dynamic build, a library call or the CPython fallback was not held to it. Whatever the version, running code you do not trust inside a container or VM is still wise.
 
