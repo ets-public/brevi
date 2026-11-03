@@ -2105,6 +2105,17 @@ impl Emitter {
                         other => self.expr(other),
                     })
                     .collect();
+                // `t[1:3]` with number bounds may be on a tuple, which only a const-bound slice can give.
+                let lit = |x: Option<&Expr>| match x {
+                    Some(Expr::Int(k)) if *k >= 0 && *k < 64 => Some(k.to_string()),
+                    _ => None,
+                };
+                if name == "slice" && !tries && (1..=2).contains(&args.len()) {
+                    let b = if args.len() == 1 { Some("{usize::MAX}".to_string()) } else { lit(args.get(1)) };
+                    if let (Some(x), Some(y)) = (lit(args.first()), b) {
+                        return format!("{{ ax_l({line}); AxTSlice::<{x}, {y}>::ax_tslice(&{r}) }}");
+                    }
+                }
                 // `s.slice(a)` runs to the end.
                 let mut a = a;
                 if name == "slice" && a.len() == 1 {
