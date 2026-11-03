@@ -1,0 +1,16 @@
+name: Feature request
+description: Python that Brevi should build, or something agents need
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you want Brevi to do
+      description: For Python that Brevi does not build yet, paste a short example.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: For example, which agent task or library needs it.
