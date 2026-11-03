@@ -166,13 +166,46 @@ fn runtime_lib(cache: &Path, rustc_v: &str) -> Result<PathBuf, String> {
 }
 
 // Builds `rust` (from to_rust) into `out`. Builds are cached by the code's hash.
+// `brevi check` of a file on the dynamic path: rustc's checks only (no code generated, nothing linked), about
+// a third of a build's time. A success is remembered in the cache like a build.
+pub fn check(rust: &str, dir: &Path, cache: &Path, rustc_v: &str) -> Result<(), String> {
+    let lib = runtime_lib(cache, rustc_v)?;
+    let key = format!("{:016x}", fnv(&[rust, rustc_v, RUNTIME, "dyn-meta"]));
+    let mark = cache.join("bin").join(&key);
+    let use_cache = crate::runcache::on();
+    if use_cache && mark.exists() {
+        crate::touch(&mark);
+        return Ok(());
+    }
+    let rs = dir.join("dyn_main.rs");
+    std::fs::write(&rs, rust).map_err(|e| e.to_string())?;
+    let o = crate::rustc_cmd()
+        .args(["--edition", "2021", "--crate-name", "brevi_prog", "-A", "warnings", "--emit=metadata", "-C", "overflow-checks=off"])
+        .arg("--extern")
+        .arg(format!("brevi_dyn={}", lib.display()))
+        .arg("--out-dir")
+        .arg(dir)
+        .arg(&rs)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !o.status.success() {
+        return Err(String::from_utf8_lossy(&o.stderr).to_string());
+    }
+    if use_cache && std::fs::create_dir_all(cache.join("bin")).is_ok() {
+        std::fs::write(&mark, "").ok();
+    }
+    Ok(())
+}
+
 pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, rustc_v: &str) -> Result<(), String> {
     let lib = runtime_lib(cache, rustc_v)?;
     let opt = if release { "opt-level=3" } else { "opt-level=1" };
     let key = format!("{:016x}", fnv(&[rust, opt, rustc_v, RUNTIME, "dyn"]));
     let cdir = cache.join("bin");
     let cached = cdir.join(&key);
-    if cached.exists() && std::fs::copy(&cached, out).is_ok() {
+    let use_cache = crate::runcache::on();
+    if use_cache && cached.exists() && crate::copy_bin(&cached, out) {
+        crate::touch(&cached);
         return Ok(());
     }
     let rs = dir.join("dyn_main.rs");
@@ -190,10 +223,12 @@ pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, 
     if !o.status.success() {
         return Err(String::from_utf8_lossy(&o.stderr).to_string());
     }
-    if std::fs::create_dir_all(&cdir).is_ok() {
+    if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
-        if std::fs::copy(out, &tmp).is_ok() {
-            std::fs::rename(&tmp, &cached).ok();
+        if std::fs::copy(out, &tmp).is_ok() && std::fs::rename(&tmp, &cached).is_ok() {
+            crate::runcache::prune(&cdir);
+        } else {
+            std::fs::remove_file(&tmp).ok();
         }
     }
     Ok(())

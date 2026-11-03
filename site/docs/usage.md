@@ -41,6 +41,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--window` | run, build | tkinter programs open a real window instead of running headless (see [GUI programs](#gui-programs)). |
 | `--explain` | any | Under each error, add the lines of the guide about the names it mentions. For Python files, also print [which path ran](#which-path-ran) even when it is the typed one, with every reason. |
 | `--fast` | check | Brevi's own checks only, without `rustc`. |
+| `--no-cache` | check, build, run | Build from scratch: skip the result cache and the build cache (`BREVI_NO_CACHE=1` does the same). |
 | `-o OUT` | build | Where to write the binary. |
 
 ## How a Python file is built
@@ -195,7 +196,7 @@ window "tk"
 
 ## Speed and the build cache
 
-Builds are cached by the generated code, the flags and the Rust version, so running the same program again (re-running tests, an MCP call) skips `rustc` entirely. A new small program builds in well under a second by default (about 0.15 to 0.3 s) and a few seconds with `--release`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
+Running `brevi check`, `build` or `run` again on files that did not change replays the last result: the same output, the same `{"path":...}` line and the same binary, in about 10 ms, with no parsing, type inference or `rustc`. The key is a hash of the program's files (every `.py` and `.bv` file in its folder and the package folders it imports), the command and flags, the `BREVI_*` and Python settings in the environment, the Brevi binary and the Rust toolchain; any change to one builds again. A failed build is replayed too when the program imports only its own files and Python's standard library (a later `pip install` must not meet an old refusal). Below that, builds are also cached by the generated code, so an edit that changes nothing in the generated Rust skips `rustc`. The cache keeps at most `BREVI_CACHE_MB` megabytes (default 1024), least recently used first out; `--no-cache` builds from scratch. A new small program builds in well under a second by default (about 0.15 to 0.3 s) and a few seconds with `--release`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
 Write the plain, direct program. Brevi runs plain loops over ints and lists 10 to 50 times faster than CPython, so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
@@ -207,7 +208,9 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists 10 t
 | `BREVI_TRACEBACK=1` | Same as `--traceback`: show the whole CPython traceback after a fallback on a sure mistake. |
 | `BREVI_PYTHON` | The Python used for the fallback (default `python3`). |
 | `BREVI_CACHE` | Where builds and runtimes are cached (default `~/.cache/brevi`). |
-| `BREVI_NO_CACHE=1` | Do not use the build cache. |
+| `BREVI_NO_CACHE=1` | Same as `--no-cache`: do not use the result or build cache. |
+| `BREVI_CACHE_MB` | Most megabytes of builds the cache keeps (default 1024); the least recently used go first. |
+| `BREVI_TIME=1` | Print how long each build stage took, in ms, on stderr. |
 | `BREVI_PY_CACHE` | Where `--standalone` binaries unpack CPython (default `~/.cache/brevi/py`). |
 | `BREVI_GUI=headless` | Run a `--window` GUI build headless. |
 | `BREVI_DYN=1` / `BREVI_DYN=0` | Force the dynamic build, or turn it off (to see the typed build's errors). |

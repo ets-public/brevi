@@ -268,7 +268,7 @@ fn empty_kind(e: &Expr) -> Option<T> {
     }
 }
 
-type Env = HashMap<String, T>;
+type Env = crate::scoped::Map<T>;
 
 struct Cx<'a> {
     fns: HashMap<String, (Vec<(String, T)>, T)>,
