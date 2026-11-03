@@ -4,6 +4,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **`brevi check` names what stopped the dynamic build too.** When the typed build could not take a file and the dynamic build refused it as well, check reported only the typed reason (`except KeyError: ... and this file cannot be built over dynamic values`), so fixing that line still left the file unbuilt and the real blocker (`import argparse`, a bytes literal) was shown only by `run --explain`. The message now ends with it, as `(file line N: reason)`, and `brevi run` puts it in its `{"path":"cpython"}` line. The generator hint no longer suggests moving a yield out of a try block when the yield is not in one. Found running check over a 27-file production pipeline, where every file stopped on one shared line in an imported module.
+
 ## v0.24.5 (3 Nov 2026)
 
 A fix release for four silent wrong outputs in typed builds, the ones the v0.24.4 release test found in its `trains` and `poker` checks: a list name set to None by a nested function, changes through nested `setdefault`, joining tuples, and comparing JSON values. On the 813-program corpus 565 programs build typed, up from 550. Release test over two runs on the release commit: Sonnet 1.06x of Python's cost (95% range 1.01x to 1.12x), Haiku 1.01x (0.95x to 1.07x), every task passed on both sides, no check failed because of Brevi (5 did in v0.24.4), and 48 of 48 and 47 of 48 final programs native (the one Haiku `cron_next` program ran in CPython).
