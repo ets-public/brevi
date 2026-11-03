@@ -216,6 +216,7 @@ pub fn json_lists(items: &mut [Item]) {
 }
 
 pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool) {
+    let py = crate::infer::py_on();
     for it in items.iter_mut() {
         if let Item::Fn { body, .. } | Item::Test { body, .. } = it {
             crate::parser::walk_mut(body, &mut |e| {
@@ -388,6 +389,7 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
         }
     }
     let mut shapes: Vec<Shape> = vec![];
+    let mut none_vals: HashSet<String> = HashSet::new();
     let mut shape_of_set: Vec<usize> = vec![0; sets.len()];
     for g in 0..sets.len() {
         let members: Vec<usize> = (0..sets.len()).filter(|&i| group[i] == g).collect();
@@ -423,6 +425,9 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             let sh = &mut shapes[shape_of_set[si]];
             for (k, v) in ps {
                 let name = key_name(k).unwrap();
+                if matches!(v, Expr::Call(n, a, _) if n == "none" && a.is_empty()) {
+                    none_vals.insert(name.clone());
+                }
                 let j = sh.keys.iter().position(|x| *x == name).unwrap();
                 if let Some(kd) = kind(v) {
                     sh.kinds[j].insert(kd);
@@ -467,7 +472,10 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             let own_plain = s.keys.iter().zip(&s.kinds).all(|(k, kd)| kd.is_empty() || !s.sets.iter().any(|set| set.contains(k)))
                 || s.keys.iter().zip(&s.kinds).any(|(k, kd)| kd.is_empty() && s.sets.iter().any(|set| set.contains(k)));
             let named = eager && own_plain && holders.iter().all(|h| !dynamic.contains(*h)) && s.keys.iter().zip(&s.fixed).all(|(k, f)| f.is_none() || !s.sets.iter().any(|set| set.contains(k)));
-            s.keys.len() >= 2 && (differ || named) && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
+            // A key some literals leave out and another gives as None: absent and None would look alike.
+            let is_none = |v: &Expr| matches!(v, Expr::Call(n, a, _) if n == "none" && a.is_empty());
+            let ambiguous = py && s.keys.iter().any(|k| s.sets.iter().any(|set| !set.contains(k)) && s.sets.iter().any(|set| set.contains(k)) && (none_vals.contains(k) || later.iter().any(|(_, lk, v)| lk == k && is_none(v))));
+            !ambiguous && s.keys.len() >= 2 && (differ || named) && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
         })
         .collect();
     if chosen.is_empty() {
@@ -500,7 +508,12 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     }
     for ((name, _, _), s) in names.iter().zip(&chosen) {
         for k in &s.keys {
-            if s.sets.iter().all(|set| !set.contains(k)) {
+            // Python mode: a key only some literals have is left out where they lack it.
+            let partial = py && s.sets.iter().any(|set| !set.contains(k)) && s.sets.iter().any(|set| set.contains(k));
+            if partial {
+                PARTIAL.with(|o| o.borrow_mut().insert((name.clone(), k.clone())));
+            }
+            if s.sets.iter().all(|set| !set.contains(k)) || partial {
                 OPTIONAL.with(|o| o.borrow_mut().insert((name.clone(), k.clone())));
             }
         }
@@ -582,6 +595,12 @@ thread_local! {
     // (record, field) pairs no literal of the record has: set later (`q["answer"] = a` in one branch). `'k' in d` can't be answered from the type for these, and
     // printing leaves them out while they are None.
     static OPTIONAL: std::cell::RefCell<HashSet<(String, String)>> = std::cell::RefCell::new(HashSet::new());
+    // Of those, the keys some literals have and others leave out (never given as None).
+    static PARTIAL: std::cell::RefCell<HashSet<(String, String)>> = std::cell::RefCell::new(HashSet::new());
+}
+
+pub fn is_partial(rec: &str, field: &str) -> bool {
+    PARTIAL.with(|o| o.borrow().contains(&(rec.to_string(), field.to_string())))
 }
 
 pub fn is_optional(rec: &str, field: &str) -> bool {

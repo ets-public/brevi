@@ -8,7 +8,7 @@
 //   Order-free uses stay typed: `x in s`, len, sorted, min, max, sum, any, all and set algebra.
 // - print(q, q.popleft()): CPython reads every argument before printing; the typed build writes each one
 //   as it goes, so a later argument that changes an earlier one shows the old value.
-use crate::dynpy::parse::{Arg, CompFor, Ex, FPart, St, Stmt};
+use crate::dynpy::parse::{Arg, CompFor, Ex, FPart, FuncDef, St, Stmt};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -22,6 +22,7 @@ struct G {
     dicts: HashSet<String>,      // names holding a dict
     pure_gens: HashSet<String>,  // generator functions the typed build may run eagerly
     tups: HashSet<String>,       // names holding tuple(...) of a list or iterator, or containers of them
+    pure_fns: HashSet<String>,   // functions with no effect but their value (see pure_fns)
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
@@ -66,6 +67,7 @@ pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];
+    g.pure_fns = pure_fns(&body);
     uses(&body, &g, &mut hits);
     let (line, why, _) = hits.first().cloned()?;
     if let Some(h) = hits.iter().find(|h| h.2.is_none()) {
@@ -123,6 +125,14 @@ fn soft_keys(e: &Ex, g: &G) -> Option<Vec<String>> {
         },
         Ex::Call(f, args) if args.is_empty() => match f.as_ref() {
             Ex::Attr(r, m) if m == "copy" => soft_keys(r, g),
+            _ => None,
+        },
+        // `adj.get(u, ())` on a dict of sets: one of its sets (or an empty tuple).
+        Ex::Call(f, args) if matches!(args.as_slice(), [Arg::Pos(_)] | [Arg::Pos(_), Arg::Pos(Ex::Tuple(_) | Ex::List(_) | Ex::Set(_))] | [Arg::Pos(_), Arg::Pos(Ex::Call(..))]) => match f.as_ref() {
+            Ex::Attr(r, m) if m == "get" => match r.as_ref() {
+                Ex::Name(h) if g.holders.contains(h) && !g.sets.contains(h) => Some(vec![format!("h:{h}")]),
+                _ => None,
+            },
             _ => None,
         },
         Ex::Index(b, _) => match b.as_ref() {
@@ -665,8 +675,8 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
                 }
             }
         }
-        if let St::For(_, it, _, _) = &s.st {
-            if is_set(it, g) {
+        if let St::For(t, it, lb, le) = &s.st {
+            if is_set(it, g) && !order_free_loop(t, it, lb, le.as_deref(), g) {
                 hit = Some("a loop over a set walks it in CPython's hash order".into());
                 soft = soft_keys(it, g);
             }
@@ -1423,4 +1433,261 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
         (Some(line), true) => Some((line, "reading a missing key of a defaultdict puts the key in, which the typed build does not".into())),
         _ => None,
     }
+}
+
+// Calls whose only effect is their value. Methods are by name, whatever the receiver.
+const PURE_CALLS: &[&str] = &["len", "abs", "min", "max", "int", "str", "float", "bool", "sorted", "isinstance", "ord", "chr", "range", "tuple", "list", "set", "frozenset", "sum", "any", "all", "enumerate", "zip", "round", "divmod", "repr", "reversed", "map", "filter"];
+const PURE_METHODS: &[&str] = &["get", "lower", "upper", "strip", "lstrip", "rstrip", "startswith", "endswith", "isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower", "split", "join", "find", "rfind", "count", "index", "replace", "keys", "values", "items", "copy", "issubset", "issuperset", "union", "intersection", "difference"];
+
+fn pure_ex(e: &Ex, fns: &HashSet<String>) -> bool {
+    let mut ok = true;
+    walk_ex(e, &mut |x| match x {
+        Ex::Call(f, args) => {
+            ok &= args.iter().all(|a| matches!(a, Arg::Pos(_) | Arg::Kw(..) | Arg::Star(_)));
+            ok &= match f.as_ref() {
+                Ex::Name(n) => PURE_CALLS.contains(&n.as_str()) || fns.contains(n),
+                Ex::Attr(_, m) => PURE_METHODS.contains(&m.as_str()),
+                _ => false,
+            };
+        }
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Lambda(..) => ok = false,
+        _ => {}
+    });
+    ok
+}
+
+// Functions with no effect but their value: no output, no global or nonlocal, no yield, no change to
+// anything but names the function itself made from a literal (`seen = set()`), and calls only to such
+// functions.
+fn pure_fns(body: &[Stmt]) -> HashSet<String> {
+    let mut defs: Vec<&FuncDef> = vec![];
+    fn collect<'a>(b: &'a [Stmt], out: &mut Vec<&'a FuncDef>) {
+        for s in b {
+            if let St::Def(d) = &s.st {
+                out.push(d);
+            }
+        }
+    }
+    collect(body, &mut defs);
+    let mut pure: HashSet<String> = HashSet::new();
+    loop {
+        let before = pure.len();
+        for d in &defs {
+            if pure.contains(&d.name) {
+                continue;
+            }
+            if fn_pure(d, &pure) {
+                pure.insert(d.name.clone());
+            }
+        }
+        if pure.len() == before {
+            break;
+        }
+    }
+    pure
+}
+
+fn fn_pure(d: &FuncDef, pure: &HashSet<String>) -> bool {
+    // Names made here from a literal or an empty constructor.
+    let mut fresh: HashSet<String> = HashSet::new();
+    let mut ok = true;
+    let mut fns = pure.clone();
+    fns.insert(d.name.clone());
+    fn go(b: &[Stmt], fresh: &mut HashSet<String>, fns: &HashSet<String>, ok: &mut bool) {
+        for s in b {
+            if !*ok {
+                return;
+            }
+            match &s.st {
+                St::Assign(ts, v) => {
+                    for t in ts {
+                        match t {
+                            Ex::Name(n) => {
+                                let lit = matches!(v, Ex::List(_) | Ex::Set(_) | Ex::Dict(_) | Ex::Comp(..)) || matches!(v, Ex::Call(f, a) if a.is_empty() && matches!(f.as_ref(), Ex::Name(c) if matches!(c.as_str(), "list" | "set" | "dict")));
+                                if lit {
+                                    fresh.insert(n.clone());
+                                } else {
+                                    fresh.remove(n);
+                                }
+                            }
+                            Ex::Tuple(xs) | Ex::List(xs) if xs.iter().all(|x| matches!(x, Ex::Name(_))) => xs.iter().for_each(|x| {
+                                if let Ex::Name(n) = x {
+                                    fresh.remove(n);
+                                }
+                            }),
+                            Ex::Index(b, _) if matches!(b.as_ref(), Ex::Name(n) if fresh.contains(n)) => {}
+                            _ => *ok = false,
+                        }
+                    }
+                    *ok &= pure_or_fresh(v, fresh, fns);
+                }
+                St::AugAssign(t, _, v) => {
+                    *ok &= matches!(t, Ex::Name(_)) || matches!(t, Ex::Index(b, _) if matches!(b.as_ref(), Ex::Name(n) if fresh.contains(n)));
+                    *ok &= pure_or_fresh(v, fresh, fns);
+                }
+                St::Expr(e) => *ok &= pure_or_fresh(e, fresh, fns),
+                St::Return(e) => *ok &= e.as_ref().map_or(true, |e| pure_or_fresh(e, fresh, fns)),
+                St::Pass | St::Break | St::Continue => {}
+                St::If(arms, els) => {
+                    for (c, b) in arms {
+                        *ok &= pure_or_fresh(c, fresh, fns);
+                        go(b, fresh, fns, ok);
+                    }
+                    if let Some(b) = els {
+                        go(b, fresh, fns, ok);
+                    }
+                }
+                St::While(c, b, e) => {
+                    *ok &= pure_or_fresh(c, fresh, fns);
+                    go(b, fresh, fns, ok);
+                    if let Some(b) = e {
+                        go(b, fresh, fns, ok);
+                    }
+                }
+                St::For(t, it, b, e) => {
+                    walk_ex(t, &mut |x| {
+                        if let Ex::Name(n) = x {
+                            fresh.remove(n);
+                        }
+                    });
+                    *ok &= pure_or_fresh(it, fresh, fns);
+                    go(b, fresh, fns, ok);
+                    if let Some(b) = e {
+                        go(b, fresh, fns, ok);
+                    }
+                }
+                _ => *ok = false,
+            }
+        }
+    }
+    go(&d.body, &mut fresh, &fns, &mut ok);
+    ok && d.params.pos.iter().chain(&d.params.kwonly).all(|(_, dflt)| dflt.as_ref().map_or(true, |x| matches!(x, Ex::Int(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Float(_))))
+}
+
+// As pure_ex, with changes (`seen.add(x)`) allowed on names the function made itself.
+fn pure_or_fresh(e: &Ex, fresh: &HashSet<String>, fns: &HashSet<String>) -> bool {
+    let mut ok = true;
+    walk_ex(e, &mut |x| match x {
+        Ex::Call(f, args) => {
+            ok &= args.iter().all(|a| matches!(a, Arg::Pos(_) | Arg::Kw(..) | Arg::Star(_)));
+            ok &= match f.as_ref() {
+                Ex::Name(n) => PURE_CALLS.contains(&n.as_str()) || fns.contains(n),
+                Ex::Attr(r, m) => PURE_METHODS.contains(&m.as_str()) || (matches!(r.as_ref(), Ex::Name(n) if fresh.contains(n)) && matches!(m.as_str(), "add" | "append" | "extend" | "insert" | "pop" | "remove" | "discard" | "update" | "setdefault" | "sort" | "clear")),
+                _ => false,
+            };
+        }
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Lambda(..) => ok = false,
+        _ => {}
+    });
+    ok
+}
+
+// A loop over a set whose passes do not depend on each other's order: each only adds to sets, appends to
+// the entry of its own element (`children[d].append(n)`), counts by a constant (`indeg[n] += 1`) or sets
+// a flag to one constant, under conditions that change nothing and read none of what the loop changes.
+// Whatever order the passes run in, they leave the same values.
+fn order_free_loop(target: &Ex, it: &Ex, body: &[Stmt], els: Option<&[Stmt]>, g: &G) -> bool {
+    let lv: Option<&String> = match target {
+        Ex::Name(n) => Some(n),
+        _ => None,
+    };
+    let walked = key(it);
+    // What the passes change (bases), and the one constant each flag is given.
+    let mut changed: HashSet<String> = HashSet::new();
+    let mut sets_to: HashMap<String, String> = HashMap::new();
+    let mut reads: Vec<&Ex> = vec![];
+    let mut ok = true;
+    fn go<'a>(b: &'a [Stmt], lv: Option<&String>, walked: &Option<String>, g: &G, changed: &mut HashSet<String>, sets_to: &mut HashMap<String, String>, reads: &mut Vec<&'a Ex>, ok: &mut bool) {
+        for s in b {
+            match &s.st {
+                St::Pass | St::Continue => {}
+                St::Expr(Ex::Call(f, args)) => match (f.as_ref(), args.as_slice()) {
+                    (Ex::Attr(r, m), [Arg::Pos(a)]) if matches!(m.as_str(), "add" | "discard") || m == "append" => {
+                        match r.as_ref() {
+                            // `nxt.add(q + 1)`: a set (not the one walked).
+                            Ex::Name(n) if m != "append" && walked.as_deref() != Some(n.as_str()) => {
+                                changed.insert(n.clone());
+                            }
+                            // `children[d].append(n)` with d the element: one entry per pass.
+                            Ex::Index(b, i) if matches!(b.as_ref(), Ex::Name(_)) && lv.is_some_and(|v| matches!(i.as_ref(), Ex::Name(x) if x == v)) => {
+                                if let Ex::Name(n) = b.as_ref() {
+                                    changed.insert(n.clone());
+                                }
+                            }
+                            _ => *ok = false,
+                        }
+                        reads.push(a);
+                    }
+                    _ => *ok = false,
+                },
+                // `indeg[n] += 1`, `count -= 1`: a constant int.
+                St::AugAssign(t, op, v) if matches!(*op, "+" | "-") && matches!(v, Ex::Int(_)) => match t {
+                    Ex::Name(n) => {
+                        changed.insert(n.clone());
+                    }
+                    Ex::Index(b, i) if matches!(b.as_ref(), Ex::Name(_)) => {
+                        if let Ex::Name(n) = b.as_ref() {
+                            changed.insert(n.clone());
+                        }
+                        reads.push(i);
+                    }
+                    _ => *ok = false,
+                },
+                // `found = True`: every pass that sets it sets the same constant.
+                St::Assign(ts, v @ (Ex::True | Ex::False | Ex::NoneV | Ex::Int(_))) if matches!(ts.as_slice(), [Ex::Name(_)]) => {
+                    let Ex::Name(n) = &ts[0] else { unreachable!() };
+                    let c = format!("{v:?}");
+                    if sets_to.get(n).is_some_and(|x| *x != c) {
+                        *ok = false;
+                    }
+                    sets_to.insert(n.clone(), c);
+                    changed.insert(n.clone());
+                }
+                St::If(arms, e) => {
+                    for (c, b) in arms {
+                        reads.push(c);
+                        go(b, lv, walked, g, changed, sets_to, reads, ok);
+                    }
+                    if let Some(b) = e {
+                        go(b, lv, walked, g, changed, sets_to, reads, ok);
+                    }
+                }
+                _ => *ok = false,
+            }
+        }
+    }
+    go(body, lv, &walked, g, &mut changed, &mut sets_to, &mut reads, &mut ok);
+    let _ = els;
+    if !ok {
+        return false;
+    }
+    // What the passes read changes nothing, and reads none of what they change (a set being filled may be
+    // asked `x in nxt`: adding is the same whatever came first).
+    for r in reads {
+        if !pure_ex(r, &g.pure_fns) {
+            return false;
+        }
+        // Names read outside the right side of an `in` test.
+        let mut all: HashMap<String, usize> = HashMap::new();
+        let mut in_rhs: HashMap<String, usize> = HashMap::new();
+        walk_ex(r, &mut |x| match x {
+            Ex::Name(n) => *all.entry(n.clone()).or_default() += 1,
+            Ex::Cmp(_, ops) => {
+                for (op, rhs) in ops {
+                    if let (true, Ex::Name(n)) = (matches!(*op, "in" | "not in"), rhs) {
+                        *in_rhs.entry(n.clone()).or_default() += 1;
+                    }
+                }
+            }
+            _ => {}
+        });
+        let outside = |n: &String| all.get(n).copied().unwrap_or(0) > in_rhs.get(n).copied().unwrap_or(0);
+        let mut bad = changed.iter().any(|n| outside(n));
+        // `x in s` is the same whatever came first only on a set that the passes add to.
+        bad |= in_rhs.keys().any(|n| changed.contains(n) && (!g.sets.contains(n) || sets_to.contains_key(n)));
+        if bad {
+            return false;
+        }
+    }
+    true
 }
