@@ -13,6 +13,7 @@ mod lexer;
 mod moves;
 mod infer;
 mod mcp;
+mod proc;
 mod modules;
 mod parser;
 mod pybridge;
@@ -136,7 +137,7 @@ fn print_diag(d: &Diag) {
 fn main() {
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.first().map(|a| a.as_str()) == Some("mcp") {
-        mcp::serve();
+        mcp::serve(&argv[1..]);
         return;
     }
     if matches!(argv.first().map(|a| a.as_str()), Some("--help" | "-h" | "help")) {
@@ -407,7 +408,7 @@ fn main() {
                 }
                 return;
             }
-            let mut c = Command::new(&bin);
+            let mut c = proc::program(&bin);
             if cmd == "test" {
                 c.args(["--quiet", "--test-threads=1"]);
             } else {
@@ -417,7 +418,7 @@ fn main() {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 exit(1);
             });
-            exit(status.code().unwrap_or(1));
+            exit(proc::code(status));
         }
         _ => {
             eprintln!("{USAGE}");
@@ -470,11 +471,11 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String]) -> bool {
         return false;
     }
     if cmd == "run" {
-        let status = Command::new(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+        let status = proc::program(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
             println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
             exit(1);
         });
-        exit(status.code().unwrap_or(1));
+        exit(proc::code(status));
     }
     true
 }
@@ -506,11 +507,11 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     if cmd == "build" {
         exit(0);
     }
-    let status = Command::new(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+    let status = proc::program(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
-    exit(status.code().unwrap_or(1));
+    exit(proc::code(status));
 }
 
 // `brevi run x.py`: builds with Brevi and runs the program; when the build fails, runs the file with python3
@@ -538,7 +539,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     let code = match built {
         Ok(o) if o.status.success() => {
             std::io::stderr().write_all(&o.stderr).ok();
-            Command::new(&bin).args(&prog_args).status().map(|s| s.code().unwrap_or(1)).unwrap_or_else(|e| {
+            proc::program(&bin).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 1
             })
@@ -552,10 +553,10 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
             let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
-            match Command::new(&python).arg(file).args(&prog_args).spawn() {
+            match proc::program(&python).arg(file).args(&prog_args).spawn() {
                 Ok(mut child) => {
                     eprintln!("note: ran with {python}; Brevi could not build {}", first_error(&out));
-                    child.wait().map(|s| s.code().unwrap_or(1)).unwrap_or(1)
+                    child.wait().map(proc::code).unwrap_or(1)
                 }
                 Err(_) => {
                     // No Python here: show Brevi's errors as a strict run would.
@@ -817,14 +818,19 @@ fn lib_hint(mut d: Diag, src: &str) -> Diag {
 }
 
 fn build_dir(file: &str) -> PathBuf {
+    let dir = build_dir_path(file);
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}
+
+// Where a file's build goes (one directory per source path); the MCP server removes it when done.
+pub fn build_dir_path(file: &str) -> PathBuf {
     let abs = std::fs::canonicalize(file).unwrap_or_else(|_| PathBuf::from(file));
     let mut h: u64 = 1469598103934665603;
     for b in abs.to_string_lossy().bytes() {
         h = (h ^ b as u64).wrapping_mul(1099511628211);
     }
-    let dir = std::env::temp_dir().join(format!("brevi-{h:x}"));
-    std::fs::create_dir_all(&dir).ok();
-    dir
+    std::env::temp_dir().join(format!("brevi-{h:x}"))
 }
 
 // Compiles generated Rust. rustc errors are mapped back to Brevi lines and printed as JSON.

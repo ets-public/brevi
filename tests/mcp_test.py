@@ -1,5 +1,6 @@
-"""Checks `brevi mcp`: plain Python by default, the kept program, patch and edit with a check, show, and run
-with cases, for Python and for Brevi code.
+"""Checks `brevi mcp`: plain Python by default, the kept program, patch and edit with a check, show, run
+with cases, for Python and for Brevi code; then the protocol (versions, bad input, errors), argument checks,
+long output, timeouts, cancel, exit on EOF and the memory limit.
 usage: python3 tests/mcp_test.py [BREVI]"""
 import json, subprocess, sys
 
@@ -91,5 +92,117 @@ expect("use other file", call("edit", **{"from": 1, "to": 0, "text": 'use "util.
 expect("old style still works", call("run", code='print("hi")\n'), "hi", False)
 p.stdin.close()
 p.wait()
+
+# Protocol and robustness: the stdio transport must survive anything a client sends, and every call must end.
+import os, time
+def raw_start(*flags):
+    return subprocess.Popen([B, "mcp", *flags], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def raw_send(q, data):
+    q.stdin.write((data if isinstance(data, bytes) else json.dumps(data).encode()) + b"\n")
+    q.stdin.flush()
+def raw_recv(q):
+    line = q.stdout.readline()
+    return json.loads(line) if line else None
+def tool(i, name, **args):
+    return {"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": name, "arguments": args}}
+def text_of(r):
+    return r["result"]["content"][0]["text"]
+def want(label, ok, got):
+    global fails
+    if not ok:
+        fails += 1
+        print(f"FAIL {label}: got {str(got)[:300]!r}")
+def procs_in(d):
+    # Processes whose working directory is d (Linux): what a stopped call must not leave behind.
+    n = 0
+    for pid in os.listdir("/proc") if os.path.isdir("/proc") else []:
+        try:
+            if pid.isdigit() and os.readlink(f"/proc/{pid}/cwd") == d and open(f"/proc/{pid}/stat").read().split(") ")[1][0] != "Z":
+                n += 1
+        except OSError:
+            pass
+    return n
+
+q = raw_start()
+work = os.path.realpath(os.path.join(__import__("tempfile").gettempdir(), f"brevi-mcp-{q.pid}"))
+raw_send(q, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}})
+r = raw_recv(q)["result"]
+want("version echoed", r["protocolVersion"] == "2025-06-18", r)
+raw_send(q, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+raw_send(q, {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"protocolVersion": "1999-01-01"}})
+want("unknown version gets the newest", raw_recv(q)["result"]["protocolVersion"] == "2025-11-25", "")
+raw_send(q, {"jsonrpc": "2.0", "id": "s", "method": "tools/list"})
+r = raw_recv(q)
+want("notification has no reply", r["id"] == "s", r)
+tools = r["result"]["tools"]
+want("seven tools with closed schemas", len(tools) == 7 and all(t["inputSchema"].get("additionalProperties") is False for t in tools), tools)
+for bad, code in [(b"{not json", -32700), (b"\xff\xfe", -32700), (b"[" * 100000, -32700), (b'[{"jsonrpc":"2.0","id":9,"method":"ping"}]', -32600), (b"42", -32600)]:
+    raw_send(q, bad)
+    r = raw_recv(q)
+    want(f"bad input {bad[:12]!r}", r and r["id"] is None and r["error"]["code"] == code, r)
+raw_send(q, {"jsonrpc": "2.0", "id": 3, "method": "no/such"})
+want("unknown method", raw_recv(q)["error"]["code"] == -32601, "")
+raw_send(q, tool(4, "nope"))
+want("unknown tool", raw_recv(q)["error"]["code"] == -32602, "")
+raw_send(q, tool(5, "run", stdn="x"))
+r = raw_recv(q)
+want("misspelt argument", r["result"]["isError"] and "stdin" in text_of(r), r)
+raw_send(q, tool(6, "run", code="print(1)\n", timeout="abc"))
+want("mistyped argument", "whole number" in text_of(raw_recv(q)), "")
+raw_send(q, tool(7, "check", file="../escape.py", code="x = 1\n"))
+want("bad file name", "not allowed" in text_of(raw_recv(q)), "")
+raw_send(q, tool(8, "run", code="print('h\u00e9llo \U0001F600')\n", stdin=None))
+r = raw_recv(q)
+want("bad file name not kept; unicode both ways", text_of(r) == "h\u00e9llo \U0001F600\n" and not r["result"]["isError"], r)
+raw_send(q, tool(9, "edit", **{"from": "1", "to": 1, "text": "print('\\x41\\u00e9')"}))
+raw_send(q, tool(10, "run"))
+raw_recv(q)
+want("numbers as text; escapes", text_of(raw_recv(q)) == "A\u00e9\n", "")
+raw_send(q, tool(11, "run", code="for i in range(40000):\n    print('line', i)\n"))
+r = raw_recv(q)
+t = text_of(r)
+want("long output is cut, not stuck", not r["result"]["isError"] and "cut" in t and t.rstrip().endswith("line 39999") and len(t) < 30000, t[-200:])
+# A program that never ends: stopped at its timeout with everything it started; the server stays usable.
+t0 = time.time()
+raw_send(q, tool(12, "run", code="i = 0\nwhile True:\n    i += 1\n", timeout=2))
+r = raw_recv(q)
+want("timeout", "timeout" in text_of(r) and time.time() - t0 < 15, r)
+time.sleep(0.3)
+want("nothing left running after a timeout", procs_in(work) == 0, procs_in(work))
+# Cancel: ping is answered while a call runs, the cancelled call gets no reply, the next call works.
+raw_send(q, tool(13, "run", code="while True:\n    pass\n", timeout=60))
+time.sleep(1.0)
+t0 = time.time()
+raw_send(q, {"jsonrpc": "2.0", "id": 14, "method": "ping"})
+r = raw_recv(q)
+want("ping during a call", r["id"] == 14 and time.time() - t0 < 1, r)
+raw_send(q, {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 13}})
+raw_send(q, tool(15, "run", code="print(7)\n"))
+r = raw_recv(q)
+want("cancelled call has no reply; next call works", r["id"] == 15 and text_of(r) == "7\n", r)
+want("nothing left running after a cancel", procs_in(work) == 0, procs_in(work))
+raw_send(q, tool(16, "run", code="import sys\nprint(eval(sys.stdin.read()))\n", sandbox=False, cases=[{"stdin": "6*7", "expect": 42}]))
+want("cases for Python only CPython runs", "passed 1/1" in text_of(raw_recv(q)), "")
+# The client goes away mid-call: the server stops the program, removes its folder and exits.
+raw_send(q, tool(17, "run", code="while True:\n    pass\n", timeout=60))
+time.sleep(1.0)
+q.stdin.close()
+t0 = time.time()
+try:
+    q.wait(10)
+except subprocess.TimeoutExpired:
+    q.kill()
+want("exit on EOF", q.returncode == 0 and time.time() - t0 < 5, q.returncode)
+want("work folder removed", not os.path.exists(work), work)
+want("nothing left after exit", procs_in(work) == 0, procs_in(work))
+want("stdout only JSON-RPC, stderr quiet", q.stdout.read() == b"" and q.stderr.read() == b"", "")
+if sys.platform.startswith("linux"):
+    q = raw_start("--mem-mb", "300")
+    raw_send(q, tool(1, "run", code="xs = []\nwhile True:\n    xs.append([0] * 1000000)\n", timeout=60))
+    t = text_of(raw_recv(q))
+    want("memory limit", "memory" in t or "signal" in t, t[-300:])
+    q.stdin.close()
+    q.wait(10)
+
 print("mcp: all ok" if not fails else f"mcp: {fails} failed")
 sys.exit(1 if fails else 0)
