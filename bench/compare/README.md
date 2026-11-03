@@ -51,6 +51,6 @@ Every built speed program printed what CPython prints. Nuitka ran slower than CP
 
 - **Correctness.** Brevi and Nuitka run every agent-written program exactly as CPython does. Codon builds about a third of them, and of those, 1 in 6 prints something else, often silently (64-bit ints wrap, `json` and dict-of-mixed-value programs print 0, `print` output is lost when the program crashes, exceptions print without quotes).
 - **Speed.** Even `brevi run`'s default build beats CPython on all 12 programs (1.7x to 40x); `--release` is level with Codon where Codon builds, and also runs object-heavy code Codon refuses. Nuitka stays near CPython.
-- **Open gap:** a big int that grows inside a function and is returned still stops with an overflow error (loud, not wrong).
+- **Big ints:** the gap this comparison found (a big int that grows inside a function and is returned stopped with an overflow error) is closed by #131 and #133, along with `//` and `%` on big ints and growing values shared between functions.
 
 History: the first run (main 2413e64) found six Brevi bugs, four of them silent wrong answers, fixed in #127; its follow-ups (fast default build, typed slice assignment, big-int growth, generators in dynamic builds, faster small objects and strings, csv.DictReader, `__file__`) landed in #128. Before them, the default build was slower than CPython on 5 of 12 programs and Brevi matched 588 of 591 solutions and 17 of 18 huge-set programs.
