@@ -20,6 +20,7 @@ struct G {
     params: Vec<(String, Vec<String>)>,
     matches: HashSet<String>,    // names holding a re match (a Match object or None)
     dicts: HashSet<String>,      // names holding a dict
+    pure_gens: HashSet<String>,  // generator functions the typed build may run eagerly
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
@@ -31,6 +32,13 @@ pub fn check(src: &str) -> Option<(usize, String)> {
         let before = (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len());
         learn(&body, None, &mut g);
         if before == (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len()) {
+            break;
+        }
+    }
+    for _ in 0..8 {
+        let before = g.pure_gens.len();
+        find_pure_gens(&body, &mut g);
+        if before == g.pure_gens.len() {
             break;
         }
     }
@@ -364,6 +372,12 @@ fn walk_st(st: &St, f: &mut dyn FnMut(&Ex)) {
 
 fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
     f(e);
+    // `3 ** 50 % m` of number literals: one value, worked out when the typed build compiles.
+    if let Ex::Bin("%", l, r) = e {
+        if matches!(l.as_ref(), Ex::Bin("**", a, b) if lit_int(a).is_some() && lit_int(b).is_some()) && lit_int(r).is_some() {
+            return;
+        }
+    }
     let mut go = |x: &Ex| walk_ex(x, f);
     match e {
         Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().for_each(&mut go),
@@ -459,6 +473,11 @@ fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
                 hit = Some("changing a dict or set while a loop walks it stops CPython with a RuntimeError".into());
             }
         }
+        if let St::Def(d) = &s.st {
+            if hit.is_none() && own_yield(&d.body) && !pure_gen(d, g) {
+                hit = Some("the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller".into());
+            }
+        }
         walk_st(&s.st, &mut |e| {
             if hit.is_some() {
                 return;
@@ -474,6 +493,105 @@ fn uses(body: &[Stmt], g: &G, out: &mut Option<(usize, String)>) {
             St::Class(c) => uses(&c.body, g, out),
             st => each_block(st, &mut |b| uses(b, g, out)),
         }
+    }
+}
+
+// A yield in this body (not in a function defined inside it).
+fn own_yield(body: &[Stmt]) -> bool {
+    let mut found = false;
+    for s in body {
+        if let St::Def(_) | St::Class(_) = &s.st {
+            continue;
+        }
+        walk_st(&s.st, &mut |e| {
+            if matches!(e, Ex::Yield(_) | Ex::YieldFrom(_)) {
+                found = true;
+            }
+        });
+        each_block(&s.st, &mut |b| found |= own_yield(b));
+    }
+    found
+}
+
+fn find_pure_gens(body: &[Stmt], g: &mut G) {
+    for s in body {
+        match &s.st {
+            St::Def(d) => {
+                if own_yield(&d.body) && pure_gen(d, g) {
+                    g.pure_gens.insert(d.name.clone());
+                }
+                find_pure_gens(&d.body, g);
+            }
+            St::Class(c) => find_pure_gens(&c.body, g),
+            _ => {}
+        }
+    }
+}
+
+// The typed build makes a generator a function that returns the list of everything it yields. That gives
+// CPython's answer only when running it early cannot be told apart: it ends, it reads nothing but its own
+// arguments and locals (the caller cannot change what it sees part way), it prints and raises nothing, and
+// no value is sent into it.
+fn pure_gen(d: &crate::dynpy::parse::FuncDef, g: &G) -> bool {
+    const PURE: &[&str] = &["range", "len", "abs", "min", "max", "sum", "str", "int", "float", "bool", "tuple", "enumerate", "zip", "reversed", "sorted", "ord", "chr", "divmod", "round", "isinstance", "True", "False", "None"];
+    let mut locals: HashSet<String> = d.params.pos.iter().map(|(n, _)| n.clone()).collect();
+    locals.extend(d.params.star.clone());
+    locals.extend(d.params.kwonly.iter().map(|(n, _)| n.clone()));
+    locals.extend(d.params.kwstar.clone());
+    fn targets(e: &Ex, out: &mut HashSet<String>) {
+        match e {
+            Ex::Name(n) => {
+                out.insert(n.clone());
+            }
+            Ex::Tuple(v) | Ex::List(v) => v.iter().for_each(|x| targets(x, out)),
+            Ex::Star(x) => targets(x, out),
+            _ => {}
+        }
+    }
+    fn stmts_ok(body: &[Stmt], locals: &mut HashSet<String>) -> bool {
+        body.iter().all(|s| match &s.st {
+            St::Assign(ts, v) => {
+                ts.iter().for_each(|t| targets(t, locals));
+                ts.iter().all(|t| matches!(t, Ex::Name(_) | Ex::Tuple(_))) && !matches!(v, Ex::Yield(_) | Ex::YieldFrom(_))
+            }
+            St::AugAssign(t, _, _) => matches!(t, Ex::Name(_)),
+            St::Expr(_) | St::Pass | St::Break | St::Continue | St::Return(_) => true,
+            St::If(arms, els) => arms.iter().all(|(_, b)| stmts_ok(b, locals)) && els.as_ref().is_none_or(|b| stmts_ok(b, locals)),
+            St::For(t, _, b, e) => {
+                targets(t, locals);
+                stmts_ok(b, locals) && e.as_ref().is_none_or(|b| stmts_ok(b, locals))
+            }
+            _ => false,
+        })
+    }
+    if !stmts_ok(&d.body, &mut locals) {
+        return false;
+    }
+    fn all_exprs(body: &[Stmt], f: &mut dyn FnMut(&Ex)) {
+        for s in body {
+            walk_st(&s.st, f);
+            each_block(&s.st, &mut |b| all_exprs(b, f));
+        }
+    }
+    all_exprs(&d.body, &mut |e| {
+        if let Ex::Comp(_, _, _, fors) = e {
+            fors.iter().for_each(|c| targets(&c.target, &mut locals));
+        }
+    });
+    let mut ok = true;
+    all_exprs(&d.body, &mut |e| match e {
+        Ex::Name(n) if !locals.contains(n) && !PURE.contains(&n.as_str()) && !g.pure_gens.contains(n) && n != &d.name => ok = false,
+        Ex::Attr(..) | Ex::Lambda(..) | Ex::Walrus(..) => ok = false,
+        _ => {}
+    });
+    ok
+}
+
+fn lit_int(e: &Ex) -> Option<i64> {
+    match e {
+        Ex::Int(t) => t.replace('_', "").parse().ok(),
+        Ex::Unary("-", x) => lit_int(x).and_then(|k| k.checked_neg()),
+        _ => None,
     }
 }
 
@@ -530,6 +648,11 @@ fn shown(e: &Ex, g: &G) -> Option<String> {
         }
         Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && (set_or_holder(r) || matches!(r.as_ref(), Ex::Tuple(v) if v.iter().any(|x| set_or_holder(x)))) => Some("% of a set shows CPython's hash order".into()),
         Ex::Comp(k, _, _, fors) if *k != 's' && fors.iter().any(|c| is_set(&c.iter, g)) => Some("a comprehension over a set walks it in CPython's hash order".into()),
+        // `2 ** 100` is past 64 bits (`3 ** 50 % m`, taken modulo a number, is worked out by the typed build).
+        Ex::Bin("**", a, b) => match (lit_int(a), lit_int(b)) {
+            (Some(a), Some(b)) if b >= 0 && (b > u32::MAX as i64 || a.checked_pow(b as u32).is_none()) => Some("this power is past 64 bits, where Python's ints keep growing".into()),
+            _ => None,
+        },
         _ => None,
     }
 }

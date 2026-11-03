@@ -3373,6 +3373,19 @@ impl<K: Hash + Eq + Ord + Clone, V> AxMapSortBy<K> for AxM<K, V> {
         ks.ax_sort_by_rev(f, rev)
     }
 }
+// Python's `xs[a:b] = ys`: the items from a up to b replaced by ys (indexes clamped as Python does).
+pub trait AxSplice<T> {
+    fn ax_splice(&mut self, a: i64, b: i64, v: Vec<T>);
+}
+impl<T> AxSplice<T> for Vec<T> {
+    fn ax_splice(&mut self, a: i64, b: i64, v: Vec<T>) {
+        let n = self.len() as i64;
+        let at = |i: i64| (if i < 0 { (i + n).max(0) } else { i.min(n) }) as usize;
+        let a = at(a);
+        let b = at(b).max(a);
+        self.splice(a..b, v);
+    }
+}
 // xs.clear() and m.clear().
 pub trait AxClear {
     fn ax_clear(&mut self);

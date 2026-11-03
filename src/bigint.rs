@@ -5,7 +5,56 @@
 use crate::ast::*;
 use std::collections::{HashMap, HashSet};
 
+// `2 ** 10`, `3 ** 50 % 1000000007`: powers of number literals worked out here, so one past 64 bits that is
+// taken modulo a number still gives Python's answer.
+fn fold_pows(e: &mut Expr) {
+    fn lit(e: &Expr) -> Option<i64> {
+        match e {
+            Expr::Int(k) => Some(*k),
+            Expr::Unary("-", x) => match x.as_ref() {
+                Expr::Int(k) => k.checked_neg(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    crate::parser::walk_mut(e, &mut |x| {
+        let folded = match x {
+            Expr::Binary("%", p, m) => match (p.as_ref(), lit(m)) {
+                (Expr::Binary("**", a, b), Some(m)) if m > 0 => match (lit(a), lit(b)) {
+                    (Some(a), Some(b)) if b >= 0 => {
+                        let (mut r, mut base, mut k) = (1i128 % m as i128, (a as i128).rem_euclid(m as i128), b);
+                        while k > 0 {
+                            if k & 1 == 1 {
+                                r = r * base % m as i128;
+                            }
+                            base = base * base % m as i128;
+                            k >>= 1;
+                        }
+                        Some(r as i64)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            },
+            Expr::Binary("**", a, b) => match (lit(a), lit(b)) {
+                (Some(a), Some(b)) if (0..=u32::MAX as i64).contains(&b) => a.checked_pow(b as u32),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(k) = folded {
+            *x = Expr::Int(k);
+        }
+    });
+}
+
 pub fn promote(items: &mut [Item]) {
+    for it in items.iter_mut() {
+        if let Item::Fn { body, .. } = it {
+            fold_pows(body);
+        }
+    }
     // Names each function reads: a top-level name read by another function must stay an int.
     let names: Vec<HashSet<String>> = items.iter().map(|it| match it {
         Item::Fn { body, .. } => idents(&format!("{body:?}")),
@@ -53,8 +102,90 @@ fn from_text(e: &Expr) -> bool {
     }
 }
 
+// Names that only ever hold small ints (a `for i in range(...)` loop's name): fine next to a big integer.
+thread_local! {
+    static SMALL: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
+}
+
+// An int that cannot be big itself: a range loop's name, ord(c), len(xs).
+fn small(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(n) | Expr::Move(n) => SMALL.with(|s| s.borrow().contains(n)),
+        Expr::Method(_, m, a, _) => (m == "code" || m == "len") && a.is_empty(),
+        _ => false,
+    }
+}
+
+fn range_names(e: &Expr, out: &mut HashSet<String>) {
+    let mut f = |x: &Expr| range_names(x, out);
+    match e {
+        Expr::For(Pat::Bind(n), xs, b) => {
+            if matches!(xs.as_ref(), Expr::Range(..)) || matches!(xs.as_ref(), Expr::Method(r, m, _, _) if m == "step" && matches!(r.as_ref(), Expr::Range(..))) {
+                out.insert(n.clone());
+            }
+            range_names(b, out);
+        }
+        _ => {
+            let dbg = format!("{e:?}");
+            if dbg.contains("For(") {
+                each_sub(e, &mut f);
+            }
+        }
+    }
+}
+
+fn each_sub(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    match e {
+        Expr::Block(ss, last) => {
+            for s in ss {
+                match s {
+                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => f(value),
+                    Stmt::Expr { expr, .. } => f(expr),
+                    Stmt::Return { value: Some(v), .. } => f(v),
+                    _ => {}
+                }
+            }
+            if let Some(l) = last {
+                f(l);
+            }
+        }
+        Expr::If(c, a, b) => {
+            f(c);
+            f(a);
+            if let Some(b) = b {
+                f(b);
+            }
+        }
+        Expr::While(a, b) | Expr::For(_, a, b) => {
+            f(a);
+            f(b);
+        }
+        Expr::Match(x, arms) => {
+            f(x);
+            arms.iter().for_each(|(_, a)| f(a));
+        }
+        _ => {}
+    }
+}
+
+// `f *= i`, `h = h * 31 + ord(c)`: a name multiplied by something and kept, which can outgrow 64 bits.
+fn grows(n: &str, v: &Expr) -> bool {
+    match v {
+        Expr::Binary("*", a, b) => matches!(a.as_ref(), Expr::Ident(m) | Expr::Move(m) if m == n) || matches!(b.as_ref(), Expr::Ident(m) | Expr::Move(m) if m == n) || grows(n, a) || grows(n, b),
+        // `a, b = b, a + b`: a sum of two names that are not small ints (Fibonacci numbers grow past 64 bits).
+        Expr::Binary("+", a, b) if [a, b].iter().all(|x| matches!(x.as_ref(), Expr::Ident(_) | Expr::Move(_)) && !small(x)) && (mentions_one(a, n) || mentions_one(b, n)) => true,
+        Expr::Binary("+" | "-", a, b) => grows(n, a) || grows(n, b),
+        _ => false,
+    }
+}
+
+fn mentions_one(e: &Expr, n: &str) -> bool {
+    matches!(e, Expr::Ident(m) | Expr::Move(m) if m == n)
+}
+
 fn bigable(e: &Expr, c: &HashSet<String>) -> bool {
     match e {
+        e if small(e) => true,
         Expr::Ident(n) | Expr::Move(n) => c.contains(n),
         Expr::Int(_) => true,
         Expr::Binary(op, a, b) if ARITH.contains(op) => bigable(a, c) && bigable(b, c),
@@ -221,6 +352,9 @@ impl Scan<'_> {
 }
 
 fn promote_body(body: &mut Expr, params: &HashSet<String>) {
+    let mut rn = HashSet::new();
+    range_names(body, &mut rn);
+    SMALL.with(|s| *s.borrow_mut() = rn);
     // Start from every name set from int(text) somewhere, then drop names with a use or a value that
     // cannot be big, until nothing changes.
     let mut seed = Scan { c: &HashSet::new(), bad: HashSet::new(), defs: HashMap::new() };
@@ -246,7 +380,7 @@ fn promote_body(body: &mut Expr, params: &HashSet<String>) {
         loop {
             let before = reach.len();
             for n in &c {
-                if seed.defs[n].iter().any(|v| has_text(v) || mentions_name(v, &reach)) {
+                if seed.defs[n].iter().any(|v| has_text(v) || grows(n, v) || matches!(v, Expr::Int(k) if k.unsigned_abs() >= 1 << 40) || mentions_name(v, &reach)) {
                     reach.insert(n.clone());
                 }
             }
@@ -266,6 +400,10 @@ fn promote_body(body: &mut Expr, params: &HashSet<String>) {
 fn conv(e: &mut Expr, c: &HashSet<String>) {
     match e {
         Expr::Int(_) => {
+            let n = std::mem::replace(e, Expr::Int(0));
+            *e = Expr::Method(Box::new(n), "big".into(), vec![], 0);
+        }
+        e if small(e) && !matches!(&*e, Expr::Ident(n) | Expr::Move(n) if c.contains(n)) => {
             let n = std::mem::replace(e, Expr::Int(0));
             *e = Expr::Method(Box::new(n), "big".into(), vec![], 0);
         }

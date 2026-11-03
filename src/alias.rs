@@ -1236,7 +1236,7 @@ fn alias_of(st: &Stmt) -> Option<(String, Expr, Expr, usize, bool)> {
 }
 
 // Methods that change the value they are called on, when the call is a value rather than a statement.
-const CHANGING: &[&str] = &["push", "insert", "remove", "clear", "update", "pop", "heap_push", "heap_pop", "pop_at", "add", "extend", "append", "discard"];
+const CHANGING: &[&str] = &["push", "insert", "remove", "clear", "splice", "update", "pop", "heap_push", "heap_pop", "pop_at", "add", "extend", "append", "discard"];
 
 // Does this statement itself change r in place (not counting statements nested inside it)?
 fn direct(r: &str, st: &Stmt) -> bool {
@@ -1351,7 +1351,7 @@ fn safe(r: &str, base: &Expr, key: &Expr, rest: &[Stmt], tail: Option<&Expr>) ->
         if moved && direct(r, st) {
             return true;
         }
-        let structural = |e: &Expr| matches!(e, Expr::Method(recv, m, _, _) if root(recv) == Some(b) && ["push", "insert", "pop", "pop_at", "remove", "clear", "heap_push", "heap_pop", "heapify", "sort", "sort_by", "rev", "append"].contains(&m.as_str()));
+        let structural = |e: &Expr| matches!(e, Expr::Method(recv, m, _, _) if root(recv) == Some(b) && ["push", "insert", "pop", "pop_at", "remove", "clear", "splice", "heap_push", "heap_pop", "heapify", "sort", "sort_by", "rev", "append"].contains(&m.as_str()));
         match st {
             Stmt::Expr { expr, .. } | Stmt::Assign { value: expr, .. } | Stmt::Let { value: expr, .. } if structural(expr) => moved = true,
             _ => {}
@@ -1407,7 +1407,7 @@ fn add_expr(r: &str, wb: &Stmt, e: &mut Expr) {
     }
 }
 
-const SHAPE: [&str; 15] = ["push", "insert", "pop", "pop_at", "remove", "clear", "heap_push", "heap_pop", "heapify", "sort", "sort_by", "rev", "append", "extend", "discard"];
+const SHAPE: [&str; 16] = ["push", "insert", "pop", "pop_at", "remove", "clear", "splice", "heap_push", "heap_pop", "heapify", "sort", "sort_by", "rev", "append", "extend", "discard"];
 
 // The body changes the list as a whole (adds, removes, sorts or sets it): its indexes do not stay put.
 // `base.remove(a)` of the loop's own item is allowed when `own` is given.

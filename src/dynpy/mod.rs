@@ -16,6 +16,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_text.rs"),
     include_str!("rt_ext.rs"),
     include_str!("rt_glue.rs"),
+    include_str!("rt_gen.rs"),
 );
 
 const HEADER: &str = "#![allow(warnings)] #[macro_use] extern crate brevi_dyn; use brevi_dyn::*; use std::rc::Rc; use std::cell::{Cell, RefCell};\n";

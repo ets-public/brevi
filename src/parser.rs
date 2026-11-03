@@ -1300,6 +1300,20 @@ impl Parser {
             return Ok(Stmt::Assert { cond: self.expr()?, line });
         }
         let mut e = self.expr()?;
+        // Python's `xs[a:b] = ys` replaces those items in place (`xs[:k] = xs[k-1::-1]`).
+        if let Expr::Method(r, m, a, l) = &e {
+            if self.py && m == "slice" && (a.len() == 2 || a.len() == 1 && !matches!(a.as_slice(), [Expr::Int(0)])) && self.is_sym("=") {
+                self.next();
+                self.skip_newlines();
+                let value = self.expr()?;
+                let mut args = a.clone();
+                if args.len() == 1 {
+                    args.push(Expr::Int(i64::MAX));
+                }
+                args.push(value);
+                return Ok(Stmt::Expr { expr: Expr::Method(r.clone(), "splice".into(), args, *l), line });
+            }
+        }
         // `lots[:] = [...]` replaces the list's items in place (the caller sees them).
         if let Expr::Method(r, m, a, _) = &e {
             if m == "slice" && matches!(a.as_slice(), [Expr::Int(0)]) && self.is_sym("=") {
