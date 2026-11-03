@@ -4,6 +4,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **Architecture doc.** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains, with diagrams, what Brevi does between a `.bv` or `.py` file and a native program: front end, typed build, the guard that sends Python to the dynamic build, `src/dynpy`, library calls through pybridge, rustc and the build cache, and the CPython fallback.
+
 ## v0.22.0 (3 Nov 2026)
 
 A bug hunt and a head-to-head with Codon and Nuitka. Four rounds of bug hunting fixed the silent wrong answers they turned up (slices with negative steps, list aliasing on the first build attempt, catchable errors, `copy.copy`, and more), and the comparison found six more bugs, which are also fixed. On the same unchanged Python files, Brevi builds all 591 saved agent programs and all 18 large programs, and every one prints exactly what CPython prints; Codon builds 206 of the 591 and gets 36 of those wrong. Builds are faster by default: `brevi run` and `brevi build` without `--release` beat CPython on all 12 speed programs (1.7x to 40x). With `--release`, Brevi is level with Codon where Codon builds, and it also runs the object-heavy programs Codon refuses. Sets and deques in typed builds now give constant-time lookups and `popleft()`. Ints that grow past 64 bits, including values returned from functions (factorials, Fibonacci, recursion), become big ints as in Python. A growing value captured by a closure or `nonlocal` still stops with an overflow error.
