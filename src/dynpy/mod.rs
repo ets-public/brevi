@@ -92,6 +92,24 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
     })
 }
 
+// Every `seed(...)` and `Random(...)` in the text takes no argument or an int literal: the copy of random
+// takes only int seeds (CPython hashes a str or float one), and a seed it cannot see may be either.
+fn int_seeds(src: &str) -> bool {
+    for pat in ["seed(", "Random("] {
+        let mut from = 0;
+        while let Some(k) = src[from..].find(pat) {
+            let at = from + k + pat.len();
+            let arg = src[at..].split(')').next().unwrap_or("").trim();
+            let arg = arg.strip_prefix('-').unwrap_or(arg).replace('_', "");
+            if !arg.chars().all(|c| c.is_ascii_digit()) {
+                return false;
+            }
+            from = at;
+        }
+    }
+    true
+}
+
 // The Rust program for a Python file and the modules it imports from its own directory.
 // Err is (file, line, message).
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
@@ -103,6 +121,11 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let mut mods = vec![emit::Module { name: "__main__".into(), body }];
+    // Brevi's own random and path-text copies stand in for CPython's only when no file of the program uses
+    // more of os, pathlib or random than they have.
+    let pure = |s: &str| crate::caps::path_uses(s).map_or(true, |v| v.is_empty()) && int_seeds(s);
+    let mut own_ok = pure(&src);
+    let mut own_used = false;
     let mut k = 0;
     while k < mods.len() {
         let mut imps = vec![];
@@ -112,8 +135,13 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
                 continue;
             }
             let p = dir.join(format!("{m}.py"));
-            if !p.exists() && crate::pybridge::no_native() {
+            // Outside the sandbox too, when every use of these modules is one Brevi's copies have (checked
+            // over all the program's files below): path text.
+            // (Not random: the copy draws about 25 times slower than CPython's C one, so outside the sandbox
+            // CPython's stays.)
+            if !p.exists() && (crate::pybridge::no_native() || (own_ok && m != "random")) {
                 if let Some(src) = sandbox_module(&m) {
+                    own_used = true;
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
                     mods.push(emit::Module { name: m, body });
                     continue;
@@ -125,10 +153,14 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
                 let src = crate::modules::fill_file_name(&src, &p);
                 let src = crate::caps::split(&src).0;
                 let body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
+                own_ok &= pure(&src);
                 mods.push(emit::Module { name: m, body });
             }
         }
         k += 1;
+    }
+    if own_used && !own_ok && !crate::pybridge::no_native() {
+        return Err((file.to_string(), 0, "os, pathlib or random beyond Brevi's own copies runs in CPython".into()));
     }
     let rust = emit::program(&mods).map_err(|(l, m)| (file.to_string(), l, m))?;
     Ok(format!("{HEADER}{rust}"))
