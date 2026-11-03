@@ -9,6 +9,33 @@ Brevi reads two kinds of input:
 
 Both end the same way: Brevi writes Rust source, and `rustc` turns it into a native program. Python files have more steps, because a Python file must give exactly CPython's output or not be built natively at all.
 
+## What runs natively
+
+Every diagram below colours its steps the same way:
+
+```mermaid
+flowchart LR
+    N["Brevi native<br/>compiled Rust, no CPython"]
+    M["partly native<br/>native program, library calls in CPython"]
+    P["not native<br/>runs on CPython"]
+    N ~~~ M ~~~ P
+    classDef native fill:#cdeccf,stroke:#2f8a3e,color:#10301a
+    classDef mixed fill:#fdf0c2,stroke:#b58a12,color:#3a2a00
+    classDef cpython fill:#f9d9c9,stroke:#c0522b,color:#3a1405
+    class N native
+    class M mixed
+    class P cpython
+```
+
+| Path | Native? | What runs |
+| --- | --- | --- |
+| Typed build (every `.bv`, most `.py`) | **Brevi native** | Plain Rust with fixed types. The fastest path. |
+| Dynamic build (`src/dynpy`) | **Brevi native** | Rust over a dynamic value type. No CPython anywhere. Slower than typed, usually faster than CPython. |
+| Library calls (pybridge) | **Partly native** | The program is native; each call into numpy, pandas, etc. runs in CPython loaded into the program. |
+| CPython fallback (`brevi run` only) | **Not native** | The whole file runs on `python3`, with a one-line note on stderr. |
+
+The release test counts how many final programs build natively (typed or dynamic, no fallback); the bar is 90%.
+
 ## The big picture
 
 ```mermaid
@@ -26,14 +53,19 @@ flowchart TD
     TYPED -- "error, .bv" --> ERR["JSON errors<br/>with fix hints"]
     FAIL -- "brevi run" --> PY["run with python3<br/>+ one-line note"]
     FAIL -- "build, check, --native" --> ERR
+    classDef native fill:#cdeccf,stroke:#2f8a3e,color:#10301a
+    classDef mixed fill:#fdf0c2,stroke:#b58a12,color:#3a2a00
+    classDef cpython fill:#f9d9c9,stroke:#c0522b,color:#3a1405
+    class TYPED,DYN,RUSTC,RUSTC2,BIN native
+    class PY cpython
 ```
 
 In words, for a Python file:
 
 1. **Guard.** `typed_guard.rs` reads the file (and the local modules it imports) and looks for code the typed build would answer differently from CPython, such as printing a set. If it finds any, the typed build is skipped.
-2. **Typed build.** The normal path: infer types, check, and emit plain Rust with fixed types. This is where the big speedups come from.
-3. **Dynamic build.** If the typed build fails at any stage (its own checks or `rustc`), the file is rebuilt over a dynamic value type that behaves like CPython's objects. Still native, no CPython involved, and silent: the user just gets a program.
-4. **CPython fallback.** Only if the dynamic build refuses too. `brevi run x.py` then runs the file with `python3` and prints one note on stderr. `brevi build`, `brevi check` and `--native` (or `BREVI_NATIVE=1`) never fall back; they print the errors.
+2. **Typed build (Brevi native).** The normal path: infer types, check, and emit plain Rust with fixed types. This is where the big speedups come from.
+3. **Dynamic build (Brevi native).** If the typed build fails at any stage (its own checks or `rustc`), the file is rebuilt over a dynamic value type that behaves like CPython's objects. Still native, no CPython involved, and silent: the user just gets a program.
+4. **CPython fallback (not native).** Only if the dynamic build refuses too. `brevi run x.py` then runs the file with `python3` and prints one note on stderr. `brevi build`, `brevi check` and `--native` (or `BREVI_NATIVE=1`) never fall back; they print the errors.
 
 A Brevi file only takes the typed path. Its errors go straight back to the model as JSON.
 
@@ -70,6 +102,8 @@ A file counts as Python if it ends in `.py`, or if it uses spellings only Python
 
 ## Stage 2: the typed build
 
+> **Brevi native.** Everything this stage produces is compiled Rust. Only values from bridged libraries (below) are handed to CPython.
+
 ```mermaid
 flowchart LR
     A["lexer.rs<br/>tokens + indentation"] --> B["parser.rs<br/>AST (ast.rs)"]
@@ -81,6 +115,11 @@ flowchart LR
     G --> H["emit.rs auto_try<br/>error passing"]
     H --> I["moves.rs<br/>ownership"]
     I --> J["emit.rs<br/>Rust source"]
+    classDef native fill:#cdeccf,stroke:#2f8a3e,color:#10301a
+    classDef mixed fill:#fdf0c2,stroke:#b58a12,color:#3a2a00
+    classDef cpython fill:#f9d9c9,stroke:#c0522b,color:#3a1405
+    class A,B,D,E,F,G,H,I,J native
+    class C mixed
 ```
 
 The driver is `compile_once` in `main.rs`. In order:
@@ -115,6 +154,8 @@ Some Python programs type cleanly but would still print something different from
 
 ## Stage 3: the dynamic build (`src/dynpy`)
 
+> **Brevi native.** No CPython is involved: the program and its runtime are compiled Rust.
+
 For Python files the typed build cannot handle, such as a variable that holds an int and later a string, or a list of mixed values.
 
 ```mermaid
@@ -124,6 +165,10 @@ flowchart LR
     E --> R["rustc, opt-level 1<br/>(3 with --release)"]
     L["rt_*.rs runtime<br/>prebuilt rlib, opt-level 3"] --> R
     R --> B["native program"]
+    classDef native fill:#cdeccf,stroke:#2f8a3e,color:#10301a
+    classDef mixed fill:#fdf0c2,stroke:#b58a12,color:#3a2a00
+    classDef cpython fill:#f9d9c9,stroke:#c0522b,color:#3a1405
+    class P,M,E,R,L,B native
 ```
 
 - **Its own parser** (`dynpy/parse.rs`) for a supported subset of Python. Anything outside the subset is an error at build time with a line number.
@@ -138,6 +183,8 @@ Switches: `BREVI_DYN=1` forces the dynamic build, `BREVI_DYN=0` disables it, `BR
 
 ## Library calls (pybridge)
 
+> **Partly native.** The program is native; only the library calls themselves run in CPython.
+
 For Python files that import libraries Brevi does not build itself (numpy, pandas, requests, sqlite3, argparse, ...).
 
 ```mermaid
@@ -146,6 +193,11 @@ flowchart LR
     T --> O["each operation becomes<br/>ax_pyb_call / ax_pyb_op"]
     O --> RT["pyrt.rs pasted into<br/>the program"]
     RT --> CP["at run time: dlopen libpython,<br/>CPython runs the library call"]
+    classDef native fill:#cdeccf,stroke:#2f8a3e,color:#10301a
+    classDef mixed fill:#fdf0c2,stroke:#b58a12,color:#3a2a00
+    classDef cpython fill:#f9d9c9,stroke:#c0522b,color:#3a1405
+    class S,T,O,RT native
+    class CP cpython
 ```
 
 - `pybridge::scan` reads the import lines. A module Brevi has built in (math, re, json, collections, ...) stays native. Any other module is bridged.
@@ -156,6 +208,8 @@ flowchart LR
 - This is part of the **typed** build only. A library program the typed build rejects goes to the dynamic build, which refuses unknown imports, so `brevi run` falls back to CPython.
 
 ## Stage 4: compiling the Rust
+
+> **Brevi native.** Typed and dynamic builds both end here, as a native executable.
 
 ```mermaid
 flowchart TD
@@ -169,6 +223,10 @@ flowchart TD
     RC -- "borrow error" --> PLAIN["retry same version<br/>without moves"]
     RC -- "other error" --> NEXT["try next version"]
     NEXT --> REP["no version builds: map rustc<br/>errors back to source lines (JSON)"]
+    classDef native fill:#cdeccf,stroke:#2f8a3e,color:#10301a
+    classDef mixed fill:#fdf0c2,stroke:#b58a12,color:#3a2a00
+    classDef cpython fill:#f9d9c9,stroke:#c0522b,color:#3a1405
+    class RC,CG,OUT native
 ```
 
 - **Versions.** The typed build makes up to four Rust versions of the program: with and without inferred types for empty values, and with and without hash indexes for Python's searched lists. Each also has a variant without moves. `rustc` gets them in order; the first that compiles wins. Errors are reported from the first version, since its inferred types name the real gap.
@@ -179,6 +237,8 @@ flowchart TD
 - **Flags.** `rustc --edition 2021 -C overflow-checks=on`, debug info stripped (runtime errors carry source line numbers instead).
 
 ## Stage 5: running
+
+> **Brevi native**, unless the CPython fallback below is used, which is **not native**.
 
 `brevi run` runs the built program with the arguments after `--` and exits with its status. A runtime error prints one JSON line: `{"e":"runtime","line":N,"msg":"..."}`, with the message in Python's words for Python files.
 
