@@ -1252,6 +1252,10 @@ impl Emitter {
 
     // `m = {}` later used as `m[k].push(x)`: Rust needs to know the items are lists.
     fn empty_hint(&self, n: &str, line: usize, value: &Expr) -> String {
+        // `d.get(k, {})` takes d's own value type (or JSON, from a JSON object).
+        if matches!(value, Expr::Method(_, m, a, _) if m == "get_or" && matches!(a.get(1), Some(Expr::Map(x)) if x.is_empty()) || m == "get_or" && matches!(a.get(1), Some(Expr::List(x)) if x.is_empty())) {
+            return String::new();
+        }
         match self.hints.get(&(n.to_string(), line)) {
             Some((t, _)) => format!(": {t}"),
             None => self.nested_hint(n, value),
@@ -2106,6 +2110,17 @@ impl Emitter {
                 if name == "slice" && a.len() == 1 {
                     a.push("i64::MAX".into());
                 }
+                // `d.get(k, {})` / `d.get(k, [])`: an empty value of whatever d holds (a JSON object's own kind,
+                // or the map's value type), where a bare `{}` has no type of its own.
+                let empty = |x: Option<&Expr>| match x {
+                    Some(Expr::Map(ps)) if ps.is_empty() => Some("get_or_emap"),
+                    Some(Expr::List(xs)) if xs.is_empty() => Some("get_or_elist"),
+                    _ => None,
+                };
+                let (name, a) = match empty(args.get(1)) {
+                    Some(n) if name == "get_or" && a.len() == 2 => (n.to_string(), vec![a[0].clone()]),
+                    _ => (name.clone(), a),
+                };
                 // `x.round(2)` rounds to decimal places.
                 let name = if name == "round" && a.len() == 1 { "round_to" } else { name.as_str() };
                 // `xs.sort_by(f, true)` sorts largest first, keeping equal items in order (Python's reverse=True).

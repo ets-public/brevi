@@ -1864,6 +1864,19 @@ impl<T: Show> AxJoin for Vec<T> {
     }
 }
 
+// d.get(k, {}) and d.get(k, []) on a map: the value, else an empty one of its type.
+pub trait AxGetEmpty<K, V> {
+    fn ax_get_or_emap(&self, k: &K) -> V;
+    fn ax_get_or_elist(&self, k: &K) -> V;
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxGetEmpty<K, V> for AxM<K, V> {
+    fn ax_get_or_emap(&self, k: &K) -> V {
+        self.get(k).cloned().unwrap_or_default()
+    }
+    fn ax_get_or_elist(&self, k: &K) -> V {
+        self.get(k).cloned().unwrap_or_default()
+    }
+}
 pub trait AxMap<K, V> {
     fn ax_len(&self) -> i64;
     fn ax_is_empty(&self) -> bool;
@@ -2705,6 +2718,19 @@ impl Json {
         match self {
             Json::Obj { v } => v.get(&k.ax_jkey()).cloned().unwrap_or_else(|| d.ax_json()),
             _ => d.ax_json(),
+        }
+    }
+    // d.get(k, {}) and d.get(k, []) on a JSON object.
+    pub fn ax_get_or_emap<K: AxJKey + ?Sized>(&self, k: &K) -> Json {
+        match self {
+            Json::Obj { v } if v.get(&k.ax_jkey()).is_some() => v.get(&k.ax_jkey()).cloned().unwrap(),
+            _ => Json::Obj { v: AxM::ordered() },
+        }
+    }
+    pub fn ax_get_or_elist<K: AxJKey + ?Sized>(&self, k: &K) -> Json {
+        match self {
+            Json::Obj { v } if v.get(&k.ax_jkey()).is_some() => v.get(&k.ax_jkey()).cloned().unwrap(),
+            _ => Json::Arr { v: vec![] },
         }
     }
     pub fn ax_has<K: AxJKey + ?Sized>(&self, k: &K) -> bool {
