@@ -6,7 +6,6 @@ Traceback (most recent call last):
 TypeError: 'method' object is not subscriptable
 exit 1
 -- typed
-{"line":2,"msg":"unknown method .gcd()","fix":"math.gcd would run in CPython, which needs `allow native` at the top; or do without it"}
-{"line":2,"msg":"unknown name 'math'","fix":"did you mean main?"}
+{"line":2,"msg":"math.gcd runs in CPython, which needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
 {"line":3,"msg":"unknown method .__subclasses__()"}
 exit 1

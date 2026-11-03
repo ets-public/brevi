@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -191,6 +191,10 @@ fn main() {
     }
     let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
     let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    let traceback = argv.iter().position(|a| a == "--").map_or(argv.len(), |d| d);
+    if argv[..traceback].iter().position(|a| a == "--traceback").map(|i| argv.remove(i)).is_some() || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0") {
+        TRACEBACK.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let standalone = argv.iter().position(|a| a == "--standalone").map(|i| argv.remove(i)).is_some();
     if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
         gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -535,7 +539,8 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         flags.push("--explain".into());
     }
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
-    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").output();
+    // Exit code 3 from the build: a sure mistake (pydiag), which CPython stops on too.
+    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").env("BREVI_SURE_EXIT", "3").output();
     let code = match built {
         Ok(o) if o.status.success() => {
             std::io::stderr().write_all(&o.stderr).ok();
@@ -553,9 +558,20 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
             let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
-            match proc::program(&python).arg(file).args(&prog_args).spawn() {
+            // On a sure mistake the note already names the error, so CPython's traceback is cut to its last
+            // line (`--traceback` or BREVI_TRACEBACK=1 shows all of it).
+            let short = o.status.code() == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
+            let mut cmd = proc::program(&python);
+            cmd.arg(file).args(&prog_args);
+            if short {
+                cmd.stderr(std::process::Stdio::piped());
+            }
+            match cmd.spawn() {
                 Ok(mut child) => {
                     eprintln!("note: ran with {python}; Brevi could not build {}", first_error(&out));
+                    if let Some(err) = child.stderr.take() {
+                        last_traceback_line(err);
+                    }
                     child.wait().map(proc::code).unwrap_or(1)
                 }
                 Err(_) => {
@@ -572,6 +588,42 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         }
     };
     exit(code)
+}
+
+// Passes CPython's stderr on as it comes, except a traceback: of that only the error line is shown, with the
+// file and line it was raised at, such as `NameError: name 'x' is not defined (main.py line 3)`.
+fn last_traceback_line(err: std::process::ChildStderr) {
+    use std::io::BufRead;
+    let mut r = std::io::BufReader::new(err);
+    let mut held: Option<Vec<String>> = None;
+    let mut buf = Vec::new();
+    let mut stderr = std::io::stderr();
+    loop {
+        buf.clear();
+        match r.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = String::from_utf8_lossy(&buf).to_string();
+        if let Some(h) = held.as_mut() {
+            h.push(line);
+        } else if line.trim_end() == "Traceback (most recent call last):" {
+            held = Some(vec![]);
+        } else {
+            stderr.write_all(&buf).ok();
+            stderr.flush().ok();
+        }
+    }
+    let Some(h) = held else { return };
+    let last = h.iter().rev().map(|l| l.trim_end()).find(|l| !l.is_empty() && !l.starts_with(' ')).unwrap_or("");
+    let at = h.iter().rev().find_map(|l| {
+        let rest = l.trim_start().strip_prefix("File \"")?;
+        let (f, rest) = rest.split_once("\", line ")?;
+        let n: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let f = Path::new(f).file_name().map_or(f.to_string(), |x| x.to_string_lossy().to_string());
+        Some(format!(" ({f} line {n})"))
+    });
+    eprintln!("{last}{}", at.unwrap_or_default());
 }
 
 // "line N: msg" from the first JSON error line of a failed build (or "it" when there is none).
@@ -713,16 +765,20 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
         match &r {
             Err(ds) if k < 8 && python_style(src) && pybridge::learn(ds, src) => continue,
             // --sandbox without allow native: say that CPython would have run it, not just that Brevi lacks it.
+            // One error that names the calls, in place of the "unknown method" and "unknown name" errors each
+            // call gave; errors about anything else stay.
             Err(ds) if !pybridge::blocked().is_empty() => {
-                let mut ds = ds.clone();
                 let mut b = pybridge::blocked();
                 b.sort();
                 b.dedup();
                 let names: Vec<String> = b.iter().map(|(m, n)| format!("{m}.{n}")).collect();
-                if let Some(d) = ds.first_mut() {
-                    d.fix = Some(format!("{} would run in CPython, which needs `allow native` at the top; or do without it", names.join(", ")));
-                }
-                return Err(ds);
+                let line = ds.iter().filter(|d| pybridge::blocked_noise(d)).map(|d| d.line).min().unwrap_or(1);
+                let one = if names.len() == 1 { "runs" } else { "run" };
+                let d = Diag::new("caps", line, 1, &format!("{} {one} in CPython, which needs allow native", names.join(", ")))
+                    .fix_hint(&format!("add the line `{}` at the top, or do without it", caps::allow_line("native")));
+                let mut out = vec![d];
+                out.extend(ds.iter().filter(|d| !pybridge::blocked_noise(d)).cloned());
+                return Err(out);
             }
             _ => return r,
         }
@@ -737,7 +793,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     }
     // pybridge: CPython for the Python libraries the program uses.
     if pybridge::active() && pybridge::no_native() {
-        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint("add the line `allow native` at the top, or do without it")]);
+        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&format!("add the line `{}` at the top, or do without it", caps::allow_line("native")))]);
     }
     if pybridge::active() {
         pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
@@ -1568,6 +1624,8 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
 // A program written as Python (`def`, `class`, `global`) prints values and orders dicts as Python does.
 // Also a script with spellings only Python code uses: `None`, `xs.append(x)` (Brevi code writes `True` too).
 // Set for a .py file: Python rules apply whatever the source looks like.
+// `brevi run --traceback` (or BREVI_TRACEBACK=1): a fallback to CPython shows its whole traceback.
+static TRACEBACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub static PY_FILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn python_style(src: &str) -> bool {

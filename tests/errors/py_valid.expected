@@ -2,3 +2,4 @@ check exit 0
 caught
 2
 run exit 0
+run tracebacks 0

@@ -94,7 +94,7 @@ These steps run on the source text before parsing.
 | Step | File | What it does |
 | --- | --- | --- |
 | Join files | `modules.rs` | `use "x.bv"`, and `import x` of a sibling `.py` file or package, are joined into one program. A segment table maps every line back to its file, so errors name the right file. |
-| Capabilities | `caps.rs` | `allow read, write` lines. With `--sandbox`, or any `allow` line, a program that uses something it did not declare is refused, before any other path runs: a refused program is never built over dynamic values, through pybridge or run with python3. Python libraries (pybridge) need `allow native`, and a sandboxed program never falls back to python3. |
+| Capabilities | `caps.rs` | `allow read, write` lines. With `--sandbox`, or any `allow` line, a program that uses something it did not declare is refused, before any other path runs: a refused program is never built over dynamic values, through pybridge or run with python3. Python libraries (pybridge) need `allow native`, and a sandboxed program never falls back to python3. In a `.py` file the line may be a comment (`# allow read`). Without `allow native`, `random`, `os.path`/`os` path constants and `pathlib.PurePath` are built from Brevi's own Python copies (`src/dynpy/py`, over dynamic values, no file access); `caps::path_uses` refuses every other use of os and pathlib by name. |
 | Foreign code | `ffi.rs` | `use CRATE "VER"`, `rust fn`, `py fn`, `rust:` and `py:` blocks. Foreign bodies are cut out and replaced by a stub on the same line, so line numbers stay put. Any crate switches the build to cargo. |
 | Autofix | `main.rs` `autofix` | For `.bv` only: errors with a sure one-word fix (a typo of a known name) are fixed before the build and reported on stderr. Python files are never rewritten, because CPython would not rename `s.rpartition` either. |
 
@@ -243,7 +243,7 @@ flowchart TD
 
 `brevi run` runs the built program with the arguments after `--` and exits with its status. A runtime error prints one JSON line: `{"e":"runtime","line":N,"msg":"..."}`, with the message in Python's words for Python files.
 
-For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as a child process. If that fails, it runs `python3 x.py` (or `$BREVI_PYTHON`) and prints `note: ran with python3; Brevi could not build line N: ...` on stderr, so an agent always gets a result. If there is no Python either, it prints Brevi's errors.
+For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as a child process. If that fails, it runs `python3 x.py` (or `$BREVI_PYTHON`) and prints `note: ran with python3; Brevi could not build line N: ...` on stderr, so an agent always gets a result. When the build stopped on a sure mistake (exit code 3 from the child), CPython's traceback is cut to its error line plus `(file line N)`; `--traceback` or `BREVI_TRACEBACK=1` keeps it whole. If there is no Python either, it prints Brevi's errors.
 
 ## Other pieces
 

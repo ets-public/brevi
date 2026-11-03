@@ -2,3 +2,4 @@
 check exit 1
 note: ran with python3; Brevi could not build line 3: name 'totl' is not defined
 run exit 1
+run tracebacks 0

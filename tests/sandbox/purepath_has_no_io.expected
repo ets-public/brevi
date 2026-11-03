@@ -1,0 +1,12 @@
+data.txt
+Traceback (most recent call last):
+AttributeError: 'PurePosixPath' object has no attribute 'read_text'
+exit 1
+-- dynamic
+data.txt
+Traceback (most recent call last):
+AttributeError: 'PurePosixPath' object has no attribute 'read_text'
+exit 1
+-- typed
+{"line":1,"msg":"a call CPython runs needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
+exit 1
