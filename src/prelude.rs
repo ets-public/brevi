@@ -6143,6 +6143,11 @@ pub enum AxRx {
     Class(Vec<(char, char)>, bool),
     Start,
     End,
+    // Python's `.` under re.DOTALL, `^`/`$` under re.MULTILINE, and plain `$` (the end, or before a final newline).
+    AnyNl,
+    LineStart,
+    LineEnd,
+    EndNl,
     WordB,
     Group(Box<AxRx>, Option<usize>),
     Alt(Vec<AxRx>),
@@ -6153,6 +6158,9 @@ struct AxRxP {
     c: Vec<char>,
     i: usize,
     groups: usize,
+    // (?s) and (?m) at the front: re.DOTALL and re.MULTILINE.
+    dotall: bool,
+    multiline: bool,
 }
 impl AxRxP {
     // The character after a backslash (already read): `\x00`, `\u00e9` and `\n` name characters.
@@ -6265,8 +6273,12 @@ impl AxRxP {
         let c = self.c[self.i];
         self.i += 1;
         match c {
+            '.' if self.dotall => AxRx::AnyNl,
             '.' => AxRx::Any,
+            '^' if self.multiline => AxRx::LineStart,
             '^' => AxRx::Start,
+            '$' if self.multiline => AxRx::LineEnd,
+            '$' if ax_py_on() => AxRx::EndNl,
             '$' => AxRx::End,
             '(' => {
                 let idx = if self.c[self.i..].starts_with(&['?', ':']) {
@@ -6355,6 +6367,10 @@ fn ax_rx_m(n: &AxRx, s: &[char], i: usize, caps: &mut AxCaps, k: &mut dyn FnMut(
         AxRx::Class(rs, neg) => i < s.len() && rs.iter().any(|&(a, b)| a <= s[i] && s[i] <= b) != *neg && k(i + 1, caps),
         AxRx::Start => i == 0 && k(i, caps),
         AxRx::End => i == s.len() && k(i, caps),
+        AxRx::AnyNl => i < s.len() && k(i + 1, caps),
+        AxRx::LineStart => (i == 0 || s[i - 1] == '\n') && k(i, caps),
+        AxRx::LineEnd => (i == s.len() || s[i] == '\n') && k(i, caps),
+        AxRx::EndNl => (i == s.len() || (i + 1 == s.len() && s[i] == '\n')) && k(i, caps),
         AxRx::WordB => (i > 0 && ax_rx_word(s, i - 1)) != ax_rx_word(s, i) && k(i, caps),
         AxRx::Cat(v) => ax_rx_seq(v, s, i, caps, k),
         AxRx::Alt(v) => v.iter().any(|a| ax_rx_m(a, s, i, caps, k)),
@@ -6381,6 +6397,7 @@ fn ax_rx_one(n: &AxRx, c: char) -> Option<bool> {
     match n {
         AxRx::Char(x) => Some(c == *x),
         AxRx::Any => Some(c != '\n'),
+        AxRx::AnyNl => Some(true),
         AxRx::Class(rs, neg) => Some(rs.iter().any(|&(a, b)| a <= c && c <= b) != *neg),
         _ => None,
     }
@@ -6412,6 +6429,19 @@ fn ax_rx_rep(n: &AxRx, lo: usize, hi: usize, lazy: bool, count: usize, s: &[char
 thread_local! {
     static AX_RX: std::cell::RefCell<HashMap<String, std::rc::Rc<(AxRx, usize)>>> = std::cell::RefCell::new(HashMap::new());
 }
+// Leading inline flags `(?s)`, `(?m)`, `(?sm)` (the parser writes re.S and re.M this way): (dotall,
+// multiline, the rest of the pattern).
+fn ax_rx_flags(p: &str) -> (bool, bool, &str) {
+    if let Some(r) = p.strip_prefix("(?") {
+        if let Some(k) = r.find(')') {
+            let f = &r[..k];
+            if !f.is_empty() && f.chars().all(|c| c == 's' || c == 'm') {
+                return (f.contains('s'), f.contains('m'), &r[k + 1..]);
+            }
+        }
+    }
+    (false, false, p)
+}
 fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
     AX_RX.with(|c| {
         if let Some(r) = c.borrow().get(p) {
@@ -6420,7 +6450,8 @@ fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
         c.borrow_mut()
             .entry(p.to_string())
             .or_insert_with(|| {
-                let mut ps = AxRxP { c: p.chars().collect(), i: 0, groups: 0 };
+                let (dotall, multiline, body) = ax_rx_flags(p);
+                let mut ps = AxRxP { c: body.chars().collect(), i: 0, groups: 0, dotall, multiline };
                 let r = ps.alt();
                 std::rc::Rc::new((r, ps.groups))
             })
@@ -6604,12 +6635,14 @@ impl AxRe for String {
         let mut last = 0;
         let cs = ax_rx_each(self, &p, |cs, c| {
             let (a, b) = c[0].unwrap();
-            if b > a {
+            // Python (3.7 on) splits at empty matches too.
+            if b > a || ax_py_on() {
                 out.push(cs[last..a].iter().collect());
-                // Python's re.split also gives each group's text between the pieces.
+                // Python's re.split also gives each group's text between the pieces (None for a group that
+                // took no part).
                 if ax_py_on() {
                     for g in &c[1..] {
-                        out.push(g.map_or(String::new(), |(x, y)| cs[x..y].iter().collect()));
+                        out.push(g.map_or_else(|| String::ax_none(), |(x, y)| cs[x..y].iter().collect()));
                     }
                 }
                 last = b;

@@ -2145,6 +2145,8 @@ impl Parser {
                                     for w in &flag_words {
                                         match w.as_str() {
                                             "I" | "IGNORECASE" => inline.push('i'),
+                                            "S" | "DOTALL" => inline.push('s'),
+                                            "M" | "MULTILINE" => inline.push('m'),
                                             "A" | "ASCII" => {}
                                             _ => ok = false,
                                         }
@@ -2152,7 +2154,12 @@ impl Parser {
                                     if ok {
                                         args.pop();
                                         if !inline.is_empty() {
-                                            let flag = format!("(?{inline})");
+                                            // (?i) first, on its own: the prelude reads it before (?s) and (?m).
+                                            let rest: String = inline.chars().filter(|c| *c != 'i').collect();
+                                            let mut flag = if inline.contains('i') { "(?i)".to_string() } else { String::new() };
+                                            if !rest.is_empty() {
+                                                flag.push_str(&format!("(?{rest})"));
+                                            }
                                             match &mut args[0] {
                                                 Expr::Str(parts) => match parts.first_mut() {
                                                     Some(StrPart::Lit(l)) => l.insert_str(0, &flag),

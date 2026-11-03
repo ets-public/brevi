@@ -1,0 +1,8 @@
+[' a\nb ', 'c']
+['name={{ a', 'key=v {{c}}', 'other=2']
+['name: {{ a\nb }} x', 'key: v {{c}}\nother: 2']
+['a\nb', 'axb'] ['axb']
+['x', 'x'] ['x', 'X'] ['end']
+True False False
+hi
+there
