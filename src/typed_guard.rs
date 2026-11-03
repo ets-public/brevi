@@ -266,8 +266,12 @@ fn is_tup(e: &Ex, g: &G) -> bool {
         Ex::Comp(_, elt, val, _) => is_tup(elt, g) || val.as_deref().is_some_and(|v| is_tup(v, g)),
         Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().any(|x| is_tup(x, g)),
         Ex::Dict(items) => items.iter().any(|(k, v)| k.as_ref().is_some_and(|k| is_tup(k, g)) || is_tup(v, g)),
-        Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.tups.contains(&k)),
-        Ex::Index(b, _) => is_tup(b, g),
+        // ("k:name": a dict with tuple(...) keys only; shown whole it shows them, but its values are not tuples.)
+        Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.tups.contains(&k) || g.tups.contains(&format!("k:{k}"))),
+        Ex::Index(b, _) => match b.as_ref() {
+            Ex::Name(_) | Ex::Attr(..) => key(b).is_some_and(|k| g.tups.contains(&k)),
+            b => is_tup(b, g),
+        },
         Ex::IfExp(_, a, b) | Ex::Or(a, b) => is_tup(a, g) || is_tup(b, g),
         _ => false,
     }
@@ -376,8 +380,9 @@ fn bind(t: &Ex, v: &Ex, g: &mut G) {
     match t {
         Ex::Name(_) | Ex::Attr(..) => {
             let k = key(t).unwrap();
+            let keys_only = matches!(v, Ex::Dict(items) if !items.iter().any(|(_, x)| is_tup(x, g)));
             if is_tup(v, g) {
-                g.tups.insert(k.clone());
+                g.tups.insert(if keys_only { format!("k:{k}") } else { k.clone() });
             }
             if is_match(v, g) {
                 g.matches.insert(k.clone());
@@ -394,7 +399,7 @@ fn bind(t: &Ex, v: &Ex, g: &mut G) {
         Ex::Index(b, i) => {
             if is_tup(v, g) || is_tup(i, g) {
                 if let Some(r) = root(b) {
-                    g.tups.insert(r);
+                    g.tups.insert(if is_tup(v, g) { r } else { format!("k:{r}") });
                 }
             }
             if is_set(v, g) || is_holder(v, g) {
@@ -1116,6 +1121,8 @@ mod tests {
         // Through a helper's parameter, and through a function's result.
         assert!(needs("def go(cur, out):\n    out.append(tuple(cur))\ndef main():\n    res = []\n    go([1, 2], res)\n    print(res)\nmain()\n"));
         assert!(needs("def f():\n    out = []\n    out.append(tuple([1, 2]))\n    return out\nprint(f())\n"));
+        assert!(needs("seen = {tuple([1, 2]): 0}\nprint(seen)\n"));
+        assert!(!needs("seen = {tuple([1, 2]): 0}\ns = seen[tuple([1, 2])]\nprint('%d' % (s,))\n"));
     }
     #[test]
     fn order_free_set_use_stays_typed() {

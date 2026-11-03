@@ -1,4 +1,4 @@
-{"path":"dynamic","line":2,"why":"fractions.Fraction can hold any denominator, which the typed build's Fraction cannot, so the typed build would differ from CPython"}
+{"path":"dynamic","line":28,"fn":"count","why":"count_search() changes `found` but it holds a different type here"}
 (2, [1, 1, 1])
 (1, [1, 1])
 1/24 127/50 381/1250
