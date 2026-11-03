@@ -55,10 +55,10 @@ Brevi tries the fastest exact path first. The **typed build** works out a fixed 
 
 Brevi also has its own shorter Python-like language for `.bv` files, checked fully before it runs: [BREVI.md](BREVI.md) (3,508 tokens, served by `brevi guide`), [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md) (Rust crates and Python from Brevi). Agents finish tasks more cheaply in plain Python, so the agent tools ask for Python.
 
-## Status: v0.24.2
+## Status: v0.24.3
 
 - **Same answers as CPython.** On unchanged Python files, Brevi builds all 591 saved agent programs and all 18 large programs (chess, a text adventure, an interpreter), and every one matches CPython's output and exit status. Codon builds 206 of the 591 and gets 36 of those wrong; Nuitka matches all of them but runs at about CPython's speed ([bench/compare](bench/compare/README.md)).
-- **Faster.** The default build beats CPython on all 12 speed programs (1.7x to 40x); `--release` is level with Codon where Codon builds.
+- **Faster.** The default build beats CPython on all 12 speed programs (1.7x to 40x); `--release` is level with Codon where Codon builds. `brevi check` answers in well under a second (median 144 ms for a new file), an unchanged program is re-checked from cache in about 10 ms, and standard-library calls (`math`, `itertools`, `statistics`, `datetime`, ...) run natively, not in CPython.
 - **No more expensive for agents.** In the release test, Claude Sonnet and Haiku solve 24 tasks in plain Python, once checked by CPython and once by Brevi, and the whole API bill is compared. The bar: every task passes, Brevi's cost is within 10% of CPython's, and at least 90% of final programs build natively. v0.24.0 met it over two runs (1.07x for Sonnet, 1.00x for Haiku, 94% and 98% of final programs native), and v0.24.2 meets it again: 1.09x and 1.06x in one run, every task passed, 23 of 24 final programs native for each model. On four heavy tasks where a model writing for CPython must hand-optimise, telling it the code is compiled brought the cost to 0.58x (Sonnet) and 0.53x (Haiku).
 - **Known gaps:** `async`, `match` statements and `eval` are not built natively yet, library programs the typed build rejects fall back to CPython, library calls and `--standalone` are not on Windows yet. See [What works, and limits](https://brevi-lang.org/docs/compatibility) and the [roadmap](https://brevi-lang.org/docs/roadmap).
 
