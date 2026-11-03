@@ -347,10 +347,10 @@ def footer(site="org", public=False):
       <p>The fast, safe target for AI-written Python. Apache-2.0.</p>
     </div>
     <div><h4>Docs</h4><a href="%s/docs/install">Install</a><a href="%s/docs/usage">Using Brevi</a><a href="%s/docs/agents">For agents</a><a href="%s/docs/architecture">Architecture</a></div>
-    <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/faq">FAQ</a><a href="%s/docs/contributing">Contributing</a></div>
+    <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/faq">FAQ</a><a href="%s/pricing">Pricing</a><a href="%s/docs/contributing">Contributing</a></div>
     <div><h4>Elsewhere</h4>%s<a href="https://brevi.run">brevi.run</a><a href="%s/llms.txt">llms.txt</a></div>
   </div>
-</footer>""" % (LOGO % (20, 20), base, base, base, base, base, base, base, base, gh, base)
+</footer>""" % (LOGO % (20, 20), base, base, base, base, base, base, base, base, base, gh, base)
 
 
 def status_line(public):
@@ -386,6 +386,7 @@ def build(out, out_run, version, guide_tokens, public):
 
     # Home and brevi.run
     for src, dst, site, active in [(os.path.join(S, "index.html"), os.path.join(out, "index.html"), "org", "home"),
+                                    (os.path.join(S, "pricing.html"), os.path.join(out, "pricing.html"), "org", "pricing"),
                                     (os.path.join(S, "run", "index.html"), os.path.join(out_run, "index.html"), "run", "run")]:
         t = open(src).read().replace("__HEADER__", header(active, site, public)).replace("__FOOTER__", footer(site, public))
         open(dst, "w").write(F(t))

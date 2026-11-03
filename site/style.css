@@ -179,6 +179,30 @@ table.vs td:first-child { color: var(--muted); }
 .prevnext span { display: block; font-size: 0.78rem; color: var(--muted); font-weight: 400; }
 .prevnext .next { text-align: right; grid-column: 2; }
 
+/* Pricing page */
+.price-hero { padding-block: 64px 8px; }
+.price-hero > * { max-width: 46em; }
+.price-hero h1 { font: 500 clamp(2.05rem, 4.6vw, 3.1rem)/1.1 var(--serif); letter-spacing: -0.02em; margin: 0 0 20px; text-wrap: balance; }
+.plans { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 16px; align-items: start; }
+.plan { border: 1px solid var(--rule); border-radius: 8px; padding: 22px 20px 20px; background: var(--bg); min-width: 0; }
+.plan.free { border: 2px solid var(--accent); background: var(--mark); }
+.plan .tier { font: 500 0.75rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 0 0 6px; }
+.plan h2 { font: 500 1.5rem/1.2 var(--serif); margin: 0 0 6px; }
+.plan .price { margin: 0 0 4px; color: var(--muted); }
+.plan .price b { color: var(--fg); font: 600 1.25rem var(--sans); }
+.plan .who { color: var(--muted); font-size: 0.93rem; margin: 0 0 14px; }
+.plan ul { margin: 0 0 18px; padding-left: 1.2em; font-size: 0.93rem; }
+.plan li { margin: 4px 0; }
+.wl { display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 14px; }
+.wl label { font-size: 0.85rem; font-weight: 500; }
+.wl label span { color: var(--muted); font-weight: 400; }
+.wl input { font: inherit; font-size: 0.93rem; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); color: var(--fg); width: 100%; min-width: 0; margin-bottom: 6px; }
+.wl input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wl button { cursor: pointer; justify-content: center; font-family: inherit; }
+.wl .done { margin: 0; color: var(--fg); font-weight: 500; }
+.wl .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+#waitlists { margin-top: 20px; }
+
 /* Footer */
 footer.site { border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.9rem; margin-top: 24px; }
 footer.site .cols { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 24px; padding-block: 36px 48px; }
@@ -194,7 +218,8 @@ footer.site .about p { margin: 10px 0 0; max-width: 22em; }
 @media (max-width: 900px) {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 36px; padding-block: 40px; }
   .grid3, .cards, .steps { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .grid2, .split, .prose .cards { grid-template-columns: minmax(0, 1fr); }
+  .grid2, .split, .prose .cards, .plans { grid-template-columns: minmax(0, 1fr); }
+  .price-hero { padding-block: 40px 0; }
   section.band { padding-block: 48px; }
   .docs-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .side { position: static; max-height: none; padding-block: 12px 0; overflow: visible; }
