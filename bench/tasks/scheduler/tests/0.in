@@ -1,0 +1,7 @@
+WORKERS 2
+JOB design 3
+JOB build 5 after=design
+JOB test 2 after=build
+JOB docs 2 after=design prio=1
+JOB ship 1 after=test,docs
+RUN

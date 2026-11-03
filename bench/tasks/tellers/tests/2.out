@@ -1,0 +1,16 @@
+line 10: bad line
+line 11: bad line
+line 12: bad line
+line 13: duplicate
+0 yan starts at teller 1, waited 0
+0 uma starts at teller 2, waited 0
+0 xia starts at teller 3, waited 0
+1 wes starts at teller 2, waited 1
+2 vic leaves
+7 quinn starts at teller 1, waited 0
+7 zoe starts at teller 3, waited 2
+served 6, left 1, average wait 0.50
+teller 1: busy 9
+teller 2: busy 8
+teller 3: busy 9
+done at 9

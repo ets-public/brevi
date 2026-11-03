@@ -9,8 +9,9 @@ Each task is a fresh conversation. The model gets the same tools in both languag
 check() builds the program and runs the task's tests, printing PASS, the compiler errors, or the first
 failing test, exactly as run.sh does. The run ends when the model stops calling tools or after 8 checks.
 
-usage: python3 e2e.py RUN --lang brevi|python --model sonnet|haiku --set xl3 [--effort medium] [--jobs 3]
+usage: python3 e2e.py RUN --lang brevi|python --model sonnet|haiku --set rel [--effort medium] [--jobs 3]
        python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
+       python3 e2e.py --verdict "logs/e2e/RUN[a-d]-*.jsonl"   (the release bar over several runs)
 Needs BENCH_ANTHROPIC_KEY and `pip install anthropic`. Writes logs/e2e/RUN-MODEL-LANG.jsonl, one line per task,
 and keeps each task's files in work/e2e/RUN-MODEL-LANG/TASK/.
 """
@@ -206,12 +207,48 @@ def summary(pattern):
         print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
 
 
+def verdict(pattern):
+    """The release bar over every run matching pattern (Adam, 2 Nov 2026): every task passes, pyb costs within 10% of
+    python for each model, and at least 90% of the final pyb programs are built natively. Also prints a rough noise
+    figure: the spread of the cost ratio when tasks are resampled (a bootstrap over the run's tasks)."""
+    import random
+    rows = [json.loads(l) for f in sorted(glob.glob(pattern)) for l in open(f) if l.strip()]
+    ok = True
+    for model in sorted({r["model"] for r in rows}):
+        rs = [r for r in rows if r["model"] == model]
+        side = {lang: [r for r in rs if r["lang"] == lang] for lang in ("pyb", "python")}
+        if not side["pyb"] or not side["python"]:
+            print(f"{model}: needs both pyb and python runs"); ok = False; continue
+        runs = sorted({r["run"].split("-")[0] for r in side["pyb"]})
+        usd = {lang: sum(r["usd"] for r in side[lang]) / len(runs) for lang in side}
+        ratio = usd["pyb"] / usd["python"]
+        fails = {lang: sum(not r["pass"] for r in side[lang]) for lang in side}
+        nat = sum(1 for r in side["pyb"] if r.get("native"))
+        # bootstrap: resample (run, task) pairs, keeping each pair's pyb and python cost together
+        cost = {}
+        for r in rs:
+            cost.setdefault((r["run"].split("-")[0], r["task"]), {})[r["lang"]] = r["usd"]
+        pairs = [v for v in cost.values() if len(v) == 2]
+        rnd, sims = random.Random(1), []
+        for _ in range(2000):
+            pick = [rnd.choice(pairs) for _ in pairs]
+            sims.append(sum(p["pyb"] for p in pick) / sum(p["python"] for p in pick))
+        sims.sort()
+        lo, hi = sims[50], sims[-51]
+        good = fails["pyb"] == 0 and ratio <= 1.10 and nat >= 0.9 * len(side["pyb"])
+        ok &= good
+        print(f"{model}: {len(runs)} runs, {len(side['pyb'])} pyb tasks, pyb ${usd['pyb']:.4f} / python ${usd['python']:.4f} per run = {ratio:.3f}x "
+              f"(95% range {lo:.2f}x to {hi:.2f}x), failed pyb {fails['pyb']} python {fails['python']}, native {nat}/{len(side['pyb'])} "
+              f"({100 * nat / len(side['pyb']):.0f}%): {'meets the bar' if good else 'misses the bar'}")
+    print("release test PASSED" if ok else "release test not passed")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run", nargs="?")
     ap.add_argument("--lang", choices=["brevi", "python", "pyb"], help="pyb: the Python prompt, built with Brevi")
     ap.add_argument("--model", choices=list(MODELS), default="sonnet")
-    ap.add_argument("--set", default="xl3", choices=list(SETS))
+    ap.add_argument("--set", default="rel", choices=list(SETS))
     ap.add_argument("--tasks", help="comma-separated, instead of --set")
     ap.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
     ap.add_argument("--jobs", type=int, default=3)
@@ -219,12 +256,15 @@ def main():
     ap.add_argument("--guide", help="a guide file to send instead of BREVI.md (for A/B tests)")
     ap.add_argument("--native", action="store_true", help="pyb: report Brevi build errors instead of running with CPython (the strict check used before e22)")
     ap.add_argument("--summary")
+    ap.add_argument("--verdict", help="log glob: check the release bar over these runs (e.g. \"logs/e2e/w1[a-d]-*.jsonl\")")
     a = ap.parse_args()
     if a.guide:
         global GUIDE
         GUIDE = Path(a.guide).resolve()
     if a.summary:
         return summary(a.summary)
+    if a.verdict:
+        return verdict(a.verdict)
     if not (a.run and a.lang):
         ap.error("RUN and --lang are needed")
     import anthropic

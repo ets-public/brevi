@@ -1,0 +1,18 @@
+ROUTE GET / home
+ROUTE GET /users users_list
+ROUTE POST /users users_new
+ROUTE GET /users/<int:id> user_show
+ROUTE GET /users/me me
+ROUTE GET /users/<name> user_by_name
+ROUTE DELETE /users/<int:id> user_delete
+GET /
+GET /users
+GET /users/42
+GET /users/007
+GET /users/me
+GET /users/bob
+DELETE /users/bob
+PUT /users
+GET /posts
+HEAD /users/5
+GET /users/

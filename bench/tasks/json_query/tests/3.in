@@ -1,0 +1,14 @@
+{"a b": {"c-d": [1, [2, 3], {"e": "f"}]}, "n": -0.5, "s": "text", "z": {}}
+%%
+.["a b"]["c-d"][1][1]
+.["a b"]["c-d"][*] | length
+.n
+.s | length
+.z | keys
+.z[*]
+.z | count
+. | keys
+.["a b"].c-d
+.["a b"]["c-d"][2].e
+.[*] | first
+.["a b"]["c-d"][0] | sum

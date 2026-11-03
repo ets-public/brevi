@@ -1,0 +1,19 @@
+ITEM apple fruit 0.50
+ITEM pear fruit 0.75
+ITEM bread bakery 2.20
+ITEM jam pantry 3.10
+PROMO p1 percent fruit 10
+PROMO b1 bogo bread
+PROMO k1 bundle bread jam 4.50
+COUPON SAVE2 2 10
+CART c1
+ADD apple 4
+ADD pear 3
+ADD bread 3
+ADD jam 1
+CHECKOUT
+CART c2
+ADD jam 2
+ADD bread 1
+USE SAVE2
+CHECKOUT

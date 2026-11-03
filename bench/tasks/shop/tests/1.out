@@ -1,0 +1,22 @@
+line 3: duplicate item
+line 6: unknown item
+line 7: duplicate promo
+line 9: duplicate coupon
+receipt a
+  mug 1 x 7.50 = 7.50
+  tea 3 x 4.99 = 14.97
+  percent d1 tea -2.25
+subtotal 20.22
+  coupon BIG -20.22
+total 0.00
+line 16: coupon used
+line 18: not in cart
+cart b is empty
+line 21: no cart
+line 23: unknown item
+line 24: bad line
+line 25: bad line
+line 26: bad line
+cart c abandoned
+cart d abandoned
+sales 0.00 in 1 carts

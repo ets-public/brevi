@@ -1,0 +1,14 @@
+A = [1 2; 3 4]
+B = [0 1; 1 0]
+C = A * B
+print C
+D = A + B
+print D
+det A
+I = inv A
+print I
+E = A * I
+print E
+F = A'
+print F
+rank A

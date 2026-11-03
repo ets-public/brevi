@@ -1,0 +1,13 @@
+#gen: 2 new for amy
+  bob: hi @amy and @cal @amy
+  cal: @bob   welcome
+#gen: nothing new for amy
+bob: #gen new=2 at=1
+#gen: amy*, bob, cal
+line 12: muted
+#gen: amy*, bob(muted), cal
+#gen: 3 new for cal
+  amy: hello all
+  bob: hi @amy and @cal @amy
+  bob: back
+rooms 1, users 3, messages 4

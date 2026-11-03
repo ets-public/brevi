@@ -1,0 +1,23 @@
+sku,desc,price
+A1,"Widget, small",2.50
+A2,"Gadget ""Pro""",10
+A3,Thing,1.255
+A4,Broken
+---
+sku,qty
+A1,3
+A2,1
+A1,2
+A9,7
+,1
+---
+join sku
+count b sku
+sum a price sku
+sum b qty sku
+sum a desc sku
+join qty
+count c sku
+count a nope
+select *
+left

@@ -1,0 +1,31 @@
+plan with 1 workers
+  0 start a on w1
+  2 start b on w1
+  4 start c on w1
+makespan 8
+critical path c (4)
+plan with 3 workers
+  0 start a on w1
+  0 start b on w2
+  0 start c on w3
+  2 start e on w1
+  4 start d on w2
+makespan 5
+critical path a > e (5)
+line 9: duplicate job
+job f needs unknown g
+job h needs unknown zz
+job h needs unknown yy
+plan with 3 workers
+  0 start a on w1
+  0 start b on w2
+  0 start g on w3
+  2 start e on w1
+  2 start f on w2
+  2 start yy on w3
+  3 start zz on w2
+  3 start c on w3
+  4 start h on w2
+  7 start d on w1
+makespan 8
+critical path a > e (5)

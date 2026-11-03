@@ -1,0 +1,5 @@
+Build a Huffman code for each line of stdin (lines numbered from 1, without the newline; every character counts, spaces included).
+
+Start with one leaf per distinct character, weighted by how often it appears. Repeatedly remove the two nodes with the smallest weight and join them under a new node whose weight is their sum, until one node is left. Ties are broken by the smallest character in the node (a leaf's character, or the smallest character among an inner node's leaves); the first node removed becomes the left child (bit `0`), the second the right child (bit `1`). A character's code is the path from the root to its leaf. If a line has only one distinct character, its code is `0`.
+
+For each line print `line N: K symbols, B bits, ratio R`, where K is the number of distinct characters, B the length of the whole line encoded, and R is B divided by (8 times the number of characters in the line), with 3 decimal places. Then one line per character, sorted by character: `'C' COUNT CODE`. An empty line prints `line N: empty`.
