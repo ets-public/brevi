@@ -91,6 +91,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "os.path" => include_str!("py/posixpath.py"),
         "pathlib" => include_str!("py/pathlib.py"),
         "io" => include_str!("py/io.py"),
+        "textwrap" => include_str!("py/textwrap.py"),
         _ => return None,
     })
 }

@@ -88,6 +88,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "pathlib" => Some("pathlib"),
         "random" => Some("random"),
         "io" => Some("io"),
+        "textwrap" => Some("textwrap"),
         _ => None,
     }
 }
@@ -98,6 +99,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "os.path" => PURE_OS_PATH.contains(&attr),
         "random" => OWN_RANDOM.contains(&attr),
         "io" => attr == "StringIO",
+        "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -461,7 +463,7 @@ mod tests {
     // and Brevi's own math and time, and open nothing.
     #[test]
     fn sandbox_modules_reach_nothing() {
-        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py"))] {
+        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py")), ("textwrap", include_str!("dynpy/py/textwrap.py"))] {
             for l in src.lines().map(str::trim) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();

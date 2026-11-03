@@ -1,0 +1,29 @@
+10 ['The quick', 'brown fox', 'jumps over', 'the lazy', 'dog. A', 'well-', 'known,', 'state-of-', 'the-art', 'algorithm', '--really--', 'works; sup', 'ercalifrag', 'ilisticexp', 'ialidociou', 's words', 'break too.', 'Tabs and', 'newlines.']
+15 ['The quick brown', 'fox jumps over', 'the lazy dog. A', 'well-known,', 'state-of-the-', 'art algorithm--', 'really--works;', 'supercalifragil', 'isticexpialidoc', 'ious words', 'break too.', 'Tabs and', 'newlines.']
+20 ['The quick brown fox', 'jumps over the lazy', 'dog. A well-known,', 'state-of-the-art', 'algorithm--really--', 'works; supercalifrag', 'ilisticexpialidociou', 's words break too.', 'Tabs and newlines.']
+33 ['The quick brown fox jumps over', 'the lazy dog. A well-known,', 'state-of-the-art algorithm--', 'really--works; supercalifragilist', 'icexpialidocious words break too.', 'Tabs and newlines.']
+70 ['The quick brown fox jumps over the lazy dog. A well-known, state-of-', 'the-art algorithm--really--works; supercalifragilisticexpialidocious', 'words break too.       Tabs and newlines.']
+* The quick brown fox
+  jumps over the lazy
+  dog. A well-known,
+  state-of-the-art
+  algorithm--really--
+  works; supercalifragili
+  sticexpialidocious
+  words break too.
+  Tabs and newlines.
+['The quick', 'brown fox', 'jumps over', 'the lazy', 'dog. A well-', 'known,', 'state-of-', 'the-art', 'algorithm--', 'really--', 'works;', 'supercalifragilisticexpialidocious', 'words break', 'too.', 'Tabs and', 'newlines.']
+['The quick', 'brown fox', 'jumps over', 'the lazy', 'dog. A', 'well-known,', 'state-of-the', '-art algorit', 'hm--really--', 'works; super', 'califragilis', 'ticexpialido', 'cious words', 'break too.', 'Tabs and', 'newlines.']
+['  leading ', 'and   ', 'inner   ', 'spaces  ']
+['a-b-c-', 'd-e-f', 'e-mail', 'co-op', 'x--y', '--z', 'long-h', 'yphena', 'ted-', 'word']
+Hello world, [...]
+Hello world ...
+['The quick brown fox jumps over', 'the lazy dog. A well- [...]'] ['The quick brown fox jumps over', 'the lazy dog. A well-known,', 'state-of-the-art algorithm-- ~']
+'\ndef f():\n    return 1\n\nx = 2\n'
+'a\n  b\n\nc' ' a\nb'
+'> one\n\n> two\n' '+one\n+\n+two'
+['Lorem ipsum dolor', '    sit amet,', '    consectetur', '    adipiscing', '    elit.'] short
+[] [] xxxxxxxxxx
+xxxxxxxxxx
+xxxxx
+ValueError: invalid width 0 (must be > 0)

@@ -55,11 +55,12 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | `dataclasses` | `@dataclass` (defaults, `field(default_factory=...)`, `order`, `frozen`) | `asdict`, `astuple`, `replace` |
 | `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
 | `random` | | `seed` (int), `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits`, `Random`: CPython's generator, so seeded draws match |
+| `textwrap` | | `wrap`, `fill`, `shorten`, `dedent`, `indent`, `TextWrapper` (also under `--sandbox`) |
 | `io` | | `StringIO` (also under `--sandbox`); `BytesIO` and the rest run in CPython |
 | `enum` | | `Enum` (members, aliases, `auto()`, methods and properties, `__init__` on tuple values, `C(value)`, `C[name]`, iteration, `len`, `in`, `__members__`), `class C(str, Enum)` and `(int, Enum)`, `@unique`; `IntEnum`, `StrEnum` and `Flag` still run in CPython |
 | `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `csv.DictReader`, `csv.writer(sys.stdout)`, `Fraction`) | the rest |
 
-Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`): `random` beyond the common functions (`betavariate`, a str seed, ...), `textwrap`, `argparse`, `io` beyond `StringIO`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
+Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`): `random` beyond the common functions (`betavariate`, a str seed, ...), `textwrap` with `fix_sentence_endings`, `argparse`, `io` beyond `StringIO`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
