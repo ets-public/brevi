@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pricing · Brevi</title>
+<meta name="description" content="Brevi is free and open source under Apache-2.0, with no limits and no account. Paid extras for businesses (Brevi Pro and a hosted run API) are planned; join a waitlist to hear when they open.">
+<link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#1d5b4f">
+<link rel="preload" href="/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css?v=__CSSV__">
+</head>
+<body>
+__HEADER__
+
+<main id="main">
+  <div class="wrap price-hero">
+    <p class="eyebrow">Pricing</p>
+    <h1>Brevi is free, and it stays free.</h1>
+    <p class="lede">The compiler, the MCP server, the sandbox, standalone builds and everything else in the repository are open source under Apache-2.0. Use them for anything, including commercial work, with <strong>no limits, no account and no telemetry</strong>. Paid extras for businesses are planned on top; nothing free today will move behind them.</p>
+    <div class="actions">
+      <a class="btn primary" href="/docs/install">Install Brevi, free</a>
+      <a class="btn ghost" href="#waitlists">Planned paid extras</a>
+    </div>
+  </div>
+
+  <section class="band" id="plans">
+    <div class="wrap">
+      <div class="plans">
+        <div class="plan free">
+          <p class="tier">Free · open source</p>
+          <h2>Brevi</h2>
+          <p class="price"><b>$0</b> forever</p>
+          <p class="who">For everyone: people, agents, companies and products.</p>
+          <ul>
+            <li>The full compiler: Python in, native binary out</li>
+            <li>Typed and dynamic builds, the library bridge, big integers</li>
+            <li><code>--standalone</code> builds that carry CPython (Linux)</li>
+            <li><code>brevi mcp</code>, the Agent Skill and the Claude Code plugin</li>
+            <li><code>--sandbox</code> capability checks</li>
+            <li>Apache-2.0: commercial use, changes and redistribution allowed</li>
+          </ul>
+          <a class="btn primary" href="/docs/install">Get started</a>
+        </div>
+
+        <div class="plan" id="pro">
+          <p class="tier">Planned · waitlist</p>
+          <h2>Brevi Pro</h2>
+          <p class="price"><b>about $149</b> a year per developer</p>
+          <p class="who">For teams shipping Brevi-built programs in a product.</p>
+          <ul>
+            <li>One-file standalone apps for macOS and Windows, built from any machine</li>
+            <li>Code signing and macOS notarisation in the build</li>
+            <li>Shared sandbox policies for a team's agents</li>
+            <li>Priority fixes and commercial support</li>
+          </ul>
+          <form class="wl" method="post" action="/api/waitlist">
+            <input type="hidden" name="list" value="pro">
+            <label for="pro-email">Email</label>
+            <input id="pro-email" type="email" name="email" required maxlength="254" autocomplete="email" placeholder="you@company.com">
+            <label for="pro-note">What would you ship with it? <span>optional</span></label>
+            <input id="pro-note" type="text" name="note" maxlength="500" placeholder="A CLI tool for Windows and Mac users">
+            <div class="hp" aria-hidden="true"><label for="pro-web">Leave empty</label><input id="pro-web" type="text" name="website" tabindex="-1" autocomplete="off"></div>
+            <button class="btn ghost" type="submit">Join the Pro waitlist</button>
+            <p class="done" role="status" hidden>You're on the Pro waitlist. We'll email you once, when it opens.</p>
+          </form>
+        </div>
+
+        <div class="plan" id="hosted">
+          <p class="tier">Planned · waitlist</p>
+          <h2>Hosted run API</h2>
+          <p class="price"><b>pay per use</b>, with a free allowance</p>
+          <p class="who">For agent platforms that run model-written code in the cloud.</p>
+          <ul>
+            <li>Check, run and test over HTTPS, like <code>brevi mcp</code></li>
+            <li>Each program sandboxed, with only the capabilities it declares</li>
+            <li>Builds cached by content, so re-runs after a fix are fast</li>
+            <li>Nothing to install: no Rust toolchain or Python on your side</li>
+          </ul>
+          <form class="wl" method="post" action="/api/waitlist">
+            <input type="hidden" name="list" value="hosted">
+            <label for="hosted-email">Email</label>
+            <input id="hosted-email" type="email" name="email" required maxlength="254" autocomplete="email" placeholder="you@company.com">
+            <label for="hosted-note">What would call it? <span>optional</span></label>
+            <input id="hosted-note" type="text" name="note" maxlength="500" placeholder="Our coding agent, about 10k runs a day">
+            <div class="hp" aria-hidden="true"><label for="hosted-web">Leave empty</label><input id="hosted-web" type="text" name="website" tabindex="-1" autocomplete="off"></div>
+            <button class="btn ghost" type="submit">Join the API waitlist</button>
+            <p class="done" role="status" hidden>You're on the API waitlist. We'll email you once, when it opens.</p>
+          </form>
+        </div>
+      </div>
+      <p class="note" id="waitlists">Neither paid option is built yet. The waitlists tell us which one to build first and what it should do. Prices are estimates and may change before launch.</p>
+    </div>
+  </section>
+
+  <section class="band" id="promise">
+    <div class="wrap">
+      <div class="band-head">
+        <h2>Our promise</h2>
+        <p>Paying for Brevi should only ever mean getting more, never losing what you have.</p>
+      </div>
+      <div class="grid3">
+        <div class="point"><span class="fig">Apache-2.0</span><h3>The core stays open source</h3><p>The compiler and everything released under Apache-2.0 stays under Apache-2.0. It will not be relicensed.</p></div>
+        <div class="point"><span class="fig">free stays free</span><h3>Nothing moves behind a paywall</h3><p>Paid plans add new features for businesses. No feature that is free today becomes paid.</p></div>
+        <div class="point"><span class="fig">no telemetry</span><h3>The compiler does not phone home</h3><p>Brevi sends nothing about you or your programs anywhere. Waitlist emails are used only to tell you when a plan opens.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="questions">
+    <div class="wrap">
+      <div class="band-head">
+        <h2>Questions</h2>
+      </div>
+      <div class="grid2">
+        <div class="point"><h3>Can my company use free Brevi in a product?</h3><p>Yes. Apache-2.0 allows commercial use, changes and redistribution. Pro is for teams who want the extra platforms, signing and support, not a licence you need.</p></div>
+        <div class="point"><h3>Why charge for anything?</h3><p>So the project can keep going: a small paid tier for businesses pays for fixes, new Python support and the benchmarks everyone gets for free.</p></div>
+        <div class="point"><h3>What happens to my email?</h3><p>It is stored with the plan you picked and your optional note, and used only to tell you when that plan opens. It is not shared or sold. Reply to that email to be removed.</p></div>
+        <div class="point"><h3>When will the paid plans open?</h3><p>There is no date yet. The waitlists decide which comes first; see the <a href="/docs/roadmap">roadmap</a> for what is being built now.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+__FOOTER__
+<script>
+// After a waitlist form is sent, the server comes back to /pricing?joined=LIST: show that form's thanks line.
+(function(){var j=new URLSearchParams(location.search).get('joined');if(!j)return;var s=document.getElementById(j);if(!s)return;var f=s.querySelector('form.wl');if(!f)return;
+f.querySelectorAll('label,input,button,.hp').forEach(function(e){e.hidden=true;e.style.display='none';});f.querySelector('.done').hidden=false;s.scrollIntoView({block:'center'});})();
+</script>
+</body>
+</html>
