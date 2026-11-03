@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **`enum` builds natively.** `class Color(Enum)` with plain values or `auto()`, aliases, methods, properties and an `__init__` taking tuple values, plus `Color(1)`, `Color['RED']`, iteration, `len`, `in`, `__members__`, `@unique`, and `str`/`int` mixins (`class Level(str, Enum)`), now runs in the dynamic build; it used to run in CPython. `repr`, `str`, f-strings, hashing and errors (`ValueError: 7 is not a valid Color`, `TypeError` on `<`) print what CPython prints. `IntEnum`, `StrEnum` and `Flag` still run in CPython. Also: `vars(SomeClass)` works, and a class's attributes keep the order its body defines them in.
 - **Path text from `os` and `pathlib` builds natively everywhere.** A program whose only uses of `os` and `pathlib` are path text (`os.path.join`, `basename`, `dirname`, `splitext`, `normpath`, `os.sep`, `pathlib.PurePath`) used Brevi's own copies of those functions only under `--sandbox`; outside it the program ran in CPython. It now builds natively in both. A program that also reaches files, processes or the environment (`os.environ`, `os.listdir`, `pathlib.Path`, `os.path.exists`) still runs those in CPython, as before.
 
 ## v0.24.3 (3 Nov 2026)

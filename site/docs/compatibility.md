@@ -53,9 +53,10 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | `functools` | `lru_cache`, `cache` | `reduce`, `partial`, `cmp_to_key`, `total_ordering` |
 | `dataclasses` | `@dataclass` (defaults, `field(default_factory=...)`, `order`, `frozen`) | `asdict`, `astuple`, `replace` |
 | `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
+| `enum` | | `Enum` (members, aliases, `auto()`, methods and properties, `__init__` on tuple values, `C(value)`, `C[name]`, iteration, `len`, `in`, `__members__`), `class C(str, Enum)` and `(int, Enum)`, `@unique`; `IntEnum`, `StrEnum` and `Flag` still run in CPython |
 | `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `Fraction`) | the rest |
 
-Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io`, `os` beyond path text, `enum`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
+Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 

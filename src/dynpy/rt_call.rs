@@ -180,9 +180,18 @@ pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -
         c.set(n, v);
     }
     // __init_subclass__ / __set_name__ are not supported (rare)
+    if is_enum(&c) {
+        enum_setup(&c)?;
+    }
     Ok(V::Class(c))
 }
 pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
+    if c.module == "enum" || is_enum(c) {
+        if is_enum(c) {
+            return enum_call(c, a);
+        }
+        return Err(unsupported(&format!("enum.{}()", c.name)));
+    }
     if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time") {
         return ext_construct(c.name, a).unwrap();
     }
@@ -430,6 +439,19 @@ pub fn getattr(o: &V, name: &str) -> R {
                 "__mro__" => Ok(tup(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect())),
                 "__bases__" => Ok(tup(c.bases.iter().map(|k| V::Class(k.clone())).collect())),
                 "__doc__" => Ok(V::None),
+                // the class's own names in the order its body bound them (CPython's is a read-only view
+                // with a few more dunder names)
+                "__dict__" => {
+                    let mut d = Dict::new();
+                    d.set(s("__module__"), s(c.module))?;
+                    for (k, v) in c.attrs.borrow().iter() {
+                        if !k.starts_with("__bv_") {
+                            d.set(s(k), v.clone())?;
+                        }
+                    }
+                    d.set(s("__doc__"), V::None)?;
+                    Ok(V::Dict(Rc::new(RefCell::new(d))))
+                }
                 _ => {
                     if c.module == "builtins" || c.module == "collections" {
                         if let Some(v) = builtin_class_attr(c, name) {
