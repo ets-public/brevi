@@ -1311,6 +1311,20 @@ impl Parser {
             return Ok(Stmt::Assert { cond: self.expr()?, line });
         }
         let mut e = self.expr()?;
+        // Python's `xs[a:b] = ys` replaces those items in place (`xs[:k] = xs[k-1::-1]`).
+        if let Expr::Method(r, m, a, l) = &e {
+            if self.py && m == "slice" && (a.len() == 2 || a.len() == 1 && !matches!(a.as_slice(), [Expr::Int(0)])) && self.is_sym("=") {
+                self.next();
+                self.skip_newlines();
+                let value = self.expr()?;
+                let mut args = a.clone();
+                if args.len() == 1 {
+                    args.push(Expr::Int(i64::MAX));
+                }
+                args.push(value);
+                return Ok(Stmt::Expr { expr: Expr::Method(r.clone(), "splice".into(), args, *l), line });
+            }
+        }
         // `lots[:] = [...]` replaces the list's items in place (the caller sees them).
         if let Expr::Method(r, m, a, _) = &e {
             if m == "slice" && matches!(a.as_slice(), [Expr::Int(0)]) && self.is_sym("=") {
@@ -2035,6 +2049,7 @@ impl Parser {
                                     }
                                 }
                             }
+                            let kws_given = raw.iter().any(|(k, _)| k.is_some());
                             let mut args: Vec<Expr> = raw.into_iter().map(|(_, a)| a).collect();
                             // `m.get(k)` is None when k is missing.
                             if name == "get" && args.len() == 1 && !self.own_method(&e) {
@@ -2160,12 +2175,21 @@ impl Parser {
                                 continue;
                             }
                             // csv.reader(sys.stdin), csv.reader(lines) or csv.reader(text.splitlines()) give the rows.
-                            if name == "reader" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "csv") {
+                            if name == "reader" && args.len() == 1 && !kws_given && matches!(&e, Expr::Ident(m) if m == "csv") {
                                 let src = match args.remove(0) {
                                     Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
                                     other => other,
                                 };
                                 e = Expr::Method(Box::new(src), "csv_rows".into(), vec![], line);
+                                continue;
+                            }
+                            // csv.DictReader(src) with the default comma and the first row as the header.
+                            if name == "DictReader" && args.len() == 1 && !kws_given && matches!(&e, Expr::Ident(m) if m == "csv") {
+                                let src = match args.remove(0) {
+                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    other => other,
+                                };
+                                e = Expr::Method(Box::new(src), "csv_dicts".into(), vec![], line);
                                 continue;
                             }
                             // date.fromisoformat(s) and datetime.date.fromisoformat(s) are date(s).

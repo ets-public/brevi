@@ -1343,6 +1343,7 @@ pub enum It {
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
+    Coro(Rc<RefCell<Box<Coro>>>),
     Obj(V),
     Done,
 }
@@ -1409,6 +1410,7 @@ impl It {
                 Ok(None)
             }
             It::Gen(f) => f(),
+            It::Coro(c) => coro_next(c, V::None),
             It::Obj(o) => {
                 let f = match o {
                     V::Obj(ob) => ob.cls.lookup("__next__"),
