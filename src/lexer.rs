@@ -717,6 +717,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         col += end - i;
                         i = end;
                     }
+                    // f"{1/3:.3f}", f"{2*n}": a value that starts with a number.
+                    Some('{') if py && is_f && !bs && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit() || *c == '.') && interp_closes(&chars, i + 1) => {
+                        depth = 1;
+                        s.push('{');
+                        i += 1;
+                        col += 1;
+                    }
                     Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
                         depth = 1;
                         s.push('{');
