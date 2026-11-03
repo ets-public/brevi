@@ -4,6 +4,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **Docs and new websites.** brevi-lang.org has a documentation section (`/docs/`): install, using Brevi (commands, flags, errors, CPython fallback, sandbox, GUI test mode), for AI agents (MCP, skill, plugin, llms.txt, the plain-solution advice), architecture with its diagrams, what works and limits, benchmarks, the Brevi language guide, FAQ, roadmap and contributing. Every page is also served as Markdown (`/docs/NAME.md`). Both sites share one stylesheet, work on phones, and switch their GitHub links and install command on once the repository is public. `site/gen.py` builds the pages from `site/docs/*.md` and the repo's own docs; `bash site/deploy.sh --preview` deploys to workers.dev for review.
+
 ## v0.24.0 (3 Nov 2026)
 
 Agents now pay less with Brevi than with Python on heavy work. Told that their Python is compiled to native code, models write the plain solution instead of hand-optimising it; on four tasks with a 10 s limit the whole job cost 0.58x Python's with Sonnet and 0.53x with Haiku, every program built natively and no check failed because of Brevi. On the 24-task release suite, ordinary work, the bar is still met (1.07x Sonnet, 1.00x Haiku). Plain generators and string indexing now build typed and fast, first builds take about 35% less time, and seven bugs found by the new shadow check (each pyb check also runs CPython) are fixed.

@@ -6,6 +6,8 @@ The fast, safe target for AI-written Python. Brevi is built for AI coding agents
 
 Brevi also has its own Python-like syntax (`.bv` files). Its guide is [BREVI.md](BREVI.md), 3,508 tokens (exact count, Sonnet tokenizer), with details in [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md), which `brevi guide WORD` serves on demand. Same-day runs show agents finish tasks more cheaply writing plain Python than writing Brevi syntax, so the agent skill asks for Python.
 
+Documentation: [brevi-lang.org/docs](https://brevi-lang.org/docs/) (source in `site/docs/`).
+
 ## For agents
 
 - **Skill:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package: setup, then write plain Python and `brevi run main.py`, fixing only the lines an error names.
