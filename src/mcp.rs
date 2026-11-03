@@ -173,6 +173,9 @@ struct Files {
     all: BTreeMap<String, String>,
     // Every main file name built, so their build directories can be removed at the end.
     built: BTreeSet<String>,
+    // The path report of the call's last build ({"path":"typed"}, ...; see say_path in main.rs), sent as the
+    // result's structuredContent.
+    path: Option<String>,
 }
 
 impl Files {
@@ -396,10 +399,15 @@ fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
     if cfg().mem_mb > 0 {
         c.env("BREVI_MEM_MB", cfg().mem_mb.to_string());
     }
-    let done = match spawn(c, stdin, limit) {
+    // Every build reports its path, typed too; the line is taken out of the text (take_path).
+    c.env("BREVI_PATH", "1");
+    let mut done = match spawn(c, stdin, limit) {
         Ok(d) => d,
         Err(m) => return (m, true, String::new()),
     };
+    if let Some(p) = take_path(&mut done.err) {
+        files.path = Some(p);
+    }
     let after = std::fs::read_to_string(&f).unwrap_or_default();
     // Notes like {"line":3,"fixed":"totl -> total"} go to stderr; keep them, they matter to the model.
     let mut text = done.out;
@@ -425,6 +433,37 @@ fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
         text = format!("failed with exit code {} and no output", st.code().map_or("?".into(), |c| c.to_string()));
     }
     (text, !st.success(), after)
+}
+
+// Takes the first {"path":...} line out of a build's stderr. Brevi prints it before the program runs, so a
+// line the program itself prints later is left alone.
+fn take_path(err: &mut String) -> Option<String> {
+    let mut at = 0;
+    for l in err.split_inclusive('\n') {
+        if l.starts_with("{\"path\":") {
+            let line = l.trim_end().to_string();
+            parse(&line)?;
+            err.replace_range(at..at + l.len(), "");
+            return Some(line);
+        }
+        at += l.len();
+    }
+    None
+}
+
+// The text and structuredContent of a tool result: the path line is also the text's last line when the
+// program is off the typed path, for clients that ignore structured results.
+fn with_path(text: String, path: Option<&str>) -> (String, String) {
+    let Some(p) = path else { return (text, String::new()) };
+    let typed = parse(p).and_then(|j| j.get("path").and_then(|v| v.str()).map(|v| v == "typed")).unwrap_or(false);
+    let text = if typed {
+        text
+    } else if text.is_empty() || text.ends_with('\n') {
+        format!("{text}{p}")
+    } else {
+        format!("{text}\n{p}")
+    };
+    (text, format!(",\"structuredContent\":{p}"))
 }
 
 fn brevi(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Duration) -> (String, bool) {
@@ -577,10 +616,11 @@ fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, 
         let (got, code) = if via_run {
             let (got, failed) = brevi(files, "run", extra, stdin, per_case + Duration::from_secs(cfg().timeout));
             // Not a fallback: the build error is the answer, as for run without cases.
-            if i == 0 && !got.contains("note: ran with") {
+            // (The {"path":"cpython"} line is already out of got, in files.path.)
+            if i == 0 && !files.path.as_deref().is_some_and(|p| p.starts_with("{\"path\":\"cpython\"")) {
                 return (got, true);
             }
-            (got.lines().filter(|l| !l.starts_with("note: ran with")).collect::<Vec<_>>().join("\n"), failed)
+            (got, failed)
         } else {
             run_bin(&bin, &args, stdin, per_case)
         };
@@ -766,6 +806,7 @@ pub fn serve(argv: &[String]) {
                     *cur = Some(job.id.clone());
                     CANCELLED.store(false, Ordering::SeqCst);
                 }
+                files.path = None;
                 let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(&mut files, &job.name, &job.args)));
                 BUILT.lock().unwrap_or_else(|e| e.into_inner()).extend(files.built.iter().cloned());
                 let (text, err) = r.unwrap_or_else(|p| {
@@ -779,7 +820,8 @@ pub fn serve(argv: &[String]) {
                 };
                 // A cancelled request gets no reply (the MCP spec's rule).
                 if !cancelled {
-                    reply(&job.id, Ok(format!(r#"{{"content":[{{"type":"text","text":"{}"}}],"isError":{err}}}"#, esc(&clip(&text)))));
+                    let (text, structured) = with_path(clip(&text), files.path.take().as_deref());
+                    reply(&job.id, Ok(format!(r#"{{"content":[{{"type":"text","text":"{}"}}]{structured},"isError":{err}}}"#, esc(&text))));
                 }
             }
         })

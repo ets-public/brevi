@@ -1,3 +1,4 @@
+{"path":"dynamic","line":1,"why":"a call CPython runs needs allow native"}
 data.txt
 Traceback (most recent call last):
 AttributeError: 'PurePosixPath' object has no attribute 'read_text'

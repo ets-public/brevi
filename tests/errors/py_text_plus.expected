@@ -1,5 +1,5 @@
 {"line":2,"msg":"cannot add str and int","fix":"turn the number into text with str(x), or use an f-string: f\"...{x}\""}
 check exit 1
-note: ran with python3; Brevi could not build line 2: cannot add str and int
+{"path":"cpython","line":2,"why":"Brevi could not build it: cannot add str and int","by":"python3"}
 run exit 1
 run tracebacks 0

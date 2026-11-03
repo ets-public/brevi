@@ -63,6 +63,31 @@ expect("python module", call("check", file="util.py", code="def inc(x):\n    ret
 expect("python import", call("run", code="from util import inc\nprint(inc(41))\n"), "42", False)
 expect("python def patch", call("patch", file="util.py", patch="def inc(x):\n    return x + 2\n"), "replaced def inc", None)
 expect("python cases", call("run", cases=[{"stdin": "", "expect": "43\n"}]), "passed 1/1", False)
+# Every build says which path it took: structuredContent always, the text's last line only off the typed path.
+start()
+def path_of(tool, **args):
+    r = rpc("tools/call", {"name": tool, "arguments": args})
+    return r["content"][0]["text"], r.get("structuredContent")
+def expect_path(label, got, path, text_has=None, fn=None):
+    global fails
+    text, sc = got
+    ok = isinstance(sc, dict) and sc.get("path") == path and (fn is None or sc.get("fn") == fn)
+    ok = ok and (text_has is None or text_has in text) and (('{"path":' in text) == (path != "typed"))
+    if not ok:
+        fails += 1
+        print(f"FAIL {label}: want path {path} fn {fn}, got {sc!r} with text {text!r}")
+expect_path("path typed check", path_of("check", code="print(sum(range(4)))\n"), "typed", "OK")
+expect_path("path typed run", path_of("run"), "typed", "6")
+expect_path("path dynamic", path_of("run", code="def show(xs):\n    print(set(xs))\n\nshow([2, 'a'])\n"), "dynamic", None, "show")
+expect_path("path dynamic check", path_of("check"), "dynamic", "OK\n", "show")
+expect_path("path cpython", path_of("run", code="def g():\n    return eval('1 + 2')\n\nprint(g())\n", sandbox=False), "cpython", "3", "g")
+expect_path("path pybridge", path_of("run", code="import colorsys\nprint(colorsys.rgb_to_hsv(1.0, 0.0, 0.0)[0])\n", sandbox=False), "pybridge", "0.0")
+expect_path("path cases", path_of("run", code="print(input())\n", cases=[{"stdin": "x\n", "expect": "x\n"}]), "typed", "passed 1/1")
+r = rpc("tools/call", {"name": "check", "arguments": {"code": "print(totl)\n"}})
+if "structuredContent" in r:
+    fails += 1
+    print(f"FAIL path on a failed build: {r!r}")
+
 # The default sandbox holds Python too: a file read, a Python library or a write is refused, never run.
 start()
 expect("sandbox read", call("run", code="with open('/etc/hostname') as f:\n    print(f.read().strip())\n"), "needs allow read", True)

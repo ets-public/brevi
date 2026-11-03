@@ -1,3 +1,4 @@
+{"path":"dynamic","line":2,"why":"math.gcd runs in CPython, which needs allow native"}
 Traceback (most recent call last):
 TypeError: 'method' object is not subscriptable
 exit 1

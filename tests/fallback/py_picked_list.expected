@@ -1,3 +1,4 @@
+{"path":"dynamic","line":14,"fn":"main","why":"book is one of two lists picked by a condition and is changed later; Python changes that list itself, so the typed build would differ from CPython"}
 1 [2]
 True design
 [1, 2]

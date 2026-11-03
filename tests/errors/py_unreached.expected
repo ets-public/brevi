@@ -1,4 +1,6 @@
+{"path":"dynamic","line":9,"why":"cannot add str and int"}
 check exit 0
+{"path":"dynamic","line":9,"why":"cannot add str and int"}
 5
 ok
 run exit 0
