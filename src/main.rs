@@ -550,11 +550,17 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
             exit(0);
         }
         dyn_blocked_note();
-        let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
+        // Name what stopped the dynamic build too: fixing only the typed reason would still leave the file unbuilt.
+        let blocked = match DYN_BLOCKED.lock().unwrap().as_ref() {
+            Some((f, l, m)) if *l > 0 => format!(" ({} line {l}: {m})", Path::new(f).file_name().unwrap_or_default().to_string_lossy()),
+            Some((_, _, m)) => format!(" ({m})"),
+            None => String::new(),
+        };
+        let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values{blocked}"));
         if why.contains(" set") {
             d.fix = Some("sort it first (sorted(s)) where the order shows".into());
         } else if why.contains("generator") {
-            d.fix = Some("move the yield out of the try/finally or with block, or build a list and return it".into());
+            d.fix = Some(if blocked.is_empty() || blocked.contains("yield inside try") { "move the yield out of the try/finally or with block, or build a list and return it" } else { "build a list and return it" }.into());
         }
         print_diag(&d);
         exit(1);
