@@ -3,7 +3,8 @@
 //
 // The build runs as a child (`brevi build` or `brevi check` with BREVI_PHASE=1), so everything it prints is
 // caught exactly, path report line included. The key is a hash of:
-//   - the brevi binary (version, size and modification time) and the toolchain (PATH, rustup settings),
+//   - the brevi binary (version, size and modification time), the toolchain (PATH, rustup settings) and
+//     the python3 on PATH,
 //   - the command and its flags, and every BREVI_* and Python setting in the environment,
 //   - the file's path and the text of every .py and .bv file next to it (the modules it may import; also
 //     those in package folders it imports).
@@ -148,6 +149,12 @@ fn key(args: &[String], file: &str, envs: &[(&str, &str)], me: &Path) -> Option<
         .collect();
     vars.sort();
     parts.extend(vars.into_iter().map(|(k, v)| format!("{k}={v}")));
+    // The Python that library calls link against (an upgrade in place leaves PATH as it was).
+    let py = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let found = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join(&py)).find(|f| f.is_file())).flatten();
+    if let Some(m) = found.and_then(|f| std::fs::canonicalize(f).ok()).and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m))) {
+        parts.push(format!("{} {} {:?}", m.0.display(), m.1.len(), m.1.modified().ok()));
+    }
     let path = std::fs::canonicalize(file).ok()?;
     parts.push(path.to_string_lossy().into());
     for f in sources(&path)? {
