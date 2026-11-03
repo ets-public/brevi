@@ -959,6 +959,10 @@ pub fn invert(a: &V) -> R {
 
 pub fn len(v: &V) -> Result<usize, E> {
     Ok(match v {
+        V::Class(c) if is_enum(c) => match enum_members(c) {
+            V::List(l) => l.borrow().len(),
+            _ => 0,
+        },
         V::Str(x) => x.nchars(),
         V::List(l) => l.borrow().len(),
         V::Tuple(t) => t.len(),
@@ -990,6 +994,7 @@ pub fn len(v: &V) -> Result<usize, E> {
 }
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
     Ok(match c {
+        V::Class(k) if is_enum(k) => enum_contains(k, x)?,
         V::Str(s) => match x {
             V::Str(n) => s.s.contains(n.s.as_str()),
             _ => return type_err(format!("'in <string>' requires string as left operand, not {}", tn(x))),
@@ -1232,6 +1237,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             }
             return type_err(format!("'{}' object is not subscriptable", tn(c)));
         }
+        (V::Class(k), _) if is_enum(k) => return enum_getitem(k, i),
         (V::Class(_), _) => return Ok(c.clone()), // typing: list[int]
         (V::Ext(x), _) => {
             if let Some(r) = x.method(c, "__getitem__", &mut Args::p(vec![i.clone()])) {
@@ -1457,6 +1463,10 @@ pub fn is_exc(e: &V, name: &str) -> bool {
 }
 pub fn iter(v: &V) -> Result<It, E> {
     Ok(match v {
+        V::Class(c) if is_enum(c) => match enum_members(c) {
+            V::List(l) => It::List(l, 0),
+            _ => It::Done,
+        },
         V::List(l) => It::List(l.clone(), 0),
         V::Tuple(t) => It::Tuple(t.clone(), 0),
         V::Str(s) => It::Str(s.clone(), 0),

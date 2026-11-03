@@ -10,7 +10,7 @@ Brevi's promise for a Python file is simple: **the native program prints exactly
 | Saved agent programs (591, from benchmark runs) built unchanged | 591 build, 591 match CPython on every test |
 | Large programs (18; chess, a text adventure, an interpreter; 200 to 750 lines over 3 to 4 files) | 18 build, 18 match |
 | Behaviour traps (13: big ints, `//` and `%` signs, float printing, dict order, unicode, aliasing, deep recursion, ...) | 13 match |
-| Release test (24 tasks, Sonnet and Haiku writing fresh Python) | 92 to 96% of final programs native, the rest via the CPython fallback |
+| Release test (24 tasks, Sonnet and Haiku writing fresh Python) | 92 to 98% of final programs native, the rest via the CPython fallback (the two that needed it in run w156a, both `json_query`, now build natively on main) |
 | Random generated programs (bug hunt, 2 Nov 2026) | 400 of 400 match |
 
 "Match" means stdout byte for byte and the same exit status. See [Benchmarks](/docs/benchmarks) for the method.
@@ -23,7 +23,7 @@ Brevi has two native ways to build a Python file, and picks between them on its 
 
 **Dynamic build**, the exact path. When a value changes type, a list mixes types, or the typed build would print something different from CPython (iterating a set, for example, where CPython's hash order shows), the whole program is built over a dynamic value type with CPython's own semantics: hashing and set order, formatting, exceptions, classes and method lookup. Still native, with no CPython involved, but slower than typed: typically somewhat faster than CPython rather than many times faster.
 
-You do not choose; Brevi tries typed first. `BREVI_GUARD=print brevi build x.py` shows why a file went dynamic.
+You do not choose; Brevi tries typed first. A file that does not build typed prints one [`{"path":...}` line](/docs/usage#which-path-ran) naming the function that kept it off the fast path; `brevi check --explain x.py` lists every reason.
 
 ## Python features
 
@@ -44,18 +44,21 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 
 | Module | Typed build (fastest) | Dynamic build (native) |
 |---|---|---|
+| builtins and `str` | most, including `bin`, `hex`, `oct`, `str.startswith`/`endswith` with a start index | a tuple of prefixes, an end index |
 | `math` | `sqrt`, `floor`, `ceil`, `isqrt`, `gcd`, `lcm`, `comb`, `perm`, `factorial`, `isclose`, `log` (with a base too), `log2`, `log10`, `log1p`, `exp`, `expm1`, trig and hyperbolic functions, `atan2`, `hypot`, `fabs`, `trunc`, `degrees`, `radians`, `copysign`, `fmod`, `isnan`, `isinf`, `isfinite`, `pi`, `e`, `tau`, `inf`, `nan`; domain errors are `ValueError`s an `except` catches | the rest (`fsum`, `prod`, `dist`, ...) |
 | `time` | `time`, `perf_counter`, `monotonic` | `sleep`, `process_time` |
 | `re` | `match`, `search`, `fullmatch`, `findall` (no group or one), `finditer`, `split`, `sub`, `compile`, flags | `findall` with two or more groups, `sub` with a function, groups tested against None, `groupdict` |
-| `json` | `loads`, `load`, `dumps` | `dumps(indent=..., sort_keys=...)` on mixed values |
+| `json` | `loads`, `load`, `dumps` | `dumps(indent=..., sort_keys=...)` on mixed values, `JSONDecoder().raw_decode` and `decode`, `json.decoder.scanstring` |
 | `collections` | `Counter`, `defaultdict`, `deque` (`popleft`, `appendleft`), `OrderedDict` | `namedtuple`, `deque(maxlen=...)`, `rotate`, a defaultdict read whose missing key matters |
 | `itertools` | `groupby` | `chain`, `product`, `permutations`, `combinations`, `accumulate`, `islice`, `zip_longest`, `pairwise`, `count`, `cycle` and the rest |
 | `functools` | `lru_cache`, `cache` | `reduce`, `partial`, `cmp_to_key`, `total_ordering` |
 | `dataclasses` | `@dataclass` (defaults, `field(default_factory=...)`, `order`, `frozen`) | `asdict`, `astuple`, `replace` |
 | `heapq`, `bisect`, `string`, `sys`, `typing`, `decimal`, `datetime` (`date`) | most functions | the rest, `datetime.datetime`, `strptime`, `strftime` |
+| `io` | | `StringIO` (also under `--sandbox`); `BytesIO` and the rest run in CPython |
+| `enum` | | `Enum` (members, aliases, `auto()`, methods and properties, `__init__` on tuple values, `C(value)`, `C[name]`, iteration, `len`, `in`, `__members__`), `class C(str, Enum)` and `(int, Enum)`, `@unique`; `IntEnum`, `StrEnum` and `Flag` still run in CPython |
 | `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `Fraction`) | the rest |
 
-Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io`, `os` beyond path text, `enum`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
+Run in CPython for now (`brevi run` still works; under `--sandbox` they need `# allow native`, except the path functions and `random`): `random` outside the sandbox, `textwrap`, `argparse`, `io` beyond `StringIO`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `hashlib`, `base64` and bytes values. These are next on the [roadmap](/docs/roadmap).
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 

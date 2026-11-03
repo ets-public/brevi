@@ -826,7 +826,10 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             }
         }
         V::Obj(o) => {
-            if let Some(f) = o.cls.lookup("__hash__") {
+            let mixin = if is_enum(&o.cls) { o.inner.borrow().clone() } else { None };
+            if let Some(i) = mixin {
+                py_hash(&i)?
+            } else if let Some(f) = o.cls.lookup("__hash__") {
                 if matches!(f, V::None) {
                     return type_err(format!("unhashable type: '{}'", o.cls.name));
                 }

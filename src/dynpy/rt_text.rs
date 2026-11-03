@@ -1790,3 +1790,60 @@ pub fn json_fn(n: &str, mut a: Args) -> R {
         _ => Err(unsupported(&format!("json.{n}"))),
     }
 }
+
+// json.decoder.scanstring(s, end): the string whose opening quote is at end - 1, and the index after its
+// closing quote. json.JSONDecoder().raw_decode(s, idx): the value starting exactly at idx (no whitespace
+// skipped, as in CPython) and the index after it; .decode(s) is loads.
+fn json_index(a: &Args, k: usize, n: usize) -> Result<usize, E> {
+    match a.p.get(k) {
+        None => Ok(0),
+        Some(V::Int(i)) if *i >= 0 && (*i as usize) <= n => Ok(*i as usize),
+        Some(V::Int(_)) => Ok(usize::MAX),
+        Some(x) => type_err(format!("an integer is required, not {}", tn(x))),
+    }
+}
+pub fn json_scanstring(a: Args) -> R {
+    let t = match a.p.first() {
+        Some(V::Str(x)) => x.s.clone(),
+        _ => return type_err("first argument must be a string".into()),
+    };
+    let c: Vec<char> = t.chars().collect();
+    let end = json_index(&a, 1, c.len())?;
+    if end == 0 || end == usize::MAX {
+        return val_err("end is out of bounds".into());
+    }
+    let mut p = JP { s: &c, i: end - 1 };
+    let v = p.string()?;
+    Ok(tup(vec![v, V::Int(p.i as i64)]))
+}
+thread_local! {
+    static JDEC: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+pub fn json_decoder_class() -> Rc<Class> {
+    JDEC.with(|j| {
+        let mut j = j.borrow_mut();
+        if j.is_none() {
+            let c = Class::new("JSONDecoder", "json.decoder", vec![bclass("object")], BT::Other);
+            c.set("raw_decode", builtin("raw_decode", |a: Args| {
+                let t = match a.p.get(1) {
+                    Some(V::Str(x)) => x.s.clone(),
+                    _ => return type_err("raw_decode() argument must be a string".into()),
+                };
+                let c: Vec<char> = t.chars().collect();
+                let idx = json_index(&Args::p(a.p[1..].to_vec()), 1, c.len())?;
+                if idx == usize::MAX || idx >= c.len() || matches!(c[idx], ' ' | '\t' | '\n' | '\r') {
+                    return json_err("Expecting value", &c, idx.min(c.len()));
+                }
+                let mut p = JP { s: &c, i: idx };
+                let v = p.value()?;
+                Ok(tup(vec![v, V::Int(p.i as i64)]))
+            }));
+            c.set("decode", builtin("decode", |a: Args| match a.p.get(1) {
+                Some(V::Str(x)) => json_loads(&x.s.clone()),
+                _ => type_err("decode() argument must be a string".into()),
+            }));
+            *j = Some(c);
+        }
+        j.clone().unwrap()
+    })
+}

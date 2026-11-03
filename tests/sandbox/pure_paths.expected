@@ -1,4 +1,4 @@
-{"path":"dynamic","line":1,"why":"a call CPython runs needs allow native"}
+{"path":"dynamic","line":1,"why":"os, os.path, pathlib not in the typed build"}
 data/runs/r1.json r1.json data/runs ('data/runs/r1', '.json') ('data/runs', 'r1.json')
 a/b/d False /x/y /
 /srv/app/main.tar.gz PurePosixPath('/srv/app/main.tar.gz') main.tar.gz main.tar .gz ['.tar', '.gz'] /srv/app ('/', 'srv', 'app', 'main.tar.gz')
@@ -11,5 +11,5 @@ a/b/d False /x/y /
 /srv/app/main.tar.zip app/main.tar.gz True
 exit 0
 -- typed
-{"line":1,"msg":"a call CPython runs needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
+{"line":1,"msg":"os, os.path, pathlib not in the typed build","fix":"the dynamic build has them: build it without BREVI_DYN=0"}
 exit 1

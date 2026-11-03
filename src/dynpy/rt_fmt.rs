@@ -199,7 +199,9 @@ pub fn repr(v: &V) -> Result<String, E> {
             }
         }
         V::Class(c) => {
-            if c.module == "builtins" {
+            if is_enum(c) {
+                format!("<enum '{}'>", c.name)
+            } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
             } else {
                 format!("<class '{}.{}'>", c.module, c.name)

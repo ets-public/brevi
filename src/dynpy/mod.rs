@@ -17,6 +17,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_ext.rs"),
     include_str!("rt_glue.rs"),
     include_str!("rt_gen.rs"),
+    include_str!("rt_enum.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -88,6 +89,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "posixpath" => include_str!("py/posixpath.py"),
         "os.path" => include_str!("py/posixpath.py"),
         "pathlib" => include_str!("py/pathlib.py"),
+        "io" => include_str!("py/io.py"),
         _ => return None,
     })
 }
@@ -160,7 +162,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
         k += 1;
     }
     if own_used && !own_ok && !crate::pybridge::no_native() {
-        return Err((file.to_string(), 0, "os, pathlib or random beyond Brevi's own copies runs in CPython".into()));
+        return Err((file.to_string(), 0, "os, pathlib, random or io beyond Brevi's own copies runs in CPython".into()));
     }
     let rust = emit::program(&mods).map_err(|(l, m)| (file.to_string(), l, m))?;
     Ok(format!("{HEADER}{rust}"))

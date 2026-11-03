@@ -1,0 +1,13 @@
+Color.RED <Color.GREEN: 2> True Color.GREEN Color.BLUE
+[<Color.RED: 1>, <Color.GREEN: 2>, <Color.BLUE: 3>] 3 True RED 1
+['N', 'E', 'S', 'W'] 1 Dir.N False True
+9.80 3.303e+23 Planet.EARTH
+open done <Status.DONE: 'done'> open [Color.RED]
+<enum 'Color'> Color True True
+{<Color.RED: 1>: 0, <Color.GREEN: 2>: 2, <Color.BLUE: 3>: 0} [<Color.BLUE: 3>, <Color.GREEN: 2>, <Color.RED: 1>]
+True False True True
+['RED', 'GREEN', 'BLUE', 'CRIMSON'] Color.RED
+ValueError: 7 is not a valid Color
+KeyError: 'PINK'
+ValueError: duplicate values found in <enum 'Bad'>: B -> A
+TypeError: '<' not supported between instances of 'Color' and 'Color'

@@ -1082,6 +1082,10 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     }
     // pybridge: CPython for the Python libraries the program uses.
     if pybridge::active() && pybridge::no_native() {
+        // Only modules the dynamic build has: it builds them, so say why the typed build did not.
+        if pybridge::stdlib_only() {
+            return Err(vec![Diag::new("check", 1, 1, &format!("{} not in the typed build", pybridge::uses().join(", "))).fix_hint("the dynamic build has them: build it without BREVI_DYN=0")]);
+        }
         return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&format!("add the line `{}` at the top, or do without it", caps::allow_line("native")))]);
     }
     if pybridge::active() {

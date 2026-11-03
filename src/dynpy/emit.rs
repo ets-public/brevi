@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 24] = ["sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 26] = ["json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 // Names a builtin module provides in dynamic builds (anything else is refused when the program is built).
 pub fn module_has(m: &str, n: &str) -> bool {
@@ -22,10 +22,12 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep"],
         "abc" => &["ABC", "abstractmethod"],
+        "enum" => &["Enum", "auto", "unique"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "replace", "MISSING"],
         "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "error"],
-        "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError"],
+        "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder"],
+        "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
         "fractions" => &["Fraction"],
         "datetime" => &["date", "datetime", "time", "timedelta", "MINYEAR", "MAXYEAR"],
@@ -1851,8 +1853,30 @@ impl Em {
         self.fstack.pop();
         self.class_ctx = saved;
         res?;
-        let mut attrs = String::new();
+        // class attributes in the order the body first binds them, as CPython's class namespace keeps them
+        // (Enum members and vars() follow it)
+        let mut order: Vec<&String> = vec![];
+        for s in &c.body {
+            let names: Vec<&String> = match &s.st {
+                St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
+                St::AnnAssign(Ex::Name(n), _) => vec![n],
+                St::Def(d) => vec![&d.name],
+                St::Class(k) => vec![&k.name],
+                _ => vec![],
+            };
+            for n in names {
+                if sc.locals.contains(n) && !order.contains(&n) {
+                    order.push(n);
+                }
+            }
+        }
         for n in sc.locals.iter() {
+            if !order.contains(&n) {
+                order.push(n);
+            }
+        }
+        let mut attrs = String::new();
+        for n in order {
             let r = format!("a{id}_{}", rust_ident(n));
             write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
         }

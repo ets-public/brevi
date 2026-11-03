@@ -1176,6 +1176,8 @@ impl Cx<'_> {
             "floor" | "ceil" if r == Dec => Int,
             "float" | "sqrt" | "floor" | "ceil" => F64,
             "m_trunc" => Int,
+            "bin_text" | "hex_text" | "oct_text" => Str,
+            "starts_with_at" | "ends_with_at" => Bool,
             "m_isnan" | "m_isinf" | "m_isfinite" => Bool,
             m if m.starts_with("m_") => F64,
             "dec" | "quantize" | "frac" | "frac_div" => Dec,
