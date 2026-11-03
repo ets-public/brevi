@@ -1,4 +1,4 @@
 {"line":3,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
 check exit 1
-{"line":3,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
+note: ran with python3; Brevi could not build line 3: name 'totl' is not defined
 run exit 1

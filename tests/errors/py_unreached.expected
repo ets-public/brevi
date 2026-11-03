@@ -1,0 +1,4 @@
+check exit 0
+5
+ok
+run exit 0
