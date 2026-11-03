@@ -402,14 +402,14 @@ mod tests {
         // The program defines its own gcd: the import line and its uses are left alone.
         let src = "from math import gcd\ndef gcd(a, b):\n    return 1\nprint(gcd(2, 4))\n";
         assert_eq!(rewrite(src), src);
-        let src = "import math\nclass P:\n    def f(self):\n        return self.gcd(1)\nprint(math.sqrt(4))\n";
+        let src = "import math\nclass P:\n    def f(self):\n        return self.gcd(1)\nprint(math.floor(4.5))\n";
         assert_eq!(rewrite(src), src);
     }
 
     #[test]
     fn plain_module() {
-        let out = rewrite("import math\nprint(math.comb(5, 2), math.sqrt(2))\n");
-        assert!(out.starts_with("import math\nprint(__bv_math_comb(5, 2), math.sqrt(2))\n"));
+        let out = rewrite("import math\nprint(math.comb(5, 2), math.floor(2.5))\n");
+        assert!(out.starts_with("import math\nprint(__bv_math_comb(5, 2), math.floor(2.5))\n"));
         assert!(out.contains("def __bv_math_comb(n, k):"));
     }
 }
