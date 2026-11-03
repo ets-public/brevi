@@ -6,7 +6,7 @@
     {
       "name": "brevi",
       "source": "./plugins/brevi",
-      "description": "Write, check and run Brevi (.bv) programs with the skill and the brevi mcp tools (guide, check, run, test, patch)"
+      "description": "Write plain Python and run it as a fast native program, with the Brevi skill and the brevi mcp tools (check, run, test, patch, edit, show, guide)"
     }
   ]
 }

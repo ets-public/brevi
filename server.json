@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "io.github.ets-public/brevi",
-  "description": "Write, check, run and test Brevi programs, a language for AI models that compiles to Rust.",
+  "description": "Build and run plain Python as fast native programs: check, run, test and patch tools for agents.",
   "repository": { "url": "https://github.com/ets-public/brevi", "source": "github" },
   "websiteUrl": "https://brevi-lang.org",
   "version": "0.24.0",

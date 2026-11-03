@@ -294,6 +294,7 @@ fn ax_py_repr(s: &str) -> String {
                 out.push('\\');
                 out.push(c);
             }
+            c if (c as u32) < 0x20 || (0x7f..0xa0).contains(&(c as u32)) || c as u32 == 0xad => out.push_str(&format!("\\x{:02x}", c as u32)),
             c => out.push(c),
         }
     }

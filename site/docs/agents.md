@@ -32,15 +32,19 @@ On four heavy tasks (Game of Life, knapsack, edit distance, Collatz chains), add
 claude mcp add brevi -- brevi mcp
 ```
 
-**Claude Desktop, Cursor, and other clients** with a JSON config:
+Check it with `claude mcp list` (it should say `brevi: ... Connected`).
+
+**Claude Desktop, Cursor, and other clients** with a JSON config (for Claude Desktop, `claude_desktop_config.json`, opened from Settings, Developer, Edit Config):
 
 ```
 {
   "mcpServers": {
-    "brevi": { "command": "brevi", "args": ["mcp"] }
+    "brevi": { "command": "/Users/you/.cargo/bin/brevi", "args": ["mcp"] }
   }
 }
 ```
+
+Use the full path that `which brevi` prints (on Windows, `where brevi`, written with doubled backslashes: `"C:\\Users\\you\\.cargo\\bin\\brevi.exe"`). Desktop apps do not start servers with your shell's PATH, so a bare `brevi` is often not found. Brevi itself then finds `rustc` in `~/.cargo/bin` even when the client's PATH leaves it out. Restart the client after editing the file.
 
 **Docker**, with nothing installed locally: `docker run --rm -i brevi mcp` (see [Install](/docs/install#docker)).
 
@@ -49,14 +53,26 @@ The server **keeps the program**. The agent sends its code once, then fixes it w
 | Tool | What it does |
 | --- | --- |
 | `check` | Compile without running. Returns `OK` or one JSON error per line. Takes `code` (once), `file` (for multi-file programs), `fast`, `fix` and `sandbox`. |
-| `run` | Compile and run the kept program with `stdin` and `args`. With `cases` (a list of `{stdin, expect}`), builds once and prints `ok` or the first differing line for each case. |
+| `run` | Compile and run the kept program with `stdin` and `args`. With `cases` (a list of `{stdin, expect}`), builds once and prints `ok` or the first differing line for each case. `timeout` gives a slow program more time. |
 | `test` | Run the `test` blocks of a Brevi program. |
-| `patch` | Replace each `fn`, `type`, `enum` or `test` by name (or add it), then check. |
+| `patch` | Replace each `def` or `class` (in Brevi code: `fn`, `type`, `enum` or `test`) by name, or add it, then check. |
 | `edit` | Replace lines `from`..`to` of the kept program with `text`, then check. |
 | `show` | The kept program, or some of its lines, with line numbers. |
 | `guide` | The Brevi language guide, or only the lines about one word. Not needed for Python. |
 
 The tools sandbox by default: a program that reads or writes files must declare `allow read` or `allow write`, and from v0.24.1 one that imports a Python library CPython runs (numpy, requests, subprocess, ...) must declare `allow native`. Pass `sandbox: false` to turn that off.
+
+### Limits
+
+Each call gets 20 seconds for build and run together (each `cases` entry 10 seconds); a tool call can pass `timeout` (up to 600), and `brevi mcp --timeout SECONDS` changes the default. On Linux a program may use at most half the machine's memory (`brevi mcp --mem-mb MB`, 0 for no limit). When a limit is reached, or the client cancels the call, the program and everything it started are stopped, and the reply says which limit it was. Long output is cut in the middle: the reply keeps the first 16 KB and the last 4 KB. Nothing is left behind: the server writes the program to one temporary folder and removes it, with its builds, when the client disconnects.
+
+The first call after installing or upgrading Brevi can take up to half a minute: the server builds Brevi's runtime libraries once, in the background, as soon as it starts.
+
+### If it does not connect
+
+- `rustc not found`: install Rust with [rustup](https://rustup.rs), then restart the client.
+- The client says the server failed to start: use the full path to `brevi` in its config (above), and check that `brevi --version` works in a terminal.
+- To see what the server sends, run it by hand: `brevi mcp`, then paste `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` and press Enter. It answers with one line of JSON.
 
 ## Agent Skill and Claude Code plugin
 

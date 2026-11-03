@@ -1,7 +1,7 @@
 {
   "name": "brevi",
   "version": "0.24.0",
-  "description": "Write, check and run Brevi (.bv) programs: a language for AI models that compiles to Rust, with one-line JSON errors.",
+  "description": "Write plain Python and Brevi builds it to a fast native program: the Brevi skill and the brevi mcp tools, with one-line JSON errors.",
   "author": { "name": "Adam" },
   "homepage": "https://brevi-lang.org",
   "repository": "https://github.com/ets-public/brevi",

@@ -105,6 +105,30 @@ fn num_interp(chars: &[char], from: usize) -> Option<usize> {
     (j > from && chars[from].is_ascii_digit() && matches!(chars.get(k), Some(':' | '}'))).then_some(j)
 }
 
+// Python escapes (in .py files only: Brevi code keeps "\\1" for regex backreferences) that stand for one character: \x41, \u00e9, \U0001F600, octal \101, \a \b \f \v.
+// Returns the character and how many chars the escape takes, backslash included.
+fn char_escape(chars: &[char], i: usize) -> Option<(char, usize)> {
+    let hex = |n: usize| {
+        let h: String = chars.get(i + 2..i + 2 + n)?.iter().collect();
+        if h.chars().all(|c| c.is_ascii_hexdigit()) { u32::from_str_radix(&h, 16).ok().and_then(char::from_u32).map(|c| (c, n + 2)) } else { None }
+    };
+    match *chars.get(i + 1)? {
+        'x' => hex(2),
+        'u' => hex(4),
+        'U' => hex(8),
+        'a' => Some(('\x07', 2)),
+        'b' => Some(('\x08', 2)),
+        'f' => Some(('\x0c', 2)),
+        'v' => Some(('\x0b', 2)),
+        '0'..='7' => {
+            let n = chars[i + 1..].iter().take(3).take_while(|c| ('0'..='7').contains(c)).count();
+            let v = u32::from_str_radix(&chars[i + 1..i + 1 + n].iter().collect::<String>(), 8).ok()?;
+            char::from_u32(v).map(|c| (c, n + 1))
+        }
+        _ => None,
+    }
+}
+
 fn interp_closes(chars: &[char], from: usize) -> bool {
     // `{3}` or `{2,4}` is a regex count, not a value.
     let count: String = chars[from..].iter().take_while(|c| **c != '}' && **c != '"' && **c != '\n').collect();
@@ -578,6 +602,15 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 1;
                         col += 1;
                     }
+                    Some('\\') if py && char_escape(&chars, i).is_some() => {
+                        let (ch, n) = char_escape(&chars, i).unwrap();
+                        s.push(ch);
+                        if ch == '{' || ch == '}' {
+                            s.push(ch);
+                        }
+                        i += n;
+                        col += n;
+                    }
                     Some('\\') => {
                         let e = chars.get(i + 1).copied().unwrap_or(' ');
                         match e {
@@ -782,6 +815,16 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 1;
                         col += 1;
                         break;
+                    }
+                    Some('\\') if py && char_escape(&chars, i).is_some() => {
+                        let (ch, n) = char_escape(&chars, i).unwrap();
+                        after_bs = false;
+                        s.push(ch);
+                        if ch == '{' || ch == '}' {
+                            s.push(ch);
+                        }
+                        i += n;
+                        col += n;
                     }
                     Some('\\') => {
                         let e = chars.get(i + 1).copied().unwrap_or(' ');
