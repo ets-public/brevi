@@ -2313,6 +2313,8 @@ impl Parser {
                             if (name == "loads" || name == "load") && args.len() == 1 && matches!(&e, Expr::Ident(j) if j == "json") {
                                 let src = match args.remove(0) {
                                     Expr::Field(m, f) if f == "stdin" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys") => Expr::Call("stdin".into(), vec![], line),
+                                    // `sys.stdin` already read as its lines.
+                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
                                     other => other,
                                 };
                                 e = Expr::Call("json".into(), vec![(None, src)], line);

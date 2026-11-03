@@ -231,6 +231,9 @@ fn or_value(a: &T, b: &T) -> Option<T> {
         (Bool, _) | (_, Bool) | (Hole, Hole) => None,
         (Hole, t) | (t, Hole) => Some(t.clone()),
         (x, y) if x == y => Some(x.clone()),
+        // `deps or []`: the empty list takes the other side's type.
+        (List(x), List(y)) if **x == Hole || **y == Hole => Some(if **x == Hole { b.clone() } else { a.clone() }),
+        (Map(k, v), Map(k2, v2)) if (**k == Hole && **v == Hole) || (**k2 == Hole && **v2 == Hole) => Some(if **k == Hole { b.clone() } else { a.clone() }),
         _ => None,
     }
 }
@@ -440,7 +443,9 @@ impl Cx<'_> {
                 _ => None,
             };
             if let Some((n, value, line)) = decl {
-                if let Some(base) = empty_kind(value).or_else(|| self.part_kind(value, env)) {
+                // `j.get(k, {})` on a JSON value is a JSON value, not an empty dict to type later.
+                let jget = py_on() && matches!(value, Expr::Method(r, m, a, _) if m == "get_or" && a.len() == 2 && self.ty(r, env) == Json);
+                if let Some(base) = empty_kind(value).filter(|_| !jget).or_else(|| self.part_kind(value, env)) {
                     let mut t = base.clone();
                     let was_lit = std::mem::replace(&mut self.list_lit, matches!(value, Expr::List(_)).then(|| n.clone()));
                     {
@@ -641,7 +646,10 @@ impl Cx<'_> {
                             // `al = run.get(k)` (a None default) with run typed by now: the entry's type.
                             if matches!(value, Expr::Method(_, m, _, _) if m == "get_or" || m == "get") {
                                 let vt0 = self.ty(value, env);
-                                if some_known(&vt0) {
+                                if vt0 == Json {
+                                    // `j.get(k, {})` on a JSON value: a JSON value.
+                                    mt = Json;
+                                } else if some_known(&vt0) {
                                     mt = merge(mt, vt0);
                                 }
                             }
@@ -1039,6 +1047,7 @@ impl Cx<'_> {
                 let a0 = || args.first().map(|(_, a)| self.ty(a, env)).unwrap_or(Hole);
                 match n.as_str() {
                     "lines" | "args" => List(Box::new(Str)),
+                    "ax_json_null" => Json,
                     "stdin" | "input" | "read" | "str" | "__err" | "__readline" | "__exc" | "__exc_obj" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "__try_read" => Str,
                     "__truediv" if args.iter().any(|(_, a)| self.ty(a, env) == Dec) => Dec,
                     "__truediv" => F64,
@@ -1238,6 +1247,8 @@ impl Cx<'_> {
             },
             "get_or" => match &r {
                 Map(_, v) => merge(*v.clone(), a(1)),
+                // `j.get(k)` on a JSON value: a JSON value (None is JSON null).
+                Json if py_on() && args.get(1).is_some_and(|d| matches!(d, Expr::Call(n, x, _) if n == "none" && x.is_empty()) || matches!(d, Expr::List(x) if x.is_empty()) || matches!(d, Expr::Map(x) if x.is_empty())) => Json,
                 _ => a(1),
             },
             "or" => merge(r, a(0)),
@@ -1726,7 +1737,10 @@ impl Cx<'_> {
                             let mut mt = empty_kind(value).or_else(|| self.part_kind(value, env)).unwrap();
                             if matches!(value, Expr::Method(_, m, _, _) if m == "get_or" || m == "get") {
                                 let vt0 = self.ty(value, env);
-                                if some_known(&vt0) {
+                                if vt0 == Json {
+                                    // `j.get(k, {})` on a JSON value: a JSON value.
+                                    mt = Json;
+                                } else if some_known(&vt0) {
                                     mt = merge(mt, vt0);
                                 }
                             }
@@ -3548,6 +3562,24 @@ impl Ck<'_, '_> {
                 Expr::Index(b, k) if matches!(self.cx.ty(b, env), Map(ref kt, _) if **kt == Json) && matches!(self.cx.ty(k, env), Int | Str | Bool) => {
                     let v = std::mem::replace(&mut **k, Expr::Int(0));
                     **k = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);
+                }
+                // `j.get(k)` on a JSON value: the None it gives is JSON null (nothing else gives it a type).
+                Expr::Method(r, m, args, _) if self.py && m == "get_or" && args.len() == 2 && matches!(&args[1], Expr::Call(n, x, _) if n == "none" && x.is_empty()) && self.cx.ty(r, env) == Json => {
+                    args[1] = Expr::Call("ax_json_null".into(), vec![], 0);
+                }
+                // The other way round: a JSON value looked up in a map keyed by str (`ln["sku"] in prods`,
+                // `rates.get(c["tier"], 0)`); a JSON value that is not a str matches no key.
+                Expr::Method(r, m, args, _) if self.py && matches!(m.as_str(), "get" | "get_or" | "has" | "pop" | "pop_or") && !args.is_empty() && matches!(self.cx.ty(r, env), Map(ref k, _) if **k == Str) && self.cx.ty(&args[0], env) == Json => {
+                    let v = std::mem::replace(&mut args[0], Expr::Int(0));
+                    args[0] = Expr::Call("ax_jkey_str".into(), vec![(None, v)], 0);
+                }
+                Expr::Binary("in" | "not in", a, b) if self.py && matches!(self.cx.ty(b, env), Map(ref k, _) if **k == Str) && self.cx.ty(a, env) == Json => {
+                    let v = std::mem::replace(&mut **a, Expr::Int(0));
+                    **a = Expr::Call("ax_jkey_str".into(), vec![(None, v)], 0);
+                }
+                Expr::Index(b, k) if self.py && matches!(self.cx.ty(b, env), Map(ref kt, _) if **kt == Str) && self.cx.ty(k, env) == Json => {
+                    let v = std::mem::replace(&mut **k, Expr::Int(0));
+                    **k = Expr::Call("ax_jkey_str".into(), vec![(None, v)], 0);
                 }
                 // `self.exits.get((self.loc, d))` on a map keyed by tuples with a JSON slot: the key's plain
                 // values there are made JSON.

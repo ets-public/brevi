@@ -125,6 +125,9 @@ fn safe(body: &[Stmt], n: &str) -> bool {
     // None tests paired with the sentinel's own test (by address).
     let mut paired: HashSet<*const Ex> = HashSet::new();
     let mut tests: Vec<*const Ex> = vec![];
+    // Sentinel tests, and those paired with a None test of the same value (`v is MISSING or v is None`).
+    let mut s_tests: HashSet<*const Ex> = HashSet::new();
+    let mut s_paired: HashSet<*const Ex> = HashSet::new();
     each_stmt(body, &mut |s| {
         match &s.st {
             St::Assign(ts, v) => {
@@ -167,6 +170,11 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                     let mut leaves = vec![];
                     chain(e, or, &mut leaves);
                     for l in &leaves {
+                        if let Some((x, op)) = sentinel_test(l, n) {
+                            if negated(op) != or && leaves.iter().any(|m| none_test(m).is_some_and(|(y, op2)| same(x, y) && negated(op2) == negated(op))) {
+                                s_paired.insert(*l as *const Ex);
+                            }
+                        }
                         if let Some((x, op)) = none_test(l) {
                             if negated(op) != or && leaves.iter().any(|m| sentinel_test(m, n).is_some_and(|(y, op2)| same(x, y) && negated(op2) == negated(op))) {
                                 paired.insert(*l as *const Ex);
@@ -179,6 +187,7 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                     if sides.iter().any(|x| is_name(x, n)) {
                         match sentinel_test(e, n) {
                             Some((x, op)) if matches!(op, "is" | "is not" | "==" | "!=") => {
+                                s_tests.insert(e as *const Ex);
                                 if let Ex::Name(m) = x {
                                     carriers.insert(m.clone());
                                 }
@@ -223,7 +232,10 @@ fn safe(body: &[Stmt], n: &str) -> bool {
             }
         })
     });
-    if !none_ok || makes_none(body, &paired) {
+    // When every sentinel test also tests None the same way, the program never tells the two apart, so a
+    // None it makes cannot be mistaken for the sentinel.
+    let never_apart = s_tests.iter().all(|t| s_paired.contains(t));
+    if !none_ok || (!never_apart && makes_none(body, &paired)) {
         return false;
     }
     // No carrier is tested for truth.

@@ -1901,8 +1901,9 @@ impl Emitter {
                 for p in parts {
                     match p {
                         StrPart::Lit(s) => {
-                            let lit = rust_str_lit(s);
-                            fmt.push_str(&lit[1..lit.len() - 1].replace('{', "{{").replace('}', "}}"));
+                            // Braces doubled before escaping, so a `\u{1}` escape keeps its own.
+                            let lit = rust_str_lit(&s.replace('{', "{{").replace('}', "}}"));
+                            fmt.push_str(&lit[1..lit.len() - 1]);
                         }
                         StrPart::Interp(e) => {
                             fmt.push_str("{}");
@@ -2492,6 +2493,9 @@ impl Emitter {
                 return format!("{name}({})", plain.join(", ").replacen("(|", "(move |", 1));
             }
             return format!("{name}({})", plain.join(", "));
+        }
+        if name == "ax_json_null" {
+            return "Json::Null".into();
         }
         if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
