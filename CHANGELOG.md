@@ -6,6 +6,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 - **Standalone builds of programs that use Python libraries.** `brevi build x.py --standalone` puts CPython inside the binary: libpython, the shared libraries it and the extension modules need (the C library aside), the standard library, and the installed packages the program imports with everything they require. The binary runs on a Linux machine with no Python installed. It unpacks once into `~/.cache/brevi/py` (or `$BREVI_PY_CACHE`), about 1 to 3 seconds on first run, then starts as fast as before. Results stay CPython's own: numpy, pandas, sqlite3/hashlib/zlib, BeautifulSoup with lxml, Pillow, Jinja2 and openpyxl programs, plus one reading argv and stdin, print exactly what python3 prints when run in an empty root holding only the C library. Sizes: about 13 MB with only the standard library, 31 MB with numpy, 42 MB with pandas. Linux only for now.
 - `from PIL import Image` (a from-import of a submodule the package does not import itself) failed with "module 'PIL' has no attribute 'Image'" in every build that calls Python libraries; it now imports the submodule, as Python does.
+- **Architecture doc.** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains, with diagrams, what Brevi does between a `.bv` or `.py` file and a native program: front end, typed build, the guard that sends Python to the dynamic build, `src/dynpy`, library calls through pybridge, rustc and the build cache, and the CPython fallback.
 
 ## v0.22.0 (3 Nov 2026)
 
