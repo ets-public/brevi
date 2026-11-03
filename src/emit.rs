@@ -1252,6 +1252,10 @@ impl Emitter {
 
     // `m = {}` later used as `m[k].push(x)`: Rust needs to know the items are lists.
     fn empty_hint(&self, n: &str, line: usize, value: &Expr) -> String {
+        // `d.get(k, {})` takes d's own value type (or JSON, from a JSON object).
+        if matches!(value, Expr::Method(_, m, a, _) if m == "get_or" && matches!(a.get(1), Some(Expr::Map(x)) if x.is_empty()) || m == "get_or" && matches!(a.get(1), Some(Expr::List(x)) if x.is_empty())) {
+            return String::new();
+        }
         match self.hints.get(&(n.to_string(), line)) {
             Some((t, _)) => format!(": {t}"),
             None => self.nested_hint(n, value),
@@ -1343,6 +1347,8 @@ impl Emitter {
         }
         let rret = if fallible { format!(" -> R<{}>", rust_ty(ret)) } else if matches!(ret, Ty::Unit) { String::new() } else { format!(" -> {}", rust_ty(ret)) };
         let b = self.body(body, ret, fallible);
+        let marks: String = params.iter().filter_map(|p| self.rand_order_mark(&p.name)).map(|m| format!("{m}\n    ")).collect();
+        let init = format!("{init}{marks}");
         let b = if init.is_empty() { b } else { b.replacen("{\n", &format!("{{\n    {init}"), 1) };
         format!("/*@L{line}*/fn {rname}({}){rret} {b}\n", ps.join(", "))
     }
@@ -1610,7 +1616,37 @@ impl Emitter {
         }
     }
 
+    // A statement, then for a name typed_guard::check_soft lets through, a check rustc makes on its type.
     fn stmt(&mut self, s: &Stmt) -> String {
+        let out = self.stmt_inner(s);
+        let n = match s {
+            Stmt::Let { name: Pat::Bind(n), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", .. } => n,
+            _ => return out,
+        };
+        match self.rand_order_mark(n) {
+            Some(m) => format!("{out}\n    {m}"),
+            None => out,
+        }
+    }
+
+    // `ax_rand_set(&n);` when n is one of the names in RAND_ORDER (a set walked in hash order): it compiles
+    // only if n holds strings, whose order CPython draws afresh each run. The comment lets main.rs see that
+    // every such name was checked.
+    fn rand_order_mark(&self, n: &str) -> Option<String> {
+        let names = RAND_ORDER.get()?;
+        let kind = names.iter().find_map(|k| k.split_once(':').filter(|x| x.1 == n).map(|x| x.0))?;
+        let f = if kind == "h" { "ax_rand_holder" } else { "ax_rand_set" };
+        let r = if self.refs.contains(n) {
+            format!("&*{n}")
+        } else if self.locals.contains(n) {
+            format!("&{n}")
+        } else {
+            format!("&{}", self.global(n)?)
+        };
+        Some(format!("/*axr:{kind}:{n}*/{f}({r});"))
+    }
+
+    fn stmt_inner(&mut self, s: &Stmt) -> String {
         let line = match s {
             Stmt::Let { line, .. } | Stmt::Assign { line, .. } | Stmt::Expr { line, .. } | Stmt::Return { line, .. } | Stmt::Break { line } | Stmt::Continue { line } | Stmt::Assert { line, .. } => *line,
         };
@@ -2028,7 +2064,8 @@ impl Emitter {
                 } else {
                     self.place(recv)
                 };
-                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if contains_try(b)));
+                // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.
+                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if can_fail(b)));
                 // Outside a function that can fail and outside try/except, a failure inside the lambda stops the
                 // program with its message, as an uncaught Python exception does (`(int(x) for x in parts)`).
                 let tries = tries && (self.fallible || !self.catch.is_empty());
@@ -2068,11 +2105,33 @@ impl Emitter {
                         other => self.expr(other),
                     })
                     .collect();
+                // `t[1:3]` with number bounds may be on a tuple, which only a const-bound slice can give.
+                let lit = |x: Option<&Expr>| match x {
+                    Some(Expr::Int(k)) if *k >= 0 && *k < 64 => Some(k.to_string()),
+                    _ => None,
+                };
+                if name == "slice" && !tries && (1..=2).contains(&args.len()) {
+                    let b = if args.len() == 1 { Some("{usize::MAX}".to_string()) } else { lit(args.get(1)) };
+                    if let (Some(x), Some(y)) = (lit(args.first()), b) {
+                        return format!("{{ ax_l({line}); AxTSlice::<{x}, {y}>::ax_tslice(&{r}) }}");
+                    }
+                }
                 // `s.slice(a)` runs to the end.
                 let mut a = a;
                 if name == "slice" && a.len() == 1 {
                     a.push("i64::MAX".into());
                 }
+                // `d.get(k, {})` / `d.get(k, [])`: an empty value of whatever d holds (a JSON object's own kind,
+                // or the map's value type), where a bare `{}` has no type of its own.
+                let empty = |x: Option<&Expr>| match x {
+                    Some(Expr::Map(ps)) if ps.is_empty() => Some("get_or_emap"),
+                    Some(Expr::List(xs)) if xs.is_empty() => Some("get_or_elist"),
+                    _ => None,
+                };
+                let (name, a) = match empty(args.get(1)) {
+                    Some(n) if name == "get_or" && a.len() == 2 => (n.to_string(), vec![a[0].clone()]),
+                    _ => (name.clone(), a),
+                };
                 // `x.round(2)` rounds to decimal places.
                 let name = if name == "round" && a.len() == 1 { "round_to" } else { name.as_str() };
                 // `xs.sort_by(f, true)` sorts largest first, keeping equal items in order (Python's reverse=True).
@@ -2320,6 +2379,8 @@ impl Emitter {
         match name {
             // print(a, b) writes them with a space between, like Python.
             "print" if plain.len() > 1 => return format!("print([{}].join(\" \"))", plain.iter().map(|p| format!("Show::show(&{p})")).collect::<Vec<_>>().join(", ")),
+            // A local of the same name (`date = parts[1]`) would hide the runtime's function.
+            "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" if self.locals.contains(name) => return format!("crate::{name}({})", plain.join(", ")),
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "__readline" => return "ax_readline()".to_string(),
             "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
@@ -2507,6 +2568,8 @@ fn own_break(body: &Expr) -> bool {
 // the front (`q.popleft()`, `q.pop(0)`) and otherwise only added to, popped, read or walked is kept as an
 // AxQueue (a VecDeque), so taking from the front is O(1) as on a CPython deque. Builds with both off are
 // tried when one fails.
+// Names whose sets the program walks in hash order, tagged `s:` or `h:` (see typed_guard::check_soft).
+pub static RAND_ORDER: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 pub static FAST_SETS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 #[derive(Clone, Copy, PartialEq)]

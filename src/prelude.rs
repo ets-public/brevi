@@ -1864,6 +1864,19 @@ impl<T: Show> AxJoin for Vec<T> {
     }
 }
 
+// d.get(k, {}) and d.get(k, []) on a map: the value, else an empty one of its type.
+pub trait AxGetEmpty<K, V> {
+    fn ax_get_or_emap(&self, k: &K) -> V;
+    fn ax_get_or_elist(&self, k: &K) -> V;
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxGetEmpty<K, V> for AxM<K, V> {
+    fn ax_get_or_emap(&self, k: &K) -> V {
+        self.get(k).cloned().unwrap_or_default()
+    }
+    fn ax_get_or_elist(&self, k: &K) -> V {
+        self.get(k).cloned().unwrap_or_default()
+    }
+}
 pub trait AxMap<K, V> {
     fn ax_len(&self) -> i64;
     fn ax_is_empty(&self) -> bool;
@@ -2705,6 +2718,19 @@ impl Json {
         match self {
             Json::Obj { v } => v.get(&k.ax_jkey()).cloned().unwrap_or_else(|| d.ax_json()),
             _ => d.ax_json(),
+        }
+    }
+    // d.get(k, {}) and d.get(k, []) on a JSON object.
+    pub fn ax_get_or_emap<K: AxJKey + ?Sized>(&self, k: &K) -> Json {
+        match self {
+            Json::Obj { v } if v.get(&k.ax_jkey()).is_some() => v.get(&k.ax_jkey()).cloned().unwrap(),
+            _ => Json::Obj { v: AxM::ordered() },
+        }
+    }
+    pub fn ax_get_or_elist<K: AxJKey + ?Sized>(&self, k: &K) -> Json {
+        match self {
+            Json::Obj { v } if v.get(&k.ax_jkey()).is_some() => v.get(&k.ax_jkey()).cloned().unwrap(),
+            _ => Json::Arr { v: vec![] },
         }
     }
     pub fn ax_has<K: AxJKey + ?Sized>(&self, k: &K) -> bool {
@@ -4488,6 +4514,117 @@ impl<T> AxToJson for AxSet<T> where Vec<T>: AxToJson {
         self.v.ax_json()
     }
 }
+// ---- t[a:b] with number bounds: on a tuple, a shorter tuple; on a list, string or JSON value, as
+// ax_slice. B = usize::MAX is "to the end". ----
+pub trait AxTSlice<const A: usize, const B: usize> {
+    type Out;
+    fn ax_tslice(&self) -> Self::Out;
+}
+impl<T: Clone, const A: usize, const B: usize> AxTSlice<A, B> for Vec<T> {
+    type Out = Vec<T>;
+    fn ax_tslice(&self) -> Vec<T> {
+        AxList::ax_slice(self, A as i64, if B == usize::MAX { i64::MAX } else { B as i64 })
+    }
+}
+impl<'a, T: AxTSlice<A, B>, const A: usize, const B: usize> AxTSlice<A, B> for &'a T {
+    type Out = T::Out;
+    fn ax_tslice(&self) -> T::Out {
+        (**self).ax_tslice()
+    }
+}
+impl<'a, T: AxTSlice<A, B>, const A: usize, const B: usize> AxTSlice<A, B> for &'a mut T {
+    type Out = T::Out;
+    fn ax_tslice(&self) -> T::Out {
+        (**self).ax_tslice()
+    }
+}
+impl<const A: usize, const B: usize> AxTSlice<A, B> for String {
+    type Out = String;
+    fn ax_tslice(&self) -> String {
+        AxStr::ax_slice(self, A as i64, if B == usize::MAX { i64::MAX } else { B as i64 })
+    }
+}
+impl<const A: usize, const B: usize> AxTSlice<A, B> for Json {
+    type Out = Json;
+    fn ax_tslice(&self) -> Json {
+        self.ax_slice(A as i64, if B == usize::MAX { i64::MAX } else { B as i64 })
+    }
+}
+impl<A: Clone, B: Clone> AxTSlice<0, 2> for (A, B) { type Out = (A, B); fn ax_tslice(&self) -> (A, B) { (self.0.clone(), self.1.clone()) } }
+impl<A: Clone, B: Clone> AxTSlice<0, {usize::MAX}> for (A, B) { type Out = (A, B); fn ax_tslice(&self) -> (A, B) { (self.0.clone(), self.1.clone()) } }
+impl<A: Clone, B: Clone, C: Clone> AxTSlice<0, 2> for (A, B, C) { type Out = (A, B); fn ax_tslice(&self) -> (A, B) { (self.0.clone(), self.1.clone()) } }
+impl<A: Clone, B: Clone, C: Clone> AxTSlice<0, 3> for (A, B, C) { type Out = (A, B, C); fn ax_tslice(&self) -> (A, B, C) { (self.0.clone(), self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone> AxTSlice<0, {usize::MAX}> for (A, B, C) { type Out = (A, B, C); fn ax_tslice(&self) -> (A, B, C) { (self.0.clone(), self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone> AxTSlice<1, 3> for (A, B, C) { type Out = (B, C); fn ax_tslice(&self) -> (B, C) { (self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone> AxTSlice<1, {usize::MAX}> for (A, B, C) { type Out = (B, C); fn ax_tslice(&self) -> (B, C) { (self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<0, 2> for (A, B, C, D) { type Out = (A, B); fn ax_tslice(&self) -> (A, B) { (self.0.clone(), self.1.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<0, 3> for (A, B, C, D) { type Out = (A, B, C); fn ax_tslice(&self) -> (A, B, C) { (self.0.clone(), self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<0, 4> for (A, B, C, D) { type Out = (A, B, C, D); fn ax_tslice(&self) -> (A, B, C, D) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<0, {usize::MAX}> for (A, B, C, D) { type Out = (A, B, C, D); fn ax_tslice(&self) -> (A, B, C, D) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<1, 3> for (A, B, C, D) { type Out = (B, C); fn ax_tslice(&self) -> (B, C) { (self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<1, 4> for (A, B, C, D) { type Out = (B, C, D); fn ax_tslice(&self) -> (B, C, D) { (self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<1, {usize::MAX}> for (A, B, C, D) { type Out = (B, C, D); fn ax_tslice(&self) -> (B, C, D) { (self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<2, 4> for (A, B, C, D) { type Out = (C, D); fn ax_tslice(&self) -> (C, D) { (self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone> AxTSlice<2, {usize::MAX}> for (A, B, C, D) { type Out = (C, D); fn ax_tslice(&self) -> (C, D) { (self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<0, 2> for (A, B, C, D, E) { type Out = (A, B); fn ax_tslice(&self) -> (A, B) { (self.0.clone(), self.1.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<0, 3> for (A, B, C, D, E) { type Out = (A, B, C); fn ax_tslice(&self) -> (A, B, C) { (self.0.clone(), self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<0, 4> for (A, B, C, D, E) { type Out = (A, B, C, D); fn ax_tslice(&self) -> (A, B, C, D) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<0, 5> for (A, B, C, D, E) { type Out = (A, B, C, D, E); fn ax_tslice(&self) -> (A, B, C, D, E) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<0, {usize::MAX}> for (A, B, C, D, E) { type Out = (A, B, C, D, E); fn ax_tslice(&self) -> (A, B, C, D, E) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<1, 3> for (A, B, C, D, E) { type Out = (B, C); fn ax_tslice(&self) -> (B, C) { (self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<1, 4> for (A, B, C, D, E) { type Out = (B, C, D); fn ax_tslice(&self) -> (B, C, D) { (self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<1, 5> for (A, B, C, D, E) { type Out = (B, C, D, E); fn ax_tslice(&self) -> (B, C, D, E) { (self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<1, {usize::MAX}> for (A, B, C, D, E) { type Out = (B, C, D, E); fn ax_tslice(&self) -> (B, C, D, E) { (self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<2, 4> for (A, B, C, D, E) { type Out = (C, D); fn ax_tslice(&self) -> (C, D) { (self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<2, 5> for (A, B, C, D, E) { type Out = (C, D, E); fn ax_tslice(&self) -> (C, D, E) { (self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<2, {usize::MAX}> for (A, B, C, D, E) { type Out = (C, D, E); fn ax_tslice(&self) -> (C, D, E) { (self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<3, 5> for (A, B, C, D, E) { type Out = (D, E); fn ax_tslice(&self) -> (D, E) { (self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> AxTSlice<3, {usize::MAX}> for (A, B, C, D, E) { type Out = (D, E); fn ax_tslice(&self) -> (D, E) { (self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<0, 2> for (A, B, C, D, E, F) { type Out = (A, B); fn ax_tslice(&self) -> (A, B) { (self.0.clone(), self.1.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<0, 3> for (A, B, C, D, E, F) { type Out = (A, B, C); fn ax_tslice(&self) -> (A, B, C) { (self.0.clone(), self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<0, 4> for (A, B, C, D, E, F) { type Out = (A, B, C, D); fn ax_tslice(&self) -> (A, B, C, D) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<0, 5> for (A, B, C, D, E, F) { type Out = (A, B, C, D, E); fn ax_tslice(&self) -> (A, B, C, D, E) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<0, 6> for (A, B, C, D, E, F) { type Out = (A, B, C, D, E, F); fn ax_tslice(&self) -> (A, B, C, D, E, F) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<0, {usize::MAX}> for (A, B, C, D, E, F) { type Out = (A, B, C, D, E, F); fn ax_tslice(&self) -> (A, B, C, D, E, F) { (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<1, 3> for (A, B, C, D, E, F) { type Out = (B, C); fn ax_tslice(&self) -> (B, C) { (self.1.clone(), self.2.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<1, 4> for (A, B, C, D, E, F) { type Out = (B, C, D); fn ax_tslice(&self) -> (B, C, D) { (self.1.clone(), self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<1, 5> for (A, B, C, D, E, F) { type Out = (B, C, D, E); fn ax_tslice(&self) -> (B, C, D, E) { (self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<1, 6> for (A, B, C, D, E, F) { type Out = (B, C, D, E, F); fn ax_tslice(&self) -> (B, C, D, E, F) { (self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<1, {usize::MAX}> for (A, B, C, D, E, F) { type Out = (B, C, D, E, F); fn ax_tslice(&self) -> (B, C, D, E, F) { (self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<2, 4> for (A, B, C, D, E, F) { type Out = (C, D); fn ax_tslice(&self) -> (C, D) { (self.2.clone(), self.3.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<2, 5> for (A, B, C, D, E, F) { type Out = (C, D, E); fn ax_tslice(&self) -> (C, D, E) { (self.2.clone(), self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<2, 6> for (A, B, C, D, E, F) { type Out = (C, D, E, F); fn ax_tslice(&self) -> (C, D, E, F) { (self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<2, {usize::MAX}> for (A, B, C, D, E, F) { type Out = (C, D, E, F); fn ax_tslice(&self) -> (C, D, E, F) { (self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<3, 5> for (A, B, C, D, E, F) { type Out = (D, E); fn ax_tslice(&self) -> (D, E) { (self.3.clone(), self.4.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<3, 6> for (A, B, C, D, E, F) { type Out = (D, E, F); fn ax_tslice(&self) -> (D, E, F) { (self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<3, {usize::MAX}> for (A, B, C, D, E, F) { type Out = (D, E, F); fn ax_tslice(&self) -> (D, E, F) { (self.3.clone(), self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<4, 6> for (A, B, C, D, E, F) { type Out = (E, F); fn ax_tslice(&self) -> (E, F) { (self.4.clone(), self.5.clone()) } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> AxTSlice<4, {usize::MAX}> for (A, B, C, D, E, F) { type Out = (E, F); fn ax_tslice(&self) -> (E, F) { (self.4.clone(), self.5.clone()) } }
+// ---- sets of strings: CPython draws str hashes afresh each run (PYTHONHASHSEED), so a set of strings (or
+// of tuples led by one) has no order of its own there, and any order the typed build walks it in is one a
+// CPython run could give. typed_guard::check_soft lets such walks through; these marks make rustc prove the
+// element type. ----
+pub trait AxRandElem {}
+impl AxRandElem for String {}
+impl AxRandElem for &str {}
+impl<T: AxRandElem> AxRandElem for Vec<T> {}
+impl<A: AxRandElem> AxRandElem for (A,) {}
+impl<A: AxRandElem, B> AxRandElem for (A, B) {}
+impl<A: AxRandElem, B, C> AxRandElem for (A, B, C) {}
+impl<A: AxRandElem, B, C, D> AxRandElem for (A, B, C, D) {}
+impl<A: AxRandElem, B, C, D, E> AxRandElem for (A, B, C, D, E) {}
+pub trait AxRandSet {}
+impl<T: AxRandElem> AxRandSet for Vec<T> {}
+impl<T: AxRandElem> AxRandSet for AxSet<T> {}
+impl<T: AxRandElem> AxRandSet for AxQueue<T> {}
+impl<K: AxRandElem, V> AxRandSet for AxM<K, V> {}
+// set(word): its letters.
+impl AxRandSet for String {}
+pub trait AxRandHolder {}
+impl<K, S: AxRandSet> AxRandHolder for AxM<K, S> {}
+impl<S: AxRandSet> AxRandHolder for Vec<S> {}
+pub fn ax_rand_set<T: AxRandSet + ?Sized>(_: &T) {}
+pub fn ax_rand_holder<T: AxRandHolder + ?Sized>(_: &T) {}
 // ---- queue: a Python deque (or a list taken from the front) whose popleft is O(1) ----
 pub struct AxQueue<T>(std::collections::VecDeque<T>);
 impl<T: Clone + PartialEq> AxQueue<T> {
