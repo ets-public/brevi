@@ -1,101 +1,43 @@
-# random for sandboxed builds (src/dynpy/mod.rs): CPython's Mersenne Twister, so a seeded program draws the
-# same numbers as in CPython. Int seeds only (a str or float seed, which CPython hashes, is refused).
+# random for native builds (src/dynpy/mod.rs): CPython's Mersenne Twister (its core in rt_rand.rs), so a
+# seeded program draws the same numbers as in CPython. Int seeds only (a str or float seed, which CPython hashes, is refused).
 import math
 import time
+import _brevi_mt
 
 
 class Random:
     def __init__(self, x=None):
-        self._mt = [0] * 624
-        self._i = 624
+        self._st = _brevi_mt.new()
         self.gauss_next = None
         self.seed(x)
-
-    def _init_genrand(self, s):
-        mt = self._mt
-        mt[0] = s & 0xFFFFFFFF
-        for i in range(1, 624):
-            p = mt[i - 1]
-            mt[i] = (1812433253 * (p ^ (p >> 30)) + i) & 0xFFFFFFFF
-        self._i = 624
 
     def seed(self, a=None, version=2):
         if a is None:
             a = int(time.time() * 1000000)
         if isinstance(a, bool) or not isinstance(a, int):
-            raise TypeError("Brevi's sandboxed random takes an int seed (or none); add `# allow native` to seed with " + type(a).__name__)
+            raise TypeError("Brevi's own random takes an int seed (or none); add `# allow native` to seed with " + type(a).__name__)
         a = abs(a)
         key = []
         while a > 0:
             key.append(a & 0xFFFFFFFF)
             a = a >> 32
-        if len(key) == 0:
-            key = [0]
-        self._init_genrand(19650218)
-        mt = self._mt
-        i = 1
-        j = 0
-        k = 624
-        if len(key) > k:
-            k = len(key)
-        while k > 0:
-            p = mt[i - 1]
-            mt[i] = ((mt[i] ^ ((p ^ (p >> 30)) * 1664525)) + key[j] + j) & 0xFFFFFFFF
-            i += 1
-            j += 1
-            if i >= 624:
-                mt[0] = mt[623]
-                i = 1
-            if j >= len(key):
-                j = 0
-            k -= 1
-        k = 623
-        while k > 0:
-            p = mt[i - 1]
-            mt[i] = ((mt[i] ^ ((p ^ (p >> 30)) * 1566083941)) - i) & 0xFFFFFFFF
-            i += 1
-            if i >= 624:
-                mt[0] = mt[623]
-                i = 1
-            k -= 1
-        mt[0] = 0x80000000
-        self._i = 624
+        _brevi_mt.seed(self._st, key)
         self.gauss_next = None
 
-    def _next(self):
-        mt = self._mt
-        if self._i >= 624:
-            for kk in range(624):
-                y = (mt[kk] & 0x80000000) | (mt[(kk + 1) % 624] & 0x7FFFFFFF)
-                v = mt[(kk + 397) % 624] ^ (y >> 1)
-                if y & 1:
-                    v = v ^ 0x9908B0DF
-                mt[kk] = v
-            self._i = 0
-        y = mt[self._i]
-        self._i += 1
-        y = y ^ (y >> 11)
-        y = y ^ ((y << 7) & 0x9D2C5680)
-        y = y ^ ((y << 15) & 0xEFC60000)
-        y = y ^ (y >> 18)
-        return y
-
     def random(self):
-        a = self._next() >> 5
-        b = self._next() >> 6
-        return (a * 67108864.0 + b) * (1.0 / 9007199254740992.0)
+        return _brevi_mt.random(self._st)
 
     def getrandbits(self, k):
         if k < 0:
             raise ValueError("number of bits must be non-negative")
         if k == 0:
             return 0
-        if k <= 32:
-            return self._next() >> (32 - k)
+        if k <= 63:
+            return _brevi_mt.bits(self._st, k)
         r = 0
         shift = 0
         while k > 0:
-            w = self._next()
+            w = _brevi_mt.next(self._st)
             if k < 32:
                 w = w >> (32 - k)
             r = r | (w << shift)
@@ -104,6 +46,8 @@ class Random:
         return r
 
     def _randbelow(self, n):
+        if n < 9223372036854775807:
+            return _brevi_mt.below(self._st, n)
         k = n.bit_length()
         r = self.getrandbits(k)
         while r >= n:
@@ -139,6 +83,9 @@ class Random:
         return seq[self._randbelow(len(seq))]
 
     def shuffle(self, x):
+        if type(x) is list:
+            _brevi_mt.shuffle(self._st, x)
+            return
         i = len(x) - 1
         while i > 0:
             j = self._randbelow(i + 1)

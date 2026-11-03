@@ -18,6 +18,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_glue.rs"),
     include_str!("rt_gen.rs"),
     include_str!("rt_enum.rs"),
+    include_str!("rt_rand.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -138,10 +139,8 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
             }
             let p = dir.join(format!("{m}.py"));
             // Outside the sandbox too, when every use of these modules is one Brevi's copies have (checked
-            // over all the program's files below): path text.
-            // (Not random: the copy draws about 25 times slower than CPython's C one, so outside the sandbox
-            // CPython's stays.)
-            if !p.exists() && (crate::pybridge::no_native() || (own_ok && m != "random")) {
+            // over all the program's files below). random's generator core is native (rt_rand.rs).
+            if !p.exists() && (crate::pybridge::no_native() || own_ok) {
                 if let Some(src) = sandbox_module(&m) {
                     own_used = true;
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
