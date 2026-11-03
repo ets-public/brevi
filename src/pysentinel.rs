@@ -223,7 +223,7 @@ fn safe(body: &[Stmt], n: &str) -> bool {
             }
         })
     });
-    if !none_ok {
+    if !none_ok || makes_none(body, &paired) {
         return false;
     }
     // No carrier is tested for truth.
@@ -247,6 +247,70 @@ fn safe(body: &[Stmt], n: &str) -> bool {
         });
     });
     !tested
+}
+
+// Could a value the program passes around be None, which the sentinel would then be mistaken for
+// (`get(k, None)` against `if default is MISSING`)? Yes for a None literal anywhere but a paired or re test
+// (or `d.pop(k, None)` as a statement, whose value is dropped), a parameter defaulting to None, a one-argument
+// `.get(k)` or `.setdefault(k)`, and the value of a call to a function that may end without a value.
+fn makes_none(body: &[Stmt], paired: &HashSet<*const Ex>) -> bool {
+    // Functions (and methods) that may give None: a bare `return`, or a last statement that is not a return
+    // or raise.
+    let mut gives_none: HashSet<String> = HashSet::new();
+    each_stmt(body, &mut |s| {
+        if let St::Def(d) = &s.st {
+            let mut bare = !matches!(d.body.last().map(|s| &s.st), Some(St::Return(Some(_)) | St::Raise(..)));
+            each_stmt(&d.body, &mut |x| bare |= matches!(x.st, St::Return(None)));
+            if bare {
+                gives_none.insert(d.name.clone());
+            }
+        }
+    });
+    let mut found = false;
+    // Allowed None literals, by address: in paired or re tests, and `d.pop(k, None)` statements.
+    let mut ok_none: HashSet<*const Ex> = HashSet::new();
+    let mut dropped: HashSet<*const Ex> = HashSet::new();
+    each_stmt(body, &mut |s| {
+        if let St::Expr(e) = &s.st {
+            dropped.insert(e as *const Ex);
+            if let Ex::Call(f, args) = e {
+                if let (Ex::Attr(_, m), [Arg::Pos(_), Arg::Pos(x @ Ex::NoneV)]) = (f.as_ref(), args.as_slice()) {
+                    if m == "pop" {
+                        ok_none.insert(x as *const Ex);
+                    }
+                }
+            }
+        }
+        if let St::Def(d) = &s.st {
+            found |= d.params.pos.iter().chain(&d.params.kwonly).any(|p| matches!(p.1, Some(Ex::NoneV)));
+        }
+        walk_st(&s.st, &mut |e| {
+            if let Ex::Cmp(l, ops) = e {
+                if paired.contains(&(e as *const Ex)) || none_test(e).is_some_and(|(x, _)| re_call(x)) {
+                    ok_none.insert(l.as_ref() as *const Ex);
+                    ops.iter().for_each(|(_, x)| {
+                        ok_none.insert(x as *const Ex);
+                    });
+                }
+            }
+        });
+    });
+    each_stmt(body, &mut |s| {
+        walk_st(&s.st, &mut |e| match e {
+            Ex::NoneV => found |= !ok_none.contains(&(e as *const Ex)),
+            Ex::Lambda(p, _) => found |= p.pos.iter().any(|x| matches!(x.1, Some(Ex::NoneV))),
+            Ex::Call(f, args) => {
+                let used = !dropped.contains(&(e as *const Ex));
+                match f.as_ref() {
+                    Ex::Attr(_, m) if args.len() == 1 && matches!(m.as_str(), "get" | "setdefault") => found = true,
+                    Ex::Attr(_, m) | Ex::Name(m) if used && gives_none.contains(m) => found = true,
+                    _ => {}
+                }
+            }
+            _ => {}
+        })
+    });
+    found
 }
 
 // The lines with `n = object()` made `pass` and every other `n` in code made None (strings and comments
@@ -335,6 +399,11 @@ mod tests {
         assert!(!swapped("M = object()\nprint(M)\n"));
         assert!(!swapped("M = object()\nprint(f'{M}')\n"));
         assert_eq!(rewrite("M = object()  # M marks none\nx = 'M'\nprint(x is M)\n"), "pass\nx = 'M'\nprint(x is None)\n");
+        // None passed on as a value, told apart from the sentinel: rewriting would make the two one.
+        assert!(!swapped("M = object()\ndef get(d, k, default=M):\n    if k in d:\n        return d[k]\n    if default is M:\n        raise KeyError(k)\n    return default\nprint(get({}, 'a', None))\n"));
+        assert!(!swapped("M = object()\ndef f(x=M):\n    if x is M:\n        return 'unset'\n    return 'set'\nprint(f(None), f())\n"));
+        assert!(!swapped("M = object()\nd = {}\nv = d.get('k')\nprint(v is M)\n"));
+        assert!(!swapped("M = object()\ndef g():\n    pass\nv = g()\nprint(v is M)\n"));
         // Set twice.
         assert!(!swapped("M = object()\nM = object()\nprint(1 is M)\n"));
     }
