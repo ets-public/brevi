@@ -1326,6 +1326,8 @@ fn direct_wb(r: &str, st: &Stmt) -> bool {
     };
     direct(r, st)
         || match st {
+            // `for row in t[2]: row[1] = v` changes t's own rows.
+            Stmt::Expr { expr: Expr::For(Pat::Bind(x), iter, body), .. } if root(iter) == Some(r) && crate::emit::changes_in_place(body, x) => true,
             Stmt::Expr { expr, .. } => passes(expr),
             Stmt::Assign { value, .. } | Stmt::Let { value, .. } => passes(value),
             _ => false,
@@ -1386,7 +1388,12 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
         }
     }
     if let Some(t) = tail {
-        if matches!(t.as_ref(), Expr::For(..) | Expr::While(..)) && quiet_loop(t, wb) && any_expr(t, &mut |s| direct_wb(r, s)) {
+        let line0 = match wb {
+            Stmt::Assign { line, .. } => *line,
+            _ => 0,
+        };
+        let as_st = Stmt::Expr { expr: (**t).clone(), line: line0 };
+        if matches!(t.as_ref(), Expr::For(..) | Expr::While(..)) && (quiet_loop(t, wb) && any_expr(t, &mut |s| direct_wb(r, s)) || direct_wb(r, &as_st)) {
             let line = match wb {
                 Stmt::Assign { line, .. } => *line,
                 _ => 0,

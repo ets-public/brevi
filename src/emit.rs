@@ -627,6 +627,11 @@ fn changes(e: &Expr, name: &str) -> bool {
     if assigns_to(e, name) {
         return true;
     }
+    changes_in_place(e, name)
+}
+
+// `row[i] = v`, `p.x = v` or `row.append(v)`: the item itself changes (not the name rebound).
+pub(crate) fn changes_in_place(e: &Expr, name: &str) -> bool {
     let d = format!("{e:?}");
     // `row[i] = v` or `p.x = v` changes the item itself.
     if d.contains(&format!("target: Index(Ident({name:?})")) || d.contains(&format!("target: Field(Ident({name:?})")) || d.contains(&format!("target: TupleField(Ident({name:?})")) {
@@ -2233,7 +2238,7 @@ impl Emitter {
             Expr::Match(subj, arms) => self.match_expr(subj, arms, false),
             Expr::For(p, iter, body) => {
                 // Assigning to the loop variable edits the list in place.
-                if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..)) = (p, iter.as_ref()) {
+                if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..) | Expr::TupleField(..)) = (p, iter.as_ref()) {
                     // (Not when the body also reads the list's owner: it then works on a copy of each row.)
                     let root_read = root_name(iter).map_or(false, |r| { let t = format!("{body:?}"); t.contains(&format!("Ident({r:?})")) || t.contains(&format!("Move({r:?})")) });
                     if changes(body, n) && root_name(iter).is_some() && !root_read {
@@ -2245,6 +2250,10 @@ impl Emitter {
                         let lab = self.close_loop();
                         self.refs.remove(n);
                         return format!("{lab}for {n} in {it}.iter_mut() {b}");
+                    }
+                    // Python changes the list's own items (`r[1] = v` on each row); a copy of each row would lose that.
+                    if crate::infer::py_on() && root_read && changes_in_place(body, n) && !matches!(self.infer_ty(iter), Some(Ty::List(x)) if matches!(x.as_ref(), Ty::Named(k) if k != "Json")) {
+                        self.diag(self.line, &format!("the loop changes each item of a list in place ({n}[...] = ...) while also reading the list's owner"), None);
                     }
                 }
                 let it = match iter.as_ref() {
