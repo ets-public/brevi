@@ -1,0 +1,4 @@
+{"line":2,"msg":"no Python type has a method .uppr()","fix":"did you mean .upper()?"}
+check exit 1
+{"line":2,"msg":"no Python type has a method .uppr()","fix":"did you mean .upper()?"}
+run exit 1

@@ -16,6 +16,7 @@ mod mcp;
 mod modules;
 mod parser;
 mod pybridge;
+mod pydiag;
 mod patch;
 mod typed_guard;
 mod pygen;
@@ -25,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.bv [--release] [--fast] [--native] [--sandbox] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE.bv PATCH.bv | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -138,6 +139,10 @@ fn main() {
         mcp::serve();
         return;
     }
+    if matches!(argv.first().map(|a| a.as_str()), Some("--help" | "-h" | "help")) {
+        println!("{USAGE}");
+        return;
+    }
     if matches!(argv.first().map(|a| a.as_str()), Some("--version" | "version")) {
         println!("brevi {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -218,6 +223,14 @@ fn main() {
             exit(0);
         }
         if let Some((line, why)) = guard {
+            // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
+            if cmd != "emit" {
+                let sure = std::fs::read_to_string(&file).map(|t| pydiag::scan(&t, Path::new(&file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
+                if !sure.is_empty() {
+                    sure.iter().for_each(print_diag);
+                    exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
+                }
+            }
             if cmd == "emit" {
                 dyn_cmd(cmd, &file, &argv);
             }
@@ -319,6 +332,19 @@ fn main() {
     let rust = match compile_to_rust(&src, true, true) {
         Ok(r) => r,
         Err(diags) => {
+            // A mistake CPython would also stop on (a name defined nowhere, `x.uppr()`, `"n=" + len(xs)`) is
+            // reported, not handed to the dynamic build, where it would only show when the line ran.
+            let dir = Path::new(&file).parent().unwrap_or(Path::new("."));
+            let sure = if file.ends_with(".py") {
+                Some(pydiag::definite(&diags, &src, dir)).filter(|s| !s.is_empty()).unwrap_or_else(|| pydiag::scan(&src, dir))
+            } else {
+                vec![]
+            };
+            if !sure.is_empty() {
+                sure.iter().for_each(print_diag);
+                // `brevi run` asks for its own exit code here, so it shows the error instead of running CPython.
+                exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
+            }
             if dyn_ok && dyn_fallback(cmd, &file, &argv) {
                 exit(0);
             }
@@ -470,7 +496,7 @@ fn run_or_fall_back(file: &str, argv: &[String]) -> ! {
     let bin = build_dir(file).join(&stem);
     let flags: Vec<&String> = argv[2..dash].iter().filter(|a| matches!(a.as_str(), "--release" | "--sandbox" | "--window" | "--explain")).collect();
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
-    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").output();
+    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").env("BREVI_SURE_EXIT", "3").output();
     let code = match built {
         Ok(o) if o.status.success() => {
             std::io::stderr().write_all(&o.stderr).ok();
@@ -481,6 +507,12 @@ fn run_or_fall_back(file: &str, argv: &[String]) -> ! {
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
+            // A mistake CPython would also stop on: show it, as a compiler would, instead of running the file.
+            if o.status.code() == Some(3) {
+                print!("{out}");
+                std::io::stderr().write_all(&o.stderr).ok();
+                exit(1);
+            }
             let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
             match Command::new(&python).arg(file).args(&prog_args).spawn() {
                 Ok(mut child) => {
