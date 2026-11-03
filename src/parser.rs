@@ -3883,7 +3883,28 @@ fn dict_with_base(body: &mut Expr) {
 }
 
 fn lambdas_to_defs(body: &mut Expr, kids: &mut Vec<Item>, line: usize, skip: &[String]) {
+    let whole = body.clone();
+    lambdas_in_block(body, &whole, kids, line, skip);
+}
+
+// lambdas_to_defs for one block and the loop and if bodies inside it (`for l in lines: ok = lambda q: ...`),
+// counting a name's uses over the whole body.
+fn lambdas_in_block(body: &mut Expr, whole: &Expr, kids: &mut Vec<Item>, line: usize, skip: &[String]) {
     let Expr::Block(stmts, tail) = body else { return };
+    for st in stmts.iter_mut() {
+        if let Stmt::Expr { expr, .. } = st {
+            match expr {
+                Expr::For(_, _, b) | Expr::While(_, b) => lambdas_in_block(b, whole, kids, line, skip),
+                Expr::If(_, t, f) => {
+                    lambdas_in_block(t, whole, kids, line, skip);
+                    if let Some(f) = f {
+                        lambdas_in_block(f, whole, kids, line, skip);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     let mut i = 0;
     while i < stmts.len() {
         // `up = (lambda s: s.upper()) if by == 'w' else (lambda s: s)`: the condition is kept in `up_cond`
@@ -3913,7 +3934,8 @@ fn lambdas_to_defs(body: &mut Expr, kids: &mut Vec<Item>, line: usize, skip: &[S
         // Set once, and never read as a value (`key=bad`, `f = bad`) or named by a nested def already.
         let mut sets = 0;
         let mut idents = 0;
-        let mut whole = Expr::Block(stmts.clone(), tail.clone());
+        let _ = &tail;
+        let mut whole = whole.clone();
         walk_mut(&mut whole, &mut |e| match e {
             Expr::Ident(x) | Expr::Move(x) if *x == n => idents += 1,
             Expr::Block(ss, _) => {
