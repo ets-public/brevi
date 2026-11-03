@@ -8,7 +8,7 @@ Brevi is built for the agent in the loop. The agent writes the plain Python it a
 1. Write normal Python to `main.py`. Standard library, or installed packages; split big programs into `.py` files that import each other.
 2. Run it: `brevi run main.py < input.txt`, or `brevi check main.py` to build without running.
 3. Each error is `{"line":N,"msg":...,"fix":...}`. Change only the lines it names, then run again. Do not rewrite the whole file.
-4. If Brevi still cannot build a construct after one small change, keep the Python as it is and run it with `python3`. `brevi run` already does this on its own, with a one-line note.
+4. If Brevi still cannot build a construct after one small change, keep the Python as it is and run it with `python3`. `brevi run` already does this on its own, with a one-line `{"path":"cpython",...}` report.
 
 That is the whole contract, and it is what the skill, the MCP server and llms.txt all tell an agent.
 
@@ -61,6 +61,8 @@ The server **keeps the program**. The agent sends its code once, then fixes it w
 | `guide` | The Brevi language guide, or only the lines about one word. Not needed for Python. |
 
 The tools sandbox by default: a program that reads or writes files must declare `allow read` or `allow write`, and from v0.24.1 one that imports a Python library CPython runs (numpy, requests, subprocess, ...) must declare `allow native`. Pass `sandbox: false` to turn that off.
+
+**Every `check`, `run` and `patch`/`edit` result says which path built the program**, in the result's `structuredContent`: `{"path":"typed"}` on the fast path, or `pybridge`, `dynamic` or `cpython` with `why`, `line`, `fn` (and `file`) naming the code that kept it off the typed path. When the path is not `typed`, the same JSON line is also the last line of the text, so a client that ignores structured results still sees it. To get the typed path back, rewrite only the function it names.
 
 ### Limits
 

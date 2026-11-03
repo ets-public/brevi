@@ -1,4 +1,4 @@
-note: ran with python3; Brevi could not build line 2: unknown function exec()
+{"path":"cpython","line":2,"why":"Brevi could not build it: unknown function exec()","by":"python3"}
 [1, 2, 3]
 done
 native exit 1

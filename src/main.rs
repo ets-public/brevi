@@ -222,10 +222,10 @@ fn main() {
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
         let guard = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
-            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w)| format!("dyn {l}: {w}")));
+            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w, _)| format!("dyn {l}: {w}")));
             exit(0);
         }
-        if let Some((line, why)) = guard {
+        if let Some((line, why, gfile)) = guard {
             // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
             if cmd != "emit" {
                 let sure = std::fs::read_to_string(&file).map(|t| pydiag::scan(&t, Path::new(&file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
@@ -237,9 +237,15 @@ fn main() {
             if cmd == "emit" {
                 dyn_cmd(cmd, &file, &argv);
             }
-            if dyn_fallback(cmd, &file, &argv) {
+            let gsrc = std::fs::read_to_string(&gfile).unwrap_or_default();
+            let gname = gfile.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let main_file = Path::new(&file).file_name().map(|n| n.to_string_lossy().to_string()) == Some(gname.clone());
+            let gshown = if main_file { String::new() } else { gname.clone() };
+            let gwhy = format!("{}, so the typed build would differ from CPython", why.split_once(": ").filter(|_| !main_file).map_or(why.as_str(), |(_, w)| w));
+            if dyn_fallback(cmd, &file, &argv, (gshown, line, enclosing_def(&gsrc, line), gwhy, String::new(), false)) {
                 exit(0);
             }
+            dyn_blocked_note();
             let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
             if why.contains(" set") {
                 d.fix = Some("sort it first (sorted(s)) where the order shows".into());
@@ -348,9 +354,11 @@ fn main() {
                 // A test hook: tools that scan many files tell these refusals apart by exit code 3.
                 exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
             }
-            if dyn_ok && dyn_fallback(cmd, &file, &argv) {
+            let (line, func, why, extra) = typed_refusal(&diags, &src);
+            if dyn_ok && dyn_fallback(cmd, &file, &argv, (String::new(), line, func, why, extra, true)) {
                 exit(0);
             }
+            dyn_blocked_note();
             for d in diags {
                 print_diag(&d);
             }
@@ -361,9 +369,11 @@ fn main() {
         DEFER_REPORT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let fail = |cmd: &str| -> ! {
-        if dyn_ok && dyn_fallback(cmd, &file, &argv) {
+        let why = DEFERRED.lock().unwrap().as_ref().map_or_else(|| "the typed build's Rust did not compile".to_string(), |(_, e)| rustc_first_error(e));
+        if dyn_ok && dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
             exit(0);
         }
+        dyn_blocked_note();
         if let Some((rust, stderr)) = DEFERRED.lock().unwrap().take() {
             report(&rust, &stderr);
         }
@@ -372,12 +382,19 @@ fn main() {
 
     match cmd {
         "emit" => print!("{rust}"),
-        "check" | "fix" if fast => {}
+        "check" | "fix" if fast => {
+            if cmd == "check" {
+                say_typed();
+            }
+        }
         "check" | "fix" => {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
             if !rustc(&versions, &dir, &dir.join("check"), &["--emit=metadata"], false) {
                 fail(cmd);
+            }
+            if cmd == "check" {
+                say_typed();
             }
         }
         "build" | "run" | "test" => {
@@ -406,7 +423,11 @@ fn main() {
                         }
                     }
                 }
+                say_typed();
                 return;
+            }
+            if cmd == "run" {
+                say_typed();
             }
             let mut c = proc::program(&bin);
             if cmd == "test" {
@@ -453,11 +474,21 @@ fn hold_to_caps(file: &str, sandbox: bool) -> bool {
 
 // The dynamic build for a Python file the typed path could not build: false (nothing printed) if it cannot
 // be built that way either. For run, runs the program and exits with its status.
-fn dyn_fallback(cmd: &str, file: &str, argv: &[String]) -> bool {
+// `why` is the path report's (file when not the main one, line, fn, why, more JSON fields, whether line is in
+// the joined source).
+type Why = (String, usize, Option<String>, String, String, bool);
+
+fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     if std::env::var("BREVI_DYN").map_or(false, |v| v == "0") {
         return false;
     }
-    let Ok(rust) = dynpy::to_rust(file) else { return false };
+    let rust = match dynpy::to_rust(file) {
+        Ok(r) => r,
+        Err((f, line, msg)) => {
+            *DYN_BLOCKED.lock().unwrap() = Some((f, line, msg));
+            return false;
+        }
+    };
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let release = argv[..dash].iter().any(|a| a == "--release");
     let dir = build_dir(file);
@@ -468,8 +499,11 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String]) -> bool {
         if std::env::var("BREVI_DYN_DEBUG").is_ok() {
             eprintln!("{e}");
         }
+        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, "internal: the dynamic build's code did not compile".into()));
         return false;
     }
+    let (wfile, line, func, why, extra, relocate) = why;
+    say_path("dynamic", &wfile, line, func, &why, &extra, relocate);
     if cmd == "run" {
         let status = proc::program(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
             println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
@@ -478,6 +512,21 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String]) -> bool {
         exit(proc::code(status));
     }
     true
+}
+
+// Why the dynamic build refused the file (file, line, msg), for the path report of a CPython run.
+static DYN_BLOCKED: std::sync::Mutex<Option<(String, usize, String)>> = std::sync::Mutex::new(None);
+
+// For `brevi run`'s strict child build (BREVI_DYN_WHY=1): why the dynamic build refused the file, as
+// {"dyn_blocked":...} on stderr; the parent puts it in its {"path":"cpython"} line.
+fn dyn_blocked_note() {
+    if !std::env::var("BREVI_DYN_WHY").is_ok_and(|v| v == "1") {
+        return;
+    }
+    if let Some((f, line, msg)) = DYN_BLOCKED.lock().unwrap().as_ref() {
+        let name = Path::new(f).file_name().unwrap_or_default().to_string_lossy();
+        eprintln!("{{\"dyn_blocked\":{{\"file\":\"{}\",\"line\":{line},\"msg\":\"{}\"}}}}", esc(&name), esc(msg));
+    }
 }
 
 // Builds (and runs) a Python file through the dynamic-value path. Never returns.
@@ -504,6 +553,7 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
         eprintln!("{e}");
         exit(1);
     }
+    say_path("dynamic", "", 0, None, "BREVI_DYN=1", "", false);
     if cmd == "build" {
         exit(0);
     }
@@ -535,7 +585,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         flags.push("--explain".into());
     }
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
-    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").output();
+    let built = Command::new(&me).arg("build").arg(file).arg("-o").arg(&bin).args(&flags).env("BREVI_NATIVE", "1").env("BREVI_DYN_WHY", "1").output();
     let code = match built {
         Ok(o) if o.status.success() => {
             std::io::stderr().write_all(&o.stderr).ok();
@@ -555,7 +605,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
             let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
             match proc::program(&python).arg(file).args(&prog_args).spawn() {
                 Ok(mut child) => {
-                    eprintln!("note: ran with {python}; Brevi could not build {}", first_error(&out));
+                    say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
                     child.wait().map(proc::code).unwrap_or(1)
                 }
                 Err(_) => {
@@ -574,41 +624,158 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     exit(code)
 }
 
-// "line N: msg" from the first JSON error line of a failed build (or "it" when there is none).
-fn first_error(out: &str) -> String {
-    let field = |l: &str, k: &str| -> Option<String> {
-        let i = l.find(&format!("\"{k}\":"))? + k.len() + 3;
-        let rest = &l[i..];
-        if let Some(r) = rest.strip_prefix('"') {
-            let mut v = String::new();
-            let mut esc = false;
-            for c in r.chars() {
-                match (esc, c) {
-                    (true, 'n') => v.push(' '),
-                    (true, c) => v.push(c),
-                    (false, '\\') => {
-                        esc = true;
-                        continue;
-                    }
-                    (false, '"') => break,
-                    (false, c) => v.push(c),
-                }
-                esc = false;
-            }
-            Some(v)
-        } else {
-            Some(rest.chars().take_while(|c| c.is_ascii_digit()).collect())
-        }
+// Which path a build took (docs/ARCHITECTURE.md, "Which path ran"), as one JSON line on stderr:
+//   typed    typed native code (the fast path)
+//   pybridge typed native code; the Python libraries it imports run in CPython through libpython
+//   dynamic  native code over dynamic values: the typed build was refused, `line`/`fn`/`why` say where and why
+//   cpython  run by python3: Brevi could not build the file either way
+// Printed for Python files on paths other than typed; --explain or BREVI_PATH=1 print it always (also for .bv
+// files and BREVI_DYN=1 builds), BREVI_PATH=0 never.
+// `extra` is more JSON fields (",\"py\":[...]").
+fn say_path(path: &str, file: &str, line: usize, func: Option<String>, why: &str, extra: &str, relocate: bool) {
+    let shown = match std::env::var("BREVI_PATH").ok().as_deref() {
+        Some("0") => false,
+        Some("1") => true,
+        _ => EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) || (path != "typed" && PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && !forced_dyn()),
     };
-    for l in out.lines().filter(|l| l.starts_with('{')) {
-        if let Some(msg) = field(l, "msg") {
-            return match field(l, "line") {
-                Some(n) if !n.is_empty() => format!("line {n}: {msg}"),
-                _ => msg,
-            };
+    if !shown {
+        return;
+    }
+    let mut s = format!("{{\"path\":\"{path}\"");
+    if !file.is_empty() {
+        s.push_str(&format!(",\"file\":\"{}\"", esc(file)));
+    }
+    if line > 0 {
+        s.push_str(&format!(",\"line\":{line}"));
+    }
+    if let Some(f) = func {
+        s.push_str(&format!(",\"fn\":\"{}\"", esc(&f)));
+    }
+    if !why.is_empty() {
+        s.push_str(&format!(",\"why\":\"{}\"", esc(why)));
+    }
+    s.push_str(extra);
+    s.push('}');
+    eprintln!("{}", if relocate { at(&s) } else { s });
+}
+
+fn forced_dyn() -> bool {
+    std::env::var("BREVI_DYN").is_ok_and(|v| v == "1")
+}
+
+// The typed path's own report: typed, or pybridge naming what CPython runs.
+fn say_typed() {
+    if pybridge::active() {
+        let uses = pybridge::uses();
+        let list = uses.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(",");
+        let why = if uses.is_empty() { "library calls run in CPython".to_string() } else { format!("{} run in CPython", uses.join(", ")) };
+        say_path("pybridge", "", 0, None, &why, &format!(",\"py\":[{list}]"), false);
+    } else {
+        say_path("typed", "", 0, None, "", "", false);
+    }
+}
+
+// Why the typed build was refused, from its first error; with --explain, the other errors too (",\"also\":[...]").
+fn typed_refusal(diags: &[Diag], src: &str) -> (usize, Option<String>, String, String) {
+    let Some(d) = diags.first() else { return (0, None, "typed build refused".into(), String::new()) };
+    let mut extra = String::new();
+    if EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(f) = &d.fix {
+            extra.push_str(&format!(",\"fix\":\"{}\"", esc(f)));
+        }
+        let more: Vec<String> = diags[1..].iter().take(5).map(|d| at(&d.to_json())).collect();
+        if !more.is_empty() {
+            extra.push_str(&format!(",\"also\":[{}]", more.join(",")));
         }
     }
-    "it".into()
+    (d.line, def_at_joined(src, d.line), d.msg.clone(), extra)
+}
+
+// enclosing_def for a line of the joined source (main file and its modules), looked up in the file it is in.
+fn def_at_joined(src: &str, line: usize) -> Option<String> {
+    let segs = SEGS.get().filter(|s| s.len() > 1);
+    let Some(segs) = segs else { return enclosing_def(src, line) };
+    let (f, l) = modules::locate(segs, line);
+    if f.is_empty() {
+        return enclosing_def(src, line);
+    }
+    let seg = segs.iter().find(|s| s.file == f)?;
+    enclosing_def(&std::fs::read_to_string(&seg.path).ok()?, l)
+}
+
+// The def (or class method, `Board.move`) a line is in; None at the top level.
+fn enclosing_def(src: &str, line: usize) -> Option<String> {
+    let lines: Vec<&str> = src.lines().collect();
+    let first = *lines.get(line.checked_sub(1)?)?;
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let name = |t: &str| -> Option<(bool, String)> {
+        let t = t.strip_prefix("async ").unwrap_or(t);
+        let (def, r) = if let Some(r) = t.strip_prefix("def ").or_else(|| t.strip_prefix("fn ")) {
+            (true, r)
+        } else {
+            (false, t.strip_prefix("class ")?)
+        };
+        let n: String = r.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        (!n.is_empty()).then_some((def, n))
+    };
+    let mut names: Vec<(bool, String)> = vec![];
+    let mut level = indent(first);
+    if let Some(n) = name(first.trim_start()) {
+        names.push(n);
+    }
+    for l in lines[..line - 1].iter().rev() {
+        let t = l.trim_start();
+        if t.is_empty() || t.starts_with('#') || indent(l) >= level {
+            continue;
+        }
+        level = indent(l);
+        if let Some(n) = name(t) {
+            names.push(n);
+        }
+        if level == 0 {
+            break;
+        }
+    }
+    // Innermost def and the classes and defs around it.
+    let k = names.iter().position(|(def, _)| *def)?;
+    let mut parts: Vec<String> = names[k..].iter().map(|(_, n)| n.clone()).collect();
+    parts.reverse();
+    Some(parts.join("."))
+}
+
+// The first error of a failed rustc run over the typed build's code, in one line.
+fn rustc_first_error(stderr: &str) -> String {
+    for l in stderr.lines() {
+        if let Some(j) = json::parse(l) {
+            if j.get("level").and_then(|v| v.str()) == Some("error") {
+                if let Some(m) = j.get("message").and_then(|v| v.str()) {
+                    return format!("the typed build's Rust did not compile ({m})");
+                }
+            }
+        } else if let Some(m) = l.strip_prefix("error") {
+            return format!("the typed build's Rust did not compile ({})", m.trim_start_matches(|c| c != ':').trim_start_matches(':').trim());
+        }
+    }
+    "the typed build's Rust did not compile".into()
+}
+
+// The path report of a run handed to CPython: where and why Brevi's build stopped (its first error, from the
+// strict child build's stdout) and, with --explain, why the dynamic build refused the file too.
+fn say_cpython(file: &str, python: &str, out: &str, err: &str) {
+    let first = out.lines().filter(|l| l.starts_with('{')).filter_map(json::parse).find(|j| j.get("msg").is_some());
+    let get = |k: &str| first.as_ref().and_then(|j| j.get(k)).and_then(|v| v.str()).unwrap_or("").to_string();
+    let line = first.as_ref().and_then(|j| j.get("line")).and_then(|v| v.num()).unwrap_or(0.0) as usize;
+    let dir = Path::new(file).parent().unwrap_or(Path::new("."));
+    let in_file = get("file");
+    let src = std::fs::read_to_string(if in_file.is_empty() { PathBuf::from(file) } else { dir.join(&in_file) }).unwrap_or_default();
+    let mut extra = format!(",\"by\":\"{}\"", esc(python));
+    if EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(d) = err.lines().find_map(|l| l.strip_prefix("{\"dyn_blocked\":").and_then(|r| r.strip_suffix('}'))) {
+            extra.push_str(&format!(",\"dynamic\":{d}"));
+        }
+    }
+    let why = if first.is_some() { format!("Brevi could not build it: {}", get("msg")) } else { "Brevi could not build it".into() };
+    say_path("cpython", &in_file, line, if line > 0 { enclosing_def(&src, line) } else { None }, &why, &extra, false);
 }
 
 // Applies the edits that front-end errors suggest, a round at a time, until the program passes the front end.
@@ -983,7 +1150,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 
 // None when rustc could not be started.
 // The typed-build guard over the file and the local modules it imports (directly or through each other).
-fn guard_files(file: &str) -> Option<(usize, String)> {
+fn guard_files(file: &str) -> Option<(usize, String, PathBuf)> {
     let dir = Path::new(file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let mut todo = vec![PathBuf::from(file)];
     let mut seen: Vec<PathBuf> = vec![];
@@ -996,7 +1163,7 @@ fn guard_files(file: &str) -> Option<(usize, String)> {
         let src = if seen.len() == 1 { pygen::rewrite(&src) } else { src };
         if let Some((line, why)) = typed_guard::check(&src) {
             let why = if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
-            return Some((line, why));
+            return Some((line, why, f));
         }
         for l in src.lines() {
             let t = l.trim_start();
@@ -1593,4 +1760,34 @@ pub fn python_style(src: &str) -> bool {
             || (l.starts_with("with ") && l.contains(" as "))
             || (word(l, "open") && l.contains("open("))
     })
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn enclosing_def_names_the_function() {
+        let src = "import sys\n\nclass Board:\n    def move(self, n):\n        xs = [1]\n        # note\n\n        return xs\n\ndef main():\n    def inner():\n        return 1\n    return inner()\nprint(main())\n";
+        assert_eq!(enclosing_def(src, 1), None);
+        assert_eq!(enclosing_def(src, 3), None);
+        assert_eq!(enclosing_def(src, 4).as_deref(), Some("Board.move"));
+        assert_eq!(enclosing_def(src, 5).as_deref(), Some("Board.move"));
+        assert_eq!(enclosing_def(src, 8).as_deref(), Some("Board.move"));
+        assert_eq!(enclosing_def(src, 10).as_deref(), Some("main"));
+        assert_eq!(enclosing_def(src, 12).as_deref(), Some("main.inner"));
+        assert_eq!(enclosing_def(src, 13).as_deref(), Some("main"));
+        assert_eq!(enclosing_def(src, 14), None);
+        assert_eq!(enclosing_def(src, 0), None);
+        assert_eq!(enclosing_def(src, 99), None);
+        assert_eq!(enclosing_def("fn total(xs: [int]) -> int:\n    return 0\n", 2).as_deref(), Some("total"));
+    }
+
+    #[test]
+    fn rustc_first_error_reads_json_and_text() {
+        let j = r#"{"$message_type":"diagnostic","message":"mismatched types","level":"error"}"#;
+        assert_eq!(rustc_first_error(&format!("{{\"level\":\"warning\",\"message\":\"unused\"}}\n{j}")), "the typed build's Rust did not compile (mismatched types)");
+        assert_eq!(rustc_first_error("error[E0308]: mismatched types\n"), "the typed build's Rust did not compile (mismatched types)");
+        assert_eq!(rustc_first_error(""), "the typed build's Rust did not compile");
+    }
 }

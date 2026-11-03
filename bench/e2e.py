@@ -71,6 +71,21 @@ def tools(lang):
     return ts
 
 
+# The path Brevi's last pyb build of each work dir took ("typed", "pybridge", "dynamic"; None when it did not
+# build), from its {"path":...} line (BREVI_PATH=1).
+LAST_PATH = {}
+
+
+def build_path(stderr):
+    for line in stderr.splitlines():
+        if line.startswith('{"path":'):
+            try:
+                return json.loads(line)["path"]
+            except (ValueError, KeyError):
+                pass
+    return None
+
+
 def run_check(lang, task, work, native_only=False):
     """The same feedback as run.sh, without its logging. Returns (feedback, native): for pyb, native says whether
     Brevi built the files; when it could not, the files run with CPython, as `brevi run x.py` does (unless native_only)."""
@@ -87,8 +102,10 @@ def run_check(lang, task, work, native_only=False):
         bdir = Path(tempfile.mkdtemp())
         for f in work.glob("*.py"):
             (bdir / f.name).write_text(f.read_text())
-        r = subprocess.run([BREVI, "build", str(bdir / "main.py"), "-o", str(binp)], capture_output=True, text=True, cwd=work)
+        r = subprocess.run([BREVI, "build", str(bdir / "main.py"), "-o", str(binp)], capture_output=True, text=True, cwd=work,
+                           env=dict(os.environ, BREVI_PATH="1"))
         native = not r.returncode
+        LAST_PATH[str(work)] = build_path(r.stderr) if native else None
         if not native and native_only:
             return (r.stdout + r.stderr).strip().replace(".bv", ".py"), False
         cmd = [str(binp)] if native else [sys.executable, str(main)]
@@ -203,7 +220,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     (work / "conversation.json").write_text(json.dumps([{"role": m["role"], "content": plain(m["content"])} for m in messages], indent=1))
     pin, pout, pread = PRICES[model]
     cost = (use["input"] * pin + use["cache_write"] * pin * 1.25 + use["cache_read"] * pread + use["output"] * pout) / 1e6
-    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **({"shadow": shadow} if lang == "pyb" else {}), **use, "usd": round(cost, 5)}
+    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **({"shadow": shadow, "path": LAST_PATH.get(str(work))} if lang == "pyb" else {}), **use, "usd": round(cost, 5)}
 
 
 def summary(pattern):
@@ -211,16 +228,18 @@ def summary(pattern):
     for f in sorted(glob.glob(pattern)):
         rs = [json.loads(l) for l in open(f) if l.strip()]
         rows[Path(f).stem] = rs
-    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'bug':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
+    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'typ':>3} {'bug':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
     for name, rs in rows.items():
         t = {k: sum(r[k] for r in rs) for k in ("input", "cache_write", "cache_read", "output", "usd")}
         first = sum(1 for r in rs if r["pass"] and r["checks"] == 1)
         total = t["input"] + t["cache_write"] + t["cache_read"] + t["output"]
         # nat: pyb tasks whose last check Brevi built natively (the rest ran with CPython); "-" for other languages
         nat = sum(1 for r in rs if r.get("native")) if any("native" in r and r["native"] is not None for r in rs) else "-"
+        # typ: pyb tasks whose last check Brevi built on the typed path (typed or pybridge); "-" before paths were logged
+        typ = sum(1 for r in rs if r.get("path") in ("typed", "pybridge")) if any("path" in r for r in rs) else "-"
         # bug: pyb checks that failed where CPython passed the same files (from e2e's shadow check, since s1a)
         bug = sum(1 for r in rs for p, c in r.get("shadow", []) if c and not p) if any("shadow" in r for r in rs) else "-"
-        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {bug:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
+        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {typ:>3} {bug:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
 
 
 def verdict(pattern):

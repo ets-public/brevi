@@ -1,0 +1,3 @@
+{"line":2,"msg":"unknown function eval()"}
+{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function eval()","by":"python3"}
+{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function eval()","by":"python3","dynamic":{"file":"py_cpython.py","line":2,"msg":"eval() is not supported in dynamic builds"}}

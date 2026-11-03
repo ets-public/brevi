@@ -1,3 +1,4 @@
+{"path":"dynamic","line":1,"fn":"outer","why":"`f` can grow past 64 bits and is shared with another function (a closure, nonlocal or global), where the typed build keeps it a 64-bit int, so the typed build would differ from CPython"}
 362881 620448401733239439360001 179474496922963147192537
 6543661476489834318678697226424661
 8841761993739701954543616000000
