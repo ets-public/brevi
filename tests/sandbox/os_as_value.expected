@@ -1,0 +1,8 @@
+{"line":3,"msg":"os used as a value needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); add the line `# allow native` at the top, or do without it"}
+exit 1
+-- dynamic
+{"line":3,"msg":"os used as a value needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); add the line `# allow native` at the top, or do without it"}
+exit 1
+-- typed
+{"line":3,"msg":"os used as a value needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); add the line `# allow native` at the top, or do without it"}
+exit 1

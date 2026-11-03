@@ -60,7 +60,7 @@ The server **keeps the program**. The agent sends its code once, then fixes it w
 | `show` | The kept program, or some of its lines, with line numbers. |
 | `guide` | The Brevi language guide, or only the lines about one word. Not needed for Python. |
 
-The tools sandbox by default: a program that reads or writes files must declare `allow read` or `allow write`, and from v0.24.1 one that imports a Python library CPython runs (numpy, requests, subprocess, ...) must declare `allow native`. Pass `sandbox: false` to turn that off.
+The tools sandbox by default: a program that reads or writes files must declare `# allow read` or `# allow write` (a comment line, so the code stays valid Python), and from v0.24.1 one that imports a Python library CPython runs (numpy, requests, subprocess, ...) must declare `# allow native`. Path text (`os.path.join`, `pathlib.PurePath`, ...) and `random` (seeded draws match CPython) work without it from v0.24.2. Pass `sandbox: false` to turn the sandbox off.
 
 ### Limits
 

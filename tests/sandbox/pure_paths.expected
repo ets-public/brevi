@@ -1,0 +1,14 @@
+data/runs/r1.json r1.json data/runs ('data/runs/r1', '.json') ('data/runs', 'r1.json')
+a/b/d False /x/y /
+/srv/app/main.tar.gz PurePosixPath('/srv/app/main.tar.gz') main.tar.gz main.tar .gz ['.tar', '.gz'] /srv/app ('/', 'srv', 'app', 'main.tar.gz')
+/srv/app/main.tar.zip app/main.tar.gz True
+exit 0
+-- dynamic
+data/runs/r1.json r1.json data/runs ('data/runs/r1', '.json') ('data/runs', 'r1.json')
+a/b/d False /x/y /
+/srv/app/main.tar.gz PurePosixPath('/srv/app/main.tar.gz') main.tar.gz main.tar .gz ['.tar', '.gz'] /srv/app ('/', 'srv', 'app', 'main.tar.gz')
+/srv/app/main.tar.zip app/main.tar.gz True
+exit 0
+-- typed
+{"line":1,"msg":"a call CPython runs needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
+exit 1

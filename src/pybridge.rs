@@ -79,6 +79,21 @@ pub fn blocked() -> Vec<(String, String)> {
     BLOCKED.with(|b| b.borrow().clone())
 }
 
+// The build errors that only say a blocked call is missing (`unknown method .seed()`, `unknown name 'random'`
+// on `random.seed(1)`), which the one "needs allow native" error replaces.
+pub fn blocked_noise(d: &crate::diag::Diag) -> bool {
+    let b = blocked();
+    let named = |pre: &str, post: &str| d.msg.strip_prefix(pre).and_then(|r| r.strip_suffix(post)).map(String::from);
+    if let Some(f) = named("unknown method .", "()").or_else(|| named("unknown function ", "()")) {
+        return b.iter().any(|(_, n)| *n == f);
+    }
+    if let Some(n) = named("unknown name '", "'") {
+        let m = NATIVE_MODS.with(|x| x.borrow().get(&n).cloned());
+        return b.iter().any(|(bm, bn)| Some(bm) == m.as_ref() || *bn == n);
+    }
+    false
+}
+
 // The import lines of Python libraries CPython would run (not Brevi's built-in modules, not files of the
 // program): (line, module), for caps.rs.
 pub fn bridged_imports(src: &str) -> Vec<(usize, String)> {

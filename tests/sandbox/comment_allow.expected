@@ -1,0 +1,8 @@
+kept
+exit 0
+-- dynamic
+{"e":"dyn","at":"tests/sandbox/comment_allow.py","line":2,"msg":"open() is not supported in dynamic builds"}
+exit 1
+-- typed
+kept
+exit 0

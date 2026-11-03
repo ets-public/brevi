@@ -1,0 +1,14 @@
+2 0.5692038748222122 a
+[8, 2, 0, 9, 5, 3, 6, 7, 1, 4] [31, 1, 24, 27, 38]
+[81, 14, 3, 94, 35] 0.017593105584
+exit 0
+-- dynamic
+2 0.5692038748222122 a
+[8, 2, 0, 9, 5, 3, 6, 7, 1, 4] [31, 1, 24, 27, 38]
+[81, 14, 3, 94, 35] 0.017593105584
+exit 0
+-- typed
+{"line":3,"msg":"random.Random, random.choice, random.randint, random.random, random.sample, random.seed, random.shuffle run in CPython, which needs allow native","fix":"add the line `# allow native` at the top, or do without it"}
+{"line":9,"msg":"unknown method .randrange()"}
+{"line":9,"msg":"unknown method .gauss()"}
+exit 1
