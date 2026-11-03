@@ -982,6 +982,22 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     push(&mut out, Tok::Sym("=="));
                     continue;
                 }
+                // `v is True` / `v is not False`: identity with a bool, which a JSON 1 (or 1.0) is not, though
+                // it == True. A method that is true only for that bool.
+                if let Some((m, neg, skip)) = [(" True", "is_true_obj", false, 5usize), (" False", "is_false_obj", false, 6), (" not True", "not_true_obj", true, 9), (" not False", "not_false_obj", true, 10)]
+                    .iter()
+                    .find(|(w, _, _, k)| rest.starts_with(w) && !chars.get(i + k).is_some_and(|c| c.is_alphanumeric() || *c == '_'))
+                    .map(|(_, m, n, k)| (*m, *n, *k))
+                {
+                    push(&mut out, Tok::Sym("."));
+                    push(&mut out, Tok::Ident(m.into()));
+                    push(&mut out, Tok::Sym("("));
+                    push(&mut out, Tok::Sym(")"));
+                    let _ = neg;
+                    i += skip;
+                    col += skip;
+                    continue;
+                }
                 if rest.starts_with(" not ") {
                     push(&mut out, Tok::Sym("!="));
                     i += 4;
