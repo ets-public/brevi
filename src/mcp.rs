@@ -1,6 +1,8 @@
 // `brevi mcp`: a Model Context Protocol server on stdin/stdout (JSON-RPC, one message per line).
 // Tools: guide, check, run, test, patch, edit, show. The server keeps the program: send `code` once, then
-// change it with patch (whole fns by name) or edit (a range of lines), so a retry costs only the change.
+// change it with patch (whole defs by name) or edit (a range of lines), so a retry costs only the change.
+// Code is plain Python (kept as main.py, built like `brevi run main.py`) unless it is Brevi (`fn` items, or a
+// file name ending .bv).
 use crate::diag::esc;
 use crate::json::{parse, J};
 use std::io::{BufRead, Write};
@@ -23,16 +25,35 @@ fn to_json(j: &J) -> String {
 
 const TOOLS: &str = r#"[
 {"name":"guide","description":"The Brevi language guide. Not needed to start: write plain Python (a .py file) and Brevi builds it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. Ask with a word (sections: Strings, Lists, Python, Libraries) for only the lines about it, e.g. when a build error names something; with no word, the whole core.","inputSchema":{"type":"object","properties":{"word":{"type":"string"}}}},
-{"name":"check","description":"Compile without running. OK or one JSON error per line: {line, msg, fix}. The server keeps the program: pass code once, then omit it and change it with patch or edit.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string","description":"Default main.bv; other files are for use \"x.bv\""},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested fix to the kept program"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
-{"name":"run","description":"Compile and run the kept program (or code). With cases, runs each and prints ok or the first differing line.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cases":{"type":"array","items":{"type":"object","properties":{"stdin":{"type":"string"},"expect":{"type":"string"}}}},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
+{"name":"check","description":"Compile without running. OK or one JSON error per line: {line, msg, fix}. The server keeps the program: pass code once, then omit it and change it with patch or edit.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string","description":"Default main.py; other files are modules it imports (util.py for import util)"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested fix to the kept program"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
+{"name":"run","description":"Compile and run the kept program (or code, plain Python). With cases, runs each and prints ok or the first differing line.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cases":{"type":"array","items":{"type":"object","properties":{"stdin":{"type":"string"},"expect":{"type":"string"}}}},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
 {"name":"test","description":"Run the test blocks of the kept program (or code).","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}}}},
-{"name":"patch","description":"Replace each fn, type, enum or test in patch by name in the kept program (or add it); del fn name removes one. Then checks: prints what changed and OK or the errors.","inputSchema":{"type":"object","properties":{"patch":{"type":"string"},"file":{"type":"string"},"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}},"required":["patch"]}},
+{"name":"patch","description":"Replace each def or class in patch by name in the kept program (or add it); del def name removes one. Then checks: prints what changed and OK or the errors.","inputSchema":{"type":"object","properties":{"patch":{"type":"string"},"file":{"type":"string"},"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}},"required":["patch"]}},
 {"name":"edit","description":"Replace lines from..to (1-based, inclusive) of the kept program with text (empty text deletes; to = from - 1 inserts before from). Then checks like patch.","inputSchema":{"type":"object","properties":{"from":{"type":"integer"},"to":{"type":"integer"},"text":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files and native code need an allow line"}},"required":["from","to","text"]}},
 {"name":"show","description":"The kept program, or lines from..to of it, with line numbers.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"from":{"type":"integer"},"to":{"type":"integer"}}}}
 ]"#;
 
-// The programs the server keeps, by file name (main.bv unless a tool says otherwise).
-type Files = std::collections::BTreeMap<String, String>;
+// The programs the server keeps, by file name, and which one is the program (main.py unless a tool says
+// otherwise; main.bv for Brevi code).
+#[derive(Default)]
+struct Files {
+    main: Option<String>,
+    all: std::collections::BTreeMap<String, String>,
+}
+
+impl Files {
+    fn main(&self) -> String {
+        self.main.clone().unwrap_or_else(|| "main.py".into())
+    }
+}
+
+// Brevi rather than Python: an `fn` or `enum` item, a `test "..."` block or a `use "x.bv"` line (none is Python).
+fn is_brevi(code: &str) -> bool {
+    code.lines().any(|l| {
+        let w = l.split(|c: char| c.is_whitespace() || c == '(').next().unwrap_or("");
+        (w == "fn" && l.contains('(')) || (w == "enum" && l.trim_end().ends_with(':')) || l.starts_with("test \"") || l.starts_with("use \"")
+    })
+}
 
 // Runs this same binary on temp copies of the kept files, with a time limit.
 fn brevi(files: &Files, cmd: &str, extra: &[String], stdin: &str) -> (String, bool) {
@@ -44,13 +65,13 @@ fn brevi(files: &Files, cmd: &str, extra: &[String], stdin: &str) -> (String, bo
 fn brevi_file(files: &Files, cmd: &str, extra: &[String], stdin: &str) -> (String, bool, String) {
     let dir = std::env::temp_dir().join(format!("brevi-mcp-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     let _ = std::fs::create_dir_all(&dir);
-    for (name, text) in files {
+    for (name, text) in &files.all {
         if name.contains("..") || name.starts_with('/') || std::fs::write(dir.join(name), text).is_err() {
             let _ = std::fs::remove_dir_all(&dir);
             return (format!("cannot write {name}"), true, String::new());
         }
     }
-    let f = dir.join("main.bv");
+    let f = dir.join(files.main());
     let exe = std::env::current_exe().unwrap_or_else(|_| "brevi".into());
     let mut c = Command::new(exe);
     c.arg(cmd).arg(&f).args(extra).current_dir(&dir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -94,12 +115,26 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
     let n = |k: &str| a.get(k).and_then(|v| v.num()).map(|x| x as i64);
     // Sandboxed unless the caller says otherwise: no file access or native code without an `allow` line.
     let sandbox: Vec<String> = if a.get("sandbox").map_or(true, |v| v.truthy()) { vec!["--sandbox".into()] } else { vec![] };
-    let file = Some(s("file")).filter(|f| !f.is_empty()).unwrap_or_else(|| "main.bv".into());
-    // New code replaces the kept file; a call without code uses what is kept.
-    if a.get("code").and_then(|v| v.str()).is_some() && name != "guide" {
-        files.insert(file.clone(), s("code"));
+    let code = a.get("code").and_then(|v| v.str()).map(String::from).filter(|_| name != "guide");
+    let named = Some(s("file")).filter(|f| !f.is_empty());
+    // New code replaces the kept file; a call without code uses what is kept. Code with no file name is the
+    // program: main.py, or main.bv when it is Brevi. The first file given, or any main.*, is the program too.
+    let file = match (&named, &code) {
+        (Some(f), _) => f.clone(),
+        (None, Some(c)) if files.main.as_deref().map_or(true, |m| m.starts_with("main.")) => {
+            if is_brevi(c) { "main.bv".into() } else { "main.py".into() }
+        }
+        _ => files.main(),
+    };
+    if let Some(c) = code {
+        if files.main.is_none() || file.starts_with("main.") {
+            if let Some(old) = files.main.replace(file.clone()).filter(|o| *o != file && o.starts_with("main.")) {
+                files.all.remove(&old);
+            }
+        }
+        files.all.insert(file.clone(), c);
     }
-    if name != "guide" && !files.contains_key("main.bv") {
+    if name != "guide" && !files.main.as_ref().is_some_and(|m| files.all.contains_key(m)) {
         return ("no program yet: pass code once (later calls can leave it out)".into(), true);
     }
     match name {
@@ -114,11 +149,12 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
                 flags.push("--fast".into());
             }
             if a.get("fix").map_or(false, |v| v.truthy()) {
-                let before = files["main.bv"].clone();
+                let main = files.main();
+                let before = files.all[&main].clone();
                 let (t, err, after) = brevi_file(files, "fix", &flags, "");
                 let head = if t.trim().is_empty() && !err { "OK".to_string() } else { t.trim_end().to_string() };
                 if !after.is_empty() && after != before {
-                    files.insert("main.bv".into(), after);
+                    files.all.insert(main, after);
                     return (format!("{head}\n(fixes applied to the kept program; show prints it)"), err);
                 }
                 return (head, err);
@@ -139,17 +175,17 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
         }
         "test" => brevi(files, "test", &sandbox, ""),
         "patch" => {
-            let Some(cur) = files.get(&file).cloned() else { return (format!("no file {file}"), true) };
+            let Some(cur) = files.all.get(&file).cloned() else { return (format!("no file {file}"), true) };
             match crate::patch::patch(&cur, &s("patch")) {
                 Ok((out, done)) => {
-                    files.insert(file, out);
+                    files.all.insert(file, out);
                     then_check(files, &sandbox, &done.join(", "))
                 }
                 Err(m) => (m, true),
             }
         }
         "edit" => {
-            let Some(cur) = files.get(&file).cloned() else { return (format!("no file {file}"), true) };
+            let Some(cur) = files.all.get(&file).cloned() else { return (format!("no file {file}"), true) };
             let mut lines: Vec<&str> = cur.split('\n').collect();
             let (from, to) = (n("from").unwrap_or(0), n("to").unwrap_or(-1));
             if from < 1 || to < from - 1 || from as usize > lines.len() + 1 || to as usize > lines.len() {
@@ -159,11 +195,11 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             let new: Vec<&str> = if text.is_empty() { vec![] } else { text.trim_end_matches('\n').split('\n').collect() };
             let added = new.len();
             lines.splice(from as usize - 1..to as usize, new);
-            files.insert(file, lines.join("\n"));
+            files.all.insert(file, lines.join("\n"));
             then_check(files, &sandbox, &format!("lines {from}..{to} now {added} line{}", if added == 1 { "" } else { "s" }))
         }
         "show" => {
-            let Some(cur) = files.get(&file) else { return (format!("no file {file}"), true) };
+            let Some(cur) = files.all.get(&file) else { return (format!("no file {file}"), true) };
             let (from, to) = (n("from").unwrap_or(1).max(1) as usize, n("to").map_or(usize::MAX, |t| t.max(0) as usize));
             let text: Vec<String> = cur.split('\n').enumerate().filter(|(i, _)| i + 1 >= from && i + 1 <= to).map(|(i, l)| format!("{} {l}", i + 1)).collect();
             (text.join("\n"), false)
@@ -249,7 +285,7 @@ fn run_bin(bin: &std::path::Path, args: &[String], stdin: &str) -> (String, bool
 }
 
 pub fn serve() {
-    let mut files = Files::new();
+    let mut files = Files::default();
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -268,7 +304,7 @@ pub fn serve() {
         let result = match method {
             "initialize" => {
                 let v = params.get("protocolVersion").and_then(|v| v.str()).unwrap_or("2025-06-18");
-                Ok(format!(r#"{{"protocolVersion":"{}","capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"brevi","version":"{}"}},"instructions":"Python programs are compiled to native code, which runs plain loops 10 to 50 times faster than CPython: write the plain, direct solution and do not hand-optimise it. Call guide once before writing Brevi syntax (.bv). Pass your program as code once; then fix errors with patch or edit, which change only what you send and check again."}}"#, esc(v), env!("CARGO_PKG_VERSION")))
+                Ok(format!(r#"{{"protocolVersion":"{}","capabilities":{{"tools":{{}}}},"serverInfo":{{"name":"brevi","version":"{}"}},"instructions":"Write plain Python: Brevi compiles it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. No guide needed (it covers Brevi syntax, .bv files). Pass your program as code once; then fix errors with patch (whole defs by name) or edit (lines), which change only what you send and check again."}}"#, esc(v), env!("CARGO_PKG_VERSION")))
             }
             "ping" => Ok("{}".into()),
             "tools/list" => Ok(format!(r#"{{"tools":{}}}"#, TOOLS.replace('\n', ""))),

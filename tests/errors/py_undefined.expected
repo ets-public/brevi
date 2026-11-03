@@ -1,0 +1,4 @@
+{"line":3,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
+check exit 1
+{"line":3,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
+run exit 1
