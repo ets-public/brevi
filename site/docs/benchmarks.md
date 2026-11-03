@@ -16,12 +16,13 @@ Each side's prompt cache is kept apart so neither pays the other's cache writes.
 
 | Runs (3 Nov 2026) | Sonnet cost, Brevi vs CPython | Haiku cost, Brevi vs CPython | Tasks passed | Built natively | Failed because of Brevi |
 | --- | --- | --- | --- | --- | --- |
+| r244a to r244e (v0.24.4, five runs) | **1.06x** (95% range 1.03x to 1.10x) | **1.03x** (0.98x to 1.10x) | 24 of 24 in every run, both sides | 120 of 120 and 117 of 120 | 5 checks, final programs all passed |
 | w163a (main after v0.24.3, one run) | **1.06x** | **0.96x** | 24 of 24, both sides | 22 of 24 and 23 of 24 | 0 |
 | w156a (v0.24.2, one run) | **1.09x** | **1.06x** | 24 of 24, both sides | 23 of 24 each | 0 |
 | v1a, v1b (v0.24.0) | **1.07x** | **1.00x** | 24 of 24, both sides | 45 of 48 and 47 of 48 | 0 |
 | u2a, u2b | **0.97x** (95% range 0.93x to 1.01x) | **1.01x** (0.96x to 1.05x) | 24 of 24, both sides | 44 of 48 and 46 of 48 | 0 |
 
-**Passed** in every row. The one-run checks after v0.24.0 are rerun after each change to the compiler that could move cost; the two fallbacks left in `w156a` were both `json_query`, whose `json.JSONDecoder().raw_decode` builds natively on main since then. The earlier runs e31 to e34 (2 November) also passed: 48 of 48 tasks, all 48 final programs native, cost 1.10x (Sonnet) and 0.95x (Haiku).
+**Passed** in every row. In `r244a` to `r244e` (`r244e` on the release commit, the rest on main just before it), five checks (in the `trains` and `poker` tasks) failed under Brevi where CPython passed the same files: the typed build printed a wrong answer or stopped with an error. Each model fixed its code and passed; the cases are saved and being fixed for the next release. The one-run checks after v0.24.0 are rerun after each change to the compiler that could move cost; the two fallbacks left in `w156a` were both `json_query`, whose `json.JSONDecoder().raw_decode` builds natively on main since then. The earlier runs e31 to e34 (2 November) also passed: 48 of 48 tasks, all 48 final programs native, cost 1.10x (Sonnet) and 0.95x (Haiku).
 
 The bar is "no more expensive than Python", not "cheaper", on purpose: on ordinary tasks a model writes much the same Python either way, so the cost should come out level, and the speed and safety of the result come free. The test exists to catch Brevi making an agent work harder, by rejecting valid Python or answering differently.
 
