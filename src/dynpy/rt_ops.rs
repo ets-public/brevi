@@ -1099,6 +1099,8 @@ fn norm_idx(i: i64, n: usize, what: &str) -> Result<usize, E> {
 pub fn slice_idx(sl: &(V, V, V), n: usize) -> Result<(i64, i64, i64), E> {
     let step = match &sl.2 {
         V::None => 1,
+        // `xs[::1 << 333]`: as CPython, a step past 64 bits is the largest one.
+        V::Big(b) => if b.neg { -(i64::MAX / 4) } else { i64::MAX / 4 },
         x => idx_of(x)?,
     };
     if step == 0 {
@@ -1445,6 +1447,12 @@ impl It {
                 while *i < d.ents.len() {
                     *i += 1;
                     if let Some((k, v)) = &d.ents[*i - 1] {
+                        // `ver` counts the items given: one more than the dict held when the loop began means a key
+                        // was deleted and another added (the size is the same), which CPython stops on.
+                        if *ver as usize >= *n0 {
+                            return Err(exc("RuntimeError", "dictionary keys changed during iteration".into()));
+                        }
+                        *ver += 1;
                         return Ok(Some(match kind {
                             0 => k.clone(),
                             1 => v.clone(),

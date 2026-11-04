@@ -1831,7 +1831,11 @@ impl Parser {
             };
             self.next();
             self.skip_newlines();
+            let rpos = self.pos;
             let rhs = self.binary(level + 1)?;
+            // `"%s" % (x,)`: a one-item tuple (kept as a one-item list) gives the one value, as a tuple does.
+            let rhs_tup1 = op == "%" && matches!(&rhs, Expr::List(xs) if xs.len() == 1) && self.pos >= rpos + 3
+                && self.toks[rpos].tok == Tok::Sym("(") && self.toks[self.pos - 1].tok == Tok::Sym(")") && self.toks[self.pos - 2].tok == Tok::Sym(",");
             const ORDER: &[&str] = &["<", ">", "<=", ">=", "==", "!="];
             if level == 2 && !negate && ORDER.contains(&op) {
                 if let Some(prev) = chain.take() {
@@ -1886,6 +1890,7 @@ impl Parser {
                 let marks = parts.iter().map(|p| if let StrPart::Lit(s) = p { s.replace("%%", "").matches('%').count() } else { 0 }).sum::<usize>();
                 let args = match rhs.clone() {
                     Expr::Tuple(xs) => xs,
+                    Expr::List(xs) if rhs_tup1 => xs,
                     x @ (Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) if marks >= 2 && !parts.iter().any(|p| matches!(p, StrPart::Lit(s) if s.contains("%("))) => (0..marks).map(|i| Expr::TupleField(Box::new(x.clone()), i)).collect(),
                     x => vec![x],
                 };
