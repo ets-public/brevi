@@ -1,0 +1,6 @@
+{"path":"dynamic","why":"the typed build's Rust did not compile (mismatched types)"}
+True [None, None]
+None
+no
+1 None
+native exit 0
