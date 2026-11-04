@@ -29,9 +29,12 @@ sh install.sh
 The script:
 
 1. installs the Rust toolchain with rustup (minimal profile) if `rustc` is not on the PATH;
-2. downloads the prebuilt `brevi` for this machine from the latest GitHub release into `~/.cargo/bin`;
-3. builds it with `cargo install` instead when no release fits (set `BREVI_FROM_SOURCE=1` to always build from source);
-4. prints `brevi --version`.
+2. downloads the prebuilt `brevi` for this machine from the latest GitHub release;
+3. verifies the download against the release's `SHA256SUMS` (with `sha256sum` or `shasum -a 256`) and installs it into `~/.cargo/bin`;
+4. builds it with `cargo install` instead when no release fits (set `BREVI_FROM_SOURCE=1` to always build from source);
+5. prints `brevi --version`.
+
+If the checksum does not match, or the download cannot be verified because `SHA256SUMS` or a checksum tool is missing, the script stops and installs nothing.
 
 Check it worked:
 
@@ -61,6 +64,8 @@ Every [GitHub release](__GITHUB__/releases) carries these archives, each with th
 | macOS, Apple silicon | `brevi-aarch64-apple-darwin.tar.gz` |
 | macOS, Intel | `brevi-x86_64-apple-darwin.tar.gz` |
 | Windows x86-64 | `brevi-x86_64-pc-windows-msvc.zip` |
+
+Each release also carries `SHA256SUMS`, with the SHA-256 of every archive. The install script checks its download against it.
 
 ## Docker
 
