@@ -6,6 +6,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 - **Silent wrong output fixed: `\N{NAME}` in `.py` files.** `print("\N{BULLET} item")` printed the escape as text on the typed path and sent the program to CPython from the dynamic build. Both builds now resolve names (any case, aliases) from a table in the compiler, 400 KB of binary size; a bad name, or a computed `CJK UNIFIED IDEOGRAPH-`/`HANGUL SYLLABLE` one, is refused and left to CPython.
 - **Silent wrong output fixed: float `sum()`.** Typed builds added floats one by one, so `sum([0.1] * 10)` printed `0.9999999999999999` and `sum([1e100, 1.0, -1e100])` printed `0.0`. Every typed float sum (lists, generators, JSON numbers, Python library values, `sum(xs, start)`) is now compensated as in CPython 3.12+ and the dynamic build, and `sum([-0.0])` prints `0.0`.
+- **Uncaught exceptions in Python files exit 1, as in CPython.** Native typed builds exited 101, Rust's panic status, and `bench/compare/compare.py` hid it by only comparing zero with non-zero; it now compares exact exit codes. `.bv` programs still exit 101 after a runtime error.
+- **A `.py` file with Brevi-only syntax or methods is refused, as CPython refuses it.** `if a && b:`, `x => x + 1`, `fn f(x):`, `0..n`, `true`, `fail("x")` and `xs.push(1)` on a list used to build and print an answer; now `check` and `build` report one error with the Python spelling and `brevi run` falls back to CPython, which gives the real error. A class's own `push` still works, and `.bv` files keep every Python spelling.
 
 ## v0.24.6 (4 Nov 2026)
 

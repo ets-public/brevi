@@ -177,7 +177,7 @@ const SYMBOLS: &[&str] = &[
 ];
 
 // After a value, `a // b` is floor division unless what follows reads like words (`x = 5 // the count`).
-fn looks_like_prose(rest: &str) -> bool {
+pub(crate) fn looks_like_prose(rest: &str) -> bool {
     let words: Vec<&str> = rest.split_whitespace().collect();
     let is_word = |w: &str| w.chars().all(|c| c.is_alphanumeric() || c == '_') && !["and", "or", "not", "if", "else", "in"].contains(&w);
     rest.trim().is_empty() || words.windows(2).any(|p| is_word(p[0]) && is_word(p[1]))

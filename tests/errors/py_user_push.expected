@@ -1,0 +1,4 @@
+check exit 0
+1 False [1, 2]
+run exit 0
+run tracebacks 0

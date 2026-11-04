@@ -1240,7 +1240,7 @@ impl Emitter {
         }
         match self.fns.get("main") {
             Some(sig) if sig.fallible => {
-                let py = if self.py_mode { "    ax_py_mode();\n" } else { "" };
+                let py = self.py_start();
                 out.push_str(&format!(
                     "fn main() {{\n    ax_init(AX_FILES);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), ax_exc_msg(&e.0));\n        std::process::exit(1);\n    }}\n}}\n"
                 ))
@@ -1285,6 +1285,17 @@ impl Emitter {
         }
     }
 
+    // The start of main after ax_init. py_mode also covers .bv programs written in Python style; those keep
+    // Rust's exit status, so AxPyExit is for real Python files only.
+    fn py_start(&self) -> &'static str {
+        if crate::PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+            "    ax_py_mode();\n    let _exit = AxPyExit;\n"
+        } else if self.py_mode {
+            "    ax_py_mode();\n"
+        } else {
+            ""
+        }
+    }
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
         self.own_locals.clear();
         self.set_vars.clear();
@@ -1347,7 +1358,7 @@ impl Emitter {
             .map(|(i, p)| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else if set_at.contains(&i) { format!("mut {}: AxSet<{}", p.name, &rust_ty(&p.ty)[4..]) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
-        let init = if name == "main" && !fallible { if self.py_mode { "ax_init(AX_FILES);\n    ax_py_mode();\n" } else { "ax_init(AX_FILES);\n" } } else { "" };
+        let init = if name == "main" && !fallible { format!("ax_init(AX_FILES);\n{}", self.py_start()) } else { String::new() };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }

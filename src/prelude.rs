@@ -275,6 +275,17 @@ pub static AX_PY_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 pub fn ax_py_mode() {
     AX_PY_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
+// Held by main in a Python file. The typed build raises most exceptions as panics, and Rust exits 101 after one
+// that reaches main; CPython exits 1. Exiting here, not in the panic hook, leaves a panic that a catch_unwind
+// stops (a Brevi callback run by a Python library) alone. process::exit flushes stdout.
+pub struct AxPyExit;
+impl Drop for AxPyExit {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            std::process::exit(1);
+        }
+    }
+}
 #[inline]
 fn ax_py_on() -> bool {
     AX_PY_MODE.load(std::sync::atomic::Ordering::Relaxed)
