@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs every program in tests/run and every error case in tests/errors,
-# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output with the .expected file next to it. Run from the repo root.
+# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output with the .expected file next to it; tests/exit also compares exit statuses. Run from the repo root.
 # Pass --update to rewrite the expected files.
 BREVI=${BREVI:-./target/debug/brevi}
 fail=0
@@ -91,11 +91,31 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython
+# inside a dynamic build: output must match python3, the path line must name them, and nothing may run fully
+# in CPython. Each runs by default and with BREVI_DYN=1.
+for f in tests/bridge/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then (cd tests/bridge && python3 "$(basename "$f")") > "$exp" 2>&1; continue; fi
+  for mode in default dyn; do
+    if [ $mode = dyn ]; then dv=1; else dv=; fi
+    out=$(cd tests/bridge && BREVI_DYN=$dv BREVI_PATH=1 timeout 120 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bridge_err)
+    if grep -q '"path":"cpython"' /tmp/brevi_bridge_err || ! grep -q '"py":\[' /tmp/brevi_bridge_err; then
+      echo "FAIL $f ($mode: not bridged)"; cat /tmp/brevi_bridge_err; fail=1
+    elif [ "$out" != "$(cat "$exp")" ]; then
+      echo "FAIL $f ($mode)"; cat /tmp/brevi_bridge_err; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+    else
+      echo "ok   $f ($mode)"
+    fi
+  done
+done
 # brevi run --sandbox on a .py file: a capability refusal is final on every path (the default run, dynamic
 # builds, typed --native), and nothing falls back to python3 or reaches CPython through a library.
+# A .flags file next to a test holds what the caller grants (--allow read): the file's own allow lines grant nothing.
 for f in tests/sandbox/*.py; do
   exp="${f%.py}.expected"
-  out=$($BREVI run --sandbox "$f" 2>&1; echo "exit $?"; echo "-- dynamic"; BREVI_DYN=1 $BREVI run --sandbox "$f" 2>&1; echo "exit $?"; echo "-- typed"; BREVI_DYN=0 $BREVI run --sandbox --native "$f" 2>&1; echo "exit $?")
+  g=$(cat "${f%.py}.flags" 2>/dev/null)
+  out=$($BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- dynamic"; BREVI_DYN=1 $BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- typed"; BREVI_DYN=0 $BREVI run --sandbox $g --native "$f" 2>&1; echo "exit $?")
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -103,6 +123,45 @@ for f in tests/sandbox/*.py; do
     echo "ok   $f"
   fi
 done
+# Exit status, which the loops above do not compare: a Python file must exit as python3 does on both native
+# paths, with its stdout written first. A .bv program stops with status 101 at a runtime error.
+for f in tests/exit/*.py; do
+  exp="${f%.py}.expected"
+  out=$(BREVI_DYN=0 $BREVI run "$f" --native 2>/dev/null; echo " typed exit $?"; BREVI_DYN=1 $BREVI run "$f" --native 2>/dev/null; echo " dynamic exit $?")
+  if [ "$1" = "--update" ]; then (python3 "$f" 2>/dev/null; echo " typed exit $?"; python3 "$f" 2>/dev/null; echo " dynamic exit $?") > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+for f in tests/exit/*.bv; do
+  exp="${f%.bv}.expected"
+  out=$($BREVI run "$f" 2>/dev/null; echo " exit $?")
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+# A Python library under --sandbox: refused unless the caller names it with --allow-py (a `# allow native` line in
+# the file grants nothing), and with it the program runs as it does unsandboxed.
+B=$(cd "$(dirname "$BREVI")" && pwd)/$(basename "$BREVI")
+want="$(cat tests/bridge/lib_values.expected)
+exit 0"
+for g in "" "--allow-py other" "--allow-py brlib"; do
+  out=$(cd tests/bridge && $B run --sandbox $g lib_values.py 2>/dev/null; echo "exit $?")
+  case "$g" in
+    *brlib) ok=$([ "$out" = "$want" ] && echo y) ;;
+    *) ok=$(printf '%s\n' "$out" | grep -qx 'exit 1' && printf '%s\n' "$out" | grep -q 'needs allow native' && ! printf '%s\n' "$out" | grep -q '^3 True' && echo y) ;;
+  esac
+  if [ "$ok" = y ]; then echo "ok   sandbox bridge (${g:-no grant})"; else echo "FAIL sandbox bridge (${g:-no grant})"; printf '%s\n' "$out"; fail=1; fi
+done
+t=$(mktemp -d); cp -r tests/bridge/brlib tests/bridge/lib_values.py "$t"; sed -i '1i # allow native' "$t/lib_values.py"
+out=$(cd "$t" && $B run --sandbox lib_values.py 2>&1; echo "exit $?")
+if printf '%s\n' "$out" | grep -q 'grants nothing under --sandbox' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   sandbox ignores # allow native"; else echo "FAIL sandbox ignores # allow native"; printf '%s\n' "$out"; fail=1; fi
+rm -rf "$t"
 # brevi build --standalone: a program calling Python libraries carries its own CPython. Run without python3 on
 # PATH and, where user namespaces allow it, in an empty root holding only the C library.
 for f in tests/standalone/*.py; do

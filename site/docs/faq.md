@@ -44,7 +44,7 @@ Well under a second for a new small program (about 0.15 to 0.3 s), a few seconds
 
 ## Is it safe to run code an agent wrote?
 
-Brevi programs are memory-safe, and integers never silently overflow. A program can declare what it touches (`allow read, write`, and `allow native` for crates and Python libraries), and `--sandbox` refuses anything else on every build path. A sandboxed program never falls back to CPython (from v0.24.1). Running untrusted code in a container or VM as well is still wise. See [Sandbox](/docs/usage#sandbox).
+Brevi programs are memory-safe, and integers never silently overflow. A program can declare what it touches (`allow read, write`, and `allow native` for crates and Python libraries), and `--sandbox` refuses anything the caller did not grant (`--allow`, `--allow-py`) on every build path, whatever the program's own allow lines say. A sandboxed program never falls back to CPython (from v0.24.1). Running untrusted code in a container or VM as well is still wise. See [Sandbox](/docs/usage#sandbox).
 
 ## Does it cost more tokens than Python?
 

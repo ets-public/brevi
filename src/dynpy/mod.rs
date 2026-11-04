@@ -3,8 +3,28 @@
 pub mod emit;
 pub mod parse;
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
+// The bridge to CPython for libraries Brevi lacks (pasted into the program only when it imports one).
+const GLUE: &str = include_str!("pyglue.rs");
+
+// Set while a build may not bridge: the typed build, which bridges the same calls, goes instead.
+pub static NO_BRIDGE: AtomicBool = AtomicBool::new(false);
+// What the last to_rust has CPython run (modules, `open`), for the path report.
+static BRIDGED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+pub fn bridged() -> Vec<String> {
+    BRIDGED.lock().unwrap().clone()
+}
+
+// Whether this build may hand libraries to CPython: not under the sandbox without allow native, and only with
+// a python3 that has libpython (asked once, only when a program imports such a library).
+fn bridge_ok() -> bool {
+    cfg!(unix) && !crate::pybridge::no_native() && !NO_BRIDGE.load(Ordering::Relaxed) && std::env::var("BREVI_DYN_BRIDGE").map_or(true, |v| v != "0") && crate::pybridge::python_ok().is_ok()
+}
 
 pub const RUNTIME: &str = concat!(
     include_str!("rt_core.rs"),
@@ -148,6 +168,17 @@ fn int_seeds(src: &str) -> bool {
 // The Rust program for a Python file and the modules it imports from its own directory.
 // Err is (file, line, message).
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
+    BRIDGED.lock().unwrap().clear();
+    match to_rust_with(file, true) {
+        // More of os, pathlib, random, ... than Brevi's copies have: CPython's own modules, through the bridge.
+        Err((_, 0, m)) if m == BEYOND_COPIES && bridge_ok() => to_rust_with(file, false),
+        r => r,
+    }
+}
+
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap or argparse beyond Brevi's own copies runs in CPython";
+
+fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
     let src = crate::modules::fill_file_name(&src, Path::new(file));
     // `allow` lines (checked in main.rs before this runs) are not Python.
@@ -161,6 +192,9 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let pure = |s: &str| crate::caps::path_uses(s).map_or(true, |v| v.is_empty()) && int_seeds(s);
     let mut own_ok = pure(&src);
     let mut own_used = false;
+    let mut bridge = emit::Bridge::default();
+    let mut texts: HashMap<String, (String, String)> = HashMap::new();
+    texts.insert("__main__".into(), (file.to_string(), src.clone()));
     let mut k = 0;
     while k < mods.len() {
         let mut imps = vec![];
@@ -172,7 +206,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
             let p = dir.join(format!("{m}.py"));
             // Outside the sandbox too, when every use of these modules is one Brevi's copies have (checked
             // over all the program's files below). random's generator core is native (rt_rand.rs).
-            if !p.exists() && (crate::pybridge::no_native() || own_ok) {
+            if !p.exists() && ((copies && own_ok) || !crate::pybridge::py_allowed(&m)) {
                 if let Some(src) = sandbox_module(&m) {
                     own_used = true;
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
@@ -187,16 +221,30 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
                 let src = crate::caps::split(&src).0;
                 let body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
                 own_ok &= pure(&src);
+                texts.insert(m.clone(), (ps.clone(), src.to_string()));
                 mods.push(emit::Module { name: m, body });
+            } else if !m.starts_with('.') && crate::pybridge::py_allowed(&m) && (bridge.on || bridge_ok()) {
+                // A library Brevi lacks: CPython runs it inside the program.
+                bridge.on = true;
+                bridge.modules.insert(m.split('.').next().unwrap_or(&m).to_string());
             }
         }
         k += 1;
     }
     if own_used && !own_ok && !crate::pybridge::no_native() {
-        return Err((file.to_string(), 0, "os, pathlib, random, io, textwrap or argparse beyond Brevi's own copies runs in CPython".into()));
+        return Err((file.to_string(), 0, BEYOND_COPIES.into()));
     }
-    let mut rust = emit::program(&mods).map_err(|(l, m)| (file.to_string(), l, m))?;
-    if mods.iter().any(|m| m.name == "argparse") && !crate::pybridge::no_native() {
+    if bridge.on {
+        lib_classes(&mods, &texts, &mut bridge)?;
+    }
+    let (mut rust, used) = emit::program(&mods, bridge).map_err(|(l, m)| (file.to_string(), l, m))?;
+    if !used.is_empty() {
+        crate::pybridge::set_file(file);
+        rust.push_str(&crate::pybridge::dyn_runtime());
+        rust.push_str(GLUE);
+        *BRIDGED.lock().unwrap() = used;
+    }
+    if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("fn main() { run_main(__run); }", "fn main() { TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);
         rust.push_str(TERM_COLS_FN);
     }
@@ -301,4 +349,240 @@ pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, 
         }
     }
     Ok(())
+}
+
+// ------------------------------------------------------------------------------------------- library classes
+
+// The name an expression starts from: `pydantic` in `pydantic.BaseModel`, `Generic` in `Generic[T]`.
+fn root_name(e: &parse::Ex) -> Option<&str> {
+    use parse::Ex;
+    match e {
+        Ex::Name(n) => Some(n),
+        Ex::Attr(o, _) | Ex::Index(o, _) => root_name(o),
+        Ex::Call(f, _) => root_name(f),
+        _ => None,
+    }
+}
+
+// Asked of python3 for each class: where its lines (with decorators) start and end, and the names it uses that
+// it does not set itself and that are not Python builtins.
+const CLASS_QUERY: &str = r#"import ast, builtins, json, sys
+d = json.load(sys.stdin)
+out = {}
+for node in ast.parse(d['src']).body:
+    if isinstance(node, ast.ClassDef) and node.lineno in d['lines']:
+        stored, loaded = set(), set()
+        for n in ast.walk(node):
+            if isinstance(n, ast.Name):
+                (loaded if isinstance(n.ctx, ast.Load) else stored).add(n.id)
+            elif isinstance(n, ast.arg):
+                stored.add(n.arg)
+            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                stored.add(n.name)
+            elif isinstance(n, ast.alias):
+                stored.add((n.asname or n.name).split('.')[0])
+            elif isinstance(n, ast.ExceptHandler) and n.name:
+                stored.add(n.name)
+        free = sorted(x for x in loaded - stored if not hasattr(builtins, x) and x != '__class__')
+        start = min([x.lineno for x in node.decorator_list] + [node.lineno])
+        out[str(node.lineno)] = [start, node.end_lineno, free]
+print(json.dumps(out))
+"#;
+
+// Classes built on a library's classes (`class Post(BaseModel)`, `@lib.decorate class X`, and classes built on
+// those): CPython runs each whole, from its own lines, with the module's import lines run before it. Refused
+// (the file then runs in CPython) when such a class is not at the top level of its file, uses a name of the
+// program CPython cannot see (anything not imported, not a builtin, not another such class), or is built on
+// from another of the program's files.
+fn lib_classes(mods: &[emit::Module], texts: &HashMap<String, (String, String)>, bridge: &mut emit::Bridge) -> Result<(), (String, usize, String)> {
+    use parse::St;
+    let users: HashSet<String> = mods.iter().map(|m| m.name.clone()).collect();
+    let mut by_mod: HashMap<String, HashSet<String>> = HashMap::new();
+    for m in mods {
+        let (path, src) = texts.get(&m.name).cloned().unwrap_or_default();
+        // Names bound by the file's import lines: of libraries, and of any module that is not a file of the
+        // program (CPython has those too).
+        let mut imported: HashSet<String> = HashSet::new();
+        let mut libnames: HashSet<String> = HashSet::new();
+        let mut lines = vec![];
+        let mut future = String::new();
+        for s in &m.body {
+            match &s.st {
+                St::Import(v) => {
+                    for (name, a) in v {
+                        if users.contains(name) || name.starts_with('.') {
+                            continue;
+                        }
+                        let bind = a.clone().unwrap_or_else(|| name.split('.').next().unwrap().to_string());
+                        imported.insert(bind.clone());
+                        if bridge.has(name) && !emit::BUILTIN_MODULES.contains(&name.as_str()) {
+                            libnames.insert(bind);
+                        }
+                        lines.push(match a {
+                            Some(a) => format!("import {name} as {a}"),
+                            None => format!("import {name}"),
+                        });
+                    }
+                }
+                St::ImportFrom(name, v) => {
+                    if users.contains(name) || name.starts_with('.') {
+                        continue;
+                    }
+                    let lib = bridge.has(name) && !emit::BUILTIN_MODULES.contains(&name.as_str());
+                    let mut parts = vec![];
+                    for (n, a) in v {
+                        let bind = a.clone().unwrap_or_else(|| n.clone());
+                        imported.insert(bind.clone());
+                        if lib {
+                            libnames.insert(bind);
+                        }
+                        parts.push(match a {
+                            Some(a) => format!("{n} as {a}"),
+                            None => n.clone(),
+                        });
+                    }
+                    let line = format!("from {name} import {}", parts.join(", "));
+                    if name == "__future__" {
+                        future = line;
+                    } else {
+                        lines.push(line);
+                    }
+                }
+                _ => {}
+            }
+        }
+        // Top-level classes on library names, in order (one built on another counts too).
+        let mut want: Vec<(usize, String)> = vec![];
+        let uses_lib = |c: &parse::ClassDef, names: &HashSet<String>| c.bases.iter().chain(c.decorators.iter()).filter_map(root_name).any(|n| names.contains(n));
+        for s in &m.body {
+            if let St::Class(c) = &s.st {
+                if uses_lib(c, &libnames) {
+                    libnames.insert(c.name.clone());
+                    want.push((c.line, c.name.clone()));
+                }
+            }
+        }
+        // One anywhere else is refused.
+        fn nested<'a>(body: &'a [parse::Stmt], top: bool, out: &mut Vec<&'a parse::ClassDef>) {
+            for s in body {
+                match &s.st {
+                    St::Class(c) => {
+                        if !top {
+                            out.push(c);
+                        }
+                        nested(&c.body, false, out);
+                    }
+                    St::Def(d) => nested(&d.body, false, out),
+                    St::If(arms, els) => {
+                        arms.iter().for_each(|(_, b)| nested(b, false, out));
+                        if let Some(b) = els {
+                            nested(b, false, out);
+                        }
+                    }
+                    St::For(_, _, b, e) | St::While(_, b, e) => {
+                        nested(b, false, out);
+                        if let Some(e) = e {
+                            nested(e, false, out);
+                        }
+                    }
+                    St::Try(b, hs, e, f) => {
+                        nested(b, false, out);
+                        hs.iter().for_each(|h| nested(&h.body, false, out));
+                        for x in [e, f].into_iter().flatten() {
+                            nested(x, false, out);
+                        }
+                    }
+                    St::With(_, b) => nested(b, false, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut inner = vec![];
+        nested(&m.body, true, &mut inner);
+        if let Some(c) = inner.into_iter().find(|c| uses_lib(c, &libnames)) {
+            return Err((path, c.line, format!("class {} is built on a library class inside a function or block, which dynamic builds leave to CPython", c.name)));
+        }
+        by_mod.insert(m.name.clone(), want.iter().map(|w| w.1.clone()).collect());
+        if want.is_empty() {
+            continue;
+        }
+        let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+        let ask = format!("{{\"src\":{},\"lines\":[{}]}}", jq(&src), want.iter().map(|w| w.0.to_string()).collect::<Vec<_>>().join(","));
+        let got = (|| -> Option<String> {
+            use std::io::Write;
+            let mut c = std::process::Command::new(&exe).args(["-I", "-c", CLASS_QUERY]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().ok()?;
+            c.stdin.take()?.write_all(ask.as_bytes()).ok()?;
+            let o = c.wait_with_output().ok()?;
+            o.status.success().then(|| String::from_utf8_lossy(&o.stdout).to_string())
+        })()
+        .and_then(|t| crate::json::parse(t.trim()))
+        .ok_or_else(|| (path.clone(), want[0].0, format!("class {} is built on a library class, and {exe} could not read the file", want[0].1)))?;
+        let text: Vec<&str> = src.lines().collect();
+        let known: HashSet<String> = imported.iter().cloned().chain(want.iter().map(|w| w.1.clone())).collect();
+        for (line, name) in &want {
+            let e = got.get(&line.to_string()).map(|v| v.arr().to_vec()).unwrap_or_default();
+            let (Some(start), Some(end)) = (e.first().and_then(|x| x.num()), e.get(1).and_then(|x| x.num())) else {
+                return Err((path.clone(), *line, format!("class {name} is built on a library class, and its lines could not be read")));
+            };
+            let free: Vec<String> = e.get(2).map(|x| x.arr().iter().filter_map(|s| s.str().map(String::from)).collect()).unwrap_or_default();
+            if let Some(x) = free.iter().find(|x| !known.contains(*x)) {
+                return Err((path.clone(), *line, format!("class {name} is built on a library class and uses {x}, a name of the program that CPython, which runs that class, cannot see")));
+            }
+            let (start, end) = (start as usize, end as usize);
+            // Its own line numbers, so CPython's errors name the file's lines; a __future__ line on the first.
+            let mut body = String::new();
+            let pad = if future.is_empty() { start - 1 } else { body.push_str(&future); body.push('\n'); start.saturating_sub(2) };
+            body.push_str(&"\n".repeat(pad));
+            for l in text.iter().take(end).skip(start - 1) {
+                body.push_str(l);
+                body.push('\n');
+            }
+            bridge.classes.insert((m.name.clone(), *line), body);
+        }
+        let mut imports = future.clone();
+        for l in &lines {
+            imports.push('\n');
+            imports.push_str(l);
+        }
+        bridge.imports.insert(m.name.clone(), imports);
+        bridge.files.insert(m.name.clone(), std::fs::canonicalize(&path).map(|p| p.to_string_lossy().to_string()).unwrap_or(path.clone()));
+    }
+    // A class of the program built on such a class of another file: refused.
+    for m in mods {
+        let path = texts.get(&m.name).map(|t| t.0.clone()).unwrap_or_default();
+        let mut from_other: HashSet<String> = HashSet::new();
+        for s in &m.body {
+            if let St::ImportFrom(name, v) = &s.st {
+                if let Some(cls) = by_mod.get(name).filter(|_| users.contains(name) && *name != m.name) {
+                    for (n, a) in v {
+                        if cls.contains(n) {
+                            from_other.insert(a.clone().unwrap_or_else(|| n.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        for s in &m.body {
+            if let St::Class(c) = &s.st {
+                if !bridge.classes.contains_key(&(m.name.clone(), c.line)) && c.bases.iter().filter_map(root_name).any(|n| from_other.contains(n)) {
+                    return Err((path, c.line, format!("class {} is built on a library-based class of another file, which dynamic builds leave to CPython", c.name)));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn jq(s: &str) -> String {
+    let mut o = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o.push('"');
+    o
 }

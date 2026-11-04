@@ -1,0 +1,5 @@
+{"line":2,"msg":"this value has no method .push() in Python","fix":"did you mean .append()?"}
+check exit 1
+{"path":"cpython","line":2,"why":"Brevi could not build it: this value has no method .push() in Python","by":"python3"}
+run exit 1
+run tracebacks 0

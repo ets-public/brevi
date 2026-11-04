@@ -1,0 +1,7 @@
+{"path":"dynamic","line":3,"why":"this value has no method .push() in Python"}
+check exit 0
+{"path":"dynamic","line":3,"why":"this value has no method .push() in Python"}
+no push
+[1] True 1 1 7
+run exit 0
+run tracebacks 0
