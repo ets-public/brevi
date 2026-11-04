@@ -65,7 +65,7 @@ jobs:
             cp LICENSE README.md BREVI.md $name/
             if [ "$RUNNER_OS" = Windows ]; then 7z a $name.zip $name >/dev/null; else tar czf $name.tar.gz $name; fi
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: brevi-${{ matrix.os }}
           path: brevi-*.*
@@ -92,7 +92,7 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --locked --out dist
           manylinux: auto
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.os }}-${{ matrix.target }}
           path: packaging/pypi/dist/*.whl
@@ -104,7 +104,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
