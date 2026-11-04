@@ -196,6 +196,16 @@ out=$(r run; r run; r check; r check; r run --native
   printf 'print(undefined_name)\n' > "$t/main.py"
   r check; r check)
 rm -rf "$t"
+# A build that failed because of the machine is never replayed: with the dynamic runtime library unable to build
+# (here its cache folder is a file; in v0.24.6's release run, many cold builds at once), the file is refused with
+# the typed build's reason, which must not be kept and shown again once the machine is fine.
+t2=$(mktemp -d); mkdir "$t2/cache"; : > "$t2/cache/dynrt"
+printf 'import argparse\ndef positive(s):\n    return int(s)\np = argparse.ArgumentParser()\np.add_argument("--n", type=positive)\nprint(p.parse_args(["--n", "3"]).n)\n' > "$t2/main.py"
+t2out=$(for c in "run --native" "run --native" check check; do env BREVI_CACHE="$t2/cache" BREVI_TIME=1 $BREVI $c "$t2/main.py" 2>&1; echo "exit $?"; done)
+if [ -n "$(ls -A "$t2/cache/runs" 2>/dev/null)" ] || printf '%s\n' "$t2out" | grep -q 'replayed\|brevi_cache' || [ "$(printf '%s\n' "$t2out" | grep -cx 'exit 1')" != 4 ]; then
+  echo "FAIL result cache keeps a machine failure"; printf '%s\n' "$t2out"; ls -A "$t2/cache/runs"; fail=1
+else echo "ok   result cache keeps no machine failure"; fi
+rm -rf "$t2"
 exp=tests/cache.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
 elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
