@@ -2,6 +2,8 @@
 # Remove a line when the bug is fixed; add one only with `--write-baseline` after reading the result.
 test_dict.DictTest.test_clear dyn
 test_dict.DictTest.test_clear normal
+test_dict.DictTest.test_container_iterator dyn
+test_dict.DictTest.test_container_iterator normal
 test_dict.DictTest.test_copy dyn
 test_dict.DictTest.test_copy normal
 test_dict.DictTest.test_copy_noncompact normal
@@ -19,6 +21,8 @@ test_dict.DictTest.test_instance_dict_getattr_str_subclass dyn
 test_dict.DictTest.test_instance_dict_getattr_str_subclass normal
 test_dict.DictTest.test_items dyn
 test_dict.DictTest.test_items normal
+test_dict.DictTest.test_iterator_pickling dyn
+test_dict.DictTest.test_iterator_pickling normal
 test_dict.DictTest.test_keys_contained dyn
 test_dict.DictTest.test_keys_contained normal
 test_dict.DictTest.test_merge_and_mutate dyn
@@ -37,6 +41,11 @@ test_dict.DictTest.test_object_set_item_single_instance_non_str_key dyn
 test_dict.DictTest.test_object_set_item_single_instance_non_str_key normal
 test_dict.DictTest.test_oob_indexing_dictiter_iternextitem dyn
 test_dict.DictTest.test_oob_indexing_dictiter_iternextitem normal
+test_dict.DictTest.test_overwrite_managed_dict dyn
+test_dict.DictTest.test_overwrite_managed_dict normal
+test_dict.DictTest.test_reverseiterator_pickling dyn
+test_dict.DictTest.test_reverseiterator_pickling normal
+test_dict.DictTest.test_reversevaluesiterator_pickling dyn
 test_dict.DictTest.test_reversevaluesiterator_pickling normal
 test_dict.DictTest.test_setdefault_atomic dyn
 test_dict.DictTest.test_setdefault_atomic normal
@@ -48,6 +57,7 @@ test_dict.DictTest.test_update_shared_keys dyn
 test_dict.DictTest.test_update_shared_keys normal
 test_dict.DictTest.test_values dyn
 test_dict.DictTest.test_values normal
+test_dict.DictTest.test_valuesiterator_pickling dyn
 test_dict.DictTest.test_valuesiterator_pickling normal
 test_dict.DictTest.test_views_mapping dyn
 test_dict.DictTest.test_views_mapping normal
@@ -86,6 +96,8 @@ test_grammar.GrammarTests.test_selectors normal
 test_grammar.GrammarTests.test_var_annot_basic_semantics dyn
 test_grammar.GrammarTests.test_var_annot_basic_semantics normal
 test_grammar.TokenTests.test_string_literals normal
+test_int.IntTestCases.test_basic dyn
+test_int.IntTestCases.test_basic normal
 test_int.IntTestCases.test_int_base_indexable dyn
 test_int.IntTestCases.test_int_base_indexable normal
 test_int.IntTestCases.test_int_base_limits dyn
@@ -112,6 +124,8 @@ test_list.ListTest.test_index dyn
 test_list.ListTest.test_index normal
 test_list.ListTest.test_init dyn
 test_list.ListTest.test_init normal
+test_list.ListTest.test_iterator_pickle dyn
+test_list.ListTest.test_iterator_pickle normal
 test_list.ListTest.test_keyword_args dyn
 test_list.ListTest.test_keyword_args normal
 test_list.ListTest.test_keywords_in_subclass dyn
@@ -122,6 +136,8 @@ test_list.ListTest.test_repr_mutate dyn
 test_list.ListTest.test_repr_mutate normal
 test_list.ListTest.test_reverse dyn
 test_list.ListTest.test_reverse normal
+test_list.ListTest.test_reversed_pickle dyn
+test_list.ListTest.test_reversed_pickle normal
 test_list.ListTest.test_step_overflow dyn
 test_list.ListTest.test_step_overflow normal
 test_list.ListTest.test_tier2_invalidates_iterator dyn
@@ -130,6 +146,8 @@ test_scope.ScopeTests.testCellIsArgAndEscapes dyn
 test_scope.ScopeTests.testCellIsArgAndEscapes normal
 test_scope.ScopeTests.testCellIsLocalAndEscapes dyn
 test_scope.ScopeTests.testCellIsLocalAndEscapes normal
+test_scope.ScopeTests.testLeaks dyn
+test_scope.ScopeTests.testLeaks normal
 test_scope.ScopeTests.testUnboundLocal dyn
 test_scope.ScopeTests.testUnboundLocal normal
 test_scope.ScopeTests.testUnboundLocal_AfterDel dyn

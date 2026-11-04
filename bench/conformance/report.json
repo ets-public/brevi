@@ -1,5 +1,5 @@
 {
-"brevi": "brevi 0.24.4",
+"brevi": "brevi 0.24.6",
 "python": "3.13.13",
 "tag": "v3.13.13",
 "date": "2026-11-04",
@@ -9,26 +9,10 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 151,
-"refused": 69,
-"wrong_output": 36,
-"wrong_exit": 35,
-"crash_or_timeout": 5,
-"not_extractable": 15,
-"unstable": 9,
-"excluded": 37,
-"total": 357,
-"scored": 311,
-"matched_through_cpython": 0,
-"matched_silent": 37,
-"coverage": 0.4855,
-"wrong": 71
-},
-"dyn": {
-"matched": 157,
-"refused": 71,
-"wrong_output": 34,
-"wrong_exit": 29,
+"matched": 153,
+"refused": 59,
+"wrong_output": 38,
+"wrong_exit": 41,
 "crash_or_timeout": 5,
 "not_extractable": 15,
 "unstable": 9,
@@ -37,8 +21,24 @@
 "scored": 311,
 "matched_through_cpython": 0,
 "matched_silent": 38,
-"coverage": 0.5048,
-"wrong": 63
+"coverage": 0.492,
+"wrong": 79
+},
+"dyn": {
+"matched": 159,
+"refused": 59,
+"wrong_output": 36,
+"wrong_exit": 37,
+"crash_or_timeout": 5,
+"not_extractable": 15,
+"unstable": 9,
+"excluded": 37,
+"total": 357,
+"scored": 311,
+"matched_through_cpython": 0,
+"matched_silent": 39,
+"coverage": 0.5113,
+"wrong": 73
 }
 },
 "files": {
@@ -79,8 +79,8 @@
 "test_scope": {
 "normal": {
 "matched": 22,
-"refused": 9,
-"wrong_output": 0,
+"refused": 8,
+"wrong_output": 1,
 "wrong_exit": 4,
 "crash_or_timeout": 0,
 "not_extractable": 3,
@@ -91,12 +91,12 @@
 "matched_through_cpython": 0,
 "matched_silent": 2,
 "coverage": 0.5789,
-"wrong": 4
+"wrong": 5
 },
 "dyn": {
 "matched": 23,
-"refused": 8,
-"wrong_output": 0,
+"refused": 7,
+"wrong_output": 1,
 "wrong_exit": 4,
 "crash_or_timeout": 0,
 "not_extractable": 3,
@@ -107,14 +107,14 @@
 "matched_through_cpython": 0,
 "matched_silent": 3,
 "coverage": 0.6053,
-"wrong": 4
+"wrong": 5
 }
 },
 "test_int": {
 "normal": {
 "matched": 5,
-"refused": 19,
-"wrong_output": 3,
+"refused": 18,
+"wrong_output": 4,
 "wrong_exit": 3,
 "crash_or_timeout": 0,
 "not_extractable": 2,
@@ -125,12 +125,12 @@
 "matched_through_cpython": 0,
 "matched_silent": 0,
 "coverage": 0.1562,
-"wrong": 6
+"wrong": 7
 },
 "dyn": {
 "matched": 5,
-"refused": 19,
-"wrong_output": 3,
+"refused": 18,
+"wrong_output": 4,
 "wrong_exit": 3,
 "crash_or_timeout": 0,
 "not_extractable": 2,
@@ -141,15 +141,15 @@
 "matched_through_cpython": 0,
 "matched_silent": 0,
 "coverage": 0.1562,
-"wrong": 6
+"wrong": 7
 }
 },
 "test_list": {
 "normal": {
-"matched": 41,
-"refused": 3,
+"matched": 42,
+"refused": 0,
 "wrong_output": 7,
-"wrong_exit": 7,
+"wrong_exit": 9,
 "crash_or_timeout": 3,
 "not_extractable": 2,
 "unstable": 2,
@@ -158,14 +158,14 @@
 "scored": 63,
 "matched_through_cpython": 0,
 "matched_silent": 1,
-"coverage": 0.6508,
-"wrong": 14
+"coverage": 0.6667,
+"wrong": 16
 },
 "dyn": {
-"matched": 41,
-"refused": 3,
+"matched": 42,
+"refused": 0,
 "wrong_output": 7,
-"wrong_exit": 7,
+"wrong_exit": 9,
 "crash_or_timeout": 3,
 "not_extractable": 2,
 "unstable": 2,
@@ -174,16 +174,16 @@
 "scored": 63,
 "matched_through_cpython": 0,
 "matched_silent": 1,
-"coverage": 0.6508,
-"wrong": 14
+"coverage": 0.6667,
+"wrong": 16
 }
 },
 "test_dict": {
 "normal": {
-"matched": 52,
-"refused": 8,
+"matched": 53,
+"refused": 3,
 "wrong_output": 24,
-"wrong_exit": 12,
+"wrong_exit": 16,
 "crash_or_timeout": 2,
 "not_extractable": 1,
 "unstable": 7,
@@ -191,15 +191,15 @@
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
-"matched_silent": 12,
-"coverage": 0.5253,
-"wrong": 36
+"matched_silent": 13,
+"coverage": 0.5354,
+"wrong": 40
 },
 "dyn": {
-"matched": 53,
-"refused": 10,
+"matched": 54,
+"refused": 3,
 "wrong_output": 23,
-"wrong_exit": 10,
+"wrong_exit": 16,
 "crash_or_timeout": 2,
 "not_extractable": 1,
 "unstable": 7,
@@ -207,22 +207,22 @@
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
-"matched_silent": 12,
-"coverage": 0.5354,
-"wrong": 33
+"matched_silent": 13,
+"coverage": 0.5455,
+"wrong": 39
 }
 }
 },
 "paths": {
 "normal": {
-"dynamic": 196,
-"refused": 69,
+"dynamic": 206,
+"refused": 59,
 "typed": 29,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 225,
-"refused": 71
+"dynamic": 237,
+"refused": 59
 }
 },
 "tests": [
@@ -298,7 +298,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "module 'warnings' is not supported in dynamic builds"
+"detail": "eval() is not supported in dynamic builds"
 }
 }
 },
@@ -336,7 +336,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+"detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 15: eval() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -439,7 +439,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "module 'warnings' is not supported in dynamic builds"
+"detail": "compile() is not supported in dynamic builds"
 }
 }
 },
@@ -534,7 +534,7 @@
 "normal": {
 "category": "wrong_exit",
 "path": "typed",
-"detail": "exit 101, expected 0: {\"e\":\"runtime\",\"line\":28,\"msg\":\"division by zero\"}"
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":28,\"msg\":\"division by zero\"}"
 },
 "dyn": {
 "category": "matched",
@@ -643,7 +643,7 @@
 "normal": {
 "category": "wrong_exit",
 "path": "typed",
-"detail": "exit 101, expected 0: {\"e\":\"runtime\",\"line\":29,\"msg\":\"division by zero\"}"
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":29,\"msg\":\"division by zero\"}"
 },
 "dyn": {
 "category": "matched",
@@ -774,7 +774,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "bytes literals are not supported"
+"detail": "compile() is not supported in dynamic builds"
 }
 }
 },
@@ -916,7 +916,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "nonlocal 'y' is not supported here"
+"detail": "nonlocal 'x' is not supported here"
 }
 }
 },
@@ -983,7 +983,7 @@
 "normal": {
 "category": "wrong_exit",
 "path": "typed",
-"detail": "exit 101, expected 0: {\"e\":\"runtime\",\"line\":22,\"msg\":\"division by zero\"}"
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":22,\"msg\":\"division by zero\"}"
 },
 "dyn": {
 "category": "matched",
@@ -1069,7 +1069,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: compile() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -1141,7 +1141,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 16: exec() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -1209,7 +1209,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 7: exec() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -1271,7 +1271,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values"
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 7: compile() is not su"
 },
 "dyn": {
 "category": "refused",
@@ -1502,12 +1502,14 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Foo"
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '0', got '100'"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'gc' is not supported in dynamic builds"
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '0', got '100'"
 }
 }
 },
@@ -1832,12 +1834,14 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '{', found ,"
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 269: expected 'raises TypeError', got 'NO-RAISE'"
 },
 "dyn": {
-"category": "refused",
-"detail": "\\N{...} escapes are not supported"
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 269: expected 'raises TypeError', got 'NO-RAISE'"
 }
 }
 },
@@ -1911,7 +1915,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "bytes literals are not supported"
+"detail": "memoryview() is not supported in dynamic builds"
 }
 }
 },
@@ -2027,7 +2031,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "bytes literals are not supported"
+"detail": "bytearray() is not supported in dynamic builds"
 }
 }
 },
@@ -2061,7 +2065,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "bytes literals are not supported"
+"detail": "eval() is not supported in dynamic builds"
 }
 }
 },
@@ -2099,11 +2103,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values"
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 12: a yield inside try"
 },
 "dyn": {
 "category": "refused",
-"detail": "module 'contextlib' is not supported in dynamic builds"
+"detail": "a yield inside try/finally or with is not supported in dynamic builds"
 }
 }
 },
@@ -2215,11 +2219,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values"
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 12: a yield inside try"
 },
 "dyn": {
 "category": "refused",
-"detail": "module 'contextlib' is not supported in dynamic builds"
+"detail": "a yield inside try/finally or with is not supported in dynamic builds"
 }
 }
 },
@@ -2820,12 +2824,14 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown method .type2test()"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 }
 }
 },
@@ -2968,7 +2974,7 @@
 "normal": {
 "category": "crash_or_timeout",
 "path": "dynamic",
-"detail": "timeout"
+"detail": "memory limit"
 },
 "dyn": {
 "category": "crash_or_timeout",
@@ -2982,12 +2988,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown method .type2test()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3118,12 +3124,14 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown method .type2test()"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 }
 }
 },
@@ -3420,12 +3428,14 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found C"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: brevi: a 'C' object cannot be passed to a Python library in a dynamic build"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'gc' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: brevi: a 'C' object cannot be passed to a Python library in a dynamic build"
 }
 }
 },
@@ -3778,7 +3788,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"detail": "collections.abc is not supported in dynamic builds"
 }
 }
 },
@@ -3809,12 +3819,14 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "mismatched types: expected int, found AxPy"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 }
 }
 },
@@ -4013,12 +4025,14 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Shenanigans"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'Shenanigans' object has no attribute 'attr'"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'gc' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'Shenanigans' object has no attribute 'attr'"
 }
 }
 },
@@ -4164,7 +4178,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"detail": "collections.abc is not supported in dynamic builds"
 }
 }
 },
@@ -4173,12 +4187,14 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "no method named rev found for {K: V}"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 }
 }
 },
@@ -4192,8 +4208,9 @@
 "detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"msg\":\"'list' object is not an iterator\"}"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 }
 }
 },
@@ -4320,12 +4337,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found EvilAttr"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'gc' is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4443,8 +4460,9 @@
 "detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"msg\":\"'list' object is not an iterator\"}"
 },
 "dyn": {
-"category": "refused",
-"detail": "module 'pickle' is not supported in dynamic builds"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
 }
 }
 },
