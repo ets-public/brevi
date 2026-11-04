@@ -4,8 +4,11 @@
 # A toolchain that was already tested at this commit is skipped, so quiet days cost almost nothing.
 # Any failure on the schedule opens (or updates) a GitHub issue labelled "toolchain".
 # Actions minutes are limited, so: no run on pushes to main (the PR and the daily run cover it),
-# pull requests test Rust stable only, skip draft PRs and docs/site-only changes, and rebuild the
-# old solutions only when the compiler or the baseline changed. Run tools/ci_local.sh before merging.
+# pull requests test Rust stable only, skip draft PRs and docs/site-only changes, rebuild the old
+# Brevi solutions only when the compiler or the baseline changed (the Rust and Python ones only when
+# they themselves changed), and reuse the build cache the daily run saved, so test programs whose
+# generated Rust didn't change aren't recompiled. The daily run always starts cold and runs everything.
+# Run tools/ci_local.sh before merging.
 name: Toolchains
 
 on:
@@ -48,6 +51,7 @@ jobs:
   versions:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       next_python: ${{ steps.py.outputs.next }}
       matrix: ${{ steps.m.outputs.matrix }}
@@ -87,6 +91,9 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.versions.outputs.matrix) }}
     name: rust ${{ matrix.rust }} / python ${{ matrix.python }}
+    env:
+      # Room for every test program and old solution, so the cache doesn't evict mid-run.
+      BREVI_CACHE_MB: "6144"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -111,6 +118,7 @@ jobs:
           rustc -vV | tee /tmp/fp
           python3 -VV | tee -a /tmp/fp
           echo "key=tested-${{ matrix.rust }}-${{ matrix.python }}-${{ github.sha }}-$(sha256sum /tmp/fp | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "rustc_hash=$(rustc -vV | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
           echo "rustc=$(rustc -V)" >> "$GITHUB_OUTPUT"
           echo "python=$(python3 -V)" >> "$GITHUB_OUTPUT"
 
@@ -123,6 +131,18 @@ jobs:
           key: ${{ steps.fp.outputs.key }}
           lookup-only: true
 
+      - name: Reuse the daily run's build cache (pull requests)
+        # Brevi's cache keys every binary by its generated Rust, the build flags, the rustc version and the
+        # runtime's own hash, so a reused entry is the binary a fresh build would make; a PR only rebuilds the
+        # programs whose generated Rust it changes (language tests ~4.5 min cold, ~40 s warm). The replay
+        # cache (runs/) is never saved, so whole runs are always redone by the PR's own compiler.
+        if: github.event_name == 'pull_request' && matrix.rust == 'stable'
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.cache/brevi
+          key: brevi-build-${{ steps.fp.outputs.rustc_hash }}-${{ github.run_id }}
+          restore-keys: brevi-build-${{ steps.fp.outputs.rustc_hash }}-
+
       - name: Build
         if: steps.seen.outputs.cache-hit != 'true'
         run: cargo build --release
@@ -132,11 +152,25 @@ jobs:
         # Rebuilding the ~1,900 old solutions takes about 6 minutes, so PRs that only touch docs,
         # tests, tools or the guide skip it. The daily run always does it.
         run: |
-          if [ "${{ github.event_name }}" != pull_request ]; then echo "compat=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            { echo "compat=true"; echo "kinds=brevi,python,rust"; echo "grammar=true"; } >> "$GITHUB_OUTPUT"; exit 0
+          fi
           changed=$(git diff --name-only HEAD^1 HEAD)
           echo "$changed"
           if echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/|tools/compat\.py$|bench/(solutions|tasks|ref)/)'; then
             echo "compat=true" >> "$GITHUB_OUTPUT"
+          fi
+          # The Rust and Python solutions never go through Brevi, so a compiler change can't break them;
+          # rebuild them only when they, their tests or the checker change.
+          if echo "$changed" | grep -qE '^(compat/|tools/compat\.py$|bench/(solutions|tasks)/)'; then
+            echo "kinds=brevi,python,rust" >> "$GITHUB_OUTPUT"
+          else
+            echo "kinds=brevi" >> "$GITHUB_OUTPUT"
+          fi
+          # grammar/brevi.lark is separate from the compiler's parser: only the grammar, the programs it
+          # parses or its tools can change the result.
+          if echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/|tools/(grammar_check|lark_to_gbnf)\.py$)'; then
+            echo "grammar=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Unit tests
@@ -162,7 +196,7 @@ jobs:
         run: python3 tools/version_sync.py
 
       - name: Grammar accepts every test program, and the GBNF copy is current
-        if: steps.seen.outputs.cache-hit != 'true'
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.grammar == 'true'
         run: |
           python3 -m pip install --quiet lark==1.2.2
           python3 tools/lark_to_gbnf.py --check
@@ -170,7 +204,7 @@ jobs:
 
       - name: Every solution that ever passed still passes
         if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true'
-        run: python3 tools/compat.py check --report compat-report.md
+        run: python3 tools/compat.py check --kinds ${{ steps.scope.outputs.kinds }} --report compat-report.md
 
       - name: Early warnings in generated Rust (deprecations, future incompatibilities, newest edition)
         if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'nightly'
@@ -182,6 +216,23 @@ jobs:
       - name: Bench scripts still compile
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 -m py_compile bench/*.py bench/ref/*.py tools/*.py
+
+      - name: Drop the replay cache and machine-specific paths before saving
+        if: >
+          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&
+          github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: rm -rf ~/.cache/brevi/runs ~/.cache/brevi/toolchain
+
+      - name: Save the build cache for pull requests
+        # Only the daily (and manual main) run saves it, so a PR can never seed what other PRs reuse. The run
+        # started cold, so every entry came from this commit's compiler. One entry per day; GitHub evicts old ones.
+        if: >
+          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&
+          github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/brevi
+          key: brevi-build-${{ steps.fp.outputs.rustc_hash }}-${{ github.run_id }}
 
       - name: Remember this toolchain passed
         if: success() && steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request'

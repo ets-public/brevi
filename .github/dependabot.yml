@@ -1,10 +1,17 @@
 # Keeps Brevi's own dependencies current. Crates used by Brevi programs are pinned inside .bv files
 # (`use NAME "VERSION"`) and are watched by tools/upstream_watch.py instead.
+# Grouped, so each week brings at most one PR per ecosystem (each PR costs a CI run).
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule: { interval: weekly }
+    groups:
+      cargo:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]
