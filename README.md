@@ -16,7 +16,7 @@ Linux and macOS:
 curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
 ```
 
-The script installs the Rust toolchain if it is missing (Brevi compiles through `rustc`), then the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, or builds it with `cargo install` when no prebuilt one fits.
+The script installs the Rust toolchain if it is missing (Brevi compiles through `rustc`), then the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, verified against the release's `SHA256SUMS`, or builds it with `cargo install` when no prebuilt one fits.
 
 Windows: install Rust with [rustup](https://rustup.rs), then unzip `brevi-x86_64-pc-windows-msvc.zip` from the [latest release](https://github.com/ets-public/brevi/releases/latest) and put `brevi.exe` on your PATH. Python files that import libraries such as numpy run with CPython there for now.
 
