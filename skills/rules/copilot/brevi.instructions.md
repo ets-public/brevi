@@ -8,14 +8,15 @@ Brevi compiles ordinary Python to Rust and builds a native binary. Write the pro
 
 ## Setup
 
-Check that `brevi --version` works. If it does not, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
+Check that `brevi --version` works. If it does not, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, verified against its `SHA256SUMS`, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
 
 ## Loop
 
 1. Write normal Python to `main.py` (standard library or installed packages such as numpy; split big programs into `.py` files that import each other). There is no guide to read first. Brevi compiles it to native code, which runs plain loops over ints, lists and strings 10 to 50 times faster than CPython: write the plain, direct solution and do not hand-optimise it for speed (no bit-packing tricks or big-int bitboards).
 2. Run it with `brevi run main.py < input.txt`, or `brevi check main.py` to build without running. `brevi build main.py -o app --release` makes the fast binary.
 3. Each error is `{"line":N,"msg":...,"fix":...}`. Change only the lines it names, then run again. Do not rewrite the whole file.
-4. If Brevi still cannot build a Python construct after one small change, keep the Python as it is, run it with `python3 main.py`, and say that it ran without Brevi.
+4. Off the fast path, one `{"path":...}` line on stderr says what ran and why: `dynamic` (still native, slower) or `pybridge` (library calls in CPython) are fine; when speed matters, rewrite only the `fn` it names so it keeps one type per value. `cpython` means Brevi did not build it at all.
+5. If Brevi still cannot build a Python construct after one small change, keep the Python as it is, run it with `python3 main.py`, and say that it ran without Brevi.
 
 ## Writing Brevi itself
 
