@@ -570,6 +570,10 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         if std::env::var("BREVI_DYN_DEBUG").is_ok() {
             eprintln!("{e}");
         }
+        // Not a fact about the program: the runtime library may not have built (a cold cache shared by many
+        // builds at once, a full disk) or rustc may have been stopped. The refusal printed next names the typed
+        // build's reason, which a later build (after the machine is fine) would not stop at.
+        runcache::not_kept();
         *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, "internal: the dynamic build's code did not compile".into()));
         return false;
     }
@@ -1568,20 +1572,29 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
         c.arg("--out-dir").arg(dir);
     }
     c.arg(&rs);
+    let mut stopped = false;
     let r = match c.output() {
         Ok(o) if o.status.success() => Ok(()),
-        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
+        Ok(o) => {
+            // Killed (out of memory, a time limit): whatever it printed is not about the program.
+            stopped = o.status.code().is_none();
+            Err(String::from_utf8_lossy(&o.stderr).to_string())
+        }
         Err(e) => {
             println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
             return None;
         }
     };
+    let about_code = matches!(&r, Err(e) if !stopped && e.contains("\"level\":\"error\"") && about_the_code(e));
+    if r.is_err() && !about_code {
+        runcache::not_kept();
+    }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
         let saved = match &r {
             Ok(()) if link => std::fs::copy(out, &tmp).is_ok(),
             Ok(()) => std::fs::write(&tmp, "").is_ok(),
-            Err(e) if e.contains("\"level\":\"error\"") && about_the_code(e) => std::fs::write(&tmp, e).is_ok(),
+            Err(e) if about_code => std::fs::write(&tmp, e).is_ok(),
             Err(_) => false,
         };
         let dest = if r.is_ok() { cached.clone() } else { cached.with_extension("err") };
@@ -1596,10 +1609,14 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
 
 // True when every rustc error points into the program. An error with no place in it (a folder that could not
 // be written, a full disk) is about the machine: kept out of the cache, so it goes once the machine is fixed.
+// A crate that could not be loaded (the runtime library missing, unreadable or built by another rustc) points
+// at the program's `extern crate` line, yet is about the cache: not about the code either.
 fn about_the_code(stderr: &str) -> bool {
+    const CRATE_LOAD: [&str; 6] = ["E0460", "E0461", "E0462", "E0463", "E0514", "E0786"];
     stderr.lines().filter_map(json::parse).filter(|j| j.get("level").and_then(|v| v.str()) == Some("error")).all(|j| {
         let msg = j.get("message").and_then(|v| v.str()).unwrap_or("");
-        msg.starts_with("aborting due to") || j.get("spans").is_some_and(|v| !v.arr().is_empty())
+        let code = j.get("code").and_then(|c| c.get("code")).and_then(|c| c.str()).unwrap_or("");
+        msg.starts_with("aborting due to") || (j.get("spans").is_some_and(|v| !v.arr().is_empty()) && !CRATE_LOAD.contains(&code))
     })
 }
 
