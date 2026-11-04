@@ -29,27 +29,31 @@ struct G {
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
 pub fn check(src: &str) -> Option<(usize, String)> {
-    check_soft(src).map(|(l, w, _)| (l, w))
+    check_soft(src).unwrap_or_else(|(l, m)| Some((l, m, vec![]))).map(|(l, w, _)| (l, w))
 }
 
 // As check, with the names the typed build may still take the file on (empty: it may not). Every reason
 // found is a set walked or shown in CPython's hash order, on sets named there; when rustc finds that each of
 // those holds strings (or tuples led by one), whose hashes CPython draws afresh each run (PYTHONHASHSEED), no
 // order is CPython's own, and the typed build's is as good as any run's.
-pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
-    let body = crate::dynpy::parse::parse(src).ok()?;
+// Err (line, why): the dynamic build's parser cannot read the file, so none of this was checked.
+pub fn check_soft(src: &str) -> Result<Option<(usize, String, Vec<String>)>, (usize, String)> {
+    Ok(check_body(&crate::dynpy::parse::parse(src)?))
+}
+
+fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     let mut g = G::default();
-    collect_params(&body, &mut g);
+    collect_params(body, &mut g);
     for _ in 0..8 {
         let before = (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len());
-        learn(&body, None, &mut g);
+        learn(body, None, &mut g);
         if before == (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len()) {
             break;
         }
     }
     for _ in 0..8 {
         let before = g.pure_gens.len();
-        find_pure_gens(&body, &mut g);
+        find_pure_gens(body, &mut g);
         if before == g.pure_gens.len() {
             break;
         }
@@ -57,21 +61,21 @@ pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
     // Top-level code: a growing name that a function reads.
     {
         let mut gr = HashSet::new();
-        growing(&body, &mut gr);
+        growing(body, &mut gr);
         let mut used = HashSet::new();
-        nested_names(&body, &mut used);
+        nested_names(body, &mut used);
         if let Some(n) = gr.iter().find(|n| used.contains(*n)) {
             let line = body.iter().find(|s| matches!(&s.st, St::Assign(..) | St::AugAssign(..))).map_or(1, |s| s.line);
             return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int"), vec![]));
         }
     }
-    if let Some((line, why)) = findall_groups(&body).or_else(|| default_reads(&body)) {
+    if let Some((line, why)) = findall_groups(body).or_else(|| default_reads(body)) {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];
-    g.pure_fns = pure_fns(&body);
-    g.fn_changes = program_changes(&body);
-    uses(&body, &g, &mut hits);
+    g.pure_fns = pure_fns(body);
+    g.fn_changes = program_changes(body);
+    uses(body, &g, &mut hits);
     let (line, why, _) = hits.first().cloned()?;
     if let Some(h) = hits.iter().find(|h| h.2.is_none()) {
         return Some((h.0, h.1.clone(), vec![]));
@@ -80,7 +84,7 @@ pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
     names.sort();
     names.dedup();
     // Each name must be set only by `name = ...` (or be a def's parameter), where the typed build checks it.
-    if names.iter().any(|k| bound_oddly(&body, k.split_once(':').map_or(k.as_str(), |x| x.1))) {
+    if names.iter().any(|k| bound_oddly(body, k.split_once(':').map_or(k.as_str(), |x| x.1))) {
         return Some((line, why, vec![]));
     }
     Some((line, why, names))
@@ -1446,13 +1450,19 @@ mod tests {
         assert!(!needs("xs = [3, 1]\nprint(xs, sorted(set(xs)))\n"));
     }
     #[test]
+    fn unread_file_is_not_safe() {
+        let src = "try:\n    pass\nexcept* ValueError:\n    pass\nprint({3, -1, 5})\n";
+        assert_eq!(super::check_soft(src).map_err(|e| e.0), Err(3));
+        assert!(needs(src));
+    }
+    #[test]
     fn string_set_walks_wait_for_rustc() {
         use super::check_soft;
         // Named for the typed build to check (rustc proves the items are strings), not refused outright.
-        assert_eq!(check_soft("ws = set('a b a'.split())\nfor w in ws:\n    print(w)\n").map(|x| x.2), Some(vec!["s:ws".to_string()]));
+        assert_eq!(check_soft("ws = set('a b a'.split())\nfor w in ws:\n    print(w)\n").unwrap().map(|x| x.2), Some(vec!["s:ws".to_string()]));
         // A set made by a function, or bound as a loop variable, cannot be checked by name.
-        assert_eq!(check_soft("def f():\n    return {'a'}\nfor w in f():\n    print(w)\n").map(|x| x.2), Some(vec![]));
-        assert_eq!(check_soft("for s in [{'a'}]:\n    for w in s:\n        print(w)\n").map(|x| x.2.is_empty()), Some(true));
+        assert_eq!(check_soft("def f():\n    return {'a'}\nfor w in f():\n    print(w)\n").unwrap().map(|x| x.2), Some(vec![]));
+        assert_eq!(check_soft("for s in [{'a'}]:\n    for w in s:\n        print(w)\n").unwrap().map(|x| x.2.is_empty()), Some(true));
         // Order-free consumers of a comprehension over a set.
         assert!(!needs("s = {3, 1}\nprint(max(x * 2 for x in s), sorted(x for x in s), any(x > 2 for x in s))\n"));
         assert!(needs("s = {3, 1}\nprint(max((x for x in s), key=lambda v: v % 2))\n"));

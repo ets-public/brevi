@@ -278,10 +278,13 @@ fn main() {
     }
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
+    let mut unread = None;
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
-        let guard = guard_files(&file);
+        let guard;
+        (guard, unread) = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
-            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w, _, k)| if k.is_empty() { format!("dyn {l}: {w}") } else { format!("typed if {}: {l}: {w}", k.join(" ")) }));
+            let typed = unread.as_ref().map_or("typed".to_string(), |(l, w, _)| format!("unread {l}: {w}"));
+            println!("{}", guard.as_ref().map_or(typed, |(l, w, _, k)| if k.is_empty() { format!("dyn {l}: {w}") } else { format!("typed if {}: {l}: {w}", k.join(" ")) }));
             exit(0);
         }
         // Set walks on names that may hold strings: the typed build tries, with rustc checking each name.
@@ -378,6 +381,13 @@ fn main() {
             // The typed build takes Brevi's names (`fail("x")`, `s.trim()`), which are mistakes in a .py file.
             if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check") {
                 refuse_sure(&file, pydiag::scan_brevi);
+            }
+            // The typed build took a file the guard could not read, so nothing says it matches CPython. (A file
+            // it refuses goes on below, keeping its own errors.)
+            if let Some((line, why, gfile)) = &unread {
+                // By now errors are moved from the joined source to their file: give the joined line.
+                let seg = SEGS.get().and_then(|s| s.iter().skip(1).find(|g| g.path.file_name() == gfile.file_name()));
+                guard_refusal(cmd, &file, &argv, seg.map_or(*line, |g| g.start + line - 1), why, gfile);
             }
             if emit::RAND_ORDER.get().is_some_and(|ns| ns.iter().any(|k| !r.contains(&format!("/*axr:{k}*/")))) {
                 soft_fail(cmd);
@@ -1463,12 +1473,14 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 // None when rustc could not be started.
 // The typed-build guard over the file and the local modules it imports (directly or through each other).
 // With the names (see typed_guard::check_soft) when every reason found is a set walked in hash order on them.
-fn guard_files(file: &str) -> Option<(usize, String, PathBuf, Vec<String>)> {
+// Second: a file the guard could not read (line, why, file), when no reason found was final.
+fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Option<(usize, String, PathBuf)>) {
     let dir = Path::new(file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let mut todo = vec![PathBuf::from(file)];
     let mut seen: Vec<PathBuf> = vec![];
     let mut first: Option<(usize, String, PathBuf)> = None;
     let mut soft: Vec<String> = vec![];
+    let mut unread: Option<(usize, String, PathBuf)> = None;
     while let Some(f) = todo.pop() {
         if seen.contains(&f) {
             continue;
@@ -1476,13 +1488,21 @@ fn guard_files(file: &str) -> Option<(usize, String, PathBuf, Vec<String>)> {
         seen.push(f.clone());
         let Ok(src) = std::fs::read_to_string(&f) else { continue };
         let src = if seen.len() == 1 { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
-        if let Some((line, why, names)) = typed_guard::check_soft(&src) {
-            let why = if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
-            if names.is_empty() {
-                return Some((line, why, f, vec![]));
+        let shown = |why: String| if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
+        // `allow` lines are not Python, and the guard reads what the typed build reads once they are gone.
+        match typed_guard::check_soft(&caps::split(&src).0) {
+            Ok(Some((line, why, names))) => {
+                let why = shown(why);
+                if names.is_empty() {
+                    return (Some((line, why, f, vec![])), None);
+                }
+                first.get_or_insert((line, why, f.clone()));
+                soft.extend(names);
             }
-            first.get_or_insert((line, why, f.clone()));
-            soft.extend(names);
+            Ok(None) => {}
+            Err((line, msg)) => {
+                unread.get_or_insert((line, shown(format!("the guard cannot read this file: {msg}")), f.clone()));
+            }
         }
         for l in src.lines() {
             let t = l.trim_start();
@@ -1501,7 +1521,7 @@ fn guard_files(file: &str) -> Option<(usize, String, PathBuf, Vec<String>)> {
             }
         }
     }
-    first.map(|(l, w, f)| (l, w, f, soft))
+    (first.map(|(l, w, f)| (l, w, f, soft)), unread)
 }
 
 // Builds are cached by a hash of the generated code, the flags and the rustc version, so running the same
