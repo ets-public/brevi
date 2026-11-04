@@ -1268,6 +1268,9 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "time" => match n {
             "time" | "perf_counter" | "monotonic" | "process_time" => Ok(V::Float(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0))),
             "sleep" => Ok(V::None),
+            "time_ns" | "perf_counter_ns" | "monotonic_ns" | "process_time_ns" => Ok(V::Int(now_us() as i64 * 1000)),
+            "gmtime" => time_gmtime(a),
+            "strftime" => time_strftime(a),
             _ => Err(unsupported(&format!("time.{n}"))),
         },
         "typing" => Ok(a.p.first().cloned().unwrap_or(V::None)),

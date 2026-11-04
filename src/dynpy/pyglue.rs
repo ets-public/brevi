@@ -766,6 +766,12 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
                     xs.iter().for_each(|x| (a.DecRef)(*x));
                     r?
                 }
+                "timezone" => {
+                    let off = pyd_to(&call_method(v, "utcoffset", Args::p(vec![V::None]))?)?;
+                    let r = pyd_mod_call("datetime", "timezone", &[off]);
+                    (a.DecRef)(off);
+                    r?
+                }
                 t => return type_err(format!("brevi: a {t} value cannot be passed to a Python library in a dynamic build")),
             }
         }

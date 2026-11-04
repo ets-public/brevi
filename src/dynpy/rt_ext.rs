@@ -1038,6 +1038,8 @@ pub struct DT {
     ord: i64,
     us: i64,
     has_time: bool,
+    // An aware datetime's UTC offset in seconds (datetime.timezone); None for a naive one or a date.
+    tz: Option<i32>,
 }
 impl DT {
     fn ymd(&self) -> (i64, i64, i64) {
@@ -1058,6 +1060,9 @@ impl DT {
             let _ = write!(t, "{sep}{h:02}:{mi:02}:{s:02}");
             if us != 0 {
                 let _ = write!(t, ".{us:06}");
+            }
+            if let Some(o) = self.tz {
+                t.push_str(&off_str(o, true));
             }
         }
         t
@@ -1175,7 +1180,7 @@ impl DT {
                 'X' => {
                     let _ = write!(out, "{h:02}:{mi:02}:{s:02}");
                 }
-                'z' | 'Z' => {}
+                'z' | 'Z' => out.push_str(&tz_fmt(self.tz, k)),
                 '%' => out.push('%'),
                 k => {
                     out.push('%');
@@ -1184,6 +1189,132 @@ impl DT {
             }
         }
         out
+    }
+}
+const DAY_US: i128 = 86_400_000_000;
+// A UTC offset as datetime prints it: +HH:MM (isoformat, str, tzname) or +HHMM (%z), with seconds when it has them.
+fn off_str(off: i32, colon: bool) -> String {
+    let sign = if off < 0 { '-' } else { '+' };
+    let a = off.unsigned_abs();
+    let (h, m, sec) = (a / 3600, a / 60 % 60, a % 60);
+    let c = if colon { ":" } else { "" };
+    let mut t = format!("{sign}{h:02}{c}{m:02}");
+    if sec != 0 {
+        let _ = write!(t, "{c}{sec:02}");
+    }
+    t
+}
+fn tz_name(off: i32) -> String {
+    if off == 0 {
+        "UTC".into()
+    } else {
+        format!("UTC{}", off_str(off, true))
+    }
+}
+impl DT {
+    // Microseconds since 0001-01-01 00:00 UTC for an aware datetime; the wall clock's for a naive one.
+    fn utc_us(&self) -> i128 {
+        self.ord as i128 * DAY_US + self.us as i128 - self.tz.unwrap_or(0) as i128 * 1_000_000
+    }
+    fn from_utc_us(t: i128, tz: Option<i32>) -> Result<DT, E> {
+        let w = t + tz.unwrap_or(0) as i128 * 1_000_000;
+        let ord = w.div_euclid(DAY_US) as i64;
+        if !(1..=3652059).contains(&ord) {
+            return Err(exc("OverflowError", "date value out of range".into()));
+        }
+        Ok(DT { ord, us: w.rem_euclid(DAY_US) as i64, has_time: true, tz })
+    }
+}
+const EPOCH_US: i128 = 719163 * DAY_US;
+fn now_us() -> i128 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i128).unwrap_or(0)
+}
+// A timestamp as Python rounds it to microseconds (half to even).
+fn ts_us(v: &V) -> Result<i128, E> {
+    match v {
+        V::Int(i) => Ok(*i as i128 * 1_000_000),
+        V::Bool(b) => Ok(*b as i128 * 1_000_000),
+        V::Float(f) if f.is_finite() => Ok((f * 1e6).round_ties_even() as i128),
+        V::Float(_) => val_err("cannot convert float NaN or infinity to integer".into()),
+        x => type_err(format!("'{}' object cannot be interpreted as an integer", tn(x))),
+    }
+}
+
+// datetime.timezone: a fixed UTC offset in seconds.
+pub struct TZV(pub i32);
+fn tzv(off: i32) -> V {
+    V::Ext(Rc::new(TZV(off)))
+}
+fn tz_of(v: &V) -> Option<i32> {
+    match v {
+        V::Ext(x) => x.any().downcast_ref::<TZV>().map(|t| t.0),
+        _ => None,
+    }
+}
+// A tzinfo argument: None (naive) or a datetime.timezone.
+fn tz_arg(v: Option<V>) -> Result<Option<i32>, E> {
+    match v {
+        None | Some(V::None) => Ok(None),
+        Some(v) => match tz_of(&v) {
+            Some(o) => Ok(Some(o)),
+            None => type_err(format!("tzinfo argument must be None or of a tzinfo subclass, not type '{}'", tn(&v))),
+        },
+    }
+}
+fn tz_new(mut a: Args) -> R {
+    let off = a.kw("offset").or_else(|| a.p.first().cloned());
+    if a.kw("name").is_some() || a.p.len() > 1 {
+        return Err(unsupported("datetime.timezone with a name"));
+    }
+    let Some(t) = off.as_ref().and_then(td_of) else {
+        return type_err("timezone() argument 1 must be datetime.timedelta".into());
+    };
+    if t.us <= -DAY_US || t.us >= DAY_US {
+        return val_err("offset must be a timedelta strictly between -timedelta(hours=24) and timedelta(hours=24).".into());
+    }
+    if t.us % 1_000_000 != 0 {
+        return Err(unsupported("datetime.timezone with a fraction of a second"));
+    }
+    Ok(tzv((t.us / 1_000_000) as i32))
+}
+impl Ext for TZV {
+    fn tname(&self) -> &'static str {
+        "datetime.timezone"
+    }
+    fn repr(&self) -> String {
+        if self.0 == 0 {
+            "datetime.timezone.utc".into()
+        } else {
+            format!("datetime.timezone({})", TDV(TD { us: self.0 as i128 * 1_000_000 }).repr())
+        }
+    }
+    fn str_(&self) -> String {
+        tz_name(self.0)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some(hash_int(self.0 as i64))
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(tz_of(o) == Some(self.0))
+    }
+    fn method(&self, _me: &V, n: &str, _a: &mut Args) -> Option<R> {
+        Some(Ok(match n {
+            "utcoffset" => tdv(TD { us: self.0 as i128 * 1_000_000 }),
+            "tzname" => st(tz_name(self.0)),
+            "dst" => V::None,
+            _ => return Some(Err(exc("AttributeError", format!("'datetime.timezone' object has no attribute '{n}'")))),
+        }))
+    }
+}
+// %z and %Z of an aware datetime (empty for a naive one, as in Python).
+fn tz_fmt(tz: Option<i32>, k: char) -> String {
+    match (tz, k) {
+        (Some(o), 'z') => off_str(o, false),
+        (Some(o), _) => tz_name(o),
+        (None, _) => String::new(),
     }
 }
 fn strptime(t: &str, f: &str) -> Result<DT, E> {
@@ -1293,7 +1424,7 @@ fn strptime(t: &str, f: &str) -> Result<DT, E> {
     if h > 23 || mi > 59 || s > 61 {
         return Err(fail());
     }
-    Ok(DT { ord: ymd_to_ord(y, mo, d), us: ((h * 60 + mi) * 60 + s) * 1_000_000 + us, has_time: true })
+    Ok(DT { ord: ymd_to_ord(y, mo, d), us: ((h * 60 + mi) * 60 + s) * 1_000_000 + us, has_time: true, tz: None })
 }
 fn fromiso(t: &str, with_time: bool) -> Result<DT, E> {
     let bad = || exc("ValueError", format!("Invalid isoformat string: {}", str_repr(t)));
@@ -1315,6 +1446,7 @@ fn fromiso(t: &str, with_time: bool) -> Result<DT, E> {
     let Some((Some(y), Some(m), Some(d))) = date_part else { return Err(bad()) };
     check_date(y, m, d).map_err(|_| bad())?;
     let mut us = 0;
+    let mut tz = None;
     if !rest.is_empty() {
         if !with_time {
             return Err(bad());
@@ -1323,8 +1455,27 @@ fn fromiso(t: &str, with_time: bool) -> Result<DT, E> {
         if r[0] != b'T' && r[0] != b' ' {
             return Err(bad());
         }
-        let tp = &rest[1..];
-        let tp = tp.trim_end_matches('Z');
+        let mut tp = &rest[1..];
+        // A UTC offset at the end (Z, +HH, +HH:MM, +HHMM, +HH:MM:SS) makes the datetime aware.
+        if let Some(x) = tp.strip_suffix('Z') {
+            tp = x;
+            tz = Some(0);
+        } else if let Some(k) = tp.find(['+', '-']) {
+            let (body, o) = tp.split_at(k);
+            let sign = if o.starts_with('-') { -1 } else { 1 };
+            let o = &o[1..];
+            let ps: Vec<&str> = if o.contains(':') { o.split(':').collect() } else { o.as_bytes().chunks(2).map(|c| std::str::from_utf8(c).unwrap_or("")).collect() };
+            if ps.is_empty() || ps.len() > 3 || ps.iter().any(|p| p.len() != 2) {
+                return Err(bad());
+            }
+            let v: Vec<i64> = ps.iter().map(|p| n2(p.as_bytes()).ok_or_else(bad)).collect::<Result<_, _>>()?;
+            let secs = v[0] * 3600 + v.get(1).copied().unwrap_or(0) * 60 + v.get(2).copied().unwrap_or(0);
+            if v[0] > 23 || v.get(1).copied().unwrap_or(0) > 59 || v.get(2).copied().unwrap_or(0) > 59 {
+                return Err(bad());
+            }
+            tp = body;
+            tz = Some((sign * secs) as i32);
+        }
         let parts: Vec<&str> = tp.split(':').collect();
         let h = parts.first().and_then(|x| n2(x.as_bytes())).ok_or_else(bad)?;
         let mi = parts.get(1).map(|x| n2(x.as_bytes()).ok_or_else(bad)).transpose()?.unwrap_or(0);
@@ -1343,7 +1494,7 @@ fn fromiso(t: &str, with_time: bool) -> Result<DT, E> {
         }
         us = ((h * 60 + mi) * 60 + s) * 1_000_000 + frac;
     }
-    Ok(DT { ord: ymd_to_ord(y, m, d), us, has_time: with_time })
+    Ok(DT { ord: ymd_to_ord(y, m, d), us, has_time: with_time, tz })
 }
 
 pub struct DTV(pub DT);
@@ -1403,7 +1554,7 @@ fn tm_of(v: &V) -> Option<i64> {
     }
 }
 fn tm_dt(us: i64) -> DT {
-    DT { ord: ymd_to_ord(1900, 1, 1), us, has_time: true }
+    DT { ord: ymd_to_ord(1900, 1, 1), us, has_time: true, tz: None }
 }
 fn tm_new(mut a: Args) -> R {
     let v = int_args(&mut a, &["hour", "minute", "second", "microsecond"], 0, "time")?;
@@ -1654,6 +1805,9 @@ impl Ext for DTV {
         if us != 0 {
             let _ = write!(t, ", {us}");
         }
+        if let Some(o) = self.0.tz {
+            let _ = write!(t, ", tzinfo={}", TZV(o).repr());
+        }
         t.push(')');
         t
     }
@@ -1664,17 +1818,18 @@ impl Ext for DTV {
         self
     }
     fn hash(&self) -> Option<i64> {
-        Some(hash_int(self.0.ord * 86_400_000_000 + self.0.us))
+        Some(hash_int(self.0.utc_us() as i64))
     }
+    // Aware datetimes compare as instants; an aware one never equals a naive one.
     fn eq(&self, o: &V) -> Option<bool> {
-        Some(dt_of(o).is_some_and(|t| t.has_time == self.0.has_time && t.ord == self.0.ord && t.us == self.0.us))
+        Some(dt_of(o).is_some_and(|t| t.has_time == self.0.has_time && t.tz.is_some() == self.0.tz.is_some() && t.utc_us() == self.0.utc_us()))
     }
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
         let t = dt_of(o)?;
-        if t.has_time != self.0.has_time {
+        if t.has_time != self.0.has_time || t.tz.is_some() != self.0.tz.is_some() {
             return None;
         }
-        Some((self.0.ord, self.0.us).cmp(&(t.ord, t.us)))
+        Some(self.0.utc_us().cmp(&t.utc_us()))
     }
     fn fmt(&self, spec: &str) -> Option<R> {
         if spec.is_empty() {
@@ -1693,7 +1848,7 @@ impl Ext for DTV {
             "minute" if self.0.has_time => V::Int(mi),
             "second" if self.0.has_time => V::Int(s),
             "microsecond" if self.0.has_time => V::Int(us),
-            "tzinfo" if self.0.has_time => V::None,
+            "tzinfo" if self.0.has_time => self.0.tz.map_or(V::None, tzv),
             _ => return None,
         }))
     }
@@ -1706,7 +1861,7 @@ impl Ext for DTV {
                 if !(1..=3652059).contains(&ord) {
                     return Err(exc("OverflowError", "date value out of range".into()));
                 }
-                Ok(dtv(DT { ord, us: total.rem_euclid(86_400_000_000) as i64, has_time: a.has_time }))
+                Ok(dtv(DT { ord, us: total.rem_euclid(86_400_000_000) as i64, has_time: a.has_time, tz: a.tz }))
             };
             return match (op, right) {
                 ("+", _) => Some(shift(1)),
@@ -1717,8 +1872,10 @@ impl Ext for DTV {
         if let Some(b) = dt_of(o) {
             if op == "-" && b.has_time == a.has_time {
                 let (x, y) = if right { (b, a) } else { (a, b) };
-                let us = (x.ord - y.ord) as i128 * 86_400_000_000 + (x.us - y.us) as i128;
-                return Some(Ok(tdv(TD { us })));
+                if x.tz.is_some() != y.tz.is_some() {
+                    return Some(type_err("can't subtract offset-naive and offset-aware datetimes".into()));
+                }
+                return Some(Ok(tdv(TD { us: x.utc_us() - y.utc_us() })));
             }
         }
         None
@@ -1742,11 +1899,22 @@ impl Ext for DTV {
                     let (y, w, d) = t.isocal();
                     tup(vec![V::Int(y), V::Int(w), V::Int(d)])
                 }
-                "date" => dtv(DT { ord: t.ord, us: 0, has_time: false }),
-                "time" | "timetz" if t.has_time => tmv(t.us),
+                "date" => dtv(DT { ord: t.ord, us: 0, has_time: false, tz: None }),
+                "time" if t.has_time => tmv(t.us),
+                "timetz" if t.has_time && t.tz.is_none() => tmv(t.us),
+                "timetz" if t.has_time => return Err(unsupported("datetime.timetz of an aware datetime")),
+                "utcoffset" if t.has_time => t.tz.map_or(V::None, |o| tdv(TD { us: o as i128 * 1_000_000 })),
+                "tzname" if t.has_time => t.tz.map_or(V::None, |o| st(tz_name(o))),
+                "dst" if t.has_time => V::None,
                 "timetuple" => return Err(unsupported("timetuple")),
                 "ctime" => st(t.strftime("%c")),
-                "timestamp" => return Err(unsupported("datetime.timestamp")),
+                // A naive datetime's timestamp reads it as local time, which dynamic builds do not know.
+                "timestamp" if t.tz.is_some() => V::Float((t.utc_us() - EPOCH_US) as f64 / 1e6),
+                "timestamp" => return Err(unsupported("datetime.timestamp of a naive datetime (local time)")),
+                "astimezone" if t.has_time => match (t.tz, tz_arg(a.kw("tz").or_else(|| a.p.first().cloned()))?) {
+                    (Some(_), Some(o)) => dtv(DT::from_utc_us(t.utc_us(), Some(o))?),
+                    _ => return Err(unsupported("datetime.astimezone to or from local time")),
+                },
                 "replace" => {
                     let (mut y, mut m, mut d) = t.ymd();
                     let (mut h, mut mi, mut s, mut us) = t.hms();
@@ -1770,7 +1938,11 @@ impl Ext for DTV {
                         }
                     }
                     check_date(y, m, d)?;
-                    dtv(DT { ord: ymd_to_ord(y, m, d), us: ((h * 60 + mi) * 60 + s) * 1_000_000 + us, has_time: t.has_time })
+                    let tz = match a.kw("tzinfo").or_else(|| a.p.get(7).cloned()) {
+                        Some(v) if t.has_time => tz_arg(Some(v))?,
+                        _ => t.tz,
+                    };
+                    dtv(DT { ord: ymd_to_ord(y, m, d), us: ((h * 60 + mi) * 60 + s) * 1_000_000 + us, has_time: t.has_time, tz })
                 }
                 _ => return Err(exc("AttributeError", format!("'{}' object has no attribute '{n}'", self.tname()))),
             })
@@ -1794,9 +1966,11 @@ fn int_args(a: &mut Args, names: &[&str], req: usize, what: &str) -> Result<Vec<
 fn date_new(mut a: Args) -> R {
     let v = int_args(&mut a, &["year", "month", "day"], 3, "date")?;
     check_date(v[0], v[1], v[2])?;
-    Ok(dtv(DT { ord: ymd_to_ord(v[0], v[1], v[2]), us: 0, has_time: false }))
+    Ok(dtv(DT { ord: ymd_to_ord(v[0], v[1], v[2]), us: 0, has_time: false, tz: None }))
 }
 fn datetime_new(mut a: Args) -> R {
+    let tz = tz_arg(a.kw("tzinfo").or_else(|| a.p.get(7).cloned()))?;
+    let _ = a.kw("fold");
     let v = int_args(&mut a, &["year", "month", "day", "hour", "minute", "second", "microsecond"], 3, "datetime")?;
     check_date(v[0], v[1], v[2])?;
     if !(0..24).contains(&v[3]) {
@@ -1808,7 +1982,7 @@ fn datetime_new(mut a: Args) -> R {
     if !(0..60).contains(&v[5]) {
         return val_err("second must be in 0..59".into());
     }
-    Ok(dtv(DT { ord: ymd_to_ord(v[0], v[1], v[2]), us: ((v[3] * 60 + v[4]) * 60 + v[5]) * 1_000_000 + v[6], has_time: true }))
+    Ok(dtv(DT { ord: ymd_to_ord(v[0], v[1], v[2]), us: ((v[3] * 60 + v[4]) * 60 + v[5]) * 1_000_000 + v[6], has_time: true, tz }))
 }
 fn date_class_attr(cls: &'static str, n: &str) -> Option<V> {
     let has_time = cls == "datetime.datetime";
@@ -1816,7 +1990,7 @@ fn date_class_attr(cls: &'static str, n: &str) -> Option<V> {
     Some(match n {
         "fromisoformat" => builtin(f, move |a: Args| Ok(dtv(fromiso(&to_str(&a1(&a, "fromisoformat")?)?, has_time)?))),
         "fromordinal" => builtin(f, move |a: Args| match a1(&a, "fromordinal")? {
-            V::Int(o) if o >= 1 => Ok(dtv(DT { ord: o, us: 0, has_time })),
+            V::Int(o) if o >= 1 => Ok(dtv(DT { ord: o, us: 0, has_time, tz: None })),
             _ => val_err("ordinal must be >= 1".into()),
         }),
         "strptime" if has_time => builtin(f, |a: Args| {
@@ -1824,18 +1998,32 @@ fn date_class_attr(cls: &'static str, n: &str) -> Option<V> {
             let fm = to_str(a.p.get(1).unwrap_or(&V::None))?;
             Ok(dtv(strptime(&t, &fm)?))
         }),
-        "combine" if has_time => builtin(f, |a: Args| {
+        "combine" if has_time => builtin(f, |mut a: Args| {
             let d = dt_of(a.p.first().unwrap_or(&V::None)).ok_or_else(|| exc("TypeError", "combine() argument 1 must be datetime.date".into()))?;
             let t = a.p.get(1).and_then(|v| tm_of(v).or_else(|| dt_of(v).map(|t| t.us))).unwrap_or(0);
-            Ok(dtv(DT { ord: d.ord, us: t, has_time: true }))
+            let tz = tz_arg(a.kw("tzinfo").or_else(|| a.p.get(2).cloned()))?;
+            Ok(dtv(DT { ord: d.ord, us: t, has_time: true, tz }))
+        }),
+        "now" if has_time => builtin(f, |mut a: Args| match tz_arg(a.kw("tz").or_else(|| a.p.first().cloned()))? {
+            Some(o) => Ok(dtv(DT::from_utc_us(EPOCH_US + now_us(), Some(o))?)),
+            None => Ok(dtv(DT { tz: None, ..DT::from_utc_us(EPOCH_US + now_us(), None)? })),
+        }),
+        "utcfromtimestamp" if has_time => builtin(f, |a: Args| Ok(dtv(DT::from_utc_us(EPOCH_US + ts_us(&a1(&a, "utcfromtimestamp")?)?, None)?))),
+        // Without tz, fromtimestamp gives local time, which dynamic builds do not know.
+        "fromtimestamp" if has_time => builtin(f, |mut a: Args| {
+            let t = ts_us(a.p.first().unwrap_or(&V::None))?;
+            match tz_arg(a.kw("tz").or_else(|| a.p.get(1).cloned()))? {
+                Some(o) => Ok(dtv(DT::from_utc_us(EPOCH_US + t, Some(o))?)),
+                None => Err(unsupported("datetime.fromtimestamp without tz (local time)")),
+            }
         }),
         "today" | "now" | "utcnow" => builtin(f, move |_a: Args| {
             let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0);
             let ord = ymd_to_ord(1970, 1, 1) + secs.div_euclid(86_400_000_000);
-            Ok(dtv(DT { ord, us: if has_time { secs.rem_euclid(86_400_000_000) } else { 0 }, has_time }))
+            Ok(dtv(DT { ord, us: if has_time { secs.rem_euclid(86_400_000_000) } else { 0 }, has_time, tz: None }))
         }),
-        "min" => dtv(DT { ord: 1, us: 0, has_time }),
-        "max" => dtv(DT { ord: ymd_to_ord(9999, 12, 31), us: if has_time { 86_399_999_999 } else { 0 }, has_time }),
+        "min" => dtv(DT { ord: 1, us: 0, has_time, tz: None }),
+        "max" => dtv(DT { ord: ymd_to_ord(9999, 12, 31), us: if has_time { 86_399_999_999 } else { 0 }, has_time, tz: None }),
         _ => return None,
     })
 }
@@ -2335,12 +2523,19 @@ pub fn ext_construct(cls: &str, a: Args) -> Option<R> {
         "datetime.datetime" => datetime_new(a),
         "datetime.timedelta" => td_new(a),
         "datetime.time" => tm_new(a),
+        "datetime.timezone" => tz_new(a),
         _ => return None,
     })
 }
 pub fn ext_class_attr(cls: &'static str, n: &str) -> Option<V> {
     match cls {
         "datetime.date" | "datetime.datetime" => date_class_attr(cls, n),
+        "datetime.timezone" => match n {
+            "utc" => Some(tzv(0)),
+            "min" => Some(tzv(-86_340)),
+            "max" => Some(tzv(86_340)),
+            _ => None,
+        },
         "datetime.timedelta" => match n {
             "min" => Some(tdv(TD { us: -999999999i128 * 86_400_000_000 })),
             "max" => Some(tdv(TD { us: 1_000_000_000i128 * 86_400_000_000 - 1 })),
@@ -2391,6 +2586,8 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("datetime", "datetime") => V::Class(ext_class("datetime.datetime")),
         ("datetime", "timedelta") => V::Class(ext_class("datetime.timedelta")),
         ("datetime", "time") => V::Class(ext_class("datetime.time")),
+        ("datetime", "timezone") => V::Class(ext_class("datetime.timezone")),
+        ("datetime", "UTC") => tzv(0),
         ("datetime", "MINYEAR") => V::Int(1),
         ("datetime", "MAXYEAR") => V::Int(9999),
         ("csv", "QUOTE_MINIMAL") => V::Int(0),
@@ -2418,4 +2615,96 @@ pub fn decimal_context_set(n: &str, v: &V) -> Result<(), E> {
         }
         _ => Err(unsupported(&format!("decimal context attribute {n}"))),
     }
+}
+
+// ---------- time.gmtime / time.strftime ----------
+
+thread_local! { static STRUCT_TIME: RefCell<Option<V>> = RefCell::new(None); }
+fn struct_time_class() -> R {
+    if let Some(c) = STRUCT_TIME.with(|c| c.borrow().clone()) {
+        return Ok(c);
+    }
+    let c = namedtuple(Args::p(vec![s("time.struct_time"), s("tm_year tm_mon tm_mday tm_hour tm_min tm_sec tm_wday tm_yday tm_isdst")]))?;
+    STRUCT_TIME.with(|x| *x.borrow_mut() = Some(c.clone()));
+    Ok(c)
+}
+fn time_gmtime(a: Args) -> R {
+    let t = match a.p.first() {
+        None | Some(V::None) => now_us().div_euclid(1_000_000) * 1_000_000,
+        // gmtime drops the fraction of a second, rounding down.
+        Some(V::Float(f)) if f.is_finite() => f.floor() as i128 * 1_000_000,
+        Some(v) => ts_us(v)?,
+    };
+    let d = DT::from_utc_us(EPOCH_US + t, None).map_err(|_| exc("OverflowError", "timestamp out of range for platform time_t".into()))?;
+    let (y, m, dd) = d.ymd();
+    let (h, mi, sec, _) = d.hms();
+    let yday = days_before_month(y, m) + dd;
+    let vals = [y, m, dd, h, mi, sec, d.weekday(), yday, 0].iter().map(|x| V::Int(*x)).collect();
+    let o = call(&struct_time_class()?, Args::p(vals))?;
+    if let V::Obj(x) = &o {
+        x.set("tm_zone", s("GMT"));
+        x.set("tm_gmtoff", V::Int(0));
+    }
+    Ok(o)
+}
+fn time_strftime(a: Args) -> R {
+    let f = to_str(a.p.first().unwrap_or(&V::None))?;
+    // Without a time tuple strftime uses local time, which dynamic builds do not know.
+    let Some(t) = a.p.get(1) else { return Err(unsupported("time.strftime without a time tuple (local time)")) };
+    let v = to_vec(t)?;
+    if v.len() != 9 {
+        return type_err("time.struct_time() takes a 9-sequence".into());
+    }
+    let mut n = [0i64; 9];
+    for (k, x) in v.iter().enumerate() {
+        n[k] = match x {
+            V::Int(i) => *i,
+            V::Bool(b) => *b as i64,
+            x => return type_err(format!("'{}' object cannot be interpreted as an integer", tn(x))),
+        };
+    }
+    let (y, m, d, h, mi, sec) = (n[0], n[1], n[2], n[3], n[4], n[5]);
+    if !(1..=12).contains(&m) {
+        return val_err("month out of range".into());
+    }
+    if d < 1 || d > 31 || check_date(y, m, d).is_err() {
+        return val_err("day of month out of range".into());
+    }
+    if !(0..=23).contains(&h) || !(0..=59).contains(&mi) || !(0..=61).contains(&sec) {
+        return val_err("time out of range".into());
+    }
+    // %z and %Z come from the tuple's own zone: gmtime's is UTC. A plain tuple's would be local time.
+    let tz = match t {
+        V::Obj(o) => match o.get("tm_gmtoff") {
+            Some(V::Int(g)) => Some(g as i32),
+            _ => None,
+        },
+        _ => None,
+    };
+    if tz.is_none() && (f.contains("%z") || f.contains("%Z")) {
+        return Err(unsupported("time.strftime %z or %Z of a local time"));
+    }
+    // %Z is the tuple's tm_zone (GMT for gmtime), not datetime's UTC name.
+    let zone = match t {
+        V::Obj(o) => o.get("tm_zone").map(|z| to_str(&z)).transpose()?.unwrap_or_default(),
+        _ => String::new(),
+    };
+    let mut f2 = String::new();
+    let mut it = f.chars();
+    while let Some(c) = it.next() {
+        if c != '%' {
+            f2.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('Z') => f2.push_str(&zone.replace('%', "%%")),
+            Some(k) => {
+                f2.push('%');
+                f2.push(k);
+            }
+            None => f2.push('%'),
+        }
+    }
+    let dt = DT { ord: ymd_to_ord(y, m, d), us: ((h * 60 + mi) * 60 + sec.min(59)) * 1_000_000, has_time: true, tz };
+    Ok(st(dt.strftime(&f2)))
 }

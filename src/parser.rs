@@ -2355,6 +2355,8 @@ impl Parser {
                                     Expr::Field(m, f) if f == "stdin" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys") => Expr::Call("stdin".into(), vec![], line),
                                     // `sys.stdin` already read as its lines.
                                     Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    // json.load(open(p)): the file's text (#195).
+                                    Expr::Call(f, a, l) if f == "__open_r" && name == "load" => Expr::Call("read".into(), a, l),
                                     other => other,
                                 };
                                 e = Expr::Call("json".into(), vec![(None, src)], line);

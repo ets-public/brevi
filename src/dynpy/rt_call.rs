@@ -192,7 +192,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         }
         return Err(unsupported(&format!("enum.{}()", c.name)));
     }
-    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time") {
+    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time" | "datetime.timezone") {
         return ext_construct(c.name, a).unwrap();
     }
     // builtin types called as constructors

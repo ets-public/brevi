@@ -6786,6 +6786,33 @@ impl AxRe for String {
     }
 }
 // Python's re.match (anchored at the start) and re.findall (group 1 when the pattern has one group).
+// re on a JSON value: its text (re.search(p, item["title"]) over loaded JSON, #195).
+impl AxRe for Json {
+    fn ax_re_find(&self, p: String) -> Vec<String> {
+        self.ax_jtext("search").ax_re_find(p)
+    }
+    fn ax_re_full(&self, p: String) -> Vec<String> {
+        self.ax_jtext("fullmatch").ax_re_full(p)
+    }
+    fn ax_re_all(&self, p: String) -> Vec<Vec<String>> {
+        self.ax_jtext("finditer").ax_re_all(p)
+    }
+    fn ax_re_list(&self, p: String) -> Vec<String> {
+        self.ax_jtext("findall").ax_re_list(p)
+    }
+    fn ax_re_sub(&self, p: String, r: String) -> String {
+        self.ax_jtext("sub").ax_re_sub(p, r)
+    }
+    fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, f: F) -> String {
+        self.ax_jtext("sub").ax_re_sub_with(p, f)
+    }
+    fn ax_try_re_sub_with<F: FnMut(Vec<String>) -> R<String>>(&self, p: String, f: F) -> R<String> {
+        self.ax_jtext("sub").ax_try_re_sub_with(p, f)
+    }
+    fn ax_re_split(&self, p: String) -> Vec<String> {
+        self.ax_jtext("split").ax_re_split(p)
+    }
+}
 pub trait AxRePy {
     fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String>;
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String>;

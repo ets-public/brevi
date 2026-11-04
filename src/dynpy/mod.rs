@@ -237,7 +237,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     if bridge.on {
         lib_classes(&mods, &texts, &mut bridge)?;
     }
-    let (mut rust, used) = emit::program(&mods, bridge).map_err(|(l, m)| (file.to_string(), l, m))?;
+    // The file of the module the error is in, not always the main file (#194).
+    let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
+        let f = match texts.get(&md) {
+            Some((p, _)) => p.clone(),
+            None if md != "__main__" => format!("<{md}>"),
+            None => file.to_string(),
+        };
+        (f, l, m)
+    })?;
     if !used.is_empty() {
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
