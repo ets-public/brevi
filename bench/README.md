@@ -181,6 +181,36 @@ The strictest test of "Python in, Rust speed out" is `--lang pyb`: the model get
 Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}`), the kind of edit a model makes most often.
 `edit/run.sh LANG TASK FILE` tests the changed program and logs the tokens in the changed lines only (`difftok.py`), plus errors read.
 
+## CPython conformance
+
+`tools/conformance.py` measures how much of Python Brevi handles with a source outside this repository: CPython's own test suite. The latest committed result is [conformance/report.md](conformance/report.md). It is not in CI, because Actions minutes are limited; run it by hand, for example before a release:
+
+```
+cargo build --release
+python3 tools/conformance.py --check --out bench/conformance   # 5 to 10 minutes, four tests at a time
+python3 tests/conformance_test.py                              # the extractor's unit tests, no network
+```
+
+- **Source.** Tests come from one CPython tag (`TAG` in the tool), fetched once into `$BREVI_CACHE/conformance` (else `~/.cache/brevi/conformance`) and checked against pinned SHA-256 sums, so later runs need no network. Nothing of CPython's is vendored. The reference output comes from the matching interpreter only (`python3.13` at the same patch version, or `--python`); the tool stops if the versions differ.
+- **Scope.** `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict`, with inherited tests (the same list unittest would run). To add a file, add it with its hash to `SOURCES` and `SCOPE`.
+- **Extraction.** Each test method becomes a script holding what it needs: helpers, `setUp`, and base classes when it uses `self`. Assertions become prints: `assertEqual(a, b)` prints `repr(a)`, and `repr(b)` too unless `b` is a plain literal, `assertTrue(x)` prints `bool(x)`, `assertRaises` prints the exception's type, `assertRaisesRegex` also its message. `python3 tools/conformance.py --show ID` prints a script and how to reproduce it.
+- **Running.** Each script runs under CPython with two `PYTHONHASHSEED` values, then `brevi build` makes it twice: the normal path and `BREVI_DYN=1`. `brevi run` is never used, as it falls back to CPython. Scripts and programs run with a timeout, no network and writes only to their own folder (`sandbox-exec`, macOS), a memory limit (`ulimit -v` on Linux, a resident-memory watch everywhere), and imports limited to `ALLOWED_IMPORTS`.
+
+| Category | Meaning |
+| --- | --- |
+| `matched` | Same stdout and exit code as CPython |
+| `refused` | `brevi build` gave an error: allowed by Brevi's promise, but not covered |
+| `wrong_output` | Built, exit code right, stdout differs |
+| `wrong_exit` | Built, exit code differs (usually an exception CPython does not raise) |
+| `crash_or_timeout` | Build or program panicked, died on a signal, or hit the time or memory limit |
+| `not_extractable` | No faithful script could be made, or the script fails under CPython. Stays in the total |
+| `unstable` | CPython's own output changes with the hash seed or between runs. Left out of the total, with a count |
+| `excluded` | Tests CPython's internals (`cpython_only`, the C API, reference counts). Left out of the total, each with a reason |
+
+**coverage** is `matched` / (all - `unstable` - `excluded`), not counting matches where library calls ran in CPython (`pybridge`). **wrong** is `wrong_output` + `wrong_exit`. The headline is the normal build; `BREVI_DYN=1` is reported beside it.
+
+`compat/conformance_known_wrong.txt` lists the known wrong results, one `test-id mode` a line, and `--check` exits 1 only on a wrong result not listed. Remove a line when its bug is fixed. A program that ends on a signal that could mean memory unsafety is only counted in the report; its name goes to `private_signals.json` in the cache, to be read before anything is published ([SECURITY.md](../SECURITY.md)).
+
 ## Speed benchmark (`perf/`)
 
 Four programs written the plain way in Axon, Python and Rust: word counts (2M words), Dijkstra on a 100k-node graph, a prime sieve to 5M, and grouping 1M records.

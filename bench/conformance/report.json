@@ -1,0 +1,4884 @@
+{
+"brevi": "brevi 0.24.4",
+"python": "3.13.13",
+"tag": "v3.13.13",
+"date": "2026-11-04",
+"platform": "darwin",
+"sandboxed": true,
+"timeout_s": 20,
+"mem_mb": 2048,
+"totals": {
+"normal": {
+"matched": 151,
+"refused": 69,
+"wrong_output": 36,
+"wrong_exit": 35,
+"crash_or_timeout": 5,
+"not_extractable": 15,
+"unstable": 9,
+"excluded": 37,
+"total": 357,
+"scored": 311,
+"matched_through_cpython": 0,
+"matched_silent": 37,
+"coverage": 0.4855,
+"wrong": 71
+},
+"dyn": {
+"matched": 157,
+"refused": 71,
+"wrong_output": 34,
+"wrong_exit": 29,
+"crash_or_timeout": 5,
+"not_extractable": 15,
+"unstable": 9,
+"excluded": 37,
+"total": 357,
+"scored": 311,
+"matched_through_cpython": 0,
+"matched_silent": 38,
+"coverage": 0.5048,
+"wrong": 63
+}
+},
+"files": {
+"test_grammar": {
+"normal": {
+"matched": 31,
+"refused": 30,
+"wrong_output": 2,
+"wrong_exit": 9,
+"crash_or_timeout": 0,
+"not_extractable": 7,
+"unstable": 0,
+"excluded": 0,
+"total": 79,
+"scored": 79,
+"matched_through_cpython": 0,
+"matched_silent": 22,
+"coverage": 0.3924,
+"wrong": 11
+},
+"dyn": {
+"matched": 35,
+"refused": 31,
+"wrong_output": 1,
+"wrong_exit": 5,
+"crash_or_timeout": 0,
+"not_extractable": 7,
+"unstable": 0,
+"excluded": 0,
+"total": 79,
+"scored": 79,
+"matched_through_cpython": 0,
+"matched_silent": 22,
+"coverage": 0.443,
+"wrong": 6
+}
+},
+"test_scope": {
+"normal": {
+"matched": 22,
+"refused": 9,
+"wrong_output": 0,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
+"not_extractable": 3,
+"unstable": 0,
+"excluded": 3,
+"total": 41,
+"scored": 38,
+"matched_through_cpython": 0,
+"matched_silent": 2,
+"coverage": 0.5789,
+"wrong": 4
+},
+"dyn": {
+"matched": 23,
+"refused": 8,
+"wrong_output": 0,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
+"not_extractable": 3,
+"unstable": 0,
+"excluded": 3,
+"total": 41,
+"scored": 38,
+"matched_through_cpython": 0,
+"matched_silent": 3,
+"coverage": 0.6053,
+"wrong": 4
+}
+},
+"test_int": {
+"normal": {
+"matched": 5,
+"refused": 19,
+"wrong_output": 3,
+"wrong_exit": 3,
+"crash_or_timeout": 0,
+"not_extractable": 2,
+"unstable": 0,
+"excluded": 15,
+"total": 47,
+"scored": 32,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 0.1562,
+"wrong": 6
+},
+"dyn": {
+"matched": 5,
+"refused": 19,
+"wrong_output": 3,
+"wrong_exit": 3,
+"crash_or_timeout": 0,
+"not_extractable": 2,
+"unstable": 0,
+"excluded": 15,
+"total": 47,
+"scored": 32,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 0.1562,
+"wrong": 6
+}
+},
+"test_list": {
+"normal": {
+"matched": 41,
+"refused": 3,
+"wrong_output": 7,
+"wrong_exit": 7,
+"crash_or_timeout": 3,
+"not_extractable": 2,
+"unstable": 2,
+"excluded": 2,
+"total": 67,
+"scored": 63,
+"matched_through_cpython": 0,
+"matched_silent": 1,
+"coverage": 0.6508,
+"wrong": 14
+},
+"dyn": {
+"matched": 41,
+"refused": 3,
+"wrong_output": 7,
+"wrong_exit": 7,
+"crash_or_timeout": 3,
+"not_extractable": 2,
+"unstable": 2,
+"excluded": 2,
+"total": 67,
+"scored": 63,
+"matched_through_cpython": 0,
+"matched_silent": 1,
+"coverage": 0.6508,
+"wrong": 14
+}
+},
+"test_dict": {
+"normal": {
+"matched": 52,
+"refused": 8,
+"wrong_output": 24,
+"wrong_exit": 12,
+"crash_or_timeout": 2,
+"not_extractable": 1,
+"unstable": 7,
+"excluded": 17,
+"total": 123,
+"scored": 99,
+"matched_through_cpython": 0,
+"matched_silent": 12,
+"coverage": 0.5253,
+"wrong": 36
+},
+"dyn": {
+"matched": 53,
+"refused": 10,
+"wrong_output": 23,
+"wrong_exit": 10,
+"crash_or_timeout": 2,
+"not_extractable": 1,
+"unstable": 7,
+"excluded": 17,
+"total": 123,
+"scored": 99,
+"matched_through_cpython": 0,
+"matched_silent": 12,
+"coverage": 0.5354,
+"wrong": 33
+}
+}
+},
+"paths": {
+"normal": {
+"dynamic": 196,
+"refused": 69,
+"typed": 29,
+"pybridge": 2
+},
+"dyn": {
+"dynamic": 225,
+"refused": 71
+}
+},
+"tests": [
+{
+"id": "test_grammar.TokenTests.test_backslash",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_bad_numerical_literals",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what TokenTests_test_bad_numerical_literals returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_ellipsis",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected an expression, found .."
+},
+"dyn": {
+"category": "refused",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_end_of_numerical_literals",
+"file": "test_grammar",
+"category": "not_extractable",
+"detail": "imports test"
+},
+{
+"id": "test_grammar.TokenTests.test_eof_error",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_float_exponent_tokenization",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown name 'SyntaxWarning'"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'warnings' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_floats",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_long_integers",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_plain_integers",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+},
+"dyn": {
+"category": "refused",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_string_literals",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "typed",
+"detail": "line 11: expected '\\'\\\\nThe \"quick\"\\\\nbrown fox\\\\njumps over\\\\nthe \\\\\\'lazy\\\\\\' dog.\\\\n\\'', got '\\'\\\\n\\\\\\\\\\\\nThe \"quick\"\\\\n\\\\\\\\\\\\nbrown fox\\\\n\\\\\\\\\\\\njumps over\\\\n\\\\\\\\\\\\nthe \\\\\\'lazy\\\\\\' dog.\\\\n\\\\\\\\\\\\n\\''"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.TokenTests.test_underscore_literals",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function eval()"
+},
+"dyn": {
+"category": "refused",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_additive_ops",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_annotations_inheritance",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: type object 'A' has no attribute '__annotations__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: type object 'A' has no attribute '__annotations__'"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_assert",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_assert_failures",
+"file": "test_grammar",
+"category": "not_extractable",
+"detail": "decorator @unittest.skipUnless"
+},
+{
+"id": "test_grammar.GrammarTests.test_assert_syntax_warnings",
+"file": "test_grammar",
+"category": "not_extractable",
+"detail": "imports test"
+},
+{
+"id": "test_grammar.GrammarTests.test_assert_warning_promotes_to_syntax_error",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown name 'SyntaxWarning'"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'warnings' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_async_await",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found fn"
+},
+"dyn": {
+"category": "refused",
+"detail": "async is not supported"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_async_for",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Done"
+},
+"dyn": {
+"category": "refused",
+"detail": "async is not supported"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_async_with",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Done"
+},
+"dyn": {
+"category": "refused",
+"detail": "async is not supported"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_atoms",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_binary_mask_ops",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_break_continue_loop",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_break_in_finally",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "typed",
+"detail": "exit 101, expected 0: {\"e\":\"runtime\",\"line\":28,\"msg\":\"division by zero\"}"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_break_in_finally_after_return",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_break_stmt",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_classdef",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__call__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__call__'"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_comparison",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_comparison_is_literal",
+"file": "test_grammar",
+"category": "not_extractable",
+"detail": "imports test"
+},
+{
+"id": "test_grammar.GrammarTests.test_complex_lambda",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unterminated string"
+},
+"dyn": {
+"category": "refused",
+"detail": "unterminated string literal"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_comprehension_specials",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected '[(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (2, 0), (2, 1), (2, 2), (2, 3), (2, 4),', got '[]'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected '[(0, 0), (0, 1), (0, 2), (0, 3), (0, 4), (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (2, 0), (2, 1), (2, 2), (2, 3), (2, 4),', got '[]'"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_continue_in_finally",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "typed",
+"detail": "exit 101, expected 0: {\"e\":\"runtime\",\"line\":29,\"msg\":\"division by zero\"}"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_continue_in_finally_after_return",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_continue_stmt",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "typed",
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":29,\"msg\":\"finally block not called\"}"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_del_stmt",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ,"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_dictcomps",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_eval_input",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function eval()"
+},
+"dyn": {
+"category": "refused",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_expr_stmt",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ,"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_for",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_former_statements_refer_to_builtins",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ,"
+},
+"dyn": {
+"category": "refused",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_funcdef",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected an expression, found **"
+},
+"dyn": {
+"category": "refused",
+"detail": "bytes literals are not supported"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_genexps",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "g holds [[int]] (set on line 28) but is set to [int] here"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_global",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_if",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_if_else_expr",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_import",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_lambdef",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ':', found *"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_listcomps",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "function 'test_listcomps_test_in_func' is defined twice"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_matrix_mul",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'int' object has no attribute 'other'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'int' object has no attribute 'other'"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_multiplicative_ops",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_nonlocal",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "refused",
+"detail": "nonlocal 'y' is not supported here"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_paren_evaluation",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_pass_stmt",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_raise",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_return",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected an expression, found *"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_return_in_finally",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "typed",
+"detail": "exit 101, expected 0: {\"e\":\"runtime\",\"line\":22,\"msg\":\"division by zero\"}"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_selectors",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: list index out of range"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: list index out of range"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_shift_ops",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_simple_stmt",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_suite",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_test",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_try",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_try_star",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "refused",
+"detail": "except* is not supported"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_unary_ops",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_basic_semantics",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__annotations__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__annotations__'"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_basics",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_custom_maps",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+},
+"dyn": {
+"category": "refused",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_in_module",
+"file": "test_grammar",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_metaclass_semantics",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found CMeta"
+},
+"dyn": {
+"category": "refused",
+"detail": "metaclasses are not supported"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_module_semantics",
+"file": "test_grammar",
+"category": "not_extractable",
+"detail": "imports test"
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_refleak",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found CNS2"
+},
+"dyn": {
+"category": "refused",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_rhs",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function exec()"
+},
+"dyn": {
+"category": "refused",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_simple_exec",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values"
+},
+"dyn": {
+"category": "refused",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_var_annot_syntax_errors",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_warn_missed_comma",
+"file": "test_grammar",
+"category": "not_extractable",
+"detail": "imports test"
+},
+{
+"id": "test_grammar.GrammarTests.test_while",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_with_statement",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_yield",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_grammar.GrammarTests.test_yield_in_comprehensions",
+"file": "test_grammar",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ')', found 1"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testBoundAndFree",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testCellIsArgAndEscapes",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testCellIsKwonlyArg",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testCellIsLocalAndEscapes",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testCellLeak",
+"file": "test_scope",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_scope.ScopeTests.testClassAndGlobal",
+"file": "test_scope",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: NameError: name 'self' is not defined"
+},
+{
+"id": "test_scope.ScopeTests.testClassNamespaceOverridesClosure",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found X"
+},
+"dyn": {
+"category": "refused",
+"detail": "locals() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testComplexDefinitions",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testEvalExecFreeVars",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function eval()"
+},
+"dyn": {
+"category": "refused",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testEvalFreeVars",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ("
+},
+"dyn": {
+"category": "refused",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testExtraNesting",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testFreeVarInMethod",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testFreeingCell",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "name 'nestedcell_get' is not defined"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testGlobalInParallelNestedFunctions",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function exec()"
+},
+"dyn": {
+"category": "refused",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testInteractionWithTraceFunc",
+"file": "test_scope",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_scope.ScopeTests.testLambdas",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testLeaks",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Foo"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'gc' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testListCompLocalVars",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testLocalsClass",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found C"
+},
+"dyn": {
+"category": "refused",
+"detail": "locals() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testLocalsClass_WithTrace",
+"file": "test_scope",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_scope.ScopeTests.testLocalsFunction",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ("
+},
+"dyn": {
+"category": "refused",
+"detail": "locals() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testMixedFreevarsAndCellvars",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNearestEnclosingScope",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNestedNonLocal",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNestingGlobalNoFree",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNestingPlusFreeRefToGlobal",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNestingThroughClass",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNonLocalClass",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNonLocalFunction",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNonLocalGenerator",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testNonLocalMethod",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testRecursion",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testScopeOfGlobalStmt",
+"file": "test_scope",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: NameError: name 'self' is not defined"
+},
+{
+"id": "test_scope.ScopeTests.testSimpleAndRebinding",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testSimpleNesting",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testTopIsNotSignificant",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testUnboundLocal",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testUnboundLocal_AfterDel",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.testUnboundLocal_AugAssign",
+"file": "test_scope",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: AttributeError: 'ScopeTests' object has no attribute 'fail'"
+},
+{
+"id": "test_scope.ScopeTests.testUnoptimizedNamespaces",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "refused",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_scope.ScopeTests.test_multiple_nesting",
+"file": "test_scope",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_basic",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected '{', found ,"
+},
+"dyn": {
+"category": "refused",
+"detail": "\\N{...} escapes are not supported"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_error_message",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ')', found \"123\u0000\""
+},
+"dyn": {
+"category": "refused",
+"detail": "bad escape in string"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_int_base_bad_types",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_int_base_indexable",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_int_base_limits",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_int_memoryview",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ')', found \"123\""
+},
+"dyn": {
+"category": "refused",
+"detail": "bytes literals are not supported"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_int_returns_int_subclass",
+"file": "test_int",
+"category": "not_extractable",
+"detail": "unittest API assertWarns"
+},
+{
+"id": "test_int.IntTestCases.test_int_subclass_with_index",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 2: expected '7', got '42'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 2: expected '7', got '42'"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_int_subclass_with_int",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_intconversion",
+"file": "test_int",
+"category": "not_extractable",
+"detail": "unittest API assertWarns"
+},
+{
+"id": "test_int.IntTestCases.test_invalid_signs",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_issue31619",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_keyword_args",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_no_args",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_non_numeric_input_types",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found CustomStr"
+},
+"dyn": {
+"category": "refused",
+"detail": "bytes literals are not supported"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_small_ints",
+"file": "test_int",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_int.IntTestCases.test_string_float",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_underscores",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ')', found \"1_00\""
+},
+"dyn": {
+"category": "refused",
+"detail": "bytes literals are not supported"
+}
+}
+},
+{
+"id": "test_int.IntTestCases.test_unicode",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "typed",
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":6,\"msg\":\"invalid literal for int() with base 10: '\u0967\u0968\u0969\u096a\u096b\u096c\u096d\u096e\u096f\u09661234567890'\"}"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: ValueError: invalid literal for int() with base 10: '\u0967\u0968\u0969\u096a\u096b\u096c\u096d\u096e\u096f\u09661234567890'"
+}
+}
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_denial_of_service_prevented_int_to_str",
+"file": "test_int",
+"category": "excluded",
+"detail": "measures CPU time"
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_denial_of_service_prevented_str_to_int",
+"file": "test_int",
+"category": "excluded",
+"detail": "measures CPU time"
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_disabled_limit",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'contextlib' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_int_from_other_bases",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_int_max_str_digits_is_per_interpreter",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests CPython internals"
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_max_str_digits",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_max_str_digits_edge_cases",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_power_of_two_bases_unlimited",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_sign_not_counted",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntStrDigitLimitsTests.test_underscores_ignored",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_denial_of_service_prevented_int_to_str",
+"file": "test_int",
+"category": "excluded",
+"detail": "measures CPU time"
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_denial_of_service_prevented_str_to_int",
+"file": "test_int",
+"category": "excluded",
+"detail": "measures CPU time"
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_disabled_limit",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'contextlib' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_int_from_other_bases",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what _Base1_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_int_max_str_digits_is_per_interpreter",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests CPython internals"
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_max_str_digits",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what _Base1_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_max_str_digits_edge_cases",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what _Base1_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_power_of_two_bases_unlimited",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what _Base1_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_sign_not_counted",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what _Base1_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.IntSubclassStrDigitLimitsTests.test_underscores_ignored",
+"file": "test_int",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "cannot work out what _Base1_setUp returns"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_int_divmod",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_int_divmod_crash",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_int_to_decimal",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_int_to_decimal_2",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_misbehavior_error_path_from_str",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_misbehavior_error_path_to_str",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_roundtrip",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_int.PyLongModuleTests.test_pylong_str_to_int",
+"file": "test_int",
+"category": "excluded",
+"detail": "tests _pylong, a private CPython module"
+},
+{
+"id": "test_list.ListTest.test_add",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_append",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_basic",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_bigrepeat",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_clear",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 7: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 7: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_cmp",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_constructor_exception_handling",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_constructors",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_contains",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_contains_fake",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_contains_order",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_copy",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 12: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 12: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_count",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_count_index_remove_crashes",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_delitem",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_delslice",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_deopt_from_append_list",
+"file": "test_list",
+"category": "not_extractable",
+"detail": "imports test"
+},
+{
+"id": "test_list.ListTest.test_empty_slice",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_equal_operator_modifying_operand",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'True', got 'False'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'True', got 'False'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_exhausted_iterator",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '[]', got '[9]'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '[]', got '[9]'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_extend",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_extendedslicing",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_free_after_iterating",
+"file": "test_list",
+"category": "excluded",
+"detail": "tests CPython's immortal objects"
+},
+{
+"id": "test_list.ListTest.test_getitem",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_getitem_error",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_getitemoverwriteiter",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_getslice",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: index out of bounds: the len is 5 but the index is 9223372036854775810"
+},
+"dyn": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: index out of bounds: the len is 5 but the index is 9223372036854775810"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_iadd",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_identity",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_imul",
+"file": "test_list",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_list.ListTest.test_index",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: cannot fit 'int' into an index-sized integer"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_init",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'list' object has no attribute '__init__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'list' object has no attribute '__init__'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_insert",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_iterator_pickle",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown method .type2test()"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_keyword_args",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises TypeError list() takes no keyword arguments', got \"raises TypeError list() got an unexpected keyword argument 'sequence'\""
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises TypeError list() takes no keyword arguments', got \"raises TypeError list() got an unexpected keyword argument 'sequence'\""
+}
+}
+},
+{
+"id": "test_list.ListTest.test_keywords_in_subclass",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'super' object has no attribute '__new__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'super' object has no attribute '__new__'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_len",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_list_index_modifing_operand",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_list_resize_overflow",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: capacity overflow"
+},
+"dyn": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: capacity overflow"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_lt_operator_modifying_operand",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_minmax",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_mul",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_no_comdat_folding",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_overflow",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "timeout"
+},
+"dyn": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "memory limit"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_pickle",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown method .type2test()"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_pop",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: pop from empty list"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: IndexError: pop from empty list"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_preallocation",
+"file": "test_list",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_list.ListTest.test_remove",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_repeat",
+"file": "test_list",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_list.ListTest.test_repr",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_repr_deep",
+"file": "test_list",
+"category": "not_extractable",
+"detail": "imports unittest"
+},
+{
+"id": "test_list.ListTest.test_repr_large",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_repr_mutate",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: __repr__() takes 0 positional arguments but 1 was given"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: __repr__() takes 0 positional arguments but 1 was given"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_reverse",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_reversed",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_reversed_pickle",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown method .type2test()"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_set_subscript",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_setitem",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_setitem_error",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_setslice",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_slice",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_slice_assign_iterator",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_sort",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_step_overflow",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: ValueError: attempt to assign sequence of size 1 to extended slice of size 3"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: ValueError: attempt to assign sequence of size 1 to extended slice of size 3"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_subscript",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_tier2_invalidates_iterator",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '[]', got '[4]'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '[]', got '[4]'"
+}
+}
+},
+{
+"id": "test_list.ListTest.test_truth",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_bad_key",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found CustomException"
+},
+"dyn": {
+"category": "refused",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_bool",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_clear",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_clear_at_lookup",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: RefCell already borrowed"
+},
+"dyn": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: RefCell already borrowed"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_clear_reentrant_cycle",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_clear_reentrant_delete",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_clear_reentrant_embedded",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_clear_reentrant_force_combined",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_constructor",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_container_iterator",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found C"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'gc' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_contains",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_copy",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 9: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 9: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_copy_fuzz",
+"file": "test_dict",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dict.DictTest.test_copy_maintains_tracking",
+"file": "test_dict",
+"category": "excluded",
+"detail": "tests CPython internals"
+},
+{
+"id": "test_dict.DictTest.test_copy_noncompact",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "typed",
+"detail": "line 1: expected '{950: 950, 951: 951, 952: 952, 953: 953, 954: 954, 955: 955, 956: 956, 957: 957, 958: 958, 959: 959, 960: 960, 961: 961,', got '[950, 951, 952, 953, 954, 955, 956, 957, 958, 959, 960, 961, 962, 963, 964, 965, 966, 967, 968, 969, 970, 971, 972, 973,'"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_dict_contain_use_after_free",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_dict_copy_order",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_dict_items_result_gc",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_dict_items_result_gc_reversed",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_dictitems_contains_use_after_free",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_dictview_mixed_set_operations",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'True', got 'False'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'True', got 'False'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_dictview_set_operations_on_items",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 13: expected '{(1, 1), (3, 3), (2, 2)}', got '{(3, 3), (2, 2), (1, 1)}'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 13: expected '{(1, 1), (3, 3), (2, 2)}', got '{(3, 3), (2, 2), (1, 1)}'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_dictview_set_operations_on_keys",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_empty_presized_dict_in_freelist",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_eq",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises Exc', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises Exc', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_equal_operator_modifying_operand",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: RefCell already borrowed"
+},
+"dyn": {
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: RefCell already borrowed"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_errors_in_view_containment_check",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'dict_items' and 'dict_items'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'dict_items' and 'dict_items'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_free_after_iterating",
+"file": "test_dict",
+"category": "excluded",
+"detail": "depends on reference counts"
+},
+{
+"id": "test_dict.DictTest.test_fromkeys",
+"file": "test_dict",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dict.DictTest.test_fromkeys_operator_modifying_dict_operand",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_fromkeys_operator_modifying_set_operand",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_get",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_getitem",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_hash_collision_remove_add",
+"file": "test_dict",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dict.DictTest.test_init_use_after_free",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_instance_dict_getattr_str_subclass",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 'msg'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 'msg'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_invalid_keyword_arguments",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_itemiterator_pickling",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown name 'collections'"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_items",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_items_symmetric_difference",
+"file": "test_dict",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dict.DictTest.test_iterator_pickling",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "mismatched types: expected int, found AxPy"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_keys",
+"file": "test_dict",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dict.DictTest.test_keys_contained",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'dict_keys' and 'dict_keys'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'dict_keys' and 'dict_keys'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_len",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_literal_constructor",
+"file": "test_dict",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dict.DictTest.test_merge_and_mutate",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_merge_operator",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'dict' object has no attribute '__or__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'dict' object has no attribute '__or__'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_missing",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 2"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 2"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_mutating_iteration",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_mutating_iteration_delete",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_mutating_iteration_delete_over_items",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_mutating_iteration_delete_over_values",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_mutating_lookup",
+"file": "test_dict",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dict.DictTest.test_object_set_item_single_instance_non_str_key",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected \"{1: 1, 'a': 'a'}\", got \"{'a': 'a'}\""
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected \"{1: 1, 'a': 'a'}\", got \"{'a': 'a'}\""
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_oob_indexing_dictiter_iternextitem",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_overwrite_managed_dict",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Shenanigans"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'gc' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_pop",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_popitem",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_reentrant_insertion",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_repr",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_repr_deep",
+"file": "test_dict",
+"category": "not_extractable",
+"detail": "imports unittest"
+},
+{
+"id": "test_dict.DictTest.test_resize1",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_resize2",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_reverse_iterator_for_empty_dict",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_reverse_iterator_for_shared_shared_dicts",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_reversed",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_reverseitemiterator_pickling",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown name 'collections'"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_reverseiterator_pickling",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "no method named rev found for {K: V}"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_reversevaluesiterator_pickling",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "pybridge",
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"msg\":\"'list' object is not an iterator\"}"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_setdefault",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_setdefault_atomic",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 2: expected '1', got '2'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 2: expected '1', got '2'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_setitem_atomic_at_resize",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected '1', got '2'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected '1', got '2'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_split_table_insert_with_str_subclass",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_split_table_update_with_str_subclass",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '2', got '1'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '2', got '1'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_splittable_del",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_splittable_pop",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_splittable_pop_pending",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_splittable_popitem",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_splittable_setdefault",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_splittable_to_generic_combinedtable",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_splittable_update",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_store_evilattr",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found EvilAttr"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'gc' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_str_nonstr",
+"file": "test_dict",
+"category": "excluded",
+"detail": "tests CPython internals"
+},
+{
+"id": "test_dict.DictTest.test_string_keys_can_track_values",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_track_dynamic",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_track_lazy_instance_dicts",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_track_literals",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_track_subtypes",
+"file": "test_dict",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dict.DictTest.test_tuple_keyerror",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_update",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_update_shared_keys",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected \"{'a': 'a', 'b': 'b'}\", got \"{'a': 'a', 'a': 'a', 'b': 'b'}\""
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected \"{'a': 'a', 'b': 'b'}\", got \"{'a': 'a', 'a': 'a', 'b': 'b'}\""
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_values",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_valuesiterator_pickling",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "pybridge",
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"msg\":\"'list' object is not an iterator\"}"
+},
+"dyn": {
+"category": "refused",
+"detail": "module 'pickle' is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dict.DictTest.test_views_mapping",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'dict_keys' object has no attribute 'mapping'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'dict_keys' object has no attribute 'mapping'"
+}
+}
+},
+{
+"id": "test_dict.CAPITest.test_getitem_knownhash",
+"file": "test_dict",
+"category": "excluded",
+"detail": "tests the C API"
+},
+{
+"id": "test_dict.GeneralMappingTests.test_bool",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_constructor",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_get",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_getitem",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_items",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_keys",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_len",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_pop",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_popitem",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 'popitem(): dictionary is empty'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 'popitem(): dictionary is empty'"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_read",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_setdefault",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_update",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_values",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.GeneralMappingTests.test_write",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_bool",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_constructor",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_get",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_getitem",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_items",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_keys",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 5: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_len",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_pop",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_popitem",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 'popitem(): dictionary is empty'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: KeyError: 'popitem(): dictionary is empty'"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_read",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_setdefault",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_update",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_values",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 3: expected 'raises TypeError', got 'NO-RAISE'"
+}
+}
+},
+{
+"id": "test_dict.SubclassMappingTests.test_write",
+"file": "test_dict",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+}
+}
+}
+]
+}

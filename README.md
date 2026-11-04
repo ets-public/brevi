@@ -89,6 +89,7 @@ Needs Rust stable and `python3`. Working on the compiler itself: [AGENTS.md](AGE
 | `examples/` | Sample programs |
 | `tests/` | Expected outputs for programs and error cases |
 | `tools/parity_probe.py`, `tools/parity/` | Short plain-Python probes run with CPython and Brevi; lists silent differences and refusals |
+| `tools/conformance.py` | CPython's own test suite, cut into standalone scripts and built with Brevi; [latest result](bench/conformance/report.md) |
 | `tools/compat.py`, `compat/baseline.txt` | Every bench solution that ever passed; must keep passing on new toolchains |
 | `integrations/` | Examples for LangChain, OpenAI Agents SDK, CrewAI and Vercel AI SDK over `brevi mcp` |
 | `grammar/`, `tools/grammar_check.py`, `tools/lark_to_gbnf.py` | Grammar for constrained decoding, and its checks |
