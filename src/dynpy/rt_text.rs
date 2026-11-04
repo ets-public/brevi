@@ -792,24 +792,48 @@ impl<'a> Ctx<'a> {
     }
 }
 
+// A position single() can look at to tell whether a node is one character test (it answers None otherwise).
+fn st_probe(pos: usize, len: usize) -> usize {
+    pos.min(len)
+}
 // Tries to match at each start in [pos, endpos]. anchored: only at pos. full: must end at endpos.
 // no_empty_at: an empty match at that position is not accepted.
 fn re_exec(p: &Prog, s: &[char], pos: usize, endpos: usize, anchored: bool, full: bool, no_empty_at: Option<usize>) -> Option<Vec<usize>> {
     let sub = &s[..endpos];
     let mut c = Ctx { s: sub, caps: vec![UNSET; 2 * (p.ngroups + 1)], flags: p.flags, steps: 0 };
     let last = if anchored { pos } else { endpos };
-    // a literal first character lets the search skip ahead
-    let first = match p.alts.as_slice() {
-        [a] => match a.first() {
-            Some(RNode::Char(ch)) => Some(*ch),
+    // The characters a match can start with, when the pattern says (a literal, or a class of literals such as
+    // re.I gives, after any \b, ^ or \A): the search skips to the next of them.
+    let firsts: Option<Vec<char>> = match p.alts.as_slice() {
+        [a] => match a.iter().find(|n| !matches!(n, RNode::WordB(_) | RNode::Bol | RNode::StrStart)) {
+            Some(RNode::Char(ch)) => Some(vec![*ch]),
+            Some(RNode::Class(k)) if !k.neg && k.items.iter().all(|i| matches!(i, CItem::Ch(_))) => Some(k.items.iter().map(|i| if let CItem::Ch(c) = i { *c } else { unreachable!() }).collect()),
             _ => None,
         },
         _ => None,
     };
+    // A pattern that is one character test (`[^a-z ]`, `\d`, `x`): the match is the next character passing it.
+    if let [a] = p.alts.as_slice() {
+        if let [n] = a.as_slice() {
+            if !full && no_empty_at.is_none() && c.single(n, st_probe(pos, sub.len())).is_some() {
+                let mut st = pos;
+                while st <= last && st < sub.len() {
+                    if c.single(n, st).unwrap() {
+                        c.caps[0] = st;
+                        c.caps[1] = st + 1;
+                        return Some(c.caps);
+                    }
+                    st += 1;
+                }
+                return None;
+            }
+        }
+    }
     let mut st = pos;
     while st <= last {
-        if let Some(f) = first {
-            match sub[st..].iter().position(|x| *x == f) {
+        if let Some(f) = &firsts {
+            let found = if let [one] = f.as_slice() { sub[st..].iter().position(|x| x == one) } else { sub[st..].iter().position(|x| f.contains(x)) };
+            match found {
                 Some(o) => st += o,
                 None => return None,
             }
@@ -1025,7 +1049,17 @@ impl Ext for RPat {
 
 fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
     match v {
-        V::Str(x) => Ok((Rc::new(x.s.chars().collect()), v.clone())),
+        // The last string searched keeps its characters: a loop that tries many patterns on one text (#195)
+        // converts it once. Holding the string keeps its address from being reused.
+        V::Str(x) => {
+            thread_local! { static LAST: RefCell<Option<(Rc<S>, Rc<Vec<char>>)>> = RefCell::new(None); }
+            if let Some(c) = LAST.with(|l| l.borrow().as_ref().filter(|(k, _)| Rc::ptr_eq(k, x)).map(|(_, c)| c.clone())) {
+                return Ok((c, v.clone()));
+            }
+            let c: Rc<Vec<char>> = Rc::new(x.s.chars().collect());
+            LAST.with(|l| *l.borrow_mut() = Some((x.clone(), c.clone())));
+            Ok((c, v.clone()))
+        }
         _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
     }
 }

@@ -231,6 +231,8 @@ fn or_value(a: &T, b: &T) -> Option<T> {
         (Bool, _) | (_, Bool) | (Hole, Hole) => None,
         (Hole, t) | (t, Hole) => Some(t.clone()),
         (x, y) if x == y => Some(x.clone()),
+        // `(topic or "").lower()` on a JSON value: a JSON value either way, the plain side made JSON (#195).
+        (Json, Int | Str) | (Int | Str, Json) if py_on() => Some(Json),
         // `deps or []`: the empty list takes the other side's type.
         (List(x), List(y)) if **x == Hole || **y == Hole => Some(if **x == Hole { b.clone() } else { a.clone() }),
         (Map(k, v), Map(k2, v2)) if (**k == Hole && **v == Hole) || (**k2 == Hole && **v2 == Hole) => Some(if **k == Hole { b.clone() } else { a.clone() }),
@@ -3881,7 +3883,15 @@ impl Ck<'_, '_> {
             }
             // Python's `m.group(3) or ""` is a value, not a test: the first operand when it is true, else the second.
             Expr::Binary(op @ ("or" | "and"), a, b) if or_value(&self.cx.ty(a, env), &self.cx.ty(b, env)).is_some() => {
-                let (x, y) = ((**a).clone(), (**b).clone());
+                let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                let (mut x, mut y) = ((**a).clone(), (**b).clone());
+                // A plain side next to a JSON one is made JSON, so both branches have one type.
+                let to_json = |e: Expr| Expr::Call("ax_to_json".into(), vec![(None, e)], 0);
+                if ta == Json && tb != Json && tb != Hole {
+                    y = to_json(y);
+                } else if tb == Json && ta != Json && ta != Hole {
+                    x = to_json(x);
+                }
                 let blk = |e: Expr| Box::new(Expr::Block(vec![], Some(Box::new(e))));
                 *e = if *op == "or" { Expr::If(Box::new(x.clone()), blk(x), Some(blk(y))) } else { Expr::If(Box::new(x.clone()), blk(y), Some(blk(x))) };
                 self.expr(e, env);

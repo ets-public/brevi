@@ -2557,6 +2557,12 @@ impl Emitter {
         if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
         }
+        // An open() file the typed build cannot turn into its text or written pieces (passed on, kept, ...): say so
+        // rather than name the internal call (#195).
+        if name.starts_with("__open_") {
+            self.diag(self.line, "open(): the typed build takes a file only in with, for, json.load(), .read(), .readlines() or a variable it reads or writes", None);
+            return "()".into();
+        }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();
         let best = closest(name, known.iter().map(|s| s.as_str())).map(String::from);
         self.diag(self.line, &format!("unknown function {name}()"), best.as_ref().map(|c| format!("did you mean {c}()?")));
