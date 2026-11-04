@@ -1,9 +1,14 @@
 #!/bin/sh
 # Installs the brevi compiler. brevi turns programs into Rust, so it needs rustc: the Rust toolchain is
 # fetched first if it is missing. Then a prebuilt brevi is downloaded from the latest GitHub release when
-# one exists for this machine, or brevi is built from source.
+# one exists for this machine and checked against the release's SHA256SUMS, or brevi is built from source.
 # usage: sh install.sh            (BREVI_FROM_SOURCE=1 always builds from source)
 set -e
+# Stops with nothing installed: a download that cannot be verified is never unpacked.
+die() {
+  printf 'brevi was not installed: %s\nBREVI_FROM_SOURCE=1 builds from source instead.\n' "$1" >&2
+  rm -rf "$tmp"; exit 1
+}
 if ! command -v rustc >/dev/null 2>&1; then
   echo "installing the Rust toolchain (rustup)"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
@@ -17,9 +22,20 @@ case "$(uname -s)-$(uname -m)" in
   *) target= ;;
 esac
 dest="$HOME/.cargo/bin"; mkdir -p "$dest"
-url="https://github.com/ets-public/brevi/releases/latest/download/brevi-$target.tar.gz"
+archive="brevi-$target.tar.gz"
+release="https://github.com/ets-public/brevi/releases/latest/download"
 tmp=$(mktemp -d)
-if [ -z "$BREVI_FROM_SOURCE" ] && [ -n "$target" ] && curl -fsSL "$url" -o "$tmp/b.tgz" 2>/dev/null; then
+if [ -z "$BREVI_FROM_SOURCE" ] && [ -n "$target" ] && curl -fsSL "$release/$archive" -o "$tmp/b.tgz" 2>/dev/null; then
+  curl -fsSL "$release/SHA256SUMS" -o "$tmp/SHA256SUMS" 2>/dev/null ||
+    die "could not download SHA256SUMS to verify $archive"
+  if command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum <"$tmp/b.tgz")
+  elif command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 <"$tmp/b.tgz")
+  else die "need sha256sum or shasum to verify $archive"
+  fi
+  actual=${actual%% *}
+  expected=$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1; exit }' "$tmp/SHA256SUMS")
+  [ -n "$expected" ] || die "SHA256SUMS has no entry for $archive"
+  [ "$actual" = "$expected" ] || die "checksum mismatch for $archive (expected $expected, got $actual)"
   tar xzf "$tmp/b.tgz" -C "$tmp"
   cp "$tmp/brevi-$target/brevi" "$dest/brevi"
   echo "installed prebuilt brevi to $dest"

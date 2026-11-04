@@ -9,7 +9,7 @@ Brevi compiles ordinary Python to Rust and builds a native binary. Write the pro
 
 ## Setup
 
-Check that `brevi --version` works. If it does not, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
+Check that `brevi --version` works. If it does not, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, verified against its `SHA256SUMS`, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
 
 ## Loop
 
