@@ -70,6 +70,16 @@ pub fn no_native() -> bool {
     NO_NATIVE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+// Whether CPython may run Python module m (or its package's) for this program: not under the sandbox without
+// allow native, and under `--sandbox --allow-py` only the modules the caller named (caps.rs).
+pub fn py_allowed(m: &str) -> bool {
+    if no_native() {
+        return false;
+    }
+    let root = m.split('.').next().unwrap_or(m);
+    crate::caps::py_only().map_or(true, |l| l.iter().any(|x| x == root))
+}
+
 thread_local! {
     // What learn would have handed to CPython while NO_NATIVE is set: (module, name).
     static BLOCKED: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
@@ -251,8 +261,9 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
         }
         eprintln!("pybridge learn: {new:?}");
     }
-    if no_native() {
-        BLOCKED.with(|b| b.borrow_mut().extend(new));
+    let (new, blocked): (Vec<_>, Vec<_>) = new.into_iter().partition(|(m, _)| py_allowed(m));
+    if !blocked.is_empty() {
+        BLOCKED.with(|b| b.borrow_mut().extend(blocked));
         return false;
     }
     EXTRA.with(|x| {
@@ -1099,7 +1110,9 @@ fn expr_pat(e: &Expr) -> Option<Pat> {
 
 // ------------------------------------------------------------------------------------------- the runtime
 
-const RUNTIME: &str = include_str!("pyrt.rs");
+const RUNTIME: &str = concat!(include_str!("pyrt_load.rs"), include_str!("pyrt.rs"));
+// The loader alone, for the dynamic builds' bridge (dynpy/pyglue.rs).
+pub const LOADER: &str = include_str!("pyrt_load.rs");
 
 // Asked of python3 when the program is built: libpython's path, PYTHONHOME and sys.path (minus the script's
 // folder), joined by \x01.
@@ -1144,6 +1157,15 @@ pub fn python_ok() -> Result<(), String> {
 
 // The runtime for this program: CPython found now (and again at run time if it moved).
 pub fn runtime() -> String {
+    format!("{}{RUNTIME}", consts())
+}
+
+// The loader and its constants, for a dynamic build that bridges libraries (dynpy/pyglue.rs follows it).
+pub fn dyn_runtime() -> String {
+    format!("{}{LOADER}", consts())
+}
+
+fn consts() -> String {
     let file = FILE.get().cloned().unwrap_or_default();
     let conf = conf().clone().unwrap_or_default();
     let abs = std::fs::canonicalize(&file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.clone());
@@ -1157,7 +1179,7 @@ pub fn runtime() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n{RUNTIME}")
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n")
 }
 
 // ------------------------------------------------------------------------------------------- standalone builds
