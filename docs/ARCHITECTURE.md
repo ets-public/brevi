@@ -170,6 +170,8 @@ Some Python programs type cleanly but would still print something different from
 - **Changing a dict or set while looping over it**, which CPython stops with an error.
 - **Generators** that cannot safely be run early. The typed build turns a generator into a function that returns a list, which is only correct when running it early cannot be told apart.
 
+A file the guard cannot read (its parser rejects it) has passed none of these checks, so the typed build may not build it either: if the typed front end accepts it, it is refused with the guard's reason. A file the typed build refuses too keeps the typed errors. Either way `brevi run` falls back to CPython.
+
 `BREVI_GUARD=print brevi build x.py` prints the guard's verdict.
 
 Before the guard and the typed build, `pysentinel.rs` rewrites a sentinel `MISSING = object()` to None when the program cannot tell the two apart (see the rules at the top of that file).

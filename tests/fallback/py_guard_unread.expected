@@ -1,0 +1,4 @@
+{"path":"cpython","line":4,"why":"Brevi could not build it: the guard cannot read this file: except* is not supported, and this file cannot be built over dynamic values (py_guard_unread.py line 4: except* is not supported)","by":"python3"}
+caught
+{3, 5, -1}
+native exit 1
