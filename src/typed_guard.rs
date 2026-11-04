@@ -770,6 +770,11 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
                 hit = Some("changing a dict or set while a loop walks it stops CPython with a RuntimeError".into());
             }
         }
+        if let St::Class(c) = &s.st {
+            if hit.is_none() && c.body.iter().any(|m| matches!(&m.st, St::Def(d) if d.name == "__del__")) {
+                hit = Some("__del__ runs when CPython frees the object, which the typed build does not track".into());
+            }
+        }
         if let St::Def(d) = &s.st {
             if hit.is_none() {
                 if let Some(n) = shared_growth(d) {
@@ -1055,6 +1060,13 @@ fn shown(e: &Ex, g: &G) -> Option<(String, Option<Vec<String>>)> {
 
 fn shown_why(e: &Ex, g: &G) -> Option<String> {
     let set_or_holder = |x: &Ex| is_set(x, g) || is_holder(x, g);
+    // `d.items() <= e.items()`, `d.values() == e.values()`: views compare as sets (values by identity) in CPython.
+    let view = |x: &Ex| matches!(x, Ex::Call(f, a) if a.is_empty() && matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "keys" | "items" | "values")));
+    if let Ex::Cmp(first, rest) = e {
+        if rest.iter().any(|(op, _)| matches!(*op, "<" | "<=" | ">" | ">=" | "==" | "!=")) && (view(first) || rest.iter().any(|(_, x)| view(x))) {
+            return Some("comparing dict views (d.keys(), d.items(), d.values()) follows set rules the typed build does not".into());
+        }
+    }
     match e {
         Ex::Call(f, args) => {
             let pos: Vec<&Ex> = args.iter().filter_map(|a| if let Arg::Pos(x) | Arg::Star(x) = a { Some(x) } else { None }).collect();
@@ -1519,6 +1531,8 @@ mod tests {
         assert!(!needs("d = {('a',): 1}\nprint(d[('a',)], '%s' % ('x',))\n"));
         assert!(!needs("ids = ('a', 'b')\nprint(ids + ('c',))\n"));
         assert!(needs("t = (5,)\nprint('%s' % t)\n"));
+        assert!(needs("d = {1: 1}\ne = {1: 2}\nprint(d.items() <= e.items())\n"));
+        assert!(needs("class F:\n    def __del__(self):\n        print('bye')\nx = F()\n"));
         // A jump out of a try with a finally; a loop of its own inside the try is fine.
         assert!(needs("def f(x):\n    try:\n        return x\n    finally:\n        print('done')\nprint(f(1))\n"));
         assert!(needs("for i in range(3):\n    try:\n        continue\n    finally:\n        print(i)\n"));

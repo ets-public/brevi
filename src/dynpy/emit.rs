@@ -1573,6 +1573,11 @@ impl Em {
                     let v = self.q(&format!("pyd_class({}, {}, {}, {}, {})", lit(&m), lit(&imports), lit(&src), lit(&c.name), lit(&file)));
                     return Ok(self.store(&c.name, &v));
                 }
+                // `__del__` runs when CPython frees the object (reference counts), which dynamic builds do not track:
+                // the program's output could differ, so CPython runs it.
+                if let Some(d) = c.body.iter().find(|s| matches!(&s.st, St::Def(d) if d.name == "__del__")) {
+                    return Err(err(d.line, "__del__ is not supported in dynamic builds"));
+                }
                 let v = self.class(c)?;
                 self.store(&c.name, &v)
             }

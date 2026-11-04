@@ -43,7 +43,27 @@ fn cmp_int_float(i: &V, f: f64) -> Option<std::cmp::Ordering> {
     }
 }
 
+// `d.keys()` / `d.items()` beside a set or another such view: compared as sets, as in CPython.
+fn view_pair(a: &V, b: &V) -> Result<Option<(V, V)>, E> {
+    let setlike = |v: &V| matches!(v, V::Set(_) | V::FSet(_)) || matches!(v, V::View(x) if x.1 != 1);
+    let is_view = |v: &V| matches!(v, V::View(x) if x.1 != 1);
+    if !(setlike(a) && setlike(b) && (is_view(a) || is_view(b))) {
+        return Ok(None);
+    }
+    let as_set = |v: &V| -> Result<V, E> {
+        Ok(match v {
+            V::Set(_) | V::FSet(_) => v.clone(),
+            _ => V::FSet(Rc::new(PSet::from_iter(to_vec(v)?)?)),
+        })
+    };
+    Ok(Some((as_set(a)?, as_set(b)?)))
+}
 pub fn eq(a: &V, b: &V) -> Result<bool, E> {
+    if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
+        if let Some((x, y)) = view_pair(a, b)? {
+            return eq(&x, &y);
+        }
+    }
     Ok(match (a, b) {
         (V::Int(x), V::Int(y)) => x == y,
         (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || x.s == y.s,
@@ -102,7 +122,6 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             let (x, y): (Vec<V>, Vec<V>) = (x.borrow().v.iter().cloned().collect(), y.borrow().v.iter().cloned().collect());
             seq_eq(&x, &y)?
         }
-        (V::View(x), V::View(y)) if x.1 == 0 && y.1 == 0 => eq(&x.0, &y.0)?,
         (V::Obj(_), _) | (_, V::Obj(_)) => {
             if let V::Obj(o) = a {
                 if let Some(f) = o.cls.lookup("__eq__") {
@@ -272,6 +291,11 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
             "<=" => x <= y,
             _ => x >= y,
         });
+    }
+    if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
+        if let Some((x, y)) = view_pair(a, b)? {
+            return rich(&x, &y, op);
+        }
     }
     if let V::Ext(x) = a {
         if let Some(r) = x.rich(a, op, b, false) {
@@ -1249,6 +1273,14 @@ pub fn getitem(c: &V, i: &V) -> R {
                 return call(&f, Args::p(vec![c.clone(), i.clone()]));
             }
             if let Some(inn) = inner_of(c) {
+                // A dict subclass with `__missing__`: a missing key calls it (`class D(dict)`).
+                if let (V::Dict(d), Some(f)) = (&inn, o.cls.lookup("__missing__")) {
+                    let got = d.borrow().get(i)?;
+                    return match got {
+                        Some(v) => Ok(v),
+                        None => call(&f, Args::p(vec![c.clone(), i.clone()])),
+                    };
+                }
                 return getitem(&inn, i);
             }
             return type_err(format!("'{}' object is not subscriptable", tn(c)));
@@ -1633,6 +1665,8 @@ pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
             }
             Ok(out)
         }
+        // `dict(d)` of a dict subclass that keeps dict's own keys: its items.
+        V::Obj(_) if matches!(inner_of(v), Some(V::Dict(_))) => dict_items_of(&inner_of(v).unwrap()),
         _ => {
             let mut out = vec![];
             for (i, x) in to_vec(v)?.into_iter().enumerate() {
