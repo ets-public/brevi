@@ -2123,15 +2123,38 @@ impl AxSum<i64> for Vec<i64> {
         self.iter().sum()
     }
 }
+// CPython 3.12+ sums floats with compensation (Neumaier), and so does bi_sum in the dynamic build.
+fn ax_fsum(start: f64, xs: impl Iterator<Item = f64>) -> f64 {
+    let (mut f, mut c) = (start, 0.0f64);
+    for x in xs {
+        let t = f + x;
+        c += if f.abs() >= x.abs() { (f - t) + x } else { (x - t) + f };
+        f = t;
+    }
+    // Adding the correction to an overflowed sum would make it nan.
+    if c != 0.0 && c.is_finite() {
+        f += c;
+    }
+    f
+}
 impl AxSum<f64> for Vec<f64> {
     fn ax_sum(&self) -> f64 {
-        self.iter().sum()
+        ax_fsum(0.0, self.iter().copied())
+    }
+}
+// sum(xs, start) of floats: the start is the sum's first term.
+pub trait AxSumFrom {
+    fn ax_sum_from(&self, start: f64) -> f64;
+}
+impl AxSumFrom for Vec<f64> {
+    fn ax_sum_from(&self, start: f64) -> f64 {
+        ax_fsum(start, self.iter().copied())
     }
 }
 // Numbers held as JSON (a function returning `v` or `0`): their sum, as JSON.
 impl AxSum<Json> for Vec<Json> {
     fn ax_sum(&self) -> Json {
-        Json::Num { v: self.iter().map(|j| if let Json::Num { v, .. } = j { *v } else { 0.0 }).sum(), f: self.iter().any(|j| matches!(j, Json::Num { f: true, .. })) }
+        Json::Num { v: ax_fsum(0.0, self.iter().map(|j| if let Json::Num { v, .. } = j { *v } else { 0.0 })), f: self.iter().any(|j| matches!(j, Json::Num { f: true, .. })) }
     }
 }
 pub trait AxJoin {
@@ -6042,7 +6065,11 @@ impl Json {
     }
     // sum(j) of a dynamic list.
     pub fn ax_sum(&self) -> Json {
-        self.ax_seq().into_iter().fold(Json::Num { v: 0.0, f: false }, |a, b| Plus::plus(a, b))
+        let xs = self.ax_seq();
+        if xs.iter().any(ax_jf) && xs.iter().all(|x| matches!(x, Json::Num { .. })) {
+            return ax_jnk(ax_fsum(0.0, xs.iter().map(ax_jnum)), true);
+        }
+        xs.into_iter().fold(Json::Num { v: 0.0, f: false }, |a, b| Plus::plus(a, b))
     }
     // What `for x in j` walks: a list's items, a text's characters, a dict's keys.
     fn ax_seq(&self) -> Vec<Json> {
