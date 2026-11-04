@@ -121,7 +121,7 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
-With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,native`, or `--allow-py requests,pydantic` to let CPython run just those libraries (the MCP tools' `allow` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from the next release; before it, an allow line in the file was enough).
+With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,native`, or `--allow-py requests,pydantic` to let CPython run just those libraries (the MCP tools' `allow` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from v0.24.6; before it, an allow line in the file was enough).
 
 ```
 $ brevi run --sandbox fetch.py
