@@ -2551,6 +2551,7 @@ impl Emitter {
             match args.first().map(|a| &a.1) {
                 Some(Expr::Tuple(xs)) if xs.is_empty() => return "Json::Tup { v: vec![] }".into(),
                 Some(Expr::List(xs)) if xs.is_empty() => return "Json::Arr { v: vec![] }".into(),
+                Some(Expr::Map(xs)) if xs.is_empty() => return "Json::Obj { v: AxM::new() }".into(),
                 _ => {}
             }
         }

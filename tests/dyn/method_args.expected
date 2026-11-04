@@ -1,0 +1,10 @@
+TypeError list.clear() takes no arguments (1 given)
+TypeError list.copy() takes no arguments (1 given)
+TypeError list.reverse() takes no arguments (1 given)
+TypeError dict.items() takes no arguments (1 given)
+TypeError dict.keys() takes no arguments (1 given)
+TypeError dict.copy() takes no arguments (1 given)
+TypeError set.copy() takes no arguments (1 given)
+RuntimeError dictionary keys changed during iteration
+[0] 5
+ValueError int() base must be >= 2 and <= 36, or 0

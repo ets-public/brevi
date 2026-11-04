@@ -3102,16 +3102,27 @@ impl Json {
         }
     }
 }
+impl Json {
+    // What `for x in j` walks, as in Python: a list's items, an object's keys, a string's characters.
+    pub fn ax_walk(&self) -> Vec<Json> {
+        match self {
+            Json::Arr { v } | Json::Tup { v } => v.clone(),
+            Json::Obj { v } => v.keys().map(|k| Json::Str { v: k.clone() }).collect(),
+            Json::Str { v } => v.chars().map(|c| Json::Str { v: c.to_string() }).collect(),
+            _ => vec![],
+        }
+    }
+}
 impl AxEach for Json {
     type It = std::vec::IntoIter<Json>;
     fn ax_each(self) -> Self::It {
-        self.ax_list().into_iter()
+        self.ax_walk().into_iter()
     }
 }
 impl AxIter for Json {
     type I<'a> = std::vec::IntoIter<Json>;
     fn ax_iter<'a>(&'a self) -> Self::I<'a> {
-        self.ax_list().into_iter()
+        self.ax_walk().into_iter()
     }
 }
 

@@ -618,6 +618,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += n;
                         col += n;
                     }
+                    // Python: a backslash at the end of a line inside a string joins the lines.
+                    Some('\\') if py && chars.get(i + 1) == Some(&'\n') => {
+                        i += 2;
+                        line += 1;
+                        col = 1;
+                    }
                     Some('\\') => {
                         let e = chars.get(i + 1).copied().unwrap_or(' ');
                         match e {
@@ -626,6 +632,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                             'r' => s.push('\r'),
                             '0' => s.push('\0'),
                             '\'' | '\\' => s.push(e),
+                            '"' if py => s.push(e),
                             '{' | '}' => {
                                 s.push(e);
                                 s.push(e);
@@ -834,6 +841,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += n;
                         col += n;
                     }
+                    Some('\\') if py && chars.get(i + 1) == Some(&'\n') => {
+                        i += 2;
+                        line += 1;
+                        col = 1;
+                    }
                     Some('\\') => {
                         let e = chars.get(i + 1).copied().unwrap_or(' ');
                         after_bs = e == '\\';
@@ -841,7 +853,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                             s.push(e);
                         }
                         // Any other escape keeps its backslash, as in Python (handy for regexes: "\\d+").
-                        if !"ntr0\"\\{}".contains(e) {
+                        if !"ntr0\"\\{}".contains(e) && !(py && e == '\'') {
                             s.push('\\');
                         }
                         s.push(match e {

@@ -267,6 +267,19 @@ fn is_set(e: &Ex, g: &G) -> bool {
     }
 }
 
+// A return, or a break or continue not inside a loop of its own, in body (not in nested functions).
+fn jumps_out(body: &[Stmt], in_loop: bool) -> bool {
+    body.iter().any(|s| match &s.st {
+        St::Return(_) => true,
+        St::Break | St::Continue => !in_loop,
+        St::If(arms, e) => arms.iter().any(|(_, b)| jumps_out(b, in_loop)) || e.as_deref().is_some_and(|e| jumps_out(e, in_loop)),
+        St::While(_, b, e) | St::For(_, _, b, e) => jumps_out(b, true) || e.as_deref().is_some_and(|e| jumps_out(e, in_loop)),
+        St::Try(b, hs, e, f) => jumps_out(b, in_loop) || hs.iter().any(|h| jumps_out(&h.body, in_loop)) || e.as_deref().is_some_and(|e| jumps_out(e, in_loop)) || f.as_deref().is_some_and(|f| jumps_out(f, in_loop)),
+        St::With(_, b) => jumps_out(b, in_loop),
+        _ => false,
+    })
+}
+
 // `(x,)`: the typed build keeps a one-item tuple as a one-item list, so showing it whole gives [x] where CPython
 // gives (x,). Only the one-item tuple itself is followed (names, lists appended to, returns, arguments), not the
 // containers it is put in at other places: `c = (n, path + (u,))` then `best[k] = c` is a real tuple whose second
@@ -744,6 +757,13 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
                 if let Some(n) = names.iter().find(|n| UNCAUGHT.contains(&n.as_str())) {
                     hit = Some(format!("except {n}: the typed build stops at this error instead of raising it"));
                 }
+            }
+        }
+        // `return`, `break` or `continue` leaving a try that has a finally: the typed build leaves without running
+        // the finally (and a return there was lost: the function returned None).
+        if let St::Try(b, hs, e, Some(fin)) = &s.st {
+            if hit.is_none() && (jumps_out(b, false) || hs.iter().any(|h| jumps_out(&h.body, false)) || e.as_deref().is_some_and(|e| jumps_out(e, false)) || jumps_out(fin, false)) {
+                hit = Some("return, break or continue leaves a try that has a finally, which the typed build does not run then".into());
             }
         }
         if let St::For(t, it, body, _) = &s.st {
@@ -1500,6 +1520,10 @@ mod tests {
         assert!(!needs("d = {('a',): 1}\nprint(d[('a',)], '%s' % ('x',))\n"));
         assert!(!needs("ids = ('a', 'b')\nprint(ids + ('c',))\n"));
         assert!(needs("t = (5,)\nprint('%s' % t)\n"));
+        // A jump out of a try with a finally; a loop of its own inside the try is fine.
+        assert!(needs("def f(x):\n    try:\n        return x\n    finally:\n        print('done')\nprint(f(1))\n"));
+        assert!(needs("for i in range(3):\n    try:\n        continue\n    finally:\n        print(i)\n"));
+        assert!(!needs("def f(xs):\n    try:\n        for x in xs:\n            if x:\n                break\n    finally:\n        print('done')\n    return 1\nprint(f([1]))\n"));
         assert!(!needs("n = 5\nprint('%d items' % (n,))\n"));
         assert!(!needs("best = {}\nv = (0, ('s',), 'x')\nc = (v[0] + 1, v[1] + ('u',), 'via')\nbest[1] = c\nans = best[1]\nprint('%s' % ans[2], len(ans[1]))\n"));
     }

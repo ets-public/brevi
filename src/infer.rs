@@ -233,6 +233,9 @@ fn or_value(a: &T, b: &T) -> Option<T> {
         (x, y) if x == y => Some(x.clone()),
         // `(topic or "").lower()` on a JSON value: a JSON value either way, the plain side made JSON (#195).
         (Json, Int | Str) | (Int | Str, Json) if py_on() => Some(Json),
+        // `issue["labels"] or []` / `or {}`: JSON too, the empty side an empty JSON list or object.
+        (Json, List(x)) | (List(x), Json) if py_on() && **x == Hole => Some(Json),
+        (Json, Map(k, v)) | (Map(k, v), Json) if py_on() && **k == Hole && **v == Hole => Some(Json),
         // `deps or []`: the empty list takes the other side's type.
         (List(x), List(y)) if **x == Hole || **y == Hole => Some(if **x == Hole { b.clone() } else { a.clone() }),
         (Map(k, v), Map(k2, v2)) if (**k == Hole && **v == Hole) || (**k2 == Hole && **v2 == Hole) => Some(if **k == Hole { b.clone() } else { a.clone() }),
