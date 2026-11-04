@@ -116,7 +116,7 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
         let start = out.lines().count() + 1;
         let mut n = 0;
         // Inside a `"""docstring"""` that spans lines.
-        let mut in_doc = false;
+        let mut in_doc: Option<&str> = None;
         // Inside a used file's `if __name__ == "__main__":` block, which Python only runs for the main file.
         let mut in_main_guard = false;
         for (i, l) in text.lines().enumerate() {
@@ -132,14 +132,14 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                 in_main_guard = false;
             }
             let t = l.trim_start();
-            let doc_line = in_doc || t.starts_with("\"\"\"") || t.starts_with("'''") || (t.starts_with('"') && t.trim_end().ends_with('"'));
-            if in_doc {
-                if t.contains("\"\"\"") || t.contains("'''") {
-                    in_doc = false;
+            let doc_line = in_doc.is_some() || t.starts_with("\"\"\"") || t.starts_with("'''") || (t.starts_with('"') && t.trim_end().ends_with('"'));
+            if let Some(q) = in_doc {
+                if t.matches(q).count() % 2 == 1 {
+                    in_doc = None;
                 }
-            } else if let Some(q) = ["\"\"\"", "'''"].iter().find(|q| t.starts_with(**q)) {
-                // A docstring that does not close on its own line.
-                in_doc = !t[3..].contains(q);
+            } else if let Some(q) = ["\"\"\"", "'''"].into_iter().find(|q| t.find(*q).is_some_and(|at| t.matches(*q).count() % 2 == 1 && !t[..at].contains('#'))) {
+                // A docstring, or a triple-quoted string (`TOKEN_RE = re.compile(r'''...`), that does not close on its line.
+                in_doc = Some(q);
             }
             if let Some(g) = gui_import(l).filter(|g| *g != "tkinter") {
                 let at = if name.is_empty() { String::new() } else { format!("\"file\":\"{}\",", crate::diag::esc(&name)) };

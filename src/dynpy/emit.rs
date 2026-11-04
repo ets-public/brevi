@@ -1013,6 +1013,15 @@ impl Em {
                 return self.mod_alias.get(&(self.module.clone(), n.clone())).cloned();
             }
         }
+        // `json.decoder` after `import json.decoder` (or `import json`, which loads it too).
+        if let Ex::Attr(o, n) = e {
+            if let Some(m) = self.static_module(o) {
+                let full = format!("{m}.{n}");
+                if BUILTIN_MODULES.contains(&full.as_str()) && !module_has(&m, n) {
+                    return Some(full);
+                }
+            }
+        }
         None
     }
     fn user_mod_load(&mut self, m: &str, n: &str, line: usize) -> ER<String> {

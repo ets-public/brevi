@@ -1660,6 +1660,16 @@ impl Parser {
             }
         }
     }
+    // A Python program's matches also know their positions (AxMatch); a Brevi program's are plain lists.
+    fn re_name(&self, n: &'static str) -> &'static str {
+        match (self.py, n) {
+            (true, "re_match") => "re_m_match",
+            (true, "re_full") => "re_m_full",
+            (true, "re_find") => "re_m_find",
+            (true, "re_all") => "re_m_all",
+            _ => n,
+        }
+    }
     fn own_method(&self, recv: &Expr) -> bool {
         matches!(recv, Expr::Ident(n) if n == "self_" || self.held.contains(n))
     }
@@ -1821,7 +1831,11 @@ impl Parser {
             };
             self.next();
             self.skip_newlines();
+            let rpos = self.pos;
             let rhs = self.binary(level + 1)?;
+            // `"%s" % (x,)`: a one-item tuple (kept as a one-item list) gives the one value, as a tuple does.
+            let rhs_tup1 = op == "%" && matches!(&rhs, Expr::List(xs) if xs.len() == 1) && self.pos >= rpos + 3
+                && self.toks[rpos].tok == Tok::Sym("(") && self.toks[self.pos - 1].tok == Tok::Sym(")") && self.toks[self.pos - 2].tok == Tok::Sym(",");
             const ORDER: &[&str] = &["<", ">", "<=", ">=", "==", "!="];
             if level == 2 && !negate && ORDER.contains(&op) {
                 if let Some(prev) = chain.take() {
@@ -1876,6 +1890,7 @@ impl Parser {
                 let marks = parts.iter().map(|p| if let StrPart::Lit(s) = p { s.replace("%%", "").matches('%').count() } else { 0 }).sum::<usize>();
                 let args = match rhs.clone() {
                     Expr::Tuple(xs) => xs,
+                    Expr::List(xs) if rhs_tup1 => xs,
                     x @ (Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) if marks >= 2 && !parts.iter().any(|p| matches!(p, StrPart::Lit(s) if s.contains("%("))) => (0..marks).map(|i| Expr::TupleField(Box::new(x.clone()), i)).collect(),
                     x => vec![x],
                 };
@@ -2207,16 +2222,16 @@ impl Parser {
                                     }
                                 }
                             }
-                            // Python's re module: a compiled pattern is its string, a match is [whole, group1, ...] ([] for none).
+                            // Python's re module: a compiled pattern is its string, a match is read as [whole, group1, ...] (empty for none).
                             if matches!(&e, Expr::Ident(m) if m == "re") {
                                 let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
                                 let done = match (name.as_str(), args.len()) {
                                     ("compile", 1) => Some(args.remove(0)),
-                                    ("match", 2) => Some(r(args.remove(1), "re_match", vec![args.remove(0)])),
-                                    ("fullmatch", 2) => Some(r(args.remove(1), "re_full", vec![args.remove(0)])),
-                                    ("search", 2) => Some(r(args.remove(1), "re_find", vec![args.remove(0)])),
+                                    ("match", 2) => Some(r(args.remove(1), self.re_name("re_match"), vec![args.remove(0)])),
+                                    ("fullmatch", 2) => Some(r(args.remove(1), self.re_name("re_full"), vec![args.remove(0)])),
+                                    ("search", 2) => Some(r(args.remove(1), self.re_name("re_find"), vec![args.remove(0)])),
                                     ("findall", 2) => Some(r(args.remove(1), "re_findall", vec![args.remove(0)])),
-                                    ("finditer", 2) => Some(r(args.remove(1), "re_all", vec![args.remove(0)])),
+                                    ("finditer", 2) => Some(r(args.remove(1), self.re_name("re_all"), vec![args.remove(0)])),
                                     ("split", 2) => Some(r(args.remove(1), "re_split", vec![args.remove(0)])),
                                     ("sub", 3) => {
                                         let s = args.remove(2);
@@ -2236,11 +2251,11 @@ impl Parser {
                             if !self.user_fns.contains(&name) {
                                 let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
                                 let m = match (name.as_str(), args.len()) {
-                                    ("match", 1) => Some("re_match"),
-                                    ("fullmatch", 1) => Some("re_full"),
-                                    ("search", 1) => Some("re_find"),
+                                    ("match", 1) => Some(self.re_name("re_match")),
+                                    ("fullmatch", 1) => Some(self.re_name("re_full")),
+                                    ("search", 1) => Some(self.re_name("re_find")),
                                     ("findall", 1) => Some("re_findall"),
-                                    ("finditer", 1) => Some("re_all"),
+                                    ("finditer", 1) => Some(self.re_name("re_all")),
                                     _ => None,
                                 };
                                 if let Some(m) = m {

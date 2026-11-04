@@ -275,6 +275,11 @@ pub static AX_PY_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 pub fn ax_py_mode() {
     AX_PY_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
+// A real .py file, not a .bv program written in Python style: those keep the output they always had.
+pub static AX_PY_FILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn ax_py_file() {
+    AX_PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
 // Held by main in a Python file. The typed build raises most exceptions as panics, and Rust exits 101 after one
 // that reaches main; CPython exits 1. Exiting here, not in the panic hook, leaves a panic that a catch_unwind
 // stops (a Brevi callback run by a Python library) alone. process::exit flushes stdout.
@@ -453,9 +458,7 @@ fn show_item<T: Show + 'static>(x: &T) -> String {
 pub static AX_SHOW_ITEM: std::sync::OnceLock<fn(&dyn std::any::Any) -> Option<String>> = std::sync::OnceLock::new();
 impl<T: Show + 'static> Show for Vec<T> {
     fn show(&self) -> String {
-        // A Python regex match's hidden group positions (see ax_rx_groups) are not shown.
-        let hidden = |x: &&T| (*x as &dyn std::any::Any).downcast_ref::<String>().is_some_and(|s| s.starts_with('\u{1}'));
-        format!("[{}]", self.iter().filter(|x| !hidden(x)).map(show_item).collect::<Vec<_>>().join(", "))
+        format!("[{}]", self.iter().map(show_item).collect::<Vec<_>>().join(", "))
     }
 }
 impl<K: Hash + Eq + Ord + Show + 'static, V: Show + 'static> Show for AxM<K, V> {
@@ -3102,16 +3105,27 @@ impl Json {
         }
     }
 }
+impl Json {
+    // What `for x in j` walks, as in Python: a list's items, an object's keys, a string's characters.
+    pub fn ax_walk(&self) -> Vec<Json> {
+        match self {
+            Json::Arr { v } | Json::Tup { v } => v.clone(),
+            Json::Obj { v } => v.keys().map(|k| Json::Str { v: k.clone() }).collect(),
+            Json::Str { v } => v.chars().map(|c| Json::Str { v: c.to_string() }).collect(),
+            _ => vec![],
+        }
+    }
+}
 impl AxEach for Json {
     type It = std::vec::IntoIter<Json>;
     fn ax_each(self) -> Self::It {
-        self.ax_list().into_iter()
+        self.ax_walk().into_iter()
     }
 }
 impl AxIter for Json {
     type I<'a> = std::vec::IntoIter<Json>;
     fn ax_iter<'a>(&'a self) -> Self::I<'a> {
-        self.ax_list().into_iter()
+        self.ax_walk().into_iter()
     }
 }
 
@@ -6640,37 +6654,72 @@ fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool)
 fn ax_rx_groups(s: &[char], caps: &AxCaps) -> Vec<String> {
     // A group that took no part in the match is None in Python (the None string; findall and sub read it as "").
     let none = || if ax_py_on() { String::ax_none() } else { String::new() };
-    let mut v: Vec<String> = caps.iter().map(|g| g.map_or_else(none, |(a, b)| s[a..b].iter().collect())).collect();
-    // In Python mode a match also carries where each group starts and ends, for m.start(), m.end() and m.span().
-    if ax_py_on() {
-        let spans: Vec<String> = caps.iter().map(|g| g.map_or("-1:-1".to_string(), |(a, b)| format!("{a}:{b}"))).collect();
-        v.push(format!("\u{1}{}", spans.join(",")));
-    }
-    v
+    caps.iter().map(|g| g.map_or_else(none, |(a, b)| s[a..b].iter().collect())).collect()
 }
-// Python's m.start(n), m.end(n), m.span(n) and m.groups() on a match made by ax_rx_groups.
-pub trait AxReSpan {
-    fn ax_re_span(&self, n: i64) -> (i64, i64);
-    fn ax_re_start(&self, n: i64) -> i64;
-    fn ax_re_end(&self, n: i64) -> i64;
-    fn ax_re_groups(&self) -> Vec<String>;
+// A Python match: its groups ([whole, group1, ...], empty for None) and where each one starts and ends. It is
+// not a list (len(m), `for x in m` and m[1:] are errors in Python too), and a list holds nothing but its items.
+#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AxMatch {
+    groups: Vec<String>,
+    spans: Vec<(i64, i64)>,
 }
-impl AxReSpan for Vec<String> {
-    fn ax_re_span(&self, n: i64) -> (i64, i64) {
-        let Some(last) = self.last().filter(|l| l.starts_with('\u{1}')) else { return (-1, -1) };
-        let Some(sp) = last[1..].split(',').nth(n.max(0) as usize) else { return (-1, -1) };
-        let (a, b) = sp.split_once(':').unwrap_or(("-1", "-1"));
-        (a.parse().unwrap_or(-1), b.parse().unwrap_or(-1))
+// Group n's place in the lists: a match has no group -1, and None has no groups at all.
+impl AxMatch {
+    fn ax_group(&self, n: i64) -> usize {
+        if self.groups.is_empty() {
+            ax_none_attr()
+        }
+        if n < 0 || n as usize >= self.groups.len() {
+            panic!("IndexError: no such group");
+        }
+        n as usize
     }
-    fn ax_re_start(&self, n: i64) -> i64 {
+}
+impl AxRef<i64, String> for AxMatch {
+    fn ax_ref(&self, n: &i64) -> &String {
+        &self.groups[self.ax_group(*n)]
+    }
+}
+impl AxTruth for AxMatch {
+    fn ax_truth(&self) -> bool {
+        !self.groups.is_empty()
+    }
+}
+impl AxNone for AxMatch {
+    fn ax_none() -> Self {
+        AxMatch::default()
+    }
+}
+impl Show for AxMatch {
+    fn show(&self) -> String {
+        // A .bv program in Python style has always printed a match as its list of groups.
+        if !AX_PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+            return self.groups.show();
+        }
+        match (self.groups.first(), self.spans.first()) {
+            (Some(g), Some((a, b))) => format!("<re.Match object; span=({a}, {b}), match={}>", ax_py_repr(g)),
+            _ => "None".to_string(),
+        }
+    }
+}
+fn ax_rx_match(s: &[char], caps: &AxCaps) -> AxMatch {
+    let spans = caps.iter().map(|g| g.map_or((-1, -1), |(a, b)| (a as i64, b as i64))).collect();
+    AxMatch { groups: ax_rx_groups(s, caps), spans }
+}
+// Python's m.start(n), m.end(n), m.span(n) and m.groups().
+impl AxMatch {
+    pub fn ax_re_span(&self, n: i64) -> (i64, i64) {
+        self.spans[self.ax_group(n)]
+    }
+    pub fn ax_re_start(&self, n: i64) -> i64 {
         self.ax_re_span(n).0
     }
-    fn ax_re_end(&self, n: i64) -> i64 {
+    pub fn ax_re_end(&self, n: i64) -> i64 {
         self.ax_re_span(n).1
     }
-    fn ax_re_groups(&self) -> Vec<String> {
-        let k = if self.last().is_some_and(|l| l.starts_with('\u{1}')) { self.len() - 1 } else { self.len() };
-        self.iter().take(k).skip(1).cloned().collect()
+    pub fn ax_re_groups(&self) -> Vec<String> {
+        self.ax_group(0);
+        self.groups[1..].to_vec()
     }
 }
 pub trait AxRe {
@@ -6693,6 +6742,40 @@ fn ax_rx_each(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps)) -> Vec<char
         from = if b > a { b } else { b + 1 };
     }
     cs
+}
+fn ax_rx_sub(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps) -> String) -> String {
+    let mut out = String::new();
+    let mut last = 0;
+    let cs = ax_rx_each(s, p, |cs, c| {
+        let (a, b) = c[0].unwrap();
+        if a >= last {
+            out.extend(&cs[last..a]);
+            out.push_str(&f(cs, c));
+            last = b;
+        }
+    });
+    out.extend(&cs[last.min(cs.len())..]);
+    out
+}
+// The same with a function that can raise: the first error stops the substitution and is passed on.
+fn ax_rx_try_sub(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps) -> R<String>) -> R<String> {
+    let mut err = None;
+    let out = ax_rx_sub(s, p, |cs, c| {
+        if err.is_some() {
+            return String::new();
+        }
+        match f(cs, c) {
+            Ok(s) => s,
+            Err(e) => {
+                err = Some(e);
+                String::new()
+            }
+        }
+    });
+    match err {
+        Some(e) => Err(e),
+        None => Ok(out),
+    }
 }
 impl AxRe for String {
     fn ax_re_find(&self, p: String) -> Vec<String> {
@@ -6730,38 +6813,10 @@ impl AxRe for String {
         })
     }
     fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, mut f: F) -> String {
-        let mut out = String::new();
-        let mut last = 0;
-        let cs = ax_rx_each(self, &p, |cs, c| {
-            let (a, b) = c[0].unwrap();
-            if a >= last {
-                out.extend(&cs[last..a]);
-                out.push_str(&f(ax_rx_groups(cs, c)));
-                last = b;
-            }
-        });
-        out.extend(&cs[last.min(cs.len())..]);
-        out
+        ax_rx_sub(self, &p, |cs, c| f(ax_rx_groups(cs, c)))
     }
-    // The same with a function that can raise: the first error stops the substitution and is passed on.
     fn ax_try_re_sub_with<F: FnMut(Vec<String>) -> R<String>>(&self, p: String, mut f: F) -> R<String> {
-        let mut err = None;
-        let out = self.ax_re_sub_with(p, |g| {
-            if err.is_some() {
-                return String::new();
-            }
-            match f(g) {
-                Ok(s) => s,
-                Err(e) => {
-                    err = Some(e);
-                    String::new()
-                }
-            }
-        });
-        match err {
-            Some(e) => Err(e),
-            None => Ok(out),
-        }
+        ax_rx_try_sub(self, &p, |cs, c| f(ax_rx_groups(cs, c)))
     }
     fn ax_re_split(&self, p: String) -> Vec<String> {
         let mut out = vec![];
@@ -6783,6 +6838,53 @@ impl AxRe for String {
         });
         out.push(cs[last..].iter().collect());
         out
+    }
+}
+// What Python programs call: re.search, re.fullmatch, re.finditer and re.sub with a function, each giving
+// matches. (Programs written in Brevi get plain lists from re_find, re_full and re_all.)
+pub trait AxReM {
+    fn ax_re_m_find(&self, p: impl AsRef<str>) -> AxMatch;
+    fn ax_re_m_full(&self, p: impl AsRef<str>) -> AxMatch;
+    fn ax_re_m_all(&self, p: impl AsRef<str>) -> Vec<AxMatch>;
+    fn ax_re_m_sub_with<F: FnMut(AxMatch) -> String>(&self, p: impl AsRef<str>, f: F) -> String;
+    fn ax_try_re_m_sub_with<F: FnMut(AxMatch) -> R<String>>(&self, p: impl AsRef<str>, f: F) -> R<String>;
+}
+impl AxReM for String {
+    fn ax_re_m_find(&self, p: impl AsRef<str>) -> AxMatch {
+        let cs: Vec<char> = self.chars().collect();
+        ax_rx_search(p.as_ref(), &cs, 0, false).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
+    }
+    fn ax_re_m_full(&self, p: impl AsRef<str>) -> AxMatch {
+        let cs: Vec<char> = self.chars().collect();
+        ax_rx_search(p.as_ref(), &cs, 0, true).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
+    }
+    fn ax_re_m_all(&self, p: impl AsRef<str>) -> Vec<AxMatch> {
+        let mut out = vec![];
+        ax_rx_each(self, p.as_ref(), |cs, c| out.push(ax_rx_match(cs, c)));
+        out
+    }
+    fn ax_re_m_sub_with<F: FnMut(AxMatch) -> String>(&self, p: impl AsRef<str>, mut f: F) -> String {
+        ax_rx_sub(self, p.as_ref(), |cs, c| f(ax_rx_match(cs, c)))
+    }
+    fn ax_try_re_m_sub_with<F: FnMut(AxMatch) -> R<String>>(&self, p: impl AsRef<str>, mut f: F) -> R<String> {
+        ax_rx_try_sub(self, p.as_ref(), |cs, c| f(ax_rx_match(cs, c)))
+    }
+}
+impl AxReM for Json {
+    fn ax_re_m_find(&self, p: impl AsRef<str>) -> AxMatch {
+        self.ax_jtext("search").ax_re_m_find(p)
+    }
+    fn ax_re_m_full(&self, p: impl AsRef<str>) -> AxMatch {
+        self.ax_jtext("fullmatch").ax_re_m_full(p)
+    }
+    fn ax_re_m_all(&self, p: impl AsRef<str>) -> Vec<AxMatch> {
+        self.ax_jtext("finditer").ax_re_m_all(p)
+    }
+    fn ax_re_m_sub_with<F: FnMut(AxMatch) -> String>(&self, p: impl AsRef<str>, f: F) -> String {
+        self.ax_jtext("sub").ax_re_m_sub_with(p, f)
+    }
+    fn ax_try_re_m_sub_with<F: FnMut(AxMatch) -> R<String>>(&self, p: impl AsRef<str>, f: F) -> R<String> {
+        self.ax_jtext("sub").ax_try_re_m_sub_with(p, f)
     }
 }
 // Python's re.match (anchored at the start) and re.findall (group 1 when the pattern has one group).
@@ -6815,6 +6917,7 @@ impl AxRe for Json {
 }
 pub trait AxRePy {
     fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String>;
+    fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch;
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String>;
 }
 impl AxRePy for String {
@@ -6822,14 +6925,21 @@ impl AxRePy for String {
         let cs: Vec<char> = self.chars().collect();
         ax_rx_search_at(p.as_ref(), &cs, 0, false, true).map_or(vec![], |(_, c)| ax_rx_groups(&cs, &c))
     }
+    fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch {
+        let cs: Vec<char> = self.chars().collect();
+        ax_rx_search_at(p.as_ref(), &cs, 0, false, true).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
+    }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         let all = self.ax_re_all(p.as_ref().to_string());
-        all.into_iter().map(|g| if g.ax_re_groups().len() == 1 { if g[1].ax_is_none() { String::new() } else { g[1].clone() } } else { g[0].clone() }).collect()
+        all.into_iter().map(|g| if g.len() == 2 { if g[1].ax_is_none() { String::new() } else { g[1].clone() } } else { g[0].clone() }).collect()
     }
 }
 impl AxRePy for Json {
     fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String> {
         match self { Json::Str { v } => v.ax_re_match(p), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+    fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch {
+        match self { Json::Str { v } => v.ax_re_m_match(p), _ => panic!("TypeError: expected string or bytes-like object") }
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         match self { Json::Str { v } => v.ax_re_findall(p), _ => panic!("TypeError: expected string or bytes-like object") }

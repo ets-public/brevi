@@ -1,0 +1,12 @@
+cleanup 1
+pos
+cleanup -1
+neg
+body 0
+fin 0
+fin 1
+body 2
+fin 2
+w 1
+w 2
+w 3

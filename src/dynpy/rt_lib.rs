@@ -182,6 +182,8 @@ pub fn bi_int(mut a: Args) -> R {
         return Ok(V::Int(0));
     }
     let base = match (a.p.get(1).cloned(), base) {
+        // `int("0", base=2 ** 234)`: out of range, as any base past 36.
+        (Some(V::Big(_)), _) | (None, Some(V::Big(_))) => Some(i64::MAX),
         (Some(b), _) | (None, Some(b)) => Some(idx_of(&b)?),
         _ => None,
     };
@@ -1183,6 +1185,8 @@ fn arg_str(v: &V, f: &str) -> Result<Rc<S>, E> {
 fn opt_idx(a: &Args, i: usize) -> Result<Option<i64>, E> {
     match a.p.get(i) {
         None | Some(V::None) => Ok(None),
+        // `xs.index(v, -4 * sys.maxsize)`: past 64 bits, clamped as CPython clamps it to the ends.
+        Some(V::Big(b)) => Ok(Some(if b.neg { i64::MIN / 4 } else { i64::MAX / 4 })),
         Some(x) => Ok(Some(idx_of(x)?)),
     }
 }
@@ -1730,7 +1734,21 @@ pub fn str_format(t: &str, a: &Args) -> Result<String, E> {
     }
     Ok(out)
 }
+// `xs.clear(None)`: CPython's TypeError for a method that takes no arguments.
+fn no_args(ty: &str, name: &str, a: &Args) -> Result<(), E> {
+    if !a.k.is_empty() {
+        return type_err(format!("{ty}.{name}() takes no keyword arguments"));
+    }
+    if !a.p.is_empty() {
+        return type_err(format!("{ty}.{name}() takes no arguments ({} given)", a.p.len()));
+    }
+    Ok(())
+}
+
 pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R {
+    if matches!(name, "reverse" | "copy" | "clear" | "__len__") {
+        no_args("list", name, &a)?;
+    }
     Ok(match name {
         "append" => {
             let x = a1(&a, "append")?;
@@ -1853,6 +1871,9 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
     })
 }
 pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
+    if matches!(name, "keys" | "values" | "items" | "copy" | "clear" | "__len__") {
+        no_args("dict", name, &a)?;
+    }
     Ok(match name {
         "get" => {
             a.want("get", 1, 2)?;
@@ -1977,6 +1998,9 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
     })
 }
 pub fn set_method(o: &V, name: &str, a: Args) -> R {
+    if matches!(name, "copy" | "clear" | "pop") {
+        no_args(if matches!(o, V::FSet(_)) { "frozenset" } else { "set" }, name, &a)?;
+    }
     // A copy only for the methods that read the whole set (set_of copies; add must not).
     let me = || set_of(o).unwrap();
     let others = |a: &Args| -> Result<Vec<PSet>, E> {

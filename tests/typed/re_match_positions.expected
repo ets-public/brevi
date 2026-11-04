@@ -1,0 +1,20 @@
+0 2 (0, 2) 0 1 (-1, -1) 1 (1, 2)
+ac a ac c True ['a', None, 'c'] 3
+False True True yes
+True False False no
+(0, 2) True
+4 5 ['a', 'b'] True (0, 1)
+(2, 3)
+a:0 2:3 (2, 4) True
+2 True
+22 (1, 3) False
+2 [1, 0] 1
+(1, 2)
+2 3 c
+2 [(0, 1), (2, 4)] [(-1, -1), (3, 4)] [['1', None], ['2', 'x']]
+[<re.Match object; span=(0, 1), match='1'>, <re.Match object; span=(2, 4), match='2x'>]
+[<re.Match object; span=(0, 1), match='a'>] ['1', '2'] ['1', '2']
+a<1@1-2>b<2@3-4> a(1, 2)
+[1] [2x]
+odd
+ok ok
