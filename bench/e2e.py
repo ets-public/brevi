@@ -247,7 +247,11 @@ def verdict(pattern):
     python for each model, and at least 90% of the final pyb programs are built natively. Also prints a rough noise
     figure: the spread of the cost ratio when tasks are resampled (a bootstrap over the run's tasks)."""
     import random
-    rows = [json.loads(l) for f in sorted(glob.glob(pattern)) for l in open(f) if l.strip()]
+    files = sorted(glob.glob(pattern))
+    rows = [json.loads(l) for f in files for l in open(f) if l.strip()]
+    if not rows:
+        # an empty glob must never read as a pass
+        sys.exit(f"error: no run logs match {pattern!r}" + ("" if files else " (no files)") + "; nothing to check")
     ok = True
     for model in sorted({r["model"] for r in rows}):
         rs = [r for r in rows if r["model"] == model]
@@ -276,6 +280,7 @@ def verdict(pattern):
               f"(95% range {lo:.2f}x to {hi:.2f}x), failed pyb {fails['pyb']} python {fails['python']}, native {nat}/{len(side['pyb'])} "
               f"({100 * nat / len(side['pyb']):.0f}%): {'meets the bar' if good else 'misses the bar'}")
     print("release test PASSED" if ok else "release test not passed")
+    return 0 if ok else 1
 
 
 def main():
@@ -306,7 +311,12 @@ def main():
         return verdict(a.verdict)
     if not (a.run and a.lang):
         ap.error("RUN and --lang are needed")
-    import anthropic
+    try:
+        import anthropic
+    except ImportError:
+        sys.exit("error: the anthropic package is missing; run `pip install anthropic` (needed for runs, not for --summary/--verdict)")
+    if not os.environ.get("BENCH_ANTHROPIC_KEY"):
+        sys.exit("error: BENCH_ANTHROPIC_KEY is not set")
     client = anthropic.Anthropic(api_key=os.environ["BENCH_ANTHROPIC_KEY"], max_retries=4)
     model = MODELS[a.model]
     name = f"{a.run}-{a.model}-{a.lang}"
@@ -324,4 +334,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
