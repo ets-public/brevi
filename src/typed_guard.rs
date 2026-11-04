@@ -23,6 +23,7 @@ struct G {
     dicts: HashSet<String>,      // names holding a dict
     pure_gens: HashSet<String>,  // generator functions the typed build may run eagerly
     tups: HashSet<String>,       // names holding tuple(...) of a list or iterator, or containers of them
+    tups1: HashSet<String>,      // names holding a one-item tuple `(x,)` ("e:name": a list of them; "f()": returned)
     pure_fns: HashSet<String>,   // functions with no effect but their value (see pure_fns)
     fn_changes: HashMap<String, Changes>, // what each function changes in place (see program_changes)
 }
@@ -45,9 +46,9 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     let mut g = G::default();
     collect_params(body, &mut g);
     for _ in 0..8 {
-        let before = (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len());
+        let before = (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len(), g.tups1.len());
         learn(body, None, &mut g);
-        if before == (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len()) {
+        if before == (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len(), g.tups1.len()) {
             break;
         }
     }
@@ -266,6 +267,31 @@ fn is_set(e: &Ex, g: &G) -> bool {
     }
 }
 
+// `(x,)`: the typed build keeps a one-item tuple as a one-item list, so showing it whole gives [x] where CPython
+// gives (x,). Only the one-item tuple itself is followed (names, lists appended to, returns, arguments), not the
+// containers it is put in at other places: `c = (n, path + (u,))` then `best[k] = c` is a real tuple whose second
+// item the typed build joins as a tuple, and `ans[2]` read back is not a one-item tuple.
+fn is_tup1(e: &Ex, g: &G) -> bool {
+    match e {
+        Ex::Tuple(v) if v.len() == 1 => true,
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().any(|x| is_tup1(x, g)),
+        Ex::Dict(items) => items.iter().any(|(k, v)| k.as_ref().is_some_and(|k| is_tup1(k, g)) || is_tup1(v, g)),
+        // `(a,) + (b,)`: two lists joined is a list; `(a,) + t` with t a real tuple is joined as a tuple.
+        Ex::Bin("+", a, b) => is_tup1(a, g) && is_tup1(b, g),
+        Ex::Bin("*", a, b) => is_tup1(a, g) || is_tup1(b, g),
+        Ex::Comp(_, elt, val, _) => is_tup1(elt, g) || val.as_deref().is_some_and(|v| is_tup1(v, g)),
+        Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.tups1.contains(&k) || g.tups1.contains(&format!("e:{k}"))),
+        Ex::Index(b, i) if !matches!(i.as_ref(), Ex::Slice(..)) => key(b).is_some_and(|k| g.tups1.contains(&format!("e:{k}"))),
+        Ex::Call(f, args) => match f.as_ref() {
+            Ex::Name(n) if g.tups1.contains(&format!("{n}()")) => true,
+            Ex::Name(n) if matches!(n.as_str(), "sorted" | "list" | "reversed") => args.iter().any(|a| matches!(a, Arg::Pos(x) if is_tup1(x, g))),
+            _ => false,
+        },
+        Ex::IfExp(_, a, b) | Ex::Or(a, b) => is_tup1(a, g) || is_tup1(b, g),
+        _ => false,
+    }
+}
+
 // tuple(xs): the typed build keeps it as a list, so printing it shows [1, 2] where CPython shows (1, 2).
 fn is_tup(e: &Ex, g: &G) -> bool {
     match e {
@@ -401,6 +427,9 @@ fn bind(t: &Ex, v: &Ex, g: &mut G) {
             if is_tup(v, g) {
                 g.tups.insert(if keys_only { format!("k:{k}") } else { k.clone() });
             }
+            if is_tup1(v, g) {
+                g.tups1.insert(k.clone());
+            }
             if is_match(v, g) {
                 g.matches.insert(k.clone());
             }
@@ -468,6 +497,9 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
                     if is_tup(v, g) {
                         g.tups.insert(format!("{f}()"));
                     }
+                    if is_tup1(v, g) {
+                        g.tups1.insert(format!("{f}()"));
+                    }
                     if is_set(v, g) {
                         g.set_fns.insert(f.to_string());
                     } else if is_holder(v, g) {
@@ -482,6 +514,11 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
             if let Ex::Call(f, args) = e {
                 let pos: Vec<&Ex> = args.iter().filter_map(|a| if let Arg::Pos(x) = a { Some(x) } else { None }).collect();
                 if let Ex::Attr(r, m) = f.as_ref() {
+                    if matches!(m.as_str(), "append" | "appendleft" | "insert" | "add") && pos.last().is_some_and(|x| is_tup1(x, g)) {
+                        if let Some(k) = key(r) {
+                            g.tups1.insert(format!("e:{k}"));
+                        }
+                    }
                     if matches!(m.as_str(), "append" | "appendleft" | "insert" | "extend" | "add" | "setdefault" | "update" | "put" | "push") && pos.iter().any(|x| is_tup(x, g)) {
                         if let Some(k) = root(r) {
                             g.tups.insert(k);
@@ -502,6 +539,9 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
                                 g.holders.insert(p.clone());
                             }
                             // `perms(xs, cur, out)` whose body does `out.append(tuple(cur))`: the caller's list holds tuples.
+                            if is_tup1(a, g) {
+                                g.tups1.insert(p.clone());
+                            }
                             if g.tups.contains(p) {
                                 if let Some(r) = root(a) {
                                     g.tups.insert(r);
@@ -1010,6 +1050,9 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
                     if pos.iter().any(|x| is_tup(x, g)) {
                         return Some(format!("{n}() of tuple(...) shows a tuple, which the typed build keeps as a list"));
                     }
+                    if args.iter().any(|a| matches!(a, Arg::Pos(x) if is_tup1(x, g))) {
+                        return Some(format!("{n}() of a one-item tuple shows (x,), which the typed build keeps as a list"));
+                    }
                     if n == "print" {
                         return print_changes(&pos).or_else(|| later_changes(&pos, g).map(|k| format!("print() reads every argument before writing; a later one changes {k}")));
                     }
@@ -1043,7 +1086,7 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
             fparts(parts, &mut |x| {
                 bad |= set_or_holder(x);
                 m |= is_match(x, g);
-                tup |= is_tup(x, g);
+                tup |= is_tup(x, g) || is_tup1(x, g);
             });
             if tup {
                 return Some("an f-string of tuple(...) shows a tuple, which the typed build keeps as a list".into());
@@ -1053,7 +1096,9 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
             }
             bad.then(|| "an f-string of a set shows CPython's hash order".to_string())
         }
-        Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && matches!(r.as_ref(), Ex::Tuple(v) if v.iter().any(|x| is_tup(x, g))) => Some("% of tuple(...) shows a tuple, which the typed build keeps as a list".into()),
+        // `"%s" % t` with t a one-item tuple held in a name: Python fills in its item, the typed build the list.
+        Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && !matches!(r.as_ref(), Ex::Tuple(_)) && is_tup1(r, g) => Some("% of a one-item tuple held in a name fills in its item, but the typed build keeps it as a list".into()),
+        Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && matches!(r.as_ref(), Ex::Tuple(v) if v.iter().any(|x| is_tup(x, g) || is_tup1(x, g))) => Some("% of tuple(...) shows a tuple, which the typed build keeps as a list".into()),
         Ex::Bin("%", l, r) if matches!(l.as_ref(), Ex::Str(_)) && (set_or_holder(r) || matches!(r.as_ref(), Ex::Tuple(v) if v.iter().any(|x| set_or_holder(x)))) => Some("% of a set shows CPython's hash order".into()),
         Ex::Comp(k, _, _, fors) if *k != 's' && fors.iter().any(|c| is_set(&c.iter, g)) => Some("a comprehension over a set walks it in CPython's hash order".into()),
         // `2 ** 100` is past 64 bits (`3 ** 50 % m`, taken modulo a number, is worked out by the typed build).
@@ -1442,6 +1487,21 @@ mod tests {
         assert!(needs("def f():\n    out = []\n    out.append(tuple([1, 2]))\n    return out\nprint(f())\n"));
         assert!(needs("seen = {tuple([1, 2]): 0}\nprint(seen)\n"));
         assert!(!needs("seen = {tuple([1, 2]): 0}\ns = seen[tuple([1, 2])]\nprint('%d' % (s,))\n"));
+        // A one-item tuple shown whole (kept as a one-item list), but not one used as a key, a `%` argument
+        // list, joined to a real tuple, or inside a real tuple read back by index.
+        assert!(needs("t = ('a',)\nprint(t)\n"));
+        assert!(needs("print([(3,), (4,)])\n"));
+        assert!(needs("d = {(1,): 'x'}\nprint(d)\n"));
+        assert!(needs("print((1,) + (2,))\n"));
+        assert!(needs("out = []\nfor x in 'ab':\n    out.append((x,))\nprint(out[0])\n"));
+        assert!(needs("def f(x):\n    return (x,)\nprint(f(1))\n"));
+        assert!(needs("def show(t):\n    print(t)\nshow((1,))\n"));
+        assert!(needs("t = (1,)\nprint(f'{t}')\n"));
+        assert!(!needs("d = {('a',): 1}\nprint(d[('a',)], '%s' % ('x',))\n"));
+        assert!(!needs("ids = ('a', 'b')\nprint(ids + ('c',))\n"));
+        assert!(needs("t = (5,)\nprint('%s' % t)\n"));
+        assert!(!needs("n = 5\nprint('%d items' % (n,))\n"));
+        assert!(!needs("best = {}\nv = (0, ('s',), 'x')\nc = (v[0] + 1, v[1] + ('u',), 'via')\nbest[1] = c\nans = best[1]\nprint('%s' % ans[2], len(ans[1]))\n"));
     }
     #[test]
     fn order_free_set_use_stays_typed() {
