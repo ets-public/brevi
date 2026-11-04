@@ -78,9 +78,9 @@ A Python file that imports a module Brevi does not build itself (numpy, pandas, 
 
 Limits today:
 
-- Under `--sandbox` (and in the MCP tools, which sandbox by default) a program that imports such a library is refused unless the caller grants it with `--allow-py requests` (MCP: `allow_py`) or `--allow native`; an `# allow native` line in the file grants nothing there (next release; from v0.24.1 to v0.24.5 the line was enough). Path functions of `os` and `pathlib` and the common `random` functions work without it (from v0.24.2; see [Sandbox](/docs/usage#sandbox)).
+- Under `--sandbox` (and in the MCP tools, which sandbox by default) a program that imports such a library is refused unless the caller grants it with `--allow-py requests` (MCP: `allow_py`) or `--allow native`; an `# allow native` line in the file grants nothing there (from v0.24.6; from v0.24.1 to v0.24.5 the line was enough). Path functions of `os` and `pathlib` and the common `random` functions work without it (from v0.24.2; see [Sandbox](/docs/usage#sandbox)).
 - The built program needs `python3` with its shared library (`libpython`) on the machine where it runs, unless built with `--standalone`, which carries CPython and the imported packages in the binary (Linux only).
-- A library program the typed build rejects goes to the dynamic build, which calls the library through CPython the same way and keeps the rest native (next release). Classes built on a library's classes (`class Post(BaseModel)`) run in CPython as a whole. Such a class falls back to CPython for the whole file if it sits inside a function, uses a name of the program that is not an import, or is subclassed in another file. The path line lists what CPython runs (`"py":[...]`).
+- A library program the typed build rejects goes to the dynamic build, which calls the library through CPython the same way and keeps the rest native (from v0.24.6). Classes built on a library's classes (`class Post(BaseModel)`) run in CPython as a whole. Such a class falls back to CPython for the whole file if it sits inside a function, uses a name of the program that is not an import, or is subclassed in another file. The path line lists what CPython runs (`"py":[...]`).
 - Not on Windows: library programs run with CPython there.
 - In typed builds, a `with` block on a library object does not pass exception details to its `__exit__`, and named functions cannot yet be passed as callbacks to a library (lambdas can). Dynamic builds do both.
 
@@ -105,7 +105,7 @@ A Python file keeps Python's run-time behaviour: a mistake Python only finds whe
 
 These are tracked on the [roadmap](/docs/roadmap):
 
-- **Library programs the typed build rejects** fall back to CPython instead of building natively.
+- **Classes built on a library's classes** (`class Post(BaseModel)`) run in CPython as a whole, and in some layouts send the whole file to CPython.
 - **Dynamic builds are slower** than typed ones; widening what the typed build accepts is ongoing work.
 - **`async`, `match` and `eval`** are not built natively.
 - **Cold builds** take about 0.15 to 0.3 seconds for a small program (a few seconds with `--release`), plus 5 to 15 seconds once for Brevi's runtime on the very first build. That still matters for agents that build many one-off programs; repeat builds are cached.
