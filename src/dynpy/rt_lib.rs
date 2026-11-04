@@ -72,7 +72,7 @@ fn file_target(f: &V) -> Result<u8, E> {
         V::None => Ok(1),
         V::Module("sys.stdout") => Ok(1),
         V::Module("sys.stderr") => Ok(2),
-        V::Obj(_) => Ok(3),
+        V::Obj(_) | V::Ext(_) => Ok(3),
         _ => Err(unsupported("print(file=...) to this file")),
     }
 }
@@ -616,8 +616,17 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             if let V::Obj(o) = x {
                 return Ok(o.cls.is_sub(k) || (k.name == "object" && k.module == "builtins"));
             }
+            if let V::Ext(e) = x {
+                if let Some(b) = e.isinst(k) {
+                    return Ok(b);
+                }
+            }
             Ok(type_of(x).is_sub(k))
         }
+        V::Ext(e) => match e.instancecheck(x) {
+            Some(r) => r,
+            None => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
+        },
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }
@@ -983,6 +992,9 @@ pub fn builtin_type_name(name: &str) -> bool {
     matches!(name, "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice")
 }
 pub fn builtin_value(name: &str) -> Option<V> {
+    if name == "bytes" {
+        return Some(V::Class(ext_class("bytes")));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
@@ -1004,6 +1016,9 @@ pub fn builtin_value(name: &str) -> Option<V> {
 }
 // int(x), list(x), dict(...) and so on when called through the class value.
 pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
+    if c.name == "bytes" && c.module == "builtins" {
+        return Some(bi_bytes(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
     // Other builtin classes (the exceptions) keep their arguments for the caller.
     if !matches!(c.name, "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "defaultdict" | "Counter" | "OrderedDict" | "deque") {
         return None;
@@ -1038,6 +1053,7 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
 pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
     // dict.fromkeys, str.maketrans, int.from_bytes ... and unbound methods (str.lower)
     match (c.name, name) {
+        ("bytes", "fromhex") => Some(builtin("fromhex", bytes_fromhex)),
         ("dict", "fromkeys") | ("OrderedDict", "fromkeys") | ("Counter", "fromkeys") => Some(builtin("fromkeys", |a: Args| {
             let v = a.p.get(1).cloned().unwrap_or(V::None);
             let mut d = Dict::new();
@@ -1150,7 +1166,10 @@ pub fn has_method(o: &V, name: &str) -> bool {
         V::Ext(_) => return true,
         _ => &[],
     };
-    names.contains(&name) || name.starts_with("__")
+    // Dunder methods (`__len__`, `__add__`, ...) are there; dunder data that only functions, classes and modules
+    // carry is not: `hasattr("s", "__name__")` is False, as in CPython (argparse tests it on every value).
+    const NOT_ON_VALUES: &[&str] = &["__name__", "__qualname__", "__dict__", "__module__", "__wrapped__", "__self__", "__func__", "__code__", "__defaults__", "__kwdefaults__", "__annotations__", "__file__", "__all__", "__mro__", "__bases__", "__members__", "__dataclass_fields__", "__slots__", "__origin__", "__args__", "__version__", "__path__", "__closure__", "__globals__", "__match_args__"];
+    names.contains(&name) || (name.starts_with("__") && !NOT_ON_VALUES.contains(&name))
 }
 fn bad_method(o: &V, name: &str) -> R {
     Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", tn(o), name)))
@@ -1595,7 +1614,13 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             V::Dict(Rc::new(RefCell::new(d)))
         }
-        "encode" => return Err(unsupported("bytes (str.encode)")),
+        "encode" => {
+            let mut a = a;
+            let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
+            let errs = a.kw("errors").or_else(|| a.p.get(1).cloned());
+            a.no_kw("encode")?;
+            str_encode(&me.s, enc.as_ref(), errs.as_ref())?
+        }
         "__len__" => V::Int(me.nchars() as i64),
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
         "__getitem__" => getitem(o, &a1(&a, name)?)?,

@@ -1,0 +1,5 @@
+{"line":1,"msg":"name 'true' is not defined","fix":"did you mean True?"}
+check exit 1
+{"path":"cpython","line":1,"why":"Brevi could not build it: name 'true' is not defined","by":"python3"}
+run exit 1
+run tracebacks 0

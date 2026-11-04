@@ -44,11 +44,11 @@ Well under a second for a new small program (about 0.15 to 0.3 s), a few seconds
 
 ## Is it safe to run code an agent wrote?
 
-Brevi programs are memory-safe, and integers never silently overflow. A program can declare what it touches (`allow read, write`, and `allow native` for crates and Python libraries), and `--sandbox` refuses anything else on every build path. A sandboxed program never falls back to CPython (from v0.24.1). Running untrusted code in a container or VM as well is still wise. See [Sandbox](/docs/usage#sandbox).
+Brevi programs are memory-safe, and integers never silently overflow. A program can declare what it touches (`allow read, write`, and `allow native` for crates and Python libraries), and `--sandbox` refuses anything the caller did not grant (`--allow`, `--allow-py`) on every build path, whatever the program's own allow lines say. A sandboxed program never falls back to CPython (from v0.24.1). Running untrusted code in a container or VM as well is still wise. See [Sandbox](/docs/usage#sandbox).
 
 ## Does it cost more tokens than Python?
 
-No. In the release test for v0.24.0, Brevi cost 1.07x (Sonnet) and 1.00x (Haiku) of the same models running Python with CPython, within the 10% bar, with every task passing (the two runs before, on the same tasks, gave 0.97x and 1.01x). For v0.24.4, over five runs, it gave 1.06x and 1.03x. On heavy tasks, where the model would otherwise hand-optimise for CPython, it costs about half.
+No. In the release test for v0.24.6, over two runs, Brevi cost 1.03x (Sonnet) and 1.02x (Haiku) of the same models running Python with CPython, with every task passing, no check failing because of Brevi and 95 of 96 final programs built natively. v0.24.5 gave 1.06x and 1.01x. For v0.24.4, over five runs, it cost 1.06x and 1.03x, with every task passing and 237 of 240 final programs built natively. Earlier releases gave 1.07x and 1.00x (v0.24.0) and 0.97x and 1.01x before that. The test runs again every week before the release. On heavy tasks, where the model would otherwise hand-optimise for CPython, it costs about half.
 
 ## Which platforms?
 

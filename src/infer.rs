@@ -231,6 +231,8 @@ fn or_value(a: &T, b: &T) -> Option<T> {
         (Bool, _) | (_, Bool) | (Hole, Hole) => None,
         (Hole, t) | (t, Hole) => Some(t.clone()),
         (x, y) if x == y => Some(x.clone()),
+        // `(topic or "").lower()` on a JSON value: a JSON value either way, the plain side made JSON (#195).
+        (Json, Int | Str) | (Int | Str, Json) if py_on() => Some(Json),
         // `deps or []`: the empty list takes the other side's type.
         (List(x), List(y)) if **x == Hole || **y == Hole => Some(if **x == Hole { b.clone() } else { a.clone() }),
         (Map(k, v), Map(k2, v2)) if (**k == Hole && **v == Hole) || (**k2 == Hole && **v2 == Hole) => Some(if **k == Hole { b.clone() } else { a.clone() }),
@@ -1036,6 +1038,11 @@ impl Cx<'_> {
                 _ => {
                     let (x, y) = (self.ty(a, env), self.ty(b, env));
                     match (&x, &y) {
+                        // `(tm,) + lab[k]`: the items of both, in order.
+                        (Tuple(p), Tuple(q)) if *op == "+" && py_on() => Tuple(p.iter().chain(q.iter()).cloned().collect()),
+                        // `(tm,)` is kept as a one-item list: next to a tuple it is the one-item tuple.
+                        (List(p), Tuple(q)) if *op == "+" && py_on() && matches!(&**a, Expr::List(xs) if xs.len() == 1) => Tuple(std::iter::once((**p).clone()).chain(q.iter().cloned()).collect()),
+                        (Tuple(p), List(q)) if *op == "+" && py_on() && matches!(&**b, Expr::List(xs) if xs.len() == 1) => Tuple(p.iter().cloned().chain(std::iter::once((**q).clone())).collect()),
                         (Str, _) | (_, Str) => Str,
                         (Dec, _) | (_, Dec) => Dec,
                         (F64, _) | (_, F64) => F64,
@@ -1195,7 +1202,7 @@ impl Cx<'_> {
             "re_span" => Tuple(vec![Int, Int]),
             "ints" => List(Box::new(Int)),
             "json" => Json,
-            "is_null" | "is_none" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "is_ascii" | "is_leap" | "isinstance" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
+            "is_null" | "is_none" | "is_true_obj" | "is_false_obj" | "not_true_obj" | "not_false_obj" | "bool" | "is_empty" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "is_ascii" | "is_leap" | "isinstance" | "has" | "contains" | "any" | "all" | "starts_with" | "ends_with" => Bool,
             "type_kind" => Str,
             "pop_item" => match &r {
                 Map(k, v) => Tuple(vec![*k.clone(), *v.clone()]),
@@ -1205,7 +1212,7 @@ impl Cx<'_> {
                 Map(_, v) => *v.clone(),
                 _ => Hole,
             },
-            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
+            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "sum_from" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
                 Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
                 // Python's `min(d)`: a key.
                 Map(k, _) if py_on() && (m == "min" || m == "max") => *k.clone(),
@@ -3407,6 +3414,31 @@ impl Ck<'_, '_> {
     }
 
     fn expr(&mut self, e: &mut Expr, env: &mut Env) {
+        // A .py file calling Brevi's `xs.push(x)` on a value sure to be a list, dict, text or number.
+        if let Expr::Method(r, m, _, line) = &*e {
+            let t = self.cx.ty(r, env);
+            if matches!(t, Int | F64 | Bool | Str | List(_) | Map(..) | Tuple(_)) {
+                // Not on a list of ints: bytes are one too, and they have a join.
+                let wrong_type = (m == "join" && matches!(&t, List(x) if **x != Int)) || (m == "sort" && t == Str);
+                self.errs.extend(crate::pydiag::no_such_builtin(*line, m, r, wrong_type));
+            }
+        }
+        // `sum(xs, start)`, which the parser made `start + xs.sum(true)`: float sums are compensated from the start.
+        if let Expr::Binary("+", a, b) = &mut *e {
+            if let Expr::Method(xs, m, args, line) = b.as_mut() {
+                if m == "sum" && matches!(args[..], [Expr::Bool(true)]) {
+                    args.clear();
+                    let start = self.cx.ty(a, env);
+                    if matches!(start, F64 | Int) && self.cx.ty(xs, env) == List(Box::new(F64)) {
+                        let line = *line;
+                        let xs = std::mem::replace(xs, Box::new(Expr::Int(0)));
+                        let a = std::mem::replace(a.as_mut(), Expr::Int(0));
+                        let a = if start == Int { Expr::Method(Box::new(a), "float".into(), vec![], 0) } else { a };
+                        *e = Expr::Method(xs, "sum_from".into(), vec![a], line);
+                    }
+                }
+            }
+        }
         // `sum(e - s for s, e in m)` with m a list of lists: the lambda takes each list and unpacks it.
         if let Expr::Method(r, _, args, line) = &mut *e {
             if let List(inner) = self.cx.ty(r, env) {
@@ -3435,7 +3467,19 @@ impl Ck<'_, '_> {
                     List(x) if **x == Int => Some("ax_json_ints"),
                     _ => None,
                 };
-                let side = if ta == Json && tb != Json { conv(&tb).map(|f| (f, a)) } else if tb == Json && ta != Json { conv(&ta).map(|f| (f, b)) } else { None };
+                // `(tm,) + j`: the one-item list is Python's one-item tuple, joined to j as JSON.
+                let one = |x: &Expr| *op == "+" && matches!(x, Expr::List(xs) if xs.len() == 1);
+                let side = if ta == Json && tb != Json && one(b) {
+                    Some(("ax_to_json", b))
+                } else if tb == Json && ta != Json && one(a) {
+                    Some(("ax_to_json", a))
+                } else if ta == Json && tb != Json {
+                    conv(&tb).map(|f| (f, a))
+                } else if tb == Json && ta != Json {
+                    conv(&ta).map(|f| (f, b))
+                } else {
+                    None
+                };
                 if let Some((f, x)) = side {
                     let v = std::mem::replace(x.as_mut(), Expr::Int(0));
                     **x = Expr::Call(f.into(), vec![(None, v)], 0);
@@ -3565,6 +3609,32 @@ impl Ck<'_, '_> {
                 Expr::Index(b, k) if matches!(self.cx.ty(b, env), Map(ref kt, _) if **kt == Json) && matches!(self.cx.ty(k, env), Int | Str | Bool) => {
                     let v = std::mem::replace(&mut **k, Expr::Int(0));
                     **k = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);
+                }
+                // `(tm,) + lab[k]` on tuples: one tuple of the items of both (each side read once if plain).
+                Expr::Binary("+", a, b) if self.py && {
+                    let one = |x: &Expr| matches!(x, Expr::List(xs) if xs.len() == 1);
+                    match (self.cx.ty(a, env), self.cx.ty(b, env)) {
+                        (Tuple(_), Tuple(_)) => true,
+                        (List(_), Tuple(_)) => one(a),
+                        (Tuple(_), List(_)) => one(b),
+                        _ => false,
+                    }
+                } && [&**a, &**b].iter().all(|x| plain_read(x) || matches!(x, Expr::List(xs) if xs.len() == 1)) => {
+                    let n_of = |x: &Expr, t: T| match (x, t) {
+                        (Expr::List(_), _) => 1,
+                        (_, Tuple(ts)) => ts.len(),
+                        _ => 0,
+                    };
+                    let (pl, ql) = (n_of(a, self.cx.ty(a, env)), n_of(b, self.cx.ty(b, env)));
+                    let part = |x: &Expr, n: usize| -> Vec<Expr> {
+                        match x {
+                            Expr::Tuple(xs) | Expr::List(xs) => xs.clone(),
+                            x => (0..n).map(|k| Expr::Index(Box::new(x.clone()), Box::new(Expr::Int(k as i64)))).collect(),
+                        }
+                    };
+                    let mut items = part(a, pl);
+                    items.extend(part(b, ql));
+                    *e = Expr::Tuple(items);
                 }
                 // `j.get(k)` on a JSON value: the None it gives is JSON null (nothing else gives it a type).
                 Expr::Method(r, m, args, _) if self.py && m == "get_or" && args.len() == 2 && matches!(&args[1], Expr::Call(n, x, _) if n == "none" && x.is_empty()) && self.cx.ty(r, env) == Json => {
@@ -3813,7 +3883,15 @@ impl Ck<'_, '_> {
             }
             // Python's `m.group(3) or ""` is a value, not a test: the first operand when it is true, else the second.
             Expr::Binary(op @ ("or" | "and"), a, b) if or_value(&self.cx.ty(a, env), &self.cx.ty(b, env)).is_some() => {
-                let (x, y) = ((**a).clone(), (**b).clone());
+                let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                let (mut x, mut y) = ((**a).clone(), (**b).clone());
+                // A plain side next to a JSON one is made JSON, so both branches have one type.
+                let to_json = |e: Expr| Expr::Call("ax_to_json".into(), vec![(None, e)], 0);
+                if ta == Json && tb != Json && tb != Hole {
+                    y = to_json(y);
+                } else if tb == Json && ta != Json && ta != Hole {
+                    x = to_json(x);
+                }
                 let blk = |e: Expr| Box::new(Expr::Block(vec![], Some(Box::new(e))));
                 *e = if *op == "or" { Expr::If(Box::new(x.clone()), blk(x), Some(blk(y))) } else { Expr::If(Box::new(x.clone()), blk(y), Some(blk(x))) };
                 self.expr(e, env);
@@ -4379,3 +4457,14 @@ fn global_too(t: T, x: &Expr, genv: &Env) -> T {
 }
 
 
+
+// A read with no effect, fine to repeat: a name, a field, an index by such reads, or a tuple of them.
+fn plain_read(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(_) | Expr::Int(_) | Expr::Str(_) | Expr::Bool(_) => true,
+        Expr::Field(b, _) => plain_read(b),
+        Expr::Index(b, k) => plain_read(b) && plain_read(k),
+        Expr::Tuple(xs) => xs.iter().all(plain_read),
+        _ => false,
+    }
+}

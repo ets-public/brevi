@@ -1,0 +1,19 @@
+3 True False 3 [3, 1, 2] [1, 2, 3]
+[3, 1, 2] {'n': 3} list True True
+[3, 1, 2, 9] {'n': 3, 'extra': 'x'} 4
+[4, 2, 3, 10] 15 9 3,1,2,9
+[12, 14, 16] [4, 5]
+[1, 1] {'a': 1, 'filled': True}
+yield 3
+yield 2
+yield 1
+6 14
+yield 2
+got 2
+yield 1
+got 1
+Money(175) Money(325) Money(325) True True 1.75 False
+one [Money(2), Money(5)]
+list:[1, 'a'] dict:{'k': (1, 2.5)} NoneType:None int:1208925819614629174706176 bytes:b'hi'
+Model Store 3
+{'store': 4, 'first': 1}

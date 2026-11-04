@@ -14,6 +14,184 @@ const METHODS: &str = include_str!("pynames/methods.txt");
 const CORE: &str = include_str!("pynames/core.txt");
 // The modules METHODS covers.
 const MODS: &str = include_str!("pynames/mods.txt");
+// Brevi's list of built-in methods has these too, and Python has them on values the typed build keeps as a
+// list, map or number (`Counter.most_common`, `timedelta.days`): not sure mistakes on such a value.
+const ON_LIBRARY_VALUES: [&str; 9] = ["day", "days", "heapify", "month", "most_common", "move_to_end", "quantize", "weekday", "year"];
+// What Python calls Brevi's methods and functions, for the fix of an error about one.
+const PY_SPELLING: [(&str, &str); 41] = [
+    ("abs", "abs(x)"),
+    ("all", "all(xs)"),
+    ("any", "any(xs)"),
+    ("args", "sys.argv"),
+    ("chars", "list(s)"),
+    ("contains", "`x in xs`"),
+    ("ends_with", ".endswith()"),
+    ("enumerate", "enumerate(xs)"),
+    ("fail", "raise"),
+    ("filter", "a list comprehension"),
+    ("first", "xs[0]"),
+    ("float", "float(x)"),
+    ("fmt", "format(x, \".2f\")"),
+    ("get_or", ".get(k, default)"),
+    ("has", "`k in m`"),
+    ("index_of", ".index()"),
+    ("int", "int(x)"),
+    ("is_alpha", ".isalpha()"),
+    ("is_digit", ".isdigit()"),
+    ("is_empty", "`not xs`"),
+    ("is_space", ".isspace()"),
+    ("join", "sep.join(xs)"),
+    ("last", "xs[-1]"),
+    ("len", "len(x)"),
+    ("map", "a list comprehension"),
+    ("max", "max(xs)"),
+    ("min", "min(xs)"),
+    ("pairs", ".items()"),
+    ("push", ".append()"),
+    ("read", "open(path).read()"),
+    ("rev", "reversed(xs)"),
+    ("slice", "xs[a:b]"),
+    ("sort", "sorted(s)"),
+    ("sort_by", ".sort(key=f)"),
+    ("starts_with", ".startswith()"),
+    ("stdin", "sys.stdin.read()"),
+    ("sum", "sum(xs)"),
+    ("take", "xs[:n]"),
+    ("trim", ".strip()"),
+    ("words", ".split()"),
+    ("zip", "zip(xs, ys)"),
+];
+// Method calls as the program wrote them, before the parser turns Python's names into Brevi's: (line, name,
+// receiver). `xs.append(x)` also ends up as `push`, so the name alone does not tell what was written.
+static WRITTEN: std::sync::Mutex<Option<HashSet<(usize, String, String)>>> = std::sync::Mutex::new(None);
+
+// Whether Brevi has a built-in method `m` that Python's built-in types do not.
+fn brevi_only(m: &str) -> bool {
+    crate::emit::METHODS.contains(&m) && !CORE.split_whitespace().any(|x| x == m) && !ON_LIBRARY_VALUES.contains(&m) && !FROM_LEXER.contains(&m)
+}
+
+// What the lexer turns `v is True`, `v is not False` and the like into: the program wrote Python, not these.
+const FROM_LEXER: &[&str] = &["is_true_obj", "is_false_obj", "not_true_obj", "not_false_obj"];
+
+// Brevi's `xs.join(sep)` and `s.sort()`: Python has these methods, on other types.
+fn other_type(m: &str) -> bool {
+    matches!(m, "join" | "sort")
+}
+
+// The parser read `recv.m(...)` in a Python file.
+pub fn note_call(line: usize, m: &str, recv: &crate::ast::Expr) {
+    if crate::PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && (brevi_only(m) || other_type(m)) {
+        WRITTEN.lock().unwrap().get_or_insert_with(HashSet::new).insert((line, m.to_string(), format!("{recv:?}")));
+    }
+}
+
+// The error for `recv.m(...)` when recv is a list, a dict, text or a number (`wrong_type`: one that lacks Python's
+// `m`) and the program wrote that call itself: CPython raises AttributeError there. A class's own `m` never gets
+// here, and neither does a value whose type is not known.
+pub fn no_such_builtin(line: usize, m: &str, recv: &crate::ast::Expr, wrong_type: bool) -> Option<Diag> {
+    if !brevi_only(m) && !wrong_type {
+        return None;
+    }
+    let written = WRITTEN.lock().unwrap();
+    written.as_ref().filter(|w| w.contains(&(line, m.to_string(), format!("{recv:?}"))))?;
+    let mut e = Diag::new("check", line, 1, &format!("{NO_BUILTIN}{m}() in Python"));
+    e.fix = Some(method_fix(m));
+    Some(e)
+}
+
+const NO_BUILTIN: &str = "this value has no method .";
+
+fn spelling(m: &str) -> Option<&'static str> {
+    PY_SPELLING.iter().find(|(b, _)| *b == m).map(|(_, p)| *p)
+}
+
+fn method_fix(m: &str) -> String {
+    match spelling(m).map(String::from).or_else(|| crate::emit::closest(m, CORE.split_whitespace()).map(|b| format!(".{b}()"))) {
+        Some(p) => format!("did you mean {p}?"),
+        None => "check the spelling".to_string(),
+    }
+}
+
+// Brevi's own syntax in a Python file, which CPython stops on with a SyntaxError before running anything. The
+// typed parser takes it, so this looks for it itself: `&&`-style operators anywhere, and any other Brevi form on
+// a line the strict parser of the dynamic build refuses. That parser also refuses some valid Python it lacks
+// (`def f[T](x):`), so a refusal alone proves nothing.
+pub fn not_python(src: &str) -> Option<Diag> {
+    // A bare `allow read` line stays: it is how a program holds itself to its capabilities.
+    let src = &crate::caps::split(src).0;
+    let code = blank(src);
+    let refused = crate::dynpy::parse::parse(src).err().filter(|e| !e.1.contains("not supported")).map(|e| e.0);
+    code.lines().enumerate().find_map(|(i, l)| {
+        let (what, fix) = brevi_operator(l).or_else(|| brevi_form(l).filter(|_| refused == Some(i + 1)))?;
+        Some(Diag::new("check", i + 1, 1, what).fix_hint(fix))
+    })
+}
+
+// An operator of Brevi's on a line with strings and comments blanked: never part of valid Python.
+fn brevi_operator(l: &str) -> Option<(&'static str, &'static str)> {
+    let b = l.as_bytes();
+    Some(if l.contains("&&") {
+        ("`&&` is Brevi, not Python", "write `and`")
+    } else if l.contains("||") {
+        ("`||` is Brevi, not Python", "write `or`")
+    } else if l.contains("=>") {
+        ("`=>` is Brevi, not Python", "write `lambda x: ...`, or `match` with `case` arms")
+    } else if l.contains("~=") {
+        ("`~=` is Brevi, not Python", "write `abs(a - b) < 1e-6`")
+    } else if (0..b.len()).any(|i| b[i] == b'!' && b.get(i + 1) != Some(&b'=')) {
+        ("`!` is Brevi, not Python", "write `not`")
+    } else {
+        return None;
+    })
+}
+
+// A Brevi form on a line with strings and comments blanked, for a line that is not valid Python.
+fn brevi_form(l: &str) -> Option<(&'static str, &'static str)> {
+    let t = l.trim();
+    let starts = |w: &str| t.strip_prefix(w).is_some_and(|r| r.starts_with(' '));
+    let b = t.as_bytes();
+    let tuple_field = (1..b.len()).any(|i| b[i] == b'.' && b.get(i + 1).is_some_and(u8::is_ascii_digit) && (b[i - 1].is_ascii_alphabetic() || matches!(b[i - 1], b'_' | b')' | b']')));
+    // `0..n` can be valid: see float_ranges.
+    let range = t.match_indices("..").any(|(p, _)| {
+        !t[p + 2..].starts_with('.') && !t[..p].ends_with('.') && !(t[..p].ends_with(|c: char| c.is_ascii_digit()) && t[p + 2..].starts_with(|c: char| c.is_alphabetic() || c == '_'))
+    });
+    let named_arg = !t.contains("def ") && !t.contains("class ") && !t.contains("lambda") && t.match_indices(": ").any(|(p, _)| {
+        let word = t[..p].trim_end_matches(is_word);
+        word.len() < p && (word.ends_with('(') || (word.ends_with(", ") && word.contains('(')))
+    });
+    let block = ["if", "elif", "else", "for", "while"].iter().any(|w| t.starts_with(w)) && t.ends_with('}') && t.contains(" {");
+    Some(if starts("fn") {
+        ("`fn` is Brevi, not Python", "write `def`")
+    } else if starts("let") || starts("var") {
+        ("`let` and `var` are Brevi, not Python", "write `x = value`")
+    } else if (starts("type") || starts("enum")) && t.ends_with(':') {
+        ("`type` and `enum` blocks are Brevi, not Python", "write a `class`")
+    } else if starts("test") {
+        ("`test` blocks are Brevi, not Python", "write a function with `assert` lines")
+    } else if starts("use") {
+        ("`use` is Brevi, not Python", "write `import`")
+    } else if t.starts_with("else if ") {
+        ("`else if` is Brevi, not Python", "write `elif`")
+    } else if t.contains("= if ") {
+        ("`if` as a value is Brevi, not Python", "write `a if c else b`")
+    } else if starts("def") && (t.contains("(mut ") || t.contains(", mut ")) {
+        ("`mut` is Brevi, not Python", "leave it out")
+    } else if block {
+        ("a block in braces is Brevi, not Python", "write `:` and the block on the lines below")
+    } else if range {
+        ("`a..b` is Brevi, not Python", "write `range(a, b)`")
+    } else if tuple_field {
+        ("`t.0` is Brevi, not Python", "write `t[0]`")
+    } else if t.contains('?') {
+        ("`?` is Brevi, not Python", "leave it out: errors in Python pass up as exceptions")
+    } else if t.starts_with("//") || t.split_once("//").is_some_and(|(_, r)| crate::lexer::looks_like_prose(r)) {
+        ("`//` comments are Brevi, not Python", "write `#`")
+    } else if named_arg {
+        ("`name: value` arguments are Brevi, not Python", "write `name=value`")
+    } else {
+        return None;
+    })
+}
 
 // The errors among `diags` (from the typed build of `src`, a Python file in `dir`) that CPython would also
 // raise, reworded the way a Python programmer expects. Empty when none is certain.
@@ -36,18 +214,20 @@ pub fn definite(diags: &[Diag], src: &str, dir: &std::path::Path) -> Vec<Diag> {
         let found = if let Some(n) = named("unknown function ", "()").or_else(|| named("unknown name '", "'")) {
             (!caught(&code, "NameError") && undefined(&n, &stmts, &builtins, line_code)).then(|| {
                 let words = words(&code);
-                let best = crate::emit::closest(&n, words.iter().map(|s| s.as_str()).filter(|w| *w != n && !w.starts_with("ax_")).chain(builtins.iter().copied()));
+                let best = spelling(&n).map(String::from).or_else(|| crate::emit::closest(&n, words.iter().map(|s| s.as_str()).filter(|w| *w != n && !w.starts_with("ax_")).chain(builtins.iter().copied())).map(String::from));
                 let mut e = Diag::new("check", d.line, 1, &format!("name '{n}' is not defined"));
                 e.fix = Some(best.map_or("define it before this line, or check the spelling".to_string(), |b| format!("did you mean {b}?")));
                 e
             })
         } else if let Some(m) = named("unknown method .", "()") {
             (!caught(&code, "AttributeError") && no_such_method(&m, &code, dir, line_code)).then(|| {
-                let best = crate::emit::closest(&m, CORE.split_whitespace());
                 let mut e = Diag::new("check", d.line, 1, &format!("no Python type has a method .{m}()"));
-                e.fix = Some(best.map_or("check the spelling".to_string(), |b| format!("did you mean .{b}()?")));
+                e.fix = Some(method_fix(&m));
                 e
             })
+        } else if d.msg.starts_with(NO_BUILTIN) {
+            // Elsewhere the dynamic build runs the line and raises AttributeError as CPython does.
+            (!caught(&code, "AttributeError")).then(|| d.clone())
         } else if d.msg.starts_with("cannot add str and ") || (d.msg.starts_with("cannot add ") && d.msg.ends_with(" and str")) {
             // Only with a string literal right beside a `+` on the line: the text side is not a guess.
             (!caught(&code, "TypeError") && text_plus(&src.lines().nth(d.line.wrapping_sub(1)).unwrap_or(""))).then(|| d.clone())
@@ -55,7 +235,10 @@ pub fn definite(diags: &[Diag], src: &str, dir: &std::path::Path) -> Vec<Diag> {
             None
         };
         if let Some(e) = found {
-            if !out.iter().any(|o| o.line == e.line && o.msg == e.msg) {
+            // `s.trim().len()`: the inner call comes second here and is the one CPython stops on.
+            if let Some(o) = out.iter_mut().find(|o| o.line == e.line && o.msg.starts_with(NO_BUILTIN) && e.msg.starts_with(NO_BUILTIN)) {
+                *o = e;
+            } else if !out.iter().any(|o| o.line == e.line && o.msg == e.msg) {
                 out.push(e);
             }
         }
@@ -66,6 +249,16 @@ pub fn definite(diags: &[Diag], src: &str, dir: &std::path::Path) -> Vec<Diag> {
 // The same mistakes found without the typed build's help, for a file it refused for another reason first (or
 // never tried): calls of names defined nowhere, and calls of methods no Python type or common module has.
 pub fn scan(src: &str, dir: &std::path::Path) -> Vec<Diag> {
+    scan_calls(src, dir, false)
+}
+
+// The same for a file the typed build took, which only needs its Brevi spellings found: other methods that
+// no Python type has can be real there (tkinter's, which METHODS does not cover).
+pub fn scan_brevi(src: &str, dir: &std::path::Path) -> Vec<Diag> {
+    scan_calls(src, dir, true)
+}
+
+fn scan_calls(src: &str, dir: &std::path::Path, brevi: bool) -> Vec<Diag> {
     const KEYWORDS: [&str; 35] = [
         "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield", "match", "case", "None",
     ];
@@ -85,19 +278,45 @@ pub fn scan(src: &str, dir: &std::path::Path) -> Vec<Diag> {
                 j += 1;
             }
             let w = &l[start..j];
-            if !l[j..].trim_start().starts_with('(') || KEYWORDS.contains(&w) || !seen.insert(format!("{}{w}", start > 0 && b[start - 1] == b'.')) {
+            // Brevi's `true` and `false` are plain names to Python.
+            let bool_word = matches!(w, "true" | "false") && !(start > 0 && b[start - 1] == b'.');
+            if !(bool_word || l[j..].trim_start().starts_with('(')) || KEYWORDS.contains(&w) || !seen.insert(format!("{}{w}", start > 0 && b[start - 1] == b'.')) {
                 continue;
             }
             let prev = l[..start].trim_end();
-            if prev.ends_with("def") || prev.ends_with("class") {
+            if prev.ends_with("def") || prev.ends_with("class") || (brevi && start > 0 && b[start - 1] == b'.' && !brevi_only(w)) {
                 continue;
             }
-            let msg = if start > 0 && b[start - 1] == b'.' { format!("unknown method .{w}()") } else { format!("unknown function {w}()") };
+            let msg = if bool_word {
+                format!("unknown name '{w}'")
+            } else if start > 0 && b[start - 1] == b'.' {
+                format!("unknown method .{w}()")
+            } else {
+                format!("unknown function {w}()")
+            };
             diags.push(Diag::new("check", i + 1, 1, &msg));
         }
     }
     let mut out = definite(&diags, src, dir);
+    out.extend(float_ranges(&code));
     out.truncate(5);
+    out
+}
+
+// `0..n`: to Python the float `0.` and its attribute `n`, which is no attribute of a float. The typed parser
+// reads it as Brevi's range. (`0..3` is a SyntaxError, which not_python finds.)
+fn float_ranges(code: &str) -> Vec<Diag> {
+    let mut out = vec![];
+    for (i, l) in code.lines().enumerate() {
+        for (p, _) in l.match_indices("..") {
+            let name: String = l[p + 2..].chars().take_while(|c| is_word(*c)).collect();
+            let number = l[..p].ends_with(|c: char| c.is_ascii_digit()) && !l[..p].rsplit(|c: char| !is_word(c)).next().unwrap_or("").starts_with(|c: char| !c.is_ascii_digit());
+            if number && !name.is_empty() && !METHODS.split_whitespace().any(|x| x == name) && !maybe_unreached(code, i + 1) && !caught(code, "AttributeError") {
+                out.push(Diag::new("check", i + 1, 1, "`a..b` is Brevi, not Python").fix_hint("write `range(a, b)`"));
+                break;
+            }
+        }
+    }
     out
 }
 
@@ -472,6 +691,45 @@ mod tests {
         assert!(sure("try:\n    import x\nexcept ImportError:\n    y = fallbak()\n", "unknown function fallbak()", 4).is_empty());
         // An ordinary branch still counts.
         assert_eq!(sure("n = 3\nif n > 2:\n    print(totl(n))\n", "unknown function totl()", 3).len(), 1);
+    }
+
+    #[test]
+    fn brevi_syntax() {
+        let msg = |s: &str| not_python(s).map(|d| (d.line, d.msg));
+        assert_eq!(msg("a = 1\nif a && 2:\n    pass\n"), Some((2, "`&&` is Brevi, not Python".to_string())));
+        assert_eq!(msg("fn f(x):\n    return x\n"), Some((1, "`fn` is Brevi, not Python".to_string())));
+        assert_eq!(msg("x = (1, 2).0\n"), Some((1, "`t.0` is Brevi, not Python".to_string())));
+        assert_eq!(msg("t = 1\nprint(t.0)\n"), Some((2, "`t.0` is Brevi, not Python".to_string())));
+        // An operator after valid Python the strict parser lacks is still found.
+        assert_eq!(msg("x = b'a'\ny = 1 || 2\n"), Some((2, "`||` is Brevi, not Python".to_string())));
+        // Valid Python, some of it refused by the strict parser for its own reasons.
+        for s in [
+            "a = 1 != 2\nb = 'x && y'  # c || d => e\nc = f\"{a!r}\"\n",
+            "type X = int\n",
+            "def f[T: int](x: T) -> T:\n    return x\n",
+            "async def f(x: int):\n    pass\n",
+            "from .. import a\nb = [...]\nc = 1..real\n",
+            "x = {1} | {2}\ny = 7 // 2\nz = ~y\n",
+            "def g(\n    a: bytes, b: int = 1, c: bytes = b''\n) -> None:\n    pass\n",
+        ] {
+            assert_eq!(msg(s), None, "{s}");
+        }
+    }
+
+    #[test]
+    fn float_range() {
+        let got = |s: &str| float_ranges(&blank(s)).len();
+        assert_eq!(got("n = 3\nfor i in 0..n:\n    pass\n"), 1);
+        assert_eq!(got("a = 1..real\nb = 1..hex()\nc = x1..y\n"), 0);
+        assert_eq!(got("try:\n    a = 0..n\nexcept AttributeError:\n    pass\n"), 0);
+    }
+
+    #[test]
+    fn brevi_names() {
+        assert_eq!(scan("x = true\nprint(x)\n", std::path::Path::new("/nonexistent")).len(), 1);
+        assert_eq!(scan("def f(true=1):\n    return true\nprint(f(true=2))\n", std::path::Path::new("/nonexistent")).len(), 0);
+        assert!(brevi_only("push") && brevi_only("trim") && brevi_only("is_empty"));
+        assert!(!brevi_only("append") && !brevi_only("most_common") && !brevi_only("weekday") && !brevi_only("not_a_method"));
     }
 
     #[test]
