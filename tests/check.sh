@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs every program in tests/run and every error case in tests/errors,
-# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output with the .expected file next to it. Run from the repo root.
+# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output with the .expected file next to it; tests/exit also compares exit statuses. Run from the repo root.
 # Pass --update to rewrite the expected files.
 BREVI=${BREVI:-./target/debug/brevi}
 fail=0
@@ -116,6 +116,28 @@ for f in tests/sandbox/*.py; do
   exp="${f%.py}.expected"
   g=$(cat "${f%.py}.flags" 2>/dev/null)
   out=$($BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- dynamic"; BREVI_DYN=1 $BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- typed"; BREVI_DYN=0 $BREVI run --sandbox $g --native "$f" 2>&1; echo "exit $?")
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+# Exit status, which the loops above do not compare: a Python file must exit as python3 does on both native
+# paths, with its stdout written first. A .bv program stops with status 101 at a runtime error.
+for f in tests/exit/*.py; do
+  exp="${f%.py}.expected"
+  out=$(BREVI_DYN=0 $BREVI run "$f" --native 2>/dev/null; echo " typed exit $?"; BREVI_DYN=1 $BREVI run "$f" --native 2>/dev/null; echo " dynamic exit $?")
+  if [ "$1" = "--update" ]; then (python3 "$f" 2>/dev/null; echo " typed exit $?"; python3 "$f" 2>/dev/null; echo " dynamic exit $?") > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+for f in tests/exit/*.bv; do
+  exp="${f%.bv}.expected"
+  out=$($BREVI run "$f" 2>/dev/null; echo " exit $?")
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
