@@ -1289,7 +1289,7 @@ impl Emitter {
     // Rust's exit status, so AxPyExit is for real Python files only.
     fn py_start(&self) -> &'static str {
         if crate::PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
-            "    ax_py_mode();\n    let _exit = AxPyExit;\n"
+            "    ax_py_mode();\n    ax_py_file();\n    let _exit = AxPyExit;\n"
         } else if self.py_mode {
             "    ax_py_mode();\n"
         } else {

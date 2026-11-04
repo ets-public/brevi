@@ -275,6 +275,11 @@ pub static AX_PY_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 pub fn ax_py_mode() {
     AX_PY_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
+// A real .py file, not a .bv program written in Python style: those keep the output they always had.
+pub static AX_PY_FILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn ax_py_file() {
+    AX_PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
 // Held by main in a Python file. The typed build raises most exceptions as panics, and Rust exits 101 after one
 // that reaches main; CPython exits 1. Exiting here, not in the panic hook, leaves a panic that a catch_unwind
 // stops (a Brevi callback run by a Python library) alone. process::exit flushes stdout.
@@ -6676,6 +6681,10 @@ impl AxNone for AxMatch {
 }
 impl Show for AxMatch {
     fn show(&self) -> String {
+        // A .bv program in Python style has always printed a match as its list of groups.
+        if !AX_PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+            return self.groups.show();
+        }
         match (self.groups.first(), self.spans.first()) {
             (Some(g), Some((a, b))) => format!("<re.Match object; span=({a}, {b}), match={}>", ax_py_repr(g)),
             _ => "None".to_string(),
@@ -6848,6 +6857,23 @@ impl AxReM for String {
     }
     fn ax_try_re_m_sub_with<F: FnMut(AxMatch) -> R<String>>(&self, p: impl AsRef<str>, mut f: F) -> R<String> {
         ax_rx_try_sub(self, p.as_ref(), |cs, c| f(ax_rx_match(cs, c)))
+    }
+}
+impl AxReM for Json {
+    fn ax_re_m_find(&self, p: impl AsRef<str>) -> AxMatch {
+        self.ax_jtext("search").ax_re_m_find(p)
+    }
+    fn ax_re_m_full(&self, p: impl AsRef<str>) -> AxMatch {
+        self.ax_jtext("fullmatch").ax_re_m_full(p)
+    }
+    fn ax_re_m_all(&self, p: impl AsRef<str>) -> Vec<AxMatch> {
+        self.ax_jtext("finditer").ax_re_m_all(p)
+    }
+    fn ax_re_m_sub_with<F: FnMut(AxMatch) -> String>(&self, p: impl AsRef<str>, f: F) -> String {
+        self.ax_jtext("sub").ax_re_m_sub_with(p, f)
+    }
+    fn ax_try_re_m_sub_with<F: FnMut(AxMatch) -> R<String>>(&self, p: impl AsRef<str>, f: F) -> R<String> {
+        self.ax_jtext("sub").ax_try_re_m_sub_with(p, f)
     }
 }
 // Python's re.match (anchored at the start) and re.findall (group 1 when the pattern has one group).
