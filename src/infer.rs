@@ -3412,6 +3412,15 @@ impl Ck<'_, '_> {
     }
 
     fn expr(&mut self, e: &mut Expr, env: &mut Env) {
+        // A .py file calling Brevi's `xs.push(x)` on a value sure to be a list, dict, text or number.
+        if let Expr::Method(r, m, _, line) = &*e {
+            let t = self.cx.ty(r, env);
+            if matches!(t, Int | F64 | Bool | Str | List(_) | Map(..) | Tuple(_)) {
+                // Not on a list of ints: bytes are one too, and they have a join.
+                let wrong_type = (m == "join" && matches!(&t, List(x) if **x != Int)) || (m == "sort" && t == Str);
+                self.errs.extend(crate::pydiag::no_such_builtin(*line, m, r, wrong_type));
+            }
+        }
         // `sum(e - s for s, e in m)` with m a list of lists: the lambda takes each list and unpacks it.
         if let Expr::Method(r, _, args, line) = &mut *e {
             if let List(inner) = self.cx.ty(r, env) {
