@@ -1,0 +1,16 @@
+not found: LibError[404]: no item 404 NotFound True True
+a None
+as KeyError: ('no item',) LibError[404]: no item
+tuple: 404
+other: AttributeError
+enter
+inside 1
+exit None None
+enter
+exit ValueError swallowed
+after
+enter
+exit KeyError 'kept'
+caught 'kept'
+from callback: bad two
+own class back: Mine mine

@@ -101,7 +101,13 @@ expect("sandbox write", call("run", code="open('x.txt', 'w').write('x')\n"), "ne
 expect("sandbox pure paths", call("run", code="import os\nfrom pathlib import PurePath\nprint(os.path.join('a', 'b.txt'), PurePath('/x') / 'y.py')\n"), "a/b.txt /x/y.py", False)
 expect("sandbox random", call("run", code="import random\nrandom.seed(1)\nprint(random.randint(1, 6))\n"), "2", False)
 expect("sandbox random one error", call("run", code="import random\nprint(random.betavariate(1, 2))\n"), "random.betavariate needs allow native", True)
-expect("sandbox comment allow", call("run", code="# allow read\nwith open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n"), "True", False)
+# The code cannot grant itself anything: only the caller's allow / allow_py arguments do.
+expect("sandbox comment allow refused", call("run", code="# allow read\nwith open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n"), "grants nothing under --sandbox", True)
+expect("sandbox allow argument", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", allow=["read"]), "True", False)
+expect("sandbox allow read not write", call("run", code="open('x.txt', 'w').write('x')\n", allow=["read"]), "needs allow write", True)
+expect("sandbox allow_py", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"]), "True", False)
+expect("sandbox allow_py other", call("run", code="import os\nprint(os.listdir('.'))\n", allow_py=["json"]), "allow_py", True)
+expect("sandbox bad allow", call("run", code="print(1)\n", allow=["net"]), "allow takes read, write or native", True)
 expect("sandbox off", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", sandbox=False), "True", False)
 
 # Brevi code, recognised by its fn items.
