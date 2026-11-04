@@ -20,6 +20,7 @@ mod pybridge;
 mod pydiag;
 mod patch;
 mod typed_guard;
+mod unicode_names;
 mod pysentinel;
 mod pystd;
 mod pygen;
@@ -31,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,native] [--allow-py MODULES] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -199,7 +200,37 @@ fn main() {
     if argv[..dash0].iter().position(|a| a == "--no-cache").map(|i| argv.remove(i)).is_some() {
         runcache::turn_off();
     }
-    let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    let mut sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    // --allow read,write,native and --allow-py MODULES: what the caller grants a sandboxed program (caps.rs).
+    // Either implies --sandbox.
+    let mut grant: Vec<String> = vec![];
+    loop {
+        let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+        let Some(i) = argv[..dash].iter().position(|a| a == "--allow" || a == "--allow-py" || a.starts_with("--allow=") || a.starts_with("--allow-py=")) else { break };
+        let flag = argv.remove(i);
+        let (name, value) = match flag.split_once('=') {
+            Some((n, v)) => (n.to_string(), v.to_string()),
+            None if i < dash - 1 => (flag.clone(), argv.remove(i)),
+            None => {
+                eprintln!("{flag} needs a value: --allow read,write or --allow-py requests");
+                exit(2);
+            }
+        };
+        match caps::parse_grant(name == "--allow-py", &value) {
+            Ok(g) => grant.extend(g),
+            Err(m) => {
+                eprintln!("{m}");
+                exit(2);
+            }
+        }
+        sandbox = true;
+    }
+    grant.sort();
+    grant.dedup();
+    caps::GRANT.set(grant).ok();
+    if sandbox {
+        caps::SANDBOX.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let traceback = argv.iter().position(|a| a == "--").map_or(argv.len(), |d| d);
     if argv[..traceback].iter().position(|a| a == "--traceback").map(|i| argv.remove(i)).is_some() || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0") {
         TRACEBACK.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -230,6 +261,7 @@ fn main() {
                 flags.push(f.to_string());
             }
         }
+        flags.extend(caps::grant_flags());
         cached(cmd, &file, &argv, &flags);
     }
     // Capabilities first: a refusal here is final, before any dynamic, pybridge or python3 path can run.
@@ -292,7 +324,12 @@ fn main() {
     // `allow read, write` lines, and with --sandbox (or any allow line) a refusal of anything undeclared.
     let with_allow = src.clone();
     let (src, allowed, cap_errs) = caps::split(&src);
-    let cap_errs = if sandbox || allowed.is_some() { [cap_errs, caps::check_src(&src, &allowed.unwrap_or_default())].concat() } else { cap_errs };
+    let cap_errs = if sandbox || allowed.is_some() {
+        let (allowed, held_errs) = caps::held(&with_allow, allowed, sandbox);
+        [cap_errs, held_errs, caps::check_src(&src, &allowed)].concat()
+    } else {
+        cap_errs
+    };
     if !cap_errs.is_empty() {
         cap_errs.iter().for_each(print_diag);
         exit(1);
@@ -376,9 +413,12 @@ fn main() {
     // the dynamic build has them natively, so it goes first (no libpython at run time, fine under --sandbox).
     if dyn_ok && !forced_dyn() && pybridge::active() && pybridge::stdlib_only() {
         let why = format!("{} not in the typed build", pybridge::uses().join(", "));
+        // Without CPython: one that needs it anyway is better built typed.
+        dynpy::NO_BRIDGE.store(true, std::sync::atomic::Ordering::Relaxed);
         if dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
             exit(0);
         }
+        dynpy::NO_BRIDGE.store(false, std::sync::atomic::Ordering::Relaxed);
         *DYN_BLOCKED.lock().unwrap() = None;
     }
     if dyn_ok {
@@ -477,8 +517,10 @@ fn hold_to_caps(file: &str, sandbox: bool) -> bool {
     let (code, allowed, mut errs) = caps::split(&src);
     let held = sandbox || allowed.is_some();
     if held {
-        let allowed = allowed.unwrap_or_default();
-        if !allowed.iter().any(|a| a == "native") {
+        // Under --sandbox, only what the caller granted (--allow, --allow-py): the file cannot grant itself more.
+        let (allowed, held_errs) = caps::held(&src, allowed, sandbox);
+        errs.extend(held_errs);
+        if !allowed.iter().any(|a| a == "native" || a.starts_with("py:")) {
             pybridge::NO_NATIVE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         errs.extend(caps::check_src(&code, &allowed));
@@ -522,7 +564,7 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         return false;
     }
     let (wfile, line, func, why, extra, relocate) = why;
-    say_path("dynamic", &wfile, line, func, &why, &extra, relocate);
+    say_path("dynamic", &wfile, line, func, &why, &format!("{extra}{}", dyn_py_field()), relocate);
     if cmd == "run" {
         let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
             println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
@@ -642,7 +684,7 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
         eprintln!("{e}");
         exit(1);
     }
-    say_path("dynamic", "", 0, None, "BREVI_DYN=1", "", false);
+    say_path("dynamic", "", 0, None, "BREVI_DYN=1", &dyn_py_field(), false);
     if cmd == "build" {
         exit(0);
     }
@@ -706,6 +748,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     let mut flags: Vec<String> = argv[2..dash].iter().filter(|a| a.as_str() == "--release").cloned().collect();
     if sandbox {
         flags.push("--sandbox".into());
+        flags.extend(caps::grant_flags());
     }
     if gui::window() {
         flags.push("--window".into());
@@ -849,6 +892,15 @@ fn say_path(path: &str, file: &str, line: usize, func: Option<String>, why: &str
     s.push_str(extra);
     s.push('}');
     eprintln!("{}", if relocate { at(&s) } else { s });
+}
+
+// What CPython runs for a dynamic build (",\"py\":[...]"), or nothing.
+fn dyn_py_field() -> String {
+    let b = dynpy::bridged();
+    if b.is_empty() {
+        return String::new();
+    }
+    format!(",\"py\":[{}]", b.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(","))
 }
 
 fn forced_dyn() -> bool {
@@ -1101,8 +1153,9 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
                 let names: Vec<String> = b.iter().map(|(m, n)| format!("{m}.{n}")).collect();
                 let line = ds.iter().filter(|d| pybridge::blocked_noise(d)).map(|d| d.line).min().unwrap_or(1);
                 let one = if names.len() == 1 { "runs" } else { "run" };
-                let d = Diag::new("caps", line, 1, &format!("{} {one} in CPython, which needs allow native", names.join(", ")))
-                    .fix_hint(&format!("add the line `{}` at the top, or do without it", caps::allow_line("native")));
+                let mut mods: Vec<String> = b.iter().map(|(m, _)| m.split('.').next().unwrap_or(m).to_string()).collect();
+                mods.dedup();
+                let d = Diag::new("caps", line, 1, &format!("{} {one} in CPython, which needs allow native", names.join(", "))).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))));
                 let mut out = vec![d];
                 out.extend(ds.iter().filter(|d| !pybridge::blocked_noise(d)).cloned());
                 return Err(out);
@@ -1121,12 +1174,19 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         foreign.rust_top.push_str(&gui::runtime());
     }
     // pybridge: CPython for the Python libraries the program uses.
+    // --sandbox --allow-py: only the modules the caller named.
+    let ungranted: Vec<String> = if pybridge::active() { pybridge::uses().into_iter().filter(|u| !pybridge::py_allowed(u)).collect() } else { vec![] };
+    if pybridge::active() && !pybridge::no_native() && !ungranted.is_empty() {
+        let mut mods: Vec<String> = ungranted.iter().map(|u| u.split('.').next().unwrap_or(u).to_string()).collect();
+        mods.dedup();
+        return Err(vec![Diag::new("caps", 1, 1, &format!("{} runs in CPython, which needs allow native", ungranted.join(", "))).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))))]);
+    }
     if pybridge::active() && pybridge::no_native() {
         // Only modules the dynamic build has: it builds them, so say why the typed build did not.
         if pybridge::stdlib_only() {
             return Err(vec![Diag::new("check", 1, 1, &format!("{} not in the typed build", pybridge::uses().join(", "))).fix_hint("the dynamic build has them: build it without BREVI_DYN=0")]);
         }
-        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&format!("add the line `{}` at the top, or do without it", caps::allow_line("native")))]);
+        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&caps::grant_hint("native", None))]);
     }
     if pybridge::active() {
         pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;

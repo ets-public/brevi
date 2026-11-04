@@ -1703,6 +1703,13 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
             }
             json_dump(&inn, o, depth, out)?;
         }
+        V::Ext(x) if x.native().is_some() => {
+            let n = x.native().unwrap()?;
+            if matches!(n, V::Ext(_)) {
+                return type_err(format!("Object of type {} is not JSON serializable", tn(v)));
+            }
+            json_dump(&n, o, depth, out)?;
+        }
         _ => match &o.default {
             Some(f) => {
                 let r = call(f, Args::p(vec![v.clone()]))?;

@@ -1785,7 +1785,11 @@ pub fn run_main(f: fn() -> Result<(), E>) {
     let child = std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         init_builtin_classes();
         ARGV.with(|a| *a.borrow_mut() = std::env::args().collect());
-        let r = f();
+        // Exceptions arrive as Err, so a panic here is a bug in the runtime: keep what the program printed.
+        let Ok(r) = std::panic::catch_unwind(f) else {
+            out_flush();
+            return 1;
+        };
         let code = match r {
             Ok(()) => 0,
             Err(E(e)) => {

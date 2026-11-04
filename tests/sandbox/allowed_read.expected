@@ -1,8 +1,11 @@
-kept
-exit 0
+{"line":1,"msg":"`# allow read` grants nothing under --sandbox: only the caller grants read","fix":"remove the line; if you trust the program with it, run with --allow read (MCP tools: \"allow\": [\"read\"])"}
+{"line":2,"msg":"read() needs allow read","fix":"do without it, or the caller grants it: --allow read (MCP tools: \"allow\": [\"read\"])"}
+exit 1
 -- dynamic
-{"e":"dyn","at":"tests/sandbox/allowed_read.py","line":2,"msg":"open() is not supported in dynamic builds"}
+{"line":1,"msg":"`# allow read` grants nothing under --sandbox: only the caller grants read","fix":"remove the line; if you trust the program with it, run with --allow read (MCP tools: \"allow\": [\"read\"])"}
+{"line":2,"msg":"read() needs allow read","fix":"do without it, or the caller grants it: --allow read (MCP tools: \"allow\": [\"read\"])"}
 exit 1
 -- typed
-kept
-exit 0
+{"line":1,"msg":"`# allow read` grants nothing under --sandbox: only the caller grants read","fix":"remove the line; if you trust the program with it, run with --allow read (MCP tools: \"allow\": [\"read\"])"}
+{"line":2,"msg":"read() needs allow read","fix":"do without it, or the caller grants it: --allow read (MCP tools: \"allow\": [\"read\"])"}
+exit 1

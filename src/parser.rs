@@ -2751,11 +2751,12 @@ impl Parser {
                         "unique" => Some("unique"),
                         _ => None,
                     };
-                    // sum(xs, start): the start plus the sum.
+                    // sum(xs, start): the start plus the sum. The `true` tells this from a written `start + sum(xs)`
+                    // until the types are known: infer.rs removes it, and for floats sums from the start.
                     if name == "sum" && !self.user_fns.contains(&name) && args.len() == 2 {
                         let start = args.remove(1).1;
                         let xs = args.remove(0).1;
-                        return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![], line))));
+                        return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![Expr::Bool(true)], line))));
                     }
                     // min(a, b, c, ...): min(min(a, b), c), ... (the prelude's min and max take two values).
                     if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() > 2 && args.iter().all(|a| a.0.is_none()) {
