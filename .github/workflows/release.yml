@@ -95,6 +95,7 @@ jobs:
     # Attach whatever built, so one platform's runner trouble does not hold back the rest.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
