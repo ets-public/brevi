@@ -1,0 +1,3 @@
+{"path":"dynamic","line":2,"why":"print() of a set shows CPython's hash order, so the typed build would differ from CPython"}
+{"path":"dynamic","line":2,"why":"print() of a set shows CPython's hash order, so the typed build would differ from CPython"}
+{"path":"dynamic","line":2,"why":"print() of a set shows CPython's hash order, so the typed build would differ from CPython"}
