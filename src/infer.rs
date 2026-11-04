@@ -1210,7 +1210,7 @@ impl Cx<'_> {
                 Map(_, v) => *v.clone(),
                 _ => Hole,
             },
-            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
+            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "sum_from" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
                 Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
                 // Python's `min(d)`: a key.
                 Map(k, _) if py_on() && (m == "min" || m == "max") => *k.clone(),
@@ -3412,6 +3412,22 @@ impl Ck<'_, '_> {
     }
 
     fn expr(&mut self, e: &mut Expr, env: &mut Env) {
+        // `sum(xs, start)`, which the parser made `start + xs.sum(true)`: float sums are compensated from the start.
+        if let Expr::Binary("+", a, b) = &mut *e {
+            if let Expr::Method(xs, m, args, line) = b.as_mut() {
+                if m == "sum" && matches!(args[..], [Expr::Bool(true)]) {
+                    args.clear();
+                    let start = self.cx.ty(a, env);
+                    if matches!(start, F64 | Int) && self.cx.ty(xs, env) == List(Box::new(F64)) {
+                        let line = *line;
+                        let xs = std::mem::replace(xs, Box::new(Expr::Int(0)));
+                        let a = std::mem::replace(a.as_mut(), Expr::Int(0));
+                        let a = if start == Int { Expr::Method(Box::new(a), "float".into(), vec![], 0) } else { a };
+                        *e = Expr::Method(xs, "sum_from".into(), vec![a], line);
+                    }
+                }
+            }
+        }
         // `sum(e - s for s, e in m)` with m a list of lists: the lambda takes each list and unpacks it.
         if let Expr::Method(r, _, args, line) = &mut *e {
             if let List(inner) = self.cx.ty(r, env) {
