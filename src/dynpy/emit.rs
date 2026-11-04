@@ -712,7 +712,8 @@ impl Em {
                     }
                     return Ok(format!("builtin_value({}).unwrap()", lit(name)));
                 }
-                if name == "open" && self.bridge.on {
+                // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
+                if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
                     self.bridged_used.insert("open".into());
                     return Ok(self.q("pyd_builtin(\"open\")"));
                 }

@@ -104,7 +104,7 @@ All commands live in `src/main.rs`.
 | `brevi guide [SECTION]` | Print the language guide or one section. |
 | `brevi mcp` | MCP server over stdin/stdout (`src/mcp.rs`): guide, check, run, test, patch, edit, show. |
 
-Flags: `--release` (opt-level 3), `--sandbox` (enforce `allow` lines), `--window` (real tkinter windows via egui), `--explain`, `--native`.
+Flags: `--release` (opt-level 3), `--sandbox` (only what the caller grants with `--allow read,write,native` / `--allow-py MODULES`; the file's allow lines grant nothing), `--window` (real tkinter windows via egui), `--explain`, `--native`.
 
 ## Stage 1: front end
 
@@ -113,7 +113,7 @@ These steps run on the source text before parsing.
 | Step | File | What it does |
 | --- | --- | --- |
 | Join files | `modules.rs` | `use "x.bv"`, and `import x` of a sibling `.py` file or package, are joined into one program. A segment table maps every line back to its file, so errors name the right file. |
-| Capabilities | `caps.rs` | `allow read, write` lines. With `--sandbox`, or any `allow` line, a program that uses something it did not declare is refused, before any other path runs: a refused program is never built over dynamic values, through pybridge or run with python3. Python libraries (pybridge) need `allow native`, and a sandboxed program never falls back to python3. In a `.py` file the line may be a comment (`# allow read`). Path text (`os.path` functions, the `os` path constants and `pathlib.PurePath`) is built from Brevi's own Python copies (`src/dynpy/py`, over dynamic values, no file access) with or without the sandbox, so a program that only handles path text stays native; without `allow native`, `random` uses Brevi's copy too, and `caps::path_uses` refuses every other use of os and pathlib by name. |
+| Capabilities | `caps.rs` | Under `--sandbox`, only what the caller grants (`--allow read,write,native`, `--allow-py MODULES`, the MCP `allow` / `allow_py` arguments) counts, and an allow line in the file that asks for more is refused. Without it, a program with `allow read, write` lines is held to them. A program that uses something not granted is refused, before any other path runs: a refused program is never built over dynamic values, through pybridge or run with python3. Python libraries (pybridge) need `allow native`, and a sandboxed program never falls back to python3. In a `.py` file the line may be a comment (`# allow read`). Path text (`os.path` functions, the `os` path constants and `pathlib.PurePath`) is built from Brevi's own Python copies (`src/dynpy/py`, over dynamic values, no file access) with or without the sandbox, so a program that only handles path text stays native; without `allow native`, `random` uses Brevi's copy too, and `caps::path_uses` refuses every other use of os and pathlib by name. |
 | Foreign code | `ffi.rs` | `use CRATE "VER"`, `rust fn`, `py fn`, `rust:` and `py:` blocks. Foreign bodies are cut out and replaced by a stub on the same line, so line numbers stay put. Any crate switches the build to cargo. |
 | Autofix | `main.rs` `autofix` | For `.bv` only: errors with a sure one-word fix (a typo of a known name) are fixed before the build and reported on stderr. Python files are never rewritten, because CPython would not rename `s.rpartition` either. |
 

@@ -1,6 +1,8 @@
 # A stand-in for a third-party library (tests/bridge): the dynamic build cannot read this package, so CPython
 # runs it inside the program, as it would run requests or pydantic.
 
+import inspect
+
 
 class LibError(Exception):
     def __init__(self, msg, code):
@@ -20,7 +22,7 @@ class Model:
 
     def __init_subclass__(cls, **kw):
         super().__init_subclass__(**kw)
-        cls._fields = [k for k in cls.__dict__.get("__annotations__", {})]
+        cls._fields = list(inspect.get_annotations(cls))
 
     def __init__(self, **kw):
         for f in self._fields:

@@ -206,7 +206,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             let p = dir.join(format!("{m}.py"));
             // Outside the sandbox too, when every use of these modules is one Brevi's copies have (checked
             // over all the program's files below). random's generator core is native (rt_rand.rs).
-            if copies && !p.exists() && (crate::pybridge::no_native() || own_ok) {
+            if !p.exists() && ((copies && own_ok) || !crate::pybridge::py_allowed(&m)) {
                 if let Some(src) = sandbox_module(&m) {
                     own_used = true;
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
@@ -223,7 +223,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 own_ok &= pure(&src);
                 texts.insert(m.clone(), (ps.clone(), src.to_string()));
                 mods.push(emit::Module { name: m, body });
-            } else if !m.starts_with('.') && (bridge.on || bridge_ok()) {
+            } else if !m.starts_with('.') && crate::pybridge::py_allowed(&m) && (bridge.on || bridge_ok()) {
                 // A library Brevi lacks: CPython runs it inside the program.
                 bridge.on = true;
                 bridge.modules.insert(m.split('.').next().unwrap_or(&m).to_string());
@@ -244,7 +244,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push_str(GLUE);
         *BRIDGED.lock().unwrap() = used;
     }
-    if mods.iter().any(|m| m.name == "argparse") && !crate::pybridge::no_native() {
+    if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("fn main() { run_main(__run); }", "fn main() { TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);
         rust.push_str(TERM_COLS_FN);
     }
