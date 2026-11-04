@@ -1,0 +1,3 @@
+{"path":"dynamic","line":14,"fn":"Box.get","why":"except KeyError: the typed build stops at this error instead of raising it, so the typed build would differ from CPython","py":["shlex"]}
+{"path":"dynamic","line":14,"fn":"Box.get","why":"except KeyError: the typed build stops at this error instead of raising it, so the typed build would differ from CPython","py":["shlex"]}
+{"path":"dynamic","line":14,"fn":"Box.get","why":"except KeyError: the typed build stops at this error instead of raising it, so the typed build would differ from CPython","py":["shlex"]}

@@ -1,0 +1,5 @@
+{"line":2,"msg":"this value has no method .trim() in Python","fix":"did you mean .strip()?"}
+check exit 1
+{"path":"cpython","line":2,"why":"Brevi could not build it: this value has no method .trim() in Python","by":"python3"}
+run exit 1
+run tracebacks 0

@@ -36,7 +36,9 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--release` | run, build | Optimise fully (rustc opt-level 3, the runtime inlined into the program). Builds take a few seconds longer; programs often run up to twice as fast as with the default build. Use it for a binary you keep. |
 | `--native` | run | Never fall back to CPython: print Brevi's errors instead. `BREVI_NATIVE=1` does the same. |
 | `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
-| `--sandbox` | run, check, test | Refuse anything the program did not declare with an `allow` line (see [Sandbox](#sandbox)). |
+| `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
+| `--allow read,write,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
+| `--allow-py MODULES` | run, check, test | Under the sandbox, let CPython run these Python libraries only, such as `--allow-py requests,pydantic` (implies `--sandbox`). |
 | `--traceback` | run | When run falls back to CPython on a sure mistake, show CPython's whole traceback instead of its last line. `BREVI_TRACEBACK=1` does the same. |
 | `--window` | run, build | tkinter programs open a real window instead of running headless (see [GUI programs](#gui-programs)). |
 | `--explain` | any | Under each error, add the lines of the guide about the names it mentions. For Python files, also print [which path ran](#which-path-ran) even when it is the typed one, with every reason. |
@@ -105,7 +107,7 @@ There is no file path, column, error code or Rust in them. In a program over sev
 {"e":"runtime","line":2,"msg":"index 5 out of range for length 1"}
 ```
 
-The program exits with status 101 after a runtime error, and with its own status after `sys.exit(n)`.
+A Python file exits as CPython does: status 1 after an uncaught exception, and its own status after `sys.exit(n)`. A `.bv` program exits with status 101 after a runtime error like the one above.
 
 **Sure mistakes in Python files are reported before the program runs.** A name that is never defined, a method no Python type has, and adding text to a number stop `check` and `build` with one error line and a hint. Code that may never run is left alone (branches under `sys.version_info`, `sys.platform`, `TYPE_CHECKING` or `if False`, and `except` blocks). `brevi run` falls back to python3 instead and names the mistake in its path line:
 
@@ -119,7 +121,17 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
-A program can declare what it touches with an `allow` line at the top. In a Python file write it as a comment, so the file stays valid Python; in a `.bv` file write it bare:
+With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,native`, or `--allow-py requests,pydantic` to let CPython run just those libraries (the MCP tools' `allow` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from the next release; before it, an allow line in the file was enough).
+
+```
+$ brevi run --sandbox fetch.py
+{"line":1,"msg":"import requests (a Python library, run by CPython) needs allow native","fix":"do without it, or the caller grants it: --allow-py requests (MCP tools: \"allow_py\": [\"requests\"])"}
+$ brevi run --allow-py requests fetch.py
+```
+
+`--allow-py` grants CPython for the named modules, and so whatever CPython can reach through them; it does not grant `rust fn`, crates or any other library.
+
+Outside the sandbox, a program can declare what it touches with an `allow` line at the top, and is then held to it. In a Python file write it as a comment, so the file stays valid Python; in a `.bv` file write it bare:
 
 ```
 # allow read, write        (Python file)
@@ -135,10 +147,10 @@ A comment counts only when it holds nothing but capability names, so `# allow me
 | `native` | `rust fn`, `py fn`, `rust:` and `py:` blocks, crates, and Python libraries that CPython runs (`subprocess`, `numpy`, `requests`, file and process calls of `os` and `pathlib`, ...), which can do anything |
 | `none` | nothing beyond stdin, stdout and arguments |
 
-stdin, stdout, program arguments and `use "file.bv"` are always allowed. With `brevi run --sandbox`, or as soon as a program has any `allow` line, a program that uses something it did not declare is refused at build time:
+stdin, stdout, program arguments and `use "file.bv"` are always allowed. Under `--sandbox` a program that uses something the caller did not grant, or (without `--sandbox`) one with an `allow` line that uses something it did not declare, is refused at build time:
 
 ```
-{"line":1,"msg":"read() needs allow read","fix":"add the line `# allow read` at the top, or do without it"}
+{"line":1,"msg":"read() needs allow read","fix":"do without it, or the caller grants it: --allow read (MCP tools: \"allow\": [\"read\"])"}
 ```
 
 Some modules work without `allow native`, because Brevi builds its own copy of the part that touches nothing (from v0.24.2):
@@ -146,7 +158,7 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 - **Path text:** `os.path.join`, `basename`, `dirname`, `split`, `splitext`, `normpath`, `normcase`, `isabs`, `commonprefix`, `os.sep` and the other path constants, and `pathlib.PurePath` / `PurePosixPath` (`/`, `name`, `stem`, `suffix`, `parent`, `parts`, `with_suffix`, `relative_to`, ...). They follow POSIX rules, as CPython does on Linux and macOS. Any other use of `os` or `pathlib` (`os.listdir`, `os.environ`, `os.system`, `pathlib.Path`, `os.path.exists`, or `os` passed around as a value) is refused with the name of the call:
 
   ```
-  {"line":3,"msg":"os.listdir needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); add the line `# allow native` at the top, or do without it"}
+  {"line":3,"msg":"os.listdir needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); do without it, or the caller grants it: --allow-py os (MCP tools: \"allow_py\": [\"os\"])"}
   ```
 
 - **io:** `io.StringIO`, an in-memory text file (so `csv.writer(io.StringIO())` works too). Other `io` names (`io.BytesIO`, `io.open`) are refused by name.
@@ -157,7 +169,7 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 - **random:** `seed`, `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits` and `random.Random`, using CPython's own generator, so a seeded program draws the same numbers as in CPython. Seeds must be ints. Other functions (`random.betavariate`, ...) give one error naming them.
 
-The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `allow native`, the library bridge is off completely, so no path from the program reaches CPython.
+The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `--allow native` or `--allow-py`, the library bridge is off completely, so no path from the program reaches CPython; with `--allow-py`, only the named modules do.
 
 The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox the path-text, `io.StringIO`, `textwrap`, `argparse` and `random` copies are used too, whenever a program needs nothing more of those modules (random's generator core is native).
 
