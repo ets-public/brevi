@@ -65,6 +65,11 @@ fn rust(t: &T) -> String {
     }
 }
 
+// What a re.sub function is given: a match in Python, a list of groups in Brevi.
+fn re_sub_arg() -> T {
+    if py_on() { Named("AxMatch".into()) } else { List(Box::new(Str)) }
+}
+
 fn known(t: &T) -> bool {
     match t {
         Hole => false,
@@ -1103,6 +1108,7 @@ impl Cx<'_> {
                     Some(k) => self.structs.get(&r).and_then(|fs| fs.iter().find(|(n, _)| *n == k).map(|(_, t)| t.clone())).unwrap_or(Hole),
                     None => Hole,
                 },
+                Named(r) if r == "AxMatch" => Str,
                 List(e) => *e,
                 Map(_, v) => *v,
                 Str => Str,
@@ -1199,6 +1205,8 @@ impl Cx<'_> {
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
             "csv_dicts" => List(Box::new(Map(Box::new(Str), Box::new(Str)))),
             "re_groups" => List(Box::new(Str)),
+            "re_m_find" | "re_m_full" | "re_m_match" => Named("AxMatch".into()),
+            "re_m_all" => List(Box::new(Named("AxMatch".into()))),
             "re_span" => Tuple(vec![Int, Int]),
             "ints" => List(Box::new(Int)),
             "json" => Json,
@@ -2079,7 +2087,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         for a in args {
                             if let Expr::Lambda(ps, lb) = a {
                                 let mut inner = env.clone();
-                                let et = if m == "re_sub" { List(Box::new(Str)) } else { each_elem(&cx.ty(r, &env)) };
+                                let et = if m == "re_sub" { re_sub_arg() } else { each_elem(&cx.ty(r, &env)) };
                                 bind_params(ps, &et, &mut inner);
                                 scopes.push((lb.as_ref().clone(), inner));
                             }
@@ -2307,7 +2315,7 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                         for a in args {
                             if let Expr::Lambda(ps, lb) = a {
                                 let mut inner = env.clone();
-                                let et = if m == "re_sub" { List(Box::new(Str)) } else { each_elem(&cx.ty(r, &env)) };
+                                let et = if m == "re_sub" { re_sub_arg() } else { each_elem(&cx.ty(r, &env)) };
                                 bind_params(ps, &et, &mut inner);
                                 lams.push((lb.as_ref().clone(), inner));
                             }
@@ -3968,7 +3976,7 @@ impl Ck<'_, '_> {
                 // Only these methods pass each item to their lambda.
                 let each = ["map", "filter", "any", "all", "count", "sort_by", "group_runs"].contains(&m.as_str());
                 // re.sub's function takes the match ([whole, group1, ...]).
-                let et = if each { each_elem(&self.cx.ty(r, env)) } else if m == "re_sub" { List(Box::new(Str)) } else { Hole };
+                let et = if each { each_elem(&self.cx.ty(r, env)) } else if m == "re_sub" { re_sub_arg() } else { Hole };
                 for a in args.iter_mut() {
                     match a {
                         Expr::Lambda(ps, body) => {

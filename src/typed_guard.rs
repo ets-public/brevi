@@ -317,8 +317,7 @@ fn is_holder(e: &Ex, g: &G) -> bool {
     }
 }
 
-// re.match(...), pat.search(...): the typed build keeps a match as its list of groups, so printing one
-// shows `[]` or `['12']` where CPython shows None or `<re.Match object; ...>`.
+// re.match(...), pat.search(...): a match, which a program that prints one builds over dynamic values.
 fn is_match(e: &Ex, g: &G) -> bool {
     match e {
         Ex::Call(f, _) => matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "match" | "search" | "fullmatch")),
