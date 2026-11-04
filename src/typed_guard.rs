@@ -6,8 +6,9 @@
 //   table's order (`{-1, 5}` prints `{5, -1}`), and prints it in braces even inside a list or dict. Any
 //   use where that order or form shows (printing, str(), iterating, list(s), s.pop(), joining) is refused.
 //   Order-free uses stay typed: `x in s`, len, sorted, min, max, sum, any, all and set algebra.
-// - print(q, q.popleft()): CPython reads every argument before printing; the typed build writes each one
-//   as it goes, so a later argument that changes an earlier one shows the old value.
+// - print(q, q.popleft()), print(xs, grow(xs)), (q, q.pop()): CPython reads every argument before printing,
+//   and a tuple or list holds the object itself; the typed build copies each one as it goes, so a later
+//   argument that changes an earlier one shows the old value.
 use crate::dynpy::parse::{Arg, CompFor, Ex, FPart, FuncDef, St, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -23,6 +24,7 @@ struct G {
     pure_gens: HashSet<String>,  // generator functions the typed build may run eagerly
     tups: HashSet<String>,       // names holding tuple(...) of a list or iterator, or containers of them
     pure_fns: HashSet<String>,   // functions with no effect but their value (see pure_fns)
+    fn_changes: HashMap<String, Changes>, // what each function changes in place (see program_changes)
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
@@ -68,6 +70,7 @@ pub fn check_soft(src: &str) -> Option<(usize, String, Vec<String>)> {
     }
     let mut hits = vec![];
     g.pure_fns = pure_fns(&body);
+    g.fn_changes = program_changes(&body);
     uses(&body, &g, &mut hits);
     let (line, why, _) = hits.first().cloned()?;
     if let Some(h) = hits.iter().find(|h| h.2.is_none()) {
@@ -1004,7 +1007,7 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
                         return Some(format!("{n}() of tuple(...) shows a tuple, which the typed build keeps as a list"));
                     }
                     if n == "print" {
-                        return print_changes(&pos);
+                        return print_changes(&pos).or_else(|| later_changes(&pos, g).map(|k| format!("print() reads every argument before writing; a later one changes {k}")));
                     }
                 }
                 Ex::Name(n) if matches!(n.as_str(), "list" | "tuple" | "enumerate" | "zip" | "iter" | "next" | "map" | "filter" | "reversed") => {
@@ -1028,6 +1031,7 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
             }
             None
         }
+        Ex::Tuple(v) | Ex::List(v) => later_changes(&v.iter().collect::<Vec<_>>(), g).map(|k| format!("a tuple or list holds the object itself; a later item changes {k}")),
         Ex::FStr(parts) => {
             let mut bad = false;
             let mut m = false;
@@ -1069,9 +1073,12 @@ fn is_mapped_set(x: &Ex, g: &G) -> bool {
     }
 }
 
+// Methods that change their receiver, and standard-library functions that change their first argument.
+const CHANGING: &[&str] = &["pop", "popleft", "popitem", "append", "appendleft", "add", "remove", "insert", "extend", "extendleft", "update", "setdefault", "clear", "sort", "reverse", "discard", "rotate", "move_to_end", "difference_update", "intersection_update", "symmetric_difference_update", "heappop", "heappush"];
+const CHANGING_FNS: &[&str] = &["heappop", "heappush", "heapify", "heapreplace", "heappushpop", "insort", "insort_left", "insort_right", "shuffle"];
+
 // print(q, q.popleft()): an argument changes a name another argument shows.
 fn print_changes(args: &[&Ex]) -> Option<String> {
-    const CHANGING: &[&str] = &["pop", "popleft", "popitem", "append", "appendleft", "add", "remove", "insert", "extend", "update", "setdefault", "clear", "sort", "reverse", "discard", "rotate", "heappop", "heappush"];
     let mut changed: Vec<(usize, String)> = vec![];
     for (i, a) in args.iter().enumerate() {
         walk_ex(a, &mut |e| {
@@ -1083,7 +1090,7 @@ fn print_changes(args: &[&Ex]) -> Option<String> {
                         }
                     }
                     // heapq.heappop(h)
-                    Ex::Attr(_, m) | Ex::Name(m) if m == "heappop" || m == "heappush" => {
+                    Ex::Attr(_, m) | Ex::Name(m) if CHANGING_FNS.contains(&m.as_str()) => {
                         if let Some(Arg::Pos(x)) = cargs.first() {
                             if let Some(k) = root(x) {
                                 changed.push((i, k));
@@ -1110,9 +1117,307 @@ fn print_changes(args: &[&Ex]) -> Option<String> {
     None
 }
 
+// print(xs, grow(xs)) or (q, q.pop()): the name a later argument changes in place, when an earlier one holds
+// that object. The typed build has already copied the earlier one by then, and a copy cannot show the change.
+// `print(n, bump())` with an int n needs no check: both read n first, and Python's int does not change.
+fn later_changes(args: &[&Ex], g: &G) -> Option<String> {
+    for j in 1..args.len() {
+        let mut changed = vec![];
+        walk_ex(args[j], &mut |e| call_changes(e, &g.fn_changes, &mut changed));
+        let mut shown = vec![];
+        args[..j].iter().for_each(|a| held(a, &mut shown));
+        if let Some(k) = changed.iter().find(|k| shown.contains(k)) {
+            return Some(k.trim_start_matches('.').to_string());
+        }
+    }
+    None
+}
+
+// The names (and `.attr` names) whose objects the value of `e` may be, or may hold. Values made fresh
+// (`len(xs)`, `str(xs)`, an f-string, a comparison, what `xs.pop()` took out) hold none.
+fn held(e: &Ex, out: &mut Vec<String>) {
+    const FRESH: &[&str] = &["len", "sum", "str", "repr", "ascii", "format", "int", "float", "bool", "abs", "round", "any", "all", "ord", "chr", "hash", "id", "type", "isinstance", "bin", "hex", "oct"];
+    // pygen::NEXT is `next(g)`: it holds what the generator gave, not the generator.
+    const FRESH_METHODS: &[&str] = &[crate::pygen::NEXT, "join", "count", "index", "find", "rfind", "format", "startswith", "endswith", "upper", "lower", "strip", "lstrip", "rstrip", "split", "replace", "title"];
+    match e {
+        Ex::Name(n) => out.push(n.clone()),
+        Ex::Attr(b, a) => {
+            out.push(format!(".{a}"));
+            held(b, out);
+        }
+        Ex::Index(b, _) | Ex::Star(b) | Ex::Walrus(_, b) => held(b, out),
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().for_each(|x| held(x, out)),
+        Ex::Dict(items) => items.iter().for_each(|(_, v)| held(v, out)),
+        Ex::IfExp(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) | Ex::Bin(_, a, b) => {
+            held(a, out);
+            held(b, out);
+        }
+        Ex::Comp(_, _, _, fors) => fors.iter().for_each(|c| held(&c.iter, out)),
+        Ex::Call(f, args) => {
+            match f.as_ref() {
+                Ex::Name(n) if FRESH.contains(&n.as_str()) => return,
+                Ex::Attr(_, m) if FRESH_METHODS.contains(&m.as_str()) || CHANGING.contains(&m.as_str()) => return,
+                Ex::Attr(r, _) => held(r, out),
+                _ => {}
+            }
+            for a in args {
+                let (Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x)) = a;
+                held(x, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+// What a function changes in place: its parameters by position (ANY_PARAM: one of `*args`, a keyword-only
+// parameter or `**kw`), and names from outside it (globals, a closure's names).
+#[derive(Default, PartialEq)]
+struct Changes {
+    params: HashSet<usize>,
+    names: HashSet<String>,
+}
+const ANY_PARAM: usize = usize::MAX;
+
+// What each function changes, called directly or through the functions it calls. Keys: `f` for a function,
+// `.m` for a method (self is parameter 0, and classes with the same method are joined), `C` for what
+// `C(...)` changes through __init__.
+fn program_changes(body: &[Stmt]) -> HashMap<String, Changes> {
+    let mut all: HashMap<String, Changes> = HashMap::new();
+    loop {
+        let mut next: HashMap<String, Changes> = HashMap::new();
+        each_def(body, false, &mut |k, d, skip| {
+            let c = changes_of(d, &all);
+            let e = next.entry(k).or_default();
+            e.params.extend(c.params.iter().filter(|p| **p >= skip).map(|p| if *p == ANY_PARAM { *p } else { p - skip }));
+            e.names.extend(c.names);
+        });
+        if next == all {
+            return all;
+        }
+        all = next;
+    }
+}
+
+// Every def in the program, with its key in program_changes and how many leading parameters a call does not
+// pass (a class's __init__ does not get self from the arguments).
+fn each_def(body: &[Stmt], in_class: bool, f: &mut dyn FnMut(String, &FuncDef, usize)) {
+    for s in body {
+        match &s.st {
+            St::Def(d) => {
+                f(if in_class { format!(".{}", d.name) } else { d.name.clone() }, d, 0);
+                each_def(&d.body, false, f);
+            }
+            St::Class(c) => {
+                for m in &c.body {
+                    if let St::Def(d) = &m.st {
+                        if d.name == "__init__" {
+                            f(c.name.clone(), d, 1);
+                        }
+                    }
+                }
+                each_def(&c.body, true, f);
+            }
+            st => each_block(st, &mut |b| each_def(b, in_class, f)),
+        }
+    }
+}
+
+// What one function changes, given what the functions it calls change (`known`).
+fn changes_of(d: &FuncDef, known: &HashMap<String, Changes>) -> Changes {
+    #[derive(Default)]
+    struct Scan {
+        local: HashSet<String>,
+        outer: HashSet<String>,                 // named by `global` or `nonlocal`
+        from: HashMap<String, HashSet<String>>, // a local name -> what it may be the same object as
+        changed: Vec<String>,
+    }
+    // `target = value`: a name is bound to what the value holds; an item or attribute is changed.
+    fn bind(t: &Ex, v: &Ex, sc: &mut Scan) {
+        match t {
+            Ex::Index(..) | Ex::Attr(..) => held(t, &mut sc.changed),
+            _ => {
+                let mut objs = vec![];
+                held(v, &mut objs);
+                walk_ex(t, &mut |x| {
+                    if let Ex::Name(n) = x {
+                        sc.local.insert(n.clone());
+                        sc.from.entry(n.clone()).or_default().extend(objs.iter().cloned());
+                    }
+                });
+            }
+        }
+    }
+    fn scan(b: &[Stmt], known: &HashMap<String, Changes>, sc: &mut Scan) {
+        for s in b {
+            match &s.st {
+                St::Def(d) => {
+                    sc.local.insert(d.name.clone());
+                    continue;
+                }
+                St::Class(c) => {
+                    sc.local.insert(c.name.clone());
+                    continue;
+                }
+                St::Global(v) | St::Nonlocal(v) => sc.outer.extend(v.iter().cloned()),
+                St::Assign(ts, v) => ts.iter().for_each(|t| bind(t, v, sc)),
+                St::AnnAssign(t, Some(v)) => bind(t, v, sc),
+                St::For(t, it, ..) => bind(t, it, sc),
+                St::With(items, _) => items.iter().for_each(|(e, t)| {
+                    if let Some(t) = t {
+                        bind(t, e, sc);
+                    }
+                }),
+                // `count += 1` makes a new int; `xs += [1]` changes the list.
+                St::AugAssign(Ex::Name(n), _, Ex::Int(_) | Ex::Float(_)) => {
+                    sc.local.insert(n.clone());
+                }
+                St::AugAssign(t, ..) => {
+                    if let Ex::Name(n) = t {
+                        sc.local.insert(n.clone());
+                    }
+                    held(t, &mut sc.changed);
+                }
+                St::Del(ts) => ts.iter().filter(|t| matches!(t, Ex::Index(..) | Ex::Attr(..))).for_each(|t| held(t, &mut sc.changed)),
+                _ => {}
+            }
+            walk_st(&s.st, &mut |e| call_changes(e, known, &mut sc.changed));
+            each_block(&s.st, &mut |b| scan(b, known, sc));
+        }
+    }
+    let mut sc = Scan::default();
+    let p = &d.params;
+    let pos: Vec<&String> = p.pos.iter().map(|x| &x.0).collect();
+    let rest: Vec<&String> = p.star.iter().chain(&p.kwstar).chain(p.kwonly.iter().map(|x| &x.0)).collect();
+    sc.local.extend(pos.iter().chain(&rest).map(|n| n.to_string()));
+    scan(&d.body, known, &mut sc);
+    let mut out = Changes::default();
+    let mut seen = HashSet::new();
+    while let Some(n) = sc.changed.pop() {
+        if n.starts_with('.') || !seen.insert(n.clone()) {
+            continue;
+        }
+        if sc.outer.contains(&n) || !sc.local.contains(&n) {
+            out.names.insert(n.clone());
+        } else if let Some(i) = pos.iter().position(|x| **x == n) {
+            out.params.insert(i);
+        } else if rest.iter().any(|x| **x == n) {
+            out.params.insert(ANY_PARAM);
+        }
+        if let Some(objs) = sc.from.get(&n) {
+            sc.changed.extend(objs.iter().cloned());
+        }
+    }
+    out
+}
+
+// The names whose objects this call (not looking inside it: walk_ex does that) changes in place.
+fn call_changes(e: &Ex, known: &HashMap<String, Changes>, out: &mut Vec<String>) {
+    let Ex::Call(f, args) = e else { return };
+    let (user, skip) = match f.as_ref() {
+        Ex::Attr(r, m) => {
+            if CHANGING.contains(&m.as_str()) {
+                held(r, out);
+            }
+            (known.get(&format!(".{m}")), 1)
+        }
+        Ex::Name(n) => (known.get(n), 0),
+        _ => (None, 0),
+    };
+    if matches!(f.as_ref(), Ex::Attr(_, m) | Ex::Name(m) if CHANGING_FNS.contains(&m.as_str())) {
+        if let Some(Arg::Pos(x)) = args.first() {
+            held(x, out);
+        }
+    }
+    if let Some(c) = user {
+        out.extend(c.names.iter().cloned());
+        let any = c.params.contains(&ANY_PARAM);
+        if let (Ex::Attr(r, _), true) = (f.as_ref(), any || c.params.contains(&0)) {
+            held(r, out);
+        }
+        for (i, a) in args.iter().enumerate() {
+            match a {
+                Arg::Pos(x) if any || c.params.contains(&(i + skip)) => held(x, out),
+                // Which parameter these reach is not followed here.
+                Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) if !c.params.is_empty() => held(x, out),
+                _ => {}
+            }
+        }
+    }
+    // A function handed over by name (`apply(grow, xs)`) may be called on anything given with it.
+    for a in args {
+        let Arg::Pos(Ex::Name(n)) = a else { continue };
+        let Some(c) = known.get(n) else { continue };
+        out.extend(c.names.iter().cloned());
+        if !c.params.is_empty() {
+            for b in args {
+                let (Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x)) = b;
+                held(x, out);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::check;
+    const GROW: &str = "def grow(v):\n    v.append(9)\n    return len(v)\nxs = [1]\n";
+    const BOX: &str = "class Box:\n    def __init__(self):\n        self.items = [1]\n    def put(self, x):\n        self.items.append(x)\n        return x\n";
+    const LOG: &str = "log = [0]\nhits = 0\ndef note(x):\n    global hits\n    hits += 1\n    log.append(x)\n    return hits\n";
+
+    fn verdict(p: &str) -> Option<String> {
+        check(p).map(|x| x.1)
+    }
+
+    // A later argument changes what an earlier one holds: not typed.
+    #[test]
+    fn later_change_leaves_the_typed_build() {
+        for tail in ["print(xs, grow(xs))", "print(xs, grow(v=xs))", "print(xs, grow(xs), sep='|')", "print((xs, 1), grow(xs))", "print([xs], grow(xs))", "print({'k': xs}, grow(xs))", "u = (xs, grow(xs))", "u = [xs, grow(xs)]", "print(xs[0:1], grow(xs))"] {
+            assert!(verdict(&format!("{GROW}{tail}\n")).is_some(), "{tail}");
+        }
+        let cases = [
+            "def via(rows):\n    r = rows[0]\n    r.append(7)\n    return 0\nrows = [[1]]\nprint(rows[0], via(rows))\n".to_string(),
+            "def walk(rows):\n    for r in rows:\n        r[0] = 7\n    return 0\nrows = [[1]]\nprint(rows, walk(rows))\n".to_string(),
+            "def wipe(d):\n    del d['a']\n    return 0\nd = {'a': 1}\nprint(d, wipe(d))\n".to_string(),
+            "def more(v):\n    v += [1]\n    return 0\nxs = [1]\nprint(xs, more(xs))\n".to_string(),
+            "import heapq\ndef take(h):\n    return heapq.heappop(h)\nh = [1, 2]\nprint(h, take(h))\n".to_string(),
+            format!("{GROW}def outer(v):\n    return grow(v)\nprint(xs, outer(xs))\n"),
+            format!("{GROW}def apply(f, v):\n    return f(v)\nprint(xs, apply(grow, xs))\n"),
+            format!("{LOG}print(log, note(1))\n"),
+            format!("{LOG}def again():\n    return note(2)\nprint(log, again())\n"),
+            "log = [0]\ndef alias():\n    out = log\n    out.append(1)\n    return 0\nprint(log, alias())\n".to_string(),
+            format!("{BOX}b = Box()\nprint(b, b.put(2))\n"),
+            format!("{BOX}def fill(b):\n    b.items.append(3)\n    return 0\nb = Box()\nprint(b.items, fill(b))\n"),
+            "class K:\n    def __init__(self, v):\n        v.append(5)\nxs = [1]\nprint(xs, K(xs))\n".to_string(),
+            "def outer():\n    acc = [1]\n    def add():\n        acc.append(2)\n        return 0\n    print(acc, add())\nouter()\n".to_string(),
+            "q = [1, 2]\nr = (q, q.pop())\nprint(r)\n".to_string(),
+        ];
+        for p in &cases {
+            assert!(verdict(p).is_some(), "{p}");
+        }
+    }
+
+    // Nothing shown is changed after it was read: stays typed.
+    #[test]
+    fn no_later_change_stays_typed() {
+        let cases = [
+            format!("{GROW}print(grow(xs), xs)\n"),
+            format!("{GROW}print(len(xs), grow(xs))\n"),
+            format!("{GROW}print(str(xs), grow(xs))\n"),
+            format!("{GROW}print(f'{{xs}}', grow(xs))\n"),
+            format!("{GROW}ys = [2]\nprint(ys, grow(xs))\n"),
+            crate::pygen::rewrite("def rng(s):\n    x = s\n    while True:\n        x += 1\n        yield x\nr = rng(1)\nprint(next(r), next(r) % 100)\n"),
+            format!("{LOG}print(hits, note(1))\n"),
+            format!("{LOG}ys = [2]\nprint(ys, note(1))\n"),
+            "def fib(n, memo={}):\n    return n\nprint(5, fib(5))\n".to_string(),
+            "def f(v):\n    out = []\n    out.append(v[0])\n    return out\nxs = [1]\nprint(xs, f(xs))\n".to_string(),
+            "def f(v):\n    v = [2]\n    return v\nxs = [1]\nprint(xs, f(xs))\n".to_string(),
+            "s = [1, 2, 3]\na, c = s.pop(), s.pop()\nprint(a, c, s)\n".to_string(),
+            "s = [1, 2, 3]\nr = (s.pop(), s)\nprint(r)\n".to_string(),
+        ];
+        for p in &cases {
+            assert_eq!(verdict(p), None, "{p}");
+        }
+    }
     fn needs(src: &str) -> bool {
         check(src).is_some()
     }
