@@ -20,7 +20,7 @@ deploy_script() { # name, dir[, KV namespace title for the waitlist]: build the 
 import json, os, sys
 d = sys.argv[1]
 import base64
-types = {".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8",
+types = {".html": "text/html; charset=utf-8", ".md": "text/markdown; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".xml": "application/xml; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json",
          ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2"}
 binary = {".png", ".ico", ".woff2"}
