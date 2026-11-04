@@ -4,6 +4,8 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **Silent wrong output fixed: a `def` with no `return`.** In a typed build of a `.py` file, a function's last line was its return value, as in Brevi, so `def f(x): ... x + 1` gave `2` from `f(1)` where CPython gives `None`, and `if f(3):` could take the wrong branch. Only `return` gives a value now, down every branch of a last `if`. Lambdas and `.bv` programs are unchanged. ([#205](https://github.com/ets-public/brevi/pull/205), thanks @timoconnellaus)
+
 ## v0.25.0 (4 Nov 2026)
 
 The launch release, out ahead of the weekly Monday release. Most of it is correctness: Brevi now measures itself against CPython's own test suite (`tools/conformance.py`), and the fixes it led to cut built programs that give a wrong answer there from 79 to 45 while the share of tests that match rose from 49.2% to 57.9%; every other silent wrong output found in the release runs is fixed too, including `d.copy()` and `list(d)` on a dict in typed builds. 567 of 813 saved agent programs now take the fast typed build, with none differing from CPython. Python files exit 1 on an uncaught exception, Brevi-only syntax in a `.py` file is refused as CPython refuses it, `install.sh` checks its download against `SHA256SUMS`, and the dynamic build's `re` beats CPython on search loops. Release test, two runs on the release tree: Sonnet 1.09x and Haiku 1.01x the cost of CPython, every task passed, no check failed because of Brevi, 95 of 96 final programs native (two earlier runs on the tree just before #207: 1.04x and 1.05x, 96 of 96).
@@ -38,7 +40,6 @@ The launch release, out ahead of the weekly Monday release. Most of it is correc
 - **`import json.decoder` works in dynamic builds.** `json.decoder.scanstring(...)` after `import json.decoder` was refused (`json.decoder is not supported in dynamic builds`), and in a file the typed build also could not take, the build failed outright. Seen in a release-run `json_query` program, which now builds natively and passes its tests.
 - **`e2e.py --verdict` no longer passes on nothing.** A log glob that matched no files printed `release test PASSED`; it now stops with an error. `--verdict` exits 1 when the bar is missed, and a run without the `anthropic` package or `BENCH_ANTHROPIC_KEY` says what to install or set.
 - **The result cache no longer replays a refusal caused by the machine.** When the dynamic build's runtime library could not be built (many builds starting on a cold cache at once, a full disk) or rustc was killed, a Python file was refused with the typed build's reason, such as `cannot work out the type of s`, and that refusal was kept and shown again on later runs until the cache was cleared. Such failures are now never kept, and a crate rustc could not load is no longer cached as an error in the program. Seen in the v0.24.6 release run.
-- **Silent wrong output fixed: a `def` with no `return`.** In a typed build of a `.py` file, a function's last line was its return value, as in Brevi, so `def f(x): ... x + 1` gave `2` from `f(1)` where CPython gives `None`, and `if f(3):` could take the wrong branch. Only `return` gives a value now, down every branch of a last `if`. Lambdas and `.bv` programs are unchanged.
 
 ## v0.24.6 (4 Nov 2026)
 
