@@ -14,8 +14,9 @@ Each side's prompt cache is kept apart so neither pays the other's cache writes.
 
 **The bar:** every task passes, Brevi's cost is within 10% of CPython's averaged over the runs for both models, and at least 90% of final programs build natively, with no CPython fallback.
 
-| Runs (3 Nov 2026) | Sonnet cost, Brevi vs CPython | Haiku cost, Brevi vs CPython | Tasks passed | Built natively | Failed because of Brevi |
+| Runs (Nov 2026) | Sonnet cost, Brevi vs CPython | Haiku cost, Brevi vs CPython | Tasks passed | Built natively | Failed because of Brevi |
 | --- | --- | --- | --- | --- | --- |
+| r246a, r246b (v0.24.6, two runs, 4 Nov) | **1.03x** (95% range 0.97x to 1.09x) | **1.02x** (0.97x to 1.08x) | 24 of 24 in every run, both sides | 47 of 48 and 48 of 48 | 0 |
 | r245a, r245b (v0.24.5, two runs) | **1.06x** (95% range 1.01x to 1.12x) | **1.01x** (0.95x to 1.07x) | 24 of 24 in every run, both sides | 48 of 48 and 47 of 48 | 0 |
 | r244a to r244e (v0.24.4, five runs) | **1.06x** (95% range 1.03x to 1.10x) | **1.03x** (0.98x to 1.10x) | 24 of 24 in every run, both sides | 120 of 120 and 117 of 120 | 5 checks, final programs all passed |
 | w163a (main after v0.24.3, one run) | **1.06x** | **0.96x** | 24 of 24, both sides | 22 of 24 and 23 of 24 | 0 |
