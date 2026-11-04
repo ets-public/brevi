@@ -1268,6 +1268,9 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "time" => match n {
             "time" | "perf_counter" | "monotonic" | "process_time" => Ok(V::Float(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0))),
             "sleep" => Ok(V::None),
+            "time_ns" | "perf_counter_ns" | "monotonic_ns" | "process_time_ns" => Ok(V::Int(now_us() as i64 * 1000)),
+            "gmtime" => time_gmtime(a),
+            "strftime" => time_strftime(a),
             _ => Err(unsupported(&format!("time.{n}"))),
         },
         "typing" => Ok(a.p.first().cloned().unwrap_or(V::None)),
@@ -1739,6 +1742,11 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "json.decoder" if n == "scanstring" => json_scanstring(a),
         "json" => json_fn(n, a),
         "enum" => enum_fn(n, a),
+        "_brevi_mt" => brevi_mt_fn(n, a),
+        "hashlib" => hashlib_fn(n, a),
+        "base64" => base64_fn(n, a),
+        "binascii" => binascii_fn(n, a),
+        "_brevi_term" if n == "columns" => Ok(V::Int(term_columns())),
         _ => Err(unsupported(&format!("{m}.{n}"))),
     }
 }
@@ -1755,6 +1763,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("re", "error") => Some(V::Class(exc_class("error"))),
         ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("enum", "Enum") => Some(V::Class(enum_base())),
+        ("binascii", "Error") => Some(V::Class(exc_class("binascii.Error"))),
         _ => None,
     })
 }
@@ -1779,7 +1788,11 @@ pub fn run_main(f: fn() -> Result<(), E>) {
     let child = std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         init_builtin_classes();
         ARGV.with(|a| *a.borrow_mut() = std::env::args().collect());
-        let r = f();
+        // Exceptions arrive as Err, so a panic here is a bug in the runtime: keep what the program printed.
+        let Ok(r) = std::panic::catch_unwind(f) else {
+            out_flush();
+            return 1;
+        };
         let code = match r {
             Ok(()) => 0,
             Err(E(e)) => {
@@ -1814,4 +1827,12 @@ pub fn run_main(f: fn() -> Result<(), E>) {
     });
     let code = child.unwrap().join().unwrap_or(1);
     std::process::exit(code);
+}
+
+// shutil.get_terminal_size().columns, for Brevi's copy of argparse. The runtime reads no environment (caps.rs
+// tests it, for --sandbox), so the program sets this outside the sandbox (dynpy::to_rust adds the reader);
+// under it, or unset, help text is 80 columns wide.
+pub static TERM_COLS: std::sync::OnceLock<fn() -> i64> = std::sync::OnceLock::new();
+fn term_columns() -> i64 {
+    TERM_COLS.get().map_or(80, |f| f())
 }

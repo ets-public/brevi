@@ -13,8 +13,8 @@ pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
     "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "slice_step", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
-    "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "take", "trim", "upper", "values",
-    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none",
+    "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "sum_from", "take", "trim", "upper", "values",
+    "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none", "is_true_obj", "is_false_obj", "not_true_obj", "not_false_obj",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
     "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "csv_dicts", "re_match", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "splice", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "next_or_none", "tuple_items",
@@ -1240,7 +1240,7 @@ impl Emitter {
         }
         match self.fns.get("main") {
             Some(sig) if sig.fallible => {
-                let py = if self.py_mode { "    ax_py_mode();\n" } else { "" };
+                let py = self.py_start();
                 out.push_str(&format!(
                     "fn main() {{\n    ax_init(AX_FILES);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), ax_exc_msg(&e.0));\n        std::process::exit(1);\n    }}\n}}\n"
                 ))
@@ -1285,6 +1285,17 @@ impl Emitter {
         }
     }
 
+    // The start of main after ax_init. py_mode also covers .bv programs written in Python style; those keep
+    // Rust's exit status, so AxPyExit is for real Python files only.
+    fn py_start(&self) -> &'static str {
+        if crate::PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+            "    ax_py_mode();\n    let _exit = AxPyExit;\n"
+        } else if self.py_mode {
+            "    ax_py_mode();\n"
+        } else {
+            ""
+        }
+    }
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
         self.own_locals.clear();
         self.set_vars.clear();
@@ -1347,7 +1358,7 @@ impl Emitter {
             .map(|(i, p)| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else if set_at.contains(&i) { format!("mut {}: AxSet<{}", p.name, &rust_ty(&p.ty)[4..]) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
-        let init = if name == "main" && !fallible { if self.py_mode { "ax_init(AX_FILES);\n    ax_py_mode();\n" } else { "ax_init(AX_FILES);\n" } } else { "" };
+        let init = if name == "main" && !fallible { format!("ax_init(AX_FILES);\n{}", self.py_start()) } else { String::new() };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }
@@ -2535,8 +2546,22 @@ impl Emitter {
         if name == "ax_json_null" {
             return "Json::Null".into();
         }
+        // `f(())` / `f([])` into a JSON parameter: an empty JSON tuple or list (no item type to pick).
+        if name == "ax_to_json" {
+            match args.first().map(|a| &a.1) {
+                Some(Expr::Tuple(xs)) if xs.is_empty() => return "Json::Tup { v: vec![] }".into(),
+                Some(Expr::List(xs)) if xs.is_empty() => return "Json::Arr { v: vec![] }".into(),
+                _ => {}
+            }
+        }
         if self.locals.contains(name) || name == "ax_to_json" || matches!(name, "ax_tup_json" | "ax_jint" | "ax_jas_int" | "ax_jas_str" | "ax_jkey_str" | "ax_unsupported" | "ax_row" | "ax_json_dec" | "ax_json_strs" | "ax_json_ints" | "ax_subset") {
             return format!("{name}({})", plain.join(", "));
+        }
+        // An open() file the typed build cannot turn into its text or written pieces (passed on, kept, ...): say so
+        // rather than name the internal call (#195).
+        if name.starts_with("__open_") {
+            self.diag(self.line, "open(): the typed build takes a file only in with, for, json.load(), .read(), .readlines() or a variable it reads or writes", None);
+            return "()".into();
         }
         let known: Vec<String> = self.fns.keys().cloned().chain(BUILTINS.iter().map(|s| s.to_string())).chain(self.structs.keys().cloned()).chain(self.variants.keys().cloned()).collect();
         let best = closest(name, known.iter().map(|s| s.as_str())).map(String::from);

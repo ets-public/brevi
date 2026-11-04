@@ -20,6 +20,7 @@ mod pybridge;
 mod pydiag;
 mod patch;
 mod typed_guard;
+mod unicode_names;
 mod pysentinel;
 mod pystd;
 mod pygen;
@@ -31,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,native] [--allow-py MODULES] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -199,7 +200,37 @@ fn main() {
     if argv[..dash0].iter().position(|a| a == "--no-cache").map(|i| argv.remove(i)).is_some() {
         runcache::turn_off();
     }
-    let sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    let mut sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    // --allow read,write,native and --allow-py MODULES: what the caller grants a sandboxed program (caps.rs).
+    // Either implies --sandbox.
+    let mut grant: Vec<String> = vec![];
+    loop {
+        let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+        let Some(i) = argv[..dash].iter().position(|a| a == "--allow" || a == "--allow-py" || a.starts_with("--allow=") || a.starts_with("--allow-py=")) else { break };
+        let flag = argv.remove(i);
+        let (name, value) = match flag.split_once('=') {
+            Some((n, v)) => (n.to_string(), v.to_string()),
+            None if i < dash - 1 => (flag.clone(), argv.remove(i)),
+            None => {
+                eprintln!("{flag} needs a value: --allow read,write or --allow-py requests");
+                exit(2);
+            }
+        };
+        match caps::parse_grant(name == "--allow-py", &value) {
+            Ok(g) => grant.extend(g),
+            Err(m) => {
+                eprintln!("{m}");
+                exit(2);
+            }
+        }
+        sandbox = true;
+    }
+    grant.sort();
+    grant.dedup();
+    caps::GRANT.set(grant).ok();
+    if sandbox {
+        caps::SANDBOX.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let traceback = argv.iter().position(|a| a == "--").map_or(argv.len(), |d| d);
     if argv[..traceback].iter().position(|a| a == "--traceback").map(|i| argv.remove(i)).is_some() || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0") {
         TRACEBACK.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -230,6 +261,7 @@ fn main() {
                 flags.push(f.to_string());
             }
         }
+        flags.extend(caps::grant_flags());
         cached(cmd, &file, &argv, &flags);
     }
     // Capabilities first: a refusal here is final, before any dynamic, pybridge or python3 path can run.
@@ -240,12 +272,19 @@ fn main() {
     if cmd == "run" && file.ends_with(".py") && !native {
         run_or_fall_back(&file, &argv, sandbox, held);
     }
+    // Brevi's own syntax in a .py file: CPython stops on it, so Brevi does too.
+    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check") {
+        refuse_not_python(&file);
+    }
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
+    let mut unread = None;
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
-        let guard = guard_files(&file);
+        let guard;
+        (guard, unread) = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
-            println!("{}", guard.as_ref().map_or("typed".to_string(), |(l, w, _, k)| if k.is_empty() { format!("dyn {l}: {w}") } else { format!("typed if {}: {l}: {w}", k.join(" ")) }));
+            let typed = unread.as_ref().map_or("typed".to_string(), |(l, w, _)| format!("unread {l}: {w}"));
+            println!("{}", guard.as_ref().map_or(typed, |(l, w, _, k)| if k.is_empty() { format!("dyn {l}: {w}") } else { format!("typed if {}: {l}: {w}", k.join(" ")) }));
             exit(0);
         }
         // Set walks on names that may hold strings: the typed build tries, with rustc checking each name.
@@ -288,7 +327,12 @@ fn main() {
     // `allow read, write` lines, and with --sandbox (or any allow line) a refusal of anything undeclared.
     let with_allow = src.clone();
     let (src, allowed, cap_errs) = caps::split(&src);
-    let cap_errs = if sandbox || allowed.is_some() { [cap_errs, caps::check_src(&src, &allowed.unwrap_or_default())].concat() } else { cap_errs };
+    let cap_errs = if sandbox || allowed.is_some() {
+        let (allowed, held_errs) = caps::held(&with_allow, allowed, sandbox);
+        [cap_errs, held_errs, caps::check_src(&src, &allowed)].concat()
+    } else {
+        cap_errs
+    };
     if !cap_errs.is_empty() {
         cap_errs.iter().for_each(print_diag);
         exit(1);
@@ -334,6 +378,17 @@ fn main() {
     };
     let rust = match compile_to_rust(&src, true, true) {
         Ok(r) => {
+            // The typed build takes Brevi's names (`fail("x")`, `s.trim()`), which are mistakes in a .py file.
+            if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check") {
+                refuse_sure(&file, pydiag::scan_brevi);
+            }
+            // The typed build took a file the guard could not read, so nothing says it matches CPython. (A file
+            // it refuses goes on below, keeping its own errors.)
+            if let Some((line, why, gfile)) = &unread {
+                // By now errors are moved from the joined source to their file: give the joined line.
+                let seg = SEGS.get().and_then(|s| s.iter().skip(1).find(|g| g.path.file_name() == gfile.file_name()));
+                guard_refusal(cmd, &file, &argv, seg.map_or(*line, |g| g.start + line - 1), why, gfile);
+            }
             if emit::RAND_ORDER.get().is_some_and(|ns| ns.iter().any(|k| !r.contains(&format!("/*axr:{k}*/")))) {
                 soft_fail(cmd);
             }
@@ -351,8 +406,7 @@ fn main() {
             };
             if !sure.is_empty() {
                 sure.iter().for_each(print_diag);
-                // A test hook: tools that scan many files tell these refusals apart by exit code 3.
-                exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
+                exit_sure();
             }
             let (line, func, why, extra) = typed_refusal(&diags, &src);
             if dyn_ok && dyn_fallback(cmd, &file, &argv, (String::new(), line, func, why, extra, true)) {
@@ -369,9 +423,12 @@ fn main() {
     // the dynamic build has them natively, so it goes first (no libpython at run time, fine under --sandbox).
     if dyn_ok && !forced_dyn() && pybridge::active() && pybridge::stdlib_only() {
         let why = format!("{} not in the typed build", pybridge::uses().join(", "));
+        // Without CPython: one that needs it anyway is better built typed.
+        dynpy::NO_BRIDGE.store(true, std::sync::atomic::Ordering::Relaxed);
         if dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
             exit(0);
         }
+        dynpy::NO_BRIDGE.store(false, std::sync::atomic::Ordering::Relaxed);
         *DYN_BLOCKED.lock().unwrap() = None;
     }
     if dyn_ok {
@@ -470,8 +527,10 @@ fn hold_to_caps(file: &str, sandbox: bool) -> bool {
     let (code, allowed, mut errs) = caps::split(&src);
     let held = sandbox || allowed.is_some();
     if held {
-        let allowed = allowed.unwrap_or_default();
-        if !allowed.iter().any(|a| a == "native") {
+        // Under --sandbox, only what the caller granted (--allow, --allow-py): the file cannot grant itself more.
+        let (allowed, held_errs) = caps::held(&src, allowed, sandbox);
+        errs.extend(held_errs);
+        if !allowed.iter().any(|a| a == "native" || a.starts_with("py:")) {
             pybridge::NO_NATIVE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         errs.extend(caps::check_src(&code, &allowed));
@@ -511,13 +570,17 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         if std::env::var("BREVI_DYN_DEBUG").is_ok() {
             eprintln!("{e}");
         }
+        // Not a fact about the program: the runtime library may not have built (a cold cache shared by many
+        // builds at once, a full disk) or rustc may have been stopped. The refusal printed next names the typed
+        // build's reason, which a later build (after the machine is fine) would not stop at.
+        runcache::not_kept();
         *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, "internal: the dynamic build's code did not compile".into()));
         return false;
     }
     let (wfile, line, func, why, extra, relocate) = why;
-    say_path("dynamic", &wfile, line, func, &why, &extra, relocate);
+    say_path("dynamic", &wfile, line, func, &why, &format!("{extra}{}", dyn_py_field()), relocate);
     if cmd == "run" {
-        let status = proc::program(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+        let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
             println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
             exit(1);
         });
@@ -532,11 +595,7 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
     let why = why.to_string();
         // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
         if cmd != "emit" {
-            let sure = std::fs::read_to_string(&file).map(|t| pydiag::scan(&t, Path::new(&file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
-            if !sure.is_empty() {
-                sure.iter().for_each(print_diag);
-                exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
-            }
+            refuse_sure(&file, pydiag::scan);
         }
         if cmd == "emit" {
             dyn_cmd(cmd, &file, &argv);
@@ -550,14 +609,51 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
             exit(0);
         }
         dyn_blocked_note();
-        let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values"));
+        // Name what stopped the dynamic build too: fixing only the typed reason would still leave the file unbuilt.
+        let blocked = match DYN_BLOCKED.lock().unwrap().as_ref() {
+            Some((f, l, m)) if *l > 0 => format!(" ({} line {l}: {m})", Path::new(f).file_name().unwrap_or_default().to_string_lossy()),
+            Some((_, _, m)) => format!(" ({m})"),
+            None => String::new(),
+        };
+        let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values{blocked}"));
         if why.contains(" set") {
             d.fix = Some("sort it first (sorted(s)) where the order shows".into());
         } else if why.contains("generator") {
-            d.fix = Some("move the yield out of the try/finally or with block, or build a list and return it".into());
+            d.fix = Some(if blocked.is_empty() || blocked.contains("yield inside try") { "move the yield out of the try/finally or with block, or build a list and return it" } else { "build a list and return it" }.into());
         }
         print_diag(&d);
         exit(1);
+}
+
+// Stops on the mistakes in a Python file that `scan` (from pydiag) is sure of.
+fn refuse_sure(file: &str, scan: fn(&str, &Path) -> Vec<Diag>) {
+    let sure = std::fs::read_to_string(file).map(|t| scan(&t, Path::new(file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
+    if !sure.is_empty() {
+        sure.iter().for_each(print_diag);
+        exit_sure();
+    }
+}
+
+// Stops on the first file of a Python program, the main one or one it imports, that CPython could not compile.
+fn refuse_not_python(file: &str) {
+    let Ok(src) = std::fs::read_to_string(file) else { return };
+    let segs = modules::expand(file, &src).map_or(vec![], |x| x.1);
+    for s in segs.iter().skip(1).filter(|s| s.path.extension().is_some_and(|x| x == "py")) {
+        if let Some(mut d) = std::fs::read_to_string(&s.path).ok().and_then(|t| pydiag::not_python(&t)) {
+            d.line += s.start - 1;
+            println!("{}", modules::relocate(&segs, &d.to_json()));
+            exit_sure();
+        }
+    }
+    if let Some(d) = pydiag::not_python(&src) {
+        print_diag(&d);
+        exit_sure();
+    }
+}
+
+fn exit_sure() -> ! {
+    // A test hook: tools that scan many files tell these refusals apart by exit code 3.
+    exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 })
 }
 
 // The set-order guard reason the typed build was let past (see guard_files), for when it fails after all.
@@ -602,11 +698,11 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
         eprintln!("{e}");
         exit(1);
     }
-    say_path("dynamic", "", 0, None, "BREVI_DYN=1", "", false);
+    say_path("dynamic", "", 0, None, "BREVI_DYN=1", &dyn_py_field(), false);
     if cmd == "build" {
         exit(0);
     }
-    let status = proc::program(&bin).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+    let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
@@ -646,7 +742,7 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
     if cmd != "run" || !done.ok() {
         exit(done.code.unwrap_or(1));
     }
-    let status = proc::program(bin.as_ref().unwrap()).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+    let status = proc::script(bin.as_ref().unwrap(), file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
@@ -666,6 +762,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     let mut flags: Vec<String> = argv[2..dash].iter().filter(|a| a.as_str() == "--release").cloned().collect();
     if sandbox {
         flags.push("--sandbox".into());
+        flags.extend(caps::grant_flags());
     }
     if gui::window() {
         flags.push("--window".into());
@@ -693,7 +790,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     let code = match built {
         Ok(o) if o.ok() => {
             std::io::stderr().write_all(&o.stderr).ok();
-            proc::program(&bin).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
+            proc::script(&bin, file).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 1
             })
@@ -809,6 +906,15 @@ fn say_path(path: &str, file: &str, line: usize, func: Option<String>, why: &str
     s.push_str(extra);
     s.push('}');
     eprintln!("{}", if relocate { at(&s) } else { s });
+}
+
+// What CPython runs for a dynamic build (",\"py\":[...]"), or nothing.
+fn dyn_py_field() -> String {
+    let b = dynpy::bridged();
+    if b.is_empty() {
+        return String::new();
+    }
+    format!(",\"py\":[{}]", b.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(","))
 }
 
 fn forced_dyn() -> bool {
@@ -1061,8 +1167,9 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
                 let names: Vec<String> = b.iter().map(|(m, n)| format!("{m}.{n}")).collect();
                 let line = ds.iter().filter(|d| pybridge::blocked_noise(d)).map(|d| d.line).min().unwrap_or(1);
                 let one = if names.len() == 1 { "runs" } else { "run" };
-                let d = Diag::new("caps", line, 1, &format!("{} {one} in CPython, which needs allow native", names.join(", ")))
-                    .fix_hint(&format!("add the line `{}` at the top, or do without it", caps::allow_line("native")));
+                let mut mods: Vec<String> = b.iter().map(|(m, _)| m.split('.').next().unwrap_or(m).to_string()).collect();
+                mods.dedup();
+                let d = Diag::new("caps", line, 1, &format!("{} {one} in CPython, which needs allow native", names.join(", "))).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))));
                 let mut out = vec![d];
                 out.extend(ds.iter().filter(|d| !pybridge::blocked_noise(d)).cloned());
                 return Err(out);
@@ -1081,12 +1188,19 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         foreign.rust_top.push_str(&gui::runtime());
     }
     // pybridge: CPython for the Python libraries the program uses.
+    // --sandbox --allow-py: only the modules the caller named.
+    let ungranted: Vec<String> = if pybridge::active() { pybridge::uses().into_iter().filter(|u| !pybridge::py_allowed(u)).collect() } else { vec![] };
+    if pybridge::active() && !pybridge::no_native() && !ungranted.is_empty() {
+        let mut mods: Vec<String> = ungranted.iter().map(|u| u.split('.').next().unwrap_or(u).to_string()).collect();
+        mods.dedup();
+        return Err(vec![Diag::new("caps", 1, 1, &format!("{} runs in CPython, which needs allow native", ungranted.join(", "))).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))))]);
+    }
     if pybridge::active() && pybridge::no_native() {
         // Only modules the dynamic build has: it builds them, so say why the typed build did not.
         if pybridge::stdlib_only() {
             return Err(vec![Diag::new("check", 1, 1, &format!("{} not in the typed build", pybridge::uses().join(", "))).fix_hint("the dynamic build has them: build it without BREVI_DYN=0")]);
         }
-        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&format!("add the line `{}` at the top, or do without it", caps::allow_line("native")))]);
+        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&caps::grant_hint("native", None))]);
     }
     if pybridge::active() {
         pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
@@ -1363,12 +1477,14 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 // None when rustc could not be started.
 // The typed-build guard over the file and the local modules it imports (directly or through each other).
 // With the names (see typed_guard::check_soft) when every reason found is a set walked in hash order on them.
-fn guard_files(file: &str) -> Option<(usize, String, PathBuf, Vec<String>)> {
+// Second: a file the guard could not read (line, why, file), when no reason found was final.
+fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Option<(usize, String, PathBuf)>) {
     let dir = Path::new(file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let mut todo = vec![PathBuf::from(file)];
     let mut seen: Vec<PathBuf> = vec![];
     let mut first: Option<(usize, String, PathBuf)> = None;
     let mut soft: Vec<String> = vec![];
+    let mut unread: Option<(usize, String, PathBuf)> = None;
     while let Some(f) = todo.pop() {
         if seen.contains(&f) {
             continue;
@@ -1376,13 +1492,21 @@ fn guard_files(file: &str) -> Option<(usize, String, PathBuf, Vec<String>)> {
         seen.push(f.clone());
         let Ok(src) = std::fs::read_to_string(&f) else { continue };
         let src = if seen.len() == 1 { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
-        if let Some((line, why, names)) = typed_guard::check_soft(&src) {
-            let why = if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
-            if names.is_empty() {
-                return Some((line, why, f, vec![]));
+        let shown = |why: String| if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
+        // `allow` lines are not Python, and the guard reads what the typed build reads once they are gone.
+        match typed_guard::check_soft(&caps::split(&src).0) {
+            Ok(Some((line, why, names))) => {
+                let why = shown(why);
+                if names.is_empty() {
+                    return (Some((line, why, f, vec![])), None);
+                }
+                first.get_or_insert((line, why, f.clone()));
+                soft.extend(names);
             }
-            first.get_or_insert((line, why, f.clone()));
-            soft.extend(names);
+            Ok(None) => {}
+            Err((line, msg)) => {
+                unread.get_or_insert((line, shown(format!("the guard cannot read this file: {msg}")), f.clone()));
+            }
         }
         for l in src.lines() {
             let t = l.trim_start();
@@ -1401,7 +1525,7 @@ fn guard_files(file: &str) -> Option<(usize, String, PathBuf, Vec<String>)> {
             }
         }
     }
-    first.map(|(l, w, f)| (l, w, f, soft))
+    (first.map(|(l, w, f)| (l, w, f, soft)), unread)
 }
 
 // Builds are cached by a hash of the generated code, the flags and the rustc version, so running the same
@@ -1448,20 +1572,29 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
         c.arg("--out-dir").arg(dir);
     }
     c.arg(&rs);
+    let mut stopped = false;
     let r = match c.output() {
         Ok(o) if o.status.success() => Ok(()),
-        Ok(o) => Err(String::from_utf8_lossy(&o.stderr).to_string()),
+        Ok(o) => {
+            // Killed (out of memory, a time limit): whatever it printed is not about the program.
+            stopped = o.status.code().is_none();
+            Err(String::from_utf8_lossy(&o.stderr).to_string())
+        }
         Err(e) => {
             println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
             return None;
         }
     };
+    let about_code = matches!(&r, Err(e) if !stopped && e.contains("\"level\":\"error\"") && about_the_code(e));
+    if r.is_err() && !about_code {
+        runcache::not_kept();
+    }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
         let saved = match &r {
             Ok(()) if link => std::fs::copy(out, &tmp).is_ok(),
             Ok(()) => std::fs::write(&tmp, "").is_ok(),
-            Err(e) if e.contains("\"level\":\"error\"") && about_the_code(e) => std::fs::write(&tmp, e).is_ok(),
+            Err(e) if about_code => std::fs::write(&tmp, e).is_ok(),
             Err(_) => false,
         };
         let dest = if r.is_ok() { cached.clone() } else { cached.with_extension("err") };
@@ -1476,10 +1609,14 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
 
 // True when every rustc error points into the program. An error with no place in it (a folder that could not
 // be written, a full disk) is about the machine: kept out of the cache, so it goes once the machine is fixed.
+// A crate that could not be loaded (the runtime library missing, unreadable or built by another rustc) points
+// at the program's `extern crate` line, yet is about the cache: not about the code either.
 fn about_the_code(stderr: &str) -> bool {
+    const CRATE_LOAD: [&str; 6] = ["E0460", "E0461", "E0462", "E0463", "E0514", "E0786"];
     stderr.lines().filter_map(json::parse).filter(|j| j.get("level").and_then(|v| v.str()) == Some("error")).all(|j| {
         let msg = j.get("message").and_then(|v| v.str()).unwrap_or("");
-        msg.starts_with("aborting due to") || j.get("spans").is_some_and(|v| !v.arr().is_empty())
+        let code = j.get("code").and_then(|c| c.get("code")).and_then(|c| c.str()).unwrap_or("");
+        msg.starts_with("aborting due to") || (j.get("spans").is_some_and(|v| !v.arr().is_empty()) && !CRATE_LOAD.contains(&code))
     })
 }
 

@@ -7,6 +7,12 @@
 //   native  rust fn, py fn, rust: and py: blocks, crates (use NAME "VER"), and Python libraries CPython runs
 //           (import os, import numpy: pybridge.rs): these can do anything
 //
+// Under --sandbox only the caller grants capabilities: `--allow read,write,native` and `--allow-py requests,...`
+// (the MCP tools' allow and allow_py arguments). The code being held cannot free itself: an allow line in it that
+// asks for more than the caller granted is refused, and one that asks for less narrows nothing. `--allow-py`
+// grants CPython for the named Python modules only (and whatever CPython reaches through them), not rust fn,
+// rust: blocks or crates. Without --sandbox, a program with an allow line is held to it as before.
+//
 // A capability refusal is final: main.rs checks before any build, so a refused program is never built over
 // dynamic values, by pybridge or run by python3 instead. A held program (--sandbox or an allow line) never falls
 // back to python3 at all, since CPython cannot hold it to its allow lines. Dynamic builds (src/dynpy) have no
@@ -18,6 +24,108 @@ use crate::ast::{Expr, Item, Stmt, StrPart};
 use crate::diag::Diag;
 
 pub const CAPS: &[&str] = &["read", "write", "native"];
+
+// What the caller granted with --allow and --allow-py: "read", "write", "native", "py:requests".
+pub static GRANT: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+// Whether this run is under --sandbox (or --allow / --allow-py, which imply it).
+pub static SANDBOX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn sandboxed() -> bool {
+    SANDBOX.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn grant() -> Vec<String> {
+    GRANT.get().cloned().unwrap_or_default()
+}
+
+// The value of --allow (read, write, native, comma or space separated) or --allow-py (Python module names).
+pub fn parse_grant(py: bool, value: &str) -> Result<Vec<String>, String> {
+    let mut out = vec![];
+    for w in value.split([',', ' ']).map(str::trim).filter(|w| !w.is_empty()) {
+        if py {
+            if !w.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_')) {
+                return Err(format!("--allow-py takes Python module names, not '{w}'"));
+            }
+            out.push(format!("py:{}", w.split('.').next().unwrap_or(w)));
+        } else if CAPS.contains(&w) {
+            out.push(w.to_string());
+        } else if w != "none" {
+            return Err(format!("--allow takes read, write or native, not '{w}'"));
+        }
+    }
+    Ok(out)
+}
+
+// The grant as flags, for the brevi processes this one starts (and the result cache's key).
+pub fn grant_flags() -> Vec<String> {
+    let g = grant();
+    let caps: Vec<&str> = g.iter().filter(|c| !c.starts_with("py:")).map(String::as_str).collect();
+    let py: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("py:")).collect();
+    let mut out = vec![];
+    if !caps.is_empty() {
+        out.extend(["--allow".to_string(), caps.join(",")]);
+    }
+    if !py.is_empty() {
+        out.extend(["--allow-py".to_string(), py.join(",")]);
+    }
+    out
+}
+
+// The Python modules --allow-py granted, when the caller granted those and not all of native.
+pub fn py_only() -> Option<Vec<String>> {
+    let g = grant();
+    if g.iter().any(|c| c == "native") {
+        return None;
+    }
+    let py: Vec<String> = g.iter().filter_map(|c| c.strip_prefix("py:")).map(String::from).collect();
+    if py.is_empty() { None } else { Some(py) }
+}
+
+// The capabilities a held program may use: under --sandbox, what the caller granted, with an error for each allow
+// line that asks for more; otherwise its own allow lines. `src` still has its allow lines.
+pub fn held(src: &str, allowed: Option<Vec<String>>, sandbox: bool) -> (Vec<String>, Vec<Diag>) {
+    if !sandbox {
+        return (allowed.unwrap_or_default(), vec![]);
+    }
+    let g = grant();
+    let covered = |c: &str| c == "none" || g.iter().any(|x| x == c) || (c == "native" && g.iter().any(|x| x.starts_with("py:")));
+    let mut errs = vec![];
+    for (i, l) in src.split('\n').enumerate() {
+        let list = match l.strip_prefix("allow ").filter(|r| !r.trim_start().starts_with(['=', '.', '(', '[', '+', '-'])) {
+            Some(rest) => rest.split('#').next().unwrap_or("").split([',', ' ']).map(str::trim).filter(|c| CAPS.contains(c)).map(String::from).collect(),
+            None => comment_caps(l).unwrap_or_default(),
+        };
+        for c in list.iter().filter(|c| !covered(c)) {
+            errs.push(
+                Diag::new("caps", i + 1, 1, &format!("`{}` grants nothing under --sandbox: only the caller grants {c}", allow_line(c)))
+                    .fix_hint(&format!("remove the line; if you trust the program with it, run with --allow {c} (MCP tools: \"allow\": [\"{c}\"])")),
+            );
+        }
+    }
+    (g, errs)
+}
+
+// How to get a capability a program lacks: from the caller under --sandbox, else an allow line. `module`: the
+// Python module(s) the use is about, which --allow-py can grant alone.
+pub fn grant_hint(cap: &str, module: Option<&str>) -> String {
+    if !sandboxed() {
+        return format!("add the line `{}` at the top, or do without it", allow_line(cap));
+    }
+    match module {
+        Some(m) if cap == "native" => {
+            let list = m.split(", ").map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(", ");
+            format!("do without it, or the caller grants it: --allow-py {} (MCP tools: \"allow_py\": [{list}])", m.replace(", ", ","))
+        }
+        _ => format!("do without it, or the caller grants it: --allow {cap} (MCP tools: \"allow\": [\"{cap}\"])"),
+    }
+}
+
+// The module a native use names: `import requests`, `os.system`, `from os import *`, `argparse.FileType`.
+fn use_module(what: &str) -> Option<String> {
+    let w = what.strip_prefix("import ").or_else(|| what.strip_prefix("from ")).unwrap_or(what);
+    let m = w.split(['.', ' ']).next()?;
+    (!m.is_empty() && m.chars().all(|c| c.is_alphanumeric() || c == '_') && !what.starts_with("a ")).then(|| m.to_string())
+}
 
 // Removes `allow ...` lines (keeping line numbers) and returns the capabilities they name.
 // None: no allow line. A misspelt capability is an error.
@@ -88,6 +196,8 @@ fn path_module(m: &str) -> Option<&'static str> {
         "pathlib" => Some("pathlib"),
         "random" => Some("random"),
         "io" => Some("io"),
+        "textwrap" => Some("textwrap"),
+        "argparse" => Some("argparse"),
         _ => None,
     }
 }
@@ -98,6 +208,9 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "os.path" => PURE_OS_PATH.contains(&attr),
         "random" => OWN_RANDOM.contains(&attr),
         "io" => attr == "StringIO",
+        "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
+        // all of argparse but FileType, which opens files
+        "argparse" => attr != "FileType",
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -241,6 +354,12 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     if !any {
         return None;
     }
+    // argparse's `@file` arguments read files; Brevi's copy has no way to.
+    if names.values().any(|m| *m == "argparse") {
+        if let Some((n, _)) = lines.iter().find(|(_, l)| l.contains("fromfile_prefix_chars")) {
+            bad.push((*n, "argparse fromfile_prefix_chars".into()));
+        }
+    }
     let word = |c: char| c.is_alphanumeric() || c == '_';
     for (n, l) in &lines {
         if imports.contains(n) {
@@ -350,11 +469,13 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     let mut seen = Vec::new();
     let mut errs = Vec::new();
     for (line, cap, what) in uses {
-        if allowed.iter().any(|a| a == cap) || seen.contains(&(line, cap)) {
+        let module = if cap == "native" { use_module(&what) } else { None };
+        let py_granted = module.as_ref().is_some_and(|m| allowed.iter().any(|a| a.strip_prefix("py:") == Some(m.as_str())));
+        if allowed.iter().any(|a| a == cap) || py_granted || seen.contains(&(line, cap)) {
             continue;
         }
         seen.push((line, cap));
-        let add = format!("add the line `{}` at the top, or do without it", allow_line(cap));
+        let add = grant_hint(cap, module.as_deref());
         let fix = if what.starts_with("random.") {
             format!("Brevi's own random has {}; for the rest, {add}", OWN_RANDOM.join(", "))
         } else if what.starts_with("os") || what.starts_with("pathlib") || what.starts_with("from os") || what.starts_with("from pathlib") {
@@ -461,17 +582,50 @@ mod tests {
     // and Brevi's own math and time, and open nothing.
     #[test]
     fn sandbox_modules_reach_nothing() {
-        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py"))] {
+        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py")), ("textwrap", include_str!("dynpy/py/textwrap.py"))] {
             for l in src.lines().map(str::trim) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["math", "time", "posixpath"].contains(&m), "{name}.py imports {m}");
+                    assert!(["math", "time", "posixpath", "_brevi_mt"].contains(&m), "{name}.py imports {m}");
                 }
                 for bad in ["open(", "__import__", "exec(", "eval(", "getattr(", "sys."] {
                     assert!(!l.contains(bad), "{name}.py uses {bad}");
                 }
             }
         }
+    }
+
+    // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it
+    // uses sys and getattr, but imports only Brevi's own modules and opens nothing.
+    #[test]
+    fn argparse_copy_reaches_nothing() {
+        for l in include_str!("dynpy/py/argparse.py").lines().map(str::trim) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                let m = m.split_whitespace().next().unwrap();
+                assert!(["os", "re", "sys", "textwrap", "_brevi_term"].contains(&m), "argparse.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "_sys.stdin", "environ"] {
+                assert!(!l.contains(bad), "argparse.py uses {bad}");
+            }
+        }
+    }
+
+    // Grants come from the caller: --allow takes capability names, --allow-py module names (kept by package).
+    #[test]
+    fn caller_grants() {
+        assert_eq!(super::parse_grant(false, "read, write").unwrap(), ["read", "write"]);
+        assert!(super::parse_grant(false, "net").is_err());
+        assert_eq!(super::parse_grant(true, "requests,google.genai").unwrap(), ["py:requests", "py:google"]);
+        assert!(super::parse_grant(true, "os;rm").is_err());
+        // Outside the sandbox the file's own allow lines hold it; under it they add nothing (no grant here).
+        let (g, errs) = super::held("# allow read
+x", Some(vec!["read".into()]), false);
+        assert_eq!((g, errs.len()), (vec!["read".to_string()], 0));
+        let (g, errs) = super::held("# allow read
+allow native
+x", Some(vec!["read".into(), "native".into()]), true);
+        assert!(g.is_empty());
+        assert_eq!(errs.iter().map(|d| d.line).collect::<Vec<_>>(), [1, 2]);
     }
 
     // `# allow read` counts only when the comment is nothing but capability names.
@@ -502,6 +656,8 @@ mod tests {
         assert_eq!(uses("from os import *\n"), ["from os import *"]);
         assert_eq!(uses("import os\nx = (os.environ\n     ['HOME'])\n"), ["os.environ"]);
         assert_eq!(uses("import random\nrandom.seed(1)\nrandom.betavariate(1, 2)\n"), ["random.betavariate"]);
+        assert!(uses("import argparse\np = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)\n").is_empty());
+        assert_eq!(uses("import argparse\np = argparse.ArgumentParser(fromfile_prefix_chars='@')\np.add_argument('f', type=argparse.FileType('r'))\n"), ["argparse fromfile_prefix_chars", "argparse.FileType"]);
     }
 
     // A program that passes the check may be built over dynamic values (main.rs relies on it under --sandbox),

@@ -1,0 +1,4 @@
+before
+ typed exit 0
+before
+ dynamic exit 0

@@ -1,8 +1,8 @@
-{"line":1,"msg":"write() needs allow write","fix":"add the line `# allow write` at the top, or do without it"}
+{"line":1,"msg":"write() needs allow write","fix":"do without it, or the caller grants it: --allow write (MCP tools: \"allow\": [\"write\"])"}
 exit 1
 -- dynamic
-{"line":1,"msg":"write() needs allow write","fix":"add the line `# allow write` at the top, or do without it"}
+{"line":1,"msg":"write() needs allow write","fix":"do without it, or the caller grants it: --allow write (MCP tools: \"allow\": [\"write\"])"}
 exit 1
 -- typed
-{"line":1,"msg":"write() needs allow write","fix":"add the line `# allow write` at the top, or do without it"}
+{"line":1,"msg":"write() needs allow write","fix":"do without it, or the caller grants it: --allow write (MCP tools: \"allow\": [\"write\"])"}
 exit 1

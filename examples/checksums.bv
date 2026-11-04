@@ -1,8 +1,8 @@
-use sha2 "0.10"
-use base64 "0.22"
+use sha2 "0.11"
+use base64 "0.23"
 rust fn sha256(s: str) -> str:
   use sha2::{Digest, Sha256};
-  format!("{:x}", Sha256::digest(s.as_bytes()))
+  Sha256::digest(s.as_bytes()).iter().map(|b| format!("{:02x}", b)).collect()
 rust fn b64(s: str) -> str:
   use base64::Engine;
   base64::engine::general_purpose::STANDARD.encode(s.as_bytes())

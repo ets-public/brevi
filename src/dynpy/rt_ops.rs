@@ -273,6 +273,16 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
             _ => x >= y,
         });
     }
+    if let V::Ext(x) = a {
+        if let Some(r) = x.rich(a, op, b, false) {
+            return r;
+        }
+    }
+    if let V::Ext(y) = b {
+        if let Some(r) = y.rich(b, op, a, true) {
+            return r;
+        }
+    }
     if matches!(a, V::Obj(_)) || matches!(b, V::Obj(_)) {
         if let V::Obj(o) = a {
             if let Some(f) = o.cls.lookup(dunder(op)) {
@@ -995,6 +1005,10 @@ pub fn len(v: &V) -> Result<usize, E> {
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
     Ok(match c {
         V::Class(k) if is_enum(k) => enum_contains(k, x)?,
+        V::Ext(e) if e.is_py() || e.any().is::<BytesV>() => match e.method(c, "__contains__", &mut Args::p(vec![x.clone()])) {
+            Some(r) => truth(&r?)?,
+            None => false,
+        },
         V::Str(s) => match x {
             V::Str(n) => s.s.contains(n.s.as_str()),
             _ => return type_err(format!("'in <string>' requires string as left operand, not {}", tn(x))),
@@ -1306,6 +1320,10 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
             }
             type_err(format!("'{}' object does not support item assignment", tn(c)))
         }
+        (V::Ext(x), _) => match x.method(c, "__setitem__", &mut Args::p(vec![i.clone(), v])) {
+            Some(r) => r.map(|_| ()),
+            None => type_err(format!("'{}' object does not support item assignment", tn(c))),
+        },
         (V::List(_), V::Bool(_)) => setitem(c, &V::Int(idx_of(i)?), v),
         (V::List(_), _) => type_err(format!("list indices must be integers or slices, not {}", tn(i))),
         _ => type_err(format!("'{}' object does not support item assignment", tn(c))),
@@ -1349,6 +1367,10 @@ pub fn delitem(c: &V, i: &V) -> Result<(), E> {
             }
             type_err(format!("'{}' object doesn't support item deletion", tn(c)))
         }
+        (V::Ext(x), _) => match x.method(c, "__delitem__", &mut Args::p(vec![i.clone()])) {
+            Some(r) => r.map(|_| ()),
+            None => type_err(format!("'{}' object doesn't support item deletion", tn(c))),
+        },
         _ => type_err(format!("'{}' object doesn't support item deletion", tn(c))),
     }
 }
@@ -1515,9 +1537,12 @@ pub fn iter(v: &V) -> Result<It, E> {
             return type_err(format!("'{}' object is not iterable", tn(v)));
         }
         V::Module("sys.stdin") => It::Gen(Box::new(|| Ok(read_line().map(st)))),
-        V::Ext(x) => match x.iter() {
-            Some(v) => It::Vec(v.into_iter()),
-            None => return type_err(format!("'{}' object is not iterable", tn(v))),
+        V::Ext(x) => match x.lazy_iter() {
+            Some(r) => return r,
+            None => match x.iter() {
+                Some(v) => It::Vec(v.into_iter()),
+                None => return type_err(format!("'{}' object is not iterable", tn(v))),
+            },
         },
         _ => return type_err(format!("'{}' object is not iterable", tn(v))),
     })
@@ -1584,6 +1609,11 @@ pub fn unpack_star(v: &V, before: usize, after: usize) -> Result<Vec<V>, E> {
     Ok(out)
 }
 pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
+    if let V::Ext(x) = v {
+        if let Some(n) = x.native() {
+            return dict_items_of(&n?);
+        }
+    }
     match v {
         V::Dict(d) => Ok(d.borrow().items()),
         V::Obj(o) if o.cls.lookup("keys").is_some() => {

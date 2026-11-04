@@ -84,6 +84,34 @@ pub trait Ext {
     fn fmt(&self, _spec: &str) -> Option<R> {
         None
     }
+    // For values a Python library made (a dynamic build's bridge, pasted into the program): `o.n = v`,
+    // `a OP b` for the ordering operators, `isinstance(me, cls)` with a builtin class, `isinstance(x, me)`
+    // with me a library class, a lazy iterator, and the value as Brevi's own (a list as a list) for code
+    // that needs that (json.dumps, dict(x)).
+    fn set_attr(&self, _me: &V, _n: &str, _v: V) -> Option<Result<(), E>> {
+        None
+    }
+    fn rich(&self, _me: &V, _op: &str, _o: &V, _right: bool) -> Option<Result<bool, E>> {
+        None
+    }
+    fn isinst(&self, _cls: &Class) -> Option<bool> {
+        None
+    }
+    fn instancecheck(&self, _x: &V) -> Option<Result<bool, E>> {
+        None
+    }
+    fn lazy_iter(&self) -> Option<Result<It, E>> {
+        None
+    }
+    fn native(&self) -> Option<R> {
+        None
+    }
+    fn is_py(&self) -> bool {
+        false
+    }
+    fn try_truth(&self) -> Option<Result<bool, E>> {
+        None
+    }
 }
 
 pub struct S {
@@ -1451,6 +1479,7 @@ pub fn init_builtin_classes() {
         ("ValueError", "Exception"),
         ("UnicodeError", "ValueError"),
         ("UnicodeDecodeError", "UnicodeError"),
+        ("UnicodeEncodeError", "UnicodeError"),
         ("TypeError", "Exception"),
         ("AttributeError", "Exception"),
         ("NameError", "Exception"),
@@ -1491,6 +1520,8 @@ pub fn init_builtin_classes() {
         };
         m.insert(n, Class::new(n, module, vec![parent], BT::Exc));
     }
+    let ve = m["ValueError"].clone();
+    m.insert("binascii.Error", Class::new("Error", "binascii", vec![ve], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
 }
 
@@ -1570,7 +1601,10 @@ pub fn truth(v: &V) -> Result<bool, E> {
             }
             true
         }
-        V::Ext(x) => x.truth(),
+        V::Ext(x) => match x.try_truth() {
+            Some(r) => r?,
+            None => x.truth(),
+        },
         V::Unbound => false,
         _ => true,
     })
