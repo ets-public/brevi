@@ -16,6 +16,8 @@ Each side's prompt cache is kept apart so neither pays the other's cache writes.
 
 | Runs (Nov 2026) | Sonnet cost, Brevi vs CPython | Haiku cost, Brevi vs CPython | Tasks passed | Built natively | Failed because of Brevi |
 | --- | --- | --- | --- | --- | --- |
+| r250c, r250d (v0.25.0, two runs, 4 Nov) | **1.09x** (95% range 1.03x to 1.15x) | **1.01x** (0.94x to 1.09x) | 24 of 24 in every run with Brevi; one Haiku run with CPython missed a task | 47 of 48 and 48 of 48 | 0 |
+| r250a, r250b (main just before v0.25.0's last fix, two runs) | **1.04x** (95% range 1.00x to 1.08x) | **1.05x** (1.00x to 1.10x) | 24 of 24 in every run, both sides | 48 of 48 and 48 of 48 | 0 |
 | r246a, r246b (v0.24.6, two runs, 4 Nov) | **1.03x** (95% range 0.97x to 1.09x) | **1.02x** (0.97x to 1.08x) | 24 of 24 in every run, both sides | 47 of 48 and 48 of 48 | 0 |
 | r245a, r245b (v0.24.5, two runs) | **1.06x** (95% range 1.01x to 1.12x) | **1.01x** (0.95x to 1.07x) | 24 of 24 in every run, both sides | 48 of 48 and 47 of 48 | 0 |
 | r244a to r244e (v0.24.4, five runs) | **1.06x** (95% range 1.03x to 1.10x) | **1.03x** (0.98x to 1.10x) | 24 of 24 in every run, both sides | 120 of 120 and 117 of 120 | 5 checks, final programs all passed |

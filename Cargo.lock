@@ -4,4 +4,4 @@ version = 4
 
 [[package]]
 name = "brevi"
-version = "0.24.6"
+version = "0.25.0"
