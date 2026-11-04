@@ -881,11 +881,6 @@ impl Plus for AxPy {
         ax_pyb_opx("+", self, o)
     }
 }
-impl std::iter::Sum for AxPy {
-    fn sum<I: Iterator<Item = AxPy>>(it: I) -> AxPy {
-        it.fold(0i64.ax_to_py(), |a, b| ax_pyb_opx("+", a, b))
-    }
-}
 impl AxNone for AxPy {
     fn ax_none() -> Self {
         ax_pyb_none()
@@ -903,8 +898,12 @@ impl AxToJson for AxPy {
     }
 }
 impl AxSum<AxPy> for Vec<AxPy> {
+    // CPython's own sum: its floats are compensated, which adding the items one by one would lose.
     fn ax_sum(&self) -> AxPy {
-        self.iter().cloned().sum()
+        match ax_pyb_builtin("sum", vec![self.ax_to_py()], vec![]) {
+            Ok(v) => v,
+            Err(e) => panic!("{}", ax_exc_msg(&e.0)),
+        }
     }
 }
 impl Eq for AxPy {}
