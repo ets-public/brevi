@@ -33,4 +33,12 @@ cp $R/REFERENCE.md $O/reference.md
 sed '1,/^---$/{/^---$/!d};1,/^---$/d' $R/skills/brevi/SKILL.md > $O/skill.md
 sed -n '/^## Status/,$p' $R/README.md > $O/bench.md
 { cat $O/llms.txt; echo; cat $O/guide.md; echo; cat $O/reference.md; echo; cat $O/libraries.md; echo; cat $O/skill.md; } > $O/llms-full.txt
+# sitemap.xml and robots.txt for search engines (Search Console reads the sitemap): one clean address
+# per page, as deploy.sh serves them (docs/usage.html is /docs/usage, an index.html is its folder).
+for pair in "$O https://brevi-lang.org" "$S/out-run https://brevi.run"; do set -- $pair
+  { echo '<?xml version="1.0" encoding="UTF-8"?>'; echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+    (cd $1 && find . -name '*.html' ! -name 404.html | sed 's|^\.||; s|index\.html$||; s|\.html$||' | sort) | sed "s|.*|  <url><loc>$2&</loc></url>|"
+    echo '</urlset>'; } > $1/sitemap.xml
+  printf 'User-agent: *\nAllow: /\n\nSitemap: %s/sitemap.xml\n' "$2" > $1/robots.txt
+done
 echo "built $(find $O -type f | wc -l) files in $O, $(find $S/out-run -type f | wc -l) in $S/out-run"
