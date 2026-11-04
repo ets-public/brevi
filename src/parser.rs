@@ -2151,6 +2151,7 @@ impl Parser {
                             if name == "get" && args.len() == 1 && !self.own_method(&e) {
                                 args.push(Expr::Call("none".into(), vec![], line));
                             }
+                            crate::pydiag::note_call(line, &name, &e);
                             let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
                             // s.splitlines(True): the flag is in the name now.
                             if name == "lines_keep" {
@@ -2364,6 +2365,8 @@ impl Parser {
                                     Expr::Field(m, f) if f == "stdin" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys") => Expr::Call("stdin".into(), vec![], line),
                                     // `sys.stdin` already read as its lines.
                                     Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    // json.load(open(p)): the file's text (#195).
+                                    Expr::Call(f, a, l) if f == "__open_r" && name == "load" => Expr::Call("read".into(), a, l),
                                     other => other,
                                 };
                                 e = Expr::Call("json".into(), vec![(None, src)], line);
@@ -2760,11 +2763,12 @@ impl Parser {
                         "unique" => Some("unique"),
                         _ => None,
                     };
-                    // sum(xs, start): the start plus the sum.
+                    // sum(xs, start): the start plus the sum. The `true` tells this from a written `start + sum(xs)`
+                    // until the types are known: infer.rs removes it, and for floats sums from the start.
                     if name == "sum" && !self.user_fns.contains(&name) && args.len() == 2 {
                         let start = args.remove(1).1;
                         let xs = args.remove(0).1;
-                        return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![], line))));
+                        return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![Expr::Bool(true)], line))));
                     }
                     // min(a, b, c, ...): min(min(a, b), c), ... (the prelude's min and max take two values).
                     if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() > 2 && args.iter().all(|a| a.0.is_none()) {
@@ -5068,9 +5072,32 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
             *script = st;
         }
     }
-    // Names local to one function.
+    // Names local to one function. A nested def that sets the name (`nonlocal players; players = None`)
+    // has it as a changed parameter: the flag goes along with it, as another changed parameter.
+    let kids_of: Vec<(String, Vec<(String, Vec<String>)>)> = items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Fn { name, .. } => Some((name.clone(), items.iter().filter_map(|k| match k {
+                Item::Fn { name: kn, params, .. } if kn.starts_with(&format!("{name}_")) => Some((kn.clone(), params.iter().filter(|p| p.is_mut).map(|p| p.name.clone()).collect())),
+                _ => None,
+            }).collect())),
+            _ => None,
+        })
+        .collect();
+    let mut kid_flags: Vec<(String, String, String)> = vec![]; // (kid, name, flag)
+    let mut kid_sets: HashMap<(String, String), Vec<Option<Expr>>> = HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { name, params, body, .. } = it {
+            for p in params.iter().filter(|p| p.is_mut) {
+                let mut fs = vec![];
+                sets(body, &p.name, &mut fs);
+                kid_sets.insert((name.clone(), p.name.clone()), fs);
+            }
+        }
+    }
     for it in items.iter_mut() {
-        let Item::Fn { params, body, .. } = it else { continue };
+        let Item::Fn { name: fname, params, body, .. } = it else { continue };
+        let kids: Vec<(String, Vec<String>)> = kids_of.iter().find(|(f, _)| f == fname).map(|(_, k)| k.clone()).unwrap_or_default();
         let mut cands: Vec<String> = vec![];
         crate::infer::walk(body, &mut |x| {
             if let Expr::Block(st, _) = x {
@@ -5089,12 +5116,42 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
             }
             let mut all = vec![];
             sets(body, &n, &mut all);
+            // Nested defs that change it.
+            let changers: Vec<String> = kids.iter().filter(|(_, m)| m.contains(&n)).map(|(k, _)| k.clone()).collect();
+            for k in &changers {
+                all.extend(kid_sets.get(&(k.clone(), n.clone())).cloned().unwrap_or_default());
+            }
             if all.iter().any(|v| v.is_none()) || !all.iter().any(|v| v.as_ref().is_some_and(is_none)) {
                 continue;
             }
             let flag = format!("ax_nn_{n}");
             rewrite(body, &n, &flag);
+            for k in changers {
+                kid_flags.push((k, n.clone(), flag.clone()));
+            }
         }
+    }
+    if kid_flags.is_empty() {
+        return;
+    }
+    for it in items.iter_mut() {
+        let Item::Fn { name, params, body, .. } = it else { continue };
+        for (k, n, flag) in &kid_flags {
+            if name == k {
+                params.push(Param { name: flag.clone(), ty: Ty::Named("?".into()), is_mut: true });
+                rewrite(body, n, flag);
+            }
+        }
+        // Every call of such a def passes the flag too (by the same name, in the function that has it).
+        walk_mut(body, &mut |e| {
+            if let Expr::Call(f, args, _) = e {
+                for (k, _, flag) in &kid_flags {
+                    if f == k && !args.iter().any(|(_, a)| matches!(a, Expr::Ident(x) if x == flag)) {
+                        args.push((None, Expr::Ident(flag.clone())));
+                    }
+                }
+            }
+        });
     }
 }
 

@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 // Modules the parser maps onto Brevi's own library (see the lexer's PY_BUILTIN_MODULES and PY_ALIAS_MODULES).
 const NATIVE: &[&str] = &[
     "sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools", "datetime", "json", "calendar", "decimal", "heapq", "bisect", "string",
-    "statistics", "random", "time", "copy", "operator", "csv", "threading", "__future__", "fractions", "enum", "abc",
+    "statistics", "random", "time", "copy", "operator", "csv", "threading", "__future__", "fractions", "enum", "abc", "hashlib", "base64", "binascii",
 ];
 // GUI libraries (gui.rs handles tkinter; the others are refused in modules.rs).
 const NOT_BRIDGED: &[&str] = &["tkinter", "Tkinter", "turtle", "pygame", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "kivy", "customtkinter", "pyglet", "arcade", "dearpygui"];
@@ -68,6 +68,16 @@ pub static NO_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 
 pub fn no_native() -> bool {
     NO_NATIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+// Whether CPython may run Python module m (or its package's) for this program: not under the sandbox without
+// allow native, and under `--sandbox --allow-py` only the modules the caller named (caps.rs).
+pub fn py_allowed(m: &str) -> bool {
+    if no_native() {
+        return false;
+    }
+    let root = m.split('.').next().unwrap_or(m);
+    crate::caps::py_only().map_or(true, |l| l.iter().any(|x| x == root))
 }
 
 thread_local! {
@@ -251,8 +261,9 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
         }
         eprintln!("pybridge learn: {new:?}");
     }
-    if no_native() {
-        BLOCKED.with(|b| b.borrow_mut().extend(new));
+    let (new, blocked): (Vec<_>, Vec<_>) = new.into_iter().partition(|(m, _)| py_allowed(m));
+    if !blocked.is_empty() {
+        BLOCKED.with(|b| b.borrow_mut().extend(blocked));
         return false;
     }
     EXTRA.with(|x| {
@@ -285,7 +296,7 @@ pub fn uses() -> Vec<String> {
 pub fn stdlib_only() -> bool {
     let u = uses();
     // os and pathlib too: the dynamic build has their path text (and refuses a program that needs more).
-    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io"))
+    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"))
 }
 
 pub fn active() -> bool {
@@ -1099,7 +1110,9 @@ fn expr_pat(e: &Expr) -> Option<Pat> {
 
 // ------------------------------------------------------------------------------------------- the runtime
 
-const RUNTIME: &str = include_str!("pyrt.rs");
+const RUNTIME: &str = concat!(include_str!("pyrt_load.rs"), include_str!("pyrt.rs"));
+// The loader alone, for the dynamic builds' bridge (dynpy/pyglue.rs).
+pub const LOADER: &str = include_str!("pyrt_load.rs");
 
 // Asked of python3 when the program is built: libpython's path, PYTHONHOME and sys.path (minus the script's
 // folder), joined by \x01.
@@ -1144,6 +1157,15 @@ pub fn python_ok() -> Result<(), String> {
 
 // The runtime for this program: CPython found now (and again at run time if it moved).
 pub fn runtime() -> String {
+    format!("{}{RUNTIME}", consts())
+}
+
+// The loader and its constants, for a dynamic build that bridges libraries (dynpy/pyglue.rs follows it).
+pub fn dyn_runtime() -> String {
+    format!("{}{LOADER}", consts())
+}
+
+fn consts() -> String {
     let file = FILE.get().cloned().unwrap_or_default();
     let conf = conf().clone().unwrap_or_default();
     let abs = std::fs::canonicalize(&file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.clone());
@@ -1157,7 +1179,7 @@ pub fn runtime() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n{RUNTIME}")
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n")
 }
 
 // ------------------------------------------------------------------------------------------- standalone builds

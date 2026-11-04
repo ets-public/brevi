@@ -275,6 +275,17 @@ pub static AX_PY_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 pub fn ax_py_mode() {
     AX_PY_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
+// Held by main in a Python file. The typed build raises most exceptions as panics, and Rust exits 101 after one
+// that reaches main; CPython exits 1. Exiting here, not in the panic hook, leaves a panic that a catch_unwind
+// stops (a Brevi callback run by a Python library) alone. process::exit flushes stdout.
+pub struct AxPyExit;
+impl Drop for AxPyExit {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            std::process::exit(1);
+        }
+    }
+}
 #[inline]
 fn ax_py_on() -> bool {
     AX_PY_MODE.load(std::sync::atomic::Ordering::Relaxed)
@@ -2110,15 +2121,38 @@ impl AxSum<i64> for Vec<i64> {
         self.iter().sum()
     }
 }
+// CPython 3.12+ sums floats with compensation (Neumaier), and so does bi_sum in the dynamic build.
+fn ax_fsum(start: f64, xs: impl Iterator<Item = f64>) -> f64 {
+    let (mut f, mut c) = (start, 0.0f64);
+    for x in xs {
+        let t = f + x;
+        c += if f.abs() >= x.abs() { (f - t) + x } else { (x - t) + f };
+        f = t;
+    }
+    // Adding the correction to an overflowed sum would make it nan.
+    if c != 0.0 && c.is_finite() {
+        f += c;
+    }
+    f
+}
 impl AxSum<f64> for Vec<f64> {
     fn ax_sum(&self) -> f64 {
-        self.iter().sum()
+        ax_fsum(0.0, self.iter().copied())
+    }
+}
+// sum(xs, start) of floats: the start is the sum's first term.
+pub trait AxSumFrom {
+    fn ax_sum_from(&self, start: f64) -> f64;
+}
+impl AxSumFrom for Vec<f64> {
+    fn ax_sum_from(&self, start: f64) -> f64 {
+        ax_fsum(start, self.iter().copied())
     }
 }
 // Numbers held as JSON (a function returning `v` or `0`): their sum, as JSON.
 impl AxSum<Json> for Vec<Json> {
     fn ax_sum(&self) -> Json {
-        Json::Num { v: self.iter().map(|j| if let Json::Num { v, .. } = j { *v } else { 0.0 }).sum(), f: self.iter().any(|j| matches!(j, Json::Num { f: true, .. })) }
+        Json::Num { v: ax_fsum(0.0, self.iter().map(|j| if let Json::Num { v, .. } = j { *v } else { 0.0 })), f: self.iter().any(|j| matches!(j, Json::Num { f: true, .. })) }
     }
 }
 pub trait AxJoin {
@@ -2521,6 +2555,11 @@ impl Plus for Json {
             (Json::Arr { v: mut a }, Json::Arr { v: b }) => {
                 a.extend(b);
                 Json::Arr { v: a }
+            }
+            // `(tm,) + t` with t a tuple held as JSON: one tuple.
+            (Json::Tup { v: mut a } | Json::Arr { v: mut a }, Json::Tup { v: b }) | (Json::Tup { v: mut a }, Json::Arr { v: b }) => {
+                a.extend(b);
+                Json::Tup { v: a }
             }
             (a, b) => ax_jnk(ax_jnum(&a) + ax_jnum(&b), ax_jf(&a) || ax_jf(&b)),
         }
@@ -3013,8 +3052,13 @@ impl Json {
             _ => 0,
         }
     }
+    // Reached from Python's `j == []` / `j == {}`: an empty list or object (not null, 0, False or "").
     pub fn ax_is_empty(&self) -> bool {
-        self.ax_len() == 0
+        match self {
+            Json::Arr { v } => v.is_empty(),
+            Json::Obj { v } => v.is_empty(),
+            _ => false,
+        }
     }
     // d.get(k, default) on a JSON object: the value under k, else the default as JSON.
     pub fn ax_get_or<K: AxJKey + ?Sized, D: AxToJson>(&self, k: &K, d: D) -> Json {
@@ -5971,14 +6015,15 @@ impl AxNone for Json {
         Json::Null
     }
 }
+// As in Python, False == 0 and True == 1.
 impl PartialEq<i64> for Json {
     fn eq(&self, o: &i64) -> bool {
-        matches!(self, Json::Num { v, .. } if *v == *o as f64)
+        matches!(self, Json::Num { v, .. } if *v == *o as f64) || matches!(self, Json::Bool { v } if (*v as i64) == *o)
     }
 }
 impl PartialEq<f64> for Json {
     fn eq(&self, o: &f64) -> bool {
-        matches!(self, Json::Num { v, .. } if *v == *o)
+        matches!(self, Json::Num { v, .. } if *v == *o) || matches!(self, Json::Bool { v } if (*v as i64 as f64) == *o)
     }
 }
 impl AxTryList<Json> for Json {
@@ -6018,7 +6063,11 @@ impl Json {
     }
     // sum(j) of a dynamic list.
     pub fn ax_sum(&self) -> Json {
-        self.ax_seq().into_iter().fold(Json::Num { v: 0.0, f: false }, |a, b| Plus::plus(a, b))
+        let xs = self.ax_seq();
+        if xs.iter().any(ax_jf) && xs.iter().all(|x| matches!(x, Json::Num { .. })) {
+            return ax_jnk(ax_fsum(0.0, xs.iter().map(ax_jnum)), true);
+        }
+        xs.into_iter().fold(Json::Num { v: 0.0, f: false }, |a, b| Plus::plus(a, b))
     }
     // What `for x in j` walks: a list's items, a text's characters, a dict's keys.
     fn ax_seq(&self) -> Vec<Json> {
@@ -6802,6 +6851,33 @@ impl AxReM for String {
     }
 }
 // Python's re.match (anchored at the start) and re.findall (group 1 when the pattern has one group).
+// re on a JSON value: its text (re.search(p, item["title"]) over loaded JSON, #195).
+impl AxRe for Json {
+    fn ax_re_find(&self, p: String) -> Vec<String> {
+        self.ax_jtext("search").ax_re_find(p)
+    }
+    fn ax_re_full(&self, p: String) -> Vec<String> {
+        self.ax_jtext("fullmatch").ax_re_full(p)
+    }
+    fn ax_re_all(&self, p: String) -> Vec<Vec<String>> {
+        self.ax_jtext("finditer").ax_re_all(p)
+    }
+    fn ax_re_list(&self, p: String) -> Vec<String> {
+        self.ax_jtext("findall").ax_re_list(p)
+    }
+    fn ax_re_sub(&self, p: String, r: String) -> String {
+        self.ax_jtext("sub").ax_re_sub(p, r)
+    }
+    fn ax_re_sub_with<F: FnMut(Vec<String>) -> String>(&self, p: String, f: F) -> String {
+        self.ax_jtext("sub").ax_re_sub_with(p, f)
+    }
+    fn ax_try_re_sub_with<F: FnMut(Vec<String>) -> R<String>>(&self, p: String, f: F) -> R<String> {
+        self.ax_jtext("sub").ax_try_re_sub_with(p, f)
+    }
+    fn ax_re_split(&self, p: String) -> Vec<String> {
+        self.ax_jtext("split").ax_re_split(p)
+    }
+}
 pub trait AxRePy {
     fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String>;
     fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch;
@@ -6830,5 +6906,57 @@ impl AxRePy for Json {
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         match self { Json::Str { v } => v.ax_re_findall(p), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+}
+
+// Python's `v is True` / `v is False`: only the bool itself (a JSON 1 == True, but is not True).
+pub trait AxIsBool {
+    fn ax_bool_obj(&self) -> Option<bool>;
+    fn ax_is_true_obj(&self) -> bool {
+        self.ax_bool_obj() == Some(true)
+    }
+    fn ax_is_false_obj(&self) -> bool {
+        self.ax_bool_obj() == Some(false)
+    }
+    fn ax_not_true_obj(&self) -> bool {
+        !self.ax_is_true_obj()
+    }
+    fn ax_not_false_obj(&self) -> bool {
+        !self.ax_is_false_obj()
+    }
+}
+impl AxIsBool for bool {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        Some(*self)
+    }
+}
+impl AxIsBool for Json {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        match self {
+            Json::Bool { v } => Some(*v),
+            _ => None,
+        }
+    }
+}
+macro_rules! ax_not_bool { ($($t:ty),*) => { $(impl AxIsBool for $t { fn ax_bool_obj(&self) -> Option<bool> { None } })* } }
+ax_not_bool!(i64, f64, String, Dec);
+impl<T> AxIsBool for Vec<T> {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        None
+    }
+}
+impl<'a, T: AxIsBool + ?Sized> AxIsBool for &'a T {
+    fn ax_bool_obj(&self) -> Option<bool> {
+        (**self).ax_bool_obj()
+    }
+}
+// Python's `v == True`: a bool, or a number equal to 1 (0 for False).
+impl PartialEq<bool> for Json {
+    fn eq(&self, o: &bool) -> bool {
+        match self {
+            Json::Bool { v } => v == o,
+            Json::Num { v, .. } => *v == if *o { 1.0 } else { 0.0 },
+            _ => false,
+        }
     }
 }

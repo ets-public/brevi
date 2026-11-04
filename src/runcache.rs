@@ -44,6 +44,32 @@ pub fn in_child() -> bool {
     std::env::var("BREVI_PHASE").is_ok_and(|v| v == "1")
 }
 
+// The line a child build prints on stderr when its result is about the machine rather than the program (see
+// `not_kept`). The parent takes it out of what it prints and does not keep the result.
+const NOT_KEPT: &str = "{\"brevi_cache\":\"not kept\"}";
+
+// Called where a build failed for a reason outside the program's files: rustc killed or unable to write, the
+// dynamic runtime library not built (many builds starting it at once on a cold cache, a full disk). The
+// refusal printed afterwards may still name a program line (the typed build's reason, when the dynamic build
+// was the way out), so the parent could not tell it from a real one: it must not be replayed later.
+pub fn not_kept() {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if in_child() && !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!("{NOT_KEPT}");
+    }
+}
+
+// Takes the child's not-kept line out of its stderr: true when it was there.
+fn take_not_kept(stderr: &mut Vec<u8>) -> bool {
+    let text = String::from_utf8_lossy(stderr);
+    if !text.lines().any(|l| l == NOT_KEPT) {
+        return false;
+    }
+    let kept: String = text.split_inclusive('\n').filter(|l| l.trim_end_matches(['\n', '\r']) != NOT_KEPT).collect();
+    *stderr = kept.into_bytes();
+    true
+}
+
 // Runs `brevi ARGS` (a check, or a build to `bin`), or replays it from the cache. `file` is the program.
 pub fn phase(args: &[String], file: &str, bin: Option<&Path>, envs: &[(&str, &str)], refusals: bool) -> Done {
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
@@ -60,12 +86,13 @@ pub fn phase(args: &[String], file: &str, bin: Option<&Path>, envs: &[(&str, &st
         c.env(k, v);
     }
     crate::proc::die_with_parent(&mut c);
-    let done = match c.output() {
+    let mut done = match c.output() {
         Ok(o) => Done { stdout: o.stdout, stderr: o.stderr, code: o.status.code(), hit: false },
         Err(e) => Done { stdout: format!("{{\"e\":\"io\",\"msg\":\"{}\"}}\n", crate::diag::esc(&e.to_string())).into_bytes(), stderr: vec![], code: Some(1), hit: false },
     };
+    let machine = take_not_kept(&mut done.stderr);
     if let Some(d) = &dir {
-        if done.ok() || (refusals && refusal_kept(&done, file)) {
+        if !machine && (done.ok() || (refusals && refusal_kept(&done, file))) {
             save(d, &done, bin);
         }
     }
@@ -295,5 +322,18 @@ pub fn prune(dir: &Path) {
             std::fs::remove_file(&p).ok();
         }
         total = total.saturating_sub(n);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn not_kept_line_is_taken_out() {
+        let mut e = b"note: a\n{\"brevi_cache\":\"not kept\"}\nnote: b\n".to_vec();
+        assert!(super::take_not_kept(&mut e));
+        assert_eq!(e, b"note: a\nnote: b\n");
+        let mut plain = b"note: a\n".to_vec();
+        assert!(!super::take_not_kept(&mut plain));
+        assert_eq!(plain, b"note: a\n");
     }
 }

@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 26] = ["json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 31] = ["_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 // Names a builtin module provides in dynamic builds (anything else is refused when the program is built).
 pub fn module_has(m: &str, n: &str) -> bool {
@@ -20,9 +20,14 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
-        "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep"],
+        "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "abstractmethod"],
         "enum" => &["Enum", "auto", "unique"],
+        "_brevi_term" => &["columns"],
+        "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
+        "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
+        "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
+        "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "replace", "MISSING"],
         "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "error"],
@@ -30,7 +35,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
         "fractions" => &["Fraction"],
-        "datetime" => &["date", "datetime", "time", "timedelta", "MINYEAR", "MAXYEAR"],
+        "datetime" => &["date", "datetime", "time", "timedelta", "timezone", "UTC", "MINYEAR", "MAXYEAR"],
         "csv" => &["DictReader", "DictWriter", "reader", "writer", "QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE", "Error"],
         "statistics" => &["fmean", "mean", "median", "median_high", "median_low", "mode", "multimode", "pstdev", "pvariance", "stdev", "variance", "StatisticsError"],
         "threading" => &["Lock", "RLock", "Thread", "active_count", "current_thread", "main_thread", "stack_size"],
@@ -41,19 +46,19 @@ pub fn module_has(m: &str, n: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(n, "exec" | "eval" | "compile" | "__import__" | "bytes" | "bytearray" | "memoryview" | "complex" | "dir" | "help" | "breakpoint" | "open" | "aiter" | "anext" | "__build_class__" | "globals" | "locals")
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "bytearray" | "memoryview" | "complex" | "dir" | "help" | "breakpoint" | "open" | "aiter" | "anext" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "__bytes_lit"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
     )
 }
 
@@ -567,6 +572,27 @@ pub struct Module {
     pub body: Vec<Stmt>,
 }
 
+// Python libraries the program imports that Brevi lacks, run by CPython inside the program (pyglue.rs), and
+// classes built on their classes, run by CPython whole. Empty (`on` false) when CPython may not run (the
+// sandbox without allow native) or is missing.
+#[derive(Default)]
+pub struct Bridge {
+    pub on: bool,
+    // top-level names of bridged modules (`requests`, `pydantic`)
+    pub modules: HashSet<String>,
+    // (module, line of `class`) -> the class's source, at its own line numbers
+    pub classes: HashMap<(String, usize), String>,
+    // module -> its import lines, for those classes
+    pub imports: HashMap<String, String>,
+    // module -> its file
+    pub files: HashMap<String, String>,
+}
+impl Bridge {
+    pub fn has(&self, m: &str) -> bool {
+        self.on && self.modules.contains(m.split('.').next().unwrap_or(m))
+    }
+}
+
 pub struct Em {
     out: String,
     items: String,
@@ -586,6 +612,9 @@ pub struct Em {
     mod_names: HashMap<String, BTreeSet<String>>,
     class_ctx: Option<String>,
     direct_ok: HashSet<(String, String)>,
+    bridge: Bridge,
+    // what the program has CPython run, for the path report
+    bridged_used: BTreeSet<String>,
 }
 
 impl Em {
@@ -682,6 +711,11 @@ impl Em {
                         return Err(err(line, "super used as a value is not supported"));
                     }
                     return Ok(format!("builtin_value({}).unwrap()", lit(name)));
+                }
+                // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
+                if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
+                    self.bridged_used.insert("open".into());
+                    return Ok(self.q("pyd_builtin(\"open\")"));
                 }
                 if is_missing_builtin(name) {
                     return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
@@ -1069,6 +1103,10 @@ impl Em {
                     let a = self.args(args, line, None)?;
                     return Ok(self.q(&format!("call(&{fv}, {a})")));
                 }
+                // time.strftime(fmt) formats local time, which dynamic builds do not know: CPython runs it.
+                if md == "time" && m == "strftime" && args.len() < 2 {
+                    return Err(err(line, "time.strftime without a time tuple (local time) is not supported in dynamic builds"));
+                }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
@@ -1423,6 +1461,10 @@ impl Em {
                         let init = self.q(&format!("init_{}()", rust_ident(&target)));
                         write!(b, "{init}; ").unwrap();
                         b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
+                    } else if self.bridge.has(m) {
+                        self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
+                        let v = self.q(&format!("pyd_import({}, {})", lit(m), a.is_none()));
+                        b.push_str(&self.store(&bind, &v));
                     } else if BUILTIN_MODULES.contains(&target.as_str()) || matches!(target.as_str(), "os.path") {
                         b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
                     } else {
@@ -1437,6 +1479,17 @@ impl Em {
                     return Ok(b);
                 }
                 let user = self.user_modules.contains(m);
+                if !user && !BUILTIN_MODULES.contains(&m.as_str()) && self.bridge.has(m) {
+                    self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
+                    for (n, a) in names {
+                        if n == "*" {
+                            return Err(err(line, "from ... import * is not supported for library modules"));
+                        }
+                        let v = self.q(&format!("pyd_from({}, {})", lit(m), lit(n)));
+                        b.push_str(&self.store(a.as_ref().unwrap_or(n), &v));
+                    }
+                    return Ok(b);
+                }
                 if user {
                     let init = self.q(&format!("init_{}()", rust_ident(m)));
                     write!(b, "{init}; ").unwrap();
@@ -1504,6 +1557,13 @@ impl Em {
                 self.store(&d.name, &f)
             }
             St::Class(c) => {
+                if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
+                    let m = self.module.clone();
+                    let imports = self.bridge.imports.get(&m).cloned().unwrap_or_default();
+                    let file = self.bridge.files.get(&m).cloned().unwrap_or_default();
+                    let v = self.q(&format!("pyd_class({}, {}, {}, {}, {})", lit(&m), lit(&imports), lit(&src), lit(&c.name), lit(&file)));
+                    return Ok(self.store(&c.name, &v));
+                }
                 let v = self.class(c)?;
                 self.store(&c.name, &v)
             }
@@ -1622,7 +1682,7 @@ impl Em {
         }
         let (e, t) = &items[0];
         if let Ex::Call(f, _) = e {
-            if matches!(&**f, Ex::Name(n) if n == "open") {
+            if matches!(&**f, Ex::Name(n) if n == "open") && !self.bridge.on {
                 return Err(err(line, "open() is not supported in dynamic builds"));
             }
         }
@@ -1914,7 +1974,8 @@ pub fn rust_ident(n: &str) -> String {
 }
 
 // The Rust program for a set of modules (the first is __main__).
-pub fn program(mods: &[Module]) -> ER<String> {
+// An error names the module whose code it is in, so the message can name that module's file.
+pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     let mut em = Em {
         out: String::new(),
         items: String::new(),
@@ -1931,6 +1992,8 @@ pub fn program(mods: &[Module]) -> ER<String> {
         mod_names: HashMap::new(),
         class_ctx: None,
         direct_ok: HashSet::new(),
+        bridge,
+        bridged_used: BTreeSet::new(),
     };
     // module-level names, import aliases and directly callable defs
     for m in mods {
@@ -2015,7 +2078,7 @@ pub fn program(mods: &[Module]) -> ER<String> {
         let mut fn_globals = BTreeSet::new();
         globals_in(&m.body, &mut fn_globals);
         for (n, t) in import_of {
-            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) {
+            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !BUILTIN_MODULES.contains(&t.as_str()) && !em.user_modules.contains(&t)) {
                 em.mod_alias.insert((m.name.clone(), n), t);
             }
         }
@@ -2048,7 +2111,7 @@ pub fn program(mods: &[Module]) -> ER<String> {
         }
         em.fstack.push(fr);
         let name_slot = em.gslot(&m.name, "__name__");
-        let body = em.block(&m.body)?;
+        let body = em.block(&m.body).map_err(|(l, e)| (m.name.clone(), l, e))?;
         em.fstack.pop();
         let ident = rust_ident(&m.name);
         let nm = lit(&m.name);
@@ -2078,7 +2141,7 @@ pub fn program(mods: &[Module]) -> ER<String> {
     )
     .unwrap();
     let _ = &em.out;
-    Ok(out)
+    Ok((out, em.bridged_used.into_iter().collect()))
 }
 
 // fields used by the code above

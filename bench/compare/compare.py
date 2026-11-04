@@ -139,7 +139,7 @@ def one(job):
             for i in tests:
                 ref = REF[(name, str(i))]
                 out, rc, dt = run(argv, i, work, reps)
-                row["tests"].append({"in": i.name, "same_out": out == ref[0], "same_rc": (rc == 0) == (ref[1] == 0),
+                row["tests"].append({"in": i.name, "same_out": out == ref[0], "same_rc": rc == ref[1],
                                      "rc": rc, "s": round(dt, 4), "timeout": out == "TIMEOUT"})
         return row
     finally:

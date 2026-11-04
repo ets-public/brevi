@@ -105,7 +105,7 @@ fn num_interp(chars: &[char], from: usize) -> Option<usize> {
     (j > from && chars[from].is_ascii_digit() && matches!(chars.get(k), Some(':' | '}'))).then_some(j)
 }
 
-// Python escapes (in .py files only: Brevi code keeps "\\1" for regex backreferences) that stand for one character: \x41, \u00e9, \U0001F600, octal \101, \a \b \f \v.
+// Python escapes (in .py files only: Brevi code keeps "\\1" for regex backreferences) that stand for one character: \x41, \u00e9, \U0001F600, \N{BULLET}, octal \101, \a \b \f \v.
 // Returns the character and how many chars the escape takes, backslash included.
 fn char_escape(chars: &[char], i: usize) -> Option<(char, usize)> {
     let hex = |n: usize| {
@@ -120,6 +120,7 @@ fn char_escape(chars: &[char], i: usize) -> Option<(char, usize)> {
         'b' => Some(('\x08', 2)),
         'f' => Some(('\x0c', 2)),
         'v' => Some(('\x0b', 2)),
+        'N' => crate::unicode_names::escape(&chars[i + 2..]).map(|(c, n)| (c, n + 2)),
         '0'..='7' => {
             let n = chars[i + 1..].iter().take(3).take_while(|c| ('0'..='7').contains(c)).count();
             let v = u32::from_str_radix(&chars[i + 1..i + 1 + n].iter().collect::<String>(), 8).ok()?;
@@ -127,6 +128,11 @@ fn char_escape(chars: &[char], i: usize) -> Option<(char, usize)> {
         }
         _ => None,
     }
+}
+
+// A `\N` in a .py string that char_escape could not read: left as text it would print the wrong thing.
+fn bad_named_escape(line: usize, col: usize) -> Diag {
+    Diag::new("lex", line, col, "cannot read this \\N{...} escape").fix_hint("write the character itself, or check the name")
 }
 
 fn interp_closes(chars: &[char], from: usize) -> bool {
@@ -171,7 +177,7 @@ const SYMBOLS: &[&str] = &[
 ];
 
 // After a value, `a // b` is floor division unless what follows reads like words (`x = 5 // the count`).
-fn looks_like_prose(rest: &str) -> bool {
+pub(crate) fn looks_like_prose(rest: &str) -> bool {
     let words: Vec<&str> = rest.split_whitespace().collect();
     let is_word = |w: &str| w.chars().all(|c| c.is_alphanumeric() || c == '_') && !["and", "or", "not", "if", "else", "in"].contains(&w);
     rest.trim().is_empty() || words.windows(2).any(|p| is_word(p[0]) && is_word(p[1]))
@@ -602,6 +608,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 1;
                         col += 1;
                     }
+                    Some('\\') if py && chars.get(i + 1) == Some(&'N') && char_escape(&chars, i).is_none() => return Err(bad_named_escape(tl, tc)),
                     Some('\\') if py && char_escape(&chars, i).is_some() => {
                         let (ch, n) = char_escape(&chars, i).unwrap();
                         s.push(ch);
@@ -816,6 +823,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         col += 1;
                         break;
                     }
+                    Some('\\') if py && chars.get(i + 1) == Some(&'N') && char_escape(&chars, i).is_none() => return Err(bad_named_escape(tl, tc)),
                     Some('\\') if py && char_escape(&chars, i).is_some() => {
                         let (ch, n) = char_escape(&chars, i).unwrap();
                         after_bs = false;
@@ -980,6 +988,22 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 let rest: String = chars[i..chars.len().min(i + 10)].iter().collect();
                 if rest.starts_with(" None") {
                     push(&mut out, Tok::Sym("=="));
+                    continue;
+                }
+                // `v is True` / `v is not False`: identity with a bool, which a JSON 1 (or 1.0) is not, though
+                // it == True. A method that is true only for that bool.
+                if let Some((m, neg, skip)) = [(" True", "is_true_obj", false, 5usize), (" False", "is_false_obj", false, 6), (" not True", "not_true_obj", true, 9), (" not False", "not_false_obj", true, 10)]
+                    .iter()
+                    .find(|(w, _, _, k)| rest.starts_with(w) && !chars.get(i + k).is_some_and(|c| c.is_alphanumeric() || *c == '_'))
+                    .map(|(_, m, n, k)| (*m, *n, *k))
+                {
+                    push(&mut out, Tok::Sym("."));
+                    push(&mut out, Tok::Ident(m.into()));
+                    push(&mut out, Tok::Sym("("));
+                    push(&mut out, Tok::Sym(")"));
+                    let _ = neg;
+                    i += skip;
+                    col += skip;
                     continue;
                 }
                 if rest.starts_with(" not ") {

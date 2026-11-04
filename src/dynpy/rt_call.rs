@@ -192,7 +192,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         }
         return Err(unsupported(&format!("enum.{}()", c.name)));
     }
-    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time") {
+    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time" | "datetime.timezone") {
         return ext_construct(c.name, a).unwrap();
     }
     // builtin types called as constructors
@@ -409,6 +409,15 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Ok(V::Dict(Rc::new(RefCell::new(d))));
                 }
                 "args" if ob.cls.base_bt() == BT::Exc => return Ok(tup(vec![])),
+                // `raise SystemExit(2)` sets only args: code is the one arg, None for none, else the args tuple.
+                "code" if ob.cls.base_bt() == BT::Exc && is_exc(o, "SystemExit") => {
+                    return Ok(match ob.get("args") {
+                        Some(V::Tuple(t)) if t.len() == 1 => t[0].clone(),
+                        Some(V::Tuple(t)) if t.is_empty() => V::None,
+                        Some(a) => a,
+                        None => V::None,
+                    });
+                }
                 _ => {}
             }
             if let Some(ga) = ob.cls.lookup("__getattr__") {
@@ -557,6 +566,10 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             Ok(())
         }
         V::Module("decimal.context") => decimal_context_set(name, &v),
+        V::Ext(x) => match x.set_attr(o, name, v) {
+            Some(r) => r,
+            None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
+        },
         V::Func(f) => {
             let mut a = f.attrs.borrow_mut();
             match a.iter_mut().find(|(k, _)| *k == name) {
