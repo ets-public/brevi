@@ -572,6 +572,27 @@ pub struct Module {
     pub body: Vec<Stmt>,
 }
 
+// Python libraries the program imports that Brevi lacks, run by CPython inside the program (pyglue.rs), and
+// classes built on their classes, run by CPython whole. Empty (`on` false) when CPython may not run (the
+// sandbox without allow native) or is missing.
+#[derive(Default)]
+pub struct Bridge {
+    pub on: bool,
+    // top-level names of bridged modules (`requests`, `pydantic`)
+    pub modules: HashSet<String>,
+    // (module, line of `class`) -> the class's source, at its own line numbers
+    pub classes: HashMap<(String, usize), String>,
+    // module -> its import lines, for those classes
+    pub imports: HashMap<String, String>,
+    // module -> its file
+    pub files: HashMap<String, String>,
+}
+impl Bridge {
+    pub fn has(&self, m: &str) -> bool {
+        self.on && self.modules.contains(m.split('.').next().unwrap_or(m))
+    }
+}
+
 pub struct Em {
     out: String,
     items: String,
@@ -591,6 +612,9 @@ pub struct Em {
     mod_names: HashMap<String, BTreeSet<String>>,
     class_ctx: Option<String>,
     direct_ok: HashSet<(String, String)>,
+    bridge: Bridge,
+    // what the program has CPython run, for the path report
+    bridged_used: BTreeSet<String>,
 }
 
 impl Em {
@@ -687,6 +711,10 @@ impl Em {
                         return Err(err(line, "super used as a value is not supported"));
                     }
                     return Ok(format!("builtin_value({}).unwrap()", lit(name)));
+                }
+                if name == "open" && self.bridge.on {
+                    self.bridged_used.insert("open".into());
+                    return Ok(self.q("pyd_builtin(\"open\")"));
                 }
                 if is_missing_builtin(name) {
                     return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
@@ -1428,6 +1456,10 @@ impl Em {
                         let init = self.q(&format!("init_{}()", rust_ident(&target)));
                         write!(b, "{init}; ").unwrap();
                         b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
+                    } else if self.bridge.has(m) {
+                        self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
+                        let v = self.q(&format!("pyd_import({}, {})", lit(m), a.is_none()));
+                        b.push_str(&self.store(&bind, &v));
                     } else if BUILTIN_MODULES.contains(&target.as_str()) || matches!(target.as_str(), "os.path") {
                         b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
                     } else {
@@ -1442,6 +1474,17 @@ impl Em {
                     return Ok(b);
                 }
                 let user = self.user_modules.contains(m);
+                if !user && !BUILTIN_MODULES.contains(&m.as_str()) && self.bridge.has(m) {
+                    self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
+                    for (n, a) in names {
+                        if n == "*" {
+                            return Err(err(line, "from ... import * is not supported for library modules"));
+                        }
+                        let v = self.q(&format!("pyd_from({}, {})", lit(m), lit(n)));
+                        b.push_str(&self.store(a.as_ref().unwrap_or(n), &v));
+                    }
+                    return Ok(b);
+                }
                 if user {
                     let init = self.q(&format!("init_{}()", rust_ident(m)));
                     write!(b, "{init}; ").unwrap();
@@ -1509,6 +1552,13 @@ impl Em {
                 self.store(&d.name, &f)
             }
             St::Class(c) => {
+                if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
+                    let m = self.module.clone();
+                    let imports = self.bridge.imports.get(&m).cloned().unwrap_or_default();
+                    let file = self.bridge.files.get(&m).cloned().unwrap_or_default();
+                    let v = self.q(&format!("pyd_class({}, {}, {}, {}, {})", lit(&m), lit(&imports), lit(&src), lit(&c.name), lit(&file)));
+                    return Ok(self.store(&c.name, &v));
+                }
                 let v = self.class(c)?;
                 self.store(&c.name, &v)
             }
@@ -1627,7 +1677,7 @@ impl Em {
         }
         let (e, t) = &items[0];
         if let Ex::Call(f, _) = e {
-            if matches!(&**f, Ex::Name(n) if n == "open") {
+            if matches!(&**f, Ex::Name(n) if n == "open") && !self.bridge.on {
                 return Err(err(line, "open() is not supported in dynamic builds"));
             }
         }
@@ -1919,7 +1969,7 @@ pub fn rust_ident(n: &str) -> String {
 }
 
 // The Rust program for a set of modules (the first is __main__).
-pub fn program(mods: &[Module]) -> ER<String> {
+pub fn program(mods: &[Module], bridge: Bridge) -> ER<(String, Vec<String>)> {
     let mut em = Em {
         out: String::new(),
         items: String::new(),
@@ -1936,6 +1986,8 @@ pub fn program(mods: &[Module]) -> ER<String> {
         mod_names: HashMap::new(),
         class_ctx: None,
         direct_ok: HashSet::new(),
+        bridge,
+        bridged_used: BTreeSet::new(),
     };
     // module-level names, import aliases and directly callable defs
     for m in mods {
@@ -2020,7 +2072,7 @@ pub fn program(mods: &[Module]) -> ER<String> {
         let mut fn_globals = BTreeSet::new();
         globals_in(&m.body, &mut fn_globals);
         for (n, t) in import_of {
-            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) {
+            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !BUILTIN_MODULES.contains(&t.as_str()) && !em.user_modules.contains(&t)) {
                 em.mod_alias.insert((m.name.clone(), n), t);
             }
         }
@@ -2083,7 +2135,7 @@ pub fn program(mods: &[Module]) -> ER<String> {
     )
     .unwrap();
     let _ = &em.out;
-    Ok(out)
+    Ok((out, em.bridged_used.into_iter().collect()))
 }
 
 // fields used by the code above

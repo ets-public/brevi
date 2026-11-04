@@ -1,6 +1,6 @@
-# The typed build cannot take get() (a caught KeyError), and the dynamic build cannot take shlex:
+# The typed build cannot take get() (a caught KeyError), and the dynamic build cannot take eval():
 # check names both, so fixing the first alone is not mistaken for enough.
-import shlex
+import json
 
 
 class Box:
@@ -17,6 +17,6 @@ class Box:
             return default
 
 
-key = shlex.split("a b")[0]
+key = eval(json.dumps("a b")).split()[0]
 b = Box({"a": 1})
 print(b.get(key), b.get("z", 7))

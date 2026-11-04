@@ -91,6 +91,24 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython
+# inside a dynamic build: output must match python3, the path line must name them, and nothing may run fully
+# in CPython. Each runs by default and with BREVI_DYN=1.
+for f in tests/bridge/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then (cd tests/bridge && python3 "$(basename "$f")") > "$exp" 2>&1; continue; fi
+  for mode in default dyn; do
+    if [ $mode = dyn ]; then dv=1; else dv=; fi
+    out=$(cd tests/bridge && BREVI_DYN=$dv BREVI_PATH=1 timeout 120 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bridge_err)
+    if grep -q '"path":"cpython"' /tmp/brevi_bridge_err || ! grep -q '"py":\[' /tmp/brevi_bridge_err; then
+      echo "FAIL $f ($mode: not bridged)"; cat /tmp/brevi_bridge_err; fail=1
+    elif [ "$out" != "$(cat "$exp")" ]; then
+      echo "FAIL $f ($mode)"; cat /tmp/brevi_bridge_err; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+    else
+      echo "ok   $f ($mode)"
+    fi
+  done
+done
 # brevi run --sandbox on a .py file: a capability refusal is final on every path (the default run, dynamic
 # builds, typed --native), and nothing falls back to python3 or reaches CPython through a library.
 for f in tests/sandbox/*.py; do

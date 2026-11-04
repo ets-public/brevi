@@ -72,7 +72,7 @@ fn file_target(f: &V) -> Result<u8, E> {
         V::None => Ok(1),
         V::Module("sys.stdout") => Ok(1),
         V::Module("sys.stderr") => Ok(2),
-        V::Obj(_) => Ok(3),
+        V::Obj(_) | V::Ext(_) => Ok(3),
         _ => Err(unsupported("print(file=...) to this file")),
     }
 }
@@ -616,8 +616,17 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             if let V::Obj(o) = x {
                 return Ok(o.cls.is_sub(k) || (k.name == "object" && k.module == "builtins"));
             }
+            if let V::Ext(e) = x {
+                if let Some(b) = e.isinst(k) {
+                    return Ok(b);
+                }
+            }
             Ok(type_of(x).is_sub(k))
         }
+        V::Ext(e) => match e.instancecheck(x) {
+            Some(r) => r,
+            None => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
+        },
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }

@@ -80,9 +80,9 @@ Limits today:
 
 - Under `--sandbox` (and in the MCP tools, which sandbox by default) a program that imports such a library must declare `# allow native` (from v0.24.1). Path functions of `os` and `pathlib` and the common `random` functions work without it (from v0.24.2; see [Sandbox](/docs/usage#sandbox)).
 - The built program needs `python3` with its shared library (`libpython`) on the machine where it runs, unless built with `--standalone`, which carries CPython and the imported packages in the binary (Linux only).
-- Library calls are part of the **typed** build only. A library program the typed build rejects falls back to CPython, because the dynamic build does not bridge to CPython.
+- A library program the typed build rejects goes to the dynamic build, which calls the library through CPython the same way and keeps the rest native (next release). Classes built on a library's classes (`class Post(BaseModel)`) run in CPython as a whole. Such a class falls back to CPython for the whole file if it sits inside a function, uses a name of the program that is not an import, or is subclassed in another file. The path line lists what CPython runs (`"py":[...]`).
 - Not on Windows: library programs run with CPython there.
-- A `with` block on a library object does not pass exception details to its `__exit__`, and named functions cannot yet be passed as callbacks to a library (lambdas can).
+- In typed builds, a `with` block on a library object does not pass exception details to its `__exit__`, and named functions cannot yet be passed as callbacks to a library (lambdas can). Dynamic builds do both.
 
 ## Integers
 

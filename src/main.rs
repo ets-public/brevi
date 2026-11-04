@@ -369,9 +369,12 @@ fn main() {
     // the dynamic build has them natively, so it goes first (no libpython at run time, fine under --sandbox).
     if dyn_ok && !forced_dyn() && pybridge::active() && pybridge::stdlib_only() {
         let why = format!("{} not in the typed build", pybridge::uses().join(", "));
+        // Without CPython: one that needs it anyway is better built typed.
+        dynpy::NO_BRIDGE.store(true, std::sync::atomic::Ordering::Relaxed);
         if dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
             exit(0);
         }
+        dynpy::NO_BRIDGE.store(false, std::sync::atomic::Ordering::Relaxed);
         *DYN_BLOCKED.lock().unwrap() = None;
     }
     if dyn_ok {
@@ -515,7 +518,7 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         return false;
     }
     let (wfile, line, func, why, extra, relocate) = why;
-    say_path("dynamic", &wfile, line, func, &why, &extra, relocate);
+    say_path("dynamic", &wfile, line, func, &why, &format!("{extra}{}", dyn_py_field()), relocate);
     if cmd == "run" {
         let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
             println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
@@ -608,7 +611,7 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
         eprintln!("{e}");
         exit(1);
     }
-    say_path("dynamic", "", 0, None, "BREVI_DYN=1", "", false);
+    say_path("dynamic", "", 0, None, "BREVI_DYN=1", &dyn_py_field(), false);
     if cmd == "build" {
         exit(0);
     }
@@ -815,6 +818,15 @@ fn say_path(path: &str, file: &str, line: usize, func: Option<String>, why: &str
     s.push_str(extra);
     s.push('}');
     eprintln!("{}", if relocate { at(&s) } else { s });
+}
+
+// What CPython runs for a dynamic build (",\"py\":[...]"), or nothing.
+fn dyn_py_field() -> String {
+    let b = dynpy::bridged();
+    if b.is_empty() {
+        return String::new();
+    }
+    format!(",\"py\":[{}]", b.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(","))
 }
 
 fn forced_dyn() -> bool {

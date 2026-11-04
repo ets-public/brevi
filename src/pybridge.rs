@@ -1099,7 +1099,9 @@ fn expr_pat(e: &Expr) -> Option<Pat> {
 
 // ------------------------------------------------------------------------------------------- the runtime
 
-const RUNTIME: &str = include_str!("pyrt.rs");
+const RUNTIME: &str = concat!(include_str!("pyrt_load.rs"), include_str!("pyrt.rs"));
+// The loader alone, for the dynamic builds' bridge (dynpy/pyglue.rs).
+pub const LOADER: &str = include_str!("pyrt_load.rs");
 
 // Asked of python3 when the program is built: libpython's path, PYTHONHOME and sys.path (minus the script's
 // folder), joined by \x01.
@@ -1144,6 +1146,15 @@ pub fn python_ok() -> Result<(), String> {
 
 // The runtime for this program: CPython found now (and again at run time if it moved).
 pub fn runtime() -> String {
+    format!("{}{RUNTIME}", consts())
+}
+
+// The loader and its constants, for a dynamic build that bridges libraries (dynpy/pyglue.rs follows it).
+pub fn dyn_runtime() -> String {
+    format!("{}{LOADER}", consts())
+}
+
+fn consts() -> String {
     let file = FILE.get().cloned().unwrap_or_default();
     let conf = conf().clone().unwrap_or_default();
     let abs = std::fs::canonicalize(&file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.clone());
@@ -1157,7 +1168,7 @@ pub fn runtime() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n{RUNTIME}")
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n")
 }
 
 // ------------------------------------------------------------------------------------------- standalone builds
