@@ -10,35 +10,35 @@
 "totals": {
 "normal": {
 "matched": 180,
-"refused": 59,
-"wrong_output": 21,
-"wrong_exit": 31,
-"crash_or_timeout": 5,
+"refused": 67,
+"wrong_output": 18,
+"wrong_exit": 27,
+"crash_or_timeout": 4,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 39,
+"matched_silent": 34,
 "coverage": 0.5788,
-"wrong": 52
+"wrong": 45
 },
 "dyn": {
-"matched": 181,
-"refused": 59,
-"wrong_output": 20,
-"wrong_exit": 31,
-"crash_or_timeout": 5,
+"matched": 179,
+"refused": 68,
+"wrong_output": 18,
+"wrong_exit": 27,
+"crash_or_timeout": 4,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 39,
-"coverage": 0.582,
-"wrong": 51
+"matched_silent": 33,
+"coverage": 0.5756,
+"wrong": 45
 }
 },
 "files": {
@@ -79,8 +79,8 @@
 "test_scope": {
 "normal": {
 "matched": 22,
-"refused": 8,
-"wrong_output": 1,
+"refused": 9,
+"wrong_output": 0,
 "wrong_exit": 4,
 "crash_or_timeout": 0,
 "not_extractable": 3,
@@ -91,12 +91,12 @@
 "matched_through_cpython": 0,
 "matched_silent": 2,
 "coverage": 0.5789,
-"wrong": 5
+"wrong": 4
 },
 "dyn": {
-"matched": 23,
-"refused": 7,
-"wrong_output": 1,
+"matched": 22,
+"refused": 9,
+"wrong_output": 0,
 "wrong_exit": 4,
 "crash_or_timeout": 0,
 "not_extractable": 3,
@@ -105,9 +105,9 @@
 "total": 41,
 "scored": 38,
 "matched_through_cpython": 0,
-"matched_silent": 3,
-"coverage": 0.6053,
-"wrong": 5
+"matched_silent": 2,
+"coverage": 0.5789,
+"wrong": 4
 }
 },
 "test_int": {
@@ -181,48 +181,48 @@
 "test_dict": {
 "normal": {
 "matched": 68,
-"refused": 3,
-"wrong_output": 11,
-"wrong_exit": 14,
-"crash_or_timeout": 2,
+"refused": 10,
+"wrong_output": 9,
+"wrong_exit": 10,
+"crash_or_timeout": 1,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
-"matched_silent": 13,
+"matched_silent": 8,
 "coverage": 0.6869,
-"wrong": 25
+"wrong": 19
 },
 "dyn": {
-"matched": 69,
-"refused": 3,
-"wrong_output": 10,
-"wrong_exit": 14,
-"crash_or_timeout": 2,
+"matched": 68,
+"refused": 10,
+"wrong_output": 9,
+"wrong_exit": 10,
+"crash_or_timeout": 1,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
-"matched_silent": 13,
-"coverage": 0.697,
-"wrong": 24
+"matched_silent": 8,
+"coverage": 0.6869,
+"wrong": 19
 }
 }
 },
 "paths": {
 "normal": {
-"dynamic": 210,
-"refused": 59,
+"dynamic": 202,
+"refused": 67,
 "typed": 25,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 237,
-"refused": 59
+"dynamic": 228,
+"refused": 68
 }
 },
 "tests": [
@@ -1453,8 +1453,8 @@
 "detail": "name 'nestedcell_get' is not defined"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -1497,14 +1497,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '0', got '100'"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 28: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '0', got '100'"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -3335,12 +3333,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -3349,12 +3347,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -3363,12 +3361,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -3447,9 +3445,8 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected '{950: 950, 951: 951, 952: 952, 953: 953, 954: 954, 955: 955, 956: 956, 957: 957, 958: 958, 959: 959, 960: 960, 961: 961,', got '[950, 951, 952, 953, 954, 955, 956, 957, 958, 959, 960, 961, 962, 963, 964, 965, 966, 967, 968, 969, 970, 971, 972, 973,'"
+"category": "matched",
+"path": "typed"
 },
 "dyn": {
 "category": "matched",
@@ -3476,14 +3473,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3518,14 +3513,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3594,14 +3587,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 8: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -3612,12 +3603,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'dict_items' and 'dict_items'"
+"detail": "exit 1, expected 0: TypeError: unhashable type: 'C'"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'dict_items' and 'dict_items'"
+"detail": "exit 1, expected 0: TypeError: unhashable type: 'C'"
 }
 }
 },
@@ -3800,14 +3791,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'dict_keys' and 'dict_keys'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'dict_keys' and 'dict_keys'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3868,14 +3857,14 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
+"category": "wrong_output",
 "path": "dynamic",
-"detail": "exit 1, expected 0: KeyError: 2"
+"detail": "line 1: expected 'False', got 'True'"
 },
 "dyn": {
-"category": "wrong_exit",
+"category": "wrong_output",
 "path": "dynamic",
-"detail": "exit 1, expected 0: KeyError: 2"
+"detail": "line 1: expected 'False', got 'True'"
 }
 }
 },
@@ -3962,14 +3951,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 7: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -4022,12 +4009,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 11: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -4290,12 +4277,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "__del__ is not supported in dynamic builds"
 }
 }
 },
@@ -4822,14 +4809,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: dictionary update sequence element #0 has length 1; 2 is required"
+"category": "matched",
+"path": "dynamic"
 }
 }
 }

@@ -1904,6 +1904,9 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
         "popitem" => {
+            if d.borrow().kind != 3 {
+                no_args("dict", name, &a)?;
+            }
             let last = a.kw("last").map(|x| truth(&x)).transpose()?.unwrap_or(true);
             let k = {
                 let d = d.borrow();

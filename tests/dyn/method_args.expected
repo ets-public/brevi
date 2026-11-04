@@ -8,3 +8,5 @@ TypeError set.copy() takes no arguments (1 given)
 RuntimeError dictionary keys changed during iteration
 [0] 5
 ValueError int() base must be >= 2 and <= 36, or 0
+popitem: dict.popitem() takes no arguments (1 given)
+('a', 1)
