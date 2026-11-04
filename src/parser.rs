@@ -2141,6 +2141,7 @@ impl Parser {
                             if name == "get" && args.len() == 1 && !self.own_method(&e) {
                                 args.push(Expr::Call("none".into(), vec![], line));
                             }
+                            crate::pydiag::note_call(line, &name, &e);
                             let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
                             // s.splitlines(True): the flag is in the name now.
                             if name == "lines_keep" {

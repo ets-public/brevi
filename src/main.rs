@@ -272,6 +272,10 @@ fn main() {
     if cmd == "run" && file.ends_with(".py") && !native {
         run_or_fall_back(&file, &argv, sandbox, held);
     }
+    // Brevi's own syntax in a .py file: CPython stops on it, so Brevi does too.
+    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check") {
+        refuse_not_python(&file);
+    }
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
     if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
@@ -371,6 +375,10 @@ fn main() {
     };
     let rust = match compile_to_rust(&src, true, true) {
         Ok(r) => {
+            // The typed build takes Brevi's names (`fail("x")`, `s.trim()`), which are mistakes in a .py file.
+            if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check") {
+                refuse_sure(&file, pydiag::scan_brevi);
+            }
             if emit::RAND_ORDER.get().is_some_and(|ns| ns.iter().any(|k| !r.contains(&format!("/*axr:{k}*/")))) {
                 soft_fail(cmd);
             }
@@ -388,8 +396,7 @@ fn main() {
             };
             if !sure.is_empty() {
                 sure.iter().for_each(print_diag);
-                // A test hook: tools that scan many files tell these refusals apart by exit code 3.
-                exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
+                exit_sure();
             }
             let (line, func, why, extra) = typed_refusal(&diags, &src);
             if dyn_ok && dyn_fallback(cmd, &file, &argv, (String::new(), line, func, why, extra, true)) {
@@ -574,11 +581,7 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
     let why = why.to_string();
         // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
         if cmd != "emit" {
-            let sure = std::fs::read_to_string(&file).map(|t| pydiag::scan(&t, Path::new(&file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
-            if !sure.is_empty() {
-                sure.iter().for_each(print_diag);
-                exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 });
-            }
+            refuse_sure(&file, pydiag::scan);
         }
         if cmd == "emit" {
             dyn_cmd(cmd, &file, &argv);
@@ -606,6 +609,37 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
         }
         print_diag(&d);
         exit(1);
+}
+
+// Stops on the mistakes in a Python file that `scan` (from pydiag) is sure of.
+fn refuse_sure(file: &str, scan: fn(&str, &Path) -> Vec<Diag>) {
+    let sure = std::fs::read_to_string(file).map(|t| scan(&t, Path::new(file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
+    if !sure.is_empty() {
+        sure.iter().for_each(print_diag);
+        exit_sure();
+    }
+}
+
+// Stops on the first file of a Python program, the main one or one it imports, that CPython could not compile.
+fn refuse_not_python(file: &str) {
+    let Ok(src) = std::fs::read_to_string(file) else { return };
+    let segs = modules::expand(file, &src).map_or(vec![], |x| x.1);
+    for s in segs.iter().skip(1).filter(|s| s.path.extension().is_some_and(|x| x == "py")) {
+        if let Some(mut d) = std::fs::read_to_string(&s.path).ok().and_then(|t| pydiag::not_python(&t)) {
+            d.line += s.start - 1;
+            println!("{}", modules::relocate(&segs, &d.to_json()));
+            exit_sure();
+        }
+    }
+    if let Some(d) = pydiag::not_python(&src) {
+        print_diag(&d);
+        exit_sure();
+    }
+}
+
+fn exit_sure() -> ! {
+    // A test hook: tools that scan many files tell these refusals apart by exit code 3.
+    exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 })
 }
 
 // The set-order guard reason the typed build was let past (see guard_files), for when it fails after all.
