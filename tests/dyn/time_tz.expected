@@ -1,0 +1,18 @@
+None
+time.struct_time(tm_year=1971, tm_mon=1, tm_mday=1, tm_hour=16, tm_min=48, tm_sec=0, tm_wday=4, tm_yday=1, tm_isdst=0)
+1971 1971 (1971, 1, 1, 16, 48, 0) 9
+1971-01-01T16:48:00Z +0000 GMT 001 Fri
+1969-12-31
+2020
+datetime.timezone.utc UTC True
+datetime.timezone(datetime.timedelta(days=-1, seconds=66600)) UTC-05:30 -1 day, 18:30:00
+datetime.datetime(2024, 3, 10, 12, 30, tzinfo=datetime.timezone.utc) 2024-03-10 12:30:00+00:00 2024-03-10T12:30:00+00:00 1710073800.0
+2024-03-10 07:00:00-05:30 True True
++0000 UTC UTC 0:00:00 UTC
+1704067200.0
+2024-01-01 10:00:00+02:00 UTC
+7:00:00 2024-03-11 12:30:00+00:00
+2024-03-10 12:30:00 2024-03-10 01:30:00+00:00
+TypeError can't subtract offset-naive and offset-aware datetimes
+False
+True UTC UTC

@@ -20,7 +20,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
-        "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep"],
+        "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "abstractmethod"],
         "enum" => &["Enum", "auto", "unique"],
         "_brevi_term" => &["columns"],
@@ -35,7 +35,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
         "fractions" => &["Fraction"],
-        "datetime" => &["date", "datetime", "time", "timedelta", "MINYEAR", "MAXYEAR"],
+        "datetime" => &["date", "datetime", "time", "timedelta", "timezone", "UTC", "MINYEAR", "MAXYEAR"],
         "csv" => &["DictReader", "DictWriter", "reader", "writer", "QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE", "Error"],
         "statistics" => &["fmean", "mean", "median", "median_high", "median_low", "mode", "multimode", "pstdev", "pvariance", "stdev", "variance", "StatisticsError"],
         "threading" => &["Lock", "RLock", "Thread", "active_count", "current_thread", "main_thread", "stack_size"],
@@ -1103,6 +1103,10 @@ impl Em {
                     let a = self.args(args, line, None)?;
                     return Ok(self.q(&format!("call(&{fv}, {a})")));
                 }
+                // time.strftime(fmt) formats local time, which dynamic builds do not know: CPython runs it.
+                if md == "time" && m == "strftime" && args.len() < 2 {
+                    return Err(err(line, "time.strftime without a time tuple (local time) is not supported in dynamic builds"));
+                }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
@@ -1970,7 +1974,8 @@ pub fn rust_ident(n: &str) -> String {
 }
 
 // The Rust program for a set of modules (the first is __main__).
-pub fn program(mods: &[Module], bridge: Bridge) -> ER<(String, Vec<String>)> {
+// An error names the module whose code it is in, so the message can name that module's file.
+pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     let mut em = Em {
         out: String::new(),
         items: String::new(),
@@ -2106,7 +2111,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> ER<(String, Vec<String>)> {
         }
         em.fstack.push(fr);
         let name_slot = em.gslot(&m.name, "__name__");
-        let body = em.block(&m.body)?;
+        let body = em.block(&m.body).map_err(|(l, e)| (m.name.clone(), l, e))?;
         em.fstack.pop();
         let ident = rust_ident(&m.name);
         let nm = lit(&m.name);
