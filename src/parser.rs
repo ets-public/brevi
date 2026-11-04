@@ -446,7 +446,8 @@ impl Parser {
                     st.retain(|s| !matches!(s, Stmt::Let { value: Expr::Call(f, _, _), .. } if f == "__field"));
                 }
             });
-            if std::mem::replace(&mut self.yields, saved_yields) {
+            let generator = std::mem::replace(&mut self.yields, saved_yields);
+            if generator {
                 body = generator_body(body, line);
             }
             // Python makes a default `[]` or `{}` once, so a function that changes it sees the earlier calls'
@@ -488,6 +489,9 @@ impl Parser {
                 dict_with_base(&mut body);
                 lambdas_to_defs(&mut body, &mut kids, line, &[]);
                 unbox_cells(&mut body, &mut kids);
+                if !generator && crate::PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+                    drop_last_value(&mut body, line);
+                }
                 fall_off_none(&mut body, line);
             }
             if !kids.is_empty() {
@@ -3806,6 +3810,28 @@ fn bind_upper(p: Pat) -> Pat {
     }
 }
 
+// A .py file: only `return` gives a value, so a def's last line is a statement, down every branch of a last
+// `if` or `match`. (In Brevi, and in a .bv program in Python style, the last line is the function's value.)
+fn drop_last_value(e: &mut Expr, line: usize) {
+    match e {
+        Expr::Block(stmts, tail) => match tail.as_deref_mut() {
+            Some(Expr::Block(..) | Expr::If(..) | Expr::Match(..)) => drop_last_value(tail.as_mut().unwrap(), line),
+            // A raise never gives a value, and fall_off_none reads a last loop itself.
+            Some(Expr::For(..) | Expr::While(..)) | None => {}
+            Some(Expr::Call(f, _, _)) if f == "fail" => {}
+            Some(_) => stmts.push(Stmt::Expr { expr: *tail.take().unwrap(), line }),
+        },
+        Expr::If(_, a, b) => {
+            drop_last_value(a, line);
+            if let Some(b) = b {
+                drop_last_value(b, line);
+            }
+        }
+        Expr::Match(_, arms) => arms.iter_mut().for_each(|(_, a)| drop_last_value(a, line)),
+        _ => {}
+    }
+}
+
 // Python: a function that returns a value on some paths (`return r, f` inside a loop) and can run off its end
 // gives None there.
 fn fall_off_none(body: &mut Expr, line: usize) {
@@ -3834,6 +3860,8 @@ fn fall_off_none(body: &mut Expr, line: usize) {
         Some(Stmt::Expr { expr: Expr::For(..), .. }) => true,
         Some(Stmt::Expr { expr: Expr::While(c, _), .. }) => !matches!(c.as_ref(), Expr::Bool(true)),
         Some(Stmt::Expr { expr: Expr::If(_, _, None), .. }) => true,
+        // A last line that drop_last_value made a statement.
+        Some(Stmt::Expr { expr, .. }) => !matches!(expr, Expr::If(..) | Expr::Match(..) | Expr::Block(..)),
         _ => false,
     };
     if falls {
