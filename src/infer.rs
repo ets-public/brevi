@@ -1281,11 +1281,11 @@ impl Cx<'_> {
             "tally" => Map(Box::new(elem(&r)), Box::new(Int)),
             "tally_words" => Map(Box::new(Str), Box::new(Int)),
             "lax" => r,
-            "to_dict" => match elem(&r) {
-                Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
-                _ => match &r {
-                    // `dict(v)` on a dict record (or a dynamic value): a copy of it.
-                    Map(..) | Named(_) | Json => r,
+            "to_dict" => match &r {
+                // `dict(v)` / `v.copy()` on a dict (also one with tuple keys), a dict record or a dynamic value: a copy of it.
+                Map(..) | Named(_) | Json => r,
+                _ => match elem(&r) {
+                    Tuple(kv) if kv.len() == 2 => Map(Box::new(kv[0].clone()), Box::new(kv[1].clone())),
                     _ => Hole,
                 },
             },
@@ -2190,7 +2190,10 @@ pub fn returns(items: &mut [Item]) -> Result<(), Vec<crate::diag::Diag>> {
                 rec_field(e, &|x| global_too(cx.ty(x, &env), x, &cx.genv), &cx.structs);
                 if let Expr::Method(r, m, args, line) = e {
                     // `xs.copy()` left as written because the program has a copy method: on a list or dict it is a copy.
-                    if m == "copy" && args.is_empty() && matches!(cx.ty(r, &env), List(_) | Map(..) | Str) {
+                    // `d.copy()` on a dict is a dict, not its keys (as `list(d)` is).
+                    if m == "copy" && args.is_empty() && matches!(cx.ty(r, &env), Map(..)) {
+                        *m = "to_dict".into();
+                    } else if m == "copy" && args.is_empty() && matches!(cx.ty(r, &env), List(_) | Str) {
                         *m = "skip".into();
                         args.push(Expr::Int(0));
                     }
@@ -3770,9 +3773,10 @@ impl Ck<'_, '_> {
         // `dist.get(v, INF)` with int values and INF = float('inf'): the default is the biggest int.
         if let Expr::Method(r, m, args, _) = &mut *e {
             // Python's `list(d)` (a copy, `d.skip(0)`) of a dict is its keys.
+            // (Kept a list, `d.keys().skip(0)`: shown as a list, where `d.keys()` alone is shown as a set.)
             if m == "skip" && matches!(args.as_slice(), [Expr::Int(0)]) && matches!(self.cx.ty(r, env), Map(..)) {
-                *m = "keys".into();
-                args.clear();
+                let x = std::mem::replace(&mut **r, Expr::Int(0));
+                **r = Expr::Method(Box::new(x), "keys".into(), vec![], 0);
             }
             // `set(d)` of a dict is the set of its keys.
             if m == "unique" && args.is_empty() && matches!(self.cx.ty(r, env), Map(..)) {

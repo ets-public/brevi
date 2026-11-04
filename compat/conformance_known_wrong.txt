@@ -2,11 +2,6 @@
 # Remove a line when the bug is fixed; add one only with `--write-baseline` after reading the result.
 test_dict.DictTest.test_container_iterator dyn
 test_dict.DictTest.test_container_iterator normal
-test_dict.DictTest.test_copy_noncompact normal
-test_dict.DictTest.test_dict_copy_order dyn
-test_dict.DictTest.test_dict_copy_order normal
-test_dict.DictTest.test_dictview_mixed_set_operations dyn
-test_dict.DictTest.test_dictview_mixed_set_operations normal
 test_dict.DictTest.test_dictview_set_operations_on_items dyn
 test_dict.DictTest.test_dictview_set_operations_on_items normal
 test_dict.DictTest.test_eq dyn
@@ -17,8 +12,6 @@ test_dict.DictTest.test_instance_dict_getattr_str_subclass dyn
 test_dict.DictTest.test_instance_dict_getattr_str_subclass normal
 test_dict.DictTest.test_iterator_pickling dyn
 test_dict.DictTest.test_iterator_pickling normal
-test_dict.DictTest.test_keys_contained dyn
-test_dict.DictTest.test_keys_contained normal
 test_dict.DictTest.test_merge_and_mutate dyn
 test_dict.DictTest.test_merge_and_mutate normal
 test_dict.DictTest.test_merge_operator dyn
@@ -27,8 +20,6 @@ test_dict.DictTest.test_missing dyn
 test_dict.DictTest.test_missing normal
 test_dict.DictTest.test_object_set_item_single_instance_non_str_key dyn
 test_dict.DictTest.test_object_set_item_single_instance_non_str_key normal
-test_dict.DictTest.test_oob_indexing_dictiter_iternextitem dyn
-test_dict.DictTest.test_oob_indexing_dictiter_iternextitem normal
 test_dict.DictTest.test_overwrite_managed_dict dyn
 test_dict.DictTest.test_overwrite_managed_dict normal
 test_dict.DictTest.test_reverseiterator_pickling dyn
@@ -47,8 +38,6 @@ test_dict.DictTest.test_valuesiterator_pickling dyn
 test_dict.DictTest.test_valuesiterator_pickling normal
 test_dict.DictTest.test_views_mapping dyn
 test_dict.DictTest.test_views_mapping normal
-test_dict.SubclassMappingTests.test_write dyn
-test_dict.SubclassMappingTests.test_write normal
 test_grammar.GrammarTests.test_annotations_inheritance dyn
 test_grammar.GrammarTests.test_annotations_inheritance normal
 test_grammar.GrammarTests.test_classdef dyn
@@ -97,8 +86,6 @@ test_scope.ScopeTests.testCellIsArgAndEscapes dyn
 test_scope.ScopeTests.testCellIsArgAndEscapes normal
 test_scope.ScopeTests.testCellIsLocalAndEscapes dyn
 test_scope.ScopeTests.testCellIsLocalAndEscapes normal
-test_scope.ScopeTests.testLeaks dyn
-test_scope.ScopeTests.testLeaks normal
 test_scope.ScopeTests.testUnboundLocal dyn
 test_scope.ScopeTests.testUnboundLocal normal
 test_scope.ScopeTests.testUnboundLocal_AfterDel dyn

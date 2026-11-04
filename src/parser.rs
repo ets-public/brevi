@@ -2472,7 +2472,9 @@ impl Parser {
                             }
                             // `xs.to_list()` / `xs.copy()`: a list already is one, so this is a copy.
                             // (A Python program with its own `def copy(self)` keeps `.copy()` until the value's type is known.)
-                            let own_copy = name == "copy" && self.py && self.user_fns.iter().any(|f| f == "copy");
+                            // A Python `.copy()` is left as written too: on a dict it copies the dict, where `list(d)`
+                            // (also `.skip(0)`) gives the keys; the type is known later.
+                            let own_copy = name == "copy" && self.py;
                             let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() && !own_copy {
                                 args.push(Expr::Int(0));
                                 "skip".to_string()

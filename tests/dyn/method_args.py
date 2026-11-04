@@ -21,3 +21,9 @@ try:
     int("0", base=2 ** 100)
 except ValueError as e:
     print("ValueError", e)
+try:
+    {1: 2}.popitem(42)
+except TypeError as e:
+    print("popitem:", e)
+from collections import OrderedDict
+print(OrderedDict(a=1, b=2).popitem(last=False))
