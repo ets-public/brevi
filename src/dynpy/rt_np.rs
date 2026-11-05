@@ -1016,10 +1016,164 @@ pub fn np_truth(a: &NdArr) -> Result<bool, E> {
 
 // ---------- matmul ----------
 
+// numpy hands float dot and matmul to OpenBLAS, whose kernels (picked for the CPU) add in their own
+// orders with fused multiply-adds. These follow the SkylakeX (AVX-512) and Haswell/Zen (AVX2) kernels, so
+// results match numpy's on the same kind of machine; elsewhere a plain loop.
+#[derive(Clone, Copy, PartialEq)]
+enum Blas {
+    Skx,
+    Hsw,
+    Plain,
+}
+fn np_blas() -> Blas {
+    static K: std::sync::OnceLock<Blas> = std::sync::OnceLock::new();
+    *K.get_or_init(|| {
+        #[cfg(target_arch = "x86_64")]
+        {
+            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512dq") && is_x86_feature_detected!("avx512cd") && is_x86_feature_detected!("avx512bw") && is_x86_feature_detected!("avx512vl") {
+                return Blas::Skx;
+            }
+            if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+                return Blas::Hsw;
+            }
+        }
+        Blas::Plain
+    })
+}
+fn fma(a: f64, b: f64, c: f64) -> f64 {
+    a.mul_add(b, c)
+}
+// OpenBLAS ddot on one thread's share (dot_compute in kernel/x86_64/ddot.c)
+fn ddot1(x: &[f64], y: &[f64], unit: bool, k: Blas) -> f64 {
+    let n = x.len();
+    if k == Blas::Plain {
+        let mut s = 0.0;
+        for i in 0..n {
+            s += x[i] * y[i];
+        }
+        return s;
+    }
+    if !unit {
+        let (mut t1, mut t2) = (0.0, 0.0);
+        let n1 = n & !3;
+        let mut i = 0;
+        while i < n1 {
+            let (m1, m2, m3, m4) = (y[i] * x[i], y[i + 1] * x[i + 1], y[i + 2] * x[i + 2], y[i + 3] * x[i + 3]);
+            if k == Blas::Skx {
+                t1 += fma(y[i], x[i], m3);
+                t2 += fma(y[i + 1], x[i + 1], m4);
+            } else {
+                t1 += m1 + m3;
+                t2 += m2 + m4;
+            }
+            i += 4;
+        }
+        while i < n {
+            t1 = if k == Blas::Skx { fma(y[i], x[i], t1) } else { t1 + y[i] * x[i] };
+            i += 1;
+        }
+        return t1 + t2;
+    }
+    let n1 = n & !15;
+    let mut d = 0.0;
+    if n1 > 0 {
+        // four 4-lane accumulators (Skx: first 8-lane ones over blocks of 32, folded in)
+        let mut acc = [[0.0f64; 4]; 4];
+        let mut i = 0;
+        if k == Blas::Skx {
+            let n32 = n1 & !31;
+            let mut z = [[0.0f64; 8]; 4];
+            while i < n32 {
+                for r in 0..4 {
+                    for l in 0..8 {
+                        let p = i + 8 * r + l;
+                        z[r][l] = fma(x[p], y[p], z[r][l]);
+                    }
+                }
+                i += 32;
+            }
+            for r in 0..4 {
+                for l in 0..4 {
+                    acc[r][l] = z[r][l] + z[r][l + 4];
+                }
+            }
+        }
+        while i < n1 {
+            for r in 0..4 {
+                for l in 0..4 {
+                    let p = i + 4 * r + l;
+                    acc[r][l] = fma(x[p], y[p], acc[r][l]);
+                }
+            }
+            i += 16;
+        }
+        d = if k == Blas::Skx {
+            let a: Vec<f64> = (0..4).map(|l| ((acc[0][l] + acc[1][l]) + acc[2][l]) + acc[3][l]).collect();
+            (a[0] + a[2]) + (a[1] + a[3])
+        } else {
+            let h: Vec<[f64; 2]> = (0..4).map(|r| [acc[r][0] + acc[r][2], acc[r][1] + acc[r][3]]).collect();
+            let c = [(h[0][0] + h[1][0]) + (h[2][0] + h[3][0]), (h[0][1] + h[1][1]) + (h[2][1] + h[3][1])];
+            c[0] + c[1]
+        };
+    }
+    for i in n1..n {
+        d = if k == Blas::Skx { fma(y[i], x[i], d) } else { d + y[i] * x[i] };
+    }
+    d
+}
+// cblas_ddot: over 10000 values OpenBLAS splits the work across its threads (one per CPU) and adds the parts
+fn np_ddot(x: &[f64], y: &[f64], unit: bool) -> f64 {
+    let k = np_blas();
+    let n = x.len();
+    if n <= 10000 || k == Blas::Plain {
+        return ddot1(x, y, unit, k);
+    }
+    let nt = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
+    let (mut rest, mut pos, mut d) = (n, 0usize, 0.0);
+    for j in 0..nt {
+        if rest == 0 {
+            break;
+        }
+        let w = ((rest + nt - j - 1) / (nt - j)).min(rest);
+        d += ddot1(&x[pos..pos + w], &y[pos..pos + w], unit, k);
+        pos += w;
+        rest -= w;
+    }
+    d
+}
+// one element of a float matrix product: the k-loop as one fused multiply-add chain (OpenBLAS's gemm
+// kernels); for a matrix times a vector, gemv's four lanes
 fn dot_f(x: &[f64], y: &[f64]) -> f64 {
+    if np_blas() == Blas::Plain {
+        let mut s = 0.0;
+        for i in 0..x.len() {
+            s += x[i] * y[i];
+        }
+        return s;
+    }
     let mut s = 0.0;
     for i in 0..x.len() {
-        s += x[i] * y[i];
+        s = fma(x[i], y[i], s);
+    }
+    s
+}
+fn gemv_f(a: &[f64], x: &[f64]) -> f64 {
+    if np_blas() == Blas::Plain {
+        return dot_f(a, x);
+    }
+    let k = a.len();
+    let kk = k - k % 4;
+    let mut v = [0.0f64; 4];
+    for t in 0..kk {
+        v[t % 4] = fma(a[t], x[t], v[t % 4]);
+    }
+    let mut s = (v[0] + v[2]) + (v[1] + v[3]);
+    if k - kk == 2 {
+        s += a[kk] * x[kk] + a[kk + 1] * x[kk + 1];
+    } else {
+        for t in kk..k {
+            s = fma(a[t], x[t], s);
+        }
     }
     s
 }
@@ -1099,17 +1253,23 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
     let out = match d {
         NT::F => {
             let (xv, yv) = (x.fv(), y.fv());
-            let mut o = vec![0.0; m * n];
-            let mut col = vec![0.0; k];
-            for j in 0..n {
-                for t in 0..k {
-                    col[t] = yv[t * n + j];
+            if x.ndim() == 1 && y.ndim() == 1 {
+                let unit = x.st.first().is_none_or(|s| *s == 1) && y.st.first().is_none_or(|s| *s == 1);
+                Buf::F(vec![np_ddot(&xv, &yv, unit)])
+            } else {
+                let mut o = vec![0.0; m * n];
+                let mut col = vec![0.0; k];
+                for j in 0..n {
+                    for t in 0..k {
+                        col[t] = yv[t * n + j];
+                    }
+                    for i in 0..m {
+                        let row = &xv[i * k..(i + 1) * k];
+                        o[i * n + j] = if y.ndim() == 1 && x.ndim() == 2 { gemv_f(row, &col) } else { dot_f(row, &col) };
+                    }
                 }
-                for i in 0..m {
-                    o[i * n + j] = dot_f(&xv[i * k..(i + 1) * k], &col);
-                }
+                Buf::F(o)
             }
-            Buf::F(o)
         }
         NT::I | NT::B if d == NT::I => {
             let (xv, yv) = (x.iv(), y.iv());

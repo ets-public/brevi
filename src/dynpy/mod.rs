@@ -44,6 +44,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_npfmt.rs"),
     include_str!("rt_npfn.rs"),
     include_str!("rt_nprand.rs"),
+    include_str!("rt_nplinalg.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
