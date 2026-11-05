@@ -413,7 +413,7 @@ def footer(site="org", public=False):
   <div class="wrap cols">
     <div class="about">
       <span class="brand small">%sBrevi</span>
-      <p>The fast, safe target for AI-written Python. Apache-2.0.</p>
+      <p>A compiler that runs the Python AI agents write as native binaries. Apache-2.0.</p>
     </div>
     <div><h4>Docs</h4><a href="%s/docs/install">Install</a><a href="%s/docs/usage">Using Brevi</a><a href="%s/docs/agents">For agents</a><a href="%s/docs/architecture">Architecture</a></div>
     <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/changelog">Changelog</a><a href="%s/docs/faq">FAQ</a><a href="%s/pricing">Pricing</a><a href="%s/docs/contributing">Contributing</a></div>
