@@ -5,7 +5,8 @@ binaries are built and attached to the GitHub release. It uses trusted publishin
 registry tokens are stored anywhere: each registry trusts `ets-public/brevi`'s workflow
 `release.yml`. Renaming that file means updating the trusted publisher on each registry.
 A version that is already on a registry is skipped, so re-running a release is safe. Start a
-release by hand with `publish: false` to attach binaries only.
+release by hand with `publish: false` to attach binaries only, or with `from_release: true` to publish
+an existing release's binaries without rebuilding (crates.io is skipped then, as it publishes source).
 
 One-time setup (registry owner, in a browser):
 
