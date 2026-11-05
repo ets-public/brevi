@@ -85,6 +85,7 @@ fn pyd_api() -> &'static ax_pyffi::Api {
             return Err("Python did not start".into());
         }
         unsafe { atexit(pyd_at_exit) };
+        PY_DT.with(|h| h.set(Some(pyd_dt)));
         Ok(a)
     }) {
         Ok(a) => a,
@@ -1350,6 +1351,12 @@ pub fn pyd_from(m: &str, n: &str) -> R {
         }
         pyd_wrap(x, false)
     }
+}
+// datetime.<cls>.<meth>(*a) run by CPython, for a tzinfo the native datetime lacks (rt_ext.rs py_dt).
+fn pyd_dt(cls: &str, meth: &str, a: Args) -> R {
+    let c = pyd_from("datetime", cls)?;
+    let f = if meth.is_empty() { c } else { getattr(&c, meth)? };
+    call(&f, a)
 }
 pub fn pyd_builtin(n: &str) -> R {
     let _g = PydGil::take();
