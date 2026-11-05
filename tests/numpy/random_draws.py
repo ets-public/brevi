@@ -1,0 +1,25 @@
+import numpy as np
+rng = np.random.default_rng(42)
+print(rng.random(), rng.random(3))
+print(rng.normal(), rng.normal(5, 2, size=4))
+print(rng.normal(np.array([0.0, 10.0]), 1))
+print(rng.uniform(1, 3, 5), rng.uniform())
+print(rng.integers(10), rng.integers(1, 7, size=6), rng.integers(0, 2**40, 3), rng.integers(1, 6, endpoint=True, size=(2, 3)))
+print(rng.standard_normal((2, 2)), rng.exponential(2.0, 3), rng.exponential())
+print(rng.choice(5), rng.choice([1.5, 2.5, 3.5]), rng.choice(10, 4), rng.choice([3, 4, 5], size=5, p=[0.2, 0.3, 0.5]))
+print(rng.choice(20, 5, replace=False), rng.choice(20000, 500, replace=False)[:5])
+xs = list(range(10)); rng.shuffle(xs); print(xs)
+a = np.arange(12).reshape(4, 3); rng.shuffle(a); print(a)
+print(rng.permutation(8), rng.permutation(np.array([1.0, 2.0, 3.0])))
+print(np.random.default_rng(2**40 + 7).random(2), np.random.default_rng(0).integers(0, 100, 5))
+np.random.seed(123)
+print(np.random.rand(), np.random.rand(2, 2), np.random.randn(3), np.random.randint(10), np.random.randint(5, 50, size=4))
+print(np.random.uniform(0, 10, 3), np.random.normal(1, 0.5, 2), np.random.random(2), np.random.choice([1, 2, 3], 4), np.random.choice(10, 3, replace=False))
+print(np.random.permutation(6), np.random.exponential(1.0, 2), np.random.randint(0, 2**40, 2))
+ys = [1, 2, 3, 4, 5]; np.random.shuffle(ys); print(ys)
+r = np.random.RandomState(7); print(r.rand(2), r.randint(0, 9, 3), r.normal())
+for bad in [lambda: rng.normal(0, -1), lambda: rng.integers(5, 5), lambda: rng.choice(3, 5, replace=False), lambda: np.random.seed(-1)]:
+    try:
+        bad()
+    except Exception as e:
+        print(type(e).__name__, e)

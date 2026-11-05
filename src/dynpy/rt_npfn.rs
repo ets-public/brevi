@@ -1086,6 +1086,7 @@ pub fn np_module_attr(m: &str, n: &str) -> Option<V> {
         ("numpy", "nan") => V::Float(f64::NAN),
         ("numpy", "euler_gamma") => V::Float(0.5772156649015329),
         ("numpy", "newaxis") => V::None,
+        ("numpy", "random") => V::Module("numpy.random"),
         ("numpy", "True_") => np_sc(Sc::B(true)),
         ("numpy", "False_") => np_sc(Sc::B(false)),
         ("numpy", "float64" | "double") => V::Class(ext_class("numpy.float64")),
@@ -1147,6 +1148,9 @@ pub fn np_construct(cls: &str, a: Args) -> Option<R> {
 }
 
 pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
+    if m == "numpy.random" {
+        return np_random_call(n, &mut a);
+    }
     if m != "numpy" {
         return Err(np_unsup(&format!("{m}.{n}")));
     }

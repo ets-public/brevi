@@ -1,0 +1,9 @@
+Array: [77.4  43.89 85.86 69.74  9.42 97.56 76.11 78.61 12.81 45.04 37.08 92.68
+ 64.39 82.28 44.34 22.72 55.46  6.38 82.76 63.17]
+Threshold: 50.0
+Boolean mask: [ True False  True  True False  True  True  True False False False  True
+  True  True False False  True False  True  True]
+Indices from boolean mask: [ 0  2  3  5  6  7 11 12 13 16 18 19]
+Indices from np.where: [ 0  2  3  5  6  7 11 12 13 16 18 19]
+Values above threshold: [77.4  85.86 69.74 97.56 76.11 78.61 92.68 64.39 82.28 55.46 82.76 63.17]
+Indices match: True

@@ -85,8 +85,9 @@ What it has:
 - Reductions with `axis` and `keepdims`: `sum`, `mean`, `std`, `var` (`ddof`), `prod`, `max`, `min`, `argmax`, `argmin`, `any`, `all`, `cumsum`, `cumprod`, `median`, `percentile`, `quantile`, `average`, the `nan*` forms. Sums add in numpy's own pairwise order, so float totals match to the last digit.
 - `sort`, `argsort`, `unique` (with `return_counts` and friends), `searchsorted`, `nonzero`, `argwhere`, `diff`, `tolist`, `astype`, `set_printoptions`.
 - numpy's errors (`ValueError: operands could not be broadcast together ...`, `AxisError`) and its warnings on stderr (`RuntimeWarning: divide by zero encountered in divide`).
+- `np.random`, drawing the same numbers as numpy for the same seed: `default_rng(seed)` (numpy's SeedSequence and PCG64) with `random`, `integers` (`endpoint=`), `normal`, `standard_normal`, `uniform`, `exponential`, `choice` (`replace=False`, `p=`), `shuffle` and `permutation`; and the older `np.random.seed(n)` with `rand`, `randn`, `randint`, `random`, `uniform`, `normal`, `choice`, `shuffle`, `permutation`, `exponential` and `RandomState(n)`. Array `loc`/`scale`/`low`/`high` broadcast as in numpy.
 
-Not yet (these go to CPython's numpy for now): `np.random`, `np.linalg`, `polyfit`, `histogram`, other dtypes (`float32`, `int32`, strings, complex, dates), and record arrays. `np.random` and `np.linalg` come next.
+Not yet (these go to CPython's numpy for now): other random distributions (`poisson`, `binomial`, `gamma`, ...), `np.linalg`, `polyfit`, `histogram`, ufunc methods such as `np.maximum.accumulate`, other dtypes (`float32`, `int32`, strings, complex, dates), and record arrays. `np.linalg`, `polyfit` and `histogram` come next.
 
 Two differences numpy itself has between machines: `exp`, `log`, `tanh`, `power` and `arctan` can differ from numpy in the last digit (numpy picks SIMD code for the CPU), and so can float `dot` and `@` (numpy calls OpenBLAS, which also differs by CPU). The default `sort` order of equal values, such as `0.0` and `-0.0`, follows a stable sort. `BREVI_NUMPY=0` turns Brevi's numpy off.
 
