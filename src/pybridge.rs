@@ -299,6 +299,18 @@ pub fn stdlib_only() -> bool {
     !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"))
 }
 
+// The program's CPython calls are numpy (and Brevi's own modules): the dynamic build, with Brevi's own numpy,
+// is tried first (it refuses what that numpy lacks, and the typed build with CPython's numpy goes instead).
+pub fn numpy_only() -> bool {
+    let u = uses();
+    u.iter().any(|m| m == "numpy" || m.starts_with("numpy."))
+        && u.iter().all(|m| {
+            let top = m.split('.').next().unwrap_or(m);
+            top == "numpy" || NATIVE.contains(&top) || matches!(top, "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse")
+        })
+        && std::env::var("BREVI_NUMPY").map_or(true, |v| v != "0")
+}
+
 pub fn active() -> bool {
     REG.with(|r| r.borrow().is_some())
 }

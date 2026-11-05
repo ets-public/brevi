@@ -421,7 +421,7 @@ fn main() {
     };
     // Typed only with CPython running some of Brevi's own modules' functions (math.gcd, itertools.product):
     // the dynamic build has them natively, so it goes first (no libpython at run time, fine under --sandbox).
-    if dyn_ok && !forced_dyn() && pybridge::active() && pybridge::stdlib_only() {
+    if dyn_ok && !forced_dyn() && pybridge::active() && (pybridge::stdlib_only() || pybridge::numpy_only()) {
         let why = format!("{} not in the typed build", pybridge::uses().join(", "));
         // Without CPython: one that needs it anyway is better built typed.
         dynpy::NO_BRIDGE.store(true, std::sync::atomic::Ordering::Relaxed);

@@ -40,6 +40,9 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_enum.rs"),
     include_str!("rt_rand.rs"),
     include_str!("rt_bytes.rs"),
+    include_str!("rt_np.rs"),
+    include_str!("rt_npfmt.rs"),
+    include_str!("rt_npfn.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -169,6 +172,22 @@ fn int_seeds(src: &str) -> bool {
 // Err is (file, line, message).
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     BRIDGED.lock().unwrap().clear();
+    use std::sync::atomic::Ordering::Relaxed;
+    let np_off = std::env::var("BREVI_NUMPY").is_ok_and(|v| v == "0");
+    emit::NP_NATIVE.store(!np_off, Relaxed);
+    let r = to_rust_np(file);
+    emit::NP_ON.store(false, Relaxed);
+    // Something of numpy that Brevi's own numpy lacks: no dynamic build. CPython's numpy through
+    // the dynamic bridge is not used: the typed build's bridge (or CPython itself) runs it right.
+    if let Err((f, l, m)) = &r {
+        if m.contains("numpy") && std::env::var("BREVI_NUMPY_DEBUG").is_ok() {
+            eprintln!("native numpy refused: {f}:{l}: {m}");
+        }
+    }
+    r
+}
+
+fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
     match to_rust_with(file, true) {
         // More of os, pathlib, random, ... than Brevi's copies have: CPython's own modules, through the bridge.
         Err((_, 0, m)) if m == BEYOND_COPIES && bridge_ok() => to_rust_with(file, false),
@@ -200,8 +219,14 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         let mut imps = vec![];
         walk_imports(&mods[k].body, &mut imps);
         for m in imps {
-            if mods.iter().any(|x| x.name == m) || emit::BUILTIN_MODULES.contains(&m.as_str()) {
+            if mods.iter().any(|x| x.name == m) || emit::builtin_mod(&m) {
+                if m == "numpy" {
+                    emit::NP_ON.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 continue;
+            }
+            if emit::np_native() && (m.starts_with("numpy.") || m == "numpy") {
+                return Err((file.to_string(), 0, format!("numpy: module {m} is not in Brevi's native numpy")));
             }
             let p = dir.join(format!("{m}.py"));
             // Outside the sandbox too, when every use of these modules is one Brevi's copies have (checked
@@ -238,6 +263,10 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         lib_classes(&mods, &texts, &mut bridge)?;
     }
     // The file of the module the error is in, not always the main file (#194).
+    if bridge.on && emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        // numpy's arrays would cross into the bridged library: both go to CPython
+        return Err((file.to_string(), 0, "numpy: arrays passed to a library CPython runs".into()));
+    }
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
             Some((p, _)) => p.clone(),

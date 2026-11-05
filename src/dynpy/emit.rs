@@ -7,10 +7,92 @@ type ER<T> = Result<T, (usize, String)>;
 
 pub const BUILTIN_MODULES: [&str; 31] = ["_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
+
+// ---------- numpy, natively (rt_np*.rs) ----------
+// Set while a build uses Brevi's own numpy (on until a refusal names numpy; then CPython's numpy is used).
+pub static NP_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+// Set while the program being emitted imports numpy natively.
+pub static NP_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn np_native() -> bool {
+    NP_NATIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+fn np_on() -> bool {
+    NP_ON.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn builtin_mod(m: &str) -> bool {
+    BUILTIN_MODULES.contains(&m) || (m == "numpy" && np_native())
+}
+// The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
+const NP_FUNCS: &[(&str, &[&str])] = &[
+    ("pi", &[]), ("e", &[]), ("inf", &[]), ("nan", &[]), ("euler_gamma", &[]), ("newaxis", &[]), ("True_", &[]), ("False_", &[]),
+    ("float64", &[]), ("double", &[]), ("int64", &[]), ("int_", &[]), ("intp", &[]), ("bool_", &[]), ("bool", &[]), ("ndarray", &[]),
+    ("integer", &[]), ("signedinteger", &[]), ("floating", &[]), ("number", &[]), ("generic", &[]), ("inexact", &[]),
+    ("array", &["dtype", "copy", "ndmin"]), ("asarray", &["dtype"]), ("asanyarray", &["dtype"]), ("copy", &[]),
+    ("zeros", &["dtype"]), ("ones", &["dtype"]), ("empty", &["dtype"]), ("full", &["dtype", "fill_value"]),
+    ("zeros_like", &["dtype"]), ("ones_like", &["dtype"]), ("empty_like", &["dtype"]), ("full_like", &["dtype", "fill_value"]),
+    ("arange", &["start", "stop", "step", "dtype"]), ("linspace", &["num", "endpoint", "retstep", "dtype"]), ("eye", &["M", "k", "dtype"]), ("identity", &["dtype"]),
+    ("set_printoptions", &["precision", "suppress", "linewidth", "threshold", "edgeitems"]),
+    ("shape", &[]), ("ndim", &[]), ("size", &[]), ("dtype", &[]), ("isscalar", &[]), ("issubdtype", &[]),
+    ("sum", &["axis", "keepdims"]), ("mean", &["axis", "keepdims"]), ("std", &["axis", "keepdims", "ddof"]), ("var", &["axis", "keepdims", "ddof"]),
+    ("prod", &["axis", "keepdims"]), ("max", &["axis", "keepdims"]), ("min", &["axis", "keepdims"]), ("amax", &["axis", "keepdims"]), ("amin", &["axis", "keepdims"]),
+    ("argmax", &["axis", "keepdims"]), ("argmin", &["axis", "keepdims"]), ("any", &["axis", "keepdims"]), ("all", &["axis", "keepdims"]),
+    ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("around", &["decimals"]), ("clip", &["a_min", "a_max", "min", "max"]),
+    ("reshape", &["shape", "newshape"]), ("ravel", &[]), ("transpose", &["axes"]), ("squeeze", &["axis"]), ("trace", &[]), ("diagonal", &["offset"]),
+    ("nonzero", &[]), ("argsort", &["axis", "kind"]), ("repeat", &["axis"]), ("sort", &["axis"]), ("median", &["axis", "keepdims"]),
+    ("percentile", &["axis", "keepdims", "method"]), ("quantile", &["axis", "keepdims", "method"]),
+    ("nansum", &["axis", "keepdims"]), ("nanmean", &["axis", "keepdims"]), ("nanstd", &["axis", "keepdims", "ddof"]), ("nanvar", &["axis", "keepdims", "ddof"]), ("nanmax", &["axis", "keepdims"]), ("nanmin", &["axis", "keepdims"]),
+    ("average", &["axis", "weights"]), ("count_nonzero", &["axis"]), ("where", &[]), ("argwhere", &[]), ("flatnonzero", &[]),
+    ("unique", &["return_index", "return_inverse", "return_counts"]), ("concatenate", &["axis"]), ("stack", &["axis"]), ("vstack", &[]), ("hstack", &[]), ("column_stack", &[]),
+    ("atleast_1d", &[]), ("atleast_2d", &[]), ("expand_dims", &["axis"]), ("flip", &["axis"]), ("fliplr", &[]), ("flipud", &[]), ("roll", &["shift", "axis"]),
+    ("diff", &["n", "axis", "prepend", "append"]), ("outer", &[]), ("dot", &[]), ("matmul", &[]), ("inner", &[]), ("vdot", &[]),
+    ("isclose", &["rtol", "atol", "equal_nan"]), ("allclose", &["rtol", "atol", "equal_nan"]), ("array_equal", &[]), ("searchsorted", &["side"]),
+    ("tile", &[]), ("meshgrid", &["indexing"]), ("diag", &["k"]), ("fill_diagonal", &[]), ("unravel_index", &[]), ("cross", &[]), ("convolve", &["mode"]),
+    ("abs", &[]), ("absolute", &[]), ("fabs", &[]), ("negative", &[]), ("positive", &[]), ("sqrt", &[]), ("exp", &[]), ("exp2", &[]), ("expm1", &[]), ("log", &[]), ("log10", &[]), ("log2", &[]), ("log1p", &[]),
+    ("sin", &[]), ("cos", &[]), ("tan", &[]), ("arcsin", &[]), ("arccos", &[]), ("arctan", &[]), ("sinh", &[]), ("cosh", &[]), ("tanh", &[]), ("arcsinh", &[]), ("arccosh", &[]), ("arctanh", &[]),
+    ("cbrt", &[]), ("floor", &[]), ("ceil", &[]), ("trunc", &[]), ("rint", &[]), ("fix", &[]), ("square", &[]), ("reciprocal", &[]), ("sign", &[]), ("degrees", &[]), ("radians", &[]), ("deg2rad", &[]), ("rad2deg", &[]),
+    ("isnan", &[]), ("isinf", &[]), ("isfinite", &[]), ("logical_not", &[]),
+    ("add", &[]), ("subtract", &[]), ("multiply", &[]), ("divide", &[]), ("true_divide", &[]), ("floor_divide", &[]), ("mod", &[]), ("remainder", &[]), ("power", &[]),
+    ("maximum", &[]), ("minimum", &[]), ("fmax", &[]), ("fmin", &[]), ("arctan2", &[]), ("hypot", &[]), ("copysign", &[]), ("fmod", &[]), ("logaddexp", &[]),
+    ("equal", &[]), ("not_equal", &[]), ("less", &[]), ("less_equal", &[]), ("greater", &[]), ("greater_equal", &[]),
+    ("logical_and", &[]), ("logical_or", &[]), ("logical_xor", &[]), ("bitwise_and", &[]), ("bitwise_or", &[]), ("bitwise_xor", &[]), ("left_shift", &[]), ("right_shift", &[]),
+];
+// Every attribute name of numpy arrays, scalars and dtypes; the second list is those the native numpy has
+// (with the keyword arguments of the methods). A program using any other of these names gets CPython's numpy.
+const NP_ATTR_ALL: &[&str] = &["T", "alignment", "all", "any", "argmax", "argmin", "argpartition", "argsort", "as_integer_ratio", "astype", "base", "bit_count", "byteorder", "byteswap", "char", "choose", "clip", "compress", "conj", "conjugate", "copy", "ctypes", "cumprod", "cumsum", "data", "denominator", "descr", "device", "diagonal", "dot", "dtype", "dump", "dumps", "fields", "fill", "flags", "flat", "flatten", "fromhex", "getfield", "hasobject", "hex", "imag", "is_integer", "isalignedstruct", "isbuiltin", "isnative", "item", "itemsize", "kind", "mT", "max", "mean", "metadata", "min", "name", "names", "nbytes", "ndim", "newbyteorder", "nonzero", "num", "numerator", "partition", "prod", "ptp", "put", "ravel", "real", "repeat", "reshape", "resize", "round", "searchsorted", "setfield", "setflags", "shape", "size", "sort", "squeeze", "std", "str", "strides", "subdtype", "sum", "swapaxes", "take", "to_device", "tobytes", "tofile", "tolist", "trace", "transpose", "type", "var", "view"];
+const NP_ATTR_OK: &[(&str, &[&str])] = &[
+    ("T", &[]), ("mT", &[]), ("shape", &[]), ("ndim", &[]), ("size", &[]), ("dtype", &[]), ("itemsize", &[]), ("nbytes", &[]), ("real", &[]), ("strides", &[]), ("imag", &[]),
+    ("name", &[]), ("kind", &[]), ("char", &[]), ("type", &[]),
+    ("sum", &["axis", "keepdims"]), ("mean", &["axis", "keepdims"]), ("std", &["axis", "keepdims", "ddof"]), ("var", &["axis", "keepdims", "ddof"]), ("prod", &["axis", "keepdims"]),
+    ("max", &["axis", "keepdims"]), ("min", &["axis", "keepdims"]), ("argmax", &["axis", "keepdims"]), ("argmin", &["axis", "keepdims"]), ("any", &["axis", "keepdims"]), ("all", &["axis", "keepdims"]),
+    ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("clip", &["min", "max"]), ("reshape", &[]), ("ravel", &[]), ("flatten", &[]), ("copy", &[]),
+    ("transpose", &[]), ("astype", &[]), ("tolist", &[]), ("item", &[]), ("fill", &[]), ("sort", &["axis", "kind"]), ("argsort", &["axis", "kind"]), ("nonzero", &[]), ("dot", &[]),
+    ("squeeze", &["axis"]), ("diagonal", &["offset"]), ("trace", &[]), ("repeat", &["axis"]), ("conj", &[]), ("conjugate", &[]), ("is_integer", &[]), ("as_integer_ratio", &[]),
+    // names Python's own values have too: fine on those, and the native numpy has them or they are not numpy's
+    ("count", &[]), ("index", &[]), ("hex", &[]), ("fromhex", &[]), ("numerator", &[]), ("denominator", &[]), ("bit_count", &[]),
+];
+fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
+    NP_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
+}
+// Refusal (which sends the program to CPython's numpy) for an attribute or method of a numpy value that the
+// native numpy lacks.
+fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
+    if !np_on() || !NP_ATTR_ALL.contains(&n) {
+        return Ok(());
+    }
+    match NP_ATTR_OK.iter().find(|(a, _)| *a == n) {
+        None => Err(err(line, &format!("numpy: .{n} is not in Brevi's native numpy"))),
+        Some((_, ok)) => match kws.iter().find(|k| !ok.contains(k)) {
+            Some(k) => Err(err(line, &format!("numpy: .{n}({k}=...) is not in Brevi's native numpy"))),
+            None => Ok(()),
+        },
+    }
+}
+
 // Names a builtin module provides in dynamic builds (anything else is refused when the program is built).
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "typing" | "__future__" => return true,
+        "numpy" => return np_func_kw(n).is_some(),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -841,6 +923,7 @@ impl Em {
                     }
                     return Ok(self.q(&format!("module_attr({}, {})", lit(&m), lit(n))));
                 }
+                np_attr_check(n, &[], line)?;
                 let oo = self.ex(o, line)?;
                 self.q(&format!("getattr(&{oo}, {})", lit(n)))
             }
@@ -903,6 +986,11 @@ impl Em {
                 let bb = self.ex(b, line)?;
                 let t = self.q("truth(&__t)");
                 format!("{{ let __t = {aa}; if {t} {{ __t }} else {{ {bb} }} }}")
+            }
+            Ex::Cmp(a, rest) if np_on() && rest.len() == 1 && !matches!(rest[0].0, "is" | "is not" | "in" | "not in") => {
+                let aa = self.ex(a, line)?;
+                let bb = self.ex(&rest[0].1, line)?;
+                self.q(&format!("cmp_v(&{aa}, &{bb}, {})", lit(rest[0].0)))
             }
             Ex::Cmp(..) => format!("V::Bool({})", self.cond(e, line)?),
             Ex::IfExp(c, a, b) => {
@@ -989,6 +1077,12 @@ impl Em {
     fn cond(&mut self, e: &Ex, line: usize) -> ER<String> {
         Ok(match e {
             Ex::Cmp(a, rest) => {
+                if rest.len() == 1 && np_on() && !matches!(rest[0].0, "is" | "is not" | "in" | "not in") {
+                    let aa = self.ex(a, line)?;
+                    let bb = self.ex(&rest[0].1, line)?;
+                    let c = self.q(&format!("cmp_v(&{aa}, &{bb}, {})", lit(rest[0].0)));
+                    return Ok(self.q(&format!("truth(&{c})")));
+                }
                 if rest.len() == 1 {
                     let aa = self.ex(a, line)?;
                     let op = rest[0].0;
@@ -1039,7 +1133,7 @@ impl Em {
         if let Ex::Attr(o, n) = e {
             if let Some(m) = self.static_module(o) {
                 let full = format!("{m}.{n}");
-                if BUILTIN_MODULES.contains(&full.as_str()) && !module_has(&m, n) {
+                if builtin_mod(full.as_str()) && !module_has(&m, n) {
                     return Some(full);
                 }
             }
@@ -1162,8 +1256,32 @@ impl Em {
                 if !module_has(&md, m) {
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
                 }
+                if md == "numpy" {
+                    fn has_str(e: &Ex) -> bool {
+                        match e {
+                            Ex::Str(_) | Ex::FStr(_) => true,
+                            Ex::List(v) | Ex::Tuple(v) => v.iter().any(has_str),
+                            _ => false,
+                        }
+                    }
+                    if args.iter().any(|x| matches!(x, Arg::Pos(e) if matches!(e, Ex::List(_) | Ex::Tuple(_)) && has_str(e))) {
+                        return Err(err(line, "numpy: arrays of strings are not in Brevi's native numpy yet"));
+                    }
+                    let ok = np_func_kw(m).unwrap_or(&[]);
+                    for x in args {
+                        match x {
+                            Arg::Kw(k, _) if !ok.contains(&k.as_str()) && !matches!(k.as_str(), "a" | "x" | "object" | "ar" | "q" | "v" | "shape" | "fill_value" | "dtype" | "out") || matches!(x, Arg::Kw(k, _) if k == "out") => {
+                                return Err(err(line, &format!("numpy: np.{m}(..., {}=...) is not in Brevi's native numpy", if let Arg::Kw(k, _) = x { k.as_str() } else { "" })));
+                            }
+                            Arg::Pos(_) | Arg::Kw(..) => {}
+                            _ => return Err(err(line, &format!("numpy: np.{m}(*args or **kwargs) is not in Brevi's native numpy"))),
+                        }
+                    }
+                }
                 return Ok(self.q(&format!("module_call({}, {}, {a})", lit(&md), lit(m))));
             }
+            let kws: Vec<&str> = args.iter().filter_map(|x| if let Arg::Kw(k, _) = x { Some(k.as_str()) } else { None }).collect();
+            np_attr_check(m, &kws, line)?;
             let oo = self.ex(o, line)?;
             let a = self.args(args, line, None)?;
             return Ok(self.q(&format!("call_method(&{oo}, {}, {a})", lit(m))));
@@ -1516,7 +1634,7 @@ impl Em {
                         self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
                         let v = self.q(&format!("pyd_import({}, {})", lit(m), a.is_none()));
                         b.push_str(&self.store(&bind, &v));
-                    } else if BUILTIN_MODULES.contains(&target.as_str()) || matches!(target.as_str(), "os.path") {
+                    } else if builtin_mod(target.as_str()) || matches!(target.as_str(), "os.path") {
                         b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
                     } else {
                         return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
@@ -1530,7 +1648,7 @@ impl Em {
                     return Ok(b);
                 }
                 let user = self.user_modules.contains(m);
-                if !user && !BUILTIN_MODULES.contains(&m.as_str()) && self.bridge.has(m) {
+                if !user && !builtin_mod(m.as_str()) && self.bridge.has(m) {
                     self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
                     for (n, a) in names {
                         if n == "*" {
@@ -1544,7 +1662,7 @@ impl Em {
                 if user {
                     let init = self.q(&format!("init_{}()", rust_ident(m)));
                     write!(b, "{init}; ").unwrap();
-                } else if !BUILTIN_MODULES.contains(&m.as_str()) {
+                } else if !builtin_mod(m.as_str()) {
                     return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
                 }
                 for (n, a) in names {
@@ -2148,7 +2266,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         let mut fn_globals = BTreeSet::new();
         globals_in(&m.body, &mut fn_globals);
         for (n, t) in import_of {
-            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !BUILTIN_MODULES.contains(&t.as_str()) && !em.user_modules.contains(&t)) {
+            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
                 em.mod_alias.insert((m.name.clone(), n), t);
             }
         }

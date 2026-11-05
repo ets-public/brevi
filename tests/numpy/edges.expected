@@ -1,0 +1,45 @@
+int64 int64 float64 float64 bool
+[2 1] [1. 2.]
+np.int64(8) np.float64(5.0) np.True_
+[1.e-05 1.e+00 1.e+05]
+[0.1        0.25       0.33333333]
+array([], dtype=float64) array([], shape=(2, 0), dtype=float64)
+[   0    1    2 ... 1997 1998 1999]
+[       0.           3.142 20000000.   ]
+array([[ 1.5, -2. ],
+       [ nan,  inf]])
+[[ 0  1  2  3]
+ [99  5  6  7]
+ [ 8  9 10 11]]
+[[ 3  7 11]
+ [ 2  6 10]
+ [ 1  5  9]
+ [ 0 99  8]] 15 [99  6  7  8  9 10 11]
+[[0.         0.         0.        ]
+ [0.         0.16666667 0.33333333]
+ [0.         0.33333333 0.66666667]
+ [0.         0.5        1.        ]
+ [0.         0.66666667 1.33333333]
+ [0.         0.83333333 1.66666667]
+ [0.         1.         2.        ]]
+[107  15  18  21] [ 1.5  29.25  9.5 ] 26.030297518255313 [[ 3]
+ [99]
+ [11]]
+[[  0   1   3   6]
+ [ 99 104 110 117]
+ [  8  17  27  38]] 4 [1 2 0]
+49950.0 [ 495. 1495. 2495.] 49.95
+[ 0.  2.  2. -0.] 2.68
+ValueError operands could not be broadcast together with shapes (3,) (4,) 
+AxisError axis 5 is out of bounds for array of dimension 2
+ValueError setting an array element with a sequence. The requested array has an inhomogeneous shape after 1 dimensions. The detected shape was (2,) + inhomogeneous part.
+ValueError The truth value of an array with more than one element is ambiguous. Use a.any() or a.all()
+[ inf -inf  nan]
+(array([1, 2, 3]), array([2, 1, 2]))
+[[-1 -1 -1 -1]
+ [99  5  6  7]
+ [ 8  9 10 11]] True True
+[[  14   38   62]
+ [  38 9911  974]
+ [  62  974  366]] 5
+[1 2 3 1 2 3] (2, 3) [[1, 1], [2, 2], [3, 3]]

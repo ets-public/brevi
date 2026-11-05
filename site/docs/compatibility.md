@@ -72,6 +72,26 @@ Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 - `eval`, `exec` and other run-time code generation
 - Modules outside the list above in a program that also needs the dynamic build (see below)
 
+## numpy
+
+From the next release, a Python file that uses numpy's core builds with Brevi's own numpy, written in Rust: no CPython and no numpy at run time, and the same output as numpy 2.x byte for byte, printing included. A program that uses anything outside it is not built this way: it gets CPython's numpy as before (see [Libraries](#libraries-numpy-pandas)), so an answer is never half Brevi's and half numpy's.
+
+What it has:
+
+- Arrays of `float64`, `int64` and `bool`, with numpy's type rules (NEP 50: `np.array([1, 2]) + 1.5` is float64, a Python number never widens an array), and numpy's scalars (`np.float64(2.5)` prints as numpy 2 prints it).
+- Creation (`array`, `zeros`, `ones`, `full`, `arange`, `linspace`, `eye`, `*_like`, ...), shape changes (`reshape`, `.T`, `transpose`, `ravel`, `squeeze`, `expand_dims`, `stack`, `concatenate`, `vstack`, `hstack`, `tile`, `repeat`, `flip`, `roll`, `meshgrid`).
+- Indexing as numpy does it: slices are views that share memory, boolean masks, integer-array indexing, `None`/`np.newaxis`, `...`, and assignment through any of them.
+- Broadcasting, all the arithmetic and comparison operators (in place too), `@`, `dot`, `outer`, `cross`, `convolve`, and about 60 ufuncs (`sqrt`, `exp`, `log`, trig, `floor`, `round`, `maximum`, `isclose`, `where`, ...).
+- Reductions with `axis` and `keepdims`: `sum`, `mean`, `std`, `var` (`ddof`), `prod`, `max`, `min`, `argmax`, `argmin`, `any`, `all`, `cumsum`, `cumprod`, `median`, `percentile`, `quantile`, `average`, the `nan*` forms. Sums add in numpy's own pairwise order, so float totals match to the last digit.
+- `sort`, `argsort`, `unique` (with `return_counts` and friends), `searchsorted`, `nonzero`, `argwhere`, `diff`, `tolist`, `astype`, `set_printoptions`.
+- numpy's errors (`ValueError: operands could not be broadcast together ...`, `AxisError`) and its warnings on stderr (`RuntimeWarning: divide by zero encountered in divide`).
+
+Not yet (these go to CPython's numpy for now): `np.random`, `np.linalg`, `polyfit`, `histogram`, other dtypes (`float32`, `int32`, strings, complex, dates), and record arrays. `np.random` and `np.linalg` come next.
+
+Two differences numpy itself has between machines: `exp`, `log`, `tanh`, `power` and `arctan` can differ from numpy in the last digit (numpy picks SIMD code for the CPU), and so can float `dot` and `@` (numpy calls OpenBLAS, which also differs by CPU). The default `sort` order of equal values, such as `0.0` and `-0.0`, follows a stable sort. `BREVI_NUMPY=0` turns Brevi's numpy off.
+
+Speed: a loop over small arrays ran 3.7x faster than CPython with numpy, a grid simulation 2x, small statistics 40x (numpy's import time), and whole-array work on 2 million values about the same.
+
 ## Libraries (numpy, pandas, ...)
 
 A Python file that imports a module Brevi does not build itself (numpy, pandas, requests, sqlite3, Pillow, ...) still builds natively: each library call runs in CPython, loaded into the native program, so results are CPython's own, and the rest of the program stays native and fast. Brevi's own modules (math, re, json, datetime, ...) stay native: what the typed build lacks of them goes to the dynamic build, never to CPython (from v0.24.3; see [What runs native](#what-runs-native)).

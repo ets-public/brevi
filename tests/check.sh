@@ -80,6 +80,20 @@ for f in tests/lib/*.py; do
     echo "ok   $f"
   fi
 done
+# numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
+# The .expected files come from real numpy (numpy 2.x; CI has none): `--update` needs it installed.
+for f in tests/numpy/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then python3 -c "import numpy" 2>/dev/null && python3 "$f" > "$exp" 2>/dev/null; continue; fi
+  out=$(BREVI_PATH=1 timeout 120 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
+    echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"
