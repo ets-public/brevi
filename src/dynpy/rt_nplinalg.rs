@@ -1,8 +1,8 @@
 
 // ---------- numpy.linalg, histogram, cov/corrcoef, trapezoid, ufunc reduce/accumulate ----------
 // Built from numpy's own Python-level definitions (numpy/linalg/_linalg.py, numpy/lib/_histograms_impl.py,
-// ...) over the native pieces, so the steps and their order are numpy's. LAPACK's LU (det, solve, inv)
-// follows OpenBLAS's getf2: like numpy's, its last digit can differ between CPUs.
+// ...) over the native pieces, so the steps and their order are numpy's. LAPACK (det, solve, inv)
+// follows OpenBLAS's own code (see lk_getrf below).
 
 fn np_call(n: &str, p: Vec<V>, k: Vec<(Sym, V)>) -> R {
     np_module_call("numpy", n, Args { p, k })
@@ -36,96 +36,491 @@ fn fchain(a: &[f64], b: &[f64]) -> f64 {
     }
     s
 }
-// LU with partial pivoting, in place on a row-major n x n matrix (OpenBLAS getf2: left-looking, column by
-// column). Returns the pivot rows and whether a zero pivot was met.
-fn np_lu(a: &mut [f64], n: usize) -> (Vec<usize>, bool) {
-    let mut piv = vec![0; n];
-    let mut singular = false;
-    let mut col = vec![0.0; n];
+// ---------- LAPACK as OpenBLAS runs it (numpy's det, slogdet, solve, inv) ----------
+// numpy calls OpenBLAS's dgetrf and dgesv. Their result depends on the order the kernels add in, so this
+// follows OpenBLAS (0.3.30) step by step on one thread: getrf_single.c (recursive blocking), getf2_k.c,
+// dgemv_n_4.c, the dgemm kernels' k-loops (dgemm_kernel_16x2_skylakex.c, dgemm_kernel_4x8_haswell.S),
+// trsm_kernel_LT/LN.c, trsv_L/U.c and daxpy.c, for the SkylakeX (AVX-512) and Haswell (AVX2) kernels.
+// numpy itself runs this on one thread for solve and inv below 100 x 100 and for det below about
+// 140 x 140; larger ones it splits across threads, which adds in another order.
+// Matrices here are column-major (LAPACK's), element (i, j) at i + j * ld.
+struct Lk {
+    skx: bool,
+    um: usize,
+    un: usize,
+    q: usize,
+}
+fn lk() -> Lk {
+    if np_blas() == Blas::Skx {
+        Lk { skx: true, um: 16, un: 2, q: 384 }
+    } else {
+        Lk { skx: false, um: 4, un: 8, q: 256 }
+    }
+}
+fn lk_blas(k: &Lk) -> Blas {
+    if k.skx { Blas::Skx } else { Blas::Hsw }
+}
+// y -= A x for the m x n block of `a` at (r0, c0) (dgemv_n_4.c, alpha = -1)
+fn lk_gemv_n(k: &Lk, a: &[f64], lda: usize, r0: usize, c0: usize, m: usize, n: usize, x: &[f64], y: &mut [f64]) {
+    if m == 0 || n == 0 {
+        return;
+    }
+    let at = |r: usize, c: usize| a[r0 + r + (c0 + c) * lda];
+    let mb = m - (m & 3);
+    for r in 0..mb {
+        let mut c = 0;
+        while c + 4 <= n {
+            let t = if k.skx {
+                let t = fma(at(r, c), x[c], at(r, c + 1) * x[c + 1]);
+                let t = fma(at(r, c + 2), x[c + 2], t);
+                fma(at(r, c + 3), x[c + 3], t)
+            } else {
+                fma(at(r, c + 2), x[c + 2], at(r, c) * x[c]) + fma(at(r, c + 3), x[c + 3], at(r, c + 1) * x[c + 1])
+            };
+            y[r] -= t;
+            c += 4;
+        }
+        if n - c >= 2 {
+            let t = if k.skx { fma(at(r, c), x[c], at(r, c + 1) * x[c + 1]) } else { at(r, c) * x[c] + at(r, c + 1) * x[c + 1] };
+            y[r] -= t;
+            c += 2;
+        }
+        if n - c >= 1 {
+            y[r] += at(r, c) * -x[c];
+        }
+    }
+    for r in mb..m {
+        let mut t = 0.0;
+        for c in 0..n {
+            t = if k.skx { fma(at(r, c), x[c], t) } else { t + at(r, c) * x[c] };
+        }
+        y[r] -= t;
+    }
+}
+fn lk_col_chunks(k: &Lk, n: usize) -> Vec<(usize, usize)> {
+    let mut out = vec![];
+    let mut i = 0;
+    if k.skx {
+        for sz in [12, 10, 8, 6, 4, 2, 1] {
+            while n - i >= sz {
+                out.push((i, sz));
+                i += sz;
+            }
+        }
+    } else {
+        while n - i >= 24 {
+            out.push((i, 12));
+            out.push((i + 12, 12));
+            i += 24;
+        }
+        while n - i >= 8 {
+            out.push((i, 8));
+            i += 8;
+        }
+        for sz in [4, 2, 1] {
+            if n - i >= sz {
+                out.push((i, sz));
+                i += sz;
+            }
+        }
+    }
+    out
+}
+fn lk_row_chunks(k: &Lk, m: usize) -> Vec<(usize, usize)> {
+    let mut out = vec![];
+    let mut i = 0;
+    let big = if k.skx { 16 } else { 4 };
+    while m - i >= big {
+        out.push((i, big));
+        i += big;
+    }
+    let tails: &[usize] = if k.skx { &[8, 4, 2, 1] } else { &[2, 1] };
+    for &sz in tails {
+        if m - i >= sz {
+            out.push((i, sz));
+            i += sz;
+        }
+    }
+    out
+}
+// C -= A B through one dgemm kernel call: C is rows r0.. x cols cols of `c`, B(t, col) = c[kr0 + t + col * ldc],
+// A(r, t) = ablk[r * kn + t] (copied out beforehand)
+fn lk_gemm(k: &Lk, c: &mut [f64], ldc: usize, r0: usize, rn: usize, c0: usize, cn: usize, kr0: usize, kn: usize, ablk: &[f64]) {
+    if rn == 0 || cn == 0 || kn == 0 {
+        return;
+    }
+    for (cc, cs) in lk_col_chunks(k, cn) {
+        for (rr, rs) in lk_row_chunks(k, rn) {
+            let w = if k.skx && cs == 12 {
+                match rs {
+                    4 => 2,
+                    2 | 1 => 4,
+                    _ => 1,
+                }
+            } else {
+                1
+            };
+            let hsw41 = !k.skx && rs == 4 && cs == 1;
+            for r in rr..rr + rs {
+                let ar = &ablk[r * kn..(r + 1) * kn];
+                for col in c0 + cc..c0 + cc + cs {
+                    let b = &c[kr0 + col * ldc..kr0 + col * ldc + kn];
+                    let acc = if hsw41 {
+                        let mut q = [0.0f64; 4];
+                        let k8 = kn / 8 * 8;
+                        for t in 0..k8 {
+                            q[t % 4] = fma(ar[t], b[t], q[t % 4]);
+                        }
+                        for t in k8..kn {
+                            q[0] = fma(ar[t], b[t], q[0]);
+                        }
+                        (q[0] + q[1]) + (q[2] + q[3])
+                    } else if w > 1 && kn >= w {
+                        let mut q = [0.0f64; 4];
+                        let mut t = 0;
+                        while kn - t >= w {
+                            for l in 0..w {
+                                q[l] = fma(ar[t + l], b[t + l], q[l]);
+                            }
+                            t += w;
+                        }
+                        let mut acc = if w == 2 { q[0] + q[1] } else { (q[0] + q[1]) + (q[2] + q[3]) };
+                        while t < kn {
+                            acc = fma(ar[t], b[t], acc);
+                            t += 1;
+                        }
+                        acc
+                    } else {
+                        let mut acc = 0.0;
+                        for t in 0..kn {
+                            acc = fma(ar[t], b[t], acc);
+                        }
+                        acc
+                    };
+                    c[r0 + r + col * ldc] -= acc;
+                }
+            }
+        }
+    }
+}
+// copy the block of `a` at (r0, k0), rn x kn, row by row
+fn lk_block(a: &[f64], lda: usize, r0: usize, rn: usize, k0: usize, kn: usize) -> Vec<f64> {
+    let mut out = Vec::with_capacity(rn * kn);
+    for r in 0..rn {
+        for t in 0..kn {
+            out.push(a[r0 + r + (k0 + t) * lda]);
+        }
+    }
+    out
+}
+// TRSM_KERNEL_LT: solve L X = C for the unit lower triangle L of `l` at (lr0, lr0), jb rows; C is rows
+// cr0..cr0+jb x cols (c0..c0+cn) of `c`.
+fn lk_strips(k: &Lk, n: usize) -> Vec<(usize, usize)> {
+    let mut out = vec![];
+    let mut c = 0;
+    while n - c >= k.un {
+        out.push((c, k.un));
+        c += k.un;
+    }
+    let mut j = k.un >> 1;
+    while j > 0 {
+        if (n - c) & j != 0 {
+            out.push((c, j));
+            c += j;
+        }
+        j >>= 1;
+    }
+    out
+}
+fn lk_sub(k: &Lk, c: f64, b: f64, a: f64) -> f64 {
+    if k.skx { fma(-b, a, c) } else { c - b * a }
+}
+fn lk_trsm_lt(k: &Lk, l: &[f64], ldl: usize, lr0: usize, jb: usize, c: &mut [f64], ldc: usize, cr0: usize, c0: usize, cn: usize) {
+    let mut blocks = vec![];
+    let mut i = 0;
+    while jb - i >= k.um {
+        blocks.push((i, k.um));
+        i += k.um;
+    }
+    let mut s = k.um >> 1;
+    while s > 0 {
+        if jb & s != 0 {
+            blocks.push((i, s));
+            i += s;
+        }
+        s >>= 1;
+    }
+    let lat = |r: usize, t: usize| l[lr0 + r + (lr0 + t) * ldl];
+    let abs: Vec<Vec<f64>> = blocks.iter().map(|&(b0, bs)| lk_block(l, ldl, lr0 + b0, bs, lr0, b0)).collect();
+    for (sc, sw) in lk_strips(k, cn) {
+        for (bi, &(b0, bs)) in blocks.iter().enumerate() {
+            if b0 > 0 {
+                lk_gemm(k, c, ldc, cr0 + b0, bs, c0 + sc, sw, cr0, b0, &abs[bi]);
+            }
+            for ii in 0..bs {
+                let ri = b0 + ii;
+                for col in c0 + sc..c0 + sc + sw {
+                    let bb = c[cr0 + ri + col * ldc];
+                    for kk in ii + 1..bs {
+                        let rk = b0 + kk;
+                        let v = &mut c[cr0 + rk + col * ldc];
+                        *v = lk_sub(k, *v, bb, lat(rk, ri));
+                    }
+                }
+            }
+        }
+    }
+}
+// TRSM_KERNEL_LN: solve U X = C for the upper triangle of `u` (n x n), C = all n rows x cols of `c`
+fn lk_trsm_ln(k: &Lk, u: &[f64], n: usize, c: &mut [f64], ldc: usize, c0: usize, cn: usize) {
+    let mut blocks = vec![];
+    let mut i = 1;
+    while i < k.um {
+        if n & i != 0 {
+            blocks.push(((n & !(i - 1)) - i, i));
+        }
+        i *= 2;
+    }
+    let mut r = (n & !(k.um - 1)) as isize - k.um as isize;
+    while r >= 0 {
+        blocks.push((r as usize, k.um));
+        r -= k.um as isize;
+    }
+    let abs: Vec<Vec<f64>> = blocks.iter().map(|&(b0, bs)| lk_block(u, n, b0, bs, b0 + bs, n - b0 - bs)).collect();
+    for (sc, sw) in lk_strips(k, cn) {
+        for (bi, &(b0, bs)) in blocks.iter().enumerate() {
+            if b0 + bs < n {
+                lk_gemm(k, c, ldc, b0, bs, c0 + sc, sw, b0 + bs, n - b0 - bs, &abs[bi]);
+            }
+            for ii in (0..bs).rev() {
+                let ri = b0 + ii;
+                let inv = 1.0 / u[ri + ri * n];
+                for col in c0 + sc..c0 + sc + sw {
+                    let bb = c[ri + col * ldc] * inv;
+                    c[ri + col * ldc] = bb;
+                    for kk in 0..ii {
+                        let rk = b0 + kk;
+                        let v = &mut c[rk + col * ldc];
+                        *v = lk_sub(k, *v, bb, u[rk + ri * n]);
+                    }
+                }
+            }
+        }
+    }
+}
+fn lk_laswp(a: &mut [f64], lda: usize, c0: usize, cn: usize, k1: usize, k2: usize, ipiv: &[usize]) {
+    for i in k1..k2 {
+        let ip = ipiv[i];
+        if ip != i {
+            for col in c0..c0 + cn {
+                a.swap(i + col * lda, ip + col * lda);
+            }
+        }
+    }
+}
+// getf2_k.c on the panel of rows off..m, cols off..nend; returns LAPACK's info (first zero pivot, 1-based)
+fn lk_getf2(k: &Lk, a: &mut [f64], lda: usize, ipiv: &mut [usize], off: usize, mt: usize, nend: usize) -> usize {
+    let (m, n) = (mt - off, nend - off);
+    let mut info = 0;
+    let bl = lk_blas(k);
+    let mut b = vec![0.0; m];
     let mut row = vec![0.0; n];
     for j in 0..n {
-        for i in 0..n {
-            col[i] = a[i * n + j];
+        let cj = off + j;
+        for i in 0..m {
+            b[i] = a[off + i + cj * lda];
         }
-        for i in 1..j.min(n) {
-            row[..i].copy_from_slice(&a[i * n..i * n + i]);
-            col[i] -= fchain(&row[..i], &col[..i]);
-        }
-        for i in j..n {
-            row[..j].copy_from_slice(&a[i * n..i * n + j]);
-            col[i] -= fchain(&row[..j], &col[..j]);
-        }
-        for i in 0..n {
-            a[i * n + j] = col[i];
-        }
-        let mut p = j;
-        for i in j + 1..n {
-            if a[i * n + j].abs() > a[p * n + j].abs() {
-                p = i;
+        let len = j.min(m);
+        for i in 0..len {
+            let ip = ipiv[i + off] - off;
+            if ip != i {
+                b.swap(i, ip);
             }
         }
-        piv[j] = p;
-        if p != j {
-            for c in 0..n {
-                a.swap(j * n + c, p * n + c);
-            }
-        }
-        let d = a[j * n + j];
-        if d != 0.0 {
-            let r = 1.0 / d;
-            for i in j + 1..n {
-                a[i * n + j] *= r;
-            }
-        } else {
-            singular = true;
-        }
-    }
-    (piv, singular)
-}
-// solve A X = B (B is n x m, row-major) from the LU factors
-fn np_lu_solve(a: &[f64], piv: &[usize], n: usize, b: &mut [f64], m: usize) {
-    for (j, p) in piv.iter().enumerate() {
-        if *p != j {
-            for c in 0..m {
-                b.swap(j * m + c, p * m + c);
-            }
-        }
-    }
-    for c in 0..m {
-        for i in 0..n {
-            let mut s = b[i * m + c];
+        for i in 1..len {
             for t in 0..i {
-                s = (-a[i * n + t]).mul_add(b[t * m + c], s);
+                row[t] = a[off + i + (off + t) * lda];
             }
-            b[i * m + c] = s;
+            b[i] -= ddot1(&row[..i], &b[..i], false, bl);
         }
-        for i in (0..n).rev() {
-            let mut s = b[i * m + c];
-            for t in i + 1..n {
-                s = (-a[i * n + t]).mul_add(b[t * m + c], s);
+        if j < m {
+            let (head, tail) = b.split_at_mut(j);
+            lk_gemv_n(k, a, lda, off + j, off, m - j, j, head, tail);
+        }
+        for i in 0..m {
+            a[off + i + cj * lda] = b[i];
+        }
+        if j < m {
+            let mut jp = j;
+            for i in j + 1..m {
+                if b[i].abs() > b[jp].abs() {
+                    jp = i;
+                }
             }
-            b[i * m + c] = s / a[i * n + i];
+            ipiv[off + j] = jp + off;
+            let t1 = b[jp];
+            if t1 != 0.0 {
+                if t1.abs() >= f64::MIN_POSITIVE {
+                    let r = 1.0 / t1;
+                    if jp != j {
+                        for col in off..off + j + 1 {
+                            a.swap(off + j + col * lda, off + jp + col * lda);
+                        }
+                    }
+                    for i in j + 1..m {
+                        a[off + i + cj * lda] *= r;
+                    }
+                }
+            } else if info == 0 {
+                info = j + 1;
+            }
         }
     }
+    info
+}
+fn lk_getrf_rec(k: &Lk, a: &mut [f64], lda: usize, ipiv: &mut [usize], off: usize, mt: usize, nend: usize) -> usize {
+    let (m, n) = (mt.saturating_sub(off), nend - off);
+    if m == 0 || n == 0 {
+        return 0;
+    }
+    let mn = m.min(n);
+    let blocking = ((mn / 2 + k.un - 1) / k.un * k.un).min(k.q);
+    if blocking <= 2 * k.un {
+        return lk_getf2(k, a, lda, ipiv, off, mt, nend);
+    }
+    let mut info = 0;
+    let mut j = 0;
+    while j < mn {
+        let jb = (mn - j).min(blocking);
+        let ii = lk_getrf_rec(k, a, lda, ipiv, off + j, mt, off + j + jb);
+        if ii != 0 && info == 0 {
+            info = ii + j;
+        }
+        if j + jb < n {
+            let (c0, cn) = (off + j + jb, n - j - jb);
+            lk_laswp(a, lda, c0, cn, off + j, off + j + jb, ipiv);
+            let l = lk_block(a, lda, off + j, jb, off + j, jb);
+            let lt: Vec<f64> = (0..jb * jb).map(|i| l[(i % jb) * jb + i / jb]).collect();
+            lk_trsm_lt(k, &lt, jb, 0, jb, a, lda, off + j, c0, cn);
+            let rn = mt - (off + j + jb);
+            let ab = lk_block(a, lda, off + j + jb, rn, off + j, jb);
+            lk_gemm(k, a, lda, off + j + jb, rn, c0, cn, off + j, jb, &ab);
+        }
+        j += blocking;
+    }
+    let mut j = 0;
+    while j < mn {
+        let jb = (mn - j).min(blocking);
+        lk_laswp(a, lda, off + j, jb, off + j + jb, off + mn, ipiv);
+        j += jb;
+    }
+    info
+}
+// dgetrf on a column-major n x n matrix: (pivot rows, info)
+fn lk_getrf(a: &mut [f64], n: usize) -> (Vec<usize>, usize) {
+    let k = lk();
+    let mut ipiv = vec![0; n];
+    let info = lk_getrf_rec(&k, a, n, &mut ipiv, 0, n, n);
+    (ipiv, info)
+}
+// daxpy: y += da * x
+fn lk_axpy(k: &Lk, da: f64, x: &[f64], y: &mut [f64]) {
+    let n1 = x.len() & !15;
+    for i in 0..x.len() {
+        y[i] = if i < n1 || k.skx { fma(da, x[i], y[i]) } else { y[i] + da * x[i] };
+    }
+}
+// dgetrs after dgetrf: b is column-major n x m (overwritten with X)
+fn lk_getrs(lu: &[f64], ipiv: &[usize], n: usize, b: &mut [f64], m: usize) {
+    let k = lk();
+    lk_laswp(b, n, 0, m, 0, n, ipiv);
+    if m == 1 {
+        const DTB: usize = 64;
+        let mut col = vec![0.0; n];
+        let mut is = 0;
+        while is < n {
+            let mi = (n - is).min(DTB);
+            for i in 0..mi {
+                let r = is + i;
+                if i + 1 < mi {
+                    for t in r + 1..is + mi {
+                        col[t] = lu[t + r * n];
+                    }
+                    let br = -b[r];
+                    lk_axpy(&k, br, &col[r + 1..is + mi], &mut b[r + 1..is + mi]);
+                }
+            }
+            if n - is > mi {
+                let (head, tail) = b.split_at_mut(is + mi);
+                lk_gemv_n(&k, lu, n, is + mi, is, n - is - mi, mi, &head[is..], tail);
+            }
+            is += DTB;
+        }
+        let mut is = n;
+        while is > 0 {
+            let mi = is.min(DTB);
+            let lo = is - mi;
+            for i in 0..mi {
+                let r = is - i - 1;
+                b[r] /= lu[r + r * n];
+                if i + 1 < mi {
+                    for t in lo..r {
+                        col[t] = lu[t + r * n];
+                    }
+                    let br = -b[r];
+                    lk_axpy(&k, br, &col[lo..r], &mut b[lo..r]);
+                }
+            }
+            if lo > 0 {
+                let (head, tail) = b.split_at_mut(lo);
+                lk_gemv_n(&k, lu, n, 0, lo, lo, mi, &tail[..mi], head);
+            }
+            is -= mi;
+        }
+        return;
+    }
+    lk_trsm_lt(&k, lu, n, 0, n, b, n, 0, 0, m);
+    lk_trsm_ln(&k, lu, n, b, n, 0, m);
+}
+// row-major n x m <-> column-major
+fn lk_colmajor(a: &[f64], n: usize, m: usize) -> Vec<f64> {
+    let mut out = vec![0.0; n * m];
+    for i in 0..n {
+        for j in 0..m {
+            out[i + j * n] = a[i * m + j];
+        }
+    }
+    out
+}
+fn lk_rowmajor(a: &[f64], n: usize, m: usize) -> Vec<f64> {
+    let mut out = vec![0.0; n * m];
+    for i in 0..n {
+        for j in 0..m {
+            out[i * m + j] = a[i + j * n];
+        }
+    }
+    out
 }
 fn np_det_parts(a: &NdArr) -> Result<(f64, f64), E> {
     let n = square_check(a)?;
-    let mut m = a.fv();
     if n == 0 {
         return Ok((1.0, 0.0));
     }
-    let (piv, _) = np_lu(&mut m, n);
+    let mut m = lk_colmajor(&a.fv(), n, n);
+    let (piv, info) = lk_getrf(&mut m, n);
+    if info != 0 {
+        return Ok((0.0, f64::NEG_INFINITY));
+    }
+    // numpy's slogdet_from_factored_diagonal
     let mut sign = if piv.iter().enumerate().filter(|(j, p)| *j != **p).count() % 2 == 1 { -1.0 } else { 1.0 };
     let mut logdet = 0.0;
     for i in 0..n {
-        let d = m[i * n + i];
-        if d == 0.0 {
-            return Ok((0.0, f64::NEG_INFINITY));
-        }
+        let mut d = m[i + i * n];
         if d < 0.0 {
             sign = -sign;
+            d = -d;
         }
-        logdet += d.abs().ln();
+        logdet += d.ln();
     }
     Ok((sign, logdet))
 }
@@ -141,8 +536,17 @@ pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
         }
         "slogdet" => {
             let x = np_float_arr(&first()?)?;
-            let (s, l) = np_det_parts(&x)?;
-            Ok(tup(vec![np_sc(Sc::F(s)), np_sc(Sc::F(l))]))
+            let (sg, l) = np_det_parts(&x)?;
+            thread_local! { static SLOGDET: RefCell<Option<V>> = RefCell::new(None); }
+            let c = match SLOGDET.with(|c| c.borrow().clone()) {
+                Some(c) => c,
+                None => {
+                    let c = namedtuple(Args::p(vec![s("SlogdetResult"), s("sign logabsdet")]))?;
+                    SLOGDET.with(|x| *x.borrow_mut() = Some(c.clone()));
+                    c
+                }
+            };
+            call(&c, Args::p(vec![np_sc(Sc::F(sg)), np_sc(Sc::F(l))]))
         }
         "solve" | "inv" => {
             let x = np_float_arr(&first()?)?;
@@ -165,13 +569,14 @@ pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
                     _ => return Err(np_unsup("np.linalg.solve on stacks")),
                 }
             };
-            let (piv, singular) = np_lu(&mut lu, k);
-            if singular {
+            let mut lu = lk_colmajor(&lu, k, k);
+            let (piv, info) = lk_getrf(&mut lu, k);
+            if info != 0 {
                 return Err(linalg_err("Singular matrix"));
             }
-            let mut b = bv;
-            np_lu_solve(&lu, &piv, k, &mut b, m);
-            Ok(np_new(Buf::F(b), bshape))
+            let mut b = lk_colmajor(&bv, k, m);
+            lk_getrs(&lu, &piv, k, &mut b, m);
+            Ok(np_new(Buf::F(lk_rowmajor(&b, k, m)), bshape))
         }
         "matrix_power" => {
             let x = np_as(&first()?)?;
@@ -184,8 +589,8 @@ pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
                 return np_meth(&e, "astype", vec![np_dtype_v(x.dt())], vec![]);
             }
             if p < 0 {
-                // needs inv (see NP_LINALG_FUNCS in emit.rs)
-                return Err(np_unsup("np.linalg.matrix_power with a negative power"));
+                base = np_linalg_call("inv", &mut Args::p(vec![base]))?;
+                p = -p;
             }
             if p == 1 {
                 return Ok(np_arr(as_np(&base).unwrap().copy()));
