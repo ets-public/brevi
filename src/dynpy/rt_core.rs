@@ -1520,7 +1520,9 @@ pub fn init_builtin_classes() {
         };
         m.insert(n, Class::new(n, module, vec![parent], BT::Exc));
     }
-    let ve = m["ValueError"].clone();
+    let (ve, ie, te) = (m["ValueError"].clone(), m["IndexError"].clone(), m["TypeError"].clone());
+    m.insert("AxisError", Class::new("AxisError", "numpy.exceptions", vec![ve.clone(), ie], BT::Exc));
+    m.insert("UFuncTypeError", Class::new("UFuncTypeError", "numpy._core._exceptions", vec![te], BT::Exc));
     m.insert("binascii.Error", Class::new("Error", "binascii", vec![ve], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
 }

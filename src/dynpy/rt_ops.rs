@@ -777,6 +777,9 @@ pub fn sub(a: &V, b: &V) -> R {
 }
 // a OP= b: lists, sets, dicts and deques change in place; other values make a new value.
 pub fn iop(a: &V, b: &V, op: &str) -> R {
+    if let Some(x) = as_np(a) {
+        return np_iop(x, a, b, op);
+    }
     if let V::Obj(o) = a {
         let name = match op {
             "+" => "__iadd__",
@@ -985,6 +988,10 @@ pub fn invert(a: &V) -> R {
         V::Int(i) => Ok(V::Int(!i)),
         V::Bool(b) => Ok(V::Int(!(*b as i64))),
         V::Big(b) => Ok(b.neg().sub(&Big::from_i64(1)).norm()),
+        V::Ext(x) => match x.binop(a, "invert", &V::None, false) {
+            Some(r) => r,
+            None => type_err(format!("bad operand type for unary ~: '{}'", tn(a))),
+        },
         _ => type_err(format!("bad operand type for unary ~: '{}'", tn(a))),
     }
 }
@@ -1109,6 +1116,10 @@ pub fn idx_of(i: &V) -> Result<i64, E> {
         V::Bool(b) => Ok(*b as i64),
         V::Big(_) => Err(exc("IndexError", "cannot fit 'int' into an index-sized integer".into())),
         V::Obj(o) if o.cls.lookup("__index__").is_some() => idx_of(&call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![i.clone()]))?),
+        V::Ext(x) if is_np(i) => match x.method(i, "__index__", &mut Args::p(vec![])) {
+            Some(r) => idx_of(&r?),
+            None => Err(exc("TypeError", format!("list indices must be integers or slices, not {}", tn(i)))),
+        },
         _ => Err(exc("TypeError", format!("list indices must be integers or slices, not {}", tn(i)))),
     }
 }

@@ -1,0 +1,74 @@
+a2.flatten() => [ 85.5  -47.95]
+np.max(a1, axis=0) => 14
+a3.sum(axis=-1) => 47.942949999999996
+a2 / 3 => [[ 28.5 ]
+ [-15.98]]
+np.sign(a2) => [[ 1.]
+ [-1.]]
+a3.min() => -25.521381
+np.diff(a3) => [-98.99]
+np.array_equal(a2, a2) => True
+a0.std() => 471404531.66276336
+a3.dtype => float64
+a3.astype(float) => [ 73.46 -25.52]
+np.sign(a1) => [1 1]
+a1 * 2.5 => [35.   7.5]
+a1.max() => 14
+np.hstack([a2, a2]) => [[ 85.5   85.5 ]
+ [-47.95 -47.95]]
+np.expand_dims(a0, 0).shape => (1, 3)
+a1 - a2 => [[-71.5  -82.5 ]
+ [ 61.95  50.95]]
+np.expand_dims(a1, 0).shape => (1, 2)
+a1.all() => True
+[x for x in a0.ravel()] => [np.float64(-4.0), np.float64(1000000000.0), np.float64(-42.12485)]
+[x for x in a0.ravel()] => [np.float64(-4.0), np.float64(1000000000.0), np.float64(-42.12485)]
+np.hstack([a2, a2]) => [[ 85.5   85.5 ]
+ [-47.95 -47.95]]
+a2[0] => [85.5]
+a3 ** 2 => [5397.01  651.34]
+a1 / 3 => [4.67 1.  ]
+np.sqrt(np.abs(a1)) => [3.74 1.73]
+np.argsort(a1, kind="stable") => [1 0]
+a0.std() => 471404531.66276336
+float(a3.ravel()[0]) => 73.464331
+np.argsort(a2, kind="stable") => [[0]
+ [0]]
+np.percentile(a0, 30) => -19.249940000000002
+a3.T => [ 73.46 -25.52]
+a0.max() => 1000000000.0
+np.count_nonzero(a1) => 2
+np.median(a0) => -4.0
+a1.sum() => 17
+a0 // a2 => [[-1.00e+00  1.17e+07 -1.00e+00]
+ [ 0.00e+00 -2.09e+07  0.00e+00]]
+a3.argmax(axis=0) => 0
+a1.argmax() => 0
+a3.sum() => 47.942949999999996
+a1.argmin() => 1
+np.where(a1 > 0, a1, a3) => [14.  3.]
+np.sort(a1, axis=None) => [ 3 14]
+repr(a0) => array([-4.00e+00,  1.00e+09, -4.21e+01])
+a2.astype(float) => [[ 85.5 ]
+ [-47.95]]
+a1.sum() => 17
+np.stack([a2, a2], axis=1) => [[[ 85.5 ]
+  [ 85.5 ]]
+
+ [[-47.95]
+  [-47.95]]]
+np.sort(a0) => [-4.21e+01 -4.00e+00  1.00e+09]
+a0 * 2.5 => [-1.00e+01  2.50e+09 -1.05e+02]
+np.log(np.abs(a0) + 1) => [ 1.61 20.72  3.76]
+np.percentile(a0, 30) => -19.249940000000002
+a1 ** 2 => [196   9]
+np.array_equal(a3, a2) => False
+a3 * 2.5 => [183.66 -63.8 ]
+-a2 => [[-85.5 ]
+ [ 47.95]]
+a3 + 1 => [ 74.46 -24.52]
+abs(a1) => [14  3]
+a1 % 4 => [2 3]
+np.ones_like(a0, dtype=float) => [1. 1. 1.]
+int(a3.ravel()[0]) => 73
+[  1.     1.   -41.12]

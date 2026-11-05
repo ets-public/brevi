@@ -32,7 +32,7 @@ Yes, or Brevi refuses to build it. A program Brevi builds prints exactly what CP
 
 ## Can I use numpy, pandas or other packages?
 
-Yes. Library calls run in CPython inside the native program, and the rest stays native. The machine running the program needs Python's shared library, or build with `--standalone` (Linux) to carry CPython in the binary. See [Libraries](/docs/compatibility#libraries-numpy-pandas).
+Yes. Most numpy code (arrays, broadcasting, indexing, reductions, printing) builds with Brevi's own numpy and needs no Python at run time; see [numpy](/docs/compatibility#numpy). Other library calls, and numpy beyond that, run in CPython inside the native program, and the rest stays native. The machine running the program needs Python's shared library, or build with `--standalone` (Linux) to carry CPython in the binary. See [Libraries](/docs/compatibility#libraries-numpy-pandas).
 
 ## Why does it need Rust installed?
 

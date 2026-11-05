@@ -1,0 +1,22 @@
+Grades:
+ [[88 92 79]
+ [75 85 90]
+ [95 91 84]
+ [60 70 65]
+ [82 88 94]]
+Assignment weights: [0.2 0.3 0.5]
+Student weights: [1 2 1 1 3]
+
+Weighted average per student:
+  Student 1: 84.70
+  Student 2: 85.50
+  Student 3: 88.30
+  Student 4: 65.50
+  Student 5: 89.80
+
+Weighted average per assignment:
+  Assignment 1: 79.88
+  Assignment 2: 85.88
+  Assignment 3: 86.25
+
+Overall weighted average: 84.86

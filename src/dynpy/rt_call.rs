@@ -192,6 +192,12 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         }
         return Err(unsupported(&format!("enum.{}()", c.name)));
     }
+    if c.name.starts_with("numpy.") {
+        if let Some(r) = np_construct(c.name, a) {
+            return r;
+        }
+        return type_err(format!("cannot create '{}' instances", c.name));
+    }
     if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time" | "datetime.timezone") {
         return ext_construct(c.name, a).unwrap();
     }

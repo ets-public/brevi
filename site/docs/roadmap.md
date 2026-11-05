@@ -10,6 +10,7 @@ Brevi's direction stays the same: **AI-first**, with speed and safety as the rea
 - **Library programs off the typed path** (v0.24.6). A program the typed build rejects that imports a library Brevi lacks (requests, pydantic, yaml) takes the dynamic build, and only those imports run in CPython.
 - **The standard library, natively.** Standard-library calls no longer need CPython. What the typed build lacks runs in the native dynamic build (since v0.24.3), and common modules move onto the typed fast path one at a time; the [changelog](/docs/changelog) lists each one. Next: `csv.writer` on other files, `datetime.strptime` on the typed path, `IntEnum` and `Flag`, then `json` indent and `dataclasses.asdict` on the typed path. The [table](/docs/compatibility#what-runs-native) shows where each function runs.
 - **More programs on the fast path.** On a corpus of 813 saved agent programs, 567 build typed in v0.25.0 (565 in v0.24.5, 550 in v0.24.4, 496 in v0.24.3), and v0.24.5 fixes the typed-build wrong answers the v0.24.4 release test found (`trains`, `poker`). Next: multi-file programs where one module sends the whole program to CPython.
+- **numpy, natively.** Python files that use numpy build without CPython: Brevi's own numpy (float64, int64 and bool arrays, broadcasting, ufuncs, reductions in numpy's summation order, indexing, numpy's printing) checked against real numpy. What it does not have yet goes to CPython's numpy as before. Next: `np.random` matching numpy's streams bit for bit, then `linalg`, `polyfit` and `histogram`.
 - **Weekly releases.** One release a week, on Mondays, after that week's release test passes. Changes land on `main` under "Unreleased" in the [changelog](/docs/changelog) until then.
 - **Cheaper heavy tasks.** Tell agents their Python is compiled so they write the plain solution, and make plain idioms (generators, string indexing) build typed and fast.
 
@@ -21,6 +22,7 @@ Brevi's direction stays the same: **AI-first**, with speed and safety as the rea
 
 ## Later
 
+- **numpy-style arrays in `.bv`.** Brevi's own language gets an array type with what native numpy has for Python files, on the same engine.
 - **Windows parity.** Library calls and `--standalone` on Windows; `--standalone` on macOS.
 - **Faster cold builds**, for agents that build many one-off programs.
 - **Larger and fresher benchmarks** on new model versions, with results published here (the release test already runs weekly).

@@ -1728,6 +1728,9 @@ fn make_dataclass(c: &Rc<Class>, order: bool, frozen: bool, eqf: bool) -> Result
 
 // Library modules written elsewhere (re, json, decimal, ...) register here.
 pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
+    if m == "numpy" || m.starts_with("numpy.") {
+        return np_module_call(m, n, a);
+    }
     if matches!(m, "decimal" | "fractions" | "datetime" | "csv" | "html" | "statistics" | "threading") {
         return ext_module_call2(m, n, a).unwrap();
     }
@@ -1751,6 +1754,9 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
     }
 }
 pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
+    if let Some(v) = np_module_attr(m, n) {
+        return Ok(Some(v));
+    }
     if let Some(v) = ext_module_attr2(m, n) {
         return Ok(Some(v));
     }
