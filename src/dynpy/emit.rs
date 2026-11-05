@@ -20,7 +20,7 @@ fn np_on() -> bool {
     NP_ON.load(std::sync::atomic::Ordering::Relaxed)
 }
 pub fn builtin_mod(m: &str) -> bool {
-    BUILTIN_MODULES.contains(&m) || (m == "numpy" && np_native())
+    BUILTIN_MODULES.contains(&m) || (matches!(m, "numpy" | "numpy.random") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -58,7 +58,7 @@ const NP_FUNCS: &[(&str, &[&str])] = &[
 ];
 // Every attribute name of numpy arrays, scalars and dtypes; the second list is those the native numpy has
 // (with the keyword arguments of the methods). A program using any other of these names gets CPython's numpy.
-const NP_ATTR_ALL: &[&str] = &["T", "alignment", "all", "any", "argmax", "argmin", "argpartition", "argsort", "as_integer_ratio", "astype", "base", "bit_count", "byteorder", "byteswap", "char", "choose", "clip", "compress", "conj", "conjugate", "copy", "ctypes", "cumprod", "cumsum", "data", "denominator", "descr", "device", "diagonal", "dot", "dtype", "dump", "dumps", "fields", "fill", "flags", "flat", "flatten", "fromhex", "getfield", "hasobject", "hex", "imag", "is_integer", "isalignedstruct", "isbuiltin", "isnative", "item", "itemsize", "kind", "mT", "max", "mean", "metadata", "min", "name", "names", "nbytes", "ndim", "newbyteorder", "nonzero", "num", "numerator", "partition", "prod", "ptp", "put", "ravel", "real", "repeat", "reshape", "resize", "round", "searchsorted", "setfield", "setflags", "shape", "size", "sort", "squeeze", "std", "str", "strides", "subdtype", "sum", "swapaxes", "take", "to_device", "tobytes", "tofile", "tolist", "trace", "transpose", "type", "var", "view"];
+const NP_ATTR_ALL: &[&str] = &["T", "alignment", "all", "any", "argmax", "argmin", "argpartition", "argsort", "as_integer_ratio", "astype", "base", "bit_count", "byteorder", "byteswap", "char", "choose", "clip", "compress", "conj", "conjugate", "copy", "ctypes", "cumprod", "cumsum", "data", "denominator", "descr", "device", "diagonal", "dot", "dtype", "dump", "dumps", "fields", "fill", "flags", "flat", "flatten", "fromhex", "getfield", "hasobject", "hex", "imag", "is_integer", "isalignedstruct", "isbuiltin", "isnative", "item", "itemsize", "kind", "mT", "max", "mean", "metadata", "min", "name", "names", "nbytes", "ndim", "newbyteorder", "nonzero", "num", "numerator", "partition", "prod", "ptp", "put", "ravel", "real", "repeat", "reshape", "resize", "round", "searchsorted", "setfield", "setflags", "shape", "size", "sort", "squeeze", "std", "str", "strides", "subdtype", "sum", "swapaxes", "take", "to_device", "tobytes", "tofile", "tolist", "trace", "transpose", "type", "var", "view", "integers", "standard_normal", "exponential", "standard_exponential", "permutation", "binomial", "poisson", "beta", "gamma", "lognormal", "multivariate_normal", "geometric", "laplace", "logistic", "chisquare", "dirichlet", "gumbel", "hypergeometric", "multinomial", "multivariate_hypergeometric", "negative_binomial", "noncentral_chisquare", "noncentral_f", "pareto", "power", "rayleigh", "standard_cauchy", "standard_gamma", "standard_t", "vonmises", "wald", "zipf", "permuted", "spawn", "bit_generator", "random_integers", "tomaxint", "get_state", "set_state", "rand", "randn", "random_sample", "ranf", "randint", "normal", "uniform", "choice", "shuffle", "sample", "random", "seed", "accumulate", "reduce", "reduceat", "at", "nin", "nout", "nargs", "ntypes", "types", "signature"];
 const NP_ATTR_OK: &[(&str, &[&str])] = &[
     ("T", &[]), ("mT", &[]), ("shape", &[]), ("ndim", &[]), ("size", &[]), ("dtype", &[]), ("itemsize", &[]), ("nbytes", &[]), ("real", &[]), ("strides", &[]), ("imag", &[]),
     ("name", &[]), ("kind", &[]), ("char", &[]), ("type", &[]),
@@ -67,9 +67,24 @@ const NP_ATTR_OK: &[(&str, &[&str])] = &[
     ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("clip", &["min", "max"]), ("reshape", &[]), ("ravel", &[]), ("flatten", &[]), ("copy", &[]),
     ("transpose", &[]), ("astype", &[]), ("tolist", &[]), ("item", &[]), ("fill", &[]), ("sort", &["axis", "kind"]), ("argsort", &["axis", "kind"]), ("nonzero", &[]), ("dot", &[]),
     ("squeeze", &["axis"]), ("diagonal", &["offset"]), ("trace", &[]), ("repeat", &["axis"]), ("conj", &[]), ("conjugate", &[]), ("is_integer", &[]), ("as_integer_ratio", &[]),
+    // Generator and RandomState methods (rt_nprand.rs); the same names on Python's random.Random are fine too
+    ("integers", &["low", "high", "size", "dtype", "endpoint"]), ("random", &["size"]), ("random_sample", &["size"]), ("sample", &["size"]), ("ranf", &["size"]), ("rand", &[]), ("randn", &[]),
+    ("randint", &["low", "high", "size", "dtype"]), ("normal", &["loc", "scale", "size"]), ("uniform", &["low", "high", "size"]), ("standard_normal", &["size"]),
+    ("exponential", &["scale", "size"]), ("standard_exponential", &["size"]), ("choice", &["a", "size", "replace", "p"]), ("shuffle", &["x"]), ("permutation", &["x"]), ("seed", &["seed"]),
     // names Python's own values have too: fine on those, and the native numpy has them or they are not numpy's
     ("count", &[]), ("index", &[]), ("hex", &[]), ("fromhex", &[]), ("numerator", &[]), ("denominator", &[]), ("bit_count", &[]),
 ];
+// np.random's functions (the legacy global RandomState, and default_rng), with their keyword arguments;
+// Generator and RandomState methods are in NP_ATTR_OK.
+const NP_RAND_FUNCS: &[(&str, &[&str])] = &[
+    ("default_rng", &["seed"]), ("RandomState", &["seed"]), ("seed", &["seed"]), ("rand", &[]), ("randn", &[]), ("randint", &["low", "high", "size", "dtype"]),
+    ("random", &["size"]), ("random_sample", &["size"]), ("sample", &["size"]), ("ranf", &["size"]), ("uniform", &["low", "high", "size"]),
+    ("normal", &["loc", "scale", "size"]), ("standard_normal", &["size"]), ("exponential", &["scale", "size"]), ("standard_exponential", &["size"]),
+    ("choice", &["a", "size", "replace", "p"]), ("shuffle", &["x"]), ("permutation", &["x"]),
+];
+fn np_rand_kw(n: &str) -> Option<&'static [&'static str]> {
+    NP_RAND_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
+}
 fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
@@ -92,7 +107,8 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "typing" | "__future__" => return true,
-        "numpy" => return np_func_kw(n).is_some(),
+        "numpy" => return np_func_kw(n).is_some() || (n == "random" && np_native()),
+        "numpy.random" => return np_rand_kw(n).is_some(),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -1256,7 +1272,7 @@ impl Em {
                 if !module_has(&md, m) {
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
                 }
-                if md == "numpy" {
+                if md == "numpy" || md == "numpy.random" {
                     fn has_str(e: &Ex) -> bool {
                         match e {
                             Ex::Str(_) | Ex::FStr(_) => true,
@@ -1267,7 +1283,7 @@ impl Em {
                     if args.iter().any(|x| matches!(x, Arg::Pos(e) if matches!(e, Ex::List(_) | Ex::Tuple(_)) && has_str(e))) {
                         return Err(err(line, "numpy: arrays of strings are not in Brevi's native numpy yet"));
                     }
-                    let ok = np_func_kw(m).unwrap_or(&[]);
+                    let ok = if md == "numpy" { np_func_kw(m) } else { np_rand_kw(m) }.unwrap_or(&[]);
                     for x in args {
                         match x {
                             Arg::Kw(k, _) if !ok.contains(&k.as_str()) && !matches!(k.as_str(), "a" | "x" | "object" | "ar" | "q" | "v" | "shape" | "fill_value" | "dtype" | "out") || matches!(x, Arg::Kw(k, _) if k == "out") => {
