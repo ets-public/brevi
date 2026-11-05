@@ -515,6 +515,17 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     }
     // Python's output goes straight out, so it keeps its place among the program's own lines.
     std::env::set_var("PYTHONUNBUFFERED", "1");
+    // python3 under the C or POSIX locale reads and writes text as UTF-8 (PEP 538/540); an embedded Python
+    // does not unless told, and decodes files as ASCII (#211).
+    if std::env::var_os("PYTHONUTF8").is_none() {
+        let ctype = ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_default();
+        if matches!(ctype.as_str(), "" | "C" | "POSIX") {
+            // Py_InitializeEx reads the legacy flag, not PYTHONUTF8.
+            if let Ok(p) = sym("Py_UTF8Mode") {
+                unsafe { *(p as *mut std::ffi::c_int) = 1 };
+            }
+        }
+    }
     unsafe { (api.Init)(0) };
     // sys.argv as `python3 file.py args...` gives it (argparse reads it), sys.path as python3 has it.
     let lit = |s: &str| format!("{s:?}").replace("\\u{", "\\U000").replace('}', "");

@@ -1053,19 +1053,21 @@ impl DT {
         (self.ord + 6) % 7
     }
     fn iso(&self, sep: char) -> String {
+        self.iso_spec(sep, "auto").unwrap_or_default()
+    }
+    // isoformat(sep, timespec): the time part cut to hours, minutes, seconds, milliseconds or microseconds.
+    fn iso_spec(&self, sep: char, spec: &str) -> Result<String, E> {
         let (y, m, d) = self.ymd();
         let mut t = format!("{y:04}-{m:02}-{d:02}");
         if self.has_time {
             let (h, mi, s, us) = self.hms();
-            let _ = write!(t, "{sep}{h:02}:{mi:02}:{s:02}");
-            if us != 0 {
-                let _ = write!(t, ".{us:06}");
-            }
+            t.push(sep);
+            t.push_str(&time_iso(h, mi, s, us, spec)?);
             if let Some(o) = self.tz {
                 t.push_str(&off_str(o, true));
             }
         }
-        t
+        Ok(t)
     }
     fn isocal(&self) -> (i64, i64, i64) {
         let (y, _, _) = self.ymd();
@@ -1190,6 +1192,44 @@ impl DT {
         }
         out
     }
+}
+// A time of day as isoformat writes it for a timespec.
+fn time_iso(h: i64, mi: i64, s: i64, us: i64, spec: &str) -> Result<String, E> {
+    Ok(match spec {
+        "auto" if us != 0 => format!("{h:02}:{mi:02}:{s:02}.{us:06}"),
+        "auto" | "seconds" => format!("{h:02}:{mi:02}:{s:02}"),
+        "hours" => format!("{h:02}"),
+        "minutes" => format!("{h:02}:{mi:02}"),
+        "milliseconds" => format!("{h:02}:{mi:02}:{s:02}.{:03}", us / 1000),
+        "microseconds" => format!("{h:02}:{mi:02}:{s:02}.{us:06}"),
+        _ => return val_err("Unknown timespec value".into()),
+    })
+}
+fn timespec_arg(v: Option<V>) -> Result<String, E> {
+    match v {
+        None => Ok("auto".into()),
+        Some(V::Str(x)) => Ok(x.s.to_string()),
+        Some(x) => type_err(format!("isoformat() argument 'timespec' must be str, not {}", tn(&x))),
+    }
+}
+// Python's datetime run by CPython (pyglue.rs sets it): for a tzinfo Brevi lacks, such as zoneinfo.ZoneInfo.
+thread_local! {
+    pub static PY_DT: Cell<Option<fn(&str, &str, Args) -> R>> = Cell::new(None);
+}
+fn has_py(a: &Args) -> bool {
+    a.p.iter().chain(a.k.iter().map(|(_, v)| v)).any(|v| matches!(v, V::Ext(x) if x.is_py()))
+}
+// datetime.<cls>.<meth>(*a) by CPython (meth "" calls the class).
+fn py_dt(cls: &str, meth: &str, a: Args) -> R {
+    match PY_DT.with(|h| h.get()) {
+        Some(f) => f(cls, meth, a),
+        None => type_err("tzinfo argument must be None or of a tzinfo subclass".into()),
+    }
+}
+fn py_dt_self(me: &V, cls: &str, meth: &str, a: &mut Args) -> R {
+    let mut p = vec![me.clone()];
+    p.append(&mut a.p);
+    py_dt(cls, meth, Args { p, k: std::mem::take(&mut a.k) })
 }
 const DAY_US: i128 = 86_400_000_000;
 // A UTC offset as datetime prints it: +HH:MM (isoformat, str, tzname) or +HHMM (%z), with seconds when it has them.
@@ -1476,7 +1516,18 @@ fn fromiso(t: &str, with_time: bool) -> Result<DT, E> {
             tp = body;
             tz = Some((sign * secs) as i32);
         }
+        // The basic format: HHMM or HHMMSS[.ffffff].
+        let (head, tail) = tp.split_once(['.', ',']).map_or((tp, ""), |(h, _)| (h, &tp[h.len()..]));
+        let tp = if !head.contains(':') && (head.len() == 4 || head.len() == 6) && head.bytes().all(|c| c.is_ascii_digit()) {
+            head.as_bytes().chunks(2).map(|c| std::str::from_utf8(c).unwrap_or("")).collect::<Vec<_>>().join(":") + tail
+        } else {
+            tp.to_string()
+        }
+        .replace(',', ".");
         let parts: Vec<&str> = tp.split(':').collect();
+        if parts.len() > 3 || parts.iter().any(|x| x.split('.').next().map_or(true, |w| w.len() != 2)) {
+            return Err(bad());
+        }
         let h = parts.first().and_then(|x| n2(x.as_bytes())).ok_or_else(bad)?;
         let mi = parts.get(1).map(|x| n2(x.as_bytes()).ok_or_else(bad)).transpose()?.unwrap_or(0);
         let (s, frac) = match parts.get(2) {
@@ -1557,6 +1608,15 @@ fn tm_dt(us: i64) -> DT {
     DT { ord: ymd_to_ord(1900, 1, 1), us, has_time: true, tz: None }
 }
 fn tm_new(mut a: Args) -> R {
+    if has_py(&a) {
+        return py_dt("time", "", a);
+    }
+    // A time carrying a UTC offset is not native: refuse rather than drop the offset.
+    let _ = a.kw("fold");
+    match a.kw("tzinfo").or_else(|| a.p.get(4).cloned()) {
+        None | Some(V::None) => {}
+        Some(_) => return Err(unsupported("datetime.time with a tzinfo")),
+    }
     let v = int_args(&mut a, &["hour", "minute", "second", "microsecond"], 0, "time")?;
     let get = |k: usize| v.get(k).copied().unwrap_or(0);
     let (h, m, s, us) = (get(0), get(1), get(2), get(3));
@@ -1634,7 +1694,10 @@ impl Ext for TMV {
         let us = self.0;
         Some((|| -> R {
             Ok(match n {
-                "isoformat" => st(self.str_()),
+                "isoformat" => {
+                    let (h, mi, s, u) = tm_dt(us).hms();
+                    st(time_iso(h, mi, s, u, &timespec_arg(a.kw("timespec").or_else(|| a.p.first().cloned()))?)?)
+                }
                 "strftime" | "__format__" => st(tm_dt(us).strftime(&to_str(&a.p[0])?)),
                 "replace" => {
                     let (h, mi, s, u) = tm_dt(us).hms();
@@ -1882,6 +1945,10 @@ impl Ext for DTV {
     }
     fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
         let t = self.0;
+        // A tzinfo Brevi lacks (zoneinfo.ZoneInfo): CPython's datetime does the call, and the result is its datetime.
+        if t.has_time && matches!(n, "astimezone" | "replace") && has_py(a) {
+            return Some(py_dt_self(_me, "datetime", n, a));
+        }
         Some((|| -> R {
             Ok(match n {
                 "isoformat" => {
@@ -1889,7 +1956,8 @@ impl Ext for DTV {
                         Some(V::Str(x)) => x.s.chars().next().unwrap_or('T'),
                         _ => 'T',
                     };
-                    st(t.iso(sep))
+                    let spec = timespec_arg(a.kw("timespec").or_else(|| a.p.get(1).cloned()))?;
+                    st(t.iso_spec(sep, &spec)?)
                 }
                 "strftime" | "__format__" => st(t.strftime(&to_str(&a.p[0])?)),
                 "weekday" => V::Int(t.weekday()),
@@ -1969,6 +2037,9 @@ fn date_new(mut a: Args) -> R {
     Ok(dtv(DT { ord: ymd_to_ord(v[0], v[1], v[2]), us: 0, has_time: false, tz: None }))
 }
 fn datetime_new(mut a: Args) -> R {
+    if has_py(&a) {
+        return py_dt("datetime", "", a);
+    }
     let tz = tz_arg(a.kw("tzinfo").or_else(|| a.p.get(7).cloned()))?;
     let _ = a.kw("fold");
     let v = int_args(&mut a, &["year", "month", "day", "hour", "minute", "second", "microsecond"], 3, "datetime")?;
@@ -1999,18 +2070,24 @@ fn date_class_attr(cls: &'static str, n: &str) -> Option<V> {
             Ok(dtv(strptime(&t, &fm)?))
         }),
         "combine" if has_time => builtin(f, |mut a: Args| {
+            if has_py(&a) {
+                return py_dt("datetime", "combine", a);
+            }
             let d = dt_of(a.p.first().unwrap_or(&V::None)).ok_or_else(|| exc("TypeError", "combine() argument 1 must be datetime.date".into()))?;
             let t = a.p.get(1).and_then(|v| tm_of(v).or_else(|| dt_of(v).map(|t| t.us))).unwrap_or(0);
             let tz = tz_arg(a.kw("tzinfo").or_else(|| a.p.get(2).cloned()))?;
             Ok(dtv(DT { ord: d.ord, us: t, has_time: true, tz }))
         }),
-        "now" if has_time => builtin(f, |mut a: Args| match tz_arg(a.kw("tz").or_else(|| a.p.first().cloned()))? {
+        "now" if has_time => builtin(f, |mut a: Args| match if has_py(&a) { return py_dt("datetime", "now", a) } else { tz_arg(a.kw("tz").or_else(|| a.p.first().cloned()))? } {
             Some(o) => Ok(dtv(DT::from_utc_us(EPOCH_US + now_us(), Some(o))?)),
             None => Ok(dtv(DT { tz: None, ..DT::from_utc_us(EPOCH_US + now_us(), None)? })),
         }),
         "utcfromtimestamp" if has_time => builtin(f, |a: Args| Ok(dtv(DT::from_utc_us(EPOCH_US + ts_us(&a1(&a, "utcfromtimestamp")?)?, None)?))),
         // Without tz, fromtimestamp gives local time, which dynamic builds do not know.
         "fromtimestamp" if has_time => builtin(f, |mut a: Args| {
+            if has_py(&a) {
+                return py_dt("datetime", "fromtimestamp", a);
+            }
             let t = ts_us(a.p.first().unwrap_or(&V::None))?;
             match tz_arg(a.kw("tz").or_else(|| a.p.get(1).cloned()))? {
                 Some(o) => Ok(dtv(DT::from_utc_us(EPOCH_US + t, Some(o))?)),
@@ -2530,6 +2607,21 @@ pub fn ext_construct(cls: &str, a: Args) -> Option<R> {
 pub fn ext_class_attr(cls: &'static str, n: &str) -> Option<V> {
     match cls {
         "datetime.date" | "datetime.datetime" => date_class_attr(cls, n),
+        "datetime.time" => match n {
+            "fromisoformat" => Some(builtin(sym(n), |a: Args| {
+                let t = to_str(&a1(&a, "fromisoformat")?)?;
+                let body = t.strip_prefix('T').unwrap_or(&t);
+                match fromiso(&format!("0001-01-01T{body}"), true) {
+                    Ok(d) if d.tz.is_none() => Ok(tmv(d.us)),
+                    Ok(_) => Err(unsupported("datetime.time with a UTC offset")),
+                    Err(_) => val_err(format!("Invalid isoformat string: {}", str_repr(&t))),
+                }
+            })),
+            "min" => Some(tmv(0)),
+            "max" => Some(tmv(DAY_US as i64 - 1)),
+            "resolution" => Some(tdv(TD { us: 1 })),
+            _ => None,
+        },
         "datetime.timezone" => match n {
             "utc" => Some(tzv(0)),
             "min" => Some(tzv(-86_340)),

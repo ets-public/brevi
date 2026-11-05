@@ -109,6 +109,14 @@ for f in tests/bridge/*.py; do
     fi
   done
 done
+# Under the C locale (no LANG), text files a bridged library reads decode as UTF-8, as in python3 (#211).
+f=tests/bridge/c_locale/read_utf8.py
+out=$(env -u LANG -u LC_ALL -u LC_CTYPE $BREVI run --native "$f" 2>/dev/null)
+if [ "$out" != "Mio 🖤" ]; then
+  echo "FAIL $f"; echo "$out"; fail=1
+else
+  echo "ok   $f"
+fi
 # brevi run --sandbox on a .py file: a capability refusal is final on every path (the default run, dynamic
 # builds, typed --native), and nothing falls back to python3 or reaches CPython through a library.
 # A .flags file next to a test holds what the caller grants (--allow read): the file's own allow lines grant nothing.
