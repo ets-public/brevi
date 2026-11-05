@@ -1,0 +1,3 @@
+{"path":"cpython","line":8,"fn":"bump","why":"Brevi could not build it: this expression cannot be assigned to","by":"python3"}
+2
+native exit 1
