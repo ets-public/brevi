@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Brevi: the fast, safe target for AI-written Python</title>
+<title>Brevi: compile the Python your AI agent writes</title>
 <meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, and Brevi builds it through Rust into a fast, memory-safe native binary with the same output as CPython.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
@@ -20,9 +20,9 @@ __HEADER__
 <main id="main">
   <div class="wrap hero">
     <div>
-      <p class="eyebrow">Built for AI coding agents</p>
-      <h1>The fast, safe target for AI-written Python.</h1>
-      <p class="lede">The agent writes the plain Python it already writes best. Brevi builds it through Rust into a native binary that gives <strong>the same output as CPython</strong> and runs <strong>2 to 40 times faster</strong>, and answers anything it cannot build with one short line the agent can act on.</p>
+      <p class="eyebrow">A compiler for AI coding agents</p>
+      <h1>Run the Python your agent writes as a native binary</h1>
+      <p class="lede">Your agent keeps writing ordinary Python. Brevi compiles it through Rust into a binary that prints <strong>exactly what CPython prints</strong> and runs <strong>2 to 40 times faster</strong> on our benchmarks. When Brevi cannot build a file, it says why in one line of JSON.</p>
 <!--public-->      <div class="install" aria-label="Install command"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh</code></div>
 <!--/public-->      <div class="actions">
         <a class="btn primary" href="/docs/install">Get started</a>
@@ -49,13 +49,13 @@ cat: 1</pre>
   <section class="band" id="how">
     <div class="wrap">
       <div class="band-head">
-        <h2>Python in, Rust speed out.</h2>
-        <p>Nothing new for the model to learn and no guide to load. Brevi sits where <code>python3</code> sat in the agent's loop.</p>
+        <h2>Python in, Rust speed out</h2>
+        <p>The model has no new syntax to learn and no guide to load. Brevi replaces <code>python3</code> in the agent's loop.</p>
       </div>
       <ol class="steps">
-        <li><h3>The agent writes Python</h3><p>Ordinary Python 3, standard library or installed packages, one file or many. No annotations, no new syntax, no hand-tuning for speed.</p></li>
-        <li><h3>Brevi builds it natively</h3><p>It works out every type across the program and writes Rust, or, where types change at run time, Rust over Python-like dynamic values. <code>rustc</code> makes the binary.</p></li>
-        <li><h3>Same answer, much faster</h3><p>The program prints what CPython prints. If Brevi cannot match CPython exactly, it refuses at build time; <code>brevi run</code> then runs the file with python3 and says so in one line.</p></li>
+        <li><h3>The agent writes Python</h3><p>Ordinary Python 3, with the standard library or installed packages, in one file or many. No type annotations needed.</p></li>
+        <li><h3>Brevi compiles it</h3><p>It infers the type of every value and writes Rust. Where a type changes at run time, it writes Rust over dynamic values instead. <code>rustc</code> makes the binary.</p></li>
+        <li><h3>Same output, less time</h3><p>The binary prints what CPython prints. If Brevi cannot match CPython exactly, it refuses at build time, and <code>brevi run</code> runs the file with python3 instead and says so in one line.</p></li>
       </ol>
     </div>
   </section>
@@ -63,8 +63,8 @@ cat: 1</pre>
   <section class="band" id="why">
     <div class="wrap">
       <div class="band-head">
-        <h2>Speed and safety, without asking the model for Rust.</h2>
-        <p>Python is what models write most reliably, but it is slow and finds many mistakes only when the broken line runs. Rust is fast and safe, but slow and expensive for a model to write. Brevi keeps the Python and adds what Rust gives.</p>
+        <h2>Speed and safety without asking the model for Rust</h2>
+        <p>Models write Python most reliably, but CPython is slow and finds many mistakes only when the broken line runs. Rust is fast and safe, but it takes a model longer and costs more tokens to write. With Brevi the model writes Python and the program runs as Rust.</p>
       </div>
       <div class="table-wrap">
         <table class="vs">
@@ -80,12 +80,12 @@ cat: 1</pre>
         </table>
       </div>
       <div class="grid3" style="margin-top: 40px;">
-        <div class="point"><span class="fig">591 of 591</span><h3>The same output as CPython</h3><p>Every saved agent program Brevi builds prints exactly what CPython prints, byte for byte, with the same exit status. Codon gets 36 of them wrong.</p></div>
-        <div class="point"><span class="fig">refuse, never guess</span><h3>A clear refusal, not a quiet difference</h3><p>When Brevi cannot match CPython for some piece of Python, it stops at build time and names the line. It does not build a program that might answer differently.</p></div>
-        <div class="point"><span class="fig">{"line":N,"msg":…,"fix":…}</span><h3>Errors made for a model</h3><p>Build and run-time errors are one line naming the source line, a fraction of a traceback's tokens. The agent fixes that line and runs again.</p></div>
-        <div class="point"><span class="fig">allow read, write</span><h3>A sandbox the code cannot talk its way out of</h3><p><code>brevi run --sandbox</code> and the MCP tools refuse files, native code and libraries unless the caller grants them. A program can state what it touches, but only the caller grants it.</p></div>
-        <div class="point"><span class="fig">numpy · pandas · tkinter</span><h3>Not limited to the standard library</h3><p>Imports of numpy, pandas, sqlite3 and other installed packages run through CPython inside the native program. tkinter apps build too, and can be tested without a screen.</p></div>
-        <div class="point"><span class="fig">Rust stable · beta · nightly</span><h3>Keeps working as toolchains move</h3><p>Rebuilt daily on Rust stable and the newest and next Python, weekly on beta and nightly. Every benchmark program that ever passed must keep passing.</p></div>
+        <div class="point"><span class="fig">591 of 591</span><h3>Same output as CPython</h3><p>On 591 saved agent programs, every Brevi build prints exactly what CPython prints, byte for byte, with the same exit status. Codon builds 36 of them with wrong output.</p></div>
+        <div class="point"><span class="fig">refuses at build time</span><h3>No silent differences</h3><p>When Brevi cannot match CPython for some piece of Python, it stops at build time and names the line. It never builds a program that might answer differently.</p></div>
+        <div class="point"><span class="fig">{"line":N,"msg":…,"fix":…}</span><h3>One-line errors</h3><p>Build and run-time errors are one line that names the source line, a fraction of a traceback's tokens. The agent fixes that line and runs again.</p></div>
+        <div class="point"><span class="fig">allow read, write</span><h3>Only the caller grants access</h3><p>Under <code>brevi run --sandbox</code> and in the MCP tools, a program cannot read or write files, call native code or load libraries unless the caller allows it. <code>allow</code> lines in the source grant nothing.</p></div>
+        <div class="point"><span class="fig">numpy · pandas · tkinter</span><h3>Installed packages work</h3><p>Calls into numpy, pandas, sqlite3 and other installed packages run in CPython inside the native program. tkinter apps build too, and can be tested without a screen.</p></div>
+        <div class="point"><span class="fig">Rust stable · beta · nightly</span><h3>Tested against new toolchains</h3><p>CI builds daily on Rust stable and the newest and next Python, and weekly on Rust beta and nightly. Every benchmark program that once passed must keep passing.</p></div>
       </div>
     </div>
   </section>
@@ -93,8 +93,8 @@ cat: 1</pre>
   <section class="band" id="errors">
     <div class="wrap">
       <div class="band-head">
-        <h2>One line per mistake.</h2>
-        <p>An agent pays for every token it reads. A Brevi error names the line, says what went wrong in plain words and, where it can, gives the fix.</p>
+        <h2>One line per error</h2>
+        <p>An agent pays for every token it reads. A Brevi error names the line, says what went wrong and, where it can, suggests a fix.</p>
       </div>
       <div class="split">
         <div class="term">
@@ -112,15 +112,15 @@ IndexError: list index out of range</pre>
 <pre class="out wrapline">{"line":8,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
         </div>
       </div>
-      <p class="note" style="margin-top: 16px;">Sure mistakes in Python, a name that is never defined, a method no type has, text added to a number, are reported by <code>brevi check</code> before the program runs, with a fix. Mistakes Python only finds at run time (an index out of range) fail there, as in CPython. In Brevi's own <code>.bv</code> language every type mistake is caught before it runs. <a href="/docs/usage#errors">How errors work</a></p>
+      <p class="note" style="margin-top: 16px;"><code>brevi check</code> reports certain mistakes before the program runs, with a fix: a name that is never defined, a method no type has, text added to a number. Mistakes Python only finds at run time (an index out of range) fail there, as in CPython. In Brevi's own <code>.bv</code> language every type mistake is caught before it runs. <a href="/docs/usage#errors">How errors work</a></p>
     </div>
   </section>
 
   <section class="band" id="benchmarks">
     <div class="wrap">
       <div class="band-head">
-        <h2>The same Python, built by Brevi, Codon and Nuitka.</h2>
-        <p>Unchanged Python files given to each compiler and checked against CPython's exact output. Speed is the best of three runs in seconds, with Brevi's <code>--release</code> build.</p>
+        <h2>The same Python built by Brevi, Codon and Nuitka</h2>
+        <p>Each compiler gets the same unchanged Python files, and the output is checked against CPython's. Times are the best of three runs, in seconds, with Brevi's <code>--release</code> build.</p>
       </div>
       <div class="split" style="grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 40px;">
         <div class="table-wrap" style="margin-top: 0;">
@@ -164,7 +164,7 @@ IndexError: list index out of range</pre>
               </tbody>
             </table>
           </div>
-          <p class="note">The whole API bill for a model writing Python until the tests pass, built by Brevi against run by CPython, 4 November 2026. On heavy tasks a plain loop is fast enough under Brevi, so the agent stops hand-optimising. <a href="/docs/benchmarks">Method and all results</a></p>
+          <p class="note">The full API cost for a model to write Python until the tests pass, with Brevi building the code against CPython running it, 4 November 2026. On heavy tasks a plain loop is fast enough under Brevi, so the agent stops hand-optimising. <a href="/docs/benchmarks">Method and all results</a></p>
         </div>
       </div>
     </div>
@@ -173,13 +173,13 @@ IndexError: list index out of range</pre>
   <section class="band" id="agents">
     <div class="wrap">
       <div class="band-head">
-        <h2>Ready for coding agents from the first call.</h2>
-        <p>The compiler ships with what an agent needs to build, check and fix programs without a person setting anything up.</p>
+        <h2>Tools for coding agents</h2>
+        <p>The compiler comes with an MCP server, a skill and plain-text docs, so an agent can build, check and fix programs without extra setup.</p>
       </div>
       <div class="cards">
         <a class="card" href="/docs/agents#mcp-server"><h3>MCP server</h3><p><code>brevi mcp</code> serves check, run, test, patch, edit, show and guide. The server keeps the program, so a fix sends only the lines that change.</p><span class="go">Set it up →</span></a>
         <a class="card" href="/docs/agents#agent-skill-and-claude-code-plugin"><h3>Skill and plugin</h3><p>An Agent Skills package and a Claude Code plugin that tell the agent to write plain Python and build it with Brevi.</p><span class="go">Read the skill →</span></a>
-        <a class="card" href="/docs/agents#llmstxt-and-markdown-docs"><h3>llms.txt</h3><p><a href="/llms.txt">/llms.txt</a>, <a href="/llms-full.txt">/llms-full.txt</a>, and every docs page as Markdown for agents to read.</p><span class="go">Agent docs →</span></a>
+        <a class="card" href="/docs/agents#llmstxt-and-markdown-docs"><h3>llms.txt</h3><p><code>/llms.txt</code>, <code>/llms-full.txt</code>, and every docs page as Markdown for agents to read.</p><span class="go">Agent docs →</span></a>
       </div>
     </div>
   </section>
@@ -188,7 +188,7 @@ IndexError: list index out of range</pre>
     <div class="wrap">
       <div class="band-head">
         <h2>Documentation</h2>
-        <p>Everything from the first install to how the compiler is put together.</p>
+        <p>From installing Brevi to how the compiler works inside.</p>
       </div>
       <div class="cards">
         <a class="card" href="/docs/install"><h3>Install</h3><p>Release binaries for Linux, macOS and Windows, the install script, and building from source.</p></a>
@@ -205,8 +205,8 @@ IndexError: list index out of range</pre>
     <div class="wrap split" style="align-items: center;">
       <div class="band-head" style="margin: 0;">
         <p class="eyebrow">Coming</p>
-        <h2>brevi.run: compile, run and test in the cloud.</h2>
-        <p>A hosted service for agents that need native-speed Python without installing a Rust toolchain. Send a program, get the output or the error lines back.</p>
+        <h2>brevi.run: compile, run and test in the cloud</h2>
+        <p>A planned hosted service for agents that cannot install a Rust toolchain. Send a program and get back its output or its error lines.</p>
       </div>
       <div class="actions" style="margin: 0;"><a class="btn ghost" href="https://brevi.run">About brevi.run</a><a class="btn ghost" href="/pricing#hosted">Join the waitlist</a></div>
     </div>

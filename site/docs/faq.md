@@ -24,7 +24,7 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 
 ## Will my program give the same answer?
 
-That is the core promise: a program Brevi builds prints exactly what CPython prints, with the same exit status, or Brevi refuses to build it. It is checked on every change against hundreds of saved programs, behaviour traps and random programs. If you find a difference, it is a bug; please report it.
+Yes, or Brevi refuses to build it. A program Brevi builds prints exactly what CPython prints, with the same exit status. Every change is checked against hundreds of saved programs, behaviour traps and random programs. If you find a difference, it is a bug, so please report it.
 
 ## What happens when Brevi cannot build my file?
 
@@ -48,7 +48,7 @@ Brevi programs are memory-safe, and integers never silently overflow. A program 
 
 ## Does it cost more tokens than Python?
 
-No. In the release test for v0.25.0, over two runs, Brevi cost 1.09x (Sonnet) and 1.01x (Haiku) of the same models running Python with CPython, with every task passing, no check failing because of Brevi and 95 of 96 final programs built natively; two more runs just before its last fix gave 1.04x and 1.05x. v0.24.6 gave 1.03x and 1.02x, v0.24.5 gave 1.06x and 1.01x. For v0.24.4, over five runs, it cost 1.06x and 1.03x, with every task passing and 237 of 240 final programs built natively. Earlier releases gave 1.07x and 1.00x (v0.24.0) and 0.97x and 1.01x before that. The test runs again every week before the release. On heavy tasks, where the model would otherwise hand-optimise for CPython, it costs about half.
+About the same. In the v0.25.0 release test (24 tasks, two runs), Brevi cost 1.09x (Sonnet) and 1.01x (Haiku) of what the same models cost running Python with CPython. Every task passed, and 95 of 96 final programs built natively. Recent releases have stayed between 0.97x and 1.09x, and the test runs every week before a release. On heavy tasks, where the model would otherwise hand-optimise for CPython, Brevi costs about half. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
 
 ## Which platforms?
 

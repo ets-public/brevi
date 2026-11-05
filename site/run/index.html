@@ -20,8 +20,8 @@ __HEADER__
   <div class="wrap hero">
     <div>
       <p class="eyebrow">Hosted service · coming</p>
-      <h1>Native-speed Python for agents, with nothing to install.</h1>
-      <p class="lede">brevi.run will be the Brevi compiler as an API. An agent sends a Python or Brevi program with its input and tests, and gets back the output, the test results or the error lines. <strong>No Rust toolchain, no Python, no sandbox to set up</strong> on the agent's side.</p>
+      <h1>Compile and run your agent's Python with nothing to install</h1>
+      <p class="lede">brevi.run will be the Brevi compiler as an API. An agent sends a Python or Brevi program with its input and tests, and gets back the output, the test results or the error lines. The agent's machine needs <strong>no Rust toolchain, no Python and no sandbox</strong>.</p>
       <div class="actions">
         <a class="btn primary" href="https://brevi-lang.org/pricing#hosted">Join the waitlist</a>
         <a class="btn ghost" href="https://brevi-lang.org/docs/install">Use the compiler today</a>
@@ -42,13 +42,13 @@ __HEADER__
   <section class="band">
     <div class="wrap">
       <div class="band-head">
-        <h2>What it is for</h2>
+        <h2>Who it is for</h2>
         <p>Agents that run in someone else's cloud, in a browser, or on a machine where nobody wants to install compilers.</p>
       </div>
       <div class="grid3">
-        <div class="point"><span class="fig">run · check · test</span><h3>The same tools as the MCP server</h3><p>The calls <code>brevi mcp</code> serves locally, over HTTPS: check a program, run it with input, run test cases and get <code>ok</code> or the first differing line for each.</p></div>
-        <div class="point"><span class="fig">sandboxed</span><h3>Untrusted code, safely</h3><p>Every program runs isolated, with the capabilities it declares and nothing else. No files, network or environment unless the request allows them.</p></div>
-        <div class="point"><span class="fig">cached builds</span><h3>Fast on the second call</h3><p>Builds are cached by content, so an agent re-running its tests after a one-line fix pays only for that change.</p></div>
+        <div class="point"><span class="fig">run · check · test</span><h3>The same tools as the MCP server</h3><p>The calls <code>brevi mcp</code> serves locally, over HTTPS: check a program, run it with input, or run test cases and get <code>ok</code> or the first differing line for each.</p></div>
+        <div class="point"><span class="fig">sandboxed</span><h3>Each program isolated</h3><p>Every program runs in its own sandbox. It gets no files, network or environment unless the request grants them.</p></div>
+        <div class="point"><span class="fig">cached builds</span><h3>Cached builds</h3><p>Builds are cached by content, so when an agent reruns its tests after a one-line fix, only the changed program is rebuilt.</p></div>
       </div>
     </div>
   </section>
@@ -56,7 +56,7 @@ __HEADER__
   <section class="band">
     <div class="wrap split" style="align-items: start;">
       <div class="band-head" style="margin: 0;">
-        <h2>Until then, run Brevi yourself.</h2>
+        <h2>Until then, run Brevi yourself</h2>
         <p><!--public-->The compiler is open source under Apache-2.0 and runs on Linux, macOS and Windows.<!--/public--><!--private-->The compiler runs on Linux, macOS and Windows, and opens under Apache-2.0 with the public release.<!--/private--> <code>brevi mcp</code> gives any MCP client the same tools locally.</p>
       </div>
       <div class="cards" style="grid-template-columns: minmax(0, 1fr);">

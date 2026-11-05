@@ -5,6 +5,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 ## Unreleased
 
 - **Silent wrong output fixed: a `def` with no `return`.** In a typed build of a `.py` file, a function's last line was its return value, as in Brevi, so `def f(x): ... x + 1` gave `2` from `f(1)` where CPython gives `None`, and `if f(3):` could take the wrong branch. Only `return` gives a value now, down every branch of a last `if`. Lambdas and `.bv` programs are unchanged. ([#205](https://github.com/ets-public/brevi/pull/205), thanks @timoconnellaus)
+- **Website copy.** brevi-lang.org and brevi.run say what Brevi does in plainer words: concrete headings, no slogans, sentence-case labels, and the hosted sandbox described correctly (the request grants access, not the program). A broken llms.txt card on the home page is fixed, and the FAQ cost answer and roadmap are shorter.
 
 ## v0.25.0 (4 Nov 2026)
 
