@@ -1087,6 +1087,8 @@ pub fn np_module_attr(m: &str, n: &str) -> Option<V> {
         ("numpy", "euler_gamma") => V::Float(0.5772156649015329),
         ("numpy", "newaxis") => V::None,
         ("numpy", "random") => V::Module("numpy.random"),
+        ("numpy", "linalg") => V::Module("numpy.linalg"),
+        ("numpy.linalg", "LinAlgError") => V::Class(exc_class("LinAlgError")),
         ("numpy", "True_") => np_sc(Sc::B(true)),
         ("numpy", "False_") => np_sc(Sc::B(false)),
         ("numpy", "float64" | "double") => V::Class(ext_class("numpy.float64")),
@@ -1150,6 +1152,21 @@ pub fn np_construct(cls: &str, a: Args) -> Option<R> {
 pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
     if m == "numpy.random" {
         return np_random_call(n, &mut a);
+    }
+    if m == "numpy.linalg" {
+        return np_linalg_call(n, &mut a);
+    }
+    if m == "numpy" {
+        match n {
+            "histogram" => return np_histogram(&a),
+            "cov" => return np_cov(&a),
+            "corrcoef" => return np_corrcoef(&a),
+            "trapezoid" => return np_trapezoid(&a),
+            _ => {}
+        }
+        if let Some((uf, me)) = n.split_once('.') {
+            return np_ufunc_method(uf, me, &a);
+        }
     }
     if m != "numpy" {
         return Err(np_unsup(&format!("{m}.{n}")));
@@ -1908,6 +1925,10 @@ impl Ext for NpScal {
         Some(r.and_then(|v| truth(&v)))
     }
     fn binop(&self, me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+        // "#" * np.int64(3): the sequence repeats, as Python's own does through __index__
+        if op == "*" && matches!(o, V::Str(_) | V::List(_) | V::Tuple(_)) && self.0.dt() != NT::F {
+            return Some(binop(o, &V::Int(self.0.i()), "*"));
+        }
         match op {
             "neg" | "pos" | "invert" => return Some(np_unary(me, op)),
             _ => {}

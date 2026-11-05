@@ -20,7 +20,7 @@ fn np_on() -> bool {
     NP_ON.load(std::sync::atomic::Ordering::Relaxed)
 }
 pub fn builtin_mod(m: &str) -> bool {
-    BUILTIN_MODULES.contains(&m) || (matches!(m, "numpy" | "numpy.random") && np_native())
+    BUILTIN_MODULES.contains(&m) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -47,6 +47,7 @@ const NP_FUNCS: &[(&str, &[&str])] = &[
     ("diff", &["n", "axis", "prepend", "append"]), ("outer", &[]), ("dot", &[]), ("matmul", &[]), ("inner", &[]), ("vdot", &[]),
     ("isclose", &["rtol", "atol", "equal_nan"]), ("allclose", &["rtol", "atol", "equal_nan"]), ("array_equal", &[]), ("searchsorted", &["side"]),
     ("tile", &[]), ("meshgrid", &["indexing"]), ("diag", &["k"]), ("fill_diagonal", &[]), ("unravel_index", &[]), ("cross", &[]), ("convolve", &["mode"]),
+    ("histogram", &["bins", "range", "density", "weights"]), ("cov", &["m", "y", "rowvar", "bias", "ddof"]), ("corrcoef", &["x", "y", "rowvar"]), ("trapezoid", &["y", "x", "dx", "axis"]),
     ("abs", &[]), ("absolute", &[]), ("fabs", &[]), ("negative", &[]), ("positive", &[]), ("sqrt", &[]), ("exp", &[]), ("exp2", &[]), ("expm1", &[]), ("log", &[]), ("log10", &[]), ("log2", &[]), ("log1p", &[]),
     ("sin", &[]), ("cos", &[]), ("tan", &[]), ("arcsin", &[]), ("arccos", &[]), ("arctan", &[]), ("sinh", &[]), ("cosh", &[]), ("tanh", &[]), ("arcsinh", &[]), ("arccosh", &[]), ("arctanh", &[]),
     ("cbrt", &[]), ("floor", &[]), ("ceil", &[]), ("trunc", &[]), ("rint", &[]), ("fix", &[]), ("square", &[]), ("reciprocal", &[]), ("sign", &[]), ("degrees", &[]), ("radians", &[]), ("deg2rad", &[]), ("rad2deg", &[]),
@@ -82,6 +83,12 @@ const NP_RAND_FUNCS: &[(&str, &[&str])] = &[
     ("normal", &["loc", "scale", "size"]), ("standard_normal", &["size"]), ("exponential", &["scale", "size"]), ("standard_exponential", &["size"]),
     ("choice", &["a", "size", "replace", "p"]), ("shuffle", &["x"]), ("permutation", &["x"]),
 ];
+// det, slogdet, solve and inv are in rt_nplinalg.rs but not turned on: OpenBLAS's LU sums in an order not
+// matched yet (about 1 value in 5 differs from numpy in the last digit), so CPython's numpy runs them.
+const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[("norm", &["x", "ord", "axis", "keepdims"]), ("matrix_power", &[]), ("LinAlgError", &[])];
+fn np_linalg_kw(n: &str) -> Option<&'static [&'static str]> {
+    NP_LINALG_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
+}
 fn np_rand_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_RAND_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
@@ -107,8 +114,9 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "typing" | "__future__" => return true,
-        "numpy" => return np_func_kw(n).is_some() || (n == "random" && np_native()),
+        "numpy" => return np_func_kw(n).is_some(),
         "numpy.random" => return np_rand_kw(n).is_some(),
+        "numpy.linalg" => return np_linalg_kw(n).is_some(),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -1258,6 +1266,23 @@ impl Em {
                     return Ok(self.q(&format!("call(&{sa}, {a})")));
                 }
             }
+            // np.maximum.accumulate(x), np.add.reduce(x, axis=1), ...: numpy's ufunc methods
+            if let Ex::Attr(o2, uf) = &**o {
+                if np_native() && self.static_module(o2).as_deref() == Some("numpy") && matches!(m.as_str(), "reduce" | "accumulate") {
+                    if !matches!(uf.as_str(), "add" | "multiply" | "maximum" | "minimum" | "logical_and" | "logical_or") || (uf.starts_with("logical") && m == "accumulate") {
+                        return Err(err(line, &format!("numpy: np.{uf}.{m} is not in Brevi's native numpy")));
+                    }
+                    for x in args {
+                        match x {
+                            Arg::Pos(_) => {}
+                            Arg::Kw(k, _) if matches!(k.as_str(), "array" | "axis" | "keepdims") => {}
+                            _ => return Err(err(line, &format!("numpy: np.{uf}.{m}(...) with these arguments is not in Brevi's native numpy"))),
+                        }
+                    }
+                    let a = self.args(args, line, None)?;
+                    return Ok(self.q(&format!("module_call(\"numpy\", {}, {a})", lit(&format!("{uf}.{m}")))));
+                }
+            }
             if let Some(md) = self.static_module(o) {
                 if self.user_modules.contains(&md) {
                     let fv = self.user_mod_load(&md, m, line)?;
@@ -1272,7 +1297,7 @@ impl Em {
                 if !module_has(&md, m) {
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
                 }
-                if md == "numpy" || md == "numpy.random" {
+                if md == "numpy" || md == "numpy.random" || md == "numpy.linalg" {
                     fn has_str(e: &Ex) -> bool {
                         match e {
                             Ex::Str(_) | Ex::FStr(_) => true,
@@ -1283,7 +1308,12 @@ impl Em {
                     if args.iter().any(|x| matches!(x, Arg::Pos(e) if matches!(e, Ex::List(_) | Ex::Tuple(_)) && has_str(e))) {
                         return Err(err(line, "numpy: arrays of strings are not in Brevi's native numpy yet"));
                     }
-                    let ok = if md == "numpy" { np_func_kw(m) } else { np_rand_kw(m) }.unwrap_or(&[]);
+                    let ok = match md.as_str() {
+                        "numpy" => np_func_kw(m),
+                        "numpy.random" => np_rand_kw(m),
+                        _ => np_linalg_kw(m),
+                    }
+                    .unwrap_or(&[]);
                     for x in args {
                         match x {
                             Arg::Kw(k, _) if !ok.contains(&k.as_str()) && !matches!(k.as_str(), "a" | "x" | "object" | "ar" | "q" | "v" | "shape" | "fill_value" | "dtype" | "out") || matches!(x, Arg::Kw(k, _) if k == "out") => {
