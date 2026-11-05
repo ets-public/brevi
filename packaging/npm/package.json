@@ -1,8 +1,21 @@
 {
   "name": "brevi",
   "version": "0.25.0",
-  "description": "Brevi: a programming language for AI models that compiles to Rust, with one-line JSON errors.",
+  "description": "Compiles the plain Python AI agents write into fast native binaries via Rust, with one-line JSON errors and an MCP server.",
+  "keywords": [
+    "python",
+    "compiler",
+    "rust",
+    "mcp",
+    "ai-agents",
+    "llm",
+    "native",
+    "brevi"
+  ],
   "homepage": "https://brevi-lang.org",
+  "bugs": {
+    "url": "https://github.com/ets-public/brevi/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ets-public/brevi.git"
