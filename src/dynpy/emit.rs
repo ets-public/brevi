@@ -538,6 +538,18 @@ fn has_yield(body: &[Stmt]) -> bool {
     found
 }
 
+// a break, continue or return that can leave this block (nested defs and classes excluded)
+fn has_jump(body: &[Stmt]) -> bool {
+    body.iter().any(|s| match &s.st {
+        St::Break | St::Continue | St::Return(_) => true,
+        St::If(arms, els) => arms.iter().any(|(_, b)| has_jump(b)) || els.as_deref().is_some_and(has_jump),
+        St::For(_, _, b, e) | St::While(_, b, e) => has_jump(b) || e.as_deref().is_some_and(has_jump),
+        St::Try(b, hs, e, f) => has_jump(b) || hs.iter().any(|h| has_jump(&h.body)) || e.as_deref().is_some_and(has_jump) || f.as_deref().is_some_and(has_jump),
+        St::With(_, b) => has_jump(b),
+        _ => false,
+    })
+}
+
 // ---------- emitter ----------
 
 #[derive(Clone, PartialEq)]
@@ -717,6 +729,9 @@ impl Em {
                     self.bridged_used.insert("open".into());
                     return Ok(self.q("pyd_builtin(\"open\")"));
                 }
+                if name == "globals" {
+                    return Err(err(line, "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"));
+                }
                 if is_missing_builtin(name) {
                     return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
                 }
@@ -828,6 +843,10 @@ impl Em {
                 }
                 let oo = self.ex(o, line)?;
                 self.q(&format!("getattr(&{oo}, {})", lit(n)))
+            }
+            Ex::Index(o, i) if self.is_globals(o) => {
+                let ii = self.ex(i, line)?;
+                self.q(&format!("glob_item({}, &{ii})", self.gtab()))
             }
             Ex::Index(o, i) => {
                 let oo = self.ex(o, line)?;
@@ -972,13 +991,16 @@ impl Em {
             Ex::Cmp(a, rest) => {
                 if rest.len() == 1 {
                     let aa = self.ex(a, line)?;
-                    let bb = self.ex(&rest[0].1, line)?;
                     let op = rest[0].0;
+                    let is_g = matches!(op, "in" | "not in") && self.is_globals(&rest[0].1);
+                    let bb = if is_g { String::new() } else { self.ex(&rest[0].1, line)? };
                     return Ok(match op {
                         "is" => format!("is(&{aa}, &{bb})"),
                         "is not" => format!("!is(&{aa}, &{bb})"),
                         "==" => self.q(&format!("eq(&{aa}, &{bb})")),
                         "!=" => self.q(&format!("ne(&{aa}, &{bb})")),
+                        "in" if is_g => self.q(&format!("glob_has({}, &{aa})", self.gtab())),
+                        "not in" if is_g => format!("!{}", self.q(&format!("glob_has({}, &{aa})", self.gtab()))),
                         "in" => self.q(&format!("contains(&{bb}, &{aa})")),
                         "not in" => format!("!{}", self.q(&format!("contains(&{bb}, &{aa})"))),
                         _ => self.q(&format!("rich(&{aa}, &{bb}, {})", lit(op))),
@@ -1078,7 +1100,27 @@ impl Em {
         b.push_str("__a }");
         Ok(b)
     }
+    // `globals()` (the builtin, not shadowed)
+    fn is_globals(&self, e: &Ex) -> bool {
+        matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none())
+    }
+    fn gtab(&self) -> String {
+        format!("gtab_{}", rust_ident(&self.module))
+    }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // globals().get(k) / globals().get(k, d)
+        if let Ex::Attr(o, m) = f {
+            if m == "get" && self.is_globals(o) && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
+                let mut xs = vec![];
+                for a in args {
+                    if let Arg::Pos(x) = a {
+                        xs.push(self.ex(x, line)?);
+                    }
+                }
+                let d = xs.get(1).cloned().unwrap_or_else(|| "V::None".into());
+                return Ok(self.q(&format!("glob_get({}, &{}, {d})", self.gtab(), xs[0])));
+            }
+        }
         // super().m(...) / super(C, self).m(...)
         if let Ex::Attr(o, m) = f {
             if let Ex::Call(sf, sargs) = &**o {
@@ -1666,9 +1708,23 @@ impl Em {
                 Some(n) => self.store(n, &format!("{ev}.clone()")),
                 None => String::new(),
             };
-            let hb = self.block(&h.body)?;
+            // Python deletes the `as` name when the handler ends, also when it
+            // ends by break, continue or return (CPython: `finally: e = None; del e`).
+            let hb = match &h.name {
+                Some(n) if has_jump(&h.body) && !has_yield(&h.body) => {
+                    let nm = Ex::Name(n.clone());
+                    let fin = vec![Stmt { line: h.line, st: St::Assign(vec![nm.clone()], Ex::NoneV) }, Stmt { line: h.line, st: St::Del(vec![nm]) }];
+                    let wrapped = [Stmt { line: h.line, st: St::Try(h.body.clone(), vec![], None, Some(fin)) }];
+                    self.block(&wrapped)?
+                }
+                _ => self.block(&h.body)?,
+            };
             self.f().exc_vars.pop();
-            write!(b, "if {test} {{ {bind}\n{hb} }}").unwrap();
+            let unbind = match &h.name {
+                Some(n) => self.store(n, "V::Unbound"),
+                None => String::new(),
+            };
+            write!(b, "if {test} {{ {bind}\n{hb}\n{unbind} }}").unwrap();
         }
         if !caught_all {
             let r = self.raise_code(&format!("E({ev})"));
@@ -2146,6 +2202,16 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     }
     hook.push_str("_ => None } }\n");
     out.push_str(&hook);
+    // name -> global slot, per module, for globals()
+    for m in mods {
+        let mut slots: Vec<(String, usize)> = em.globals.iter().filter(|((mm, n), _)| mm == &m.name && !n.starts_with('<')).map(|((_, n), i)| (n.clone(), *i)).collect();
+        slots.sort();
+        write!(out, "#[allow(dead_code)] fn gtab_{}(k: &str) -> Option<usize> {{ match k {{ ", rust_ident(&m.name)).unwrap();
+        for (n, i) in slots {
+            write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
+        }
+        out.push_str("_ => None } }\n");
+    }
     let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
     write!(
         out,

@@ -134,3 +134,49 @@ pub fn range_int(v: &V) -> Result<i64, E> {
         _ => Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v)))),
     }
 }
+
+// ---------- globals() ----------
+// `globals()[k]`, `globals().get(k[, d])` and `k in globals()` read the module's
+// global slots through a name -> slot table. Anything else on globals() is refused
+// when the program is built. Keys the table cannot answer (dunder names CPython
+// sets itself, keys of other types) stop the run rather than give a different answer.
+fn glob_slot(tab: fn(&str) -> Option<usize>, k: &V) -> Result<Option<usize>, E> {
+    match k {
+        V::Str(x) => {
+            if let Some(i) = tab(&x.s) {
+                return Ok(match gref(i) {
+                    V::Unbound => None,
+                    _ => Some(i),
+                });
+            }
+            let n = &x.s;
+            if n.len() > 4 && n.starts_with("__") && n.ends_with("__") {
+                return Err(unsupported(&format!("globals() lookup of '{n}'")));
+            }
+            Ok(None)
+        }
+        V::Obj(_) | V::Ext(_) => {
+            py_hash(k)?;
+            Err(unsupported("a globals() key that is not a str"))
+        }
+        _ => {
+            py_hash(k)?;
+            Ok(None)
+        }
+    }
+}
+pub fn glob_item(tab: fn(&str) -> Option<usize>, k: &V) -> R {
+    match glob_slot(tab, k)? {
+        Some(i) => Ok(gr(i)),
+        None => Err(exc_v("KeyError", k.clone())),
+    }
+}
+pub fn glob_get(tab: fn(&str) -> Option<usize>, k: &V, d: V) -> R {
+    Ok(match glob_slot(tab, k)? {
+        Some(i) => gr(i),
+        None => d,
+    })
+}
+pub fn glob_has(tab: fn(&str) -> Option<usize>, k: &V) -> Result<bool, E> {
+    Ok(glob_slot(tab, k)?.is_some())
+}
