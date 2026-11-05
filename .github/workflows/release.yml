@@ -206,6 +206,8 @@ jobs:
   # The MCP registry checks that the PyPI and npm packages exist and name this server, so it goes last.
   mcp-registry:
     needs: [pypi, npm]
+    # Without !cancelled() this is skipped whenever build was (from_release), even though pypi and npm ran.
+    if: ${{ !cancelled() && needs.pypi.result == 'success' && needs.npm.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
@@ -216,7 +218,12 @@ jobs:
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           ./mcp-publisher login github-oidc
-          if ./mcp-publisher publish > out.txt 2>&1; then cat out.txt; exit 0; fi
-          cat out.txt
-          # Re-runs of a release hit the version that is already there; anything else is a real failure.
-          grep -qiE "already (exists|published)|duplicate" out.txt
+          # A new npm version can take a few minutes to show, and the registry checks it exists, so retry.
+          for try in 1 2 3 4 5 6; do
+            if ./mcp-publisher publish > out.txt 2>&1; then cat out.txt; exit 0; fi
+            cat out.txt
+            # Re-runs of a release hit the version that is already there.
+            if grep -qiE "already (exists|published)|duplicate" out.txt; then exit 0; fi
+            sleep 60
+          done
+          exit 1
