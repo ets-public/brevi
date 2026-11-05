@@ -1,5 +1,5 @@
 # Install Brevi
-<!-- description: Install the Brevi compiler on Linux, macOS or Windows from the GitHub release, with Docker, or from source. -->
+<!-- description: Install the Brevi compiler on Linux, macOS or Windows from the GitHub release, pip, npm, Docker, or from source. -->
 
 Brevi turns programs into Rust and calls `rustc` to build them, so it needs the Rust toolchain on the machine as well as the `brevi` binary itself. The install script sets up both.
 
@@ -88,17 +88,17 @@ cargo build --release
 
 Or `cargo install --git __GITHUB__ brevi`. See [Contributing](/docs/contributing) for the test suite.
 
-## Package managers: coming
+## Package managers
 
-The names are reserved and the packaging is ready in `packaging/`, but nothing is published yet. Until then, use the release binaries above.
+Each release is published to these registries with the same prebuilt binaries as the GitHub release. They need the Rust toolchain on the PATH too ([rustup.rs](https://rustup.rs)).
 
-| Channel | Command, once published |
-| --- | --- |
-| npm | `npx brevi mcp` |
-| PyPI | `pip install brevi`, or `uvx brevi mcp` |
-| Homebrew | `brew install ets-public/brevi/brevi` |
-| crates.io | `cargo install brevi` |
-| MCP registry | `io.github.ets-public/brevi` |
+| Channel | Command | Notes |
+| --- | --- | --- |
+| PyPI | `pip install brevi`, or `uvx brevi mcp` without installing | Wheels for Linux (glibc 2.34 or later, x86-64 and ARM64), macOS 11+ (Apple silicon) and 10.12+ (Intel), and Windows x86-64. |
+| npm | `npm install -g brevi`, or `npx brevi mcp` | The first run downloads the matching release binary into `~/.cache/brevi/VERSION`. Needs Node 18 or later. |
+| crates.io | `cargo install brevi` | Builds from source, from the next release (Monday 9 November) on. |
+| MCP registry | `io.github.ets-public/brevi` | Lists the PyPI and npm packages, running `brevi mcp`. |
+| Homebrew | `brew install ets-public/brevi/brevi` | Coming: the formula is ready in `packaging/homebrew`. |
 
 ## Where Brevi keeps things
 
