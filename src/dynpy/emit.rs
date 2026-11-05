@@ -83,9 +83,7 @@ const NP_RAND_FUNCS: &[(&str, &[&str])] = &[
     ("normal", &["loc", "scale", "size"]), ("standard_normal", &["size"]), ("exponential", &["scale", "size"]), ("standard_exponential", &["size"]),
     ("choice", &["a", "size", "replace", "p"]), ("shuffle", &["x"]), ("permutation", &["x"]),
 ];
-// det, slogdet, solve and inv are in rt_nplinalg.rs but not turned on: OpenBLAS's LU sums in an order not
-// matched yet (about 1 value in 5 differs from numpy in the last digit), so CPython's numpy runs them.
-const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[("norm", &["x", "ord", "axis", "keepdims"]), ("matrix_power", &[]), ("LinAlgError", &[])];
+const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[("norm", &["x", "ord", "axis", "keepdims"]), ("det", &[]), ("slogdet", &[]), ("solve", &[]), ("inv", &[]), ("matrix_power", &[]), ("LinAlgError", &[])];
 fn np_linalg_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_LINALG_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
