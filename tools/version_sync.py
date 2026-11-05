@@ -1,4 +1,5 @@
-"""Fails when a packaging manifest's version differs from Cargo.toml. usage: version_sync.py"""
+"""Fails when a packaging manifest's version differs from Cargo.toml.
+usage: version_sync.py [--tag vX.Y.Z]   (--tag: also fail unless the release tag is v + that version)"""
 import json, os, re, sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -11,6 +12,8 @@ srv = json.load(open(os.path.join(ROOT, "server.json")))
 found["server.json"] = srv["version"]
 for i, p in enumerate(srv.get("packages", [])):
     found[f"server.json packages[{i}]"] = p["version"]
+if "--tag" in sys.argv:
+    found["release tag"] = sys.argv[sys.argv.index("--tag") + 1].removeprefix("v")
 bad = {k: v for k, v in found.items() if v != cargo}
 for k, v in bad.items():
     print(f"{k}: {v}, Cargo.toml has {cargo}")
