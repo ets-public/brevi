@@ -3,13 +3,14 @@ name = "brevi"
 version = "0.25.0"
 edition = "2024"
 license = "Apache-2.0"
-description = "Brevi: compile plain Python to fast native binaries (via Rust), with one-line JSON errors and an MCP server for AI agents."
+description = "Compiles the plain Python AI agents write into fast native binaries via Rust, with one-line JSON errors and an MCP server."
 homepage = "https://brevi-lang.org"
 repository = "https://github.com/ets-public/brevi"
-readme = "README.md"
+readme = "packaging/crates/README.md"
+documentation = "https://brevi-lang.org/docs/"
 keywords = ["python", "compiler", "rust", "mcp", "ai"]
 categories = ["compilers", "command-line-utilities", "development-tools"]
 # Only what the compiler needs to build: crates.io caps a crate at 10 MB and bench/ alone is thousands of files.
-include = ["src/**", "runtime/brevi_tk/src/**", "README.md", "BREVI.md", "REFERENCE.md", "LIBRARIES.md", "LICENSE"]
+include = ["src/**", "runtime/brevi_tk/src/**", "packaging/crates/README.md", "README.md", "BREVI.md", "REFERENCE.md", "LIBRARIES.md", "LICENSE"]
 
 [dependencies]

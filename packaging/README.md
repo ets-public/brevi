@@ -22,7 +22,7 @@ One-time setup (registry owner, in a browser):
 | Claude Code plugin | `.claude-plugin/marketplace.json`, `plugins/brevi/` | `/plugin marketplace add ets-public/brevi`, then `/plugin install brevi@brevi`. Adds the Brevi skill and the `brevi mcp` server. Needs `brevi` on PATH. |
 | MCP registry | `server.json` | Name `io.github.ets-public/brevi`, runs `brevi mcp` from the PyPI or npm package. Published by the `mcp-registry` job after PyPI and npm. |
 | PyPI | `packaging/pypi/`, `tools/make_wheels.py` | `pip install brevi` or `uvx brevi mcp`. `make_wheels.py` repacks the five release binaries as wheels (no second build, so no extra macOS minutes). `pyproject.toml` (maturin) is kept for building a wheel from source. |
-| crates.io | `Cargo.toml` (`include`) | `cargo install brevi`. Builds from source, so it needs Rust, which Brevi needs anyway. |
+| crates.io | `Cargo.toml` (`include`), `packaging/crates/README.md` | `cargo install brevi`. Builds from source, so it needs Rust, which Brevi needs anyway. |
 | npm | `packaging/npm/` | `npx brevi mcp`. The wrapper downloads the matching release binary on first run into `~/.cache/brevi/VERSION`. |
 | Homebrew | `packaging/homebrew/make_formula.py` | `brew install ets-public/brevi/brevi` once the formula is in a tap repo (`ets-public/homebrew-brevi`). The script writes the formula from the release's SHA256SUMS. It installs the prebuilt binary and depends on `rust`. The repo must be public first, since Homebrew downloads without a login. |
 | Dataset | `tools/export_dataset.py` | Writes tasks, verified solutions and a Hugging Face README to `dist/dataset`. |

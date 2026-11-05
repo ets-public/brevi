@@ -124,9 +124,11 @@ jobs:
   # Publishing runs only when every platform built and the tag matches Cargo.toml's version, so a
   # registry never gets a release that the GitHub release (which npm downloads from) is missing.
   # Each job skips a version that is already published, so re-running a release is safe.
+  # `!cancelled()` is needed because with from_release the build job is skipped, and a job whose
+  # needs include a skipped job is otherwise skipped too.
   pypi:
     needs: [build, release]
-    if: ${{ (needs.build.result == 'success' || inputs.from_release) && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
+    if: ${{ !cancelled() && (needs.build.result == 'success' || inputs.from_release) && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
@@ -146,7 +148,7 @@ jobs:
 
   npm:
     needs: [build, release]
-    if: ${{ (needs.build.result == 'success' || inputs.from_release) && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
+    if: ${{ !cancelled() && (needs.build.result == 'success' || inputs.from_release) && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
