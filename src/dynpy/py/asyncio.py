@@ -219,6 +219,16 @@ class BaseEventLoop:
         self._task_factory = None
         self._debug = False
         self._current_task = None
+        # Sockets of Brevi's httpx waiting to be readable (1) or writable (4): [fd, events, future], and the
+        # poll function httpx hands in (this module reaches no network itself). Waited for where CPython's
+        # selector waits, in _run_once.
+        self._fd_waiters = []
+        self._io_poll = None
+
+    def _brevi_wait_fd(self, fd, events):
+        fut = self.create_future()
+        self._fd_waiters.append([fd, events, fut])
+        return fut
 
     def __repr__(self):
         return '<_UnixSelectorEventLoop running=' + str(self.is_running()) + ' closed=' + str(self.is_closed()) + ' debug=' + str(self.get_debug()) + '>'
@@ -439,10 +449,23 @@ class BaseEventLoop:
                 timeout = MAXIMUM_SELECT_TIMEOUT
             elif timeout < 0:
                 timeout = 0
-        if timeout is None:
+        waiters = [w for w in self._fd_waiters if not w[2].done()]
+        self._fd_waiters = waiters
+        if waiters and self._io_poll is not None:
+            # what EpollSelector.select() waits: whole milliseconds, rounded up (-1: until a socket is ready)
+            wait = -1 if timeout is None else math.ceil(timeout * 1e3) * 1e-3
+            got = self._io_poll([(w[0], w[1]) for w in waiters], wait)
+            left = []
+            for w, ev in zip(waiters, got):
+                if ev:
+                    self.call_soon(_brevi_fd_ready, w[2], ev)
+                else:
+                    left.append(w)
+            self._fd_waiters = left
+        elif timeout is None:
             # Nothing can ever wake the loop (CPython would wait forever on its selector).
             raise _unsupported("an event loop with nothing left to run (it would wait forever)")
-        if timeout > 0:
+        elif timeout > 0:
             # what EpollSelector.select() waits: whole milliseconds, rounded up
             time.sleep(math.ceil(timeout * 1e3) * 1e-3)
 
@@ -461,6 +484,11 @@ class BaseEventLoop:
             if handle._cancelled:
                 continue
             handle._run()
+
+
+def _brevi_fd_ready(fut, ev):
+    if not fut.done():
+        fut.set_result(ev)
 
 
 # ---------- futures.py ----------

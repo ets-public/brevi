@@ -1375,6 +1375,7 @@ fn json_err<T>(msg: &str, s: &[char], pos: usize) -> Result<T, E> {
     let o = Obj::new(c);
     o.set("args", tup(vec![st(full)]));
     o.set("msg", s_(msg));
+    o.set("doc", st(s.iter().collect()));
     o.set("pos", V::Int(pos as i64));
     o.set("lineno", V::Int(line as i64));
     o.set("colno", V::Int(col as i64));

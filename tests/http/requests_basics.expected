@@ -1,0 +1,47 @@
+<Response [200]> 200 True True OK http://127.0.0.1:18080/echo?a=1&b=x+y&c=1&c=2 utf-8
+{'Server': 'brevi-test', 'Content-Type': 'application/json', 'Content-Length': '265'}
+application/json 265 True 3
+[['Host', '127.0.0.1:18080'], ['User-Agent', 'python-requests/2.34.2'], ['Accept-Encoding', 'gzip, deflate'], ['Accept', '*/*'], ['Connection', 'keep-alive'], ['X-Test', '1']]
+GET http://127.0.0.1:18080/echo?a=1&b=x+y&c=1&c=2 /echo?a=1&b=x+y&c=1&c=2 {'User-Agent': 'python-requests/2.34.2', 'Accept-Encoding': 'gzip, deflate', 'Accept': '*/*', 'Connection': 'keep-alive', 'X-Test': '1'}
+[] False {}
+post {'body': 'k=v+w&n=3', 'headers': [['Host', '127.0.0.1:18080'], ['User-Agent', 'python-requests/2.34.2'], ['Accept-Encoding', 'gzip, deflate'], ['Accept', '*/*'], ['Connection', 'keep-alive'], ['Content-Length', '9'], ['Content-Type', 'application/x-www-form-urlencoded']], 'method': 'POST', 'path': '/echo', 'query': ''}
+put {'body': 'k=v+w&n=3', 'headers': [['Host', '127.0.0.1:18080'], ['User-Agent', 'python-requests/2.34.2'], ['Accept-Encoding', 'gzip, deflate'], ['Accept', '*/*'], ['Connection', 'keep-alive'], ['Content-Length', '9'], ['Content-Type', 'application/x-www-form-urlencoded']], 'method': 'PUT', 'path': '/echo', 'query': ''}
+patch {'body': 'k=v+w&n=3', 'headers': [['Host', '127.0.0.1:18080'], ['User-Agent', 'python-requests/2.34.2'], ['Accept-Encoding', 'gzip, deflate'], ['Accept', '*/*'], ['Connection', 'keep-alive'], ['Content-Length', '9'], ['Content-Type', 'application/x-www-form-urlencoded']], 'method': 'PATCH', 'path': '/echo', 'query': ''}
+{"k": [1, 2], "s": "\u00e9"} [['Content-Length', '28'], ['Content-Type', 'application/json']]
+raw text body [['Content-Type', 'text/plain'], ['Content-Length', '13']]
+[['Content-Length', '7']]
+a=1&a=2&b=3
+DELETE [['Host', '127.0.0.1:18080'], ['User-Agent', 'python-requests/2.34.2'], ['Accept-Encoding', 'gzip, deflate'], ['Accept', '*/*'], ['Connection', 'keep-alive'], ['Content-Length', '0']]
+OPTIONS
+200 True 232
+http://127.0.0.1:18080/anything/z?q=a%20b&r=~ /anything/z q=a%20b&r=~
+http://127.0.0.1:18080/echo?raw=1&x=2
+http://127.0.0.1:18080/echo?a=1&a=2.5&u=%C3%BC
+utf-8 'héllo wörld ☃\n' b'h\xc3\xa9llo w\xc3\xb6rld \xe2\x98\x83\n'
+ISO-8859-1 'café\n' b'caf\xe9\n'
+ISO-8859-1 'naÃ¯ve text\n'
+'naïve text\n'
+utf-8 {'name': 'brevi', 'ok': True, 'n': [1, 2.5, None]} ascii
+ISO-8859-1 <html><body>hi</body></html>
+204 '' b'' True
+gzip {"gzipped": true}
+{"gzipped": true}
+{"gzipped": true}
+
+{'deflated': True}
+raw deflate body
+raw deflate body
+raw deflate body
+raw deflate body
+
+chunked 'first line\nsecond line\nthird line\nno newline at end'
+'body until close\n'
+300000 b'\x00\x07\x0e\x15\x1c' b'\x0f\x16\x1d$+'
+300000 b'\xe2\xe9\xf0\xf7\x03'
+a, b v {'next': {'url': 'http://x/?page=2', 'rel': 'next'}, 'last': {'url': 'http://x/?page=9', 'rel': 'last'}}
+http://x/?page=2
+418 I'm a teapot False
+299 Fine Thanks True
+200 404 418 201 None
+[b'a', b'b', b'', b'c', b'd']
+True

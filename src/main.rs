@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,native] [--allow-py MODULES] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -205,22 +205,23 @@ fn main() {
         runcache::turn_off();
     }
     let mut sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
-    // --allow read,write,native and --allow-py MODULES: what the caller grants a sandboxed program (caps.rs).
+    // --allow read,write,net,native, --allow-net HOSTS and --allow-py MODULES: what the caller grants a sandboxed program (caps.rs).
     // Either implies --sandbox.
     let mut grant: Vec<String> = vec![];
     loop {
         let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
-        let Some(i) = argv[..dash].iter().position(|a| a == "--allow" || a == "--allow-py" || a.starts_with("--allow=") || a.starts_with("--allow-py=")) else { break };
+        let Some(i) = argv[..dash].iter().position(|a| a == "--allow" || a == "--allow-py" || a == "--allow-net" || a.starts_with("--allow=") || a.starts_with("--allow-py=") || a.starts_with("--allow-net=")) else { break };
         let flag = argv.remove(i);
         let (name, value) = match flag.split_once('=') {
             Some((n, v)) => (n.to_string(), v.to_string()),
             None if i < dash - 1 => (flag.clone(), argv.remove(i)),
             None => {
-                eprintln!("{flag} needs a value: --allow read,write or --allow-py requests");
+                eprintln!("{flag} needs a value: --allow read,write, --allow-py requests or --allow-net api.example.com");
                 exit(2);
             }
         };
-        match caps::parse_grant(name == "--allow-py", &value) {
+        let parsed = if name == "--allow-net" { caps::parse_net(&value) } else { caps::parse_grant(name == "--allow-py", &value) };
+        match parsed {
             Ok(g) => grant.extend(g),
             Err(m) => {
                 eprintln!("{m}");

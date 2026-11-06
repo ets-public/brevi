@@ -1,0 +1,61 @@
+<Response [200 OK]> 200 OK HTTP/1.1 True False False utf-8
+http://127.0.0.1:18080/echo?b=x+y&c=1&c=2&n=3&t=true&z= URL('http://127.0.0.1:18080/echo?b=x+y&c=1&c=2&n=3&t=true&z=') 127.0.0.1 18080 /echo b'b=x+y&c=1&c=2&n=3&t=true&z=' http b=x+y&c=1&c=2&n=3&t=true&z=
+Headers({'server': 'brevi-test', 'content-type': 'application/json', 'content-length': '272'})
+application/json 272 True 3 ['server', 'content-type', 'content-length'] {'server': 'brevi-test', 'content-type': 'application/json', 'content-length': '272'}
+[['Host', '127.0.0.1:18080'], ['Accept', '*/*'], ['Accept-Encoding', 'gzip, deflate'], ['Connection', 'keep-alive'], ['User-Agent', 'python-httpx/0.28.1'], ['X-Test', '1']]
+<Request('GET', 'http://127.0.0.1:18080/echo?b=x+y&c=1&c=2&n=3&t=true&z=')> GET http://127.0.0.1:18080/echo?b=x+y&c=1&c=2&n=3&t=true&z= Headers({'host': '127.0.0.1:18080', 'accept': '*/*', 'accept-encoding': 'gzip, deflate', 'connection': 'keep-alive', 'user-agent': 'python-httpx/0.28.1', 'x-test': '1'})
+[] None {} 272 None
+http://127.0.0.1:18080/echo?raw=1&x=2
+http://127.0.0.1:18080/anything/z?q=a%20b&r=%7e /anything/z q=a%20b&r=%7e
+{'body': 'k=v+w&n=3&l=a&l=b', 'headers': [['Host', '127.0.0.1:18080'], ['Accept', '*/*'], ['Accept-Encoding', 'gzip, deflate'], ['Connection', 'keep-alive'], ['User-Agent', 'python-httpx/0.28.1'], ['Content-Length', '17'], ['Content-Type', 'application/x-www-form-urlencoded']], 'method': 'POST', 'path': '/echo', 'query': ''}
+{"k":[1,2],"s":"é","f":1.5} [['Content-Length', '28'], ['Content-Type', 'application/json']]
+raw text body [['Content-Type', 'text/plain'], ['Content-Length', '13']]
+[['Content-Length', '7']]
+PUT [1,null]
+PATCH ['User-Agent', 'python-httpx/0.28.1']
+DELETE [['Host', '127.0.0.1:18080'], ['Accept', '*/*'], ['Accept-Encoding', 'gzip, deflate'], ['Connection', 'keep-alive'], ['User-Agent', 'python-httpx/0.28.1']]
+OPTIONS
+200 True 229 b''
+http://127.0.0.1:18080/echo?q=1
+utf-8 'héllo wörld ☃\n' b'h\xc3\xa9llo w\xc3\xb6rld \xe2\x98\x83\n'
+iso-8859-1 'café\n'
+utf-8 'naïve text\n'
+utf-8 {'name': 'brevi', 'ok': True, 'n': [1, 2.5, None]}
+204 No Content '' b''
+gzip {"gzipped": true}
+{"gzipped": true}
+{"gzipped": true}
+
+{'deflated': True}
+raw deflate body
+raw deflate body
+raw deflate body
+raw deflate body
+
+chunked 'first line\nsecond line\nthird line\nno newline at end'
+'body until close\n'
+300000 b'\xe2\xe9\xf0\xf7\x03'
+a, b ['a', 'b'] [('x-multi', 'a'), ('x-multi', 'b'), ('x-lower', 'v'), ('link', '<http://x/?page=2>; rel="next", <http://x/?page=9>; rel="last"')] {'next': {'url': 'http://x/?page=2', 'rel': 'next'}, 'last': {'url': 'http://x/?page=9', 'rel': 'last'}}
+418 I'm a teapot <Response [418 I'm a teapot]>
+299 Fine Thanks <Response [299 Fine Thanks]>
+200 404 418 Not Found True 201 201
+['a', 'b', '', 'c', 'd'] ['a', 'b', '', 'c', 'd']
+http://127.0.0.1:18080/echo?cp=1&rp=2 [['Host', '127.0.0.1:18080'], ['Accept', '*/*'], ['Accept-Encoding', 'gzip, deflate'], ['Connection', 'keep-alive'], ['User-Agent', 'python-httpx/0.28.1'], ['X-Client', 'c'], ['X-Req', 'r']]
+302 /cookies <Request('GET', 'http://127.0.0.1:18080/cookies')> {'cp': '1'} None
+{'cookie': 'cp=1'}
+200 http://127.0.0.1:18080/echo [(302, 'http://127.0.0.1:18080/redirect/3?cp=1'), (302, 'http://127.0.0.1:18080/redirect/2'), (302, 'http://127.0.0.1:18080/redirect/1')]
+200 {'authenticated': True, 'user': 'ann'}
+401 True
+http://127.0.0.1:18080 c False
+True
+301 GET  [301]
+302 GET  [302]
+303 GET  [303]
+307 POST payload [307]
+308 POST payload [308]
+{'authenticated': True, 'user': 'ann'}
+http://127.0.0.1:18080/echo?from=abs
+TooManyRedirects Exceeded maximum allowed redirects. http://127.0.0.1:18080/redirect/2
+200 https://127.0.0.1:18081/echo?tls=1 tls=1 ['Host', '127.0.0.1:18081']
+3
+200

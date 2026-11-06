@@ -303,10 +303,11 @@ pub fn stdlib_only() -> bool {
 // is tried first (it refuses what that numpy lacks, and the typed build with CPython's numpy goes instead).
 pub fn numpy_only() -> bool {
     let u = uses();
-    u.iter().any(|m| m == "numpy" || m.starts_with("numpy.") || m == "tiktoken" || m == "tokenizers")
+    let own = |top: &str| matches!(top, "numpy" | "tiktoken" | "tokenizers" | "requests" | "httpx");
+    u.iter().any(|m| own(m.split('.').next().unwrap_or(m)))
         && u.iter().all(|m| {
             let top = m.split('.').next().unwrap_or(m);
-            top == "numpy" || top == "tiktoken" || top == "tokenizers" || NATIVE.contains(&top) || matches!(top, "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse")
+            own(top) || NATIVE.contains(&top) || matches!(top, "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse")
         })
         && std::env::var("BREVI_NUMPY").map_or(true, |v| v != "0")
 }

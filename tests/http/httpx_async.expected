@@ -1,0 +1,66 @@
+200 False False ['first line', 'second line', 'third line', 'no newline at end'] True
+[100000, 100000, 100000] 300000
+300000 True
+['data: {"i": 0, "text": "tok0"}', 'data: {"i": 1, "text": "tok1"}', 'data: {"i": 2, "text": "tok2"}', 'data: {"i": 3, "text": "tok3"}', 'data: [DONE]']
+['héll', 'o wö', 'rld ', '☃\n']
+ResponseNotRead Attempted to access streaming response content, without having called `read()`.
+228
+re-iterated from content
+part one, part two, three ['Transfer-Encoding', 'chunked']
+['Authorization', 'Bearer tok123'] Headers({'host': '127.0.0.1:18080', 'accept': '*/*', 'accept-encoding': 'gzip, deflate', 'connection': 'keep-alive', 'user-agent': 'python-httpx/0.28.1', 'authorization': '[secure]'})
+[('req', 'GET', 'http://127.0.0.1:18080/redirect/2'), ('resp', 302), ('req', 'GET', 'http://127.0.0.1:18080/redirect/1'), ('resp', 302), ('req', 'GET', 'http://127.0.0.1:18080/echo'), ('resp', 200)]
+200 Timeout(timeout=5.0) <Cookies[]>
+ConnectError '[Errno 111] Connection refused' http://127.0.0.1:1/ True
+ReadTimeout 'timed out' http://127.0.0.1:18080/slow?d=1 True
+ConnectError '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate (_ssl.c:1035)' https://127.0.0.1:18081/echo True
+UnsupportedProtocol "Request URL has an unsupported protocol 'ftp://'." ftp://example.com/ True
+UnsupportedProtocol "Request URL is missing an 'http://' or 'https://' protocol." /relative True
+HTTPStatusError Client error '404 Not Found' for url 'http://127.0.0.1:18080/status/404' 404 http://127.0.0.1:18080/status/404
+HTTPStatusError Server error '503 Service Unavailable' for url 'http://127.0.0.1:18080/status/503' 503 http://127.0.0.1:18080/status/503
+HTTPStatusError Redirect response '302 Found' for url 'http://127.0.0.1:18080/redirect/1' 302 http://127.0.0.1:18080/redirect/1
+ok <Response [200 OK]>
+JSONDecodeError 'Expecting value: line 1 column 1 (char 0)'
+InvalidURL "Invalid port: ':1'"
+InvalidURL "Invalid IPv4 address: '300.1.1.1'"
+InvalidURL "Invalid port: 'port'"
+ValueError 'httpx.Timeout must either include a default, or set all four parameters explicitly.'
+ok 200
+RuntimeError 'Cannot send a request, as the client has been closed.'
+[(200, 'i=0'), (200, 'i=1'), (200, 'i=2'), (200, 'i=3'), (200, 'i=4'), (200, 'i=5')]
+<Response [200 OK]> {"a":[1,2]} [['X-A', '1'], ['Content-Length', '11'], ['Content-Type', 'application/json']]
+gzip 3
+http://127.0.0.1:18080/echo 3
+'first line\nsecond line\nthird line\nno newline at end'
+200 ['data: {"i": 0, "text": "tok0"}', 'data: {"i": 1, "text": "tok1"}', 'data: {"i": 2, "text": "tok2"}', 'data: {"i": 3, "text": "tok3"}', 'data: {"i": 4, "text": "tok4"}', 'data: [DONE]']
+5 300000
+['héllo wörld ☃\n']
+{'authenticated': True, 'user': 'u'}
+PUT async body
+True
+200 3
+async ConnectError 'All connection attempts failed'
+async ReadTimeout ''
+async UnsupportedProtocol "Request URL has an unsupported protocol 'ftp://'."
+[200, 200, 200] False
+{'slept': 0.3} True
+async ConnectError [SSL: CERTIFICATE_VERIFY_FAILED] certifi
+https://user:pass@example.com:443/a/c%2Fd?x=1&y=two%20words#frag URL('https://user:[secure]@example.com:443/a/c%2Fd?x=1&y=two%20words#frag') https example.com 443 /a/c/d b'/a/c%2Fd?x=1&y=two%20words' b'x=1&y=two%20words' frag user pass b'user:pass' b'example.com:443'
+http://user:pass@example.com:8080/a/c%2Fd?x=1&y=two%20words#frag https://user:pass@example.com/a/c%2Fd?x=5&y=two+words#frag https://user:pass@example.com/a/c%2Fd?x=1&y=two+words&z=true#frag https://user:pass@example.com/a/c%2Fd?y=two+words#frag https://user:pass@example.com/a/c%2Fd?x=1&y=two+words&m=1&m=2#frag
+https://user:pass@example.com/other?q=1 https://cdn.example.com/x https://user:pass@example.com/a/rel False True True
+http://xn--r8jz45g.jp/%E3%83%91%E3%82%B9?q=%E5%80%A4 例え.jp ::1 http://[::1]:8000/
+http://example.com?a=1&b=2&b=3 http://h/q
+a=1&a=2&b=x+y&c= QueryParams('a=1&a=2&b=x+y&c=') 1 ['1', '2'] ['a', 'b', 'c'] [('a', '1'), ('b', 'x y'), ('c', '')] [('a', '1'), ('a', '2'), ('b', 'x y'), ('c', '')] True 3 a=9&b=x+y&c= a=1&a=2&b=x+y&c=&d= b=x+y&c= a=1&a=2&b=new&c= True
+flag=false&n=1.5&list=1&list=2 {'flag': 'false', 'n': '1.5', 'list': '1'} False
+Headers({'content-type': 'text/plain', 'x-b': '2', 'x-a': '3'}) [(b'Content-Type', b'text/plain'), (b'x-b', b'2'), (b'X-A', b'3')] [('content-type', 'text/plain'), ('x-b', '2'), ('x-a', '3')] d True True
+Headers([('set-cookie', 'a=1'), ('set-cookie', 'b=2'), ('authorization', '[secure]')]) a=1, b=2 ['a=1', 'b=2'] [('set-cookie', 'a=1'), ('set-cookie', 'b=2'), ('authorization', 'secret')] True
+Headers({'x-utf': 'é'}, encoding='utf-8') iso-8859-1
+<Response [201 Created]> 201 Headers({'x-h': 'v', 'content-length': '11', 'content-type': 'application/json'}) {'ok': True} {"ok":true} True utf-8 True True
+Headers({'content-length': '6', 'content-type': 'text/plain; charset=utf-8'}) b'h\xc3\xa9llo' utf-8 utf-8
+été latin-1 [b'\xe9t', b'\xe9'] ['été'] ['été']
+RuntimeError The request instance has not been set on this response.
+<Request('POST', 'http://example.com/x?b=2')> POST http://example.com/x?b=2 Headers({'host': 'example.com', 'x-r': '1', 'cookie': 'c=d', 'content-length': '9', 'content-type': 'application/json'}) b'{"k":"v"}' b'{"k":"v"}'
+Timeout(connect=2.0, read=10.0, write=10.0, pool=10.0) Timeout(timeout=3) Timeout(timeout=None) Timeout(connect=1, read=2, write=3, pool=4) {'connect': 2.0, 'read': 10.0, 'write': 10.0, 'pool': 10.0} True Limits(max_connections=5, max_keepalive_connections=None, keepalive_expiry=5.0)
+404 Not Found <codes.FOUND: 302> NOT_FOUND True  True
+<Cookies[<Cookie a=1 for  />, <Cookie b=2 for example.com />]> {'a': '1', 'b': '2'} 2 2 True
+<Cookies[<Cookie b=2 for example.com />]> ['b']
+Basic dTpw True True False 0.28.1
