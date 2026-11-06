@@ -63,6 +63,15 @@ expect("python module", call("check", file="util.py", code="def inc(x):\n    ret
 expect("python import", call("run", code="from util import inc\nprint(inc(41))\n"), "42", False)
 expect("python def patch", call("patch", file="util.py", patch="def inc(x):\n    return x + 2\n"), "replaced def inc", None)
 expect("python cases", call("run", cases=[{"stdin": "", "expect": "43\n"}]), "passed 1/1", False)
+# verify: the native build against CPython. CPython cannot be sandboxed, so the default sandbox refuses it.
+start()
+sq = "import sys\nn = int(sys.stdin.read() or 3)\nprint(sum(i * i for i in range(n)))\n"
+expect("verify needs sandbox false", call("verify", code=sq), "sandbox false", True)
+expect("verify identical", call("verify", sandbox=False, inputs=["5", "100"], args=["x"]), '"verify":"identical","file":"main.py"', False)
+expect("verify names inputs", call("verify", sandbox=False, inputs=["5"]), '"input":"input1"', False)
+expect("verify unstable", call("verify", sandbox=False, code="import time\nprint(time.time_ns())\n"), "pass once true", True)
+expect("verify not built", call("verify", sandbox=False, code='exec("print(1)")\n'), '"verify":"not built"', True)
+expect("verify Brevi code", call("verify", sandbox=False, code="fn main():\n    print(1)\n"), "no CPython answer", True)
 # Every build says which path it took: structuredContent always, the text's last line only off the typed path.
 start()
 def path_of(tool, **args):
@@ -171,7 +180,7 @@ raw_send(q, {"jsonrpc": "2.0", "id": "s", "method": "tools/list"})
 r = raw_recv(q)
 want("notification has no reply", r["id"] == "s", r)
 tools = r["result"]["tools"]
-want("seven tools with closed schemas", len(tools) == 7 and all(t["inputSchema"].get("additionalProperties") is False for t in tools), tools)
+want("eight tools with closed schemas", len(tools) == 8 and all(t["inputSchema"].get("additionalProperties") is False for t in tools), tools)
 for bad, code in [(b"{not json", -32700), (b"\xff\xfe", -32700), (b"[" * 100000, -32700), (b'[{"jsonrpc":"2.0","id":9,"method":"ping"}]', -32600), (b"42", -32600)]:
     raw_send(q, bad)
     r = raw_recv(q)

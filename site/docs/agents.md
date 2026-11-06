@@ -55,6 +55,7 @@ The server **keeps the program**. The agent sends its code once, then fixes it w
 | `check` | Compile without running. Returns `OK` or one JSON error per line. Takes `code` (once), `file` (for multi-file programs), `fast`, `fix` and `sandbox`. |
 | `run` | Compile and run the kept program with `stdin` and `args`. With `cases` (a list of `{stdin, expect}`), builds once and prints `ok` or the first differing line for each case. `timeout` gives a slow program more time. |
 | `test` | Run the `test` blocks of a Brevi program. |
+| `verify` | Proof the native build answers as CPython does: builds the kept program natively, runs it and `python3` on each of `inputs` (stdin texts) with `args`, and compares stdout, exit code and stderr. One JSON line per input, then a certificate (`identical`, `differs`, `unstable`, `timeout` or `not built`, with the file's SHA-256 and the speedup). CPython runs twice per input (`once: true` for one run). It runs CPython on the code, which the sandbox cannot hold, so it needs `sandbox: false`. From the release after v0.25.0. See [Verify against CPython](/docs/usage#verify-against-cpython). |
 | `patch` | Replace each `def` or `class` (in Brevi code: `fn`, `type`, `enum` or `test`) by name, or add it, then check. |
 | `edit` | Replace lines `from`..`to` of the kept program with `text`, then check. |
 | `show` | The kept program, or some of its lines, with line numbers. |

@@ -12,7 +12,7 @@ $ brevi run main.py                     # build natively (cached), then run
 285
 $ brevi check main.py                   # build without running: errors only
 $ brevi build main.py -o app --release  # an optimised binary to keep or ship
-$ brevi mcp                             # MCP server for agents: check, run, test, patch, edit, show, guide
+$ brevi mcp                             # MCP server for agents: check, run, test, verify, patch, edit, show, guide
 ```
 
 A sure mistake is reported before anything runs, as one line with a fix:

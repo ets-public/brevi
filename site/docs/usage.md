@@ -22,6 +22,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `brevi build FILE [-o OUT]` | Build a native program and write it to `OUT` (default: the file name without its extension). Never falls back. |
 | `brevi check FILE [--fast]` | Build without running and print the errors, or nothing. `--fast` runs only Brevi's own checks, in milliseconds, without `rustc`. |
 | `brevi test FILE` | Run the `test "name":` blocks of a Brevi program. |
+| `brevi verify FILE.py [--input PATH]... [-- ARGS]` | Build natively, run the program and `python3` on the same inputs, and print a certificate when the two agree: stdout, exit code and stderr. See [Verify against CPython](#verify-against-cpython). |
 | `brevi emit FILE` | Print the Rust that Brevi generates. |
 | `brevi fix FILE` | Apply every suggested fix to a `.bv` file in place. |
 | `brevi patch FILE PATCH` | Replace each `fn`, `type`, `enum` or `test` in `PATCH` by name in `FILE`, or add it; `del fn name` removes one. |
@@ -87,6 +88,26 @@ NameError: name 'totl' is not defined (main.py line 3)
 Pass `--traceback` (or set `BREVI_TRACEBACK=1`) to see the whole traceback. Other fallbacks show CPython's output as it is. A sandboxed program never falls back.
 
 Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a file builds natively: they never fall back, and print the errors instead.
+
+## Verify against CPython
+
+`brevi verify x.py` (from the release after v0.25.0; on `main` now) is proof that the native build answers as CPython does. It builds the file natively (strict, as `brevi build` does: no fallback), then runs `python3` (or `$BREVI_PYTHON`) and the built program on the same inputs, and compares stdout byte for byte, the exit code and stderr. CPython's traceback frames are left out of the stderr comparison, since a built program names the exception but not the frames. CPython runs each input twice: output that changes from run to run (set order, the time, unseeded `random`) cannot be certified, and is reported as `unstable` instead of matched by luck.
+
+```
+$ brevi verify main.py --input tests/ -- --verbose
+{"case":1,"input":"tests/1.in","same":true,"cpython_ms":38,"brevi_ms":2}
+{"case":2,"input":"tests/2.in","same":true,"cpython_ms":41,"brevi_ms":2}
+{"verify":"identical","file":"main.py","sha256":"15532f5a...","brevi":"0.25.0","python":"3.13.13","path":"typed","inputs":[{"input":"tests/1.in","sha256":"7de1555d..."},{"input":"tests/2.in","sha256":"10159baf..."}],"args":["--verbose"],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":0,"timeout":0,"cpython_ms":79,"brevi_ms":4,"speedup":19.8}
+```
+
+- `--input PATH` feeds a file to stdin, one run per `--input`; a folder gives one run per file in it (only its `*.in` files when it has any). With no input the program runs once with empty stdin. Arguments after `--` go to both.
+- The last line is the certificate: the verdict, the SHA-256 of the file and of every input, the Brevi and Python versions, which [path](#which-path-ran) built it, and the time each side took. A CI job or an agent can keep it, and gate on the exit status.
+- Verdicts: `identical` (exit 0); `differs`, a wrong answer from Brevi, with the first line that differs (`"on":"stdout"`, `"exit code"` or `"stderr"`); `unstable`; `timeout` (`--timeout SECS`, default 60 per run); `not built`, with Brevi's errors above it. Every verdict but `identical` exits 1; a usage error exits 2.
+- `--once` runs CPython once instead of twice. `--release` verifies the fully optimised build.
+- The program runs three times per input, so a program that writes files sees its own earlier runs.
+- `--sandbox` is refused: verify runs the code under CPython, which cannot be held to the sandbox's grants. Verify only code you would run with `python3`.
+
+Please report any `differs` at [github.com/ets-public/brevi/issues](https://github.com/ets-public/brevi/issues). How often Brevi gives a wrong answer on CPython's own test suite is measured for every release ([CPython conformance report](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md)).
 
 ## Errors
 

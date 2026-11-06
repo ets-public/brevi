@@ -1,0 +1,31 @@
+-- tests/verify/sq.py --input tests/verify/sq
+{"case":1,"input":"tests/verify/sq/1.in","same":true}
+{"case":2,"input":"tests/verify/sq/2.in","same":true}
+{"verify":"identical","file":"tests/verify/sq.py","sha256":"15532f5ac9d457e04d013dd407d06e61ef01916a9723afb2b2de68155bff5098","inputs":[{"input":"tests/verify/sq/1.in","sha256":"7de1555df0c2700329e815b93b32c571c3ea54dc967b89e81ab73b9972b72d1d"},{"input":"tests/verify/sq/2.in","sha256":"10159baf262b43a92d95db59dae1f72c645127301661e0a3ce4e38b295a97c58"}],"args":[],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":0,"timeout":0}
+exit 0
+-- tests/verify/argsum.py -- 3 4
+{"case":1,"input":"(empty stdin)","same":true}
+{"verify":"identical","file":"tests/verify/argsum.py","sha256":"cd019970b9e657bb04253f5843dd8ad23f31b7ba6a62310414ddac3bcc008e19","inputs":[{"input":"(empty stdin)","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}],"args":["3","4"],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":0,"timeout":0}
+exit 0
+-- tests/verify/clock.py
+{"case":1,"input":"(empty stdin)","same":false,"on":"unstable","msg":"CPython itself answered differently on two runs (line 1: ...), so no answer can be certified","fix":"seed random, sort sets before printing them, leave out times and ids; or pass --once to compare one run"}
+{"verify":"unstable","file":"tests/verify/clock.py","sha256":"57acfd0c47832a762c961c0263def127f706bf29160dbeaae6eeed8c02b4da97","inputs":[{"input":"(empty stdin)","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}],"args":[],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":1,"timeout":0}
+exit 1
+-- tests/verify/spin.py --once --timeout 1
+{"case":1,"input":"(empty stdin)","same":false,"on":"timeout","msg":"CPython was stopped after 1 s","fix":"pass --timeout SECS for a longer run"}
+{"verify":"timeout","file":"tests/verify/spin.py","sha256":"2057c7f529612f2fbba3540e64b27b26976bb35414759a44fbdc6fcd53016fee","inputs":[{"input":"(empty stdin)","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}],"args":[],"compared":"stdout, exit code and stderr, one CPython run","differ":0,"unstable":0,"timeout":1}
+exit 1
+-- tests/verify/refused.py
+{"line":1,"msg":"unknown function exec()"}
+{"verify":"not built","file":"tests/verify/refused.py","sha256":"031842a41a546eebefec695e94f81f91060e544f7458b2e7153a2a01411c7b23","msg":"Brevi could not build this file natively, so there is nothing to compare; brevi run would hand it to CPython"}
+exit 1
+-- tests/verify/sq.py
+{"case":1,"input":"(empty stdin)","same":false,"on":"stdout","line":4,"cpython":"one more line","brevi":"(no more output)","fix":"a wrong answer from Brevi: please report it at https://github.com/ets-public/brevi/issues; until it is fixed, run this file with python3"}
+{"verify":"differs","file":"tests/verify/sq.py","sha256":"15532f5ac9d457e04d013dd407d06e61ef01916a9723afb2b2de68155bff5098","inputs":[{"input":"(empty stdin)","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}],"args":[],"compared":"stdout, exit code and stderr, CPython run twice","differ":1,"unstable":0,"timeout":0}
+exit 1
+-- tests/verify/sq.py --sandbox
+{"verify":"error","msg":"verify runs the program under CPython, which the sandbox cannot hold to its grants, so verify does not take --sandbox or --allow; verify only code you would run with python3","fix":"usage: brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]"}
+exit 2
+-- tests/run/arm_map.bv
+{"verify":"error","msg":"verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)","fix":"usage: brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]"}
+exit 2
