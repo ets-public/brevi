@@ -223,6 +223,16 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             return Ok(o);
         }
     }
+    if c.base_bt() == BT::Exc && c.is_sub(&exc_class("BaseExceptionGroup")) {
+        let g = eg_new(c, &a)?;
+        if let Some(init) = c.lookup("__init__") {
+            if !is_builtin_init(&init) {
+                a.p.insert(0, g.clone());
+                call(&init, a)?;
+            }
+        }
+        return Ok(g);
+    }
     let o = Obj::new(c.clone());
     let me = V::Obj(o.clone());
     let bb = c.base_bt();

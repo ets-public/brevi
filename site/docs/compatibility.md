@@ -32,7 +32,7 @@ Works in native builds:
 - Functions, default and keyword arguments, `*args` and `**kwargs`, closures, `nonlocal` and `global`, lambdas, decorators
 - Classes, inheritance and `super()`, operator methods (`__add__`, `__eq__`, `__lt__`, `__repr__`, ...), properties
 - Comprehensions, generators and `yield`, iterators, `zip`, `enumerate`, `map`, `filter`, `sorted` with `key`
-- `try` / `except` / `else` / `finally`, `raise`, custom exceptions, `with` blocks
+- `try` / `except` / `else` / `finally`, `raise`, custom exceptions, `with` blocks; `except*` with `ExceptionGroup` in dynamic builds (from the next release)
 - `async def`, `await`, `async with` and `async for` (from the next release), run by Brevi's own `asyncio`: see the table below
 - f-strings with format specs, `%` formatting, `str.format`
 - The walrus operator, slicing, tuple unpacking, chained comparisons
@@ -69,7 +69,7 @@ Run in CPython for now (`brevi run` still works; under `--sandbox` the caller gr
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
-- Async generators (`yield` inside an `async def`), async comprehensions and `await` inside a generator expression, `except*` and a `TaskGroup` whose tasks fail (it raises an `ExceptionGroup`)
+- Async generators (`yield` inside an `async def`), async comprehensions and `await` inside a generator expression
 - `asyncio` with sockets, subprocesses, threads or signals, and printing a `Task` (its repr shows where the coroutine is waiting)
 - The `match` statement
 - `eval`, `exec` and other run-time code generation

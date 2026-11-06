@@ -289,3 +289,249 @@ pub fn brevi_async_fn(n: &str, a: Args) -> R {
         _ => Err(unsupported(&format!("_brevi_async.{n}"))),
     }
 }
+
+// ---------- BaseExceptionGroup, ExceptionGroup, except* ----------
+
+fn is_eg(v: &V) -> bool {
+    matches!(v, V::Obj(o) if o.cls.is_sub(&exc_class("BaseExceptionGroup")))
+}
+fn eg_excs(v: &V) -> Vec<V> {
+    match v {
+        V::Obj(o) => match o.get("exceptions") {
+            Some(V::Tuple(t)) => t.to_vec(),
+            _ => vec![],
+        },
+        _ => vec![],
+    }
+}
+
+// BaseExceptionGroup(message, exceptions): CPython's checks, and an ExceptionGroup when every item is an Exception.
+pub fn eg_new(c: &Rc<Class>, a: &Args) -> R {
+    let base = exc_class("BaseExceptionGroup");
+    let cname = c.name;
+    if !a.k.is_empty() {
+        return Err(exc("TypeError", format!("{cname}() takes no keyword arguments")));
+    }
+    if a.p.len() != 2 {
+        return Err(exc("TypeError", format!("BaseExceptionGroup.__new__() takes exactly 2 arguments ({} given)", a.p.len())));
+    }
+    let msg = &a.p[0];
+    if !matches!(msg, V::Str(_)) {
+        return Err(exc("TypeError", format!("BaseExceptionGroup.__new__() argument 1 must be str, not {}", type_name(msg))));
+    }
+    let seq = &a.p[1];
+    if !matches!(seq, V::List(_) | V::Tuple(_)) {
+        return Err(exc("TypeError", "second argument (exceptions) must be a sequence".into()));
+    }
+    let items = to_vec(seq)?;
+    if items.is_empty() {
+        return Err(exc("ValueError", "second argument (exceptions) must be a non-empty sequence".into()));
+    }
+    let exception = exc_class("Exception");
+    let mut all_exc = true;
+    for (i, x) in items.iter().enumerate() {
+        match x {
+            V::Obj(o) if o.cls.is_sub(&exc_class("BaseException")) => all_exc &= o.cls.is_sub(&exception),
+            _ => return Err(exc("ValueError", format!("Item {i} of second argument (exceptions) is not an exception"))),
+        }
+    }
+    let cls = if std::ptr::eq(&**c, &*base) {
+        if all_exc {
+            exc_class("ExceptionGroup")
+        } else {
+            base.clone()
+        }
+    } else {
+        if c.is_sub(&exc_class("ExceptionGroup")) && !all_exc {
+            return Err(exc("TypeError", "Cannot nest BaseExceptions in an ExceptionGroup".into()));
+        }
+        if !c.is_sub(&exception) && all_exc {
+            // a subclass of BaseExceptionGroup alone may hold Exceptions
+        }
+        c.clone()
+    };
+    let o = Obj::new(cls);
+    o.set("args", tup(vec![msg.clone(), seq.clone()]));
+    o.set("message", msg.clone());
+    o.set("exceptions", tup(items));
+    Ok(V::Obj(o))
+}
+
+fn eg_str(a: Args) -> R {
+    let me = a1(&a, "__str__")?;
+    let n = eg_excs(&me).len();
+    let m = match &me {
+        V::Obj(o) => o.get("message").map(|m| to_str(&m)).transpose()?.unwrap_or_default(),
+        _ => String::new(),
+    };
+    Ok(st(format!("{m} ({n} sub-exception{})", if n == 1 { "" } else { "s" })))
+}
+
+// What split()/subgroup() take: an exception type, a tuple of them, or a function of the exception.
+fn eg_matcher(cond: &V) -> Result<Box<dyn Fn(&V) -> Result<bool, E>>, E> {
+    let is_exc_type = |c: &V| matches!(c, V::Class(k) if k.is_sub(&exc_class("BaseException")));
+    match cond {
+        V::Class(_) if is_exc_type(cond) => {
+            let c = cond.clone();
+            Ok(Box::new(move |x| isinstance(x, &c)))
+        }
+        V::Tuple(t) if t.iter().all(is_exc_type) => {
+            let c = cond.clone();
+            Ok(Box::new(move |x| isinstance(x, &c)))
+        }
+        V::Func(_) | V::Bound(_) | V::BMeth(_) => {
+            let c = cond.clone();
+            Ok(Box::new(move |x| truth(&call(&c, Args::p(vec![x.clone()]))?)))
+        }
+        _ => Err(exc("TypeError", "expected an exception type, a tuple of exception types, or a callable (other than a class)".into())),
+    }
+}
+
+// The parts of eg that match and that do not, each a group made by eg.derive() keeping eg's nesting, or None.
+fn eg_split_by(eg: &V, m: &dyn Fn(&V) -> Result<bool, E>, want_rest: bool) -> Result<(Option<V>, Option<V>), E> {
+    if m(eg)? {
+        return Ok((Some(eg.clone()), None));
+    }
+    let mut yes = vec![];
+    let mut no = vec![];
+    for x in eg_excs(eg) {
+        if is_eg(&x) {
+            let (a, b) = eg_split_by(&x, m, want_rest)?;
+            yes.extend(a);
+            no.extend(b);
+        } else if m(&x)? {
+            yes.push(x);
+        } else if want_rest {
+            no.push(x);
+        }
+    }
+    let derive = |v: Vec<V>| -> Result<Option<V>, E> {
+        if v.is_empty() {
+            return Ok(None);
+        }
+        let g = call_method(eg, "derive", Args::p(vec![list(v)]))?;
+        if let (V::Obj(src), V::Obj(dst)) = (eg, &g) {
+            for k in ["__cause__", "__context__", "__traceback__", "__notes__"] {
+                if let Some(v) = src.get(k) {
+                    dst.set(k, v);
+                }
+            }
+        }
+        Ok(Some(g))
+    };
+    Ok((derive(yes)?, if want_rest { derive(no)? } else { None }))
+}
+
+fn eg_methods(n: &str, a: Args) -> R {
+    let me = a.p.first().cloned().unwrap_or(V::None);
+    match n {
+        "derive" => {
+            let excs = a.p.get(1).cloned().ok_or_else(|| exc("TypeError", "derive() takes exactly one argument (0 given)".into()))?;
+            let msg = match &me {
+                V::Obj(o) => o.get("message").unwrap_or(s("")),
+                _ => s(""),
+            };
+            instantiate(&exc_class("BaseExceptionGroup"), Args::p(vec![msg, excs]))
+        }
+        "split" | "subgroup" => {
+            let cond = a.p.get(1).cloned().ok_or_else(|| exc("TypeError", format!("BaseExceptionGroup.{n}() takes exactly one argument (0 given)")))?;
+            let m = eg_matcher(&cond)?;
+            let (yes, no) = eg_split_by(&me, &*m, n == "split")?;
+            Ok(if n == "split" { tup(vec![yes.unwrap_or(V::None), no.unwrap_or(V::None)]) } else { yes.unwrap_or(V::None) })
+        }
+        _ => Err(unsupported(&format!("BaseExceptionGroup.{n}"))),
+    }
+}
+
+pub fn eg_class_setup(base: &Rc<Class>) {
+    base.set("__str__", builtin("__str__", eg_str));
+    for n in ["derive", "split", "subgroup"] {
+        base.set(n, builtin(n, move |a: Args| eg_methods(n, a)));
+    }
+}
+
+// except* T: (the part of exc that T matches, as a group, and the rest), for the parser's rewrite of except*.
+pub fn bi___brevi_eg_split(a: Args) -> R {
+    a.want("__brevi_eg_split", 2, 2)?;
+    let (x, t) = (&a.p[0], &a.p[1]);
+    if matches!(x, V::None) {
+        return Ok(tup(vec![V::None, V::None]));
+    }
+    let bad = |c: &V| matches!(c, V::Class(k) if k.is_sub(&exc_class("BaseExceptionGroup")));
+    if bad(t) || matches!(t, V::Tuple(v) if v.iter().any(bad)) {
+        return Err(exc("TypeError", "catching ExceptionGroup with except* is not allowed. Use except instead.".into()));
+    }
+    let is_type = |c: &V| matches!(c, V::Class(k) if k.is_sub(&exc_class("BaseException")));
+    if !(is_type(t) || matches!(t, V::Tuple(v) if v.iter().all(is_type))) {
+        return Err(exc("TypeError", "catching classes that do not inherit from BaseException is not allowed".into()));
+    }
+    if !is_eg(x) {
+        // a plain exception is matched as a group of one
+        if isinstance(x, t)? {
+            let g = instantiate(&exc_class("BaseExceptionGroup"), Args::p(vec![s(""), tup(vec![x.clone()])]))?;
+            return Ok(tup(vec![g, V::None]));
+        }
+        return Ok(tup(vec![V::None, x.clone()]));
+    }
+    let tt = t.clone();
+    let (yes, no) = eg_split_by(x, &move |v: &V| isinstance(v, &tt), true)?;
+    Ok(tup(vec![yes.unwrap_or(V::None), no.unwrap_or(V::None)]))
+}
+
+fn eg_leaves(v: &V, out: &mut Vec<*const Obj>) {
+    if is_eg(v) {
+        for x in eg_excs(v) {
+            eg_leaves(&x, out);
+        }
+    } else if let V::Obj(o) = v {
+        out.push(Rc::as_ptr(o));
+    }
+}
+
+// After the except* handlers: what to raise (None for nothing). `raised` holds what the handlers raised; those
+// that are the groups handed to them (a bare `raise`) or the unmatched rest go back into the original group's
+// shape, as CPython's _PyExc_PrepReraiseStar does.
+pub fn bi___brevi_eg_reraise(a: Args) -> R {
+    a.want("__brevi_eg_reraise", 4, 4)?;
+    let (orig, rest, raised, given) = (&a.p[0], &a.p[1], to_vec(&a.p[2])?, to_vec(&a.p[3])?);
+    if !is_eg(orig) {
+        // a plain exception: at most one handler ran
+        if let Some(r) = raised.into_iter().next() {
+            return Err(E(r));
+        }
+        if !matches!(rest, V::None) {
+            return Err(E(rest.clone()));
+        }
+        return Ok(V::None);
+    }
+    let same = |x: &V, y: &V| matches!((x, y), (V::Obj(p), V::Obj(q)) if Rc::ptr_eq(p, q));
+    let mut keep: Vec<V> = vec![];
+    let mut new: Vec<V> = vec![];
+    for r in raised {
+        if given.iter().any(|g| same(g, &r)) {
+            keep.push(r);
+        } else {
+            new.push(r);
+        }
+    }
+    if !matches!(rest, V::None) {
+        keep.push(rest.clone());
+    }
+    let mut leaves = vec![];
+    for k in &keep {
+        eg_leaves(k, &mut leaves);
+    }
+    let kept = if leaves.is_empty() {
+        None
+    } else {
+        eg_split_by(orig, &move |v: &V| Ok(!is_eg(v) && matches!(v, V::Obj(o) if leaves.contains(&Rc::as_ptr(o)))), false)?.0
+    };
+    if new.is_empty() {
+        return match kept {
+            Some(k) => Err(E(k)),
+            None => Ok(V::None),
+        };
+    }
+    new.extend(kept);
+    Err(E(instantiate(&exc_class("BaseExceptionGroup"), Args::p(vec![s(""), list(new)]))?))
+}

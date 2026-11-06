@@ -1569,6 +1569,10 @@ pub fn init_builtin_classes() {
         };
         m.insert(n, Class::new(n, module, vec![parent], BT::Exc));
     }
+    let beg = Class::new("BaseExceptionGroup", "builtins", vec![m["BaseException"].clone()], BT::Exc);
+    m.insert("BaseExceptionGroup", beg.clone());
+    m.insert("ExceptionGroup", Class::new("ExceptionGroup", "builtins", vec![beg.clone(), m["Exception"].clone()], BT::Exc));
+    eg_class_setup(&beg);
     let (ve, ie, te) = (m["ValueError"].clone(), m["IndexError"].clone(), m["TypeError"].clone());
     m.insert("AxisError", Class::new("AxisError", "numpy.exceptions", vec![ve.clone(), ie], BT::Exc));
     m.insert("UFuncTypeError", Class::new("UFuncTypeError", "numpy._core._exceptions", vec![te], BT::Exc));

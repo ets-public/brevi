@@ -3,6 +3,7 @@ async def work(x):
     await asyncio.sleep(0.001)
     return x * 2
 loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
 print(loop.run_until_complete(work(4)))
 print(loop.run_until_complete(asyncio.gather(work(1), work(2))))
 print(loop.is_running(), loop.is_closed())

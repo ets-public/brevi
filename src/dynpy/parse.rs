@@ -613,11 +613,17 @@ impl P {
                 self.next();
                 let body = self.block()?;
                 let mut hs = vec![];
+                let mut star: Option<bool> = None;
                 while self.is_kw("except") {
                     let hl = self.line();
                     self.next();
-                    if self.eat_op("*") {
-                        return Err(err(hl, "except* is not supported"));
+                    let is_star = self.eat_op("*");
+                    if star.is_some_and(|s| s != is_star) {
+                        return Err(err(hl, "cannot have both 'except' and 'except*' on the same 'try'"));
+                    }
+                    star = Some(is_star);
+                    if is_star && self.is_op(":") {
+                        return Err(err(hl, "expected one or more exception types"));
                     }
                     let (types, name) = if self.is_op(":") {
                         (None, None)
@@ -634,7 +640,12 @@ impl P {
                 if hs.is_empty() && fin.is_none() {
                     return Err(err(line, "try needs except or finally"));
                 }
-                St::Try(body, hs, els, fin)
+                if star == Some(true) {
+                    let h = self.except_star(line, hs)?;
+                    St::Try(body, vec![h], els, fin)
+                } else {
+                    St::Try(body, hs, els, fin)
+                }
             }
             "with" => {
                 self.next();
@@ -938,6 +949,65 @@ impl P {
             return Ok(St::Assign(targets, value));
         }
         Ok(St::Expr(first))
+    }
+    // `try: ... except* T as n: h ...` as CPython runs it: one handler for any exception, which splits it by each
+    // T in turn (a plain exception counts as a group of one), runs that handler with the matching part as the
+    // exception being handled, and at the end raises what is left and what the handlers raised:
+    //     except BaseException as __x:
+    //         __r = __x; __l = []; __g = []
+    //         __m, __r = __brevi_eg_split(__r, T)
+    //         if __m is not None:
+    //             __g.append(__m)
+    //             try:
+    //                 try: raise __m
+    //                 except BaseException:
+    //                     n = __m
+    //                     h
+    //                     [del n]
+    //             except BaseException as __h: __l.append(__h)
+    //         ...
+    //         __brevi_eg_reraise(__x, __r, __l, __g)
+    fn except_star(&mut self, line: usize, hs: Vec<Handler>) -> PR<Handler> {
+        self.anon += 1;
+        let k = self.anon;
+        let (x, r, l, g, m, h) = (format!("__brevi_sx{k}"), format!("__brevi_sr{k}"), format!("__brevi_sl{k}"), format!("__brevi_sg{k}"), format!("__brevi_sm{k}"), format!("__brevi_sh{k}"));
+        let st = |st: St| Stmt { line, st };
+        let name = |n: &str| Ex::Name(n.to_string());
+        let call = |f: &str, a: Vec<Ex>| Ex::Call(Box::new(Ex::Name(f.to_string())), a.into_iter().map(Arg::Pos).collect());
+        let append = |lst: &str, v: &str| St::Expr(Ex::Call(Box::new(Ex::Attr(Box::new(Ex::Name(lst.to_string())), "append".into())), vec![Arg::Pos(Ex::Name(v.to_string()))]));
+        let mut out = vec![
+            st(St::Assign(vec![name(&r)], name(&x))),
+            st(St::Assign(vec![name(&l)], Ex::List(vec![]))),
+            st(St::Assign(vec![name(&g)], Ex::List(vec![]))),
+        ];
+        for hd in hs {
+            if jumps_out(&hd.body) {
+                return Err(err(hd.line, "'break', 'continue' and 'return' cannot appear in an except* block"));
+            }
+            let t = hd.types.clone().unwrap();
+            out.push(Stmt { line: hd.line, st: St::Assign(vec![Ex::Tuple(vec![name(&m), name(&r)])], call("__brevi_eg_split", vec![name(&r), t])) });
+            let mut body = vec![];
+            if let Some(n) = &hd.name {
+                body.push(st(St::Assign(vec![name(n)], name(&m))));
+            }
+            body.extend(hd.body.clone());
+            if let Some(n) = &hd.name {
+                body.push(st(St::Del(vec![name(n)])));
+            }
+            let inner = st(St::Try(
+                vec![st(St::Raise(Some(name(&m)), None))],
+                vec![Handler { types: Some(name("BaseException")), name: None, body, line: hd.line }],
+                None,
+                None,
+            ));
+            let outer = st(St::Try(vec![inner], vec![Handler { types: Some(name("BaseException")), name: Some(h.clone()), body: vec![st(append(&l, &h))], line: hd.line }], None, None));
+            out.push(Stmt {
+                line: hd.line,
+                st: St::If(vec![(Ex::Cmp(Box::new(name(&m)), vec![("is not", Ex::NoneV)]), vec![st(append(&g, &m)), outer])], None),
+            });
+        }
+        out.push(st(St::Expr(call("__brevi_eg_reraise", vec![name(&x), name(&r), name(&l), name(&g)]))));
+        Ok(Handler { types: Some(name("BaseException")), name: Some(x), body: out, line })
     }
     // `async for t in it: body else: els` as CPython runs it:
     //     __ai = aiter(it)
@@ -1767,4 +1837,16 @@ pub fn parse(src: &str) -> PR<Vec<Stmt>> {
     let lx = lex(src)?;
     let mut p = P { toks: lx.toks, i: 0, anon: 0 };
     p.file()
+}
+
+// A break, continue or return in this block that leaves it (not inside a nested loop or function).
+fn jumps_out(b: &[Stmt]) -> bool {
+    b.iter().any(|s| match &s.st {
+        St::Break | St::Continue | St::Return(_) => true,
+        St::If(arms, els) => arms.iter().any(|(_, x)| jumps_out(x)) || els.as_deref().is_some_and(jumps_out),
+        St::While(_, x, e) | St::For(_, _, x, e) => x.iter().any(|s| matches!(s.st, St::Return(_))) || e.as_deref().is_some_and(jumps_out),
+        St::Try(x, hs, e, f) => jumps_out(x) || hs.iter().any(|h| jumps_out(&h.body)) || e.as_deref().is_some_and(jumps_out) || f.as_deref().is_some_and(jumps_out),
+        St::With(_, x) => jumps_out(x),
+        _ => false,
+    })
 }

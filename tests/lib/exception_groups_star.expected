@@ -1,0 +1,21 @@
+V ExceptionGroup('outer', [ValueError(1), ExceptionGroup('inner', [ValueError(3)])])
+TK ExceptionGroup('outer', [ExceptionGroup('inner', [TypeError(2)]), KeyError(4)]) 2
+nested no error
+handled V
+partial ExceptionGroup ExceptionGroup('p', [OSError(2)]) p (1 sub-exception)
+T
+bare ExceptionGroup ExceptionGroup('b', [ValueError(1)]) b (1 sub-exception)
+both ExceptionGroup ExceptionGroup('', [RuntimeError('r1'), RuntimeError('r2')])  (2 sub-exceptions)
+body
+else
+finally
+elsefin no error
+finally runs
+fin_exc ExceptionGroup ExceptionGroup('f', [ValueError(1)]) f (1 sub-exception)
+badtype TypeError TypeError('catching ExceptionGroup with except* is not allowed. Use except instead.') catching ExceptionGroup with except* is not allowed. Use except instead.
+sub V MyEG MyEG('mine', [ValueError(1)])
+sub MyEG MyEG('mine', [TypeError(2)]) mine (1 sub-exception)
+ExceptionGroup('g', [ValueError(1), ExceptionGroup('h', [ValueError(3)])])
+ExceptionGroup('g', [TypeError(2)])
+None
+ExceptionGroup('g', [ValueError(1), TypeError(2), ExceptionGroup('h', [ValueError(3)])]) None

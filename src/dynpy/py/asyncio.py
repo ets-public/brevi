@@ -1771,7 +1771,7 @@ class TaskGroup:
             if self._parent_task.cancelling():
                 self._parent_task.uncancel()
                 self._parent_task.cancel()
-            raise _unsupported("a TaskGroup whose tasks failed (ExceptionGroup)")
+            raise BaseExceptionGroup('unhandled errors in a TaskGroup', self._errors) from None
 
     def create_task(self, coro, *, name=None, context=None):
         if not self._entered:
