@@ -1,0 +1,44 @@
+{
+  "_doc": "Upstream Python libraries Brevi mirrors natively, at the versions its tests/*/NAME.expected files were made with. tools/parity_drift.py installs each pinned version and the newest release side by side, runs the tests in CPython and opens an `upstream` issue when a release changes what they print. Bump a pin only together with the .expected files (sh tests/check.sh --update with that version installed).",
+  "groups": {
+    "numpy": {
+      "watch": {"numpy": "2.5.4"},
+      "tests": ["tests/numpy/*.py"],
+      "stderr": false
+    },
+    "tiktoken": {
+      "watch": {"tiktoken": "0.14.0"},
+      "tests": ["tests/tiktoken/*.py"],
+      "stderr": true
+    },
+    "tokenizers": {
+      "watch": {"tokenizers": "0.23.3"},
+      "tests": ["tests/tokenizers/*.py"],
+      "stderr": false
+    },
+    "pydantic": {
+      "watch": {"pydantic": "2.13.5"},
+      "also": {"pydantic-core": "2.46.5"},
+      "tests": ["tests/pydantic/*.py"],
+      "stderr": true
+    },
+    "http": {
+      "watch": {"requests": "2.34.2", "httpx": "0.28.1"},
+      "tests": ["tests/http/requests_*.py", "tests/http/httpx_*.py"],
+      "server": ["tests/http/server.py", "18080", "ready"],
+      "stderr": false
+    },
+    "llm": {
+      "watch": {"anthropic": "2.6.0", "openai": "3.46.0"},
+      "tests": ["tests/llm/anthropic_*.py", "tests/llm/openai_*.py"],
+      "server": ["tests/llm/server.py", "18090", "listening"],
+      "unset_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
+      "stderr": true
+    },
+    "mcp": {
+      "watch": {"mcp": "2.3.0"},
+      "tests": [],
+      "note": "The official MCP Python SDK is the client `brevi mcp` is verified against (tests/mcp_test.py covers the protocol). A new release needs a manual client check."
+    }
+  }
+}

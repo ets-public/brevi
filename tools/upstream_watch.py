@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Watches Rust, Python and crate releases and opens a GitHub issue for each new one Brevi has not reviewed.
+"""Watches Rust, Python, crate and MCP specification releases and opens a GitHub issue for each new one Brevi has not reviewed.
 
 Each issue carries a review checklist (and, for Rust, the release's stabilized APIs) so new language
 features and stdlib idioms get adopted instead of Brevi falling behind. Issues are deduplicated by title,
@@ -7,7 +7,7 @@ so this is safe to run as often as you like. Needs GH_TOKEN and GITHUB_REPOSITOR
 
 usage: upstream_watch.py [--dry-run]
 """
-import json, os, re, subprocess, sys, urllib.request
+import json, os, re, subprocess, sys, urllib.error, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -128,9 +128,36 @@ https://crates.io/crates/{name}
             open_issue(f"Update crate {name} to {latest}", body)
 
 
+def mcp_spec():
+    """The MCP specification Brevi's server speaks: open an issue when a newer protocol version is published."""
+    req = urllib.request.Request("https://modelcontextprotocol.io/specification/latest", method="HEAD", headers={"User-Agent": "brevi-upstream-watch"})
+
+    class Stop(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a):
+            return None
+    try:
+        urllib.request.build_opener(Stop).open(req, timeout=30)
+        raise RuntimeError("no redirect from /specification/latest")
+    except urllib.error.HTTPError as e:
+        loc = e.headers.get("Location", "")
+    latest = re.search(r"\d{4}-\d{2}-\d{2}", loc).group(0)
+    ours = re.search(r'const VERSIONS: \[&str; \d+\] = \["([\d-]+)"', (ROOT / "src/mcp.rs").read_text()).group(1)
+    if latest > ours:
+        body = f"""MCP specification {latest} is published: https://modelcontextprotocol.io/specification/{latest}
+(changelog: https://modelcontextprotocol.io/specification/{latest}/changelog). `brevi mcp` speaks up to {ours}.
+
+- [ ] Read the changelog for changes to initialize, tools/list, tools/call, errors and cancellation
+- [ ] Support what applies in `src/mcp.rs` and add `{latest}` first in `VERSIONS`
+- [ ] `python3 tests/mcp_test.py` passes, and a real client on the new version connects (official MCP Python SDK)
+"""
+        open_issue(f"Review MCP specification {latest} for Brevi", body)
+    else:
+        print(f"MCP specification: up to date ({ours})")
+
+
 if __name__ == "__main__":
     failed = False
-    for f in (rust, python, crates):
+    for f in (rust, python, crates, mcp_spec):
         try:
             f()
         except Exception as e:
