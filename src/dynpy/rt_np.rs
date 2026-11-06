@@ -1410,43 +1410,7 @@ fn np_gemm(xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf: b
                         let a = &ycol[i][ls..ls + ml];
                         for j in j0 + cc..j0 + cc + cs {
                             let b = &xr(j)[ls..ls + ml];
-                            let w = if skx && !first && cs == 12 {
-                                match rs {
-                                    4 => 2,
-                                    2 | 1 => 4,
-                                    _ => 1,
-                                }
-                            } else {
-                                1
-                            };
-                            let acc = if w > 1 && ml >= w {
-                                let mut q = [0.0f64; 4];
-                                let mut t = 0;
-                                while ml - t >= w {
-                                    for l in 0..w {
-                                        q[l] = fma(a[t + l], b[t + l], q[l]);
-                                    }
-                                    t += w;
-                                }
-                                let mut acc = if w == 2 { q[0] + q[1] } else { (q[0] + q[1]) + (q[2] + q[3]) };
-                                while t < ml {
-                                    acc = fma(a[t], b[t], acc);
-                                    t += 1;
-                                }
-                                acc
-                            } else if !skx && rs == 4 && cs == 1 {
-                                let mut q = [0.0f64; 4];
-                                let k8 = ml / 8 * 8;
-                                for t in 0..k8 {
-                                    q[t % 4] = fma(a[t], b[t], q[t % 4]);
-                                }
-                                for t in k8..ml {
-                                    q[0] = fma(a[t], b[t], q[0]);
-                                }
-                                (q[0] + q[1]) + (q[2] + q[3])
-                            } else {
-                                chain(a, b)
-                            };
+                            let acc = np_kacc(a, b, rs, cs, skx, !first);
                             c[j * n + i] += acc;
                         }
                     }
@@ -1455,6 +1419,253 @@ fn np_gemm(xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf: b
         }
     }
     c
+}
+// one kernel chunk's sum over a k-block (see np_gemm's regular path): rs x cs is the chunk, wok whether the
+// SkylakeX kernel's two- and four-lane sums apply to this call
+fn np_kacc(a: &[f64], b: &[f64], rs: usize, cs: usize, skx: bool, wok: bool) -> f64 {
+    let ml = a.len();
+    let w = if skx && wok && cs == 12 {
+        match rs {
+            4 => 2,
+            2 | 1 => 4,
+            _ => 1,
+        }
+    } else {
+        1
+    };
+    if w > 1 && ml >= w {
+        let mut q = [0.0f64; 4];
+        let mut t = 0;
+        while ml - t >= w {
+            for l in 0..w {
+                q[l] = fma(a[t + l], b[t + l], q[l]);
+            }
+            t += w;
+        }
+        let mut acc = if w == 2 { q[0] + q[1] } else { (q[0] + q[1]) + (q[2] + q[3]) };
+        while t < ml {
+            acc = fma(a[t], b[t], acc);
+            t += 1;
+        }
+        acc
+    } else if !skx && rs == 4 && cs == 1 {
+        let mut q = [0.0f64; 4];
+        let k8 = ml / 8 * 8;
+        for t in 0..k8 {
+            q[t % 4] = fma(a[t], b[t], q[t % 4]);
+        }
+        for t in k8..ml {
+            q[0] = fma(a[t], b[t], q[0]);
+        }
+        (q[0] + q[1]) + (q[2] + q[3])
+    } else {
+        let mut s = 0.0;
+        for t in 0..ml {
+            s = fma(a[t], b[t], s);
+        }
+        s
+    }
+}
+// A @ A.T and A.T @ A: numpy calls OpenBLAS's dsyrk (upper triangle, row-major, so OpenBLAS computes the
+// column-major lower one) and copies it across. v holds the vectors whose dot products make the result (rows
+// of A for A @ A.T, columns for A.T @ A). level3_syrk.c (one thread) or level3_syrk_threaded.c (from
+// (n + 1) n k > 439776 on more than one core, rows split so each thread gets about the same area of the
+// triangle) cut it into calls; syrk_kernel.c takes the part of each call below the diagonal through the
+// gemm kernel and 32 x 32 diagonal blocks through it into a scratch block.
+fn np_syrk(v: &[Vec<f64>], k: usize) -> Vec<f64> {
+    let n = v.len();
+    let skx = np_blas() == Blas::Skx;
+    let lkh = if skx { Lk { skx: true, um: 16, un: 2, q: 384 } } else { Lk { skx: false, um: 4, un: 8, q: if cfg!(windows) { 128 } else { 256 } } };
+    let (p, r, mn, sr) = if skx { (192, 8640, 32, 16) } else { (512, 13824, 32, 8) };
+    let mut c = vec![0.0; n * n];
+    // one gemm-kernel call on rows r0.., cols c0.. (diag: only on and below the diagonal)
+    let kcall = |c: &mut Vec<f64>, r0: usize, m: usize, c0: usize, nn: usize, ls: usize, ml: usize, diag: bool| {
+        if m == 0 || nn == 0 {
+            return;
+        }
+        for (cc, cs) in lk_col_chunks(&lkh, nn) {
+            for (rr, rs) in lk_row_chunks(&lkh, m) {
+                for i in r0 + rr..r0 + rr + rs {
+                    for j in c0 + cc..c0 + cc + cs {
+                        if diag && i < j {
+                            continue;
+                        }
+                        c[i + j * n] += np_kacc(&v[i][ls..ls + ml], &v[j][ls..ls + ml], rs, cs, skx, true);
+                    }
+                }
+            }
+        }
+    };
+    // syrk_kernel.c (LOWER) on m rows from x, nn columns from y
+    let kop = |c: &mut Vec<f64>, m: usize, nn: usize, ml: usize, x: usize, y: usize, ls: usize| {
+        let (mut m, mut nn, mut r0, mut c0) = (m as isize, nn as isize, x, y);
+        let mut off = x as isize - y as isize;
+        if m + off < 0 {
+            return;
+        }
+        if nn < off {
+            kcall(c, r0, m as usize, c0, nn as usize, ls, ml, false);
+            return;
+        }
+        if off > 0 {
+            kcall(c, r0, m as usize, c0, off as usize, ls, ml, false);
+            c0 += off as usize;
+            nn -= off;
+            off = 0;
+            if nn <= 0 {
+                return;
+            }
+        }
+        if nn > m + off {
+            nn = m + off;
+            if nn <= 0 {
+                return;
+            }
+        }
+        if off < 0 {
+            r0 += (-off) as usize;
+            m += off;
+            off = 0;
+            if m <= 0 {
+                return;
+            }
+        }
+        if m > nn - off {
+            kcall(c, r0 + (nn - off) as usize, (m - nn + off) as usize, c0, nn as usize, ls, ml, false);
+            m = nn + off;
+            if m <= 0 {
+                return;
+            }
+        }
+        let (m, nn) = (m as usize, nn as usize);
+        let mut lp = 0;
+        while lp < nn {
+            let w = mn.min(nn - lp);
+            kcall(c, r0 + lp, w, c0 + lp, w, ls, ml, true);
+            kcall(c, r0 + lp + w, m.saturating_sub(lp + w), c0 + lp, w, ls, ml, false);
+            lp += mn;
+        }
+    };
+    let isz = |rest: usize| {
+        if rest >= 2 * p {
+            p
+        } else if rest > p {
+            (rest / 2).div_ceil(mn) * mn
+        } else {
+            rest
+        }
+    };
+    let ncpu = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
+    let nnk = (n as f64 + 1.0) * n as f64 * k as f64;
+    let nth = if nnk <= 109944.0 * 4.0 { 1 } else { ncpu };
+    let blocks = np_gemm_kblocks(k, lkh.q, 0, true);
+    if nth > 1 && n >= nth * sr {
+        // level3_syrk_threaded.c (LOWER)
+        let mask = mn - 1;
+        let mut rg = vec![0usize];
+        let (mut i, mut num) = (0usize, 0usize);
+        let dnum = (n * n) as f64 / nth as f64;
+        while i < n {
+            let mut w = n - i;
+            if nth - num > 1 {
+                let di = i as f64;
+                let dinum = di * di + dnum;
+                w = if dinum > 0.0 { (((dinum.sqrt() - di) as isize + mask as isize) / (mask as isize + 1) * (mask as isize + 1)).max(0) as usize } else { 0 };
+                if w > n - i || w < mask {
+                    w = n - i;
+                }
+            }
+            rg.push(rg[num] + w);
+            num += 1;
+            i += w;
+        }
+        let dv = |cur: usize| (rg[cur + 1] - rg[cur]).div_ceil(2).div_ceil(mn) * mn;
+        for pos in 0..num {
+            let (mf, mt) = (rg[pos], rg[pos + 1]);
+            for &(ls, ml) in &blocks {
+                let mut mi = isz(mt - mf);
+                let x = (mt - mf - mi) % p;
+                if x > 0 {
+                    mi -= p - x;
+                }
+                let d = dv(pos);
+                let mut xx = mf;
+                while xx < mt {
+                    let end = mt.min(xx + d);
+                    let mut jjs = xx;
+                    while jjs < end {
+                        let mjj = (end - jjs).min(mn);
+                        kop(&mut c, mi, mjj, ml, mt - mi, jjs, ls);
+                        jjs += mjj;
+                    }
+                    xx += d;
+                }
+                for cur in (0..pos).rev() {
+                    let d = dv(cur);
+                    let mut xx = rg[cur];
+                    while xx < rg[cur + 1] {
+                        kop(&mut c, mi, (rg[cur + 1] - xx).min(d), ml, mt - mi, xx, ls);
+                        xx += d;
+                    }
+                }
+                let st = mi;
+                let mut is = mf;
+                while is < mt - st {
+                    let mut mi = mt - st - is;
+                    if mi >= 2 * p {
+                        mi = p;
+                    } else if mi > p {
+                        mi = mi.div_ceil(2).div_ceil(mn) * mn;
+                    }
+                    for cur in (0..=pos).rev() {
+                        let d = dv(cur);
+                        let mut xx = rg[cur];
+                        while xx < rg[cur + 1] {
+                            kop(&mut c, mi, (rg[cur + 1] - xx).min(d), ml, is, xx, ls);
+                            xx += d;
+                        }
+                    }
+                    is += mi;
+                }
+            }
+        }
+    } else {
+        // level3_syrk.c (LOWER, TRANS)
+        let mut js = 0;
+        while js < n {
+            let mj = (n - js).min(r);
+            let (ms, me) = (js, n);
+            for &(ls, ml) in &blocks {
+                let mut mi = isz(me - ms);
+                kop(&mut c, mi, mi.min(mj + js - ms), ml, ms, ms, ls);
+                let mut jjs = js;
+                while jjs < ms {
+                    let mjj = (ms - jjs).min(lkh.un);
+                    kop(&mut c, mi, mjj, ml, ms, jjs, ls);
+                    jjs += mjj;
+                }
+                let mut is = ms + mi;
+                while is < me {
+                    mi = isz(me - is);
+                    if is < js + mj {
+                        kop(&mut c, mi, mi.min(mj + js - is), ml, is, is, ls);
+                        kop(&mut c, mi, is - js, ml, is, js, ls);
+                    } else {
+                        kop(&mut c, mi, mj, ml, is, js, ls);
+                    }
+                    is += mi;
+                }
+            }
+            js += mj;
+        }
+    }
+    let mut out = vec![0.0; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            out[i * n + j] = c[i.max(j) + i.min(j) * n];
+        }
+    }
+    out
 }
 // The kernel calls (row0, rows, col0, cols) OpenBLAS makes for an mm x nn (column-major) product, and whether
 // it ran threaded. One thread: level3.c. More: level3_thread.c splits rows and columns over a grid of threads
@@ -1713,7 +1924,8 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                 // a 2-d operand stored in Fortran order (a transpose) reaches BLAS as the other kind of gemv
                 let ford = |a: &NdArr| a.ndim() == 2 && a.shape[0] > 1 && a.shape[1] > 1 && a.st[0] == 1;
                 let vunit = |a: &NdArr| a.st.first().is_none_or(|s| *s == 1);
-                // a matrix times its own transpose: numpy calls dsyrk, another kernel (not followed yet)
+                let contig = |a: &NdArr| (a.st[1] == 1 && a.st[0] == a.shape[1] as isize) || (a.st[0] == 1 && a.st[1] == a.shape[0] as isize);
+                // a matrix times its own transpose: numpy calls dsyrk
                 let syrk = |a: &NdArr, b: &NdArr| {
                     Rc::ptr_eq(&a.buf, &b.buf) && a.off == b.off && a.shape[0] == b.shape[1] && a.shape[1] == b.shape[0] && a.st[0] == b.st[1] && a.st[1] == b.st[0]
                 };
@@ -1761,7 +1973,10 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                         }
                     }
                     Buf::F(o)
-                } else if np_blas() != Blas::Plain && x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 && !(syrk(x, y) && bl2(x)) {
+                } else if np_blas() != Blas::Plain && x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 && syrk(x, y) && (if matmul { bl2(x) } else { contig(x) }) {
+                    let v: Vec<Vec<f64>> = (0..m).map(|i| xv[i * k..(i + 1) * k].to_vec()).collect();
+                    Buf::F(np_syrk(&v, k))
+                } else if np_blas() != Blas::Plain && x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 {
                     // which operands OpenBLAS reads transposed: matmul passes a strided matrix BLAS can describe
                     // as it is and copies any other (numpy 2.5, keeping it Fortran-like when its rows are closer
                     // together than its columns); np.dot passes only a contiguous one and copies the rest to C order

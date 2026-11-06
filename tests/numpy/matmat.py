@@ -26,3 +26,8 @@ for (m, k, n) in [(40, 1000, 40), (70, 300, 50), (120, 120, 120), (200, 30, 200)
     print(P.shape, P[0][:4], P[-1][-3:], np.array([P.sum()]))
 A = rng.standard_normal((6, 4))
 print(A @ A.T)
+# a matrix times its own transpose (numpy calls dsyrk)
+for (m, k) in [(5, 3), (13, 17), (40, 5), (70, 30), (33, 500), (150, 30)]:
+    A = rng.standard_normal((m, k))
+    G = A @ A.T; H = A.T @ A
+    print(G.shape, G[0][:3], G[-1][-3:], np.array([G.sum(), H.sum(), np.dot(A, A.T).sum()]), H[1][:2])
