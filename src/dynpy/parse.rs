@@ -360,6 +360,7 @@ pub struct CompFor {
     pub target: Ex,
     pub iter: Ex,
     pub ifs: Vec<Ex>,
+    pub is_async: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -490,6 +491,10 @@ impl P {
     }
     fn is_op(&self, op: &str) -> bool {
         matches!(self.peek(), Tok::Op(o) if *o == op)
+    }
+    // `for` or `async for`: a comprehension's first clause
+    fn comp_starts(&self) -> bool {
+        self.is_kw("for") || (self.is_kw("async") && matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(n)) if n == "for"))
     }
     fn is_kw(&self, k: &str) -> bool {
         matches!(self.peek(), Tok::Name(n) if n == k)
@@ -1039,7 +1044,9 @@ impl P {
         ));
         let mut wb = vec![get, st(St::Assign(vec![t], name(&ax)))];
         wb.extend(body);
-        out.push(st(St::While(Ex::True, wb, None)));
+        // The iterator is let go when the loop ends, however it ends, as CPython's stack lets it go: an async
+        // generator left part way is then finalized (closed by the loop) at the same point.
+        out.push(st(St::Try(vec![st(St::While(Ex::True, wb, None))], vec![], None, Some(vec![st(St::Assign(vec![name(&ai)], Ex::NoneV))]))));
         if let Some(e) = els {
             out.push(st(St::If(vec![(name(&ae), e)], None)));
         }
@@ -1457,7 +1464,7 @@ impl P {
                 args.push(Arg::Kw(n, self.expr()?));
             } else {
                 let e = self.expr()?;
-                if self.is_kw("for") {
+                if self.comp_starts() {
                     let gens = self.comp_fors()?;
                     args.push(Arg::Pos(Ex::Comp('g', Box::new(e), None, gens)));
                 } else {
@@ -1472,9 +1479,10 @@ impl P {
     }
     fn comp_fors(&mut self) -> PR<Vec<CompFor>> {
         let mut gens = vec![];
-        while self.is_kw("for") || (self.is_kw("async")) {
-            if self.is_kw("async") {
-                return Err(err(self.line(), "async comprehensions are not supported"));
+        while self.comp_starts() {
+            let is_async = self.eat_kw("async");
+            if is_async && !self.is_kw("for") {
+                return Err(err(self.line(), "expected for after async"));
             }
             self.next();
             let t = self.target_list()?;
@@ -1485,7 +1493,7 @@ impl P {
                 self.next();
                 ifs.push(self.expr_nocond()?);
             }
-            gens.push(CompFor { target: t, iter: it, ifs });
+            gens.push(CompFor { target: t, iter: it, ifs, is_async });
         }
         Ok(gens)
     }
@@ -1562,7 +1570,7 @@ impl P {
                     return Ok(y);
                 }
                 let first = self.star_or_expr()?;
-                if self.is_kw("for") {
+                if self.comp_starts() {
                     let gens = self.comp_fors()?;
                     self.expect_op(")")?;
                     return Ok(Ex::Comp('g', Box::new(first), None, gens));
@@ -1585,7 +1593,7 @@ impl P {
                     return Ok(Ex::List(vec![]));
                 }
                 let first = self.star_or_expr()?;
-                if self.is_kw("for") {
+                if self.comp_starts() {
                     let gens = self.comp_fors()?;
                     self.expect_op("]")?;
                     return Ok(Ex::Comp('l', Box::new(first), None, gens));
@@ -1613,7 +1621,7 @@ impl P {
                 let first = self.star_or_expr()?;
                 if self.eat_op(":") {
                     let v = self.expr()?;
-                    if self.is_kw("for") {
+                    if self.comp_starts() {
                         let gens = self.comp_fors()?;
                         self.expect_op("}")?;
                         return Ok(Ex::Comp('d', Box::new(first), Some(Box::new(v)), gens));
@@ -1622,7 +1630,7 @@ impl P {
                     self.dict_rest(&mut items)?;
                     return Ok(Ex::Dict(items));
                 }
-                if self.is_kw("for") {
+                if self.comp_starts() {
                     let gens = self.comp_fors()?;
                     self.expect_op("}")?;
                     return Ok(Ex::Comp('s', Box::new(first), None, gens));

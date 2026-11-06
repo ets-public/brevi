@@ -18,15 +18,25 @@ enum ACState {
 
 pub struct ACoro {
     name: Sym,
+    // "coroutine", or what an async generator's asend()/athrow() return
+    kind: &'static str,
     st: RefCell<ACState>,
+    // asend()/athrow(): its async generator (close() before it runs closes the generator)
+    agen: Option<V>,
 }
 
 pub fn make_acoro(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
-    V::Ext(Rc::new(ACoro { name, st: RefCell::new(ACState::Fresh(Box::new(body))) }))
+    V::Ext(Rc::new(ACoro { name, kind: "coroutine", st: RefCell::new(ACState::Fresh(Box::new(body))), agen: None }))
 }
 
-fn reused() -> E {
-    exc("RuntimeError", "cannot reuse already awaited coroutine".into())
+impl ACoro {
+    fn reused(&self) -> E {
+        exc("RuntimeError", match self.kind {
+            "async_generator_asend" => "cannot reuse already awaited __anext__()/asend()".into(),
+            "async_generator_athrow" => "cannot reuse already awaited aclose()/athrow()".into(),
+            _ => "cannot reuse already awaited coroutine".into(),
+        })
+    }
 }
 
 impl ACoro {
@@ -54,7 +64,7 @@ impl ACoro {
                 ACState::Done => {
                     return match thrown {
                         Some(e) => Err(e),
-                        None => Err(reused()),
+                        None => Err(self.reused()),
                     }
                 }
             }
@@ -85,7 +95,7 @@ impl ACoro {
                     b
                 }
                 ACState::Inline => return Err(exc("RuntimeError", "coroutine is being awaited already".into())),
-                ACState::Done => return Err(reused()),
+                ACState::Done => return Err(self.reused()),
                 ACState::Run(c) => {
                     let c = c.clone();
                     drop(st);
@@ -111,9 +121,12 @@ fn exc_of(v: V) -> R {
 
 impl Ext for ACoro {
     fn tname(&self) -> &'static str {
-        "coroutine"
+        self.kind
     }
     fn repr(&self) -> String {
+        if self.kind != "coroutine" {
+            return format!("<{} object at {:#x}>", self.kind, self as *const ACoro as usize);
+        }
         format!("<coroutine object {} at {:#x}>", &*self.name, self as *const ACoro as usize)
     }
     fn any(&self) -> &dyn std::any::Any {
@@ -157,6 +170,10 @@ impl Ext for ACoro {
                         let mut st = self.st.borrow_mut();
                         if matches!(&*st, ACState::Fresh(_)) {
                             *st = ACState::Done;
+                            drop(st);
+                            if let Some(g) = self.agen.as_ref().and_then(ag_of) {
+                                g.close_now();
+                            }
                         }
                         Ok(V::None)
                     }
@@ -196,6 +213,7 @@ fn delegate(c: &Rc<RefCell<Box<Coro>>>) -> R {
 fn class_has(x: &V, n: &str) -> bool {
     match x {
         V::Obj(o) => o.cls.lookup(n).is_some(),
+        V::Ext(e) => e.any().downcast_ref::<AGen>().is_some() && matches!(n, "__aiter__" | "__anext__"),
         _ => false,
     }
 }
@@ -243,6 +261,9 @@ pub fn is_acoro(x: &V) -> bool {
 // aiter(x), anext(x), and the special methods `async with` looks up on the type
 pub fn bi_aiter(a: Args) -> R {
     let x = a1(&a, "aiter")?;
+    if ag_of(&x).is_some() {
+        return Ok(x);
+    }
     if !class_has(&x, "__aiter__") {
         return Err(exc("TypeError", format!("'async for' requires an object with __aiter__ method, got {}", type_name(&x))));
     }
@@ -253,6 +274,9 @@ pub fn bi_aiter(a: Args) -> R {
     Ok(r)
 }
 pub fn bi_anext(a: Args) -> R {
+    if a.p.len() == 2 {
+        return Err(unsupported("anext() with a default"));
+    }
     let x = a1(&a, "anext")?;
     if !class_has(&x, "__anext__") {
         return Err(exc("TypeError", format!("'{}' object is not an async iterator", type_name(&x))));
@@ -282,10 +306,12 @@ pub fn brevi_async_fn(n: &str, a: Args) -> R {
             Ok(V::None)
         }
         "iscoroutine" => Ok(V::Bool(is_acoro(&a1(&a, "iscoroutine")?))),
+        "isasyncgen" => Ok(V::Bool(ag_of(&a1(&a, "isasyncgen")?).is_some())),
         "isawaitable" => {
             let x = a1(&a, "isawaitable")?;
             Ok(V::Bool(is_acoro(&x) || class_has(&x, "__await__")))
         }
+        "set_hooks" | "track" | "untrack" | "tracked" => ag_hook_fn(n, &a),
         _ => Err(unsupported(&format!("_brevi_async.{n}"))),
     }
 }
@@ -537,4 +563,295 @@ pub fn bi___brevi_eg_reraise(a: Args) -> R {
         return Err(E(new.pop().unwrap()));
     }
     Err(E(instantiate(&exc_class("BaseExceptionGroup"), Args::p(vec![s(""), list(new)]))?))
+}
+
+// The next item of an `async for` in a comprehension: None at its end.
+pub fn afor_next(it: &V) -> Result<Option<V>, E> {
+    let r = match ag_of(it) {
+        Some(_) => {
+            ag_hooks(it)?;
+            ag_drive(it, AOp::Send(V::None))
+        }
+        None => bi_anext(Args::p(vec![it.clone()])).and_then(|f| aw(&f)),
+    };
+    match r {
+        Ok(v) => Ok(Some(v)),
+        Err(E(e)) if is_exc(&e, "StopAsyncIteration") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+// ---------- async generators (async def with yield) ----------
+// The body runs on its own stack (a Coro). It stops there for two reasons: a `yield` (agen_yield, which sets
+// AG_YIELDED), or an await deep inside it of a future that is not done (a plain gen_yield of the future). The
+// awaitable asend()/athrow() return runs it (ag_drive): a yielded value is the await's result; a future is passed
+// on up to the task, and what the task is resumed with is passed back down. As in CPython, the running loop's
+// hooks (set_hooks) see each generator at its first step and when it is dropped part way, so the loop closes it
+// (aclose() in a task) and asyncio.run() closes the ones still open at its end.
+
+thread_local! {
+    static AG_YIELDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static AG_HOOKS: RefCell<(V, V)> = const { RefCell::new((V::None, V::None)) };
+    static AG_TRACKED: RefCell<Vec<(i64, std::rc::Weak<dyn Ext>)>> = const { RefCell::new(Vec::new()) };
+}
+
+struct AGState {
+    coro: Rc<RefCell<Box<Coro>>>,
+    running: bool,
+    hooked: bool,
+    finalizer: V,
+    closed: bool,
+}
+
+pub struct AGen {
+    name: Sym,
+    st: RefCell<AGState>,
+}
+
+pub fn make_agen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
+    V::Ext(Rc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
+}
+
+fn ag_of(x: &V) -> Option<&AGen> {
+    match x {
+        V::Ext(e) => e.any().downcast_ref::<AGen>(),
+        _ => None,
+    }
+}
+
+// `yield v` in an async generator
+pub fn agen_yield(v: V) -> R {
+    AG_YIELDED.with(|f| f.set(true));
+    gen_yield(v)
+}
+
+enum AOp {
+    Send(V),
+    Throw(E),
+    Close,
+}
+
+// The loop's firstiter hook, at a generator's first asend()/athrow()/aclose().
+fn ag_hooks(me: &V) -> Result<(), E> {
+    let ag = ag_of(me).unwrap();
+    if ag.st.borrow().hooked {
+        return Ok(());
+    }
+    let (first, fin) = AG_HOOKS.with(|h| h.borrow().clone());
+    {
+        let mut st = ag.st.borrow_mut();
+        st.hooked = true;
+        st.finalizer = fin;
+    }
+    if !matches!(first, V::None) {
+        call(&first, Args::p(vec![me.clone()]))?;
+    }
+    Ok(())
+}
+
+fn ag_drive(me: &V, op: AOp) -> R {
+    let ag = ag_of(me).unwrap();
+    let (is_close, is_throw) = (matches!(op, AOp::Close), matches!(op, AOp::Throw(_)));
+    let coro = {
+        let mut st = ag.st.borrow_mut();
+        if st.running {
+            let who = if is_close { "aclose()" } else if is_throw { "athrow()" } else { "anext()" };
+            return Err(exc("RuntimeError", format!("{who}: asynchronous generator is already running")));
+        }
+        if st.closed {
+            return match op {
+                AOp::Send(_) => Err(exc0("StopAsyncIteration")),
+                _ => Ok(V::None),
+            };
+        }
+        if let AOp::Send(v) = &op {
+            if !matches!(v, V::None) && !st.coro.borrow().is_suspended() {
+                return Err(exc("TypeError", "can't send non-None value to a just-started async generator".into()));
+            }
+        }
+        st.running = true;
+        st.coro.clone()
+    };
+    let mut r = match op {
+        AOp::Send(v) => coro.borrow_mut().resume(v),
+        AOp::Throw(e) => coro.borrow_mut().throw(e),
+        AOp::Close => coro.borrow_mut().throw(exc0("GeneratorExit")),
+    };
+    let end = |closed: bool| {
+        let mut st = ag.st.borrow_mut();
+        st.running = false;
+        st.closed |= closed;
+    };
+    loop {
+        match r {
+            Ok(Some(y)) => {
+                if AG_YIELDED.with(|f| f.replace(false)) {
+                    end(false);
+                    if is_close {
+                        return Err(exc("RuntimeError", "async generator ignored GeneratorExit".into()));
+                    }
+                    return Ok(y);
+                }
+                r = match gen_yield(y) {
+                    Ok(s) => coro.borrow_mut().resume(s),
+                    Err(e) => coro.borrow_mut().throw(e),
+                };
+            }
+            Ok(None) => {
+                end(true);
+                return if is_close { Ok(V::None) } else { Err(exc0("StopAsyncIteration")) };
+            }
+            Err(E(e)) => {
+                end(true);
+                if is_close && is_exc(&e, "GeneratorExit") {
+                    return Ok(V::None);
+                }
+                for n in ["StopAsyncIteration", "StopIteration"] {
+                    if is_exc(&e, n) {
+                        return Err(exc("RuntimeError", format!("async generator raised {n}")));
+                    }
+                }
+                return Err(E(e));
+            }
+        }
+    }
+}
+
+// What asend()/athrow()/aclose()/__anext__() return: awaiting it runs the generator one step.
+fn ag_step(me: &V, op: AOp, kind: &'static str) -> R {
+    ag_hooks(me)?;
+    let me = me.clone();
+    let name = ag_of(&me).unwrap().name.clone();
+    let agen = Some(me.clone());
+    Ok(V::Ext(Rc::new(ACoro { name, kind, st: RefCell::new(ACState::Fresh(Box::new(move || ag_drive(&me, op)))), agen })))
+}
+
+impl Ext for AGen {
+    fn tname(&self) -> &'static str {
+        "async_generator"
+    }
+    fn repr(&self) -> String {
+        format!("<async_generator object {} at {:#x}>", &*self.name, self as *const AGen as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some((self as *const AGen as usize >> 4) as i64)
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(matches!(o, V::Ext(e) if std::ptr::eq(e.any() as *const dyn std::any::Any as *const u8, self as *const AGen as *const u8)))
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        match n {
+            "__name__" | "__qualname__" => Some(Ok(st(self.name.to_string()))),
+            "ag_running" => Some(Ok(V::Bool(self.st.borrow().running))),
+            "asend" | "athrow" | "aclose" | "__anext__" | "__aiter__" => None,
+            _ => Some(Err(exc("AttributeError", format!("'async_generator' object has no attribute '{n}'")))),
+        }
+    }
+    fn method(&self, me: &V, n: &str, a: &mut Args) -> Option<R> {
+        let nargs = a.p.len();
+        let want = |k: usize| -> Result<(), E> {
+            if nargs != k || !a.k.is_empty() {
+                let what = if k == 0 { "takes no arguments".to_string() } else { "takes exactly one argument".to_string() };
+                return Err(exc("TypeError", format!("{n}() {what} ({nargs} given)")));
+            }
+            Ok(())
+        };
+        Some(match n {
+            "__aiter__" => want(0).map(|_| me.clone()),
+            "__anext__" => want(0).and_then(|_| ag_step(me, AOp::Send(V::None), "async_generator_asend")),
+            "asend" => want(1).and_then(|_| ag_step(me, AOp::Send(a.p[0].clone()), "async_generator_asend")),
+            "aclose" => want(0).and_then(|_| ag_step(me, AOp::Close, "async_generator_athrow")),
+            "athrow" => {
+                if nargs != 1 || !a.k.is_empty() {
+                    return Some(Err(unsupported("athrow() with more than one argument")));
+                }
+                match exc_of(a.p[0].clone()) {
+                    Ok(e) if is_exc(&e, "BaseException") => ag_step(me, AOp::Throw(E(e)), "async_generator_athrow"),
+                    Ok(_) => Err(exc("TypeError", "exceptions must be classes or instances deriving from BaseException, not ".to_string() + &type_name(&a.p[0]))),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => return None,
+        })
+    }
+}
+
+impl AGen {
+    // Closed at once, not in a task: GeneratorExit thrown in where it is suspended, so its finally blocks run.
+    fn close_now(&self) {
+        let c = {
+            let mut st = self.st.borrow_mut();
+            if st.closed || st.running {
+                return;
+            }
+            st.closed = true;
+            st.coro.clone()
+        };
+        if c.borrow().is_suspended() {
+            let r = c.borrow_mut().throw(exc0("GeneratorExit"));
+            AG_YIELDED.with(|f| f.set(false));
+            let _ = r;
+        } else {
+            c.borrow_mut().close();
+        }
+    }
+}
+
+impl Drop for AGen {
+    // Dropped part way: the loop's finalizer hook gets it (as a new object holding the same stack) and closes it in
+    // a task, as CPython's does. With no hook, it is closed here and now, so its finally blocks run.
+    fn drop(&mut self) {
+        let st = self.st.get_mut();
+        if st.closed || st.running || std::thread::panicking() || !st.coro.borrow().is_suspended() {
+            return;
+        }
+        let fin = std::mem::replace(&mut st.finalizer, V::None);
+        if matches!(fin, V::None) {
+            self.close_now();
+            return;
+        }
+        let again = AGen { name: self.name.clone(), st: RefCell::new(AGState { coro: st.coro.clone(), running: false, hooked: true, finalizer: V::None, closed: false }) };
+        let _ = call(&fin, Args::p(vec![V::Ext(Rc::new(again))]));
+    }
+}
+
+// _brevi_async.set_hooks / track / untrack / tracked: sys.set_asyncgen_hooks and the loop's set of open async
+// generators (a WeakSet in CPython), for py/asyncio.py.
+fn ag_hook_fn(n: &str, a: &Args) -> R {
+    match n {
+        "set_hooks" => {
+            a.want("set_hooks", 2, 2)?;
+            let old = AG_HOOKS.with(|h| std::mem::replace(&mut *h.borrow_mut(), (a.p[0].clone(), a.p[1].clone())));
+            Ok(tup(vec![old.0, old.1]))
+        }
+        "track" | "untrack" => {
+            a.want(n, 2, 2)?;
+            let key = match &a.p[0] { V::Int(i) => *i as i64, _ => 0 };
+            let V::Ext(e) = &a.p[1] else { return Ok(V::None) };
+            let w = Rc::downgrade(e);
+            AG_TRACKED.with(|t| {
+                let mut t = t.borrow_mut();
+                t.retain(|(k, x)| x.strong_count() > 0 && !(*k == key && std::rc::Weak::ptr_eq(x, &w)));
+                if n == "track" {
+                    t.push((key, w));
+                }
+            });
+            Ok(V::None)
+        }
+        "tracked" => {
+            a.want("tracked", 1, 1)?;
+            let key = match &a.p[0] { V::Int(i) => *i as i64, _ => 0 };
+            let out: Vec<V> = AG_TRACKED.with(|t| {
+                let mut t = t.borrow_mut();
+                let out = t.iter().filter(|(k, _)| *k == key).filter_map(|(_, x)| x.upgrade()).map(V::Ext).collect();
+                t.retain(|(k, x)| *k != key && x.strong_count() > 0);
+                out
+            });
+            Ok(list(out))
+        }
+        _ => Err(unsupported(&format!("_brevi_async.{n}"))),
+    }
 }

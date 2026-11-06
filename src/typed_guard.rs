@@ -692,7 +692,7 @@ pub(crate) fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
             if let Some(v) = val {
                 go(v);
             }
-            for CompFor { target, iter, ifs } in fors {
+            for CompFor { target, iter, ifs, .. } in fors {
                 go(target);
                 go(iter);
                 ifs.iter().for_each(&mut go);

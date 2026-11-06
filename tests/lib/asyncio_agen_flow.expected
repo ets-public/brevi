@@ -1,0 +1,38 @@
+tick 0
+tick 1
+tick 2
+ticker done 3
+sq 0
+sq 1
+sq 4
+sq 9
+ticker done 4
+ticker done 3
+[0, 1, 2]
+{3: 6, 2: 4, 1: 2}
+{0, 1}
+[5, 3]
+[(2, 0), (2, 1), (1, 0), (1, 1)]
+[0, 2, 4, 6]
+[6, 4, 2]
+got 0
+got 1
+breaking
+after break
+after sleep 1
+ticker done 10
+after sleep 2
+None
+1
+echo caught boom
+after error
+2
+echo finished
+0 1
+ticker done 5
+None
+closed gen stops
+0
+main ends
+ticker done 5
+run returned

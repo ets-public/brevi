@@ -261,6 +261,7 @@ class BaseEventLoop:
         self._check_closed()
         self._check_running()
         self._running = True
+        old_agen_hooks = _brevi_async.set_hooks(self._asyncgen_firstiter_hook, self._asyncgen_finalizer_hook)
         _set_running_loop(self)
         try:
             while True:
@@ -271,6 +272,7 @@ class BaseEventLoop:
             self._stopping = False
             self._running = False
             _set_running_loop(None)
+            _brevi_async.set_hooks(old_agen_hooks[0], old_agen_hooks[1])
 
     def run_until_complete(self, future):
         self._check_closed()
@@ -319,8 +321,27 @@ class BaseEventLoop:
     def set_debug(self, enabled):
         self._debug = enabled
 
+    def _asyncgen_finalizer_hook(self, agen):
+        _brevi_async.untrack(id(self), agen)
+        if not self.is_closed():
+            self.call_soon_threadsafe(self.create_task, agen.aclose())
+
+    def _asyncgen_firstiter_hook(self, agen):
+        _brevi_async.track(id(self), agen)
+
     async def shutdown_asyncgens(self):
-        return
+        self._asyncgens_shutdown_called = True
+        closing_agens = _brevi_async.tracked(id(self))
+        if not len(closing_agens):
+            return
+        results = await gather(*[ag.aclose() for ag in closing_agens], return_exceptions=True)
+        for result, agen in zip(results, closing_agens):
+            if isinstance(result, Exception):
+                self.call_exception_handler({
+                    'message': 'an error occurred during closing of asynchronous generator ' + repr(agen),
+                    'exception': result,
+                    'asyncgen': agen
+                })
 
     async def shutdown_default_executor(self, timeout=None):
         return
