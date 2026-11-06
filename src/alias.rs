@@ -40,8 +40,42 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                 let mut i = 0;
                 while i < stmts.len() {
                     let (names, src, line): (Vec<Option<String>>, String, usize) = match &stmts[i] {
-                        Stmt::Let { name: Pat::Tuple(ps), value: Expr::Ident(c), line, .. } => (ps.iter().map(|p| if let Pat::Bind(n) = p { Some(n.clone()) } else { None }).collect(), c.clone(), *line),
-                        Stmt::Assign { target: Expr::Tuple(xs), op: "=", value: Expr::Ident(c), line } => (xs.iter().map(|x| if let Expr::Ident(n) = x { Some(n.clone()) } else { None }).collect(), c.clone(), *line),
+                        Stmt::Let {
+                            name: Pat::Tuple(ps),
+                            value: Expr::Ident(c),
+                            line,
+                            ..
+                        } => (
+                            ps.iter()
+                                .map(|p| {
+                                    if let Pat::Bind(n) = p {
+                                        Some(n.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect(),
+                            c.clone(),
+                            *line,
+                        ),
+                        Stmt::Assign {
+                            target: Expr::Tuple(xs),
+                            op: "=",
+                            value: Expr::Ident(c),
+                            line,
+                        } => (
+                            xs.iter()
+                                .map(|x| {
+                                    if let Expr::Ident(n) = x {
+                                        Some(n.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect(),
+                            c.clone(),
+                            *line,
+                        ),
                         _ => {
                             i += 1;
                             continue;
@@ -54,9 +88,20 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                         let rest = &stmts[i + 1..];
                         let end = rest.iter().position(|s| matches!(s, Stmt::Assign { target: Expr::Ident(m), op: "=", .. } | Stmt::Let { name: Pat::Bind(m), .. } if m == n));
                         let t = if end.is_none() { tail.as_deref() } else { None };
-                        if n != &src && n != "_" && changed(n, &rest[..end.unwrap_or(rest.len())], t) {
-                            let item = Expr::Index(Box::new(Expr::Ident(src.clone())), Box::new(Expr::Int(k as i64)));
-                            extra.push(Stmt::Assign { target: Expr::Ident(n.clone()), op: "=", value: item, line });
+                        if n != &src
+                            && n != "_"
+                            && changed(n, &rest[..end.unwrap_or(rest.len())], t)
+                        {
+                            let item = Expr::Index(
+                                Box::new(Expr::Ident(src.clone())),
+                                Box::new(Expr::Int(k as i64)),
+                            );
+                            extra.push(Stmt::Assign {
+                                target: Expr::Ident(n.clone()),
+                                op: "=",
+                                value: item,
+                                line,
+                            });
                         }
                     }
                     let k = extra.len();
@@ -72,21 +117,39 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
         let mut c = c.borrow_mut();
         c.clear();
         for it in items.iter() {
-            if let Item::Fn { name, params, body, .. } = it {
+            if let Item::Fn {
+                name, params, body, ..
+            } = it
+            {
                 for (i, p) in params.iter().enumerate() {
                     // Directly, or through an item taken from it (`lot = dq[0]`, then `lot[0] -= t`).
                     let mut hit = any_expr(body, &mut |st| direct(&p.name, st));
                     if !hit {
                         let mut items_of: Vec<String> = vec![];
                         any_expr(body, &mut |st| {
-                            if let Stmt::Assign { target: Expr::Ident(x), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(x), value, .. } = st {
-                                if root(value) == Some(p.name.as_str()) && matches!(value, Expr::Index(..)) {
+                            if let Stmt::Assign {
+                                target: Expr::Ident(x),
+                                op: "=",
+                                value,
+                                ..
+                            }
+                            | Stmt::Let {
+                                name: Pat::Bind(x),
+                                value,
+                                ..
+                            } = st
+                            {
+                                if root(value) == Some(p.name.as_str())
+                                    && matches!(value, Expr::Index(..))
+                                {
                                     items_of.push(x.clone());
                                 }
                             }
                             false
                         });
-                        hit = items_of.iter().any(|x| any_expr(body, &mut |st| direct(x, st)));
+                        hit = items_of
+                            .iter()
+                            .any(|x| any_expr(body, &mut |st| direct(x, st)));
                     }
                     if hit {
                         c.insert((name.clone(), i));
@@ -95,10 +158,22 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     });
-    let classes: Vec<String> = items.iter().filter_map(|i| if let Item::Type { name, .. } = i { Some(format!("{name}_")) } else { None }).collect();
+    let classes: Vec<String> = items
+        .iter()
+        .filter_map(|i| {
+            if let Item::Type { name, .. } = i {
+                Some(format!("{name}_"))
+            } else {
+                None
+            }
+        })
+        .collect();
     let mut mutators = HashSet::new();
     for it in items.iter() {
-        if let Item::Fn { name, params, body, .. } = it {
+        if let Item::Fn {
+            name, params, body, ..
+        } = it
+        {
             if params.first().is_some_and(|p| p.name == "self_") {
                 if let Some(c) = classes.iter().find(|c| name.starts_with(c.as_str())) {
                     let mut hit = false;
@@ -117,7 +192,10 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
     }
     let mut getters = std::collections::HashMap::new();
     for it in items.iter() {
-        if let Item::Fn { name, params, body, .. } = it {
+        if let Item::Fn {
+            name, params, body, ..
+        } = it
+        {
             if let Some(g) = getter(params, body) {
                 getters.insert(name.clone(), g);
             }
@@ -151,9 +229,13 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     }
-    let mut method_fields: std::collections::HashMap<String, HashSet<String>> = std::collections::HashMap::new();
+    let mut method_fields: std::collections::HashMap<String, HashSet<String>> =
+        std::collections::HashMap::new();
     for it in items.iter() {
-        if let Item::Fn { name, params, body, .. } = it {
+        if let Item::Fn {
+            name, params, body, ..
+        } = it
+        {
             if params.first().is_some_and(|p| p.name == "self_") {
                 if let Some(c) = classes.iter().find(|c| name.starts_with(c.as_str())) {
                     let mut fs = HashSet::new();
@@ -164,24 +246,63 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                             }
                         }
                     });
-                    method_fields.entry(name[c.len()..].to_string()).or_default().extend(fs);
+                    method_fields
+                        .entry(name[c.len()..].to_string())
+                        .or_default()
+                        .extend(fs);
                 }
             }
         }
     }
-    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, method_fields, pending: vec![] };
+    let mut cx = Cx {
+        errs: vec![],
+        mutators,
+        getters,
+        copy_fns,
+        method_fields,
+        pending: vec![],
+    };
     let inl: Inline = items
         .iter()
         .filter_map(|it| match it {
-            Item::Fn { name, params, body: Expr::Block(st, t), .. } => {
+            Item::Fn {
+                name,
+                params,
+                body: Expr::Block(st, t),
+                ..
+            } => {
                 let e = match (st.as_slice(), t) {
                     ([Stmt::Return { value: Some(e), .. }], None) => e.clone(),
                     ([], Some(e)) => e.as_ref().clone(),
                     // `xs = [l for l in self.lots if ...]`, `xs.sort(key=...)`, `return xs`: the sorted list.
-                    ([set, Stmt::Expr { expr: Expr::Method(r, m, a, l), .. }, rest @ ..], t) if matches!(r.as_ref(), Expr::Ident(_)) && matches!(m.as_str(), "sort" | "sort_by") => {
-                        let Expr::Ident(x) = r.as_ref() else { return None };
+                    (
+                        [
+                            set,
+                            Stmt::Expr {
+                                expr: Expr::Method(r, m, a, l),
+                                ..
+                            },
+                            rest @ ..,
+                        ],
+                        t,
+                    ) if matches!(r.as_ref(), Expr::Ident(_))
+                        && matches!(m.as_str(), "sort" | "sort_by") =>
+                    {
+                        let Expr::Ident(x) = r.as_ref() else {
+                            return None;
+                        };
                         let first = match set {
-                            Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x => value.clone(),
+                            Stmt::Let {
+                                name: Pat::Bind(n),
+                                value,
+                                ..
+                            }
+                            | Stmt::Assign {
+                                target: Expr::Ident(n),
+                                op: "=",
+                                value,
+                                ..
+                            } if n == x => value.clone(),
                             _ => return None,
                         };
                         let ret = match (rest, t) {
@@ -196,7 +317,10 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                     }
                     _ => return None,
                 };
-                Some((name.clone(), (params.iter().map(|p| p.name.clone()).collect(), e)))
+                Some((
+                    name.clone(),
+                    (params.iter().map(|p| p.name.clone()).collect(), e),
+                ))
             }
             _ => None,
         })
@@ -214,7 +338,10 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             walk(body, &mut cx);
             derived_loops(body, &mut cx);
             for (line, var, msg, fix) in std::mem::take(&mut cx.pending) {
-                let hex: String = format!("{msg}\u{1}{fix}").bytes().map(|b| format!("{b:02x}")).collect();
+                let hex: String = format!("{msg}\u{1}{fix}")
+                    .bytes()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
                 // `@name`: the value itself must be shared (an object or a row), not just its items.
                 // `%name`: changed by `name += v`, which is wrong only for a list, dict or set.
                 let (var, whole, aug) = match (var.strip_prefix('@'), var.strip_prefix('%')) {
@@ -222,13 +349,19 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
                     (_, Some(v)) => (v.to_string(), false, true),
                     _ => (var.clone(), false, false),
                 };
-                let mut margs = vec![(None, Expr::Ident(var.clone())), (None, Expr::Str(vec![StrPart::Lit(hex)]))];
+                let mut margs = vec![
+                    (None, Expr::Ident(var.clone())),
+                    (None, Expr::Str(vec![StrPart::Lit(hex)])),
+                ];
                 if whole {
                     margs.push((None, Expr::Bool(true)));
                 } else if aug {
                     margs.push((None, Expr::Int(2)));
                 }
-                let mark = Stmt::Expr { expr: Expr::Call("__shared".into(), margs, line), line };
+                let mark = Stmt::Expr {
+                    expr: Expr::Call("__shared".into(), margs, line),
+                    line,
+                };
                 if !place_mark(body, line, &var, &mark) {
                     err(&mut cx, line, msg, fix);
                 }
@@ -272,7 +405,18 @@ fn none_or_empty(items: &[Item]) -> Vec<Diag> {
             Expr::Block(stmts, tail) => {
                 for st in stmts {
                     match st {
-                        Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } | Stmt::Let { name: Pat::Bind(n), value, line, .. } => {
+                        Stmt::Assign {
+                            target: Expr::Ident(n),
+                            op: "=",
+                            value,
+                            line,
+                        }
+                        | Stmt::Let {
+                            name: Pat::Bind(n),
+                            value,
+                            line,
+                            ..
+                        } => {
                             tests(value, *line, out, loops);
                             if empty(value) {
                                 out.push((n.clone(), *line, loops.clone(), false));
@@ -284,12 +428,23 @@ fn none_or_empty(items: &[Item]) -> Vec<Diag> {
                             go(value, loops, next, out);
                         }
                         Stmt::Expr { expr, line } => {
-                            if !matches!(expr, Expr::Block(..) | Expr::For(..) | Expr::While(..) | Expr::If(..) | Expr::Match(..)) {
+                            if !matches!(
+                                expr,
+                                Expr::Block(..)
+                                    | Expr::For(..)
+                                    | Expr::While(..)
+                                    | Expr::If(..)
+                                    | Expr::Match(..)
+                            ) {
                                 tests(expr, *line, out, loops);
                             }
                             go(expr, loops, next, out);
                         }
-                        Stmt::Return { value: Some(v), line } | Stmt::Assert { cond: v, line, .. } => tests(v, *line, out, loops),
+                        Stmt::Return {
+                            value: Some(v),
+                            line,
+                        }
+                        | Stmt::Assert { cond: v, line, .. } => tests(v, *line, out, loops),
                         _ => {}
                     }
                 }
@@ -336,18 +491,37 @@ fn none_or_empty(items: &[Item]) -> Vec<Diag> {
             per_fn.push((*script, out));
         }
     }
-    let globals: HashSet<String> = per_fn.iter().filter(|(s, _)| *s).flat_map(|(_, o)| o.iter().filter(|x| !x.3).map(|x| x.0.clone())).collect();
+    let globals: HashSet<String> = per_fn
+        .iter()
+        .filter(|(s, _)| *s)
+        .flat_map(|(_, o)| o.iter().filter(|x| !x.3).map(|x| x.0.clone()))
+        .collect();
     let mut errs = vec![];
     for (fi, (_, seen)) in per_fn.iter().enumerate() {
         for (n, tl, tloops, is_test) in seen {
             if !is_test {
                 continue;
             }
-            let same = seen.iter().any(|(m, al, aloops, t)| !t && m == n && (al < tl || aloops.iter().any(|l| tloops.contains(l))));
-            let other = globals.contains(n) && per_fn.iter().enumerate().any(|(fj, (_, o))| fj != fi && o.iter().any(|x| !x.3 && &x.0 == n));
+            let same = seen.iter().any(|(m, al, aloops, t)| {
+                !t && m == n && (al < tl || aloops.iter().any(|l| tloops.contains(l)))
+            });
+            let other = globals.contains(n)
+                && per_fn
+                    .iter()
+                    .enumerate()
+                    .any(|(fj, (_, o))| fj != fi && o.iter().any(|x| !x.3 && &x.0 == n));
             if same || other {
-                let mut d = Diag::new("type", *tl, 1, &format!("{n} is None cannot be told apart from {n} set to an empty list, dict or set here (Brevi keeps None in such a name as an empty one)"));
-                d.fix = Some(format!("test `not {n}` if empty means the same, or keep a separate flag such as {n}_set = False"));
+                let mut d = Diag::new(
+                    "type",
+                    *tl,
+                    1,
+                    &format!(
+                        "{n} is None cannot be told apart from {n} set to an empty list, dict or set here (Brevi keeps None in such a name as an empty one)"
+                    ),
+                );
+                d.fix = Some(format!(
+                    "test `not {n}` if empty means the same, or keep a separate flag such as {n}_set = False"
+                ));
                 errs.push(d);
             }
         }
@@ -367,7 +541,11 @@ fn place_mark(e: &mut Expr, line: usize, var: &str, mark: &Stmt) -> bool {
         Expr::Block(stmts, tail) => {
             for i in 0..stmts.len() {
                 if stmt_line(&stmts[i]) == line {
-                    if let Stmt::Expr { expr: Expr::For(p, _, body), .. } = &mut stmts[i] {
+                    if let Stmt::Expr {
+                        expr: Expr::For(p, _, body),
+                        ..
+                    } = &mut stmts[i]
+                    {
                         if format!("{p:?}").contains(&format!("{var:?}")) {
                             if let Expr::Block(b, _) = body.as_mut() {
                                 b.insert(0, mark.clone());
@@ -383,14 +561,23 @@ fn place_mark(e: &mut Expr, line: usize, var: &str, mark: &Stmt) -> bool {
                             }
                         }
                     }
-                    if !matches!(&stmts[i], Stmt::Expr { expr: Expr::For(..) | Expr::If(..) | Expr::While(..), .. }) {
+                    if !matches!(
+                        &stmts[i],
+                        Stmt::Expr {
+                            expr: Expr::For(..) | Expr::If(..) | Expr::While(..),
+                            ..
+                        }
+                    ) {
                         stmts.insert(i + 1, mark.clone());
                         return true;
                     }
                 }
                 let hit = match &mut stmts[i] {
                     Stmt::Expr { expr, .. } => place_mark(expr, line, var, mark),
-                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => matches!(value, Expr::Block(..) | Expr::If(..)) && place_mark(value, line, var, mark),
+                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+                        matches!(value, Expr::Block(..) | Expr::If(..))
+                            && place_mark(value, line, var, mark)
+                    }
                     _ => false,
                 };
                 if hit {
@@ -402,9 +589,15 @@ fn place_mark(e: &mut Expr, line: usize, var: &str, mark: &Stmt) -> bool {
             }
             false
         }
-        Expr::If(_, a, b) => place_mark(a, line, var, mark) || b.as_mut().is_some_and(|b| place_mark(b, line, var, mark)),
+        Expr::If(_, a, b) => {
+            place_mark(a, line, var, mark)
+                || b.as_mut().is_some_and(|b| place_mark(b, line, var, mark))
+        }
         // A loop that is the last thing in its block (no statement line of its own): the one binding var.
-        Expr::For(p, it, b) if format!("{p:?}").contains(&format!("{var:?}")) && format!("{it:?}").contains(&format!(", {line})")) => {
+        Expr::For(p, it, b)
+            if format!("{p:?}").contains(&format!("{var:?}"))
+                && format!("{it:?}").contains(&format!(", {line})")) =>
+        {
             if let Expr::Block(st, _) = b.as_mut() {
                 st.insert(0, mark.clone());
                 return true;
@@ -430,7 +623,16 @@ fn show(e: &Expr) -> String {
         Expr::Index(b, k) => format!("{}[{}]", show(b), show(k)),
         Expr::Int(n) => n.to_string(),
         Expr::Unary("-", x) => format!("-{}", show(x)),
-        Expr::Str(p) => format!("{:?}", p.iter().map(|x| if let StrPart::Lit(t) = x { t.clone() } else { "...".into() }).collect::<String>()),
+        Expr::Str(p) => format!(
+            "{:?}",
+            p.iter()
+                .map(|x| if let StrPart::Lit(t) = x {
+                    t.clone()
+                } else {
+                    "...".into()
+                })
+                .collect::<String>()
+        ),
         Expr::Method(r, m, _, _) if m == "sort" => format!("sorted({})", show(r)),
         Expr::Method(r, m, _, _) if m == "pairs" => format!("{}.items()", show(r)),
         Expr::Method(r, m, _, _) => format!("{}.{m}(...)", show(r)),
@@ -480,7 +682,13 @@ fn loops(e: &mut Expr, inl: &Inline) -> Vec<Stmt> {
             loops(body, inl);
             let item = match &*p {
                 Pat::Bind(a) => Some(a.clone()),
-                Pat::Tuple(ps) if ps.len() == 2 => if let Pat::Bind(a) = &ps[1] { Some(a.clone()) } else { None },
+                Pat::Tuple(ps) if ps.len() == 2 => {
+                    if let Pat::Bind(a) = &ps[1] {
+                        Some(a.clone())
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             };
             let Some(a) = item else { return vec![] };
@@ -503,24 +711,48 @@ fn loops(e: &mut Expr, inl: &Inline) -> Vec<Stmt> {
                     }
                 }
             }
-            let Expr::Method(base, m, args, line) = it.as_ref() else { return vec![] };
+            let Expr::Method(base, m, args, line) = it.as_ref() else {
+                return vec![];
+            };
             if !args.is_empty() || !matches!(base.as_ref(), Expr::Ident(_) | Expr::Field(..)) {
                 return vec![];
             }
             let (base, line) = (base.as_ref().clone(), *line);
             let (key, new_it) = match (m.as_str(), &*p) {
-                ("values", Pat::Bind(_)) => (format!("ax_vk{line}_{a}"), Expr::Method(Box::new(base.clone()), "keys".into(), vec![], line)),
+                ("values", Pat::Bind(_)) => (
+                    format!("ax_vk{line}_{a}"),
+                    Expr::Method(Box::new(base.clone()), "keys".into(), vec![], line),
+                ),
                 ("pairs", Pat::Tuple(ps)) => match &ps[0] {
-                    Pat::Bind(k) => (k.clone(), Expr::Method(Box::new(base.clone()), "keys".into(), vec![], line)),
+                    Pat::Bind(k) => (
+                        k.clone(),
+                        Expr::Method(Box::new(base.clone()), "keys".into(), vec![], line),
+                    ),
                     _ => return vec![],
                 },
                 ("enumerate", Pat::Tuple(ps)) => match &ps[0] {
-                    Pat::Bind(i) => (i.clone(), Expr::Range(Box::new(Expr::Int(0)), Box::new(Expr::Method(Box::new(base.clone()), "len".into(), vec![], line)))),
+                    Pat::Bind(i) => (
+                        i.clone(),
+                        Expr::Range(
+                            Box::new(Expr::Int(0)),
+                            Box::new(Expr::Method(
+                                Box::new(base.clone()),
+                                "len".into(),
+                                vec![],
+                                line,
+                            )),
+                        ),
+                    ),
                     _ => return vec![],
                 },
                 _ => return vec![],
             };
-            let get = Stmt::Assign { target: Expr::Ident(a.clone()), op: "=", value: Expr::Index(Box::new(base), Box::new(Expr::Ident(key.clone()))), line };
+            let get = Stmt::Assign {
+                target: Expr::Ident(a.clone()),
+                op: "=",
+                value: Expr::Index(Box::new(base), Box::new(Expr::Ident(key.clone()))),
+                line,
+            };
             let old = std::mem::replace(body.as_mut(), Expr::Bool(false));
             let new_body = match old {
                 Expr::Block(mut st, t) => {
@@ -544,22 +776,69 @@ fn split_pairs(stmts: &mut Vec<Stmt>) {
     let mut k = 0;
     while k < stmts.len() {
         let split = match &stmts[k] {
-            Stmt::Assign { target: Expr::Tuple(ts), op: "=", value: Expr::Tuple(vs), line } if ts.len() == vs.len() && ts.len() > 1 => {
-                let ns: Option<Vec<String>> = ts.iter().map(|t| if let Expr::Ident(n) = t { Some(n.clone()) } else { None }).collect();
+            Stmt::Assign {
+                target: Expr::Tuple(ts),
+                op: "=",
+                value: Expr::Tuple(vs),
+                line,
+            } if ts.len() == vs.len() && ts.len() > 1 => {
+                let ns: Option<Vec<String>> = ts
+                    .iter()
+                    .map(|t| {
+                        if let Expr::Ident(n) = t {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
                 ns.map(|ns| (ns, vs.clone(), *line, false))
             }
-            Stmt::Let { name: Pat::Tuple(ps), value: Expr::Tuple(vs), line, .. } if ps.len() == vs.len() && ps.len() > 1 => {
-                let ns: Option<Vec<String>> = ps.iter().map(|p| if let Pat::Bind(n) = p { Some(n.clone()) } else { None }).collect();
+            Stmt::Let {
+                name: Pat::Tuple(ps),
+                value: Expr::Tuple(vs),
+                line,
+                ..
+            } if ps.len() == vs.len() && ps.len() > 1 => {
+                let ns: Option<Vec<String>> = ps
+                    .iter()
+                    .map(|p| {
+                        if let Pat::Bind(n) = p {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
                 ns.map(|ns| (ns, vs.clone(), *line, true))
             }
             _ => None,
         };
         if let Some((ns, vs, line, is_let)) = split {
-            if vs.iter().all(|v| matches!(v, Expr::Index(..))) && !vs.iter().any(|v| ns.iter().any(|n| names(v, n))) {
+            if vs.iter().all(|v| matches!(v, Expr::Index(..)))
+                && !vs.iter().any(|v| ns.iter().any(|n| names(v, n)))
+            {
                 let new: Vec<Stmt> = ns
                     .into_iter()
                     .zip(vs)
-                    .map(|(n, v)| if is_let { Stmt::Let { name: Pat::Bind(n), ty: None, value: v, mutable: true, line } } else { Stmt::Assign { target: Expr::Ident(n), op: "=", value: v, line } })
+                    .map(|(n, v)| {
+                        if is_let {
+                            Stmt::Let {
+                                name: Pat::Bind(n),
+                                ty: None,
+                                value: v,
+                                mutable: true,
+                                line,
+                            }
+                        } else {
+                            Stmt::Assign {
+                                target: Expr::Ident(n),
+                                op: "=",
+                                value: v,
+                                line,
+                            }
+                        }
+                    })
                     .collect();
                 let c = new.len();
                 stmts.splice(k..k + 1, new);
@@ -573,7 +852,11 @@ fn split_pairs(stmts: &mut Vec<Stmt>) {
 
 // The names a statement's debug text mentions.
 fn idents(d: &str) -> Vec<String> {
-    d.split("Ident(\"").skip(1).filter_map(|r| r.split('"').next()).map(String::from).collect()
+    d.split("Ident(\"")
+        .skip(1)
+        .filter_map(|r| r.split('"').next())
+        .map(String::from)
+        .collect()
 }
 
 fn names(e: &Expr, n: &str) -> bool {
@@ -587,8 +870,18 @@ fn names(e: &Expr, n: &str) -> bool {
 fn fold_local_copies(stmts: &mut Vec<Stmt>, tail: &Option<Box<Expr>>) {
     let mut k = 0;
     while k < stmts.len() {
-        let Stmt::Expr { expr: Expr::For(Pat::Bind(a), it, body), .. } = &stmts[k] else { k += 1; continue };
-        let Expr::Ident(x) = it.as_ref() else { k += 1; continue };
+        let Stmt::Expr {
+            expr: Expr::For(Pat::Bind(a), it, body),
+            ..
+        } = &stmts[k]
+        else {
+            k += 1;
+            continue;
+        };
+        let Expr::Ident(x) = it.as_ref() else {
+            k += 1;
+            continue;
+        };
         let (x, a) = (x.clone(), a.clone());
         if !any_expr(body, &mut |st| direct(&a, st)) || names(body, &x) {
             k += 1;
@@ -602,30 +895,63 @@ fn fold_local_copies(stmts: &mut Vec<Stmt>, tail: &Option<Box<Expr>>) {
         let mut sort_at = None;
         for j in (0..k).rev() {
             match &stmts[j] {
-                Stmt::Expr { expr: Expr::Method(r, m, args, l), .. } if matches!(r.as_ref(), Expr::Ident(n) if *n == x) && matches!(m.as_str(), "sort" | "sort_by") && sort.is_none() && between.is_empty() => {
+                Stmt::Expr {
+                    expr: Expr::Method(r, m, args, l),
+                    ..
+                } if matches!(r.as_ref(), Expr::Ident(n) if *n == x)
+                    && matches!(m.as_str(), "sort" | "sort_by")
+                    && sort.is_none()
+                    && between.is_empty() =>
+                {
                     sort = Some((m.clone(), args.clone(), *l));
                     sort_at = Some(j);
                 }
-                Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if *n == x => {
+                Stmt::Let {
+                    name: Pat::Bind(n),
+                    value,
+                    ..
+                }
+                | Stmt::Assign {
+                    target: Expr::Ident(n),
+                    op: "=",
+                    value,
+                    ..
+                } if *n == x => {
                     let next = if sort.is_some() { j + 2 } else { j + 1 };
                     let ok_between = between.iter().all(|b| {
                         let d = format!("{b:?}");
                         let reads = format!("{value:?}");
-                        !names(&Expr::Block(vec![b.clone()], None), &x) && !d.contains("Call(") && !d.contains("Method(") && idents(&d).iter().all(|i| !reads.contains(&format!("Ident({i:?})")))
+                        !names(&Expr::Block(vec![b.clone()], None), &x)
+                            && !d.contains("Call(")
+                            && !d.contains("Method(")
+                            && idents(&d)
+                                .iter()
+                                .all(|i| !reads.contains(&format!("Ident({i:?})")))
                     });
-                    if next + between.len() == k && ok_between && matches!(value, Expr::Method(_, m, _, _) if m == "filter" || m == "sort_by" || m == "sort") {
+                    if next + between.len() == k
+                        && ok_between
+                        && matches!(value, Expr::Method(_, m, _, _) if m == "filter" || m == "sort_by" || m == "sort")
+                    {
                         def = Some((j, value.clone()));
                     }
                     break;
                 }
-                st if sort.is_none() && !names(&Expr::Block(vec![st.clone()], None), &x) => between.push(st.clone()),
+                st if sort.is_none() && !names(&Expr::Block(vec![st.clone()], None), &x) => {
+                    between.push(st.clone())
+                }
                 _ => break,
             }
         }
         let _ = sort_at;
-        let Some((j, value)) = def else { k += 1; continue };
+        let Some((j, value)) = def else {
+            k += 1;
+            continue;
+        };
         // x must not be read after the loop.
-        let later = stmts[k + 1..].iter().any(|st| names(&Expr::Block(vec![st.clone()], None), &x)) || tail.as_ref().is_some_and(|t| names(t, &x));
+        let later = stmts[k + 1..]
+            .iter()
+            .any(|st| names(&Expr::Block(vec![st.clone()], None), &x))
+            || tail.as_ref().is_some_and(|t| names(t, &x));
         if later {
             k += 1;
             continue;
@@ -634,7 +960,11 @@ fn fold_local_copies(stmts: &mut Vec<Stmt>, tail: &Option<Box<Expr>>) {
             Some((m, args, l)) => Expr::Method(Box::new(value), m, args, l),
             None => value,
         };
-        if let Stmt::Expr { expr: Expr::For(_, it, _), .. } = &mut stmts[k] {
+        if let Stmt::Expr {
+            expr: Expr::For(_, it, _),
+            ..
+        } = &mut stmts[k]
+        {
             **it = new_it;
         }
         // Drop the setting (and its sort); the statements between stay, in order.
@@ -651,14 +981,24 @@ fn move_stores(stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) {
     let mut i = 0;
     while i < stmts.len() {
         let (x, base) = match &stmts[i] {
-            Stmt::Assign { target: Expr::Index(b, k), op: "=", value: Expr::Ident(x), .. } if matches!(k.as_ref(), Expr::Ident(_) | Expr::Str(_) | Expr::Int(_)) => (x.clone(), (**b).clone()),
+            Stmt::Assign {
+                target: Expr::Index(b, k),
+                op: "=",
+                value: Expr::Ident(x),
+                ..
+            } if matches!(k.as_ref(), Expr::Ident(_) | Expr::Str(_) | Expr::Int(_)) => {
+                (x.clone(), (**b).clone())
+            }
             _ => {
                 i += 1;
                 continue;
             }
         };
         let key = match &stmts[i] {
-            Stmt::Assign { target: Expr::Index(_, k), .. } => (**k).clone(),
+            Stmt::Assign {
+                target: Expr::Index(_, k),
+                ..
+            } => (**k).clone(),
             _ => unreachable!(),
         };
         let Some(broot) = root(&base).map(String::from) else {
@@ -673,18 +1013,32 @@ fn move_stores(stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) {
         let changes = |st: &Stmt| any_stmt(std::slice::from_ref(st), None, &mut |s| direct(&x, s));
         // The last statement of the block (or its loop tail) that changes x.
         let last = rest.iter().rposition(|st| changes(st));
-        let tail_changes = tail.as_ref().is_some_and(|t| matches!(t.as_ref(), Expr::For(..) | Expr::While(..)) && any_expr(t, &mut |s| direct(&x, s)));
+        let tail_changes = tail.as_ref().is_some_and(|t| {
+            matches!(t.as_ref(), Expr::For(..) | Expr::While(..))
+                && any_expr(t, &mut |s| direct(&x, s))
+        });
         if last.is_none() && !tail_changes {
             i += 1;
             continue;
         }
-        let upto = if tail_changes { rest.len() } else { last.unwrap() + 1 };
-        let mut between: Vec<Expr> = rest[..upto].iter().map(|st| Expr::Block(vec![st.clone()], None)).collect();
+        let upto = if tail_changes {
+            rest.len()
+        } else {
+            last.unwrap() + 1
+        };
+        let mut between: Vec<Expr> = rest[..upto]
+            .iter()
+            .map(|st| Expr::Block(vec![st.clone()], None))
+            .collect();
         if tail_changes {
             between.push((**tail.as_ref().unwrap()).clone());
         }
         let bt = format!("{base:?}");
-        let key_name = if let Expr::Ident(k) = &key { Some(k.clone()) } else { None };
+        let key_name = if let Expr::Ident(k) = &key {
+            Some(k.clone())
+        } else {
+            None
+        };
         let ok = between.iter().all(|b| {
             let d = format!("{b:?}");
             // Not read or set, nor could a call read it: a method on the container's root, or the root passed on.
@@ -718,11 +1072,15 @@ fn move_stores(stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) {
 // A `continue` of the enclosing loop (not one of a loop inside e).
 fn own_continue(e: &Expr) -> bool {
     match e {
-        Expr::Block(st, t) => st.iter().any(|s| match s {
-            Stmt::Continue { .. } => true,
-            Stmt::Expr { expr, .. } | Stmt::Let { value: expr, .. } | Stmt::Assign { value: expr, .. } => own_continue(expr),
-            _ => false,
-        }) || t.as_ref().is_some_and(|t| own_continue(t)),
+        Expr::Block(st, t) => {
+            st.iter().any(|s| match s {
+                Stmt::Continue { .. } => true,
+                Stmt::Expr { expr, .. }
+                | Stmt::Let { value: expr, .. }
+                | Stmt::Assign { value: expr, .. } => own_continue(expr),
+                _ => false,
+            }) || t.as_ref().is_some_and(|t| own_continue(t))
+        }
         Expr::If(_, a, b) => own_continue(a) || b.as_ref().is_some_and(|b| own_continue(b)),
         Expr::Match(_, arms) => arms.iter().any(|(_, a)| own_continue(a)),
         _ => false,
@@ -734,21 +1092,33 @@ fn stored_then_changed(e: &Expr, cx: &mut Cx) {
     let mut blocks: Vec<&Expr> = vec![];
     collect_blocks(e, &mut blocks);
     for b in blocks {
-        let Expr::Block(stmts, tail) = b else { continue };
+        let Expr::Block(stmts, tail) = b else {
+            continue;
+        };
         for (i, st) in stmts.iter().enumerate() {
-            let Some((x, into, line)) = stored(st) else { continue };
+            let Some((x, into, line)) = stored(st) else {
+                continue;
+            };
             let rest = &stmts[i + 1..];
             // Only up to the next setting of x as a whole.
             let end = rest.iter().position(|s| matches!(s, Stmt::Assign { target: Expr::Ident(n), op: "=", .. } | Stmt::Let { name: Pat::Bind(n), .. } if *n == x)).unwrap_or(rest.len());
-            let t = if end == rest.len() { tail.as_deref() } else { None };
+            let t = if end == rest.len() {
+                tail.as_deref()
+            } else {
+                None
+            };
             let muts = cx.mutators.clone();
-            if any_stmt(&rest[..end], t, &mut |s| direct_strict(&x, s, &muts) && !rebinds_in(s, &x)) {
+            if any_stmt(&rest[..end], t, &mut |s| {
+                direct_strict(&x, s, &muts) && !rebinds_in(s, &x)
+            }) {
                 let xs = x.trim_end_matches('_').to_string();
                 defer(
                     cx,
                     line,
                     &x,
-                    format!("{into} gets a copy of {xs} here, so changing {xs} later does not change {into} (Brevi values are copies, not shared)"),
+                    format!(
+                        "{into} gets a copy of {xs} here, so changing {xs} later does not change {into} (Brevi values are copies, not shared)"
+                    ),
                     format!("finish {xs} before putting it in {into}, or change it through {into}"),
                 );
             }
@@ -762,15 +1132,28 @@ fn name_alias(e: &Expr, cx: &mut Cx) {
     let mut blocks: Vec<&Expr> = vec![];
     collect_blocks(e, &mut blocks);
     for b in blocks {
-        let Expr::Block(stmts, tail) = b else { continue };
+        let Expr::Block(stmts, tail) = b else {
+            continue;
+        };
         for (i, st) in stmts.iter().enumerate() {
-            let Stmt::Assign { target: Expr::Ident(bn), op: "=", value: Expr::Ident(an) | Expr::Move(an), line } = st else { continue };
+            let Stmt::Assign {
+                target: Expr::Ident(bn),
+                op: "=",
+                value: Expr::Ident(an) | Expr::Move(an),
+                line,
+            } = st
+            else {
+                continue;
+            };
             if bn == an {
                 continue;
             }
             let rest = &stmts[i + 1..];
             // Up to the next setting of either name as a whole.
-            let end = rest.iter().position(|s| rebinds_in(s, bn) || rebinds_in(s, an)).unwrap_or(rest.len());
+            let end = rest
+                .iter()
+                .position(|s| rebinds_in(s, bn) || rebinds_in(s, an))
+                .unwrap_or(rest.len());
             let muts = cx.mutators.clone();
             for (x, y) in [(bn, an), (an, bn)] {
                 // The first change through x, and a read of y after it. `x += v` changes a list or dict in
@@ -790,18 +1173,36 @@ fn name_alias(e: &Expr, cx: &mut Cx) {
                 };
                 // y still holds the changed list after x is set anew (`zs = xs; xs.sort(); xs = []; print(zs)`),
                 // so reads of y count up to y's own next setting.
-                let end_y = rest.iter().position(|s| rebinds_in(s, y)).unwrap_or(rest.len()).max(k + 1);
-                let t_y = if end_y == rest.len() { tail.as_deref() } else { None };
+                let end_y = rest
+                    .iter()
+                    .position(|s| rebinds_in(s, y))
+                    .unwrap_or(rest.len())
+                    .max(k + 1);
+                let t_y = if end_y == rest.len() {
+                    tail.as_deref()
+                } else {
+                    None
+                };
                 let later = &rest[k + 1..end_y];
-                let read = later.iter().any(|s| names(&Expr::Block(vec![s.clone()], None), y)) || t_y.is_some_and(|t| names(t, y)) || any_stmt(std::slice::from_ref(&rest[k]), None, &mut |s| matches!(s, Stmt::Expr { .. } | Stmt::Assign { .. }) && loops_back(s, y));
+                let read = later
+                    .iter()
+                    .any(|s| names(&Expr::Block(vec![s.clone()], None), y))
+                    || t_y.is_some_and(|t| names(t, y))
+                    || any_stmt(std::slice::from_ref(&rest[k]), None, &mut |s| {
+                        matches!(s, Stmt::Expr { .. } | Stmt::Assign { .. }) && loops_back(s, y)
+                    });
                 if read {
                     let (bs, as_) = (bn.trim_end_matches('_'), an.trim_end_matches('_'));
                     defer(
                         cx,
                         *line,
                         &format!("{}{bn}", if aug { "%" } else { "@" }),
-                        format!("{bs} = {as_} makes {bs} a copy in Brevi, but in Python both names are the same list or dict, so changing one changes the other"),
-                        format!("use one name, or write {bs} = {as_}.copy() if a separate copy is meant"),
+                        format!(
+                            "{bs} = {as_} makes {bs} a copy in Brevi, but in Python both names are the same list or dict, so changing one changes the other"
+                        ),
+                        format!(
+                            "use one name, or write {bs} = {as_}.copy() if a separate copy is meant"
+                        ),
                     );
                     break;
                 }
@@ -812,13 +1213,22 @@ fn name_alias(e: &Expr, cx: &mut Cx) {
 
 // A loop statement that changes one name and reads the other (`for ...: b.append(x); print(a)`).
 fn loops_back(s: &Stmt, y: &str) -> bool {
-    matches!(s, Stmt::Expr { expr: Expr::For(..) | Expr::While(..), .. }) && names(&Expr::Block(vec![s.clone()], None), y)
+    matches!(
+        s,
+        Stmt::Expr {
+            expr: Expr::For(..) | Expr::While(..),
+            ..
+        }
+    ) && names(&Expr::Block(vec![s.clone()], None), y)
 }
 
 fn rebinds_in(s: &Stmt, x: &str) -> bool {
     // `xs = xs` keeps the same list.
     let same = |v: &Expr| matches!(v, Expr::Ident(m) | Expr::Move(m) if m == x);
-    any_stmt(std::slice::from_ref(s), None, &mut |t| matches!(t, Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x && !same(value)) && !in_place(x, t))
+    any_stmt(std::slice::from_ref(s), None, &mut |t| {
+        matches!(t, Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x && !same(value))
+            && !in_place(x, t)
+    })
 }
 
 // Python statements that change x in place but are spelled otherwise in Brevi: `xs.sort()`,
@@ -826,12 +1236,43 @@ fn rebinds_in(s: &Stmt, x: &str) -> bool {
 fn in_place(x: &str, st: &Stmt) -> bool {
     let own_slice = |e: &Expr| matches!(e, Expr::Method(r, m, _, _) if m == "slice" && matches!(r.as_ref(), Expr::Ident(n) if n == x));
     match st {
-        Stmt::Expr { expr: Expr::Method(recv, m, _, _), .. } => {
-            root(recv) == Some(x) && ["sort", "sort_by", "rev", "reverse", "heapify", "heap_push_pop", "heap_replace", "move_to_end", "pop_item", "pop_or", "setdefault", "rotate", "appendleft", "popleft"].contains(&m.as_str())
+        Stmt::Expr {
+            expr: Expr::Method(recv, m, _, _),
+            ..
+        } => {
+            root(recv) == Some(x)
+                && [
+                    "sort",
+                    "sort_by",
+                    "rev",
+                    "reverse",
+                    "heapify",
+                    "heap_push_pop",
+                    "heap_replace",
+                    "move_to_end",
+                    "pop_item",
+                    "pop_or",
+                    "setdefault",
+                    "rotate",
+                    "appendleft",
+                    "popleft",
+                ]
+                .contains(&m.as_str())
         }
-        Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } if n == x => match value {
-            Expr::Method(_, _, a, _) if own_slice(value) => matches!(a.first(), Some(Expr::Int(0))) && a.len() == 2,
-            Expr::Binary("+", l, r) => own_slice(l) && own_slice(r) && matches!(l.as_ref(), Expr::Method(_, _, a, _) if matches!(a.first(), Some(Expr::Int(0)))),
+        Stmt::Assign {
+            target: Expr::Ident(n),
+            op: "=",
+            value,
+            ..
+        } if n == x => match value {
+            Expr::Method(_, _, a, _) if own_slice(value) => {
+                matches!(a.first(), Some(Expr::Int(0))) && a.len() == 2
+            }
+            Expr::Binary("+", l, r) => {
+                own_slice(l)
+                    && own_slice(r)
+                    && matches!(l.as_ref(), Expr::Method(_, _, a, _) if matches!(a.first(), Some(Expr::Int(0))))
+            }
             _ => false,
         },
         _ => false,
@@ -845,7 +1286,9 @@ fn collect_blocks<'a>(e: &'a Expr, out: &mut Vec<&'a Expr>) {
             for st in stmts {
                 match st {
                     Stmt::Expr { expr, .. } => collect_blocks(expr, out),
-                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => collect_blocks(value, out),
+                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
+                        collect_blocks(value, out)
+                    }
                     _ => {}
                 }
             }
@@ -868,14 +1311,28 @@ fn collect_blocks<'a>(e: &'a Expr, out: &mut Vec<&'a Expr>) {
 // `xs.append(x)`, `m[k] = x`, `o.f = x`: x (a name) put into another value.
 fn stored(st: &Stmt) -> Option<(String, String, usize)> {
     match st {
-        Stmt::Expr { expr: Expr::Method(recv, m, args, _), line } if ["push", "insert", "heap_push", "append"].contains(&m.as_str()) => {
-            let x = args.iter().rev().find_map(|a| if let Expr::Ident(n) = a { Some(n.clone()) } else { None })?;
+        Stmt::Expr {
+            expr: Expr::Method(recv, m, args, _),
+            line,
+        } if ["push", "insert", "heap_push", "append"].contains(&m.as_str()) => {
+            let x = args.iter().rev().find_map(|a| {
+                if let Expr::Ident(n) = a {
+                    Some(n.clone())
+                } else {
+                    None
+                }
+            })?;
             if root(recv) == Some(x.as_str()) {
                 return None;
             }
             Some((x, show(recv), *line))
         }
-        Stmt::Assign { target: target @ (Expr::Index(..) | Expr::Field(..)), op: "=", value: Expr::Ident(x), line } if root(target) != Some(x.as_str()) => {
+        Stmt::Assign {
+            target: target @ (Expr::Index(..) | Expr::Field(..)),
+            op: "=",
+            value: Expr::Ident(x),
+            line,
+        } if root(target) != Some(x.as_str()) => {
             let into = match target {
                 Expr::Index(b, _) | Expr::Field(b, _) => show(b),
                 _ => unreachable!(),
@@ -888,13 +1345,17 @@ fn stored(st: &Stmt) -> Option<(String, String, usize)> {
 
 // A loop over a new list made from another (`for l in sorted(lots)`) that changes its item: the change
 // stays in the new list.
-const COPYING: [&str; 8] = ["filter", "sort", "sort_by", "rev", "slice", "take", "skip", "unique"];
+const COPYING: [&str; 8] = [
+    "filter", "sort", "sort_by", "rev", "slice", "take", "skip", "unique",
+];
 
 // How deep below the name `x` an expression reaches: `x` is 0, `x[i]` is 1, `x[i][1]` and `x[i].n` are 2.
 fn depth_below(e: &Expr, x: &str) -> Option<usize> {
     match e {
         Expr::Ident(n) if n == x => Some(0),
-        Expr::Field(b, _) | Expr::Index(b, _) | Expr::TupleField(b, _) => depth_below(b, x).map(|d| d + 1),
+        Expr::Field(b, _) | Expr::Index(b, _) | Expr::TupleField(b, _) => {
+            depth_below(b, x).map(|d| d + 1)
+        }
         _ => None,
     }
 }
@@ -903,7 +1364,10 @@ fn depth_below(e: &Expr, x: &str) -> Option<usize> {
 fn item_change(x: &str, st: &Stmt) -> bool {
     match st {
         Stmt::Assign { target, .. } => depth_below(target, x).is_some_and(|d| d >= 2),
-        Stmt::Expr { expr: Expr::Method(recv, m, _, _), .. } => depth_below(recv, x).is_some_and(|d| d >= 1) && CHANGING.contains(&m.as_str()),
+        Stmt::Expr {
+            expr: Expr::Method(recv, m, _, _),
+            ..
+        } => depth_below(recv, x).is_some_and(|d| d >= 1) && CHANGING.contains(&m.as_str()),
         _ => false,
     }
 }
@@ -915,7 +1379,18 @@ fn derived_loops(e: &Expr, cx: &mut Cx) {
     // changing an item of one (`vis[i][1] = ...`) changes the shared item in Python, a copy here.
     let mut from_copy: Vec<(String, String)> = vec![];
     any_expr(e, &mut |st| {
-        if let Stmt::Let { name: Pat::Bind(x), value, .. } | Stmt::Assign { target: Expr::Ident(x), op: "=", value, .. } = st {
+        if let Stmt::Let {
+            name: Pat::Bind(x),
+            value,
+            ..
+        }
+        | Stmt::Assign {
+            target: Expr::Ident(x),
+            op: "=",
+            value,
+            ..
+        } = st
+        {
             let f = match value {
                 Expr::Call(f, _, _) => Some(f),
                 Expr::Method(_, m, _, _) => Some(m),
@@ -954,7 +1429,18 @@ fn derived_loops(e: &Expr, cx: &mut Cx) {
     // their items are copies too.
     let mut copies: HashSet<String> = HashSet::new();
     any_expr(e, &mut |st| {
-        if let Stmt::Let { name: Pat::Bind(x), value: Expr::Method(r, m, _, _), .. } | Stmt::Assign { target: Expr::Ident(x), op: "=", value: Expr::Method(r, m, _, _), .. } = st {
+        if let Stmt::Let {
+            name: Pat::Bind(x),
+            value: Expr::Method(r, m, _, _),
+            ..
+        }
+        | Stmt::Assign {
+            target: Expr::Ident(x),
+            op: "=",
+            value: Expr::Method(r, m, _, _),
+            ..
+        } = st
+        {
             if COPYING.contains(&m.as_str()) && mentions_name(r) {
                 copies.insert(x.clone());
             }
@@ -962,15 +1448,33 @@ fn derived_loops(e: &Expr, cx: &mut Cx) {
         false
     });
     any_expr(e, &mut |st| {
-        if let Stmt::Expr { expr: Expr::For(p, it, body), line } = st {
+        if let Stmt::Expr {
+            expr: Expr::For(p, it, body),
+            line,
+        } = st
+        {
             let names: Vec<String> = match p {
                 Pat::Bind(a) => vec![a.clone()],
-                Pat::Tuple(ps) => ps.iter().filter_map(|q| if let Pat::Bind(a) = q { Some(a.clone()) } else { None }).collect(),
+                Pat::Tuple(ps) => ps
+                    .iter()
+                    .filter_map(|q| {
+                        if let Pat::Bind(a) = q {
+                            Some(a.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
                 _ => vec![],
             };
             let derived = match it.as_ref() {
-                Expr::Method(r, m, _, _) => !["keys", "lines", "words", "split", "chars", "range"].contains(&m.as_str()) && mentions_name(r),
-                Expr::Call(f, args, _) => f != "range" && args.iter().any(|(_, a)| mentions_name(a)),
+                Expr::Method(r, m, _, _) => {
+                    !["keys", "lines", "words", "split", "chars", "range"].contains(&m.as_str())
+                        && mentions_name(r)
+                }
+                Expr::Call(f, args, _) => {
+                    f != "range" && args.iter().any(|(_, a)| mentions_name(a))
+                }
                 Expr::Ident(x) => copies.contains(x),
                 _ => false,
             };
@@ -1007,7 +1511,10 @@ fn mentions_name(e: &Expr) -> bool {
 // Like `direct`, but a method call counts only when it is known to change its value.
 fn direct_strict(r: &str, st: &Stmt, mutators: &HashSet<String>) -> bool {
     match st {
-        Stmt::Expr { expr: Expr::Method(recv, m, _, _), .. } => root(recv) == Some(r) && (CHANGING.contains(&m.as_str()) || mutators.contains(m)),
+        Stmt::Expr {
+            expr: Expr::Method(recv, m, _, _),
+            ..
+        } => root(recv) == Some(r) && (CHANGING.contains(&m.as_str()) || mutators.contains(m)),
         _ => direct(r, st),
     }
 }
@@ -1034,7 +1541,12 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                 // `st = stat(sku)` where stat returns `stats[sku]`: the call is made, then st names stats[sku].
                 if let Some((r, call, base, key, line)) = getter_call(&stmts[i], &cx.getters) {
                     if changed(&r, &stmts[i + 1..], tail.as_deref()) {
-                        stmts[i] = Stmt::Assign { target: Expr::Ident(r), op: "=", value: Expr::Index(Box::new(base), Box::new(key)), line };
+                        stmts[i] = Stmt::Assign {
+                            target: Expr::Ident(r),
+                            op: "=",
+                            value: Expr::Index(Box::new(base), Box::new(key)),
+                            line,
+                        };
                         stmts.insert(i, Stmt::Expr { expr: call, line });
                         i += 1;
                         continue;
@@ -1043,14 +1555,23 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                 if let Some((r, key, line)) = keyed_alias(&stmts[i]) {
                     if changed(&r, &stmts[i + 1..], tail.as_deref()) {
                         let kn = format!("ax_ak{line}_{r}");
-                        if let Stmt::Assign { value, .. } | Stmt::Let { value, .. } = &mut stmts[i] {
+                        if let Stmt::Assign { value, .. } | Stmt::Let { value, .. } = &mut stmts[i]
+                        {
                             match value {
                                 Expr::Index(_, k) => **k = Expr::Ident(kn.clone()),
                                 Expr::Method(_, _, args, _) => args[0] = Expr::Ident(kn.clone()),
                                 _ => {}
                             }
                         }
-                        stmts.insert(i, Stmt::Assign { target: Expr::Ident(kn), op: "=", value: key, line });
+                        stmts.insert(
+                            i,
+                            Stmt::Assign {
+                                target: Expr::Ident(kn),
+                                op: "=",
+                                value: key,
+                                line,
+                            },
+                        );
                         i += 1;
                         continue;
                     }
@@ -1058,29 +1579,55 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                 if let Some((r, base, key, line, guarded)) = alias_of(&stmts[i]) {
                     let mut rest = stmts.split_off(i + 1);
                     // The code stores it back itself (`q = lots.get(sku, [])` ... `lots[sku] = q`) after the last change.
-                    let slot = format!("{:?}", Expr::Index(Box::new(base.clone()), Box::new(key.clone())));
+                    let slot = format!(
+                        "{:?}",
+                        Expr::Index(Box::new(base.clone()), Box::new(key.clone()))
+                    );
                     let stores = rest.iter().rposition(|st| matches!(st, Stmt::Assign { target, op: "=", value: Expr::Ident(v), .. } if *v == r && format!("{target:?}") == slot));
-                    let stored_back = stores.is_some_and(|j| !changed(&r, &rest[j + 1..], tail.as_deref()));
+                    let stored_back =
+                        stores.is_some_and(|j| !changed(&r, &rest[j + 1..], tail.as_deref()));
                     if !stored_back && changed(&r, &rest, tail.as_deref()) {
                         if safe(&r, &base, &key, &rest, tail.as_deref()) {
-                            let set = Stmt::Assign { target: Expr::Index(Box::new(base.clone()), Box::new(key.clone())), op: "=", value: Expr::Ident(r.clone()), line };
+                            let set = Stmt::Assign {
+                                target: Expr::Index(Box::new(base.clone()), Box::new(key.clone())),
+                                op: "=",
+                                value: Expr::Ident(r.clone()),
+                                line,
+                            };
                             // `dq = lots.get(sku, [])`: when sku is missing, Python changes a new list nobody keeps.
                             let wb = if guarded {
-                                let has = Expr::Method(Box::new(base), "has".into(), vec![key], line);
-                                Stmt::Expr { expr: Expr::If(Box::new(has), Box::new(Expr::Block(vec![set], None)), None), line }
+                                let has =
+                                    Expr::Method(Box::new(base), "has".into(), vec![key], line);
+                                Stmt::Expr {
+                                    expr: Expr::If(
+                                        Box::new(has),
+                                        Box::new(Expr::Block(vec![set], None)),
+                                        None,
+                                    ),
+                                    line,
+                                }
                             } else {
                                 set
                             };
                             add(&r, &wb, &mut rest, tail);
                             wbs.push((r.clone(), wb));
-                        } else if any_stmt(&rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
-                            let (rs, from) = (r.trim_end_matches('_').to_string(), show(&Expr::Index(Box::new(base.clone()), Box::new(key.clone()))));
+                        } else if any_stmt(&rest, tail.as_deref(), &mut |s| {
+                            direct_strict(&r, s, &cx.mutators)
+                        }) {
+                            let (rs, from) = (
+                                r.trim_end_matches('_').to_string(),
+                                show(&Expr::Index(Box::new(base.clone()), Box::new(key.clone()))),
+                            );
                             defer(
                                 cx,
                                 line,
                                 &r,
-                                format!("{rs} is a copy of {from}, and the code after changes {rs} in a way Brevi cannot copy back (the list, map or key changes too), so {from} would not change (Brevi values are copies, not shared)"),
-                                format!("change {from} directly, or set {from} = {rs} after changing {rs}"),
+                                format!(
+                                    "{rs} is a copy of {from}, and the code after changes {rs} in a way Brevi cannot copy back (the list, map or key changes too), so {from} would not change (Brevi values are copies, not shared)"
+                                ),
+                                format!(
+                                    "change {from} directly, or set {from} = {rs} after changing {rs}"
+                                ),
                             );
                         }
                     }
@@ -1098,7 +1645,9 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                                 let mut hit = false;
                                 crate::infer::walk(e, &mut |x| {
                                     if let Expr::Method(recv, m, _, _) = x {
-                                        if matches!(recv.as_ref(), Expr::Ident(n) if *n == b) && mf.get(m).is_some_and(|fs| fs.contains(&f)) {
+                                        if matches!(recv.as_ref(), Expr::Ident(n) if *n == b)
+                                            && mf.get(m).is_some_and(|fs| fs.contains(&f))
+                                        {
                                             hit = true;
                                         }
                                     }
@@ -1106,38 +1655,78 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                                 hit
                             };
                             match st {
-                                Stmt::Assign { target: Expr::Ident(n), value, .. } => n == &r || n == &b || calls(value),
-                                Stmt::Let { name: Pat::Bind(n), value, .. } => n == &r || n == &b || calls(value),
-                                Stmt::Assign { target: t, value, .. } => format!("{t:?}") == ts || calls(value),
-                                Stmt::Expr { expr: Expr::For(p, it, _), .. } => format!("{p:?}").contains(&format!("{r:?}")) || calls(it),
-                                Stmt::Expr { expr, .. } if !matches!(expr, Expr::If(..) | Expr::For(..) | Expr::While(..) | Expr::Block(..) | Expr::Match(..)) => calls(expr),
+                                Stmt::Assign {
+                                    target: Expr::Ident(n),
+                                    value,
+                                    ..
+                                } => n == &r || n == &b || calls(value),
+                                Stmt::Let {
+                                    name: Pat::Bind(n),
+                                    value,
+                                    ..
+                                } => n == &r || n == &b || calls(value),
+                                Stmt::Assign {
+                                    target: t, value, ..
+                                } => format!("{t:?}") == ts || calls(value),
+                                Stmt::Expr {
+                                    expr: Expr::For(p, it, _),
+                                    ..
+                                } => format!("{p:?}").contains(&format!("{r:?}")) || calls(it),
+                                Stmt::Expr { expr, .. }
+                                    if !matches!(
+                                        expr,
+                                        Expr::If(..)
+                                            | Expr::For(..)
+                                            | Expr::While(..)
+                                            | Expr::Block(..)
+                                            | Expr::Match(..)
+                                    ) =>
+                                {
+                                    calls(expr)
+                                }
                                 _ => false,
                             }
                         });
                         if !clobber {
-                            let wb = Stmt::Assign { target, op: "=", value: Expr::Ident(r.clone()), line };
+                            let wb = Stmt::Assign {
+                                target,
+                                op: "=",
+                                value: Expr::Ident(r.clone()),
+                                line,
+                            };
                             add(&r, &wb, &mut rest, tail);
                         } else {
-                            let (rs, from) = (r.trim_end_matches('_').to_string(), format!("{}.{}", b.trim_end_matches('_'), f));
+                            let (rs, from) = (
+                                r.trim_end_matches('_').to_string(),
+                                format!("{}.{}", b.trim_end_matches('_'), f),
+                            );
                             defer(
                                 cx,
                                 line,
                                 &r,
-                                format!("{rs} is a copy of {from}, and the code after changes {rs} where Brevi cannot copy it back ({from} is also set or used there), so {from} would not change (Brevi values are copies, not shared)"),
-                                format!("change {from} directly, or set {from} = {rs} after changing {rs}"),
+                                format!(
+                                    "{rs} is a copy of {from}, and the code after changes {rs} where Brevi cannot copy it back ({from} is also set or used there), so {from} would not change (Brevi values are copies, not shared)"
+                                ),
+                                format!(
+                                    "change {from} directly, or set {from} = {rs} after changing {rs}"
+                                ),
                             );
                         }
                     }
                     stmts.extend(rest);
                 } else if let Some((r, from, line)) = picked(&stmts[i]) {
                     let rest = &stmts[i + 1..];
-                    if any_stmt(rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
+                    if any_stmt(rest, tail.as_deref(), &mut |s| {
+                        direct_strict(&r, s, &cx.mutators)
+                    }) {
                         let rs = r.trim_end_matches('_').to_string();
                         defer(
                             cx,
                             line,
                             &r,
-                            format!("{rs} is a copy of the item {from} picks, so changing {rs} does not change the item in the list (Brevi values are copies, not shared)"),
+                            format!(
+                                "{rs} is a copy of the item {from} picks, so changing {rs} does not change the item in the list (Brevi values are copies, not shared)"
+                            ),
                             "find the item's index or key, then change xs[i] directly".into(),
                         );
                     }
@@ -1150,19 +1739,36 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                 let mut more = false;
                 for (r2, wb2) in wbs.clone() {
                     for (_, wb1) in wbs.iter() {
-                        let Stmt::Assign { target: Expr::Index(b1, _), .. } = wb1 else { continue };
+                        let Stmt::Assign {
+                            target: Expr::Index(b1, _),
+                            ..
+                        } = wb1
+                        else {
+                            continue;
+                        };
                         if root(b1) != Some(r2.as_str()) {
                             continue;
                         }
                         let (w1, w2) = (format!("{wb1:?}"), format!("{wb2:?}"));
-                        fn chain(st: &mut Vec<Stmt>, w1: &str, w2: &str, wb2: &Stmt, more: &mut bool) {
+                        fn chain(
+                            st: &mut Vec<Stmt>,
+                            w1: &str,
+                            w2: &str,
+                            wb2: &Stmt,
+                            more: &mut bool,
+                        ) {
                             let mut j = 0;
                             while j < st.len() {
-                                if format!("{:?}", st[j]) == w1 && st.get(j + 1).map_or(true, |n| format!("{n:?}") != w2) {
+                                if format!("{:?}", st[j]) == w1
+                                    && st.get(j + 1).map_or(true, |n| format!("{n:?}") != w2)
+                                {
                                     st.insert(j + 1, wb2.clone());
                                     *more = true;
                                 }
-                                if let Stmt::Expr { expr, .. } | Stmt::Let { value: expr, .. } | Stmt::Assign { value: expr, .. } = &mut st[j] {
+                                if let Stmt::Expr { expr, .. }
+                                | Stmt::Let { value: expr, .. }
+                                | Stmt::Assign { value: expr, .. } = &mut st[j]
+                                {
                                     crate::parser::walk_mut(expr, &mut |e| {
                                         if let Expr::Block(inner, _) = e {
                                             chain(inner, w1, w2, wb2, more);
@@ -1195,8 +1801,18 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
 // `t = self.tx`: a local named after a field of a plain name.
 fn field_alias(st: &Stmt) -> Option<(String, String, String, usize)> {
     let (r, value, line) = match st {
-        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
-        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        Stmt::Assign {
+            target: Expr::Ident(r),
+            op: "=",
+            value,
+            line,
+        } => (r, value, *line),
+        Stmt::Let {
+            name: Pat::Bind(r),
+            value,
+            line,
+            ..
+        } => (r, value, *line),
         _ => return None,
     };
     match value {
@@ -1211,14 +1827,31 @@ fn field_alias(st: &Stmt) -> Option<(String, String, String, usize)> {
 // `best = max(lots, key=...)`, `x = xs.first()`: an item picked out of a list.
 fn picked(st: &Stmt) -> Option<(String, String, usize)> {
     let (r, value, line) = match st {
-        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
-        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        Stmt::Assign {
+            target: Expr::Ident(r),
+            op: "=",
+            value,
+            line,
+        } => (r, value, *line),
+        Stmt::Let {
+            name: Pat::Bind(r),
+            value,
+            line,
+            ..
+        } => (r, value, *line),
         _ => return None,
     };
     match value {
-        Expr::Method(b, m, _, _) if ["max", "min", "max_by", "min_by", "first", "last"].contains(&m.as_str()) && mentions_name(b) => Some((r.clone(), format!("{m}()"), line)),
+        Expr::Method(b, m, _, _)
+            if ["max", "min", "max_by", "min_by", "first", "last"].contains(&m.as_str())
+                && mentions_name(b) =>
+        {
+            Some((r.clone(), format!("{m}()"), line))
+        }
         // `max(xs, key=f)` is `xs.sort_by(f, true)[0]`; also `sorted(xs)[0]` and the like.
-        Expr::Index(c, _) if matches!(c.as_ref(), Expr::Method(b, m, _, _) if COPYING.contains(&m.as_str()) && mentions_name(b)) => Some((r.clone(), "max() or min()".to_string(), line)),
+        Expr::Index(c, _) if matches!(c.as_ref(), Expr::Method(b, m, _, _) if COPYING.contains(&m.as_str()) && mentions_name(b)) => {
+            Some((r.clone(), "max() or min()".to_string(), line))
+        }
         _ => None,
     }
 }
@@ -1238,7 +1871,11 @@ fn plain_key(k: &Expr) -> bool {
         Expr::Unary("-", x) => matches!(x.as_ref(), Expr::Int(_)),
         Expr::Field(b, _) => matches!(b.as_ref(), Expr::Ident(_)),
         // `d.setdefault(l[2], [0, 0])`: an item of a record named by a constant.
-        Expr::Index(b, i) => matches!(b.as_ref(), Expr::Ident(_)) && matches!(i.as_ref(), Expr::Int(_) | Expr::Str(_)) && plain_key(i),
+        Expr::Index(b, i) => {
+            matches!(b.as_ref(), Expr::Ident(_))
+                && matches!(i.as_ref(), Expr::Int(_) | Expr::Str(_))
+                && plain_key(i)
+        }
         _ => false,
     }
 }
@@ -1246,25 +1883,45 @@ fn plain_key(k: &Expr) -> bool {
 // `r = base[key]` where base is a name or a field path and key a name or a constant.
 fn alias_of(st: &Stmt) -> Option<(String, Expr, Expr, usize, bool)> {
     let (r, value, line) = match st {
-        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
-        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        Stmt::Assign {
+            target: Expr::Ident(r),
+            op: "=",
+            value,
+            line,
+        } => (r, value, *line),
+        Stmt::Let {
+            name: Pat::Bind(r),
+            value,
+            line,
+            ..
+        } => (r, value, *line),
         _ => return None,
     };
     let (base, key, guarded) = match value {
         Expr::Index(base, key) => (base.as_ref().clone(), key.as_ref().clone(), false),
         // `r = resting.get(rid)` (None when missing): changed only after a None check, so it is there.
-        Expr::Method(base, m, args, _) if (m == "get" || m == "get_or") && (args.len() == 1 || matches!(args.get(1), Some(Expr::Call(f, a, _)) if f == "none" && a.is_empty())) => {
+        Expr::Method(base, m, args, _)
+            if (m == "get" || m == "get_or")
+                && (args.len() == 1
+                    || matches!(args.get(1), Some(Expr::Call(f, a, _)) if f == "none" && a.is_empty())) =>
+        {
             (base.as_ref().clone(), args[0].clone(), false)
         }
         // `dq = lots.get(sku, deque())`: the stored list when there is one.
-        Expr::Method(base, m, args, _) if m == "get_or" && args.len() == 2 && (matches!(&args[1], Expr::List(x) if x.is_empty()) || matches!(&args[1], Expr::Map(x) if x.is_empty())) => {
+        Expr::Method(base, m, args, _)
+            if m == "get_or"
+                && args.len() == 2
+                && (matches!(&args[1], Expr::List(x) if x.is_empty())
+                    || matches!(&args[1], Expr::Map(x) if x.is_empty())) =>
+        {
             (base.as_ref().clone(), args[0].clone(), true)
         }
         _ => return None,
     };
     let b = root(&base)?;
     let nested = matches!(&base, Expr::Index(bb, bk) if matches!(bb.as_ref(), Expr::Ident(_) | Expr::Field(..)) && plain_key(bk) && !matches!(bk.as_ref(), Expr::Ident(k) if k == r));
-    if b == r || !(matches!(&base, Expr::Ident(_) | Expr::Field(..)) || nested) || !plain_key(&key) {
+    if b == r || !(matches!(&base, Expr::Ident(_) | Expr::Field(..)) || nested) || !plain_key(&key)
+    {
         return None;
     }
     if matches!(&key, Expr::Ident(k) if k == r) {
@@ -1274,17 +1931,38 @@ fn alias_of(st: &Stmt) -> Option<(String, Expr, Expr, usize, bool)> {
 }
 
 // Methods that change the value they are called on, when the call is a value rather than a statement.
-const CHANGING: &[&str] = &["push", "insert", "remove", "clear", "splice", "update", "pop", "heap_push", "heap_pop", "pop_at", "add", "extend", "append", "discard"];
+const CHANGING: &[&str] = &[
+    "push",
+    "insert",
+    "remove",
+    "clear",
+    "splice",
+    "update",
+    "pop",
+    "heap_push",
+    "heap_pop",
+    "pop_at",
+    "add",
+    "extend",
+    "append",
+    "discard",
+];
 
 // Does this statement itself change r in place (not counting statements nested inside it)?
 fn direct(r: &str, st: &Stmt) -> bool {
     match st {
         Stmt::Assign { target, value, .. } => {
-            (!matches!(target, Expr::Ident(_)) && root(target) == Some(r)) || matches!(value, Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()))
+            (!matches!(target, Expr::Ident(_)) && root(target) == Some(r))
+                || matches!(value, Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()))
         }
-        Stmt::Let { value, .. } => matches!(value, Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str())),
+        Stmt::Let { value, .. } => {
+            matches!(value, Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()))
+        }
         // `acct.deposit(5)`, `r.push(x)`: a method called for its effect.
-        Stmt::Expr { expr: Expr::Method(recv, _, _, _), .. } => root(recv) == Some(r),
+        Stmt::Expr {
+            expr: Expr::Method(recv, _, _, _),
+            ..
+        } => root(recv) == Some(r),
         _ => false,
     }
 }
@@ -1315,8 +1993,15 @@ fn any_stmt(stmts: &[Stmt], tail: Option<&Expr>, f: &mut dyn FnMut(&Stmt) -> boo
                 },
                 _ => 0,
             };
-            let line = if inside > 0 { inside } else { stmts.last().map_or(0, stmt_line) + 1 };
-            if f(&Stmt::Expr { expr: t.clone(), line }) {
+            let line = if inside > 0 {
+                inside
+            } else {
+                stmts.last().map_or(0, stmt_line) + 1
+            };
+            if f(&Stmt::Expr {
+                expr: t.clone(),
+                line,
+            }) {
                 return true;
             }
         }
@@ -1324,7 +2009,10 @@ fn any_stmt(stmts: &[Stmt], tail: Option<&Expr>, f: &mut dyn FnMut(&Stmt) -> boo
     // A call that ends a block (`for c in cs: row.push(c)`, kept as the body's value) is a statement too.
     if let Some(t @ Expr::Method(..)) = tail {
         let line = stmts.last().map_or(0, stmt_line);
-        if f(&Stmt::Expr { expr: t.clone(), line }) {
+        if f(&Stmt::Expr {
+            expr: t.clone(),
+            line,
+        }) {
             return true;
         }
     }
@@ -1357,15 +2045,28 @@ fn changed(r: &str, rest: &[Stmt], tail: Option<&Expr>) -> bool {
 // copy is written back after the call (unchanged, that changes nothing).
 fn direct_wb(r: &str, st: &Stmt) -> bool {
     let passes = |e: &Expr| match e {
-        Expr::Call(f, args, _) => args.iter().enumerate().any(|(i, (_, a))| matches!(a, Expr::Ident(n) if n == r) && CHANGES_PARAM.with(|c| c.borrow().contains(&(f.clone(), i)))),
+        Expr::Call(f, args, _) => args.iter().enumerate().any(|(i, (_, a))| {
+            matches!(a, Expr::Ident(n) if n == r)
+                && CHANGES_PARAM.with(|c| c.borrow().contains(&(f.clone(), i)))
+        }),
         // `self.discard(t)` with discard changing its parameter (the method's own `self` is parameter 0).
-        Expr::Method(_, m, args, _) => args.iter().enumerate().any(|(i, a)| matches!(a, Expr::Ident(n) if n == r) && CHANGES_PARAM.with(|c| c.borrow().iter().any(|(f, j)| *j == i + 1 && f.ends_with(&format!("_{m}"))))),
+        Expr::Method(_, m, args, _) => args.iter().enumerate().any(|(i, a)| {
+            matches!(a, Expr::Ident(n) if n == r)
+                && CHANGES_PARAM.with(|c| {
+                    c.borrow()
+                        .iter()
+                        .any(|(f, j)| *j == i + 1 && f.ends_with(&format!("_{m}")))
+                })
+        }),
         _ => false,
     };
     direct(r, st)
         || match st {
             // `for row in t[2]: row[1] = v` changes t's own rows.
-            Stmt::Expr { expr: Expr::For(Pat::Bind(x), iter, body), .. } if root(iter) == Some(r) && crate::emit::changes_in_place(body, x) => true,
+            Stmt::Expr {
+                expr: Expr::For(Pat::Bind(x), iter, body),
+                ..
+            } if root(iter) == Some(r) && crate::emit::changes_in_place(body, x) => true,
             Stmt::Expr { expr, .. } => passes(expr),
             Stmt::Assign { value, .. } | Stmt::Let { value, .. } => passes(value),
             _ => false,
@@ -1377,12 +2078,23 @@ fn direct_wb(r: &str, st: &Stmt) -> bool {
 fn safe(r: &str, base: &Expr, key: &Expr, rest: &[Stmt], tail: Option<&Expr>) -> bool {
     let b = root(base).unwrap_or("");
     let k = root(key).unwrap_or("");
-    let slot = format!("{:?}", Expr::Index(Box::new(base.clone()), Box::new(key.clone())));
+    let slot = format!(
+        "{:?}",
+        Expr::Index(Box::new(base.clone()), Box::new(key.clone()))
+    );
     let bad = any_stmt(rest, tail, &mut |st| match st {
-        Stmt::Assign { target: Expr::Ident(n), .. } => n == r || n == k || n == b,
-        Stmt::Let { name: Pat::Bind(n), .. } => n == r || n == k || n == b,
+        Stmt::Assign {
+            target: Expr::Ident(n),
+            ..
+        } => n == r || n == k || n == b,
+        Stmt::Let {
+            name: Pat::Bind(n), ..
+        } => n == r || n == k || n == b,
         Stmt::Assign { target, .. } => format!("{target:?}") == slot,
-        Stmt::Expr { expr: Expr::For(p, _, _), .. } => format!("{p:?}").contains(&format!("{r:?}")),
+        Stmt::Expr {
+            expr: Expr::For(p, _, _),
+            ..
+        } => format!("{p:?}").contains(&format!("{r:?}")),
         _ => false,
     });
     // `cur = stack[-1]`, `stack.append(x)`, then `cur.append(y)`: the slot no longer holds r's item.
@@ -1393,7 +2105,13 @@ fn safe(r: &str, base: &Expr, key: &Expr, rest: &[Stmt], tail: Option<&Expr>) ->
         }
         let structural = |e: &Expr| matches!(e, Expr::Method(recv, m, _, _) if root(recv) == Some(b) && ["push", "insert", "pop", "pop_at", "remove", "clear", "splice", "heap_push", "heap_pop", "heapify", "sort", "sort_by", "rev", "append"].contains(&m.as_str()));
         match st {
-            Stmt::Expr { expr, .. } | Stmt::Assign { value: expr, .. } | Stmt::Let { value: expr, .. } if structural(expr) => moved = true,
+            Stmt::Expr { expr, .. }
+            | Stmt::Assign { value: expr, .. }
+            | Stmt::Let { value: expr, .. }
+                if structural(expr) =>
+            {
+                moved = true
+            }
             _ => {}
         }
         false
@@ -1408,7 +2126,11 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
         let d = direct_wb(r, &st);
         // `nrow = new[r]`, then `for c in ...: nrow[c] = v`: write back once after the loop, not after every
         // change inside it (a whole-row copy per cell), when nothing in the loop could see the difference.
-        if let Stmt::Expr { expr: lp @ (Expr::For(..) | Expr::While(..)), .. } = &st {
+        if let Stmt::Expr {
+            expr: lp @ (Expr::For(..) | Expr::While(..)),
+            ..
+        } = &st
+        {
             if quiet_loop(lp, wb) && any_expr(lp, &mut |s| direct_wb(r, s)) {
                 stmts.push(st);
                 stmts.push(wb.clone());
@@ -1430,8 +2152,13 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
             Stmt::Assign { line, .. } => *line,
             _ => 0,
         };
-        let as_st = Stmt::Expr { expr: (**t).clone(), line: line0 };
-        if matches!(t.as_ref(), Expr::For(..) | Expr::While(..)) && (quiet_loop(t, wb) && any_expr(t, &mut |s| direct_wb(r, s)) || direct_wb(r, &as_st)) {
+        let as_st = Stmt::Expr {
+            expr: (**t).clone(),
+            line: line0,
+        };
+        if matches!(t.as_ref(), Expr::For(..) | Expr::While(..))
+            && (quiet_loop(t, wb) && any_expr(t, &mut |s| direct_wb(r, s)) || direct_wb(r, &as_st))
+        {
             let line = match wb {
                 Stmt::Assign { line, .. } => *line,
                 _ => 0,
@@ -1442,7 +2169,8 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
             return;
         }
         // A branch ending in `r.push(x)`: it is a statement, so the write-back can follow it.
-        if matches!(t.as_ref(), Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()) && !m.starts_with("pop") && m != "heap_pop" && m != "remove") {
+        if matches!(t.as_ref(), Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()) && !m.starts_with("pop") && m != "heap_pop" && m != "remove")
+        {
             let line = match wb {
                 Stmt::Assign { line, .. } => *line,
                 _ => 0,
@@ -1459,13 +2187,22 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
 // A loop that neither reads the container written back to, nor returns, raises or calls a function of the
 // program (which could read it): the container may be stale while it runs.
 fn quiet_loop(lp: &Expr, wb: &Stmt) -> bool {
-    let Stmt::Assign { target, .. } = wb else { return false };
+    let Stmt::Assign { target, .. } = wb else {
+        return false;
+    };
     let Some(b) = root(target) else { return false };
     let d = format!("{lp:?}");
-    if d.contains(&format!("Ident({b:?})")) || d.contains("Return") || d.contains("Lambda") || d.contains("Method(Ident(\"self_\")") {
+    if d.contains(&format!("Ident({b:?})"))
+        || d.contains("Return")
+        || d.contains("Lambda")
+        || d.contains("Method(Ident(\"self_\")")
+    {
         return false;
     }
-    const PURE: &[&str] = &["int", "str", "float", "len", "abs", "min", "max", "range", "round", "print", "none", "ord", "chr", "bool"];
+    const PURE: &[&str] = &[
+        "int", "str", "float", "len", "abs", "min", "max", "range", "round", "print", "none",
+        "ord", "chr", "bool",
+    ];
     let mut calls_ok = true;
     let mut probe = lp.clone();
     crate::parser::walk_mut(&mut probe, &mut |e| {
@@ -1493,7 +2230,24 @@ fn add_expr(r: &str, wb: &Stmt, e: &mut Expr) {
     }
 }
 
-const SHAPE: [&str; 16] = ["push", "insert", "pop", "pop_at", "remove", "clear", "splice", "heap_push", "heap_pop", "heapify", "sort", "sort_by", "rev", "append", "extend", "discard"];
+const SHAPE: [&str; 16] = [
+    "push",
+    "insert",
+    "pop",
+    "pop_at",
+    "remove",
+    "clear",
+    "splice",
+    "heap_push",
+    "heap_pop",
+    "heapify",
+    "sort",
+    "sort_by",
+    "rev",
+    "append",
+    "extend",
+    "discard",
+];
 
 // The body changes the list as a whole (adds, removes, sorts or sets it): its indexes do not stay put.
 // `base.remove(a)` of the loop's own item is allowed when `own` is given.
@@ -1501,7 +2255,10 @@ fn shape_changed(b: &str, body: &Expr, own: Option<&str>) -> bool {
     let mut hit = false;
     crate::infer::walk(body, &mut |e| {
         if let Expr::Method(r, m, args, _) = e {
-            if root(r) == Some(b) && matches!(r.as_ref(), Expr::Ident(_) | Expr::Field(..)) && SHAPE.contains(&m.as_str()) {
+            if root(r) == Some(b)
+                && matches!(r.as_ref(), Expr::Ident(_) | Expr::Field(..))
+                && SHAPE.contains(&m.as_str())
+            {
                 let mine = m == "remove" && own.is_some_and(|a| own_item(args, a));
                 if !mine {
                     hit = true;
@@ -1509,7 +2266,10 @@ fn shape_changed(b: &str, body: &Expr, own: Option<&str>) -> bool {
             }
         }
     });
-    hit || any_expr(body, &mut |st| matches!(st, Stmt::Assign { target, .. } if matches!(target, Expr::Ident(n) if n == b) || matches!(target, Expr::Method(r, ..) if root(r) == Some(b))))
+    hit || any_expr(
+        body,
+        &mut |st| matches!(st, Stmt::Assign { target, .. } if matches!(target, Expr::Ident(n) if n == b) || matches!(target, Expr::Method(r, ..) if root(r) == Some(b))),
+    )
 }
 
 fn subst(e: &mut Expr, name: &str, with: &Expr) {
@@ -1540,14 +2300,20 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
             break;
         }
         match cur {
-            Expr::Method(r, m, args, l) if m == "get_or" && matches!(args.as_slice(), [k, Expr::List(d)] if d.is_empty() && plain_key(k)) && matches!(r.as_ref(), Expr::Ident(_) | Expr::Field(..)) => {
+            Expr::Method(r, m, args, l)
+                if m == "get_or"
+                    && matches!(args.as_slice(), [k, Expr::List(d)] if d.is_empty() && plain_key(k))
+                    && matches!(r.as_ref(), Expr::Ident(_) | Expr::Field(..)) =>
+            {
                 got = Some(Expr::Index(r.clone(), Box::new(args[0].clone())));
                 line = *l;
                 break;
             }
             Expr::Method(r, m, args, l) => {
                 let step = match (m.as_str(), args.as_slice()) {
-                    ("filter" | "sort_by", [Expr::Lambda(ps, lb)]) if ps.len() == 1 => (m.clone(), Some((ps[0].clone(), lb.as_ref().clone()))),
+                    ("filter" | "sort_by", [Expr::Lambda(ps, lb)]) if ps.len() == 1 => {
+                        (m.clone(), Some((ps[0].clone(), lb.as_ref().clone())))
+                    }
                     ("sort" | "rev", []) => (m.clone(), None),
                     ("skip", [Expr::Int(0)]) => (m.clone(), None),
                     _ => return None,
@@ -1559,7 +2325,10 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
                     break;
                 }
                 if let Expr::Method(r2, m2, a2, _) = cur {
-                    if m2 == "get_or" && matches!(a2.as_slice(), [k, Expr::List(d)] if d.is_empty() && plain_key(k)) && matches!(r2.as_ref(), Expr::Ident(_) | Expr::Field(..)) {
+                    if m2 == "get_or"
+                        && matches!(a2.as_slice(), [k, Expr::List(d)] if d.is_empty() && plain_key(k))
+                        && matches!(r2.as_ref(), Expr::Ident(_) | Expr::Field(..))
+                    {
                         got = Some(Expr::Index(r2.clone(), Box::new(a2[0].clone())));
                         line = *l;
                         break;
@@ -1571,15 +2340,27 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
     }
     // With `m.get(k, [])`, a missing k loops over nothing (the length is read with the default).
     let got_len = got.as_ref().and_then(|_| match cur {
-        Expr::Method(r, m, args, l) if m == "get_or" => Some(Expr::Method(Box::new(Expr::Method(r.clone(), m.clone(), args.clone(), *l)), "len".into(), vec![], *l)),
+        Expr::Method(r, m, args, l) if m == "get_or" => Some(Expr::Method(
+            Box::new(Expr::Method(r.clone(), m.clone(), args.clone(), *l)),
+            "len".into(),
+            vec![],
+            *l,
+        )),
         Expr::Method(r, _, _, _) => match r.as_ref() {
-            Expr::Method(r2, m2, a2, l2) if m2 == "get_or" => Some(Expr::Method(Box::new(Expr::Method(r2.clone(), m2.clone(), a2.clone(), *l2)), "len".into(), vec![], *l2)),
+            Expr::Method(r2, m2, a2, l2) if m2 == "get_or" => Some(Expr::Method(
+                Box::new(Expr::Method(r2.clone(), m2.clone(), a2.clone(), *l2)),
+                "len".into(),
+                vec![],
+                *l2,
+            )),
             _ => None,
         },
         _ => None,
     });
     let base = got.unwrap_or_else(|| cur.clone());
-    let Some(b) = root(&base).map(String::from) else { return None };
+    let Some(b) = root(&base).map(String::from) else {
+        return None;
+    };
     // A plain `for b in self.backs` changes the items in place, unless the body also reads the list's
     // owner (`self.shipped += got`): then it goes by index too, so each change is written back.
     if steps.is_empty() && !matches!(base, Expr::Index(..)) && !names(body, &b) {
@@ -1591,14 +2372,21 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
         return None;
     }
     let i = format!("ax_li{line}");
-    let at = |ix: &str| Expr::Index(Box::new(base.clone()), Box::new(Expr::Ident(ix.to_string())));
-    let len = got_len.unwrap_or_else(|| Expr::Method(Box::new(base.clone()), "len".into(), vec![], line));
+    let at = |ix: &str| {
+        Expr::Index(
+            Box::new(base.clone()),
+            Box::new(Expr::Ident(ix.to_string())),
+        )
+    };
+    let len =
+        got_len.unwrap_or_else(|| Expr::Method(Box::new(base.clone()), "len".into(), vec![], line));
     if copy_only {
         // `for b in list(xs)` that may remove b itself: later items move down one place each time.
         let removes = {
             let mut hit = false;
             crate::infer::walk(body, &mut |e| {
-                if matches!(e, Expr::Method(r, m, _, _) if m == "remove" && root(r) == Some(b.as_str())) {
+                if matches!(e, Expr::Method(r, m, _, _) if m == "remove" && root(r) == Some(b.as_str()))
+                {
                     hit = true;
                 }
             });
@@ -1606,44 +2394,108 @@ fn index_loop(a: &str, it: &mut Box<Expr>, body: &mut Box<Expr>) -> Option<(Stri
         };
         if !removes {
             **it = Expr::Range(Box::new(Expr::Int(0)), Box::new(len));
-            prepend(body, vec![Stmt::Assign { target: Expr::Ident(a.into()), op: "=", value: at(&i), line }], line);
+            prepend(
+                body,
+                vec![Stmt::Assign {
+                    target: Expr::Ident(a.into()),
+                    op: "=",
+                    value: at(&i),
+                    line,
+                }],
+                line,
+            );
             return Some((i, vec![]));
         }
         let (d, k) = (format!("ax_ld{line}"), format!("ax_lk{line}"));
         // After `xs.remove(b)`: one more item gone below the next one.
-        let bump = Stmt::Assign { target: Expr::Ident(d.clone()), op: "+=", value: Expr::Int(1), line };
+        let bump = Stmt::Assign {
+            target: Expr::Ident(d.clone()),
+            op: "+=",
+            value: Expr::Int(1),
+            line,
+        };
         bump_after_remove(body, &b, a, &bump);
         prepend(
             body,
             vec![
-                Stmt::Assign { target: Expr::Ident(k.clone()), op: "=", value: Expr::Binary("-", Box::new(Expr::Ident(i.clone())), Box::new(Expr::Ident(d.clone()))), line },
-                Stmt::Assign { target: Expr::Ident(a.into()), op: "=", value: at(&k), line },
+                Stmt::Assign {
+                    target: Expr::Ident(k.clone()),
+                    op: "=",
+                    value: Expr::Binary(
+                        "-",
+                        Box::new(Expr::Ident(i.clone())),
+                        Box::new(Expr::Ident(d.clone())),
+                    ),
+                    line,
+                },
+                Stmt::Assign {
+                    target: Expr::Ident(a.into()),
+                    op: "=",
+                    value: at(&k),
+                    line,
+                },
             ],
             line,
         );
         **it = Expr::Range(Box::new(Expr::Int(0)), Box::new(len));
-        return Some((i, vec![Stmt::Assign { target: Expr::Ident(d), op: "=", value: Expr::Int(0), line }]));
+        return Some((
+            i,
+            vec![Stmt::Assign {
+                target: Expr::Ident(d),
+                op: "=",
+                value: Expr::Int(0),
+                line,
+            }],
+        ));
     }
     // Indexes worked out before the loop go stale if the body takes items out of the list
     // (`orders.remove(b)`, also through a helper): leave the loop to the copy check.
     let d = format!("{body:?}");
-    if d.contains("\"remove\"") || d.contains("\"pop\"") || d.contains("\"pop_at\"") || d.contains("remove") {
+    if d.contains("\"remove\"")
+        || d.contains("\"pop\"")
+        || d.contains("\"pop_at\"")
+        || d.contains("remove")
+    {
         return None;
     }
     // Indexes of the items, filtered and sorted by the same tests on `xs[i]`.
-    let mut new_it = Expr::Method(Box::new(Expr::Range(Box::new(Expr::Int(0)), Box::new(len))), "skip".into(), vec![Expr::Int(0)], line);
+    let mut new_it = Expr::Method(
+        Box::new(Expr::Range(Box::new(Expr::Int(0)), Box::new(len))),
+        "skip".into(),
+        vec![Expr::Int(0)],
+        line,
+    );
     for (m, lam) in steps {
         new_it = match (m.as_str(), lam) {
             ("filter" | "sort_by", Some((p, mut lb))) => {
                 subst(&mut lb, &p, &at(&i));
-                Expr::Method(Box::new(new_it), m, vec![Expr::Lambda(vec![i.clone()], Box::new(lb))], line)
+                Expr::Method(
+                    Box::new(new_it),
+                    m,
+                    vec![Expr::Lambda(vec![i.clone()], Box::new(lb))],
+                    line,
+                )
             }
-            ("sort", None) => Expr::Method(Box::new(new_it), "sort_by".into(), vec![Expr::Lambda(vec![i.clone()], Box::new(at(&i)))], line),
+            ("sort", None) => Expr::Method(
+                Box::new(new_it),
+                "sort_by".into(),
+                vec![Expr::Lambda(vec![i.clone()], Box::new(at(&i)))],
+                line,
+            ),
             (m, _) => Expr::Method(Box::new(new_it), m.to_string(), vec![], line),
         };
     }
     **it = new_it;
-    prepend(body, vec![Stmt::Assign { target: Expr::Ident(a.into()), op: "=", value: at(&i), line }], line);
+    prepend(
+        body,
+        vec![Stmt::Assign {
+            target: Expr::Ident(a.into()),
+            op: "=",
+            value: at(&i),
+            line,
+        }],
+        line,
+    );
     Some((i, vec![]))
 }
 
@@ -1670,12 +2522,17 @@ fn bump_after_remove(e: &mut Expr, b: &str, a: &str, bump: &Stmt) {
             let is_rm = |e: &Expr| matches!(e, Expr::Method(r, m, args, _) if m == "remove" && root(r) == Some(b) && own_item(args, a));
             if tail.as_deref().is_some_and(is_rm) {
                 let t = tail.take().unwrap();
-                let line = if let Expr::Method(_, _, _, l) = t.as_ref() { *l } else { 0 };
+                let line = if let Expr::Method(_, _, _, l) = t.as_ref() {
+                    *l
+                } else {
+                    0
+                };
                 stmts.push(Stmt::Expr { expr: *t, line });
             }
             let mut k = 0;
             while k < stmts.len() {
-                if matches!(&stmts[k], Stmt::Expr { expr: Expr::Method(r, m, args, _), .. } if m == "remove" && root(r) == Some(b) && own_item(args, a)) {
+                if matches!(&stmts[k], Stmt::Expr { expr: Expr::Method(r, m, args, _), .. } if m == "remove" && root(r) == Some(b) && own_item(args, a))
+                {
                     stmts.insert(k + 1, bump.clone());
                     k += 1;
                 }
@@ -1689,7 +2546,9 @@ fn bump_after_remove(e: &mut Expr, b: &str, a: &str, bump: &Stmt) {
 fn own_item(args: &[Expr], a: &str) -> bool {
     match args {
         [Expr::Ident(x)] => x == a,
-        [Expr::Method(_, m, xs, _)] if m == "index_of" => matches!(xs.as_slice(), [Expr::Ident(x)] if x == a),
+        [Expr::Method(_, m, xs, _)] if m == "index_of" => {
+            matches!(xs.as_slice(), [Expr::Ident(x)] if x == a)
+        }
         _ => false,
     }
 }
@@ -1697,17 +2556,37 @@ fn own_item(args: &[Expr], a: &str) -> bool {
 // `r = base[key]` (or `base.get(key)`) whose key is an expression (`date[:7]`, `row["sku"]`), not a name.
 fn keyed_alias(st: &Stmt) -> Option<(String, Expr, usize)> {
     let (r, value, line) = match st {
-        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
-        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        Stmt::Assign {
+            target: Expr::Ident(r),
+            op: "=",
+            value,
+            line,
+        } => (r, value, *line),
+        Stmt::Let {
+            name: Pat::Bind(r),
+            value,
+            line,
+            ..
+        } => (r, value, *line),
         _ => return None,
     };
     let (base, key) = match value {
         Expr::Index(base, key) => (base.as_ref(), key.as_ref()),
-        Expr::Method(base, m, args, _) if (m == "get" || m == "get_or") && (args.len() == 1 || matches!(args.get(1), Some(Expr::Call(f, a, _)) if f == "none" && a.is_empty())) => (base.as_ref(), &args[0]),
+        Expr::Method(base, m, args, _)
+            if (m == "get" || m == "get_or")
+                && (args.len() == 1
+                    || matches!(args.get(1), Some(Expr::Call(f, a, _)) if f == "none" && a.is_empty())) =>
+        {
+            (base.as_ref(), &args[0])
+        }
         _ => return None,
     };
     let b = root(base)?;
-    if b == r || !matches!(base, Expr::Ident(_) | Expr::Field(..)) || plain_key(key) || matches!(key, Expr::Range(..)) {
+    if b == r
+        || !matches!(base, Expr::Ident(_) | Expr::Field(..))
+        || plain_key(key)
+        || matches!(key, Expr::Range(..))
+    {
         return None;
     }
     Some((r.clone(), key.clone(), line))
@@ -1738,8 +2617,12 @@ fn getter(params: &[Param], body: &Expr) -> Option<(Result<usize, String>, usize
     if other || rets.len() != 1 {
         return None;
     }
-    let Expr::Index(b, k) = &rets[0] else { return None };
-    let (Expr::Ident(bn), Expr::Ident(kn)) = (b.as_ref(), k.as_ref()) else { return None };
+    let Expr::Index(b, k) = &rets[0] else {
+        return None;
+    };
+    let (Expr::Ident(bn), Expr::Ident(kn)) = (b.as_ref(), k.as_ref()) else {
+        return None;
+    };
     let ki = params.iter().position(|p| &p.name == kn)?;
     // The function must not set the key name to something else.
     let mut sets_key = false;
@@ -1760,13 +2643,28 @@ fn getter(params: &[Param], body: &Expr) -> Option<(Result<usize, String>, usize
     Some((base, ki))
 }
 
-fn getter_call(st: &Stmt, getters: &std::collections::HashMap<String, (Result<usize, String>, usize)>) -> Option<(String, Expr, Expr, Expr, usize)> {
+fn getter_call(
+    st: &Stmt,
+    getters: &std::collections::HashMap<String, (Result<usize, String>, usize)>,
+) -> Option<(String, Expr, Expr, Expr, usize)> {
     let (r, value, line) = match st {
-        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
-        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        Stmt::Assign {
+            target: Expr::Ident(r),
+            op: "=",
+            value,
+            line,
+        } => (r, value, *line),
+        Stmt::Let {
+            name: Pat::Bind(r),
+            value,
+            line,
+            ..
+        } => (r, value, *line),
         _ => return None,
     };
-    let Expr::Call(f, args, _) = value else { return None };
+    let Expr::Call(f, args, _) = value else {
+        return None;
+    };
     let (base, ki) = getters.get(f)?;
     if args.iter().any(|(n, _)| n.is_some()) {
         return None;
@@ -1786,9 +2684,16 @@ type Inline = std::collections::HashMap<String, (Vec<String>, Expr)>;
 
 // A call of a function that only returns an expression, with the arguments put in (plain arguments only).
 fn inline_call(it: &Expr, inl: &Inline) -> Option<Box<Expr>> {
-    let Expr::Call(f, args, _) = it else { return None };
+    let Expr::Call(f, args, _) = it else {
+        return None;
+    };
     let (ps, e) = inl.get(f)?;
-    let simple = |a: &Expr| matches!(a, Expr::Ident(_) | Expr::Field(..) | Expr::Int(_) | Expr::Str(_));
+    let simple = |a: &Expr| {
+        matches!(
+            a,
+            Expr::Ident(_) | Expr::Field(..) | Expr::Int(_) | Expr::Str(_)
+        )
+    };
     // `od.waiting(w[1])`: an item of a name is as plain as the name.
     let plain = |a: &Expr| simple(a) || matches!(a, Expr::Index(b, k) if simple(b) && simple(k));
     if ps.len() != args.len() || args.iter().any(|(n, a)| n.is_some() || !plain(a)) {
@@ -1800,7 +2705,10 @@ fn inline_call(it: &Expr, inl: &Inline) -> Option<Box<Expr>> {
             lams.extend(ps.iter().cloned());
         }
     });
-    if args.iter().any(|(_, a)| root(a).is_some_and(|n| lams.iter().any(|l| l == n))) {
+    if args
+        .iter()
+        .any(|(_, a)| root(a).is_some_and(|n| lams.iter().any(|l| l == n)))
+    {
         return None;
     }
     let mut e = e.clone();

@@ -1,0 +1,135 @@
+User(id=42, name='Ann', email='ann@example.com', age=31, score=3.0, tags=['a', 'b'], address=Address(street='Main 1', city='Paris', zip_code=None), friends=[], role='user', meta={}, pair=(0, ''), either=0)
+id=42 name='Ann' email='ann@example.com' age=31 score=3.0 tags=['a', 'b'] address=Address(street='Main 1', city='Paris', zip_code=None) friends=[] role='user' meta={} pair=(0, '') either=0
+{'id': 42, 'name': 'Ann', 'email': 'ann@example.com', 'age': 31, 'score': 3.0, 'tags': ['a', 'b'], 'address': {'street': 'Main 1', 'city': 'Paris', 'zip_code': None}, 'friends': [], 'role': 'user', 'meta': {}, 'pair': (0, ''), 'either': 0}
+{'id': 42, 'name': 'Ann', 'mail': 'ann@example.com', 'age': 31, 'score': 3.0, 'tags': ['a', 'b'], 'address': {'street': 'Main 1', 'city': 'Paris', 'zip_code': None}, 'friends': [], 'role': 'user', 'meta': {}, 'pair': (0, ''), 'either': 0}
+{'id': 42, 'name': 'Ann', 'email': 'ann@example.com', 'age': 31, 'score': 3.0, 'tags': ['a', 'b'], 'address': {'street': 'Main 1', 'city': 'Paris', 'zip_code': None}, 'friends': [], 'role': 'user', 'meta': {}, 'pair': [0, ''], 'either': 0}
+{"id":42,"name":"Ann","email":"ann@example.com","age":31,"score":3.0,"tags":["a","b"],"address":{"street":"Main 1","city":"Paris","zip_code":null},"friends":[],"role":"user","meta":{},"pair":[0,""],"either":0}
+{
+  "id": 42,
+  "name": "Ann",
+  "email": "ann@example.com",
+  "age": 31,
+  "score": 3.0,
+  "tags": [
+    "a",
+    "b"
+  ],
+  "address": {
+    "street": "Main 1",
+    "city": "Paris",
+    "zip_code": null
+  },
+  "friends": [],
+  "role": "user",
+  "meta": {},
+  "pair": [
+    0,
+    ""
+  ],
+  "either": 0
+}
+{'id': 42, 'address': {'street': 'Main 1', 'city': 'Paris', 'zip_code': None}}
+{'id': 42, 'name': 'Ann', 'email': 'ann@example.com', 'age': 31, 'score': 3.0, 'tags': ['a', 'b'], 'address': {'street': 'Main 1', 'zip_code': None}, 'friends': [], 'role': 'user', 'either': 0}
+{'id': 42, 'name': 'Ann', 'email': 'ann@example.com', 'age': 31, 'score': 3.0, 'tags': ['a', 'b'], 'address': {'street': 'Main 1'}}
+{'id': 42, 'name': 'Ann', 'email': 'ann@example.com', 'age': 31, 'score': 3.0, 'tags': ['a', 'b'], 'address': {'street': 'Main 1'}}
+{'id': 42, 'name': 'Ann', 'email': 'ann@example.com', 'age': 31, 'score': 3.0, 'tags': ['a', 'b'], 'address': {'street': 'Main 1', 'city': 'Paris'}, 'friends': [], 'role': 'user', 'meta': {}, 'pair': (0, ''), 'either': 0}
+['address', 'age', 'email', 'id', 'name', 'score', 'tags']
+Paris ['a', 'b'] 3.0 float
+True
+Bob Ann True False
+7
+7
+id=5 name='raw' email='none@example.com' age=0 score=0 tags=[] address=None friends=[] role='user' meta={} pair=(0, '') either=0
+id FieldInfo(annotation=int, required=True)
+name FieldInfo(annotation=str, required=True)
+email FieldInfo(annotation=str, required=False, default='none@example.com', alias='mail', alias_priority=2)
+age FieldInfo(annotation=int, required=False, default=0, metadata=[Ge(ge=0), Le(le=150)])
+score FieldInfo(annotation=float, required=False, default=0)
+tags FieldInfo(annotation=list[str], required=False, default=[])
+address FieldInfo(annotation=Union[Address, NoneType], required=False, default=None)
+friends FieldInfo(annotation=list[int], required=False, default_factory=list)
+role FieldInfo(annotation=Literal['admin', 'user'], required=False, default='user')
+meta FieldInfo(annotation=dict[str, Any], required=False, default={})
+pair FieldInfo(annotation=tuple[int, str], required=False, default=(0, ''))
+either FieldInfo(annotation=Union[int, str], required=False, default=0)
+42 ['id', 'name', 'email', 'age', 'score', 'tags', 'address', 'friends', 'role', 'meta', 'pair', 'either']
+2 validation errors for User
+id
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+name
+  Field required [type=missing, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+2 User
+  missing ('id',) 'Field required' None
+  missing ('name',) 'Field required' None
+2 validation errors for User
+id
+  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='x', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing
+name
+  Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+2 User
+  int_parsing ('id',) 'Input should be a valid integer, unable to parse string as an integer' None
+  string_type ('name',) 'Input should be a valid string' None
+4 validation errors for User
+id
+  Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=1.5, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_from_float
+age
+  Input should be greater than or equal to 0 [type=greater_than_equal, input_value=-1, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/greater_than_equal
+tags
+  Input should be a valid list [type=list_type, input_value='abc', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+role
+  Input should be 'admin' or 'user' [type=literal_error, input_value='root', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+4 User
+  int_from_float ('id',) 'Input should be a valid integer, got a number with a fractional part' None
+  greater_than_equal ('age',) 'Input should be greater than or equal to 0' {'ge': 0}
+  list_type ('tags',) 'Input should be a valid list' None
+  literal_error ('role',) "Input should be 'admin' or 'user'" {'expected': "'admin' or 'user'"}
+2 validation errors for User
+address.street
+  Field required [type=missing, input_value={'zip_code': 75001}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+address.zip_code
+  Input should be a valid string [type=string_type, input_value=75001, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+2 User
+  missing ('address', 'street') 'Field required' None
+  string_type ('address', 'zip_code') 'Input should be a valid string' None
+3 validation errors for User
+friends.1
+  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing
+friends.3
+  Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=4.5, input_type=float]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_from_float
+pair.1
+  Field required [type=missing, input_value=[1], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+3 User
+  int_parsing ('friends', 1) 'Input should be a valid integer, unable to parse string as an integer' None
+  int_from_float ('friends', 3) 'Input should be a valid integer, got a number with a fractional part' None
+  missing ('pair', 1) 'Field required' None
+3 validation errors for User
+meta
+  Input should be a valid dictionary [type=dict_type, input_value=[], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/dict_type
+either.int
+  Input should be a valid integer [type=int_type, input_value=[1], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_type
+either.str
+  Input should be a valid string [type=string_type, input_value=[1], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+3 User
+  dict_type ('meta',) 'Input should be a valid dictionary' None
+  int_type ('either', 'int') 'Input should be a valid integer' None
+  string_type ('either', 'str') 'Input should be a valid string' None
+1 validation error for User
+  Input should be a valid dictionary or instance of User [type=model_type, input_value=5, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/model_type
+[{'type': 'model_type', 'loc': (), 'msg': 'Input should be a valid dictionary or instance of User', 'input': ['id', 1], 'ctx': {'class_name': 'User'}}]

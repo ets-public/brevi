@@ -1,0 +1,44 @@
+item='Apple' qty=3 price=1.23 codes=[2, 4] note='hi' total=3.69
+{'item': 'Pear', 'qty': 1, 'price': 2.0, 'codes': [], 'note': '', 'total': 2.0}
+{"item":"Fig","qty":1,"price":1.0,"codes":[],"note":"","total":1.0}
+1 validation error for Order
+item
+  Value error, item must not be empty [type=value_error, input_value='', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/value_error
+[('value_error', ('item',), 'Value error, item must not be empty')]
+1 validation error for Order
+price
+  Assertion failed, price is negative [type=assertion_error, input_value=-1, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/assertion_error
+[('assertion_error', ('price',), 'Assertion failed, price is negative')]
+1 validation error for Order
+price
+  Value error, too many A for price [type=value_error, input_value=1, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/value_error
+[('value_error', ('price',), 'Value error, too many A for price')]
+1 validation error for Order
+  Value error, order too large [type=value_error, input_value={'item': 'a', 'qty': 10, 'price': 200}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/value_error
+[('value_error', (), 'Value error, order too large')]
+2 validation errors for Order
+codes.0
+  Value error, 1 is odd [type=value_error, input_value=1, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/value_error
+codes.2
+  Value error, 3 is odd [type=value_error, input_value=3, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/value_error
+[('value_error', ('codes', 0), 'Value error, 1 is odd'), ('value_error', ('codes', 2), 'Value error, 3 is odd')]
+2 validation errors for Order
+qty
+  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='many', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing
+price
+  Input should be a valid number, unable to parse string as a number [type=float_parsing, input_value='cheap', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/float_parsing
+[('int_parsing', ('qty',), 'Input should be a valid integer, unable to parse string as an integer'), ('float_parsing', ('price',), 'Input should be a valid number, unable to parse string as a number')]
+names=[',', ',', 'a', 'b', 'c'] counts={}
+names=[1, 2, 3] counts={}
+x=0 x=5
+1 validation error for Wrapped
+  Input should be a valid dictionary or instance of Wrapped [type=model_type, input_value='nope', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/model_type

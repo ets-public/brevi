@@ -18,11 +18,53 @@ use std::collections::{HashMap, HashSet};
 
 // Modules the parser maps onto Brevi's own library (see the lexer's PY_BUILTIN_MODULES and PY_ALIAS_MODULES).
 const NATIVE: &[&str] = &[
-    "sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools", "datetime", "json", "calendar", "decimal", "heapq", "bisect", "string",
-    "statistics", "random", "time", "copy", "operator", "csv", "threading", "__future__", "fractions", "enum", "abc", "hashlib", "base64", "binascii",
+    "sys",
+    "math",
+    "collections",
+    "typing",
+    "dataclasses",
+    "re",
+    "functools",
+    "itertools",
+    "datetime",
+    "json",
+    "calendar",
+    "decimal",
+    "heapq",
+    "bisect",
+    "string",
+    "statistics",
+    "random",
+    "time",
+    "copy",
+    "operator",
+    "csv",
+    "threading",
+    "__future__",
+    "fractions",
+    "enum",
+    "abc",
+    "hashlib",
+    "base64",
+    "binascii",
 ];
 // GUI libraries (gui.rs handles tkinter; the others are refused in modules.rs).
-const NOT_BRIDGED: &[&str] = &["tkinter", "Tkinter", "turtle", "pygame", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "kivy", "customtkinter", "pyglet", "arcade", "dearpygui"];
+const NOT_BRIDGED: &[&str] = &[
+    "tkinter",
+    "Tkinter",
+    "turtle",
+    "pygame",
+    "PyQt5",
+    "PyQt6",
+    "PySide2",
+    "PySide6",
+    "wx",
+    "kivy",
+    "customtkinter",
+    "pyglet",
+    "arcade",
+    "dearpygui",
+];
 
 #[derive(Default, Clone)]
 struct Reg {
@@ -93,7 +135,12 @@ pub fn blocked() -> Vec<(String, String)> {
 // on `random.seed(1)`), which the one "needs allow native" error replaces.
 pub fn blocked_noise(d: &crate::diag::Diag) -> bool {
     let b = blocked();
-    let named = |pre: &str, post: &str| d.msg.strip_prefix(pre).and_then(|r| r.strip_suffix(post)).map(String::from);
+    let named = |pre: &str, post: &str| {
+        d.msg
+            .strip_prefix(pre)
+            .and_then(|r| r.strip_suffix(post))
+            .map(String::from)
+    };
     if let Some(f) = named("unknown method .", "()").or_else(|| named("unknown function ", "()")) {
         return b.iter().any(|(_, n)| *n == f);
     }
@@ -111,9 +158,13 @@ pub fn bridged_imports(src: &str) -> Vec<(usize, String)> {
     for (i, l) in src.lines().enumerate() {
         let t = l.split(" #").next().unwrap_or("").trim();
         let mods: Vec<&str> = if let Some(rest) = t.strip_prefix("import ") {
-            rest.split(',').filter_map(|p| p.split_whitespace().next()).collect()
+            rest.split(',')
+                .filter_map(|p| p.split_whitespace().next())
+                .collect()
         } else if let Some(rest) = t.strip_prefix("from ") {
-            rest.split_once(" import ").map(|(m, _)| vec![m.trim()]).unwrap_or_default()
+            rest.split_once(" import ")
+                .map(|(m, _)| vec![m.trim()])
+                .unwrap_or_default()
         } else {
             vec![]
         };
@@ -155,10 +206,17 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
             if let Some((m, names)) = rest.split_once(" import ") {
                 let m = m.trim();
                 if NATIVE.contains(&m.split('.').next().unwrap_or(m)) {
-                    for part in names.trim_matches(|c| c == '(' || c == ')' || c == ' ').split(',') {
+                    for part in names
+                        .trim_matches(|c| c == '(' || c == ')' || c == ' ')
+                        .split(',')
+                    {
                         let mut w = part.split_whitespace();
                         let n = w.next().unwrap_or("");
-                        let a = if w.next() == Some("as") { w.next().unwrap_or(n) } else { n };
+                        let a = if w.next() == Some("as") {
+                            w.next().unwrap_or(n)
+                        } else {
+                            n
+                        };
                         if !n.is_empty() {
                             froms.insert(a.to_string(), (m.to_string(), n.to_string()));
                         }
@@ -178,9 +236,12 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
         let mut i = 0;
         while let Some(k) = l[i..].find(&format!("{m}.")) {
             let at = i + k;
-            let before_ok = at == 0 || !(b[at - 1].is_ascii_alphanumeric() || b[at - 1] == b'_' || b[at - 1] == b'.');
+            let before_ok = at == 0
+                || !(b[at - 1].is_ascii_alphanumeric() || b[at - 1] == b'_' || b[at - 1] == b'.');
             let rest = &l[at + m.len() + 1..];
-            let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(rest.len());
+            let end = rest
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .unwrap_or(rest.len());
             if before_ok && end > 0 {
                 out.push(rest[..end].to_string());
             }
@@ -188,7 +249,9 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
         }
         out
     };
-    let mut methods = diags.iter().any(|d| d.msg.starts_with("unknown method .") || d.msg.starts_with("unknown function "));
+    let mut methods = diags
+        .iter()
+        .any(|d| d.msg.starts_with("unknown method .") || d.msg.starts_with("unknown function "));
     // A second time through, only when the methods taught nothing: the unknown names.
     for (i, d) in diags.iter().chain(diags.iter()).enumerate() {
         if i == diags.len() {
@@ -197,9 +260,16 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
             }
             methods = false;
         }
-        let Some(l) = lines.get(d.line.wrapping_sub(1)) else { continue };
+        let Some(l) = lines.get(d.line.wrapping_sub(1)) else {
+            continue;
+        };
         let l = l.split(" #").next().unwrap_or("");
-        let named = |pre: &str, post: &str| d.msg.strip_prefix(pre).and_then(|r| r.strip_suffix(post)).map(String::from);
+        let named = |pre: &str, post: &str| {
+            d.msg
+                .strip_prefix(pre)
+                .and_then(|r| r.strip_suffix(post))
+                .map(String::from)
+        };
         if let Some(f) = named("unknown method .", "()") {
             for (alias, m) in &mods {
                 if uses(l, alias).contains(&f) {
@@ -215,7 +285,10 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
             // `d.strftime(...)` on a value a built-in module made: when that module's CPython classes have the
             // method, the program uses all of the module from CPython.
             if new.is_empty() {
-                let mut ms: Vec<&String> = mods.values().chain(froms.values().map(|(m, _)| m)).collect();
+                let mut ms: Vec<&String> = mods
+                    .values()
+                    .chain(froms.values().map(|(m, _)| m))
+                    .collect();
                 ms.sort();
                 ms.dedup();
                 for m in ms {
@@ -278,14 +351,34 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
 fn class_has(m: &str, f: &str) -> bool {
     let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
     let q = "import sys, importlib\nm = importlib.import_module(sys.argv[1])\nprint(any(isinstance(getattr(m, n, None), type) and hasattr(getattr(m, n), sys.argv[2]) for n in dir(m) if not n.startswith('_')))";
-    std::process::Command::new(exe).args(["-c", q, m, f]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
+    std::process::Command::new(exe)
+        .args(["-c", q, m, f])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
 }
 
 // What CPython runs for the program, for the path report: bridged modules (`numpy`) and the functions of
 // Brevi's own modules that it lacks (`math.gcd`), sorted.
 pub fn uses() -> Vec<String> {
-    let mut v: Vec<String> = reg(|r| r.mods.values().cloned().chain(r.names.values().filter(|(m, _)| bridged(m)).map(|(m, _)| m.clone())).collect()).unwrap_or_default();
-    v.extend(EXTRA.with(|x| x.borrow().iter().map(|(m, n)| format!("{m}.{n}")).collect::<Vec<_>>()));
+    let mut v: Vec<String> = reg(|r| {
+        r.mods
+            .values()
+            .cloned()
+            .chain(
+                r.names
+                    .values()
+                    .filter(|(m, _)| bridged(m))
+                    .map(|(m, _)| m.clone()),
+            )
+            .collect()
+    })
+    .unwrap_or_default();
+    v.extend(EXTRA.with(|x| {
+        x.borrow()
+            .iter()
+            .map(|(m, n)| format!("{m}.{n}"))
+            .collect::<Vec<_>>()
+    }));
     v.sort();
     v.dedup();
     v
@@ -296,18 +389,35 @@ pub fn uses() -> Vec<String> {
 pub fn stdlib_only() -> bool {
     let u = uses();
     // os and pathlib too: the dynamic build has their path text (and refuses a program that needs more).
-    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"))
+    !u.is_empty()
+        && u.iter().all(|m| {
+            NATIVE.contains(&m.split('.').next().unwrap_or(m))
+                || matches!(
+                    m.split('.').next().unwrap_or(m),
+                    "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"
+                )
+        })
 }
 
 // The program's CPython calls are numpy (and Brevi's own modules): the dynamic build, with Brevi's own numpy,
 // is tried first (it refuses what that numpy lacks, and the typed build with CPython's numpy goes instead).
 pub fn numpy_only() -> bool {
     let u = uses();
-    let own = |top: &str| matches!(top, "numpy" | "tiktoken" | "tokenizers" | "requests" | "httpx");
+    let own = |top: &str| {
+        matches!(
+            top,
+            "numpy" | "tiktoken" | "tokenizers" | "requests" | "httpx"
+        )
+    };
     u.iter().any(|m| own(m.split('.').next().unwrap_or(m)))
         && u.iter().all(|m| {
             let top = m.split('.').next().unwrap_or(m);
-            own(top) || NATIVE.contains(&top) || matches!(top, "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse")
+            own(top)
+                || NATIVE.contains(&top)
+                || matches!(
+                    top,
+                    "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"
+                )
         })
         && std::env::var("BREVI_NUMPY").map_or(true, |v| v != "0")
 }
@@ -317,16 +427,25 @@ pub fn active() -> bool {
 }
 
 pub fn note_local(module: &str) {
-    LOCAL.with(|l| l.borrow_mut().insert(module.split('.').next().unwrap_or(module).to_string()));
+    LOCAL.with(|l| {
+        l.borrow_mut()
+            .insert(module.split('.').next().unwrap_or(module).to_string())
+    });
 }
 
 fn bridged(m: &str) -> bool {
     let top = m.split('.').next().unwrap_or(m);
-    !NATIVE.contains(&top) && !NOT_BRIDGED.contains(&top) && !LOCAL.with(|l| l.borrow().contains(top)) && !m.starts_with('.') && !m.is_empty()
+    !NATIVE.contains(&top)
+        && !NOT_BRIDGED.contains(&top)
+        && !LOCAL.with(|l| l.borrow().contains(top))
+        && !m.starts_with('.')
+        && !m.is_empty()
 }
 
 fn ok_name(w: &str) -> bool {
-    !w.is_empty() && w.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+    !w.is_empty()
+        && w.chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
 }
 
 // Reads the import lines. Clears the registry for a program that uses no bridged module.
@@ -377,11 +496,16 @@ pub fn scan(src: &str) {
                 };
             }
         } else if let Some(rest) = t.strip_prefix("from ") {
-            let Some((m, names)) = rest.split_once(" import ") else { continue };
+            let Some((m, names)) = rest.split_once(" import ") else {
+                continue;
+            };
             let m = m.trim();
             if ok_name(m) && NATIVE.contains(&m) {
                 natives.insert(m.to_string(), m.to_string());
-                for part in names.trim_matches(|c| c == '(' || c == ')' || c == ' ').split(',') {
+                for part in names
+                    .trim_matches(|c| c == '(' || c == ')' || c == ' ')
+                    .split(',')
+                {
                     let n = part.split_whitespace().next().unwrap_or("");
                     if extra(m, n) {
                         any = true;
@@ -414,8 +538,13 @@ fn add_from(r: &mut Reg, m: &str, part: &str) {
     if n.is_empty() || n == "*" {
         return;
     }
-    let alias = if w.next() == Some("as") { w.next().unwrap_or(n) } else { n };
-    r.names.insert(alias.to_string(), (m.to_string(), n.to_string()));
+    let alias = if w.next() == Some("as") {
+        w.next().unwrap_or(n)
+    } else {
+        n
+    };
+    r.names
+        .insert(alias.to_string(), (m.to_string(), n.to_string()));
 }
 
 fn reg<T>(f: impl FnOnce(&Reg) -> T) -> Option<T> {
@@ -456,10 +585,22 @@ pub fn enter_fn(name: &str, params: &[Param]) {
             _ => name.to_string(),
         };
         // `self` is not counted: callers write `obj.m(x)`, whose first argument is x.
-        let skip = if r.class.is_some() && r.scope.is_empty() && params.first().is_some_and(|p| p.name == "self_" || p.name == "self") { 1 } else { 0 };
+        let skip = if r.class.is_some()
+            && r.scope.is_empty()
+            && params
+                .first()
+                .is_some_and(|p| p.name == "self_" || p.name == "self")
+        {
+            1
+        } else {
+            0
+        };
         for (i, p) in params.iter().enumerate() {
             r.set.insert((s.clone(), p.name.clone()));
-            if i >= skip && r.params.contains(&(s.clone(), i - skip)) && r.held.insert((s.clone(), p.name.clone())) {
+            if i >= skip
+                && r.params.contains(&(s.clone(), i - skip))
+                && r.held.insert((s.clone(), p.name.clone()))
+            {
                 r.grew = true;
             }
         }
@@ -485,7 +626,10 @@ fn held_in(r: &Reg, s: &str, n: &str) -> bool {
     if r.comp.contains(&(s.to_string(), n.to_string())) {
         return false;
     }
-    r.held.contains(&(s.to_string(), n.to_string())) || (!s.is_empty() && !r.set.contains(&(s.to_string(), n.to_string())) && r.held.contains(&(String::new(), n.to_string())))
+    r.held.contains(&(s.to_string(), n.to_string()))
+        || (!s.is_empty()
+            && !r.set.contains(&(s.to_string(), n.to_string()))
+            && r.held.contains(&(String::new(), n.to_string())))
 }
 
 fn hold(n: &str) {
@@ -593,10 +737,31 @@ pub fn is_py(e: &Expr) -> bool {
     match e {
         Expr::Try(x) => is_py(x),
         Expr::Call(f, _, _) => {
-            matches!(f.as_str(), "ax_pyb_mod" | "ax_pyb_from" | "ax_pyb_get" | "ax_pyb_call" | "ax_pyb_idx" | "ax_pyb_op" | "ax_pyb_unary" | "ax_pyb_builtin" | "ax_pyb" | "ax_pyb_none" | "ax_pyb_slice") || reg(|r| r.rets.contains(f)).unwrap_or(false)
+            matches!(
+                f.as_str(),
+                "ax_pyb_mod"
+                    | "ax_pyb_from"
+                    | "ax_pyb_get"
+                    | "ax_pyb_call"
+                    | "ax_pyb_idx"
+                    | "ax_pyb_op"
+                    | "ax_pyb_unary"
+                    | "ax_pyb_builtin"
+                    | "ax_pyb"
+                    | "ax_pyb_none"
+                    | "ax_pyb_slice"
+            ) || reg(|r| r.rets.contains(f)).unwrap_or(false)
         }
         Expr::Ident(n) | Expr::Move(n) => reg(|r| held_in(r, &scope(r), n)).unwrap_or(false),
-        Expr::Field(b, f) => matches!(b.as_ref(), Expr::Ident(s) if s == "self_" || s == "self") && reg(|r| r.class.as_ref().is_some_and(|c| r.held.contains(&(format!("{c}."), f.clone())))).unwrap_or(false),
+        Expr::Field(b, f) => {
+            matches!(b.as_ref(), Expr::Ident(s) if s == "self_" || s == "self")
+                && reg(|r| {
+                    r.class
+                        .as_ref()
+                        .is_some_and(|c| r.held.contains(&(format!("{c}."), f.clone())))
+                })
+                .unwrap_or(false)
+        }
         _ => false,
     }
 }
@@ -604,7 +769,24 @@ pub fn is_py(e: &Expr) -> bool {
 // The lexer renames Python names that are Brevi words (`type` is `type_`); Python gets them back.
 pub fn unkw(n: &str) -> String {
     match n.strip_suffix('_') {
-        Some(b) if matches!(b, "as" | "yield" | "try" | "self" | "type" | "match" | "test" | "fn" | "let" | "var" | "enum" | "mut") => b.to_string(),
+        Some(b)
+            if matches!(
+                b,
+                "as" | "yield"
+                    | "try"
+                    | "self"
+                    | "type"
+                    | "match"
+                    | "test"
+                    | "fn"
+                    | "let"
+                    | "var"
+                    | "enum"
+                    | "mut"
+            ) =>
+        {
+            b.to_string()
+        }
         // Rust words too: `np.where` is lexed as `where_`.
         _ => crate::lexer::py_ident(n).to_string(),
     }
@@ -622,7 +804,11 @@ pub fn binop(op: &str, negate: bool, a: &Expr, b: &Expr, line: usize) -> Option<
         ("!=", _, true) => "is not",
         (o, _, _) => o,
     };
-    Some(tcall("ax_pyb_op", vec![s(op), to_py(a.clone(), line), to_py(b.clone(), line)], line))
+    Some(tcall(
+        "ax_pyb_op",
+        vec![s(op), to_py(a.clone(), line), to_py(b.clone(), line)],
+        line,
+    ))
 }
 
 fn s(x: &str) -> Expr {
@@ -630,7 +816,11 @@ fn s(x: &str) -> Expr {
 }
 
 fn call(f: &str, args: Vec<Expr>, line: usize) -> Expr {
-    Expr::Call(f.into(), args.into_iter().map(|a| (None, a)).collect(), line)
+    Expr::Call(
+        f.into(),
+        args.into_iter().map(|a| (None, a)).collect(),
+        line,
+    )
 }
 
 fn tcall(f: &str, args: Vec<Expr>, line: usize) -> Expr {
@@ -649,33 +839,105 @@ fn to_py(e: Expr, line: usize) -> Expr {
             let a: Vec<(Option<String>, Expr)> = a.into_iter().map(|x| (None, x)).collect();
             member(to_py(*x, l), "encode", Some(a), l)
         }
-        Expr::List(xs) if xs.is_empty() => tcall("ax_pyb_builtin", vec![s("list"), Expr::List(vec![]), Expr::List(vec![])], line),
-        Expr::Map(xs) if xs.is_empty() => tcall("ax_pyb_builtin", vec![s("dict"), Expr::List(vec![]), Expr::List(vec![])], line),
+        Expr::List(xs) if xs.is_empty() => tcall(
+            "ax_pyb_builtin",
+            vec![s("list"), Expr::List(vec![]), Expr::List(vec![])],
+            line,
+        ),
+        Expr::Map(xs) if xs.is_empty() => tcall(
+            "ax_pyb_builtin",
+            vec![s("dict"), Expr::List(vec![]), Expr::List(vec![])],
+            line,
+        ),
         // List, tuple and dict literals are converted item by item (their items may differ in kind).
-        Expr::List(xs) => call("ax_pyb", vec![Expr::List(xs.into_iter().map(|x| to_py(x, line)).collect())], line),
-        Expr::Tuple(xs) if xs.len() <= 6 => call("ax_pyb", vec![Expr::Tuple(xs.into_iter().map(|x| to_py(x, line)).collect())], line),
-        Expr::Tuple(xs) => tcall("ax_pyb_builtin", vec![s("tuple"), Expr::List(vec![to_py(Expr::List(xs), line)]), Expr::List(vec![])], line),
+        Expr::List(xs) => call(
+            "ax_pyb",
+            vec![Expr::List(xs.into_iter().map(|x| to_py(x, line)).collect())],
+            line,
+        ),
+        Expr::Tuple(xs) if xs.len() <= 6 => call(
+            "ax_pyb",
+            vec![Expr::Tuple(
+                xs.into_iter().map(|x| to_py(x, line)).collect(),
+            )],
+            line,
+        ),
+        Expr::Tuple(xs) => tcall(
+            "ax_pyb_builtin",
+            vec![
+                s("tuple"),
+                Expr::List(vec![to_py(Expr::List(xs), line)]),
+                Expr::List(vec![]),
+            ],
+            line,
+        ),
         Expr::Map(ps) => {
-            let pairs = ps.into_iter().map(|(k, v)| Expr::Tuple(vec![to_py(k, line), to_py(v, line)])).collect();
-            tcall("ax_pyb_builtin", vec![s("dict"), Expr::List(vec![call("ax_pyb", vec![Expr::List(pairs)], line)]), Expr::List(vec![])], line)
+            let pairs = ps
+                .into_iter()
+                .map(|(k, v)| Expr::Tuple(vec![to_py(k, line), to_py(v, line)]))
+                .collect();
+            tcall(
+                "ax_pyb_builtin",
+                vec![
+                    s("dict"),
+                    Expr::List(vec![call("ax_pyb", vec![Expr::List(pairs)], line)]),
+                    Expr::List(vec![]),
+                ],
+                line,
+            )
         }
         // `type=int`, `key=len`: the parser made the built-in a lambda; Python gets its own built-in.
-        Expr::Lambda(ps, body) if ps.len() == 1 && matches!(body.as_ref(), Expr::Method(r, m, a, _) if a.is_empty() && matches!(r.as_ref(), Expr::Ident(v) if *v == ps[0]) && matches!(m.as_str(), "int" | "float" | "str" | "len")) => {
-            let Expr::Method(_, m, _, _) = *body else { unreachable!() };
+        Expr::Lambda(ps, body)
+            if ps.len() == 1
+                && matches!(body.as_ref(), Expr::Method(r, m, a, _) if a.is_empty() && matches!(r.as_ref(), Expr::Ident(v) if *v == ps[0]) && matches!(m.as_str(), "int" | "float" | "str" | "len")) =>
+        {
+            let Expr::Method(_, m, _, _) = *body else {
+                unreachable!()
+            };
             from_name("builtins", &m, line)
         }
-        Expr::Ident(n) if matches!(n.as_str(), "list" | "dict" | "set" | "tuple" | "bool" | "abs" | "sorted" | "max" | "min" | "sum" | "repr" | "print") => from_name("builtins", &n, line),
-        Expr::Call(f, a, _) if f == "__truediv" && a.len() == 2 && (is_py(&a[0].1) || is_py(&a[1].1)) => {
+        Expr::Ident(n)
+            if matches!(
+                n.as_str(),
+                "list"
+                    | "dict"
+                    | "set"
+                    | "tuple"
+                    | "bool"
+                    | "abs"
+                    | "sorted"
+                    | "max"
+                    | "min"
+                    | "sum"
+                    | "repr"
+                    | "print"
+            ) =>
+        {
+            from_name("builtins", &n, line)
+        }
+        Expr::Call(f, a, _)
+            if f == "__truediv" && a.len() == 2 && (is_py(&a[0].1) || is_py(&a[1].1)) =>
+        {
             let mut a = a.into_iter();
             let (x, y) = (a.next().unwrap().1, a.next().unwrap().1);
-            tcall("ax_pyb_op", vec![s("/"), to_py(x, line), to_py(y, line)], line)
+            tcall(
+                "ax_pyb_op",
+                vec![s("/"), to_py(x, line), to_py(y, line)],
+                line,
+            )
         }
         // A name of the program's: given by place, so what Python changes in a list or dict (random.shuffle(xs))
         // is written back after the call.
-        Expr::Ident(n) | Expr::Move(n) if !n.starts_with("ax_") => call("ax_pyb_argm", vec![Expr::Ident(n)], line),
+        Expr::Ident(n) | Expr::Move(n) if !n.starts_with("ax_") => {
+            call("ax_pyb_argm", vec![Expr::Ident(n)], line)
+        }
         // A lambda given to Python (`key=lambda r: r[1]`, `reduce(lambda a, b: a * b, xs)`): a Python function
         // that runs it; its parameters are Python values.
-        Expr::Lambda(ps, body) if ps.len() <= 3 => call(&format!("ax_pyb_fn{}", ps.len()), vec![Expr::Lambda(ps, body)], line),
+        Expr::Lambda(ps, body) if ps.len() <= 3 => call(
+            &format!("ax_pyb_fn{}", ps.len()),
+            vec![Expr::Lambda(ps, body)],
+            line,
+        ),
         other => call("ax_pyb", vec![other], line),
     }
 }
@@ -695,7 +957,16 @@ fn py_args(raw: Vec<(Option<String>, Expr)>, line: usize) -> (Expr, Expr) {
     for (k, v) in raw {
         match k.as_deref() {
             None => pos.push(to_py(v, line)),
-            Some("__star") => pos.push(tcall("ax_pyb_call", vec![to_py(v, line), s("__brevi_star__"), Expr::List(vec![]), Expr::List(vec![])], line)),
+            Some("__star") => pos.push(tcall(
+                "ax_pyb_call",
+                vec![
+                    to_py(v, line),
+                    s("__brevi_star__"),
+                    Expr::List(vec![]),
+                    Expr::List(vec![]),
+                ],
+                line,
+            )),
             Some(k) => kw.push(Expr::Tuple(vec![s(&unkw(k)), to_py(v, line)])),
         }
     }
@@ -727,12 +998,22 @@ fn from_name(m: &str, a: &str, line: usize) -> Expr {
 // The parser's hook for `name(args)`: a name imported from a bridged module, a name holding a Python value
 // (called), or a Python built-in given a Python value. Calls of the program's own functions are noted (a
 // parameter passed a Python value holds one).
-pub fn call_hook(name: &str, args: &[(Option<String>, Expr)], user_fns: &[String], line: usize) -> Option<Expr> {
+pub fn call_hook(
+    name: &str,
+    args: &[(Option<String>, Expr)],
+    user_fns: &[String],
+    line: usize,
+) -> Option<Expr> {
     if !active() {
         return None;
     }
     if user_fns.iter().any(|f| f == name) {
-        let pys: Vec<usize> = args.iter().enumerate().filter(|(_, (k, a))| k.is_none() && is_py(a)).map(|(i, _)| i).collect();
+        let pys: Vec<usize> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, (k, a))| k.is_none() && is_py(a))
+            .map(|(i, _)| i)
+            .collect();
         reg_mut(|r| {
             let f = match &r.class {
                 // A call inside a class body may be another method (`self.m(x)` is lowered later); plain names are functions.
@@ -747,7 +1028,11 @@ pub fn call_hook(name: &str, args: &[(Option<String>, Expr)], user_fns: &[String
     let held = reg(|r| held_in(r, &scope(r), name)).unwrap_or(false);
     if held {
         let (pos, kw) = py_args(args.to_vec(), line);
-        return Some(tcall("ax_pyb_call", vec![Expr::Ident(name.to_string()), s(""), pos, kw], line));
+        return Some(tcall(
+            "ax_pyb_call",
+            vec![Expr::Ident(name.to_string()), s(""), pos, kw],
+            line,
+        ));
     }
     if let Some(f) = ident(name, line) {
         let (pos, kw) = py_args(args.to_vec(), line);
@@ -763,9 +1048,12 @@ pub fn call_hook(name: &str, args: &[(Option<String>, Expr)], user_fns: &[String
             Some(tcall(&f, vec![args[0].1.clone()], line))
         }
         "print" | "isinstance_" => None,
-        "abs" | "all" | "any" | "ascii" | "bin" | "callable" | "chr" | "dict" | "dir" | "divmod" | "enumerate" | "filter" | "format" | "frozenset" | "getattr" | "hasattr" | "hash"
-        | "hex" | "id" | "isinstance" | "issubclass" | "iter" | "list" | "map" | "max" | "min" | "next" | "oct" | "ord" | "pow" | "range" | "reversed" | "round" | "set" | "setattr"
-        | "slice" | "sorted" | "sum" | "tuple" | "type" | "vars" | "zip" | "int" | "float" | "str" | "bool" | "len" | "repr" => {
+        "abs" | "all" | "any" | "ascii" | "bin" | "callable" | "chr" | "dict" | "dir"
+        | "divmod" | "enumerate" | "filter" | "format" | "frozenset" | "getattr" | "hasattr"
+        | "hash" | "hex" | "id" | "isinstance" | "issubclass" | "iter" | "list" | "map" | "max"
+        | "min" | "next" | "oct" | "ord" | "pow" | "range" | "reversed" | "round" | "set"
+        | "setattr" | "slice" | "sorted" | "sum" | "tuple" | "type" | "vars" | "zip" | "int"
+        | "float" | "str" | "bool" | "len" | "repr" => {
             let (pos, kw) = py_args(args.to_vec(), line);
             Some(tcall("ax_pyb_builtin", vec![s(name), pos, kw], line))
         }
@@ -774,7 +1062,12 @@ pub fn call_hook(name: &str, args: &[(Option<String>, Expr)], user_fns: &[String
 }
 
 // The parser's hook for `recv.name` (args None) and `recv.name(args)` on a Python value.
-pub fn member(recv: Expr, name: &str, args: Option<Vec<(Option<String>, Expr)>>, line: usize) -> Expr {
+pub fn member(
+    recv: Expr,
+    name: &str,
+    args: Option<Vec<(Option<String>, Expr)>>,
+    line: usize,
+) -> Expr {
     match args {
         None => tcall("ax_pyb_get", vec![recv, s(name)], line),
         Some(a) => {
@@ -787,7 +1080,24 @@ pub fn member(recv: Expr, name: &str, args: Option<Vec<(Option<String>, Expr)>>,
 // Methods the parser itself makes (comprehensions, str(x), f-strings) are not the value's own.
 pub fn py_method(m: &str) -> bool {
     // Brevi's own method names are left to Brevi (a wrong one fails the build, loudly).
-    active() && !crate::emit::METHODS.contains(&m) && !matches!(m, "map" | "filter" | "flatten" | "str" | "len" | "int" | "float" | "fmt" | "spec" | "py_repr" | "__call" | "or" | "lax")
+    active()
+        && !crate::emit::METHODS.contains(&m)
+        && !matches!(
+            m,
+            "map"
+                | "filter"
+                | "flatten"
+                | "str"
+                | "len"
+                | "int"
+                | "float"
+                | "fmt"
+                | "spec"
+                | "py_repr"
+                | "__call"
+                | "or"
+                | "lax"
+        )
 }
 
 // `v.name(args)` with v a Python value by its type: CPython's method.
@@ -804,13 +1114,24 @@ pub fn invoke(recv: Expr, args: Vec<(Option<String>, Expr)>, line: usize) -> Exp
 
 // One part of `recv[...]`: a value, or a slice `a:b:c` (None for a missing part).
 pub fn slice(a: Option<Expr>, b: Option<Expr>, c: Option<Expr>, line: usize) -> Expr {
-    let p = |x: Option<Expr>| x.map_or_else(|| call("ax_pyb_none", vec![], line), |x| to_py(x, line));
+    let p =
+        |x: Option<Expr>| x.map_or_else(|| call("ax_pyb_none", vec![], line), |x| to_py(x, line));
     tcall("ax_pyb_slice", vec![p(a), p(b), p(c)], line)
 }
 
 // `recv[k]`, `recv[a, b]` on a Python value.
 pub fn index(recv: Expr, mut keys: Vec<Expr>, line: usize) -> Expr {
-    let k = if keys.len() == 1 { to_py(keys.pop().unwrap(), line) } else { call("ax_pyb", vec![Expr::Tuple(keys.into_iter().map(|k| to_py(k, line)).collect())], line) };
+    let k = if keys.len() == 1 {
+        to_py(keys.pop().unwrap(), line)
+    } else {
+        call(
+            "ax_pyb",
+            vec![Expr::Tuple(
+                keys.into_iter().map(|k| to_py(k, line)).collect(),
+            )],
+            line,
+        )
+    };
     tcall("ax_pyb_idx", vec![recv, k], line)
 }
 
@@ -818,7 +1139,10 @@ pub fn index(recv: Expr, mut keys: Vec<Expr>, line: usize) -> Expr {
 pub fn del(e: &Expr, line: usize) -> Option<Stmt> {
     match e {
         Expr::Try(x) => match x.as_ref() {
-            Expr::Call(f, a, _) if f == "ax_pyb_idx" && a.len() == 2 => Some(Stmt::Expr { expr: tcall("ax_pyb_delidx", vec![a[0].1.clone(), a[1].1.clone()], line), line }),
+            Expr::Call(f, a, _) if f == "ax_pyb_idx" && a.len() == 2 => Some(Stmt::Expr {
+                expr: tcall("ax_pyb_delidx", vec![a[0].1.clone(), a[1].1.clone()], line),
+                line,
+            }),
             _ => None,
         },
         _ => None,
@@ -829,12 +1153,33 @@ pub fn del(e: &Expr, line: usize) -> Option<Stmt> {
 pub fn with(e: Expr, name: Option<String>, body: Expr, n: usize, line: usize) -> Vec<Stmt> {
     let tmp = format!("ax_pyw{n}");
     let none = || call("ax_pyb_none", vec![], line);
-    let mut out = vec![Stmt::Let { name: Pat::Bind(tmp.clone()), ty: None, value: e, mutable: false, line }];
-    let enter = tcall("ax_pyb_call", vec![Expr::Ident(tmp.clone()), s("__enter__"), Expr::List(vec![]), Expr::List(vec![])], line);
+    let mut out = vec![Stmt::Let {
+        name: Pat::Bind(tmp.clone()),
+        ty: None,
+        value: e,
+        mutable: false,
+        line,
+    }];
+    let enter = tcall(
+        "ax_pyb_call",
+        vec![
+            Expr::Ident(tmp.clone()),
+            s("__enter__"),
+            Expr::List(vec![]),
+            Expr::List(vec![]),
+        ],
+        line,
+    );
     match name {
         Some(n) => {
             hold(&n);
-            out.push(Stmt::Let { name: Pat::Bind(n), ty: None, value: enter, mutable: true, line });
+            out.push(Stmt::Let {
+                name: Pat::Bind(n),
+                ty: None,
+                value: enter,
+                mutable: true,
+                line,
+            });
         }
         None => out.push(Stmt::Expr { expr: enter, line }),
     }
@@ -845,8 +1190,24 @@ pub fn with(e: Expr, name: Option<String>, body: Expr, n: usize, line: usize) ->
     if let Some(t) = tail {
         stmts.push(Stmt::Expr { expr: *t, line });
     }
-    let exit = Stmt::Expr { expr: tcall("ax_pyb_call", vec![Expr::Ident(tmp), s("__exit__"), Expr::List(vec![none(), none(), none()]), Expr::List(vec![])], line), line };
-    let at = if matches!(stmts.last(), Some(Stmt::Return { .. })) { stmts.len() - 1 } else { stmts.len() };
+    let exit = Stmt::Expr {
+        expr: tcall(
+            "ax_pyb_call",
+            vec![
+                Expr::Ident(tmp),
+                s("__exit__"),
+                Expr::List(vec![none(), none(), none()]),
+                Expr::List(vec![]),
+            ],
+            line,
+        ),
+        line,
+    };
+    let at = if matches!(stmts.last(), Some(Stmt::Return { .. })) {
+        stmts.len() - 1
+    } else {
+        stmts.len()
+    };
     stmts.insert(at, exit);
     out.extend(stmts);
     out
@@ -861,9 +1222,22 @@ pub fn lower(items: &mut [Item]) {
     }
     let mut n = 0;
     for it in items.iter_mut() {
-        if let Item::Fn { name, body, params, script, .. } = it {
+        if let Item::Fn {
+            name,
+            body,
+            params,
+            script,
+            ..
+        } = it
+        {
             // The script's own statements are scope ""; a `def main()` beside them was renamed main_.
-            let fname = if *script { String::new() } else if name == "main_" { "main".into() } else { name.clone() };
+            let fname = if *script {
+                String::new()
+            } else if name == "main_" {
+                "main".into()
+            } else {
+                name.clone()
+            };
             reg_mut(|r| {
                 r.scope = vec![fname.clone()];
             });
@@ -893,7 +1267,11 @@ fn lower_expr(e: &mut Expr, n: &mut usize) {
                 }
             }
         }
-        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Lambda(_, a) | Expr::Try(a) => lower_expr(a, n),
+        Expr::Unary(_, a)
+        | Expr::Field(a, _)
+        | Expr::TupleField(a, _)
+        | Expr::Lambda(_, a)
+        | Expr::Try(a) => lower_expr(a, n),
         Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) => {
             lower_expr(a, n);
             lower_expr(b, n);
@@ -955,15 +1333,24 @@ fn lower_expr(e: &mut Expr, n: &mut usize) {
                 ("!=", true) => "is not",
                 (o, _) => o,
             };
-            let (a, b) = (std::mem::replace(a.as_mut(), Expr::Int(0)), std::mem::replace(b.as_mut(), Expr::Int(0)));
-            *e = tcall("ax_pyb_op", vec![s(op), to_py(a, line), to_py(b, line)], line);
+            let (a, b) = (
+                std::mem::replace(a.as_mut(), Expr::Int(0)),
+                std::mem::replace(b.as_mut(), Expr::Int(0)),
+            );
+            *e = tcall(
+                "ax_pyb_op",
+                vec![s(op), to_py(a, line), to_py(b, line)],
+                line,
+            );
         }
         Expr::Unary(op, a) if is_py(a) && *op != "!" => {
             let op = *op;
             let a = std::mem::replace(a.as_mut(), Expr::Int(0));
             *e = tcall("ax_pyb_unary", vec![s(op), a], line);
         }
-        Expr::Call(f, a, l) if f == "__truediv" && a.len() == 2 && (is_py(&a[0].1) || is_py(&a[1].1)) => {
+        Expr::Call(f, a, l)
+            if f == "__truediv" && a.len() == 2 && (is_py(&a[0].1) || is_py(&a[1].1)) =>
+        {
             let l = *l;
             let (x, y) = (a[0].1.clone(), a[1].1.clone());
             *e = tcall("ax_pyb_op", vec![s("/"), to_py(x, l), to_py(y, l)], l);
@@ -983,7 +1370,11 @@ fn lower_expr(e: &mut Expr, n: &mut usize) {
             **k = tcall("ax_pyb_int", vec![k2], line);
         }
         // `[f(x) for x in v]`, `sum(a * b for a, b in v)` over a Python value: its items as a Brevi list.
-        Expr::Method(r, m, args, l) if is_py(r) && matches!(m.as_str(), "map" | "filter") && matches!(args.as_slice(), [Expr::Lambda(..)]) => {
+        Expr::Method(r, m, args, l)
+            if is_py(r)
+                && matches!(m.as_str(), "map" | "filter")
+                && matches!(args.as_slice(), [Expr::Lambda(..)]) =>
+        {
             let l = *l;
             let r2 = std::mem::replace(r.as_mut(), Expr::Int(0));
             **r = tcall("ax_pyb_list", vec![r2], l);
@@ -1019,7 +1410,8 @@ fn lower_expr(e: &mut Expr, n: &mut usize) {
                 ("int", 0) => tcall("ax_pyb_int", vec![r2], l),
                 ("float", 0) => tcall("ax_pyb_float", vec![r2], l),
                 _ => {
-                    let a: Vec<(Option<String>, Expr)> = args.drain(..).map(|a| (None, a)).collect();
+                    let a: Vec<(Option<String>, Expr)> =
+                        args.drain(..).map(|a| (None, a)).collect();
                     member(r2, m, Some(a), l)
                 }
             };
@@ -1032,15 +1424,30 @@ fn lower_expr(e: &mut Expr, n: &mut usize) {
 fn unpack(p: &Pat, v: Expr, line: usize, n: &mut usize) -> Vec<Stmt> {
     let Pat::Tuple(ps) = p else {
         return match p {
-            Pat::Bind(x) => vec![Stmt::Let { name: Pat::Bind(x.clone()), ty: None, value: v, mutable: true, line }],
+            Pat::Bind(x) => vec![Stmt::Let {
+                name: Pat::Bind(x.clone()),
+                ty: None,
+                value: v,
+                mutable: true,
+                line,
+            }],
             _ => vec![],
         };
     };
     *n += 1;
     let tmp = format!("ax_pyu{n}");
-    let mut out = vec![Stmt::Let { name: Pat::Bind(tmp.clone()), ty: None, value: tcall("ax_pyb_items", vec![v, Expr::Int(ps.len() as i64)], line), mutable: false, line }];
+    let mut out = vec![Stmt::Let {
+        name: Pat::Bind(tmp.clone()),
+        ty: None,
+        value: tcall("ax_pyb_items", vec![v, Expr::Int(ps.len() as i64)], line),
+        mutable: false,
+        line,
+    }];
     for (i, q) in ps.iter().enumerate() {
-        let item = Expr::Index(Box::new(Expr::Ident(tmp.clone())), Box::new(Expr::Int(i as i64)));
+        let item = Expr::Index(
+            Box::new(Expr::Ident(tmp.clone())),
+            Box::new(Expr::Int(i as i64)),
+        );
         out.extend(unpack(q, item, line, n));
     }
     out
@@ -1049,8 +1456,12 @@ fn unpack(p: &Pat, v: Expr, line: usize, n: &mut usize) -> Vec<Stmt> {
 fn assign_target(t: &Expr) -> Option<(&'static str, Vec<Expr>)> {
     let Expr::Try(x) = t else { return None };
     match x.as_ref() {
-        Expr::Call(f, a, _) if f == "ax_pyb_idx" && a.len() == 2 => Some(("ax_pyb_setidx", vec![a[0].1.clone(), a[1].1.clone()])),
-        Expr::Call(f, a, _) if f == "ax_pyb_get" && a.len() == 2 => Some(("ax_pyb_set", vec![a[0].1.clone(), a[1].1.clone()])),
+        Expr::Call(f, a, _) if f == "ax_pyb_idx" && a.len() == 2 => {
+            Some(("ax_pyb_setidx", vec![a[0].1.clone(), a[1].1.clone()]))
+        }
+        Expr::Call(f, a, _) if f == "ax_pyb_get" && a.len() == 2 => {
+            Some(("ax_pyb_set", vec![a[0].1.clone(), a[1].1.clone()]))
+        }
         _ => None,
     }
 }
@@ -1064,48 +1475,111 @@ fn lower_stmt(st: &mut Stmt, n: &mut usize, out: &mut Vec<Stmt>) {
                 lower_expr(target, n);
             }
         }
-        Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => lower_expr(expr, n),
+        Stmt::Expr { expr, .. }
+        | Stmt::Return {
+            value: Some(expr), ..
+        }
+        | Stmt::Assert { cond: expr, .. } => lower_expr(expr, n),
         _ => {}
     }
     match st {
         // `o[k] = v`, `o.a = v`, `o[k] += v` on a Python value.
-        Stmt::Assign { target, op, value, line } if assign_target(target).is_some() => {
+        Stmt::Assign {
+            target,
+            op,
+            value,
+            line,
+        } if assign_target(target).is_some() => {
             let (f, mut a) = assign_target(target).unwrap();
             let line = *line;
             let v = std::mem::replace(value, Expr::Int(0));
-            let v = if *op == "=" { to_py(v, line) } else { tcall("ax_pyb_op", vec![s(op), target.clone(), to_py(v, line)], line) };
+            let v = if *op == "=" {
+                to_py(v, line)
+            } else {
+                tcall(
+                    "ax_pyb_op",
+                    vec![s(op), target.clone(), to_py(v, line)],
+                    line,
+                )
+            };
             a.push(v);
-            out.push(Stmt::Expr { expr: tcall(f, a, line), line });
+            out.push(Stmt::Expr {
+                expr: tcall(f, a, line),
+                line,
+            });
         }
         // `x = v`, `x += v` with x holding Python values.
-        Stmt::Assign { target: Expr::Ident(x), op, value, line } if is_py(&Expr::Ident(x.clone())) => {
+        Stmt::Assign {
+            target: Expr::Ident(x),
+            op,
+            value,
+            line,
+        } if is_py(&Expr::Ident(x.clone())) => {
             let line = *line;
             let v = std::mem::replace(value, Expr::Int(0));
-            let v = if *op == "=" { to_py(v, line) } else { tcall("ax_pyb_op", vec![s(op), Expr::Ident(x.clone()), to_py(v, line)], line) };
-            out.push(Stmt::Assign { target: Expr::Ident(x.clone()), op: "=", value: v, line });
+            let v = if *op == "=" {
+                to_py(v, line)
+            } else {
+                tcall(
+                    "ax_pyb_op",
+                    vec![s(op), Expr::Ident(x.clone()), to_py(v, line)],
+                    line,
+                )
+            };
+            out.push(Stmt::Assign {
+                target: Expr::Ident(x.clone()),
+                op: "=",
+                value: v,
+                line,
+            });
         }
-        Stmt::Let { name: Pat::Bind(x), value, .. } if is_py(&Expr::Ident(x.clone())) && !is_py(value) => {
+        Stmt::Let {
+            name: Pat::Bind(x),
+            value,
+            ..
+        } if is_py(&Expr::Ident(x.clone())) && !is_py(value) => {
             let v = std::mem::replace(value, Expr::Int(0));
             *value = to_py(v, 0);
             out.push(st.clone());
         }
         // `a, b = v` with v a Python value.
-        Stmt::Assign { target: t @ Expr::Tuple(_), op: "=", value, line } if is_py(value) && expr_pat(t).is_some() => {
+        Stmt::Assign {
+            target: t @ Expr::Tuple(_),
+            op: "=",
+            value,
+            line,
+        } if is_py(value) && expr_pat(t).is_some() => {
             let p = expr_pat(t).unwrap();
             let line = *line;
             let v = std::mem::replace(value, Expr::Int(0));
             let mut stmts = unpack(&p, v, line, n);
             // Assignments, not new names (the names may be set before).
             for s in stmts.iter_mut() {
-                if let Stmt::Let { name: Pat::Bind(x), value, line, .. } = s {
+                if let Stmt::Let {
+                    name: Pat::Bind(x),
+                    value,
+                    line,
+                    ..
+                } = s
+                {
                     if !x.starts_with("ax_pyu") {
-                        *s = Stmt::Assign { target: Expr::Ident(x.clone()), op: "=", value: value.clone(), line: *line };
+                        *s = Stmt::Assign {
+                            target: Expr::Ident(x.clone()),
+                            op: "=",
+                            value: value.clone(),
+                            line: *line,
+                        };
                     }
                 }
             }
             out.extend(stmts);
         }
-        Stmt::Let { name: p @ Pat::Tuple(_), value, line, .. } if is_py(value) => {
+        Stmt::Let {
+            name: p @ Pat::Tuple(_),
+            value,
+            line,
+            ..
+        } if is_py(value) => {
             let line = *line;
             let v = std::mem::replace(value, Expr::Int(0));
             out.extend(unpack(&p.clone(), v, line, n));
@@ -1117,7 +1591,11 @@ fn lower_stmt(st: &mut Stmt, n: &mut usize, out: &mut Vec<Stmt>) {
 fn expr_pat(e: &Expr) -> Option<Pat> {
     match e {
         Expr::Ident(n) | Expr::Move(n) => Some(Pat::Bind(n.clone())),
-        Expr::Tuple(xs) => xs.iter().map(expr_pat).collect::<Option<Vec<_>>>().map(Pat::Tuple),
+        Expr::Tuple(xs) => xs
+            .iter()
+            .map(expr_pat)
+            .collect::<Option<Vec<_>>>()
+            .map(Pat::Tuple),
         _ => None,
     }
 }
@@ -1182,8 +1660,13 @@ pub fn dyn_runtime() -> String {
 fn consts() -> String {
     let file = FILE.get().cloned().unwrap_or_default();
     let conf = conf().clone().unwrap_or_default();
-    let abs = std::fs::canonicalize(&file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.clone());
-    let dir = std::path::Path::new(&abs).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let abs = std::fs::canonicalize(&file)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| file.clone());
+    let dir = std::path::Path::new(&abs)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
     // sys.path[0] is the script's folder, as python3 sets it.
     let conf = match conf.split_once('\u{1}') {
         Some((lib, rest)) => match rest.split_once('\u{1}') {
@@ -1193,7 +1676,9 @@ fn consts() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n")
+    format!(
+        "const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n"
+    )
 }
 
 // ------------------------------------------------------------------------------------------- standalone builds
@@ -1205,7 +1690,9 @@ const BUNDLER: &str = include_str!("pybundle.py");
 // it into a cache folder on first run. Linux only for now.
 pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
     if !cfg!(target_os = "linux") {
-        return Err("--standalone builds of programs that use Python libraries need Linux for now".into());
+        return Err(
+            "--standalone builds of programs that use Python libraries need Linux for now".into(),
+        );
     }
     let conf = conf().clone()?;
     let lib = conf.split('\u{1}').next().unwrap_or_default().to_string();
@@ -1216,10 +1703,20 @@ pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
         .map_err(|e| format!("cannot start {exe}: {e}"))?;
     let err = String::from_utf8_lossy(&out.stderr).to_string();
     if !out.status.success() {
-        return Err(format!("bundling Python failed: {}", err.trim().lines().last().unwrap_or("")));
+        return Err(format!(
+            "bundling Python failed: {}",
+            err.trim().lines().last().unwrap_or("")
+        ));
     }
-    let w: Vec<u64> = String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|x| x.parse().ok()).collect();
-    let mut note = format!("bundled Python: {} files, {:.1} MB", w.first().unwrap_or(&0), *w.get(1).unwrap_or(&0) as f64 / 1e6);
+    let w: Vec<u64> = String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .filter_map(|x| x.parse().ok())
+        .collect();
+    let mut note = format!(
+        "bundled Python: {} files, {:.1} MB",
+        w.first().unwrap_or(&0),
+        *w.get(1).unwrap_or(&0) as f64 / 1e6
+    );
     for l in err.lines().filter(|l| l.starts_with("brevi:")) {
         note.push_str("\n");
         note.push_str(l);

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use crate::ast::*;
 use crate::diag::Diag;
-use crate::lexer::{lex, Tok, Token};
+use crate::lexer::{Tok, Token, lex};
+use std::collections::HashMap;
 
 pub struct Parser {
     toks: Vec<Token>,
@@ -72,11 +72,36 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
     if crate::python_style(src) {
         print_aliases(&mut toks);
     }
-    let user_fns = toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
-        (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
-        _ => None,
-    }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0, exc_rich: vec![], threads: vec![], in_exc_class: false, exc_init_arg: None };
+    let user_fns = toks
+        .windows(2)
+        .filter_map(|w| match (&w[0].tok, &w[1].tok) {
+            (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut p = Parser {
+        toks,
+        pos: 0,
+        ret_map: false,
+        user_fns,
+        children: vec![],
+        hoisted: vec![],
+        pending: vec![],
+        set_names: vec![],
+        py: false,
+        sigs: HashMap::new(),
+        class_names: vec![],
+        held: vec![],
+        yields: false,
+        attr_tys: vec![],
+        type_names: HashMap::new(),
+        exc_bases: HashMap::new(),
+        in_handler: 0,
+        exc_rich: vec![],
+        threads: vec![],
+        in_exc_class: false,
+        exc_init_arg: None,
+    };
     p.py = crate::python_style(src);
     // Python error classes, from every file, before any `except` that names one is read (the main file comes first).
     if p.py {
@@ -84,7 +109,9 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
         let mut found: Vec<(String, Vec<String>, bool)> = vec![];
         let mut i = 0;
         while i + 3 < toks.len() {
-            if let (Tok::Ident(c), Tok::Ident(n), Tok::Sym("(")) = (&toks[i], &toks[i + 1], &toks[i + 2]) {
+            if let (Tok::Ident(c), Tok::Ident(n), Tok::Sym("(")) =
+                (&toks[i], &toks[i + 1], &toks[i + 2])
+            {
                 if c == "class" {
                     let mut j = i + 3;
                     let mut bases = vec![];
@@ -125,7 +152,15 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
                 if p.exc_bases.contains_key(n) {
                     continue;
                 }
-                let errs: Vec<String> = bases.iter().filter(|b| b.ends_with("Exception") || b.ends_with("Error") || p.exc_bases.contains_key(*b)).cloned().collect();
+                let errs: Vec<String> = bases
+                    .iter()
+                    .filter(|b| {
+                        b.ends_with("Exception")
+                            || b.ends_with("Error")
+                            || p.exc_bases.contains_key(*b)
+                    })
+                    .cloned()
+                    .collect();
                 if !errs.is_empty() {
                     if *has_fn || errs.iter().any(|b| p.exc_rich.contains(b)) {
                         p.exc_rich.push(n.clone());
@@ -139,14 +174,28 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
             }
         }
     }
-    p.threads = p.toks.windows(5).filter_map(|w| match (&w[0].tok, &w[1].tok, &w[2].tok, &w[3].tok, &w[4].tok) {
-        (Tok::Ident(t), Tok::Sym("="), Tok::Ident(m), Tok::Sym("."), Tok::Ident(c)) if m == "threading" && c == "Thread" => Some(t.clone()),
-        _ => None,
-    }).collect();
-    p.class_names = p.toks.windows(2).filter_map(|w| match (&w[0].tok, &w[1].tok) {
-        (Tok::Ident(c), Tok::Ident(n)) if c == "class" => Some(n.clone()),
-        _ => None,
-    }).collect();
+    p.threads = p
+        .toks
+        .windows(5)
+        .filter_map(
+            |w| match (&w[0].tok, &w[1].tok, &w[2].tok, &w[3].tok, &w[4].tok) {
+                (Tok::Ident(t), Tok::Sym("="), Tok::Ident(m), Tok::Sym("."), Tok::Ident(c))
+                    if m == "threading" && c == "Thread" =>
+                {
+                    Some(t.clone())
+                }
+                _ => None,
+            },
+        )
+        .collect();
+    p.class_names = p
+        .toks
+        .windows(2)
+        .filter_map(|w| match (&w[0].tok, &w[1].tok) {
+            (Tok::Ident(c), Tok::Ident(n)) if c == "class" => Some(n.clone()),
+            _ => None,
+        })
+        .collect();
     let mut items = Vec::new();
     let mut classes: Vec<(Item, Vec<String>)> = Vec::new();
     // Statements outside any function form the program's main (script mode).
@@ -161,7 +210,9 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
             items.push(p.item()?);
         } else if p.error_class() {
             continue;
-        } else if matches!(p.peek(), Tok::Ident(w) if w == "class") && matches!(p.peek_at(1), Tok::Ident(_)) {
+        } else if matches!(p.peek(), Tok::Ident(w) if w == "class")
+            && matches!(p.peek_at(1), Tok::Ident(_))
+        {
             let (ty, fns, bases) = p.class()?;
             classes.push((ty, bases));
             items.extend(fns);
@@ -172,7 +223,10 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
             script.push(p.stmt()?);
             script.append(&mut p.pending);
             if p.peek() != &Tok::Newline {
-                return Err(p.err(&format!("expected end of line, found {}", tok_text(p.peek()))));
+                return Err(p.err(&format!(
+                    "expected end of line, found {}",
+                    tok_text(p.peek())
+                )));
             }
         }
     }
@@ -192,24 +246,49 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
         lower_methods(&mut items, &mut script, &classes);
         // Methods nothing calls (often a base class's, copied into its subclasses) are left out:
         // with no calls there is nothing to type their parameters from.
-        let class_names: Vec<String> = classes.iter().filter_map(|(c, _)| match c { Item::Type { name, .. } => Some(format!("{name}_")), _ => None }).collect();
+        let class_names: Vec<String> = classes
+            .iter()
+            .filter_map(|(c, _)| match c {
+                Item::Type { name, .. } => Some(format!("{name}_")),
+                _ => None,
+            })
+            .collect();
         loop {
             let text = format!("{items:?} {script:?}");
-            let fn_names: Vec<String> = items.iter().filter_map(|i| match i { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
+            let fn_names: Vec<String> = items
+                .iter()
+                .filter_map(|i| match i {
+                    Item::Fn { name, .. } => Some(name.clone()),
+                    _ => None,
+                })
+                .collect();
             let before = items.len();
             items.retain(|i| match i {
-                Item::Fn { name, .. } if class_names.iter().any(|c| name.starts_with(c.as_str())) => {
+                Item::Fn { name, .. }
+                    if class_names.iter().any(|c| name.starts_with(c.as_str())) =>
+                {
                     // `board.add(...)` on a value whose class is only known once types are worked out (a parameter,
                     // or a class from another file) keeps the method, if its class is made somewhere.
-                    let by_method = class_names.iter().filter(|c| name.starts_with(c.as_str())).any(|c| {
-                        let m = &name[c.len()..];
-                        let made = text.contains(&format!("Call(\"{c}new\"")) || !fn_names.contains(&format!("{c}new"));
-                        // A tkinter callback names the method without calling it: `command=self.on_click`.
-                        made && m != "new" && (text.contains(&format!("{m:?}, [")) || (crate::gui::active() && text.contains(&format!("Field(Ident(\"self_\"), {m:?})"))))
-                    });
+                    let by_method = class_names
+                        .iter()
+                        .filter(|c| name.starts_with(c.as_str()))
+                        .any(|c| {
+                            let m = &name[c.len()..];
+                            let made = text.contains(&format!("Call(\"{c}new\""))
+                                || !fn_names.contains(&format!("{c}new"));
+                            // A tkinter callback names the method without calling it: `command=self.on_click`.
+                            made && m != "new"
+                                && (text.contains(&format!("{m:?}, ["))
+                                    || (crate::gui::active()
+                                        && text
+                                            .contains(&format!("Field(Ident(\"self_\"), {m:?})"))))
+                        });
                     // `__str__` / `__repr__` are how the class prints.
                     let shows = name.ends_with("___str__") || name.ends_with("___repr__");
-                    shows || by_method || text.contains(&format!("Call({name:?}")) || text.contains(&format!("Ident({name:?})"))
+                    shows
+                        || by_method
+                        || text.contains(&format!("Call({name:?}"))
+                        || text.contains(&format!("Ident({name:?})"))
                 }
                 _ => true,
             });
@@ -221,13 +300,18 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
         let text = format!("{items:?} {script:?}");
         let mut classes = classes;
         classes.retain(|(c, _)| match c {
-            Item::Type { name, .. } => text.contains(&format!("Named({name:?})")) || text.contains(&format!("Call({name:?}")),
+            Item::Type { name, .. } => {
+                text.contains(&format!("Named({name:?})"))
+                    || text.contains(&format!("Call({name:?}"))
+            }
             _ => true,
         });
         items.extend(classes.into_iter().map(|c| c.0));
     }
     if crate::gui::active() {
-        crate::gui::lower(&mut items, &mut script, &|f: &str| p.sigs.get(f).map_or(0, |s| s.0.len()))?;
+        crate::gui::lower(&mut items, &mut script, &|f: &str| {
+            p.sigs.get(f).map_or(0, |s| s.0.len())
+        })?;
     }
     if p.py {
         print_params(&mut items, &mut script, &mut p.sigs);
@@ -263,7 +347,9 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
         pick_names(&mut body);
         dict_with_base(&mut body);
         lambdas_to_defs(&mut body, &mut kids, script_line, &skip);
-        let Expr::Block(st, _) = body else { unreachable!() };
+        let Expr::Block(st, _) = body else {
+            unreachable!()
+        };
         script = st;
         items.extend(kids);
     }
@@ -271,9 +357,15 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
     if !script.is_empty() {
         // Top-level statements beside fn main run first, then main, as in a Python file that ends with main().
         let mut script = script;
-        if let Some(Item::Fn { name, params, .. }) = items.iter_mut().find(|i| matches!(i, Item::Fn { name, .. } if name == "main")) {
+        if let Some(Item::Fn { name, params, .. }) = items
+            .iter_mut()
+            .find(|i| matches!(i, Item::Fn { name, .. } if name == "main"))
+        {
             if !params.is_empty() {
-                return Err(Diag::new("parse", script_line, 1, "main takes no parameters").fix_hint("use args() to read command line arguments"));
+                return Err(
+                    Diag::new("parse", script_line, 1, "main takes no parameters")
+                        .fix_hint("use args() to read command line arguments"),
+                );
             }
             *name = "main_".into();
             // `main()`, also inside `if __name__ == "__main__":`.
@@ -285,7 +377,10 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
             }
             if !called {
                 let line = script.last().map_or(script_line, |_| script_line);
-                script.push(Stmt::Expr { expr: Expr::Call("main_".into(), vec![], line), line });
+                script.push(Stmt::Expr {
+                    expr: Expr::Call("main_".into(), vec![], line),
+                    line,
+                });
             }
         }
         items.push(Item::Fn {
@@ -361,7 +456,9 @@ impl Parser {
         if self.eat_sym(s) {
             Ok(())
         } else {
-            Err(self.err(&format!("expected '{s}', found {}", tok_text(self.peek()))).fix_hint(&format!("insert '{s}'")))
+            Err(self
+                .err(&format!("expected '{s}', found {}", tok_text(self.peek())))
+                .fix_hint(&format!("insert '{s}'")))
         }
     }
     fn ident(&mut self) -> R<String> {
@@ -389,7 +486,11 @@ impl Parser {
         let line = self.line();
         if self.eat_kw("fn") {
             let name = self.ident()?;
-            let name = if SHADOWABLE.contains(&name.as_str()) { format!("{name}_") } else { name };
+            let name = if SHADOWABLE.contains(&name.as_str()) {
+                format!("{name}_")
+            } else {
+                name
+            };
             self.expect_sym("(")?;
             let mut params = Vec::new();
             let mut defaults: Vec<Option<Expr>> = Vec::new();
@@ -407,11 +508,28 @@ impl Parser {
                 }
                 let pname = self.ident()?;
                 // Without a type, the parameter takes the type of what the calls pass (see infer::returns).
-                let ty = if self.eat_sym(":") { self.ty()? } else { Ty::Named("?".into()) };
-                let ty = if star == Some(params.len()) && !matches!(ty, Ty::Named(ref n) if n == "?") { Ty::List(Box::new(ty)) } else { ty };
+                let ty = if self.eat_sym(":") {
+                    self.ty()?
+                } else {
+                    Ty::Named("?".into())
+                };
+                let ty =
+                    if star == Some(params.len()) && !matches!(ty, Ty::Named(ref n) if n == "?") {
+                        Ty::List(Box::new(ty))
+                    } else {
+                        ty
+                    };
                 // Python's default values: `def f(x, n=1)`.
-                defaults.push(if self.eat_sym("=") { Some(self.expr()?) } else { None });
-                params.push(Param { name: pname, ty, is_mut });
+                defaults.push(if self.eat_sym("=") {
+                    Some(self.expr()?)
+                } else {
+                    None
+                });
+                params.push(Param {
+                    name: pname,
+                    ty,
+                    is_mut,
+                });
                 if !self.eat_sym(",") {
                     break;
                 }
@@ -419,10 +537,21 @@ impl Parser {
             }
             self.expect_sym(")")?;
             if star.is_some() || defaults.iter().any(|d| d.is_some()) {
-                self.sigs.insert(name.clone(), (params.iter().map(|p| p.name.clone()).collect(), defaults, star));
+                self.sigs.insert(
+                    name.clone(),
+                    (
+                        params.iter().map(|p| p.name.clone()).collect(),
+                        defaults,
+                        star,
+                    ),
+                );
             }
             // Without `->` the return type is worked out from the body (see infer::returns).
-            let ret = if self.eat_sym("->") { self.ty()? } else { Ty::Named("?".into()) };
+            let ret = if self.eat_sym("->") {
+                self.ty()?
+            } else {
+                Ty::Named("?".into())
+            };
             let fallible = self.eat_sym("!");
             self.ret_map = matches!(ret, Ty::Map(..));
             crate::pybridge::enter_fn(&name, &params);
@@ -455,7 +584,8 @@ impl Parser {
             if self.py {
                 if let Some((names, defaults, _)) = self.sigs.get(&name) {
                     for (pn, d) in names.iter().zip(defaults) {
-                        let mutable = matches!(d, Some(Expr::List(_) | Expr::Map(_))) || matches!(d, Some(Expr::Call(f, _, _)) if f == "set" || f == "dict" || f == "list");
+                        let mutable = matches!(d, Some(Expr::List(_) | Expr::Map(_)))
+                            || matches!(d, Some(Expr::Call(f, _, _)) if f == "set" || f == "dict" || f == "list");
                         if !mutable {
                             continue;
                         }
@@ -463,15 +593,43 @@ impl Parser {
                         let mut b = body.clone();
                         walk_mut(&mut b, &mut |e| {
                             if let Expr::Method(r, m, _, _) = e {
-                                if matches!(r.as_ref(), Expr::Ident(n) if n == pn) && ["push", "append", "pop", "insert", "remove", "clear", "extend", "update", "add", "discard", "setdefault", "sort", "reverse", "popleft", "appendleft"].contains(&m.as_str()) {
+                                if matches!(r.as_ref(), Expr::Ident(n) if n == pn)
+                                    && [
+                                        "push",
+                                        "append",
+                                        "pop",
+                                        "insert",
+                                        "remove",
+                                        "clear",
+                                        "extend",
+                                        "update",
+                                        "add",
+                                        "discard",
+                                        "setdefault",
+                                        "sort",
+                                        "reverse",
+                                        "popleft",
+                                        "appendleft",
+                                    ]
+                                    .contains(&m.as_str())
+                                {
                                     changed = true;
                                 }
                             }
                             if let Expr::Block(ss, _) = e {
                                 for s in ss.iter() {
                                     match s {
-                                        Stmt::Assign { target: Expr::Index(r, _), .. } if matches!(r.as_ref(), Expr::Ident(n) if n == pn) => changed = true,
-                                        Stmt::Assign { target: Expr::Ident(n), op, .. } if n == pn && *op != "=" => changed = true,
+                                        Stmt::Assign {
+                                            target: Expr::Index(r, _),
+                                            ..
+                                        } if matches!(r.as_ref(), Expr::Ident(n) if n == pn) => {
+                                            changed = true
+                                        }
+                                        Stmt::Assign {
+                                            target: Expr::Ident(n),
+                                            op,
+                                            ..
+                                        } if n == pn && *op != "=" => changed = true,
                                         _ => {}
                                     }
                                 }
@@ -496,9 +654,20 @@ impl Parser {
             }
             if !kids.is_empty() {
                 // A nested def's defaults and keywords are filled in before lifting adds the captured names.
-                let ksigs: HashMap<String, Sig> = kids.iter().filter_map(|k| match k { Item::Fn { name: kn, .. } => self.sigs.get(kn).map(|s| (kn.clone(), s.clone())), _ => None }).collect();
+                let ksigs: HashMap<String, Sig> = kids
+                    .iter()
+                    .filter_map(|k| match k {
+                        Item::Fn { name: kn, .. } => {
+                            self.sigs.get(kn).map(|s| (kn.clone(), s.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect();
                 if !ksigs.is_empty() {
-                    let mut st = vec![Stmt::Expr { expr: std::mem::replace(&mut body, Expr::Int(0)), line }];
+                    let mut st = vec![Stmt::Expr {
+                        expr: std::mem::replace(&mut body, Expr::Int(0)),
+                        line,
+                    }];
                     fill_args(&mut kids, &mut st, &ksigs);
                     if let Some(Stmt::Expr { expr, .. }) = st.pop() {
                         body = expr;
@@ -507,7 +676,15 @@ impl Parser {
                 let lifted = lift_nested(&name, &params, &mut body, kids);
                 self.hoisted.extend(lifted);
             }
-            return Ok(Item::Fn { name, params, ret, fallible, body, line, script: false });
+            return Ok(Item::Fn {
+                name,
+                params,
+                ret,
+                fallible,
+                body,
+                line,
+                script: false,
+            });
         }
         if self.eat_kw("type") {
             let name = self.ident()?;
@@ -530,11 +707,18 @@ impl Parser {
                 } else {
                     Vec::new()
                 };
-                variants.push(Variant { name: vname, fields });
+                variants.push(Variant {
+                    name: vname,
+                    fields,
+                });
                 self.skip_seps();
             }
             self.expect_sym("}")?;
-            return Ok(Item::Enum { name, variants, line });
+            return Ok(Item::Enum {
+                name,
+                variants,
+                line,
+            });
         }
         if self.eat_kw("test") {
             let name = match self.next() {
@@ -544,7 +728,10 @@ impl Parser {
             let body = self.block()?;
             return Ok(Item::Test { name, body, line });
         }
-        Err(self.err(&format!("expected fn, type, enum or test, found {}", tok_text(self.peek()))))
+        Err(self.err(&format!(
+            "expected fn, type, enum or test, found {}",
+            tok_text(self.peek())
+        )))
     }
 
     fn fields(&mut self, close: &str) -> R<Vec<Field>> {
@@ -554,7 +741,11 @@ impl Parser {
             let name = self.ident()?;
             self.expect_sym(":")?;
             let ty = self.ty()?;
-            let default = if self.eat_sym("=") { Some(self.expr()?) } else { None };
+            let default = if self.eat_sym("=") {
+                Some(self.expr()?)
+            } else {
+                None
+            };
             fields.push(Field { name, ty, default });
             self.skip_seps();
         }
@@ -604,7 +795,11 @@ impl Parser {
                 }
             }
             self.expect_sym(")")?;
-            return Ok(if ts.is_empty() { Ty::Unit } else { Ty::Tuple(ts) });
+            return Ok(if ts.is_empty() {
+                Ty::Unit
+            } else {
+                Ty::Tuple(ts)
+            });
         }
         let name = self.ident()?;
         if name == "heap" && self.eat_sym("[") {
@@ -618,7 +813,9 @@ impl Parser {
         let ty = match name.as_str() {
             "float" => Ty::Named("f64".into()),
             "Decimal" | "Fraction" => Ty::Named("dec".into()),
-            "list" | "List" | "set" | "Set" | "frozenset" | "deque" | "Sequence" | "Iterable" if self.is_sym("[") => {
+            "list" | "List" | "set" | "Set" | "frozenset" | "deque" | "Sequence" | "Iterable"
+                if self.is_sym("[") =>
+            {
                 self.next();
                 let t = self.ty()?;
                 self.expect_sym("]")?;
@@ -659,9 +856,14 @@ impl Parser {
                 }
                 self.expect_sym("]")?;
                 ts.retain(|t| !matches!(t, Ty::Unit));
-                if ts.len() == 1 { ts.remove(0) } else { Ty::Named("?".into()) }
+                if ts.len() == 1 {
+                    ts.remove(0)
+                } else {
+                    Ty::Named("?".into())
+                }
             }
-            "list" | "List" | "set" | "Set" | "dict" | "Dict" | "tuple" | "Tuple" | "Any" | "object" | "Callable" | "Iterator" | "Generator" => {
+            "list" | "List" | "set" | "Set" | "dict" | "Dict" | "tuple" | "Tuple" | "Any"
+            | "object" | "Callable" | "Iterator" | "Generator" => {
                 // Callable[[int], str] and the like: skipped whole.
                 if self.eat_sym("[") {
                     let mut depth = 1;
@@ -715,16 +917,23 @@ impl Parser {
                 break;
             }
             if self.peek() == &Tok::Eof {
-                return Err(self.err("block is missing its closing '}'").fix_hint("insert '}'"));
+                return Err(self
+                    .err("block is missing its closing '}'")
+                    .fix_hint("insert '}'"));
             }
             stmts.push(self.stmt()?);
             stmts.append(&mut self.pending);
             if self.is_sym("!") {
-                return Err(self.err("unexpected '!' after an expression")
-                    .fix_hint("use ? to pass an error up; ! only goes after a function's return type"));
+                return Err(self.err("unexpected '!' after an expression").fix_hint(
+                    "use ? to pass an error up; ! only goes after a function's return type",
+                ));
             }
             if !(self.peek() == &Tok::Newline || self.is_sym("}")) {
-                return Err(self.err(&format!("expected end of line, found {}", tok_text(self.peek())))
+                return Err(self
+                    .err(&format!(
+                        "expected end of line, found {}",
+                        tok_text(self.peek())
+                    ))
                     .fix_hint("put one statement per line"));
             }
         }
@@ -757,7 +966,13 @@ impl Parser {
                     Tok::Sym("(") => depth += 1,
                     Tok::Sym(")") => depth -= 1,
                     // `Exception` above a Python error class is not a class of the program.
-                    Tok::Ident(b) if depth == 1 && !(self.exc_rich.contains(&name) && !self.class_names.contains(&b)) => bases.push(b),
+                    Tok::Ident(b)
+                        if depth == 1
+                            && !(self.exc_rich.contains(&name)
+                                && !self.class_names.contains(&b)) =>
+                    {
+                        bases.push(b)
+                    }
                     _ => {}
                 }
             }
@@ -775,9 +990,18 @@ impl Parser {
         let mut methods: Vec<Item> = self.children.split_off(kids);
         // Python: `str(e)` of an error object is the message it was made with. Without its own `__str__`, an error
         // class gets one giving the field that holds that message, or one that stops the run if there is none.
-        if self.exc_rich.contains(&name) && !methods.iter().any(|m| matches!(m, Item::Fn { name: n, .. } if n == "__str__" || n == "__repr__")) {
+        if self.exc_rich.contains(&name)
+            && !methods
+                .iter()
+                .any(|m| matches!(m, Item::Fn { name: n, .. } if n == "__str__" || n == "__repr__"))
+        {
             let init = methods.iter().find_map(|m| match m {
-                Item::Fn { name: n, params, body, .. } if n == "__init__" => Some((params.clone(), body.clone())),
+                Item::Fn {
+                    name: n,
+                    params,
+                    body,
+                    ..
+                } if n == "__init__" => Some((params.clone(), body.clone())),
                 _ => None,
             });
             let msg_param = match (&self.exc_init_arg, &init) {
@@ -791,8 +1015,17 @@ impl Parser {
                 walk_mut(&mut b, &mut |e| {
                     if let Expr::Block(ss, _) = e {
                         for st in ss {
-                            if let Stmt::Assign { target: Expr::Field(r, f), op: "=", value: Expr::Ident(x), .. } = st {
-                                if *x == *p && matches!(r.as_ref(), Expr::Ident(s) if s == "self_") && field.is_none() {
+                            if let Stmt::Assign {
+                                target: Expr::Field(r, f),
+                                op: "=",
+                                value: Expr::Ident(x),
+                                ..
+                            } = st
+                            {
+                                if *x == *p
+                                    && matches!(r.as_ref(), Expr::Ident(s) if s == "self_")
+                                    && field.is_none()
+                                {
                                     field = Some(f.clone());
                                 }
                             }
@@ -801,15 +1034,38 @@ impl Parser {
                 });
             }
             let value = match field {
-                Some(f) => Expr::Call("str".into(), vec![(None, Expr::Field(Box::new(Expr::Ident("self_".into())), f))], line),
-                None => Expr::Call("ax_unsupported".into(), vec![(None, Expr::Str(vec![StrPart::Lit(format!("str() of a {name} error is not supported yet"))]))], line),
+                Some(f) => Expr::Call(
+                    "str".into(),
+                    vec![(None, Expr::Field(Box::new(Expr::Ident("self_".into())), f))],
+                    line,
+                ),
+                None => Expr::Call(
+                    "ax_unsupported".into(),
+                    vec![(
+                        None,
+                        Expr::Str(vec![StrPart::Lit(format!(
+                            "str() of a {name} error is not supported yet"
+                        ))]),
+                    )],
+                    line,
+                ),
             };
             methods.push(Item::Fn {
                 name: "__str__".into(),
-                params: vec![Param { name: "self_".into(), ty: Ty::Named("?".into()), is_mut: false }],
+                params: vec![Param {
+                    name: "self_".into(),
+                    ty: Ty::Named("?".into()),
+                    is_mut: false,
+                }],
                 ret: Ty::Named("?".into()),
                 fallible: false,
-                body: Expr::Block(vec![Stmt::Return { value: Some(value), line }], None),
+                body: Expr::Block(
+                    vec![Stmt::Return {
+                        value: Some(value),
+                        line,
+                    }],
+                    None,
+                ),
                 line,
                 script: false,
             });
@@ -818,29 +1074,58 @@ impl Parser {
         let mut declared: Vec<Field> = Vec::new();
         if let Expr::Block(stmts, _) = &body {
             for st in stmts {
-                if let Stmt::Let { name: Pat::Bind(n), ty, value, .. } = st {
+                if let Stmt::Let {
+                    name: Pat::Bind(n),
+                    ty,
+                    value,
+                    ..
+                } = st
+                {
                     let default = match value {
                         Expr::Call(f, _, _) if f == "__field" => None,
-                        Expr::Call(f, a, _) if f == "field" => a.iter().find(|(k, _)| k.as_deref() == Some("default_factory")).map(|(_, v)| match v {
-                            Expr::Ident(t) if t == "dict" => Expr::Map(vec![]),
-                            Expr::Ident(t) if t == "list" || t == "set" => Expr::List(vec![]),
-                            other => Expr::Call("str".into(), vec![(None, other.clone())], 0),
-                        }).or_else(|| a.iter().find(|(k, _)| k.as_deref() == Some("default")).map(|(_, v)| v.clone())),
+                        Expr::Call(f, a, _) if f == "field" => a
+                            .iter()
+                            .find(|(k, _)| k.as_deref() == Some("default_factory"))
+                            .map(|(_, v)| match v {
+                                Expr::Ident(t) if t == "dict" => Expr::Map(vec![]),
+                                Expr::Ident(t) if t == "list" || t == "set" => Expr::List(vec![]),
+                                other => Expr::Call("str".into(), vec![(None, other.clone())], 0),
+                            })
+                            .or_else(|| {
+                                a.iter()
+                                    .find(|(k, _)| k.as_deref() == Some("default"))
+                                    .map(|(_, v)| v.clone())
+                            }),
                         v => Some(v.clone()),
                     };
-                    declared.push(Field { name: n.clone(), ty: ty.clone().unwrap_or(Ty::Named("?".into())), default });
+                    declared.push(Field {
+                        name: n.clone(),
+                        ty: ty.clone().unwrap_or(Ty::Named("?".into())),
+                        default,
+                    });
                 }
             }
         }
         // A dataclass prints as CPython's generated __repr__: its fields (a base dataclass's first), in order,
         // except those declared with field(repr=False).
         if let Some(py_name) = crate::lexer::dataclass_at(line) {
-            let mut shown: Vec<String> = bases.iter().find_map(|b| dataclass(b)).map(|(_, f)| f).unwrap_or_default();
+            let mut shown: Vec<String> = bases
+                .iter()
+                .find_map(|b| dataclass(b))
+                .map(|(_, f)| f)
+                .unwrap_or_default();
             if let Expr::Block(stmts, _) = &body {
                 for st in stmts {
-                    if let Stmt::Let { name: Pat::Bind(n), value, ty, .. } = st {
+                    if let Stmt::Let {
+                        name: Pat::Bind(n),
+                        value,
+                        ty,
+                        ..
+                    } = st
+                    {
                         let hidden = matches!(value, Expr::Call(f, a, _) if f == "field" && a.iter().any(|(k, v)| k.as_deref() == Some("repr") && matches!(v, Expr::Bool(false))));
-                        let class_var = matches!(ty, Some(Ty::Named(t)) if t.starts_with("ClassVar"));
+                        let class_var =
+                            matches!(ty, Some(Ty::Named(t)) if t.starts_with("ClassVar"));
                         if !hidden && !class_var && !shown.contains(n) {
                             shown.push(n.clone());
                         }
@@ -857,15 +1142,27 @@ impl Parser {
                 walk_mut(&mut b, &mut |e| {
                     if let Expr::Block(stmts, _) = e {
                         for st in stmts.iter() {
-                            if let Stmt::Assign { target: Expr::Field(r, f), .. } = st {
-                                if matches!(r.as_ref(), Expr::Ident(n) if n == "self_") && !fields.contains(f) {
+                            if let Stmt::Assign {
+                                target: Expr::Field(r, f),
+                                ..
+                            } = st
+                            {
+                                if matches!(r.as_ref(), Expr::Ident(n) if n == "self_")
+                                    && !fields.contains(f)
+                                {
                                     fields.push(f.clone());
                                 }
                             }
-                            if let Stmt::Assign { target: Expr::Tuple(xs), .. } = st {
+                            if let Stmt::Assign {
+                                target: Expr::Tuple(xs),
+                                ..
+                            } = st
+                            {
                                 for x in xs {
                                     if let Expr::Field(r, f) = x {
-                                        if matches!(r.as_ref(), Expr::Ident(n) if n == "self_") && !fields.contains(f) {
+                                        if matches!(r.as_ref(), Expr::Ident(n) if n == "self_")
+                                            && !fields.contains(f)
+                                        {
                                             fields.push(f.clone());
                                         }
                                     }
@@ -878,9 +1175,24 @@ impl Parser {
         }
         let me = Ty::Named(name.clone());
         for m in methods {
-            let Item::Fn { name: mname, mut params, ret, fallible, body, line, script } = m else { continue };
+            let Item::Fn {
+                name: mname,
+                mut params,
+                ret,
+                fallible,
+                body,
+                line,
+                script,
+            } = m
+            else {
+                continue;
+            };
             // `def __len__(self)` is what `len(x)` calls.
-            let mname = if mname == "__len__" { "len".to_string() } else { mname };
+            let mname = if mname == "__len__" {
+                "len".to_string()
+            } else {
+                mname
+            };
             // A method named like a built-in (`def args(self)`) keeps its name: it is only called on objects.
             let mname = match mname.strip_suffix('_') {
                 Some(b) if SHADOWABLE.contains(&b) => b.to_string(),
@@ -888,7 +1200,15 @@ impl Parser {
             };
             if params.first().map_or(true, |p| p.name != "self_") {
                 // A static method: a plain function.
-                fns.push(Item::Fn { name: format!("{name}_{mname}"), params, ret, fallible, body, line, script });
+                fns.push(Item::Fn {
+                    name: format!("{name}_{mname}"),
+                    params,
+                    ret,
+                    fallible,
+                    body,
+                    line,
+                    script,
+                });
                 continue;
             }
             // Taken out, so a later class's method of the same name without defaults does not get this one's.
@@ -904,7 +1224,13 @@ impl Parser {
             }
             if mname == "__init__" {
                 params.remove(0);
-                let mut stmts = vec![Stmt::Let { name: Pat::Bind("self_".into()), ty: Some(me.clone()), value: Expr::Call("__default".into(), vec![], line), mutable: true, line }];
+                let mut stmts = vec![Stmt::Let {
+                    name: Pat::Bind("self_".into()),
+                    ty: Some(me.clone()),
+                    value: Expr::Call("__default".into(), vec![], line),
+                    mutable: true,
+                    line,
+                }];
                 match body {
                     Expr::Block(st, t) => {
                         stmts.extend(st);
@@ -914,17 +1240,45 @@ impl Parser {
                     }
                     e => stmts.push(Stmt::Expr { expr: e, line }),
                 }
-                fns.push(Item::Fn { name: format!("{name}_new"), params, ret: Ty::Named("?".into()), fallible, body: Expr::Block(stmts, Some(Box::new(Expr::Ident("self_".into())))), line, script });
+                fns.push(Item::Fn {
+                    name: format!("{name}_new"),
+                    params,
+                    ret: Ty::Named("?".into()),
+                    fallible,
+                    body: Expr::Block(stmts, Some(Box::new(Expr::Ident("self_".into())))),
+                    line,
+                    script,
+                });
             } else {
                 params[0].ty = me.clone();
-                fns.push(Item::Fn { name: format!("{name}_{mname}"), params, ret, fallible, body, line, script });
+                fns.push(Item::Fn {
+                    name: format!("{name}_{mname}"),
+                    params,
+                    ret,
+                    fallible,
+                    body,
+                    line,
+                    script,
+                });
             }
         }
         let fields = fields
             .into_iter()
             .map(|f| {
-                let ty = attr_tys.iter().find(|(n, _)| *n == f).map(|(_, t)| t.clone()).unwrap_or(Ty::Named("?".into()));
-                declared.iter().find(|d| d.name == f).cloned().unwrap_or(Field { name: f, ty, default: None })
+                let ty = attr_tys
+                    .iter()
+                    .find(|(n, _)| *n == f)
+                    .map(|(_, t)| t.clone())
+                    .unwrap_or(Ty::Named("?".into()));
+                declared
+                    .iter()
+                    .find(|d| d.name == f)
+                    .cloned()
+                    .unwrap_or(Field {
+                        name: f,
+                        ty,
+                        default: None,
+                    })
             })
             .collect();
         Ok((Item::Type { name, fields, line }, fns, bases))
@@ -933,7 +1287,9 @@ impl Parser {
     // Python's `class BadInput(Exception): pass`: Brevi errors are messages, so an error class needs nothing.
     // Skipped (true) when the class body holds only `pass`, `...` or a docstring.
     fn error_class(&mut self) -> bool {
-        if !matches!(self.peek(), Tok::Ident(w) if w == "class") || !matches!(self.peek_at(1), Tok::Ident(_)) {
+        if !matches!(self.peek(), Tok::Ident(w) if w == "class")
+            || !matches!(self.peek_at(1), Tok::Ident(_))
+        {
             return false;
         }
         let save = self.pos;
@@ -953,7 +1309,12 @@ impl Parser {
                 match self.next() {
                     Tok::Sym("(") => depth += 1,
                     Tok::Sym(")") => depth -= 1,
-                    Tok::Ident(b) if depth == 1 && (b.ends_with("Exception") || b.ends_with("Error") || self.exc_bases.contains_key(&b)) => {
+                    Tok::Ident(b)
+                        if depth == 1
+                            && (b.ends_with("Exception")
+                                || b.ends_with("Error")
+                                || self.exc_bases.contains_key(&b)) =>
+                    {
                         error_base = true;
                         bases.push(b);
                     }
@@ -967,19 +1328,32 @@ impl Parser {
         }
         let kids = self.children.len();
         let body = self.block();
-        let trivial = error_base || match body {
-            Ok(Expr::Block(st, t)) => {
-                st.iter().all(|s| matches!(s, Stmt::Expr { expr: Expr::Block(b, None), .. } if b.is_empty()) || matches!(s, Stmt::Expr { expr: Expr::Str(_), .. }))
-                    && t.map_or(true, |t| matches!(*t, Expr::Str(_) | Expr::Block(..) | Expr::Range(..)))
-            }
-            _ => false,
-        };
+        let trivial =
+            error_base
+                || match body {
+                    Ok(Expr::Block(st, t)) => st.iter().all(|s| {
+                        matches!(s, Stmt::Expr { expr: Expr::Block(b, None), .. } if b.is_empty())
+                            || matches!(
+                                s,
+                                Stmt::Expr {
+                                    expr: Expr::Str(_),
+                                    ..
+                                }
+                            )
+                    }) && t.map_or(true, |t| {
+                        matches!(*t, Expr::Str(_) | Expr::Block(..) | Expr::Range(..))
+                    }),
+                    _ => false,
+                };
         // Python: an error class with methods of its own (or below one that has them) is a real class too.
-        let rich = self.py && error_base && (self.children.len() > kids || bases.iter().any(|b| self.exc_rich.contains(b)));
+        let rich = self.py
+            && error_base
+            && (self.children.len() > kids || bases.iter().any(|b| self.exc_rich.contains(b)));
         if rich && !self.exc_rich.contains(&cname) {
             self.exc_rich.push(cname.clone());
         }
-        let trivial = (error_base && !rich) || (trivial && !other_base && self.children.len() == kids);
+        let trivial =
+            (error_base && !rich) || (trivial && !other_base && self.children.len() == kids);
         self.children.truncate(kids);
         if !trivial {
             self.pos = save;
@@ -990,29 +1364,52 @@ impl Parser {
     fn stmt(&mut self) -> R<Stmt> {
         let line = self.line();
         // Python's `del m[k]` and `del xs[i]`.
-        if matches!(self.peek(), Tok::Ident(w) if w == "del") && !matches!(self.peek_at(1), Tok::Newline | Tok::Sym("=" | "(" | "." | "[")) {
+        if matches!(self.peek(), Tok::Ident(w) if w == "del")
+            && !matches!(
+                self.peek_at(1),
+                Tok::Newline | Tok::Sym("=" | "(" | "." | "[")
+            )
+        {
             self.next();
             let e = self.expr()?;
             if let Some(d) = crate::pybridge::del(&e, line) {
                 return Ok(d);
             }
             return match e {
-                Expr::Index(b, k) => Ok(Stmt::Expr { expr: Expr::Method(b, "remove".into(), vec![*k], line), line }),
+                Expr::Index(b, k) => Ok(Stmt::Expr {
+                    expr: Expr::Method(b, "remove".into(), vec![*k], line),
+                    line,
+                }),
                 // `del xs[a:]` and `del xs[a:b]` keep the items around the slice.
                 Expr::Method(b, m, mut a, _) if m == "slice" && (a.len() == 1 || a.len() == 2) => {
                     let from = a.remove(0);
-                    let mut value = Expr::Method(b.clone(), "slice".into(), vec![Expr::Int(0), from], line);
+                    let mut value =
+                        Expr::Method(b.clone(), "slice".into(), vec![Expr::Int(0), from], line);
                     if let Some(to) = a.pop() {
-                        value = Expr::Binary("+", Box::new(value), Box::new(Expr::Method(b.clone(), "slice".into(), vec![to], line)));
+                        value = Expr::Binary(
+                            "+",
+                            Box::new(value),
+                            Box::new(Expr::Method(b.clone(), "slice".into(), vec![to], line)),
+                        );
                     }
-                    Ok(Stmt::Assign { target: *b, op: "=", value, line })
+                    Ok(Stmt::Assign {
+                        target: *b,
+                        op: "=",
+                        value,
+                        line,
+                    })
                 }
-                _ => Err(self.err("del takes m[k] or xs[i]").fix_hint("write del m[k]")),
+                _ => Err(self
+                    .err("del takes m[k] or xs[i]")
+                    .fix_hint("write del m[k]")),
             };
         }
         // Python's `with open(p) as f:` (also several, comma-separated): `f = open(p)`, the body, then `f.close()`,
         // all in the enclosing block (fix_opens then works on them like any opened file).
-        if self.py && matches!(self.peek(), Tok::Ident(w) if w == "with") && matches!(self.peek_at(1), Tok::Ident(_)) {
+        if self.py
+            && matches!(self.peek(), Tok::Ident(w) if w == "with")
+            && matches!(self.peek_at(1), Tok::Ident(_))
+        {
             self.next();
             let mut opened = Vec::new();
             loop {
@@ -1036,7 +1433,9 @@ impl Parser {
                     return Err(self.err("with is only supported with open(path) or open(path, mode)").fix_hint("read the file with open(path).read(), or use open(path, 'w') for writing"));
                 }
                 if !matches!(self.peek(), Tok::Ident(w) if w == "as_" || w == "as") {
-                    return Err(self.err("expected 'as NAME' after open(...)").fix_hint("write with open(path) as f:"));
+                    return Err(self
+                        .err("expected 'as NAME' after open(...)")
+                        .fix_hint("write with open(path) as f:"));
                 }
                 self.next();
                 let name = self.ident()?;
@@ -1054,13 +1453,37 @@ impl Parser {
                 stmts.push(Stmt::Expr { expr: *t, line });
             }
             // A file being written is saved at the end of the body (before a final return); one being read needs nothing.
-            let at = if matches!(stmts.last(), Some(Stmt::Return { .. })) { stmts.len() - 1 } else { stmts.len() };
+            let at = if matches!(stmts.last(), Some(Stmt::Return { .. })) {
+                stmts.len() - 1
+            } else {
+                stmts.len()
+            };
             for (name, e) in opened.iter() {
                 if !matches!(e, Expr::Call(k, _, _) if k == "__open_r") {
-                    stmts.insert(at, Stmt::Expr { expr: Expr::Method(Box::new(Expr::Ident(name.clone())), "close".into(), vec![], line), line });
+                    stmts.insert(
+                        at,
+                        Stmt::Expr {
+                            expr: Expr::Method(
+                                Box::new(Expr::Ident(name.clone())),
+                                "close".into(),
+                                vec![],
+                                line,
+                            ),
+                            line,
+                        },
+                    );
                 }
             }
-            let mut lets: Vec<Stmt> = opened.into_iter().map(|(name, e)| Stmt::Let { name: Pat::Bind(name), ty: None, value: e, mutable: true, line }).collect();
+            let mut lets: Vec<Stmt> = opened
+                .into_iter()
+                .map(|(name, e)| Stmt::Let {
+                    name: Pat::Bind(name),
+                    ty: None,
+                    value: e,
+                    mutable: true,
+                    line,
+                })
+                .collect();
             let first = lets.remove(0);
             lets.extend(stmts);
             lets.append(&mut self.pending);
@@ -1068,19 +1491,29 @@ impl Parser {
             return Ok(first);
         }
         // Python's `pass`.
-        if matches!(self.peek(), Tok::Ident(w) if w == "pass") && matches!(self.peek_at(1), Tok::Newline | Tok::Sym("}")) {
+        if matches!(self.peek(), Tok::Ident(w) if w == "pass")
+            && matches!(self.peek_at(1), Tok::Newline | Tok::Sym("}"))
+        {
             self.next();
-            return Ok(Stmt::Expr { expr: Expr::Block(vec![], None), line });
+            return Ok(Stmt::Expr {
+                expr: Expr::Block(vec![], None),
+                line,
+            });
         }
         // Python's nested `def`: lifted out of the function (see lift_nested).
         if self.is_kw("fn") && matches!(self.peek_at(1), Tok::Ident(_)) {
             let f = self.item()?;
             self.children.push(f);
-            return Ok(Stmt::Expr { expr: Expr::Block(vec![], None), line });
+            return Ok(Stmt::Expr {
+                expr: Expr::Block(vec![], None),
+                line,
+            });
         }
         // Python's `global count` / `nonlocal count`. A program that uses them gets Python's scope rule
         // exactly: a function that sets a top-level name without declaring it global has its own local.
-        if matches!(self.peek(), Tok::Ident(w) if w == "global" || w == "nonlocal") && matches!(self.peek_at(1), Tok::Ident(_)) {
+        if matches!(self.peek(), Tok::Ident(w) if w == "global" || w == "nonlocal")
+            && matches!(self.peek_at(1), Tok::Ident(_))
+        {
             self.next();
             let mut names = Vec::new();
             while let Tok::Ident(n) = self.peek().clone() {
@@ -1090,11 +1523,16 @@ impl Parser {
                     break;
                 }
             }
-            return Ok(Stmt::Expr { expr: Expr::Call("__global".into(), names, line), line });
+            return Ok(Stmt::Expr {
+                expr: Expr::Call("__global".into(), names, line),
+                line,
+            });
         }
         // Python's try/except/else/finally: `__try(body, handler, name)`. An error raised in body (a failing call or
         // `raise`) runs handler with `name` set to its message; else runs after a body without error, finally after both.
-        if matches!(self.peek(), Tok::Ident(w) if w == "try_") && matches!(self.peek_at(1), Tok::Sym("{" | ":")) {
+        if matches!(self.peek(), Tok::Ident(w) if w == "try_")
+            && matches!(self.peek_at(1), Tok::Sym("{" | ":"))
+        {
             self.next();
             let body = self.block()?;
             let mut handler: Option<Expr> = None;
@@ -1111,7 +1549,10 @@ impl Parser {
                     let mut name = None;
                     let mut classes: Vec<String> = vec![];
                     let mut after_as = false;
-                    while !(depth == 0 && matches!(self.peek(), Tok::Sym("{" | ":"))) && self.peek() != &Tok::Eof && self.peek() != &Tok::Newline {
+                    while !(depth == 0 && matches!(self.peek(), Tok::Sym("{" | ":")))
+                        && self.peek() != &Tok::Eof
+                        && self.peek() != &Tok::Newline
+                    {
                         match self.next() {
                             Tok::Sym("(" | "[") => depth += 1,
                             Tok::Sym(")" | "]") => depth -= 1,
@@ -1161,7 +1602,12 @@ impl Parser {
             // Python: several except clauses, or one naming an error class of the program, pick the handler by the
             // error's class (`except Brk: break` / `except Cont: continue`); an error no clause names goes on up.
             let user = |c: &String| self.exc_bases.contains_key(c);
-            if self.py && (clauses.len() > 1 || clauses.iter().any(|(cs, _, _)| cs.iter().any(|c| user(c) || self.exc_rich.contains(c)))) {
+            if self.py
+                && (clauses.len() > 1
+                    || clauses
+                        .iter()
+                        .any(|(cs, _, _)| cs.iter().any(|c| user(c) || self.exc_rich.contains(c))))
+            {
                 let mut chain: Option<Expr> = None;
                 for (cs, nm, h) in clauses.iter().rev() {
                     let mut h = match h.clone() {
@@ -1171,17 +1617,50 @@ impl Parser {
                     if let Some(n) = nm {
                         // `except RErr as e`: the error's own object (fields and methods); else its message.
                         let (ty, value) = match cs.as_slice() {
-                            [c] if self.exc_rich.contains(c) => (Some(Ty::Named(c.clone())), Expr::Call("__exc_get".into(), vec![], line)),
+                            [c] if self.exc_rich.contains(c) => (
+                                Some(Ty::Named(c.clone())),
+                                Expr::Call("__exc_get".into(), vec![], line),
+                            ),
                             _ => (None, Expr::Call("__err".into(), vec![], line)),
                         };
-                        h.0.insert(0, Stmt::Let { name: Pat::Bind(n.clone()), ty, value, mutable: false, line });
+                        h.0.insert(
+                            0,
+                            Stmt::Let {
+                                name: Pat::Bind(n.clone()),
+                                ty,
+                                value,
+                                mutable: false,
+                                line,
+                            },
+                        );
                     }
                     let h = Expr::Block(h.0, h.1);
                     let builtin = cs.is_empty() || cs.iter().any(|c| !user(c));
-                    let names = if cs.is_empty() { "BaseException".to_string() } else { cs.join(",") };
-                    let cond = Expr::Call("__exc_is".into(), vec![(None, Expr::Str(vec![StrPart::Lit(names)])), (None, Expr::Bool(builtin))], line);
-                    let rest = chain.take().unwrap_or_else(|| Expr::Call("fail".into(), vec![(None, Expr::Call("__err_raw".into(), vec![], line))], line));
-                    chain = Some(Expr::If(Box::new(cond), Box::new(h), Some(Box::new(Expr::Block(vec![], Some(Box::new(rest)))))));
+                    let names = if cs.is_empty() {
+                        "BaseException".to_string()
+                    } else {
+                        cs.join(",")
+                    };
+                    let cond = Expr::Call(
+                        "__exc_is".into(),
+                        vec![
+                            (None, Expr::Str(vec![StrPart::Lit(names)])),
+                            (None, Expr::Bool(builtin)),
+                        ],
+                        line,
+                    );
+                    let rest = chain.take().unwrap_or_else(|| {
+                        Expr::Call(
+                            "fail".into(),
+                            vec![(None, Expr::Call("__err_raw".into(), vec![], line))],
+                            line,
+                        )
+                    });
+                    chain = Some(Expr::If(
+                        Box::new(cond),
+                        Box::new(h),
+                        Some(Box::new(Expr::Block(vec![], Some(Box::new(rest))))),
+                    ));
                 }
                 handler = chain.map(|c| Expr::Block(vec![], Some(Box::new(c))));
                 err_name = "_".into();
@@ -1193,14 +1672,30 @@ impl Parser {
                 None => (vec![], None),
             };
             if err_name != "_" {
-                handler.0.insert(0, Stmt::Let { name: Pat::Bind(err_name), ty: None, value: Expr::Call("__err".into(), vec![], line), mutable: false, line });
+                handler.0.insert(
+                    0,
+                    Stmt::Let {
+                        name: Pat::Bind(err_name),
+                        ty: None,
+                        value: Expr::Call("__err".into(), vec![], line),
+                        mutable: false,
+                        line,
+                    },
+                );
             }
             let handler = Expr::Block(handler.0, handler.1);
-            let t = Expr::If(Box::new(Expr::Call("__try".into(), vec![], line)), Box::new(body), Some(Box::new(handler)));
+            let t = Expr::If(
+                Box::new(Expr::Call("__try".into(), vec![], line)),
+                Box::new(body),
+                Some(Box::new(handler)),
+            );
             return Ok(match fin {
                 Some(Expr::Block(mut fs, ft)) => {
                     fs.insert(0, Stmt::Expr { expr: t, line });
-                    Stmt::Expr { expr: Expr::Block(fs, ft), line }
+                    Stmt::Expr {
+                        expr: Expr::Block(fs, ft),
+                        line,
+                    }
                 }
                 _ => Stmt::Expr { expr: t, line },
             });
@@ -1208,7 +1703,10 @@ impl Parser {
         // Python's `raise ValueError("bad")` is fail("bad"); a bare `raise` or `raise KeyError` fails with the name.
         if matches!(self.peek(), Tok::Ident(w) if w == "raise") {
             self.next();
-            let msg = if (self.peek() == &Tok::Newline || self.is_sym("}")) && self.py && self.in_handler > 0 {
+            let msg = if (self.peek() == &Tok::Newline || self.is_sym("}"))
+                && self.py
+                && self.in_handler > 0
+            {
                 // A bare `raise` in an except block: the same error again.
                 Expr::Call("__err_raw".into(), vec![], line)
             } else if self.peek() == &Tok::Newline || self.is_sym("}") {
@@ -1223,27 +1721,55 @@ impl Parser {
                 }
                 // `raise SystemExit(3)` ends the program like sys.exit(3).
                 match &e {
-                    Expr::Call(n, args, _) if self.py && n == "SystemExit" && args.len() <= 1 && args.iter().all(|a| a.0.is_none()) => {
+                    Expr::Call(n, args, _)
+                        if self.py
+                            && n == "SystemExit"
+                            && args.len() <= 1
+                            && args.iter().all(|a| a.0.is_none()) =>
+                    {
                         let code = args.first().map_or(Expr::Int(0), |a| a.1.clone());
-                        return Ok(Stmt::Expr { expr: Expr::Method(Box::new(code), "exit_with".into(), vec![], line), line });
+                        return Ok(Stmt::Expr {
+                            expr: Expr::Method(Box::new(code), "exit_with".into(), vec![], line),
+                            line,
+                        });
                     }
                     Expr::Ident(n) if self.py && n == "SystemExit" => {
-                        return Ok(Stmt::Expr { expr: Expr::Method(Box::new(Expr::Int(0)), "exit_with".into(), vec![], line), line });
+                        return Ok(Stmt::Expr {
+                            expr: Expr::Method(
+                                Box::new(Expr::Int(0)),
+                                "exit_with".into(),
+                                vec![],
+                                line,
+                            ),
+                            line,
+                        });
                     }
                     _ => {}
                 }
                 let class = match &e {
-                    Expr::Call(n, _, _) | Expr::Ident(n) if n.chars().next().map_or(false, |c| c.is_uppercase()) => Some(n.clone()),
+                    Expr::Call(n, _, _) | Expr::Ident(n)
+                        if n.chars().next().map_or(false, |c| c.is_uppercase()) =>
+                    {
+                        Some(n.clone())
+                    }
                     _ => None,
                 };
                 let raised = match &e {
                     Expr::Call(..) => Some(e.clone()),
-                    Expr::Ident(n) if self.exc_rich.contains(n) => Some(Expr::Call(n.clone(), vec![], line)),
+                    Expr::Ident(n) if self.exc_rich.contains(n) => {
+                        Some(Expr::Call(n.clone(), vec![], line))
+                    }
                     _ => None,
                 };
                 let msg = match e {
-                    Expr::Call(n, mut args, _) if n.chars().next().map_or(false, |c| c.is_uppercase()) => {
-                        if args.is_empty() { Expr::Str(vec![StrPart::Lit(n)]) } else { Expr::Call("str".into(), vec![(None, args.remove(0).1)], line) }
+                    Expr::Call(n, mut args, _)
+                        if n.chars().next().map_or(false, |c| c.is_uppercase()) =>
+                    {
+                        if args.is_empty() {
+                            Expr::Str(vec![StrPart::Lit(n)])
+                        } else {
+                            Expr::Call("str".into(), vec![(None, args.remove(0).1)], line)
+                        }
                     }
                     Expr::Ident(n) => Expr::Str(vec![StrPart::Lit(n)]),
                     other => Expr::Call("str".into(), vec![(None, other)], line),
@@ -1254,7 +1780,8 @@ impl Parser {
                         let rich = self.exc_rich.contains(&c);
                         let mut chain = vec![c.clone()];
                         let mut at = c;
-                        while let Some(b) = self.exc_bases.get(&at).and_then(|b| b.first()).cloned() {
+                        while let Some(b) = self.exc_bases.get(&at).and_then(|b| b.first()).cloned()
+                        {
                             if chain.contains(&b) {
                                 break;
                             }
@@ -1262,23 +1789,51 @@ impl Parser {
                             at = b;
                         }
                         match raised {
-                            Some(obj) if rich => Expr::Call("__exc_obj".into(), vec![(None, Expr::Str(vec![StrPart::Lit(chain.join(","))])), (None, msg), (None, obj)], line),
-                            _ => Expr::Call("__exc".into(), vec![(None, Expr::Str(vec![StrPart::Lit(chain.join(","))])), (None, msg)], line),
+                            Some(obj) if rich => Expr::Call(
+                                "__exc_obj".into(),
+                                vec![
+                                    (None, Expr::Str(vec![StrPart::Lit(chain.join(","))])),
+                                    (None, msg),
+                                    (None, obj),
+                                ],
+                                line,
+                            ),
+                            _ => Expr::Call(
+                                "__exc".into(),
+                                vec![
+                                    (None, Expr::Str(vec![StrPart::Lit(chain.join(","))])),
+                                    (None, msg),
+                                ],
+                                line,
+                            ),
                         }
                     }
                     _ => msg,
                 }
             };
-            return Ok(Stmt::Expr { expr: Expr::Call("fail".into(), vec![(None, msg)], line), line });
+            return Ok(Stmt::Expr {
+                expr: Expr::Call("fail".into(), vec![(None, msg)], line),
+                line,
+            });
         }
         if self.is_kw("let") || self.is_kw("var") {
             let mutable = self.next() == Tok::Kw("var");
             let name = bind_upper(self.pat()?);
-            let ty = if self.eat_sym(":") { Some(self.ty()?) } else { None };
+            let ty = if self.eat_sym(":") {
+                Some(self.ty()?)
+            } else {
+                None
+            };
             self.expect_sym("=")?;
             self.skip_newlines();
             let value = self.expr()?;
-            return Ok(Stmt::Let { name, ty, value, mutable, line });
+            return Ok(Stmt::Let {
+                name,
+                ty,
+                value,
+                mutable,
+                line,
+            });
         }
         // `x: T = v` declares a typed variable, like `var x: T = v`.
         if matches!(self.peek(), Tok::Ident(_)) && matches!(self.peek_at(1), Tok::Sym(":")) {
@@ -1288,22 +1843,42 @@ impl Parser {
             let ty = Some(self.ty()?).filter(|t| !matches!(t, Ty::Named(n) if n == "?"));
             // A dataclass field without a default (`x: int`).
             if self.peek() == &Tok::Newline || self.is_sym("}") {
-                return Ok(Stmt::Let { name, ty, value: Expr::Call("__field".into(), vec![], line), mutable: true, line });
+                return Ok(Stmt::Let {
+                    name,
+                    ty,
+                    value: Expr::Call("__field".into(), vec![], line),
+                    mutable: true,
+                    line,
+                });
             }
             self.expect_sym("=")?;
             self.skip_newlines();
             let value = self.expr()?;
-            return Ok(Stmt::Let { name, ty, value, mutable: true, line });
+            return Ok(Stmt::Let {
+                name,
+                ty,
+                value,
+                mutable: true,
+                line,
+            });
         }
         // A generator collects what it yields in a list, which it returns (see item()).
         // (`yield [x for x in xs]` yields a list; only a Brevi name `yield_` is indexed.)
-        if matches!(self.peek(), Tok::Ident(w) if w == "yield_") && !matches!(self.peek_at(1), Tok::Sym("=" | "." | ")" | ",")) && (self.py || !matches!(self.peek_at(1), Tok::Sym("["))) {
+        if matches!(self.peek(), Tok::Ident(w) if w == "yield_")
+            && !matches!(self.peek_at(1), Tok::Sym("=" | "." | ")" | ","))
+            && (self.py || !matches!(self.peek_at(1), Tok::Sym("[")))
+        {
             self.next();
             self.yields = true;
             let acc = Expr::Ident("ax_gen".into());
             let e = if matches!(self.peek(), Tok::Ident(w) if w == "from") {
                 self.next();
-                return Ok(Stmt::Assign { target: acc, op: "+=", value: self.expr()?, line });
+                return Ok(Stmt::Assign {
+                    target: acc,
+                    op: "+=",
+                    value: self.expr()?,
+                    line,
+                });
             } else {
                 let mut v = self.expr()?;
                 if self.is_sym(",") {
@@ -1318,7 +1893,11 @@ impl Parser {
             return Ok(Stmt::Expr { expr: e, line });
         }
         if self.eat_kw("return") {
-            let mut value = if self.peek() == &Tok::Newline || self.is_sym("}") { None } else { Some(self.expr()?) };
+            let mut value = if self.peek() == &Tok::Newline || self.is_sym("}") {
+                None
+            } else {
+                Some(self.expr()?)
+            };
             // Python's `return a, b` returns a tuple.
             if value.is_some() && self.is_sym(",") {
                 let mut xs = vec![value.take().unwrap()];
@@ -1339,12 +1918,19 @@ impl Parser {
             return Ok(Stmt::Continue { line });
         }
         if self.eat_kw("assert") {
-            return Ok(Stmt::Assert { cond: self.expr()?, line });
+            return Ok(Stmt::Assert {
+                cond: self.expr()?,
+                line,
+            });
         }
         let mut e = self.expr()?;
         // Python's `xs[a:b] = ys` replaces those items in place (`xs[:k] = xs[k-1::-1]`).
         if let Expr::Method(r, m, a, l) = &e {
-            if self.py && m == "slice" && (a.len() == 2 || a.len() == 1 && !matches!(a.as_slice(), [Expr::Int(0)])) && self.is_sym("=") {
+            if self.py
+                && m == "slice"
+                && (a.len() == 2 || a.len() == 1 && !matches!(a.as_slice(), [Expr::Int(0)]))
+                && self.is_sym("=")
+            {
                 self.next();
                 self.skip_newlines();
                 let value = self.expr()?;
@@ -1353,7 +1939,10 @@ impl Parser {
                     args.push(Expr::Int(i64::MAX));
                 }
                 args.push(value);
-                return Ok(Stmt::Expr { expr: Expr::Method(r.clone(), "splice".into(), args, *l), line });
+                return Ok(Stmt::Expr {
+                    expr: Expr::Method(r.clone(), "splice".into(), args, *l),
+                    line,
+                });
             }
         }
         // `lots[:] = [...]` replaces the list's items in place (the caller sees them).
@@ -1364,11 +1953,29 @@ impl Parser {
                 let value = self.expr()?;
                 let tmp = format!("ax_new{}", self.pos);
                 let r = (**r).clone();
-                self.pending.push(Stmt::Expr { expr: Expr::Method(Box::new(r.clone()), "clear".into(), vec![], line), line });
+                self.pending.push(Stmt::Expr {
+                    expr: Expr::Method(Box::new(r.clone()), "clear".into(), vec![], line),
+                    line,
+                });
                 let x = Expr::Ident("ax_x".into());
-                let push = Stmt::Expr { expr: Expr::Method(Box::new(r), "push".into(), vec![x], line), line };
-                self.pending.push(Stmt::Expr { expr: Expr::For(Pat::Bind("ax_x".into()), Box::new(Expr::Ident(tmp.clone())), Box::new(Expr::Block(vec![push], None))), line });
-                return Ok(Stmt::Assign { target: Expr::Ident(tmp), op: "=", value, line });
+                let push = Stmt::Expr {
+                    expr: Expr::Method(Box::new(r), "push".into(), vec![x], line),
+                    line,
+                };
+                self.pending.push(Stmt::Expr {
+                    expr: Expr::For(
+                        Pat::Bind("ax_x".into()),
+                        Box::new(Expr::Ident(tmp.clone())),
+                        Box::new(Expr::Block(vec![push], None)),
+                    ),
+                    line,
+                });
+                return Ok(Stmt::Assign {
+                    target: Expr::Ident(tmp),
+                    op: "=",
+                    value,
+                    line,
+                });
             }
         }
         // `self.names: list[str] = []`: the field's type comes from what is put in it, so the annotation is read
@@ -1377,14 +1984,21 @@ impl Parser {
             self.next();
             let ty = self.ty()?;
             if let Expr::Field(r, f) = &e {
-                if matches!(r.as_ref(), Expr::Ident(n) if n == "self_") && !matches!(&ty, Ty::Named(n) if n == "?") {
+                if matches!(r.as_ref(), Expr::Ident(n) if n == "self_")
+                    && !matches!(&ty, Ty::Named(n) if n == "?")
+                {
                     self.attr_tys.push((f.clone(), ty));
                 }
             }
             self.expect_sym("=")?;
             self.skip_newlines();
             let value = self.expr()?;
-            return Ok(Stmt::Assign { target: e, op: "=", value, line });
+            return Ok(Stmt::Assign {
+                target: e,
+                op: "=",
+                value,
+                line,
+            });
         }
         // `a, b = ...` assigns a tuple, like `(a, b) = ...`.
         let mut bare = false;
@@ -1395,7 +2009,9 @@ impl Parser {
             }
             e = Expr::Tuple(xs);
             bare = true;
-        } else if matches!(e, Expr::Ident(_) | Expr::Index(..) | Expr::Field(..)) && self.is_sym(",") {
+        } else if matches!(e, Expr::Ident(_) | Expr::Index(..) | Expr::Field(..))
+            && self.is_sym(",")
+        {
             // `st[-1], st[-2] = st[-2], st[-1]`: the values are worked out first, then set one by one.
             let save = self.pos;
             let mut xs = vec![e.clone()];
@@ -1419,9 +2035,20 @@ impl Parser {
                     return Err(self.err(&format!("{} names but {} values", xs.len(), vs.len())));
                 }
                 let tmp = format!("ax_sw{}", self.pos);
-                let mut stmts = vec![Stmt::Let { name: Pat::Bind(tmp.clone()), ty: None, value: Expr::Tuple(vs), mutable: false, line }];
+                let mut stmts = vec![Stmt::Let {
+                    name: Pat::Bind(tmp.clone()),
+                    ty: None,
+                    value: Expr::Tuple(vs),
+                    mutable: false,
+                    line,
+                }];
                 for (k, t) in xs.into_iter().enumerate() {
-                    stmts.push(Stmt::Assign { target: t, op: "=", value: Expr::TupleField(Box::new(Expr::Ident(tmp.clone())), k), line });
+                    stmts.push(Stmt::Assign {
+                        target: t,
+                        op: "=",
+                        value: Expr::TupleField(Box::new(Expr::Ident(tmp.clone())), k),
+                        line,
+                    });
                 }
                 let first = stmts.remove(0);
                 self.pending.extend(stmts);
@@ -1443,7 +2070,12 @@ impl Parser {
                     "<<=" => "<<",
                     _ => ">>",
                 };
-                return Ok(Stmt::Assign { target: e.clone(), op: "=", value: Expr::Binary(bin, Box::new(e), Box::new(value)), line });
+                return Ok(Stmt::Assign {
+                    target: e.clone(),
+                    op: "=",
+                    value: Expr::Binary(bin, Box::new(e), Box::new(value)),
+                    line,
+                });
             }
         }
         for op in ["=", "+=", "-=", "*=", "/="] {
@@ -1458,27 +2090,52 @@ impl Parser {
                 self.skip_newlines();
                 let mut value = self.expr()?;
                 // Python's `a = b = 0` sets each name.
-                if op == "=" && matches!(e, Expr::Ident(_)) && matches!(value, Expr::Ident(_)) && self.is_sym("=") {
+                if op == "="
+                    && matches!(e, Expr::Ident(_))
+                    && matches!(value, Expr::Ident(_))
+                    && self.is_sym("=")
+                {
                     let mut names = vec![e.clone(), value];
                     while self.eat_sym("=") {
                         names.push(self.expr()?);
                     }
                     let v = names.pop().unwrap();
                     // A plain value (`pl = pd = None`, `a = b = 0`) is set name by name, so each is typed alone.
-                    let plain = matches!(&v, Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) | Expr::Ident(_))
-                        || matches!(&v, Expr::Call(f, a, _) if f == "none" && a.is_empty())
+                    let plain = matches!(
+                        &v,
+                        Expr::Int(_)
+                            | Expr::Float(_)
+                            | Expr::Bool(_)
+                            | Expr::Str(_)
+                            | Expr::Ident(_)
+                    ) || matches!(&v, Expr::Call(f, a, _) if f == "none" && a.is_empty())
                         || matches!(&v, Expr::List(x) if x.is_empty())
                         || matches!(&v, Expr::Map(x) if x.is_empty());
                     if plain && names.iter().all(|n| matches!(n, Expr::Ident(_))) {
                         let first = names.remove(0);
                         for n in names {
-                            self.pending.push(Stmt::Assign { target: n, op, value: v.clone(), line });
+                            self.pending.push(Stmt::Assign {
+                                target: n,
+                                op,
+                                value: v.clone(),
+                                line,
+                            });
                         }
-                        return Ok(Stmt::Assign { target: first, op, value: v, line });
+                        return Ok(Stmt::Assign {
+                            target: first,
+                            op,
+                            value: v,
+                            line,
+                        });
                     }
                     if names.iter().all(|n| matches!(n, Expr::Ident(_))) {
                         let vs = vec![v; names.len()];
-                        return Ok(Stmt::Assign { target: Expr::Tuple(names), op, value: Expr::Tuple(vs), line });
+                        return Ok(Stmt::Assign {
+                            target: Expr::Tuple(names),
+                            op,
+                            value: Expr::Tuple(vs),
+                            line,
+                        });
                     }
                     return Err(self.err("expected names before each ="));
                 }
@@ -1501,29 +2158,92 @@ impl Parser {
                         self.set_names.push(n.clone());
                     }
                 }
-                let e = if op == "=" && matches!(&e, Expr::Tuple(xs) if xs.iter().any(|x| matches!(x, Expr::Tuple(_)))) { self.flat_target(e, line) } else { e };
+                let e = if op == "="
+                    && matches!(&e, Expr::Tuple(xs) if xs.iter().any(|x| matches!(x, Expr::Tuple(_))))
+                {
+                    self.flat_target(e, line)
+                } else {
+                    e
+                };
                 // `order, questions = [], {}`: one name at a time, so each empty value's type is worked out alone.
                 if let (Expr::Tuple(ns), "=", Expr::Tuple(vs)) = (&e, op, &value) {
-                    let lit = |v: &Expr| matches!(v, Expr::List(x) if x.is_empty()) || matches!(v, Expr::Map(x) if x.is_empty()) || matches!(v, Expr::Int(_) | Expr::Float(_) | Expr::Bool(_)) || matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty());
-                    if self.py && ns.len() == vs.len() && ns.iter().all(|n| matches!(n, Expr::Ident(_))) && vs.iter().all(lit) && vs.iter().any(|v| matches!(v, Expr::List(_) | Expr::Map(_))) {
+                    let lit = |v: &Expr| {
+                        matches!(v, Expr::List(x) if x.is_empty())
+                            || matches!(v, Expr::Map(x) if x.is_empty())
+                            || matches!(v, Expr::Int(_) | Expr::Float(_) | Expr::Bool(_))
+                            || matches!(v, Expr::Call(f, a, _) if f == "none" && a.is_empty())
+                    };
+                    if self.py
+                        && ns.len() == vs.len()
+                        && ns.iter().all(|n| matches!(n, Expr::Ident(_)))
+                        && vs.iter().all(lit)
+                        && vs.iter().any(|v| matches!(v, Expr::List(_) | Expr::Map(_)))
+                    {
                         let mut pairs = ns.iter().cloned().zip(vs.iter().cloned());
                         let (n0, v0) = pairs.next().unwrap();
                         for (n, v) in pairs {
-                            self.pending.push(Stmt::Assign { target: n, op, value: v, line });
+                            self.pending.push(Stmt::Assign {
+                                target: n,
+                                op,
+                                value: v,
+                                line,
+                            });
                         }
-                        return Ok(Stmt::Assign { target: n0, op, value: v0, line });
+                        return Ok(Stmt::Assign {
+                            target: n0,
+                            op,
+                            value: v0,
+                            line,
+                        });
                     }
                 }
                 // `m.setdefault(k, {})[j] = v`: set m[k] when missing, then m[k][j] = v (k is read twice, so only a plain one).
                 if let Expr::Index(inner, j) = &e {
                     if let Expr::Method(recv, m, a, l) = inner.as_ref() {
-                        let pure = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_)) || matches!(x, Expr::Tuple(xs) if xs.iter().all(|y| matches!(y, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_))));
-                        if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(m) && self.py && pure(&a[0]) && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..)) {
+                        let pure = |x: &Expr| {
+                            matches!(x, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_))
+                                || matches!(x, Expr::Tuple(xs) if xs.iter().all(|y| matches!(y, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_))))
+                        };
+                        if m == "setdefault"
+                            && a.len() == 2
+                            && !self.user_fns.contains(m)
+                            && self.py
+                            && pure(&a[0])
+                            && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..))
+                        {
                             let (recv, k, v, l) = (recv.clone(), a[0].clone(), a[1].clone(), *l);
-                            let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)));
-                            let set = Stmt::Assign { target: Expr::Index(recv.clone(), Box::new(k.clone())), op: "=", value: v, line };
-                            self.pending.push(Stmt::Assign { target: Expr::Index(Box::new(Expr::Index(recv, Box::new(k))), j.clone()), op, value, line });
-                            return Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line });
+                            let cond = Expr::Unary(
+                                "!",
+                                Box::new(Expr::Method(
+                                    recv.clone(),
+                                    "has".into(),
+                                    vec![k.clone()],
+                                    l,
+                                )),
+                            );
+                            let set = Stmt::Assign {
+                                target: Expr::Index(recv.clone(), Box::new(k.clone())),
+                                op: "=",
+                                value: v,
+                                line,
+                            };
+                            self.pending.push(Stmt::Assign {
+                                target: Expr::Index(
+                                    Box::new(Expr::Index(recv, Box::new(k))),
+                                    j.clone(),
+                                ),
+                                op,
+                                value,
+                                line,
+                            });
+                            return Ok(Stmt::Expr {
+                                expr: Expr::If(
+                                    Box::new(cond),
+                                    Box::new(Expr::Block(vec![set], None)),
+                                    None,
+                                ),
+                                line,
+                            });
                         }
                     }
                 }
@@ -1531,19 +2251,48 @@ impl Parser {
                 if let (Expr::Ident(_), "=", Expr::Method(recv, m, a, l)) = (&e, op, &value) {
                     if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(m) && self.py {
                         let (recv, k, v, l) = (recv.clone(), a[0].clone(), a[1].clone(), *l);
-                        let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)));
-                        let set = Stmt::Assign { target: Expr::Index(recv.clone(), Box::new(k.clone())), op: "=", value: v, line };
-                        self.pending.push(Stmt::Assign { target: e, op, value: Expr::Index(recv, Box::new(k)), line });
-                        return Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line });
+                        let cond = Expr::Unary(
+                            "!",
+                            Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)),
+                        );
+                        let set = Stmt::Assign {
+                            target: Expr::Index(recv.clone(), Box::new(k.clone())),
+                            op: "=",
+                            value: v,
+                            line,
+                        };
+                        self.pending.push(Stmt::Assign {
+                            target: e,
+                            op,
+                            value: Expr::Index(recv, Box::new(k)),
+                            line,
+                        });
+                        return Ok(Stmt::Expr {
+                            expr: Expr::If(
+                                Box::new(cond),
+                                Box::new(Expr::Block(vec![set], None)),
+                                None,
+                            ),
+                            line,
+                        });
                     }
                 }
-                if let (true, Expr::Ident(t), "=", Expr::Call(f, a, _)) = (self.py, &e, op, &value) {
+                if let (true, Expr::Ident(t), "=", Expr::Call(f, a, _)) = (self.py, &e, op, &value)
+                {
                     if f == "ax_type_of" && a.len() == 1 {
                         self.type_names.insert(t.clone(), value.clone());
-                        return Ok(Stmt::Expr { expr: Expr::Block(vec![], None), line });
+                        return Ok(Stmt::Expr {
+                            expr: Expr::Block(vec![], None),
+                            line,
+                        });
                     }
                 }
-                return Ok(Stmt::Assign { target: e, op, value, line });
+                return Ok(Stmt::Assign {
+                    target: e,
+                    op,
+                    value,
+                    line,
+                });
             }
         }
         self.expr_stmt(e, line)
@@ -1569,7 +2318,9 @@ impl Parser {
         // one `q['type'] = ...` per key, so dicts used as records see every key.
         if self.py {
             if let Expr::Method(recv, m, a, _) = &e {
-                if let (Expr::Ident(_), "update", [Expr::Map(ps)]) = (recv.as_ref(), m.as_str(), a.as_slice()) {
+                if let (Expr::Ident(_), "update", [Expr::Map(ps)]) =
+                    (recv.as_ref(), m.as_str(), a.as_slice())
+                {
                     if !ps.is_empty() && ps.iter().all(|(k, _)| matches!(k, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)]))) {
                         let sets = ps.iter().map(|(k, v)| Stmt::Assign { target: Expr::Index(recv.clone(), Box::new(k.clone())), op: "=", value: v.clone(), line }).collect();
                         return Ok(Stmt::Expr { expr: Expr::Block(sets, None), line });
@@ -1585,61 +2336,180 @@ impl Parser {
                     x => x.clone(),
                 };
                 let (t, f) = (bare(t), bare(f));
-                let place = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Field(..) | Expr::Index(..));
+                let place =
+                    |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Field(..) | Expr::Index(..));
                 if place(&t) && place(&f) {
-                    let st = self.expr_stmt(Expr::Method(Box::new(t), m.clone(), a.clone(), *l), line)?;
-                    let sf = self.expr_stmt(Expr::Method(Box::new(f), m.clone(), a.clone(), *l), line)?;
-                    return Ok(Stmt::Expr { expr: Expr::If(c.clone(), Box::new(Expr::Block(vec![st], None)), Some(Box::new(Expr::Block(vec![sf], None)))), line });
+                    let st =
+                        self.expr_stmt(Expr::Method(Box::new(t), m.clone(), a.clone(), *l), line)?;
+                    let sf =
+                        self.expr_stmt(Expr::Method(Box::new(f), m.clone(), a.clone(), *l), line)?;
+                    return Ok(Stmt::Expr {
+                        expr: Expr::If(
+                            c.clone(),
+                            Box::new(Expr::Block(vec![st], None)),
+                            Some(Box::new(Expr::Block(vec![sf], None))),
+                        ),
+                        line,
+                    });
                 }
             }
         }
         // Python's `xs.extend(ys)` is `xs += ys`; `s.add(x)` on a set() list adds x unless it is there.
         match e {
             // (Not when the program has its own method by that name: a class's `def add(self, x)`.)
-            Expr::Method(recv, m, mut a, _) if m == "extend" && a.len() == 1 && !self.own_method(&recv) => Ok(Stmt::Assign { target: *recv, op: "+=", value: a.remove(0), line }),
-            Expr::Method(recv, m, mut a, l) if m == "add" && a.len() == 1 && !self.own_method(&recv) => {
+            Expr::Method(recv, m, mut a, _)
+                if m == "extend" && a.len() == 1 && !self.own_method(&recv) =>
+            {
+                Ok(Stmt::Assign {
+                    target: *recv,
+                    op: "+=",
+                    value: a.remove(0),
+                    line,
+                })
+            }
+            Expr::Method(recv, m, mut a, l)
+                if m == "add" && a.len() == 1 && !self.own_method(&recv) =>
+            {
                 let x = a.remove(0);
                 if let Expr::Method(inner, sd, _, _) = recv.as_ref() {
                     if sd == "__setdefault_add" {
-                        let Expr::Index(b, k) = inner.as_ref() else { unreachable!() };
-                        let has = Expr::Unary("!", Box::new(Expr::Method(b.clone(), "has".into(), vec![(**k).clone()], l)));
-                        let put = Stmt::Assign { target: (**inner).clone(), op: "=", value: Expr::Call("__zero".into(), vec![], line), line };
-                        let first = Stmt::Expr { expr: Expr::If(Box::new(has), Box::new(Expr::Block(vec![put], None)), None), line };
+                        let Expr::Index(b, k) = inner.as_ref() else {
+                            unreachable!()
+                        };
+                        let has = Expr::Unary(
+                            "!",
+                            Box::new(Expr::Method(
+                                b.clone(),
+                                "has".into(),
+                                vec![(**k).clone()],
+                                l,
+                            )),
+                        );
+                        let put = Stmt::Assign {
+                            target: (**inner).clone(),
+                            op: "=",
+                            value: Expr::Call("__zero".into(), vec![], line),
+                            line,
+                        };
+                        let first = Stmt::Expr {
+                            expr: Expr::If(
+                                Box::new(has),
+                                Box::new(Expr::Block(vec![put], None)),
+                                None,
+                            ),
+                            line,
+                        };
                         let recv = inner.clone();
-                        let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l)));
+                        let cond = Expr::Unary(
+                            "!",
+                            Box::new(Expr::Method(
+                                recv.clone(),
+                                "contains".into(),
+                                vec![x.clone()],
+                                l,
+                            )),
+                        );
                         let push = Expr::Method(recv, "push".into(), vec![x], l);
-                        let then = Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line };
+                        let then = Stmt::Expr {
+                            expr: Expr::If(
+                                Box::new(cond),
+                                Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)),
+                                None,
+                            ),
+                            line,
+                        };
                         self.pending.push(then);
                         return Ok(first);
                     }
                 }
-                let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l)));
+                let cond = Expr::Unary(
+                    "!",
+                    Box::new(Expr::Method(
+                        recv.clone(),
+                        "contains".into(),
+                        vec![x.clone()],
+                        l,
+                    )),
+                );
                 let push = Expr::Method(recv, "push".into(), vec![x], l);
-                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)), None), line })
+                Ok(Stmt::Expr {
+                    expr: Expr::If(
+                        Box::new(cond),
+                        Box::new(Expr::Block(vec![Stmt::Expr { expr: push, line }], None)),
+                        None,
+                    ),
+                    line,
+                })
             }
             // `m.setdefault(k, 0)` / `m.setdefault(k, set())` alone on a line (read as `m[k]`) puts the key in:
             // a missing key reads as the empty value, which is set back.
-            Expr::Index(recv, k) if self.py && matches!(recv.as_ref(), Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)) => {
-                let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![(*k).clone()], line)));
-                let set = Stmt::Assign { target: Expr::Index(recv, k), op: "=", value: Expr::Call("__zero".into(), vec![], line), line };
-                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line })
+            Expr::Index(recv, k)
+                if self.py
+                    && matches!(
+                        recv.as_ref(),
+                        Expr::Ident(_) | Expr::Field(..) | Expr::Index(..)
+                    ) =>
+            {
+                let cond = Expr::Unary(
+                    "!",
+                    Box::new(Expr::Method(
+                        recv.clone(),
+                        "has".into(),
+                        vec![(*k).clone()],
+                        line,
+                    )),
+                );
+                let set = Stmt::Assign {
+                    target: Expr::Index(recv, k),
+                    op: "=",
+                    value: Expr::Call("__zero".into(), vec![], line),
+                    line,
+                };
+                Ok(Stmt::Expr {
+                    expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None),
+                    line,
+                })
             }
             // `m.setdefault(k, v)` as a statement sets m[k] to v when k is missing.
-            Expr::Method(recv, m, mut a, l) if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(&m) => {
+            Expr::Method(recv, m, mut a, l)
+                if m == "setdefault" && a.len() == 2 && !self.user_fns.contains(&m) =>
+            {
                 let v = a.remove(1);
                 let k = a.remove(0);
-                let cond = Expr::Unary("!", Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)));
-                let set = Stmt::Assign { target: Expr::Index(recv, Box::new(k)), op: "=", value: v, line };
-                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None), line })
+                let cond = Expr::Unary(
+                    "!",
+                    Box::new(Expr::Method(recv.clone(), "has".into(), vec![k.clone()], l)),
+                );
+                let set = Stmt::Assign {
+                    target: Expr::Index(recv, Box::new(k)),
+                    op: "=",
+                    value: v,
+                    line,
+                };
+                Ok(Stmt::Expr {
+                    expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![set], None)), None),
+                    line,
+                })
             }
             // `s.discard(x)` takes x out of a set() list when it is there.
             // Python's `xs.remove(x)` on a list takes out the first item equal to x (Brevi's remove takes an index).
-            Expr::Method(recv, m, mut a, l) if (m == "discard" && !self.user_fns.contains(&m) || m == "remove" && self.py && !self.own_method(&recv)) && a.len() == 1 => {
+            Expr::Method(recv, m, mut a, l)
+                if (m == "discard" && !self.user_fns.contains(&m)
+                    || m == "remove" && self.py && !self.own_method(&recv))
+                    && a.len() == 1 =>
+            {
                 let x = a.remove(0);
                 let cond = Expr::Method(recv.clone(), "contains".into(), vec![x.clone()], l);
                 let at = Expr::Method(recv.clone(), "index_of".into(), vec![x], l);
                 let rm = Expr::Method(recv, "remove".into(), vec![at], l);
-                Ok(Stmt::Expr { expr: Expr::If(Box::new(cond), Box::new(Expr::Block(vec![Stmt::Expr { expr: rm, line }], None)), None), line })
+                Ok(Stmt::Expr {
+                    expr: Expr::If(
+                        Box::new(cond),
+                        Box::new(Expr::Block(vec![Stmt::Expr { expr: rm, line }], None)),
+                        None,
+                    ),
+                    line,
+                })
             }
             e => Ok(Stmt::Expr { expr: e, line }),
         }
@@ -1705,7 +2575,15 @@ impl Parser {
                             let tmp = format!("ax_tu{}_{}", self.pos, self.pending.len());
                             let at = self.pending.len();
                             let inner = self.flat_target(x, line);
-                            self.pending.insert(at, Stmt::Assign { target: inner, op: "=", value: Expr::Ident(tmp.clone()), line });
+                            self.pending.insert(
+                                at,
+                                Stmt::Assign {
+                                    target: inner,
+                                    op: "=",
+                                    value: Expr::Ident(tmp.clone()),
+                                    line,
+                                },
+                            );
                             Expr::Ident(tmp)
                         }
                         x => x,
@@ -1732,7 +2610,15 @@ impl Parser {
         }
         self.expect_sym(")")?;
         let tmp = format!("ax_cu{}", self.pos);
-        pre.insert(at, Stmt::Assign { target: Expr::Tuple(names.into_iter().map(Expr::Ident).collect()), op: "=", value: Expr::Ident(tmp.clone()), line });
+        pre.insert(
+            at,
+            Stmt::Assign {
+                target: Expr::Tuple(names.into_iter().map(Expr::Ident).collect()),
+                op: "=",
+                value: Expr::Ident(tmp.clone()),
+                line,
+            },
+        );
         Ok(tmp)
     }
 
@@ -1791,7 +2677,11 @@ impl Parser {
             if let Ok(c) = self.binary(0) {
                 if self.eat_kw("else") {
                     let other = self.expr()?;
-                    return Ok(Expr::If(Box::new(c), Box::new(Expr::Block(vec![], Some(Box::new(e)))), Some(Box::new(Expr::Block(vec![], Some(Box::new(other)))))));
+                    return Ok(Expr::If(
+                        Box::new(c),
+                        Box::new(Expr::Block(vec![], Some(Box::new(e)))),
+                        Some(Box::new(Expr::Block(vec![], Some(Box::new(other))))),
+                    ));
                 }
             }
             self.pos = save;
@@ -1824,7 +2714,8 @@ impl Parser {
         let mut chain: Option<Expr> = None;
         loop {
             // `x not in xs` is `!(x in xs)`.
-            let negate = level == 2 && self.peek() == &Tok::Kw("not") && self.peek_at(1) == &Tok::Kw("in");
+            let negate =
+                level == 2 && self.peek() == &Tok::Kw("not") && self.peek_at(1) == &Tok::Kw("in");
             if negate {
                 self.next();
             }
@@ -1838,16 +2729,36 @@ impl Parser {
             let rpos = self.pos;
             let rhs = self.binary(level + 1)?;
             // `"%s" % (x,)`: a one-item tuple (kept as a one-item list) gives the one value, as a tuple does.
-            let rhs_tup1 = op == "%" && matches!(&rhs, Expr::List(xs) if xs.len() == 1) && self.pos >= rpos + 3
-                && self.toks[rpos].tok == Tok::Sym("(") && self.toks[self.pos - 1].tok == Tok::Sym(")") && self.toks[self.pos - 2].tok == Tok::Sym(",");
+            let rhs_tup1 = op == "%"
+                && matches!(&rhs, Expr::List(xs) if xs.len() == 1)
+                && self.pos >= rpos + 3
+                && self.toks[rpos].tok == Tok::Sym("(")
+                && self.toks[self.pos - 1].tok == Tok::Sym(")")
+                && self.toks[self.pos - 2].tok == Tok::Sym(",");
             const ORDER: &[&str] = &["<", ">", "<=", ">=", "==", "!="];
             if level == 2 && !negate && ORDER.contains(&op) {
                 if let Some(prev) = chain.take() {
                     chain = Some(rhs.clone());
-                    lhs = Expr::Binary("and", Box::new(lhs), Box::new(Expr::Binary(op, Box::new(prev), Box::new(rhs))));
+                    lhs = Expr::Binary(
+                        "and",
+                        Box::new(lhs),
+                        Box::new(Expr::Binary(op, Box::new(prev), Box::new(rhs))),
+                    );
                     continue;
                 }
-                if matches!(rhs, Expr::Ident(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_) | Expr::Field(..) | Expr::Call(..) | Expr::Method(..) | Expr::Index(..) | Expr::Binary(..) | Expr::Unary(..)) {
+                if matches!(
+                    rhs,
+                    Expr::Ident(_)
+                        | Expr::Int(_)
+                        | Expr::Float(_)
+                        | Expr::Str(_)
+                        | Expr::Field(..)
+                        | Expr::Call(..)
+                        | Expr::Method(..)
+                        | Expr::Index(..)
+                        | Expr::Binary(..)
+                        | Expr::Unary(..)
+                ) {
                     chain = Some(rhs.clone());
                 }
             } else {
@@ -1858,7 +2769,10 @@ impl Parser {
                 lhs = x;
                 continue;
             }
-            let empty = |e: &Expr| matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(m) if m.is_empty());
+            let empty = |e: &Expr| {
+                matches!(e, Expr::List(xs) if xs.is_empty())
+                    || matches!(e, Expr::Map(m) if m.is_empty())
+            };
             lhs = if op == ".." {
                 Expr::Range(Box::new(lhs), Box::new(rhs))
             } else if (op == "==" || op == "!=") && (empty(&lhs) || empty(&rhs)) {
@@ -1934,7 +2848,11 @@ impl Parser {
         // Python's `~x` on an int is -x - 1.
         if self.py && self.eat_sym("~") {
             let x = self.unary()?;
-            return Ok(Expr::Binary("-", Box::new(Expr::Unary("-", Box::new(x))), Box::new(Expr::Int(1))));
+            return Ok(Expr::Binary(
+                "-",
+                Box::new(Expr::Unary("-", Box::new(x))),
+                Box::new(Expr::Int(1)),
+            ));
         }
         // `not` is accepted as a spelling of `!`.
         if self.eat_sym("!") || self.eat_kw("not") {
@@ -1947,7 +2865,13 @@ impl Parser {
             // `10 ** -2` is 0.01 in Python: a negative literal power makes the result a float.
             let base = match &e {
                 // (not on a Python library value: Python's own `**` gives the float, and float() of an array fails)
-                Expr::Unary("-", x) if self.py && matches!(x.as_ref(), Expr::Int(_)) && !crate::pybridge::is_py(&base) => Expr::Method(Box::new(base), "float".into(), vec![], self.line()),
+                Expr::Unary("-", x)
+                    if self.py
+                        && matches!(x.as_ref(), Expr::Int(_))
+                        && !crate::pybridge::is_py(&base) =>
+                {
+                    Expr::Method(Box::new(base), "float".into(), vec![], self.line())
+                }
                 _ => base,
             };
             return Ok(Expr::Binary("**", Box::new(base), Box::new(e)));
@@ -1977,14 +2901,20 @@ impl Parser {
                     e = m;
                 }
             }
-            if crate::pybridge::is_py(&e) && (self.is_sym(".") || self.is_sym("[") || self.is_sym("(")) {
+            if crate::pybridge::is_py(&e)
+                && (self.is_sym(".") || self.is_sym("[") || self.is_sym("("))
+            {
                 if self.eat_sym(".") {
                     let name = match self.next() {
                         Tok::Ident(n) => crate::pybridge::unkw(&n),
                         Tok::Kw(k) => k.to_string(),
                         _ => return Err(self.err("expected a name after '.'")),
                     };
-                    let args = if self.eat_sym("(") { Some(self.args()?) } else { None };
+                    let args = if self.eat_sym("(") {
+                        Some(self.args()?)
+                    } else {
+                        None
+                    };
                     e = crate::pybridge::member(e, &name, args, line);
                 } else if self.eat_sym("(") {
                     let args = self.args()?;
@@ -1993,10 +2923,22 @@ impl Parser {
                     self.next();
                     let mut keys = vec![];
                     loop {
-                        let a = if self.is_sym(":") { None } else { Some(self.expr()?) };
+                        let a = if self.is_sym(":") {
+                            None
+                        } else {
+                            Some(self.expr()?)
+                        };
                         if self.eat_sym(":") {
-                            let b = if self.is_sym(":") || self.is_sym("]") || self.is_sym(",") { None } else { Some(self.expr()?) };
-                            let c = if self.eat_sym(":") && !self.is_sym("]") && !self.is_sym(",") { Some(self.expr()?) } else { None };
+                            let b = if self.is_sym(":") || self.is_sym("]") || self.is_sym(",") {
+                                None
+                            } else {
+                                Some(self.expr()?)
+                            };
+                            let c = if self.eat_sym(":") && !self.is_sym("]") && !self.is_sym(",") {
+                                Some(self.expr()?)
+                            } else {
+                                None
+                            };
                             keys.push(crate::pybridge::slice(a, b, c, line));
                         } else if let Some(a) = a {
                             keys.push(a);
@@ -2013,11 +2955,14 @@ impl Parser {
             if self.eat_sym(".") {
                 match self.next() {
                     Tok::Int(n) => e = Expr::TupleField(Box::new(e), n as usize),
-                    t @ (Tok::Ident(_) | Tok::Kw("or" | "match" | "in" | "not" | "and" | "type" | "test")) => {
+                    t @ (Tok::Ident(_)
+                    | Tok::Kw("or" | "match" | "in" | "not" | "and" | "type" | "test")) => {
                         let name = match t {
                             Tok::Ident(n) => n,
                             // `q.type == "choice"`: the field `self.type` was named `type_` (see the lexer).
-                            Tok::Kw(k @ ("type" | "match" | "test")) if !self.is_sym("(") => format!("{k}_"),
+                            Tok::Kw(k @ ("type" | "match" | "test")) if !self.is_sym("(") => {
+                                format!("{k}_")
+                            }
                             Tok::Kw(k) => k.to_string(),
                             _ => unreachable!(),
                         };
@@ -2031,20 +2976,50 @@ impl Parser {
                             // Python's d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP): half to even unless ROUND_HALF_UP.
                             // OrderedDict's popitem(last=False) takes the oldest entry; popitem() the newest.
                             // `d.update(k=v, ...)`: the same as `d.update({"k": v, ...})`.
-                            if name == "update" && !raw.is_empty() && raw.iter().all(|(k, _)| k.as_deref().is_some_and(|k| k != "__star")) {
-                                let ps = raw.iter().map(|(k, v)| (Expr::Str(vec![StrPart::Lit(k.clone().unwrap())]), v.clone())).collect();
+                            if name == "update"
+                                && !raw.is_empty()
+                                && raw
+                                    .iter()
+                                    .all(|(k, _)| k.as_deref().is_some_and(|k| k != "__star"))
+                            {
+                                let ps = raw
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        (
+                                            Expr::Str(vec![StrPart::Lit(k.clone().unwrap())]),
+                                            v.clone(),
+                                        )
+                                    })
+                                    .collect();
                                 e = Expr::Method(Box::new(e), name, vec![Expr::Map(ps)], line);
                                 continue;
                             }
                             if name == "popitem" && raw.len() <= 1 {
-                                let last = !raw.first().is_some_and(|a| matches!(&a.1, Expr::Bool(false)));
-                                e = Expr::Method(Box::new(e), "pop_item".into(), vec![Expr::Bool(last)], line);
+                                let last = !raw
+                                    .first()
+                                    .is_some_and(|a| matches!(&a.1, Expr::Bool(false)));
+                                e = Expr::Method(
+                                    Box::new(e),
+                                    "pop_item".into(),
+                                    vec![Expr::Bool(last)],
+                                    line,
+                                );
                                 continue;
                             }
                             if name == "quantize" && !raw.is_empty() {
-                                let up = raw.iter().any(|a| a.0.as_deref() == Some("rounding") && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP"))
-                                    || raw.get(1).is_some_and(|a| a.0.is_none() && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP"));
-                                e = Expr::Method(Box::new(e), name, vec![raw[0].1.clone(), Expr::Bool(up)], line);
+                                let up = raw.iter().any(|a| {
+                                    a.0.as_deref() == Some("rounding")
+                                        && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP")
+                                }) || raw.get(1).is_some_and(|a| {
+                                    a.0.is_none()
+                                        && matches!(&a.1, Expr::Ident(r) if r == "ROUND_HALF_UP")
+                                });
+                                e = Expr::Method(
+                                    Box::new(e),
+                                    name,
+                                    vec![raw[0].1.clone(), Expr::Bool(up)],
+                                    line,
+                                );
                                 continue;
                             }
                             if matches!(name.as_str(), "sort" | "sort_by" | "sorted") {
@@ -2054,7 +3029,11 @@ impl Parser {
                                 }
                             }
                             // json.dumps(x, indent=, separators=, sort_keys=, ensure_ascii=) writes x as Python's json module does.
-                            if name == "dumps" && !raw.is_empty() && raw[0].0.is_none() && matches!(&e, Expr::Ident(j) if j == "json") {
+                            if name == "dumps"
+                                && !raw.is_empty()
+                                && raw[0].0.is_none()
+                                && matches!(&e, Expr::Ident(j) if j == "json")
+                            {
                                 e = py_dumps(raw, line);
                                 continue;
                             }
@@ -2062,12 +3041,21 @@ impl Parser {
                                 // sys.stderr.write(s) and sys.stdout.write(s): the text as is, no line end added.
                                 if name == "write" && raw.len() == 1 {
                                     if let Expr::Field(m, f) = &e {
-                                        if matches!(m.as_ref(), Expr::Ident(s) if s == "sys") && (f == "stderr" || f == "stdout") {
+                                        if matches!(m.as_ref(), Expr::Ident(s) if s == "sys")
+                                            && (f == "stderr" || f == "stdout")
+                                        {
                                             let s = raw[0].1.clone();
                                             e = if f == "stderr" {
                                                 Expr::Call("__eprint".into(), vec![(None, s)], line)
                                             } else {
-                                                Expr::Call("print".into(), vec![(None, s), (Some("end".into()), Expr::Str(vec![]))], line)
+                                                Expr::Call(
+                                                    "print".into(),
+                                                    vec![
+                                                        (None, s),
+                                                        (Some("end".into()), Expr::Str(vec![])),
+                                                    ],
+                                                    line,
+                                                )
                                             };
                                             continue;
                                         }
@@ -2076,12 +3064,20 @@ impl Parser {
                                 let on = |m: &str| matches!(&e, Expr::Ident(x) if x == m);
                                 // `sys.stdout.flush()`, `threading.stack_size(n)`, `Exception.__init__(self, msg)`:
                                 // nothing to do in native code (output is flushed at exit and before input).
-                                let nothing = (name == "flush" && matches!(&e, Expr::Field(m, f) if (f == "stdout" || f == "stderr") && matches!(m.as_ref(), Expr::Ident(s) if s == "sys")))
+                                let nothing = (name == "flush"
+                                    && matches!(&e, Expr::Field(m, f) if (f == "stdout" || f == "stderr") && matches!(m.as_ref(), Expr::Ident(s) if s == "sys")))
                                     || (name == "stack_size" && on("threading"))
-                                    || (name == "__init__" && matches!(&e, Expr::Ident(x) if x.ends_with("Exception") || x.ends_with("Error") || self.exc_bases.contains_key(x)))
-                                    || (name == "__init__" && self.in_exc_class && matches!(&e, Expr::Call(f, _, _) if f == "super" || f == "super_"));
+                                    || (name == "__init__"
+                                        && matches!(&e, Expr::Ident(x) if x.ends_with("Exception") || x.ends_with("Error") || self.exc_bases.contains_key(x)))
+                                    || (name == "__init__"
+                                        && self.in_exc_class
+                                        && matches!(&e, Expr::Call(f, _, _) if f == "super" || f == "super_"));
                                 if nothing && name == "__init__" && self.in_exc_class {
-                                    let given: Vec<&Expr> = raw.iter().map(|a| &a.1).filter(|a| !matches!(a, Expr::Ident(x) if x == "self_")).collect();
+                                    let given: Vec<&Expr> = raw
+                                        .iter()
+                                        .map(|a| &a.1)
+                                        .filter(|a| !matches!(a, Expr::Ident(x) if x == "self_"))
+                                        .collect();
                                     self.exc_init_arg = Some(match given.as_slice() {
                                         [Expr::Ident(x)] => Some(x.clone()),
                                         _ => None,
@@ -2094,21 +3090,39 @@ impl Parser {
                                 // `threading.Thread(target=f, args=(a,))`: run in place when started (`t.start()`,
                                 // then `t.join()`), which is what a program that starts one thread and waits sees.
                                 if name == "Thread" && on("threading") {
-                                    let f = raw.iter().find(|a| a.0.as_deref() == Some("target")).map(|a| a.1.clone());
-                                    let fargs = match raw.iter().find(|a| a.0.as_deref() == Some("args")).map(|a| a.1.clone()) {
+                                    let f = raw
+                                        .iter()
+                                        .find(|a| a.0.as_deref() == Some("target"))
+                                        .map(|a| a.1.clone());
+                                    let fargs = match raw
+                                        .iter()
+                                        .find(|a| a.0.as_deref() == Some("args"))
+                                        .map(|a| a.1.clone())
+                                    {
                                         Some(Expr::Tuple(xs)) | Some(Expr::List(xs)) => xs,
                                         Some(x) => vec![x],
                                         None => vec![],
                                     };
                                     if let Some(Expr::Ident(f)) = f {
-                                        e = Expr::Lambda(vec![], Box::new(Expr::Call(f, fargs.into_iter().map(|a| (None, a)).collect(), line)));
+                                        e = Expr::Lambda(
+                                            vec![],
+                                            Box::new(Expr::Call(
+                                                f,
+                                                fargs.into_iter().map(|a| (None, a)).collect(),
+                                                line,
+                                            )),
+                                        );
                                         continue;
                                     }
                                 }
                                 if raw.is_empty() && matches!(name.as_str(), "start" | "join") {
                                     if let Expr::Ident(t) = &e {
                                         if self.threads.contains(t) {
-                                            e = if name == "start" { Expr::Call(t.clone(), vec![], line) } else { Expr::Tuple(vec![]) };
+                                            e = if name == "start" {
+                                                Expr::Call(t.clone(), vec![], line)
+                                            } else {
+                                                Expr::Tuple(vec![])
+                                            };
                                             continue;
                                         }
                                     }
@@ -2125,7 +3139,12 @@ impl Parser {
                             }
                             // csv.writer(sys.stdout, delimiter=..., lineterminator=...): the writer is its delimiter
                             // followed by its line ending (literals only), and w.writerow(row) prints the row.
-                            if self.py && name == "writer" && matches!(&e, Expr::Ident(m) if m == "csv") && !raw.is_empty() && raw[0].0.is_none() {
+                            if self.py
+                                && name == "writer"
+                                && matches!(&e, Expr::Ident(m) if m == "csv")
+                                && !raw.is_empty()
+                                && raw[0].0.is_none()
+                            {
                                 let is_out = matches!(&raw[0].1, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
                                 let lit = |x: &Expr| match x {
                                     Expr::Str(p) => match p.as_slice() {
@@ -2140,7 +3159,9 @@ impl Parser {
                                 let mut ok = is_out;
                                 for (k, v) in &raw[1..] {
                                     match k.as_deref() {
-                                        Some("delimiter") => delim = lit(v).filter(|d| d.chars().count() == 1),
+                                        Some("delimiter") => {
+                                            delim = lit(v).filter(|d| d.chars().count() == 1)
+                                        }
                                         Some("lineterminator") => term = lit(v),
                                         _ => ok = false,
                                     }
@@ -2150,9 +3171,20 @@ impl Parser {
                                     continue;
                                 }
                             }
-                            if self.py && matches!(name.as_str(), "writerow" | "writerows") && raw.len() == 1 && raw[0].0.is_none() && !self.user_fns.contains(&name) && !self.own_method(&e) {
+                            if self.py
+                                && matches!(name.as_str(), "writerow" | "writerows")
+                                && raw.len() == 1
+                                && raw[0].0.is_none()
+                                && !self.user_fns.contains(&name)
+                                && !self.own_method(&e)
+                            {
                                 let row = raw.into_iter().next().unwrap().1;
-                                e = Expr::Method(Box::new(e), format!("csv_{name}"), vec![row], line);
+                                e = Expr::Method(
+                                    Box::new(e),
+                                    format!("csv_{name}"),
+                                    vec![row],
+                                    line,
+                                );
                                 continue;
                             }
                             let kws_given = raw.iter().any(|(k, _)| k.is_some());
@@ -2162,13 +3194,26 @@ impl Parser {
                                 args.push(Expr::Call("none".into(), vec![], line));
                             }
                             crate::pydiag::note_call(line, &name, &e);
-                            let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
+                            let name = if matches!(&e, Expr::Ident(m) if m == "re") {
+                                name
+                            } else {
+                                python_method(&name, args.len()).unwrap_or(name)
+                            };
                             // s.splitlines(True): the flag is in the name now.
                             if name == "lines_keep" {
                                 args.clear();
                             }
                             // xs.count(x) in Python counts the items equal to x (s.count(sub) counts a substring).
-                            let name = if self.py && name == "count" && args.len() == 1 && !matches!(args[0], Expr::Lambda(..)) && !self.own_method(&e) { "count_of".to_string() } else { name };
+                            let name = if self.py
+                                && name == "count"
+                                && args.len() == 1
+                                && !matches!(args[0], Expr::Lambda(..))
+                                && !self.own_method(&e)
+                            {
+                                "count_of".to_string()
+                            } else {
+                                name
+                            };
                             // Python's `"{} of {:>5}".format(a, b)` fills the string.
                             if name == "format" {
                                 if let Expr::Str(parts) = &e {
@@ -2186,7 +3231,8 @@ impl Parser {
                                 let mut flag_words: Vec<String> = vec![];
                                 fn words(x: &Expr, out: &mut Vec<String>) -> bool {
                                     match x {
-                                        Expr::Field(b, f) if matches!(b.as_ref(), Expr::Ident(r) if r == "re") => {
+                                        Expr::Field(b, f) if matches!(b.as_ref(), Expr::Ident(r) if r == "re") =>
+                                        {
                                             out.push(f.clone());
                                             true
                                         }
@@ -2208,8 +3254,13 @@ impl Parser {
                                         args.pop();
                                         if !inline.is_empty() {
                                             // (?i) first, on its own: the prelude reads it before (?s) and (?m).
-                                            let rest: String = inline.chars().filter(|c| *c != 'i').collect();
-                                            let mut flag = if inline.contains('i') { "(?i)".to_string() } else { String::new() };
+                                            let rest: String =
+                                                inline.chars().filter(|c| *c != 'i').collect();
+                                            let mut flag = if inline.contains('i') {
+                                                "(?i)".to_string()
+                                            } else {
+                                                String::new()
+                                            };
                                             if !rest.is_empty() {
                                                 flag.push_str(&format!("(?{rest})"));
                                             }
@@ -2220,7 +3271,13 @@ impl Parser {
                                                 },
                                                 a0 => {
                                                     let p0 = std::mem::replace(a0, Expr::Int(0));
-                                                    *a0 = Expr::Binary("+", Box::new(Expr::Str(vec![StrPart::Lit(flag)])), Box::new(p0));
+                                                    *a0 = Expr::Binary(
+                                                        "+",
+                                                        Box::new(Expr::Str(vec![StrPart::Lit(
+                                                            flag,
+                                                        )])),
+                                                        Box::new(p0),
+                                                    );
                                                 }
                                             }
                                         }
@@ -2229,15 +3286,37 @@ impl Parser {
                             }
                             // Python's re module: a compiled pattern is its string, a match is read as [whole, group1, ...] (empty for none).
                             if matches!(&e, Expr::Ident(m) if m == "re") {
-                                let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
+                                let r = |s: Expr, n: &str, a: Vec<Expr>| {
+                                    Expr::Method(Box::new(s), n.into(), a, line)
+                                };
                                 let done = match (name.as_str(), args.len()) {
                                     ("compile", 1) => Some(args.remove(0)),
-                                    ("match", 2) => Some(r(args.remove(1), self.re_name("re_match"), vec![args.remove(0)])),
-                                    ("fullmatch", 2) => Some(r(args.remove(1), self.re_name("re_full"), vec![args.remove(0)])),
-                                    ("search", 2) => Some(r(args.remove(1), self.re_name("re_find"), vec![args.remove(0)])),
-                                    ("findall", 2) => Some(r(args.remove(1), "re_findall", vec![args.remove(0)])),
-                                    ("finditer", 2) => Some(r(args.remove(1), self.re_name("re_all"), vec![args.remove(0)])),
-                                    ("split", 2) => Some(r(args.remove(1), "re_split", vec![args.remove(0)])),
+                                    ("match", 2) => Some(r(
+                                        args.remove(1),
+                                        self.re_name("re_match"),
+                                        vec![args.remove(0)],
+                                    )),
+                                    ("fullmatch", 2) => Some(r(
+                                        args.remove(1),
+                                        self.re_name("re_full"),
+                                        vec![args.remove(0)],
+                                    )),
+                                    ("search", 2) => Some(r(
+                                        args.remove(1),
+                                        self.re_name("re_find"),
+                                        vec![args.remove(0)],
+                                    )),
+                                    ("findall", 2) => {
+                                        Some(r(args.remove(1), "re_findall", vec![args.remove(0)]))
+                                    }
+                                    ("finditer", 2) => Some(r(
+                                        args.remove(1),
+                                        self.re_name("re_all"),
+                                        vec![args.remove(0)],
+                                    )),
+                                    ("split", 2) => {
+                                        Some(r(args.remove(1), "re_split", vec![args.remove(0)]))
+                                    }
                                     ("sub", 3) => {
                                         let s = args.remove(2);
                                         let mut a: Vec<Expr> = args.drain(..).collect();
@@ -2254,7 +3333,9 @@ impl Parser {
                             // pat.match(s), pat.fullmatch(s), pat.search(s), pat.findall(s), pat.sub(r, s) on a compiled pattern
                             // (a program's own method of that name keeps it).
                             if !self.user_fns.contains(&name) {
-                                let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
+                                let r = |s: Expr, n: &str, a: Vec<Expr>| {
+                                    Expr::Method(Box::new(s), n.into(), a, line)
+                                };
                                 let m = match (name.as_str(), args.len()) {
                                     ("match", 1) => Some(self.re_name("re_match")),
                                     ("fullmatch", 1) => Some(self.re_name("re_full")),
@@ -2276,74 +3357,140 @@ impl Parser {
                                 }
                             }
                             // m.group(n), m.group(), m.groups() on a match.
-                            if name == "group" && args.len() <= 1 && !self.user_fns.contains(&name) {
-                                let i = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
+                            if name == "group" && args.len() <= 1 && !self.user_fns.contains(&name)
+                            {
+                                let i = if args.is_empty() {
+                                    Expr::Int(0)
+                                } else {
+                                    args.remove(0)
+                                };
                                 e = Expr::Index(Box::new(e), Box::new(i));
                                 continue;
                             }
-                            if name == "groups" && args.is_empty() && !self.user_fns.contains(&name) {
+                            if name == "groups" && args.is_empty() && !self.user_fns.contains(&name)
+                            {
                                 let m = if self.py { "re_groups" } else { "skip" };
-                                e = Expr::Method(Box::new(e), m.into(), if self.py { vec![] } else { vec![Expr::Int(1)] }, line);
+                                e = Expr::Method(
+                                    Box::new(e),
+                                    m.into(),
+                                    if self.py { vec![] } else { vec![Expr::Int(1)] },
+                                    line,
+                                );
                                 continue;
                             }
                             // m.start(), m.end(n), m.span() on a Python match.
-                            if self.py && matches!(name.as_str(), "start" | "end" | "span") && args.len() <= 1 && !self.user_fns.contains(&name) && !self.own_method(&e) {
-                                let i = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
+                            if self.py
+                                && matches!(name.as_str(), "start" | "end" | "span")
+                                && args.len() <= 1
+                                && !self.user_fns.contains(&name)
+                                && !self.own_method(&e)
+                            {
+                                let i = if args.is_empty() {
+                                    Expr::Int(0)
+                                } else {
+                                    args.remove(0)
+                                };
                                 e = Expr::Method(Box::new(e), format!("re_{name}"), vec![i], line);
                                 continue;
                             }
                             // csv.reader(sys.stdin), csv.reader(lines) or csv.reader(text.splitlines()) give the rows.
-                            if name == "reader" && args.len() == 1 && !kws_given && matches!(&e, Expr::Ident(m) if m == "csv") {
+                            if name == "reader"
+                                && args.len() == 1
+                                && !kws_given
+                                && matches!(&e, Expr::Ident(m) if m == "csv")
+                            {
                                 let src = match args.remove(0) {
-                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => {
+                                        Expr::Call("stdin".into(), vec![], l)
+                                    }
                                     other => other,
                                 };
                                 e = Expr::Method(Box::new(src), "csv_rows".into(), vec![], line);
                                 continue;
                             }
                             // csv.DictReader(src) with the default comma and the first row as the header.
-                            if name == "DictReader" && args.len() == 1 && !kws_given && matches!(&e, Expr::Ident(m) if m == "csv") {
+                            if name == "DictReader"
+                                && args.len() == 1
+                                && !kws_given
+                                && matches!(&e, Expr::Ident(m) if m == "csv")
+                            {
                                 let src = match args.remove(0) {
-                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => {
+                                        Expr::Call("stdin".into(), vec![], l)
+                                    }
                                     other => other,
                                 };
                                 e = Expr::Method(Box::new(src), "csv_dicts".into(), vec![], line);
                                 continue;
                             }
                             // date.fromisoformat(s) and datetime.date.fromisoformat(s) are date(s).
-                            if name == "fromisoformat" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "date") || matches!(&e, Expr::Field(m, f) if f == "date" && matches!(m.as_ref(), Expr::Ident(d) if d == "datetime")) && name == "fromisoformat" {
+                            if name == "fromisoformat"
+                                && args.len() == 1
+                                && matches!(&e, Expr::Ident(m) if m == "date")
+                                || matches!(&e, Expr::Field(m, f) if f == "date" && matches!(m.as_ref(), Expr::Ident(d) if d == "datetime"))
+                                    && name == "fromisoformat"
+                            {
                                 e = Expr::Call("date".into(), vec![(None, args.remove(0))], line);
                                 continue;
                             }
                             // datetime.date(y, m, d) is date(y, m, d); datetime.strptime(s, "%Y-%m-%d") (any alias) reads the date.
                             // `datetime.date(*parts)`: one spread argument.
-                            if name == "date" && args.len() == 1 && matches!(&e, Expr::Ident(m) if m == "datetime") {
-                                let mut a: Vec<(Option<String>, Expr)> = vec![(Some("__star".into()), args.remove(0))];
+                            if name == "date"
+                                && args.len() == 1
+                                && matches!(&e, Expr::Ident(m) if m == "datetime")
+                            {
+                                let mut a: Vec<(Option<String>, Expr)> =
+                                    vec![(Some("__star".into()), args.remove(0))];
                                 e = python_call("date", &mut a, line).unwrap();
                                 continue;
                             }
-                            if name == "date" && args.len() == 3 && matches!(&e, Expr::Ident(m) if m == "datetime") {
-                                let mut a: Vec<(Option<String>, Expr)> = args.drain(..).map(|x| (None, x)).collect();
+                            if name == "date"
+                                && args.len() == 3
+                                && matches!(&e, Expr::Ident(m) if m == "datetime")
+                            {
+                                let mut a: Vec<(Option<String>, Expr)> =
+                                    args.drain(..).map(|x| (None, x)).collect();
                                 e = python_call("date", &mut a, line).unwrap();
                                 continue;
                             }
-                            if name == "strptime" && args.len() == 2 && !self.user_fns.contains(&name) && matches!(&args[1], Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(f)] if f == "%Y-%m-%d")) {
+                            if name == "strptime"
+                                && args.len() == 2
+                                && !self.user_fns.contains(&name)
+                                && matches!(&args[1], Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(f)] if f == "%Y-%m-%d"))
+                            {
                                 args.pop();
                                 e = Expr::Call("date".into(), vec![(None, args.remove(0))], line);
                                 continue;
                             }
                             // .date() on a date read that way is the date itself.
-                            if name == "date" && args.is_empty() && matches!(&e, Expr::Call(f, _, _) if f == "date") {
+                            if name == "date"
+                                && args.is_empty()
+                                && matches!(&e, Expr::Call(f, _, _) if f == "date")
+                            {
                                 continue;
                             }
                             if args.is_empty() && !self.user_fns.contains(&name) {
-                                let one = |x: Expr, n: &str| Expr::Method(Box::new(x), n.into(), vec![], line);
+                                let one = |x: Expr, n: &str| {
+                                    Expr::Method(Box::new(x), n.into(), vec![], line)
+                                };
                                 let done = match name.as_str() {
                                     // d.isoformat() is str(d); d.toordinal() counts days from 0001-01-01 as day 1.
-                                    "isoformat" => Some(Expr::Call("str".into(), vec![(None, e.clone())], line)),
-                                    "toordinal" => Some(Expr::Binary("+", Box::new(one(e.clone(), "days")), Box::new(Expr::Int(719163)))),
+                                    "isoformat" => Some(Expr::Call(
+                                        "str".into(),
+                                        vec![(None, e.clone())],
+                                        line,
+                                    )),
+                                    "toordinal" => Some(Expr::Binary(
+                                        "+",
+                                        Box::new(one(e.clone(), "days")),
+                                        Box::new(Expr::Int(719163)),
+                                    )),
                                     // Python's d.weekday() is 0 for Monday; d.isoweekday() is 1 for Monday.
-                                    "weekday" if self.py => Some(Expr::Binary("-", Box::new(one(e.clone(), "weekday")), Box::new(Expr::Int(1)))),
+                                    "weekday" if self.py => Some(Expr::Binary(
+                                        "-",
+                                        Box::new(one(e.clone(), "weekday")),
+                                        Box::new(Expr::Int(1)),
+                                    )),
                                     "isoweekday" => Some(one(e.clone(), "weekday")),
                                     _ => None,
                                 };
@@ -2356,50 +3503,101 @@ impl Parser {
                             if matches!(&e, Expr::Ident(m) if m == "calendar") {
                                 if name == "monthrange" && args.len() == 2 {
                                     let mo = args.pop().unwrap();
-                                    e = Expr::Method(Box::new(args.remove(0)), "month_range".into(), vec![mo], line);
+                                    e = Expr::Method(
+                                        Box::new(args.remove(0)),
+                                        "month_range".into(),
+                                        vec![mo],
+                                        line,
+                                    );
                                     continue;
                                 }
                                 if name == "isleap" && args.len() == 1 {
-                                    e = Expr::Method(Box::new(args.remove(0)), "is_leap".into(), vec![], line);
+                                    e = Expr::Method(
+                                        Box::new(args.remove(0)),
+                                        "is_leap".into(),
+                                        vec![],
+                                        line,
+                                    );
                                     continue;
                                 }
                             }
                             // sys.setrecursionlimit(n): native code has no recursion limit to raise.
-                            if name == "setrecursionlimit" && matches!(&e, Expr::Ident(s) if s == "sys") {
+                            if name == "setrecursionlimit"
+                                && matches!(&e, Expr::Ident(s) if s == "sys")
+                            {
                                 e = Expr::Tuple(vec![]);
                                 continue;
                             }
                             // json.loads(s) and json.load(f) read JSON.
-                            if (name == "loads" || name == "load") && args.len() == 1 && matches!(&e, Expr::Ident(j) if j == "json") {
+                            if (name == "loads" || name == "load")
+                                && args.len() == 1
+                                && matches!(&e, Expr::Ident(j) if j == "json")
+                            {
                                 let src = match args.remove(0) {
-                                    Expr::Field(m, f) if f == "stdin" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys") => Expr::Call("stdin".into(), vec![], line),
+                                    Expr::Field(m, f)
+                                        if f == "stdin"
+                                            && matches!(m.as_ref(), Expr::Ident(s) if s == "sys") =>
+                                    {
+                                        Expr::Call("stdin".into(), vec![], line)
+                                    }
                                     // `sys.stdin` already read as its lines.
-                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => Expr::Call("stdin".into(), vec![], l),
+                                    Expr::Call(f, a, l) if f == "lines" && a.is_empty() => {
+                                        Expr::Call("stdin".into(), vec![], l)
+                                    }
                                     // json.load(open(p)): the file's text (#195).
-                                    Expr::Call(f, a, l) if f == "__open_r" && name == "load" => Expr::Call("read".into(), a, l),
+                                    Expr::Call(f, a, l) if f == "__open_r" && name == "load" => {
+                                        Expr::Call("read".into(), a, l)
+                                    }
                                     other => other,
                                 };
                                 e = Expr::Call("json".into(), vec![(None, src)], line);
                                 continue;
                             }
                             // sys.exit(n) ends the program with that code; sys.exit("msg") prints msg and exits with 1.
-                            if name == "exit" && args.len() <= 1 && matches!(&e, Expr::Ident(s) if s == "sys") {
-                                let code = if args.is_empty() { Expr::Int(0) } else { args.remove(0) };
+                            if name == "exit"
+                                && args.len() <= 1
+                                && matches!(&e, Expr::Ident(s) if s == "sys")
+                            {
+                                let code = if args.is_empty() {
+                                    Expr::Int(0)
+                                } else {
+                                    args.remove(0)
+                                };
                                 e = Expr::Method(Box::new(code), "exit_with".into(), vec![], line);
                                 continue;
                             }
                             // sys.stdout.write(s) prints s as it is.
-                            if name == "write" && args.len() == 1 && matches!(&e, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys")) {
-                                e = Expr::Call("print".into(), vec![(None, args.remove(0)), (Some("end".into()), Expr::Str(vec![]))], line);
+                            if name == "write"
+                                && args.len() == 1
+                                && matches!(&e, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"))
+                            {
+                                e = Expr::Call(
+                                    "print".into(),
+                                    vec![
+                                        (None, args.remove(0)),
+                                        (Some("end".into()), Expr::Str(vec![])),
+                                    ],
+                                    line,
+                                );
                                 continue;
                             }
                             // A deque is a list: popleft() takes the first item, appendleft(x) puts one in front.
                             if name == "popleft" && args.is_empty() {
-                                e = Expr::Method(Box::new(e), "pop_at".into(), vec![Expr::Int(0)], line);
+                                e = Expr::Method(
+                                    Box::new(e),
+                                    "pop_at".into(),
+                                    vec![Expr::Int(0)],
+                                    line,
+                                );
                                 continue;
                             }
                             if name == "appendleft" && args.len() == 1 {
-                                e = Expr::Method(Box::new(e), "insert".into(), vec![Expr::Int(0), args.remove(0)], line);
+                                e = Expr::Method(
+                                    Box::new(e),
+                                    "insert".into(),
+                                    vec![Expr::Int(0), args.remove(0)],
+                                    line,
+                                );
                                 continue;
                             }
                             // heapq.heappush(h, x), heapq.heappop(h), heapq.heapify(h) work on a plain list, as in Python.
@@ -2412,7 +3610,8 @@ impl Parser {
                             }
                             // math.log(x), math.sin(x), math.hypot(x, y)...: the typed build's float methods (m_log...),
                             // which raise ValueError where Python's do (math.log(0), math.sqrt(-1)).
-                            if self.py && matches!(&e, Expr::Ident(m) if m == "math") && !kws_given {
+                            if self.py && matches!(&e, Expr::Ident(m) if m == "math") && !kws_given
+                            {
                                 if let Some(m) = math_method(&name, args.len()) {
                                     let x = args.remove(0);
                                     e = Expr::Method(Box::new(x), m.into(), args, line);
@@ -2420,58 +3619,141 @@ impl Parser {
                                 }
                             }
                             // time.time(), time.perf_counter(), time.monotonic(): seconds as a float.
-                            if self.py && matches!(&e, Expr::Ident(m) if m == "time") && args.is_empty() && matches!(name.as_str(), "time" | "perf_counter" | "monotonic") {
-                                e = Expr::Method(Box::new(Expr::Float(0.0)), format!("m_{name}"), vec![], line);
+                            if self.py
+                                && matches!(&e, Expr::Ident(m) if m == "time")
+                                && args.is_empty()
+                                && matches!(name.as_str(), "time" | "perf_counter" | "monotonic")
+                            {
+                                e = Expr::Method(
+                                    Box::new(Expr::Float(0.0)),
+                                    format!("m_{name}"),
+                                    vec![],
+                                    line,
+                                );
                                 continue;
                             }
                             // math.isqrt(n): the whole square root of an int.
-                            if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && name == "isqrt" {
-                                e = Expr::Method(Box::new(args.remove(0)), "isqrt".into(), vec![], line);
+                            if matches!(&e, Expr::Ident(m) if m == "math")
+                                && args.len() == 1
+                                && name == "isqrt"
+                            {
+                                e = Expr::Method(
+                                    Box::new(args.remove(0)),
+                                    "isqrt".into(),
+                                    vec![],
+                                    line,
+                                );
                                 continue;
                             }
                             // math.sqrt(x), math.floor(x), math.ceil(x); sys.stdin.read() is stdin().
-                            if matches!(&e, Expr::Ident(m) if m == "math") && args.len() == 1 && matches!(name.as_str(), "sqrt" | "floor" | "ceil") {
+                            if matches!(&e, Expr::Ident(m) if m == "math")
+                                && args.len() == 1
+                                && matches!(name.as_str(), "sqrt" | "floor" | "ceil")
+                            {
                                 let x = args.remove(0);
-                                let f = Expr::Method(Box::new(Expr::Method(Box::new(x), "float".into(), vec![], line)), name.clone(), vec![], line);
-                                e = if name == "sqrt" { f } else { Expr::Method(Box::new(f), "int".into(), vec![], line) };
+                                let f = Expr::Method(
+                                    Box::new(Expr::Method(
+                                        Box::new(x),
+                                        "float".into(),
+                                        vec![],
+                                        line,
+                                    )),
+                                    name.clone(),
+                                    vec![],
+                                    line,
+                                );
+                                e = if name == "sqrt" {
+                                    f
+                                } else {
+                                    Expr::Method(Box::new(f), "int".into(), vec![], line)
+                                };
                                 continue;
                             }
                             // d.scaleb(k) on a Decimal: d times 10**k.
                             if name == "scaleb" && args.len() == 1 {
-                                let k = match &args[0] { Expr::Int(k) => Some(*k), Expr::Unary("-", x) => if let Expr::Int(k) = x.as_ref() { Some(-k) } else { None }, _ => None };
+                                let k = match &args[0] {
+                                    Expr::Int(k) => Some(*k),
+                                    Expr::Unary("-", x) => {
+                                        if let Expr::Int(k) = x.as_ref() {
+                                            Some(-k)
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    _ => None,
+                                };
                                 if let Some(k) = k.filter(|k| (-18..=18).contains(k)) {
-                                    let ten = |n: i64| Expr::Method(Box::new(Expr::Int(10i64.pow(n as u32))), "dec".into(), vec![], line);
-                                    e = if k >= 0 { Expr::Binary("*", Box::new(e), Box::new(ten(k))) } else { Expr::Binary("/", Box::new(e), Box::new(ten(-k))) };
+                                    let ten = |n: i64| {
+                                        Expr::Method(
+                                            Box::new(Expr::Int(10i64.pow(n as u32))),
+                                            "dec".into(),
+                                            vec![],
+                                            line,
+                                        )
+                                    };
+                                    e = if k >= 0 {
+                                        Expr::Binary("*", Box::new(e), Box::new(ten(k)))
+                                    } else {
+                                        Expr::Binary("/", Box::new(e), Box::new(ten(-k)))
+                                    };
                                     continue;
                                 }
                             }
                             // sys.stdin.readline(): the next line with its "\n" ("" at the end of input).
-                            if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty()) && name == "readline" && args.is_empty() {
+                            if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty())
+                                && name == "readline"
+                                && args.is_empty()
+                            {
                                 e = Expr::Call("__readline".into(), vec![], line);
                                 continue;
                             }
                             // open(p).read() is the file's text; open(p).readlines() its lines, each with its "\n".
-                            if matches!(&e, Expr::Call(f, _, _) if f == "__open_r") && args.is_empty() && matches!(name.as_str(), "read" | "readlines") {
-                                let Expr::Call(_, a, _) = e else { unreachable!() };
+                            if matches!(&e, Expr::Call(f, _, _) if f == "__open_r")
+                                && args.is_empty()
+                                && matches!(name.as_str(), "read" | "readlines")
+                            {
+                                let Expr::Call(_, a, _) = e else {
+                                    unreachable!()
+                                };
                                 e = Expr::Call("read".into(), a, line);
                                 if name == "readlines" {
-                                    e = Expr::Method(Box::new(e), "lines_keep".into(), vec![], line);
+                                    e = Expr::Method(
+                                        Box::new(e),
+                                        "lines_keep".into(),
+                                        vec![],
+                                        line,
+                                    );
                                 }
                                 continue;
                             }
-                            if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty()) && name == "read" && args.is_empty() {
+                            if matches!(&e, Expr::Call(f, a, _) if f == "lines" && a.is_empty())
+                                && name == "read"
+                                && args.is_empty()
+                            {
                                 e = Expr::Call("stdin".into(), vec![], line);
                                 continue;
                             }
                             // `m.setdefault(k, [])` is `m[k]`: a missing key reads as the empty value.
                             // (Only when a method follows, `m.setdefault(k, []).append(x)`: alone or assigned it puts the key in
                             // first, so that a plain dict, whose missing keys raise KeyError, has it.)
-                            if name == "setdefault" && args.len() == 2 && empty_literal(&args[1]) && (!self.py || self.is_sym(".")) {
+                            if name == "setdefault"
+                                && args.len() == 2
+                                && empty_literal(&args[1])
+                                && (!self.py || self.is_sym("."))
+                            {
                                 e = Expr::Index(Box::new(e), Box::new(args.remove(0)));
                                 // `m.setdefault(k, set()).add(x)`: add() first reads m[k] to test x, so the key
                                 // must be put in before (a plain dict's missing key raises KeyError).
-                                if self.py && matches!(self.peek_at(1), Tok::Ident(a) if a == "add") && !self.user_fns.iter().any(|f| f == "add") {
-                                    e = Expr::Method(Box::new(e), "__setdefault_add".into(), vec![], line);
+                                if self.py
+                                    && matches!(self.peek_at(1), Tok::Ident(a) if a == "add")
+                                    && !self.user_fns.iter().any(|f| f == "add")
+                                {
+                                    e = Expr::Method(
+                                        Box::new(e),
+                                        "__setdefault_add".into(),
+                                        vec![],
+                                        line,
+                                    );
                                 }
                                 continue;
                             }
@@ -2480,7 +3762,12 @@ impl Parser {
                             // A Python `.copy()` is left as written too: on a dict it copies the dict, where `list(d)`
                             // (also `.skip(0)`) gives the keys; the type is known later.
                             let own_copy = name == "copy" && self.py;
-                            let name = if matches!(name.as_str(), "to_list" | "to_vec" | "copy" | "collect") && args.is_empty() && !own_copy {
+                            let name = if matches!(
+                                name.as_str(),
+                                "to_list" | "to_vec" | "copy" | "collect"
+                            ) && args.is_empty()
+                                && !own_copy
+                            {
                                 args.push(Expr::Int(0));
                                 "skip".to_string()
                             } else {
@@ -2492,25 +3779,46 @@ impl Parser {
                                 continue;
                             }
                             // Python's `", ".join(xs)` is `xs.join(", ")`.
-                            e = if name == "join" && args.len() == 1 && matches!(e, Expr::Str(_)) && (self.py || !matches!(args[0], Expr::Str(_))) {
+                            e = if name == "join"
+                                && args.len() == 1
+                                && matches!(e, Expr::Str(_))
+                                && (self.py || !matches!(args[0], Expr::Str(_)))
+                            {
                                 Expr::Method(Box::new(args.remove(0)), name, vec![e], line)
                             } else {
                                 Expr::Method(Box::new(e), name, args, line)
                             };
-                        } else if self.py && matches!(&e, Expr::Ident(m) if m == "operator") && operator_fn(&name, line).is_some() {
+                        } else if self.py
+                            && matches!(&e, Expr::Ident(m) if m == "operator")
+                            && operator_fn(&name, line).is_some()
+                        {
                             // `operator.lt` as a value: a two-argument lambda.
                             e = operator_fn(&name, line).unwrap();
-                        } else if self.py && matches!(&e, Expr::Ident(m) if m == "math") && matches!(name.as_str(), "pi" | "e" | "tau" | "inf" | "nan") {
+                        } else if self.py
+                            && matches!(&e, Expr::Ident(m) if m == "math")
+                            && matches!(name.as_str(), "pi" | "e" | "tau" | "inf" | "nan")
+                        {
                             // math.pi, math.e, math.tau; math.inf and math.nan come from a float method.
                             e = match name.as_str() {
                                 "pi" => Expr::Float(std::f64::consts::PI),
                                 "e" => Expr::Float(std::f64::consts::E),
                                 "tau" => Expr::Float(std::f64::consts::TAU),
-                                n => Expr::Method(Box::new(Expr::Float(0.0)), format!("m_{n}"), vec![], self.line()),
+                                n => Expr::Method(
+                                    Box::new(Expr::Float(0.0)),
+                                    format!("m_{n}"),
+                                    vec![],
+                                    self.line(),
+                                ),
                             };
                         } else if name == "argv" && matches!(&e, Expr::Ident(m) if m == "sys") {
                             // sys.argv: the program's name, then its arguments.
-                            e = Expr::Binary("+", Box::new(Expr::List(vec![Expr::Str(vec![StrPart::Lit("main".into())])])), Box::new(Expr::Call("args".into(), vec![], line)));
+                            e = Expr::Binary(
+                                "+",
+                                Box::new(Expr::List(vec![Expr::Str(vec![StrPart::Lit(
+                                    "main".into(),
+                                )])])),
+                                Box::new(Expr::Call("args".into(), vec![], line)),
+                            );
                         } else if name == "stdin" && matches!(&e, Expr::Ident(m) if m == "sys") {
                             e = Expr::Call("lines".into(), vec![], line);
                         } else {
@@ -2522,51 +3830,95 @@ impl Parser {
             } else if self.eat_sym("[") {
                 // `xs[a:b]`, `xs[a:]`, `xs[:b]` slice like `slice(a, b)`.
                 let line = self.line();
-                let start = if self.is_sym(":") { None } else { Some(self.expr()?) };
+                let start = if self.is_sym(":") {
+                    None
+                } else {
+                    Some(self.expr()?)
+                };
                 if self.eat_sym(":") {
                     let mut args = vec![start.clone().unwrap_or(Expr::Int(0))];
                     if !self.is_sym("]") && !self.is_sym(":") {
                         args.push(self.expr()?);
                     }
                     // Python's step: `xs[::-1]` reverses, `xs[::2]` takes every second item.
-                    let step = if self.eat_sym(":") && !self.is_sym("]") { Some(self.expr()?) } else { None };
+                    let step = if self.eat_sym(":") && !self.is_sym("]") {
+                        Some(self.expr()?)
+                    } else {
+                        None
+                    };
                     self.expect_sym("]")?;
                     // Python's xs[a:b:k] with a step other than 1 (and not a bare xs[::-1]): picked as
                     // Python does, counting down from a for a negative step.
                     let one = |k: &Expr| matches!(k, Expr::Int(1));
-                    let minus_one = |k: &Expr| matches!(k, Expr::Int(-1)) || matches!(k, Expr::Unary("-", n) if matches!(n.as_ref(), Expr::Int(1)));
-                    if self.py && step.as_ref().is_some_and(|k| !one(k) && !(minus_one(k) && start.is_none() && args.len() == 1)) {
+                    let minus_one = |k: &Expr| {
+                        matches!(k, Expr::Int(-1))
+                            || matches!(k, Expr::Unary("-", n) if matches!(n.as_ref(), Expr::Int(1)))
+                    };
+                    if self.py
+                        && step.as_ref().is_some_and(|k| {
+                            !one(k) && !(minus_one(k) && start.is_none() && args.len() == 1)
+                        })
+                    {
                         let nosl = || Expr::Int(i64::MIN + 1);
                         let a = start.clone().unwrap_or_else(nosl);
-                        let b = if args.len() > 1 { args.pop().unwrap() } else { nosl() };
-                        e = Expr::Method(Box::new(e), "slice_step".into(), vec![a, b, step.unwrap()], line);
+                        let b = if args.len() > 1 {
+                            args.pop().unwrap()
+                        } else {
+                            nosl()
+                        };
+                        e = Expr::Method(
+                            Box::new(e),
+                            "slice_step".into(),
+                            vec![a, b, step.unwrap()],
+                            line,
+                        );
                         continue;
                     }
                     if start.is_some() || args.len() > 1 || step.is_none() {
                         e = Expr::Method(Box::new(e), "slice".into(), args, line);
                     }
                     match step {
-                        Some(Expr::Unary("-", n)) if matches!(*n, Expr::Int(1)) => e = Expr::Method(Box::new(e), "rev".into(), vec![], line),
-                        Some(Expr::Int(-1)) => e = Expr::Method(Box::new(e), "rev".into(), vec![], line),
+                        Some(Expr::Unary("-", n)) if matches!(*n, Expr::Int(1)) => {
+                            e = Expr::Method(Box::new(e), "rev".into(), vec![], line)
+                        }
+                        Some(Expr::Int(-1)) => {
+                            e = Expr::Method(Box::new(e), "rev".into(), vec![], line)
+                        }
                         Some(Expr::Int(1)) | None => {}
                         Some(k) => e = Expr::Method(Box::new(e), "step".into(), vec![k], line),
                     }
                 } else {
                     self.expect_sym("]")?;
-                    let Some(idx) = start else { return Err(self.err("expected an index")) };
+                    let Some(idx) = start else {
+                        return Err(self.err("expected an index"));
+                    };
                     e = Expr::Index(Box::new(e), Box::new(idx));
                 }
             } else if self.is_sym("(") && matches!(&e, Expr::Lambda(ps, _) if !ps.is_empty()) {
                 // `(lambda s: (s[0], s[1]))(x)` calls the lambda at once: a block that names its arguments.
                 self.eat_sym("(");
                 let args: Vec<Expr> = self.args()?.into_iter().map(|(_, a)| a).collect();
-                let Expr::Lambda(ps, body) = e else { unreachable!() };
+                let Expr::Lambda(ps, body) = e else {
+                    unreachable!()
+                };
                 if args.len() != ps.len() {
                     return Err(self.err("wrong number of arguments for this lambda"));
                 }
-                let lets = ps.into_iter().zip(args).map(|(p, a)| Stmt::Let { name: Pat::Bind(p), ty: None, value: a, mutable: false, line }).collect();
+                let lets = ps
+                    .into_iter()
+                    .zip(args)
+                    .map(|(p, a)| Stmt::Let {
+                        name: Pat::Bind(p),
+                        ty: None,
+                        value: a,
+                        mutable: false,
+                        line,
+                    })
+                    .collect();
                 e = Expr::Block(lets, Some(body));
-            } else if self.is_sym("(") && matches!(e, Expr::Index(..) | Expr::Field(..) | Expr::TupleField(..)) {
+            } else if self.is_sym("(")
+                && matches!(e, Expr::Index(..) | Expr::Field(..) | Expr::TupleField(..))
+            {
                 // `ops[1](3, 4)`: call a function value taken from a list, tuple or field.
                 self.eat_sym("(");
                 let args = self.args()?.into_iter().map(|(_, a)| a).collect();
@@ -2635,20 +3987,39 @@ impl Parser {
             // `for (a, b), c in ...`: the brackets held only the first name.
             if self.is_sym(",") {
                 let tmp = format!("ax_cu{}", self.pos);
-                pre.insert(0, Stmt::Assign { target: Expr::Tuple(names.into_iter().map(Expr::Ident).collect()), op: "=", value: Expr::Ident(tmp.clone()), line });
+                pre.insert(
+                    0,
+                    Stmt::Assign {
+                        target: Expr::Tuple(names.into_iter().map(Expr::Ident).collect()),
+                        op: "=",
+                        value: Expr::Ident(tmp.clone()),
+                        line,
+                    },
+                );
                 names = vec![tmp];
                 while self.eat_sym(",") {
                     names.push(self.comp_target(&mut pre)?);
                 }
             }
         }
-        let wrap = |x: Expr| if pre.is_empty() { x } else { Expr::Block(pre.clone(), Some(Box::new(x))) };
+        let wrap = |x: Expr| {
+            if pre.is_empty() {
+                x
+            } else {
+                Expr::Block(pre.clone(), Some(Box::new(x)))
+            }
+        };
         if !self.eat_kw("in") {
-            return Err(self.err("expected in").fix_hint("write [x * 2 for x in xs]"));
+            return Err(self
+                .err("expected in")
+                .fix_hint("write [x * 2 for x in xs]"));
         }
         let mut e = self.expr()?;
         if crate::pybridge::is_py(&e) {
-            crate::pybridge::note_for(&Pat::Tuple(names.iter().map(|n| Pat::Bind(n.clone())).collect()), &e);
+            crate::pybridge::note_for(
+                &Pat::Tuple(names.iter().map(|n| Pat::Bind(n.clone())).collect()),
+                &e,
+            );
         } else if crate::pybridge::active() {
             crate::pybridge::note_comp_native(&names);
         }
@@ -2657,19 +4028,48 @@ impl Parser {
         // `x for a in A for x in a`: each a gives a list; they are joined.
         if self.eat_kw("for") {
             let inner = wrap(self.comprehension(elem)?);
-            return Ok(Expr::Method(Box::new(Expr::Method(Box::new(e), "map".into(), vec![Expr::Lambda(names, Box::new(inner))], line)), "flatten".into(), vec![], line));
+            return Ok(Expr::Method(
+                Box::new(Expr::Method(
+                    Box::new(e),
+                    "map".into(),
+                    vec![Expr::Lambda(names, Box::new(inner))],
+                    line,
+                )),
+                "flatten".into(),
+                vec![],
+                line,
+            ));
         }
         if self.eat_kw("if") {
             // The condition uses Python truth (`if s.trim()`): `not not c` reads it that way.
             let c = self.expr()?;
             self.skip_newlines();
-            let c = if matches!(&c, Expr::Binary(op, ..) if ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op)) || matches!(c, Expr::Bool(_)) { c } else { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(c)))) };
-            e = Expr::Method(Box::new(e), "filter".into(), vec![Expr::Lambda(names.clone(), Box::new(wrap(c)))], line);
+            let c = if matches!(&c, Expr::Binary(op, ..) if ["==", "!=", "<", ">", "<=", ">=", "in", "~=", "and", "or"].contains(op))
+                || matches!(c, Expr::Bool(_))
+            {
+                c
+            } else {
+                Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(c))))
+            };
+            e = Expr::Method(
+                Box::new(e),
+                "filter".into(),
+                vec![Expr::Lambda(names.clone(), Box::new(wrap(c)))],
+                line,
+            );
         }
         // `[c for c in s]` over a text is a list of its characters, so Python keeps the map there.
         let filtered = matches!(&e, Expr::Method(_, m, _, _) if m == "filter");
-        if !matches!(&elem, Expr::Ident(n) if names.len() == 1 && n == &names[0]) || !pre.is_empty() || (self.py && !filtered) {
-            e = Expr::Method(Box::new(e), "map".into(), vec![Expr::Lambda(names, Box::new(wrap(elem)))], line);
+        if !matches!(&elem, Expr::Ident(n) if names.len() == 1 && n == &names[0])
+            || !pre.is_empty()
+            || (self.py && !filtered)
+        {
+            e = Expr::Method(
+                Box::new(e),
+                "map".into(),
+                vec![Expr::Lambda(names, Box::new(wrap(elem)))],
+                line,
+            );
         }
         Ok(e)
     }
@@ -2678,7 +4078,11 @@ impl Parser {
     fn flat_comprehension(&mut self, elem: Expr, flat: bool) -> R<Expr> {
         let line = self.line();
         let e = self.comprehension(elem)?;
-        Ok(if flat { Expr::Method(Box::new(e), "flatten".into(), vec![], line) } else { e })
+        Ok(if flat {
+            Expr::Method(Box::new(e), "flatten".into(), vec![], line)
+        } else {
+            e
+        })
     }
 
     // Is the '(' at the cursor the start of a lambda's parameter list?
@@ -2720,7 +4124,9 @@ impl Parser {
             Tok::Kw("false") => Ok(Expr::Bool(false)),
             Tok::Str(s) => Ok(Expr::Str(self.interp(&s, line)?)),
             // Python's `lambda x, y: expr`.
-            Tok::Ident(name) if name == "lambda" && matches!(self.peek(), Tok::Ident(_) | Tok::Sym(":")) => {
+            Tok::Ident(name)
+                if name == "lambda" && matches!(self.peek(), Tok::Ident(_) | Tok::Sym(":")) =>
+            {
                 let mut names = Vec::new();
                 // `lambda k=k: ...` keeps the value k has now.
                 let mut defaults: Vec<(Option<String>, Expr)> = Vec::new();
@@ -2746,25 +4152,44 @@ impl Parser {
                     return Ok(Expr::Call("tk:lambda".into(), defaults, line));
                 }
                 // Elsewhere: the names are bound to their values when the lambda runs.
-                let lets = defaults.into_iter().map(|(n, d)| Stmt::Let { name: Pat::Bind(n.unwrap_or_default()), ty: None, value: d, mutable: false, line }).collect();
-                Ok(Expr::Lambda(names, Box::new(Expr::Block(lets, Some(Box::new(body))))))
+                let lets = defaults
+                    .into_iter()
+                    .map(|(n, d)| Stmt::Let {
+                        name: Pat::Bind(n.unwrap_or_default()),
+                        ty: None,
+                        value: d,
+                        mutable: false,
+                        line,
+                    })
+                    .collect();
+                Ok(Expr::Lambda(
+                    names,
+                    Box::new(Expr::Block(lets, Some(Box::new(body)))),
+                ))
             }
             // Python's `if __name__ == "__main__":` is always true here.
-            Tok::Ident(name) if name == "__name__" => Ok(Expr::Str(vec![StrPart::Lit("__main__".into())])),
+            Tok::Ident(name) if name == "__name__" => {
+                Ok(Expr::Str(vec![StrPart::Lit("__main__".into())]))
+            }
             // Python's None: an int, float, str or tuple slot that is not set yet.
-            Tok::Ident(name) if name == "None" && !self.is_sym("(") => Ok(Expr::Call("none".into(), vec![], line)),
+            Tok::Ident(name) if name == "None" && !self.is_sym("(") => {
+                Ok(Expr::Call("none".into(), vec![], line))
+            }
             Tok::Ident(name) => {
                 if self.eat_sym("(") {
                     let mut args = self.args()?;
                     if let Some(x) = crate::gui::bare_call(&name, &args, line) {
                         return Ok(x);
                     }
-                    if let Some(x) = crate::pybridge::call_hook(&name, &args, &self.user_fns, line) {
+                    if let Some(x) = crate::pybridge::call_hook(&name, &args, &self.user_fns, line)
+                    {
                         return Ok(x);
                     }
                     // Python's len(xs), sum(xs), sorted(xs), min(xs), max(xs) are the methods.
                     let m = match name.as_str() {
-                        "len" | "sum" | "min" | "max" | "enumerate" | "int" | "float" => Some(name.as_str()),
+                        "len" | "sum" | "min" | "max" | "enumerate" | "int" | "float" => {
+                            Some(name.as_str())
+                        }
                         "sorted" => Some("sort"),
                         "reversed" => Some("rev"),
                         "ord" => Some("code"),
@@ -2780,16 +4205,38 @@ impl Parser {
                     if name == "sum" && !self.user_fns.contains(&name) && args.len() == 2 {
                         let start = args.remove(1).1;
                         let xs = args.remove(0).1;
-                        return Ok(Expr::Binary("+", Box::new(start), Box::new(Expr::Method(Box::new(xs), "sum".into(), vec![Expr::Bool(true)], line))));
+                        return Ok(Expr::Binary(
+                            "+",
+                            Box::new(start),
+                            Box::new(Expr::Method(
+                                Box::new(xs),
+                                "sum".into(),
+                                vec![Expr::Bool(true)],
+                                line,
+                            )),
+                        ));
                     }
                     // min(a, b, c, ...): min(min(a, b), c), ... (the prelude's min and max take two values).
-                    if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() > 2 && args.iter().all(|a| a.0.is_none()) {
+                    if (name == "min" || name == "max")
+                        && !self.user_fns.contains(&name)
+                        && args.len() > 2
+                        && args.iter().all(|a| a.0.is_none())
+                    {
                         let mut it = args.into_iter().map(|a| a.1);
                         let first = it.next().unwrap();
-                        return Ok(it.fold(first, |acc, x| Expr::Call(name.clone(), vec![(None, acc), (None, x)], line)));
+                        return Ok(it.fold(first, |acc, x| {
+                            Expr::Call(name.clone(), vec![(None, acc), (None, x)], line)
+                        }));
                     }
                     // min(xs, default=d), max(xs, default=d) and with key=f too: d when xs is empty.
-                    if (name == "min" || name == "max") && !self.user_fns.contains(&name) && (2..=3).contains(&args.len()) && args[0].0.is_none() && args.last().is_some_and(|a| a.0.as_deref() == Some("default")) {
+                    if (name == "min" || name == "max")
+                        && !self.user_fns.contains(&name)
+                        && (2..=3).contains(&args.len())
+                        && args[0].0.is_none()
+                        && args
+                            .last()
+                            .is_some_and(|a| a.0.as_deref() == Some("default"))
+                    {
                         let d = args.pop().unwrap().1;
                         let xs = args.remove(0).1;
                         if let Some((_, f)) = args.pop().filter(|a| a.0.as_deref() == Some("key")) {
@@ -2797,54 +4244,114 @@ impl Parser {
                             if name == "max" {
                                 a.push(Expr::Bool(true));
                             }
-                            return Ok(Expr::Method(Box::new(Expr::Method(Box::new(xs), "sort_by".into(), a, line)), "first_or".into(), vec![d], line));
+                            return Ok(Expr::Method(
+                                Box::new(Expr::Method(Box::new(xs), "sort_by".into(), a, line)),
+                                "first_or".into(),
+                                vec![d],
+                                line,
+                            ));
                         }
-                        return Ok(Expr::Method(Box::new(xs), format!("{name}_or"), vec![d], line));
+                        return Ok(Expr::Method(
+                            Box::new(xs),
+                            format!("{name}_or"),
+                            vec![d],
+                            line,
+                        ));
                     }
                     // min(xs, key=f) and max(xs, key=f): the first item with the smallest or largest key.
-                    if (name == "min" || name == "max") && !self.user_fns.contains(&name) && args.len() == 2 && args[0].0.is_none() && args[1].0.as_deref() == Some("key") {
+                    if (name == "min" || name == "max")
+                        && !self.user_fns.contains(&name)
+                        && args.len() == 2
+                        && args[0].0.is_none()
+                        && args[1].0.as_deref() == Some("key")
+                    {
                         let f = args.remove(1).1;
                         let xs = args.remove(0).1;
                         let mut a = vec![f];
                         if name == "max" {
                             a.push(Expr::Bool(true));
                         }
-                        return Ok(Expr::Index(Box::new(Expr::Method(Box::new(xs), "sort_by".into(), a, line)), Box::new(Expr::Int(0))));
+                        return Ok(Expr::Index(
+                            Box::new(Expr::Method(Box::new(xs), "sort_by".into(), a, line)),
+                            Box::new(Expr::Int(0)),
+                        ));
                     }
                     // sorted(xs, key=f, reverse=r)
-                    if name == "sorted" && !self.user_fns.contains(&name) && args.first().is_some_and(|a| a.0.is_none()) {
+                    if name == "sorted"
+                        && !self.user_fns.contains(&name)
+                        && args.first().is_some_and(|a| a.0.is_none())
+                    {
                         let recv = args[0].1.clone();
                         if let Some(s) = sort_kw(recv, &args[1..], line) {
                             return Ok(s);
                         }
                     }
                     // range(n), range(a, b) and range(a, b, step) are a..b.
-                    if name == "range" && (1..=3).contains(&args.len()) && args.iter().all(|a| a.0.is_none()) && !self.user_fns.contains(&name) {
+                    if name == "range"
+                        && (1..=3).contains(&args.len())
+                        && args.iter().all(|a| a.0.is_none())
+                        && !self.user_fns.contains(&name)
+                    {
                         let mut a: Vec<Expr> = args.into_iter().map(|a| a.1).collect();
-                        let (lo, hi) = if a.len() == 1 { (Expr::Int(0), a.remove(0)) } else { (a.remove(0), a.remove(0)) };
+                        let (lo, hi) = if a.len() == 1 {
+                            (Expr::Int(0), a.remove(0))
+                        } else {
+                            (a.remove(0), a.remove(0))
+                        };
                         // range(a, b, -k) counts down: a, a-k, ... while above b, which is (b+1..a+1) reversed, every k-th.
                         let neg = match a.first() {
-                            Some(Expr::Unary("-", x)) => if let Expr::Int(k) = x.as_ref() { Some(*k) } else { None },
+                            Some(Expr::Unary("-", x)) => {
+                                if let Expr::Int(k) = x.as_ref() {
+                                    Some(*k)
+                                } else {
+                                    None
+                                }
+                            }
                             Some(Expr::Int(k)) if *k < 0 => Some(-k),
                             _ => None,
                         };
                         if let Some(k) = neg {
-                            let one = |e: Expr| Expr::Binary("+", Box::new(e), Box::new(Expr::Int(1)));
-                            let r = Expr::Method(Box::new(Expr::Range(Box::new(one(hi)), Box::new(one(lo)))), "rev".into(), vec![], line);
-                            return Ok(if k == 1 { r } else { Expr::Method(Box::new(r), "step".into(), vec![Expr::Int(k)], line) });
+                            let one =
+                                |e: Expr| Expr::Binary("+", Box::new(e), Box::new(Expr::Int(1)));
+                            let r = Expr::Method(
+                                Box::new(Expr::Range(Box::new(one(hi)), Box::new(one(lo)))),
+                                "rev".into(),
+                                vec![],
+                                line,
+                            );
+                            return Ok(if k == 1 {
+                                r
+                            } else {
+                                Expr::Method(Box::new(r), "step".into(), vec![Expr::Int(k)], line)
+                            });
                         }
                         let r = Expr::Range(Box::new(lo), Box::new(hi));
-                        return Ok(if a.is_empty() { r } else { Expr::Method(Box::new(r), "step".into(), a, line) });
+                        return Ok(if a.is_empty() {
+                            r
+                        } else {
+                            Expr::Method(Box::new(r), "step".into(), a, line)
+                        });
                     }
                     // any(c for x in xs) and all(...) test each item.
-                    if (name == "any" || name == "all") && args.len() == 1 && !self.user_fns.contains(&name) {
+                    if (name == "any" || name == "all")
+                        && args.len() == 1
+                        && !self.user_fns.contains(&name)
+                    {
                         let arg = args.remove(0).1;
                         return Ok(match arg {
                             Expr::Method(base, mm, mut la, _) if mm == "map" && la.len() == 1 => {
                                 let f = la.remove(0);
                                 // `all(parts[i] for i in ...)`: each value by its truth.
                                 let f = match f {
-                                    Expr::Lambda(ps, body) if self.py && !is_bool_expr(&body) => Expr::Lambda(ps, Box::new(Expr::Unary("!", Box::new(Expr::Unary("!", body))))),
+                                    Expr::Lambda(ps, body) if self.py && !is_bool_expr(&body) => {
+                                        Expr::Lambda(
+                                            ps,
+                                            Box::new(Expr::Unary(
+                                                "!",
+                                                Box::new(Expr::Unary("!", body)),
+                                            )),
+                                        )
+                                    }
                                     f => f,
                                 };
                                 Expr::Method(base, name, vec![f], line)
@@ -2852,54 +4359,127 @@ impl Parser {
                             // Python's `all(words)` tests each item's truth (`!!` is bool(x)).
                             other => {
                                 let b = Expr::Ident("b_".into());
-                                let b = if self.py { Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(b)))) } else { b };
-                                Expr::Method(Box::new(other), name, vec![Expr::Lambda(vec!["b_".into()], Box::new(b))], line)
+                                let b = if self.py {
+                                    Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(b))))
+                                } else {
+                                    b
+                                };
+                                Expr::Method(
+                                    Box::new(other),
+                                    name,
+                                    vec![Expr::Lambda(vec!["b_".into()], Box::new(b))],
+                                    line,
+                                )
                             }
                         });
                     }
                     // defaultdict(lambda: 0) (read as a `lambda:` named argument) with an empty default is a map.
-                    if name == "defaultdict" && args.len() == 1 && args[0].0.as_deref() == Some("lambda") && empty_literal(&args[0].1) && !self.user_fns.contains(&name) {
+                    if name == "defaultdict"
+                        && args.len() == 1
+                        && args[0].0.as_deref() == Some("lambda")
+                        && empty_literal(&args[0].1)
+                        && !self.user_fns.contains(&name)
+                    {
                         return Ok(lax_map(line));
                     }
                     // enumerate(xs, start=1)
-                    if name == "enumerate" && args.len() == 2 && args[1].0.as_deref() == Some("start") && !self.user_fns.contains(&name) {
+                    if name == "enumerate"
+                        && args.len() == 2
+                        && args[1].0.as_deref() == Some("start")
+                        && !self.user_fns.contains(&name)
+                    {
                         let n = args.remove(1).1;
-                        return Ok(Expr::Method(Box::new(args.remove(0).1), "enumerate_from".into(), vec![n], line));
+                        return Ok(Expr::Method(
+                            Box::new(args.remove(0).1),
+                            "enumerate_from".into(),
+                            vec![n],
+                            line,
+                        ));
                     }
                     // itertools.groupby(xs, key=f): runs of neighbours with the same key, as (key, items) pairs.
-                    if name == "groupby" && !self.user_fns.contains(&name) && (args.len() == 1 || (args.len() == 2 && args[1].0.as_deref() == Some("key"))) {
+                    if name == "groupby"
+                        && !self.user_fns.contains(&name)
+                        && (args.len() == 1
+                            || (args.len() == 2 && args[1].0.as_deref() == Some("key")))
+                    {
                         let xs = args.remove(0).1;
                         let f = if args.is_empty() {
                             Expr::Lambda(vec!["v_".into()], Box::new(Expr::Ident("v_".into())))
                         } else {
                             args.remove(0).1
                         };
-                        return Ok(Expr::Method(Box::new(xs), "group_runs".into(), vec![f], line));
+                        return Ok(Expr::Method(
+                            Box::new(xs),
+                            "group_runs".into(),
+                            vec![f],
+                            line,
+                        ));
                     }
                     // timedelta(days=n, weeks=w) is a span of days that adds to a date.
-                    if name == "timedelta" && !args.is_empty() && !self.user_fns.contains(&name) && args.iter().all(|a| matches!(a.0.as_deref(), None | Some("days") | Some("weeks"))) {
+                    if name == "timedelta"
+                        && !args.is_empty()
+                        && !self.user_fns.contains(&name)
+                        && args
+                            .iter()
+                            .all(|a| matches!(a.0.as_deref(), None | Some("days") | Some("weeks")))
+                    {
                         let mut total: Option<Expr> = None;
                         for (n, v) in args.drain(..) {
-                            let v = if n.as_deref() == Some("weeks") { Expr::Binary("*", Box::new(v), Box::new(Expr::Int(7))) } else { v };
+                            let v = if n.as_deref() == Some("weeks") {
+                                Expr::Binary("*", Box::new(v), Box::new(Expr::Int(7)))
+                            } else {
+                                v
+                            };
                             total = Some(match total {
                                 Some(t) => Expr::Binary("+", Box::new(t), Box::new(v)),
                                 None => v,
                             });
                         }
-                        return Ok(Expr::Method(Box::new(total.unwrap()), "delta_days".into(), vec![], line));
+                        return Ok(Expr::Method(
+                            Box::new(total.unwrap()),
+                            "delta_days".into(),
+                            vec![],
+                            line,
+                        ));
                     }
                     // print(..., file=sys.stderr): the same line, written to stderr.
                     if name == "print" && self.py && !self.user_fns.contains(&name) {
                         let to_out = |v: &Expr| matches!(v, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
                         args.retain(|(n, v)| !(n.as_deref() == Some("file") && to_out(v)));
                         let to_err = |v: &Expr| matches!(v, Expr::Field(m, f) if f == "stderr" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
-                        if let Some(i) = args.iter().position(|(n, v)| n.as_deref() == Some("file") && to_err(v)) {
+                        if let Some(i) = args
+                            .iter()
+                            .position(|(n, v)| n.as_deref() == Some("file") && to_err(v))
+                        {
                             args.remove(i);
-                            let sep = args.iter().find(|(n, _)| n.as_deref() == Some("sep")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
-                            let end = args.iter().find(|(n, _)| n.as_deref() == Some("end")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit("\n".into())]));
-                            let items: Vec<Expr> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, v)| Expr::Call("str".into(), vec![(None, v.clone())], line)).collect();
-                            let body = Expr::Method(Box::new(Expr::List(items)), "join".into(), vec![sep], line);
-                            return Ok(Expr::Call("__eprint".into(), vec![(None, Expr::Binary("+", Box::new(body), Box::new(end)))], line));
+                            let sep = args
+                                .iter()
+                                .find(|(n, _)| n.as_deref() == Some("sep"))
+                                .map(|(_, v)| v.clone())
+                                .unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
+                            let end = args
+                                .iter()
+                                .find(|(n, _)| n.as_deref() == Some("end"))
+                                .map(|(_, v)| v.clone())
+                                .unwrap_or(Expr::Str(vec![StrPart::Lit("\n".into())]));
+                            let items: Vec<Expr> = args
+                                .iter()
+                                .filter(|(n, _)| n.is_none())
+                                .map(|(_, v)| {
+                                    Expr::Call("str".into(), vec![(None, v.clone())], line)
+                                })
+                                .collect();
+                            let body = Expr::Method(
+                                Box::new(Expr::List(items)),
+                                "join".into(),
+                                vec![sep],
+                                line,
+                            );
+                            return Ok(Expr::Call(
+                                "__eprint".into(),
+                                vec![(None, Expr::Binary("+", Box::new(body), Box::new(end)))],
+                                line,
+                            ));
                         }
                     }
                     // open(path, mode=..., encoding=...): keyword arguments too.
@@ -2909,21 +4489,44 @@ impl Parser {
                         }
                     }
                     let star = args.iter().any(|a| a.0.as_deref() == Some("__star"));
-                    if !self.user_fns.contains(&name) && !self.class_names.contains(&name) && (star || args.iter().all(|a| a.0.is_none())) {
+                    if !self.user_fns.contains(&name)
+                        && !self.class_names.contains(&name)
+                        && (star || args.iter().all(|a| a.0.is_none()))
+                    {
                         if let Some(d) = python_call(&name, &mut args, line) {
                             return Ok(d);
                         }
                     }
                     match m {
-                        Some(m) if args.len() == 1 && args[0].0.is_none() && !self.user_fns.contains(&name) => Ok(Expr::Method(Box::new(args.remove(0).1), m.into(), vec![], line)),
+                        Some(m)
+                            if args.len() == 1
+                                && args[0].0.is_none()
+                                && !self.user_fns.contains(&name) =>
+                        {
+                            Ok(Expr::Method(
+                                Box::new(args.remove(0).1),
+                                m.into(),
+                                vec![],
+                                line,
+                            ))
+                        }
                         // A program's own function named like a built-in (`fn args(...)`) is its own.
-                        _ if self.user_fns.contains(&name) && SHADOWABLE.contains(&name.as_str()) => Ok(Expr::Call(format!("{name}_"), args, line)),
+                        _ if self.user_fns.contains(&name)
+                            && SHADOWABLE.contains(&name.as_str()) =>
+                        {
+                            Ok(Expr::Call(format!("{name}_"), args, line))
+                        }
                         _ => Ok(Expr::Call(name, args, line)),
                     }
-                } else if matches!(name.as_str(), "int" | "float" | "str" | "len") && !self.is_sym("=") {
+                } else if matches!(name.as_str(), "int" | "float" | "str" | "len")
+                    && !self.is_sym("=")
+                {
                     // `map(int, xs)`, `key=len`: a built-in conversion used as a function value.
                     let v = Expr::Ident("v_".into());
-                    Ok(Expr::Lambda(vec!["v_".into()], Box::new(Expr::Method(Box::new(v), name, vec![], line))))
+                    Ok(Expr::Lambda(
+                        vec!["v_".into()],
+                        Box::new(Expr::Method(Box::new(v), name, vec![], line)),
+                    ))
                 } else if let Some(x) = crate::pybridge::ident(&name, line) {
                     Ok(x)
                 } else {
@@ -2971,7 +4574,9 @@ impl Parser {
                         return Ok(c);
                     }
                     if flat {
-                        return Err(self.err("expected for after *x").fix_hint("join lists with +: a + b"));
+                        return Err(self
+                            .err("expected for after *x")
+                            .fix_hint("join lists with +: a + b"));
                     }
                     items.push(e);
                     if !self.eat_sym(",") {
@@ -3035,8 +4640,16 @@ impl Parser {
                 let save = self.pos;
                 self.skip_newlines();
                 if self.eat_kw("else") {
-                    let other = if self.is_kw("if") { self.primary()? } else { self.block()? };
-                    Ok(Expr::If(Box::new(cond), Box::new(then), Some(Box::new(other))))
+                    let other = if self.is_kw("if") {
+                        self.primary()?
+                    } else {
+                        self.block()?
+                    };
+                    Ok(Expr::If(
+                        Box::new(cond),
+                        Box::new(then),
+                        Some(Box::new(other)),
+                    ))
                 } else {
                     self.pos = save;
                     Ok(Expr::If(Box::new(cond), Box::new(then), None))
@@ -3076,7 +4689,10 @@ impl Parser {
                     let map = self.is_sym("{")
                         && match (&next, &after) {
                             (Some(Tok::Sym("}")), _) => self.ret_map,
-                            (Some(Tok::Str(_) | Tok::Int(_) | Tok::Ident(_)), Some(Tok::Sym(":"))) => true,
+                            (
+                                Some(Tok::Str(_) | Tok::Int(_) | Tok::Ident(_)),
+                                Some(Tok::Sym(":")),
+                            ) => true,
                             _ => false,
                         };
                     let body = if map {
@@ -3095,9 +4711,20 @@ impl Parser {
                 }
                 self.expect_sym("}")?;
                 // `match run(x):` with only an `Err(m)` arm: success needs nothing done.
-                let has = |n: &str| arms.iter().any(|(p, _)| matches!(p, Pat::Variant(v, _) if v == n));
-                if has("Err") && !has("Ok") && !arms.iter().any(|(p, _)| matches!(p, Pat::Wild | Pat::Bind(_))) {
-                    arms.push((Pat::Variant("Ok".into(), vec![Pat::Wild]), Expr::Block(vec![], None)));
+                let has = |n: &str| {
+                    arms.iter()
+                        .any(|(p, _)| matches!(p, Pat::Variant(v, _) if v == n))
+                };
+                if has("Err")
+                    && !has("Ok")
+                    && !arms
+                        .iter()
+                        .any(|(p, _)| matches!(p, Pat::Wild | Pat::Bind(_)))
+                {
+                    arms.push((
+                        Pat::Variant("Ok".into(), vec![Pat::Wild]),
+                        Expr::Block(vec![], None),
+                    ));
                 }
                 Ok(Expr::Match(Box::new(subject), arms))
             }
@@ -3119,7 +4746,12 @@ impl Parser {
                 // `for line in open(p)`: the file's lines, each with its "\n".
                 if let Expr::Call(f, a, l) = &iter {
                     if f == "__open_r" {
-                        iter = Expr::Method(Box::new(Expr::Call("read".into(), a.clone(), *l)), "lines_keep".into(), vec![], *l);
+                        iter = Expr::Method(
+                            Box::new(Expr::Call("read".into(), a.clone(), *l)),
+                            "lines_keep".into(),
+                            vec![],
+                            *l,
+                        );
                     }
                 }
                 let body = self.block()?;
@@ -3158,7 +4790,12 @@ impl Parser {
                     for mut s in std::mem::take(st) {
                         match &mut s {
                             Stmt::Break { .. } => {
-                                out.push(Stmt::Assign { target: Expr::Ident(flag.into()), op: "=", value: Expr::Bool(true), line });
+                                out.push(Stmt::Assign {
+                                    target: Expr::Ident(flag.into()),
+                                    op: "=",
+                                    value: Expr::Bool(true),
+                                    line,
+                                });
                             }
                             Stmt::Expr { expr, .. } => mark(expr, flag, line),
                             _ => {}
@@ -3187,9 +4824,21 @@ impl Parser {
         }
         Ok(Expr::Block(
             vec![
-                Stmt::Assign { target: Expr::Ident(flag.clone()), op: "=", value: Expr::Bool(false), line },
+                Stmt::Assign {
+                    target: Expr::Ident(flag.clone()),
+                    op: "=",
+                    value: Expr::Bool(false),
+                    line,
+                },
                 Stmt::Expr { expr: lp, line },
-                Stmt::Expr { expr: Expr::If(Box::new(Expr::Unary("!", Box::new(Expr::Ident(flag)))), Box::new(other), None), line },
+                Stmt::Expr {
+                    expr: Expr::If(
+                        Box::new(Expr::Unary("!", Box::new(Expr::Ident(flag)))),
+                        Box::new(other),
+                        None,
+                    ),
+                    line,
+                },
             ],
             None,
         ))
@@ -3213,7 +4862,12 @@ impl Parser {
                 }
                 // In Python files a lone `{` only reaches here from an f-string (the lexer doubles the braces of
                 // plain strings), so `{1/3:.3f}` and `{2*n}` are values too.
-                '{' if !chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'') || (self.py && (c.is_ascii_digit() || *c == '.'))) => {
+                '{' if !chars.get(i + 1).map_or(false, |c| {
+                    c.is_alphabetic()
+                        || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')
+                        || (self.py && (c.is_ascii_digit() || *c == '.'))
+                }) =>
+                {
                     lit.push('{');
                     i += 1;
                 }
@@ -3230,7 +4884,8 @@ impl Parser {
                         i += 1;
                     }
                     if depth > 0 {
-                        return Err(Diag::new("parse", line, 1, "unclosed '{' in string").fix_hint("use {{ for a literal brace"));
+                        return Err(Diag::new("parse", line, 1, "unclosed '{' in string")
+                            .fix_hint("use {{ for a literal brace"));
                     }
                     let inner: String = chars[start..i - 1].iter().collect();
                     // Python's format spec: `{x:.2f}`, `{n:03d}`, `{s:<10}`, `{v:>8}`.
@@ -3244,7 +4899,12 @@ impl Parser {
                             inner = t[..t.len() - 2].to_string();
                         }
                         let t = inner.trim_end();
-                        if t.ends_with('=') && !t.ends_with("==") && !t.ends_with("!=") && !t.ends_with("<=") && !t.ends_with(">=") {
+                        if t.ends_with('=')
+                            && !t.ends_with("==")
+                            && !t.ends_with("!=")
+                            && !t.ends_with("<=")
+                            && !t.ends_with(">=")
+                        {
                             debug = true;
                             lit.push_str(&inner);
                             inner = t[..t.len() - 1].to_string();
@@ -3254,7 +4914,29 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0, exc_rich: self.exc_rich.clone(), threads: self.threads.clone(), in_exc_class: false, exc_init_arg: None };
+                    let mut sub = Parser {
+                        toks,
+                        pos: 0,
+                        ret_map: false,
+                        user_fns: self.user_fns.clone(),
+                        children: vec![],
+                        hoisted: vec![],
+                        pending: vec![],
+                        set_names: vec![],
+                        py: self.py,
+                        sigs: HashMap::new(),
+                        class_names: vec![],
+                        held: vec![],
+                        yields: false,
+                        attr_tys: vec![],
+                        type_names: HashMap::new(),
+                        exc_bases: self.exc_bases.clone(),
+                        in_handler: 0,
+                        exc_rich: self.exc_rich.clone(),
+                        threads: self.threads.clone(),
+                        in_exc_class: false,
+                        exc_init_arg: None,
+                    };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
@@ -3262,22 +4944,42 @@ impl Parser {
                     if self.py {
                         sub.skip_newlines();
                         if sub.peek() != &Tok::Eof {
-                            return Err(Diag::new("parse", line, 1, &format!("cannot read the f-string value {{{inner}}}")).fix_hint("compute the value first: v = ...; then f\"{v}\""));
+                            return Err(Diag::new(
+                                "parse",
+                                line,
+                                1,
+                                &format!("cannot read the f-string value {{{inner}}}"),
+                            )
+                            .fix_hint("compute the value first: v = ...; then f\"{v}\""));
                         }
                     }
                     if !lit.is_empty() {
                         parts.push(StrPart::Lit(std::mem::take(&mut lit)));
                     }
                     let e = match conv {
-                        Some('r' | 'a') => Expr::Method(Box::new(e), "py_repr".into(), vec![], line),
+                        Some('r' | 'a') => {
+                            Expr::Method(Box::new(e), "py_repr".into(), vec![], line)
+                        }
                         Some(_) => Expr::Call("str".into(), vec![(None, e)], line),
-                        None if debug && spec.is_none() => Expr::Method(Box::new(e), "py_repr".into(), vec![], line),
+                        None if debug && spec.is_none() => {
+                            Expr::Method(Box::new(e), "py_repr".into(), vec![], line)
+                        }
                         None => e,
                     };
                     let e = match spec {
                         // `{x:{w}.2f}`: the spec is itself filled in.
-                        Some(sp) if self.py && sp.contains('{') => Expr::Method(Box::new(e), "spec".into(), vec![Expr::Str(self.interp(&sp, line)?)], line),
-                        Some(sp) => Expr::Method(Box::new(e), "spec".into(), vec![Expr::Str(vec![StrPart::Lit(sp)])], line),
+                        Some(sp) if self.py && sp.contains('{') => Expr::Method(
+                            Box::new(e),
+                            "spec".into(),
+                            vec![Expr::Str(self.interp(&sp, line)?)],
+                            line,
+                        ),
+                        Some(sp) => Expr::Method(
+                            Box::new(e),
+                            "spec".into(),
+                            vec![Expr::Str(vec![StrPart::Lit(sp)])],
+                            line,
+                        ),
                         None => e,
                     };
                     parts.push(StrPart::Interp(e));
@@ -3307,7 +5009,10 @@ pub fn dataclass(name: &str) -> Option<(String, Vec<String>)> {
     DATACLASSES.with(|d| d.borrow().get(name).cloned())
 }
 
-const SHADOWABLE: &[&str] = &["args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs", "min", "max"];
+const SHADOWABLE: &[&str] = &[
+    "args", "input", "stdin", "lines", "read", "write", "json", "csv", "date", "heap", "abs",
+    "min", "max",
+];
 
 // A whole Python format spec: [[fill]align][sign][z][#][0][width][,|_][.precision][type].
 pub fn py_spec_ok(spec: &str) -> bool {
@@ -3364,12 +5069,20 @@ fn split_spec(inner: &str, py: bool) -> (String, Option<String>) {
             (None, ':') if depth == 0 => {
                 let spec = &inner[i + 1..];
                 let ok = !spec.is_empty() && {
-                    let b = spec.trim_start_matches(['<', '>', '^']).trim_start_matches('+');
+                    let b = spec
+                        .trim_start_matches(['<', '>', '^'])
+                        .trim_start_matches('+');
                     let b = b.trim_start_matches(|c: char| c.is_ascii_digit() || c == ',');
-                    let b = b.strip_prefix('.').map_or(b, |r| r.trim_start_matches(|c: char| c.is_ascii_digit()));
+                    let b = b
+                        .strip_prefix('.')
+                        .map_or(b, |r| r.trim_start_matches(|c: char| c.is_ascii_digit()));
                     b.is_empty() || matches!(b, "d" | "f" | "s" | "x" | "%" | "e")
                 } || py && (py_spec_ok(spec) || spec.contains('{'));
-                return if ok { (inner[..i].to_string(), Some(spec.to_string())) } else { (inner.to_string(), None) };
+                return if ok {
+                    (inner[..i].to_string(), Some(spec.to_string()))
+                } else {
+                    (inner.to_string(), None)
+                };
             }
             _ => {}
         }
@@ -3379,7 +5092,11 @@ fn split_spec(inner: &str, py: bool) -> (String, Option<String>) {
 
 // Python's sort keywords: `key=f` and `reverse=r` (also `sort_by(f, reverse=r)`) become `sort_by(f, r)`.
 fn sort_kw(recv: Expr, args: &[(Option<String>, Expr)], line: usize) -> Option<Expr> {
-    let get = |k: &str| args.iter().find(|a| a.0.as_deref() == Some(k)).map(|a| a.1.clone());
+    let get = |k: &str| {
+        args.iter()
+            .find(|a| a.0.as_deref() == Some(k))
+            .map(|a| a.1.clone())
+    };
     let (key, rev) = (get("key"), get("reverse"));
     if key.is_none() && rev.is_none() {
         return None;
@@ -3463,55 +5180,57 @@ fn heapq_method(name: &str, nargs: usize) -> Option<&'static str> {
 }
 
 fn python_method(name: &str, nargs: usize) -> Option<String> {
-    Some(match (name, nargs) {
-        ("append", 1) => "push",
-        ("sorted", 0) => "sort",
-        ("reversed", 0) => "rev",
-        ("strip", 0) => "trim",
-        ("strip", 1) => "trim_of",
-        ("rstrip", 0) => "trim_end",
-        ("rstrip", 1) => "trim_end_of",
-        ("lstrip", 0) => "trim_start",
-        ("lstrip", 1) => "trim_start_of",
-        ("splitlines", 0) => "lines",
-        ("splitlines", 1) => "lines_keep",
-        // xs.pop(i) and m.pop(k) take the item out and give it back.
-        ("pop", 1) => "pop_at",
-        // m.pop(k, d): the value taken out, or d when k is missing.
-        ("pop", 2) => "pop_or",
-        ("isupper", 0) => "is_upper",
-        ("islower", 0) => "is_lower",
-        ("isalnum", 0) => "is_alnum",
-        ("isascii", 0) => "is_ascii",
-        // d.to_integral_value() rounds a Decimal half to even, as Python's default context does.
-        ("to_integral_value" | "to_integral", 0) => "round",
-        ("center", 2) => "center_with",
-        ("ljust", 2) => "ljust_with",
-        ("rjust", 2) => "rjust_with",
-        ("most_common", 0) => "most_common_all",
-        ("split", 0) => "words",
-        // `s.casefold()`: lower case (enough for comparing words without regard to case).
-        ("casefold", 0) => "lower",
-        ("__floor__", 0) => "floor",
-        ("__ceil__", 0) => "ceil",
-        ("__abs__", 0) => "abs",
-        ("split", 2) => "split_n",
-        ("rsplit", 2) => "rsplit_n",
-        ("startswith", 1) => "starts_with",
-        ("startswith", 2) => "starts_with_at",
-        ("endswith", 2) => "ends_with_at",
-        ("endswith", 1) => "ends_with",
-        ("isdigit", 0) => "is_digit",
-        ("isalpha", 0) => "is_alpha",
-        ("isspace", 0) => "is_space",
-        ("items", 0) => "pairs",
-        ("index", 1) => "index_of",
-        ("get", 2) => "get_or",
-        ("char_at" | "to_char" | "chr", 0) => "char",
-        ("find", 2) => "find_from",
-        _ => return None,
-    }
-    .into())
+    Some(
+        match (name, nargs) {
+            ("append", 1) => "push",
+            ("sorted", 0) => "sort",
+            ("reversed", 0) => "rev",
+            ("strip", 0) => "trim",
+            ("strip", 1) => "trim_of",
+            ("rstrip", 0) => "trim_end",
+            ("rstrip", 1) => "trim_end_of",
+            ("lstrip", 0) => "trim_start",
+            ("lstrip", 1) => "trim_start_of",
+            ("splitlines", 0) => "lines",
+            ("splitlines", 1) => "lines_keep",
+            // xs.pop(i) and m.pop(k) take the item out and give it back.
+            ("pop", 1) => "pop_at",
+            // m.pop(k, d): the value taken out, or d when k is missing.
+            ("pop", 2) => "pop_or",
+            ("isupper", 0) => "is_upper",
+            ("islower", 0) => "is_lower",
+            ("isalnum", 0) => "is_alnum",
+            ("isascii", 0) => "is_ascii",
+            // d.to_integral_value() rounds a Decimal half to even, as Python's default context does.
+            ("to_integral_value" | "to_integral", 0) => "round",
+            ("center", 2) => "center_with",
+            ("ljust", 2) => "ljust_with",
+            ("rjust", 2) => "rjust_with",
+            ("most_common", 0) => "most_common_all",
+            ("split", 0) => "words",
+            // `s.casefold()`: lower case (enough for comparing words without regard to case).
+            ("casefold", 0) => "lower",
+            ("__floor__", 0) => "floor",
+            ("__ceil__", 0) => "ceil",
+            ("__abs__", 0) => "abs",
+            ("split", 2) => "split_n",
+            ("rsplit", 2) => "rsplit_n",
+            ("startswith", 1) => "starts_with",
+            ("startswith", 2) => "starts_with_at",
+            ("endswith", 2) => "ends_with_at",
+            ("endswith", 1) => "ends_with",
+            ("isdigit", 0) => "is_digit",
+            ("isalpha", 0) => "is_alpha",
+            ("isspace", 0) => "is_space",
+            ("items", 0) => "pairs",
+            ("index", 1) => "index_of",
+            ("get", 2) => "get_or",
+            ("char_at" | "to_char" | "chr", 0) => "char",
+            ("find", 2) => "find_from",
+            _ => return None,
+        }
+        .into(),
+    )
 }
 
 // Python built-ins spelled as Brevi: set(xs), divmod(a, b), round(x, n), enumerate(xs, 1), defaultdict(int).
@@ -3521,8 +5240,30 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         // `date(*map(int, s.split("-")))`: the three parts joined back into "y-m-d".
         if name == "date" && args.len() == 1 {
             let e = args.remove(0).1;
-            let parts = m(e, "map", vec![Expr::Lambda(vec!["ax_x".into()], Box::new(Expr::Call("str".into(), vec![(None, Expr::Ident("ax_x".into()))], line)))]);
-            return Some(Expr::Call("date".into(), vec![(None, m(parts, "join", vec![Expr::Str(vec![StrPart::Lit("-".into())])]))], line));
+            let parts = m(
+                e,
+                "map",
+                vec![Expr::Lambda(
+                    vec!["ax_x".into()],
+                    Box::new(Expr::Call(
+                        "str".into(),
+                        vec![(None, Expr::Ident("ax_x".into()))],
+                        line,
+                    )),
+                )],
+            );
+            return Some(Expr::Call(
+                "date".into(),
+                vec![(
+                    None,
+                    m(
+                        parts,
+                        "join",
+                        vec![Expr::Str(vec![StrPart::Lit("-".into())])],
+                    ),
+                )],
+                line,
+            ));
         }
         if name != "print" {
             return None;
@@ -3532,7 +5273,18 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         let mut rest = Vec::new();
         for (n, e) in args.drain(..) {
             let part = match n.as_deref() {
-                Some("__star") => m(e, "map", vec![Expr::Lambda(vec!["ax_x".into()], Box::new(Expr::Call("str".into(), vec![(None, Expr::Ident("ax_x".into()))], line)))]),
+                Some("__star") => m(
+                    e,
+                    "map",
+                    vec![Expr::Lambda(
+                        vec!["ax_x".into()],
+                        Box::new(Expr::Call(
+                            "str".into(),
+                            vec![(None, Expr::Ident("ax_x".into()))],
+                            line,
+                        )),
+                    )],
+                ),
                 None => Expr::List(vec![Expr::Call("str".into(), vec![(None, e)], line)]),
                 Some(_) => {
                     rest.push((n, e));
@@ -3544,7 +5296,11 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
                 None => part,
             });
         }
-        let sep = rest.iter().position(|(n, _)| n.as_deref() == Some("sep")).map(|i| rest.remove(i).1).unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
+        let sep = rest
+            .iter()
+            .position(|(n, _)| n.as_deref() == Some("sep"))
+            .map(|i| rest.remove(i).1)
+            .unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
         let joined = m(items.unwrap_or(Expr::List(vec![])), "join", vec![sep]);
         let mut a = vec![(None, joined)];
         a.extend(rest);
@@ -3553,7 +5309,14 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
     // open(path, mode): "__open_r" / "__open_w" / "__open_a" with the path; fix_opens turns the file into its text
     // (reading) or a list of written pieces that is written out at close (writing). Binary modes are not handled.
     if name == "open" && !args.is_empty() && args[0].0.is_none() {
-        let mode_at = args.iter().position(|(n, _)| n.as_deref() == Some("mode")).or(if args.len() > 1 && args[1].0.is_none() { Some(1) } else { None });
+        let mode_at = args
+            .iter()
+            .position(|(n, _)| n.as_deref() == Some("mode"))
+            .or(if args.len() > 1 && args[1].0.is_none() {
+                Some(1)
+            } else {
+                None
+            });
         let mode = match mode_at.map(|i| &args[i].1) {
             None => "r".to_string(),
             Some(Expr::Str(p)) => match p.as_slice() {
@@ -3566,7 +5329,13 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         if mode.contains('b') || mode.contains('+') || mode.contains('x') {
             return None;
         }
-        let kind = if mode.contains('w') { "__open_w" } else if mode.contains('a') { "__open_a" } else { "__open_r" };
+        let kind = if mode.contains('w') {
+            "__open_w"
+        } else if mode.contains('a') {
+            "__open_a"
+        } else {
+            "__open_r"
+        };
         let path = args.remove(0).1;
         return Some(Expr::Call(kind.into(), vec![(None, path)], line));
     }
@@ -3605,7 +5374,20 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             let mo = args.remove(1).1;
             let y = args.remove(0).1;
             let dash = || StrPart::Lit("-".into());
-            Expr::Call("date".into(), vec![(None, Expr::Str(vec![StrPart::Interp(y), dash(), StrPart::Interp(mo), dash(), StrPart::Interp(d)]))], line)
+            Expr::Call(
+                "date".into(),
+                vec![(
+                    None,
+                    Expr::Str(vec![
+                        StrPart::Interp(y),
+                        dash(),
+                        StrPart::Interp(mo),
+                        dash(),
+                        StrPart::Interp(d),
+                    ]),
+                )],
+                line,
+            )
         }
         // zip(xs, ys), Counter(xs) (each item's count, in first-seen order) and dict(pairs).
         ("zip", 2) => {
@@ -3614,7 +5396,9 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         }
         ("Counter", 1) => match args.remove(0).1 {
             // Counter(s.split()) counts the words without building the list first.
-            Expr::Method(s, w, a, _) if w == "words" && a.is_empty() => m(*s, "tally_words", vec![]),
+            Expr::Method(s, w, a, _) if w == "words" && a.is_empty() => {
+                m(*s, "tally_words", vec![])
+            }
             x => m(x, "tally", vec![]),
         },
         ("dict", 1) => m(args.remove(0).1, "to_dict", vec![]),
@@ -3636,7 +5420,9 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         ("map" | "filter", 2) => {
             // `map(sum, rows)`, `map(abs, xs)`: a built-in used as the function value.
             let f = match args.remove(0).1 {
-                Expr::Ident(b) if matches!(b.as_str(), "sum" | "abs" | "max" | "min" | "sorted") => {
+                Expr::Ident(b)
+                    if matches!(b.as_str(), "sum" | "abs" | "max" | "min" | "sorted") =>
+                {
                     let v = Expr::Ident("v_".into());
                     let body = match b.as_str() {
                         "abs" => Expr::Call(b, vec![(None, v)], line),
@@ -3671,13 +5457,20 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
                 Expr::Tuple(xs) => xs.iter().filter_map(type_name).collect(),
                 x => vec![type_name(x)?],
             };
-            let names: Vec<String> = names.into_iter().map(|n| match n.as_str() {
-                "set" | "List" => "list".to_string(),
-                "Dict" | "OrderedDict" | "defaultdict" => "dict".to_string(),
-                _ => n,
-            }).collect();
+            let names: Vec<String> = names
+                .into_iter()
+                .map(|n| match n.as_str() {
+                    "set" | "List" => "list".to_string(),
+                    "Dict" | "OrderedDict" | "defaultdict" => "dict".to_string(),
+                    _ => n,
+                })
+                .collect();
             args.pop();
-            m(args.remove(0).1, "isinstance", vec![Expr::Str(vec![StrPart::Lit(names.join(","))])])
+            m(
+                args.remove(0).1,
+                "isinstance",
+                vec![Expr::Str(vec![StrPart::Lit(names.join(","))])],
+            )
         }
         // bool(x) is x's truth: not not x.
         // int(s, base): the text read in that base (base 0 reads a 0x, 0o or 0b prefix).
@@ -3688,7 +5481,10 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         ("bool", 1) => Expr::Unary("!", Box::new(Expr::Unary("!", Box::new(args.remove(0).1)))),
         ("divmod", 2) => {
             let (a, b) = (args[0].1.clone(), args[1].1.clone());
-            Expr::Tuple(vec![Expr::Binary("//", Box::new(a.clone()), Box::new(b.clone())), Expr::Binary("%", Box::new(a), Box::new(b))])
+            Expr::Tuple(vec![
+                Expr::Binary("//", Box::new(a.clone()), Box::new(b.clone())),
+                Expr::Binary("%", Box::new(a), Box::new(b)),
+            ])
         }
         ("round", 1) => m(m(args.remove(0).1, "round", vec![]), "int", vec![]),
         ("round", 2) => {
@@ -3705,7 +5501,12 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
 
 // Fills `{}`/`{:spec}`/`{0}` (format) or `%s`/`%5.2f`/`%-8s` (percent) slots in a string's text
 // with the arguments; None when the slots and arguments do not match up.
-fn fill_format(parts: &[StrPart], args: Vec<Expr>, percent: bool, line: usize) -> Option<Vec<StrPart>> {
+fn fill_format(
+    parts: &[StrPart],
+    args: Vec<Expr>,
+    percent: bool,
+    line: usize,
+) -> Option<Vec<StrPart>> {
     let mut out = Vec::new();
     let mut lit = String::new();
     let mut next = 0;
@@ -3777,7 +5578,12 @@ fn fill_format(parts: &[StrPart], args: Vec<Expr>, percent: bool, line: usize) -
                     out.push(StrPart::Interp(if spec.is_empty() {
                         a
                     } else {
-                        Expr::Method(Box::new(a), "spec".into(), vec![Expr::Str(vec![StrPart::Lit(spec)])], line)
+                        Expr::Method(
+                            Box::new(a),
+                            "spec".into(),
+                            vec![Expr::Str(vec![StrPart::Lit(spec)])],
+                            line,
+                        )
                     }));
                 }
                 None => {
@@ -3823,11 +5629,16 @@ fn bind_upper(p: Pat) -> Pat {
 fn drop_last_value(e: &mut Expr, line: usize) {
     match e {
         Expr::Block(stmts, tail) => match tail.as_deref_mut() {
-            Some(Expr::Block(..) | Expr::If(..) | Expr::Match(..)) => drop_last_value(tail.as_mut().unwrap(), line),
+            Some(Expr::Block(..) | Expr::If(..) | Expr::Match(..)) => {
+                drop_last_value(tail.as_mut().unwrap(), line)
+            }
             // A raise never gives a value, and fall_off_none reads a last loop itself.
             Some(Expr::For(..) | Expr::While(..)) | None => {}
             Some(Expr::Call(f, _, _)) if f == "fail" => {}
-            Some(_) => stmts.push(Stmt::Expr { expr: *tail.take().unwrap(), line }),
+            Some(_) => stmts.push(Stmt::Expr {
+                expr: *tail.take().unwrap(),
+                line,
+            }),
         },
         Expr::If(_, a, b) => {
             drop_last_value(a, line);
@@ -3846,18 +5657,25 @@ fn fall_off_none(body: &mut Expr, line: usize) {
     let mut has_value = false;
     walk_mut(body, &mut |e| {
         if let Expr::Block(ss, _) = e {
-            has_value |= ss.iter().any(|s| matches!(s, Stmt::Return { value: Some(_), .. }));
+            has_value |= ss
+                .iter()
+                .any(|s| matches!(s, Stmt::Return { value: Some(_), .. }));
         }
         // A lambda's body is its own function.
         if let Expr::Lambda(..) = e {}
     });
-    let Expr::Block(stmts, tail) = body else { return };
+    let Expr::Block(stmts, tail) = body else {
+        return;
+    };
     if !has_value {
         return;
     }
     // The block's last line is often held as its value (a loop that gives no value).
     if let Some(t) = tail.take() {
-        if matches!(t.as_ref(), Expr::For(..) | Expr::While(..) | Expr::If(_, _, None)) {
+        if matches!(
+            t.as_ref(),
+            Expr::For(..) | Expr::While(..) | Expr::If(_, _, None)
+        ) {
             stmts.push(Stmt::Expr { expr: *t, line });
         } else {
             *tail = Some(t);
@@ -3865,11 +5683,22 @@ fn fall_off_none(body: &mut Expr, line: usize) {
         }
     }
     let falls = match stmts.last() {
-        Some(Stmt::Expr { expr: Expr::For(..), .. }) => true,
-        Some(Stmt::Expr { expr: Expr::While(c, _), .. }) => !matches!(c.as_ref(), Expr::Bool(true)),
-        Some(Stmt::Expr { expr: Expr::If(_, _, None), .. }) => true,
+        Some(Stmt::Expr {
+            expr: Expr::For(..),
+            ..
+        }) => true,
+        Some(Stmt::Expr {
+            expr: Expr::While(c, _),
+            ..
+        }) => !matches!(c.as_ref(), Expr::Bool(true)),
+        Some(Stmt::Expr {
+            expr: Expr::If(_, _, None),
+            ..
+        }) => true,
         // A last line that drop_last_value made a statement.
-        Some(Stmt::Expr { expr, .. }) => !matches!(expr, Expr::If(..) | Expr::Match(..) | Expr::Block(..)),
+        Some(Stmt::Expr { expr, .. }) => {
+            !matches!(expr, Expr::If(..) | Expr::Match(..) | Expr::Block(..))
+        }
         _ => false,
     };
     if falls {
@@ -3885,7 +5714,12 @@ fn unbox_cells(body: &mut Expr, kids: &mut [Item]) {
     let cands: Vec<String> = stmts
         .iter()
         .filter_map(|st| match st {
-            Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::List(xs), .. } if xs.len() == 1 => Some(n.clone()),
+            Stmt::Assign {
+                target: Expr::Ident(n),
+                op: "=",
+                value: Expr::List(xs),
+                ..
+            } if xs.len() == 1 => Some(n.clone()),
             _ => None,
         })
         .collect();
@@ -3894,12 +5728,22 @@ fn unbox_cells(body: &mut Expr, kids: &mut [Item]) {
             let (mut idents, mut cells, mut sets) = (0, 0, 0);
             walk_mut(e, &mut |e| match e {
                 Expr::Ident(n) | Expr::Move(n) if *n == x => idents += 1,
-                Expr::Index(b, k) if matches!(b.as_ref(), Expr::Ident(n) if *n == x) && matches!(k.as_ref(), Expr::Int(0)) => cells += 1,
+                Expr::Index(b, k)
+                    if matches!(b.as_ref(), Expr::Ident(n) if *n == x)
+                        && matches!(k.as_ref(), Expr::Int(0)) =>
+                {
+                    cells += 1
+                }
                 Expr::Block(ss, _) => {
                     for s in ss.iter() {
                         match s {
-                            Stmt::Assign { target: Expr::Ident(n), .. } if *n == x => sets += 1,
-                            Stmt::Let { name: Pat::Bind(n), .. } if *n == x => sets += 2,
+                            Stmt::Assign {
+                                target: Expr::Ident(n),
+                                ..
+                            } if *n == x => sets += 1,
+                            Stmt::Let {
+                                name: Pat::Bind(n), ..
+                            } if *n == x => sets += 2,
                             _ => {}
                         }
                     }
@@ -3911,7 +5755,10 @@ fn unbox_cells(body: &mut Expr, kids: &mut [Item]) {
         let (mut idents, mut cells, mut sets) = count(body);
         let mut in_kids = false;
         for k in kids.iter_mut() {
-            if let Item::Fn { body: kb, params, .. } = k {
+            if let Item::Fn {
+                body: kb, params, ..
+            } = k
+            {
                 let (i, c, st) = count(kb);
                 idents += i;
                 cells += c;
@@ -3927,14 +5774,21 @@ fn unbox_cells(body: &mut Expr, kids: &mut [Item]) {
         }
         let unbox = |e: &mut Expr| {
             walk_mut(e, &mut |e| {
-                if matches!(e, Expr::Index(b, k) if matches!(b.as_ref(), Expr::Ident(n) if *n == x) && matches!(k.as_ref(), Expr::Int(0))) {
+                if matches!(e, Expr::Index(b, k) if matches!(b.as_ref(), Expr::Ident(n) if *n == x) && matches!(k.as_ref(), Expr::Int(0)))
+                {
                     *e = Expr::Ident(x.clone());
                 }
             });
         };
         let Expr::Block(stmts, _) = body else { return };
         for st in stmts.iter_mut() {
-            if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } = st {
+            if let Stmt::Assign {
+                target: Expr::Ident(n),
+                op: "=",
+                value,
+                ..
+            } = st
+            {
                 if *n == x {
                     if let Expr::List(xs) = value {
                         let v = xs.remove(0);
@@ -3945,16 +5799,30 @@ fn unbox_cells(body: &mut Expr, kids: &mut [Item]) {
         }
         unbox(body);
         for k in kids.iter_mut() {
-            let Item::Fn { body: kb, line, .. } = k else { continue };
+            let Item::Fn { body: kb, line, .. } = k else {
+                continue;
+            };
             unbox(kb);
             let mut assigns = false;
             walk_mut(kb, &mut |e| {
                 if let Expr::Block(ss, _) = e {
-                    assigns |= ss.iter().any(|s| matches!(s, Stmt::Assign { target: Expr::Ident(n), .. } if *n == x));
+                    assigns |= ss.iter().any(
+                        |s| matches!(s, Stmt::Assign { target: Expr::Ident(n), .. } if *n == x),
+                    );
                 }
             });
             if let (true, Expr::Block(ss, _)) = (assigns, kb) {
-                ss.insert(0, Stmt::Expr { expr: Expr::Call("__global".into(), vec![(None, Expr::Ident(x.clone()))], *line), line: *line });
+                ss.insert(
+                    0,
+                    Stmt::Expr {
+                        expr: Expr::Call(
+                            "__global".into(),
+                            vec![(None, Expr::Ident(x.clone()))],
+                            *line,
+                        ),
+                        line: *line,
+                    },
+                );
             }
         }
     }
@@ -3974,11 +5842,24 @@ fn pick_names(body: &mut Expr) {
     walk_mut(body, &mut |e| {
         if let Expr::Block(ss, _) = e {
             for st in ss.iter() {
-                if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::If(_, t, Some(f)), .. } = st {
+                if let Stmt::Assign {
+                    target: Expr::Ident(n),
+                    op: "=",
+                    value: Expr::If(_, t, Some(f)),
+                    ..
+                } = st
+                {
                     // Plain names or fields (`w.rooms if kind == 'room' else w.items`).
-                    let place = |x: &Expr| matches!(x, Expr::Ident(_)) || matches!(x, Expr::Field(r, _) if matches!(r.as_ref(), Expr::Ident(_)));
+                    let place = |x: &Expr| {
+                        matches!(x, Expr::Ident(_))
+                            || matches!(x, Expr::Field(r, _) if matches!(r.as_ref(), Expr::Ident(_)))
+                    };
                     let (a, b) = (bare(t), bare(f));
-                    if place(&a) && place(&b) && !matches!(&a, Expr::Ident(x) if x == n) && !matches!(&b, Expr::Ident(x) if x == n) {
+                    if place(&a)
+                        && place(&b)
+                        && !matches!(&a, Expr::Ident(x) if x == n)
+                        && !matches!(&b, Expr::Ident(x) if x == n)
+                    {
                         cands.push((n.clone(), a, b));
                     }
                 }
@@ -3989,12 +5870,19 @@ fn pick_names(body: &mut Expr) {
         let (mut sets, mut idents, mut tests) = (0, 0, 0);
         walk_mut(body, &mut |e| match e {
             Expr::Ident(x) | Expr::Move(x) if *x == n => idents += 1,
-            Expr::Binary("in" | "not in", _, r) if matches!(r.as_ref(), Expr::Ident(x) if *x == n) => tests += 1,
+            Expr::Binary("in" | "not in", _, r) if matches!(r.as_ref(), Expr::Ident(x) if *x == n) => {
+                tests += 1
+            }
             Expr::Block(ss, _) => {
                 for st in ss.iter() {
                     match st {
-                        Stmt::Assign { target: Expr::Ident(x), .. } if *x == n => sets += 1,
-                        Stmt::Let { name: Pat::Bind(x), .. } if *x == n => sets += 2,
+                        Stmt::Assign {
+                            target: Expr::Ident(x),
+                            ..
+                        } if *x == n => sets += 1,
+                        Stmt::Let {
+                            name: Pat::Bind(x), ..
+                        } if *x == n => sets += 2,
                         _ => {}
                     }
                 }
@@ -4009,14 +5897,29 @@ fn pick_names(body: &mut Expr) {
             if let Expr::Binary(op @ ("in" | "not in"), l, r) = e {
                 if matches!(r.as_ref(), Expr::Ident(x) if *x == n) {
                     let op: &'static str = op;
-                    let side = |d: &Expr| Expr::Block(vec![], Some(Box::new(Expr::Binary(op, l.clone(), Box::new(d.clone())))));
-                    *e = Expr::If(Box::new(Expr::Ident(flag.clone())), Box::new(side(&a)), Some(Box::new(side(&b))));
+                    let side = |d: &Expr| {
+                        Expr::Block(
+                            vec![],
+                            Some(Box::new(Expr::Binary(op, l.clone(), Box::new(d.clone())))),
+                        )
+                    };
+                    *e = Expr::If(
+                        Box::new(Expr::Ident(flag.clone())),
+                        Box::new(side(&a)),
+                        Some(Box::new(side(&b))),
+                    );
                     return;
                 }
             }
             if let Expr::Block(ss, _) = e {
                 for st in ss.iter_mut() {
-                    if let Stmt::Assign { target, op: "=", value: Expr::If(c, _, _), .. } = st {
+                    if let Stmt::Assign {
+                        target,
+                        op: "=",
+                        value: Expr::If(c, _, _),
+                        ..
+                    } = st
+                    {
                         if matches!(target, Expr::Ident(x) if *x == n) {
                             *target = Expr::Ident(flag.clone());
                             let c = c.as_ref().clone();
@@ -4035,16 +5938,30 @@ fn pick_names(body: &mut Expr) {
 // (`{'id': qid, 'points': n, 'type': 'choice', 'answer': a}`), when base is set once from plain names and
 // literals, so each shape is a record of its own.
 fn dict_with_base(body: &mut Expr) {
-    let simple = |v: &Expr| matches!(v, Expr::Ident(_) | Expr::Int(_) | Expr::Float(_) | Expr::Bool(_)) || matches!(v, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)] | []));
+    let simple = |v: &Expr| {
+        matches!(
+            v,
+            Expr::Ident(_) | Expr::Int(_) | Expr::Float(_) | Expr::Bool(_)
+        ) || matches!(v, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)] | []))
+    };
     let mut bases: Vec<(String, Vec<(Expr, Expr)>)> = Vec::new();
     let mut sets: HashMap<String, usize> = HashMap::new();
     walk_mut(body, &mut |e| {
         if let Expr::Block(ss, _) = e {
             for st in ss.iter() {
-                if let Stmt::Assign { target: Expr::Ident(n), op, value, .. } = st {
+                if let Stmt::Assign {
+                    target: Expr::Ident(n),
+                    op,
+                    value,
+                    ..
+                } = st
+                {
                     *sets.entry(n.clone()).or_default() += 1;
                     if let (true, Expr::Map(es)) = (*op == "=", value) {
-                        if !es.is_empty() && es.iter().all(|(k, v)| matches!(k, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)])) && simple(v)) {
+                        if !es.is_empty() && es.iter().all(|(k, v)| {
+                            matches!(k, Expr::Str(p) if matches!(p.as_slice(), [StrPart::Lit(_)]))
+                                && simple(v)
+                        }) {
                             bases.push((n.clone(), es.clone()));
                         }
                     }
@@ -4053,17 +5970,30 @@ fn dict_with_base(body: &mut Expr) {
         }
     });
     // The names the entries read must not change after base is set.
-    bases.retain(|(n, es)| sets.get(n) == Some(&1) && es.iter().all(|(_, v)| !matches!(v, Expr::Ident(x) if sets.get(x).copied().unwrap_or(0) > 1)));
+    bases.retain(|(n, es)| {
+        sets.get(n) == Some(&1)
+            && es
+                .iter()
+                .all(|(_, v)| !matches!(v, Expr::Ident(x) if sets.get(x).copied().unwrap_or(0) > 1))
+    });
     if bases.is_empty() {
         return;
     }
     walk_mut(body, &mut |e| {
         if let Expr::Call(f, args, _) = e {
-            if f != "dict" || args.len() < 2 || args[0].0.is_some() || args[1..].iter().any(|(k, _)| k.as_deref().map_or(true, |k| k == "__star")) {
+            if f != "dict"
+                || args.len() < 2
+                || args[0].0.is_some()
+                || args[1..]
+                    .iter()
+                    .any(|(k, _)| k.as_deref().map_or(true, |k| k == "__star"))
+            {
                 return;
             }
             let Expr::Ident(b) = &args[0].1 else { return };
-            let Some((_, es)) = bases.iter().find(|(n, _)| n == b) else { return };
+            let Some((_, es)) = bases.iter().find(|(n, _)| n == b) else {
+                return;
+            };
             let mut out = es.clone();
             for (k, v) in &args[1..] {
                 let key = Expr::Str(vec![StrPart::Lit(k.clone().unwrap())]);
@@ -4082,12 +6012,22 @@ fn lambdas_to_defs(body: &mut Expr, kids: &mut Vec<Item>, line: usize, skip: &[S
 
 // lambdas_to_defs for one block and the loop and if bodies inside it (`for l in lines: ok = lambda q: ...`),
 // counting a name's uses over the whole body.
-fn lambdas_in_block(body: &mut Expr, whole: &Expr, kids: &mut Vec<Item>, line: usize, skip: &[String]) {
-    let Expr::Block(stmts, tail) = body else { return };
+fn lambdas_in_block(
+    body: &mut Expr,
+    whole: &Expr,
+    kids: &mut Vec<Item>,
+    line: usize,
+    skip: &[String],
+) {
+    let Expr::Block(stmts, tail) = body else {
+        return;
+    };
     for st in stmts.iter_mut() {
         if let Stmt::Expr { expr, .. } = st {
             match expr {
-                Expr::For(_, _, b) | Expr::While(_, b) => lambdas_in_block(b, whole, kids, line, skip),
+                Expr::For(_, _, b) | Expr::While(_, b) => {
+                    lambdas_in_block(b, whole, kids, line, skip)
+                }
                 Expr::If(_, t, f) => {
                     lambdas_in_block(t, whole, kids, line, skip);
                     if let Some(f) = f {
@@ -4102,7 +6042,13 @@ fn lambdas_in_block(body: &mut Expr, whole: &Expr, kids: &mut Vec<Item>, line: u
     while i < stmts.len() {
         // `up = (lambda s: s.upper()) if by == 'w' else (lambda s: s)`: the condition is kept in `up_cond`
         // and `up` is one lambda that picks its body by it.
-        if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::If(c, t, Some(f)), line: l } = &stmts[i] {
+        if let Stmt::Assign {
+            target: Expr::Ident(n),
+            op: "=",
+            value: Expr::If(c, t, Some(f)),
+            line: l,
+        } = &stmts[i]
+        {
             let bare = |x: &Expr| match x {
                 Expr::Block(st, Some(v)) if st.is_empty() => v.as_ref().clone(),
                 x => x.clone(),
@@ -4111,15 +6057,35 @@ fn lambdas_in_block(body: &mut Expr, whole: &Expr, kids: &mut Vec<Item>, line: u
                 if pa == pb {
                     let (n, l) = (n.clone(), *l);
                     let flag = format!("{n}_cond");
-                    let cond = Stmt::Assign { target: Expr::Ident(flag.clone()), op: "=", value: c.as_ref().clone(), line: l };
-                    let body = Expr::If(Box::new(Expr::Ident(flag)), Box::new(Expr::Block(vec![], Some(ba))), Some(Box::new(Expr::Block(vec![], Some(bb)))));
-                    stmts[i] = Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Lambda(pa, Box::new(body)), line: l };
+                    let cond = Stmt::Assign {
+                        target: Expr::Ident(flag.clone()),
+                        op: "=",
+                        value: c.as_ref().clone(),
+                        line: l,
+                    };
+                    let body = Expr::If(
+                        Box::new(Expr::Ident(flag)),
+                        Box::new(Expr::Block(vec![], Some(ba))),
+                        Some(Box::new(Expr::Block(vec![], Some(bb)))),
+                    );
+                    stmts[i] = Stmt::Assign {
+                        target: Expr::Ident(n),
+                        op: "=",
+                        value: Expr::Lambda(pa, Box::new(body)),
+                        line: l,
+                    };
                     stmts.insert(i, cond);
                     i += 1;
                 }
             }
         }
-        let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Lambda(ps, lb), line: l } = &stmts[i] else {
+        let Stmt::Assign {
+            target: Expr::Ident(n),
+            op: "=",
+            value: Expr::Lambda(ps, lb),
+            line: l,
+        } = &stmts[i]
+        else {
             i += 1;
             continue;
         };
@@ -4134,8 +6100,13 @@ fn lambdas_in_block(body: &mut Expr, whole: &Expr, kids: &mut Vec<Item>, line: u
             Expr::Block(ss, _) => {
                 for s in ss.iter() {
                     match s {
-                        Stmt::Assign { target: Expr::Ident(x), .. } if *x == n => sets += 1,
-                        Stmt::Let { name: Pat::Bind(x), .. } if *x == n => sets += 2,
+                        Stmt::Assign {
+                            target: Expr::Ident(x),
+                            ..
+                        } if *x == n => sets += 1,
+                        Stmt::Let {
+                            name: Pat::Bind(x), ..
+                        } if *x == n => sets += 2,
                         _ => {}
                     }
                 }
@@ -4143,7 +6114,9 @@ fn lambdas_in_block(body: &mut Expr, whole: &Expr, kids: &mut Vec<Item>, line: u
             _ => {}
         });
         let as_value = idents > sets;
-        let clash = kids.iter().any(|k| matches!(k, Item::Fn { name, .. } if name == &n));
+        let clash = kids
+            .iter()
+            .any(|k| matches!(k, Item::Fn { name, .. } if name == &n));
         if sets != 1 || as_value || clash || skip.contains(&n) || ps.iter().any(|p| p == &n) {
             i += 1;
             continue;
@@ -4152,13 +6125,36 @@ fn lambdas_in_block(body: &mut Expr, whole: &Expr, kids: &mut Vec<Item>, line: u
         let lb = lb.as_ref().clone();
         // A lambda whose body changes something (`out.append(x)`, `print(x)`) gives None.
         let none = match &lb {
-            Expr::Method(_, m, _, _) => ["push", "append", "extend", "insert", "remove", "add", "clear", "sort", "update", "discard", "reverse"].contains(&m.as_str()),
+            Expr::Method(_, m, _, _) => [
+                "push", "append", "extend", "insert", "remove", "add", "clear", "sort", "update",
+                "discard", "reverse",
+            ]
+            .contains(&m.as_str()),
             Expr::Call(f, _, _) => f == "print",
             _ => false,
         };
-        let fb = if none { Expr::Block(vec![Stmt::Expr { expr: lb, line: l }], None) } else { Expr::Block(vec![], Some(Box::new(lb))) };
-        let params = ps.iter().map(|p| Param { name: p.clone(), ty: Ty::Named("?".into()), is_mut: false }).collect();
-        kids.push(Item::Fn { name: n, params, ret: Ty::Named("?".into()), fallible: false, body: fb, line: l.max(line), script: false });
+        let fb = if none {
+            Expr::Block(vec![Stmt::Expr { expr: lb, line: l }], None)
+        } else {
+            Expr::Block(vec![], Some(Box::new(lb)))
+        };
+        let params = ps
+            .iter()
+            .map(|p| Param {
+                name: p.clone(),
+                ty: Ty::Named("?".into()),
+                is_mut: false,
+            })
+            .collect();
+        kids.push(Item::Fn {
+            name: n,
+            params,
+            ret: Ty::Named("?".into()),
+            fallible: false,
+            body: fb,
+            line: l.max(line),
+            script: false,
+        });
         stmts.remove(i);
     }
 }
@@ -4181,14 +6177,23 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
             pat_names(p, &mut outer_locals);
         }
     });
-    let names: Vec<String> = kids.iter().filter_map(|k| match k { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
+    let names: Vec<String> = kids
+        .iter()
+        .filter_map(|k| match k {
+            Item::Fn { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     // What each child reads from the outer function, and which of those it sets (`nonlocal`).
     let mut caps: Vec<Vec<String>> = Vec::new();
     let mut nonlocals: Vec<Vec<String>> = Vec::new();
     let mut owns: Vec<Vec<String>> = Vec::new();
     let mut sib_calls: Vec<Vec<usize>> = Vec::new();
     for k in &kids {
-        let Item::Fn { params, body: kb, .. } = k else {
+        let Item::Fn {
+            params, body: kb, ..
+        } = k
+        else {
             caps.push(vec![]);
             nonlocals.push(vec![]);
             owns.push(vec![]);
@@ -4264,7 +6269,10 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
                         caps[i].push(c.clone());
                         grew = true;
                     }
-                    if nonlocals[j].contains(&c) && !nonlocals[i].contains(&c) && !owns[i].contains(&c) {
+                    if nonlocals[j].contains(&c)
+                        && !nonlocals[i].contains(&c)
+                        && !owns[i].contains(&c)
+                    {
                         nonlocals[i].push(c);
                         grew = true;
                     }
@@ -4277,42 +6285,59 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
     }
     let mangled = |n: &str| format!("{outer}_{n}");
     let rename = |e: &mut Expr| {
-        walk_mut(e, &mut |x| {
-            match x {
-                Expr::Call(f, args, line) => {
-                    if let Some(i) = names.iter().position(|n| n == f) {
-                        *f = mangled(&names[i]);
-                        for c in &caps[i] {
-                            args.push((None, Expr::Ident(c.clone())));
-                        }
-                        let _ = line;
+        walk_mut(e, &mut |x| match x {
+            Expr::Call(f, args, line) => {
+                if let Some(i) = names.iter().position(|n| n == f) {
+                    *f = mangled(&names[i]);
+                    for c in &caps[i] {
+                        args.push((None, Expr::Ident(c.clone())));
                     }
+                    let _ = line;
                 }
-                Expr::Ident(n) => {
-                    if let Some(i) = names.iter().position(|m| m == n) {
-                        if caps[i].is_empty() {
-                            *n = mangled(&names[i]);
-                        }
-                    }
-                }
-                _ => {}
             }
+            Expr::Ident(n) => {
+                if let Some(i) = names.iter().position(|m| m == n) {
+                    if caps[i].is_empty() {
+                        *n = mangled(&names[i]);
+                    }
+                }
+            }
+            _ => {}
         });
     };
     rename(body);
     let mut out = Vec::new();
     for ((k, cap), shared) in kids.into_iter().zip(caps.iter()).zip(nonlocals.iter()) {
-        if let Item::Fn { name, mut params, ret, fallible, mut body, line, script } = k {
+        if let Item::Fn {
+            name,
+            mut params,
+            ret,
+            fallible,
+            mut body,
+            line,
+            script,
+        } = k
+        {
             for c in cap {
-                params.push(Param { name: c.clone(), ty: Ty::Named("?".into()), is_mut: shared.contains(c) });
+                params.push(Param {
+                    name: c.clone(),
+                    ty: Ty::Named("?".into()),
+                    is_mut: shared.contains(c),
+                });
             }
             // The nonlocal names are parameters now, not top-level names.
             walk_mut(&mut body, &mut |e| {
                 if let Expr::Block(st, _) = e {
                     for s in st.iter_mut() {
-                        if let Stmt::Expr { expr: Expr::Call(f, args, _), .. } = s {
+                        if let Stmt::Expr {
+                            expr: Expr::Call(f, args, _),
+                            ..
+                        } = s
+                        {
                             if f == "__global" {
-                                args.retain(|(_, a)| !matches!(a, Expr::Ident(n) if shared.contains(n)));
+                                args.retain(
+                                    |(_, a)| !matches!(a, Expr::Ident(n) if shared.contains(n)),
+                                );
                             }
                         }
                     }
@@ -4320,7 +6345,15 @@ fn lift_nested(outer: &str, outer_params: &[Param], body: &mut Expr, kids: Vec<I
                 }
             });
             rename(&mut body);
-            out.push(Item::Fn { name: mangled(&name), params, ret, fallible, body, line, script });
+            out.push(Item::Fn {
+                name: mangled(&name),
+                params,
+                ret,
+                fallible,
+                body,
+                line,
+                script,
+            });
         } else {
             out.push(k);
         }
@@ -4368,15 +6401,31 @@ fn generator_body(body: Expr, line: usize) -> Expr {
     walk_mut(&mut b, &mut |x| {
         if let Expr::Block(st, _) = x {
             for s in st.iter_mut() {
-                if let Stmt::Return { value: v @ None, .. } = s {
+                if let Stmt::Return {
+                    value: v @ None, ..
+                } = s
+                {
                     *v = Some(acc());
                 }
             }
         }
     });
-    let Expr::Block(mut stmts, _) = b else { unreachable!() };
-    stmts.insert(0, Stmt::Assign { target: acc(), op: "=", value: Expr::List(vec![]), line });
-    stmts.push(Stmt::Return { value: Some(acc()), line });
+    let Expr::Block(mut stmts, _) = b else {
+        unreachable!()
+    };
+    stmts.insert(
+        0,
+        Stmt::Assign {
+            target: acc(),
+            op: "=",
+            value: Expr::List(vec![]),
+            line,
+        },
+    );
+    stmts.push(Stmt::Return {
+        value: Some(acc()),
+        line,
+    });
     Expr::Block(stmts, None)
 }
 
@@ -4389,12 +6438,27 @@ fn tuples_as_lists(items: &mut [Item], script: &mut [Stmt]) {
             Expr::Int(_) | Expr::Unary("-", _) => Some("int".into()),
             Expr::Float(_) => Some("float".into()),
             Expr::Str(p) if p.iter().all(|x| matches!(x, StrPart::Lit(_))) => Some("str".into()),
-            Expr::Tuple(xs) => Some(format!("({})", xs.iter().map(|x| kind(x).unwrap_or("?".into())).collect::<Vec<_>>().join(","))),
+            Expr::Tuple(xs) => Some(format!(
+                "({})",
+                xs.iter()
+                    .map(|x| kind(x).unwrap_or("?".into()))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )),
             _ => None,
         }
     }
-    let like = |xs: &[Expr]| xs.len() >= 2 && kind(&xs[0]).is_some_and(|k| !k.contains('?') && xs.iter().all(|x| kind(x).as_ref() == Some(&k)));
-    let caps = |n: &str| n.chars().any(|c| c.is_ascii_uppercase()) && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    let like = |xs: &[Expr]| {
+        xs.len() >= 2
+            && kind(&xs[0]).is_some_and(|k| {
+                !k.contains('?') && xs.iter().all(|x| kind(x).as_ref() == Some(&k))
+            })
+    };
+    let caps = |n: &str| {
+        n.chars().any(|c| c.is_ascii_uppercase())
+            && n.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    };
     let fix = |e: &mut Expr| {
         walk_mut(e, &mut |x| {
             if let Expr::For(_, it, _) = x {
@@ -4404,7 +6468,18 @@ fn tuples_as_lists(items: &mut [Item], script: &mut [Stmt]) {
             }
             if let Expr::Block(st, _) = x {
                 for s in st.iter_mut() {
-                    if let Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(n), value, .. } = s {
+                    if let Stmt::Assign {
+                        target: Expr::Ident(n),
+                        op: "=",
+                        value,
+                        ..
+                    }
+                    | Stmt::Let {
+                        name: Pat::Bind(n),
+                        value,
+                        ..
+                    } = s
+                    {
                         if caps(n) {
                             if let Expr::Tuple(xs) = value {
                                 if like(xs) {
@@ -4438,9 +6513,17 @@ fn tuples_as_lists(items: &mut [Item], script: &mut [Stmt]) {
 fn fix_opens(stmts: &mut [Stmt]) {
     for i in 0..stmts.len() {
         let (name, kind, path, line) = match &stmts[i] {
-            Stmt::Let { name: Pat::Bind(n), value: Expr::Call(k, a, l), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Call(k, a, l), .. }
-                if k.starts_with("__open_") && a.len() == 1 =>
-            {
+            Stmt::Let {
+                name: Pat::Bind(n),
+                value: Expr::Call(k, a, l),
+                ..
+            }
+            | Stmt::Assign {
+                target: Expr::Ident(n),
+                op: "=",
+                value: Expr::Call(k, a, l),
+                ..
+            } if k.starts_with("__open_") && a.len() == 1 => {
                 (n.clone(), k.clone(), a[0].1.clone(), *l)
             }
             _ => continue,
@@ -4448,9 +6531,15 @@ fn fix_opens(stmts: &mut [Stmt]) {
         let id = || Expr::Ident(name.clone());
         let is_f = |e: &Expr| matches!(e, Expr::Ident(n) if *n == name);
         let read = kind == "__open_r";
-        let value = if read { Expr::Call("read".into(), vec![(None, path.clone())], line) } else { Expr::List(vec![]) };
+        let value = if read {
+            Expr::Call("read".into(), vec![(None, path.clone())], line)
+        } else {
+            Expr::List(vec![])
+        };
         match &mut stmts[i] {
-            Stmt::Let { value: v, mutable, .. } => {
+            Stmt::Let {
+                value: v, mutable, ..
+            } => {
                 *v = value;
                 *mutable = true;
             }
@@ -4465,15 +6554,29 @@ fn fix_opens(stmts: &mut [Stmt]) {
         } else {
             joined
         };
-        let save = Expr::Call("write".into(), vec![(None, path.clone()), (None, text)], line);
+        let save = Expr::Call(
+            "write".into(),
+            vec![(None, path.clone()), (None, text)],
+            line,
+        );
         let mut fix = |e: &mut Expr| {
             let new = match e {
                 Expr::Method(r, m, a, l) if is_f(r) => match (m.as_str(), a.len(), read) {
                     ("read", 0, true) => Some(id()),
-                    ("readlines", 0, true) => Some(Expr::Method(Box::new(id()), "lines_keep".into(), vec![], *l)),
+                    ("readlines", 0, true) => Some(Expr::Method(
+                        Box::new(id()),
+                        "lines_keep".into(),
+                        vec![],
+                        *l,
+                    )),
                     ("close", 0, true) => Some(Expr::Block(vec![], None)),
                     ("close", 0, false) => Some(save.clone()),
-                    ("write", 1, false) => Some(Expr::Method(Box::new(id()), "push".into(), vec![a[0].clone()], *l)),
+                    ("write", 1, false) => Some(Expr::Method(
+                        Box::new(id()),
+                        "push".into(),
+                        vec![a[0].clone()],
+                        *l,
+                    )),
                     ("flush", 0, _) => Some(Expr::Block(vec![], None)),
                     _ => None,
                 },
@@ -4481,12 +6584,35 @@ fn fix_opens(stmts: &mut [Stmt]) {
                     **it = Expr::Method(Box::new(id()), "lines_keep".into(), vec![], line);
                     None
                 }
-                Expr::Call(p, a, l) if p == "print" && !read && a.iter().any(|(n, v)| n.as_deref() == Some("file") && is_f(v)) => {
-                    let end = a.iter().find(|(n, _)| n.as_deref() == Some("end")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit("\n".into())]));
-                    let sep = a.iter().find(|(n, _)| n.as_deref() == Some("sep")).map(|(_, v)| v.clone()).unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
-                    let items: Vec<Expr> = a.iter().filter(|(n, _)| n.is_none()).map(|(_, v)| Expr::Call("str".into(), vec![(None, v.clone())], *l)).collect();
-                    let body = Expr::Method(Box::new(Expr::List(items)), "join".into(), vec![sep], *l);
-                    Some(Expr::Method(Box::new(id()), "push".into(), vec![Expr::Binary("+", Box::new(body), Box::new(end))], *l))
+                Expr::Call(p, a, l)
+                    if p == "print"
+                        && !read
+                        && a.iter()
+                            .any(|(n, v)| n.as_deref() == Some("file") && is_f(v)) =>
+                {
+                    let end = a
+                        .iter()
+                        .find(|(n, _)| n.as_deref() == Some("end"))
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or(Expr::Str(vec![StrPart::Lit("\n".into())]));
+                    let sep = a
+                        .iter()
+                        .find(|(n, _)| n.as_deref() == Some("sep"))
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or(Expr::Str(vec![StrPart::Lit(" ".into())]));
+                    let items: Vec<Expr> = a
+                        .iter()
+                        .filter(|(n, _)| n.is_none())
+                        .map(|(_, v)| Expr::Call("str".into(), vec![(None, v.clone())], *l))
+                        .collect();
+                    let body =
+                        Expr::Method(Box::new(Expr::List(items)), "join".into(), vec![sep], *l);
+                    Some(Expr::Method(
+                        Box::new(id()),
+                        "push".into(),
+                        vec![Expr::Binary("+", Box::new(body), Box::new(end))],
+                        *l,
+                    ))
                 }
                 _ => None,
             };
@@ -4501,7 +6627,8 @@ fn fix_opens(stmts: &mut [Stmt]) {
                 *st = v.remove(0);
             }
             // Stop at the next `f = ...`: f is something else from there on.
-            if matches!(st, Stmt::Let { name: Pat::Bind(n), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", .. } if *n == name) {
+            if matches!(st, Stmt::Let { name: Pat::Bind(n), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", .. } if *n == name)
+            {
                 break;
             }
         }
@@ -4523,8 +6650,16 @@ pub(crate) fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
                 }
             }
         }
-        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Lambda(_, a) | Expr::Try(a) => walk_mut(a, f),
-        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) | Expr::For(_, a, b) => {
+        Expr::Unary(_, a)
+        | Expr::Field(a, _)
+        | Expr::TupleField(a, _)
+        | Expr::Lambda(_, a)
+        | Expr::Try(a) => walk_mut(a, f),
+        Expr::Binary(_, a, b)
+        | Expr::Index(a, b)
+        | Expr::Range(a, b)
+        | Expr::While(a, b)
+        | Expr::For(_, a, b) => {
             walk_mut(a, f);
             walk_mut(b, f);
         }
@@ -4552,7 +6687,11 @@ pub(crate) fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
                         walk_mut(target, f);
                         walk_mut(value, f);
                     }
-                    Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => walk_mut(expr, f),
+                    Stmt::Expr { expr, .. }
+                    | Stmt::Return {
+                        value: Some(expr), ..
+                    }
+                    | Stmt::Assert { cond: expr, .. } => walk_mut(expr, f),
                     _ => {}
                 }
             }
@@ -4567,24 +6706,59 @@ pub(crate) fn walk_mut(e: &mut Expr, f: &mut dyn FnMut(&mut Expr)) {
 // Calls on objects of the program's classes: `C(a)` is `C_new(a)` and `obj.m(x)` is `C_m(obj, x)`. A method name
 // that a built-in method also has is only taken for `self.m(x)` inside the class, or when it is no built-in.
 fn lower_methods(items: &mut [Item], script: &mut [Stmt], classes: &[(Item, Vec<String>)]) {
-    let fn_names: Vec<String> = items.iter().filter_map(|i| match i { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
-    let class_names: Vec<String> = classes.iter().filter_map(|(c, _)| match c { Item::Type { name, .. } => Some(name.clone()), _ => None }).collect();
+    let fn_names: Vec<String> = items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Fn { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let class_names: Vec<String> = classes
+        .iter()
+        .filter_map(|(c, _)| match c {
+            Item::Type { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     // Classes whose fields all come from methods: `C()` starts from the zero value of each.
     let plain: Vec<String> = classes
         .iter()
         .filter_map(|(c, _)| match c {
-            Item::Type { name, fields, .. } if fields.iter().all(|f| matches!(&f.ty, Ty::Named(n) if n == "?")) => Some(name.clone()),
+            Item::Type { name, fields, .. }
+                if fields
+                    .iter()
+                    .all(|f| matches!(&f.ty, Ty::Named(n) if n == "?")) =>
+            {
+                Some(name.clone())
+            }
             _ => None,
         })
         .collect();
-    let owners = |m: &str| -> Vec<String> { class_names.iter().filter(|c| fn_names.contains(&format!("{c}_{m}"))).cloned().collect() };
+    let owners = |m: &str| -> Vec<String> {
+        class_names
+            .iter()
+            .filter(|c| fn_names.contains(&format!("{c}_{m}")))
+            .cloned()
+            .collect()
+    };
     let lower = |e: &mut Expr, me: Option<&str>| {
         // Names set from a constructor (`ps = Parser(toks)`) are known to hold that class.
         let mut held: Vec<(String, String)> = Vec::new();
         walk_mut(e, &mut |x| {
             if let Expr::Block(stmts, _) = x {
                 for st in stmts.iter() {
-                    if let Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Call(c, _, _), .. } | Stmt::Let { name: Pat::Bind(n), value: Expr::Call(c, _, _), .. } = st {
+                    if let Stmt::Assign {
+                        target: Expr::Ident(n),
+                        op: "=",
+                        value: Expr::Call(c, _, _),
+                        ..
+                    }
+                    | Stmt::Let {
+                        name: Pat::Bind(n),
+                        value: Expr::Call(c, _, _),
+                        ..
+                    } = st
+                    {
                         if class_names.contains(c) {
                             held.push((n.clone(), c.clone()));
                         }
@@ -4593,18 +6767,39 @@ fn lower_methods(items: &mut [Item], script: &mut [Stmt], classes: &[(Item, Vec<
             }
         });
         walk_mut(e, &mut |x| match x {
-            Expr::Call(f, _, _) if class_names.contains(f) && fn_names.contains(&format!("{f}_new")) => *f = format!("{f}_new"),
-            Expr::Call(f, args, _) if class_names.contains(f) && args.is_empty() && plain.contains(f) => *f = "__default".into(),
+            Expr::Call(f, _, _)
+                if class_names.contains(f) && fn_names.contains(&format!("{f}_new")) =>
+            {
+                *f = format!("{f}_new")
+            }
+            Expr::Call(f, args, _)
+                if class_names.contains(f) && args.is_empty() && plain.contains(f) =>
+            {
+                *f = "__default".into()
+            }
             Expr::Method(r, m, args, line) => {
                 let os = owners(m);
                 let pick = match (me, r.as_ref()) {
-                    (Some(c), Expr::Ident(n)) if n == "self_" && os.iter().any(|o| o == c) => Some(c.to_string()),
-                    (_, Expr::Ident(n)) if held.iter().any(|(h, c)| h == n && os.contains(c)) => held.iter().find(|(h, _)| h == n).map(|(_, c)| c.clone()),
-                    // `Bird("x").describe()`: the receiver is a fresh object.
-                    (_, Expr::Call(f, _, _)) if os.iter().any(|o| f == o || *f == format!("{o}_new")) => {
-                        os.iter().find(|o| f == *o || *f == format!("{o}_new")).cloned()
+                    (Some(c), Expr::Ident(n)) if n == "self_" && os.iter().any(|o| o == c) => {
+                        Some(c.to_string())
                     }
-                    _ if os.len() == 1 && !crate::emit::METHODS.contains(&m.as_str()) && !PY_METHODS.contains(&m.as_str()) => Some(os[0].clone()),
+                    (_, Expr::Ident(n)) if held.iter().any(|(h, c)| h == n && os.contains(c)) => {
+                        held.iter().find(|(h, _)| h == n).map(|(_, c)| c.clone())
+                    }
+                    // `Bird("x").describe()`: the receiver is a fresh object.
+                    (_, Expr::Call(f, _, _))
+                        if os.iter().any(|o| f == o || *f == format!("{o}_new")) =>
+                    {
+                        os.iter()
+                            .find(|o| f == *o || *f == format!("{o}_new"))
+                            .cloned()
+                    }
+                    _ if os.len() == 1
+                        && !crate::emit::METHODS.contains(&m.as_str())
+                        && !PY_METHODS.contains(&m.as_str()) =>
+                    {
+                        Some(os[0].clone())
+                    }
                     _ => None,
                 };
                 if let Some(c) = pick {
@@ -4618,7 +6813,10 @@ fn lower_methods(items: &mut [Item], script: &mut [Stmt], classes: &[(Item, Vec<
     };
     for it in items.iter_mut() {
         if let Item::Fn { name, body, .. } = it {
-            let me = class_names.iter().find(|c| name.starts_with(&format!("{c}_"))).cloned();
+            let me = class_names
+                .iter()
+                .find(|c| name.starts_with(&format!("{c}_")))
+                .cloned();
             lower(body, me.as_deref());
         }
     }
@@ -4634,10 +6832,20 @@ fn lower_methods(items: &mut [Item], script: &mut [Stmt], classes: &[(Item, Vec<
 // `class B(A):` gets A's fields and the methods it does not define itself, copied with `self` as a B.
 // `super().__init__(x)` in B's __init__ runs A's __init__ body there.
 fn inherit(items: &mut Vec<Item>, classes: &mut [(Item, Vec<String>)]) {
-    let names: Vec<String> = classes.iter().filter_map(|(c, _)| match c { Item::Type { name, .. } => Some(name.clone()), _ => None }).collect();
+    let names: Vec<String> = classes
+        .iter()
+        .filter_map(|(c, _)| match c {
+            Item::Type { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     for ci in 0..classes.len() {
-        let Some(base) = classes[ci].1.iter().find(|b| names.contains(b)).cloned() else { continue };
-        let Item::Type { name: me, .. } = &classes[ci].0 else { continue };
+        let Some(base) = classes[ci].1.iter().find(|b| names.contains(b)).cloned() else {
+            continue;
+        };
+        let Item::Type { name: me, .. } = &classes[ci].0 else {
+            continue;
+        };
         let me = me.clone();
         let base_fields = classes.iter().find_map(|(c, _)| match c {
             Item::Type { name, fields, .. } if *name == base => Some(fields.clone()),
@@ -4651,15 +6859,36 @@ fn inherit(items: &mut Vec<Item>, classes: &mut [(Item, Vec<String>)]) {
             }
         }
         let prefix = format!("{base}_");
-        let have: Vec<String> = items.iter().filter_map(|i| match i { Item::Fn { name, .. } => Some(name.clone()), _ => None }).collect();
+        let have: Vec<String> = items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Fn { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
         let base_new = items.iter().find_map(|i| match i {
-            Item::Fn { name, params, body, .. } if *name == format!("{base}_new") => Some((params.clone(), body.clone())),
+            Item::Fn {
+                name, params, body, ..
+            } if *name == format!("{base}_new") => Some((params.clone(), body.clone())),
             _ => None,
         });
         let mut copies = Vec::new();
         for it in items.iter() {
-            let Item::Fn { name, params, ret, fallible, body, line, script } = it else { continue };
-            let Some(m) = name.strip_prefix(&prefix) else { continue };
+            let Item::Fn {
+                name,
+                params,
+                ret,
+                fallible,
+                body,
+                line,
+                script,
+            } = it
+            else {
+                continue;
+            };
+            let Some(m) = name.strip_prefix(&prefix) else {
+                continue;
+            };
             let new_name = format!("{me}_{m}");
             if have.contains(&new_name) {
                 continue;
@@ -4677,22 +6906,48 @@ fn inherit(items: &mut Vec<Item>, classes: &mut [(Item, Vec<String>)]) {
                     p.ty = Ty::Named(me.clone());
                 }
             }
-            copies.push(Item::Fn { name: new_name, params, ret: ret.clone(), fallible: *fallible, body, line: *line, script: *script });
+            copies.push(Item::Fn {
+                name: new_name,
+                params,
+                ret: ret.clone(),
+                fallible: *fallible,
+                body,
+                line: *line,
+                script: *script,
+            });
         }
         items.extend(copies);
         // super().__init__(args) inside our own __init__.
         if let Some((bps, Expr::Block(bst, _))) = base_new {
             for it in items.iter_mut() {
-                let Item::Fn { name, body: Expr::Block(st, _), .. } = it else { continue };
+                let Item::Fn {
+                    name,
+                    body: Expr::Block(st, _),
+                    ..
+                } = it
+                else {
+                    continue;
+                };
                 if *name != format!("{me}_new") {
                     continue;
                 }
                 let mut out = Vec::new();
                 for s in st.drain(..) {
                     match &s {
-                        Stmt::Expr { expr: Expr::Method(r, m, args, _), line } if m == "__init__" && matches!(r.as_ref(), Expr::Call(f, _, _) if f == "super_") => {
+                        Stmt::Expr {
+                            expr: Expr::Method(r, m, args, _),
+                            line,
+                        } if m == "__init__"
+                            && matches!(r.as_ref(), Expr::Call(f, _, _) if f == "super_") =>
+                        {
                             for (p, a) in bps.iter().zip(args.iter()) {
-                                out.push(Stmt::Let { name: Pat::Bind(p.name.clone()), ty: None, value: a.clone(), mutable: true, line: *line });
+                                out.push(Stmt::Let {
+                                    name: Pat::Bind(p.name.clone()),
+                                    ty: None,
+                                    value: a.clone(),
+                                    mutable: true,
+                                    line: *line,
+                                });
                             }
                             out.extend(bst.iter().skip(1).cloned());
                         }
@@ -4711,7 +6966,9 @@ fn fill_args(items: &mut [Item], script: &mut [Stmt], sigs: &HashMap<String, Sig
     let fix = |e: &mut Expr| {
         walk_mut(e, &mut |x| {
             let Expr::Call(f, args, _) = x else { return };
-            let Some((names, defaults, star)) = sigs.get(f.as_str()) else { return };
+            let Some((names, defaults, star)) = sigs.get(f.as_str()) else {
+                return;
+            };
             let n = names.len();
             let mut slots: Vec<Option<Expr>> = vec![None; n];
             let mut rest = Vec::new();
@@ -4763,9 +7020,48 @@ fn fill_args(items: &mut [Item], script: &mut [Stmt], sigs: &HashMap<String, Sig
 
 // Python's own method names: on a value not known to be one of the program's classes, they stay built-in.
 const PY_METHODS: &[&str] = &[
-    "add", "extend", "append", "pop", "get", "update", "remove", "discard", "clear", "copy", "index", "count", "keys", "values",
-    "items", "split", "strip", "replace", "find", "insert", "setdefault", "popleft", "appendleft", "most_common", "match", "search",
-    "sub", "group", "groups", "findall", "finditer", "start", "end", "span", "fullmatch", "lower", "upper", "startswith", "endswith", "format", "read", "write",
+    "add",
+    "extend",
+    "append",
+    "pop",
+    "get",
+    "update",
+    "remove",
+    "discard",
+    "clear",
+    "copy",
+    "index",
+    "count",
+    "keys",
+    "values",
+    "items",
+    "split",
+    "strip",
+    "replace",
+    "find",
+    "insert",
+    "setdefault",
+    "popleft",
+    "appendleft",
+    "most_common",
+    "match",
+    "search",
+    "sub",
+    "group",
+    "groups",
+    "findall",
+    "finditer",
+    "start",
+    "end",
+    "span",
+    "fullmatch",
+    "lower",
+    "upper",
+    "startswith",
+    "endswith",
+    "format",
+    "read",
+    "write",
 ];
 
 // An expression that is plainly a bool already (a comparison, `not`, `and`/`or`, a test method).
@@ -4773,8 +7069,28 @@ fn is_bool_expr(e: &Expr) -> bool {
     match e {
         Expr::Bool(_) => true,
         Expr::Unary("!", _) => true,
-        Expr::Binary(op, _, _) => matches!(*op, "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" | "in" | "not in"),
-        Expr::Method(_, m, _, _) => matches!(m.as_str(), "is_none" | "is_empty" | "contains" | "has" | "starts_with" | "ends_with" | "is_digit" | "is_alpha" | "is_space" | "is_upper" | "is_lower" | "is_alnum" | "any" | "all" | "isinstance"),
+        Expr::Binary(op, _, _) => matches!(
+            *op,
+            "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" | "in" | "not in"
+        ),
+        Expr::Method(_, m, _, _) => matches!(
+            m.as_str(),
+            "is_none"
+                | "is_empty"
+                | "contains"
+                | "has"
+                | "starts_with"
+                | "ends_with"
+                | "is_digit"
+                | "is_alpha"
+                | "is_space"
+                | "is_upper"
+                | "is_lower"
+                | "is_alnum"
+                | "any"
+                | "all"
+                | "isinstance"
+        ),
         _ => false,
     }
 }
@@ -4783,18 +7099,36 @@ fn is_bool_expr(e: &Expr) -> bool {
 fn print_aliases(toks: &mut [crate::lexer::Token]) {
     let mut names = vec![];
     for i in 0..toks.len().saturating_sub(3) {
-        if let (Tok::Ident(x), Tok::Sym("="), Tok::Ident(p), Tok::Newline) = (&toks[i].tok, &toks[i + 1].tok, &toks[i + 2].tok, &toks[i + 3].tok) {
-            if p == "print" && (i == 0 || matches!(toks[i - 1].tok, Tok::Newline | Tok::Sym("{") | Tok::Sym("}") | Tok::Sym(";"))) {
+        if let (Tok::Ident(x), Tok::Sym("="), Tok::Ident(p), Tok::Newline) = (
+            &toks[i].tok,
+            &toks[i + 1].tok,
+            &toks[i + 2].tok,
+            &toks[i + 3].tok,
+        ) {
+            if p == "print"
+                && (i == 0
+                    || matches!(
+                        toks[i - 1].tok,
+                        Tok::Newline | Tok::Sym("{") | Tok::Sym("}") | Tok::Sym(";")
+                    ))
+            {
                 names.push((x.clone(), i));
             }
         }
     }
     // Only a name set nowhere else.
-    names.retain(|(x, at)| !toks.windows(2).enumerate().any(|(j, w)| j != *at && matches!((&w[0].tok, &w[1].tok), (Tok::Ident(y), Tok::Sym("=")) if y == x)));
+    names.retain(|(x, at)| {
+        !toks.windows(2).enumerate().any(|(j, w)| {
+            j != *at && matches!((&w[0].tok, &w[1].tok), (Tok::Ident(y), Tok::Sym("=")) if y == x)
+        })
+    });
     for (x, at) in names {
         toks[at + 2].tok = Tok::Int(0);
         for j in 0..toks.len() - 1 {
-            if j != at && matches!(&toks[j].tok, Tok::Ident(y) if *y == x) && matches!(toks[j + 1].tok, Tok::Sym("(")) {
+            if j != at
+                && matches!(&toks[j].tok, Tok::Ident(y) if *y == x)
+                && matches!(toks[j + 1].tok, Tok::Sym("("))
+            {
                 toks[j].tok = Tok::Ident("print".into());
             }
         }
@@ -4803,7 +7137,9 @@ fn print_aliases(toks: &mut [crate::lexer::Token]) {
 
 // `type(v)` on one side and a type name on the other.
 fn type_test(a: &Expr, b: &Expr) -> Option<(Expr, String)> {
-    let Expr::Call(f, args, _) = a else { return None };
+    let Expr::Call(f, args, _) = a else {
+        return None;
+    };
     if f != "ax_type_of" || args.len() != 1 {
         return None;
     }
@@ -4835,7 +7171,9 @@ fn py_dumps(mut raw: Vec<(Option<String>, Expr)>, line: usize) -> Expr {
     for (k, v) in raw {
         match k.as_deref() {
             Some("indent") => {
-                if !matches!(&v, Expr::Ident(n) if n == "None") && !matches!(&v, Expr::Call(n, a, _) if n == "none" && a.is_empty()) {
+                if !matches!(&v, Expr::Ident(n) if n == "None")
+                    && !matches!(&v, Expr::Call(n, a, _) if n == "none" && a.is_empty())
+                {
                     indent = v;
                 }
             }
@@ -4854,7 +7192,12 @@ fn py_dumps(mut raw: Vec<(Option<String>, Expr)>, line: usize) -> Expr {
     }
     let has_indent = !matches!(&indent, Expr::Unary("-", _));
     let (item, key) = seps.unwrap_or_else(|| (lit(if has_indent { "," } else { ", " }), lit(": ")));
-    Expr::Method(Box::new(x), "py_dumps".into(), vec![item, key, indent, sort, ascii], line)
+    Expr::Method(
+        Box::new(x),
+        "py_dumps".into(),
+        vec![item, key, indent, sort, ascii],
+        line,
+    )
 }
 
 // Python's `operator.lt`, `operator.add` and the like as a lambda of two arguments.
@@ -4874,9 +7217,19 @@ fn operator_fn(name: &str, line: usize) -> Option<Expr> {
         "truediv" => "/",
         _ => return None,
     };
-    let (a, b) = (Box::new(Expr::Ident("ax_oa".into())), Box::new(Expr::Ident("ax_ob".into())));
-    let body = if op == "/" { Expr::Call("__truediv".into(), vec![(None, *a), (None, *b)], line) } else { Expr::Binary(op, a, b) };
-    Some(Expr::Lambda(vec!["ax_oa".into(), "ax_ob".into()], Box::new(body)))
+    let (a, b) = (
+        Box::new(Expr::Ident("ax_oa".into())),
+        Box::new(Expr::Ident("ax_ob".into())),
+    );
+    let body = if op == "/" {
+        Expr::Call("__truediv".into(), vec![(None, *a), (None, *b)], line)
+    } else {
+        Expr::Binary(op, a, b)
+    };
+    Some(Expr::Lambda(
+        vec!["ax_oa".into(), "ax_ob".into()],
+        Box::new(body),
+    ))
 }
 
 // Python's `CMP = {'<': operator.lt, '>': lambda a, b: a > b}` set once at the top level and only called
@@ -4886,7 +7239,17 @@ fn inline_fn_maps(items: &mut [Item], script: &mut Vec<Stmt>) {
     let mut i = 0;
     while i < script.len() {
         let (name, ps) = match &script[i] {
-            Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Map(ps), .. } | Stmt::Let { name: Pat::Bind(n), value: Expr::Map(ps), .. } => (n.clone(), ps.clone()),
+            Stmt::Assign {
+                target: Expr::Ident(n),
+                op: "=",
+                value: Expr::Map(ps),
+                ..
+            }
+            | Stmt::Let {
+                name: Pat::Bind(n),
+                value: Expr::Map(ps),
+                ..
+            } => (n.clone(), ps.clone()),
             _ => {
                 i += 1;
                 continue;
@@ -4895,46 +7258,141 @@ fn inline_fn_maps(items: &mut [Item], script: &mut Vec<Stmt>) {
         let mut arms: Vec<(String, Vec<String>, Expr)> = vec![];
         for (k, v) in &ps {
             match (k, v) {
-                (Expr::Str(parts), Expr::Lambda(params, body)) if matches!(parts.as_slice(), [StrPart::Lit(_)]) => {
-                    let [StrPart::Lit(k)] = parts.as_slice() else { unreachable!() };
+                (Expr::Str(parts), Expr::Lambda(params, body))
+                    if matches!(parts.as_slice(), [StrPart::Lit(_)]) =>
+                {
+                    let [StrPart::Lit(k)] = parts.as_slice() else {
+                        unreachable!()
+                    };
                     arms.push((k.clone(), params.clone(), (**body).clone()));
                 }
                 _ => break,
             }
         }
         let n_args = arms.first().map_or(0, |a| a.1.len());
-        if arms.is_empty() || arms.len() != ps.len() || arms.iter().any(|a| a.1.len() != n_args || format!("{:?}", a.2).contains(&format!("Ident({name:?})"))) {
+        if arms.is_empty()
+            || arms.len() != ps.len()
+            || arms.iter().any(|a| {
+                a.1.len() != n_args || format!("{:?}", a.2).contains(&format!("Ident({name:?})"))
+            })
+        {
             i += 1;
             continue;
         }
         // Never set again or changed (nor a local of that name somewhere).
-        let bad = [format!("target: Ident({name:?})"), format!("target: Index(Ident({name:?})"), format!("Method(Ident({name:?})"), format!("Bind({name:?})"), format!("Field(Ident({name:?})")];
-        let texts: Vec<String> = items.iter().filter_map(|it| if let Item::Fn { body, .. } = it { Some(format!("{body:?}")) } else { None }).chain(script.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, st)| format!("{st:?}"))).collect();
-        if texts.iter().any(|t| bad.iter().any(|b| t.contains(b.as_str()))) {
+        let bad = [
+            format!("target: Ident({name:?})"),
+            format!("target: Index(Ident({name:?})"),
+            format!("Method(Ident({name:?})"),
+            format!("Bind({name:?})"),
+            format!("Field(Ident({name:?})"),
+        ];
+        let texts: Vec<String> = items
+            .iter()
+            .filter_map(|it| {
+                if let Item::Fn { body, .. } = it {
+                    Some(format!("{body:?}"))
+                } else {
+                    None
+                }
+            })
+            .chain(
+                script
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(_, st)| format!("{st:?}")),
+            )
+            .collect();
+        if texts
+            .iter()
+            .any(|t| bad.iter().any(|b| t.contains(b.as_str())))
+        {
             i += 1;
             continue;
         }
         let call = |e: &mut Expr| {
-            let Expr::Method(r, m, args, line) = e else { return };
+            let Expr::Method(r, m, args, line) = e else {
+                return;
+            };
             if m != "__call" || args.len() != n_args {
                 return;
             }
-            let Expr::Index(b, k) = r.as_ref() else { return };
+            let Expr::Index(b, k) = r.as_ref() else {
+                return;
+            };
             if !matches!(b.as_ref(), Expr::Ident(x) if *x == name) {
                 return;
             }
             let line = *line;
             let tmp = |j: usize| format!("ax_fm{j}");
-            let mut lets = vec![Stmt::Let { name: Pat::Bind("ax_fmk".into()), ty: None, value: (**k).clone(), mutable: false, line }];
+            let mut lets = vec![Stmt::Let {
+                name: Pat::Bind("ax_fmk".into()),
+                ty: None,
+                value: (**k).clone(),
+                mutable: false,
+                line,
+            }];
             for (j, a) in args.iter().enumerate() {
-                lets.push(Stmt::Let { name: Pat::Bind(tmp(j)), ty: None, value: a.clone(), mutable: false, line });
+                lets.push(Stmt::Let {
+                    name: Pat::Bind(tmp(j)),
+                    ty: None,
+                    value: a.clone(),
+                    mutable: false,
+                    line,
+                });
             }
-            let missing = Expr::Call("fail".into(), vec![(None, Expr::Call("__exc".into(), vec![(None, Expr::Str(vec![StrPart::Lit("KeyError".into())])), (None, Expr::Str(vec![StrPart::Lit("'".into()), StrPart::Interp(Expr::Ident("ax_fmk".into())), StrPart::Lit("'".into())]))], line))], line);
-            let mut chain = Expr::Block(vec![Stmt::Expr { expr: missing, line }], None);
+            let missing = Expr::Call(
+                "fail".into(),
+                vec![(
+                    None,
+                    Expr::Call(
+                        "__exc".into(),
+                        vec![
+                            (None, Expr::Str(vec![StrPart::Lit("KeyError".into())])),
+                            (
+                                None,
+                                Expr::Str(vec![
+                                    StrPart::Lit("'".into()),
+                                    StrPart::Interp(Expr::Ident("ax_fmk".into())),
+                                    StrPart::Lit("'".into()),
+                                ]),
+                            ),
+                        ],
+                        line,
+                    ),
+                )],
+                line,
+            );
+            let mut chain = Expr::Block(
+                vec![Stmt::Expr {
+                    expr: missing,
+                    line,
+                }],
+                None,
+            );
             for (key, params, body) in arms.iter().rev() {
-                let binds = params.iter().enumerate().map(|(j, p)| Stmt::Let { name: Pat::Bind(p.clone()), ty: None, value: Expr::Ident(tmp(j)), mutable: false, line }).collect();
-                let cond = Expr::Binary("==", Box::new(Expr::Ident("ax_fmk".into())), Box::new(Expr::Str(vec![StrPart::Lit(key.clone())])));
-                chain = Expr::If(Box::new(cond), Box::new(Expr::Block(binds, Some(Box::new(body.clone())))), Some(Box::new(chain)));
+                let binds = params
+                    .iter()
+                    .enumerate()
+                    .map(|(j, p)| Stmt::Let {
+                        name: Pat::Bind(p.clone()),
+                        ty: None,
+                        value: Expr::Ident(tmp(j)),
+                        mutable: false,
+                        line,
+                    })
+                    .collect();
+                let cond = Expr::Binary(
+                    "==",
+                    Box::new(Expr::Ident("ax_fmk".into())),
+                    Box::new(Expr::Str(vec![StrPart::Lit(key.clone())])),
+                );
+                chain = Expr::If(
+                    Box::new(cond),
+                    Box::new(Expr::Block(binds, Some(Box::new(body.clone())))),
+                    Some(Box::new(chain)),
+                );
             }
             *e = Expr::Block(lets, Some(Box::new(chain)));
         };
@@ -4946,7 +7404,10 @@ fn inline_fn_maps(items: &mut [Item], script: &mut Vec<Stmt>) {
         }
         for st in script.iter_mut() {
             match st {
-                Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } | Stmt::Expr { expr: e, .. } | Stmt::Return { value: Some(e), .. } => walk_mut(e, &mut call),
+                Stmt::Let { value: e, .. }
+                | Stmt::Assign { value: e, .. }
+                | Stmt::Expr { expr: e, .. }
+                | Stmt::Return { value: Some(e), .. } => walk_mut(e, &mut call),
                 _ => {}
             }
         }
@@ -4983,10 +7444,34 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
             if let Expr::Block(st, _) = x {
                 for s in st.iter() {
                     match s {
-                        Stmt::Assign { target: Expr::Ident(m), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(m), value, .. } if m == n => out.push(Some(value.clone())),
-                        Stmt::Assign { target, .. } if format!("{target:?}") == format!("Ident({n:?})") => out.push(None),
-                        Stmt::Assign { target: Expr::Tuple(xs), .. } if xs.iter().any(|x| matches!(x, Expr::Ident(m) if m == n)) => out.push(None),
-                        Stmt::Let { name, .. } if !matches!(name, Pat::Bind(_)) && format!("{name:?}").contains(&format!("Bind({n:?})")) => out.push(None),
+                        Stmt::Assign {
+                            target: Expr::Ident(m),
+                            op: "=",
+                            value,
+                            ..
+                        }
+                        | Stmt::Let {
+                            name: Pat::Bind(m),
+                            value,
+                            ..
+                        } if m == n => out.push(Some(value.clone())),
+                        Stmt::Assign { target, .. }
+                            if format!("{target:?}") == format!("Ident({n:?})") =>
+                        {
+                            out.push(None)
+                        }
+                        Stmt::Assign {
+                            target: Expr::Tuple(xs),
+                            ..
+                        } if xs.iter().any(|x| matches!(x, Expr::Ident(m) if m == n)) => {
+                            out.push(None)
+                        }
+                        Stmt::Let { name, .. }
+                            if !matches!(name, Pat::Bind(_))
+                                && format!("{name:?}").contains(&format!("Bind({n:?})")) =>
+                        {
+                            out.push(None)
+                        }
                         _ => {}
                     }
                 }
@@ -5012,7 +7497,11 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
             let mut e = e.clone();
             walk_mut(&mut e, &mut |x| {
                 if let Expr::Call(f, args, _) = x {
-                    if f == "__global" && args.iter().any(|(_, a)| matches!(a, Expr::Ident(m) if m == n)) {
+                    if f == "__global"
+                        && args
+                            .iter()
+                            .any(|(_, a)| matches!(a, Expr::Ident(m) if m == n))
+                    {
                         hit = true;
                     }
                 }
@@ -5021,33 +7510,65 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
         }
     }
     fn rewrite(e: &mut Expr, n: &str, flag: &str) {
-        walk_mut(e, &mut |x| {
-            match x {
-                Expr::Method(r, m, a, _) if m == "is_none" && a.is_empty() && matches!(r.as_ref(), Expr::Ident(k) if k == n) => {
-                    *x = Expr::Ident(flag.to_string());
-                }
-                Expr::Call(f, args, _) if f == "__global" && args.iter().any(|(_, a)| matches!(a, Expr::Ident(m) if m == n)) => {
-                    args.push((None, Expr::Ident(flag.to_string())));
-                }
-                Expr::Block(st, _) => {
-                    let mut i = 0;
-                    while i < st.len() {
-                        let add = match &st[i] {
-                            Stmt::Assign { target: Expr::Ident(m), op: "=", value, line } if m == n => Some((is_none(value), *line, false)),
-                            Stmt::Let { name: Pat::Bind(m), value, line, .. } if m == n => Some((is_none(value), *line, true)),
-                            _ => None,
+        walk_mut(e, &mut |x| match x {
+            Expr::Method(r, m, a, _)
+                if m == "is_none"
+                    && a.is_empty()
+                    && matches!(r.as_ref(), Expr::Ident(k) if k == n) =>
+            {
+                *x = Expr::Ident(flag.to_string());
+            }
+            Expr::Call(f, args, _)
+                if f == "__global"
+                    && args
+                        .iter()
+                        .any(|(_, a)| matches!(a, Expr::Ident(m) if m == n)) =>
+            {
+                args.push((None, Expr::Ident(flag.to_string())));
+            }
+            Expr::Block(st, _) => {
+                let mut i = 0;
+                while i < st.len() {
+                    let add = match &st[i] {
+                        Stmt::Assign {
+                            target: Expr::Ident(m),
+                            op: "=",
+                            value,
+                            line,
+                        } if m == n => Some((is_none(value), *line, false)),
+                        Stmt::Let {
+                            name: Pat::Bind(m),
+                            value,
+                            line,
+                            ..
+                        } if m == n => Some((is_none(value), *line, true)),
+                        _ => None,
+                    };
+                    if let Some((none, line, is_let)) = add {
+                        let v = Expr::Bool(none);
+                        let s = if is_let {
+                            Stmt::Let {
+                                name: Pat::Bind(flag.to_string()),
+                                ty: None,
+                                value: v,
+                                mutable: true,
+                                line,
+                            }
+                        } else {
+                            Stmt::Assign {
+                                target: Expr::Ident(flag.to_string()),
+                                op: "=",
+                                value: v,
+                                line,
+                            }
                         };
-                        if let Some((none, line, is_let)) = add {
-                            let v = Expr::Bool(none);
-                            let s = if is_let { Stmt::Let { name: Pat::Bind(flag.to_string()), ty: None, value: v, mutable: true, line } } else { Stmt::Assign { target: Expr::Ident(flag.to_string()), op: "=", value: v, line } };
-                            st.insert(i + 1, s);
-                            i += 1;
-                        }
+                        st.insert(i + 1, s);
                         i += 1;
                     }
+                    i += 1;
                 }
-                _ => {}
             }
+            _ => {}
         });
     }
     // Names set at the top level (shared with functions that declare them global).
@@ -5056,7 +7577,18 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
     crate::infer::walk(&script_e, &mut |x| {
         if let Expr::Block(st, _) = x {
             for s in st {
-                if let Stmt::Assign { target: Expr::Ident(m), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(m), value, .. } = s {
+                if let Stmt::Assign {
+                    target: Expr::Ident(m),
+                    op: "=",
+                    value,
+                    ..
+                }
+                | Stmt::Let {
+                    name: Pat::Bind(m),
+                    value,
+                    ..
+                } = s
+                {
                     if empty(value) && !cands.contains(m) {
                         cands.push(m.clone());
                     }
@@ -5086,7 +7618,11 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
                 all.extend(fs);
             }
         }
-        if !ok || !any_test || all.iter().any(|v| v.is_none()) || !all.iter().any(|v| v.as_ref().is_some_and(is_none)) {
+        if !ok
+            || !any_test
+            || all.iter().any(|v| v.is_none())
+            || !all.iter().any(|v| v.as_ref().is_some_and(is_none))
+        {
             continue;
         }
         for it in items.iter_mut() {
@@ -5113,17 +7649,35 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
     let kids_of: Vec<(String, Vec<(String, Vec<String>)>)> = items
         .iter()
         .filter_map(|it| match it {
-            Item::Fn { name, .. } => Some((name.clone(), items.iter().filter_map(|k| match k {
-                Item::Fn { name: kn, params, .. } if kn.starts_with(&format!("{name}_")) => Some((kn.clone(), params.iter().filter(|p| p.is_mut).map(|p| p.name.clone()).collect())),
-                _ => None,
-            }).collect())),
+            Item::Fn { name, .. } => Some((
+                name.clone(),
+                items
+                    .iter()
+                    .filter_map(|k| match k {
+                        Item::Fn {
+                            name: kn, params, ..
+                        } if kn.starts_with(&format!("{name}_")) => Some((
+                            kn.clone(),
+                            params
+                                .iter()
+                                .filter(|p| p.is_mut)
+                                .map(|p| p.name.clone())
+                                .collect(),
+                        )),
+                        _ => None,
+                    })
+                    .collect(),
+            )),
             _ => None,
         })
         .collect();
     let mut kid_flags: Vec<(String, String, String)> = vec![]; // (kid, name, flag)
     let mut kid_sets: HashMap<(String, String), Vec<Option<Expr>>> = HashMap::new();
     for it in items.iter() {
-        if let Item::Fn { name, params, body, .. } = it {
+        if let Item::Fn {
+            name, params, body, ..
+        } = it
+        {
             for p in params.iter().filter(|p| p.is_mut) {
                 let mut fs = vec![];
                 sets(body, &p.name, &mut fs);
@@ -5132,13 +7686,36 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
         }
     }
     for it in items.iter_mut() {
-        let Item::Fn { name: fname, params, body, .. } = it else { continue };
-        let kids: Vec<(String, Vec<String>)> = kids_of.iter().find(|(f, _)| f == fname).map(|(_, k)| k.clone()).unwrap_or_default();
+        let Item::Fn {
+            name: fname,
+            params,
+            body,
+            ..
+        } = it
+        else {
+            continue;
+        };
+        let kids: Vec<(String, Vec<String>)> = kids_of
+            .iter()
+            .find(|(f, _)| f == fname)
+            .map(|(_, k)| k.clone())
+            .unwrap_or_default();
         let mut cands: Vec<String> = vec![];
         crate::infer::walk(body, &mut |x| {
             if let Expr::Block(st, _) = x {
                 for s in st {
-                    if let Stmt::Assign { target: Expr::Ident(m), op: "=", value, .. } | Stmt::Let { name: Pat::Bind(m), value, .. } = s {
+                    if let Stmt::Assign {
+                        target: Expr::Ident(m),
+                        op: "=",
+                        value,
+                        ..
+                    }
+                    | Stmt::Let {
+                        name: Pat::Bind(m),
+                        value,
+                        ..
+                    } = s
+                    {
                         if empty(value) && !cands.contains(m) {
                             cands.push(m.clone());
                         }
@@ -5147,17 +7724,29 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
             }
         });
         for n in cands {
-            if params.iter().any(|p| p.name == n) || declares_global(body, &n) || !tested(body, &n) {
+            if params.iter().any(|p| p.name == n) || declares_global(body, &n) || !tested(body, &n)
+            {
                 continue;
             }
             let mut all = vec![];
             sets(body, &n, &mut all);
             // Nested defs that change it.
-            let changers: Vec<String> = kids.iter().filter(|(_, m)| m.contains(&n)).map(|(k, _)| k.clone()).collect();
+            let changers: Vec<String> = kids
+                .iter()
+                .filter(|(_, m)| m.contains(&n))
+                .map(|(k, _)| k.clone())
+                .collect();
             for k in &changers {
-                all.extend(kid_sets.get(&(k.clone(), n.clone())).cloned().unwrap_or_default());
+                all.extend(
+                    kid_sets
+                        .get(&(k.clone(), n.clone()))
+                        .cloned()
+                        .unwrap_or_default(),
+                );
             }
-            if all.iter().any(|v| v.is_none()) || !all.iter().any(|v| v.as_ref().is_some_and(is_none)) {
+            if all.iter().any(|v| v.is_none())
+                || !all.iter().any(|v| v.as_ref().is_some_and(is_none))
+            {
                 continue;
             }
             let flag = format!("ax_nn_{n}");
@@ -5171,10 +7760,19 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
         return;
     }
     for it in items.iter_mut() {
-        let Item::Fn { name, params, body, .. } = it else { continue };
+        let Item::Fn {
+            name, params, body, ..
+        } = it
+        else {
+            continue;
+        };
         for (k, n, flag) in &kid_flags {
             if name == k {
-                params.push(Param { name: flag.clone(), ty: Ty::Named("?".into()), is_mut: true });
+                params.push(Param {
+                    name: flag.clone(),
+                    ty: Ty::Named("?".into()),
+                    is_mut: true,
+                });
                 rewrite(body, n, flag);
             }
         }
@@ -5182,7 +7780,11 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
         walk_mut(body, &mut |e| {
             if let Expr::Call(f, args, _) = e {
                 for (k, _, flag) in &kid_flags {
-                    if f == k && !args.iter().any(|(_, a)| matches!(a, Expr::Ident(x) if x == flag)) {
+                    if f == k
+                        && !args
+                            .iter()
+                            .any(|(_, a)| matches!(a, Expr::Ident(x) if x == flag))
+                    {
                         args.push((None, Expr::Ident(flag.clone())));
                     }
                 }
@@ -5197,8 +7799,15 @@ fn none_flags(items: &mut [Item], script: &mut Vec<Stmt>) {
 fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<String, Sig>) {
     let names: Vec<String> = sigs.keys().cloned().collect();
     for f in names {
-        let Some((pnames, defaults, star)) = sigs.get(&f).cloned() else { continue };
-        let Some(i) = defaults.iter().position(|d| matches!(d, Some(Expr::Ident(n)) if n == "print")) else { continue };
+        let Some((pnames, defaults, star)) = sigs.get(&f).cloned() else {
+            continue;
+        };
+        let Some(i) = defaults
+            .iter()
+            .position(|d| matches!(d, Some(Expr::Ident(n)) if n == "print"))
+        else {
+            continue;
+        };
         if star.is_some_and(|s| s <= i) {
             continue;
         }
@@ -5227,14 +7836,25 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
         if passes || calls == 0 {
             continue;
         }
-        let Some(fi) = items.iter().position(|it| matches!(it, Item::Fn { name, .. } if *name == f)) else { continue };
+        let Some(fi) = items
+            .iter()
+            .position(|it| matches!(it, Item::Fn { name, .. } if *name == f))
+        else {
+            continue;
+        };
         // In a class: `self.F = p` once, and self.F only ever called.
         let mut field: Option<String> = None;
         if let Item::Fn { body, .. } = &items[fi] {
             crate::infer::walk(body, &mut |e| {
                 if let Expr::Block(st, _) = e {
                     for s in st {
-                        if let Stmt::Assign { target: Expr::Field(o, fld), op: "=", value: Expr::Ident(v), .. } = s {
+                        if let Stmt::Assign {
+                            target: Expr::Field(o, fld),
+                            op: "=",
+                            value: Expr::Ident(v),
+                            ..
+                        } = s
+                        {
                             if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && *v == p {
                                 field = Some(fld.clone());
                             }
@@ -5250,9 +7870,13 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
                 Item::Fn { name, body, .. } => {
                     let d = format!("{body:?}");
                     // Any other use of the field: read as a value, or set elsewhere.
-                    let reads = d.matches(&format!("Field(Ident(\"self_\"), {fld:?})")).count();
+                    let reads = d
+                        .matches(&format!("Field(Ident(\"self_\"), {fld:?})"))
+                        .count();
                     let set = if *name == f { 1 } else { 0 };
-                    let calls = d.matches(&format!("Method(Ident(\"self_\"), {fld:?},")).count();
+                    let calls = d
+                        .matches(&format!("Method(Ident(\"self_\"), {fld:?},"))
+                        .count();
                     (!name.starts_with(pre.as_str()) && calls > 0) || reads > set
                 }
                 _ => false,
@@ -5262,17 +7886,28 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
             }
         } else {
             // A plain function: p only ever called.
-            let Item::Fn { body, .. } = &items[fi] else { continue };
+            let Item::Fn { body, .. } = &items[fi] else {
+                continue;
+            };
             let d = format!("{body:?}");
-            if d.matches(&format!("Ident({p:?})")).count() > 0 || d.matches(&format!("Call({p:?},")).count() == 0 {
+            if d.matches(&format!("Ident({p:?})")).count() > 0
+                || d.matches(&format!("Call({p:?},")).count() == 0
+            {
                 continue;
             }
         }
         // Rewrite.
         for it in items.iter_mut() {
-            let Item::Fn { name, params, body, .. } = it else { continue };
+            let Item::Fn {
+                name, params, body, ..
+            } = it
+            else {
+                continue;
+            };
             let own = *name == f;
-            let in_class = prefix.as_ref().is_some_and(|pre| name.starts_with(pre.as_str()));
+            let in_class = prefix
+                .as_ref()
+                .is_some_and(|pre| name.starts_with(pre.as_str()));
             if !own && !in_class {
                 continue;
             }
@@ -5284,12 +7919,23 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
                     st.retain(|s| !matches!(s, Stmt::Assign { target: Expr::Field(o, fl), value: Expr::Ident(v), .. } if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && Some(fl) == field.as_ref() && *v == p));
                 }
                 let to = match e {
-                    Expr::Method(o, m, args, line) if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && Some(&*m) == field.as_ref() => Some((args.clone(), *line)),
-                    Expr::Call(c, args, line) if own && field.is_none() && *c == p => Some((args.iter().map(|(_, a)| a.clone()).collect(), *line)),
+                    Expr::Method(o, m, args, line)
+                        if matches!(o.as_ref(), Expr::Ident(x) if x == "self_")
+                            && Some(&*m) == field.as_ref() =>
+                    {
+                        Some((args.clone(), *line))
+                    }
+                    Expr::Call(c, args, line) if own && field.is_none() && *c == p => {
+                        Some((args.iter().map(|(_, a)| a.clone()).collect(), *line))
+                    }
                     _ => None,
                 };
                 if let Some((args, line)) = to {
-                    *e = Expr::Call("print".into(), args.into_iter().map(|a| (None, a)).collect(), line);
+                    *e = Expr::Call(
+                        "print".into(),
+                        args.into_iter().map(|a| (None, a)).collect(),
+                        line,
+                    );
                 }
             });
         }
@@ -5300,31 +7946,57 @@ fn print_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Stri
     }
 }
 
-
 // A parameter only ever called (`got = take(sku, n)`) that every call fills with a bound method
 // (`orders.fill(sku, stock.take)`): the call passes the object instead, and `take(a, b)` calls its method.
 fn bound_callbacks(items: &mut [Item], script: &mut [Stmt]) {
-    let fns: Vec<(String, Vec<String>)> = items.iter().filter_map(|it| match it {
-        Item::Fn { name, params, .. } => Some((name.clone(), params.iter().map(|q| q.name.clone()).collect())),
-        _ => None,
-    }).collect();
+    let fns: Vec<(String, Vec<String>)> = items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Fn { name, params, .. } => Some((
+                name.clone(),
+                params.iter().map(|q| q.name.clone()).collect(),
+            )),
+            _ => None,
+        })
+        .collect();
     for (f, ps) in &fns {
         let method = ps.first().is_some_and(|p| p == "self_");
-        let mname = if method { f.split_once('_').map(|(_, m)| m.to_string()) } else { None };
+        let mname = if method {
+            f.split_once('_').map(|(_, m)| m.to_string())
+        } else {
+            None
+        };
         // A method name shared by two classes: calls can't be told apart.
         if let Some(m) = &mname {
-            if fns.iter().filter(|(g, qs)| g.ends_with(&format!("_{m}")) && qs.first().is_some_and(|q| q == "self_")).count() != 1 {
+            if fns
+                .iter()
+                .filter(|(g, qs)| {
+                    g.ends_with(&format!("_{m}")) && qs.first().is_some_and(|q| q == "self_")
+                })
+                .count()
+                != 1
+            {
                 continue;
             }
         }
-        let Some(fi) = items.iter().position(|it| matches!(it, Item::Fn { name, .. } if name == f)) else { continue };
+        let Some(fi) = items
+            .iter()
+            .position(|it| matches!(it, Item::Fn { name, .. } if name == f))
+        else {
+            continue;
+        };
         for (pi, p) in ps.iter().enumerate() {
             if method && pi == 0 {
                 continue;
             }
-            let Item::Fn { body, .. } = &items[fi] else { continue };
+            let Item::Fn { body, .. } = &items[fi] else {
+                continue;
+            };
             let d = format!("{body:?}");
-            if d.contains(&format!("Ident({p:?})")) || d.contains(&format!("Move({p:?})")) || !d.contains(&format!("Call({p:?},")) {
+            if d.contains(&format!("Ident({p:?})"))
+                || d.contains(&format!("Move({p:?})"))
+                || !d.contains(&format!("Call({p:?},"))
+            {
                 continue;
             }
             // Every call's argument there: `obj.meth`, the same meth each time.
@@ -5332,13 +8004,21 @@ fn bound_callbacks(items: &mut [Item], script: &mut [Stmt]) {
             let (mut calls, mut meth, mut ok) = (0, None::<String>, true);
             let mut check = |e: &Expr| {
                 let args: Vec<&Expr> = match e {
-                    Expr::Call(c, a, _) if c == f => a.iter().map(|(_, x)| x).collect::<Vec<_>>().into_iter().skip(if method { 1 } else { 0 }).collect(),
+                    Expr::Call(c, a, _) if c == f => a
+                        .iter()
+                        .map(|(_, x)| x)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .skip(if method { 1 } else { 0 })
+                        .collect(),
                     Expr::Method(_, m, a, _) if Some(m) == mname.as_ref() => a.iter().collect(),
                     _ => return,
                 };
                 calls += 1;
                 match args.get(ai) {
-                    Some(Expr::Field(_, m)) if meth.as_ref().map_or(true, |x| x == m) => meth = Some(m.clone()),
+                    Some(Expr::Field(_, m)) if meth.as_ref().map_or(true, |x| x == m) => {
+                        meth = Some(m.clone())
+                    }
                     _ => ok = false,
                 }
             };
@@ -5348,10 +8028,14 @@ fn bound_callbacks(items: &mut [Item], script: &mut [Stmt]) {
                 }
             }
             crate::infer::walk(&Expr::Block(script.to_vec(), None), &mut check);
-            let (true, Some(meth)) = (ok && calls > 0, meth) else { continue };
+            let (true, Some(meth)) = (ok && calls > 0, meth) else {
+                continue;
+            };
             let fix = |e: &mut Expr| {
                 let arg = match e {
-                    Expr::Call(c, a, _) if c == f => a.get_mut(ai + if method { 1 } else { 0 }).map(|x| &mut x.1),
+                    Expr::Call(c, a, _) if c == f => {
+                        a.get_mut(ai + if method { 1 } else { 0 }).map(|x| &mut x.1)
+                    }
                     Expr::Method(_, m, a, _) if Some(&*m) == mname.as_ref() => a.get_mut(ai),
                     _ => None,
                 };
@@ -5375,7 +8059,12 @@ fn bound_callbacks(items: &mut [Item], script: &mut [Stmt]) {
                 walk_mut(body, &mut |e| {
                     if let Expr::Call(c, a, line) = e {
                         if c == p {
-                            *e = Expr::Method(Box::new(Expr::Ident(p.clone())), meth.clone(), a.iter().map(|(_, x)| x.clone()).collect(), *line);
+                            *e = Expr::Method(
+                                Box::new(Expr::Ident(p.clone())),
+                                meth.clone(),
+                                a.iter().map(|(_, x)| x.clone()).collect(),
+                                *line,
+                            );
                         }
                     }
                 });
@@ -5388,13 +8077,24 @@ fn bound_callbacks(items: &mut [Item], script: &mut [Stmt]) {
 // as `self.out.write(s)` (and `flush()`): the field goes, and `self.out.write(s)` prints s as it is.
 fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<String, Sig>) {
     let is_out = |v: &Expr| matches!(v, Expr::Field(m, f) if f == "stdout" && matches!(m.as_ref(), Expr::Ident(s) if s == "sys"));
-    let names: Vec<(String, Vec<String>)> = items.iter().filter_map(|it| match it {
-        Item::Fn { name, params, .. } if name.ends_with("_new") => Some((name.clone(), params.iter().map(|q| q.name.clone()).collect())),
-        _ => None,
-    }).collect();
+    let names: Vec<(String, Vec<String>)> = items
+        .iter()
+        .filter_map(|it| match it {
+            Item::Fn { name, params, .. } if name.ends_with("_new") => Some((
+                name.clone(),
+                params.iter().map(|q| q.name.clone()).collect(),
+            )),
+            _ => None,
+        })
+        .collect();
     for (f, pnames) in names {
-        let Some(class) = f.strip_suffix("_new").map(String::from) else { continue };
-        if sigs.get(&f).is_some_and(|s| s.2.is_some() || s.0.len() != pnames.len()) {
+        let Some(class) = f.strip_suffix("_new").map(String::from) else {
+            continue;
+        };
+        if sigs
+            .get(&f)
+            .is_some_and(|s| s.2.is_some() || s.0.len() != pnames.len())
+        {
             continue;
         }
         for i in 0..pnames.len() {
@@ -5405,7 +8105,8 @@ fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Str
                 if let Expr::Call(c, args, _) = e {
                     if *c == f || *c == class {
                         calls += 1;
-                        let ok = args.get(i).is_some_and(|(n, v)| n.is_none() && is_out(v)) && args[..i].iter().all(|(n, _)| n.is_none());
+                        let ok = args.get(i).is_some_and(|(n, v)| n.is_none() && is_out(v))
+                            && args[..i].iter().all(|(n, _)| n.is_none());
                         all &= ok;
                     }
                 }
@@ -5419,13 +8120,24 @@ fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Str
             if calls == 0 || !all {
                 continue;
             }
-            let Some(fi) = items.iter().position(|it| matches!(it, Item::Fn { name, .. } if *name == f)) else { continue };
+            let Some(fi) = items
+                .iter()
+                .position(|it| matches!(it, Item::Fn { name, .. } if *name == f))
+            else {
+                continue;
+            };
             let mut field: Option<String> = None;
             if let Item::Fn { body, .. } = &items[fi] {
                 crate::infer::walk(body, &mut |e| {
                     if let Expr::Block(st, _) = e {
                         for s in st {
-                            if let Stmt::Assign { target: Expr::Field(o, fld), op: "=", value: Expr::Ident(v), .. } = s {
+                            if let Stmt::Assign {
+                                target: Expr::Field(o, fld),
+                                op: "=",
+                                value: Expr::Ident(v),
+                                ..
+                            } = s
+                            {
                                 if matches!(o.as_ref(), Expr::Ident(x) if x == "self_") && *v == p {
                                     field = Some(fld.clone());
                                 }
@@ -5443,8 +8155,12 @@ fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Str
                 Item::Fn { name, body, .. } => {
                     let d = format!("{body:?}");
                     let uses = d.matches(&read).count();
-                    let ok = d.matches(&format!("{recv}\"write\"")).count() + d.matches(&format!("{recv}\"flush\"")).count() + if *name == f { 1 } else { 0 };
-                    (!name.starts_with(pre.as_str()) && uses > 0) || uses > ok || (*name == f && d.matches(&format!("Ident({p:?})")).count() > 1)
+                    let ok = d.matches(&format!("{recv}\"write\"")).count()
+                        + d.matches(&format!("{recv}\"flush\"")).count()
+                        + if *name == f { 1 } else { 0 };
+                    (!name.starts_with(pre.as_str()) && uses > 0)
+                        || uses > ok
+                        || (*name == f && d.matches(&format!("Ident({p:?})")).count() > 1)
                 }
                 _ => false,
             });
@@ -5452,7 +8168,12 @@ fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Str
                 continue;
             }
             for it in items.iter_mut() {
-                let Item::Fn { name, params, body, .. } = it else { continue };
+                let Item::Fn {
+                    name, params, body, ..
+                } = it
+                else {
+                    continue;
+                };
                 if *name == f {
                     params.retain(|q| q.name != p);
                 }
@@ -5468,9 +8189,17 @@ fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Str
                     }
                     if mine {
                         if let Expr::Method(o, m, args, line) = e {
-                            if matches!(o.as_ref(), Expr::Field(s, fl) if *fl == fld && matches!(s.as_ref(), Expr::Ident(x) if x == "self_")) {
+                            if matches!(o.as_ref(), Expr::Field(s, fl) if *fl == fld && matches!(s.as_ref(), Expr::Ident(x) if x == "self_"))
+                            {
                                 if m == "write" && args.len() == 1 {
-                                    *e = Expr::Call("print".into(), vec![(None, args[0].clone()), (Some("end".into()), Expr::Str(vec![]))], *line);
+                                    *e = Expr::Call(
+                                        "print".into(),
+                                        vec![
+                                            (None, args[0].clone()),
+                                            (Some("end".into()), Expr::Str(vec![])),
+                                        ],
+                                        *line,
+                                    );
                                 }
                             }
                         }
@@ -5505,19 +8234,48 @@ fn stdout_params(items: &mut [Item], script: &mut [Stmt], sigs: &mut HashMap<Str
 // Python's `_old_end = end_tx` at the top level, set once, with end_tx a function of the program: the name
 // is another name for the function, so `_old_end()` calls end_tx (also inside functions defined above it).
 fn fn_aliases(items: &mut [Item], script: &mut Vec<Stmt>) {
-    let fns: Vec<String> = items.iter().filter_map(|it| if let Item::Fn { name, .. } = it { Some(name.clone()) } else { None }).collect();
+    let fns: Vec<String> = items
+        .iter()
+        .filter_map(|it| {
+            if let Item::Fn { name, .. } = it {
+                Some(name.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
     let mut i = 0;
     while i < script.len() {
         let (x, f) = match &script[i] {
-            Stmt::Assign { target: Expr::Ident(x), op: "=", value: Expr::Ident(f), .. } | Stmt::Let { name: Pat::Bind(x), value: Expr::Ident(f), .. } if fns.contains(f) && !fns.contains(x) && x != f => (x.clone(), f.clone()),
+            Stmt::Assign {
+                target: Expr::Ident(x),
+                op: "=",
+                value: Expr::Ident(f),
+                ..
+            }
+            | Stmt::Let {
+                name: Pat::Bind(x),
+                value: Expr::Ident(f),
+                ..
+            } if fns.contains(f) && !fns.contains(x) && x != f => (x.clone(), f.clone()),
             _ => {
                 i += 1;
                 continue;
             }
         };
         // Set nowhere else, and no parameter or local of that name.
-        let bad = [format!("target: Ident({x:?})"), format!("Bind({x:?})"), format!("name: {x:?}"), format!("{x:?}.into()")];
-        let others = script.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, st)| format!("{st:?}")).chain(items.iter().map(|it| format!("{it:?}")));
+        let bad = [
+            format!("target: Ident({x:?})"),
+            format!("Bind({x:?})"),
+            format!("name: {x:?}"),
+            format!("{x:?}.into()"),
+        ];
+        let others = script
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j != i)
+            .map(|(_, st)| format!("{st:?}"))
+            .chain(items.iter().map(|it| format!("{it:?}")));
         let mut clash = false;
         for t in others {
             if bad.iter().any(|b| t.contains(b.as_str())) {
@@ -5542,7 +8300,10 @@ fn fn_aliases(items: &mut [Item], script: &mut Vec<Stmt>) {
         script.remove(i);
         for st in script.iter_mut() {
             match st {
-                Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } | Stmt::Expr { expr: e, .. } | Stmt::Return { value: Some(e), .. } => walk_mut(e, &mut fix),
+                Stmt::Let { value: e, .. }
+                | Stmt::Assign { value: e, .. }
+                | Stmt::Expr { expr: e, .. }
+                | Stmt::Return { value: Some(e), .. } => walk_mut(e, &mut fix),
                 _ => {}
             }
         }

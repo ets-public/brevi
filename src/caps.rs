@@ -47,7 +47,13 @@ pub fn net_hosts() -> (bool, Vec<String>) {
         return (true, vec![]);
     }
     let g = grant();
-    (g.iter().any(|c| c == "net"), g.iter().filter_map(|c| c.strip_prefix("net:")).map(String::from).collect())
+    (
+        g.iter().any(|c| c == "net"),
+        g.iter()
+            .filter_map(|c| c.strip_prefix("net:"))
+            .map(String::from)
+            .collect(),
+    )
 }
 
 // Whether the caller granted this capability (under --sandbox).
@@ -57,16 +63,25 @@ pub fn granted(cap: &str) -> bool {
 
 // A host name for --allow-net: letters, digits, '-', '.', or an IP address.
 fn host_name(w: &str) -> bool {
-    !w.is_empty() && (w.parse::<std::net::IpAddr>().is_ok() || w.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'))
+    !w.is_empty()
+        && (w.parse::<std::net::IpAddr>().is_ok()
+            || w.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'))
 }
 
 // The value of --allow (read, write, net, native, comma or space separated), --allow-py (Python module names)
 // or --allow-net (host names, as "net:HOST").
 pub fn parse_net(value: &str) -> Result<Vec<String>, String> {
     let mut out = vec![];
-    for w in value.split([',', ' ']).map(str::trim).filter(|w| !w.is_empty()) {
+    for w in value
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+    {
         if !host_name(w) {
-            return Err(format!("--allow-net takes host names (api.example.com, localhost), not '{w}'"));
+            return Err(format!(
+                "--allow-net takes host names (api.example.com, localhost), not '{w}'"
+            ));
         }
         out.push(format!("net:{}", w.to_ascii_lowercase()));
     }
@@ -75,16 +90,25 @@ pub fn parse_net(value: &str) -> Result<Vec<String>, String> {
 
 pub fn parse_grant(py: bool, value: &str) -> Result<Vec<String>, String> {
     let mut out = vec![];
-    for w in value.split([',', ' ']).map(str::trim).filter(|w| !w.is_empty()) {
+    for w in value
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|w| !w.is_empty())
+    {
         if py {
-            if !w.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_')) {
+            if !w
+                .split('.')
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_'))
+            {
                 return Err(format!("--allow-py takes Python module names, not '{w}'"));
             }
             out.push(format!("py:{}", w.split('.').next().unwrap_or(w)));
         } else if CAPS.contains(&w) {
             out.push(w.to_string());
         } else if w != "none" {
-            return Err(format!("--allow takes read, write, net or native, not '{w}'"));
+            return Err(format!(
+                "--allow takes read, write, net or native, not '{w}'"
+            ));
         }
     }
     Ok(out)
@@ -93,7 +117,11 @@ pub fn parse_grant(py: bool, value: &str) -> Result<Vec<String>, String> {
 // The grant as flags, for the brevi processes this one starts (and the result cache's key).
 pub fn grant_flags() -> Vec<String> {
     let g = grant();
-    let caps: Vec<&str> = g.iter().filter(|c| !c.starts_with("py:") && !c.starts_with("net:")).map(String::as_str).collect();
+    let caps: Vec<&str> = g
+        .iter()
+        .filter(|c| !c.starts_with("py:") && !c.starts_with("net:"))
+        .map(String::as_str)
+        .collect();
     let py: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("py:")).collect();
     let hosts: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("net:")).collect();
     let mut out = vec![];
@@ -115,7 +143,11 @@ pub fn py_only() -> Option<Vec<String>> {
     if g.iter().any(|c| c == "native") {
         return None;
     }
-    let py: Vec<String> = g.iter().filter_map(|c| c.strip_prefix("py:")).map(String::from).collect();
+    let py: Vec<String> = g
+        .iter()
+        .filter_map(|c| c.strip_prefix("py:"))
+        .map(String::from)
+        .collect();
     if py.is_empty() { None } else { Some(py) }
 }
 
@@ -126,11 +158,27 @@ pub fn held(src: &str, allowed: Option<Vec<String>>, sandbox: bool) -> (Vec<Stri
         return (allowed.unwrap_or_default(), vec![]);
     }
     let g = grant();
-    let covered = |c: &str| c == "none" || g.iter().any(|x| x == c) || (c == "native" && g.iter().any(|x| x.starts_with("py:"))) || (c == "net" && g.iter().any(|x| x.starts_with("net:")));
+    let covered = |c: &str| {
+        c == "none"
+            || g.iter().any(|x| x == c)
+            || (c == "native" && g.iter().any(|x| x.starts_with("py:")))
+            || (c == "net" && g.iter().any(|x| x.starts_with("net:")))
+    };
     let mut errs = vec![];
     for (i, l) in src.split('\n').enumerate() {
-        let list = match l.strip_prefix("allow ").filter(|r| !r.trim_start().starts_with(['=', '.', '(', '[', '+', '-'])) {
-            Some(rest) => rest.split('#').next().unwrap_or("").split([',', ' ']).map(str::trim).filter(|c| CAPS.contains(c)).map(String::from).collect(),
+        let list = match l
+            .strip_prefix("allow ")
+            .filter(|r| !r.trim_start().starts_with(['=', '.', '(', '[', '+', '-']))
+        {
+            Some(rest) => rest
+                .split('#')
+                .next()
+                .unwrap_or("")
+                .split([',', ' '])
+                .map(str::trim)
+                .filter(|c| CAPS.contains(c))
+                .map(String::from)
+                .collect(),
             None => comment_caps(l).unwrap_or_default(),
         };
         for c in list.iter().filter(|c| !covered(c)) {
@@ -147,7 +195,10 @@ pub fn held(src: &str, allowed: Option<Vec<String>>, sandbox: bool) -> (Vec<Stri
 // Python module(s) the use is about, which --allow-py can grant alone.
 pub fn grant_hint(cap: &str, module: Option<&str>) -> String {
     if !sandboxed() {
-        return format!("add the line `{}` at the top, or do without it", allow_line(cap));
+        return format!(
+            "add the line `{}` at the top, or do without it",
+            allow_line(cap)
+        );
     }
     match module {
         Some(m) if cap == "native" => {
@@ -161,9 +212,13 @@ pub fn grant_hint(cap: &str, module: Option<&str>) -> String {
 
 // The module a native use names: `import requests`, `os.system`, `from os import *`, `argparse.FileType`.
 fn use_module(what: &str) -> Option<String> {
-    let w = what.strip_prefix("import ").or_else(|| what.strip_prefix("from ")).unwrap_or(what);
+    let w = what
+        .strip_prefix("import ")
+        .or_else(|| what.strip_prefix("from "))
+        .unwrap_or(what);
     let m = w.split(['.', ' ']).next()?;
-    (!m.is_empty() && m.chars().all(|c| c.is_alphanumeric() || c == '_') && !what.starts_with("a ")).then(|| m.to_string())
+    (!m.is_empty() && m.chars().all(|c| c.is_alphanumeric() || c == '_') && !what.starts_with("a "))
+        .then(|| m.to_string())
 }
 
 // Removes `allow ...` lines (keeping line numbers) and returns the capabilities they name.
@@ -173,7 +228,9 @@ pub fn split(src: &str) -> (String, Option<Vec<String>>, Vec<Diag>) {
     let mut errs = Vec::new();
     let mut out = Vec::new();
     for (i, l) in src.split('\n').enumerate() {
-        let rest = l.strip_prefix("allow ").filter(|r| !r.trim_start().starts_with(['=', '.', '(', '[', '+', '-']));
+        let rest = l
+            .strip_prefix("allow ")
+            .filter(|r| !r.trim_start().starts_with(['=', '.', '(', '[', '+', '-']));
         // `# allow read` keeps a .py file valid Python. Only a comment of nothing but capabilities counts
         // (`# allow me to explain` stays a comment), and the line is left as it is.
         if rest.is_none() {
@@ -186,11 +243,18 @@ pub fn split(src: &str) -> (String, Option<Vec<String>>, Vec<Diag>) {
         let Some(rest) = rest else { unreachable!() };
         let list = allowed.get_or_insert_with(Vec::new);
         let rest = rest.split('#').next().unwrap_or("");
-        for c in rest.split([',', ' ']).map(str::trim).filter(|c| !c.is_empty()) {
+        for c in rest
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
             if CAPS.contains(&c) || c == "none" {
                 list.push(c.to_string());
             } else {
-                errs.push(Diag::new("caps", i + 1, 1, &format!("unknown capability '{c}'")).fix_hint("allow takes read, write, net, native or none"));
+                errs.push(
+                    Diag::new("caps", i + 1, 1, &format!("unknown capability '{c}'"))
+                        .fix_hint("allow takes read, write, net, native or none"),
+                );
             }
         }
         out.push("");
@@ -200,8 +264,16 @@ pub fn split(src: &str) -> (String, Option<Vec<String>>, Vec<Diag>) {
 
 // The capabilities of a `# allow read, write` comment line, or None when it is any other line or comment.
 fn comment_caps(l: &str) -> Option<Vec<String>> {
-    let rest = l.trim_end().strip_prefix('#')?.trim_start().strip_prefix("allow ")?;
-    let words: Vec<&str> = rest.split([',', ' ']).map(str::trim).filter(|c| !c.is_empty()).collect();
+    let rest = l
+        .trim_end()
+        .strip_prefix('#')?
+        .trim_start()
+        .strip_prefix("allow ")?;
+    let words: Vec<&str> = rest
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .collect();
     if words.is_empty() || !words.iter().all(|c| CAPS.contains(c) || *c == "none") {
         return None;
     }
@@ -221,68 +293,391 @@ pub fn allow_line(cap: &str) -> String {
 // Python's os, os.path and pathlib reach files, processes and the environment; their path functions do not.
 // Without `allow native` a program may use only these, and random only as far as Brevi's own copy goes (all
 // built from src/dynpy/py, see dynpy::sandbox_module).
-const PURE_OS: &[&str] = &["path", "sep", "curdir", "pardir", "extsep", "altsep", "linesep", "name"];
-const PURE_OS_PATH: &[&str] = &["join", "basename", "dirname", "split", "splitext", "normpath", "normcase", "isabs", "commonprefix", "sep", "curdir", "pardir", "extsep", "altsep"];
+const PURE_OS: &[&str] = &[
+    "path", "sep", "curdir", "pardir", "extsep", "altsep", "linesep", "name",
+];
+const PURE_OS_PATH: &[&str] = &[
+    "join",
+    "basename",
+    "dirname",
+    "split",
+    "splitext",
+    "normpath",
+    "normcase",
+    "isabs",
+    "commonprefix",
+    "sep",
+    "curdir",
+    "pardir",
+    "extsep",
+    "altsep",
+];
 const PURE_PATHLIB: &[&str] = &["PurePath", "PurePosixPath"];
 // What src/dynpy/py/random.py has (CPython's generator, so seeded draws match).
-const OWN_RANDOM: &[&str] = &["Random", "seed", "random", "getrandbits", "randrange", "randint", "choice", "choices", "shuffle", "sample", "uniform", "gauss"];
+const OWN_RANDOM: &[&str] = &[
+    "Random",
+    "seed",
+    "random",
+    "getrandbits",
+    "randrange",
+    "randint",
+    "choice",
+    "choices",
+    "shuffle",
+    "sample",
+    "uniform",
+    "gauss",
+];
 
 // What src/dynpy/py/asyncio.py has: the event loop without I/O, threads, processes or signals.
 const OWN_ASYNCIO: &[&str] = &[
-    "run", "Runner", "sleep", "gather", "create_task", "ensure_future", "wait", "wait_for", "as_completed", "shield", "current_task", "all_tasks",
-    "Future", "Task", "Queue", "PriorityQueue", "LifoQueue", "QueueEmpty", "QueueFull", "QueueShutDown", "Lock", "Event", "Condition", "Semaphore",
-    "BoundedSemaphore", "timeout", "timeout_at", "Timeout", "TaskGroup", "CancelledError", "InvalidStateError", "TimeoutError", "BrokenBarrierError",
-    "FIRST_COMPLETED", "FIRST_EXCEPTION", "ALL_COMPLETED", "get_running_loop", "get_event_loop", "new_event_loop", "set_event_loop", "iscoroutine",
-    "isfuture", "AbstractEventLoop", "BaseEventLoop", "Handle", "TimerHandle",
+    "run",
+    "Runner",
+    "sleep",
+    "gather",
+    "create_task",
+    "ensure_future",
+    "wait",
+    "wait_for",
+    "as_completed",
+    "shield",
+    "current_task",
+    "all_tasks",
+    "Future",
+    "Task",
+    "Queue",
+    "PriorityQueue",
+    "LifoQueue",
+    "QueueEmpty",
+    "QueueFull",
+    "QueueShutDown",
+    "Lock",
+    "Event",
+    "Condition",
+    "Semaphore",
+    "BoundedSemaphore",
+    "timeout",
+    "timeout_at",
+    "Timeout",
+    "TaskGroup",
+    "CancelledError",
+    "InvalidStateError",
+    "TimeoutError",
+    "BrokenBarrierError",
+    "FIRST_COMPLETED",
+    "FIRST_EXCEPTION",
+    "ALL_COMPLETED",
+    "get_running_loop",
+    "get_event_loop",
+    "new_event_loop",
+    "set_event_loop",
+    "iscoroutine",
+    "isfuture",
+    "AbstractEventLoop",
+    "BaseEventLoop",
+    "Handle",
+    "TimerHandle",
 ];
 // What src/dynpy/py/tiktoken.py has.
-const OWN_TIKTOKEN: &[&str] = &["Encoding", "get_encoding", "encoding_for_model", "encoding_name_for_model", "list_encoding_names", "__version__"];
+const OWN_TIKTOKEN: &[&str] = &[
+    "Encoding",
+    "get_encoding",
+    "encoding_for_model",
+    "encoding_name_for_model",
+    "list_encoding_names",
+    "__version__",
+];
 // Encoding methods Brevi's tiktoken lacks (numpy arrays, the unstable API, regex splitting in Python).
-const TIKTOKEN_LACKS: &[&str] = &["encode_to_numpy", "encode_with_unstable", "_encode_bytes", "_encode_only_native_bpe", "__getstate__", "__setstate__"];
+const TIKTOKEN_LACKS: &[&str] = &[
+    "encode_to_numpy",
+    "encode_with_unstable",
+    "_encode_bytes",
+    "_encode_only_native_bpe",
+    "__getstate__",
+    "__setstate__",
+];
 // What src/dynpy/py/tokenizers.py has.
 const OWN_TOKENIZERS: &[&str] = &["Tokenizer", "AddedToken", "__version__"];
 // Tokenizer and Encoding methods Brevi's tokenizers lacks (saving, training, async, the component objects).
 const TOKENIZERS_LACKS: &[&str] = &[
-    "train", "train_from_iterator", "save", "to_str", "post_process", "from_buffer", "decode_stream", "async_encode", "async_encode_batch",
-    "async_decode_batch", "pre_tokenizer", "post_processor", "normalizer", "decoder", "set_sequence_id", "get_added_vocab",
+    "train",
+    "train_from_iterator",
+    "save",
+    "to_str",
+    "post_process",
+    "from_buffer",
+    "decode_stream",
+    "async_encode",
+    "async_encode_batch",
+    "async_decode_batch",
+    "pre_tokenizer",
+    "post_processor",
+    "normalizer",
+    "decoder",
+    "set_sequence_id",
+    "get_added_vocab",
 ];
 // What src/dynpy/py/requests.py and httpx.py have, and what they lack: methods, attributes and keyword
 // arguments that send a file of the program to CPython's library (or, without it, refuse the build).
 const OWN_REQUESTS: &[&str] = &[
-    "get", "post", "put", "patch", "delete", "head", "options", "request", "Session", "session", "Response", "PreparedRequest", "exceptions",
-    "codes", "auth", "RequestException", "ConnectionError", "HTTPError", "Timeout", "ConnectTimeout", "ReadTimeout", "TooManyRedirects",
-    "URLRequired", "JSONDecodeError", "InvalidURL", "InvalidSchema", "MissingSchema", "InvalidHeader", "ChunkedEncodingError",
-    "ContentDecodingError", "SSLError", "ProxyError", "StreamConsumedError", "RetryError", "InvalidJSONError", "__version__",
-    "HTTPBasicAuth", "AuthBase", "status_codes",
+    "get",
+    "post",
+    "put",
+    "patch",
+    "delete",
+    "head",
+    "options",
+    "request",
+    "Session",
+    "session",
+    "Response",
+    "PreparedRequest",
+    "exceptions",
+    "codes",
+    "auth",
+    "RequestException",
+    "ConnectionError",
+    "HTTPError",
+    "Timeout",
+    "ConnectTimeout",
+    "ReadTimeout",
+    "TooManyRedirects",
+    "URLRequired",
+    "JSONDecodeError",
+    "InvalidURL",
+    "InvalidSchema",
+    "MissingSchema",
+    "InvalidHeader",
+    "ChunkedEncodingError",
+    "ContentDecodingError",
+    "SSLError",
+    "ProxyError",
+    "StreamConsumedError",
+    "RetryError",
+    "InvalidJSONError",
+    "__version__",
+    "HTTPBasicAuth",
+    "AuthBase",
+    "status_codes",
 ];
 const REQUESTS_EXC: &[&str] = &[
-    "RequestException", "ConnectionError", "HTTPError", "Timeout", "ConnectTimeout", "ReadTimeout", "TooManyRedirects", "URLRequired",
-    "JSONDecodeError", "InvalidURL", "InvalidSchema", "MissingSchema", "InvalidHeader", "ChunkedEncodingError", "ContentDecodingError",
-    "SSLError", "ProxyError", "StreamConsumedError", "RetryError", "InvalidJSONError",
+    "RequestException",
+    "ConnectionError",
+    "HTTPError",
+    "Timeout",
+    "ConnectTimeout",
+    "ReadTimeout",
+    "TooManyRedirects",
+    "URLRequired",
+    "JSONDecodeError",
+    "InvalidURL",
+    "InvalidSchema",
+    "MissingSchema",
+    "InvalidHeader",
+    "ChunkedEncodingError",
+    "ContentDecodingError",
+    "SSLError",
+    "ProxyError",
+    "StreamConsumedError",
+    "RetryError",
+    "InvalidJSONError",
 ];
 const REQUESTS_LACKS: &[&str] = &[
-    ".raw", ".mount(", "files=", "cert=", "hooks=", "proxies=", ".prepare_request(", ".send(", ".adapters", ".merge_environment_settings(",
-    ".cookies.set(", ".connection", ".get_adapter(", ".resolve_redirects(", ".rebuild_",
+    ".raw",
+    ".mount(",
+    "files=",
+    "cert=",
+    "hooks=",
+    "proxies=",
+    ".prepare_request(",
+    ".send(",
+    ".adapters",
+    ".merge_environment_settings(",
+    ".cookies.set(",
+    ".connection",
+    ".get_adapter(",
+    ".resolve_redirects(",
+    ".rebuild_",
 ];
 const OWN_HTTPX: &[&str] = &[
-    "get", "post", "put", "patch", "delete", "head", "options", "request", "stream", "Client", "AsyncClient", "Response", "Request",
-    "Headers", "URL", "QueryParams", "Timeout", "codes", "BasicAuth", "Auth", "HTTPError", "RequestError", "TransportError",
-    "TimeoutException", "ConnectTimeout", "ReadTimeout", "WriteTimeout", "PoolTimeout", "NetworkError", "ConnectError", "ReadError",
-    "WriteError", "CloseError", "ProtocolError", "RemoteProtocolError", "LocalProtocolError", "ProxyError", "UnsupportedProtocol",
-    "DecodingError", "TooManyRedirects", "HTTPStatusError", "InvalidURL", "StreamError", "StreamConsumed", "StreamClosed",
-    "ResponseNotRead", "RequestNotRead", "__version__", "Cookies", "Limits", "Proxy", "USE_CLIENT_DEFAULT", "CookieConflict",
-    "DEFAULT_TIMEOUT_CONFIG", "DEFAULT_LIMITS", "DEFAULT_MAX_REDIRECTS", "ByteStream", "__title__",
+    "get",
+    "post",
+    "put",
+    "patch",
+    "delete",
+    "head",
+    "options",
+    "request",
+    "stream",
+    "Client",
+    "AsyncClient",
+    "Response",
+    "Request",
+    "Headers",
+    "URL",
+    "QueryParams",
+    "Timeout",
+    "codes",
+    "BasicAuth",
+    "Auth",
+    "HTTPError",
+    "RequestError",
+    "TransportError",
+    "TimeoutException",
+    "ConnectTimeout",
+    "ReadTimeout",
+    "WriteTimeout",
+    "PoolTimeout",
+    "NetworkError",
+    "ConnectError",
+    "ReadError",
+    "WriteError",
+    "CloseError",
+    "ProtocolError",
+    "RemoteProtocolError",
+    "LocalProtocolError",
+    "ProxyError",
+    "UnsupportedProtocol",
+    "DecodingError",
+    "TooManyRedirects",
+    "HTTPStatusError",
+    "InvalidURL",
+    "StreamError",
+    "StreamConsumed",
+    "StreamClosed",
+    "ResponseNotRead",
+    "RequestNotRead",
+    "__version__",
+    "Cookies",
+    "Limits",
+    "Proxy",
+    "USE_CLIENT_DEFAULT",
+    "CookieConflict",
+    "DEFAULT_TIMEOUT_CONFIG",
+    "DEFAULT_LIMITS",
+    "DEFAULT_MAX_REDIRECTS",
+    "ByteStream",
+    "__title__",
+];
+// What src/dynpy/py/pydantic.py has, and what it lacks.
+const OWN_PYDANTIC: &[&str] = &[
+    "BaseModel",
+    "Field",
+    "ConfigDict",
+    "ValidationError",
+    "field_validator",
+    "model_validator",
+    "computed_field",
+    "PrivateAttr",
+    "ValidationInfo",
+    "PydanticUserError",
+    "PydanticSchemaGenerationError",
+    "Strict",
+    "AfterValidator",
+    "BeforeValidator",
+    "PlainValidator",
+    "WrapValidator",
+    "PositiveInt",
+    "NegativeInt",
+    "NonNegativeInt",
+    "NonPositiveInt",
+    "PositiveFloat",
+    "NegativeFloat",
+    "NonNegativeFloat",
+    "NonPositiveFloat",
+    "FiniteFloat",
+    "StrictInt",
+    "StrictFloat",
+    "StrictStr",
+    "StrictBool",
+    "StrictBytes",
+    "VERSION",
+    "__version__",
+    "ValidatorFunctionWrapHandler",
+    "ModelWrapValidatorHandler",
+];
+const PYDANTIC_LACKS: &[&str] = &[
+    ".model_json_schema(",
+    ".model_rebuild(",
+    ".model_parametrized_name",
+    ".schema(",
+    ".schema_json(",
+    ".parse_obj(",
+    ".parse_raw(",
+    ".parse_file(",
+    ".from_orm(",
+    ".dict(",
+    ".json(",
+    ".update_forward_refs(",
+    ".__fields__",
+    ".__pydantic_",
+    ".model_fields_set.",
+    "discriminator=",
+    "alias_generator",
+    "union_mode=",
+    "json_schema_mode",
+    "serialize_as_any",
+    "round_trip=",
+    "fallback=",
+    "__get_pydantic_core_schema__",
+    "__get_pydantic_json_schema__",
+    "ser_json_",
+    "val_json_",
+    "regex_engine",
+    "coerce_numbers_to_str",
+    "plain_serializer",
+    "defer_build",
+    "protected_namespaces",
+    "context=",
+    "warnings=",
+    "validate_call",
+    "SkipValidation",
 ];
 const HTTPX_LACKS: &[&str] = &[
-    "http2=", "transport=", "mounts=", "proxies=", "cert=", "files=", "app=", ".extensions", ".sync_auth_flow", ".async_auth_flow",
+    "http2=",
+    "transport=",
+    "mounts=",
+    "proxies=",
+    "cert=",
+    "files=",
+    "app=",
+    ".extensions",
+    ".sync_auth_flow",
+    ".async_auth_flow",
 ];
 
 // Event loop methods Brevi's asyncio lacks (they reach sockets, files, threads, processes or signals).
 const ASYNCIO_LOOP_IO: &[&str] = &[
-    "run_in_executor", "set_default_executor", "getaddrinfo", "getnameinfo", "create_connection", "create_server", "create_unix_connection",
-    "create_unix_server", "create_datagram_endpoint", "connect_accepted_socket", "sendfile", "start_tls", "add_reader", "remove_reader",
-    "add_writer", "remove_writer", "sock_recv", "sock_recv_into", "sock_recvfrom", "sock_sendall", "sock_sendto", "sock_connect", "sock_accept",
-    "sock_sendfile", "connect_read_pipe", "connect_write_pipe", "subprocess_exec", "subprocess_shell", "add_signal_handler", "remove_signal_handler",
+    "run_in_executor",
+    "set_default_executor",
+    "getaddrinfo",
+    "getnameinfo",
+    "create_connection",
+    "create_server",
+    "create_unix_connection",
+    "create_unix_server",
+    "create_datagram_endpoint",
+    "connect_accepted_socket",
+    "sendfile",
+    "start_tls",
+    "add_reader",
+    "remove_reader",
+    "add_writer",
+    "remove_writer",
+    "sock_recv",
+    "sock_recv_into",
+    "sock_recvfrom",
+    "sock_sendall",
+    "sock_sendto",
+    "sock_connect",
+    "sock_accept",
+    "sock_sendfile",
+    "connect_read_pipe",
+    "connect_write_pipe",
+    "subprocess_exec",
+    "subprocess_shell",
+    "add_signal_handler",
+    "remove_signal_handler",
     "shutdown_default_executor",
 ];
 
@@ -303,6 +698,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "requests.exceptions" => Some("requests.exceptions"),
         "requests.auth" => Some("requests.auth"),
         "httpx" => Some("httpx"),
+        "pydantic" => Some("pydantic"),
         _ => None,
     }
 }
@@ -313,7 +709,10 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "os.path" => PURE_OS_PATH.contains(&attr),
         "random" => OWN_RANDOM.contains(&attr),
         "io" => attr == "StringIO",
-        "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
+        "textwrap" => matches!(
+            attr,
+            "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"
+        ),
         // all of argparse but FileType, which opens files
         "argparse" => attr != "FileType",
         "asyncio" => OWN_ASYNCIO.contains(&attr),
@@ -323,6 +722,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "requests.exceptions" => REQUESTS_EXC.contains(&attr),
         "requests.auth" => matches!(attr, "HTTPBasicAuth" | "AuthBase"),
         "httpx" => OWN_HTTPX.contains(&attr),
+        "pydantic" => OWN_PYDANTIC.contains(&attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -369,7 +769,11 @@ fn code_lines(src: &str) -> Vec<(usize, String)> {
                 '#' => break,
                 '\'' | '"' => {
                     let triple = cs[k..].starts_with(&[c, c, c]);
-                    let q: String = if triple { [c, c, c].iter().collect() } else { c.to_string() };
+                    let q: String = if triple {
+                        [c, c, c].iter().collect()
+                    } else {
+                        c.to_string()
+                    };
                     // A prefix just before: f / rf / fr keep the text.
                     let mut j = k;
                     while j > 0 && cs[j - 1].is_ascii_alphabetic() {
@@ -424,6 +828,8 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     let mut bad = vec![];
     let mut any = false;
     let mut imports = vec![];
+    // modules named by `from M import ...` (their names are not in `names`)
+    let mut from_mods: Vec<&'static str> = vec![];
     for (n, l) in &lines {
         for st in l.split(';') {
             let t = st.trim();
@@ -432,39 +838,73 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 for part in rest.split(',') {
                     let mut w = part.split_whitespace();
                     let m = w.next().unwrap_or("");
-                    let alias = if w.next() == Some("as") { w.next() } else { None };
-                    let Some(pm) = path_module(m).or_else(|| path_module(m.split('.').next().unwrap_or(""))) else { continue };
+                    let alias = if w.next() == Some("as") {
+                        w.next()
+                    } else {
+                        None
+                    };
+                    let Some(pm) =
+                        path_module(m).or_else(|| path_module(m.split('.').next().unwrap_or("")))
+                    else {
+                        continue;
+                    };
                     any = true;
                     match alias {
                         // `import os.path as p`: p is os.path.
                         Some(a) => drop(names.insert(a.to_string(), path_module(m).unwrap_or(pm))),
                         // `import os.path`: os is os.
-                        None => drop(names.insert(m.split('.').next().unwrap_or(m).to_string(), path_module(m.split('.').next().unwrap_or(m)).unwrap_or(pm))),
+                        None => drop(names.insert(
+                            m.split('.').next().unwrap_or(m).to_string(),
+                            path_module(m.split('.').next().unwrap_or(m)).unwrap_or(pm),
+                        )),
                     }
                 }
             } else if let Some(rest) = t.strip_prefix("from ") {
-                let Some((m, list)) = rest.split_once(" import ") else { continue };
+                let Some((m, list)) = rest.split_once(" import ") else {
+                    continue;
+                };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") {
+                if m.trim().starts_with("tiktoken.")
+                    || m.trim().starts_with("tokenizers.")
+                    || m.trim().starts_with("pydantic.")
+                    || m.trim() == "pydantic_core"
+                {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
                     continue;
                 }
-                let Some(pm) = path_module(m.trim()) else { continue };
+                let Some(pm) = path_module(m.trim()) else {
+                    continue;
+                };
                 imports.push(*n);
                 any = true;
-                for part in list.trim_matches(|c: char| c == '(' || c == ')' || c.is_whitespace()).split(',') {
+                from_mods.push(pm);
+                for part in list
+                    .trim_matches(|c: char| c == '(' || c == ')' || c.is_whitespace())
+                    .split(',')
+                {
                     let mut w = part.split_whitespace();
                     let a = w.next().unwrap_or("");
-                    let bind = if w.next() == Some("as") { w.next().unwrap_or(a) } else { a };
+                    let bind = if w.next() == Some("as") {
+                        w.next().unwrap_or(a)
+                    } else {
+                        a
+                    };
                     if a.is_empty() {
                         continue;
                     }
                     if pm == "os" && a == "path" {
                         names.insert(bind.to_string(), "os.path");
                     } else if !pure_attr(pm, a) {
-                        bad.push((*n, if a == "*" { format!("from {pm} import *") } else { format!("{pm}.{a}") }));
+                        bad.push((
+                            *n,
+                            if a == "*" {
+                                format!("from {pm} import *")
+                            } else {
+                                format!("{pm}.{a}")
+                            },
+                        ));
                     }
                 }
             }
@@ -473,43 +913,67 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     if !any {
         return None;
     }
-    if names.values().any(|m| *m == "asyncio") {
+    let uses = |m: &str| {
+        names
+            .values()
+            .chain(from_mods.iter())
+            .any(|x| x.starts_with(m))
+    };
+    if uses("asyncio") {
         for (n, l) in &lines {
-            if let Some(m) = ASYNCIO_LOOP_IO.iter().find(|m| l.contains(&format!(".{m}("))) {
+            if let Some(m) = ASYNCIO_LOOP_IO
+                .iter()
+                .find(|m| l.contains(&format!(".{m}(")))
+            {
                 bad.push((*n, format!("asyncio loop.{m}")));
             }
         }
     }
-    if names.values().any(|m| *m == "tiktoken") {
+    if uses("tiktoken") {
         for (n, l) in &lines {
             if let Some(m) = TIKTOKEN_LACKS.iter().find(|m| l.contains(&format!(".{m}"))) {
                 bad.push((*n, format!("tiktoken Encoding.{m}")));
             }
         }
     }
-    if names.values().any(|m| *m == "tokenizers") {
+    if uses("tokenizers") {
         for (n, l) in &lines {
             let hit = TOKENIZERS_LACKS.iter().find(|m| {
                 let pat = format!(".{m}");
-                l.match_indices(&pat).any(|(i, _)| !l[i + pat.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+                l.match_indices(&pat).any(|(i, _)| {
+                    !l[i + pat.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+                })
             });
             if let Some(m) = hit {
                 bad.push((*n, format!("tokenizers .{m}")));
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS)] {
-        if names.values().any(|x| x.starts_with(m)) {
+    for (m, lacks) in [
+        ("requests", REQUESTS_LACKS),
+        ("httpx", HTTPX_LACKS),
+        ("pydantic", PYDANTIC_LACKS),
+    ] {
+        if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
-                    bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
+                    bad.push((
+                        *n,
+                        format!(
+                            "{m} {}",
+                            x.trim_matches(|c| c == '.' || c == '(' || c == '=')
+                        ),
+                    ));
                 }
             }
         }
     }
     // argparse's `@file` arguments read files; Brevi's copy has no way to.
     if names.values().any(|m| *m == "argparse") {
-        if let Some((n, _)) = lines.iter().find(|(_, l)| l.contains("fromfile_prefix_chars")) {
+        if let Some((n, _)) = lines
+            .iter()
+            .find(|(_, l)| l.contains("fromfile_prefix_chars"))
+        {
             bad.push((*n, "argparse fromfile_prefix_chars".into()));
         }
     }
@@ -588,7 +1052,10 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     for it in items {
         match it {
             Item::Fn { body, .. } | Item::Test { body, .. } => expr(body, &mut uses),
-            Item::Type { fields, .. } => fields.iter().filter_map(|f| f.default.as_ref()).for_each(|e| expr(e, &mut uses)),
+            Item::Type { fields, .. } => fields
+                .iter()
+                .filter_map(|f| f.default.as_ref())
+                .for_each(|e| expr(e, &mut uses)),
             Item::Enum { .. } => {}
         }
     }
@@ -610,10 +1077,18 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     // os, os.path and pathlib are allowed for their path functions only (see path_uses).
     let paths = path_uses(src);
     for (line, m) in crate::pybridge::bridged_imports(src) {
-        if paths.is_some() && path_module(&m).or_else(|| path_module(m.split('.').next().unwrap_or(""))).is_some() {
+        if paths.is_some()
+            && path_module(&m)
+                .or_else(|| path_module(m.split('.').next().unwrap_or("")))
+                .is_some()
+        {
             continue;
         }
-        uses.push((line, "native", format!("import {m} (a Python library, run by CPython)")));
+        uses.push((
+            line,
+            "native",
+            format!("import {m} (a Python library, run by CPython)"),
+        ));
     }
     // Brevi's requests and httpx reach the network.
     for (line, m) in crate::pybridge::bridged_imports(src) {
@@ -628,18 +1103,39 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     let mut seen = Vec::new();
     let mut errs = Vec::new();
     for (line, cap, what) in uses {
-        let module = if cap == "native" { use_module(&what) } else { None };
-        let py_granted = module.as_ref().is_some_and(|m| allowed.iter().any(|a| a.strip_prefix("py:") == Some(m.as_str())));
+        let module = if cap == "native" {
+            use_module(&what)
+        } else {
+            None
+        };
+        let py_granted = module.as_ref().is_some_and(|m| {
+            allowed
+                .iter()
+                .any(|a| a.strip_prefix("py:") == Some(m.as_str()))
+        });
         let net_granted = cap == "net" && allowed.iter().any(|a| a.starts_with("net:"));
-        if allowed.iter().any(|a| a == cap) || py_granted || net_granted || seen.contains(&(line, cap)) {
+        if allowed.iter().any(|a| a == cap)
+            || py_granted
+            || net_granted
+            || seen.contains(&(line, cap))
+        {
             continue;
         }
         seen.push((line, cap));
         let add = grant_hint(cap, module.as_deref());
         let fix = if what.starts_with("random.") {
-            format!("Brevi's own random has {}; for the rest, {add}", OWN_RANDOM.join(", "))
-        } else if what.starts_with("os") || what.starts_with("pathlib") || what.starts_with("from os") || what.starts_with("from pathlib") {
-            format!("without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); {add}")
+            format!(
+                "Brevi's own random has {}; for the rest, {add}",
+                OWN_RANDOM.join(", ")
+            )
+        } else if what.starts_with("os")
+            || what.starts_with("pathlib")
+            || what.starts_with("from os")
+            || what.starts_with("from pathlib")
+        {
+            format!(
+                "without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); {add}"
+            )
         } else {
             add
         };
@@ -668,8 +1164,16 @@ fn expr(e: &Expr, out: &mut Vec<(usize, &'static str, String)>) {
             expr(k, out);
             expr(v, out)
         }),
-        Expr::Unary(_, x) | Expr::Field(x, _) | Expr::TupleField(x, _) | Expr::Lambda(_, x) | Expr::Try(x) => expr(x, out),
-        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::While(a, b) | Expr::Range(a, b) | Expr::For(_, a, b) => {
+        Expr::Unary(_, x)
+        | Expr::Field(x, _)
+        | Expr::TupleField(x, _)
+        | Expr::Lambda(_, x)
+        | Expr::Try(x) => expr(x, out),
+        Expr::Binary(_, a, b)
+        | Expr::Index(a, b)
+        | Expr::While(a, b)
+        | Expr::Range(a, b)
+        | Expr::For(_, a, b) => {
             expr(a, out);
             expr(b, out)
         }
@@ -742,11 +1246,24 @@ mod tests {
     // and Brevi's own math and time, and open nothing.
     #[test]
     fn sandbox_modules_reach_nothing() {
-        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py")), ("textwrap", include_str!("dynpy/py/textwrap.py"))] {
+        for (name, src) in [
+            ("random", include_str!("dynpy/py/random.py")),
+            ("os", include_str!("dynpy/py/os.py")),
+            ("posixpath", include_str!("dynpy/py/posixpath.py")),
+            ("pathlib", include_str!("dynpy/py/pathlib.py")),
+            ("io", include_str!("dynpy/py/io.py")),
+            ("textwrap", include_str!("dynpy/py/textwrap.py")),
+        ] {
             for l in src.lines().map(str::trim) {
-                if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                if let Some(m) = l
+                    .strip_prefix("import ")
+                    .or_else(|| l.strip_prefix("from "))
+                {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["math", "time", "posixpath", "_brevi_mt"].contains(&m), "{name}.py imports {m}");
+                    assert!(
+                        ["math", "time", "posixpath", "_brevi_mt"].contains(&m),
+                        "{name}.py imports {m}"
+                    );
                 }
                 for bad in ["open(", "__import__", "exec(", "eval(", "getattr(", "sys."] {
                     assert!(!l.contains(bad), "{name}.py uses {bad}");
@@ -761,11 +1278,32 @@ mod tests {
     fn asyncio_reaches_nothing() {
         let src = include_str!("dynpy/py/asyncio.py");
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
-            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+            if let Some(m) = l
+                .strip_prefix("import ")
+                .or_else(|| l.strip_prefix("from "))
+            {
                 let m = m.split_whitespace().next().unwrap();
-                assert!(["_brevi_async", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
+                assert!(
+                    [
+                        "_brevi_async",
+                        "collections",
+                        "heapq",
+                        "math",
+                        "time",
+                        "sys"
+                    ]
+                    .contains(&m),
+                    "asyncio.py imports {m}"
+                );
             }
-            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess"] {
+            for bad in [
+                "open(",
+                "__import__",
+                "exec(",
+                "eval(",
+                "socket",
+                "subprocess",
+            ] {
                 assert!(!l.contains(bad), "asyncio.py uses {bad}");
             }
         }
@@ -776,10 +1314,25 @@ mod tests {
     fn tiktoken_reaches_nothing() {
         let src = include_str!("dynpy/py/tiktoken.py");
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
-            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
-                assert_eq!(m.split_whitespace().next().unwrap(), "_brevi_tok", "tiktoken.py imports {m}");
+            if let Some(m) = l
+                .strip_prefix("import ")
+                .or_else(|| l.strip_prefix("from "))
+            {
+                assert_eq!(
+                    m.split_whitespace().next().unwrap(),
+                    "_brevi_tok",
+                    "tiktoken.py imports {m}"
+                );
             }
-            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess", "Thread"] {
+            for bad in [
+                "open(",
+                "__import__",
+                "exec(",
+                "eval(",
+                "socket",
+                "subprocess",
+                "Thread",
+            ] {
                 assert!(!l.contains(bad), "tiktoken.py uses {bad}");
             }
         }
@@ -791,10 +1344,25 @@ mod tests {
     fn tokenizers_reaches_nothing() {
         let src = include_str!("dynpy/py/tokenizers.py");
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
-            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
-                assert_eq!(m.split_whitespace().next().unwrap(), "_brevi_hf", "tokenizers.py imports {m}");
+            if let Some(m) = l
+                .strip_prefix("import ")
+                .or_else(|| l.strip_prefix("from "))
+            {
+                assert_eq!(
+                    m.split_whitespace().next().unwrap(),
+                    "_brevi_hf",
+                    "tokenizers.py imports {m}"
+                );
             }
-            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess", "Thread"] {
+            for bad in [
+                "open(",
+                "__import__",
+                "exec(",
+                "eval(",
+                "socket",
+                "subprocess",
+                "Thread",
+            ] {
                 assert!(!l.contains(bad), "tokenizers.py uses {bad}");
             }
         }
@@ -807,19 +1375,54 @@ mod tests {
     fn http_copies_reach_only_brevi_net() {
         for (name, src) in [
             ("requests.py", include_str!("dynpy/py/requests.py")),
-            ("requests_exceptions.py", include_str!("dynpy/py/requests_exceptions.py")),
-            ("requests_auth.py", include_str!("dynpy/py/requests_auth.py")),
+            (
+                "requests_exceptions.py",
+                include_str!("dynpy/py/requests_exceptions.py"),
+            ),
+            (
+                "requests_auth.py",
+                include_str!("dynpy/py/requests_auth.py"),
+            ),
             ("httpx.py", include_str!("dynpy/py/httpx.py")),
             ("_brevi_http.py", include_str!("dynpy/py/_brevi_http.py")),
         ] {
             for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
-                if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                if let Some(m) = l
+                    .strip_prefix("import ")
+                    .or_else(|| l.strip_prefix("from "))
+                {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["_brevi_net", "_brevi_http", "requests", "asyncio", "base64", "datetime", "json", "time", "enum", "re"].contains(&m), "{name} imports {m}");
+                    assert!(
+                        [
+                            "_brevi_net",
+                            "_brevi_http",
+                            "requests",
+                            "asyncio",
+                            "base64",
+                            "datetime",
+                            "json",
+                            "time",
+                            "enum",
+                            "re"
+                        ]
+                        .contains(&m),
+                        "{name} imports {m}"
+                    );
                 }
-                for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess", "Thread", "os.environ"] {
+                for bad in [
+                    "open(",
+                    "__import__",
+                    "exec(",
+                    "eval(",
+                    "socket",
+                    "subprocess",
+                    "Thread",
+                    "os.environ",
+                ] {
                     // (as a name of its own: _brevi_net.open( is the checked connection)
-                    let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.'));
+                    let own = l.match_indices(bad).any(|(i, _)| {
+                        !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.')
+                    });
                     assert!(!own, "{name} uses {bad}");
                 }
             }
@@ -834,11 +1437,24 @@ mod tests {
     #[test]
     fn argparse_copy_reaches_nothing() {
         for l in include_str!("dynpy/py/argparse.py").lines().map(str::trim) {
-            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+            if let Some(m) = l
+                .strip_prefix("import ")
+                .or_else(|| l.strip_prefix("from "))
+            {
                 let m = m.split_whitespace().next().unwrap();
-                assert!(["os", "re", "sys", "textwrap", "_brevi_term"].contains(&m), "argparse.py imports {m}");
+                assert!(
+                    ["os", "re", "sys", "textwrap", "_brevi_term"].contains(&m),
+                    "argparse.py imports {m}"
+                );
             }
-            for bad in ["open(", "__import__", "exec(", "eval(", "_sys.stdin", "environ"] {
+            for bad in [
+                "open(",
+                "__import__",
+                "exec(",
+                "eval(",
+                "_sys.stdin",
+                "environ",
+            ] {
                 assert!(!l.contains(bad), "argparse.py uses {bad}");
             }
         }
@@ -847,21 +1463,38 @@ mod tests {
     // Grants come from the caller: --allow takes capability names, --allow-py module names (kept by package).
     #[test]
     fn caller_grants() {
-        assert_eq!(super::parse_grant(false, "read, write").unwrap(), ["read", "write"]);
+        assert_eq!(
+            super::parse_grant(false, "read, write").unwrap(),
+            ["read", "write"]
+        );
         assert_eq!(super::parse_grant(false, "net").unwrap(), ["net"]);
         assert!(super::parse_grant(false, "network").is_err());
-        assert_eq!(super::parse_net("API.example.com, localhost").unwrap(), ["net:api.example.com", "net:localhost"]);
+        assert_eq!(
+            super::parse_net("API.example.com, localhost").unwrap(),
+            ["net:api.example.com", "net:localhost"]
+        );
         assert!(super::parse_net("http://x.com").is_err());
         assert!(super::parse_net("127.0.0.1:80").is_err());
-        assert_eq!(super::parse_grant(true, "requests,google.genai").unwrap(), ["py:requests", "py:google"]);
+        assert_eq!(
+            super::parse_grant(true, "requests,google.genai").unwrap(),
+            ["py:requests", "py:google"]
+        );
         assert!(super::parse_grant(true, "os;rm").is_err());
         // Outside the sandbox the file's own allow lines hold it; under it they add nothing (no grant here).
-        let (g, errs) = super::held("# allow read
-x", Some(vec!["read".into()]), false);
+        let (g, errs) = super::held(
+            "# allow read
+x",
+            Some(vec!["read".into()]),
+            false,
+        );
         assert_eq!((g, errs.len()), (vec!["read".to_string()], 0));
-        let (g, errs) = super::held("# allow read
+        let (g, errs) = super::held(
+            "# allow read
 allow native
-x", Some(vec!["read".into(), "native".into()]), true);
+x",
+            Some(vec!["read".into(), "native".into()]),
+            true,
+        );
         assert!(g.is_empty());
         assert_eq!(errs.iter().map(|d| d.line).collect::<Vec<_>>(), [1, 2]);
     }
@@ -869,10 +1502,19 @@ x", Some(vec!["read".into(), "native".into()]), true);
     // `# allow read` counts only when the comment is nothing but capability names.
     #[test]
     fn comment_allow_lines() {
-        assert_eq!(super::split("# allow read, write\nprint(1)").1, Some(vec!["read".to_string(), "write".to_string()]));
-        assert_eq!(super::split("#allow native").1, Some(vec!["native".to_string()]));
+        assert_eq!(
+            super::split("# allow read, write\nprint(1)").1,
+            Some(vec!["read".to_string(), "write".to_string()])
+        );
+        assert_eq!(
+            super::split("#allow native").1,
+            Some(vec!["native".to_string()])
+        );
         assert_eq!(super::split("# allow me to explain\nprint(1)").1, None);
-        assert_eq!(super::split("allow read\nprint(1)").1, Some(vec!["read".to_string()]));
+        assert_eq!(
+            super::split("allow read\nprint(1)").1,
+            Some(vec!["read".to_string()])
+        );
         // The comment stays in the code (it is valid Python); the bare line is blanked.
         assert_eq!(super::split("# allow read\nx").0, "# allow read\nx");
     }
@@ -881,21 +1523,69 @@ x", Some(vec!["read".into(), "native".into()]), true);
     // alias, import form, or text in strings and comments.
     #[test]
     fn path_uses_names_io() {
-        let uses = |s: &str| super::path_uses(s).unwrap().into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+        let uses = |s: &str| {
+            super::path_uses(s)
+                .unwrap()
+                .into_iter()
+                .map(|(_, w)| w)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(super::path_uses("print(1)"), None);
-        assert!(uses("import os\nprint(os.path.join('a', 'b'), os.sep)  # os.system\ns = 'os.listdir'\n").is_empty());
+        assert!(
+            uses(
+                "import os\nprint(os.path.join('a', 'b'), os.sep)  # os.system\ns = 'os.listdir'\n"
+            )
+            .is_empty()
+        );
         assert!(uses("import os.path as p\nfrom pathlib import PurePath\nprint(p.basename('x'), PurePath('a'))\n").is_empty());
         assert_eq!(uses("import os as o\no.system('x')\n"), ["os.system"]);
-        assert_eq!(uses("from os import path, remove\npath.exists('x')\n"), ["os.remove", "os.path.exists"]);
-        assert_eq!(uses("import os\nf = getattr(os, 'system')\n"), ["os used as a value"]);
-        assert_eq!(uses("import os\nprint(f\"{os.getcwd()}\")\n"), ["os.getcwd"]);
+        assert_eq!(
+            uses("from os import path, remove\npath.exists('x')\n"),
+            ["os.remove", "os.path.exists"]
+        );
+        assert_eq!(
+            uses("import os\nf = getattr(os, 'system')\n"),
+            ["os used as a value"]
+        );
+        assert_eq!(
+            uses("import os\nprint(f\"{os.getcwd()}\")\n"),
+            ["os.getcwd"]
+        );
         assert_eq!(uses("from pathlib import Path\n"), ["pathlib.Path"]);
-        assert_eq!(uses("import pathlib\npathlib.Path('x').unlink()\n"), ["pathlib.Path"]);
+        assert_eq!(
+            uses("import pathlib\npathlib.Path('x').unlink()\n"),
+            ["pathlib.Path"]
+        );
         assert_eq!(uses("from os import *\n"), ["from os import *"]);
-        assert_eq!(uses("import os\nx = (os.environ\n     ['HOME'])\n"), ["os.environ"]);
-        assert_eq!(uses("import random\nrandom.seed(1)\nrandom.betavariate(1, 2)\n"), ["random.betavariate"]);
+        assert_eq!(
+            uses("import os\nx = (os.environ\n     ['HOME'])\n"),
+            ["os.environ"]
+        );
+        assert_eq!(
+            uses("import random\nrandom.seed(1)\nrandom.betavariate(1, 2)\n"),
+            ["random.betavariate"]
+        );
         assert!(uses("import argparse\np = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)\n").is_empty());
-        assert_eq!(uses("import argparse\np = argparse.ArgumentParser(fromfile_prefix_chars='@')\np.add_argument('f', type=argparse.FileType('r'))\n"), ["argparse fromfile_prefix_chars", "argparse.FileType"]);
+        // what Brevi's copies lack is found after `from M import ...` too
+        assert!(uses("from pydantic import BaseModel, Field\nclass M(BaseModel):\n    x: int = Field(ge=0)\n").is_empty());
+        assert_eq!(
+            uses(
+                "from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema()\n"
+            ),
+            ["pydantic model_json_schema"]
+        );
+        assert_eq!(
+            uses(
+                "from tokenizers import Tokenizer\nt = Tokenizer.from_file('t.json')\nt.save('u.json')\n"
+            ),
+            ["tokenizers .save"]
+        );
+        assert_eq!(
+            uses(
+                "import argparse\np = argparse.ArgumentParser(fromfile_prefix_chars='@')\np.add_argument('f', type=argparse.FileType('r'))\n"
+            ),
+            ["argparse fromfile_prefix_chars", "argparse.FileType"]
+        );
     }
 
     // A program that passes the check may be built over dynamic values (main.rs relies on it under --sandbox),
@@ -903,14 +1593,38 @@ x", Some(vec!["read".into(), "native".into()]), true);
     #[test]
     fn dynamic_runtime_reaches_nothing() {
         let rt = crate::dynpy::RUNTIME;
-        for bad in ["std::fs", "std::process::Command", "std::net", "std::env::var", "std::env::set", "File::", "libpython", "Py_Initialize", "dlopen", "#[link"] {
-            assert!(!rt.contains(bad), "the dynamic runtime uses {bad}: check it in caps.rs before --sandbox builds over it");
+        for bad in [
+            "std::fs",
+            "std::process::Command",
+            "std::net",
+            "std::env::var",
+            "std::env::set",
+            "File::",
+            "libpython",
+            "Py_Initialize",
+            "dlopen",
+            "#[link",
+        ] {
+            assert!(
+                !rt.contains(bad),
+                "the dynamic runtime uses {bad}: check it in caps.rs before --sandbox builds over it"
+            );
         }
         // C functions it declares: only the generator stacks' memory calls and the clock.
         for block in rt.split("extern \"C\" {").skip(1) {
             let decls = &block[..block.find('}').unwrap()];
             for d in decls.lines().map(str::trim).filter(|l| !l.is_empty()) {
-                assert!(["fn mmap(", "fn munmap(", "fn mprotect(", "fn clock_gettime("].iter().any(|ok| d.starts_with(ok)), "the dynamic runtime declares {d}");
+                assert!(
+                    [
+                        "fn mmap(",
+                        "fn munmap(",
+                        "fn mprotect(",
+                        "fn clock_gettime("
+                    ]
+                    .iter()
+                    .any(|ok| d.starts_with(ok)),
+                    "the dynamic runtime declares {d}"
+                );
             }
         }
     }

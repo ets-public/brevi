@@ -1,5 +1,4 @@
 mod alias;
-mod records;
 mod ast;
 mod bigint;
 mod caps;
@@ -8,30 +7,31 @@ mod dynpy;
 mod emit;
 mod ffi;
 mod gui;
+mod infer;
 mod json;
 mod lexer;
-mod moves;
-mod infer;
 mod mcp;
-mod proc;
 mod modules;
+mod moves;
 mod parser;
+mod patch;
+mod proc;
 mod pybridge;
 mod pydiag;
-mod patch;
-mod typed_guard;
-mod unicode_names;
+mod pygen;
 mod pysentinel;
 mod pystd;
-mod pygen;
-mod scoped;
+mod records;
 mod runcache;
+mod scoped;
+mod typed_guard;
+mod unicode_names;
 mod verify;
 
-use diag::{esc, Diag};
-use std::path::{Path, PathBuf};
+use diag::{Diag, esc};
 use std::io::Write;
-use std::process::{exit, Command};
+use std::path::{Path, PathBuf};
+use std::process::{Command, exit};
 
 const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
@@ -47,7 +47,11 @@ static EXPLAIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 fn guide_sections() -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vec![("Intro".into(), String::new())];
     let extra = |g: &'static str| g.lines().skip_while(|l| !l.starts_with("## "));
-    for l in GUIDE.lines().chain(extra(GUIDE_REF)).chain(extra(GUIDE_LIBS)) {
+    for l in GUIDE
+        .lines()
+        .chain(extra(GUIDE_REF))
+        .chain(extra(GUIDE_LIBS))
+    {
         if let Some(h) = l.strip_prefix("## ") {
             out.push((h.trim().to_string(), String::new()));
         }
@@ -80,13 +84,18 @@ pub fn guide_lookup(q: &str) -> String {
     // A reader of `brevi guide WORD` has read the core guide already, so when the reference or
     // libraries mention the word, only those lines are shown.
     let core = GUIDE.lines().filter(|l| l.starts_with("## ")).count() + 1;
-    let in_extra = secs[core..].iter().any(|(_, body)| body.lines().any(|l| !l.starts_with('#') && hit(l)));
+    let in_extra = secs[core..]
+        .iter()
+        .any(|(_, body)| body.lines().any(|l| !l.starts_with('#') && hit(l)));
     let mut out = String::new();
     for (i, (name, body)) in secs.iter().enumerate() {
         if in_extra && i < core {
             continue;
         }
-        let lines: Vec<&str> = body.lines().filter(|l| !l.starts_with('#') && hit(l)).collect();
+        let lines: Vec<&str> = body
+            .lines()
+            .filter(|l| !l.starts_with('#') && hit(l))
+            .collect();
         if !lines.is_empty() {
             out.push_str(&format!("[{name}]\n"));
             for l in lines {
@@ -111,9 +120,17 @@ fn explain(msg: &str, fix: &str) {
             words.push(w.to_string());
         }
     }
-    const SKIP: &[&str] = &["is", "the", "a", "an", "of", "for", "to", "in", "on", "it", "or", "and", "with", "write", "did", "you", "mean", "here", "this", "use", "not", "be", "can", "found", "expected", "type", "value", "line", "so", "needs", "inside", "function", "used", "valid", "methods", "unknown", "method", "set", "x", "xs", "real", "has", "no", "named"];
+    const SKIP: &[&str] = &[
+        "is", "the", "a", "an", "of", "for", "to", "in", "on", "it", "or", "and", "with", "write",
+        "did", "you", "mean", "here", "this", "use", "not", "be", "can", "found", "expected",
+        "type", "value", "line", "so", "needs", "inside", "function", "used", "valid", "methods",
+        "unknown", "method", "set", "x", "xs", "real", "has", "no", "named",
+    ];
     let mut shown = 0;
-    for w in words.iter().filter(|w| !SKIP.contains(&w.as_str()) && !w.chars().all(|c| c.is_ascii_digit())) {
+    for w in words
+        .iter()
+        .filter(|w| !SKIP.contains(&w.as_str()) && !w.chars().all(|c| c.is_ascii_digit()))
+    {
         let g = guide_lookup(w);
         if g.is_empty() || g.lines().count() > 8 {
             continue;
@@ -147,15 +164,24 @@ fn main() {
         mcp::serve(&argv[1..]);
         return;
     }
-    if matches!(argv.first().map(|a| a.as_str()), Some("--help" | "-h" | "help")) {
+    if matches!(
+        argv.first().map(|a| a.as_str()),
+        Some("--help" | "-h" | "help")
+    ) {
         println!("{USAGE}");
         return;
     }
-    if matches!(argv.first().map(|a| a.as_str()), Some("--version" | "version")) {
+    if matches!(
+        argv.first().map(|a| a.as_str()),
+        Some("--version" | "version")
+    ) {
         println!("brevi {}", env!("CARGO_PKG_VERSION"));
         return;
     }
-    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "test" | "check" | "fix" | "verify")) {
+    if matches!(
+        argv.first().map(|a| a.as_str()),
+        Some("build" | "run" | "test" | "check" | "fix" | "verify")
+    ) {
         // Find rustc and its version while the front end works.
         std::thread::spawn(|| {
             rustc_version();
@@ -166,20 +192,34 @@ fn main() {
     }
     if argv.first().map(|a| a.as_str()) == Some("guide") {
         let q = argv[1..].join(" ");
-        let g = if q.is_empty() { GUIDE.to_string() } else { guide_lookup(&q) };
+        let g = if q.is_empty() {
+            GUIDE.to_string()
+        } else {
+            guide_lookup(&q)
+        };
         if g.is_empty() {
             let names: Vec<String> = guide_sections().into_iter().map(|(n, _)| n).collect();
-            println!("{{\"msg\":\"nothing in the guide for {}\",\"fix\":\"sections: {}\"}}", esc(&q), esc(&names.join(", ")));
+            println!(
+                "{{\"msg\":\"nothing in the guide for {}\",\"fix\":\"sections: {}\"}}",
+                esc(&q),
+                esc(&names.join(", "))
+            );
             exit(1);
         }
         print!("{g}");
         return;
     }
     if argv.first().map(|a| a.as_str()) == Some("patch") && argv.len() == 3 {
-        let read = |f: &str| std::fs::read_to_string(f).unwrap_or_else(|e| {
-            println!("{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}", esc(f), esc(&e.to_string()));
-            exit(1);
-        });
+        let read = |f: &str| {
+            std::fs::read_to_string(f).unwrap_or_else(|e| {
+                println!(
+                    "{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}",
+                    esc(f),
+                    esc(&e.to_string())
+                );
+                exit(1);
+            })
+        };
         match patch::patch(&read(&argv[1]), &read(&argv[2])) {
             Ok((out, done)) => {
                 std::fs::write(&argv[1], out).unwrap_or_else(|e| {
@@ -189,7 +229,10 @@ fn main() {
                 println!("{{\"patched\":\"{}\"}}", esc(&done.join(", ")));
             }
             Err(m) => {
-                println!("{{\"msg\":\"{}\",\"fix\":\"a patch holds whole fn, type, enum or test items\"}}", esc(&m));
+                println!(
+                    "{{\"msg\":\"{}\",\"fix\":\"a patch holds whole fn, type, enum or test items\"}}",
+                    esc(&m)
+                );
                 exit(1);
             }
         }
@@ -199,28 +242,56 @@ fn main() {
         argv.remove(i);
         EXPLAIN.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
+    let fast = argv
+        .iter()
+        .position(|a| a == "--fast")
+        .map(|i| argv.remove(i))
+        .is_some();
     let dash0 = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
-    if argv[..dash0].iter().position(|a| a == "--no-cache").map(|i| argv.remove(i)).is_some() {
+    if argv[..dash0]
+        .iter()
+        .position(|a| a == "--no-cache")
+        .map(|i| argv.remove(i))
+        .is_some()
+    {
         runcache::turn_off();
     }
-    let mut sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    let mut sandbox = argv
+        .iter()
+        .position(|a| a == "--sandbox")
+        .map(|i| argv.remove(i))
+        .is_some();
     // --allow read,write,net,native, --allow-net HOSTS and --allow-py MODULES: what the caller grants a sandboxed program (caps.rs).
     // Either implies --sandbox.
     let mut grant: Vec<String> = vec![];
     loop {
         let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
-        let Some(i) = argv[..dash].iter().position(|a| a == "--allow" || a == "--allow-py" || a == "--allow-net" || a.starts_with("--allow=") || a.starts_with("--allow-py=") || a.starts_with("--allow-net=")) else { break };
+        let Some(i) = argv[..dash].iter().position(|a| {
+            a == "--allow"
+                || a == "--allow-py"
+                || a == "--allow-net"
+                || a.starts_with("--allow=")
+                || a.starts_with("--allow-py=")
+                || a.starts_with("--allow-net=")
+        }) else {
+            break;
+        };
         let flag = argv.remove(i);
         let (name, value) = match flag.split_once('=') {
             Some((n, v)) => (n.to_string(), v.to_string()),
             None if i < dash - 1 => (flag.clone(), argv.remove(i)),
             None => {
-                eprintln!("{flag} needs a value: --allow read,write, --allow-py requests or --allow-net api.example.com");
+                eprintln!(
+                    "{flag} needs a value: --allow read,write, --allow-py requests or --allow-net api.example.com"
+                );
                 exit(2);
             }
         };
-        let parsed = if name == "--allow-net" { caps::parse_net(&value) } else { caps::parse_grant(name == "--allow-py", &value) };
+        let parsed = if name == "--allow-net" {
+            caps::parse_net(&value)
+        } else {
+            caps::parse_grant(name == "--allow-py", &value)
+        };
         match parsed {
             Ok(g) => grant.extend(g),
             Err(m) => {
@@ -236,16 +307,38 @@ fn main() {
     if sandbox {
         caps::SANDBOX.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let traceback = argv.iter().position(|a| a == "--").map_or(argv.len(), |d| d);
-    if argv[..traceback].iter().position(|a| a == "--traceback").map(|i| argv.remove(i)).is_some() || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0") {
+    let traceback = argv
+        .iter()
+        .position(|a| a == "--")
+        .map_or(argv.len(), |d| d);
+    if argv[..traceback]
+        .iter()
+        .position(|a| a == "--traceback")
+        .map(|i| argv.remove(i))
+        .is_some()
+        || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0")
+    {
         TRACEBACK.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let standalone = argv.iter().position(|a| a == "--standalone").map(|i| argv.remove(i)).is_some();
-    if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
+    let standalone = argv
+        .iter()
+        .position(|a| a == "--standalone")
+        .map(|i| argv.remove(i))
+        .is_some();
+    if argv
+        .iter()
+        .position(|a| a == "--window")
+        .map(|i| argv.remove(i))
+        .is_some()
+    {
         gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
-    let native = argv[..dash].iter().position(|a| a == "--native").map(|i| argv.remove(i)).is_some()
+    let native = argv[..dash]
+        .iter()
+        .position(|a| a == "--native")
+        .map(|i| argv.remove(i))
+        .is_some()
         || std::env::var("BREVI_NATIVE").map_or(false, |v| !v.is_empty() && v != "0");
     let (cmd, file) = match (argv.first(), argv.get(1)) {
         (Some(c), Some(f)) => (c.as_str(), f.clone()),
@@ -259,9 +352,23 @@ fn main() {
         PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     // An unchanged program is not built again: check, build and strict runs replay the build from the cache.
-    if matches!(cmd, "check" | "build" | "run") && !(cmd == "run" && file.ends_with(".py") && !native) && !standalone && runcache::on() && !runcache::in_child() {
+    if matches!(cmd, "check" | "build" | "run")
+        && !(cmd == "run" && file.ends_with(".py") && !native)
+        && !standalone
+        && runcache::on()
+        && !runcache::in_child()
+    {
         let mut flags: Vec<String> = vec![];
-        for (on, f) in [(fast, "--fast"), (sandbox, "--sandbox"), (gui::window(), "--window"), (EXPLAIN.load(std::sync::atomic::Ordering::Relaxed), "--explain"), (native, "--native")] {
+        for (on, f) in [
+            (fast, "--fast"),
+            (sandbox, "--sandbox"),
+            (gui::window(), "--window"),
+            (
+                EXPLAIN.load(std::sync::atomic::Ordering::Relaxed),
+                "--explain",
+            ),
+            (native, "--native"),
+        ] {
             if on {
                 flags.push(f.to_string());
             }
@@ -270,8 +377,12 @@ fn main() {
         cached(cmd, &file, &argv, &flags);
     }
     // Capabilities first: a refusal here is final, before any dynamic, pybridge or python3 path can run.
-    let held = matches!(cmd, "build" | "run" | "check" | "emit" | "test" | "fix") && hold_to_caps(&file, sandbox);
-    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "emit") && std::env::var("BREVI_DYN").map_or(false, |v| v == "1") {
+    let held = matches!(cmd, "build" | "run" | "check" | "emit" | "test" | "fix")
+        && hold_to_caps(&file, sandbox);
+    if file.ends_with(".py")
+        && matches!(cmd, "build" | "run" | "emit")
+        && std::env::var("BREVI_DYN").map_or(false, |v| v == "1")
+    {
         dyn_cmd(cmd, &file, &argv);
     }
     if cmd == "run" && file.ends_with(".py") && !native {
@@ -284,12 +395,26 @@ fn main() {
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
     let mut unread = None;
-    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
+    if file.ends_with(".py")
+        && matches!(cmd, "build" | "run" | "check" | "emit")
+        && std::env::var("BREVI_DYN").map_or(true, |v| v != "0")
+    {
         let guard;
         (guard, unread) = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
-            let typed = unread.as_ref().map_or("typed".to_string(), |(l, w, _)| format!("unread {l}: {w}"));
-            println!("{}", guard.as_ref().map_or(typed, |(l, w, _, k)| if k.is_empty() { format!("dyn {l}: {w}") } else { format!("typed if {}: {l}: {w}", k.join(" ")) }));
+            let typed = unread
+                .as_ref()
+                .map_or("typed".to_string(), |(l, w, _)| format!("unread {l}: {w}"));
+            println!(
+                "{}",
+                guard
+                    .as_ref()
+                    .map_or(typed, |(l, w, _, k)| if k.is_empty() {
+                        format!("dyn {l}: {w}")
+                    } else {
+                        format!("typed if {}: {l}: {w}", k.join(" "))
+                    })
+            );
             exit(0);
         }
         // Set walks on names that may hold strings: the typed build tries, with rustc checking each name.
@@ -306,20 +431,36 @@ fn main() {
         }
     }
     let release = argv.iter().any(|a| a == "--release");
-    let out_path = argv.iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
-    let prog_args: Vec<String> = argv.iter().position(|a| a == "--").map(|i| argv[i + 1..].to_vec()).unwrap_or_default();
+    let out_path = argv
+        .iter()
+        .position(|a| a == "-o")
+        .and_then(|i| argv.get(i + 1))
+        .map(PathBuf::from);
+    let prog_args: Vec<String> = argv
+        .iter()
+        .position(|a| a == "--")
+        .map(|i| argv[i + 1..].to_vec())
+        .unwrap_or_default();
 
     let src = match std::fs::read_to_string(&file) {
         Ok(s) => s,
         Err(e) => {
-            println!("{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}", esc(&file), esc(&e.to_string()));
+            println!(
+                "{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}",
+                esc(&file),
+                esc(&e.to_string())
+            );
             exit(1);
         }
     };
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
     let src = modules::fill_file_name(&src, Path::new(&file));
-    let src = if file.ends_with(".py") { pystd::rewrite(&pysentinel::rewrite(&pygen::rewrite(&src))) } else { src };
+    let src = if file.ends_with(".py") {
+        pystd::rewrite(&pysentinel::rewrite(&pygen::rewrite(&src)))
+    } else {
+        src
+    };
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
@@ -345,22 +486,42 @@ fn main() {
     let foreign = ffi::split(&src).1;
     let mut deps = ffi::all_deps(&foreign);
     // A tkinter program built with --window draws through eframe.
-    if gui::window() && src.lines().any(|l| (l.starts_with("import tkinter") || l.starts_with("from tkinter")) && !deps.iter().any(|d| d.name == "eframe")) {
+    if gui::window()
+        && src.lines().any(|l| {
+            (l.starts_with("import tkinter") || l.starts_with("from tkinter"))
+                && !deps.iter().any(|d| d.name == "eframe")
+        })
+    {
         deps.push(gui::window_dep());
     }
     DEPS.set(deps).ok();
     RUST_LINES.set(foreign.rust_lines.clone()).ok();
     // A Python file is never "fixed": CPython would not rename `s.rpartition` to `s.partition`, so a name
     // the typed build lacks sends the file to the dynamic build instead.
-    let (src, fixed) = if PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && cmd != "fix" { (src, vec![]) } else { autofix(&src, cmd == "fix") };
+    let (src, fixed) = if PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && cmd != "fix" {
+        (src, vec![])
+    } else {
+        autofix(&src, cmd == "fix")
+    };
     for (line, old, new) in &fixed {
-        eprintln!("{}", at(&format!("{{\"line\":{line},\"fixed\":\"{} -> {}\"}}", esc(old), esc(new))));
+        eprintln!(
+            "{}",
+            at(&format!(
+                "{{\"line\":{line},\"fixed\":\"{} -> {}\"}}",
+                esc(old),
+                esc(new)
+            ))
+        );
     }
     if cmd == "fix" {
         if !fixed.is_empty() {
             let segs = SEGS.get().cloned().unwrap_or_default();
             let src = caps::restore(&with_allow, &src);
-            let parts = if segs.len() > 1 { modules::split_back(&segs, &src) } else { vec![(PathBuf::from(&file), src.clone())] };
+            let parts = if segs.len() > 1 {
+                modules::split_back(&segs, &src)
+            } else {
+                vec![(PathBuf::from(&file), src.clone())]
+            };
             for (path, text) in parts {
                 if std::fs::read_to_string(&path).ok().as_deref() == Some(text.as_str()) {
                     continue;
@@ -391,10 +552,24 @@ fn main() {
             // it refuses goes on below, keeping its own errors.)
             if let Some((line, why, gfile)) = &unread {
                 // By now errors are moved from the joined source to their file: give the joined line.
-                let seg = SEGS.get().and_then(|s| s.iter().skip(1).find(|g| g.path.file_name() == gfile.file_name()));
-                guard_refusal(cmd, &file, &argv, seg.map_or(*line, |g| g.start + line - 1), why, gfile);
+                let seg = SEGS.get().and_then(|s| {
+                    s.iter()
+                        .skip(1)
+                        .find(|g| g.path.file_name() == gfile.file_name())
+                });
+                guard_refusal(
+                    cmd,
+                    &file,
+                    &argv,
+                    seg.map_or(*line, |g| g.start + line - 1),
+                    why,
+                    gfile,
+                );
             }
-            if emit::RAND_ORDER.get().is_some_and(|ns| ns.iter().any(|k| !r.contains(&format!("/*axr:{k}*/")))) {
+            if emit::RAND_ORDER
+                .get()
+                .is_some_and(|ns| ns.iter().any(|k| !r.contains(&format!("/*axr:{k}*/"))))
+            {
                 soft_fail(cmd);
             }
             r
@@ -405,7 +580,9 @@ fn main() {
             // reported, not handed to the dynamic build, where it would only show when the line ran.
             let dir = Path::new(&file).parent().unwrap_or(Path::new("."));
             let sure = if file.ends_with(".py") {
-                Some(pydiag::definite(&diags, &src, dir)).filter(|s| !s.is_empty()).unwrap_or_else(|| pydiag::scan(&src, dir))
+                Some(pydiag::definite(&diags, &src, dir))
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| pydiag::scan(&src, dir))
             } else {
                 vec![]
             };
@@ -414,7 +591,14 @@ fn main() {
                 exit_sure();
             }
             let (line, func, why, extra) = typed_refusal(&diags, &src);
-            if dyn_ok && dyn_fallback(cmd, &file, &argv, (String::new(), line, func, why, extra, true)) {
+            if dyn_ok
+                && dyn_fallback(
+                    cmd,
+                    &file,
+                    &argv,
+                    (String::new(), line, func, why, extra, true),
+                )
+            {
                 exit(0);
             }
             dyn_blocked_note();
@@ -426,11 +610,20 @@ fn main() {
     };
     // Typed only with CPython running some of Brevi's own modules' functions (math.gcd, itertools.product):
     // the dynamic build has them natively, so it goes first (no libpython at run time, fine under --sandbox).
-    if dyn_ok && !forced_dyn() && pybridge::active() && (pybridge::stdlib_only() || pybridge::numpy_only()) {
+    if dyn_ok
+        && !forced_dyn()
+        && pybridge::active()
+        && (pybridge::stdlib_only() || pybridge::numpy_only())
+    {
         let why = format!("{} not in the typed build", pybridge::uses().join(", "));
         // Without CPython: one that needs it anyway is better built typed.
         dynpy::NO_BRIDGE.store(true, std::sync::atomic::Ordering::Relaxed);
-        if dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
+        if dyn_fallback(
+            cmd,
+            &file,
+            &argv,
+            (String::new(), 0, None, why, String::new(), false),
+        ) {
             exit(0);
         }
         dynpy::NO_BRIDGE.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -439,11 +632,24 @@ fn main() {
     if dyn_ok {
         DEFER_REPORT.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let mut versions = Versions { src: &src, first: rust.clone() };
+    let mut versions = Versions {
+        src: &src,
+        first: rust.clone(),
+    };
     let fail = |cmd: &str| -> ! {
         soft_fail(cmd);
-        let why = DEFERRED.lock().unwrap().as_ref().map_or_else(|| "the typed build's Rust did not compile".to_string(), |(_, e)| rustc_first_error(e));
-        if dyn_ok && dyn_fallback(cmd, &file, &argv, (String::new(), 0, None, why, String::new(), false)) {
+        let why = DEFERRED.lock().unwrap().as_ref().map_or_else(
+            || "the typed build's Rust did not compile".to_string(),
+            |(_, e)| rustc_first_error(e),
+        );
+        if dyn_ok
+            && dyn_fallback(
+                cmd,
+                &file,
+                &argv,
+                (String::new(), 0, None, why, String::new(), false),
+            )
+        {
             exit(0);
         }
         dyn_blocked_note();
@@ -463,7 +669,13 @@ fn main() {
         "check" | "fix" => {
             // Front-end checks passed; also run rustc's checks without producing a binary.
             let dir = build_dir(&file);
-            if !rustc(&mut versions, &dir, &dir.join("check"), &["--emit=metadata"], false) {
+            if !rustc(
+                &mut versions,
+                &dir,
+                &dir.join("check"),
+                &["--emit=metadata"],
+                false,
+            ) {
                 fail(cmd);
             }
             if cmd == "check" {
@@ -472,8 +684,16 @@ fn main() {
         }
         "build" | "run" | "test" => {
             let dir = build_dir(&file);
-            let stem = Path::new(&file).file_stem().unwrap().to_string_lossy().to_string();
-            let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(&stem) };
+            let stem = Path::new(&file)
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+            let bin = if cmd == "build" {
+                out_path.unwrap_or_else(|| PathBuf::from(&stem))
+            } else {
+                dir.join(&stem)
+            };
             let mut extra: Vec<&str> = Vec::new();
             if cmd == "test" {
                 extra.push("--test");
@@ -481,7 +701,14 @@ fn main() {
             // Without --release: opt-level 1 against the runtime library built at opt-level 3. On the
             // comparison programs this runs 3x to 20x faster than an unoptimised build, within about 2x of
             // --release, for about 0.3 s more build time (--release takes about 1.5 s more).
-            extra.extend(["-C", if release { "opt-level=3" } else { "opt-level=1" }]);
+            extra.extend([
+                "-C",
+                if release {
+                    "opt-level=3"
+                } else {
+                    "opt-level=1"
+                },
+            ]);
             if !rustc(&mut versions, &dir, &bin, &extra, true) {
                 fail(cmd);
             }
@@ -525,7 +752,9 @@ fn main() {
 // did not declare. Without `allow native`, also turns pybridge off for this run. Runs before every other path,
 // so a refusal is final. True when the program is held to its allow lines.
 fn hold_to_caps(file: &str, sandbox: bool) -> bool {
-    let Ok(src) = std::fs::read_to_string(file) else { return sandbox };
+    let Ok(src) = std::fs::read_to_string(file) else {
+        return sandbox;
+    };
     let src = modules::fill_file_name(&src, Path::new(file));
     // A program whose `use` lines do not resolve is reported by the build; check what is there.
     let src = modules::expand(file, &src).map(|x| x.0).unwrap_or(src);
@@ -535,7 +764,10 @@ fn hold_to_caps(file: &str, sandbox: bool) -> bool {
         // Under --sandbox, only what the caller granted (--allow, --allow-py): the file cannot grant itself more.
         let (allowed, held_errs) = caps::held(&src, allowed, sandbox);
         errs.extend(held_errs);
-        if !allowed.iter().any(|a| a == "native" || a.starts_with("py:")) {
+        if !allowed
+            .iter()
+            .any(|a| a == "native" || a.starts_with("py:"))
+        {
             pybridge::NO_NATIVE.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         errs.extend(caps::check_src(&code, &allowed));
@@ -567,10 +799,26 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let release = argv[..dash].iter().any(|a| a == "--release");
     let dir = build_dir(file);
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
-    let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
-    let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
-    let built = if cmd == "check" { dynpy::check(&rust, &dir, &cache_dir(), rustc_version()) } else { dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) };
+    let stem = Path::new(file)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let out_path = argv[..dash]
+        .iter()
+        .position(|a| a == "-o")
+        .and_then(|i| argv.get(i + 1))
+        .map(PathBuf::from);
+    let bin = if cmd == "build" {
+        out_path.unwrap_or_else(|| PathBuf::from(&stem))
+    } else {
+        dir.join(format!("{stem}-dyn"))
+    };
+    let built = if cmd == "check" {
+        dynpy::check(&rust, &dir, &cache_dir(), rustc_version())
+    } else {
+        dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version())
+    };
     if let Err(e) = built {
         if std::env::var("BREVI_DYN_DEBUG").is_ok() {
             eprintln!("{e}");
@@ -579,60 +827,130 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         // builds at once, a full disk) or rustc may have been stopped. The refusal printed next names the typed
         // build's reason, which a later build (after the machine is fine) would not stop at.
         runcache::not_kept();
-        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, "internal: the dynamic build's code did not compile".into()));
+        *DYN_BLOCKED.lock().unwrap() = Some((
+            file.to_string(),
+            0,
+            "internal: the dynamic build's code did not compile".into(),
+        ));
         return false;
     }
     let (wfile, line, func, why, extra, relocate) = why;
-    say_path("dynamic", &wfile, line, func, &why, &format!("{extra}{}", dyn_py_field()), relocate);
+    say_path(
+        "dynamic",
+        &wfile,
+        line,
+        func,
+        &why,
+        &format!("{extra}{}", dyn_py_field()),
+        relocate,
+    );
     if cmd == "run" {
-        let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
-            println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
-            exit(1);
-        });
+        let status = proc::script(&bin, file)
+            .args(argv.get(dash + 1..).unwrap_or(&[]))
+            .status()
+            .unwrap_or_else(|e| {
+                println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+                exit(1);
+            });
         exit(proc::code(status));
     }
     true
 }
 
 // A file typed_guard sends off the typed path (why, at line of gfile): built over dynamic values, or refused.
-fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str, gfile: &Path) -> ! {
+fn guard_refusal(
+    cmd: &str,
+    file: &str,
+    argv: &[String],
+    line: usize,
+    why: &str,
+    gfile: &Path,
+) -> ! {
     let file = file.to_string();
     let why = why.to_string();
-        // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
-        if cmd != "emit" {
-            refuse_sure(&file, pydiag::scan);
-        }
-        if cmd == "emit" {
-            dyn_cmd(cmd, &file, &argv);
-        }
-        let gsrc = std::fs::read_to_string(&gfile).unwrap_or_default();
-        let gname = gfile.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let main_file = Path::new(&file).file_name().map(|n| n.to_string_lossy().to_string()) == Some(gname.clone());
-        let gshown = if main_file { String::new() } else { gname.clone() };
-        let gwhy = format!("{}, so the typed build would differ from CPython", why.split_once(": ").filter(|_| !main_file).map_or(why.as_str(), |(_, w)| w));
-        if dyn_fallback(cmd, &file, argv, (gshown, line, enclosing_def(&gsrc, line), gwhy, String::new(), false)) {
-            exit(0);
-        }
-        dyn_blocked_note();
-        // Name what stopped the dynamic build too: fixing only the typed reason would still leave the file unbuilt.
-        let blocked = match DYN_BLOCKED.lock().unwrap().as_ref() {
-            Some((f, l, m)) if *l > 0 => format!(" ({} line {l}: {m})", Path::new(f).file_name().unwrap_or_default().to_string_lossy()),
-            Some((_, _, m)) => format!(" ({m})"),
-            None => String::new(),
-        };
-        let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values{blocked}"));
-        if why.contains(" set") {
-            d.fix = Some("sort it first (sorted(s)) where the order shows".into());
-        } else if why.contains("generator") {
-            d.fix = Some(if blocked.is_empty() || blocked.contains("yield inside try") { "move the yield out of the try/finally or with block, or build a list and return it" } else { "build a list and return it" }.into());
-        }
-        print_diag(&d);
-        exit(1);
+    // The same mistakes the typed build would report (see below), before the dynamic build takes the file.
+    if cmd != "emit" {
+        refuse_sure(&file, pydiag::scan);
+    }
+    if cmd == "emit" {
+        dyn_cmd(cmd, &file, &argv);
+    }
+    let gsrc = std::fs::read_to_string(&gfile).unwrap_or_default();
+    let gname = gfile
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let main_file = Path::new(&file)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        == Some(gname.clone());
+    let gshown = if main_file {
+        String::new()
+    } else {
+        gname.clone()
+    };
+    let gwhy = format!(
+        "{}, so the typed build would differ from CPython",
+        why.split_once(": ")
+            .filter(|_| !main_file)
+            .map_or(why.as_str(), |(_, w)| w)
+    );
+    if dyn_fallback(
+        cmd,
+        &file,
+        argv,
+        (
+            gshown,
+            line,
+            enclosing_def(&gsrc, line),
+            gwhy,
+            String::new(),
+            false,
+        ),
+    ) {
+        exit(0);
+    }
+    dyn_blocked_note();
+    // Name what stopped the dynamic build too: fixing only the typed reason would still leave the file unbuilt.
+    let blocked = match DYN_BLOCKED.lock().unwrap().as_ref() {
+        Some((f, l, m)) if *l > 0 => format!(
+            " ({} line {l}: {m})",
+            Path::new(f)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        ),
+        Some((_, _, m)) => format!(" ({m})"),
+        None => String::new(),
+    };
+    let mut d = Diag::new(
+        "check",
+        line,
+        1,
+        &format!("{why}, and this file cannot be built over dynamic values{blocked}"),
+    );
+    if why.contains(" set") {
+        d.fix = Some("sort it first (sorted(s)) where the order shows".into());
+    } else if why.contains("generator") {
+        d.fix = Some(
+            if blocked.is_empty() || blocked.contains("yield inside try") {
+                "move the yield out of the try/finally or with block, or build a list and return it"
+            } else {
+                "build a list and return it"
+            }
+            .into(),
+        );
+    }
+    print_diag(&d);
+    exit(1);
 }
 
 // Stops on the mistakes in a Python file that `scan` (from pydiag) is sure of.
 fn refuse_sure(file: &str, scan: fn(&str, &Path) -> Vec<Diag>) {
-    let sure = std::fs::read_to_string(file).map(|t| scan(&t, Path::new(file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
+    let sure = std::fs::read_to_string(file)
+        .map(|t| scan(&t, Path::new(file).parent().unwrap_or(Path::new("."))))
+        .unwrap_or_default();
     if !sure.is_empty() {
         sure.iter().for_each(print_diag);
         exit_sure();
@@ -641,10 +959,19 @@ fn refuse_sure(file: &str, scan: fn(&str, &Path) -> Vec<Diag>) {
 
 // Stops on the first file of a Python program, the main one or one it imports, that CPython could not compile.
 fn refuse_not_python(file: &str) {
-    let Ok(src) = std::fs::read_to_string(file) else { return };
+    let Ok(src) = std::fs::read_to_string(file) else {
+        return;
+    };
     let segs = modules::expand(file, &src).map_or(vec![], |x| x.1);
-    for s in segs.iter().skip(1).filter(|s| s.path.extension().is_some_and(|x| x == "py")) {
-        if let Some(mut d) = std::fs::read_to_string(&s.path).ok().and_then(|t| pydiag::not_python(&t)) {
+    for s in segs
+        .iter()
+        .skip(1)
+        .filter(|s| s.path.extension().is_some_and(|x| x == "py"))
+    {
+        if let Some(mut d) = std::fs::read_to_string(&s.path)
+            .ok()
+            .and_then(|t| pydiag::not_python(&t))
+        {
             d.line += s.start - 1;
             println!("{}", modules::relocate(&segs, &d.to_json()));
             exit_sure();
@@ -658,7 +985,13 @@ fn refuse_not_python(file: &str) {
 
 fn exit_sure() -> ! {
     // A test hook: tools that scan many files tell these refusals apart by exit code 3.
-    exit(if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") { 3 } else { 1 })
+    exit(
+        if std::env::var("BREVI_SURE_EXIT").is_ok_and(|v| v == "3") {
+            3
+        } else {
+            1
+        },
+    )
 }
 
 // The set-order guard reason the typed build was let past (see guard_files), for when it fails after all.
@@ -674,8 +1007,15 @@ fn dyn_blocked_note() {
         return;
     }
     if let Some((f, line, msg)) = DYN_BLOCKED.lock().unwrap().as_ref() {
-        let name = Path::new(f).file_name().unwrap_or_default().to_string_lossy();
-        eprintln!("{{\"dyn_blocked\":{{\"file\":\"{}\",\"line\":{line},\"msg\":\"{}\"}}}}", esc(&name), esc(msg));
+        let name = Path::new(f)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        eprintln!(
+            "{{\"dyn_blocked\":{{\"file\":\"{}\",\"line\":{line},\"msg\":\"{}\"}}}}",
+            esc(&name),
+            esc(msg)
+        );
     }
 }
 
@@ -686,7 +1026,11 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     let rust = match dynpy::to_rust(file) {
         Ok(r) => r,
         Err((f, line, msg)) => {
-            println!("{{\"e\":\"dyn\",\"at\":\"{}\",\"line\":{line},\"msg\":\"{}\"}}", esc(&f), esc(&msg));
+            println!(
+                "{{\"e\":\"dyn\",\"at\":\"{}\",\"line\":{line},\"msg\":\"{}\"}}",
+                esc(&f),
+                esc(&msg)
+            );
             exit(1);
         }
     };
@@ -695,22 +1039,45 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
         exit(0);
     }
     let dir = build_dir(file);
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
-    let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
-    let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
+    let stem = Path::new(file)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let out_path = argv[..dash]
+        .iter()
+        .position(|a| a == "-o")
+        .and_then(|i| argv.get(i + 1))
+        .map(PathBuf::from);
+    let bin = if cmd == "build" {
+        out_path.unwrap_or_else(|| PathBuf::from(&stem))
+    } else {
+        dir.join(format!("{stem}-dyn"))
+    };
     if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
         println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}");
         eprintln!("{e}");
         exit(1);
     }
-    say_path("dynamic", "", 0, None, "BREVI_DYN=1", &dyn_py_field(), false);
+    say_path(
+        "dynamic",
+        "",
+        0,
+        None,
+        "BREVI_DYN=1",
+        &dyn_py_field(),
+        false,
+    );
     if cmd == "build" {
         exit(0);
     }
-    let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
-        println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
-        exit(1);
-    });
+    let status = proc::script(&bin, file)
+        .args(argv.get(dash + 1..).unwrap_or(&[]))
+        .status()
+        .unwrap_or_else(|e| {
+            println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+            exit(1);
+        });
     exit(proc::code(status));
 }
 
@@ -724,13 +1091,20 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
         opts.drain(i..(i + 2).min(opts.len()));
         o
     });
-    let stem = Path::new(file).file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let stem = Path::new(file)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let bin = match cmd {
         "check" => None,
         "build" => Some(PathBuf::from(out.unwrap_or_else(|| stem.clone()))),
         _ => Some(build_dir(file).join(&stem)),
     };
-    let mut args: Vec<String> = vec![if cmd == "check" { "check" } else { "build" }.into(), file.into()];
+    let mut args: Vec<String> = vec![
+        if cmd == "check" { "check" } else { "build" }.into(),
+        file.into(),
+    ];
     if let Some(b) = &bin {
         args.extend(["-o".to_string(), b.to_string_lossy().to_string()]);
     }
@@ -747,10 +1121,13 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
     if cmd != "run" || !done.ok() {
         exit(done.code.unwrap_or(1));
     }
-    let status = proc::script(bin.as_ref().unwrap(), file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
-        println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
-        exit(1);
-    });
+    let status = proc::script(bin.as_ref().unwrap(), file)
+        .args(argv.get(dash + 1..).unwrap_or(&[]))
+        .status()
+        .unwrap_or_else(|e| {
+            println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+            exit(1);
+        });
     exit(proc::code(status));
 }
 
@@ -760,11 +1137,19 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
 fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> ! {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let prog_args = argv.get(dash + 1..).unwrap_or(&[]).to_vec();
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let stem = Path::new(file)
+        .file_stem()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     let bin = build_dir(file).join(&stem);
     // main removed --sandbox, --window and --explain from argv when it read them: pass them on again (the child
     // build once ran without --sandbox, unchecked).
-    let mut flags: Vec<String> = argv[2..dash].iter().filter(|a| a.as_str() == "--release").cloned().collect();
+    let mut flags: Vec<String> = argv[2..dash]
+        .iter()
+        .filter(|a| a.as_str() == "--release")
+        .cloned()
+        .collect();
     if sandbox {
         flags.push("--sandbox".into());
         flags.extend(caps::grant_flags());
@@ -777,9 +1162,18 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     }
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
     // Exit code 3 from the build: a sure mistake (pydiag), which CPython stops on too.
-    let mut args: Vec<String> = vec!["build".into(), file.into(), "-o".into(), bin.to_string_lossy().to_string()];
+    let mut args: Vec<String> = vec![
+        "build".into(),
+        file.into(),
+        "-o".into(),
+        bin.to_string_lossy().to_string(),
+    ];
     args.extend(flags);
-    let envs = [("BREVI_NATIVE", "1"), ("BREVI_SURE_EXIT", "3"), ("BREVI_DYN_WHY", "1")];
+    let envs = [
+        ("BREVI_NATIVE", "1"),
+        ("BREVI_SURE_EXIT", "3"),
+        ("BREVI_DYN_WHY", "1"),
+    ];
     // Through the result cache: an unchanged file is not built again, and one Brevi could not build is not
     // tried again before it runs with python3.
     let built: std::io::Result<runcache::Done> = if runcache::on() {
@@ -787,7 +1181,12 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     } else {
         let mut c = Command::new(&me);
         c.args(&args).envs(envs).env("BREVI_NO_CACHE", "1");
-        c.output().map(|o| runcache::Done { stdout: o.stdout, stderr: o.stderr, code: o.status.code(), hit: false })
+        c.output().map(|o| runcache::Done {
+            stdout: o.stdout,
+            stderr: o.stderr,
+            code: o.status.code(),
+            hit: false,
+        })
     };
     if built.as_ref().is_ok_and(|d| d.hit) {
         tm("replayed from the result cache");
@@ -795,16 +1194,24 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     let code = match built {
         Ok(o) if o.ok() => {
             std::io::stderr().write_all(&o.stderr).ok();
-            proc::script(&bin, file).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
-                println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
-                1
-            })
+            proc::script(&bin, file)
+                .args(&prog_args)
+                .status()
+                .map(proc::code)
+                .unwrap_or_else(|e| {
+                    println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
+                    1
+                })
         }
         Ok(o) if held => {
             print!("{}", String::from_utf8_lossy(&o.stdout));
             let err = String::from_utf8_lossy(&o.stderr);
-            err.lines().filter(|l| !l.starts_with("{\"dyn_blocked\":")).for_each(|l| eprintln!("{l}"));
-            eprintln!("note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines");
+            err.lines()
+                .filter(|l| !l.starts_with("{\"dyn_blocked\":"))
+                .for_each(|l| eprintln!("{l}"));
+            eprintln!(
+                "note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines"
+            );
             1
         }
         Ok(o) => {
@@ -867,12 +1274,19 @@ fn last_traceback_line(err: std::process::ChildStderr) {
         }
     }
     let Some(h) = held else { return };
-    let last = h.iter().rev().map(|l| l.trim_end()).find(|l| !l.is_empty() && !l.starts_with(' ')).unwrap_or("");
+    let last = h
+        .iter()
+        .rev()
+        .map(|l| l.trim_end())
+        .find(|l| !l.is_empty() && !l.starts_with(' '))
+        .unwrap_or("");
     let at = h.iter().rev().find_map(|l| {
         let rest = l.trim_start().strip_prefix("File \"")?;
         let (f, rest) = rest.split_once("\", line ")?;
         let n: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        let f = Path::new(f).file_name().map_or(f.to_string(), |x| x.to_string_lossy().to_string());
+        let f = Path::new(f)
+            .file_name()
+            .map_or(f.to_string(), |x| x.to_string_lossy().to_string());
         Some(format!(" ({f} line {n})"))
     });
     eprintln!("{last}{}", at.unwrap_or_default());
@@ -886,11 +1300,24 @@ fn last_traceback_line(err: std::process::ChildStderr) {
 // Printed for Python files on paths other than typed; --explain or BREVI_PATH=1 print it always (also for .bv
 // files and BREVI_DYN=1 builds), BREVI_PATH=0 never.
 // `extra` is more JSON fields (",\"py\":[...]").
-fn say_path(path: &str, file: &str, line: usize, func: Option<String>, why: &str, extra: &str, relocate: bool) {
+fn say_path(
+    path: &str,
+    file: &str,
+    line: usize,
+    func: Option<String>,
+    why: &str,
+    extra: &str,
+    relocate: bool,
+) {
     let shown = match std::env::var("BREVI_PATH").ok().as_deref() {
         Some("0") => false,
         Some("1") => true,
-        _ => EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) || (path != "typed" && PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && !forced_dyn()),
+        _ => {
+            EXPLAIN.load(std::sync::atomic::Ordering::Relaxed)
+                || (path != "typed"
+                    && PY_FILE.load(std::sync::atomic::Ordering::Relaxed)
+                    && !forced_dyn())
+        }
     };
     if !shown {
         return;
@@ -919,7 +1346,13 @@ fn dyn_py_field() -> String {
     if b.is_empty() {
         return String::new();
     }
-    format!(",\"py\":[{}]", b.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(","))
+    format!(
+        ",\"py\":[{}]",
+        b.iter()
+            .map(|u| format!("\"{}\"", esc(u)))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 fn forced_dyn() -> bool {
@@ -930,9 +1363,25 @@ fn forced_dyn() -> bool {
 fn say_typed() {
     if pybridge::active() {
         let uses = pybridge::uses();
-        let list = uses.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(",");
-        let why = if uses.is_empty() { "library calls run in CPython".to_string() } else { format!("{} run in CPython", uses.join(", ")) };
-        say_path("pybridge", "", 0, None, &why, &format!(",\"py\":[{list}]"), false);
+        let list = uses
+            .iter()
+            .map(|u| format!("\"{}\"", esc(u)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let why = if uses.is_empty() {
+            "library calls run in CPython".to_string()
+        } else {
+            format!("{} run in CPython", uses.join(", "))
+        };
+        say_path(
+            "pybridge",
+            "",
+            0,
+            None,
+            &why,
+            &format!(",\"py\":[{list}]"),
+            false,
+        );
     } else {
         say_path("typed", "", 0, None, "", "", false);
     }
@@ -940,26 +1389,38 @@ fn say_typed() {
 
 // Why the typed build was refused, from its first error; with --explain, the other errors too (",\"also\":[...]").
 fn typed_refusal(diags: &[Diag], src: &str) -> (usize, Option<String>, String, String) {
-    let Some(d) = diags.first() else { return (0, None, "typed build refused".into(), String::new()) };
+    let Some(d) = diags.first() else {
+        return (0, None, "typed build refused".into(), String::new());
+    };
     let mut extra = String::new();
     if EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
-        if let Some(f) = json::parse(&d.to_json()).and_then(|j| j.get("fix").and_then(|v| v.str()).map(String::from)) {
+        if let Some(f) = json::parse(&d.to_json())
+            .and_then(|j| j.get("fix").and_then(|v| v.str()).map(String::from))
+        {
             extra.push_str(&format!(",\"fix\":\"{}\"", esc(&f)));
         }
-        let more: Vec<String> = diags[1..].iter().take(5).map(|d| at(&d.to_json())).collect();
+        let more: Vec<String> = diags[1..]
+            .iter()
+            .take(5)
+            .map(|d| at(&d.to_json()))
+            .collect();
         if !more.is_empty() {
             extra.push_str(&format!(",\"also\":[{}]", more.join(",")));
         }
     }
     // The message as the error line gives it (no internal names: `type`, not `ax_type_of`).
-    let msg = json::parse(&d.to_json()).and_then(|j| j.get("msg").and_then(|v| v.str()).map(String::from)).unwrap_or_else(|| d.msg.clone());
+    let msg = json::parse(&d.to_json())
+        .and_then(|j| j.get("msg").and_then(|v| v.str()).map(String::from))
+        .unwrap_or_else(|| d.msg.clone());
     (d.line, def_at_joined(src, d.line), msg, extra)
 }
 
 // enclosing_def for a line of the joined source (main file and its modules), looked up in the file it is in.
 fn def_at_joined(src: &str, line: usize) -> Option<String> {
     let segs = SEGS.get().filter(|s| s.len() > 1);
-    let Some(segs) = segs else { return enclosing_def(src, line) };
+    let Some(segs) = segs else {
+        return enclosing_def(src, line);
+    };
     let (f, l) = modules::locate(segs, line);
     if f.is_empty() {
         return enclosing_def(src, line);
@@ -980,7 +1441,10 @@ fn enclosing_def(src: &str, line: usize) -> Option<String> {
         } else {
             (false, t.strip_prefix("class ")?)
         };
-        let n: String = r.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let n: String = r
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
         (!n.is_empty()).then_some((def, n))
     };
     let mut names: Vec<(bool, String)> = vec![];
@@ -1018,7 +1482,12 @@ fn rustc_first_error(stderr: &str) -> String {
                 }
             }
         } else if let Some(m) = l.strip_prefix("error") {
-            return format!("the typed build's Rust did not compile ({})", m.trim_start_matches(|c| c != ':').trim_start_matches(':').trim());
+            return format!(
+                "the typed build's Rust did not compile ({})",
+                m.trim_start_matches(|c| c != ':')
+                    .trim_start_matches(':')
+                    .trim()
+            );
         }
     }
     "the typed build's Rust did not compile".into()
@@ -1027,20 +1496,59 @@ fn rustc_first_error(stderr: &str) -> String {
 // The path report of a run handed to CPython: where and why Brevi's build stopped (its first error, from the
 // strict child build's stdout) and, with --explain, why the dynamic build refused the file too.
 fn say_cpython(file: &str, python: &str, out: &str, err: &str) {
-    let first = out.lines().filter(|l| l.starts_with('{')).filter_map(json::parse).find(|j| j.get("msg").is_some());
-    let get = |k: &str| first.as_ref().and_then(|j| j.get(k)).and_then(|v| v.str()).unwrap_or("").to_string();
-    let line = first.as_ref().and_then(|j| j.get("line")).and_then(|v| v.num()).unwrap_or(0.0) as usize;
+    let first = out
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .filter_map(json::parse)
+        .find(|j| j.get("msg").is_some());
+    let get = |k: &str| {
+        first
+            .as_ref()
+            .and_then(|j| j.get(k))
+            .and_then(|v| v.str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let line = first
+        .as_ref()
+        .and_then(|j| j.get("line"))
+        .and_then(|v| v.num())
+        .unwrap_or(0.0) as usize;
     let dir = Path::new(file).parent().unwrap_or(Path::new("."));
     let in_file = get("file");
-    let src = std::fs::read_to_string(if in_file.is_empty() { PathBuf::from(file) } else { dir.join(&in_file) }).unwrap_or_default();
+    let src = std::fs::read_to_string(if in_file.is_empty() {
+        PathBuf::from(file)
+    } else {
+        dir.join(&in_file)
+    })
+    .unwrap_or_default();
     let mut extra = format!(",\"by\":\"{}\"", esc(python));
     if EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
-        if let Some(d) = err.lines().find_map(|l| l.strip_prefix("{\"dyn_blocked\":").and_then(|r| r.strip_suffix('}'))) {
+        if let Some(d) = err.lines().find_map(|l| {
+            l.strip_prefix("{\"dyn_blocked\":")
+                .and_then(|r| r.strip_suffix('}'))
+        }) {
             extra.push_str(&format!(",\"dynamic\":{d}"));
         }
     }
-    let why = if first.is_some() { format!("Brevi could not build it: {}", get("msg")) } else { "Brevi could not build it".into() };
-    say_path("cpython", &in_file, line, if line > 0 { enclosing_def(&src, line) } else { None }, &why, &extra, false);
+    let why = if first.is_some() {
+        format!("Brevi could not build it: {}", get("msg"))
+    } else {
+        "Brevi could not build it".into()
+    };
+    say_path(
+        "cpython",
+        &in_file,
+        line,
+        if line > 0 {
+            enclosing_def(&src, line)
+        } else {
+            None
+        },
+        &why,
+        &extra,
+        false,
+    );
 }
 
 // Applies the edits that front-end errors suggest, a round at a time, until the program passes the front end.
@@ -1049,12 +1557,18 @@ fn autofix(src: &str, all: bool) -> (String, Vec<(usize, String, String)>) {
     let mut cur = src.to_string();
     let mut done = Vec::new();
     for _ in 0..8 {
-        let Err(diags) = compile_to_rust(&cur, true, true) else { return (cur, done) };
+        let Err(diags) = compile_to_rust(&cur, true, true) else {
+            return (cur, done);
+        };
         let mut changed = false;
         for d in diags.iter().filter(|d| all || d.sure) {
             if let Some(next) = d.apply(&cur) {
                 let (old, new) = d.edit.clone().unwrap();
-                done.push((d.line, old.trim_matches(|c| c == '.' || c == '(').to_string(), new.trim_matches(|c| c == '.' || c == '(').to_string()));
+                done.push((
+                    d.line,
+                    old.trim_matches(|c| c == '.' || c == '(').to_string(),
+                    new.trim_matches(|c| c == '.' || c == '(').to_string(),
+                ));
                 cur = next;
                 changed = true;
             }
@@ -1077,9 +1591,30 @@ fn has_untyped_map(items: &[ast::Item]) -> bool {
         if let ast::Item::Fn { body, .. } = it {
             infer::walk(body, &mut |e| {
                 if let ast::Expr::Map(ps) = e {
-                    let open = |v: &ast::Expr| matches!(v, ast::Expr::Ident(_) | ast::Expr::Field(..) | ast::Expr::Call(..) | ast::Expr::Method(..));
-                    let lit = |v: &ast::Expr| matches!(v, ast::Expr::Bool(_) | ast::Expr::Int(_) | ast::Expr::Str(_) | ast::Expr::Float(_));
-                    if ps.len() > 1 && ps.iter().all(|(k, v)| matches!(k, ast::Expr::Str(_)) && (open(v) || lit(v))) && ps.iter().any(|(_, v)| open(v)) {
+                    let open = |v: &ast::Expr| {
+                        matches!(
+                            v,
+                            ast::Expr::Ident(_)
+                                | ast::Expr::Field(..)
+                                | ast::Expr::Call(..)
+                                | ast::Expr::Method(..)
+                        )
+                    };
+                    let lit = |v: &ast::Expr| {
+                        matches!(
+                            v,
+                            ast::Expr::Bool(_)
+                                | ast::Expr::Int(_)
+                                | ast::Expr::Str(_)
+                                | ast::Expr::Float(_)
+                        )
+                    };
+                    if ps.len() > 1
+                        && ps
+                            .iter()
+                            .all(|(k, v)| matches!(k, ast::Expr::Str(_)) && (open(v) || lit(v)))
+                        && ps.iter().any(|(_, v)| open(v))
+                    {
                         hit = true;
                     }
                 }
@@ -1125,7 +1660,12 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
     // A tuple type used both for mixed-list rows and for real tuples: rows would print as tuples (and be
     // copied where Python shares them), so a Python file goes to the dynamic build.
     if infer::rows_clash() && py {
-        return Err(vec![diag::Diag::new("check", 1, 1, "a mixed list such as [1, 'a'] and a tuple such as (1, 'a') have the same item types here, which the typed build can't keep apart")]);
+        return Err(vec![diag::Diag::new(
+            "check",
+            1,
+            1,
+            "a mixed list such as [1, 'a'] and a tuple such as (1, 'a') have the same item types here, which the typed build can't keep apart",
+        )]);
     }
     if infer::rows_clash() {
         for it in items.iter_mut() {
@@ -1149,7 +1689,10 @@ pub(crate) fn tm(what: &str) {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let t0 = *T0.get_or_init(std::time::Instant::now);
     if *ON.get_or_init(|| std::env::var("BREVI_TIME").is_ok_and(|v| v == "1")) {
-        eprintln!("time {:>7.1} ms  {what}", t0.elapsed().as_secs_f64() * 1000.0);
+        eprintln!(
+            "time {:>7.1} ms  {what}",
+            t0.elapsed().as_secs_f64() * 1000.0
+        );
     }
 }
 
@@ -1170,11 +1713,28 @@ pub fn compile_to_rust(src: &str, moves: bool, hints: bool) -> Result<String, Ve
                 b.sort();
                 b.dedup();
                 let names: Vec<String> = b.iter().map(|(m, n)| format!("{m}.{n}")).collect();
-                let line = ds.iter().filter(|d| pybridge::blocked_noise(d)).map(|d| d.line).min().unwrap_or(1);
+                let line = ds
+                    .iter()
+                    .filter(|d| pybridge::blocked_noise(d))
+                    .map(|d| d.line)
+                    .min()
+                    .unwrap_or(1);
                 let one = if names.len() == 1 { "runs" } else { "run" };
-                let mut mods: Vec<String> = b.iter().map(|(m, _)| m.split('.').next().unwrap_or(m).to_string()).collect();
+                let mut mods: Vec<String> = b
+                    .iter()
+                    .map(|(m, _)| m.split('.').next().unwrap_or(m).to_string())
+                    .collect();
                 mods.dedup();
-                let d = Diag::new("caps", line, 1, &format!("{} {one} in CPython, which needs allow native", names.join(", "))).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))));
+                let d = Diag::new(
+                    "caps",
+                    line,
+                    1,
+                    &format!(
+                        "{} {one} in CPython, which needs allow native",
+                        names.join(", ")
+                    ),
+                )
+                .fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))));
                 let mut out = vec![d];
                 out.extend(ds.iter().filter(|d| !pybridge::blocked_noise(d)).cloned());
                 return Err(out);
@@ -1194,21 +1754,55 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     }
     // pybridge: CPython for the Python libraries the program uses.
     // --sandbox --allow-py: only the modules the caller named.
-    let ungranted: Vec<String> = if pybridge::active() { pybridge::uses().into_iter().filter(|u| !pybridge::py_allowed(u)).collect() } else { vec![] };
+    let ungranted: Vec<String> = if pybridge::active() {
+        pybridge::uses()
+            .into_iter()
+            .filter(|u| !pybridge::py_allowed(u))
+            .collect()
+    } else {
+        vec![]
+    };
     if pybridge::active() && !pybridge::no_native() && !ungranted.is_empty() {
-        let mut mods: Vec<String> = ungranted.iter().map(|u| u.split('.').next().unwrap_or(u).to_string()).collect();
+        let mut mods: Vec<String> = ungranted
+            .iter()
+            .map(|u| u.split('.').next().unwrap_or(u).to_string())
+            .collect();
         mods.dedup();
-        return Err(vec![Diag::new("caps", 1, 1, &format!("{} runs in CPython, which needs allow native", ungranted.join(", "))).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))))]);
+        return Err(vec![
+            Diag::new(
+                "caps",
+                1,
+                1,
+                &format!(
+                    "{} runs in CPython, which needs allow native",
+                    ungranted.join(", ")
+                ),
+            )
+            .fix_hint(&caps::grant_hint("native", Some(&mods.join(", ")))),
+        ]);
     }
     if pybridge::active() && pybridge::no_native() {
         // Only modules the dynamic build has: it builds them, so say why the typed build did not.
         if pybridge::stdlib_only() {
-            return Err(vec![Diag::new("check", 1, 1, &format!("{} not in the typed build", pybridge::uses().join(", "))).fix_hint("the dynamic build has them: build it without BREVI_DYN=0")]);
+            return Err(vec![
+                Diag::new(
+                    "check",
+                    1,
+                    1,
+                    &format!("{} not in the typed build", pybridge::uses().join(", ")),
+                )
+                .fix_hint("the dynamic build has them: build it without BREVI_DYN=0"),
+            ]);
         }
-        return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&caps::grant_hint("native", None))]);
+        return Err(vec![
+            Diag::new("caps", 1, 1, "a call CPython runs needs allow native")
+                .fix_hint(&caps::grant_hint("native", None)),
+        ]);
     }
     if pybridge::active() {
-        pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
+        pybridge::python_ok().map_err(|m| {
+            vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")]
+        })?;
         foreign.rust_top.push_str(&pybridge::runtime());
     }
     ffi::attach(&mut items, &foreign);
@@ -1232,9 +1826,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     let mut items = if py && has_untyped_map(&items) {
         match typed(items.clone(), py, true) {
             Ok(t) => t,
-            Err(_) => {
-                typed(items, py, false)?
-            }
+            Err(_) => typed(items, py, false)?,
         }
     } else {
         typed(items, py, false)?
@@ -1244,7 +1836,15 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     let mut em = emit::Emitter::new(&items, hints);
     em.foreign = foreign;
     em.py_mode = python_style(&src);
-    em.files = SEGS.get().map(|s| s.iter().skip(1).map(|g| (g.file.clone(), g.start, g.len)).collect()).unwrap_or_default();
+    em.files = SEGS
+        .get()
+        .map(|s| {
+            s.iter()
+                .skip(1)
+                .map(|g| (g.file.clone(), g.start, g.len))
+                .collect()
+        })
+        .unwrap_or_default();
     if moves {
         moves::mark_moves(&mut items);
     }
@@ -1261,14 +1861,23 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
 // Names a used file sets at its top (`PAT = "..."`) are set before the main file's own statements run, as a
 // Python module's are on import.
 fn used_consts_first(items: &mut [ast::Item]) {
-    let Some(first) = SEGS.get().and_then(|s| s.get(1)).map(|s| s.start) else { return };
+    let Some(first) = SEGS.get().and_then(|s| s.get(1)).map(|s| s.start) else {
+        return;
+    };
     for it in items.iter_mut() {
-        if let ast::Item::Fn { script: true, body: ast::Expr::Block(stmts, _), .. } = it {
+        if let ast::Item::Fn {
+            script: true,
+            body: ast::Expr::Block(stmts, _),
+            ..
+        } = it
+        {
             let line = |st: &ast::Stmt| match st {
                 ast::Stmt::Let { line, .. } | ast::Stmt::Assign { line, .. } => *line,
                 _ => 0,
             };
-            let (mut used, own): (Vec<_>, Vec<_>) = std::mem::take(stmts).into_iter().partition(|st| line(st) >= first);
+            let (mut used, own): (Vec<_>, Vec<_>) = std::mem::take(stmts)
+                .into_iter()
+                .partition(|st| line(st) >= first);
             used.extend(own);
             *stmts = used;
         }
@@ -1330,10 +1939,16 @@ impl Versions<'_> {
 // The program without moves is used if moving a value broke the borrow rules. Errors are reported from the
 // first version tried.
 fn rustc(versions: &mut Versions, dir: &Path, out: &Path, extra: &[&str], link: bool) -> bool {
-    const MOVE_CODES: [&str; 8] = ["E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597"];
+    const MOVE_CODES: [&str; 8] = [
+        "E0382", "E0505", "E0507", "E0502", "E0499", "E0506", "E0716", "E0597",
+    ];
     let release = extra.contains(&"opt-level=3");
     // A program that implements a prelude trait for a prelude type cannot use the library: paste the prelude.
-    let orphan = |e: &str| ["E0117", "E0116", "E0210"].iter().any(|c| e.contains(&format!("\"code\":\"{c}\"")));
+    let orphan = |e: &str| {
+        ["E0117", "E0116", "E0210"]
+            .iter()
+            .any(|c| e.contains(&format!("\"code\":\"{c}\"")))
+    };
     // The first build's result is kept, so it is not compiled a second time below.
     let mut lib = true;
     let mut probe = None;
@@ -1350,24 +1965,38 @@ fn rustc(versions: &mut Versions, dir: &Path, out: &Path, extra: &[&str], link: 
     let mut seen: Vec<String> = vec![];
     let mut last = None;
     for i in 0..VERSIONS.len() {
-        let Some(rust) = versions.make(i, true) else { continue };
+        let Some(rust) = versions.make(i, true) else {
+            continue;
+        };
         if seen.contains(&rust) {
             continue;
         }
         seen.push(rust.clone());
         let rust = shape(rust);
-        let mut r = (rust.clone(), match probe.take().unwrap_or_else(|| compile(&rust, dir, out, extra, link)) {
-            Some(Ok(())) => return true,
-            Some(Err(e)) => e,
-            None => return false,
-        });
-        if MOVE_CODES.iter().any(|c| r.1.contains(&format!("\"code\":\"{c}\""))) {
+        let mut r = (
+            rust.clone(),
+            match probe
+                .take()
+                .unwrap_or_else(|| compile(&rust, dir, out, extra, link))
+            {
+                Some(Ok(())) => return true,
+                Some(Err(e)) => e,
+                None => return false,
+            },
+        );
+        if MOVE_CODES
+            .iter()
+            .any(|c| r.1.contains(&format!("\"code\":\"{c}\"")))
+        {
             if let Some(p) = versions.make(i, false).map(shape) {
-                r = (p.clone(), match compile(&p, dir, out, extra, link) {
-                    Some(Ok(())) => return true,
-                    Some(Err(e)) => e,
-                    None => return false,
-                });
+                r = (
+                    p.clone(),
+                    match compile(&p, dir, out, extra, link) {
+                        Some(Ok(())) => return true,
+                        Some(Err(e)) => e,
+                        None => return false,
+                    },
+                );
             }
         }
         // Report the first build's errors: it has the inferred types, so its errors name the real gap
@@ -1377,7 +2006,9 @@ fn rustc(versions: &mut Versions, dir: &Path, out: &Path, extra: &[&str], link: 
         }
     }
     match last {
-        Some((rust, stderr)) if DEFER_REPORT.load(std::sync::atomic::Ordering::Relaxed) => *DEFERRED.lock().unwrap() = Some((rust, stderr)),
+        Some((rust, stderr)) if DEFER_REPORT.load(std::sync::atomic::Ordering::Relaxed) => {
+            *DEFERRED.lock().unwrap() = Some((rust, stderr))
+        }
         Some((rust, stderr)) => report(&rust, &stderr),
         None => {}
     }
@@ -1397,20 +2028,33 @@ pub(crate) fn cache_dir() -> PathBuf {
     if let Ok(d) = std::env::var("BREVI_CACHE") {
         return PathBuf::from(d);
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
+    let home = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
     home.join(".cache").join("brevi")
 }
 
 // Builds with cargo, for programs that use crates. Same results as compile().
-fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
-    let name = dir.file_name().map(|n| n.to_string_lossy().replace('-', "_")).unwrap_or_else(|| "brevi_prog".into());
+fn cargo_compile(
+    deps: &[ffi::Dep],
+    rust: &str,
+    dir: &Path,
+    out: &Path,
+    extra: &[&str],
+    link: bool,
+) -> Option<Result<(), String>> {
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().replace('-', "_"))
+        .unwrap_or_else(|| "brevi_prog".into());
     let toml = ffi::cargo_toml(&name, deps);
     let tp = dir.join("Cargo.toml");
     if std::fs::read_to_string(&tp).ok().as_deref() != Some(toml.as_str()) {
         std::fs::write(&tp, &toml).expect("write Cargo.toml");
     }
     // On the first line, so rustc's line numbers still match the generated code.
-    std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}")).expect("write generated rust");
+    std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}"))
+        .expect("write generated rust");
     let test = extra.contains(&"--test");
     let mut c = Command::new("cargo");
     if extra.contains(&"--emit=metadata") {
@@ -1423,12 +2067,16 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     if extra.contains(&"opt-level=3") {
         c.arg("--release");
     }
-    c.args(["-q", "--message-format=json", "--manifest-path"]).arg(&tp);
+    c.args(["-q", "--message-format=json", "--manifest-path"])
+        .arg(&tp);
     c.env("CARGO_TARGET_DIR", cache_dir().join("target"));
     let o = match c.output() {
         Ok(o) => o,
         Err(e) => {
-            println!("{{\"e\":\"io\",\"msg\":\"cargo not found (needed for crates): {}\"}}", esc(&e.to_string()));
+            println!(
+                "{{\"e\":\"io\",\"msg\":\"cargo not found (needed for crates): {}\"}}",
+                esc(&e.to_string())
+            );
             return None;
         }
     };
@@ -1441,8 +2089,12 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
                 msgs.push_str(&l[p + 11..l.len() - 1]);
                 msgs.push('\n');
             }
-        } else if l.starts_with("{\"reason\":\"compiler-artifact\"") && l.contains(&format!("\"name\":\"{name}\"")) {
-            if let Some(e) = json::parse(l).and_then(|j| j.get("executable").and_then(|e| e.str()).map(String::from)) {
+        } else if l.starts_with("{\"reason\":\"compiler-artifact\"")
+            && l.contains(&format!("\"name\":\"{name}\""))
+        {
+            if let Some(e) = json::parse(l)
+                .and_then(|j| j.get("executable").and_then(|e| e.str()).map(String::from))
+            {
                 exe = Some(e);
             }
         }
@@ -1454,7 +2106,10 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
                 return None;
             };
             if std::fs::copy(&e, out).is_err() {
-                println!("{{\"e\":\"io\",\"msg\":\"cannot write {}\"}}", esc(&out.to_string_lossy()));
+                println!(
+                    "{{\"e\":\"io\",\"msg\":\"cannot write {}\"}}",
+                    esc(&out.to_string_lossy())
+                );
                 return None;
             }
         }
@@ -1465,17 +2120,32 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     }
     // A crate that cannot be found or fetched: point at its use line.
     let stderr = String::from_utf8_lossy(&o.stderr);
-    let first: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).take(4).collect();
+    let first: Vec<&str> = stderr
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .take(4)
+        .collect();
     let text = first.join(" ").replace("error: ", "");
-    let dep = deps.iter().find(|d| text.contains(&format!("`{}`", d.name)) || text.contains(&format!("named {}", d.name)));
-    let fix = if text.contains("no matching package") || text.contains("failed to select a version") {
+    let dep = deps.iter().find(|d| {
+        text.contains(&format!("`{}`", d.name)) || text.contains(&format!("named {}", d.name))
+    });
+    let fix = if text.contains("no matching package") || text.contains("failed to select a version")
+    {
         "check the crate name and version on crates.io: use NAME \"VERSION\""
     } else if text.contains("feature") {
         "check the feature names: use NAME \"VERSION\" \"feat1 feat2\""
     } else {
         "crates download from crates.io on first use; check the network"
     };
-    println!("{}", at(&format!("{{\"line\":{},\"msg\":\"cargo: {}\",\"fix\":\"{}\"}}", dep.map_or(0, |d| d.line), esc(text.trim()), esc(fix))));
+    println!(
+        "{}",
+        at(&format!(
+            "{{\"line\":{},\"msg\":\"cargo: {}\",\"fix\":\"{}\"}}",
+            dep.map_or(0, |d| d.line),
+            esc(text.trim()),
+            esc(fix)
+        ))
+    );
     None
 }
 
@@ -1483,8 +2153,16 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
 // The typed-build guard over the file and the local modules it imports (directly or through each other).
 // With the names (see typed_guard::check_soft) when every reason found is a set walked in hash order on them.
 // Second: a file the guard could not read (line, why, file), when no reason found was final.
-fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Option<(usize, String, PathBuf)>) {
-    let dir = Path::new(file).parent().map(|d| d.to_path_buf()).unwrap_or_default();
+fn guard_files(
+    file: &str,
+) -> (
+    Option<(usize, String, PathBuf, Vec<String>)>,
+    Option<(usize, String, PathBuf)>,
+) {
+    let dir = Path::new(file)
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_default();
     let mut todo = vec![PathBuf::from(file)];
     let mut seen: Vec<PathBuf> = vec![];
     let mut first: Option<(usize, String, PathBuf)> = None;
@@ -1495,9 +2173,24 @@ fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Op
             continue;
         }
         seen.push(f.clone());
-        let Ok(src) = std::fs::read_to_string(&f) else { continue };
-        let src = if seen.len() == 1 { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
-        let shown = |why: String| if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
+        let Ok(src) = std::fs::read_to_string(&f) else {
+            continue;
+        };
+        let src = if seen.len() == 1 {
+            pysentinel::rewrite(&pygen::rewrite(&src))
+        } else {
+            src
+        };
+        let shown = |why: String| {
+            if seen.len() == 1 {
+                why
+            } else {
+                format!(
+                    "{}: {why}",
+                    f.file_name().unwrap_or_default().to_string_lossy()
+                )
+            }
+        };
         // `allow` lines are not Python, and the guard reads what the typed build reads once they are gone.
         match typed_guard::check_soft(&caps::split(&src).0) {
             Ok(Some((line, why, names))) => {
@@ -1510,7 +2203,11 @@ fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Op
             }
             Ok(None) => {}
             Err((line, msg)) => {
-                unread.get_or_insert((line, shown(format!("the guard cannot read this file: {msg}")), f.clone()));
+                unread.get_or_insert((
+                    line,
+                    shown(format!("the guard cannot read this file: {msg}")),
+                    f.clone(),
+                ));
             }
         }
         for l in src.lines() {
@@ -1518,7 +2215,9 @@ fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Op
             let names: Vec<&str> = if let Some(r) = t.strip_prefix("from ") {
                 r.split_whitespace().next().into_iter().collect()
             } else if let Some(r) = t.strip_prefix("import ") {
-                r.split(',').filter_map(|x| x.split_whitespace().next()).collect()
+                r.split(',')
+                    .filter_map(|x| x.split_whitespace().next())
+                    .collect()
             } else {
                 vec![]
             };
@@ -1535,18 +2234,46 @@ fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Op
 
 // Builds are cached by a hash of the generated code, the flags and the rustc version, so running the same
 // program again (an agent re-running its tests, or an MCP call) skips rustc. BREVI_NO_CACHE=1 turns this off.
-fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
+fn compile(
+    rust: &str,
+    dir: &Path,
+    out: &Path,
+    extra: &[&str],
+    link: bool,
+) -> Option<Result<(), String>> {
     if let Some(deps) = DEPS.get().filter(|d| !d.is_empty()) {
         return cargo_compile(deps, rust, dir, out, extra, link);
     }
     let release = extra.contains(&"opt-level=3");
-    let rt = if rust.starts_with(RT_HEADER) { runtime_lib(release) } else { None };
+    let rt = if rust.starts_with(RT_HEADER) {
+        runtime_lib(release)
+    } else {
+        None
+    };
     let use_cache = runcache::on();
     // The prelude is linked from a prebuilt library rather than pasted in, so its own hash is part of the key:
     // a changed runtime (a brevi upgrade) must not reuse a binary or error built against the old one.
     static PRELUDE_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let ph = PRELUDE_HASH.get_or_init(|| format!("{:016x}", fnv(&[emit::PRELUDE, env!("CARGO_PKG_VERSION")], 3)));
-    let key = format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version(), ph], 0), fnv(&[rust, &extra.join(" "), rustc_version(), ph], 7));
+    let ph = PRELUDE_HASH.get_or_init(|| {
+        format!(
+            "{:016x}",
+            fnv(&[emit::PRELUDE, env!("CARGO_PKG_VERSION")], 3)
+        )
+    });
+    let key = format!(
+        "{:016x}{:016x}",
+        fnv(
+            &[
+                rust,
+                &extra.join(" "),
+                if link { "link" } else { "meta" },
+                rustc_version(),
+                ph
+            ],
+            0
+        ),
+        fnv(&[rust, &extra.join(" "), rustc_version(), ph], 7)
+    );
     let cdir = cache_dir().join("bin");
     let cached = cdir.join(&key);
     if use_cache {
@@ -1561,7 +2288,17 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = rustc_cmd();
-    c.args(["--edition", "2021", "--error-format=json", "--crate-name", "brevi_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
+    c.args([
+        "--edition",
+        "2021",
+        "--error-format=json",
+        "--crate-name",
+        "brevi_prog",
+        "-A",
+        "warnings",
+        "-C",
+        "overflow-checks=on",
+    ]);
     c.args(extra);
     if !release {
         c.args(["-C", codegen_units()]);
@@ -1586,11 +2323,15 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
             Err(String::from_utf8_lossy(&o.stderr).to_string())
         }
         Err(e) => {
-            println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
+            println!(
+                "{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}",
+                esc(&e.to_string())
+            );
             return None;
         }
     };
-    let about_code = matches!(&r, Err(e) if !stopped && e.contains("\"level\":\"error\"") && about_the_code(e));
+    let about_code =
+        matches!(&r, Err(e) if !stopped && e.contains("\"level\":\"error\"") && about_the_code(e));
     if r.is_err() && !about_code {
         runcache::not_kept();
     }
@@ -1602,7 +2343,11 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
             Err(e) if about_code => std::fs::write(&tmp, e).is_ok(),
             Err(_) => false,
         };
-        let dest = if r.is_ok() { cached.clone() } else { cached.with_extension("err") };
+        let dest = if r.is_ok() {
+            cached.clone()
+        } else {
+            cached.with_extension("err")
+        };
         if saved && std::fs::rename(&tmp, &dest).is_ok() {
             runcache::prune(&cdir);
         } else {
@@ -1618,11 +2363,21 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
 // at the program's `extern crate` line, yet is about the cache: not about the code either.
 fn about_the_code(stderr: &str) -> bool {
     const CRATE_LOAD: [&str; 6] = ["E0460", "E0461", "E0462", "E0463", "E0514", "E0786"];
-    stderr.lines().filter_map(json::parse).filter(|j| j.get("level").and_then(|v| v.str()) == Some("error")).all(|j| {
-        let msg = j.get("message").and_then(|v| v.str()).unwrap_or("");
-        let code = j.get("code").and_then(|c| c.get("code")).and_then(|c| c.str()).unwrap_or("");
-        msg.starts_with("aborting due to") || (j.get("spans").is_some_and(|v| !v.arr().is_empty()) && !CRATE_LOAD.contains(&code))
-    })
+    stderr
+        .lines()
+        .filter_map(json::parse)
+        .filter(|j| j.get("level").and_then(|v| v.str()) == Some("error"))
+        .all(|j| {
+            let msg = j.get("message").and_then(|v| v.str()).unwrap_or("");
+            let code = j
+                .get("code")
+                .and_then(|c| c.get("code"))
+                .and_then(|c| c.str())
+                .unwrap_or("");
+            msg.starts_with("aborting due to")
+                || (j.get("spans").is_some_and(|v| !v.arr().is_empty())
+                    && !CRATE_LOAD.contains(&code))
+        })
 }
 
 // The first line of a program built against the runtime library instead of a pasted prelude.
@@ -1636,11 +2391,21 @@ fn use_runtime_lib(rust: &str, release: bool) -> String {
     if release {
         return rust.to_string();
     }
-    let short = &emit::PRELUDE[..emit::PRELUDE.find("// @regex").unwrap_or(emit::PRELUDE.len())];
-    let rest = rust.strip_prefix(emit::PRELUDE).or_else(|| rust.strip_prefix(short));
+    let short = &emit::PRELUDE[..emit::PRELUDE
+        .find("// @regex")
+        .unwrap_or(emit::PRELUDE.len())];
+    let rest = rust
+        .strip_prefix(emit::PRELUDE)
+        .or_else(|| rust.strip_prefix(short));
     match rest {
         // Python interop implements prelude traits for prelude types, which only works inside one crate.
-        Some(rest) if DEPS.get().map_or(true, |d| d.is_empty()) && !rest.contains("trait AxFromJson") && runtime_lib(release).is_some() => format!("{RT_HEADER}{rest}"),
+        Some(rest)
+            if DEPS.get().map_or(true, |d| d.is_empty())
+                && !rest.contains("trait AxFromJson")
+                && runtime_lib(release).is_some() =>
+        {
+            format!("{RT_HEADER}{rest}")
+        }
         _ => rust.to_string(),
     }
 }
@@ -1648,7 +2413,8 @@ fn use_runtime_lib(rust: &str, release: bool) -> String {
 // The prelude as a library: every top-level item public, built once per rustc version and build mode
 // into the cache. None (fall back to pasting the prelude) if it cannot be built.
 fn runtime_lib(release: bool) -> Option<PathBuf> {
-    static LIBS: [std::sync::OnceLock<Option<PathBuf>>; 2] = [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
+    static LIBS: [std::sync::OnceLock<Option<PathBuf>>; 2] =
+        [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
     LIBS[release as usize]
         .get_or_init(|| {
             if std::env::var("BREVI_NO_RTLIB").map_or(false, |v| !v.is_empty() && v != "0") {
@@ -1656,7 +2422,9 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             }
             let src = runtime_lib_source();
             let mode = if release { "release" } else { "dev-o3" };
-            let dir = cache_dir().join("rt").join(format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1)));
+            let dir = cache_dir()
+                .join("rt")
+                .join(format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1)));
             let lib = dir.join("libbrevi_rt.rlib");
             if lib.exists() {
                 return Some(lib);
@@ -1666,14 +2434,31 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             std::fs::create_dir_all(&tmp).ok()?;
             std::fs::write(tmp.join("rt.rs"), &src).ok()?;
             let mut c = rustc_cmd();
-            c.args(["--edition", "2021", "--crate-type", "rlib", "--crate-name", "brevi_rt", "-A", "warnings", "-C", "overflow-checks=on"]);
+            c.args([
+                "--edition",
+                "2021",
+                "--crate-type",
+                "rlib",
+                "--crate-name",
+                "brevi_rt",
+                "-A",
+                "warnings",
+                "-C",
+                "overflow-checks=on",
+            ]);
             // Built once, so always optimised: programs built without --release call into it too.
             c.args(["-C", "opt-level=3"]);
-            c.arg("-o").arg(tmp.join("libbrevi_rt.rlib")).arg(tmp.join("rt.rs"));
+            c.arg("-o")
+                .arg(tmp.join("libbrevi_rt.rlib"))
+                .arg(tmp.join("rt.rs"));
             let ok = c.output().map_or(false, |o| o.status.success());
             let moved = ok && std::fs::rename(tmp.join("libbrevi_rt.rlib"), &lib).is_ok();
             std::fs::remove_dir_all(&tmp).ok();
-            if moved || lib.exists() { Some(lib) } else { None }
+            if moved || lib.exists() {
+                Some(lib)
+            } else {
+                None
+            }
         })
         .clone()
 }
@@ -1681,7 +2466,11 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
 fn runtime_lib_source() -> String {
     let mut out = String::with_capacity(emit::PRELUDE.len() + 4096);
     for l in emit::PRELUDE.lines() {
-        let item = ["fn ", "struct ", "enum ", "trait ", "type ", "const ", "static ", "use ", "mod "].iter().any(|k| l.starts_with(k));
+        let item = [
+            "fn ", "struct ", "enum ", "trait ", "type ", "const ", "static ", "use ", "mod ",
+        ]
+        .iter()
+        .any(|k| l.starts_with(k));
         if item {
             out.push_str("pub ");
         }
@@ -1694,7 +2483,13 @@ fn runtime_lib_source() -> String {
 // `rustc -vV`, asked once per run. Part of every cache key, so a new toolchain never reuses old builds.
 fn rustc_version() -> &'static str {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    V.get_or_init(|| rustc_cmd().arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default())
+    V.get_or_init(|| {
+        rustc_cmd()
+            .arg("-vV")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default()
+    })
 }
 
 // rustc itself rather than the rustup proxy on PATH: each call through the proxy costs 20 to 50 ms, and a
@@ -1705,19 +2500,31 @@ pub(crate) fn rustc_cmd() -> Command {
     static P: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     Command::new(P.get_or_init(|| {
         let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
-        if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
+        if let Some(p) = saved
+            .as_ref()
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .map(PathBuf::from)
+        {
             if p.is_file() {
                 return p;
             }
         }
-        let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
-            PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
-        });
+        let real = Command::new("rustc")
+            .args(["--print", "sysroot"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())
+                    .join("bin")
+                    .join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
+            });
         match real.filter(|p| p.is_file()) {
             Some(p) => {
                 if let Some(f) = saved {
                     let tmp = f.with_extension(format!("tmp{}", std::process::id()));
-                    let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
+                    let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok()
+                        && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
                     if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
                         std::fs::remove_file(&tmp).ok();
                     }
@@ -1731,9 +2538,29 @@ pub(crate) fn rustc_cmd() -> Command {
 
 // What rustup's choice of toolchain depends on, hashed. None (always ask the proxy) without a working directory.
 pub(crate) fn toolchain_key() -> Option<String> {
-    let mtime = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).map_or(String::from("-"), |t| format!("{t:?}"));
-    let mut parts: Vec<String> = ["PATH", "RUSTUP_TOOLCHAIN", "RUSTUP_HOME", "CARGO_HOME", "HOME"].iter().map(|v| std::env::var(v).unwrap_or_default()).collect();
-    let home = std::env::var("RUSTUP_HOME").map(PathBuf::from).ok().or_else(|| std::env::var("HOME").ok().map(|h| Path::new(&h).join(".rustup")));
+    let mtime = |p: &Path| {
+        std::fs::metadata(p)
+            .and_then(|m| m.modified())
+            .map_or(String::from("-"), |t| format!("{t:?}"))
+    };
+    let mut parts: Vec<String> = [
+        "PATH",
+        "RUSTUP_TOOLCHAIN",
+        "RUSTUP_HOME",
+        "CARGO_HOME",
+        "HOME",
+    ]
+    .iter()
+    .map(|v| std::env::var(v).unwrap_or_default())
+    .collect();
+    let home = std::env::var("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .ok()
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .map(|h| Path::new(&h).join(".rustup"))
+        });
     if let Some(h) = home {
         parts.push(mtime(&h.join("settings.toml")));
     }
@@ -1754,7 +2581,9 @@ pub(crate) fn toolchain_key() -> Option<String> {
 pub(crate) fn codegen_units() -> &'static str {
     static C: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     C.get_or_init(|| {
-        let n = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(4, 16);
+        let n = std::thread::available_parallelism()
+            .map_or(4, |n| n.get())
+            .clamp(4, 16);
         format!("codegen-units={n}")
     })
 }
@@ -1792,9 +2621,20 @@ fn report(rust: &str, stderr: &str) {
         .lines()
         .filter_map(json::parse)
         .filter(|j| j.get("level").and_then(|v| v.str()) == Some("error"))
-        .filter(|j| !j.get("message").and_then(|v| v.str()).unwrap_or("").starts_with("aborting due to"))
+        .filter(|j| {
+            !j.get("message")
+                .and_then(|v| v.str())
+                .unwrap_or("")
+                .starts_with("aborting due to")
+        })
         .collect();
-    let code_of = |j: &json::J| j.get("code").and_then(|c| c.get("code")).and_then(|c| c.str()).unwrap_or("").to_string();
+    let code_of = |j: &json::J| {
+        j.get("code")
+            .and_then(|c| c.get("code"))
+            .and_then(|c| c.str())
+            .unwrap_or("")
+            .to_string()
+    };
     // "type annotations needed" (E0282/E0283) is usually a knock-on of a real error elsewhere,
     // e.g. a missing trait on a value; show it only when nothing else went wrong.
     let vague = |c: &str| c == "E0282" || c == "E0283";
@@ -1808,31 +2648,62 @@ fn report(rust: &str, stderr: &str) {
         let msg = j.get("message").and_then(|v| v.str()).unwrap_or("");
         let spans = j.get("spans").map(|s| s.arr()).unwrap_or(&[]);
         // Spans inside the runtime library (rt.rs) say nothing about the program's lines.
-        let ours = |s: &&json::J| s.get("file_name").and_then(|f| f.str()).map_or(true, |f| !f.ends_with("rt.rs"));
-        let primary = spans.iter().filter(ours).find(|s| s.get("is_primary").map_or(false, |p| p.truthy())).or(spans.iter().find(ours)).or(spans.first());
+        let ours = |s: &&json::J| {
+            s.get("file_name")
+                .and_then(|f| f.str())
+                .map_or(true, |f| !f.ends_with("rt.rs"))
+        };
+        let primary = spans
+            .iter()
+            .filter(ours)
+            .find(|s| s.get("is_primary").map_or(false, |p| p.truthy()))
+            .or(spans.iter().find(ours))
+            .or(spans.first());
         let (rline, label) = match primary {
             Some(s) => (
                 s.get("line_start").and_then(|v| v.num()).unwrap_or(0.0) as usize,
-                s.get("label").and_then(|v| v.str()).unwrap_or("").to_string(),
+                s.get("label")
+                    .and_then(|v| v.str())
+                    .unwrap_or("")
+                    .to_string(),
             ),
             None => (0, String::new()),
         };
         let aline = line_map.get(rline.saturating_sub(1)).copied().unwrap_or(0);
         let mut text = to_brevi_words(msg);
         if code == "E0596" || code == "E0384" {
-            let name = msg.split_whitespace().skip_while(|w| *w != "borrow" && *w != "variable").nth(1).unwrap_or("it").replace('`', "");
+            let name = msg
+                .split_whitespace()
+                .skip_while(|w| *w != "borrow" && *w != "variable")
+                .nth(1)
+                .unwrap_or("it")
+                .replace('`', "");
             text = format!("cannot change {name}: it was declared with let");
         } else if code == "E0381" {
             let name = msg.split('`').nth(1).unwrap_or("it");
             text = format!("{name} is not set on every path before this use");
-        } else if !label.is_empty() && !text.contains(&label) && !label.starts_with("method not found in") {
+        } else if !label.is_empty()
+            && !text.contains(&label)
+            && !label.starts_with("method not found in")
+        {
             text = format!("{text}: {}", to_brevi_words(&label));
         }
         // A copy Brevi refuses because the value is not shared (a `__shared` marker from alias.rs).
         if msg.contains("AxShared") || msg.contains("AxWhole") || msg.contains("AxAug") {
-            let src = primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("");
-            if let Some(h) = src.split("axsh:").nth(1).map(|h| h.split("*/").next().unwrap_or("")) {
-                let bytes: Vec<u8> = (0..h.len() / 2).filter_map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()).collect();
+            let src = primary
+                .and_then(|s| s.get("text"))
+                .and_then(|t| t.arr().first())
+                .and_then(|t| t.get("text"))
+                .and_then(|t| t.str())
+                .unwrap_or("");
+            if let Some(h) = src
+                .split("axsh:")
+                .nth(1)
+                .map(|h| h.split("*/").next().unwrap_or(""))
+            {
+                let bytes: Vec<u8> = (0..h.len() / 2)
+                    .filter_map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok())
+                    .collect();
                 let t = String::from_utf8_lossy(&bytes).to_string();
                 let (m, f) = t.split_once('\u{1}').unwrap_or((&t, ""));
                 if !seen.insert(aline) {
@@ -1846,7 +2717,14 @@ fn report(rust: &str, stderr: &str) {
         }
         let mut fix = fix_for(code, &format!("{msg} {label}"));
         if vague(code) {
-            if let Some((t, f)) = vague_type_words(primary.and_then(|s| s.get("text")).and_then(|t| t.arr().first()).and_then(|t| t.get("text")).and_then(|t| t.str()).unwrap_or("")) {
+            if let Some((t, f)) = vague_type_words(
+                primary
+                    .and_then(|s| s.get("text"))
+                    .and_then(|t| t.arr().first())
+                    .and_then(|t| t.get("text"))
+                    .and_then(|t| t.str())
+                    .unwrap_or(""),
+            ) {
                 text = t;
                 fix = Some(f);
             }
@@ -1858,7 +2736,9 @@ fn report(rust: &str, stderr: &str) {
                 None => opts,
             });
         }
-        if RUST_LINES.get().map_or(false, |rs| rs.iter().any(|&(a, b)| aline >= a && aline <= b)) {
+        if RUST_LINES.get().map_or(false, |rs| {
+            rs.iter().any(|&(a, b)| aline >= a && aline <= b)
+        }) {
             fix = rust_help(j, code).or(fix);
         }
         // One error per line: later ones are usually knock-on effects.
@@ -1874,8 +2754,14 @@ fn report(rust: &str, stderr: &str) {
 // "type annotations needed" on `let mut NAME = ...`: name the variable and say why its type is unknown.
 fn vague_type_words(src: &str) -> Option<(String, String)> {
     let p = src.find("let ")?;
-    let rest = src[p + 4..].trim_start().trim_start_matches("mut ").trim_start();
-    let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    let rest = src[p + 4..]
+        .trim_start()
+        .trim_start_matches("mut ")
+        .trim_start();
+    let name: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
     let after = rest[name.len()..].trim_start();
     if name.is_empty() || !after.starts_with('=') {
         return None;
@@ -1883,11 +2769,26 @@ fn vague_type_words(src: &str) -> Option<(String, String)> {
     let shown = name.trim_start_matches("v_").to_string();
     let rhs = &after[1..];
     Some(if rhs.contains("ax_none()") {
-        (format!("can't work out the type of {shown}, which starts as None"), format!("give it a type where it starts, e.g. {shown}: (int, str) = None, or set it to a real value first"))
-    } else if rhs.contains("AxM::new()") || rhs.contains("Vec::new()") || rhs.contains("vec![]") || rhs.contains("BTreeSet::new()") {
-        (format!("can't work out the type of the empty {shown}"), format!("give it a type, e.g. {shown}: {{str: int}} = {{}} or {shown}: [str] = []"))
+        (
+            format!("can't work out the type of {shown}, which starts as None"),
+            format!(
+                "give it a type where it starts, e.g. {shown}: (int, str) = None, or set it to a real value first"
+            ),
+        )
+    } else if rhs.contains("AxM::new()")
+        || rhs.contains("Vec::new()")
+        || rhs.contains("vec![]")
+        || rhs.contains("BTreeSet::new()")
+    {
+        (
+            format!("can't work out the type of the empty {shown}"),
+            format!("give it a type, e.g. {shown}: {{str: int}} = {{}} or {shown}: [str] = []"),
+        )
     } else {
-        (format!("can't work out the type of {shown}"), format!("give {shown} a type where it is first set, e.g. {shown}: int = ..."))
+        (
+            format!("can't work out the type of {shown}"),
+            format!("give {shown} a type where it is first set, e.g. {shown}: int = ..."),
+        )
     })
 }
 
@@ -1914,7 +2815,10 @@ fn to_brevi_words(s: &str) -> String {
     let mut s = s.to_string();
     let mut from = 0;
     while let Some(p) = s[from..].find("brevi_").map(|p| p + from) {
-        let hex = s[p + 6..].chars().take_while(|c| c.is_ascii_hexdigit()).count();
+        let hex = s[p + 6..]
+            .chars()
+            .take_while(|c| c.is_ascii_hexdigit())
+            .count();
         if hex > 0 && s[p + 6 + hex..].starts_with("::") {
             s.replace_range(p..p + 8 + hex, "");
         } else {
@@ -1938,9 +2842,13 @@ fn to_brevi_words(s: &str) -> String {
         t = replace_word(&t, r, a);
     }
     t = rewrite_generic(&t, "Vec", |args| format!("[{}]", args));
-    t = rewrite_generic(&t, "AxM", |args| format!("{{{}}}", args.replacen(", ", ": ", 1)));
+    t = rewrite_generic(&t, "AxM", |args| {
+        format!("{{{}}}", args.replacen(", ", ": ", 1))
+    });
     t = rewrite_generic(&t, "R", |args| format!("{args} !"));
-    t = rewrite_generic(&t, "Result", |args| format!("{} !", args.trim_end_matches(", AxErr")));
+    t = rewrite_generic(&t, "Result", |args| {
+        format!("{} !", args.trim_end_matches(", AxErr"))
+    });
     t.replace("ax_", "")
 }
 
@@ -1951,7 +2859,10 @@ fn replace_word(s: &str, from: &str, to: &str) -> String {
     let mut i = 0;
     while i < b.len() {
         let is_word = |c: char| c.is_alphanumeric() || c == '_';
-        if b[i..].starts_with(&f) && (i == 0 || !is_word(b[i - 1])) && b.get(i + f.len()).map_or(true, |c| !is_word(*c)) {
+        if b[i..].starts_with(&f)
+            && (i == 0 || !is_word(b[i - 1]))
+            && b.get(i + f.len()).map_or(true, |c| !is_word(*c))
+        {
             out.push_str(to);
             i += f.len();
         } else {
@@ -1966,7 +2877,12 @@ fn rewrite_generic(s: &str, name: &str, f: impl Fn(&str) -> String) -> String {
     let pat = format!("{name}<");
     let mut out = s.to_string();
     while let Some(p) = out.find(&pat) {
-        if p > 0 && out[..p].chars().last().map_or(false, |c| c.is_alphanumeric()) {
+        if p > 0
+            && out[..p]
+                .chars()
+                .last()
+                .map_or(false, |c| c.is_alphanumeric())
+        {
             break;
         }
         let start = p + pat.len();
@@ -2017,11 +2933,19 @@ fn valid_options(code: &str, msg: &str, rust: &str) -> Option<String> {
         "E0609" | "E0560" | "E0026" => {
             // "no field `z` on type `Point`": list the struct's fields from the generated code.
             let ty = msg.rsplit('`').nth(1)?;
-            let src = if rust.contains(&format!("pub struct {ty} {{")) { rust } else { emit::PRELUDE };
+            let src = if rust.contains(&format!("pub struct {ty} {{")) {
+                rust
+            } else {
+                emit::PRELUDE
+            };
             let start = src.find(&format!("pub struct {ty} {{"))?;
             let body = &src[start..];
             let body = &body[..body.find('}')?];
-            let fields: Vec<&str> = body.lines().filter_map(|l| l.trim().strip_prefix("pub ")?.split(':').next()).filter(|f| !f.starts_with("struct")).collect();
+            let fields: Vec<&str> = body
+                .lines()
+                .filter_map(|l| l.trim().strip_prefix("pub ")?.split(':').next())
+                .filter(|f| !f.starts_with("struct"))
+                .collect();
             Some(format!("fields of {ty}: {}", fields.join(", ")))
         }
         _ => None,
@@ -2036,12 +2960,27 @@ fn rust_help(j: &json::J, code: &str) -> Option<String> {
         if lvl != "help" && lvl != "note" {
             continue;
         }
-        let mut m = c.get("message").and_then(|v| v.str()).unwrap_or("").replace('`', "");
+        let mut m = c
+            .get("message")
+            .and_then(|v| v.str())
+            .unwrap_or("")
+            .replace('`', "");
         // "#[deny(lint)] on by default" says nothing about how to fix the code.
         if m.starts_with("#[") && m.ends_with("on by default") {
             continue;
         }
-        let reps: Vec<String> = c.get("spans").map(|s| s.arr()).unwrap_or(&[]).iter().filter_map(|s| s.get("suggested_replacement").and_then(|v| v.str()).map(|r| r.trim().to_string())).filter(|r| !r.is_empty()).collect();
+        let reps: Vec<String> = c
+            .get("spans")
+            .map(|s| s.arr())
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|s| {
+                s.get("suggested_replacement")
+                    .and_then(|v| v.str())
+                    .map(|r| r.trim().to_string())
+            })
+            .filter(|r| !r.is_empty())
+            .collect();
         if !reps.is_empty() {
             m = format!("{m}: {}", reps.join(" | "));
         }
@@ -2052,8 +2991,21 @@ fn rust_help(j: &json::J, code: &str) -> Option<String> {
             break;
         }
     }
-    let unpinned: Vec<&str> = DEPS.get().map(|d| d.iter().filter(|d| d.version == "*").map(|d| d.name.as_str()).collect()).unwrap_or_default();
-    if !unpinned.is_empty() && matches!(code, "E0599" | "E0432" | "E0433" | "E0425" | "E0412" | "E0061" | "E0277" | "E0308" | "E0603") {
+    let unpinned: Vec<&str> = DEPS
+        .get()
+        .map(|d| {
+            d.iter()
+                .filter(|d| d.version == "*")
+                .map(|d| d.name.as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    if !unpinned.is_empty()
+        && matches!(
+            code,
+            "E0599" | "E0432" | "E0433" | "E0425" | "E0412" | "E0061" | "E0277" | "E0308" | "E0603"
+        )
+    {
         hs.push(format!("{} has no version, so cargo used the newest: pin the one you know with use {} \"VERSION\"", unpinned.join(", "), unpinned[0]));
     }
     if hs.is_empty() {
@@ -2068,7 +3020,10 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
         return Some("this value can fail: add ? after the call that produced it".into());
     }
     if msg.contains("will panic at runtime") {
-        return Some("this always panics when run: keep indexes in range, and window/chunk sizes above 0".into());
+        return Some(
+            "this always panics when run: keep indexes in range, and window/chunk sizes above 0"
+                .into(),
+        );
     }
     match code {
         "E0384" | "E0596" => Some("write x = 1 instead of let x = 1, or mark the parameter mut (fn f(mut xs: [int]))".into()),
@@ -2101,21 +3056,25 @@ pub fn python_style(src: &str) -> bool {
         l.match_indices(w).any(|(i, _)| {
             let before = l[..i].chars().next_back();
             let after = l[i + w.len()..].chars().next();
-            !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '"' || c == '\'') && !after.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '"' || c == '\'')
+            !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '"' || c == '\'')
+                && !after.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '"' || c == '\'')
         })
     };
-    src.lines().map(str::trim_start).filter(|l| !l.starts_with('#')).any(|l| {
-        l.starts_with("def ")
-            || l.starts_with("class ")
-            || l.starts_with("global ")
-            || l.starts_with("nonlocal ")
-            || l.starts_with("import ")
-            || (l.starts_with("from ") && l.contains(" import "))
-            || l.contains(".append(")
-            || word(l, "None")
-            || (l.starts_with("with ") && l.contains(" as "))
-            || (word(l, "open") && l.contains("open("))
-    })
+    src.lines()
+        .map(str::trim_start)
+        .filter(|l| !l.starts_with('#'))
+        .any(|l| {
+            l.starts_with("def ")
+                || l.starts_with("class ")
+                || l.starts_with("global ")
+                || l.starts_with("nonlocal ")
+                || l.starts_with("import ")
+                || (l.starts_with("from ") && l.contains(" import "))
+                || l.contains(".append(")
+                || word(l, "None")
+                || (l.starts_with("with ") && l.contains(" as "))
+                || (word(l, "open") && l.contains("open("))
+        })
 }
 
 #[cfg(test)]
@@ -2136,14 +3095,28 @@ mod path_tests {
         assert_eq!(enclosing_def(src, 14), None);
         assert_eq!(enclosing_def(src, 0), None);
         assert_eq!(enclosing_def(src, 99), None);
-        assert_eq!(enclosing_def("fn total(xs: [int]) -> int:\n    return 0\n", 2).as_deref(), Some("total"));
+        assert_eq!(
+            enclosing_def("fn total(xs: [int]) -> int:\n    return 0\n", 2).as_deref(),
+            Some("total")
+        );
     }
 
     #[test]
     fn rustc_first_error_reads_json_and_text() {
         let j = r#"{"$message_type":"diagnostic","message":"mismatched types","level":"error"}"#;
-        assert_eq!(rustc_first_error(&format!("{{\"level\":\"warning\",\"message\":\"unused\"}}\n{j}")), "the typed build's Rust did not compile (mismatched types)");
-        assert_eq!(rustc_first_error("error[E0308]: mismatched types\n"), "the typed build's Rust did not compile (mismatched types)");
-        assert_eq!(rustc_first_error(""), "the typed build's Rust did not compile");
+        assert_eq!(
+            rustc_first_error(&format!(
+                "{{\"level\":\"warning\",\"message\":\"unused\"}}\n{j}"
+            )),
+            "the typed build's Rust did not compile (mismatched types)"
+        );
+        assert_eq!(
+            rustc_first_error("error[E0308]: mismatched types\n"),
+            "the typed build's Rust did not compile (mismatched types)"
+        );
+        assert_eq!(
+            rustc_first_error(""),
+            "the typed build's Rust did not compile"
+        );
     }
 }

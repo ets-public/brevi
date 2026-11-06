@@ -26,14 +26,39 @@ const KEYWORDS: &[&str] = &[
 
 // Names Rust's prelude gives to traits and types: a Brevi `type Ord` must not clash with them.
 const RUST_PRELUDE: &[&str] = &[
-    "Ord", "PartialOrd", "Eq", "PartialEq", "Clone", "Copy", "Default", "Debug", "Hash", "Iterator", "Drop", "Send",
-    "Sync", "Sized", "From", "Into", "Vec", "String", "Box", "Option", "ToString", "Fn", "FnMut", "FnOnce", "Display", "Result",
+    "Ord",
+    "PartialOrd",
+    "Eq",
+    "PartialEq",
+    "Clone",
+    "Copy",
+    "Default",
+    "Debug",
+    "Hash",
+    "Iterator",
+    "Drop",
+    "Send",
+    "Sync",
+    "Sized",
+    "From",
+    "Into",
+    "Vec",
+    "String",
+    "Box",
+    "Option",
+    "ToString",
+    "Fn",
+    "FnMut",
+    "FnOnce",
+    "Display",
+    "Result",
 ];
 
 const RUST_KEYWORDS: &[&str] = &[
-    "as", "async", "await", "box", "const", "crate", "dyn", "extern", "impl", "loop", "mod", "move", "priv", "pub", "ref",
-    "self", "static", "struct", "super", "trait", "try", "typeof", "unsafe", "use", "where", "yield", "macro", "final",
-    "override", "virtual", "become", "abstract", "do", "unsized",
+    "as", "async", "await", "box", "const", "crate", "dyn", "extern", "impl", "loop", "mod",
+    "move", "priv", "pub", "ref", "self", "static", "struct", "super", "trait", "try", "typeof",
+    "unsafe", "use", "where", "yield", "macro", "final", "override", "virtual", "become",
+    "abstract", "do", "unsized",
 ];
 
 // "{{#each items}}", "{{/if}}", "{{else}}", or "{{#each " at a string's end: where the tag's text ends,
@@ -82,7 +107,10 @@ fn method_arg_start(chars: &[char], q: usize) -> bool {
 // `7`, `3.14` or `1_000` right after an f-string's `{`, up to a `:` or `}`: where the number ends.
 fn num_interp(chars: &[char], from: usize) -> Option<usize> {
     let mut j = from;
-    while chars.get(j).map_or(false, |c| c.is_ascii_digit() || matches!(c, '.' | '_')) {
+    while chars
+        .get(j)
+        .map_or(false, |c| c.is_ascii_digit() || matches!(c, '.' | '_'))
+    {
         j += 1;
     }
     // An exponent: `{1e16:g}`, `{2.5E-3}`.
@@ -102,7 +130,8 @@ fn num_interp(chars: &[char], from: usize) -> Option<usize> {
     while chars.get(k) == Some(&' ') {
         k += 1;
     }
-    (j > from && chars[from].is_ascii_digit() && matches!(chars.get(k), Some(':' | '}'))).then_some(j)
+    (j > from && chars[from].is_ascii_digit() && matches!(chars.get(k), Some(':' | '}')))
+        .then_some(j)
 }
 
 // Python escapes (in .py files only: Brevi code keeps "\\1" for regex backreferences) that stand for one character: \x41, \u00e9, \U0001F600, \N{BULLET}, octal \101, \a \b \f \v.
@@ -110,7 +139,14 @@ fn num_interp(chars: &[char], from: usize) -> Option<usize> {
 fn char_escape(chars: &[char], i: usize) -> Option<(char, usize)> {
     let hex = |n: usize| {
         let h: String = chars.get(i + 2..i + 2 + n)?.iter().collect();
-        if h.chars().all(|c| c.is_ascii_hexdigit()) { u32::from_str_radix(&h, 16).ok().and_then(char::from_u32).map(|c| (c, n + 2)) } else { None }
+        if h.chars().all(|c| c.is_ascii_hexdigit()) {
+            u32::from_str_radix(&h, 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(|c| (c, n + 2))
+        } else {
+            None
+        }
     };
     match *chars.get(i + 1)? {
         'x' => hex(2),
@@ -122,8 +158,13 @@ fn char_escape(chars: &[char], i: usize) -> Option<(char, usize)> {
         'v' => Some(('\x0b', 2)),
         'N' => crate::unicode_names::escape(&chars[i + 2..]).map(|(c, n)| (c, n + 2)),
         '0'..='7' => {
-            let n = chars[i + 1..].iter().take(3).take_while(|c| ('0'..='7').contains(c)).count();
-            let v = u32::from_str_radix(&chars[i + 1..i + 1 + n].iter().collect::<String>(), 8).ok()?;
+            let n = chars[i + 1..]
+                .iter()
+                .take(3)
+                .take_while(|c| ('0'..='7').contains(c))
+                .count();
+            let v =
+                u32::from_str_radix(&chars[i + 1..i + 1 + n].iter().collect::<String>(), 8).ok()?;
             char::from_u32(v).map(|c| (c, n + 1))
         }
         _ => None,
@@ -132,13 +173,20 @@ fn char_escape(chars: &[char], i: usize) -> Option<(char, usize)> {
 
 // A `\N` in a .py string that char_escape could not read: left as text it would print the wrong thing.
 fn bad_named_escape(line: usize, col: usize) -> Diag {
-    Diag::new("lex", line, col, "cannot read this \\N{...} escape").fix_hint("write the character itself, or check the name")
+    Diag::new("lex", line, col, "cannot read this \\N{...} escape")
+        .fix_hint("write the character itself, or check the name")
 }
 
 fn interp_closes(chars: &[char], from: usize) -> bool {
     // `{3}` or `{2,4}` is a regex count, not a value.
-    let count: String = chars[from..].iter().take_while(|c| **c != '}' && **c != '"' && **c != '\n').collect();
-    if !count.is_empty() && count.chars().all(|c| c.is_ascii_digit() || c == ',') && chars.get(from + count.len()) == Some(&'}') {
+    let count: String = chars[from..]
+        .iter()
+        .take_while(|c| **c != '}' && **c != '"' && **c != '\n')
+        .collect();
+    if !count.is_empty()
+        && count.chars().all(|c| c.is_ascii_digit() || c == ',')
+        && chars.get(from + count.len()) == Some(&'}')
+    {
         return false;
     }
     let (mut depth, mut in_str, mut i) = (1, false, from);
@@ -147,11 +195,27 @@ fn interp_closes(chars: &[char], from: usize) -> bool {
             '\n' => return false,
             '\\' if in_str => i += 1,
             // A quote right after a value ends the outer string, so this `{` was not an interpolation.
-            '"' if !in_str && chars[..i].iter().rev().find(|c| **c != ' ').map_or(false, |p| p.is_alphanumeric() || matches!(p, '_' | ')' | ']')) => return false,
+            '"' if !in_str
+                && chars[..i]
+                    .iter()
+                    .rev()
+                    .find(|c| **c != ' ')
+                    .map_or(false, |p| {
+                        p.is_alphanumeric() || matches!(p, '_' | ')' | ']')
+                    }) =>
+            {
+                return false;
+            }
             '"' if in_str => {
                 in_str = false;
                 // After a string inside `{}` comes an operator or the closing brace, not more text.
-                if chars[i + 1..].iter().find(|c| **c != ' ').map_or(true, |c| c.is_alphanumeric() || matches!(c, ':' | '"' | '\n')) {
+                if chars[i + 1..]
+                    .iter()
+                    .find(|c| **c != ' ')
+                    .map_or(true, |c| {
+                        c.is_alphanumeric() || matches!(c, ':' | '"' | '\n')
+                    })
+                {
                     return false;
                 }
             }
@@ -172,25 +236,41 @@ fn interp_closes(chars: &[char], from: usize) -> bool {
 
 // Longest symbols first so the scanner can take the first match.
 const SYMBOLS: &[&str] = &[
-    "**", "<<=", ">>=", "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "%=", "|=", "&=", "^=", "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]",
-    "{", "}", ",", ":", ".", "+", "-", "*", "/", "%", "<", ">", "=", "!", "?", ";", "|", "&", "^", "@", "~",
+    "**", "<<=", ">>=", "->", "=>", "==", "!=", "<=", ">=", "<<", ">>", "%=", "|=", "&=", "^=",
+    "+=", "-=", "*=", "/=", "~=", "..", "(", ")", "[", "]", "{", "}", ",", ":", ".", "+", "-", "*",
+    "/", "%", "<", ">", "=", "!", "?", ";", "|", "&", "^", "@", "~",
 ];
 
 // After a value, `a // b` is floor division unless what follows reads like words (`x = 5 // the count`).
 pub(crate) fn looks_like_prose(rest: &str) -> bool {
     let words: Vec<&str> = rest.split_whitespace().collect();
-    let is_word = |w: &str| w.chars().all(|c| c.is_alphanumeric() || c == '_') && !["and", "or", "not", "if", "else", "in"].contains(&w);
+    let is_word = |w: &str| {
+        w.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && !["and", "or", "not", "if", "else", "in"].contains(&w)
+    };
     rest.trim().is_empty() || words.windows(2).any(|p| is_word(p[0]) && is_word(p[1]))
 }
 
 // Python imports of modules Brevi has built in (`import sys`, `from collections import defaultdict`)
 // are dropped; the line stays so line numbers hold.
-const PY_BUILTIN_MODULES: &[&str] = &["sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools"];
+const PY_BUILTIN_MODULES: &[&str] = &[
+    "sys",
+    "math",
+    "collections",
+    "typing",
+    "dataclasses",
+    "re",
+    "functools",
+    "itertools",
+];
 
 // `json`, `os.path`, `xml.etree.ElementTree as ET`: a dotted module name, maybe with `as NAME`.
 fn is_module_path(m: &str) -> bool {
     let name = m.split(" as ").next().unwrap_or("").trim();
-    !name.is_empty() && name.split('.').all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_'))
+    !name.is_empty()
+        && name
+            .split('.')
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_'))
 }
 
 thread_local! {
@@ -206,7 +286,11 @@ pub fn dataclass_at(line: usize) -> Option<String> {
 // The Python name a lexed name stands for: `Box_` (renamed for Rust) is `Box`.
 pub fn py_ident(n: &str) -> &str {
     match n.strip_suffix('_') {
-        Some(k) if RUST_KEYWORDS.contains(&k) || RUST_PRELUDE.contains(&k) || KEYWORDS.contains(&k) => k,
+        Some(k)
+            if RUST_KEYWORDS.contains(&k) || RUST_PRELUDE.contains(&k) || KEYWORDS.contains(&k) =>
+        {
+            k
+        }
         _ => n,
     }
 }
@@ -214,7 +298,9 @@ pub fn py_ident(n: &str) -> &str {
 // `@dataclass`, `@dataclasses.dataclass`, `@dataclass(order=True)`, but not `@dataclass(repr=False)`.
 fn dataclass_decorator(t: &str) -> bool {
     let d = t.trim_start_matches('@').trim_start_matches("dataclasses.");
-    let Some(rest) = d.strip_prefix("dataclass") else { return false };
+    let Some(rest) = d.strip_prefix("dataclass") else {
+        return false;
+    };
     let rest = rest.split('#').next().unwrap_or("").trim();
     (rest.is_empty() || rest.starts_with('(')) && !rest.replace(' ', "").contains("repr=False")
 }
@@ -238,7 +324,11 @@ fn drop_py_imports(src: &str) -> String {
         // dict first, so a memoised recursion stays fast (dropping the decorator would make it exponential).
         if let Some(w) = memo_wrapper(t, &all[at + 1..], at) {
             let ind = &l[..l.len() - l.trim_start().len()];
-            out.push_str(&format!("{ind}{}{}", w.1.replace('\u{1}', &format!("\u{1}{ind}")), if l.ends_with('\n') { "\n" } else { "" }));
+            out.push_str(&format!(
+                "{ind}{}{}",
+                w.1.replace('\u{1}', &format!("\u{1}{ind}")),
+                if l.ends_with('\n') { "\n" } else { "" }
+            ));
             memo = Some((w.0, w.2));
             continue;
         }
@@ -254,10 +344,17 @@ fn drop_py_imports(src: &str) -> String {
         // except that a dataclass prints its fields (noted for the parser).
         if t.starts_with('@') && t[1..].chars().next().map_or(false, |c| c.is_alphabetic()) {
             if dataclass_decorator(t) {
-                let class = all[at + 1..].iter().enumerate().map(|(k, l)| (k, l.trim())).find(|(_, l)| !l.starts_with('@') && !l.is_empty() && !l.starts_with('#'));
+                let class = all[at + 1..]
+                    .iter()
+                    .enumerate()
+                    .map(|(k, l)| (k, l.trim()))
+                    .find(|(_, l)| !l.starts_with('@') && !l.is_empty() && !l.starts_with('#'));
                 if let Some((k, c)) = class {
                     if let Some(rest) = c.strip_prefix("class ") {
-                        let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                        let name: String = rest
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect();
                         DATACLASS.with(|d| d.borrow_mut().insert(at + k + 2, name));
                     }
                 }
@@ -265,13 +362,19 @@ fn drop_py_imports(src: &str) -> String {
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
             continue;
         }
-        let module = t.strip_prefix("import ").map(|m| m.split(',').map(str::trim).collect::<Vec<_>>()).or_else(|| {
-            let rest = t.strip_prefix("from ")?;
-            let (m, _) = rest.split_once(" import ")?;
-            Some(vec![m.trim()])
-        });
+        let module = t
+            .strip_prefix("import ")
+            .map(|m| m.split(',').map(str::trim).collect::<Vec<_>>())
+            .or_else(|| {
+                let rest = t.strip_prefix("from ")?;
+                let (m, _) = rest.split_once(" import ")?;
+                Some(vec![m.trim()])
+            });
         // Any Python import line: the modules Brevi maps are built in, and `import` means nothing else here.
-        if module.is_some_and(|ms| ms.iter().all(|m| PY_BUILTIN_MODULES.contains(m) || is_module_path(m))) {
+        if module.is_some_and(|ms| {
+            ms.iter()
+                .all(|m| PY_BUILTIN_MODULES.contains(m) || is_module_path(m))
+        }) {
             open = t.starts_with("from ") && t.contains('(') && !t.contains(')');
             out.push_str(if l.ends_with('\n') { "\n" } else { "" });
         } else {
@@ -290,7 +393,11 @@ fn memo_wrapper(t: &str, rest: &[&str], at: usize) -> Option<(usize, String, Str
     if d != "lru_cache" && d != "cache" {
         return None;
     }
-    let (k, def) = rest.iter().enumerate().map(|(k, l)| (k, l.trim())).find(|(_, l)| !l.starts_with('@'))?;
+    let (k, def) = rest
+        .iter()
+        .enumerate()
+        .map(|(k, l)| (k, l.trim()))
+        .find(|(_, l)| !l.starts_with('@'))?;
     let sig = def.strip_prefix("def ")?;
     let (name, after) = sig.split_once('(')?;
     let name = name.trim();
@@ -298,8 +405,21 @@ fn memo_wrapper(t: &str, rest: &[&str], at: usize) -> Option<(usize, String, Str
     if !name.chars().all(|c| c.is_alphanumeric() || c == '_') || !def.ends_with(':') {
         return None;
     }
-    let names: Vec<String> = params.split(',').map(|p| p.split(&[':', '='][..]).next().unwrap_or("").trim().to_string()).filter(|p| !p.is_empty()).collect();
-    if names.iter().any(|p| p.starts_with('*') || p == "self" || p == "cls" || p == "/") {
+    let names: Vec<String> = params
+        .split(',')
+        .map(|p| {
+            p.split(&[':', '='][..])
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        })
+        .filter(|p| !p.is_empty())
+        .collect();
+    if names
+        .iter()
+        .any(|p| p.starts_with('*') || p == "self" || p == "cls" || p == "/")
+    {
         return None;
     }
     let m = format!("ax_memo_{name}");
@@ -352,11 +472,15 @@ fn triple_strings(src: &str) -> String {
         }
         if ch == '"' || ch == '\'' {
             let triple = c.get(i + 1) == Some(&ch) && c.get(i + 2) == Some(&ch);
-            let raw = i > 0 && matches!(c[i - 1], 'r' | 'R') && !(i > 1 && (c[i - 2].is_alphanumeric() || c[i - 2] == '_'));
+            let raw = i > 0
+                && matches!(c[i - 1], 'r' | 'R')
+                && !(i > 1 && (c[i - 2].is_alphanumeric() || c[i - 2] == '_'));
             if triple && raw {
                 // Kept whole for the raw-string reader.
                 let mut j = i + 3;
-                while j < c.len() && !(c[j] == ch && c.get(j + 1) == Some(&ch) && c.get(j + 2) == Some(&ch)) {
+                while j < c.len()
+                    && !(c[j] == ch && c.get(j + 1) == Some(&ch) && c.get(j + 2) == Some(&ch))
+                {
                     j += 1;
                 }
                 let end = (j + 3).min(c.len());
@@ -367,7 +491,9 @@ fn triple_strings(src: &str) -> String {
             if triple {
                 let mut j = i + 3;
                 let mut body = String::new();
-                while j < c.len() && !(c[j] == ch && c.get(j + 1) == Some(&ch) && c.get(j + 2) == Some(&ch)) {
+                while j < c.len()
+                    && !(c[j] == ch && c.get(j + 1) == Some(&ch) && c.get(j + 2) == Some(&ch))
+                {
                     match c[j] {
                         '\\' if j + 1 < c.len() => {
                             if c[j + 1] == '\n' {
@@ -444,13 +570,24 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     let py_defs: Vec<String> = src
         .split(['\n', '\u{1}'])
         .filter_map(|l| l.trim_start().strip_prefix("def "))
-        .map(|r| r.split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("").to_string())
+        .map(|r| {
+            r.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .next()
+                .unwrap_or("")
+                .to_string()
+        })
         .collect();
 
     while i < chars.len() {
         let c = chars[i];
         let (tl, tc) = (line, col);
-        let push = |out: &mut Vec<Token>, tok: Tok| out.push(Token { tok, line: tl, col: tc });
+        let push = |out: &mut Vec<Token>, tok: Tok| {
+            out.push(Token {
+                tok,
+                line: tl,
+                col: tc,
+            })
+        };
 
         if c == '\n' {
             if !matches!(depth.last(), Some('(') | Some('[')) {
@@ -479,7 +616,14 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             let after_value = matches!(out.last(), Some(Token { tok: Tok::Int(_) | Tok::Float(_) | Tok::Ident(_) | Tok::Sym(")") | Tok::Sym("]"), line: l, .. }) if *l == line);
             let rest: String = chars[i + 2..].iter().take_while(|c| **c != '\n').collect();
             // Only up to a later comment on the same line.
-            let rest = rest.split("//").next().unwrap_or("").split('#').next().unwrap_or("").to_string();
+            let rest = rest
+                .split("//")
+                .next()
+                .unwrap_or("")
+                .split('#')
+                .next()
+                .unwrap_or("")
+                .to_string();
             if after_value && chars.get(i + 2) == Some(&'=') {
                 push(&mut out, Tok::Sym("//="));
                 i += 3;
@@ -508,7 +652,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             col += 1;
             loop {
                 match chars.get(i) {
-                    None | Some('\n') => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing '")),
+                    None | Some('\n') => {
+                        return Err(Diag::new("lex", tl, tc, "unterminated string")
+                            .fix_hint("add a closing '"));
+                    }
                     Some('\'') => {
                         i += 1;
                         col += 1;
@@ -527,8 +674,16 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         col += 2;
                     }
                     // f'{7:03d}', f'{ x }': a number value is wrapped as `(7)`; spaces after the brace are dropped.
-                    Some('{') if py && is_f && chars.get(i + 1).is_some_and(|c| *c == ' ' || c.is_ascii_digit()) => {
-                        let j = (i + 1..chars.len()).find(|&j| chars[j] != ' ').unwrap_or(chars.len());
+                    Some('{')
+                        if py
+                            && is_f
+                            && chars
+                                .get(i + 1)
+                                .is_some_and(|c| *c == ' ' || c.is_ascii_digit()) =>
+                    {
+                        let j = (i + 1..chars.len())
+                            .find(|&j| chars[j] != ' ')
+                            .unwrap_or(chars.len());
                         s.push('{');
                         if let Some(end) = num_interp(&chars, j) {
                             s.push('(');
@@ -567,7 +722,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                             }
                         }
                     }
-                    Some('{') if chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(') || (is_f && matches!(c, '"' | '[' | '-' | '!'))) && interp_closes(&chars, i + 1) => {
+                    Some('{')
+                        if chars.get(i + 1).map_or(false, |c| {
+                            c.is_alphabetic()
+                                || matches!(c, '_' | '(')
+                                || (is_f && matches!(c, '"' | '[' | '-' | '!'))
+                        }) && interp_closes(&chars, i + 1) =>
+                    {
                         // The value runs to its matching `}`; strings inside it are skipped.
                         let (mut depth, mut inner) = (0usize, false);
                         while let Some(&ch) = chars.get(i) {
@@ -608,7 +769,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 1;
                         col += 1;
                     }
-                    Some('\\') if py && chars.get(i + 1) == Some(&'N') && char_escape(&chars, i).is_none() => return Err(bad_named_escape(tl, tc)),
+                    Some('\\')
+                        if py
+                            && chars.get(i + 1) == Some(&'N')
+                            && char_escape(&chars, i).is_none() =>
+                    {
+                        return Err(bad_named_escape(tl, tc));
+                    }
                     Some('\\') if py && char_escape(&chars, i).is_some() => {
                         let (ch, n) = char_escape(&chars, i).unwrap();
                         s.push(ch);
@@ -661,14 +828,18 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             i += 1;
             col += 1;
             // Inside `{...}` the text is kept as written (quotes included), to be lexed again as an expression.
-            let (mut depth, mut inner_str, mut esc_open, mut lone_open) = (0usize, false, 0usize, 0usize);
+            let (mut depth, mut inner_str, mut esc_open, mut lone_open) =
+                (0usize, false, 0usize, 0usize);
             // Inside a value, a 'single-quoted' string is skipped whole ("{'#'.repeat(n)}").
             let mut inner_sq = false;
             // Just after `\\`: a `{` here is a regex's escaped brace (`"\\{(\\d+)\\}"`), never a value.
             let mut after_bs = false;
             // `.split("{{")`, `.find("}}")`, `.push("{{" + p)`: a bare "{{" or "}}" handed straight to a method
             // is two braces, the way template code means it.
-            let pair = matches!((chars.get(i), chars.get(i + 1), chars.get(i + 2)), (Some('{'), Some('{'), Some('"')) | (Some('}'), Some('}'), Some('"')));
+            let pair = matches!(
+                (chars.get(i), chars.get(i + 1), chars.get(i + 2)),
+                (Some('{'), Some('{'), Some('"')) | (Some('}'), Some('}'), Some('"'))
+            );
             if pair && !py && method_arg_start(&chars, i - 1) {
                 let b = chars[i];
                 s.extend([b, b, b, b]);
@@ -681,7 +852,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 let bs = std::mem::take(&mut after_bs);
                 if depth > 0 {
                     match chars.get(i) {
-                        None | Some('\n') => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \"")),
+                        None | Some('\n') => {
+                            return Err(Diag::new("lex", tl, tc, "unterminated string")
+                                .fix_hint("add a closing \""));
+                        }
                         Some(&ch) => {
                             if inner_sq || (!inner_str && ch == '\'') {
                                 inner_sq = !(inner_sq && ch == '\'');
@@ -719,7 +893,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 }
                 match chars.get(i) {
                     None | Some('\n') => {
-                        return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing \""));
+                        return Err(Diag::new("lex", tl, tc, "unterminated string")
+                            .fix_hint("add a closing \""));
                     }
                     Some(&b @ ('{' | '}')) if py && !is_f => {
                         s.push(b);
@@ -742,7 +917,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         col += 2;
                     }
                     // A template tag such as "{{#each items}}", "{{/if}}" or "{{else}}" keeps both braces on each side.
-                    Some('{') if chars.get(i + 1) == Some(&'{') && template_tag(&chars, i + 2).is_some() => {
+                    Some('{')
+                        if chars.get(i + 1) == Some(&'{')
+                            && template_tag(&chars, i + 2).is_some() =>
+                    {
                         let (end, closed) = template_tag(&chars, i + 2).unwrap();
                         s.push_str("{{{{");
                         s.extend(&chars[i + 2..end]);
@@ -772,11 +950,21 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         col += 2;
                     }
                     // f"{ x }": spaces after the brace are dropped, as Python reads them.
-                    Some('{') if is_f && !bs && chars.get(i + 1) == Some(&' ') && {
-                        let j = (i + 1..chars.len()).find(|&j| chars[j] != ' ').unwrap_or(chars.len());
-                        num_interp(&chars, j).is_some() || chars.get(j).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '"' | '\'')) && interp_closes(&chars, j)
-                    } => {
-                        let j = (i + 1..chars.len()).find(|&j| chars[j] != ' ').unwrap_or(chars.len());
+                    Some('{')
+                        if is_f && !bs && chars.get(i + 1) == Some(&' ') && {
+                            let j = (i + 1..chars.len())
+                                .find(|&j| chars[j] != ' ')
+                                .unwrap_or(chars.len());
+                            num_interp(&chars, j).is_some()
+                                || chars.get(j).map_or(false, |c| {
+                                    c.is_alphabetic()
+                                        || matches!(c, '_' | '(' | '[' | '-' | '"' | '\'')
+                                }) && interp_closes(&chars, j)
+                        } =>
+                    {
+                        let j = (i + 1..chars.len())
+                            .find(|&j| chars[j] != ' ')
+                            .unwrap_or(chars.len());
                         if let Some(end) = num_interp(&chars, j) {
                             s.push_str("{(");
                             s.extend(&chars[j..end]);
@@ -801,13 +989,28 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i = end;
                     }
                     // f"{1/3:.3f}", f"{2*n}": a value that starts with a number.
-                    Some('{') if py && is_f && !bs && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit() || *c == '.') && interp_closes(&chars, i + 1) => {
+                    Some('{')
+                        if py
+                            && is_f
+                            && !bs
+                            && chars
+                                .get(i + 1)
+                                .is_some_and(|c| c.is_ascii_digit() || *c == '.')
+                            && interp_closes(&chars, i + 1) =>
+                    {
                         depth = 1;
                         s.push('{');
                         i += 1;
                         col += 1;
                     }
-                    Some('{') if !bs && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')) && interp_closes(&chars, i + 1) => {
+                    Some('{')
+                        if !bs
+                            && chars.get(i + 1).map_or(false, |c| {
+                                c.is_alphabetic()
+                                    || matches!(c, '_' | '(' | '[' | '-' | '!' | '"' | '\'')
+                            })
+                            && interp_closes(&chars, i + 1) =>
+                    {
                         depth = 1;
                         s.push('{');
                         i += 1;
@@ -830,7 +1033,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         col += 1;
                         break;
                     }
-                    Some('\\') if py && chars.get(i + 1) == Some(&'N') && char_escape(&chars, i).is_none() => return Err(bad_named_escape(tl, tc)),
+                    Some('\\')
+                        if py
+                            && chars.get(i + 1) == Some(&'N')
+                            && char_escape(&chars, i).is_none() =>
+                    {
+                        return Err(bad_named_escape(tl, tc));
+                    }
                     Some('\\') if py && char_escape(&chars, i).is_some() => {
                         let (ch, n) = char_escape(&chars, i).unwrap();
                         after_bs = false;
@@ -881,8 +1090,15 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             continue;
         }
         // Python's `0xFF`, `0o17`, `0b101`.
-        if c == '0' && matches!(chars.get(i + 1), Some('x' | 'X' | 'o' | 'O' | 'b' | 'B')) && chars.get(i + 2).map_or(false, |d| d.is_ascii_hexdigit()) {
-            let radix = match chars[i + 1] { 'x' | 'X' => 16, 'o' | 'O' => 8, _ => 2 };
+        if c == '0'
+            && matches!(chars.get(i + 1), Some('x' | 'X' | 'o' | 'O' | 'b' | 'B'))
+            && chars.get(i + 2).map_or(false, |d| d.is_ascii_hexdigit())
+        {
+            let radix = match chars[i + 1] {
+                'x' | 'X' => 16,
+                'o' | 'O' => 8,
+                _ => 2,
+            };
             let mut j = i + 2;
             while j < chars.len() && (chars[j].is_digit(radix) || chars[j] == '_') {
                 j += 1;
@@ -891,7 +1107,14 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             match u64::from_str_radix(&text, radix) {
                 // Up to 64 bits, as Rust reads them (0xFFFFFFFFFFFFFFFF is -1).
                 Ok(n) => push(&mut out, Tok::Int(n as i64)),
-                Err(_) => return Err(Diag::new("lex", tl, tc, "integer literal too large for int")),
+                Err(_) => {
+                    return Err(Diag::new(
+                        "lex",
+                        tl,
+                        tc,
+                        "integer literal too large for int",
+                    ));
+                }
             }
             col += j - i;
             i = j;
@@ -904,7 +1127,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             // After a `.` this is a tuple field (`p.0.1`), never a float.
             let after_dot = start > 0 && chars[start - 1] == '.';
-            let is_float = !after_dot && chars.get(i) == Some(&'.') && chars.get(i + 1).map_or(false, |d| d.is_ascii_digit());
+            let is_float = !after_dot
+                && chars.get(i) == Some(&'.')
+                && chars.get(i + 1).map_or(false, |d| d.is_ascii_digit());
             if is_float {
                 i += 1;
                 while i < chars.len() && chars[i].is_ascii_digit() {
@@ -930,7 +1155,14 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             } else {
                 match text.parse() {
                     Ok(n) => push(&mut out, Tok::Int(n)),
-                    Err(_) => return Err(Diag::new("lex", tl, tc, "integer literal too large for int")),
+                    Err(_) => {
+                        return Err(Diag::new(
+                            "lex",
+                            tl,
+                            tc,
+                            "integer literal too large for int",
+                        ));
+                    }
                 }
             }
             continue;
@@ -948,20 +1180,33 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 continue;
             }
             // Python's `def f(...)` is `fn f(...)`.
-            if word == "def" && chars.get(i) == Some(&' ') && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || *c == '_') {
+            if word == "def"
+                && chars.get(i) == Some(&' ')
+                && chars
+                    .get(i + 1)
+                    .map_or(false, |c| c.is_alphabetic() || *c == '_')
+            {
                 push(&mut out, Tok::Kw("fn"));
                 continue;
             }
             // Python's raw strings `r"\d+"`: backslashes stay as written and braces are plain text.
-            if matches!(word.as_str(), "r" | "R" | "rb" | "br") && matches!(chars.get(i), Some('"') | Some('\'')) {
+            if matches!(word.as_str(), "r" | "R" | "rb" | "br")
+                && matches!(chars.get(i), Some('"') | Some('\''))
+            {
                 let q = chars[i];
                 let triple = chars.get(i + 1) == Some(&q) && chars.get(i + 2) == Some(&q);
                 let mut j = i + if triple { 3 } else { 1 };
                 let mut s = String::new();
                 loop {
                     match chars.get(j) {
-                        None => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing quote")),
-                        Some('\n') if !triple => return Err(Diag::new("lex", tl, tc, "unterminated string").fix_hint("add a closing quote")),
+                        None => {
+                            return Err(Diag::new("lex", tl, tc, "unterminated string")
+                                .fix_hint("add a closing quote"));
+                        }
+                        Some('\n') if !triple => {
+                            return Err(Diag::new("lex", tl, tc, "unterminated string")
+                                .fix_hint("add a closing quote"));
+                        }
                         Some('\\') if chars.get(j + 1).is_some() => {
                             s.push('\\');
                             if matches!(chars[j + 1], '{' | '}') {
@@ -970,7 +1215,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                             s.push(chars[j + 1]);
                             j += 2;
                         }
-                        Some(&c) if c == q && (!triple || (chars.get(j + 1) == Some(&q) && chars.get(j + 2) == Some(&q))) => {
+                        Some(&c)
+                            if c == q
+                                && (!triple
+                                    || (chars.get(j + 1) == Some(&q)
+                                        && chars.get(j + 2) == Some(&q))) =>
+                        {
                             j += if triple { 3 } else { 1 };
                             break;
                         }
@@ -1004,10 +1254,20 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 }
                 // `v is True` / `v is not False`: identity with a bool, which a JSON 1 (or 1.0) is not, though
                 // it == True. A method that is true only for that bool.
-                if let Some((m, neg, skip)) = [(" True", "is_true_obj", false, 5usize), (" False", "is_false_obj", false, 6), (" not True", "not_true_obj", true, 9), (" not False", "not_false_obj", true, 10)]
-                    .iter()
-                    .find(|(w, _, _, k)| rest.starts_with(w) && !chars.get(i + k).is_some_and(|c| c.is_alphanumeric() || *c == '_'))
-                    .map(|(_, m, n, k)| (*m, *n, *k))
+                if let Some((m, neg, skip)) = [
+                    (" True", "is_true_obj", false, 5usize),
+                    (" False", "is_false_obj", false, 6),
+                    (" not True", "not_true_obj", true, 9),
+                    (" not False", "not_false_obj", true, 10),
+                ]
+                .iter()
+                .find(|(w, _, _, k)| {
+                    rest.starts_with(w)
+                        && !chars
+                            .get(i + k)
+                            .is_some_and(|c| c.is_alphanumeric() || *c == '_')
+                })
+                .map(|(_, m, n, k)| (*m, *n, *k))
                 {
                     push(&mut out, Tok::Sym("."));
                     push(&mut out, Tok::Ident(m.into()));
@@ -1034,7 +1294,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 while chars.get(j) == Some(&' ') {
                     j += 1;
                 }
-                if !chars.get(j).map_or(false, |c| c.is_alphabetic() || *c == '_') {
+                if !chars
+                    .get(j)
+                    .map_or(false, |c| c.is_alphabetic() || *c == '_')
+                {
                     push(&mut out, Tok::Ident("fn_".into()));
                     continue;
                 }
@@ -1047,8 +1310,15 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                     j += 1;
                 }
                 let next = chars.get(j).copied().unwrap_or('\n');
-                let after_def = matches!(out.last(), Some(Token { tok: Tok::Kw("fn"), .. }));
-                let used = matches!(next, '.' | ',' | ')' | ']' | '[') || (next == '=' && chars.get(j + 1) != Some(&'='));
+                let after_def = matches!(
+                    out.last(),
+                    Some(Token {
+                        tok: Tok::Kw("fn"),
+                        ..
+                    })
+                );
+                let used = matches!(next, '.' | ',' | ')' | ']' | '[')
+                    || (next == '=' && chars.get(j + 1) != Some(&'='));
                 if after_def || used || py_defs.contains(&word) {
                     push(&mut out, Tok::Ident(format!("{word}_")));
                     continue;
@@ -1060,11 +1330,19 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 }
             }
             // Python's True and False are true and false.
-            let word = match word.as_str() { "True" => "true".to_string(), "False" => "false".to_string(), _ => word };
+            let word = match word.as_str() {
+                "True" => "true".to_string(),
+                "False" => "false".to_string(),
+                _ => word,
+            };
             match KEYWORDS.iter().find(|k| **k == word) {
                 Some(k) => push(&mut out, Tok::Kw(k)),
                 // Rust's own keywords are fine names in Brevi; they get a suffix in the generated Rust.
-                None if RUST_KEYWORDS.contains(&word.as_str()) || RUST_PRELUDE.contains(&word.as_str()) => push(&mut out, Tok::Ident(format!("{word}_"))),
+                None if RUST_KEYWORDS.contains(&word.as_str())
+                    || RUST_PRELUDE.contains(&word.as_str()) =>
+                {
+                    push(&mut out, Tok::Ident(format!("{word}_")))
+                }
                 None => push(&mut out, Tok::Ident(word)),
             }
             continue;
@@ -1072,7 +1350,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
         let rest: String = chars[i..(i + 3).min(chars.len())].iter().collect();
         // `&&` and `||` are accepted as spellings of `and` and `or`.
         if rest.starts_with("&&") || rest.starts_with("||") {
-            push(&mut out, Tok::Kw(if rest.starts_with("&&") { "and" } else { "or" }));
+            push(
+                &mut out,
+                Tok::Kw(if rest.starts_with("&&") { "and" } else { "or" }),
+            );
             i += 2;
             col += 2;
             continue;
@@ -1090,11 +1371,26 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                 i += s.len();
                 col += s.len();
             }
-            None => return Err(Diag::new("lex", tl, tc, &format!("unexpected character '{c}'"))),
+            None => {
+                return Err(Diag::new(
+                    "lex",
+                    tl,
+                    tc,
+                    &format!("unexpected character '{c}'"),
+                ));
+            }
         }
     }
-    out.push(Token { tok: Tok::Newline, line, col });
-    out.push(Token { tok: Tok::Eof, line, col });
+    out.push(Token {
+        tok: Tok::Newline,
+        line,
+        col,
+    });
+    out.push(Token {
+        tok: Tok::Eof,
+        line,
+        col,
+    });
     let mut out = inline_bodies(out);
     // Python's `a = 1; b = 2`: each statement after a `;` is a line of its own at the same indentation.
     let mut first_col = 1;
@@ -1128,7 +1424,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
         for k in 0..out.len() {
             let after_dot = k > 0 && out[k - 1].tok == Tok::Sym(".");
             if let Tok::Ident(w) = &out[k].tok {
-                if let Some((_, real)) = aliases.iter().find(|(a, _)| a == w).filter(|_| !after_dot) {
+                if let Some((_, real)) = aliases.iter().find(|(a, _)| a == w).filter(|_| !after_dot)
+                {
                     out[k].tok = Tok::Ident(real.clone());
                 }
             }
@@ -1138,7 +1435,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     let consts = [
         ("ascii_lowercase", "abcdefghijklmnopqrstuvwxyz"),
         ("ascii_uppercase", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-        ("ascii_letters", "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        (
+            "ascii_letters",
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        ),
         ("digits", "0123456789"),
         ("hexdigits", "0123456789abcdefABCDEF"),
         ("octdigits", "01234567"),
@@ -1154,7 +1454,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
         if let Tok::Ident(w) = &out[k].tok {
             if let Some((_, v)) = consts.iter().find(|(n, _)| n == w) {
                 let v = Tok::Str(v.to_string());
-                if after_dot && k >= 2 && out[k - 2].tok == Tok::Ident("string".into()) && (k < 3 || out[k - 3].tok != Tok::Sym(".")) {
+                if after_dot
+                    && k >= 2
+                    && out[k - 2].tok == Tok::Ident("string".into())
+                    && (k < 3 || out[k - 3].tok != Tok::Sym("."))
+                {
                     out[k].tok = v;
                     out.drain(k - 2..k);
                     k -= 2;
@@ -1168,7 +1472,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     // `datetime.timedelta(days=1)` is `timedelta(days=1)`.
     let mut k = 0;
     while k + 2 < out.len() {
-        if out[k].tok == Tok::Ident("datetime".into()) && out[k + 1].tok == Tok::Sym(".") && out[k + 2].tok == Tok::Ident("timedelta".into()) && (k == 0 || out[k - 1].tok != Tok::Sym(".")) {
+        if out[k].tok == Tok::Ident("datetime".into())
+            && out[k + 1].tok == Tok::Sym(".")
+            && out[k + 2].tok == Tok::Ident("timedelta".into())
+            && (k == 0 || out[k - 1].tok != Tok::Sym("."))
+        {
             out.drain(k..k + 2);
         }
         k += 1;
@@ -1176,7 +1484,13 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
     // Python joins string literals written next to each other (`("abc "\n "def")`, `f"{n} " f"items"`).
     let mut joined: Vec<Token> = Vec::with_capacity(out.len());
     for t in out {
-        if let (Tok::Str(b), Some(Token { tok: Tok::Str(a), .. })) = (&t.tok, joined.last_mut()) {
+        if let (
+            Tok::Str(b),
+            Some(Token {
+                tok: Tok::Str(a), ..
+            }),
+        ) = (&t.tok, joined.last_mut())
+        {
             a.push_str(b);
             continue;
         }
@@ -1192,11 +1506,16 @@ fn py_import_aliases(src: &str) -> Vec<(String, String)> {
     for l in src.lines() {
         let t = l.trim();
         if let Some(rest) = t.strip_prefix("from ") {
-            let Some((m, names)) = rest.split_once(" import ") else { continue };
+            let Some((m, names)) = rest.split_once(" import ") else {
+                continue;
+            };
             if !(PY_BUILTIN_MODULES.contains(&m.trim()) || PY_ALIAS_MODULES.contains(&m.trim())) {
                 continue;
             }
-            for n in names.trim_matches(|c| c == '(' || c == ')' || c == ' ').split(',') {
+            for n in names
+                .trim_matches(|c| c == '(' || c == ')' || c == ' ')
+                .split(',')
+            {
                 if let Some((real, alias)) = n.split_once(" as ") {
                     let (real, alias) = (real.trim(), alias.trim());
                     if ok(real) && ok(alias) && real != alias {
@@ -1208,7 +1527,10 @@ fn py_import_aliases(src: &str) -> Vec<(String, String)> {
             for n in rest.split(',') {
                 if let Some((real, alias)) = n.split_once(" as ") {
                     let (real, alias) = (real.trim(), alias.trim());
-                    if (PY_BUILTIN_MODULES.contains(&real) || PY_ALIAS_MODULES.contains(&real)) && ok(alias) && real != alias {
+                    if (PY_BUILTIN_MODULES.contains(&real) || PY_ALIAS_MODULES.contains(&real))
+                        && ok(alias)
+                        && real != alias
+                    {
                         out.push((alias.to_string(), real.to_string()));
                     }
                 }
@@ -1219,7 +1541,21 @@ fn py_import_aliases(src: &str) -> Vec<(String, String)> {
 }
 
 // Modules whose names the parser knows (`datetime.date`, `json.loads`), so an alias can stand for them.
-const PY_ALIAS_MODULES: &[&str] = &["datetime", "json", "calendar", "decimal", "fractions", "heapq", "bisect", "string", "statistics", "random", "time", "copy", "operator"];
+const PY_ALIAS_MODULES: &[&str] = &[
+    "datetime",
+    "json",
+    "calendar",
+    "decimal",
+    "fractions",
+    "heapq",
+    "bisect",
+    "string",
+    "statistics",
+    "random",
+    "time",
+    "copy",
+    "operator",
+];
 
 // Python-style blocks: a line ending in `:` opens a block that holds the more-indented lines after it.
 // The block is turned into `{ ... }` here, so the parser only sees braces. Brace blocks still work.
@@ -1235,7 +1571,11 @@ pub fn indent_blocks(toks: Vec<Token>) -> Vec<Token> {
     }
     let mut out = Vec::new();
     let mut open: Vec<usize> = Vec::new(); // indentation of each open block's header line
-    let mk = |tok: Tok, at: &Token| Token { tok, line: at.line, col: at.col };
+    let mk = |tok: Tok, at: &Token| Token {
+        tok,
+        line: at.line,
+        col: at.col,
+    };
     for mut l in lines.into_iter().filter(|l| !l.is_empty()) {
         let ind = l[0].col;
         while open.last().map_or(false, |&h| ind <= h) {
@@ -1250,7 +1590,9 @@ pub fn indent_blocks(toks: Vec<Token>) -> Vec<Token> {
         if l.last().map_or(false, |t| t.tok == Tok::Sym(":")) && l.len() > 1 {
             l.last_mut().unwrap().tok = Tok::Sym("{");
             open.push(ind);
-        } else if l.last().map_or(false, |t| t.tok == Tok::Sym("=>")) && open.last().map_or(false, |&h| ind > h) {
+        } else if l.last().map_or(false, |t| t.tok == Tok::Sym("=>"))
+            && open.last().map_or(false, |&h| ind > h)
+        {
             // A match arm whose body is the indented lines below it.
             let at = l.last().unwrap().clone();
             l.push(mk(Tok::Sym("{"), &at));
@@ -1260,7 +1602,11 @@ pub fn indent_blocks(toks: Vec<Token>) -> Vec<Token> {
         out.extend(l);
         out.push(mk(Tok::Newline, &last));
     }
-    let end = eof.unwrap_or(Token { tok: Tok::Eof, line: 0, col: 0 });
+    let end = eof.unwrap_or(Token {
+        tok: Tok::Eof,
+        line: 0,
+        col: 0,
+    });
     for _ in open {
         out.push(mk(Tok::Sym("}"), &end));
         out.push(mk(Tok::Newline, &end));
@@ -1301,12 +1647,18 @@ fn inline_bodies(toks: Vec<Token>) -> Vec<Token> {
             }
         }
         match colon {
-            Some(c) if has_semi && c + 1 < line.len() && !matches!(line[c + 1].tok, Tok::Newline) => {
+            Some(c)
+                if has_semi && c + 1 < line.len() && !matches!(line[c + 1].tok, Tok::Newline) =>
+            {
                 let indent = line[0].col + 4;
                 let (ln, cl) = (line[c].line, line[c].col);
                 let rest = line.split_off(c + 1);
                 out.extend(line.drain(..));
-                out.push(Token { tok: Tok::Newline, line: ln, col: cl + 1 });
+                out.push(Token {
+                    tok: Tok::Newline,
+                    line: ln,
+                    col: cl + 1,
+                });
                 let mut first = true;
                 for mut t in rest {
                     if first && !matches!(t.tok, Tok::Newline | Tok::Eof) {

@@ -1419,6 +1419,16 @@ impl Class {
             None => a.push((n, v)),
         }
     }
+    pub fn del(&self, n: &str) -> bool {
+        let mut a = self.attrs.borrow_mut();
+        let Some(i) = a.iter().position(|(k, _)| *k == n) else {
+            return false;
+        };
+        a.remove(i);
+        drop(a);
+        class_changed();
+        true
+    }
     pub fn is_sub(&self, o: &Class) -> bool {
         self.mro.borrow().iter().any(|c| std::ptr::eq(&**c, o))
     }

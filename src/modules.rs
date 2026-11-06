@@ -45,18 +45,27 @@ fn py_imports(l: &str, dirs: &[&Path]) -> Vec<(String, Option<String>)> {
             .collect()
     } else if let Some(r) = l.strip_prefix("from ") {
         match r.split_whitespace().next() {
-            Some(m) if r[m.len()..].trim_start().starts_with("import ") => vec![(m.trim_start_matches('.').to_string(), None)],
+            Some(m) if r[m.len()..].trim_start().starts_with("import ") => {
+                vec![(m.trim_start_matches('.').to_string(), None)]
+            }
             _ => vec![],
         }
     } else {
         vec![]
     };
     mods.into_iter()
-        .filter(|(m, _)| m.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.'))
+        .filter(|(m, _)| {
+            m.chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+        })
         .filter_map(|(m, a)| {
             let base = m.replace('.', "/");
             let base = &base;
-            let mut found = dirs.iter().flat_map(|d| ["bv", "py"].iter().map(move |e| d.join(format!("{base}.{e}"))));
+            let mut found = dirs.iter().flat_map(|d| {
+                ["bv", "py"]
+                    .iter()
+                    .map(move |e| d.join(format!("{base}.{e}")))
+            });
             let f = found.find(|p| p.is_file());
             if f.is_some() {
                 crate::pybridge::note_local(&m); // pybridge: a file of the program, not a Python library
@@ -68,11 +77,27 @@ fn py_imports(l: &str, dirs: &[&Path]) -> Vec<(String, Option<String>)> {
 
 // A GUI library a top-level Python import names (`import tkinter as tk`, `from PyQt5.QtWidgets import *`).
 fn gui_import(l: &str) -> Option<&'static str> {
-    let r = l.strip_prefix("import ").or_else(|| l.strip_prefix("from "))?;
+    let r = l
+        .strip_prefix("import ")
+        .or_else(|| l.strip_prefix("from "))?;
     let m = r.split([' ', ',', '.']).next()?;
-    ["tkinter", "turtle", "pygame", "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "kivy", "customtkinter", "pyglet", "arcade", "dearpygui"]
-        .into_iter()
-        .find(|g| *g == m)
+    [
+        "tkinter",
+        "turtle",
+        "pygame",
+        "PyQt5",
+        "PyQt6",
+        "PySide2",
+        "PySide6",
+        "wx",
+        "kivy",
+        "customtkinter",
+        "pyglet",
+        "arcade",
+        "dearpygui",
+    ]
+    .into_iter()
+    .find(|g| *g == m)
 }
 
 // `stock.find(x)` becomes `find(x)` for a module brought in with `import stock`: the files are one program.
@@ -84,11 +109,16 @@ fn unqualify(l: &str, names: &[String]) -> String {
     let mut out = String::with_capacity(l.len());
     let mut i = 0;
     while i < cs.len() {
-        let boundary = i == 0 || !(cs[i - 1].is_alphanumeric() || cs[i - 1] == '_' || cs[i - 1] == '.');
+        let boundary =
+            i == 0 || !(cs[i - 1].is_alphanumeric() || cs[i - 1] == '_' || cs[i - 1] == '.');
         if boundary {
             if let Some(n) = names.iter().find(|n| {
                 let k = n.chars().count();
-                cs[i..].starts_with(&n.chars().collect::<Vec<_>>()) && cs.get(i + k) == Some(&'.') && cs.get(i + k + 1).map_or(false, |c| c.is_alphabetic() || *c == '_')
+                cs[i..].starts_with(&n.chars().collect::<Vec<_>>())
+                    && cs.get(i + k) == Some(&'.')
+                    && cs
+                        .get(i + k + 1)
+                        .map_or(false, |c| c.is_alphabetic() || *c == '_')
             }) {
                 i += n.chars().count() + 1;
                 continue;
@@ -104,12 +134,17 @@ fn unqualify(l: &str, names: &[String]) -> String {
 pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
     let mut out = String::new();
     let mut segs: Vec<Seg> = vec![];
-    let mut queue: Vec<(String, PathBuf, String, Option<(String, usize)>)> = vec![("".into(), PathBuf::from(main), src.to_string(), None)];
-    let mut seen: Vec<PathBuf> = vec![std::fs::canonicalize(main).unwrap_or_else(|_| PathBuf::from(main))];
+    let mut queue: Vec<(String, PathBuf, String, Option<(String, usize)>)> =
+        vec![("".into(), PathBuf::from(main), src.to_string(), None)];
+    let mut seen: Vec<PathBuf> =
+        vec![std::fs::canonicalize(main).unwrap_or_else(|_| PathBuf::from(main))];
     // Names Python code calls modules by (`import stock` then `stock.load()`), across all files.
     let mut quals: Vec<String> = vec![];
     let mut changed = false;
-    let root = Path::new(main).parent().map(Path::to_path_buf).unwrap_or_default();
+    let root = Path::new(main)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
     while !queue.is_empty() {
         let (name, path, text, _) = queue.remove(0);
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -132,27 +167,44 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                 in_main_guard = false;
             }
             let t = l.trim_start();
-            let doc_line = in_doc.is_some() || t.starts_with("\"\"\"") || t.starts_with("'''") || (t.starts_with('"') && t.trim_end().ends_with('"'));
+            let doc_line = in_doc.is_some()
+                || t.starts_with("\"\"\"")
+                || t.starts_with("'''")
+                || (t.starts_with('"') && t.trim_end().ends_with('"'));
             if let Some(q) = in_doc {
                 if t.matches(q).count() % 2 == 1 {
                     in_doc = None;
                 }
-            } else if let Some(q) = ["\"\"\"", "'''"].into_iter().find(|q| t.find(*q).is_some_and(|at| t.matches(*q).count() % 2 == 1 && !t[..at].contains('#'))) {
+            } else if let Some(q) = ["\"\"\"", "'''"].into_iter().find(|q| {
+                t.find(*q)
+                    .is_some_and(|at| t.matches(*q).count() % 2 == 1 && !t[..at].contains('#'))
+            }) {
                 // A docstring, or a triple-quoted string (`TOKEN_RE = re.compile(r'''...`), that does not close on its line.
                 in_doc = Some(q);
             }
             if let Some(g) = gui_import(l).filter(|g| *g != "tkinter") {
-                let at = if name.is_empty() { String::new() } else { format!("\"file\":\"{}\",", crate::diag::esc(&name)) };
-                return Err(format!("{{{at}\"line\":{},\"msg\":\"{g} is not supported yet: the GUI library Brevi compiles is tkinter\",\"fix\":\"write the window with tkinter, or run this program with python3\"}}", i + 1));
+                let at = if name.is_empty() {
+                    String::new()
+                } else {
+                    format!("\"file\":\"{}\",", crate::diag::esc(&name))
+                };
+                return Err(format!(
+                    "{{{at}\"line\":{},\"msg\":\"{g} is not supported yet: the GUI library Brevi compiles is tkinter\",\"fix\":\"write the window with tkinter, or run this program with python3\"}}",
+                    i + 1
+                ));
             }
             // Each file to bring in, as written (or found) and its path on disk.
-            let mut paths: Vec<(String, PathBuf)> = use_path(l.trim_end()).map(|p| vec![(p.to_string(), dir.join(p))]).unwrap_or_default();
+            let mut paths: Vec<(String, PathBuf)> = use_path(l.trim_end())
+                .map(|p| vec![(p.to_string(), dir.join(p))])
+                .unwrap_or_default();
             if paths.is_empty() && !l.starts_with([' ', '\t']) {
                 for (p, q) in py_imports(l, &[dir.as_path(), root.as_path()]) {
                     quals.extend(q);
                     let full = PathBuf::from(&p);
                     // Shown in errors relative to the main file, as Python finds it.
-                    let shown = full.strip_prefix(&root).map_or(p.clone(), |r| r.to_string_lossy().to_string());
+                    let shown = full
+                        .strip_prefix(&root)
+                        .map_or(p.clone(), |r| r.to_string_lossy().to_string());
                     paths.push((shown, full));
                 }
             }
@@ -169,12 +221,27 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                     continue;
                 }
                 let body = std::fs::read_to_string(&full).map_err(|e| {
-                    let at = if name.is_empty() { String::new() } else { format!("\"file\":\"{}\",", crate::diag::esc(&name)) };
-                    format!("{{{at}\"line\":{},\"msg\":\"cannot read {}: {}\"}}", i + 1, crate::diag::esc(p), crate::diag::esc(&e.to_string()))
+                    let at = if name.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\"file\":\"{}\",", crate::diag::esc(&name))
+                    };
+                    format!(
+                        "{{{at}\"line\":{},\"msg\":\"cannot read {}: {}\"}}",
+                        i + 1,
+                        crate::diag::esc(p),
+                        crate::diag::esc(&e.to_string())
+                    )
                 })?;
                 let body = fill_file_name(&body, &full);
                 seen.push(canon);
-                let shown = if name.is_empty() || py { p.to_string() } else { Path::new(&name).parent().map_or(p.into(), |d| d.join(p).to_string_lossy().to_string()) };
+                let shown = if name.is_empty() || py {
+                    p.to_string()
+                } else {
+                    Path::new(&name)
+                        .parent()
+                        .map_or(p.into(), |d| d.join(p).to_string_lossy().to_string())
+                };
                 queue.push((shown, full, body, Some((name.clone(), i + 1))));
             }
             if !paths.is_empty() {
@@ -183,18 +250,35 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
             }
             // A used file holds only items: its top-level statements would run as part of the main program.
             if !name.is_empty() {
-                let first = l.split(|c: char| c.is_whitespace() || c == '(' || c == ':').next().unwrap_or("");
+                let first = l
+                    .split(|c: char| c.is_whitespace() || c == '(' || c == ':')
+                    .next()
+                    .unwrap_or("");
                 // `NAME = value` sets a name every file can read.
-                let set = first.chars().all(|c| c.is_alphanumeric() || c == '_') && !first.is_empty() && {
-                    let rest = l[first.len()..].trim_start();
-                    (rest.starts_with('=') && !rest.starts_with("==")) || rest.starts_with(':')
-                };
+                let set = first.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    && !first.is_empty()
+                    && {
+                        let rest = l[first.len()..].trim_start();
+                        (rest.starts_with('=') && !rest.starts_with("==")) || rest.starts_with(':')
+                    };
                 // Python modules also hold `def`, `class`, decorators, imports and the closing line of a long list.
                 let item = l.is_empty()
                     || doc_line
                     || set
                     || l.starts_with([' ', '\t', '#', '}', ']', ')', '@'])
-                    || matches!(first, "fn" | "type" | "enum" | "test" | "rust" | "py" | "use" | "def" | "class" | "import" | "from");
+                    || matches!(
+                        first,
+                        "fn" | "type"
+                            | "enum"
+                            | "test"
+                            | "rust"
+                            | "py"
+                            | "use"
+                            | "def"
+                            | "class"
+                            | "import"
+                            | "from"
+                    );
                 if !item {
                     return Err(format!(
                         "{{\"file\":\"{}\",\"line\":{},\"msg\":\"a used file holds only fn, type, enum and test items and NAME = value lines\",\"fix\":\"move this statement into a function, or into the main file\"}}",
@@ -206,7 +290,12 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
             out.push_str(l);
             out.push('\n');
         }
-        segs.push(Seg { file: name, path, start, len: n });
+        segs.push(Seg {
+            file: name,
+            path,
+            start,
+            len: n,
+        });
     }
     if segs.len() == 1 && !changed {
         return Ok((src.to_string(), segs));
@@ -222,14 +311,34 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
             if !t.is_empty() && !t.starts_with('#') {
                 scope.retain(|(d, _)| ind > *d);
             }
-            let shadow: Vec<String> = scope.iter().flat_map(|(_, ps)| ps.iter().cloned()).collect();
-            let names: Vec<String> = quals.iter().filter(|q| !shadow.contains(q)).cloned().collect();
+            let shadow: Vec<String> = scope
+                .iter()
+                .flat_map(|(_, ps)| ps.iter().cloned())
+                .collect();
+            let names: Vec<String> = quals
+                .iter()
+                .filter(|q| !shadow.contains(q))
+                .cloned()
+                .collect();
             joined.push_str(&unqualify(l, &names));
             joined.push('\n');
             if let Some(rest) = t.strip_prefix("def ") {
-                let ps = rest.split_once('(').and_then(|(_, r)| r.split_once(')')).map_or(vec![], |(ps, _)| {
-                    ps.split(',').map(|p| p.split(&[':', '='][..]).next().unwrap_or("").trim().trim_start_matches('*').to_string()).filter(|p| !p.is_empty()).collect()
-                });
+                let ps = rest
+                    .split_once('(')
+                    .and_then(|(_, r)| r.split_once(')'))
+                    .map_or(vec![], |(ps, _)| {
+                        ps.split(',')
+                            .map(|p| {
+                                p.split(&[':', '='][..])
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim()
+                                    .trim_start_matches('*')
+                                    .to_string()
+                            })
+                            .filter(|p| !p.is_empty())
+                            .collect()
+                    });
                 scope.push((ind, ps));
             }
         }
@@ -250,14 +359,26 @@ pub fn locate(segs: &[Seg], line: usize) -> (&str, usize) {
 
 // A JSON error line with its line number moved into the file it is in.
 pub fn relocate(segs: &[Seg], json: &str) -> String {
-    let Some(p) = json.find("\"line\":") else { return json.to_string() };
-    let digits: String = json[p + 7..].chars().take_while(|c| c.is_ascii_digit()).collect();
-    let Ok(line) = digits.parse::<usize>() else { return json.to_string() };
+    let Some(p) = json.find("\"line\":") else {
+        return json.to_string();
+    };
+    let digits: String = json[p + 7..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let Ok(line) = digits.parse::<usize>() else {
+        return json.to_string();
+    };
     let (f, l) = locate(segs, line);
     if f.is_empty() {
         return json.to_string();
     }
-    format!("{}\"file\":\"{}\",\"line\":{l}{}", &json[..p], crate::diag::esc(f), &json[p + 7 + digits.len()..])
+    format!(
+        "{}\"file\":\"{}\",\"line\":{l}{}",
+        &json[..p],
+        crate::diag::esc(f),
+        &json[p + 7 + digits.len()..]
+    )
 }
 
 // Splits the joined source back into each file's text (for `brevi fix`).
@@ -265,7 +386,12 @@ pub fn split_back(segs: &[Seg], joined: &str) -> Vec<(PathBuf, String)> {
     let lines: Vec<&str> = joined.lines().collect();
     segs.iter()
         .map(|s| {
-            let part: Vec<&str> = lines.iter().skip(s.start - 1).take(s.len).copied().collect();
+            let part: Vec<&str> = lines
+                .iter()
+                .skip(s.start - 1)
+                .take(s.len)
+                .copied()
+                .collect();
             (s.path.clone(), format!("{}\n", part.join("\n")))
         })
         .collect()
@@ -283,7 +409,10 @@ pub fn fill_file_name(src: &str, path: &Path) -> String {
         .split_inclusive('\n')
         .map(|l| {
             let t = l.trim();
-            if (t.starts_with("sys.path.insert(") || t.starts_with("sys.path.append(")) && t.ends_with(')') && t.contains("__file__") {
+            if (t.starts_with("sys.path.insert(") || t.starts_with("sys.path.append("))
+                && t.ends_with(')')
+                && t.contains("__file__")
+            {
                 let ind = &l[..l.len() - l.trim_start().len()];
                 format!("{ind}pass{}", if l.ends_with('\n') { "\n" } else { "" })
             } else {
@@ -294,12 +423,33 @@ pub fn fill_file_name(src: &str, path: &Path) -> String {
     // Then an `import os` that only served that line goes too (os itself would be run by CPython).
     let os_used = src.lines().filter(|l| l.trim() != "import os").any(|l| {
         let b = l.as_bytes();
-        l.match_indices("os").any(|(i, _)| (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_')) && b.get(i + 2).is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_')))
+        l.match_indices("os").any(|(i, _)| {
+            (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
+                && b.get(i + 2)
+                    .is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_'))
+        })
     });
-    let src: String = if os_used { src } else { src.split_inclusive('\n').map(|l| if l.trim() == "import os" { l.replacen("import os", "pass", 1) } else { l.to_string() }).collect() };
+    let src: String = if os_used {
+        src
+    } else {
+        src.split_inclusive('\n')
+            .map(|l| {
+                if l.trim() == "import os" {
+                    l.replacen("import os", "pass", 1)
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect()
+    };
     let src = src.as_str();
     let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let lit = format!("\"{}\"", abs.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\""));
+    let lit = format!(
+        "\"{}\"",
+        abs.to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+    );
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
@@ -317,7 +467,9 @@ pub fn fill_file_name(src: &str, path: &Path) -> String {
             while i < b.len() {
                 if b[i] == b'\\' {
                     i += 2;
-                } else if b[i] == c && (!triple || i + 2 < b.len() && b[i + 1] == c && b[i + 2] == c) {
+                } else if b[i] == c
+                    && (!triple || i + 2 < b.len() && b[i + 1] == c && b[i + 2] == c)
+                {
                     i += q;
                     break;
                 } else if !triple && b[i] == b'\n' {

@@ -12,29 +12,138 @@ use std::collections::{HashMap, HashSet};
 
 // The typing modules: their names are typing forms.
 pub fn typing_mod(m: &str) -> bool {
-    matches!(m, "typing" | "typing_extensions") || (m == "collections.abc" && super::emit::ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed))
+    matches!(m, "typing" | "typing_extensions")
+        || (m == "collections.abc"
+            && super::emit::ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 // Names of typing and typing_extensions the runtime has (anything else is refused when imported).
 pub const TYPING_NAMES: &[&str] = &[
-    "Any", "AnyStr", "Optional", "Union", "List", "Dict", "Set", "FrozenSet", "Tuple", "Type", "Callable", "Iterable", "Iterator",
-    "Generator", "Sequence", "MutableSequence", "Mapping", "MutableMapping", "MutableSet", "AbstractSet", "Collection", "Container",
-    "Hashable", "Sized", "Reversible", "Awaitable", "Coroutine", "AsyncIterator", "AsyncIterable", "AsyncGenerator", "ContextManager",
-    "AsyncContextManager", "ItemsView", "KeysView", "ValuesView", "MappingView", "DefaultDict", "OrderedDict", "Counter", "Deque",
-    "ChainMap", "IO", "TextIO", "BinaryIO", "Pattern", "Match", "ClassVar", "Final", "Literal", "Annotated", "Required", "NotRequired",
-    "ReadOnly", "Self", "NoReturn", "Never", "LiteralString", "TypeAlias", "TypeGuard", "TypeIs", "Concatenate", "Unpack",
-    "SupportsInt", "SupportsFloat", "SupportsIndex", "SupportsAbs", "SupportsRound", "SupportsBytes", "SupportsComplex", "Text",
-    "TypeVar", "ParamSpec", "TypeVarTuple", "NewType", "Generic", "Protocol", "NamedTuple", "TypedDict", "TYPE_CHECKING", "cast",
-    "overload", "final", "override", "no_type_check", "runtime_checkable", "assert_never", "assert_type", "reveal_type",
+    "Any",
+    "AnyStr",
+    "Optional",
+    "Union",
+    "List",
+    "Dict",
+    "Set",
+    "FrozenSet",
+    "Tuple",
+    "Type",
+    "Callable",
+    "Iterable",
+    "Iterator",
+    "Generator",
+    "Sequence",
+    "MutableSequence",
+    "Mapping",
+    "MutableMapping",
+    "MutableSet",
+    "AbstractSet",
+    "Collection",
+    "Container",
+    "Hashable",
+    "Sized",
+    "Reversible",
+    "Awaitable",
+    "Coroutine",
+    "AsyncIterator",
+    "AsyncIterable",
+    "AsyncGenerator",
+    "ContextManager",
+    "AsyncContextManager",
+    "ItemsView",
+    "KeysView",
+    "ValuesView",
+    "MappingView",
+    "DefaultDict",
+    "OrderedDict",
+    "Counter",
+    "Deque",
+    "ChainMap",
+    "IO",
+    "TextIO",
+    "BinaryIO",
+    "Pattern",
+    "Match",
+    "ClassVar",
+    "Final",
+    "Literal",
+    "Annotated",
+    "Required",
+    "NotRequired",
+    "ReadOnly",
+    "Self",
+    "NoReturn",
+    "Never",
+    "LiteralString",
+    "TypeAlias",
+    "TypeGuard",
+    "TypeIs",
+    "Concatenate",
+    "Unpack",
+    "SupportsInt",
+    "SupportsFloat",
+    "SupportsIndex",
+    "SupportsAbs",
+    "SupportsRound",
+    "SupportsBytes",
+    "SupportsComplex",
+    "Text",
+    "TypeVar",
+    "ParamSpec",
+    "TypeVarTuple",
+    "NewType",
+    "Generic",
+    "Protocol",
+    "NamedTuple",
+    "TypedDict",
+    "TYPE_CHECKING",
+    "cast",
+    "overload",
+    "final",
+    "override",
+    "no_type_check",
+    "runtime_checkable",
+    "assert_never",
+    "assert_type",
+    "reveal_type",
 ];
 // Names of collections.abc (annotations only: as a value, isinstance needs CPython's ABCs).
 pub const ABC_NAMES: &[&str] = &[
-    "Iterable", "Iterator", "Generator", "Sequence", "MutableSequence", "Mapping", "MutableMapping", "Set", "MutableSet", "Collection",
-    "Container", "Hashable", "Sized", "Reversible", "Callable", "Awaitable", "Coroutine", "AsyncIterator", "AsyncIterable",
-    "AsyncGenerator", "ItemsView", "KeysView", "ValuesView", "MappingView", "Buffer",
+    "Iterable",
+    "Iterator",
+    "Generator",
+    "Sequence",
+    "MutableSequence",
+    "Mapping",
+    "MutableMapping",
+    "Set",
+    "MutableSet",
+    "Collection",
+    "Container",
+    "Hashable",
+    "Sized",
+    "Reversible",
+    "Callable",
+    "Awaitable",
+    "Coroutine",
+    "AsyncIterator",
+    "AsyncIterable",
+    "AsyncGenerator",
+    "ItemsView",
+    "KeysView",
+    "ValuesView",
+    "MappingView",
+    "Buffer",
 ];
 // Decorators that give the def or class back unchanged.
-const DECORATORS: &[&str] = &["overload", "final", "override", "no_type_check", "runtime_checkable"];
+const DECORATORS: &[&str] = &[
+    "overload",
+    "final",
+    "override",
+    "no_type_check",
+    "runtime_checkable",
+];
 
 pub fn module_has(m: &str, n: &str) -> bool {
     match m {
@@ -45,7 +154,8 @@ pub fn module_has(m: &str, n: &str) -> bool {
 
 // `TYPE_CHECKING` or `typing.TYPE_CHECKING`: False when the program runs, so its block is left out.
 pub fn type_checking(c: &Ex) -> bool {
-    matches!(c, Ex::Name(n) if n == "TYPE_CHECKING") || matches!(c, Ex::Attr(_, n) if n == "TYPE_CHECKING")
+    matches!(c, Ex::Name(n) if n == "TYPE_CHECKING")
+        || matches!(c, Ex::Attr(_, n) if n == "TYPE_CHECKING")
 }
 
 // What a module's names are, as far as typing goes.
@@ -56,9 +166,9 @@ struct Names {
     forms: HashMap<String, (String, String)>,
     // names bound to a typing module (`import typing as t`; `collections` after `import collections.abc`)
     mods: HashMap<String, String>,
-    generic: HashSet<String>,   // classes with Generic[...] or Protocol[...] among their bases (or a generic parent)
+    generic: HashSet<String>, // classes with Generic[...] or Protocol[...] among their bases (or a generic parent)
     protocols: HashSet<String>, // classes with Protocol among their bases
-    tdicts: HashSet<String>,    // TypedDict classes
+    tdicts: HashSet<String>,  // TypedDict classes
 }
 
 type Er = (usize, String);
@@ -72,8 +182,17 @@ impl Names {
         match e {
             Ex::Name(n) => self.forms.get(n).cloned(),
             Ex::Attr(o, a) => match o.as_ref() {
-                Ex::Name(m) => self.mods.get(m).filter(|m| *m != "collections").map(|m| (m.clone(), a.clone())),
-                Ex::Attr(c, abc) if abc == "abc" && matches!(c.as_ref(), Ex::Name(m) if self.mods.get(m).is_some_and(|x| x == "collections")) => Some(("collections.abc".into(), a.clone())),
+                Ex::Name(m) => self
+                    .mods
+                    .get(m)
+                    .filter(|m| *m != "collections")
+                    .map(|m| (m.clone(), a.clone())),
+                Ex::Attr(c, abc)
+                    if abc == "abc"
+                        && matches!(c.as_ref(), Ex::Name(m) if self.mods.get(m).is_some_and(|x| x == "collections")) =>
+                {
+                    Some(("collections.abc".into(), a.clone()))
+                }
                 _ => None,
             },
             _ => None,
@@ -87,9 +206,13 @@ impl Names {
         match e {
             Ex::Name(n) => self.forms.contains_key(n) || self.tdicts.contains(n),
             Ex::Attr(..) => self.form(e).is_some(),
-            Ex::Index(o, _) => self.typing_expr(o) || matches!(o.as_ref(), Ex::Name(n) if self.generic.contains(n)),
+            Ex::Index(o, _) => {
+                self.typing_expr(o) || matches!(o.as_ref(), Ex::Name(n) if self.generic.contains(n))
+            }
             Ex::Bin("|", a, b) => self.typing_expr(a) || self.typing_expr(b),
-            Ex::Call(f, _) => matches!(self.form(f), Some((_, n)) if matches!(n.as_str(), "TypeVar" | "ParamSpec" | "TypeVarTuple" | "NewType")),
+            Ex::Call(f, _) => {
+                matches!(self.form(f), Some((_, n)) if matches!(n.as_str(), "TypeVar" | "ParamSpec" | "TypeVarTuple" | "NewType"))
+            }
             _ => false,
         }
     }
@@ -125,7 +248,9 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         walk_all(body, &mut |e, line| match e {
             Ex::Name(n) if n == "fields" || n == "__dataclass_fields__" => fields_used = true,
             Ex::Attr(_, a) if a == "fields" || a == "__dataclass_fields__" => fields_used = true,
-            Ex::Attr(_, a) if a == "type" && type_at.is_none() => type_at = Some((m.to_string(), line)),
+            Ex::Attr(_, a) if a == "type" && type_at.is_none() => {
+                type_at = Some((m.to_string(), line))
+            }
             _ => {}
         });
     }
@@ -150,11 +275,19 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         };
         defs(body);
         if let Some(l) = at {
-            return Err((m.to_string(), l, "json: JSONEncoder.iterencode needs CPython".into()));
+            return Err((
+                m.to_string(),
+                l,
+                "json: JSONEncoder.iterencode needs CPython".into(),
+            ));
         }
     }
     if let (true, Some((m, l))) = (fields_used, type_at) {
-        return Err((m, l, "dataclasses: a field's .type (Brevi does not keep annotations) needs CPython".into()));
+        return Err((
+            m,
+            l,
+            "dataclasses: a field's .type (Brevi does not keep annotations) needs CPython".into(),
+        ));
     }
     Ok(())
 }
@@ -209,7 +342,9 @@ pub fn typed_isinstance(body: &[Stmt]) -> Option<usize> {
 pub fn uses_abc(mods: &[(&str, &[Stmt])]) -> bool {
     let mut any = false;
     for (_, body) in mods {
-        walk_imports(body, &mut |m| any |= m == "collections.abc" || m == "collections");
+        walk_imports(body, &mut |m| {
+            any |= m == "collections.abc" || m == "collections"
+        });
     }
     any
 }
@@ -260,7 +395,14 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                     if typing_mod(m) && a.is_some() {
                         nm.mods.insert(a.clone().unwrap(), m.clone());
                     } else if typing_mod(m) {
-                        nm.mods.insert(m.split('.').next().unwrap().to_string(), if m == "collections.abc" { "collections".into() } else { m.clone() });
+                        nm.mods.insert(
+                            m.split('.').next().unwrap().to_string(),
+                            if m == "collections.abc" {
+                                "collections".into()
+                            } else {
+                                m.clone()
+                            },
+                        );
                     }
                 }
             }
@@ -275,7 +417,11 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                         if let Some(f) = o.forms.get(n) {
                             nm.forms.insert(bind.clone(), f.clone());
                         }
-                        for (from, to) in [(&o.generic, &mut nm.generic), (&o.protocols, &mut nm.protocols), (&o.tdicts, &mut nm.tdicts)] {
+                        for (from, to) in [
+                            (&o.generic, &mut nm.generic),
+                            (&o.protocols, &mut nm.protocols),
+                            (&o.tdicts, &mut nm.tdicts),
+                        ] {
                             if from.contains(n) {
                                 to.insert(bind.clone());
                             }
@@ -284,10 +430,16 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                 }
             }
             // `Vector = List[float]`, `T = TypeVar("T")`, `Vector: TypeAlias = list[float]`
-            St::Assign(ts, v) if top && ts.len() == 1 && matches!(&ts[0], Ex::Name(_)) && nm.typing_expr(v) => {
+            St::Assign(ts, v)
+                if top && ts.len() == 1 && matches!(&ts[0], Ex::Name(_)) && nm.typing_expr(v) =>
+            {
                 if let Ex::Name(n) = &ts[0] {
                     // `UserId = NewType("UserId", int)` is called like a function
-                    let made = if matches!(v, Ex::Call(f, _) if nm.is_form(f, "NewType")) { "@newtype" } else { "" };
+                    let made = if matches!(v, Ex::Call(f, _) if nm.is_form(f, "NewType")) {
+                        "@newtype"
+                    } else {
+                        ""
+                    };
                     nm.forms.insert(n.clone(), (String::new(), made.into()));
                 }
             }
@@ -300,13 +452,18 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                         Ex::Index(o, _) => o.as_ref(),
                         b => b,
                     };
-                    if nm.is_form(head, "TypedDict") || matches!(head, Ex::Name(n) if nm.tdicts.contains(n)) {
+                    if nm.is_form(head, "TypedDict")
+                        || matches!(head, Ex::Name(n) if nm.tdicts.contains(n))
+                    {
                         nm.tdicts.insert(c.name.clone());
                     }
                     if nm.is_form(head, "Protocol") {
                         nm.protocols.insert(c.name.clone());
                     }
-                    if (matches!(b, Ex::Index(..)) && (nm.is_form(head, "Generic") || nm.is_form(head, "Protocol"))) || nm.generic_class(b) {
+                    if (matches!(b, Ex::Index(..))
+                        && (nm.is_form(head, "Generic") || nm.is_form(head, "Protocol")))
+                        || nm.generic_class(b)
+                    {
                         nm.generic.insert(c.name.clone());
                     }
                 }
@@ -500,7 +657,10 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
     let go = |x: &Ex| expr(x, false, line, nm);
     match e {
         Ex::Name(n) => {
-            if (nm.forms.contains_key(n) || nm.tdicts.contains(n)) && !ok && !nm.is_form(e, "TYPE_CHECKING") {
+            if (nm.forms.contains_key(n) || nm.tdicts.contains(n))
+                && !ok
+                && !nm.is_form(e, "TYPE_CHECKING")
+            {
                 return Err(err(line, &format!("`{n}` used as a value")));
             }
             if nm.generic.contains(n) || nm.protocols.contains(n) {
@@ -557,7 +717,9 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
             let all = |ok: bool| -> Result<(), Er> {
                 for a in args {
                     match a {
-                        Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => expr(x, ok, line, nm)?,
+                        Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => {
+                            expr(x, ok, line, nm)?
+                        }
                     }
                 }
                 Ok(())
@@ -567,8 +729,14 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                     return Err(err(line, &format!("{m}.{n}")));
                 }
                 return match n.as_str() {
-                    "TypeVar" | "ParamSpec" | "TypeVarTuple" | "NewType" | "assert_type" => all(true),
-                    "NamedTuple" if args.len() == 2 && args.iter().all(|a| matches!(a, Arg::Pos(_))) => all(true),
+                    "TypeVar" | "ParamSpec" | "TypeVarTuple" | "NewType" | "assert_type" => {
+                        all(true)
+                    }
+                    "NamedTuple"
+                        if args.len() == 2 && args.iter().all(|a| matches!(a, Arg::Pos(_))) =>
+                    {
+                        all(true)
+                    }
                     "cast" if args.len() == 2 && args.iter().all(|a| matches!(a, Arg::Pos(_))) => {
                         if let (Arg::Pos(t), Arg::Pos(v)) = (&args[0], &args[1]) {
                             expr(t, true, line, nm)?;

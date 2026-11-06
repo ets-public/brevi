@@ -160,7 +160,11 @@ fn value(b: &[u8], i: &mut usize, depth: usize) -> Option<J> {
                     return None;
                 }
             }
-            std::str::from_utf8(&b[start..*i]).ok()?.parse().ok().map(J::Num)
+            std::str::from_utf8(&b[start..*i])
+                .ok()?
+                .parse()
+                .ok()
+                .map(J::Num)
         }
         _ => None,
     }
@@ -206,7 +210,8 @@ fn string(b: &[u8], i: &mut usize) -> Option<String> {
                             match (b.get(*i..*i + 2), hex4(b, *i + 2)) {
                                 (Some(br"\u"), Some(lo)) if (0xDC00..0xE000).contains(&lo) => {
                                     *i += 6;
-                                    char::from_u32(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00)).unwrap_or('\u{FFFD}')
+                                    char::from_u32(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00))
+                                        .unwrap_or('\u{FFFD}')
                                 }
                                 _ => '\u{FFFD}',
                             }
@@ -234,10 +239,35 @@ mod tests {
 
     #[test]
     fn strict_and_unicode() {
-        assert_eq!(parse(r#""hé 😀 \/ \b""#).unwrap().str(), Some("hé 😀 / \u{8}"));
+        assert_eq!(
+            parse(r#""hé 😀 \/ \b""#).unwrap().str(),
+            Some("hé 😀 / \u{8}")
+        );
         assert_eq!(parse(r#""\ud83d x""#).unwrap().str(), Some("\u{FFFD} x"));
-        assert_eq!(parse(r#"{"a":[1,-2.5e3,true,false,null],"b":{}}"#).unwrap().get("a").unwrap().arr().len(), 5);
-        for bad in ["", "{", "[1,]x", "{\"a\" 1}", "tru", "{\"a\":1} x", "01x", "\"a", "[1 2]", "{\"a\":1,}", "-", "1.", "\"\u{1}\""] {
+        assert_eq!(
+            parse(r#"{"a":[1,-2.5e3,true,false,null],"b":{}}"#)
+                .unwrap()
+                .get("a")
+                .unwrap()
+                .arr()
+                .len(),
+            5
+        );
+        for bad in [
+            "",
+            "{",
+            "[1,]x",
+            "{\"a\" 1}",
+            "tru",
+            "{\"a\":1} x",
+            "01x",
+            "\"a",
+            "[1 2]",
+            "{\"a\":1,}",
+            "-",
+            "1.",
+            "\"\u{1}\"",
+        ] {
             assert!(parse(bad).is_none(), "{bad}");
         }
         assert!(parse(&"[".repeat(100_000)).is_none());

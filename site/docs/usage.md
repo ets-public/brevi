@@ -192,6 +192,8 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 - **argparse:** everything but `argparse.FileType` and `fromfile_prefix_chars` (both open files). Help text is 80 columns wide under the sandbox, which reads no environment; outside it, it follows `$COLUMNS` or the terminal's width, as in CPython.
 
+- **pydantic:** Brevi's own copy needs nothing granted; what it lacks (see [pydantic](/docs/compatibility#pydantic)), such as `model_json_schema`, is refused by name unless the caller grants `--allow-py pydantic`.
+
 - **requests and httpx:** Brevi's own copies, over native sockets and TLS; they need `allow net` (or `--allow-net` for some hosts), not `allow native`.
 
 - **random:** `seed`, `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits` and `random.Random`, using CPython's own generator, so a seeded program draws the same numbers as in CPython. Seeds must be ints. Other functions (`random.betavariate`, ...) give one error naming them.

@@ -9,21 +9,33 @@ pub const PREFIX: &str = "AxRec";
 
 // Rust and Brevi words that cannot be field names.
 const RESERVED: &[&str] = &[
-    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
-    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro",
+    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
+    "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro",
     "override", "priv", "typeof", "unsized", "virtual", "yield", "try", "test", "var", "self_",
 ];
 
 fn key_name(k: &Expr) -> Option<String> {
     let Expr::Str(parts) = k else { return None };
-    let [StrPart::Lit(s)] = parts.as_slice() else { return None };
-    let ok = s.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let [StrPart::Lit(s)] = parts.as_slice() else {
+        return None;
+    };
+    let ok = s
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     ok.then(|| field_of(s))
 }
 
 // The field that holds a key: a key that is a Rust or Brevi word (`'type'`) gets a trailing `_`.
 pub fn field_of(key: &str) -> String {
-    if RESERVED.contains(&key) { format!("{key}_") } else { key.to_string() }
+    if RESERVED.contains(&key) {
+        format!("{key}_")
+    } else {
+        key.to_string()
+    }
 }
 
 // The dict key a record field stands for (as printed and in JSON).
@@ -42,7 +54,9 @@ fn kind(e: &Expr) -> Option<&'static str> {
         Expr::Str(_) => Some("str"),
         Expr::Bool(_) => Some("bool"),
         Expr::List(_) => Some("list"),
-        Expr::Method(l, m, _, _) if m == "repeat" && matches!(l.as_ref(), Expr::List(_)) => Some("list"),
+        Expr::Method(l, m, _, _) if m == "repeat" && matches!(l.as_ref(), Expr::List(_)) => {
+            Some("list")
+        }
         Expr::Map(_) => Some("map"),
         Expr::Tuple(_) => Some("tuple"),
         Expr::Method(_, m, _, _) if m == "dec" || m == "frac" || m == "frac_div" => Some("dec"),
@@ -65,7 +79,11 @@ struct Shape {
 fn empty(e: &Expr) -> bool {
     // `[None] * 9`: a list of None slots, typed by what later lines put in them.
     let nones = |e: &Expr| matches!(e, Expr::Method(l, m, a, _) if m == "repeat" && matches!(a.as_slice(), [Expr::Int(_)]) && matches!(l.as_ref(), Expr::List(xs) if !xs.is_empty() && xs.iter().all(|x| matches!(x, Expr::Call(f, a, _) if f == "none" && a.is_empty()))));
-    nones(e) || matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(xs) if xs.is_empty()) || matches!(e, Expr::Method(r, m, _, _) if m == "lax" && matches!(r.as_ref(), Expr::Map(xs) if xs.is_empty())) || matches!(e, Expr::Call(f, a, _) if f == "none" && a.is_empty())
+    nones(e)
+        || matches!(e, Expr::List(xs) if xs.is_empty())
+        || matches!(e, Expr::Map(xs) if xs.is_empty())
+        || matches!(e, Expr::Method(r, m, _, _) if m == "lax" && matches!(r.as_ref(), Expr::Map(xs) if xs.is_empty()))
+        || matches!(e, Expr::Call(f, a, _) if f == "none" && a.is_empty())
 }
 
 fn shape_of(ps: &[(Expr, Expr)]) -> Option<Vec<String>> {
@@ -85,24 +103,50 @@ fn same(a: &[String], b: &[String]) -> bool {
 // other literals put there.
 fn holder(st: &Stmt) -> Option<(String, &Expr)> {
     match st {
-        Stmt::Assign { target: Expr::Ident(n) | Expr::Field(_, n), op: "=", value, .. } => Some((n.clone(), value)),
-        Stmt::Let { name: Pat::Bind(n), value, .. } => Some((n.clone(), value)),
+        Stmt::Assign {
+            target: Expr::Ident(n) | Expr::Field(_, n),
+            op: "=",
+            value,
+            ..
+        } => Some((n.clone(), value)),
+        Stmt::Let {
+            name: Pat::Bind(n),
+            value,
+            ..
+        } => Some((n.clone(), value)),
         // A dict kept in a one-slot holder (`cur = [None]`, then `cur[0] = {"line": n, ...}`).
-        Stmt::Assign { target: Expr::Index(b, k), op: "=", value: value @ Expr::Map(_), .. } if matches!(k.as_ref(), Expr::Int(_)) => match b.as_ref() {
+        Stmt::Assign {
+            target: Expr::Index(b, k),
+            op: "=",
+            value: value @ Expr::Map(_),
+            ..
+        } if matches!(k.as_ref(), Expr::Int(_)) => match b.as_ref() {
             Expr::Ident(n) => Some((format!("@list {n}"), value)),
             _ => None,
         },
         // A dict kept under one key of another (`state['cur'] = {'bad': True}`, `state['cur'] = {...}`).
-        Stmt::Assign { target: Expr::Index(b, k), op: "=", value: value @ Expr::Map(_), .. } if key_name(k).is_some() => match b.as_ref() {
+        Stmt::Assign {
+            target: Expr::Index(b, k),
+            op: "=",
+            value: value @ Expr::Map(_),
+            ..
+        } if key_name(k).is_some() => match b.as_ref() {
             Expr::Ident(n) => Some((format!("@key {n} {}", key_name(k).unwrap()), value)),
             _ => None,
         },
         // Dicts pushed on one list (`stack.append({'kind': 'if', ...})`, `stack.append({'kind': 'while', ...})`)
         // are one record, as Python reads them alike.
-        Stmt::Expr { expr: Expr::Method(r, m, args, _), .. } if matches!(m.as_str(), "push" | "append" | "insert" | "ax_push") => match (r.as_ref(), args.last()) {
-            (Expr::Ident(n) | Expr::Field(_, n), Some(v @ Expr::Map(_))) => Some((format!("@list {n}"), v)),
-            _ => None,
-        },
+        Stmt::Expr {
+            expr: Expr::Method(r, m, args, _),
+            ..
+        } if matches!(m.as_str(), "push" | "append" | "insert" | "ax_push") => {
+            match (r.as_ref(), args.last()) {
+                (Expr::Ident(n) | Expr::Field(_, n), Some(v @ Expr::Map(_))) => {
+                    Some((format!("@list {n}"), v))
+                }
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -133,7 +177,9 @@ pub fn json_lists(items: &mut [Item]) {
         xs.len() >= 2 && ks.is_some_and(|k| k.len() >= 2)
     }
     for it in items.iter_mut() {
-        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else {
+            continue;
+        };
         let mut looped: HashSet<String> = HashSet::new();
         crate::infer::walk(body, &mut |e| {
             if let Expr::For(_, it, _) = e {
@@ -143,14 +189,24 @@ pub fn json_lists(items: &mut [Item]) {
             }
         });
         // A list of bools with None in it (`[True, None]`) is held as JSON too: a bool has no spare value for None.
-        let bool_none = |xs: &[Expr]| xs.iter().any(|x| kind(x) == Some("none")) && xs.iter().all(|x| matches!(kind(x), Some("bool" | "none"))) && xs.iter().any(|x| kind(x) == Some("bool"));
+        let bool_none = |xs: &[Expr]| {
+            xs.iter().any(|x| kind(x) == Some("none"))
+                && xs.iter().all(|x| matches!(kind(x), Some("bool" | "none")))
+                && xs.iter().any(|x| kind(x) == Some("bool"))
+        };
         // A literal written out by json.dumps (`json.dumps({'a': [1, 2, {'b': None}], 'c': True})`): its
         // lists of mixed kinds hold JSON values.
         crate::parser::walk_mut(body, &mut |e| {
             if let Expr::Method(r, m, _, _) = e {
                 if m == "py_dumps" && matches!(r.as_ref(), Expr::List(_) | Expr::Map(_)) {
                     // Every value inside becomes JSON, so no list or dict needs one item type.
-                    let wrap = |v: Expr| if kind(&v) == Some("none") { Expr::Ident("Null".into()) } else { Expr::Call("ax_to_json".into(), vec![(None, v)], 0) };
+                    let wrap = |v: Expr| {
+                        if kind(&v) == Some("none") {
+                            Expr::Ident("Null".into())
+                        } else {
+                            Expr::Call("ax_to_json".into(), vec![(None, v)], 0)
+                        }
+                    };
                     crate::parser::walk_mut(r, &mut |x| match x {
                         Expr::List(xs) => {
                             for x in xs.iter_mut() {
@@ -175,9 +231,21 @@ pub fn json_lists(items: &mut [Item]) {
             if let Expr::Method(_, m, args, _) = e {
                 if matches!(m.as_str(), "push" | "append") && args.len() == 1 {
                     if let Expr::List(xs) = &args[0] {
-                        let fresh = |x: &Expr| matches!(x, Expr::Map(p) if p.is_empty()) || matches!(x, Expr::List(p) if p.is_empty());
-                        let plain = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Str(_) | Expr::Int(_) | Expr::Field(..));
-                        if xs.len() >= 2 && xs.iter().any(fresh) && xs.iter().any(plain) && xs.iter().all(|x| fresh(x) || plain(x)) {
+                        let fresh = |x: &Expr| {
+                            matches!(x, Expr::Map(p) if p.is_empty())
+                                || matches!(x, Expr::List(p) if p.is_empty())
+                        };
+                        let plain = |x: &Expr| {
+                            matches!(
+                                x,
+                                Expr::Ident(_) | Expr::Str(_) | Expr::Int(_) | Expr::Field(..)
+                            )
+                        };
+                        if xs.len() >= 2
+                            && xs.iter().any(fresh)
+                            && xs.iter().any(plain)
+                            && xs.iter().all(|x| fresh(x) || plain(x))
+                        {
                             let xs = xs.clone();
                             args[0] = Expr::Tuple(xs);
                         }
@@ -190,7 +258,11 @@ pub fn json_lists(items: &mut [Item]) {
                 if bool_none(xs) {
                     for x in xs.iter_mut() {
                         let v = std::mem::replace(x, Expr::Int(0));
-                        *x = if kind(&v) == Some("none") { Expr::Ident("Null".into()) } else { Expr::Call("ax_to_json".into(), vec![(None, v)], 0) };
+                        *x = if kind(&v) == Some("none") {
+                            Expr::Ident("Null".into())
+                        } else {
+                            Expr::Call("ax_to_json".into(), vec![(None, v)], 0)
+                        };
                     }
                 }
             }
@@ -201,11 +273,26 @@ pub fn json_lists(items: &mut [Item]) {
         crate::parser::walk_mut(body, &mut |e| {
             if let Expr::Block(stmts, _) = e {
                 for st in stmts.iter_mut() {
-                    if let Stmt::Let { name: Pat::Bind(n), value: Expr::List(xs), .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::List(xs), .. } = st {
+                    if let Stmt::Let {
+                        name: Pat::Bind(n),
+                        value: Expr::List(xs),
+                        ..
+                    }
+                    | Stmt::Assign {
+                        target: Expr::Ident(n),
+                        op: "=",
+                        value: Expr::List(xs),
+                        ..
+                    } = st
+                    {
                         if looped.contains(n) && mixed(xs) {
                             for x in xs.iter_mut() {
                                 let v = std::mem::replace(x, Expr::Int(0));
-                                *x = if kind(&v) == Some("none") { Expr::Ident("Null".into()) } else { Expr::Call("ax_to_json".into(), vec![(None, v)], 0) };
+                                *x = if kind(&v) == Some("none") {
+                                    Expr::Ident("Null".into())
+                                } else {
+                                    Expr::Call("ax_to_json".into(), vec![(None, v)], 0)
+                                };
                             }
                         }
                     }
@@ -232,7 +319,9 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     let mut first_line = vec![];
     for it in items.iter() {
         let (fname, body, line) = match it {
-            Item::Fn { name, body, line, .. } => (name.as_str(), body, line),
+            Item::Fn {
+                name, body, line, ..
+            } => (name.as_str(), body, line),
             Item::Test { body, line, .. } => ("", body, line),
             _ => continue,
         };
@@ -250,14 +339,21 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             }
             if let Expr::Block(stmts, tail) = e {
                 // (A branch's one statement is its tail: `stack.append({...})`.)
-                let tail_st = tail.as_ref().map(|t| Stmt::Expr { expr: (**t).clone(), line: 0 });
+                let tail_st = tail.as_ref().map(|t| Stmt::Expr {
+                    expr: (**t).clone(),
+                    line: 0,
+                });
                 for st in stmts.iter().chain(tail_st.iter()) {
                     // Dicts a function returns in the same place (`return qid, {"type": "choice", ...}` and
                     // `return qid, {"type": "number", ...}`) are one record.
                     if let Stmt::Return { value: Some(v), .. } = st {
                         let slots: Vec<(usize, &Expr)> = match v {
                             Expr::Map(_) => vec![(0, v)],
-                            Expr::Tuple(xs) => xs.iter().enumerate().filter(|(_, x)| matches!(x, Expr::Map(_))).collect(),
+                            Expr::Tuple(xs) => xs
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, x)| matches!(x, Expr::Map(_)))
+                                .collect(),
                             _ => vec![],
                         };
                         for (i, m) in slots {
@@ -291,20 +387,28 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     // so keys set on it later (`cur.setdefault("out", []).append(m)`) belong to it.
     let mut from_calls: Vec<(String, String)> = vec![];
     for it in items.iter() {
-        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else {
+            continue;
+        };
         crate::infer::walk(body, &mut |e| {
             if let Expr::Block(stmts, _) = e {
                 for st in stmts {
                     match holder(st) {
-                        Some((n, Expr::Call(f, _, _))) if !n.starts_with('@') => from_calls.push((n, format!("@ret {f} 0"))),
+                        Some((n, Expr::Call(f, _, _))) if !n.starts_with('@') => {
+                            from_calls.push((n, format!("@ret {f} 0")))
+                        }
                         // `t = state['cur']`
-                        Some((n, Expr::Index(h, k))) if !n.starts_with('@') && key_name(k).is_some() => {
+                        Some((n, Expr::Index(h, k)))
+                            if !n.starts_with('@') && key_name(k).is_some() =>
+                        {
                             if let Expr::Ident(h) = h.as_ref() {
                                 from_calls.push((n, format!("@key {h} {}", key_name(k).unwrap())));
                             }
                         }
                         // `tx = cur[0]` from a holder of records.
-                        Some((n, Expr::Index(h, k))) if !n.starts_with('@') && matches!(k.as_ref(), Expr::Int(_)) => {
+                        Some((n, Expr::Index(h, k)))
+                            if !n.starts_with('@') && matches!(k.as_ref(), Expr::Int(_)) =>
+                        {
                             if let Expr::Ident(h) = h.as_ref() {
                                 from_calls.push((n, format!("@list {h}")));
                             }
@@ -323,22 +427,38 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     // Keys set later on a name that holds a literal (`q = {...}`, then `q["answer"] = a` in a branch).
     let mut later: Vec<(String, String, Expr)> = vec![];
     for it in items.iter() {
-        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else {
+            continue;
+        };
         crate::infer::walk(body, &mut |e| {
             if let Expr::Block(stmts, _) = e {
                 for st in stmts {
-                    if let Stmt::Assign { target: Expr::Index(b, k), op: "=", value, .. } = st {
+                    if let Stmt::Assign {
+                        target: Expr::Index(b, k),
+                        op: "=",
+                        value,
+                        ..
+                    } = st
+                    {
                         if let (Expr::Ident(n), Some(key)) = (b.as_ref(), key_name(k)) {
                             later.push((n.clone(), key, value.clone()));
                         }
                     }
                     // `cur.setdefault("msgs", []).append(m)` (read as `cur["msgs"].push(m)`): a list key set later.
-                    if let Stmt::Expr { expr: Expr::Method(r, m, args, _), .. } = st {
+                    if let Stmt::Expr {
+                        expr: Expr::Method(r, m, args, _),
+                        ..
+                    } = st
+                    {
                         if let Expr::Index(b, k) = r.as_ref() {
                             if let (Expr::Ident(n), Some(key)) = (b.as_ref(), key_name(k)) {
                                 match (m.as_str(), args.as_slice()) {
-                                    ("push" | "append" | "add", [a]) => later.push((n.clone(), key, Expr::List(vec![a.clone()]))),
-                                    ("extend" | "update", [a]) => later.push((n.clone(), key, a.clone())),
+                                    ("push" | "append" | "add", [a]) => {
+                                        later.push((n.clone(), key, Expr::List(vec![a.clone()])))
+                                    }
+                                    ("extend" | "update", [a]) => {
+                                        later.push((n.clone(), key, a.clone()))
+                                    }
                                     _ => {}
                                 }
                             }
@@ -351,14 +471,29 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     // Names used as a dict proper: indexed by a computed key, looped over, or asked for its keys.
     let mut dynamic: HashSet<String> = HashSet::new();
     for it in items.iter() {
-        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else {
+            continue;
+        };
         crate::infer::walk(body, &mut |e| match e {
             Expr::Index(b, k) if key_name(k).is_none() => {
                 if let Expr::Ident(n) = b.as_ref() {
                     dynamic.insert(n.clone());
                 }
             }
-            Expr::Method(b, m, _, _) if matches!(m.as_str(), "pairs" | "keys" | "values" | "items" | "len" | "update" | "copy" | "pop" | "setdefault") => {
+            Expr::Method(b, m, _, _)
+                if matches!(
+                    m.as_str(),
+                    "pairs"
+                        | "keys"
+                        | "values"
+                        | "items"
+                        | "len"
+                        | "update"
+                        | "copy"
+                        | "pop"
+                        | "setdefault"
+                ) =>
+            {
                 if let Expr::Ident(n) = b.as_ref() {
                     dynamic.insert(n.clone());
                 }
@@ -405,7 +540,11 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
             }
         }
         // Later keys join only a record whose literals already show it is one (values of mixed kinds).
-        let extra: Vec<String> = later.iter().filter(|(n, k, _)| members.iter().any(|&m| sets[m].1.contains(n)) && !keys.contains(k)).map(|(_, k, _)| k.clone()).collect();
+        let extra: Vec<String> = later
+            .iter()
+            .filter(|(n, k, _)| members.iter().any(|&m| sets[m].1.contains(n)) && !keys.contains(k))
+            .map(|(_, k, _)| k.clone())
+            .collect();
         for k in extra {
             if !keys.contains(&k) {
                 keys.push(k);
@@ -414,14 +553,25 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
         for &m in &members {
             shape_of_set[m] = shapes.len();
         }
-        shapes.push(Shape { kinds: vec![HashSet::new(); keys.len()], fixed: vec![None; keys.len()], seen: vec![false; keys.len()], keys, line: first_line[members[0]], sets: members.iter().map(|&m| sets[m].0.clone()).collect() });
+        shapes.push(Shape {
+            kinds: vec![HashSet::new(); keys.len()],
+            fixed: vec![None; keys.len()],
+            seen: vec![false; keys.len()],
+            keys,
+            line: first_line[members[0]],
+            sets: members.iter().map(|&m| sets[m].0.clone()).collect(),
+        });
     }
     for it in items.iter() {
-        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else {
+            continue;
+        };
         crate::infer::walk(body, &mut |e| {
             let Expr::Map(ps) = e else { return };
             let Some(keys) = shape_of(ps) else { return };
-            let Some(si) = sets.iter().position(|(k, _)| same(k, &keys)) else { return };
+            let Some(si) = sets.iter().position(|(k, _)| same(k, &keys)) else {
+                return;
+            };
             let sh = &mut shapes[shape_of_set[si]];
             for (k, v) in ps {
                 let name = key_name(k).unwrap();
@@ -432,7 +582,16 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
                 if let Some(kd) = kind(v) {
                     sh.kinds[j].insert(kd);
                 }
-                let fix = if empty(v) && (!sh.seen[j] || sh.fixed[j].as_ref().is_some_and(|f| format!("{f:?}") == format!("{v:?}"))) { Some(v.clone()) } else { None };
+                let fix = if empty(v)
+                    && (!sh.seen[j]
+                        || sh.fixed[j]
+                            .as_ref()
+                            .is_some_and(|f| format!("{f:?}") == format!("{v:?}")))
+                {
+                    Some(v.clone())
+                } else {
+                    None
+                };
                 sh.fixed[j] = fix;
                 sh.seen[j] = true;
             }
@@ -459,47 +618,113 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
         .filter(|s| {
             let all: HashSet<&str> = s.kinds.iter().flatten().copied().collect();
             // A key that starts as None next to keys of plain kinds (`"last": None, "count": 0`) gets its own type later.
-            let none_slot = s.keys.iter().zip(&s.fixed).any(|(k, f)| matches!(f, Some(Expr::Call(n, _, _)) if n == "none") && s.sets.iter().any(|set| set.contains(k)));
+            let none_slot = s.keys.iter().zip(&s.fixed).any(|(k, f)| {
+                matches!(f, Some(Expr::Call(n, _, _)) if n == "none")
+                    && s.sets.iter().any(|set| set.contains(k))
+            });
             // Every value an empty collection (`{"players": [], "names": set()}`) and the dict only ever read by
             // its literal keys: each key gets its own type from later lines.
-            let holders: Vec<&String> = sets.iter().filter(|(k, _)| s.sets.iter().any(|m| same(k, m))).flat_map(|(_, h)| h.iter()).collect();
+            let holders: Vec<&String> = sets
+                .iter()
+                .filter(|(k, _)| s.sets.iter().any(|m| same(k, m)))
+                .flat_map(|(_, h)| h.iter())
+                .collect();
             let fixed_use = !holders.is_empty() && holders.iter().all(|h| !dynamic.contains(*h));
-            let all_empty = s.fixed.iter().all(|f| matches!(f, Some(Expr::List(_) | Expr::Map(_)))) && fixed_use;
-            let differ = all_empty || all.len() >= 2 || (none_slot && !all.is_empty()) || typed_mixed.iter().any(|k| s.sets.iter().any(|m| same(k, m)));
+            let all_empty = s
+                .fixed
+                .iter()
+                .all(|f| matches!(f, Some(Expr::List(_) | Expr::Map(_))))
+                && fixed_use;
+            let differ = all_empty
+                || all.len() >= 2
+                || (none_slot && !all.is_empty())
+                || typed_mixed
+                    .iter()
+                    .any(|k| s.sets.iter().any(|m| same(k, m)));
             // Keys set later may show kinds; the literals' own keys show none.
             // A literal with some keys of unknown kind (`{"Name": name, "N": n, "big": True}`) may hide a mix too;
             // the eager try falls back to a plain dict if the record doesn't type.
-            let own_plain = s.keys.iter().zip(&s.kinds).all(|(k, kd)| kd.is_empty() || !s.sets.iter().any(|set| set.contains(k)))
-                || s.keys.iter().zip(&s.kinds).any(|(k, kd)| kd.is_empty() && s.sets.iter().any(|set| set.contains(k)));
-            let named = eager && own_plain && holders.iter().all(|h| !dynamic.contains(*h)) && s.keys.iter().zip(&s.fixed).all(|(k, f)| f.is_none() || !s.sets.iter().any(|set| set.contains(k)));
+            let own_plain = s
+                .keys
+                .iter()
+                .zip(&s.kinds)
+                .all(|(k, kd)| kd.is_empty() || !s.sets.iter().any(|set| set.contains(k)))
+                || s.keys
+                    .iter()
+                    .zip(&s.kinds)
+                    .any(|(k, kd)| kd.is_empty() && s.sets.iter().any(|set| set.contains(k)));
+            let named = eager
+                && own_plain
+                && holders.iter().all(|h| !dynamic.contains(*h))
+                && s.keys
+                    .iter()
+                    .zip(&s.fixed)
+                    .all(|(k, f)| f.is_none() || !s.sets.iter().any(|set| set.contains(k)));
             // A key some literals leave out and another gives as None: absent and None would look alike.
-            let is_none = |v: &Expr| matches!(v, Expr::Call(n, a, _) if n == "none" && a.is_empty());
-            let ambiguous = py && s.keys.iter().any(|k| s.sets.iter().any(|set| !set.contains(k)) && s.sets.iter().any(|set| set.contains(k)) && (none_vals.contains(k) || later.iter().any(|(_, lk, v)| lk == k && is_none(v))));
-            !ambiguous && s.keys.len() >= 2 && (differ || named) && s.kinds.iter().all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
+            let is_none =
+                |v: &Expr| matches!(v, Expr::Call(n, a, _) if n == "none" && a.is_empty());
+            let ambiguous = py
+                && s.keys.iter().any(|k| {
+                    s.sets.iter().any(|set| !set.contains(k))
+                        && s.sets.iter().any(|set| set.contains(k))
+                        && (none_vals.contains(k)
+                            || later.iter().any(|(_, lk, v)| lk == k && is_none(v)))
+                });
+            !ambiguous
+                && s.keys.len() >= 2
+                && (differ || named)
+                && s.kinds
+                    .iter()
+                    .all(|k| k.len() <= 1 || k.iter().all(|x| *x == "num"))
         })
         .collect();
     if chosen.is_empty() {
         return;
     }
     // Numbers go on from records made by an earlier call.
-    let base = items.iter().filter(|it| matches!(it, Item::Type { name, .. } if name.starts_with(PREFIX))).count();
+    let base = items
+        .iter()
+        .filter(|it| matches!(it, Item::Type { name, .. } if name.starts_with(PREFIX)))
+        .count();
     // Keys passed to the constructor (the others are fixed there).
     let names: Vec<(String, Vec<Vec<String>>, Vec<String>)> = chosen
         .iter()
         .enumerate()
-        .map(|(n, s)| (format!("{PREFIX}{}", n + base), s.sets.clone(), s.keys.iter().zip(&s.fixed).filter(|(_, f)| f.is_none()).map(|(k, _)| k.clone()).collect()))
+        .map(|(n, s)| {
+            (
+                format!("{PREFIX}{}", n + base),
+                s.sets.clone(),
+                s.keys
+                    .iter()
+                    .zip(&s.fixed)
+                    .filter(|(_, f)| f.is_none())
+                    .map(|(k, _)| k.clone())
+                    .collect(),
+            )
+        })
         .collect();
     for it in items.iter_mut() {
-        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else { continue };
+        let (Item::Fn { body, .. } | Item::Test { body, .. }) = it else {
+            continue;
+        };
         crate::parser::walk_mut(body, &mut |e| {
             let Expr::Map(ps) = e else { return };
             let Some(keys) = shape_of(ps) else { return };
-            let Some((name, _, order)) = names.iter().find(|(_, sets, _)| sets.iter().any(|k| same(k, &keys))) else { return };
+            let Some((name, _, order)) = names
+                .iter()
+                .find(|(_, sets, _)| sets.iter().any(|k| same(k, &keys)))
+            else {
+                return;
+            };
             // A key this literal leaves out holds None (Python would fail on reading it).
             let args: Vec<(Option<String>, Expr)> = order
                 .iter()
                 .map(|k| {
-                    let v = ps.iter().find(|(x, _)| key_name(x).as_deref() == Some(k.as_str())).map(|p| p.1.clone()).unwrap_or(Expr::Call("none".into(), vec![], 0));
+                    let v = ps
+                        .iter()
+                        .find(|(x, _)| key_name(x).as_deref() == Some(k.as_str()))
+                        .map(|p| p.1.clone())
+                        .unwrap_or(Expr::Call("none".into(), vec![], 0));
                     (None, v)
                 })
                 .collect();
@@ -509,7 +734,9 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
     for ((name, _, _), s) in names.iter().zip(&chosen) {
         for k in &s.keys {
             // Python mode: a key only some literals have is left out where they lack it.
-            let partial = py && s.sets.iter().any(|set| !set.contains(k)) && s.sets.iter().any(|set| set.contains(k));
+            let partial = py
+                && s.sets.iter().any(|set| !set.contains(k))
+                && s.sets.iter().any(|set| set.contains(k));
             if partial {
                 PARTIAL.with(|o| o.borrow_mut().insert((name.clone(), k.clone())));
             }
@@ -522,16 +749,45 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
         let keys = &s.keys;
         let q = || Ty::Named("?".into());
         let line = s.line;
-        items.push(Item::Type { name: name.clone(), fields: keys.iter().map(|k| Field { name: k.clone(), ty: q(), default: None }).collect(), line });
+        items.push(Item::Type {
+            name: name.clone(),
+            fields: keys
+                .iter()
+                .map(|k| Field {
+                    name: k.clone(),
+                    ty: q(),
+                    default: None,
+                })
+                .collect(),
+            line,
+        });
         let me = Ty::Named(name.clone());
-        let mut stmts = vec![Stmt::Let { name: Pat::Bind("self_".into()), ty: Some(me), value: Expr::Call("__default".into(), vec![], line), mutable: true, line }];
+        let mut stmts = vec![Stmt::Let {
+            name: Pat::Bind("self_".into()),
+            ty: Some(me),
+            value: Expr::Call("__default".into(), vec![], line),
+            mutable: true,
+            line,
+        }];
         for (k, f) in keys.iter().zip(&s.fixed) {
             let value = f.clone().unwrap_or_else(|| Expr::Ident(format!("ax_{k}")));
-            stmts.push(Stmt::Assign { target: Expr::Field(Box::new(Expr::Ident("self_".into())), k.clone()), op: "=", value, line });
+            stmts.push(Stmt::Assign {
+                target: Expr::Field(Box::new(Expr::Ident("self_".into())), k.clone()),
+                op: "=",
+                value,
+                line,
+            });
         }
         items.push(Item::Fn {
             name: format!("{name}_new"),
-            params: passed.iter().map(|k| Param { name: format!("ax_{k}"), ty: q(), is_mut: false }).collect(),
+            params: passed
+                .iter()
+                .map(|k| Param {
+                    name: format!("ax_{k}"),
+                    ty: q(),
+                    is_mut: false,
+                })
+                .collect(),
             ret: Ty::Named(name.clone()),
             fallible: false,
             body: Expr::Block(stmts, Some(Box::new(Expr::Ident("self_".into())))),
@@ -547,13 +803,28 @@ fn fold_keys(stmts: &mut Vec<Stmt>) {
     // `st.update({"cur": "0", "acc": None})` with literal keys: one assignment per key, so a record can hold it.
     let mut j = 0;
     while j < stmts.len() {
-        if let Stmt::Expr { expr: Expr::Method(r, m, args, _), line } = &stmts[j] {
+        if let Stmt::Expr {
+            expr: Expr::Method(r, m, args, _),
+            line,
+        } = &stmts[j]
+        {
             if m == "update" && matches!(r.as_ref(), Expr::Ident(_)) {
                 if let [Expr::Map(ps)] = args.as_slice() {
                     // Not when a value reads the dict (`d.update({"a": d["b"], "b": d["a"]})` reads before any change).
-                    if !ps.is_empty() && ps.iter().all(|(k, _)| key_name(k).is_some()) && !format!("{ps:?}").contains(&format!("{r:?}")) {
+                    if !ps.is_empty()
+                        && ps.iter().all(|(k, _)| key_name(k).is_some())
+                        && !format!("{ps:?}").contains(&format!("{r:?}"))
+                    {
                         let (r, line) = (r.clone(), *line);
-                        let sets: Vec<Stmt> = ps.iter().map(|(k, v)| Stmt::Assign { target: Expr::Index(r.clone(), Box::new(k.clone())), op: "=", value: v.clone(), line }).collect();
+                        let sets: Vec<Stmt> = ps
+                            .iter()
+                            .map(|(k, v)| Stmt::Assign {
+                                target: Expr::Index(r.clone(), Box::new(k.clone())),
+                                op: "=",
+                                value: v.clone(),
+                                line,
+                            })
+                            .collect();
                         let n = sets.len();
                         stmts.splice(j..j + 1, sets);
                         j += n;
@@ -567,19 +838,48 @@ fn fold_keys(stmts: &mut Vec<Stmt>) {
     let mut i = 0;
     while i < stmts.len() {
         let n = match &stmts[i] {
-            Stmt::Assign { target: Expr::Ident(n), op: "=", value: Expr::Map(ps), .. } | Stmt::Let { name: Pat::Bind(n), value: Expr::Map(ps), .. } if shape_of(ps).is_some() => n.clone(),
+            Stmt::Assign {
+                target: Expr::Ident(n),
+                op: "=",
+                value: Expr::Map(ps),
+                ..
+            }
+            | Stmt::Let {
+                name: Pat::Bind(n),
+                value: Expr::Map(ps),
+                ..
+            } if shape_of(ps).is_some() => n.clone(),
             _ => {
                 i += 1;
                 continue;
             }
         };
         while i + 1 < stmts.len() {
-            let Stmt::Assign { target: Expr::Index(b, k), op: "=", value, .. } = &stmts[i + 1] else { break };
-            if !matches!(b.as_ref(), Expr::Ident(x) if *x == n) || key_name(k).is_none() || format!("{value:?}").contains(&format!("{n:?}")) {
+            let Stmt::Assign {
+                target: Expr::Index(b, k),
+                op: "=",
+                value,
+                ..
+            } = &stmts[i + 1]
+            else {
+                break;
+            };
+            if !matches!(b.as_ref(), Expr::Ident(x) if *x == n)
+                || key_name(k).is_none()
+                || format!("{value:?}").contains(&format!("{n:?}"))
+            {
                 break;
             }
             let (k, v) = (k.as_ref().clone(), value.clone());
-            if let Stmt::Assign { value: Expr::Map(ps), .. } | Stmt::Let { value: Expr::Map(ps), .. } = &mut stmts[i] {
+            if let Stmt::Assign {
+                value: Expr::Map(ps),
+                ..
+            }
+            | Stmt::Let {
+                value: Expr::Map(ps),
+                ..
+            } = &mut stmts[i]
+            {
                 if ps.iter().any(|(x, _)| format!("{x:?}") == format!("{k:?}")) {
                     break;
                 }
