@@ -1,4 +1,5 @@
 # np.linalg.lstsq, np.polyfit and np.polyval: LAPACK dgelsd as numpy's OpenBLAS runs it, to the last digit
+# (full precision: AVX2 CPUs check lstsq.avx2.expected, numpy's output with OPENBLAS_CORETYPE=Haswell)
 import numpy as np
 
 rng = np.random.default_rng(7)

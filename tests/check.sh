@@ -82,9 +82,18 @@ for f in tests/lib/*.py; do
 done
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
 # The .expected files come from real numpy (numpy 2.x; CI has none): `--update` needs it installed.
+# A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
+# in NAME.avx2.expected, which a CPU without AVX-512 checks against.
+np_avx512=1
+for fl in avx512f avx512dq avx512cd avx512bw avx512vl; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_avx512=0; done
 for f in tests/numpy/*.py; do
   exp="${f%.py}.expected"
-  if [ "$1" = "--update" ]; then python3 -c "import numpy" 2>/dev/null && python3 "$f" > "$exp" 2>/dev/null; continue; fi
+  if [ "$1" = "--update" ]; then
+    python3 -c "import numpy" 2>/dev/null && python3 "$f" > "$exp" 2>/dev/null
+    [ -f "${f%.py}.avx2.expected" ] && OPENBLAS_CORETYPE=Haswell python3 "$f" > "${f%.py}.avx2.expected" 2>/dev/null
+    continue
+  fi
+  [ "$np_avx512" = 0 ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
   out=$(BREVI_PATH=1 timeout 120 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
   if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
     echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
