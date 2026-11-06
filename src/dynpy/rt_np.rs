@@ -1157,25 +1157,168 @@ fn dot_f(x: &[f64], y: &[f64]) -> f64 {
     }
     s
 }
-fn gemv_f(a: &[f64], x: &[f64]) -> f64 {
-    if np_blas() == Blas::Plain {
-        return dot_f(a, x);
-    }
-    let k = a.len();
-    let kk = k - k % 4;
-    let mut v = [0.0f64; 4];
-    for t in 0..kk {
-        v[t % 4] = fma(a[t], x[t], v[t % 4]);
-    }
-    let mut s = (v[0] + v[2]) + (v[1] + v[3]);
-    if k - kk == 2 {
-        s += a[kk] * x[kk] + a[kk + 1] * x[kk + 1];
+// numpy's float matrix @ vector is OpenBLAS's dgemv: dgemv_t_4.c for a C-ordered matrix (one dot per row),
+// dgemv_n_4.c for a Fortran-ordered one and for vector @ matrix (columns added into the result). The kernels
+// and their order are the same on Haswell and SkylakeX for dgemv_t; dgemv_n's differ. From 115200 * 4 values
+// OpenBLAS splits the work across its threads (gemv_thread.c), which changes which kernel a row gets, or,
+// for few output values, splits the dot and adds the parts.
+fn np_gemv_nt(m: usize, k: usize) -> usize {
+    if m * k < 460800 {
+        1
     } else {
-        for t in kk..k {
-            s = fma(a[t], x[t], s);
+        std::thread::available_parallelism().map_or(1, |v| v.get()).min(64)
+    }
+}
+// gemv_thread.c's split of `n` items over `nt` threads: (start, length)
+fn np_gemv_split(n: usize, nt: usize) -> Vec<(usize, usize)> {
+    let (mut out, mut i, mut pos) = (vec![], n, 0);
+    while i > 0 {
+        let left = nt.saturating_sub(out.len()).max(1);
+        let w = ((i + left - 1) / left).max(4).min(i);
+        out.push((pos, w));
+        pos += w;
+        i -= w;
+    }
+    out
+}
+// one dot of dgemv_t: kind 4 (the AVX2 four-row kernel), 2 or 1 (the SSE two- and one-row kernels)
+fn gemv_t_row(a: &[f64], x: &[f64], kind: usize) -> f64 {
+    let k = a.len();
+    let kb = k - k % 4;
+    let mut y = 0.0;
+    let mut lo = 0;
+    while lo < kb {
+        let hi = (lo + 2048).min(kb);
+        let b = match kind {
+            4 => {
+                let mut v = [0.0f64; 4];
+                for t in lo..hi {
+                    v[(t - lo) % 4] = fma(a[t], x[t], v[(t - lo) % 4]);
+                }
+                (v[0] + v[2]) + (v[1] + v[3])
+            }
+            2 => {
+                let mut v = [0.0f64; 2];
+                for t in lo..hi {
+                    v[(t - lo) % 2] += a[t] * x[t];
+                }
+                v[0] + v[1]
+            }
+            _ => {
+                let (mut p, mut q) = ([0.0f64; 2], [0.0f64; 2]);
+                for t in lo..hi {
+                    let r = (t - lo) % 4;
+                    if r < 2 {
+                        p[r] += a[t] * x[t];
+                    } else {
+                        q[r - 2] += a[t] * x[t];
+                    }
+                }
+                (p[0] + q[0]) + (p[1] + q[1])
+            }
+        };
+        y += b;
+        lo = hi;
+    }
+    match k - kb {
+        1 => fma(a[kb], x[kb], y),
+        2 => y + fma(a[kb], x[kb], a[kb + 1] * x[kb + 1]),
+        3 => y + fma(a[kb + 2], x[kb + 2], fma(a[kb], x[kb], a[kb + 1] * x[kb + 1])),
+        _ => y,
+    }
+}
+// A x for row-major A (m x k)
+fn np_gemv_t(a: &[f64], m: usize, k: usize, x: &[f64]) -> Vec<f64> {
+    let mut y = vec![0.0; m];
+    let nt = np_gemv_nt(m, k);
+    let chunks = if nt > 1 { np_gemv_split(m, nt) } else { vec![(0, m)] };
+    for (r0, len) in chunks {
+        let full = len / 4 * 4;
+        for j in 0..len {
+            let kind = if j < full {
+                4
+            } else if len % 4 >= 2 && j < full + 2 {
+                2
+            } else {
+                1
+            };
+            y[r0 + j] = gemv_t_row(&a[(r0 + j) * k..(r0 + j + 1) * k], x, kind);
         }
     }
-    s
+    y
+}
+// dgemv_n over rows r0..r0+rn and columns c0..c0+cn of the column-major m x k matrix a (lda m); a fresh y
+fn gemv_n_part(a: &[f64], m: usize, r0: usize, rn: usize, c0: usize, cn: usize, x: &[f64], unit: bool) -> Vec<f64> {
+    let skx = np_blas() == Blas::Skx;
+    let at = |r: usize, c: usize| a[r0 + r + (c0 + c) * m];
+    let xs = &x[c0..c0 + cn];
+    let mb = rn - (rn & 3);
+    let mut y = vec![0.0; rn];
+    for r in 0..mb {
+        let (mut c, mut t) = (0, 0.0);
+        while c + 4 <= cn {
+            let s = if skx {
+                let s = fma(at(r, c), xs[c], at(r, c + 1) * xs[c + 1]);
+                let s = fma(at(r, c + 2), xs[c + 2], s);
+                fma(at(r, c + 3), xs[c + 3], s)
+            } else {
+                fma(at(r, c + 2), xs[c + 2], at(r, c) * xs[c]) + fma(at(r, c + 3), xs[c + 3], at(r, c + 1) * xs[c + 1])
+            };
+            t += s;
+            c += 4;
+        }
+        if cn - c >= 2 && unit {
+            t += if skx { fma(at(r, c), xs[c], at(r, c + 1) * xs[c + 1]) } else { at(r, c) * xs[c] + at(r, c + 1) * xs[c + 1] };
+            c += 2;
+        }
+        while c < cn {
+            t += at(r, c) * xs[c];
+            c += 1;
+        }
+        y[r] = t;
+    }
+    let pair = (m == 2 || m == 3) && unit;
+    for r in mb..rn {
+        let (mut c, mut t) = (0, 0.0);
+        if pair {
+            while c + 4 <= cn {
+                for h in [c, c + 2] {
+                    t += if skx { fma(at(r, h), xs[h], at(r, h + 1) * xs[h + 1]) } else { at(r, h) * xs[h] + at(r, h + 1) * xs[h + 1] };
+                }
+                c += 4;
+            }
+        }
+        while c < cn {
+            t = if skx { fma(at(r, c), xs[c], t) } else { t + at(r, c) * xs[c] };
+            c += 1;
+        }
+        y[r] = t;
+    }
+    y
+}
+// A x for column-major A (m x k): numpy's vector @ matrix, and matrix @ vector for a Fortran-ordered matrix
+fn np_gemv_n(a: &[f64], m: usize, k: usize, x: &[f64], unit: bool) -> Vec<f64> {
+    let nt = np_gemv_nt(m, k);
+    if nt == 1 {
+        return gemv_n_part(a, m, 0, m, 0, k, x, unit);
+    }
+    let rows = np_gemv_split(m, nt);
+    if rows.len() < nt && m * k > 9216 && m * nt <= 1024 {
+        // split the dot instead, then add each thread's part in order
+        let mut y = vec![0.0; m];
+        for (c0, cn) in np_gemv_split(k, nt) {
+            let p = gemv_n_part(a, m, 0, m, c0, cn, x, unit);
+            for j in 0..m {
+                y[j] += p[j];
+            }
+        }
+        return y;
+    }
+    let mut y = vec![];
+    for (r0, rn) in rows {
+        y.extend(gemv_n_part(a, m, r0, rn, 0, k, x, unit));
+    }
+    y
 }
 pub fn np_matmul(a: &V, b: &V) -> R {
     let (x, y) = match (np_opnd(a)?, np_opnd(b)?) {
@@ -1257,18 +1400,77 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                 let unit = x.st.first().is_none_or(|s| *s == 1) && y.st.first().is_none_or(|s| *s == 1);
                 Buf::F(vec![np_ddot(&xv, &yv, unit)])
             } else {
-                let mut o = vec![0.0; m * n];
-                let mut col = vec![0.0; k];
-                for j in 0..n {
-                    for t in 0..k {
-                        col[t] = yv[t * n + j];
+                // matmul hands BLAS only operands it can describe (numpy's is_blasable2d); np.dot copies the rest
+                let bl2 = |a: &NdArr| {
+                    let ok = |s0: isize, s1: isize, d1: usize| s1 == 1 && s0 >= d1 as isize;
+                    a.ndim() != 2 || ok(a.st[0], a.st[1], a.shape[1]) || ok(a.st[1], a.st[0], a.shape[0]) || a.shape.contains(&1)
+                };
+                let bl1 = |a: &NdArr| a.ndim() != 1 || a.st[0] >= 1 || a.shape[0] <= 1;
+                let blas = np_blas() != Blas::Plain && (!matmul || (bl2(x) && bl2(y) && bl1(x) && bl1(y)));
+                // a 2-d operand stored in Fortran order (a transpose) reaches BLAS as the other kind of gemv
+                let ford = |a: &NdArr| a.ndim() == 2 && a.shape[0] > 1 && a.shape[1] > 1 && a.st[0] == 1;
+                let vunit = |a: &NdArr| a.st.first().is_none_or(|s| *s == 1);
+                if blas && x.ndim() == 2 && y.ndim() == 1 && m > 1 && k > 0 {
+                    // matrix @ vector
+                    Buf::F(if ford(x) {
+                        let mut cm = vec![0.0; m * k];
+                        for i in 0..m {
+                            for t in 0..k {
+                                cm[i + t * m] = xv[i * k + t];
+                            }
+                        }
+                        np_gemv_n(&cm, m, k, &yv, vunit(y))
+                    } else {
+                        np_gemv_t(&xv, m, k, &yv)
+                    })
+                } else if blas && x.ndim() == 1 && y.ndim() == 2 && n > 1 && k > 0 {
+                    // vector @ matrix: y is k x n, column-major n x k when C-ordered
+                    Buf::F(if ford(y) {
+                        let mut rm = vec![0.0; n * k];
+                        for t in 0..k {
+                            for j in 0..n {
+                                rm[j * k + t] = yv[t * n + j];
+                            }
+                        }
+                        np_gemv_t(&rm, n, k, &xv)
+                    } else {
+                        np_gemv_n(&yv, n, k, &xv, vunit(x))
+                    })
+                } else if x.ndim() + y.ndim() == 3 && blas && k > 0 {
+                    // one row or one column: numpy takes ddot
+                    let mut o = vec![0.0; m * n];
+                    let mut col = vec![0.0; k];
+                    for j in 0..n {
+                        for t in 0..k {
+                            col[t] = yv[t * n + j];
+                        }
+                        for i in 0..m {
+                            o[i * n + j] = np_ddot(&xv[i * k..(i + 1) * k], &col, true);
+                        }
                     }
-                    for i in 0..m {
-                        let row = &xv[i * k..(i + 1) * k];
-                        o[i * n + j] = if y.ndim() == 1 && x.ndim() == 2 { gemv_f(row, &col) } else { dot_f(row, &col) };
+                    Buf::F(o)
+                } else {
+                    let mut o = vec![0.0; m * n];
+                    let mut col = vec![0.0; k];
+                    for j in 0..n {
+                        for t in 0..k {
+                            col[t] = yv[t * n + j];
+                        }
+                        for i in 0..m {
+                            o[i * n + j] = if !blas && matmul && x.ndim() + y.ndim() == 3 {
+                                // numpy's own loop (no BLAS): left to right
+                                let mut acc = 0.0;
+                                for t in 0..k {
+                                    acc += xv[i * k + t] * col[t];
+                                }
+                                acc
+                            } else {
+                                dot_f(&xv[i * k..(i + 1) * k], &col)
+                            };
+                        }
                     }
+                    Buf::F(o)
                 }
-                Buf::F(o)
             }
         }
         NT::I | NT::B if d == NT::I => {
