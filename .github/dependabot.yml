@@ -1,17 +1,33 @@
-# Keeps Brevi's own dependencies current. Crates used by Brevi programs are pinned inside .bv files
-# (`use NAME "VERSION"`) and are watched by tools/upstream_watch.py instead.
-# Grouped, so each week brings at most one PR per ecosystem (each PR costs a CI run).
+# Keeps Brevi's own dependencies current. Grouped and weekly (Saturday, so updates can merge before the Monday
+# release), so each week brings at most one PR per ecosystem: each PR costs a CI run.
+# Not covered here, and watched instead by .github/workflows/upstream.yml:
+#   - crates Brevi programs pin inside .bv files (`use NAME "VERSION"`): tools/upstream_watch.py
+#   - Rust and Python releases, the MCP specification: tools/upstream_watch.py (and toolchains.yml daily)
+#   - Python libraries Brevi mirrors natively (tools/upstream_pins.json): tools/parity_drift.py
+#   - security advisories for all of the above: tools/advisories.py (OSV)
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
-    schedule: { interval: weekly }
+    directories: ["/", "/runtime/brevi_tk"]
+    schedule: { interval: weekly, day: saturday }
     groups:
       cargo:
         patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: weekly, day: saturday }
     groups:
       actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directories: ["/tools", "/packaging/pypi"]
+    schedule: { interval: weekly, day: saturday }
+    groups:
+      pip:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly, day: saturday }
+    groups:
+      docker:
         patterns: ["*"]

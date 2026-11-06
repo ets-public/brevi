@@ -23,6 +23,21 @@ A program where Brevi prints a different answer from CPython is the most serious
 
 By sending a contribution you agree that it is licensed under the [Apache License 2.0](LICENSE), the same as the rest of Brevi.
 
+## Keeping up with upstream
+
+Brevi follows Rust, Python, the MCP specification and the Python libraries it mirrors natively (numpy, requests,
+httpx, pydantic, tiktoken, tokenizers, the anthropic and openai SDKs). Bots open the work as issues and PRs:
+
+- Dependabot (`.github/dependabot.yml`): Cargo, GitHub Actions, CI's Python tools and the Docker base image, one
+  grouped PR per ecosystem each Saturday.
+- `toolchains.yml` (daily): Rust stable and the newest Python; Rust beta and nightly on Mondays.
+- `upstream.yml` (Monday, Thursday, Saturday): new Rust, Python, crate and MCP specification releases
+  (`tools/upstream_watch.py`); new releases of the mirrored libraries, with a CPython run of their tests on the
+  pinned and the new version (`tools/parity_drift.py`, pins in `tools/upstream_pins.json`); OSV security
+  advisories for all of it (`tools/advisories.py`). Each finding becomes an `upstream` or `security` issue.
+
+When you update a mirrored library, bump its pin in `tools/upstream_pins.json` together with its `.expected` files.
+
 ## Security
 
 Please do not open a public issue for a security problem. See [SECURITY.md](SECURITY.md).

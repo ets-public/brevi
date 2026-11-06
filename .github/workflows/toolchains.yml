@@ -169,7 +169,7 @@ jobs:
           fi
           # grammar/brevi.lark is separate from the compiler's parser: only the grammar, the programs it
           # parses or its tools can change the result.
-          if echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/|tools/(grammar_check|lark_to_gbnf)\.py$)'; then
+          if echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)'; then
             echo "grammar=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -198,7 +198,7 @@ jobs:
       - name: Grammar accepts every test program, and the GBNF copy is current
         if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.grammar == 'true'
         run: |
-          python3 -m pip install --quiet lark==1.2.2
+          python3 -m pip install --quiet -r tools/requirements-ci.txt
           python3 tools/lark_to_gbnf.py --check
           python3 tools/grammar_check.py tests/run/*.bv
 
