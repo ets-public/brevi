@@ -196,6 +196,10 @@ const OWN_ASYNCIO: &[&str] = &[
     "FIRST_COMPLETED", "FIRST_EXCEPTION", "ALL_COMPLETED", "get_running_loop", "get_event_loop", "new_event_loop", "set_event_loop", "iscoroutine",
     "isfuture", "AbstractEventLoop", "BaseEventLoop", "Handle", "TimerHandle",
 ];
+// What src/dynpy/py/tiktoken.py has.
+const OWN_TIKTOKEN: &[&str] = &["Encoding", "get_encoding", "encoding_for_model", "encoding_name_for_model", "list_encoding_names", "__version__"];
+// Encoding methods Brevi's tiktoken lacks (numpy arrays, the unstable API, regex splitting in Python).
+const TIKTOKEN_LACKS: &[&str] = &["encode_to_numpy", "encode_with_unstable", "_encode_bytes", "_encode_only_native_bpe", "__getstate__", "__setstate__"];
 // Event loop methods Brevi's asyncio lacks (they reach sockets, files, threads, processes or signals).
 const ASYNCIO_LOOP_IO: &[&str] = &[
     "run_in_executor", "set_default_executor", "getaddrinfo", "getnameinfo", "create_connection", "create_server", "create_unix_connection",
@@ -216,6 +220,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "textwrap" => Some("textwrap"),
         "argparse" => Some("argparse"),
         "asyncio" => Some("asyncio"),
+        "tiktoken" => Some("tiktoken"),
         _ => None,
     }
 }
@@ -230,6 +235,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         // all of argparse but FileType, which opens files
         "argparse" => attr != "FileType",
         "asyncio" => OWN_ASYNCIO.contains(&attr),
+        "tiktoken" => OWN_TIKTOKEN.contains(&attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -351,6 +357,13 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 }
             } else if let Some(rest) = t.strip_prefix("from ") {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
+                // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
+                if m.trim().starts_with("tiktoken.") {
+                    imports.push(*n);
+                    any = true;
+                    bad.push((*n, m.trim().to_string()));
+                    continue;
+                }
                 let Some(pm) = path_module(m.trim()) else { continue };
                 imports.push(*n);
                 any = true;
@@ -377,6 +390,13 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
         for (n, l) in &lines {
             if let Some(m) = ASYNCIO_LOOP_IO.iter().find(|m| l.contains(&format!(".{m}("))) {
                 bad.push((*n, format!("asyncio loop.{m}")));
+            }
+        }
+    }
+    if names.values().any(|m| *m == "tiktoken") {
+        for (n, l) in &lines {
+            if let Some(m) = TIKTOKEN_LACKS.iter().find(|m| l.contains(&format!(".{m}"))) {
+                bad.push((*n, format!("tiktoken Encoding.{m}")));
             }
         }
     }
@@ -633,6 +653,20 @@ mod tests {
             }
             for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess"] {
                 assert!(!l.contains(bad), "asyncio.py uses {bad}");
+            }
+        }
+    }
+
+    // Brevi's tiktoken runs on its native core only: no files, network, threads or other modules.
+    #[test]
+    fn tiktoken_reaches_nothing() {
+        let src = include_str!("dynpy/py/tiktoken.py");
+        for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                assert_eq!(m.split_whitespace().next().unwrap(), "_brevi_tok", "tiktoken.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess", "Thread"] {
+                assert!(!l.contains(bad), "tiktoken.py uses {bad}");
             }
         }
     }

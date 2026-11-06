@@ -121,7 +121,7 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
                 if c < 128 {
                     out.push(c as char);
                 } else if errors == "strict" {
-                    return Err(exc("UnicodeDecodeError", format!("'ascii' codec can't decode byte 0x{c:02x} in position {i}: ordinal not in range(128)")));
+                    return Err(udec_err("ascii", b, i, i + 1, "ordinal not in range(128)"));
                 } else if errors == "replace" {
                     out.push('\u{fffd}');
                 }
@@ -145,14 +145,12 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
                         let bad = e.error_len();
                         if errors == "strict" {
                             let c = rest[ok];
-                            let msg = match bad {
-                                None if rest.len() - ok > 1 => format!("'utf-8' codec can't decode bytes in position {}-{}: unexpected end of data", pos, base + rest.len() - 1),
-                                None => format!("'utf-8' codec can't decode byte 0x{c:02x} in position {pos}: unexpected end of data"),
-                                Some(_) if (0x80..=0xc1).contains(&c) || c >= 0xf5 => format!("'utf-8' codec can't decode byte 0x{c:02x} in position {pos}: invalid start byte"),
-                                Some(n) if n > 1 => format!("'utf-8' codec can't decode bytes in position {}-{}: invalid continuation byte", pos, pos + n - 1),
-                                Some(_) => format!("'utf-8' codec can't decode byte 0x{c:02x} in position {pos}: invalid continuation byte"),
+                            let (end, reason) = match bad {
+                                None => (base + rest.len(), "unexpected end of data"),
+                                Some(_) if (0x80..=0xc1).contains(&c) || c >= 0xf5 => (pos + 1, "invalid start byte"),
+                                Some(n) => (pos + n, "invalid continuation byte"),
                             };
-                            return Err(exc("UnicodeDecodeError", msg));
+                            return Err(udec_err("utf-8", b, pos, end, reason));
                         }
                         if errors == "replace" {
                             out.push('\u{fffd}');
@@ -165,6 +163,19 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
             }
         }
     }
+}
+
+// UnicodeDecodeError(encoding, object, start, end, reason), with its attributes (str() is in rt_fmt.rs)
+pub fn udec_err(enc: &str, obj: &[u8], start: usize, end: usize, reason: &str) -> E {
+    let o = Obj::new(exc_class("UnicodeDecodeError"));
+    let (e, b, st0, en, r) = (s(enc), bytesv(obj.to_vec()), V::Int(start as i64), V::Int(end as i64), s(reason));
+    o.set("args", tup(vec![e.clone(), b.clone(), st0.clone(), en.clone(), r.clone()]));
+    o.set("encoding", e);
+    o.set("object", b);
+    o.set("start", st0);
+    o.set("end", en);
+    o.set("reason", r);
+    E(V::Obj(o))
 }
 
 fn char_repr(c: char) -> String {

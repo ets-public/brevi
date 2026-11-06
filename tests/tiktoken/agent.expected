@@ -1,0 +1,14 @@
+gpt-4o-mini 79
+gpt-4o 79
+gpt-4 81
+gpt-3.5-turbo 81
+Warning: model not found. Using o200k_base encoding.
+unknown-model 79
+1560 28
+64 'Section 0: The quick brown fox jumps over the lazy dog 0 times, and ré'
+64 ' The quick brown fox jumps over the lazy dog 14 times, and résumé #2 i'
+64 ' jumps over the lazy dog 28 times, and résumé #4 is ready. Section 5: '
+1776
+'Section 0: The quick brown fox jumps over the lazy dog 0 times, and résum'
+'short'
+[(1, 133), (2, 44), (3, 23)]

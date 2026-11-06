@@ -100,6 +100,18 @@ Two differences numpy itself has between machines: `exp`, `log`, `tanh`, `power`
 
 Speed: a loop over small arrays ran 3.7x faster than CPython with numpy, a grid simulation 2x, small statistics 40x (numpy's import time), and whole-array work on 2 million values about the same.
 
+## tiktoken
+
+From the next release, a Python file that uses `tiktoken` builds with Brevi's own tiktoken: no CPython, no network and no file reads at run time, and the same tokens and errors as tiktoken 0.14.
+
+- Every OpenAI encoding: `gpt2`, `r50k_base`, `p50k_base`, `p50k_edit`, `cl100k_base`, `o200k_base` and `o200k_harmony`, by `get_encoding` or by model name (`encoding_for_model("gpt-4o-mini")`, with tiktoken's model tables).
+- `encode` (with `allowed_special` and `disallowed_special`), `encode_ordinary`, `encode_batch`, `encode_ordinary_batch`, `decode` (`errors=`), `decode_bytes`, `decode_batch`, `decode_bytes_batch`, `decode_tokens_bytes`, `decode_with_offsets`, `encode_single_token`, `decode_single_token_bytes`, `token_byte_values`, `is_special_token`, `n_vocab`, `max_token_value`, `eot_token`, `special_tokens_set`, `_special_tokens`, `_pat_str` and `_mergeable_ranks`.
+- `tiktoken.Encoding(...)` with your own vocabulary, or an encoding extended with chat tokens as tiktoken's README shows (`pat_str=cl100k_base._pat_str`, `special_tokens={**cl100k_base._special_tokens, "<|im_start|>": 100264}`).
+
+The compiler builds the vocabularies a program names into the binary: from tiktoken's cache (`TIKTOKEN_CACHE_DIR`, `DATA_GYM_CACHE_DIR` or the temp directory, as tiktoken looks), else downloaded once from OpenAI's servers with `curl`, checked against tiktoken's hashes and saved in that cache. A name the build cannot see (`get_encoding(name)`) builds all four vocabularies in, about 3 MB. A built program tokenizes under `--sandbox` with nothing granted.
+
+Text is split by a regex engine written for tiktoken's patterns (leftmost-first alternation, possessive and lazy repeats, atomic groups, lookahead, `\p{L}`-style classes read off tiktoken's own regex library, so the Unicode version is the same), then merged by BPE in tiktoken's order. Not native yet (the program runs with CPython's tiktoken, or `--native` refuses it): `encode_to_numpy`, `encode_with_unstable`, `tiktoken.load`, `tiktoken.core` and the other submodules, plugins, and `Encoding(pat_str=...)` with a pattern the engine lacks (lookbehind, backreferences) or one it cannot see at build time.
+
 ## Libraries (numpy, pandas, ...)
 
 A Python file that imports a module Brevi does not build itself (numpy, pandas, requests, sqlite3, Pillow, ...) still builds natively: each library call runs in CPython, loaded into the native program, so results are CPython's own, and the rest of the program stays native and fast. Brevi's own modules (math, re, json, datetime, ...) stay native: what the typed build lacks of them goes to the dynamic build, never to CPython (from v0.24.3; see [What runs native](#what-runs-native)).
