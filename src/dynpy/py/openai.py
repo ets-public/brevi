@@ -5,6 +5,7 @@
 # (src/dynpy/py/_brevi_openai_types.py, written from the SDK by tools/gen_llm_types.py). It runs over Brevi's httpx.
 # caps.rs lists what it has (OWN_OPENAI) and what sends a program to CPython's openai instead (OPENAI_LACKS: beta,
 # audio, images, files, parse, realtime, providers, raw responses, ...).
+# Its behaviour follows openai-python (Copyright OpenAI; Apache-2.0 licensed, as Brevi is), whose error messages it repeats.
 import base64 as _b64
 import json as _json
 

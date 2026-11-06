@@ -5,6 +5,8 @@
 # the SDK's own models (src/dynpy/py/_brevi_anthropic_types.py, written from the SDK by tools/gen_llm_types.py).
 # It runs over Brevi's httpx. caps.rs lists what it has (OWN_ANTHROPIC) and what sends a program to CPython's
 # anthropic instead (ANTHROPIC_LACKS: beta, batches, files, parse, tool runners, raw responses, ...).
+# Its behaviour follows anthropic-sdk-python (Copyright Anthropic, PBC; Apache-2.0 and MIT licensed), whose error messages
+# it repeats.
 import json
 
 import _brevi_http
