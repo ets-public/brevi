@@ -19,3 +19,17 @@ ExceptionGroup('g', [ValueError(1), ExceptionGroup('h', [ValueError(3)])])
 ExceptionGroup('g', [TypeError(2)])
 None
 ExceptionGroup('g', [ValueError(1), TypeError(2), ExceptionGroup('h', [ValueError(3)])]) None
+True True
+subgroup-instance TypeError TypeError('expected an exception type, a tuple of exception types, or a callable (other than a class)') expected an exception type, a tuple of exception types, or a callable (other than a class)
+g (3 sub-exceptions) g 3
+True False
+ExceptionGroup
+['a note'] ['a note']
+nest-base TypeError TypeError('Cannot nest BaseExceptions in an ExceptionGroup') Cannot nest BaseExceptions in an ExceptionGroup
+kw TypeError TypeError('ExceptionGroup() takes no keyword arguments') ExceptionGroup() takes no keyword arguments
+empty ValueError ValueError('second argument (exceptions) must be a non-empty sequence') second argument (exceptions) must be a non-empty sequence
+handler_err ZeroDivisionError ZeroDivisionError('division by zero') division by zero
+[0, "ExceptionGroup('l', [ValueError(1)])", 2]
+loop no error
+NameError cannot access local variable 'e' where it is not associated with a value
+cleared no error

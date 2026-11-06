@@ -533,5 +533,8 @@ pub fn bi___brevi_eg_reraise(a: Args) -> R {
         };
     }
     new.extend(kept);
+    if new.len() == 1 {
+        return Err(E(new.pop().unwrap()));
+    }
     Err(E(instantiate(&exc_class("BaseExceptionGroup"), Args::p(vec![s(""), list(new)]))?))
 }

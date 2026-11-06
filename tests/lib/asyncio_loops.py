@@ -14,10 +14,12 @@ try:
 except RuntimeError as e:
     print(e)
 async def nested():
+    c0 = work(1)
     try:
-        asyncio.run(work(1))
+        asyncio.run(c0)
     except RuntimeError as e:
         print(e)
+    c0.close()
     c = work(1)
     c.close()
 asyncio.run(nested())
