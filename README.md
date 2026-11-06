@@ -129,7 +129,7 @@ Never remove a line from `compat/baseline.txt` to make a check pass.
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. For anything else, email [support@brevi-lang.org](mailto:support@brevi-lang.org).
 
 ## License
 
