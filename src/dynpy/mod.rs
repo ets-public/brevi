@@ -147,6 +147,15 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "requests.auth" => include_str!("py/requests_auth.py"),
         "httpx" => include_str!("py/httpx.py"),
         "pydantic" => include_str!("py/pydantic.py"),
+        "anthropic" => include_str!("py/anthropic.py"),
+        "anthropic.types" => include_str!("py/anthropic_types.py"),
+        "_brevi_anthropic_types" => include_str!("py/_brevi_anthropic_types.py"),
+        "_brevi_sdk" => include_str!("py/_brevi_sdk.py"),
+        "openai" => include_str!("py/openai.py"),
+        "openai.types" => include_str!("py/openai_types.py"),
+        "openai.types.chat" => include_str!("py/openai_types_chat.py"),
+        "openai.types.responses" => include_str!("py/openai_types_responses.py"),
+        "_brevi_openai_types" => include_str!("py/_brevi_openai_types.py"),
         "_brevi_http" => include_str!("py/_brevi_http.py"),
         _ => return None,
     })
@@ -242,7 +251,7 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx or pydantic beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic or openai beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;

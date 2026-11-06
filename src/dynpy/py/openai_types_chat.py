@@ -1,0 +1,37 @@
+# openai.types.chat, from Brevi's openai copy: written by tools/gen_llm_types.py, do not edit.
+from _brevi_openai_types import ChatCompletion, ChatCompletionAudio, ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageCustomToolCall, ChatCompletionMessageFunctionToolCall, ChatCompletionMessageFunctionToolCall as ChatCompletionMessageToolCall, ChatCompletionTokenLogprob
+ChatCompletionAllowedToolChoiceParam = dict
+ChatCompletionAllowedToolsParam = dict
+ChatCompletionAssistantMessageParam = dict
+ChatCompletionAudioParam = dict
+ChatCompletionContentPartImageParam = dict
+ChatCompletionContentPartInputAudioParam = dict
+ChatCompletionContentPartParam = dict
+ChatCompletionContentPartRefusalParam = dict
+ChatCompletionContentPartTextParam = dict
+ChatCompletionCustomToolParam = dict
+ChatCompletionDeveloperMessageParam = dict
+ChatCompletionFunctionCallOptionParam = dict
+ChatCompletionFunctionMessageParam = dict
+ChatCompletionFunctionToolParam = dict
+ChatCompletionMessageCustomToolCallParam = dict
+ChatCompletionMessageFunctionToolCallParam = dict
+ChatCompletionMessageParam = dict
+ChatCompletionMessageToolCallParam = dict
+ChatCompletionMessageToolCallUnionParam = dict
+ChatCompletionModality = str
+ChatCompletionNamedToolChoiceCustomParam = dict
+ChatCompletionNamedToolChoiceParam = dict
+ChatCompletionPredictionContentParam = dict
+ChatCompletionRole = str
+ChatCompletionStreamOptionsParam = dict
+ChatCompletionSystemMessageParam = dict
+ChatCompletionToolChoiceOptionParam = dict
+ChatCompletionToolMessageParam = dict
+ChatCompletionToolParam = dict
+ChatCompletionToolUnionParam = dict
+ChatCompletionUserMessageParam = dict
+CompletionCreateParams = dict
+CompletionListParams = dict
+CompletionUpdateParams = dict
+CreateChatCompletionRequestMessageParam = dict

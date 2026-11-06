@@ -1,0 +1,83 @@
+Message(id='msg_c274c012f789aebca7a4', container=None, content=[TextBlock(citations=None, text='Echo: Hello there', type='text')], diagnostics=None, model='claude-mock-sonnet', role='assistant', stop_details=None, stop_reason='end_turn', stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=16, output_tokens=7, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None))
+Message True True
+msg_c274c012f789aebca7a4 assistant claude-mock-sonnet end_turn None message
+Echo: Hello there text None
+Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=16, output_tokens=7, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None)
+16 7 req_12d783057ea7
+{'id': 'msg_c274c012f789aebca7a4', 'content': [{'text': 'Echo: Hello there', 'type': 'text'}], 'model': 'claude-mock-sonnet', 'role': 'assistant', 'stop_reason': 'end_turn', 'stop_sequence': None, 'type': 'message', 'usage': {'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'input_tokens': 16, 'output_tokens': 7, 'service_tier': 'standard'}}
+{
+  "id": "msg_c274c012f789aebca7a4",
+  "content": [
+    {
+      "text": "Echo: Hello there",
+      "type": "text"
+    }
+  ],
+  "model": "claude-mock-sonnet",
+  "role": "assistant",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "input_tokens": 16,
+    "output_tokens": 7,
+    "service_tier": "standard"
+  }
+}
+{'id': 'msg_c274c012f789aebca7a4', 'container': None, 'content': [{'citations': None, 'text': 'Echo: Hello there', 'type': 'text'}], 'diagnostics': None, 'model': 'claude-mock-sonnet', 'role': 'assistant', 'stop_details': None, 'stop_reason': 'end_turn', 'stop_sequence': None, 'type': 'message', 'usage': {'cache_creation': None, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'inference_geo': None, 'input_tokens': 16, 'output_tokens': 7, 'output_tokens_details': None, 'server_tool_use': None, 'service_tier': 'standard', 'speed': None}}
+{'id': 'msg_c274c012f789aebca7a4', 'content': [{'text': 'Echo: Hello there', 'type': 'text'}], 'model': 'claude-mock-sonnet', 'role': 'assistant', 'stop_reason': 'end_turn', 'type': 'message', 'usage': {'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'input_tokens': 16, 'output_tokens': 7, 'service_tier': 'standard'}}
+{"id":"msg_c274c012f789aebca7a4","content":[{"text":"Echo: Hello there","type":"text"}],"model":"claude-mock-sonnet","role":"assistant","stop_reason":"end_turn","stop_sequence":null,"type":"message","usage":{"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"input_tokens":16,"output_tokens":7,"service_tier":"standard"}}
+{"id":"msg_c274c012f789aebca7a4","container":null,"content":[{"citations":null,"text":"Echo: Hello there","type":"text"}],"diagnostics":null,"model":"claude-mock-sonnet","role":"assistant","stop_details":null,"stop_reason":"end_turn","stop_sequence":null,"type":"message","usage":{"cache_creation":null,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"inference_geo":null,"input_tokens":16,"output_tokens":7,"output_tokens_details":null,"server_tool_use":null,"service_tier":"standard","speed":null}}
+{'cache_creation': None, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'inference_geo': None, 'input_tokens': 16, 'output_tokens': 7, 'output_tokens_details': None, 'server_tool_use': None, 'service_tier': 'standard', 'speed': None} {'text': 'Echo: Hello there', 'type': 'text'}
+True
+{'cache_creation': None, 'cache_creation_input_tokens': 0, 'cache_read_input_tokens': 0, 'inference_geo': None, 'input_tokens': 16, 'output_tokens': 7, 'output_tokens_details': None, 'server_tool_use': None, 'service_tier': 'standard', 'speed': None}
+Echo: one two | max_tokens
+'Echo: one two ' stop_sequence three
+0 Echo: Hi
+1 Echo: again 0 (turn 2)
+2 Echo: again 1 (turn 3)
+tool_use ['text', 'tool_use']
+ToolUseBlock(id='toolu_f276bdaaf15426da', caller=None, input={'city': 'Weather in Paris?', 'days': 42, 'metric': True}, name='get_weather', type='tool_use', toolset_name=None)
+get_weather {'city': 'Weather in Paris?', 'days': 42, 'metric': True} toolu_f276bdaaf15426da dict
+end_turn ['text']
+The tool said: {"city": "Weather in Paris?", "temp": 21.5, "days": 42}
+3
+noop {} {'id': 'toolu_2db245e5347e016b', 'input': {}, 'name': 'noop', 'type': 'tool_use'}
+Echo: plain
+[ThinkingBlock(signature='sig_b7c61c80', thinking='The user wrote 5 characters.', type='thinking'), TextBlock(citations=None, text='Echo: think', type='text')]
+BadRequestError 400 Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'mock error 400 for /v1/messages'}, 'request_id': 'req_c2b1776b8434'}
+  {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'mock error 400 for /v1/messages'}, 'request_id': 'req_c2b1776b8434'} req_c2b1776b8434 invalid_request_error mock error 400 for /v1/messages None None True 400
+NotFoundError 404 Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'mock error 404 for /v1/messages'}, 'request_id': 'req_f9c38188795b'}
+  {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'mock error 404 for /v1/messages'}, 'request_id': 'req_f9c38188795b'} req_f9c38188795b not_found_error mock error 404 for /v1/messages None None True 404
+UnprocessableEntityError 422 Error code: 422 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'mock error 422 for /v1/messages'}, 'request_id': 'req_8c201bf1357c'}
+  {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'mock error 422 for /v1/messages'}, 'request_id': 'req_8c201bf1357c'} req_8c201bf1357c invalid_request_error mock error 422 for /v1/messages None None True 422
+RateLimitError 429 Error code: 429 - {'type': 'error', 'error': {'type': 'rate_limit_error', 'message': 'mock error 429 for /v1/messages'}, 'request_id': 'req_e89307187c67'}
+  {'type': 'error', 'error': {'type': 'rate_limit_error', 'message': 'mock error 429 for /v1/messages'}, 'request_id': 'req_e89307187c67'} req_e89307187c67 rate_limit_error mock error 429 for /v1/messages None None True 429
+InternalServerError 500 Error code: 500 - {'type': 'error', 'error': {'type': 'api_error', 'message': 'mock error 500 for /v1/messages'}, 'request_id': 'req_2afeab28d98c'}
+  {'type': 'error', 'error': {'type': 'api_error', 'message': 'mock error 500 for /v1/messages'}, 'request_id': 'req_2afeab28d98c'} req_2afeab28d98c api_error mock error 500 for /v1/messages None None True 500
+OverloadedError 529 Error code: 529 - {'type': 'error', 'error': {'type': 'overloaded_error', 'message': 'mock error 529 for /v1/messages'}, 'request_id': 'req_e7eaee49b2da'}
+  {'type': 'error', 'error': {'type': 'overloaded_error', 'message': 'mock error 529 for /v1/messages'}, 'request_id': 'req_e7eaee49b2da'} req_e7eaee49b2da overloaded_error mock error 529 for /v1/messages None None True 529
+PermissionDeniedError 403 Error code: 403 - {'type': 'error', 'error': {'type': 'permission_error', 'message': 'mock error 403 for /v1/messages'}, 'request_id': 'req_53f61cca51fb'}
+  {'type': 'error', 'error': {'type': 'permission_error', 'message': 'mock error 403 for /v1/messages'}, 'request_id': 'req_53f61cca51fb'} req_53f61cca51fb permission_error mock error 403 for /v1/messages None None True 403
+ConflictError 409 Error code: 409 - {'type': 'error', 'error': {'type': 'conflict_error', 'message': 'mock error 409 for /v1/messages'}, 'request_id': 'req_f65402a4a1d5'}
+  {'type': 'error', 'error': {'type': 'conflict_error', 'message': 'mock error 409 for /v1/messages'}, 'request_id': 'req_f65402a4a1d5'} req_f65402a4a1d5 conflict_error mock error 409 for /v1/messages None None True 409
+ContentTooLargeError 413 Error code: 413 - {'type': 'error', 'error': {'type': 'request_too_large', 'message': 'mock error 413 for /v1/messages'}, 'request_id': 'req_47370aaacbf9'}
+  {'type': 'error', 'error': {'type': 'request_too_large', 'message': 'mock error 413 for /v1/messages'}, 'request_id': 'req_47370aaacbf9'} req_47370aaacbf9 request_too_large mock error 413 for /v1/messages None None True 413
+auth: Error code: 401 - {'type': 'error', 'error': {'type': 'authentication_error', 'message': 'invalid x-api-key'}, 'request_id': 'req_a344d7542b32'}
+APIConnectionError Connection error. Connection error. None
+TypeError Missing required arguments; Expected either ('max_tokens', 'messages' and 'model') or ('max_tokens', 'messages', 'model' and 'stream') arguments to be given
+ValueError Streaming is required for operations that may take longer th
+Echo: retry me mock-flaky
+RateLimitError after retry 429
+MessageTokensCount(input_tokens=15)
+SyncPage[ModelInfo](data=[ModelInfo(id='claude-mock-opus', capabilities=None, created_at=datetime.datetime(2026, 5, 1, 0, 0, tzinfo=datetime.timezone.utc), deprecated_at=None, display_name='Claude Mock Opus', lifecycle=None, line=None, max_input_tokens=200000, max_tokens=64000, retires_at=None, type='model'), ModelInfo(id='claude-mock-sonnet', capabilities=None, created_at=datetime.datetime(2026, 4, 2, 10, 20, 30, tzinfo=datetime.timezone.utc), deprecated_at=None, display_name='Claude Mock Sonnet', lifecycle=None, line=None, max_input_tokens=200000, max_tokens=64000, retires_at=None, type='model')], has_more=True, first_id='claude-mock-opus', last_id='claude-mock-sonnet')
+['claude-mock-opus', 'claude-mock-sonnet'] True claude-mock-sonnet
+['claude-mock-opus', 'claude-mock-sonnet', 'claude-mock-haiku']
+ModelInfo(id='claude-mock-haiku', capabilities=None, created_at=datetime.datetime(2026, 1, 15, 0, 0, tzinfo=datetime.timezone.utc), deprecated_at=None, display_name='Claude Mock Haiku', lifecycle=None, line=None, max_input_tokens=200000, max_tokens=64000, retires_at=None, type='model')
+2026 Claude Mock Haiku {'id': 'claude-mock-haiku', 'created_at': datetime.datetime(2026, 1, 15, 0, 0, tzinfo=datetime.timezone.utc), 'display_name': 'Claude Mock Haiku', 'max_input_tokens': 200000, 'max_tokens': 64000, 'type': 'model'}
+NotFoundError 404
+http://127.0.0.1:18090/v0/ 2 test-key Timeout(connect=5.0, read=600, write=600, pool=600)
+2.6.0 2
+Echo: ctx

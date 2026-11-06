@@ -1,0 +1,24 @@
+ChatCompletion(id='chatcmpl-1b7c2f6b84ac0350107a', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Echo: async hello', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None))], created=1767232636, model='gpt-mock', object='chat.completion', metadata=None, moderation=None, service_tier='default', system_fingerprint='fp_mock', usage=CompletionUsage(completion_tokens=8, prompt_tokens=18, total_tokens=26, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=0, audio_tokens=0, reasoning_tokens=0, rejected_prediction_tokens=0, text_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=0, cache_write_tokens=None, cached_tokens=0, image_tokens=None, text_tokens=None)))
+['Echo: q0', 'Echo: q1', 'Echo: q2', 'Echo: q3']
+AsyncStream
+ None
+Echo: a  None
+b c  None
+d None
+None stop
+[-0.5625, 0.28125, 0.9765620231628418, 0.96875, -0.6953120231628418, 0.8515620231628418]
+Echo: async responses
+response.created
+response.in_progress
+response.output_item.added
+response.content_part.added
+response.output_text.delta
+response.output_text.done
+response.content_part.done
+response.output_item.done
+response.completed
+['gpt-mock-opus', 'gpt-mock-sonnet', 'gpt-mock-haiku']
+['gpt-mock-opus', 'gpt-mock-sonnet', 'gpt-mock-haiku']
+RateLimitError 429 mock_429
+Echo: f
+Echo: with

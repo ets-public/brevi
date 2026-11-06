@@ -193,6 +193,35 @@ if [ "$1" != "--update" ]; then
   if [ "$out" = "$(cat tests/http/sandbox_net.expected)" ]; then echo "ok   sandbox net (--allow-net 127.0.0.1)"; else echo "FAIL sandbox net (--allow-net 127.0.0.1)"; printf '%s\n' "$out" | diff tests/http/sandbox_net.expected -; fail=1; fi
 fi
 kill $srv 2>/dev/null
+# anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.46 print (models, streams,
+# tool calls, errors, retries), with Brevi's own copies over its httpx: never CPython. They talk to the mock API in
+# tests/llm/server.py on 18090. `--update` needs both SDKs (and tools/gen_llm_types.py rewrites the types).
+python3 tests/llm/server.py 18090 > /tmp/brevi_llm_srv 2>&1 &
+srv=$!
+for i in 1 2 3 4 5 6 7 8 9 10; do grep -q listening /tmp/brevi_llm_srv 2>/dev/null && break; sleep 0.5; done
+for f in tests/llm/anthropic_*.py tests/llm/openai_*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then
+    python3 -c "import anthropic, openai" 2>/dev/null && env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY python3 "$f" > "$exp" 2>&1
+    continue
+  fi
+  out=$(env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY BREVI_PATH=1 timeout 300 $BREVI run "$f" --native 2>/tmp/brevi_llm_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_llm_err || grep -q '"py"' /tmp/brevi_llm_err; then
+    echo "FAIL $f (not built with Brevi's anthropic / openai)"; cat /tmp/brevi_llm_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_llm_err | tail -5; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+# Under --sandbox they need the network granted, as requests and httpx do.
+if [ "$1" != "--update" ]; then
+  out=$($BREVI run --sandbox tests/llm/openai_async.py 2>&1; echo "exit $?")
+  if printf '%s\n' "$out" | grep -q 'import openai (the network) needs allow net'; then echo "ok   sandbox llm (no grant)"; else echo "FAIL sandbox llm (no grant)"; printf '%s\n' "$out"; fail=1; fi
+  out=$(env -u OPENAI_API_KEY timeout 300 $BREVI run --sandbox --allow-net 127.0.0.1 tests/llm/openai_async.py 2>/dev/null)
+  if [ "$out" = "$(cat tests/llm/openai_async.expected)" ]; then echo "ok   sandbox llm (--allow-net 127.0.0.1)"; else echo "FAIL sandbox llm (--allow-net 127.0.0.1)"; printf '%s\n' "$out" | diff tests/llm/openai_async.expected -; fail=1; fi
+fi
+kill $srv 2>/dev/null
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"

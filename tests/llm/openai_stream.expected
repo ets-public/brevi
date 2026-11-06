@@ -1,0 +1,34 @@
+Stream
+ChatCompletionChunk(id='chatcmpl-4008838f6ac87d3b8b60', choices=[Choice(delta=ChoiceDelta(audio=None, content='', function_call=None, refusal=None, role='assistant', tool_calls=None), index=0, finish_reason=None, logprobs=None)], created=1767241992, model='gpt-mock', object='chat.completion.chunk', moderation=None, obfuscation=None, service_tier='default', system_fingerprint='fp_mock', usage=None)
+ChatCompletionChunk(id='chatcmpl-4008838f6ac87d3b8b60', choices=[Choice(delta=ChoiceDelta(audio=None, content='Echo: stream ', function_call=None, refusal=None, role=None, tool_calls=None), index=0, finish_reason=None, logprobs=None)], created=1767241992, model='gpt-mock', object='chat.completion.chunk', moderation=None, obfuscation=None, service_tier='default', system_fingerprint='fp_mock', usage=None)
+ChatCompletionChunk(id='chatcmpl-4008838f6ac87d3b8b60', choices=[Choice(delta=ChoiceDelta(audio=None, content='these words ', function_call=None, refusal=None, role=None, tool_calls=None), index=0, finish_reason=None, logprobs=None)], created=1767241992, model='gpt-mock', object='chat.completion.chunk', moderation=None, obfuscation=None, service_tier='default', system_fingerprint='fp_mock', usage=None)
+ChatCompletionChunk(id='chatcmpl-4008838f6ac87d3b8b60', choices=[Choice(delta=ChoiceDelta(audio=None, content='to me', function_call=None, refusal=None, role=None, tool_calls=None), index=0, finish_reason=None, logprobs=None)], created=1767241992, model='gpt-mock', object='chat.completion.chunk', moderation=None, obfuscation=None, service_tier='default', system_fingerprint='fp_mock', usage=None)
+ChatCompletionChunk(id='chatcmpl-4008838f6ac87d3b8b60', choices=[Choice(delta=ChoiceDelta(audio=None, content=None, function_call=None, refusal=None, role=None, tool_calls=None), index=0, finish_reason='stop', logprobs=None)], created=1767241992, model='gpt-mock', object='chat.completion.chunk', moderation=None, obfuscation=None, service_tier='default', system_fingerprint='fp_mock', usage=None)
+usage 32 []
+'Echo: stream these words to me'
+ChoiceDeltaToolCall(index=0, id='call_1f441ba86d2bd527', function=ChoiceDeltaToolCallFunction(arguments='', name='lookup'), type='function')
+ChoiceDeltaToolCall(index=0, id=None, function=ChoiceDeltaToolCallFunction(arguments='{"word":', name=None), type=None)
+ChoiceDeltaToolCall(index=0, id=None, function=ChoiceDeltaToolCallFunction(arguments=' "stream', name=None), type=None)
+ChoiceDeltaToolCall(index=0, id=None, function=ChoiceDeltaToolCallFunction(arguments=' these w', name=None), type=None)
+ChoiceDeltaToolCall(index=0, id=None, function=ChoiceDeltaToolCallFunction(arguments='ords to ', name=None), type=None)
+ChoiceDeltaToolCall(index=0, id=None, function=ChoiceDeltaToolCallFunction(arguments='me", "n"', name=None), type=None)
+ChoiceDeltaToolCall(index=0, id=None, function=ChoiceDeltaToolCallFunction(arguments=': 42}', name=None), type=None)
+finish tool_calls
+{0: {'id': 'call_1f441ba86d2bd527', 'name': 'lookup', 'args': '{"word": "stream these words to me", "n": 42}'}}
+response.created 0
+response.in_progress 1
+response.output_item.added 2
+response.content_part.added 3
+response.output_text.delta 4
+'Echo: hi '
+response.output_text.delta 5
+'there friend'
+response.output_text.done 6
+response.content_part.done 7
+response.output_item.done 8
+ResponseOutputMessage(id='msg_d7cc504084506e52', content=[ResponseOutputText(annotations=[], text='Echo: hi there friend', type='output_text', logprobs=[])], role='assistant', status='completed', type='message', phase=None)
+response.completed 9
+Echo: hi there friend ResponseUsage(input_tokens=10, input_tokens_details=InputTokensDetails(cache_write_tokens=None, cached_tokens=0, cache_write_tokens_details=None), output_tokens=33, output_tokens_details=OutputTokensDetails(reasoning_tokens=0), total_tokens=43)
+got 
+got Echo: stream 
+APIError stream broke {'message': 'stream broke', 'type': 'server_error', 'param': None, 'code': None}

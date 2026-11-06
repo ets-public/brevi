@@ -196,6 +196,8 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 - **requests and httpx:** Brevi's own copies, over native sockets and TLS; they need `allow net` (or `--allow-net` for some hosts), not `allow native`.
 
+- **anthropic and openai:** Brevi's own copies of the SDKs, over its httpx; they need `allow net` too (`--allow-net api.anthropic.com` or `--allow-net api.openai.com`), not `allow native`. What they lack (see [anthropic and openai](/docs/compatibility#anthropic-and-openai)) is refused by name unless the caller grants `--allow-py anthropic` or `--allow-py openai`.
+
 - **random:** `seed`, `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits` and `random.Random`, using CPython's own generator, so a seeded program draws the same numbers as in CPython. Seeds must be ints. Other functions (`random.betavariate`, ...) give one error naming them.
 
 The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `--allow native` or `--allow-py`, the library bridge is off completely, so no path from the program reaches CPython; with `--allow-py`, only the named modules do.

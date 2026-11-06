@@ -1,0 +1,60 @@
+Stream
+message_start RawMessageStartEvent(message=Message(id='msg_c5bcc705708c9f00a977', container=None, content=[], diagnostics=None, model='claude-mock-sonnet', role='assistant', stop_details=None, stop_reason=None, stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=21, output_tokens=1, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None)), type='message_start')
+content_block_start RawContentBlockStartEvent(content_block=TextBlock(citations=None, text='', type='text'), index=0, type='content_block_start')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='Echo: stream ', type='text_delta'), index=0, type='content_block_delta')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='these words ', type='text_delta'), index=0, type='content_block_delta')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='to me ', type='text_delta'), index=0, type='content_block_delta')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='please', type='text_delta'), index=0, type='content_block_delta')
+content_block_stop RawContentBlockStopEvent(index=0, type='content_block_stop')
+message_delta RawMessageDeltaEvent(delta=Delta(container=None, stop_details=None, stop_reason='end_turn', stop_sequence=None), type='message_delta', usage=MessageDeltaUsage(cache_creation_input_tokens=None, cache_read_input_tokens=None, input_tokens=None, output_tokens=10, output_tokens_details=None, server_tool_use=None))
+message_stop RawMessageStopEvent(type='message_stop')
+200 text/event-stream
+'Echo: stream these words to me please'
+'Echo: stream '
+'these words '
+'to me '
+'please'
+ParsedMessage(id='msg_2c97f7aadb19d3c282ec', container=None, content=[ParsedTextBlock(citations=None, text='Echo: stream these words to me please', type='text', parsed_output=None)], diagnostics=None, model='claude-mock-opus', role='assistant', stop_details=None, stop_reason='end_turn', stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=21, output_tokens=10, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None))
+ParsedMessage Echo: stream these words to me please 10 req_449e6c135b41
+Echo: stream these words to me please
+message_start RawMessageStartEvent(message=Message(id='msg_2c97f7aadb19d3c282ec', container=None, content=[], diagnostics=None, model='claude-mock-opus', role='assistant', stop_details=None, stop_reason=None, stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=21, output_tokens=1, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None)), type='message_start')
+content_block_start RawContentBlockStartEvent(content_block=TextBlock(citations=None, text='', type='text'), index=0, type='content_block_start')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='Echo: stream ', type='text_delta'), index=0, type='content_block_delta')
+text TextEvent(type='text', text='Echo: stream ', snapshot='Echo: stream ')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='these words ', type='text_delta'), index=0, type='content_block_delta')
+text TextEvent(type='text', text='these words ', snapshot='Echo: stream these words ')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='to me ', type='text_delta'), index=0, type='content_block_delta')
+text TextEvent(type='text', text='to me ', snapshot='Echo: stream these words to me ')
+content_block_delta RawContentBlockDeltaEvent(delta=TextDelta(text='please', type='text_delta'), index=0, type='content_block_delta')
+text TextEvent(type='text', text='please', snapshot='Echo: stream these words to me please')
+content_block_stop ParsedContentBlockStopEvent(index=0, type='content_block_stop', content_block=ParsedTextBlock(citations=None, text='Echo: stream these words to me please', type='text', parsed_output=None))
+message_delta RawMessageDeltaEvent(delta=Delta(container=None, stop_details=None, stop_reason='end_turn', stop_sequence=None), type='message_delta', usage=MessageDeltaUsage(cache_creation_input_tokens=None, cache_read_input_tokens=None, input_tokens=None, output_tokens=10, output_tokens_details=None, server_tool_use=None))
+message_stop ParsedMessageStopEvent(type='message_stop', message=ParsedMessage(id='msg_2c97f7aadb19d3c282ec', container=None, content=[ParsedTextBlock(citations=None, text='Echo: stream these words to me please', type='text', parsed_output=None)], diagnostics=None, model='claude-mock-opus', role='assistant', stop_details=None, stop_reason='end_turn', stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=21, output_tokens=10, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None)))
+text TextEvent(type='text', text='I will ', snapshot='I will ')
+text TextEvent(type='text', text='use lookup.', snapshot='I will use lookup.')
+content_block_stop ParsedContentBlockStopEvent(index=0, type='content_block_stop', content_block=ParsedTextBlock(citations=None, text='I will use lookup.', type='text', parsed_output=None))
+json '{"word": ' {}
+json '"define s' {}
+json 'erendipit' {}
+json 'y", "limi' {'word': 'define serendipity'}
+json 't": 42, "' {'word': 'define serendipity', 'limit': 42}
+json 'tags": ["' {'word': 'define serendipity', 'limit': 42, 'tags': []}
+json 'define se' {'word': 'define serendipity', 'limit': 42, 'tags': []}
+json 'r"]}' {'word': 'define serendipity', 'limit': 42, 'tags': ['define ser']}
+content_block_stop ParsedContentBlockStopEvent(index=1, type='content_block_stop', content_block=ToolUseBlock(id='toolu_0dc8a033ef9903a0', caller=None, input={'word': 'define serendipity', 'limit': 42, 'tags': ['define ser']}, name='lookup', type='tool_use', toolset_name=None))
+message_stop ParsedMessageStopEvent(type='message_stop', message=ParsedMessage(id='msg_ebf84ac9c144a3fa1f8d', container=None, content=[ParsedTextBlock(citations=None, text='I will use lookup.', type='text', parsed_output=None), ToolUseBlock(id='toolu_0dc8a033ef9903a0', caller=None, input={'word': 'define serendipity', 'limit': 42, 'tags': ['define ser']}, name='lookup', type='tool_use', toolset_name=None)], diagnostics=None, model='claude-mock-opus', role='assistant', stop_details=None, stop_reason='tool_use', stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=17, output_tokens=31, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None)))
+tool_use {'word': 'define serendipity', 'limit': 42, 'tags': ['define ser']} lookup
+I will use lookup.
+ThinkingEvent(type='thinking', thinking='The user wrote 31 characters.', snapshot='The user wrote 31 characters.')
+SignatureEvent(type='signature', signature='sig_688640f9')
+TextEvent(type='text', text='Echo: stream ', snapshot='Echo: stream ')
+TextEvent(type='text', text='these words ', snapshot='Echo: stream these words ')
+TextEvent(type='text', text='to me ', snapshot='Echo: stream these words to me ')
+TextEvent(type='text', text='please', snapshot='Echo: stream these words to me please')
+[ThinkingBlock(signature='sig_688640f9', thinking='The user wrote 31 characters.', type='thinking'), ParsedTextBlock(citations=None, text='Echo: stream these words to me please', type='text', parsed_output=None)]
+Echo: stream these words to me please
+got message_start
+got content_block_start
+got content_block_delta
+APIStatusError 200 {'type': 'error', 'error': {'type': 'overloaded_error', 'message': 'Overloaded'}} {'type': 'error', 'error': {'type': 'overloaded_error', 'message': 'Overloaded'}}
+RateLimitError 429

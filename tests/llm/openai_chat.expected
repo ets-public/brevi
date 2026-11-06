@@ -1,0 +1,82 @@
+ChatCompletion(id='chatcmpl-035e85372600069f2bbb', choices=[Choice(finish_reason='stop', index=0, logprobs=None, message=ChatCompletionMessage(content='Echo: Hello there', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None))], created=1767226462, model='gpt-mock', object='chat.completion', metadata=None, moderation=None, service_tier='default', system_fingerprint='fp_mock', usage=CompletionUsage(completion_tokens=8, prompt_tokens=18, total_tokens=26, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=0, audio_tokens=0, reasoning_tokens=0, rejected_prediction_tokens=0, text_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=0, cache_write_tokens=None, cached_tokens=0, image_tokens=None, text_tokens=None)))
+ChatCompletion True True
+Echo: Hello there stop 26 chatcmpl-035e85372600069f2bbb 1767226462 None
+{'id': 'chatcmpl-035e85372600069f2bbb', 'choices': [{'finish_reason': 'stop', 'index': 0, 'logprobs': None, 'message': {'content': 'Echo: Hello there', 'refusal': None, 'role': 'assistant', 'annotations': []}}], 'created': 1767226462, 'model': 'gpt-mock', 'object': 'chat.completion', 'service_tier': 'default', 'system_fingerprint': 'fp_mock', 'usage': {'completion_tokens': 8, 'prompt_tokens': 18, 'total_tokens': 26, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}}
+{
+  "id": "chatcmpl-035e85372600069f2bbb",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "Echo: Hello there",
+        "refusal": null,
+        "role": "assistant",
+        "annotations": []
+      }
+    }
+  ],
+  "created": 1767226462,
+  "model": "gpt-mock",
+  "object": "chat.completion",
+  "service_tier": "default",
+  "system_fingerprint": "fp_mock",
+  "usage": {
+    "completion_tokens": 8,
+    "prompt_tokens": 18,
+    "total_tokens": 26,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": 0,
+      "audio_tokens": 0,
+      "reasoning_tokens": 0,
+      "rejected_prediction_tokens": 0
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": 0,
+      "cached_tokens": 0
+    }
+  }
+}
+{'id': 'chatcmpl-035e85372600069f2bbb', 'choices': [{'finish_reason': 'stop', 'index': 0, 'message': {'content': 'Echo: Hello there', 'role': 'assistant', 'annotations': []}}], 'created': 1767226462, 'model': 'gpt-mock', 'object': 'chat.completion', 'service_tier': 'default', 'system_fingerprint': 'fp_mock', 'usage': {'completion_tokens': 8, 'prompt_tokens': 18, 'total_tokens': 26, 'completion_tokens_details': {'accepted_prediction_tokens': 0, 'audio_tokens': 0, 'reasoning_tokens': 0, 'rejected_prediction_tokens': 0}, 'prompt_tokens_details': {'audio_tokens': 0, 'cached_tokens': 0}}}
+{"content":"Echo: Hello there","refusal":null,"role":"assistant","annotations":[],"audio":null,"function_call":null,"tool_calls":null}
+['Echo: one two', 'Echo: one two'] ['length', 'length']
+tool_calls None 2
+ChatCompletionMessageFunctionToolCall(id='call_75f9edadf82be07c', function=Function(arguments='{"city": "Weather and time in Paris?", "days": 42}', name='get_weather'), type='function')
+ChatCompletionMessageFunctionToolCall(id='call_4800c507ada41bd8', function=Function(arguments='{"zone": "UTC"}', name='get_time'), type='function')
+stop The tool said: {"tool": "get_weather", "args": {"city": "Weather and time in Paris?", "days": 42}}; {"tool": "get_time", "args": {"zone": "UTC"}} None
+The tool said: {"tool": "get_weather", "args": {"city": "Weather and time in Paris?", "days": 42}}; {"tool": "get_time", "args": {"zone": "UTC"}}
+1 {'content': None, 'refusal': None, 'role': 'assistant', 'annotations': [], 'tool_calls': [{'id': 'call_700e2beecdaf7725', 'function': {'arguments': '{"city": "x", "days": 42}', 'name': 'get_weather'}, 'type': 'function'}]}
+CreateEmbeddingResponse(data=[Embedding(embedding=[0.4453119933605194, -0.3984380066394806, -0.6953120231628418, 0.4453119933605194, 0.1484380066394806, -0.3984380066394806], index=0, object='embedding')], model='text-embedding-mock', object='list', usage=Usage(prompt_tokens=2, total_tokens=2))
+6 [0.4453119933605194, -0.3984380066394806, -0.6953120231628418] Usage(prompt_tokens=2, total_tokens=2)
+[[0.578125, 0.179688, 0.007812], [-0.445312, 0.6875, 0.28125]] [0, 1]
+['AAAUPyIAOD4=', '7//jvgAAMD8=']
+SyncPage[Model](data=[Model(id='gpt-mock-opus', created=1767225600, object='model', owned_by='mock', shutdown_date=None), Model(id='gpt-mock-sonnet', created=1767225601, object='model', owned_by='mock', shutdown_date=None), Model(id='gpt-mock-haiku', created=1767225602, object='model', owned_by='mock', shutdown_date=None)], object='list')
+['gpt-mock-opus', 'gpt-mock-sonnet', 'gpt-mock-haiku'] ['mock', 'mock', 'mock']
+Echo: Tell me a joke [instructions: Be funny]
+resp_b26e51e216b475514c4959cd completed 47 message Echo: Tell me a joke [instructions: Be funny]
+ResponseOutputMessage(id='msg_b26e51e216b47551', content=[ResponseOutputText(annotations=[], text='Echo: Tell me a joke [instructions: Be funny]', type='output_text', logprobs=[])], role='assistant', status='completed', type='message', phase=None)
+function_call get_weather {"city": "Weather?"} call_a3573ad219709b2c ''
+The tool said: sunny resp_50aec6e9c44c6fefad3abffb
+BadRequestError 400 Error code: 400 - mock error 400 for /v1/chat/completions
+  {'message': 'mock error 400 for /v1/chat/completions', 'type': 'invalid_request_error', 'param': None, 'code': 'mock_400'} mock_400 None invalid_request_error None True
+AuthenticationError 401 Error code: 401 - mock error 401 for /v1/chat/completions
+  {'message': 'mock error 401 for /v1/chat/completions', 'type': 'invalid_request_error', 'param': None, 'code': 'mock_401'} mock_401 None invalid_request_error None True
+NotFoundError 404 Error code: 404 - mock error 404 for /v1/chat/completions
+  {'message': 'mock error 404 for /v1/chat/completions', 'type': 'invalid_request_error', 'param': None, 'code': 'mock_404'} mock_404 None invalid_request_error None True
+ConflictError 409 Error code: 409 - mock error 409 for /v1/chat/completions
+  {'message': 'mock error 409 for /v1/chat/completions', 'type': 'invalid_request_error', 'param': None, 'code': 'mock_409'} mock_409 None invalid_request_error None True
+UnprocessableEntityError 422 Error code: 422 - mock error 422 for /v1/chat/completions
+  {'message': 'mock error 422 for /v1/chat/completions', 'type': 'invalid_request_error', 'param': None, 'code': 'mock_422'} mock_422 None invalid_request_error None True
+RateLimitError 429 Error code: 429 - mock error 429 for /v1/chat/completions
+  {'message': 'mock error 429 for /v1/chat/completions', 'type': 'invalid_request_error', 'param': None, 'code': 'mock_429'} mock_429 None invalid_request_error None True
+InternalServerError 500 Error code: 500 - mock error 500 for /v1/chat/completions
+  {'message': 'mock error 500 for /v1/chat/completions', 'type': 'server_error', 'param': None, 'code': 'mock_500'} mock_500 None server_error None True
+InternalServerError 503 Error code: 503 - mock error 503 for /v1/chat/completions
+  {'message': 'mock error 503 for /v1/chat/completions', 'type': 'server_error', 'param': None, 'code': 'mock_503'} mock_503 None server_error None True
+auth: Error code: 401 - Incorrect API key provided: wrong
+APIConnectionError Connection error.
+Echo: retry
+OpenAIError Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.
+3.46.0 2 http://127.0.0.1:18090/openai/v1/ test-key None None
+Echo: ctx [system: dev]
