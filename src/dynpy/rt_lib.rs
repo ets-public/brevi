@@ -139,7 +139,7 @@ pub fn stdin_lines() -> V {
 
 // ---------- builtin functions ----------
 
-fn a1(a: &Args, f: &str) -> Result<V, E> {
+pub fn a1(a: &Args, f: &str) -> Result<V, E> {
     a.want(f, 1, 1)?;
     Ok(a.p[0].clone())
 }
@@ -198,7 +198,21 @@ pub fn bi_int(mut a: Args) -> R {
         (Some(_), x) => type_err("int() can't convert non-string with explicit base".into()),
     }
 }
+// IntEnum and IntFlag members given to a numeric builtin (round, abs, range, ...): their int.
+fn enum_nums(mut a: Args) -> Args {
+    for x in a.p.iter_mut() {
+        if let V::Obj(o) = x {
+            if is_enum(&o.cls) {
+                if let Some(i @ (V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_))) = inner_of(x) {
+                    *x = i;
+                }
+            }
+        }
+    }
+    a
+}
 pub fn bi_float(a: Args) -> R {
+    let a = enum_nums(a);
     a.no_kw("float")?;
     if a.p.is_empty() {
         return Ok(V::Float(0.0));
@@ -270,6 +284,7 @@ pub fn bi_dict(mut a: Args) -> R {
     Ok(V::Dict(Rc::new(RefCell::new(d))))
 }
 pub fn bi_range(a: Args) -> R {
+    let a = enum_nums(a);
     a.no_kw("range")?;
     let g = |i: usize| -> Result<i64, E> {
         match &a.p[i] {
@@ -292,6 +307,7 @@ pub fn bi_range(a: Args) -> R {
     Ok(V::Range(Rc::new((s0, e, st))))
 }
 pub fn bi_abs(a: Args) -> R {
+    let a = enum_nums(a);
     let x = a1(&a, "abs")?;
     match &x {
         V::Int(i) => Ok(match i.checked_abs() {
@@ -739,6 +755,7 @@ pub fn bi_ord(a: Args) -> R {
     }
 }
 pub fn bi_chr(a: Args) -> R {
+    let a = enum_nums(a);
     let i = idx_of(&a1(&a, "chr")?)?;
     match u32::try_from(i).ok().and_then(char::from_u32) {
         Some(c) => Ok(ch1(c)),
@@ -752,15 +769,19 @@ fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
     Ok(st(format!("{}{}{}", if b.neg { "-" } else { "" }, p, body)))
 }
 pub fn bi_hex(a: Args) -> R {
+    let a = enum_nums(a);
     radix(a, "hex", 16, "0x")
 }
 pub fn bi_oct(a: Args) -> R {
+    let a = enum_nums(a);
     radix(a, "oct", 8, "0o")
 }
 pub fn bi_bin(a: Args) -> R {
+    let a = enum_nums(a);
     radix(a, "bin", 2, "0b")
 }
-pub fn bi_round(mut a: Args) -> R {
+pub fn bi_round(a: Args) -> R {
+    let mut a = enum_nums(a);
     let nd = a.kw("ndigits");
     a.want("round", 1, 2)?;
     let x = a.p[0].clone();
@@ -827,12 +848,14 @@ pub fn bi_round(mut a: Args) -> R {
     }
 }
 pub fn bi_divmod(a: Args) -> R {
+    let a = enum_nums(a);
     a.want("divmod", 2, 2)?;
     let q = binop(&a.p[0], &a.p[1], "//")?;
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
 }
 pub fn bi_pow(a: Args) -> R {
+    let a = enum_nums(a);
     a.want("pow", 2, 3)?;
     if a.p.len() == 3 && !matches!(a.p[2], V::None) {
         let (b, e, m) = (big_of(&a.p[0]), big_of(&a.p[1]), big_of(&a.p[2]));
@@ -1301,6 +1324,14 @@ fn strip_set(a: &Args, f: &str) -> Result<Option<Vec<char>>, E> {
 }
 pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
     let t = me.s.as_str();
+    // str subclasses (StrEnum members) as arguments: their str
+    for x in a.p.iter_mut().chain(a.k.iter_mut().map(|(_, v)| v)) {
+        if let V::Obj(_) = x {
+            if let Some(i @ V::Str(_)) = inner_of(x) {
+                *x = i;
+            }
+        }
+    }
     Ok(match name {
         "split" | "rsplit" => {
             let sep = a.kw("sep").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
@@ -1356,6 +1387,12 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                     // a library str (numpy's np.str_)
                     V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => {
                         if let Some(Ok(V::Str(y))) = e.native() {
+                            out.push_str(&y.s);
+                        }
+                    }
+                    // a str subclass (StrEnum)
+                    V::Obj(_) if matches!(inner_of(x), Some(V::Str(_))) => {
+                        if let Some(V::Str(y)) = inner_of(x) {
                             out.push_str(&y.s);
                         }
                     }

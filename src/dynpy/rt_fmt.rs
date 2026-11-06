@@ -217,7 +217,7 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Class(c) => {
             if is_enum(c) {
-                format!("<enum '{}'>", c.name)
+                format!("<{} '{}'>", if c.lookup("_flag_mask_").is_some() { "flag" } else { "enum" }, c.name)
             } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
             } else {
@@ -588,6 +588,13 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
             if let Some(f) = o.cls.lookup("__format__") {
                 return to_str(&call(&f, Args::p(vec![v.clone(), s(spec)]))?);
             }
+            // Enum.__format__ formats str(member); IntEnum, StrEnum and IntFlag format the value
+            if is_enum(&o.cls) {
+                return match inner_of(v) {
+                    Some(i) if is_repr_enum(&o.cls) => format_spec(&i, spec),
+                    _ => format_spec(&st(to_str(v)?), spec),
+                };
+            }
             if spec.is_empty() {
                 return to_str(v);
             }
@@ -826,6 +833,8 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
                     }
                     V::Int(_) | V::Big(_) | V::Bool(_) => v.clone(),
                     V::Ext(_) => to_int(&v)?,
+                    // an int subclass (IntEnum): its int
+                    V::Obj(_) if matches!(inner_of(&v), Some(V::Int(_) | V::Big(_) | V::Bool(_))) => inner_of(&v).unwrap(),
                     _ => return type_err(format!("%{ty} format: a real number is required, not {}", tn(&v))),
                 };
                 let n = if let V::Bool(b) = n { V::Int(b as i64) } else { n };
@@ -994,6 +1003,10 @@ pub fn to_int(v: &V) -> R {
                 if let Some(f) = o.cls.lookup(n) {
                     return call(&f, Args::p(vec![v.clone()]));
                 }
+            }
+            // a subclass of int, float or str (IntEnum, StrEnum)
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
+                return to_int(&i);
             }
             type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v)))
         }

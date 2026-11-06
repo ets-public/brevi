@@ -189,8 +189,12 @@ fn ax_pyb_invoke(f: &AxPy, args: Vec<AxPy>, kw: Vec<(String, AxPy)>) -> R<AxPy> 
     } else {
         let d = unsafe { (a.DictNew)() };
         for (k, v) in kw {
-            let k = ax_pyb_strobj(&k);
-            unsafe { (a.DictSet)(d, k.0, v.0) };
+            // interned, as CPython's own keyword names are (orjson tells its keywords apart by identity)
+            let mut k = ax_pyb_strobj(&k);
+            unsafe {
+                (a.Intern)(&mut k.0);
+                (a.DictSet)(d, k.0, v.0)
+            };
         }
         d
     };

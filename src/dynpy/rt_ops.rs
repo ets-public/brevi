@@ -959,7 +959,10 @@ pub fn neg(a: &V) -> R {
         V::Float(f) => Ok(V::Float(-f)),
         V::Obj(o) => match o.cls.lookup("__neg__") {
             Some(f) => call(&f, Args::p(vec![a.clone()])),
-            None => type_err(format!("bad operand type for unary -: '{}'", tn(a))),
+            None => match inner_of(a) {
+                Some(i) => neg(&i),
+                None => type_err(format!("bad operand type for unary -: '{}'", tn(a))),
+            },
         },
         V::Ext(x) => match x.binop(a, "neg", &V::None, false) {
             Some(r) => r,
@@ -978,7 +981,10 @@ pub fn pos(a: &V) -> R {
         },
         V::Obj(o) => match o.cls.lookup("__pos__") {
             Some(f) => call(&f, Args::p(vec![a.clone()])),
-            None => type_err(format!("bad operand type for unary +: '{}'", tn(a))),
+            None => match inner_of(a) {
+                Some(i) => pos(&i),
+                None => type_err(format!("bad operand type for unary +: '{}'", tn(a))),
+            },
         },
         _ => type_err(format!("bad operand type for unary +: '{}'", tn(a))),
     }
@@ -991,6 +997,13 @@ pub fn invert(a: &V) -> R {
         V::Ext(x) => match x.binop(a, "invert", &V::None, false) {
             Some(r) => r,
             None => type_err(format!("bad operand type for unary ~: '{}'", tn(a))),
+        },
+        V::Obj(o) => match o.cls.lookup("__invert__") {
+            Some(f) => call(&f, Args::p(vec![a.clone()])),
+            None => match inner_of(a) {
+                Some(i) => invert(&i),
+                None => type_err(format!("bad operand type for unary ~: '{}'", tn(a))),
+            },
         },
         _ => type_err(format!("bad operand type for unary ~: '{}'", tn(a))),
     }
@@ -1040,6 +1053,12 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             if let Some(n) = e.native() {
                 return contains(c, &n?);
             }
+        }
+    }
+    // a str subclass (StrEnum) in a str
+    if let (V::Str(_), V::Obj(_)) = (c, x) {
+        if let Some(i @ V::Str(_)) = inner_of(x) {
+            return contains(c, &i);
         }
     }
     Ok(match c {
@@ -1131,6 +1150,8 @@ pub fn idx_of(i: &V) -> Result<i64, E> {
         V::Bool(b) => Ok(*b as i64),
         V::Big(_) => Err(exc("IndexError", "cannot fit 'int' into an index-sized integer".into())),
         V::Obj(o) if o.cls.lookup("__index__").is_some() => idx_of(&call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![i.clone()]))?),
+        // an int subclass (IntEnum)
+        V::Obj(_) if matches!(inner_of(i), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => idx_of(&inner_of(i).unwrap()),
         V::Ext(x) if is_np(i) => match x.method(i, "__index__", &mut Args::p(vec![])) {
             Some(r) => idx_of(&r?),
             None => Err(exc("TypeError", format!("list indices must be integers or slices, not {}", tn(i)))),

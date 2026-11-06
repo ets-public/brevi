@@ -95,6 +95,10 @@ fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
         "utf-8" | "utf8" | "u8" | "utf" | "cp65001" => "utf-8",
         "ascii" | "us-ascii" | "646" => "ascii",
         "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" | "l1" | "8859" | "cp819" | "latin" => "latin-1",
+        // a codec CPython has and Brevi does not: not "unknown"
+        m if ["utf-16", "utf16", "utf-32", "utf32", "utf-7", "utf-8-sig", "cp", "iso-8859", "iso8859", "koi8", "mac-", "gb", "big5", "euc", "shift", "sjis", "latin-", "windows-", "idna", "punycode", "unicode-escape", "raw-unicode-escape", "hz", "johab", "ptcp", "tis"].iter().any(|p| m.starts_with(p)) => {
+            return Err(unsupported(&format!("the {m} codec")))
+        }
         _ => return Err(exc("LookupError", format!("unknown encoding: {}", match v { Some(V::Str(s)) => s.s.clone(), _ => n }))),
     })
 }

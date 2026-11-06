@@ -142,7 +142,7 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                     }
                 }
             }
-            St::AugAssign(t, _, _) | St::AnnAssign(t, _) | St::For(t, ..) if mentions(t, n) => ok = false,
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) | St::For(t, ..) if mentions(t, n) => ok = false,
             St::Global(v) | St::Nonlocal(v) if v.iter().any(|x| x == n) => ok = false,
             St::Def(d) => {
                 if d.name == n || d.params.pos.iter().chain(&d.params.kwonly).any(|p| p.0 == n) {

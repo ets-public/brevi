@@ -1,0 +1,42 @@
+{"z": {"x": 1, "y": 2}}
+[
+  {
+    "x": 3,
+    "y": 4
+  }
+]
+[{"x": 5, "y": 6}, "\u00e9"] "é"
+3 ',' '=' {
+   "a"=[
+      1
+   ]
+}
+Object of type object is not JSON serializable
+JSONEncoder.__init__() got an unexpected keyword argument 'foo'
+JSONDecoder.__init__() got an unexpected keyword argument 'foo'
+ValueError Circular reference detected
+ValueError Out of range float values are not JSON compliant: nan
+JSONDecodeError Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)
+[1]
+JSONDecodeError Illegal trailing comma before end of array: line 1 column 3 (char 2)
+JSONDecodeError Illegal trailing comma before end of object: line 1 column 7 (char 6)
+'a\x01'
+ValueError Out of range float values are not JSON compliant: inf
+[1, 'x']
+[1]
+[2]
+TypeError the JSON object must be str, bytes or bytearray, not int
+{'a': '1.5', 'b': 20}
+[['a'], ['b']]
+[('a', 1), ('a', 2), ('b', 3)]
+['CNaN', 'C-Infinity']
+{'A': {'B': 1}}
+[1.0, 2.0] ([3.0], 3)
+Extra data: line 1 column 5 (char 4)
+{"p": {"x": 7, "y": 8}}
+{'k': '1.25!'}
+{"t": [1, 2]} {"1": 4, "2.5": 3, "null": 5}
+{"a":2,"b":1}
+'<' not supported between instances of 'str' and 'int'
+[[1], [1]]
+<class 'json.encoder.JSONEncoder'> <class 'json.decoder.JSONDecoder'> True

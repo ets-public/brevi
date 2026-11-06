@@ -1352,6 +1352,17 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
 struct JP<'a> {
     s: &'a [char],
     i: usize,
+    h: Option<&'a JHooks>,
+}
+// json.JSONDecoder's options, as its __init__ takes them (None: the default)
+#[derive(Clone, Default)]
+struct JHooks {
+    object_hook: Option<V>,
+    parse_float: Option<V>,
+    parse_int: Option<V>,
+    parse_constant: Option<V>,
+    pairs_hook: Option<V>,
+    lax: bool, // strict=False: control characters allowed in strings
 }
 fn json_err<T>(msg: &str, s: &[char], pos: usize) -> Result<T, E> {
     let line = s[..pos].iter().filter(|c| **c == '\n').count() + 1;
@@ -1391,10 +1402,12 @@ impl<'a> JP<'a> {
                 let _ = start;
                 self.i += 1;
                 let mut d = Dict::new();
+                let pairs_hook = self.h.and_then(|h| h.pairs_hook.clone());
+                let mut pairs = vec![];
                 self.ws();
                 if self.s.get(self.i) == Some(&'}') {
                     self.i += 1;
-                    return Ok(V::Dict(Rc::new(RefCell::new(d))));
+                    return self.object(d, pairs);
                 }
                 loop {
                     self.ws();
@@ -1408,19 +1421,27 @@ impl<'a> JP<'a> {
                     }
                     self.i += 1;
                     let v = self.value()?;
-                    d.set(k, v)?;
+                    if pairs_hook.is_some() {
+                        pairs.push(tup(vec![k, v]));
+                    } else {
+                        d.set(k, v)?;
+                    }
                     self.ws();
                     match self.s.get(self.i) {
                         Some(',') => {
+                            let comma = self.i;
                             self.i += 1;
                             self.ws();
+                            if self.s.get(self.i) == Some(&'}') {
+                                return json_err("Illegal trailing comma before end of object", self.s, comma);
+                            }
                             if self.s.get(self.i) != Some(&'"') {
                                 return json_err("Expecting property name enclosed in double quotes", self.s, self.i);
                             }
                         }
                         Some('}') => {
                             self.i += 1;
-                            return Ok(V::Dict(Rc::new(RefCell::new(d))));
+                            return self.object(d, pairs);
                         }
                         _ => return json_err("Expecting ',' delimiter", self.s, self.i),
                     }
@@ -1468,15 +1489,15 @@ impl<'a> JP<'a> {
             }
             'N' if self.lit("NaN") => {
                 self.i += 3;
-                Ok(V::Float(f64::NAN))
+                self.constant("NaN", f64::NAN)
             }
             'I' if self.lit("Infinity") => {
                 self.i += 8;
-                Ok(V::Float(f64::INFINITY))
+                self.constant("Infinity", f64::INFINITY)
             }
             '-' if self.s.get(self.i + 1..self.i + 9).is_some_and(|w| w.iter().collect::<String>() == "Infinity") => {
                 self.i += 9;
-                Ok(V::Float(f64::NEG_INFINITY))
+                self.constant("-Infinity", f64::NEG_INFINITY)
             }
             '-' | '0'..='9' => {
                 let st0 = self.i;
@@ -1518,6 +1539,10 @@ impl<'a> JP<'a> {
                     }
                 }
                 let t: String = self.s[st0..self.i].iter().collect();
+                let hook = self.h.and_then(|h| if is_f { h.parse_float.clone() } else { h.parse_int.clone() });
+                if let Some(f) = hook {
+                    return call(&f, Args::p(vec![st(t)]));
+                }
                 if is_f {
                     Ok(V::Float(t.parse().unwrap_or(0.0)))
                 } else {
@@ -1525,6 +1550,22 @@ impl<'a> JP<'a> {
                 }
             }
             _ => json_err("Expecting value", self.s, self.i),
+        }
+    }
+    fn object(&self, d: Dict, pairs: Vec<V>) -> R {
+        if let Some(f) = self.h.and_then(|h| h.pairs_hook.clone()) {
+            return call(&f, Args::p(vec![list(pairs)]));
+        }
+        let d = V::Dict(Rc::new(RefCell::new(d)));
+        match self.h.and_then(|h| h.object_hook.clone()) {
+            Some(f) => call(&f, Args::p(vec![d])),
+            None => Ok(d),
+        }
+    }
+    fn constant(&self, name: &str, f: f64) -> R {
+        match self.h.and_then(|h| h.parse_constant.clone()) {
+            Some(c) => call(&c, Args::p(vec![s(name)])),
+            None => Ok(V::Float(f)),
         }
     }
     fn string(&mut self) -> R {
@@ -1568,20 +1609,25 @@ impl<'a> JP<'a> {
                                     }
                                 }
                             }
-                            out.push(char::from_u32(cp).unwrap_or('\u{fffd}'));
+                            // a lone surrogate: CPython keeps it, a Rust string cannot hold it
+                            out.push(char::from_u32(cp).ok_or_else(|| unsupported("json: a lone surrogate \\u escape"))?);
                         }
                         _ => return json_err("Invalid \\escape", self.s, self.i - 2),
                     }
                 }
-                c if (c as u32) < 0x20 => return json_err("Invalid control character at", self.s, self.i - 1),
+                c if (c as u32) < 0x20 && !self.h.is_some_and(|h| h.lax) => return json_err("Invalid control character at", self.s, self.i - 1),
                 c => out.push(c),
             }
         }
     }
 }
 pub fn json_loads(t: &str) -> R {
+    json_loads_h(t, None)
+}
+fn json_loads_h(t: &str, h: Option<&JHooks>) -> R {
     let c: Vec<char> = t.chars().collect();
-    let mut p = JP { s: &c, i: 0 };
+    let mut p = JP { s: &c, i: 0, h };
+    p.ws();
     let v = p.value()?;
     p.ws();
     if p.i != c.len() {
@@ -1597,6 +1643,34 @@ struct JOpts {
     ascii: bool,
     default: Option<V>,
     skipkeys: bool,
+    allow_nan: bool,
+    // check_circular: the ids of the containers (and objects handed to default) being encoded
+    markers: Option<RefCell<Vec<usize>>>,
+}
+impl Default for JOpts {
+    fn default() -> Self {
+        JOpts { indent: None, item_sep: ", ".into(), key_sep: ": ".into(), sort_keys: false, ascii: true, default: None, skipkeys: false, allow_nan: true, markers: Some(RefCell::new(vec![])) }
+    }
+}
+fn json_mark(o: &JOpts, v: &V) -> Result<Option<usize>, E> {
+    let Some(m) = &o.markers else { return Ok(None) };
+    let id = match v {
+        V::List(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Dict(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Tuple(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Obj(x) => Rc::as_ptr(x) as *const u8 as usize,
+        _ => return Ok(None),
+    };
+    if m.borrow().contains(&id) {
+        return val_err("Circular reference detected".into());
+    }
+    m.borrow_mut().push(id);
+    Ok(Some(id))
+}
+fn json_unmark(o: &JOpts, id: Option<usize>) {
+    if let (Some(m), Some(_)) = (&o.markers, id) {
+        m.borrow_mut().pop();
+    }
 }
 fn json_str(t: &str, ascii: bool, out: &mut String) {
     out.push('"');
@@ -1623,7 +1697,10 @@ fn json_str(t: &str, ascii: bool, out: &mut String) {
     }
     out.push('"');
 }
-fn json_float(f: f64) -> Result<String, E> {
+fn json_float(f: f64, o: &JOpts) -> Result<String, E> {
+    if !o.allow_nan && !f.is_finite() {
+        return val_err(format!("Out of range float values are not JSON compliant: {}", float_repr(f)));
+    }
     Ok(if f.is_nan() {
         "NaN".into()
     } else if f.is_infinite() {
@@ -1651,7 +1728,7 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
         V::None => out.push_str("null"),
         V::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         V::Int(_) | V::Big(_) => out.push_str(&repr(v)?),
-        V::Float(f) => out.push_str(&json_float(*f)?),
+        V::Float(f) => out.push_str(&json_float(*f, o)?),
         V::Str(x) => json_str(&x.s, o.ascii, out),
         V::List(_) | V::Tuple(_) => {
             let items = to_vec(v)?;
@@ -1659,6 +1736,7 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
                 out.push_str("[]");
                 return Ok(());
             }
+            let id = json_mark(o, v)?;
             out.push('[');
             for (k, x) in items.iter().enumerate() {
                 if k > 0 {
@@ -1669,6 +1747,7 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
             }
             nl(out, depth);
             out.push(']');
+            json_unmark(o, id);
         }
         V::Dict(d) => {
             let mut items: Vec<(V, V)> = d.borrow().ents.iter().flatten().cloned().collect();
@@ -1676,14 +1755,48 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
                 out.push_str("{}");
                 return Ok(());
             }
+            let id = json_mark(o, v)?;
+            if o.sort_keys {
+                let mut err = None;
+                // sorted(dct.items()): keys first, then (equal keys) values
+                let cmp = |a: &V, b: &V, err: &mut Option<E>| match lt(a, b) {
+                    Ok(true) => Some(std::cmp::Ordering::Less),
+                    Ok(false) => match lt(b, a) {
+                        Ok(true) => Some(std::cmp::Ordering::Greater),
+                        Ok(false) => None,
+                        Err(e) => {
+                            err.get_or_insert(e);
+                            Some(std::cmp::Ordering::Equal)
+                        }
+                    },
+                    Err(e) => {
+                        err.get_or_insert(e);
+                        Some(std::cmp::Ordering::Equal)
+                    }
+                };
+                items.sort_by(|a, b| cmp(&a.0, &b.0, &mut err).unwrap_or_else(|| if eq(&a.0, &b.0).unwrap_or(false) { cmp(&a.1, &b.1, &mut err).unwrap_or(std::cmp::Ordering::Equal) } else { std::cmp::Ordering::Equal }));
+                if let Some(e) = err {
+                    return Err(e);
+                }
+            }
             let mut keyed = vec![];
             for (k, x) in items.drain(..) {
                 let ks = match &k {
                     V::Str(x) => x.s.clone(),
                     V::Int(_) | V::Big(_) => repr(&k)?,
-                    V::Float(f) => json_float(*f)?,
+                    V::Float(f) => json_float(*f, o)?,
                     V::Bool(b) => (if *b { "true" } else { "false" }).into(),
                     V::None => "null".into(),
+                    V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => match e.native() {
+                        Some(Ok(V::Str(x))) => x.s.clone(),
+                        _ => unreachable!(),
+                    },
+                    // a str or int subclass (StrEnum, IntEnum): its str or int
+                    V::Obj(_) if matches!(inner_of(&k), Some(V::Str(_) | V::Int(_) | V::Big(_) | V::Float(_))) => match inner_of(&k).unwrap() {
+                        V::Str(x) => x.s.clone(),
+                        V::Float(f) => json_float(f, o)?,
+                        i => repr(&i)?,
+                    },
                     _ => {
                         if o.skipkeys {
                             continue;
@@ -1692,30 +1805,6 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
                     }
                 };
                 keyed.push((ks, k, x));
-            }
-            if o.sort_keys {
-                let mut err = None;
-                let mut idx: Vec<usize> = (0..keyed.len()).collect();
-                idx.sort_by(|&a, &b| match lt(&keyed[a].1, &keyed[b].1) {
-                    Ok(true) => std::cmp::Ordering::Less,
-                    Ok(false) => match lt(&keyed[b].1, &keyed[a].1) {
-                        Ok(true) => std::cmp::Ordering::Greater,
-                        _ => std::cmp::Ordering::Equal,
-                    },
-                    Err(e) => {
-                        err.get_or_insert(e);
-                        std::cmp::Ordering::Equal
-                    }
-                });
-                if let Some(e) = err {
-                    return Err(e);
-                }
-                let mut sorted = vec![];
-                let mut tmp: Vec<Option<(String, V, V)>> = keyed.into_iter().map(Some).collect();
-                for i in idx {
-                    sorted.push(tmp[i].take().unwrap());
-                }
-                keyed = sorted;
             }
             out.push('{');
             for (k, (ks, _, x)) in keyed.iter().enumerate() {
@@ -1729,6 +1818,7 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
             }
             nl(out, depth);
             out.push('}');
+            json_unmark(o, id);
         }
         V::Obj(ob) if inner_of(v).is_some() => {
             let _ = ob;
@@ -1747,27 +1837,35 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
         }
         _ => match &o.default {
             Some(f) => {
+                let id = json_mark(o, v)?;
                 let r = call(f, Args::p(vec![v.clone()]))?;
                 json_dump(&r, o, depth, out)?;
+                json_unmark(o, id);
             }
             None => return type_err(format!("Object of type {} is not JSON serializable", tn(v))),
         },
     }
     Ok(())
 }
+// JSONEncoder.__init__'s options (keyword-only, as in CPython); unknown keywords are its TypeError.
 fn json_opts(a: &mut Args) -> Result<JOpts, E> {
+    if let Some(x) = a.p.get(1) {
+        let _ = x;
+        return type_err(format!("JSONEncoder.__init__() takes 1 positional argument but {} were given", a.p.len()));
+    }
     let indent = match a.kw("indent") {
         None | Some(V::None) => None,
-        Some(V::Int(n)) => Some(" ".repeat(n.max(0) as usize)),
         Some(V::Str(x)) => Some(x.s.clone()),
-        Some(x) => return type_err(format!("indent must be int or str, not {}", tn(&x))),
+        Some(V::Int(n)) => Some(" ".repeat(n.max(0) as usize)),
+        Some(V::Bool(b)) => Some(" ".repeat(b as usize)),
+        Some(x) => return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(&x))),
     };
     let (mut item_sep, mut key_sep) = (if indent.is_some() { "," } else { ", " }.to_string(), ": ".to_string());
     if let Some(sep) = a.kw("separators") {
         if !matches!(sep, V::None) {
             let v = to_vec(&sep)?;
             if v.len() != 2 {
-                return val_err("separators must be a pair".into());
+                return val_err(format!("{} values to unpack (expected 2)", if v.len() > 2 { "too many".to_string() } else { format!("not enough values to unpack (expected 2, got {})", v.len()) }));
             }
             item_sep = to_str(&v[0])?;
             key_sep = to_str(&v[1])?;
@@ -1775,7 +1873,7 @@ fn json_opts(a: &mut Args) -> Result<JOpts, E> {
     }
     let default = a.kw("default").filter(|d| !matches!(d, V::None));
     let mut flag = |n: &str, d: bool| -> Result<bool, E> { match a.kw(n) { Some(v) => truth(&v), None => Ok(d) } };
-    Ok(JOpts {
+    let o = JOpts {
         indent,
         item_sep,
         key_sep,
@@ -1783,40 +1881,171 @@ fn json_opts(a: &mut Args) -> Result<JOpts, E> {
         ascii: flag("ensure_ascii", true)?,
         default,
         skipkeys: flag("skipkeys", false)?,
+        allow_nan: flag("allow_nan", true)?,
+        markers: if flag("check_circular", true)? { Some(RefCell::new(vec![])) } else { None },
+    };
+    a.no_kw("JSONEncoder.__init__")?;
+    Ok(o)
+}
+// An encoder object's options, read when it encodes (as CPython's iterencode reads them).
+fn json_enc_opts(enc: &V) -> Result<JOpts, E> {
+    let g = |n: &str| getattr(enc, n);
+    let indent = match g("indent")? {
+        V::None => None,
+        V::Str(x) => Some(x.s.clone()),
+        V::Int(n) => Some(" ".repeat(n.max(0) as usize)),
+        V::Bool(b) => Some(" ".repeat(b as usize)),
+        x => return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(&x))),
+    };
+    Ok(JOpts {
+        indent,
+        item_sep: to_str(&g("item_separator")?)?,
+        key_sep: to_str(&g("key_separator")?)?,
+        sort_keys: truth(&g("sort_keys")?)?,
+        ascii: truth(&g("ensure_ascii")?)?,
+        default: Some(g("default")?),
+        skipkeys: truth(&g("skipkeys")?)?,
+        allow_nan: truth(&g("allow_nan")?)?,
+        markers: if truth(&g("check_circular")?)? { Some(RefCell::new(vec![])) } else { None },
     })
+}
+fn json_text(v: &V, o: &JOpts) -> Result<String, E> {
+    let mut out = String::new();
+    json_dump(v, o, 0, &mut out)?;
+    Ok(out)
+}
+// dumps/dump's keywords for the encoder (cls), CPython's order
+const JENC_KW: [&str; 8] = ["skipkeys", "ensure_ascii", "check_circular", "allow_nan", "indent", "separators", "default", "sort_keys"];
+const JDEC_KW: [&str; 5] = ["object_hook", "parse_float", "parse_int", "parse_constant", "object_pairs_hook"];
+// The text dumps(v, **a) makes: with cls, cls(**options).encode(v) (dump: the encoder's own options).
+fn json_encode(v: &V, a: &mut Args, dump: bool) -> Result<String, E> {
+    match a.kw("cls").filter(|c| !matches!(c, V::None)) {
+        None => {
+            let o = json_opts(a)?;
+            json_text(v, &o)
+        }
+        Some(cls) => {
+            let enc = call(&cls, Args { p: vec![], k: std::mem::take(&mut a.k) })?;
+            if dump {
+                json_text(v, &json_enc_opts(&enc)?)
+            } else {
+                to_str(&call_method(&enc, "encode", Args::p(vec![v.clone()]))?)
+            }
+        }
+    }
+}
+// The text loads takes: str, or bytes in the encoding json.detect_encoding names.
+fn json_source(v: &V) -> Result<String, E> {
+    if let V::Str(x) = v {
+        if x.s.starts_with('\u{feff}') {
+            let c: Vec<char> = x.s.chars().collect();
+            return json_err("Unexpected UTF-8 BOM (decode using utf-8-sig)", &c, 0);
+        }
+        return Ok(x.s.clone());
+    }
+    let Some(b) = bytes_of(v) else {
+        return type_err(format!("the JSON object must be str, bytes or bytearray, not {}", tn(v)));
+    };
+    let utf = |b: &[u8], w: usize, be: bool| -> Result<String, E> {
+        let units: Vec<u32> = b.chunks(w).map(|c| {
+            let mut x = 0u32;
+            for k in 0..c.len() {
+                let byte = if be { c[k] } else { c[c.len() - 1 - k] } as u32;
+                x = (x << 8) | byte;
+            }
+            x
+        }).collect();
+        if b.len() % w != 0 {
+            return Err(unsupported("json: truncated utf-16/utf-32 bytes"));
+        }
+        let r: Option<String> = if w == 2 {
+            char::decode_utf16(units.iter().map(|&u| u as u16)).collect::<Result<String, _>>().ok()
+        } else {
+            units.iter().map(|&u| char::from_u32(u)).collect()
+        };
+        r.ok_or_else(|| unsupported("json: invalid utf-16/utf-32 bytes"))
+    };
+    let st = |b: &[u8]| -> Result<String, E> { to_str(&bytes_decode(b, None, None)?) };
+    let n = b.len();
+    if b.starts_with(&[0, 0, 0xfe, 0xff]) {
+        return utf(&b[4..], 4, true);
+    }
+    if b.starts_with(&[0xff, 0xfe, 0, 0]) {
+        return utf(&b[4..], 4, false);
+    }
+    if b.starts_with(&[0xfe, 0xff]) {
+        return utf(&b[2..], 2, true);
+    }
+    if b.starts_with(&[0xff, 0xfe]) {
+        return utf(&b[2..], 2, false);
+    }
+    if b.starts_with(&[0xef, 0xbb, 0xbf]) {
+        return st(&b[3..]);
+    }
+    if n >= 4 {
+        if b[0] == 0 {
+            return if b[1] != 0 { utf(&b, 2, true) } else { utf(&b, 4, true) };
+        }
+        if b[1] == 0 {
+            return if b[2] != 0 || b[3] != 0 { utf(&b, 2, false) } else { utf(&b, 4, false) };
+        }
+    } else if n == 2 {
+        if b[0] == 0 {
+            return utf(&b, 2, true);
+        }
+        if b[1] == 0 {
+            return utf(&b, 2, false);
+        }
+    }
+    st(&b)
+}
+// loads(s, **kw): no options, the default decoder; otherwise (cls or JSONDecoder)(**kw).decode(s)
+fn json_decode(t: &V, a: &mut Args) -> R {
+    let cls = a.kw("cls").filter(|c| !matches!(c, V::None));
+    let text = json_source(t)?;
+    a.k.retain(|(n, v)| !(JDEC_KW.contains(n) && matches!(v, V::None)));
+    if cls.is_none() && a.k.is_empty() {
+        return json_loads(&text);
+    }
+    let dec = call(&cls.unwrap_or_else(|| V::Class(json_decoder_class())), Args { p: vec![], k: std::mem::take(&mut a.k) })?;
+    call_method(&dec, "decode", Args::p(vec![st(text)]))
 }
 pub fn json_fn(n: &str, mut a: Args) -> R {
     match n {
         "loads" => {
             let kv = a.kw("s");
-            let t = match a.p.first().or(kv.as_ref()) {
-                Some(V::Str(x)) => x.s.clone(),
-                Some(x) => return type_err(format!("the JSON object must be str, bytes or bytearray, not {}", tn(x))),
-                None => return type_err("loads() missing 1 required positional argument: 's'".into()),
+            let Some(t) = a.p.first().cloned().or(kv) else {
+                return type_err("loads() missing 1 required positional argument: 's'".into());
             };
-            json_loads(&t)
+            if a.p.len() > 1 {
+                return type_err(format!("loads() takes 1 positional argument but {} were given", a.p.len()));
+            }
+            json_decode(&t, &mut a)
         }
         "load" => {
-            let f = a.p.first().cloned().unwrap_or(V::None);
+            let f = a.p.first().cloned().or_else(|| a.kw("fp")).ok_or_else(|| exc("TypeError", "load() missing 1 required positional argument: 'fp'".into()))?;
             let t = match &f {
-                V::Module("sys.stdin") => read_all(),
-                _ => to_str(&call_method(&f, "read", Args::p(vec![]))?)?,
+                V::Module("sys.stdin") => st(read_all()),
+                _ => call_method(&f, "read", Args::p(vec![]))?,
             };
-            json_loads(&t)
+            json_decode(&t, &mut a)
         }
         "dumps" => {
-            let v = a.p.first().cloned().ok_or_else(|| exc("TypeError", "dumps() missing 1 required positional argument: 'obj'".into()))?;
-            let o = json_opts(&mut a)?;
-            let mut out = String::new();
-            json_dump(&v, &o, 0, &mut out)?;
-            Ok(st(out))
+            let v = a.p.first().cloned().or_else(|| a.kw("obj")).ok_or_else(|| exc("TypeError", "dumps() missing 1 required positional argument: 'obj'".into()))?;
+            if a.p.len() > 1 {
+                return type_err(format!("dumps() takes 1 positional argument but {} were given", a.p.len()));
+            }
+            a.p.clear();
+            Ok(st(json_encode(&v, &mut a, false)?))
         }
         "dump" => {
-            let v = a.p.first().cloned().unwrap_or(V::None);
+            let v = a.p.first().cloned().or_else(|| a.kw("obj")).unwrap_or(V::None);
             let f = a.p.get(1).cloned().or_else(|| a.kw("fp")).unwrap_or(V::None);
-            let o = json_opts(&mut a)?;
-            let mut out = String::new();
-            json_dump(&v, &o, 0, &mut out)?;
+            if a.p.len() > 2 {
+                return type_err(format!("dump() takes 2 positional arguments but {} were given", a.p.len()));
+            }
+            a.p.clear();
+            let out = json_encode(&v, &mut a, true)?;
             match &f {
                 V::Module("sys.stdout") => out_write(&out),
                 V::Module("sys.stderr") => {
@@ -1854,35 +2083,148 @@ pub fn json_scanstring(a: Args) -> R {
     if end == 0 || end == usize::MAX {
         return val_err("end is out of bounds".into());
     }
-    let mut p = JP { s: &c, i: end - 1 };
+    let mut p = JP { s: &c, i: end - 1, h: None };
     let v = p.string()?;
     Ok(tup(vec![v, V::Int(p.i as i64)]))
 }
 thread_local! {
     static JDEC: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+    static JENC: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+// The hooks a decoder's __init__ took (CPython's scanner copies them then, so later attribute changes do not count).
+fn json_hooks(dec: &V) -> Result<JHooks, E> {
+    let V::Obj(o) = dec else { return type_err("JSONDecoder method on a non-decoder".into()) };
+    let Some(V::Tuple(t)) = o.get("__bv_scan__") else {
+        return Err(exc("AttributeError", format!("'{}' object has no attribute 'scan_once'", tn(dec))));
+    };
+    let opt = |v: &V| if matches!(v, V::None) { None } else { Some(v.clone()) };
+    Ok(JHooks { object_hook: opt(&t[0]), parse_float: opt(&t[1]), parse_int: opt(&t[2]), parse_constant: opt(&t[3]), pairs_hook: opt(&t[5]), lax: !truth(&t[4])? })
 }
 pub fn json_decoder_class() -> Rc<Class> {
     JDEC.with(|j| {
         let mut j = j.borrow_mut();
         if j.is_none() {
             let c = Class::new("JSONDecoder", "json.decoder", vec![bclass("object")], BT::Other);
-            c.set("raw_decode", builtin("raw_decode", |a: Args| {
+            c.set("__init__", builtin("json.__init__", |mut a: Args| {
+                if a.p.len() > 1 {
+                    return type_err(format!("JSONDecoder.__init__() takes 1 positional argument but {} were given", a.p.len()));
+                }
+                let me = a.p[0].clone();
+                let mut vals = vec![];
+                for n in ["object_hook", "parse_float", "parse_int", "parse_constant", "strict", "object_pairs_hook"] {
+                    let v = a.kw(n).unwrap_or(if n == "strict" { V::Bool(true) } else { V::None });
+                    vals.push(v);
+                }
+                a.no_kw("JSONDecoder.__init__")?;
+                if let V::Obj(o) = &me {
+                    for (n, v) in ["object_hook", "parse_float", "parse_int", "parse_constant", "strict", "object_pairs_hook"].iter().zip(&vals) {
+                        let v = match (*n, v) {
+                            ("parse_float", V::None) => V::Class(bclass("float")),
+                            ("parse_int", V::None) => V::Class(bclass("int")),
+                            _ => v.clone(),
+                        };
+                        o.set(n, v);
+                    }
+                    o.set("__bv_scan__", tup(vals));
+                }
+                Ok(V::None)
+            }));
+            c.set("raw_decode", builtin("raw_decode", |mut a: Args| {
+                let idx_kw = a.kw("idx");
                 let t = match a.p.get(1) {
                     Some(V::Str(x)) => x.s.clone(),
-                    _ => return type_err("raw_decode() argument must be a string".into()),
+                    Some(x) => return type_err(format!("first argument must be a string, not {}", tn(x))),
+                    None => return type_err("JSONDecoder.raw_decode() missing 1 required positional argument: 's'".into()),
                 };
+                let h = json_hooks(&a.p[0])?;
                 let c: Vec<char> = t.chars().collect();
-                let idx = json_index(&Args::p(a.p[1..].to_vec()), 1, c.len())?;
+                let mut ia = Args::p(a.p[1..].to_vec());
+                if let Some(i) = idx_kw {
+                    ia.p.truncate(1);
+                    ia.p.push(i);
+                }
+                let idx = json_index(&ia, 1, c.len())?;
                 if idx == usize::MAX || idx >= c.len() || matches!(c[idx], ' ' | '\t' | '\n' | '\r') {
                     return json_err("Expecting value", &c, idx.min(c.len()));
                 }
-                let mut p = JP { s: &c, i: idx };
+                let mut p = JP { s: &c, i: idx, h: Some(&h) };
                 let v = p.value()?;
                 Ok(tup(vec![v, V::Int(p.i as i64)]))
             }));
-            c.set("decode", builtin("decode", |a: Args| match a.p.get(1) {
-                Some(V::Str(x)) => json_loads(&x.s.clone()),
-                _ => type_err("decode() argument must be a string".into()),
+            // decode(s): raw_decode after leading whitespace, then only whitespace (CPython's decode)
+            c.set("decode", builtin("decode", |a: Args| {
+                let me = a.p[0].clone();
+                let t = match a.p.get(1) {
+                    Some(V::Str(x)) => x.s.clone(),
+                    Some(x) => return type_err(format!("expected string or bytes-like object, got '{}'", tn(x))),
+                    None => return type_err("JSONDecoder.decode() missing 1 required positional argument: 's'".into()),
+                };
+                let c: Vec<char> = t.chars().collect();
+                let ws = |mut i: usize| {
+                    while i < c.len() && matches!(c[i], ' ' | '\t' | '\n' | '\r') {
+                        i += 1;
+                    }
+                    i
+                };
+                let start = ws(0);
+                let mut ra = Args::p(vec![st(t.clone())]);
+                ra.k.push(("idx", V::Int(start as i64)));
+                let r = call_method(&me, "raw_decode", ra)?;
+                let r = to_vec(&r)?;
+                let end = match r.get(1) {
+                    Some(V::Int(e)) => *e as usize,
+                    _ => return type_err("raw_decode() must return (obj, end)".into()),
+                };
+                let end = ws(end.min(c.len()));
+                if end != c.len() {
+                    return json_err("Extra data", &c, end);
+                }
+                Ok(r[0].clone())
+            }));
+            *j = Some(c);
+        }
+        j.clone().unwrap()
+    })
+}
+// json.JSONEncoder: __init__ keeps the options as attributes; encode(o) reads them (and self.default).
+pub fn json_encoder_class() -> Rc<Class> {
+    JENC.with(|j| {
+        let mut j = j.borrow_mut();
+        if j.is_none() {
+            let c = Class::new("JSONEncoder", "json.encoder", vec![bclass("object")], BT::Other);
+            c.set("item_separator", s(", "));
+            c.set("key_separator", s(": "));
+            c.set("__init__", builtin("json.__init__", |mut a: Args| {
+                let me = a.p[0].clone();
+                let raw_indent = a.k.iter().find(|(n, _)| *n == "indent").map(|x| x.1.clone()).unwrap_or(V::None);
+                let has_default = a.k.iter().any(|(n, v)| *n == "default" && !matches!(v, V::None));
+                let o = json_opts(&mut a)?;
+                if let V::Obj(ob) = &me {
+                    ob.set("skipkeys", V::Bool(o.skipkeys));
+                    ob.set("ensure_ascii", V::Bool(o.ascii));
+                    ob.set("check_circular", V::Bool(o.markers.is_some()));
+                    ob.set("allow_nan", V::Bool(o.allow_nan));
+                    ob.set("sort_keys", V::Bool(o.sort_keys));
+                    ob.set("indent", raw_indent.clone());
+                    if o.indent.is_some() || o.item_sep != ", " || o.key_sep != ": " {
+                        ob.set("item_separator", st(o.item_sep.clone()));
+                        ob.set("key_separator", st(o.key_sep.clone()));
+                    }
+                    if has_default {
+                        ob.set("default", o.default.clone().unwrap());
+                    }
+                }
+                Ok(V::None)
+            }));
+            c.set("default", builtin("default", |a: Args| {
+                let o = a.p.get(1).cloned().unwrap_or(V::None);
+                type_err(format!("Object of type {} is not JSON serializable", tn(&o)))
+            }));
+            c.set("encode", builtin("encode", |a: Args| {
+                let me = a.p[0].clone();
+                let v = a.p.get(1).cloned().ok_or_else(|| exc("TypeError", "JSONEncoder.encode() missing 1 required positional argument: 'o'".into()))?;
+                let o = json_enc_opts(&me)?;
+                Ok(st(json_text(&v, &o)?))
             }));
             *j = Some(c);
         }

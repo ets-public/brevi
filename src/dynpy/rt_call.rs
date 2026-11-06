@@ -95,6 +95,18 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
             }
         }
     }
+    // positional ones first, as CPython reports them; then keyword-only ones
+    let kwonly = missing.iter().any(|m| sig.params.iter().position(|p| p == m).is_some_and(|i| i >= npos));
+    if kwonly && missing.iter().all(|m| sig.params.iter().position(|p| p == m).is_some_and(|i| i >= npos)) {
+        let names: Vec<String> = missing.iter().map(|m| format!("'{m}'")).collect();
+        let list = match names.len() {
+            1 => names[0].clone(),
+            2 => format!("{} and {}", names[0], names[1]),
+            _ => format!("{}, and {}", names[..names.len() - 1].join(", "), names.last().unwrap()),
+        };
+        return type_err(format!("{}() missing {} required keyword-only argument{}: {}", sig.name, missing.len(), if missing.len() == 1 { "" } else { "s" }, list));
+    }
+    missing.retain(|m| sig.params.iter().position(|p| p == m).is_some_and(|i| i < npos));
     if !missing.is_empty() {
         let names: Vec<String> = missing.iter().map(|m| format!("'{m}'")).collect();
         let list = match names.len() {
@@ -164,6 +176,13 @@ impl Drop for Depth {
 // ---------- classes ----------
 
 pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -> R {
+    make_class_f(name, module, bases, attrs, vec![])
+}
+// As make_class, with the names the class body annotates (dataclass and NamedTuple fields).
+pub fn make_class_f(name: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>) -> R {
+    if let Some(r) = typing_class(name, &mut bases, &attrs, &fields) {
+        return r;
+    }
     let mut bs = vec![];
     for b in &bases {
         match b {
@@ -179,13 +198,27 @@ pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -
     for (n, v) in attrs {
         c.set(n, v);
     }
+    *c.fields.borrow_mut() = fields;
     // __init_subclass__ / __set_name__ are not supported (rare)
     if is_enum(&c) {
         enum_setup(&c)?;
     }
     Ok(V::Class(c))
 }
+// A def's docstring, as its __doc__.
+pub fn with_doc(f: V, doc: &str) -> V {
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__doc__", s(doc)));
+    }
+    f
+}
 pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
+    if c.module == "typing" {
+        return typing_call(c.name, a);
+    }
+    if let Some(r) = typed_dict_call(c, Args { p: a.p.clone(), k: a.k.clone() }) {
+        return r;
+    }
     if c.module == "enum" || is_enum(c) {
         if is_enum(c) {
             return enum_call(c, a);
@@ -475,7 +508,9 @@ pub fn getattr(o: &V, name: &str) -> R {
                             d.set(s(k), v.clone())?;
                         }
                     }
-                    d.set(s("__doc__"), V::None)?;
+                    if c.own("__doc__").is_none() {
+                        d.set(s("__doc__"), V::None)?;
+                    }
                     Ok(V::Dict(Rc::new(RefCell::new(d))))
                 }
                 _ => {
@@ -498,7 +533,7 @@ pub fn getattr(o: &V, name: &str) -> R {
         }
         V::Func(f) => match name {
             "__name__" | "__qualname__" => Ok(s(f.name)),
-            "__doc__" => Ok(V::None),
+            "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
             _ => {
                 if let Some(v) = f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()) {
                     return Ok(v);
@@ -601,6 +636,10 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
 pub fn delattr(o: &V, name: &str) -> Result<(), E> {
     match o {
         V::Obj(ob) => {
+            if let Some(da) = ob.cls.lookup("__delattr__") {
+                call(&da, Args::p(vec![o.clone(), s(name)]))?;
+                return Ok(());
+            }
             if ob.del(name) {
                 Ok(())
             } else {

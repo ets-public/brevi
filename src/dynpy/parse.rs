@@ -431,6 +431,8 @@ pub struct ClassDef {
     pub body: Vec<Stmt>,
     pub decorators: Vec<Ex>,
     pub line: usize,
+    // `total=False`, TypedDict's keyword (dynpy/typing.rs refuses it on any other class)
+    pub kwargs: Vec<(String, Ex)>,
 }
 
 #[derive(Clone, Debug)]
@@ -438,7 +440,8 @@ pub enum St {
     Expr(Ex),
     Assign(Vec<Ex>, Ex),
     AugAssign(Ex, &'static str, Ex),
-    AnnAssign(Ex, Option<Ex>),
+    // target, value, annotation (never evaluated; dataclasses read ClassVar, InitVar and KW_ONLY off it)
+    AnnAssign(Ex, Option<Ex>, Box<Ex>),
     Pass,
     Break,
     Continue,
@@ -908,10 +911,10 @@ impl P {
         if self.is_op(":") {
             // annotated assignment
             self.next();
-            let _ann = self.expr()?;
+            let ann = self.expr()?;
             let v = if self.eat_op("=") { Some(self.exprlist_star_or_yield()?) } else { None };
             check_target(&first, line)?;
-            return Ok(St::AnnAssign(first, v));
+            return Ok(St::AnnAssign(first, v, Box::new(ann)));
         }
         for op in ["+=", "-=", "*=", "/=", "//=", "%=", "**=", "&=", "|=", "^=", ">>=", "<<=", "@="] {
             if self.is_op(op) {
@@ -1151,6 +1154,7 @@ impl P {
         self.expect_kw("class")?;
         let name = self.name()?;
         let mut bases = vec![];
+        let mut kwargs = vec![];
         if self.eat_op("(") {
             while !self.is_op(")") {
                 if let Tok::Name(n) = self.peek().clone() {
@@ -1168,6 +1172,16 @@ impl P {
                             }
                             continue;
                         }
+                        if n == "total" {
+                            self.next();
+                            self.next();
+                            let v = self.expr()?;
+                            kwargs.push((n, v));
+                            if !self.eat_op(",") {
+                                break;
+                            }
+                            continue;
+                        }
                         return Err(err(line, "class keyword arguments are not supported"));
                     }
                 }
@@ -1179,7 +1193,7 @@ impl P {
             self.expect_op(")")?;
         }
         let body = self.block()?;
-        Ok(ClassDef { name, bases, body, decorators, line })
+        Ok(ClassDef { name, bases, body, decorators, line, kwargs })
     }
 
     // ---- expressions ----
