@@ -1,0 +1,8 @@
+8
+[2, 4]
+False False
+True
+no running event loop
+asyncio.run() cannot be called from a running event loop
+a coroutine was expected, got 5
+10 12

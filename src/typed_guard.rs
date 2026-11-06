@@ -662,7 +662,7 @@ pub(crate) fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
             }
             go(v);
         }),
-        Ex::Star(x) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) => go(x),
+        Ex::Star(x) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => go(x),
         Ex::Attr(x, _) => go(x),
         Ex::Index(a, b) | Ex::Bin(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => {
             go(a);
@@ -1548,9 +1548,12 @@ mod tests {
     }
     #[test]
     fn unread_file_is_not_safe() {
-        let src = "try:\n    pass\nexcept* ValueError:\n    pass\nprint({3, -1, 5})\n";
-        assert_eq!(super::check_soft(src).map_err(|e| e.0), Err(3));
+        let src = "x = 3\nmatch x:\n    case 3:\n        pass\nprint({3, -1, 5})\n";
+        assert_eq!(super::check_soft(src).map_err(|e| e.0), Err(2));
         assert!(needs(src));
+        // except* is read now, so the set print is found.
+        let src = "try:\n    pass\nexcept* ValueError:\n    pass\nprint({3, -1, 5})\n";
+        assert_eq!(super::check_soft(src).map(|x| x.map(|x| x.0)), Ok(Some(5)));
     }
     #[test]
     fn string_set_walks_wait_for_rustc() {
@@ -1862,7 +1865,7 @@ fn pure_ex(e: &Ex, fns: &HashSet<String>) -> bool {
                 _ => false,
             };
         }
-        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Lambda(..) => ok = false,
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => ok = false,
         _ => {}
     });
     ok
@@ -1988,7 +1991,7 @@ fn pure_or_fresh(e: &Ex, fresh: &HashSet<String>, fns: &HashSet<String>) -> bool
                 _ => false,
             };
         }
-        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Lambda(..) => ok = false,
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => ok = false,
         _ => {}
     });
     ok

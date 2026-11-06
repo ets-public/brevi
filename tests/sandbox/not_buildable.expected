@@ -1,9 +1,9 @@
-{"line":2,"msg":"expected end of line, found fn"}
+{"line":4,"msg":"unknown name 'super_'","fix":"set it first: super_ = ..."}
 note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines
 exit 1
 -- dynamic
-{"e":"dyn","at":"tests/sandbox/not_buildable.py","line":2,"msg":"async is not supported"}
+{"e":"dyn","at":"tests/sandbox/not_buildable.py","line":4,"msg":"super used as a value is not supported"}
 exit 1
 -- typed
-{"line":2,"msg":"expected end of line, found fn"}
+{"line":4,"msg":"unknown name 'super_'","fix":"set it first: super_ = ..."}
 exit 1

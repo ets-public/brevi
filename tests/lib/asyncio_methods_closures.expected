@@ -1,0 +1,15 @@
+[70, 40, 10, 'insufficient: 10 < 30'] 10
+0
+610
+[5, 6, 7] {0: 5, 1: 6}
+value 15 7
+[5, 6, 7]
+6
+reuse: cannot reuse already awaited coroutine
+keyerror 'k'
+wrapped
+True KeyError('k')
+True False
+1
+coroutine add
+55

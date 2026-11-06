@@ -188,6 +188,23 @@ const PURE_PATHLIB: &[&str] = &["PurePath", "PurePosixPath"];
 // What src/dynpy/py/random.py has (CPython's generator, so seeded draws match).
 const OWN_RANDOM: &[&str] = &["Random", "seed", "random", "getrandbits", "randrange", "randint", "choice", "choices", "shuffle", "sample", "uniform", "gauss"];
 
+// What src/dynpy/py/asyncio.py has: the event loop without I/O, threads, processes or signals.
+const OWN_ASYNCIO: &[&str] = &[
+    "run", "Runner", "sleep", "gather", "create_task", "ensure_future", "wait", "wait_for", "as_completed", "shield", "current_task", "all_tasks",
+    "Future", "Task", "Queue", "PriorityQueue", "LifoQueue", "QueueEmpty", "QueueFull", "QueueShutDown", "Lock", "Event", "Condition", "Semaphore",
+    "BoundedSemaphore", "timeout", "timeout_at", "Timeout", "TaskGroup", "CancelledError", "InvalidStateError", "TimeoutError", "BrokenBarrierError",
+    "FIRST_COMPLETED", "FIRST_EXCEPTION", "ALL_COMPLETED", "get_running_loop", "get_event_loop", "new_event_loop", "set_event_loop", "iscoroutine",
+    "isfuture", "AbstractEventLoop", "BaseEventLoop", "Handle", "TimerHandle",
+];
+// Event loop methods Brevi's asyncio lacks (they reach sockets, files, threads, processes or signals).
+const ASYNCIO_LOOP_IO: &[&str] = &[
+    "run_in_executor", "set_default_executor", "getaddrinfo", "getnameinfo", "create_connection", "create_server", "create_unix_connection",
+    "create_unix_server", "create_datagram_endpoint", "connect_accepted_socket", "sendfile", "start_tls", "add_reader", "remove_reader",
+    "add_writer", "remove_writer", "sock_recv", "sock_recv_into", "sock_recvfrom", "sock_sendall", "sock_sendto", "sock_connect", "sock_accept",
+    "sock_sendfile", "connect_read_pipe", "connect_write_pipe", "subprocess_exec", "subprocess_shell", "add_signal_handler", "remove_signal_handler",
+    "shutdown_default_executor",
+];
+
 // The module os, os.path (posixpath) or pathlib a name or dotted module stands for.
 fn path_module(m: &str) -> Option<&'static str> {
     match m {
@@ -198,6 +215,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "io" => Some("io"),
         "textwrap" => Some("textwrap"),
         "argparse" => Some("argparse"),
+        "asyncio" => Some("asyncio"),
         _ => None,
     }
 }
@@ -211,6 +229,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
         // all of argparse but FileType, which opens files
         "argparse" => attr != "FileType",
+        "asyncio" => OWN_ASYNCIO.contains(&attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -353,6 +372,13 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     }
     if !any {
         return None;
+    }
+    if names.values().any(|m| *m == "asyncio") {
+        for (n, l) in &lines {
+            if let Some(m) = ASYNCIO_LOOP_IO.iter().find(|m| l.contains(&format!(".{m}("))) {
+                bad.push((*n, format!("asyncio loop.{m}")));
+            }
+        }
     }
     // argparse's `@file` arguments read files; Brevi's copy has no way to.
     if names.values().any(|m| *m == "argparse") {
@@ -595,6 +621,22 @@ mod tests {
         }
     }
 
+    // Brevi's asyncio (CPython's, cut down: see its header) runs callbacks and timers only: it imports Brevi's own
+    // modules (sys only to write the event loop's error reports to stderr) and opens nothing.
+    #[test]
+    fn asyncio_reaches_nothing() {
+        let src = include_str!("dynpy/py/asyncio.py");
+        for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                let m = m.split_whitespace().next().unwrap();
+                assert!(["_brevi_async", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess"] {
+                assert!(!l.contains(bad), "asyncio.py uses {bad}");
+            }
+        }
+    }
+
     // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it
     // uses sys and getattr, but imports only Brevi's own modules and opens nothing.
     #[test]
@@ -668,11 +710,11 @@ x", Some(vec!["read".into(), "native".into()]), true);
         for bad in ["std::fs", "std::process::Command", "std::net", "std::env::var", "std::env::set", "File::", "libpython", "Py_Initialize", "dlopen", "#[link"] {
             assert!(!rt.contains(bad), "the dynamic runtime uses {bad}: check it in caps.rs before --sandbox builds over it");
         }
-        // C functions it declares: only the generator stacks' memory calls.
+        // C functions it declares: only the generator stacks' memory calls and the clock.
         for block in rt.split("extern \"C\" {").skip(1) {
             let decls = &block[..block.find('}').unwrap()];
             for d in decls.lines().map(str::trim).filter(|l| !l.is_empty()) {
-                assert!(["fn mmap(", "fn munmap(", "fn mprotect("].iter().any(|ok| d.starts_with(ok)), "the dynamic runtime declares {d}");
+                assert!(["fn mmap(", "fn munmap(", "fn mprotect(", "fn clock_gettime("].iter().any(|ok| d.starts_with(ok)), "the dynamic runtime declares {d}");
             }
         }
     }

@@ -1,0 +1,23 @@
+many (3 sub-exceptions) ExceptionGroup('many', [ValueError(1), TypeError('t'), ExceptionGroup('inner', [KeyError('k'), ValueError(2)])])
+ExceptionGroup many 3 True True
+ExceptionGroup('many', [ValueError(1), ExceptionGroup('inner', [ValueError(2)])])
+ExceptionGroup('many', [TypeError('t'), ExceptionGroup('inner', [KeyError('k')])])
+ExceptionGroup('many', [ExceptionGroup('inner', [KeyError('k')])])
+None
+ExceptionGroup
+BaseExceptionGroup False
+ValueError second argument (exceptions) must be a non-empty sequence
+ValueError Item 0 of second argument (exceptions) is not an exception
+TypeError BaseExceptionGroup.__new__() argument 1 must be str, not int
+TypeError Cannot nest BaseExceptions in an ExceptionGroup
+value: ExceptionGroup('', (ValueError('plain'),))
+value: ExceptionGroup('g', [ValueError(1), ValueError(3)])
+type: ExceptionGroup('g', [TypeError(2)])
+value: ExceptionGroup('g', [ValueError(1)])
+left: ExceptionGroup('g', [KeyError(2)])
+naked left: KeyError('naked')
+combined: ExceptionGroup('', [RuntimeError('new'), ExceptionGroup('g', [ValueError(1)])])
+bare reraise of plain: ExceptionGroup('', (ValueError(5),))
+catching ExceptionGroup with except* is not allowed. Use except instead.
+else ran
+finally ran

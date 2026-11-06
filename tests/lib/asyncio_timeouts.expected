@@ -1,0 +1,13 @@
+slow fast finally
+fast
+slow late finally
+timed out 1
+timed out 2 TimeoutError
+in timeout False
+timeout block True
+not expired False
+False
+shield timeout, task done: False
+slow shielded finally
+shielded
+True

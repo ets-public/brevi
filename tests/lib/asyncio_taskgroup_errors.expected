@@ -1,0 +1,9 @@
+boom 1
+slow cancelled
+caught ExceptionGroup('unhandled errors in a TaskGroup', [ValueError('v')])
+boom 1
+boom 1
+keys ExceptionGroup('unhandled errors in a TaskGroup', [KeyError('a')])
+types ExceptionGroup('unhandled errors in a TaskGroup', [TypeError('b')])
+group unhandled errors in a TaskGroup (1 sub-exception) ["RuntimeError('body fails')"]
+done

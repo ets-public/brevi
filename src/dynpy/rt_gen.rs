@@ -85,6 +85,8 @@ pub struct Coro {
     body: Option<Box<dyn FnOnce() -> R>>,
     // A value passed across a switch: yielded out, or sent in.
     xfer: Option<V>,
+    // An exception thrown in at the yield it is suspended at (throw(), a cancelled task).
+    thrown: Option<E>,
     result: Option<R>,
     started: bool,
     running: bool,
@@ -113,7 +115,7 @@ extern "C" fn coro_main(c: *mut Coro) {
 
 impl Coro {
     fn new(body: Box<dyn FnOnce() -> R>) -> Box<Coro> {
-        Box::new(Coro { stack: std::ptr::null_mut(), sp: std::ptr::null_mut(), caller_sp: std::ptr::null_mut(), body: Some(body), xfer: None, result: None, started: false, running: false, depth: 0, depth_base: 0 })
+        Box::new(Coro { stack: std::ptr::null_mut(), sp: std::ptr::null_mut(), caller_sp: std::ptr::null_mut(), body: Some(body), xfer: None, thrown: None, result: None, started: false, running: false, depth: 0, depth_base: 0 })
     }
     // Runs the generator to its next yield: Some(value), or None once it has returned.
     pub fn resume(&mut self, sent: V) -> Result<Option<V>, E> {
@@ -158,6 +160,21 @@ impl Coro {
             }
         }
     }
+    // throw(e): raised at the yield the generator is suspended at; one not started yet ends with it unrun.
+    pub fn throw(&mut self, e: E) -> Result<Option<V>, E> {
+        if self.result.is_some() || !self.started {
+            if !self.running {
+                self.result = Some(Ok(V::None));
+                self.body = None;
+            }
+            return Err(e);
+        }
+        self.thrown = Some(e);
+        self.resume(V::None)
+    }
+    pub fn is_suspended(&self) -> bool {
+        self.started && self.result.is_none() && !self.running
+    }
     pub fn close(&mut self) {
         if !self.running {
             self.result = Some(Ok(V::None));
@@ -187,6 +204,10 @@ pub fn gen_yield(v: V) -> R {
     unsafe {
         (*c).xfer = Some(v);
         brevi_ctx_switch(&mut (*c).sp, (*c).caller_sp);
+        if let Some(e) = (*c).thrown.take() {
+            (*c).xfer = None;
+            return Err(e);
+        }
         Ok((*c).xfer.take().unwrap_or(V::None))
     }
 }
@@ -195,18 +216,7 @@ pub fn gen_yield(v: V) -> R {
 pub fn gen_yield_from(it: &V) -> R {
     if let V::Iter(i) = it {
         if let Some(c) = coro_of(i) {
-            let mut sent = V::None;
-            loop {
-                let r = c.borrow_mut().resume(sent);
-                match r {
-                    Ok(Some(x)) => {
-                        sent = gen_yield(x)?;
-                    }
-                    Ok(None) => return Ok(V::None),
-                    Err(E(e)) if is_exc(&e, "StopIteration") => return Ok(exc_value(&e)),
-                    Err(e) => return Err(e),
-                }
-            }
+            return delegate(&c);
         }
     }
     let mut i = iter(it)?;

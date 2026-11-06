@@ -1,0 +1,14 @@
+w1 start
+cancel -> True
+w1 cancelled CancelledError() ()
+w1 cleanup
+main saw cancel True True
+w2 start
+w2 cancelled CancelledError('because') ('because',)
+w2 cleanup
+msg ('because',)
+stubborn caught it
+kept going False
+cancel before start True
+w4 cancelled True
+False 1

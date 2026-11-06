@@ -1314,10 +1314,38 @@ pub struct Class {
     pub attrs: RefCell<Vec<(Sym, V)>>,
     pub bt: BT,
     pub fields: RefCell<Vec<Sym>>,
+    // lookup() results, valid while CLASS_EPOCH (bumped by every change to any class's attributes) is unchanged
+    lcache: RefCell<(u64, HashMap<Box<str>, Option<V>, FnvBuild>)>,
+}
+
+thread_local! {
+    pub static CLASS_EPOCH: Cell<u64> = const { Cell::new(1) };
+}
+pub fn class_changed() {
+    CLASS_EPOCH.with(|e| e.set(e.get() + 1));
+}
+#[derive(Default, Clone, Copy)]
+pub struct FnvBuild;
+pub struct FnvH(u64);
+impl std::hash::BuildHasher for FnvBuild {
+    type Hasher = FnvH;
+    fn build_hasher(&self) -> FnvH {
+        FnvH(0xcbf29ce484222325)
+    }
+}
+impl std::hash::Hasher for FnvH {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, b: &[u8]) {
+        for x in b {
+            self.0 = (self.0 ^ *x as u64).wrapping_mul(0x100000001b3);
+        }
+    }
 }
 impl Class {
     pub fn new(name: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]) });
+        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -1353,6 +1381,24 @@ impl Class {
         self.attrs.borrow().iter().find(|(k, _)| *k == n).map(|(_, v)| v.clone())
     }
     pub fn lookup(&self, n: &str) -> Option<V> {
+        let ep = CLASS_EPOCH.with(|e| e.get());
+        {
+            let mut c = self.lcache.borrow_mut();
+            if c.0 != ep {
+                c.0 = ep;
+                c.1.clear();
+            } else if let Some(v) = c.1.get(n) {
+                return v.clone();
+            }
+        }
+        let r = self.lookup_mro(n);
+        let mut c = self.lcache.borrow_mut();
+        if c.0 == ep && c.1.len() < 256 {
+            c.1.insert(n.into(), r.clone());
+        }
+        r
+    }
+    fn lookup_mro(&self, n: &str) -> Option<V> {
         if let Some(v) = self.own(n) {
             return Some(v);
         }
@@ -1364,6 +1410,7 @@ impl Class {
         None
     }
     pub fn set(&self, n: Sym, v: V) {
+        class_changed();
         let mut a = self.attrs.borrow_mut();
         match a.iter_mut().find(|(k, _)| *k == n) {
             Some(e) => e.1 = v,
@@ -1488,6 +1535,7 @@ pub fn init_builtin_classes() {
         ("RecursionError", "RuntimeError"),
         ("NotImplementedError", "RuntimeError"),
         ("StopIteration", "Exception"),
+        ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),
         ("ImportError", "Exception"),
         ("ModuleNotFoundError", "ImportError"),
@@ -1495,6 +1543,7 @@ pub fn init_builtin_classes() {
         ("FileNotFoundError", "OSError"),
         ("PermissionError", "OSError"),
         ("IsADirectoryError", "OSError"),
+        ("TimeoutError", "OSError"),
         ("EOFError", "Exception"),
         ("MemoryError", "Exception"),
         ("BufferError", "Exception"),
@@ -1520,6 +1569,10 @@ pub fn init_builtin_classes() {
         };
         m.insert(n, Class::new(n, module, vec![parent], BT::Exc));
     }
+    let beg = Class::new("BaseExceptionGroup", "builtins", vec![m["BaseException"].clone()], BT::Exc);
+    m.insert("BaseExceptionGroup", beg.clone());
+    m.insert("ExceptionGroup", Class::new("ExceptionGroup", "builtins", vec![beg.clone(), m["Exception"].clone()], BT::Exc));
+    eg_class_setup(&beg);
     let (ve, ie, te) = (m["ValueError"].clone(), m["IndexError"].clone(), m["TypeError"].clone());
     m.insert("AxisError", Class::new("AxisError", "numpy.exceptions", vec![ve.clone(), ie], BT::Exc));
     m.insert("UFuncTypeError", Class::new("UFuncTypeError", "numpy._core._exceptions", vec![te], BT::Exc));

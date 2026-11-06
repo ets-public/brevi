@@ -223,6 +223,16 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             return Ok(o);
         }
     }
+    if c.base_bt() == BT::Exc && c.is_sub(&exc_class("BaseExceptionGroup")) {
+        let g = eg_new(c, &a)?;
+        if let Some(init) = c.lookup("__init__") {
+            if !is_builtin_init(&init) {
+                a.p.insert(0, g.clone());
+                call(&init, a)?;
+            }
+        }
+        return Ok(g);
+    }
     let o = Obj::new(c.clone());
     let me = V::Obj(o.clone());
     let bb = c.base_bt();
@@ -639,6 +649,20 @@ pub fn call_method(o: &V, name: &str, a: Args) -> R {
             }
             if ob.cls.base_bt() == BT::Exc && name == "with_traceback" {
                 return Ok(o.clone());
+            }
+            if ob.cls.base_bt() == BT::Exc && name == "add_note" {
+                if a.p.len() != 1 || !a.k.is_empty() {
+                    return Err(exc("TypeError", format!("BaseException.add_note() takes exactly one argument ({} given)", a.p.len())));
+                }
+                if !matches!(a.p[0], V::Str(_)) {
+                    return Err(exc("TypeError", format!("note must be a str, not '{}'", type_name(&a.p[0]))));
+                }
+                match ob.get("__notes__") {
+                    Some(V::List(l)) => l.borrow_mut().push(a.p[0].clone()),
+                    Some(_) => return Err(exc("TypeError", "Cannot add note: __notes__ is not a list".into())),
+                    None => ob.set(sym("__notes__"), list(vec![a.p[0].clone()])),
+                }
+                return Ok(V::None);
             }
             let f = getattr(o, name)?;
             call(&f, a)
