@@ -12,7 +12,7 @@ for f in tests/run/*.bv tests/errors/*.bv; do
   esac
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
-    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_np_err | tail -5; fail=1
   else
     echo "ok   $f"
   fi
