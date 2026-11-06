@@ -17,8 +17,10 @@ fn npa_kw_ok(a: &Args, f: &str, ok: &[&str]) -> Result<(), E> {
 fn np_int_arg(v: &V) -> Result<i64, E> {
     match as_npsc(v) {
         Some(Sc::I(i)) => Ok(i),
+        Some(Sc::I32(i)) => Ok(i as i64),
         Some(Sc::B(b)) => Ok(b as i64),
         Some(Sc::F(_)) => type_err("'numpy.float64' object cannot be interpreted as an integer".into()),
+        Some(Sc::F32(_)) => type_err("'numpy.float32' object cannot be interpreted as an integer".into()),
         None => match v {
             V::Float(_) => type_err("'float' object cannot be interpreted as an integer".into()),
             _ => idx_of(v),
@@ -65,6 +67,8 @@ fn np_py(x: Sc) -> V {
         Sc::B(b) => V::Bool(b),
         Sc::I(i) => V::Int(i),
         Sc::F(f) => V::Float(f),
+        Sc::I32(i) => V::Int(i as i64),
+        Sc::F32(f) => V::Float(f as f64),
     }
 }
 fn np_tolist(vals: &Buf, shape: &[usize], off: usize) -> V {
@@ -112,7 +116,7 @@ fn np_dims_args(a: &Args, from: usize) -> Result<Vec<i64>, E> {
 fn np_lt(a: Sc, b: Sc) -> bool {
     match (a, b) {
         (Sc::F(x), Sc::F(y)) => x < y || (y.is_nan() && !x.is_nan()),
-        (x, y) if x.dt() == NT::F || y.dt() == NT::F => {
+        (x, y) if x.dt().is_f() || y.dt().is_f() => {
             let (x, y) = (x.f(), y.f());
             x < y || (y.is_nan() && !x.is_nan())
         }
@@ -132,12 +136,55 @@ fn np_argsort_vals(v: &Buf, lo: usize, n: usize) -> Vec<usize> {
                 std::cmp::Ordering::Equal
             }
         }),
+        Buf::F32(x) => idx.sort_by(|i, j| {
+            let (a, b) = (Sc::F32(x[lo + i]), Sc::F32(x[lo + j]));
+            if np_lt(a, b) {
+                std::cmp::Ordering::Less
+            } else if np_lt(b, a) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        }),
         Buf::I(x) => idx.sort_by_key(|i| x[lo + i]),
+        Buf::I32(x) => idx.sort_by_key(|i| x[lo + i]),
         Buf::B(x) => idx.sort_by_key(|i| x[lo + i]),
     }
     idx
 }
+// numpy's default sort (quicksort: introsort, or x86-simd-sort on AVX-512) does not keep equal items in
+// order. Values that compare equal look the same once sorted except 0.0 and -0.0; their order (and argsort's
+// indices of repeated values) is the algorithm's, which is not modelled: refused unless the sort is stable.
+fn np_sort_kind_stable(k: Option<V>) -> Result<bool, E> {
+    Ok(match k {
+        None | Some(V::None) => false,
+        // numpy reads the first letter
+        Some(V::Str(k)) => match k.s.as_bytes().first() {
+            Some(b's' | b'm') => true,
+            Some(b'q' | b'h') => false,
+            _ => return val_err(format!("sort kind must be one of 'quick', 'heap', or 'stable' (got '{}')", k.s)),
+        },
+        Some(v) => return type_err(format!("sort kind must be str, not {}", tn(&v))),
+    })
+}
+fn np_unstable_check(v: &Buf, lo: usize, n: usize, idx: &[usize], arg: bool) -> Result<(), E> {
+    for w in idx.windows(2) {
+        let (p, q) = (v.get(lo + w[0]), v.get(lo + w[1]));
+        let eq = match (p, q) {
+            (a, b) if a.dt().is_f() => a.f() == b.f() || (a.f().is_nan() && b.f().is_nan()),
+            (a, b) => a.i() == b.i(),
+        };
+        if eq && (arg || (p.dt().is_f() && p.f() == 0.0 && p.f().is_sign_negative() != q.f().is_sign_negative())) {
+            return Err(np_unsup(if arg { "argsort of repeated values without kind='stable' (numpy's quicksort order)" } else { "sorting 0.0 and -0.0 together without kind='stable' (numpy's quicksort order)" }));
+        }
+    }
+    let _ = n;
+    Ok(())
+}
 fn np_sorted(a: &NdArr, axis: Option<usize>, arg: bool) -> R {
+    np_sorted_k(a, axis, arg, true)
+}
+fn np_sorted_k(a: &NdArr, axis: Option<usize>, arg: bool, stable: bool) -> R {
     let (src, ax) = match axis {
         None => (NdArr::new(a.vals(), vec![a.size()]), 0),
         Some(x) => (a.clone(), x),
@@ -151,6 +198,9 @@ fn np_sorted(a: &NdArr, axis: Option<usize>, arg: bool) -> R {
     let mut out = if arg { Buf::I(vec![0; g.vals.len()]) } else { Buf::zeros(g.vals.dt(), g.vals.len()) };
     for k in 0..ng {
         let idx = np_argsort_vals(&g.vals, k * n, n);
+        if !stable {
+            np_unstable_check(&g.vals, k * n, n, &idx, arg)?;
+        }
         for (j, i) in idx.iter().enumerate() {
             out.set(k * n + j, if arg { Sc::I(*i as i64) } else { g.vals.get(k * n + i) });
         }
@@ -162,7 +212,7 @@ fn np_concat(xs: &[NdArr], axis: Option<usize>) -> R {
     if xs.is_empty() {
         return val_err("need at least one array to concatenate".into());
     }
-    let d = xs.iter().map(|a| a.dt()).max().unwrap();
+    let d = np_promote_all(xs.iter().map(|a| a.dt())).unwrap();
     let xs: Vec<NdArr> = match axis {
         None => xs.iter().map(|a| NdArr::new(a.vals(), vec![a.size()])).collect(),
         Some(_) => xs.to_vec(),
@@ -225,19 +275,23 @@ fn np_ufunc1(name: &str, v: &V) -> R {
         "absolute" | "abs" => return np_unary(&np_out(o.a.vals(), shape.clone()).clone_or(v), "abs"),
         "negative" => return np_unary(v, "neg"),
         "positive" => return np_unary(v, "pos"),
-        "square" if d != NT::F => {
+        "square" if !d.is_f() => {
             if d == NT::B {
                 return Err(np_unsup("np.square of a bool array (numpy gives int8)"));
             }
-            return Ok(np_out(Buf::I(o.a.iv().iter().map(|x| x.wrapping_mul(*x)).collect()), shape));
+            let r: Vec<i64> = o.a.iv().iter().map(|x| x.wrapping_mul(*x)).collect();
+            return Ok(np_out(if d == NT::I32 { Buf::I32(r.into_iter().map(|v| v as i32).collect()) } else { Buf::I(r) }, shape));
         }
-        "sign" if d != NT::F => {
+        "sign" if !d.is_f() => {
             if d == NT::B {
                 return Err(exc("UFuncTypeError", "ufunc 'sign' did not contain a loop with signature matching types <class 'numpy.dtypes.BoolDType'> -> None".into()));
             }
-            return Ok(np_out(Buf::I(o.a.iv().iter().map(|x| x.signum()).collect()), shape));
+            return Ok(np_out(Buf::I(o.a.iv().iter().map(|x| x.signum()).collect()).cast(d), shape));
         }
-        "floor" | "ceil" | "trunc" | "rint" | "fix" if d != NT::F => return Ok(np_out(o.a.vals(), shape)),
+        // rint has no integer loop: numpy gives float64 for int inputs (and float16 for bool).
+        "rint" if d == NT::B => return Err(np_unsup("np.rint of a bool array (numpy gives float16)")),
+        "rint" if !d.is_f() => return Ok(np_out(Buf::F(o.a.fv()), shape)),
+        "floor" | "ceil" | "trunc" | "fix" if !d.is_f() => return Ok(np_out(o.a.vals(), shape)),
         "isnan" | "isinf" | "isfinite" => {
             let v = o.a.fv();
             return Ok(np_out(
@@ -254,6 +308,20 @@ fn np_ufunc1(name: &str, v: &V) -> R {
     }
     if d == NT::B {
         return Err(np_unsup(&format!("np.{name} of a bool array (numpy gives float16)")));
+    }
+    if d == NT::F32 {
+        // the correctly rounded ones: float64's result rounded once is float32's. numpy's float32 exp, log,
+        // sin, ... are its own SIMD code, which Brevi does not have.
+        if !matches!(name, "sqrt" | "floor" | "ceil" | "trunc" | "fix" | "rint" | "square" | "reciprocal" | "sign") {
+            return Err(np_unsup(&format!("np.{name} of float32")));
+        }
+        let x = o.a.fv();
+        let r = np_ufunc1_f(name, &x, shape.clone())?;
+        let rv: Vec<f32> = np_as(&r)?.fv().iter().map(|v| *v as f32).collect();
+        if name == "square" && rv.iter().zip(&x).any(|(b, a)| b.is_infinite() && a.is_finite()) {
+            np_warn("overflow encountered in square");
+        }
+        return Ok(np_out(Buf::F32(rv), shape));
     }
     let shp = o.a.shape.clone();
     np_with_f(&o.a, &shp, |x| np_ufunc1_f(name, x, shape))
@@ -398,9 +466,32 @@ fn np_ufunc2(name: &str, x: &V, y: &V) -> R {
                         }
                     }).collect())
                 }
-                NT::I => {
+                NT::F32 => {
+                    // one of the two values, so float64 picks the same one
+                    let (u, v) = (np_bvals(&a.a, &shape).cast(NT::F32).fv(), np_bvals(&b.a, &shape).cast(NT::F32).fv());
+                    Buf::F32(u.iter().zip(&v).map(|(p, q)| {
+                        let (p, q) = (*p, *q);
+                        (if p.is_nan() || q.is_nan() {
+                            if fnan {
+                                if p.is_nan() { q } else { p }
+                            } else if p.is_nan() {
+                                p
+                            } else {
+                                q
+                            }
+                        } else if mx {
+                            if p > q { p } else { q }
+                        } else if p < q {
+                            p
+                        } else {
+                            q
+                        }) as f32
+                    }).collect())
+                }
+                NT::I | NT::I32 => {
                     let (u, v) = (np_bvals(&a.a, &shape).iv(), np_bvals(&b.a, &shape).iv());
-                    Buf::I(u.iter().zip(&v).map(|(p, q)| if mx { *p.max(q) } else { *p.min(q) }).collect())
+                    let r: Vec<i64> = u.iter().zip(&v).map(|(p, q)| if mx { *p.max(q) } else { *p.min(q) }).collect();
+                    if d == NT::I32 { Buf::I32(r.into_iter().map(|v| v as i32).collect()) } else { Buf::I(r) }
                 }
                 NT::B => {
                     let (u, v) = (np_bvals(&a.a, &shape).bv(), np_bvals(&b.a, &shape).bv());
@@ -410,8 +501,8 @@ fn np_ufunc2(name: &str, x: &V, y: &V) -> R {
             Ok(np_out(r, shape))
         }
         "arctan2" | "hypot" | "copysign" | "fmod" | "logaddexp" => {
-            if d == NT::B {
-                return Err(np_unsup(&format!("np.{name} of bool arrays")));
+            if d == NT::B || d == NT::F32 {
+                return Err(np_unsup(&format!("np.{name} of {} arrays", d.name())));
             }
             let (u, v) = (np_bvals(&a.a, &shape).fv(), np_bvals(&b.a, &shape).fv());
             let r: Vec<f64> = u.iter().zip(&v).map(|(p, q)| match name {
@@ -468,9 +559,18 @@ fn np_round_buf(b: Buf, dec: i64) -> Buf {
                 Buf::F(v.iter().map(|x| rint(x / f) * f).collect())
             }
         }
+        // float32 arithmetic with 10**decimals rounded to float32 (PyArray_Round into a float32 array)
+        Buf::F32(v) => {
+            let f = 10f64.powi(dec.unsigned_abs() as i32) as f32;
+            Buf::F32(v.iter().map(|x| if dec >= 0 { (rint((x * f) as f64) as f32) / f } else { (rint((x / f) as f64) as f32) * f }).collect())
+        }
         Buf::I(v) if dec < 0 => {
             let f = 10f64.powi((-dec) as i32);
             Buf::I(v.iter().map(|x| (rint(*x as f64 / f) * f) as i64).collect())
+        }
+        Buf::I32(v) if dec < 0 => {
+            let f = 10f64.powi((-dec) as i32);
+            Buf::I32(v.iter().map(|x| (rint(*x as f64 / f) * f) as i64 as i32).collect())
         }
         b => b,
     }
@@ -529,7 +629,9 @@ fn np_linspace(a: &Args) -> R {
     }
     let b = match dt {
         Some(NT::I) => Buf::I(y.iter().map(|x| x.floor() as i64).collect()),
+        Some(NT::I32) => Buf::F(y.iter().map(|x| x.floor()).collect()).cast(NT::I32),
         Some(NT::B) => Buf::F(y).cast(NT::B),
+        Some(NT::F32) => Buf::F(y).cast(NT::F32),
         _ => Buf::F(y),
     };
     let arr = np_new(b, vec![n]);
@@ -559,7 +661,7 @@ fn np_arange(a: &Args) -> R {
     };
     let ops: Vec<Opnd> = [&start, &stop, &step].iter().map(|v| np_opnd(v).ok().flatten().ok_or_else(|| exc("TypeError", "unsupported arange argument".into()))).collect::<Result<_, _>>()?;
     let d = dt.unwrap_or_else(|| {
-        let m = ops.iter().map(|o| o.a.dt()).max().unwrap();
+        let m = np_promote_all(ops.iter().map(|o| o.a.dt())).unwrap();
         if m == NT::B {
             NT::I
         } else {
@@ -572,17 +674,39 @@ fn np_arange(a: &Args) -> R {
     }
     let len = ((s1.f() - s0.f()) / st.f()).ceil();
     let n = if len.is_nan() || len <= 0.0 { 0 } else { len as usize };
-    let b = if d == NT::I && ops.iter().all(|o| o.a.dt() != NT::F) {
-        let (a0, s) = (s0.i(), st.i());
-        Buf::I((0..n).map(|i| a0.wrapping_add((i as i64).wrapping_mul(s))).collect())
-    } else {
-        let a0 = s0.f();
-        let delta = (a0 + st.f()) - a0;
-        let mut v: Vec<f64> = (0..n).map(|i| a0 + i as f64 * delta).collect();
-        if n > 1 {
-            v[1] = a0 + st.f();
+    // numpy stores start and start + step (added as Python numbers) in the dtype, then the dtype's fill function
+    // makes element i = first + i * (second - first) in that type
+    let ints = ops.iter().all(|o| !o.a.dt().is_f());
+    let next = if ints { Sc::I(s0.i().wrapping_add(st.i())) } else { Sc::F(s0.f() + st.f()) };
+    let b = match d {
+        NT::I | NT::I32 => {
+            // a Python float stored in an integer array is truncated (int())
+            let (v0, v1) = (s0.i(), next.i());
+            let (v0, delta) = if d == NT::I32 { (v0 as i32 as i64, (v1 as i32).wrapping_sub(v0 as i32) as i64) } else { (v0, v1.wrapping_sub(v0)) };
+            let mut v: Vec<i64> = (0..n).map(|i| v0.wrapping_add((i as i64).wrapping_mul(delta))).collect();
+            if n > 1 {
+                v[1] = v1;
+            }
+            Buf::I(v).cast(d)
         }
-        Buf::F(v).cast(d)
+        NT::F32 => {
+            let (v0, v1) = (f_to_f32(s0.f()), f_to_f32(next.f()));
+            let delta = v1 - v0;
+            let mut v: Vec<f32> = (0..n).map(|i| v0 + i as f32 * delta).collect();
+            if n > 1 {
+                v[1] = v1;
+            }
+            Buf::F32(v)
+        }
+        _ => {
+            let a0 = s0.f();
+            let delta = (a0 + st.f()) - a0;
+            let mut v: Vec<f64> = (0..n).map(|i| a0 + i as f64 * delta).collect();
+            if n > 1 {
+                v[1] = a0 + st.f();
+            }
+            Buf::F(v).cast(d)
+        }
     };
     Ok(np_new(b, vec![n]))
 }
@@ -667,9 +791,13 @@ fn np_unique(a: &Args) -> R {
     let vals = x.vals();
     let n = vals.len();
     let order = np_argsort_vals(&vals, 0, n);
+    if !ri {
+        // numpy sorts with its default (unstable) kind unless return_index: which zero comes first is its own
+        np_unstable_check(&vals, 0, n, &order, false)?;
+    }
     let mut uniq: Vec<usize> = vec![]; // first index (in sorted order) of each group
     let same = |p: Sc, q: Sc| match (p, q) {
-        (Sc::F(a), Sc::F(b)) => a == b || (a.is_nan() && b.is_nan()),
+        (a, b) if a.dt().is_f() || b.dt().is_f() => a.f() == b.f() || (a.f().is_nan() && b.f().is_nan()),
         (a, b) => a.i() == b.i(),
     };
     for (j, i) in order.iter().enumerate() {
@@ -807,6 +935,9 @@ fn np_median(x: &NdArr, axis: Option<usize>, keepdims: bool) -> R {
 }
 
 fn np_nanred(x: &NdArr, what: &str, o: &RedOpts) -> R {
+    if x.dt() == NT::F32 {
+        return Err(np_unsup(&format!("np.{what} of float32")));
+    }
     if x.dt() != NT::F {
         return np_reduce(x, &what[3..], o);
     }
@@ -867,6 +998,9 @@ fn red_opts(a: &Args, x: &NdArr, axis_pos: usize) -> Result<RedOpts, E> {
 
 // Methods of arrays (x is the array); module functions taking an array first use them too.
 pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
+    if (x.dt().narrow() || np_narrow_args(a)) && !NP_NARROW_METHODS.contains(&n) && n != "astype" {
+        return Err(np_unsup(&format!(".{n}() of a {} array", x.dt().name())));
+    }
     let nd = x.ndim();
     match n {
         "sum" | "mean" | "std" | "var" | "prod" | "max" | "min" | "argmax" | "argmin" | "any" | "all" => {
@@ -935,7 +1069,7 @@ pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
         }
         "sort" => {
             let ax = np_axis_arg(Some(npa(a, 0, "axis").unwrap_or(V::Int(-1))), nd)?;
-            let s = np_sorted(x, ax, false)?;
+            let s = np_sorted_k(x, ax, false, np_sort_kind_stable(npa(a, 1, "kind"))?)?;
             let sv = as_np(&s).unwrap().vals();
             let mut b = x.buf.borrow_mut();
             for (i, p) in x.pos().iter().enumerate() {
@@ -943,7 +1077,7 @@ pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
             }
             Ok(V::None)
         }
-        "argsort" => np_sorted(x, np_axis_arg(Some(npa(a, 0, "axis").unwrap_or(V::Int(-1))), nd)?, true),
+        "argsort" => np_sorted_k(x, np_axis_arg(Some(npa(a, 0, "axis").unwrap_or(V::Int(-1))), nd)?, true, np_sort_kind_stable(npa(a, 1, "kind"))?),
         "nonzero" => np_nonzero(x),
         "dot" => np_dot(me, &a.p[0]),
         "squeeze" => {
@@ -974,7 +1108,8 @@ pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
             let d = np_method(x, me, "diagonal", &mut Args::p(vec![]))?;
             let dv = as_np(&d).unwrap();
             match dv.dt() {
-                NT::F => Ok(np_sc(Sc::F(np_pw(&dv.fv())))),
+                NT::F => Ok(np_sc(Sc::F(0.0 + np_pw(&dv.fv())))),
+                NT::F32 => Err(np_unsup("trace of float32")),
                 _ => Ok(np_sc(Sc::I(dv.iv().iter().fold(0i64, |s, v| s.wrapping_add(*v))))),
             }
         }
@@ -991,10 +1126,12 @@ pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
             }
             let s = x.first_c();
             Ok(match n {
+                // a float goes through Python's int(): nan and inf raise, a big value stays exact
+                "__int__" if s.dt().is_f() => return to_int(&V::Float(s.f())),
                 "__int__" => V::Int(s.i()),
                 "__float__" => V::Float(s.f()),
                 _ => {
-                    if x.ndim() > 0 || s.dt() == NT::F {
+                    if x.ndim() > 0 || s.dt().is_f() {
                         return type_err("only integer scalar arrays can be converted to a scalar index".into());
                     }
                     V::Int(s.i())
@@ -1093,6 +1230,8 @@ pub fn np_module_attr(m: &str, n: &str) -> Option<V> {
         ("numpy", "False_") => np_sc(Sc::B(false)),
         ("numpy", "float64" | "double") => V::Class(ext_class("numpy.float64")),
         ("numpy", "int64" | "int_" | "intp") => V::Class(ext_class("numpy.int64")),
+        ("numpy", "float32" | "single") => V::Class(ext_class("numpy.float32")),
+        ("numpy", "int32" | "intc") => V::Class(ext_class("numpy.int32")),
         ("numpy", "bool_" | "bool") => V::Class(ext_class("numpy.bool")),
         ("numpy", "ndarray") => V::Class(ext_class("numpy.ndarray")),
         ("numpy", "integer" | "signedinteger" | "floating" | "number" | "generic" | "inexact") => V::Class(ext_class(match n {
@@ -1139,6 +1278,43 @@ pub fn np_construct(cls: &str, a: Args) -> Option<R> {
                 };
                 Ok(np_sc(Sc::I(v)))
             }
+            "numpy.float32" => {
+                let x = x.unwrap_or(V::Float(0.0));
+                if let Some(arr) = as_np(&x) {
+                    return Ok(np_out(arr.vals().cast(NT::F32), arr.shape.clone()));
+                }
+                if let Some(s) = as_npsc(&x) {
+                    return Ok(np_sc(Sc::F32(s.f32v())));
+                }
+                if seq_items(&x).is_some() {
+                    let a = np_from(&x, Some(NT::F32))?;
+                    return Ok(np_out(a.vals(), a.shape.clone()));
+                }
+                // a Python number goes through its double
+                Ok(np_sc(Sc::F32(f_to_f32(match &x {
+                    V::Str(_) => to_float(&x)?,
+                    _ => np_f_arg(&x)?,
+                }))))
+            }
+            "numpy.int32" => {
+                let x = x.unwrap_or(V::Int(0));
+                if let Some(arr) = as_np(&x) {
+                    return Ok(np_out(arr.vals().cast(NT::I32), arr.shape.clone()));
+                }
+                if let Some(s) = as_npsc(&x) {
+                    return Ok(np_sc(Sc::I32(s.i32v())));
+                }
+                if seq_items(&x).is_some() {
+                    let a = np_from(&x, Some(NT::I32))?;
+                    return Ok(np_out(a.vals(), a.shape.clone()));
+                }
+                // Python's int() of it, which must fit
+                let v = match to_int(&x)? {
+                    V::Int(i) => i,
+                    big => return Err(exc("OverflowError", format!("Python integer {} out of bounds for int32", repr(&big)?))),
+                };
+                Ok(np_sc(Sc::I32(py_i32(v)?)))
+            }
             "numpy.bool" => Ok(np_sc(Sc::B(match &x {
                 None => false,
                 Some(v) => truth(v)?,
@@ -1149,7 +1325,55 @@ pub fn np_construct(cls: &str, a: Args) -> Option<R> {
     })())
 }
 
+// What takes float32 and int32 values natively (emit.rs NP_NARROW_FUNCS has the same functions); the rest
+// refuses them, so nothing computes them as float64 or int64.
+const NP_NARROW_OK: &[&str] = &[
+    "float64", "double", "int64", "int_", "intp", "bool_", "bool", "float32", "single", "int32", "intc",
+    "array", "asarray", "asanyarray", "copy", "zeros", "ones", "empty", "full", "zeros_like", "ones_like", "empty_like", "full_like",
+    "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype",
+    "sum", "mean", "std", "var", "prod", "max", "min", "amax", "amin", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "around", "clip",
+    "reshape", "ravel", "transpose", "squeeze", "diagonal", "nonzero", "argsort", "repeat", "sort", "count_nonzero", "where", "argwhere", "flatnonzero",
+    "unique", "concatenate", "stack", "vstack", "hstack", "column_stack", "atleast_1d", "atleast_2d", "expand_dims", "flip", "fliplr", "flipud", "roll",
+    "diff", "outer", "array_equal", "searchsorted", "tile", "meshgrid", "diag", "fill_diagonal", "unravel_index",
+    "abs", "absolute", "negative", "positive", "sqrt", "floor", "ceil", "trunc", "rint", "fix", "square", "reciprocal", "sign", "isnan", "isinf", "isfinite", "logical_not",
+    "add", "subtract", "multiply", "divide", "true_divide", "floor_divide", "mod", "remainder", "power", "maximum", "minimum", "fmax", "fmin",
+    "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
+    "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift",
+];
+const NP_NARROW_METHODS: &[&str] = &[
+    "sum", "mean", "std", "var", "prod", "max", "min", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "clip", "reshape", "ravel",
+    "flatten", "copy", "transpose", "astype", "tolist", "item", "fill", "sort", "argsort", "nonzero", "squeeze", "diagonal", "repeat", "conj",
+    "conjugate", "__abs__", "__round__", "__int__", "__float__", "__index__", "__contains__", "__getitem__", "__setitem__", "__iop__",
+];
+// a float32 or int32 array, scalar or dtype (or a list holding one)
+pub fn np_is_narrow(v: &V) -> bool {
+    if let Some(a) = as_np(v) {
+        return a.dt().narrow();
+    }
+    if let Some(x) = as_npsc(v) {
+        return x.dt().narrow();
+    }
+    if let Some(d) = as_npdt(v) {
+        return d.narrow();
+    }
+    match v {
+        V::Class(c) => matches!(c.name, "numpy.float32" | "numpy.int32"),
+        V::Str(_) => np_dtype_arg(v).ok().flatten().is_some_and(|d| d.narrow()),
+        V::List(l) => l.borrow().iter().any(np_is_narrow),
+        V::Tuple(t) => t.iter().any(np_is_narrow),
+        _ => false,
+    }
+}
+pub fn np_narrow_args(a: &Args) -> bool {
+    a.p.iter().any(np_is_narrow) || a.k.iter().any(|(_, v)| np_is_narrow(v))
+}
+
 pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
+    if m != "numpy" || !NP_NARROW_OK.contains(&n) {
+        if np_narrow_args(&a) {
+            return Err(np_unsup(&format!("{}{n}() of float32 or int32 values", if m == "numpy" { "np.".to_string() } else { format!("{m}.") })));
+        }
+    }
     if m == "numpy.random" {
         return np_random_call(n, &mut a);
     }
@@ -1285,8 +1509,12 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
             };
             Ok(V::Bool(match k {
                 "numpy.number" | "numpy.generic" => d != NT::B || k == "numpy.generic",
-                "numpy.integer" | "numpy.signedinteger" | "numpy.int64" | "int" => d == NT::I,
-                "numpy.floating" | "numpy.inexact" | "numpy.float64" | "float" => d == NT::F,
+                "numpy.integer" | "numpy.signedinteger" => d.is_i(),
+                "numpy.int64" | "int" => d == NT::I,
+                "numpy.int32" => d == NT::I32,
+                "numpy.floating" | "numpy.inexact" => d.is_f(),
+                "numpy.float64" | "float" => d == NT::F,
+                "numpy.float32" => d == NT::F32,
                 "numpy.bool" | "bool" => d == NT::B,
                 _ => false,
             }))
@@ -1326,7 +1554,8 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
                 return Ok(np_arr(np_transpose(&x, None)?));
             }
             if name == "argsort" && npa(&a, 0, "axis").is_none() {
-                return np_method(&x, &me, name, &mut Args::p(vec![V::Int(-1)]));
+                let k = a.k.iter().filter(|(n, _)| *n == "kind").cloned().collect();
+                return np_method(&x, &me, name, &mut Args { p: vec![V::Int(-1)], k });
             }
             if matches!(name, "sum" | "mean" | "std" | "var" | "prod" | "max" | "min" | "any" | "all") && x.ndim() == 0 && as_npsc(&v).is_none() && as_np(&v).is_none() {
                 // a Python number: 0-d
@@ -1340,7 +1569,7 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
                 Some(v) => Some(norm_axis(np_int_arg(&v)?, x.ndim())?),
                 None => if x.ndim() == 0 { None } else { Some(x.ndim() - 1) },
             };
-            np_sorted(&x, ax, false)
+            np_sorted_k(&x, ax, false, np_sort_kind_stable(npa(&a, 2, "kind"))?)
         }
         "median" => {
             let x = first(&a)?;
@@ -1724,7 +1953,10 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
             if x.shape != [3] || y.shape != [3] {
                 return Err(np_unsup("np.cross of these shapes"));
             }
-            let d = x.dt().max(y.dt());
+            let d = np_promote(x.dt(), y.dt());
+            if d.narrow() {
+                return Err(np_unsup(&format!("np.cross of {}", d.name())));
+            }
             if d == NT::F {
                 let (u, v) = (x.fv(), y.fv());
                 return Ok(np_new(Buf::F(vec![u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]), vec![3]));
@@ -1740,7 +1972,10 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
             if n == 0 || m == 0 {
                 return val_err(if n == 0 { "a cannot be empty".into() } else { "v cannot be empty".into() });
             }
-            let d = x.dt().max(y.dt());
+            let d = np_promote(x.dt(), y.dt());
+            if d.narrow() {
+                return Err(np_unsup(&format!("np.convolve of {}", d.name())));
+            }
             // numpy: correlate(a, v[::-1]) with the longer one first
             let (p, q) = if m > n { (v.clone(), u.clone()) } else { (u.clone(), v.clone()) };
             let (pn, qn) = (p.len(), q.len());
@@ -1889,6 +2124,8 @@ impl Ext for NpScal {
             Sc::F(_) => "numpy.float64",
             Sc::I(_) => "numpy.int64",
             Sc::B(_) => "numpy.bool",
+            Sc::I32(_) => "numpy.int32",
+            Sc::F32(_) => "numpy.float32",
         }
     }
     fn repr(&self) -> String {
@@ -1903,7 +2140,9 @@ impl Ext for NpScal {
     fn hash(&self) -> Option<i64> {
         Some(match self.0 {
             Sc::F(f) => hash_float(f),
+            Sc::F32(f) => hash_float(f as f64),
             Sc::I(i) => hash_int(i),
+            Sc::I32(i) => hash_int(i as i64),
             Sc::B(b) => b as i64,
         })
     }
@@ -1928,7 +2167,7 @@ impl Ext for NpScal {
     }
     fn binop(&self, me: &V, op: &str, o: &V, right: bool) -> Option<R> {
         // "#" * np.int64(3): the sequence repeats, as Python's own does through __index__
-        if op == "*" && matches!(o, V::Str(_) | V::List(_) | V::Tuple(_)) && self.0.dt() != NT::F {
+        if op == "*" && matches!(o, V::Str(_) | V::List(_) | V::Tuple(_)) && !self.0.dt().is_f() {
             return Some(binop(o, &V::Int(self.0.i()), "*"));
         }
         match op {
@@ -1969,17 +2208,18 @@ impl Ext for NpScal {
         let x = self.0;
         Some(match n {
             "item" | "tolist" => Ok(np_py(x)),
+            "__int__" if x.dt().is_f() => to_int(&V::Float(x.f())),
             "__int__" => Ok(V::Int(x.i())),
             "__float__" => Ok(V::Float(x.f())),
             "__index__" => match x {
-                Sc::F(_) => type_err("'numpy.float64' object cannot be interpreted as an integer".into()),
+                Sc::F(_) | Sc::F32(_) => type_err(format!("'{}' object cannot be interpreted as an integer", self.tname())),
                 _ => Ok(V::Int(x.i())),
             },
             "__abs__" => np_unary(me, "abs"),
             "__round__" if matches!(x, Sc::B(_)) && a.p.first().is_some_and(|v| !matches!(v, V::None)) => Err(exc("TypeError", "ufunc 'rint' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule ''safe''".into())),
             "__round__" => match a.p.first() {
                 None | Some(V::None) => match x {
-                    Sc::F(f) => to_int(&V::Float(rint(f))),
+                    Sc::F(_) | Sc::F32(_) => to_int(&V::Float(rint(x.f()))),
                     _ => Ok(V::Int(x.i())),
                 },
                 Some(d) => {
@@ -1991,7 +2231,7 @@ impl Ext for NpScal {
                 }
             },
             "is_integer" => match x {
-                Sc::F(f) => Ok(V::Bool(f.is_finite() && f.fract() == 0.0)),
+                Sc::F(_) | Sc::F32(_) => Ok(V::Bool(x.f().is_finite() && x.f().fract() == 0.0)),
                 _ => Ok(V::Bool(true)),
             },
             "as_integer_ratio" => call_method(&np_py(x), "as_integer_ratio", Args::p(vec![])),
@@ -2008,7 +2248,9 @@ impl Ext for NpScal {
         Some(match (self.0, cls.name) {
             (_, "numpy.generic") => true,
             (Sc::F(_), "float" | "numpy.float64" | "numpy.floating" | "numpy.inexact" | "numpy.number") => true,
+            (Sc::F32(_), "numpy.float32" | "numpy.floating" | "numpy.inexact" | "numpy.number") => true,
             (Sc::I(_), "numpy.int64" | "numpy.integer" | "numpy.signedinteger" | "numpy.number") => true,
+            (Sc::I32(_), "numpy.int32" | "numpy.integer" | "numpy.signedinteger" | "numpy.number") => true,
             (Sc::B(_), "numpy.bool") => true,
             (_, n) if n == self.tname() => true,
             (_, "object") => true,
@@ -2044,19 +2286,23 @@ impl Ext for NpDtype {
             "name" => s(self.0.name()),
             "kind" => s(match self.0 {
                 NT::B => "b",
-                NT::I => "i",
-                NT::F => "f",
+                NT::I | NT::I32 => "i",
+                NT::F | NT::F32 => "f",
             }),
             "char" => s(match self.0 {
                 NT::B => "?",
                 NT::I => "l",
                 NT::F => "d",
+                NT::I32 => "i",
+                NT::F32 => "f",
             }),
             "itemsize" => V::Int(self.0.size()),
             "type" => V::Class(ext_class(match self.0 {
                 NT::B => "numpy.bool",
                 NT::I => "numpy.int64",
                 NT::F => "numpy.float64",
+                NT::I32 => "numpy.int32",
+                NT::F32 => "numpy.float32",
             })),
             _ => return None,
         }))

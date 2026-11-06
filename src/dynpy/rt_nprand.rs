@@ -356,6 +356,9 @@ impl Ext for NpRng {
         self
     }
     fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        if np_narrow_args(a) {
+            return Some(Err(np_unsup(&format!("{n}() with float32 or int32 values"))));
+        }
         Some(np_rng_call(self, n, a))
     }
 }
@@ -538,7 +541,7 @@ fn np_rng_call(r: &NpRng, n: &str, a: &mut Args) -> R {
             if npa(a, 1, "axis").is_some_and(|v| !matches!(v, V::Int(0))) {
                 return Err(np_unsup("permutation(axis=...)"));
             }
-            let arr = if matches!(x, V::Int(_)) || as_npsc(&x).is_some_and(|s| s.dt() == NT::I) {
+            let arr = if matches!(x, V::Int(_)) || as_npsc(&x).is_some_and(|s| s.dt().is_i()) {
                 let k = np_int_arg(&x)?;
                 NdArr::new(Buf::I((0..k.max(0)).collect()), vec![k.max(0) as usize])
             } else {
@@ -587,7 +590,7 @@ fn np_choice(r: &NpRng, a: &Args) -> R {
         return Err(np_unsup("choice(axis=/shuffle=False)"));
     }
     // the population: an int n (choose from range(n)) or a 1-D array
-    let (pop, arr) = if matches!(x, V::Int(_)) || as_npsc(&x).is_some_and(|s| s.dt() == NT::I) {
+    let (pop, arr) = if matches!(x, V::Int(_)) || as_npsc(&x).is_some_and(|s| s.dt().is_i()) {
         let k = np_int_arg(&x)?;
         if k <= 0 {
             return val_err("a must be a positive integer unless no samples are taken".into());

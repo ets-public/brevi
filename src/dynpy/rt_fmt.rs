@@ -1,6 +1,20 @@
 
 // ---------- str() and repr() ----------
 
+// The shortest round-trip digits as `{:e}` gives them, but a tie between two shortest candidates goes to the
+// exact value rounded half-to-even, as in Python's repr (Rust rounds such ties up: -254.62014770507812).
+pub fn short_e(x: f64) -> String {
+    let s = format!("{:e}", x);
+    let n = s.split_once('e').unwrap().0.bytes().filter(|c| c.is_ascii_digit()).count();
+    // (two shortest candidates fit only when 15+ digits are needed)
+    if n >= 15 {
+        let t = format!("{:.*e}", n - 1, x);
+        if t != s && t.parse::<f64>() == Ok(x) {
+            return t;
+        }
+    }
+    s
+}
 pub fn float_repr(x: f64) -> String {
     if x.is_nan() {
         return "nan".into();
@@ -11,7 +25,7 @@ pub fn float_repr(x: f64) -> String {
     if x == 0.0 {
         return if x.is_sign_negative() { "-0.0".into() } else { "0.0".into() };
     }
-    let e = format!("{:e}", x);
+    let e = short_e(x);
     let (mant, exp) = e.split_once('e').unwrap();
     let exp: i32 = exp.parse().unwrap();
     let neg = mant.starts_with('-');

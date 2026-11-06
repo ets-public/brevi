@@ -1,16 +1,19 @@
 // ---------- numpy, natively ----------
-// numpy arrays and scalars for dynamic builds: float64, int64 and bool arrays of any shape over a shared buffer
-// (slices are views, as in numpy), numpy 2's type promotion (NEP 50: Python numbers are "weak"), broadcasting,
-// ufuncs, reductions in numpy's summation order (pairwise along the contiguous axis), indexing (basic, boolean
-// and integer arrays) and numpy's printing (rt_npfmt.rs). What it does not do is refused when the program is
-// built (emit.rs np_* tables), so the program goes to CPython's numpy instead; a value it does not know at run
-// time (a string array) raises NotImplementedError naming it.
+// numpy arrays and scalars for dynamic builds: float64, float32, int64, int32 and bool arrays of any shape over a
+// shared buffer (slices are views, as in numpy), numpy 2's type promotion (NEP 50: Python numbers are "weak"),
+// broadcasting, ufuncs, reductions in numpy's summation order (pairwise along the contiguous axis), indexing (basic,
+// boolean and integer arrays) and numpy's printing (rt_npfmt.rs). What it does not do is refused when the program
+// is built (emit.rs np_* tables), so the program goes to CPython's numpy instead; a value it does not know at run
+// time (a string array) raises NotImplementedError naming it. float32 and int32 values reach only what
+// np_narrow_ok lists (checked where calls come in); the rest refuses them.
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NT {
     B,
     I,
     F,
+    I32,
+    F32,
 }
 impl NT {
     pub fn name(self) -> &'static str {
@@ -18,14 +21,52 @@ impl NT {
             NT::B => "bool",
             NT::I => "int64",
             NT::F => "float64",
+            NT::I32 => "int32",
+            NT::F32 => "float32",
         }
     }
     fn size(self) -> i64 {
         match self {
             NT::B => 1,
+            NT::I32 | NT::F32 => 4,
             _ => 8,
         }
     }
+    pub fn is_f(self) -> bool {
+        matches!(self, NT::F | NT::F32)
+    }
+    pub fn is_i(self) -> bool {
+        matches!(self, NT::I | NT::I32)
+    }
+    pub fn narrow(self) -> bool {
+        matches!(self, NT::I32 | NT::F32)
+    }
+    // the kind: bool < integer < float (what same_kind casting compares)
+    pub fn kind(self) -> u8 {
+        match self {
+            NT::B => 0,
+            NT::I | NT::I32 => 1,
+            _ => 2,
+        }
+    }
+    // the default type of numpy (float64, int64, bool): repr leaves its dtype out
+    pub fn default_dt(self) -> bool {
+        matches!(self, NT::B | NT::I | NT::F)
+    }
+}
+// numpy's promotion of two types (np.result_type).
+pub fn np_promote(a: NT, b: NT) -> NT {
+    use NT::*;
+    match (a, b) {
+        (x, y) if x == y => x,
+        (B, y) | (y, B) => y,
+        (I32, I) | (I, I32) => I,
+        (F32, F) | (F, F32) => F,
+        _ => F,
+    }
+}
+pub fn np_promote_all(it: impl Iterator<Item = NT>) -> Option<NT> {
+    it.reduce(np_promote)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -33,6 +74,8 @@ pub enum Sc {
     B(bool),
     I(i64),
     F(f64),
+    I32(i32),
+    F32(f32),
 }
 impl Sc {
     pub fn dt(self) -> NT {
@@ -40,6 +83,8 @@ impl Sc {
             Sc::B(_) => NT::B,
             Sc::I(_) => NT::I,
             Sc::F(_) => NT::F,
+            Sc::I32(_) => NT::I32,
+            Sc::F32(_) => NT::F32,
         }
     }
     pub fn f(self) -> f64 {
@@ -47,6 +92,8 @@ impl Sc {
             Sc::B(b) => b as i64 as f64,
             Sc::I(i) => i as f64,
             Sc::F(x) => x,
+            Sc::I32(i) => i as f64,
+            Sc::F32(x) => x as f64,
         }
     }
     pub fn i(self) -> i64 {
@@ -54,6 +101,8 @@ impl Sc {
             Sc::B(b) => b as i64,
             Sc::I(i) => i,
             Sc::F(x) => f_to_i(x),
+            Sc::I32(i) => i as i64,
+            Sc::F32(x) => f_to_i(x as f64),
         }
     }
     pub fn b(self) -> bool {
@@ -61,6 +110,27 @@ impl Sc {
             Sc::B(b) => b,
             Sc::I(i) => i != 0,
             Sc::F(x) => x != 0.0,
+            Sc::I32(i) => i != 0,
+            Sc::F32(x) => x != 0.0,
+        }
+    }
+    // the C casts numpy's astype makes (an integer becomes float32 in one rounding)
+    pub fn f32v(self) -> f32 {
+        match self {
+            Sc::B(b) => b as i32 as f32,
+            Sc::I(i) => i as f32,
+            Sc::I32(i) => i as f32,
+            Sc::F32(x) => x,
+            Sc::F(x) => f_to_f32(x),
+        }
+    }
+    pub fn i32v(self) -> i32 {
+        match self {
+            Sc::B(b) => b as i32,
+            Sc::I(i) => i as i32,
+            Sc::I32(i) => i,
+            Sc::F(x) => f_to_i32(x),
+            Sc::F32(x) => f_to_i32(x as f64),
         }
     }
     pub fn cast(self, d: NT) -> Sc {
@@ -68,6 +138,8 @@ impl Sc {
             NT::B => Sc::B(self.b()),
             NT::I => Sc::I(self.i()),
             NT::F => Sc::F(self.f()),
+            NT::I32 => Sc::I32(self.i32v()),
+            NT::F32 => Sc::F32(self.f32v()),
         }
     }
 }
@@ -78,12 +150,41 @@ fn f_to_i(x: f64) -> i64 {
     }
     x as i64
 }
+fn f_to_i32(x: f64) -> i32 {
+    // C's (int)x on x86: out of range (and NaN) is INT_MIN
+    if !(x > -2147483649.0 && x < 2147483648.0) {
+        np_warn("invalid value encountered in cast");
+        return i32::MIN;
+    }
+    x as i32
+}
+fn f_to_f32(x: f64) -> f32 {
+    let r = x as f32;
+    if r.is_infinite() && x.is_finite() {
+        np_warn("overflow encountered in cast");
+    }
+    r
+}
 
 #[derive(Clone)]
 pub enum Buf {
     B(Vec<bool>),
     I(Vec<i64>),
     F(Vec<f64>),
+    I32(Vec<i32>),
+    F32(Vec<f32>),
+}
+// the same expression over each kind of buffer (v is the Vec, and W the variant)
+macro_rules! buf_map {
+    ($b:expr, $v:ident => $e:expr) => {
+        match $b {
+            Buf::B($v) => Buf::B($e),
+            Buf::I($v) => Buf::I($e),
+            Buf::F($v) => Buf::F($e),
+            Buf::I32($v) => Buf::I32($e),
+            Buf::F32($v) => Buf::F32($e),
+        }
+    };
 }
 impl Buf {
     pub fn dt(&self) -> NT {
@@ -91,6 +192,8 @@ impl Buf {
             Buf::B(_) => NT::B,
             Buf::I(_) => NT::I,
             Buf::F(_) => NT::F,
+            Buf::I32(_) => NT::I32,
+            Buf::F32(_) => NT::F32,
         }
     }
     pub fn len(&self) -> usize {
@@ -98,6 +201,8 @@ impl Buf {
             Buf::B(v) => v.len(),
             Buf::I(v) => v.len(),
             Buf::F(v) => v.len(),
+            Buf::I32(v) => v.len(),
+            Buf::F32(v) => v.len(),
         }
     }
     pub fn get(&self, p: usize) -> Sc {
@@ -105,6 +210,8 @@ impl Buf {
             Buf::B(v) => Sc::B(v[p]),
             Buf::I(v) => Sc::I(v[p]),
             Buf::F(v) => Sc::F(v[p]),
+            Buf::I32(v) => Sc::I32(v[p]),
+            Buf::F32(v) => Sc::F32(v[p]),
         }
     }
     pub fn set(&mut self, p: usize, x: Sc) {
@@ -112,6 +219,8 @@ impl Buf {
             Buf::B(v) => v[p] = x.b(),
             Buf::I(v) => v[p] = x.i(),
             Buf::F(v) => v[p] = x.f(),
+            Buf::I32(v) => v[p] = x.i32v(),
+            Buf::F32(v) => v[p] = x.f32v(),
         }
     }
     pub fn zeros(d: NT, n: usize) -> Buf {
@@ -119,6 +228,8 @@ impl Buf {
             NT::B => Buf::B(vec![false; n]),
             NT::I => Buf::I(vec![0; n]),
             NT::F => Buf::F(vec![0.0; n]),
+            NT::I32 => Buf::I32(vec![0; n]),
+            NT::F32 => Buf::F32(vec![0.0; n]),
         }
     }
     pub fn from_sc(d: NT, xs: &[Sc]) -> Buf {
@@ -126,21 +237,25 @@ impl Buf {
             NT::B => Buf::B(xs.iter().map(|x| x.b()).collect()),
             NT::I => Buf::I(xs.iter().map(|x| x.i()).collect()),
             NT::F => Buf::F(xs.iter().map(|x| x.f()).collect()),
+            NT::I32 => Buf::I32(xs.iter().map(|x| x.i32v()).collect()),
+            NT::F32 => Buf::F32(xs.iter().map(|x| x.f32v()).collect()),
+        }
+    }
+    // one value n times
+    pub fn fill(x: Sc, n: usize) -> Buf {
+        match x {
+            Sc::B(v) => Buf::B(vec![v; n]),
+            Sc::I(v) => Buf::I(vec![v; n]),
+            Sc::F(v) => Buf::F(vec![v; n]),
+            Sc::I32(v) => Buf::I32(vec![v; n]),
+            Sc::F32(v) => Buf::F32(vec![v; n]),
         }
     }
     pub fn pick(&self, ps: &[usize]) -> Buf {
-        match self {
-            Buf::B(v) => Buf::B(ps.iter().map(|p| v[*p]).collect()),
-            Buf::I(v) => Buf::I(ps.iter().map(|p| v[*p]).collect()),
-            Buf::F(v) => Buf::F(ps.iter().map(|p| v[*p]).collect()),
-        }
+        buf_map!(self, v => ps.iter().map(|p| v[*p]).collect())
     }
     pub fn slice(&self, a: usize, n: usize) -> Buf {
-        match self {
-            Buf::B(v) => Buf::B(v[a..a + n].to_vec()),
-            Buf::I(v) => Buf::I(v[a..a + n].to_vec()),
-            Buf::F(v) => Buf::F(v[a..a + n].to_vec()),
-        }
+        buf_map!(self, v => v[a..a + n].to_vec())
     }
     pub fn cast(self, d: NT) -> Buf {
         if self.dt() == d {
@@ -153,7 +268,15 @@ impl Buf {
             (Buf::I(v), NT::B) => Buf::B(v.into_iter().map(|i| i != 0).collect()),
             (Buf::F(v), NT::B) => Buf::B(v.into_iter().map(|x| x != 0.0).collect()),
             (Buf::F(v), NT::I) => Buf::I(v.into_iter().map(f_to_i).collect()),
-            (b, _) => b,
+            (Buf::I32(v), NT::I) => Buf::I(v.into_iter().map(|i| i as i64).collect()),
+            (Buf::I32(v), NT::F) => Buf::F(v.into_iter().map(|i| i as f64).collect()),
+            (Buf::F32(v), NT::F) => Buf::F(v.into_iter().map(|x| x as f64).collect()),
+            (Buf::F(v), NT::F32) => Buf::F32(v.into_iter().map(f_to_f32).collect()),
+            (Buf::I(v), NT::I32) => Buf::I32(v.into_iter().map(|i| i as i32).collect()),
+            (b, d) => {
+                let n = b.len();
+                Buf::from_sc(d, &(0..n).map(|i| b.get(i)).collect::<Vec<_>>())
+            }
         }
     }
     // the values as a slice of one type, borrowed when already that type
@@ -190,6 +313,18 @@ impl Buf {
     pub fn bv(self) -> Vec<bool> {
         match self.cast(NT::B) {
             Buf::B(v) => v,
+            _ => unreachable!(),
+        }
+    }
+    pub fn f32v(self) -> Vec<f32> {
+        match self.cast(NT::F32) {
+            Buf::F32(v) => v,
+            _ => unreachable!(),
+        }
+    }
+    pub fn i32v(self) -> Vec<i32> {
+        match self.cast(NT::I32) {
+            Buf::I32(v) => v,
             _ => unreachable!(),
         }
     }
@@ -383,6 +518,8 @@ pub fn np_dtype_arg(v: &V) -> Result<Option<NT>, E> {
         "float" | "numpy.float64" | "float64" | "f8" | "d" | "double" | "<f8" | "numpy.double" => NT::F,
         "int" | "numpy.int64" | "int64" | "i8" | "<i8" | "numpy.int_" | "int_" | "long" | "numpy.intp" | "intp" => NT::I,
         "bool" | "numpy.bool" | "numpy.bool_" | "bool_" | "?" | "b1" => NT::B,
+        "numpy.float32" | "float32" | "f4" | "<f4" | "f" | "single" | "numpy.single" => NT::F32,
+        "numpy.int32" | "int32" | "i4" | "<i4" | "i" | "intc" | "numpy.intc" => NT::I32,
         n => return Err(np_unsup(&format!("dtype {n}"))),
     }))
 }
@@ -400,6 +537,14 @@ fn py_sc(v: &V) -> Result<Option<Sc>, E> {
             None => return Ok(None),
         },
     }))
+}
+
+// A Python integer stored in an int32: numpy refuses one that does not fit.
+pub fn py_i32(v: i64) -> Result<i32, E> {
+    if v < i32::MIN as i64 || v > i32::MAX as i64 {
+        return Err(exc("OverflowError", format!("Python integer {v} out of bounds for int32")));
+    }
+    Ok(v as i32)
 }
 
 fn seq_items(v: &V) -> Option<Vec<V>> {
@@ -474,12 +619,42 @@ pub fn np_from(v: &V, dt: Option<NT>) -> Result<NdArr, E> {
     let mut shape = vec![];
     let mut out = vec![];
     np_walk(v, 0, &mut shape, &mut out)?;
-    let d = dt.unwrap_or_else(|| out.iter().map(|x| x.dt()).max().unwrap_or(NT::F));
+    let d = dt.unwrap_or_else(|| np_promote_all(out.iter().map(|x| x.dt())).unwrap_or(NT::F));
     if dt == Some(NT::I) || dt == Some(NT::B) {
         if let (Some(NT::I), Some(x)) = (dt, out.iter().find(|x| matches!(x, Sc::F(f) if !f.is_finite()))) {
             let _ = x;
             return Err(exc("ValueError", "cannot convert float NaN to integer".into()));
         }
+    }
+    // numpy stores each item of a list through Python's int() and float(): an int32 refuses what does not fit,
+    // and a float32 rounds each number from its double
+    if d == NT::I32 {
+        let mut b = Vec::with_capacity(out.len());
+        for x in &out {
+            b.push(match *x {
+                Sc::B(v) => v as i32,
+                Sc::I32(v) => v,
+                Sc::I(v) => py_i32(v)?,
+                Sc::F(_) | Sc::F32(_) => {
+                    let f = x.f();
+                    if f.is_nan() {
+                        return val_err("cannot convert float NaN to integer".into());
+                    }
+                    if f.is_infinite() {
+                        return Err(exc("OverflowError", "cannot convert float infinity to integer".into()));
+                    }
+                    let t = f.trunc();
+                    if !(t >= -2147483648.0 && t <= 2147483647.0) {
+                        return Err(exc("OverflowError", format!("Python integer {} out of bounds for int32", repr(&to_int(&V::Float(t))?)?)));
+                    }
+                    t as i32
+                }
+            });
+        }
+        return Ok(NdArr::new(Buf::I32(b), shape));
+    }
+    if d == NT::F32 {
+        return Ok(NdArr::new(Buf::F32(out.iter().map(|x| f_to_f32(x.f())).collect()), shape));
     }
     Ok(NdArr::new(Buf::from_sc(d, &out), shape))
 }
@@ -533,11 +708,7 @@ pub fn np_bvals(a: &NdArr, out: &[usize]) -> Buf {
     }
     if a.size() == 1 {
         let n: usize = out.iter().product();
-        return match a.first() {
-            Sc::B(v) => Buf::B(vec![v; n]),
-            Sc::I(v) => Buf::I(vec![v; n]),
-            Sc::F(v) => Buf::F(vec![v; n]),
-        };
+        return Buf::fill(a.first(), n);
     }
     let n = out.len();
     let st: Vec<isize> = (0..n)
@@ -588,11 +759,11 @@ pub fn np_opnd(v: &V) -> Result<Option<Opnd>, E> {
 }
 // The result type of a ufunc over these operands.
 pub fn np_rtype(ops: &[&Opnd]) -> NT {
-    let strong = ops.iter().filter(|o| !o.weak).map(|o| o.a.dt()).max();
-    let mut d = strong.unwrap_or_else(|| ops.iter().map(|o| o.a.dt()).max().unwrap_or(NT::F));
+    let strong = np_promote_all(ops.iter().filter(|o| !o.weak).map(|o| o.a.dt()));
+    let mut d = strong.unwrap_or_else(|| np_promote_all(ops.iter().map(|o| o.a.dt())).unwrap_or(NT::F));
     for o in ops.iter().filter(|o| o.weak) {
         let w = o.a.dt();
-        if w == NT::F && d < NT::F {
+        if w == NT::F && !d.is_f() {
             d = NT::F;
         } else if w == NT::I && d == NT::B {
             d = NT::I;
@@ -649,6 +820,9 @@ fn ufunc_name(op: &str) -> &'static str {
         "//" => "floor_divide",
         "%" => "remainder",
         "**" => "power",
+        "sq" => "square",
+        "recip" => "reciprocal",
+        "sqrt" => "sqrt",
         "&" => "bitwise_and",
         "|" => "bitwise_or",
         "^" => "bitwise_xor",
@@ -675,7 +849,7 @@ fn fwarn(op: &str, scalar: bool, x: &[f64], y: &[f64], r: &[f64]) {
         if c.is_nan() && !a.is_nan() && !b.is_nan() {
             inv = true;
         } else if c.is_infinite() && a.is_finite() && b.is_finite() {
-            if matches!(op, "/" | "//" | "%") || (op == "**" && a == 0.0) {
+            if matches!(op, "/" | "//" | "%" | "recip") || (op == "**" && a == 0.0) {
                 dz = true;
             } else {
                 ov = true;
@@ -749,15 +923,17 @@ fn kern_f(op: &str, x: &[f64], y: &[f64]) -> Result<Buf, E> {
     }
     Ok(Buf::F(r))
 }
-fn kern_i(op: &str, x: &[i64], y: &[i64], scalar: bool) -> Result<Buf, E> {
+// int64 (bits 64) or int32 (bits 32: the values are int32s, and the results wrap to 32 bits as numpy's do)
+fn kern_i(op: &str, x: &[i64], y: &[i64], scalar: bool, bits: u32) -> Result<Buf, E> {
     let n = x.len();
     let mut r = Vec::with_capacity(n);
     let sc = if scalar { "scalar " } else { "" };
     let mut ov = false;
     let mut dz = false;
+    let wraps = bits == 32 && matches!(op, "+" | "-" | "*" | "//");
     for i in 0..n {
         let (a, b) = (x[i], y[i]);
-        r.push(match op {
+        let v = match op {
             "+" => {
                 let (v, o) = a.overflowing_add(b);
                 ov |= o;
@@ -855,15 +1031,68 @@ fn kern_i(op: &str, x: &[i64], y: &[i64], scalar: bool) -> Result<Buf, E> {
                 return Ok(Buf::B(o));
             }
             _ => return Err(no_loop(op)),
-        });
+        };
+        if wraps && v != v as i32 as i64 {
+            ov = true;
+        }
+        r.push(v);
     }
     if dz {
         np_warn(&format!("divide by zero encountered in {sc}{}", ufunc_name(op)));
     }
-    if ov && scalar {
+    // numpy's integer loops report overflow for scalars, and for floor_divide (MIN // -1) on arrays too
+    if ov && (scalar || op == "//") {
         np_warn(&format!("overflow encountered in {sc}{}", ufunc_name(op)));
     }
+    if bits == 32 {
+        return Ok(Buf::I32(r.into_iter().map(|v| v as i32).collect()));
+    }
     Ok(Buf::I(r))
+}
+// float32 floor_divide, remainder and power, in float32 arithmetic (npy_divmodf, powf); +, -, *, / and
+// comparisons are computed in float64 and rounded once, which gives float32's own results.
+fn np_divmod32(a: f32, b: f32) -> (f32, f32) {
+    let mut m = a % b;
+    if b == 0.0 {
+        return (a / b, m);
+    }
+    let mut div = (a - m) / b;
+    if m != 0.0 {
+        if (b < 0.0) != (m < 0.0) {
+            m += b;
+            div -= 1.0;
+        }
+    } else {
+        m = 0.0f32.copysign(b);
+    }
+    let fd = if div != 0.0 {
+        let f = div.floor();
+        if div - f > 0.5 {
+            f + 1.0
+        } else {
+            f
+        }
+    } else {
+        0.0f32.copysign(a / b)
+    };
+    (fd, m)
+}
+fn kern_f32(op: &str, x: &[f32], y: &[f32]) -> Vec<f32> {
+    let n = x.len().max(y.len());
+    let at = |v: &[f32], i: usize| if v.len() == 1 { v[0] } else { v[i] };
+    (0..n)
+        .map(|i| {
+            let (a, b) = (at(x, i), at(y, i));
+            match op {
+                "//" => if b == 0.0 { a / b } else { np_divmod32(a, b).0 },
+                "%" => if b == 0.0 { a % b } else { np_divmod32(a, b).1 },
+                "sq" => a * a,
+                "recip" => 1.0 / a,
+                "sqrt" => a.sqrt(),
+                _ => a.powf(b),
+            }
+        })
+        .collect()
 }
 fn kern_b(op: &str, x: &[bool], y: &[bool]) -> Result<Buf, E> {
     let f: fn(bool, bool) -> bool = match op {
@@ -897,44 +1126,111 @@ pub fn np_binop(a: &V, b: &V, op: &str) -> Option<R> {
         };
         let scalar = x.scalar && y.scalar;
         let d = np_rtype(&[&x, &y]);
-        if (d == NT::F || op == "/") && matches!(op, "&" | "|" | "^" | "<<" | ">>") {
+        let bitwise = matches!(op, "&" | "|" | "^" | "<<" | ">>");
+        if (d.is_f() || op == "/") && bitwise {
             return Err(no_loop(op));
         }
         let shape = np_bshape(&x.a.shape, &y.a.shape)?;
         let cmp = matches!(op, "<" | ">" | "<=" | ">=" | "==" | "!=");
-        let r = if d == NT::F || op == "/" {
-            if matches!(op, "&" | "|" | "^" | "<<" | ">>") {
-                return Err(no_loop(op));
+        // a Python int with an int32 must fit (comparisons compare the exact values instead)
+        if d == NT::I32 && !cmp {
+            for o in [&x, &y] {
+                if o.weak && o.a.dt() == NT::I {
+                    py_i32(o.a.first().i())?;
+                }
             }
+        }
+        let r = if d == NT::F32 {
+            // the operands as float32 (a Python number rounds to float32 first), one value kept as one
+            let n: usize = shape.iter().product();
+            let vals32 = |a: &NdArr| -> Vec<f32> { if a.size() == 1 && n != 1 { vec![a.first().f32v()] } else { np_bvals(a, &shape).f32v() } };
+            let (xv, yv) = (vals32(&x.a), vals32(&y.a));
+            let mut fop = op;
+            let r: Buf = match op {
+                "+" | "-" | "*" | "/" | "<" | ">" | "<=" | ">=" | "==" | "!=" => {
+                    let w = |v: &[f32]| v.iter().map(|f| *f as f64).collect::<Vec<f64>>();
+                    match kern_f(op, &w(&xv), &w(&yv))? {
+                        Buf::F(v) => Buf::F32(v.into_iter().map(|f| f as f32).collect()),
+                        b => b,
+                    }
+                }
+                "//" | "%" => Buf::F32(kern_f32(op, &xv, &yv)),
+                "**" => {
+                    // an array to a scalar 2, -1 or 0.5 is numpy's square, reciprocal or sqrt (fast_scalar_power);
+                    // a float32 scalar uses the C library's powf. Other array powers go through numpy's SIMD powf.
+                    let fast = np_fast_pow(&x, &y);
+                    match fast {
+                        Some(f) => {
+                            fop = f;
+                            Buf::F32(kern_f32(f, &xv, &yv))
+                        }
+                        _ if x.scalar && y.scalar => Buf::F32(kern_f32("**", &xv, &yv)),
+                        _ => return Err(np_unsup("a float32 array to this power")),
+                    }
+                }
+                _ => return Err(no_loop(op)),
+            };
+            if let Buf::F32(rv) = &r {
+                if rv.iter().any(|v| !v.is_finite()) {
+                    let full = |v: &[f32]| -> Vec<f64> { if v.len() == rv.len() { v.iter().map(|f| *f as f64).collect() } else { vec![v[0] as f64; rv.len()] } };
+                    fwarn(fop, scalar, &full(&xv), &full(&yv), &rv.iter().map(|f| *f as f64).collect::<Vec<_>>());
+                }
+            }
+            r
+        } else if d.is_f() || op == "/" {
             // a one-value side stays one value (the kernel spreads it); a float array of the
             // result's shape is read in place
+            // a float array to a scalar 2, -1 or 0.5: numpy's square, reciprocal or sqrt (sqrt(-0.0) is -0.0)
+            let fop = if op == "**" && x.a.dt().is_f() { np_fast_pow(&x, &y).unwrap_or(op) } else { op };
             np_with_f(&x.a, &shape, |xv| {
                 np_with_f(&y.a, &shape, |yv| {
-                    let r = kern_f(op, xv, yv)?;
+                    let r = match fop {
+                        "sq" | "recip" | "sqrt" => {
+                            let f: fn(f64) -> f64 = match fop {
+                                "sq" => |a| a * a,
+                                "recip" => |a| 1.0 / a,
+                                _ => f64::sqrt,
+                            };
+                            Buf::F(xv.iter().map(|a| f(*a)).collect())
+                        }
+                        _ => kern_f(op, xv, yv)?,
+                    };
                     if let Buf::F(rv) = &r {
                         if rv.iter().any(|v| !v.is_finite()) {
                             let full = |v: &[f64]| if v.len() == rv.len() { v.to_vec() } else { vec![v[0]; rv.len()] };
-                            fwarn(op, scalar, &full(xv), &full(yv), rv);
+                            fwarn(fop, scalar, &full(xv), &full(yv), rv);
                         }
                     }
                     Ok(r)
                 })
             })?
-        } else if d == NT::I {
-            if matches!(op, "<<" | ">>") || cmp || true {
-                kern_i(op, &np_bvals(&x.a, &shape).iv(), &np_bvals(&y.a, &shape).iv(), scalar)?
-            } else {
-                unreachable!()
-            }
+        } else if d.is_i() || matches!(op, "<<" | ">>") {
+            let bits = if d == NT::I32 && !cmp { 32 } else { 64 };
+            kern_i(op, &np_bvals(&x.a, &shape).iv(), &np_bvals(&y.a, &shape).iv(), scalar, bits)?
         } else {
-            if matches!(op, "<<" | ">>") {
-                kern_i(op, &np_bvals(&x.a, &shape).iv(), &np_bvals(&y.a, &shape).iv(), scalar)?
-            } else {
-                kern_b(op, &np_bvals(&x.a, &shape).bv(), &np_bvals(&y.a, &shape).bv())?
-            }
+            kern_b(op, &np_bvals(&x.a, &shape).bv(), &np_bvals(&y.a, &shape).bv())?
         };
         Ok(np_out(r, shape))
     })())
+}
+
+// numpy's fast_scalar_power: a float array (not a scalar) to a scalar exponent (a Python number, numpy scalar
+// or 0-d array) of 2, -1 or 0.5 runs square, reciprocal or sqrt instead of power.
+fn np_fast_pow(x: &Opnd, y: &Opnd) -> Option<&'static str> {
+    // (not when the exponent widens the result: float32 ** np.float64(0.5) is float64 power)
+    if x.scalar || y.a.ndim() != 0 || !x.a.dt().is_f() || np_rtype(&[x, y]) != x.a.dt() {
+        return None;
+    }
+    let e = y.a.first();
+    if e.dt() == NT::B {
+        return None;
+    }
+    match e.f() {
+        2.0 => Some("sq"),
+        -1.0 => Some("recip"),
+        0.5 => Some("sqrt"),
+        _ => None,
+    }
 }
 
 // a OP= b on an array: in place (other names of the same buffer see it), in the array's own type.
@@ -951,7 +1247,7 @@ pub fn np_iop(a: &NdArr, me: &V, b: &V, op: &str) -> R {
         return val_err(format!("non-broadcastable output operand with shape {} doesn't match the broadcast shape {}", np_shape_repr(&a.shape), np_shape_repr(&rshape)));
     }
     let d = a.dt();
-    if rb.dt() > d {
+    if rb.dt().kind() > d.kind() {
         return Err(exc(
             "UFuncTypeError",
             format!("Cannot cast ufunc '{}' output from dtype('{}') to dtype('{}') with casting rule 'same_kind'", ufunc_name(op), rb.dt().name(), d.name()),
@@ -970,18 +1266,27 @@ pub fn np_iop(a: &NdArr, me: &V, b: &V, op: &str) -> R {
 pub fn np_unary(v: &V, op: &str) -> R {
     let o = np_opnd(v)?.unwrap();
     let vals = o.a.vals();
+    // a numpy integer scalar at its minimum: numpy warns that -x and abs(x) overflow
+    if o.scalar && matches!(op, "neg" | "abs") && matches!(vals.get(0), Sc::I(i64::MIN) | Sc::I32(i32::MIN)) {
+        np_warn(&format!("overflow encountered in scalar {}", if op == "neg" { "negative" } else { "absolute" }));
+    }
     let r = match (op, vals) {
         ("neg", Buf::B(_)) => return type_err("The numpy boolean negative, the `-` operator, is not supported, use the `~` operator or the logical_not function instead.".into()),
         ("neg", Buf::I(x)) => Buf::I(x.iter().map(|i| i.wrapping_neg()).collect()),
+        ("neg", Buf::I32(x)) => Buf::I32(x.iter().map(|i| i.wrapping_neg()).collect()),
         ("neg", Buf::F(x)) => Buf::F(x.iter().map(|i| -i).collect()),
+        ("neg", Buf::F32(x)) => Buf::F32(x.iter().map(|i| -i).collect()),
         ("pos", Buf::B(_)) => return type_err("ufunc 'positive' did not contain a loop with signature matching types <class 'numpy.dtypes.BoolDType'> -> None".into()),
         ("pos", b) => b,
         ("invert", Buf::B(x)) => Buf::B(x.iter().map(|b| !b).collect()),
         ("invert", Buf::I(x)) => Buf::I(x.iter().map(|i| !i).collect()),
-        ("invert", Buf::F(_)) => return Err(no_loop("invert")).map_err(|_| exc("TypeError", "ufunc 'invert' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule ''safe''".into())),
+        ("invert", Buf::I32(x)) => Buf::I32(x.iter().map(|i| !i).collect()),
+        ("invert", Buf::F(_) | Buf::F32(_)) => return Err(exc("TypeError", "ufunc 'invert' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule ''safe''".into())),
         ("abs", Buf::B(x)) => Buf::B(x),
         ("abs", Buf::I(x)) => Buf::I(x.iter().map(|i| i.wrapping_abs()).collect()),
+        ("abs", Buf::I32(x)) => Buf::I32(x.iter().map(|i| i.wrapping_abs()).collect()),
         ("abs", Buf::F(x)) => Buf::F(x.iter().map(|i| i.abs()).collect()),
+        ("abs", Buf::F32(x)) => Buf::F32(x.iter().map(|i| i.abs()).collect()),
         _ => return Err(np_unsup(op)),
     };
     Ok(np_out(r, o.a.shape.clone()))
@@ -1917,7 +2222,7 @@ fn np_matmul_nd(x: &NdArr, y: &NdArr) -> R {
     let yv = NdArr::new(np_bvals(&y2, &ys), ys.clone());
     let nb: usize = batch.iter().product();
     let mut parts: Vec<Sc> = vec![];
-    let mut d = x.dt().max(y.dt());
+    let mut d = np_promote(x.dt(), y.dt());
     for b in 0..nb {
         let xa = NdArr::new(xv.vals().slice(b * m * k, m * k), vec![m, k]);
         let ya = NdArr::new(yv.vals().slice(b * k * n, k * n), vec![k, n]);
@@ -1942,7 +2247,10 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
     if x.ndim() > 2 || y.ndim() > 2 {
         return Err(np_unsup("dot/matmul of arrays with more than 2 dimensions"));
     }
-    let d = x.dt().max(y.dt());
+    let d = np_promote(x.dt(), y.dt());
+    if d == NT::F32 {
+        return Err(np_unsup("float32 dot/matmul (OpenBLAS sgemm)"));
+    }
     let (m, k) = if x.ndim() == 1 { (1, x.shape[0]) } else { (x.shape[0], x.shape[1]) };
     let (k2, n) = if y.ndim() == 1 { (y.shape[0], 1) } else { (y.shape[0], y.shape[1]) };
     if k != k2 {
@@ -2065,7 +2373,7 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                 }
             }
         }
-        NT::I | NT::B if d == NT::I => {
+        NT::I | NT::I32 => {
             let (xv, yv) = (x.iv(), y.iv());
             let mut o = vec![0i64; m * n];
             for i in 0..m {
@@ -2077,7 +2385,12 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                     o[i * n + j] = s;
                 }
             }
-            Buf::I(o)
+            // numpy's int32 loop adds in int32: the same sum, wrapped
+            if d == NT::I32 {
+                Buf::I32(o.into_iter().map(|v| v as i32).collect())
+            } else {
+                Buf::I(o)
+            }
         }
         _ => {
             let (xv, yv) = (x.bv(), y.bv());
@@ -2118,7 +2431,7 @@ fn np_index_items(i: &V) -> Result<Vec<Ix>, E> {
             V::Slice(s) => Ix::Sl(s.0.clone(), s.1.clone(), s.2.clone()),
             V::List(_) | V::Tuple(_) => {
                 let a = np_from(&x, None)?;
-                if a.size() == 0 && a.dt() == NT::F {
+                if a.size() == 0 && a.dt().is_f() {
                     Ix::Adv(NdArr::new(Buf::I(vec![]), a.shape.clone()))
                 } else {
                     Ix::Adv(a)
@@ -2129,7 +2442,7 @@ fn np_index_items(i: &V) -> Result<Vec<Ix>, E> {
                     Ix::Adv(a.clone())
                 } else if let Some(s) = as_npsc(&x) {
                     match s {
-                        Sc::I(k) => Ix::Int(k),
+                        Sc::I(_) | Sc::I32(_) => Ix::Int(s.i()),
                         _ => return Err(np_unsup("indexing with a numpy bool or float")),
                     }
                 } else {
@@ -2140,7 +2453,7 @@ fn np_index_items(i: &V) -> Result<Vec<Ix>, E> {
     }
     for x in &out {
         if let Ix::Adv(a) = x {
-            if a.dt() == NT::F {
+            if a.dt().is_f() {
                 return Err(exc("IndexError", "arrays used as indices must be of integer (or boolean) type".into()));
             }
         }
@@ -2376,7 +2689,12 @@ pub fn np_setitem(a: &NdArr, i: &V, v: &V) -> Result<(), E> {
         Some(x) => x,
     };
     let d = a.dt();
-    if d != NT::F {
+    if d == NT::I32 {
+        if let V::Int(i) = v {
+            py_i32(*i)?;
+        }
+    }
+    if !d.is_f() {
         if let V::Float(f) = v {
             if f.is_nan() {
                 return val_err("cannot convert float NaN to integer".into());
@@ -2387,6 +2705,8 @@ pub fn np_setitem(a: &NdArr, i: &V, v: &V) -> Result<(), E> {
         }
     }
     let src = match np_opnd(v)? {
+        // a list of Python ints stored in an int32 array: each must fit
+        Some(_) if d == NT::I32 && seq_items(v).is_some() => np_from(v, Some(NT::I32))?,
         Some(o) => o.a,
         None => return Err(np_unsup(&format!("storing {} in an array", tn(v)))),
     };
@@ -2446,6 +2766,37 @@ pub fn np_pw(a: &[f64]) -> f64 {
         let mut n2 = n / 2;
         n2 -= n2 % 8;
         np_pw(&a[..n2]) + np_pw(&a[n2..])
+    }
+}
+
+// The same for float32 (FLOAT_pairwise_sum: float32 accumulators).
+pub fn np_pw32(a: &[f32]) -> f32 {
+    let n = a.len();
+    if n < 8 {
+        let mut r = 0.0f32;
+        for x in a {
+            r += *x;
+        }
+        r
+    } else if n <= 128 {
+        let mut r = [a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7]];
+        let mut i = 8;
+        while i < n - (n % 8) {
+            for j in 0..8 {
+                r[j] += a[i + j];
+            }
+            i += 8;
+        }
+        let mut res = ((r[0] + r[1]) + (r[2] + r[3])) + ((r[4] + r[5]) + (r[6] + r[7]));
+        while i < n {
+            res += a[i];
+            i += 1;
+        }
+        res
+    } else {
+        let mut n2 = n / 2;
+        n2 -= n2 % 8;
+        np_pw32(&a[..n2]) + np_pw32(&a[n2..])
     }
 }
 
@@ -2528,9 +2879,43 @@ fn fsum_groups(g: &Groups, v: &[f64], a: &NdArr, axis: Option<usize>) -> Vec<f64
         .map(|k| {
             let grp = &v[k * n..(k + 1) * n];
             if g.pairwise {
-                np_pw(grp)
+                // numpy starts the sum at the identity 0.0, so all -0.0 sums to 0.0
+                0.0 + np_pw(grp)
             } else {
                 let mut s = 0.0;
+                for x in grp {
+                    s += *x;
+                }
+                s
+            }
+        })
+        .collect()
+}
+
+// fsum_groups in float32.
+fn fsum_groups32(g: &Groups, v: &[f32], a: &NdArr, axis: Option<usize>) -> Vec<f32> {
+    let ng: usize = g.out_shape.iter().product::<usize>().max(if g.out_shape.is_empty() { 1 } else { 0 });
+    if axis.is_none() && !g.pairwise {
+        let mut order: Vec<usize> = (0..a.ndim()).filter(|k| a.shape[*k] > 1).collect();
+        order.sort_by_key(|k| std::cmp::Reverse(a.st[*k].unsigned_abs()));
+        let inner = a.shape[*order.last().unwrap()];
+        let mut s = 0.0f32;
+        for row in v.chunks(inner) {
+            s += np_pw32(row);
+        }
+        return vec![s];
+    }
+    let n = g.n;
+    if n == 0 {
+        return vec![0.0; ng];
+    }
+    (0..ng)
+        .map(|k| {
+            let grp = &v[k * n..(k + 1) * n];
+            if g.pairwise {
+                0.0 + np_pw32(grp)
+            } else {
+                let mut s = 0.0f32;
                 for x in grp {
                     s += *x;
                 }
@@ -2577,6 +2962,37 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
     let shape = red_shape(a, o, g.out_shape.clone());
     let empty_err = |what: &str| exc("ValueError", format!("zero-size array to reduction operation {what} which has no identity"));
     let out: Buf = match what {
+        "sum" | "mean" | "var" | "std" if d == NT::F32 => {
+            // float32 throughout: sums, the mean, the deviations and their squares (numpy's _mean and _var)
+            let v = g.vals.clone().f32v();
+            let sums = fsum_groups32(&g, &v, a, o.axis);
+            if what == "sum" {
+                Buf::F32(sums)
+            } else {
+                let cnt = n as f32;
+                if n == 0 {
+                    np_warn("Mean of empty slice.");
+                    np_warn("invalid value encountered in scalar divide");
+                }
+                let means: Vec<f32> = sums.iter().map(|s| s / cnt).collect();
+                if what == "mean" {
+                    Buf::F32(means)
+                } else {
+                    let dev: Vec<f32> = (0..ng * n).map(|i| {
+                        let x = v[i] - means[i / n.max(1)];
+                        x * x
+                    }).collect();
+                    let ss = fsum_groups32(&g, &dev, a, o.axis);
+                    let div = (n as f64 - o.ddof).max(0.0);
+                    if div <= 0.0 {
+                        np_warn("Degrees of freedom <= 0 for slice");
+                    }
+                    let div = div as f32;
+                    let var: Vec<f32> = ss.iter().map(|s| s / div).collect();
+                    Buf::F32(if what == "std" { var.iter().map(|x| x.sqrt()).collect() } else { var })
+                }
+            }
+        }
         "sum" | "mean" | "var" | "std" => {
             if what == "sum" && d != NT::F {
                 let v = g.vals.ic();
@@ -2617,6 +3033,10 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
                 let v = g.vals.fc();
                 Buf::F((0..ng).map(|k| v[k * n..(k + 1) * n].iter().fold(1.0, |s, x| s * x)).collect())
             }
+            NT::F32 => {
+                let v = g.vals.clone().f32v();
+                Buf::F32((0..ng).map(|k| v[k * n..(k + 1) * n].iter().fold(1.0f32, |s, x| s * x)).collect())
+            }
             _ => {
                 let v = g.vals.ic();
                 Buf::I((0..ng).map(|k| v[k * n..(k + 1) * n].iter().fold(1i64, |s, x| s.wrapping_mul(*x))).collect())
@@ -2627,26 +3047,24 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
                 return Err(empty_err(if what == "max" { "maximum" } else { "minimum" }));
             }
             let mx = what == "max";
+            fn fmax<T: Copy + PartialOrd>(grp: &[T], mx: bool, nan: impl Fn(T) -> bool) -> T {
+                let mut m = grp[0];
+                for x in &grp[1..] {
+                    if nan(m) {
+                        break;
+                    }
+                    // ties take the later value (0.0 and -0.0), as numpy's loops do
+                    if nan(*x) || (mx && !(m > *x)) || (!mx && !(m < *x)) {
+                        m = *x;
+                    }
+                }
+                m
+            }
             match &g.vals {
-                Buf::F(v) => Buf::F(
-                    (0..ng)
-                        .map(|k| {
-                            let grp = &v[k * n..(k + 1) * n];
-                            let mut m = grp[0];
-                            for x in &grp[1..] {
-                                if m.is_nan() {
-                                    break;
-                                }
-                                // ties take the later value (0.0 and -0.0), as numpy's loops do
-                                if x.is_nan() || (mx && !(m > *x)) || (!mx && !(m < *x)) {
-                                    m = *x;
-                                }
-                            }
-                            m
-                        })
-                        .collect(),
-                ),
+                Buf::F(v) => Buf::F((0..ng).map(|k| fmax(&v[k * n..(k + 1) * n], mx, |x: f64| x.is_nan())).collect()),
+                Buf::F32(v) => Buf::F32((0..ng).map(|k| fmax(&v[k * n..(k + 1) * n], mx, |x: f32| x.is_nan())).collect()),
                 Buf::I(v) => Buf::I((0..ng).map(|k| { let g = v[k * n..(k + 1) * n].iter(); if mx { *g.max().unwrap() } else { *g.min().unwrap() } }).collect()),
+                Buf::I32(v) => Buf::I32((0..ng).map(|k| { let g = v[k * n..(k + 1) * n].iter(); if mx { *g.max().unwrap() } else { *g.min().unwrap() } }).collect()),
                 Buf::B(v) => Buf::B((0..ng).map(|k| { let g = &v[k * n..(k + 1) * n]; if mx { g.iter().any(|x| *x) } else { g.iter().all(|x| *x) } }).collect()),
             }
         }
@@ -2675,6 +3093,8 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
             Buf::I(match &g.vals {
                 Buf::F(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: f64, b: f64| if mx { a > b } else { a < b }, |a: f64| a.is_nan())).collect(),
                 Buf::I(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: i64, b: i64| if mx { a > b } else { a < b }, |_| false)).collect(),
+                Buf::F32(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: f32, b: f32| if mx { a > b } else { a < b }, |a: f32| a.is_nan())).collect(),
+                Buf::I32(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: i32, b: i32| if mx { a > b } else { a < b }, |_| false)).collect(),
                 Buf::B(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: bool, b: bool| if mx { a & !b } else { !a & b }, |_| false)).collect(),
             })
         }
@@ -2703,8 +3123,18 @@ pub fn np_accum(a: &NdArr, what: &str, axis: Option<usize>) -> R {
     let g = np_groups(&src, Some(ax));
     let n = g.n;
     let ng = g.vals.len() / n.max(1);
-    let d = if src.dt() == NT::B { NT::I } else { src.dt() };
+    // bool and int32 accumulate in int64, as numpy's add/multiply.accumulate pick
+    let d = if matches!(src.dt(), NT::B | NT::I32) { NT::I } else { src.dt() };
     let res: Buf = match g.vals.clone().cast(d) {
+        Buf::F32(v) => {
+            let mut o = v.clone();
+            for k in 0..ng {
+                for j in 1..n {
+                    o[k * n + j] = if what == "cumsum" { o[k * n + j - 1] + v[k * n + j] } else { o[k * n + j - 1] * v[k * n + j] };
+                }
+            }
+            Buf::F32(o)
+        }
         Buf::F(v) => {
             let mut o = v.clone();
             for k in 0..ng {

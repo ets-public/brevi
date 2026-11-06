@@ -1287,81 +1287,6 @@ fn lq_orml2_ln_t(k: &Lk, m: usize, n: usize, kk: usize, a: &[f64], ao: usize, ld
 }
 
 // ---------- np.linalg.lstsq, np.polyfit, np.polyval ----------
-// lstsq's rank: a numpy int32 (the gufunc's 'i' output), kept apart from Brevi's int64 scalars so it
-// prints as numpy prints it; it compares, converts and formats as an int, and arithmetic on it is refused.
-pub struct NpI32(pub i64);
-impl Ext for NpI32 {
-    fn tname(&self) -> &'static str {
-        "numpy.int32"
-    }
-    fn repr(&self) -> String {
-        format!("np.int32({})", self.0)
-    }
-    fn str_(&self) -> String {
-        self.0.to_string()
-    }
-    fn any(&self) -> &dyn std::any::Any {
-        self
-    }
-    fn hash(&self) -> Option<i64> {
-        Some(hash_int(self.0))
-    }
-    fn eq(&self, o: &V) -> Option<bool> {
-        eq(&V::Int(self.0), &lq_unwrap32(o)).ok()
-    }
-    fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
-        let y = match as_npsc(o) {
-            Some(s) => s.f(),
-            None => num_f(&lq_unwrap32(o))?,
-        };
-        (self.0 as f64).partial_cmp(&y)
-    }
-    fn rich(&self, _me: &V, op: &str, o: &V, right: bool) -> Option<Result<bool, E>> {
-        let (x, y) = (V::Int(self.0), lq_unwrap32(o));
-        Some(if right { cmp_op(&y, &x, op) } else { cmp_op(&x, &y, op) })
-    }
-    fn binop(&self, _me: &V, op: &str, _o: &V, _right: bool) -> Option<R> {
-        Some(Err(np_unsup(&format!("arithmetic ({op}) on a numpy.int32"))))
-    }
-    fn truth(&self) -> bool {
-        self.0 != 0
-    }
-    fn to_f64(&self) -> Option<f64> {
-        Some(self.0 as f64)
-    }
-    fn fmt(&self, spec: &str) -> Option<R> {
-        if spec.is_empty() {
-            return Some(Ok(st(self.str_())));
-        }
-        Some(format_spec(&V::Int(self.0), spec).map(st))
-    }
-    fn attr(&self, _me: &V, n: &str) -> Option<R> {
-        Some(Ok(match n {
-            "shape" => tup(vec![]),
-            "ndim" => V::Int(0),
-            "size" => V::Int(1),
-            "itemsize" | "nbytes" => V::Int(4),
-            _ => return None,
-        }))
-    }
-    fn method(&self, _me: &V, n: &str, _a: &mut Args) -> Option<R> {
-        Some(match n {
-            "item" | "tolist" | "__int__" | "__index__" | "__round__" => Ok(V::Int(self.0)),
-            "__float__" => Ok(V::Float(self.0 as f64)),
-            "__abs__" => Ok(V::Ext(Rc::new(NpI32(self.0.abs())))),
-            _ => return None,
-        })
-    }
-}
-fn lq_unwrap32(o: &V) -> V {
-    match o {
-        V::Ext(x) => match x.any().downcast_ref::<NpI32>() {
-            Some(i) => V::Int(i.0),
-            None => o.clone(),
-        },
-        _ => o.clone(),
-    }
-}
 // numpy's lstsq for float a (m x n) and b (m x nrhs), both C order: (x n x nrhs C order, residuals when
 // numpy returns them, rank, singular values)
 fn np_lstsq_parts(av: &[f64], m: usize, n: usize, bv: &[f64], nrhs: usize, rcond: f64) -> Result<(Vec<f64>, Option<Vec<f64>>, usize, Vec<f64>), E> {
@@ -1447,7 +1372,7 @@ pub fn np_lstsq(a: &Args) -> R {
         None => np_new(Buf::F(vec![]), vec![0]),
     };
     let ns = s.len();
-    Ok(tup(vec![np_new(Buf::F(x), xs), r, V::Ext(Rc::new(NpI32(rank as i64))), np_new(Buf::F(s), vec![ns])]))
+    Ok(tup(vec![np_new(Buf::F(x), xs), r, np_sc(Sc::I32(rank as i32)), np_new(Buf::F(s), vec![ns])]))
 }
 thread_local! {
     static LQ_WARNED: Cell<bool> = Cell::new(false);
@@ -1543,7 +1468,7 @@ pub fn np_polyfit(a: &Args) -> R {
             None => np_sc(Sc::F(rcond)),
         };
         let ns = s.len();
-        return Ok(tup(vec![c, resids, V::Ext(Rc::new(NpI32(rank as i64))), np_new(Buf::F(s), vec![ns]), rc]));
+        return Ok(tup(vec![c, resids, np_sc(Sc::I32(rank as i32)), np_new(Buf::F(s), vec![ns]), rc]));
     }
     let unscaled = match &covv {
         V::Str(_) => {

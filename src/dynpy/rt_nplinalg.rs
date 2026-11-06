@@ -754,7 +754,7 @@ pub fn np_histogram(a: &Args) -> R {
     let range = npa(a, 2, "range").filter(|v| !matches!(v, V::None));
     let xf = x.fv();
     let mut edge_arr: Option<NdArr> = None;
-    let (counts, edges): (Vec<i64>, Vec<f64>) = if matches!(bins, V::Int(_)) || as_npsc(&bins).is_some_and(|s| s.dt() == NT::I) {
+    let (counts, edges): (Vec<i64>, Vec<f64>) = if matches!(bins, V::Int(_)) || as_npsc(&bins).is_some_and(|s| s.dt().is_i()) {
         let nb = np_int_arg(&bins)?;
         if nb < 1 {
             return val_err("`bins` must be positive, when an integer".into());
@@ -978,6 +978,10 @@ pub fn np_trapezoid(a: &Args) -> R {
 pub fn np_ufunc_method(uf: &str, m: &str, a: &Args) -> R {
     let x0 = npa(a, 0, "array").ok_or_else(|| exc("TypeError", format!("{m}() missing required argument 'array' (pos 0)")))?;
     let x = np_as(&x0)?;
+    if x.dt().narrow() {
+        // np.add.reduce of an int32 array keeps int32 (sum gives int64): not here yet
+        return Err(np_unsup(&format!("np.{uf}.{m} of a {} array", x.dt().name())));
+    }
     for k in ["dtype", "out", "initial", "where"] {
         if a.k.iter().any(|(n, _)| *n == k) {
             return Err(np_unsup(&format!("np.{uf}.{m}({k}=...)")));
@@ -1060,6 +1064,7 @@ pub fn np_ufunc_method(uf: &str, m: &str, a: &Args) -> R {
                     }
                     Buf::B(o)
                 }
+                _ => return Err(np_unsup(&format!("np.{uf}.accumulate of a {} array", x.dt().name()))),
             };
             np_from_groups(&x, ax, res)
         }
