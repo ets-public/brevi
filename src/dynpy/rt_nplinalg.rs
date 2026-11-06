@@ -620,6 +620,7 @@ pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
             Ok(result.unwrap())
         }
         "norm" => np_norm(a),
+        "lstsq" => np_lstsq(a),
         _ => Err(np_unsup(&format!("np.linalg.{n}"))),
     }
 }

@@ -1162,6 +1162,8 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
             "cov" => return np_cov(&a),
             "corrcoef" => return np_corrcoef(&a),
             "trapezoid" => return np_trapezoid(&a),
+            "polyfit" => return np_polyfit(&a),
+            "polyval" => return np_polyval(&a),
             _ => {}
         }
         if let Some((uf, me)) = n.split_once('.') {
