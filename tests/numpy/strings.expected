@@ -1,0 +1,52 @@
+['Widget' 'Gadget' 'Doohickey' 'a']
+array(['Widget', 'Gadget', 'Doohickey', 'a'], dtype='<U9')
+<U9 36 (4,)
+Widget np.str_('Widget')
+[ True False False False] [False  True  True False] ['Doohickey' 'Gadget' 'Widget' 'a'] ['Doohickey' 'Gadget' 'Widget' 'a'] [2 1 0 3] ['Gadget' 'Widget'] ['Widget' 'Gadget' 'Doohickey']
+['VeryLongN' 'Gadget' 'Doohickey' 'a']
+['Widget' 'Gadget' 'Doohickey' 'X'] <U15
+<U9 [np.str_('Widget'), np.str_('Gadget'), np.str_('Doohickey'), np.str_('a')] ['Widget', 'Gadget', 'Doohickey', 'a'] Widget! Widget!
+['Widget_x' 'Gadget_x' 'Doohickey_x' 'a_x'] <U11 ['xWidget' 'xGadget' 'xDoohickey' 'xa'] ['WidgetWidget' 'GadgetGadget' 'DoohickeyDoohickey' 'aa']
+['1' 'a'] [1.5 2. ] ['0' '1' '2'] ['1.5' '2.25']
+[['a' 'bb']
+ ['ccc' 'd']]
+6 WIDGET     Widget| {np.str_('Widget'): 1} True
+['ab' 'ab' 'ab'] ['' ''] ['' '']
+array([], dtype='<U1') array(['a'], dtype='<U5') array(["a'b", 'c"d'], dtype='<U3')
+array(['xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+       'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'],
+      dtype='<U30')
+2 True dtype('<U3') U
+Widget str_
+Gadget str_
+{np.str_('Widget'): 0, np.str_('Gadget'): 1, np.str_('Doohickey'): 2, np.str_('a'): 3} 1 [np.str_('Doohickey'), np.str_('Gadget'), np.str_('Widget'), np.str_('a')] Widget,Gadget,Doohickey,a True True True
+alice np.str_('alice') [np.str_('alice')] (np.str_('alice'),) {np.str_('alice'): 1}      alice| ALICE alice! !alice 5 True True True
+5 5 True {np.str_('alice')} 1 [np.str_('12'), np.str_('alice'), np.str_('bob'), np.str_('bob'), np.str_('carol')] carol 12
+alice,bob,carol,bob,12 alice z ['al', 'ce'] True Alice li a alicealice alice! alice?
+["alice"] 13 12.0 alice True True True True
+[(np.str_('bob'), 2)] 2 [np.str_('alice'), np.str_('bob'), np.str_('carol'), np.str_('12')]
+alice aLice Alice **alice** 
+1 bob str_ True
+3 bob str_ True
+['Alice', 'Bob', 'Carol', 'Bob', '12'] {np.str_('alice'): 5, np.str_('bob'): 3, np.str_('carol'): 5, np.str_('12'): 2}
+['alice', 'bob', 'carol', 'bob', '12'] ['alice' 'carol' '12'] (array(['12', 'alice', 'bob', 'carol'], dtype='<U5'), array([1, 1, 2, 1]))
+18 [np.str_('12'), np.str_('bob'), np.str_('bob'), np.str_('alice'), np.str_('carol')] ['ALICE', 'BOB', 'CAROL', 'BOB', '12']
+(4, 3, 2) 9
+99
+(2, 4, 3)
+[['a' 'c']
+ ['bb' 'd']]
+abc np.str_('x') abc  np.str_('1.5') 2.0
+[0 1 2] True True
+['a' 'b'] ['' '']
+TypeError The 'out' kwarg is necessary when using the string multiply ufunc directly. Use numpy.strings.multiply to multiply strings without specifying 'out'.
+UFuncTypeError ufunc 'subtract' did not contain a loop with signature matching types (dtype('<U9'), dtype('<U1')) -> None
+TypeError the resolved dtypes are not compatible with add.reduce. Resolved (dtype('<U9'), dtype('<U9'), dtype('<U18'))
+TypeError the resolved dtypes are not compatible with add.reduce. Resolved (dtype('<U9'), dtype('<U9'), dtype('<U18'))
+TypeError ufunc 'sqrt' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule ''safe''
+ValueError invalid literal for int() with base 10: np.str_('x')
+UFuncTypeError ufunc 'maximum' did not contain a loop with signature matching types (dtype('<U9'), dtype('<U9')) -> None
+[False False False False] [ True  True  True  True] [10  2] [3.]
+['Widget' 'CHANGED' 'Doohickey' 'a'] <U9
+['Widget' 'CHANGED' 'Doohickey' '5']
+['w0' 'w1' 'w2' ... 'w1197' 'w1198' 'w1199'] ['w0' 'w7' 'w14' 'w21' 'w28'] [False, True]

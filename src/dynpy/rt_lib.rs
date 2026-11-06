@@ -1347,6 +1347,12 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                 }
                 match x {
                     V::Str(y) => out.push_str(&y.s),
+                    // a library str (numpy's np.str_)
+                    V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => {
+                        if let Some(Ok(V::Str(y))) = e.native() {
+                            out.push_str(&y.s);
+                        }
+                    }
                     y => return type_err(format!("sequence item {i}: expected str instance, {} found", tn(y))),
                 }
             }

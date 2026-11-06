@@ -53,7 +53,7 @@ const NP_NARROW_FUNCS: &[&str] = &[
     "array", "asarray", "asanyarray", "copy", "zeros", "ones", "empty", "full", "zeros_like", "ones_like", "empty_like", "full_like",
     "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype",
     "sum", "mean", "std", "var", "prod", "max", "min", "amax", "amin", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "around", "clip",
-    "reshape", "ravel", "transpose", "squeeze", "diagonal", "nonzero", "argsort", "repeat", "sort", "count_nonzero", "where", "argwhere", "flatnonzero",
+    "reshape", "ravel", "transpose", "swapaxes", "squeeze", "diagonal", "nonzero", "argsort", "repeat", "sort", "count_nonzero", "str_", "where", "argwhere", "flatnonzero",
     "unique", "concatenate", "stack", "vstack", "hstack", "column_stack", "atleast_1d", "atleast_2d", "expand_dims", "flip", "fliplr", "flipud", "roll",
     "diff", "outer", "array_equal", "searchsorted", "tile", "meshgrid", "diag", "fill_diagonal", "unravel_index",
     "abs", "absolute", "negative", "positive", "sqrt", "floor", "ceil", "trunc", "rint", "fix", "square", "reciprocal", "sign", "isnan", "isinf", "isfinite", "logical_not",
@@ -68,7 +68,7 @@ pub fn builtin_mod(m: &str) -> bool {
 const NP_FUNCS: &[(&str, &[&str])] = &[
     ("pi", &[]), ("e", &[]), ("inf", &[]), ("nan", &[]), ("euler_gamma", &[]), ("newaxis", &[]), ("True_", &[]), ("False_", &[]),
     ("float64", &[]), ("double", &[]), ("int64", &[]), ("int_", &[]), ("intp", &[]), ("bool_", &[]), ("bool", &[]), ("ndarray", &[]),
-    ("float32", &[]), ("single", &[]), ("int32", &[]), ("intc", &[]),
+    ("float32", &[]), ("single", &[]), ("int32", &[]), ("intc", &[]), ("str_", &[]),
     ("integer", &[]), ("signedinteger", &[]), ("floating", &[]), ("number", &[]), ("generic", &[]), ("inexact", &[]),
     ("array", &["dtype", "copy", "ndmin"]), ("asarray", &["dtype"]), ("asanyarray", &["dtype"]), ("copy", &[]),
     ("zeros", &["dtype"]), ("ones", &["dtype"]), ("empty", &["dtype"]), ("full", &["dtype", "fill_value"]),
@@ -80,7 +80,7 @@ const NP_FUNCS: &[(&str, &[&str])] = &[
     ("prod", &["axis", "keepdims"]), ("max", &["axis", "keepdims"]), ("min", &["axis", "keepdims"]), ("amax", &["axis", "keepdims"]), ("amin", &["axis", "keepdims"]),
     ("argmax", &["axis", "keepdims"]), ("argmin", &["axis", "keepdims"]), ("any", &["axis", "keepdims"]), ("all", &["axis", "keepdims"]),
     ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("around", &["decimals"]), ("clip", &["a_min", "a_max", "min", "max"]),
-    ("reshape", &["shape", "newshape"]), ("ravel", &[]), ("transpose", &["axes"]), ("squeeze", &["axis"]), ("trace", &[]), ("diagonal", &["offset"]),
+    ("reshape", &["shape", "newshape"]), ("ravel", &[]), ("transpose", &["axes"]), ("swapaxes", &["axis1", "axis2"]), ("squeeze", &["axis"]), ("trace", &[]), ("diagonal", &["offset"]),
     ("nonzero", &[]), ("argsort", &["axis", "kind"]), ("repeat", &["axis"]), ("sort", &["axis", "kind"]), ("median", &["axis", "keepdims"]),
     ("percentile", &["axis", "keepdims", "method"]), ("quantile", &["axis", "keepdims", "method"]),
     ("nansum", &["axis", "keepdims"]), ("nanmean", &["axis", "keepdims"]), ("nanstd", &["axis", "keepdims", "ddof"]), ("nanvar", &["axis", "keepdims", "ddof"]), ("nanmax", &["axis", "keepdims"]), ("nanmin", &["axis", "keepdims"]),
@@ -109,7 +109,7 @@ const NP_ATTR_OK: &[(&str, &[&str])] = &[
     ("sum", &["axis", "keepdims"]), ("mean", &["axis", "keepdims"]), ("std", &["axis", "keepdims", "ddof"]), ("var", &["axis", "keepdims", "ddof"]), ("prod", &["axis", "keepdims"]),
     ("max", &["axis", "keepdims"]), ("min", &["axis", "keepdims"]), ("argmax", &["axis", "keepdims"]), ("argmin", &["axis", "keepdims"]), ("any", &["axis", "keepdims"]), ("all", &["axis", "keepdims"]),
     ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("clip", &["min", "max"]), ("reshape", &[]), ("ravel", &[]), ("flatten", &[]), ("copy", &[]),
-    ("transpose", &[]), ("astype", &[]), ("tolist", &[]), ("item", &[]), ("fill", &[]), ("sort", &["axis", "kind"]), ("argsort", &["axis", "kind"]), ("nonzero", &[]), ("dot", &[]),
+    ("transpose", &[]), ("swapaxes", &["axis1", "axis2"]), ("astype", &[]), ("tolist", &[]), ("item", &[]), ("fill", &[]), ("sort", &["axis", "kind"]), ("argsort", &["axis", "kind"]), ("nonzero", &[]), ("dot", &[]),
     ("squeeze", &["axis"]), ("diagonal", &["offset"]), ("trace", &[]), ("repeat", &["axis"]), ("conj", &[]), ("conjugate", &[]), ("is_integer", &[]), ("as_integer_ratio", &[]),
     // Generator and RandomState methods (rt_nprand.rs); the same names on Python's random.Random are fine too
     ("integers", &["low", "high", "size", "dtype", "endpoint"]), ("random", &["size"]), ("random_sample", &["size"]), ("sample", &["size"]), ("ranf", &["size"]), ("rand", &[]), ("randn", &[]),
@@ -1348,16 +1348,6 @@ impl Em {
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
                 }
                 if md == "numpy" || md == "numpy.random" || md == "numpy.linalg" {
-                    fn has_str(e: &Ex) -> bool {
-                        match e {
-                            Ex::Str(_) | Ex::FStr(_) => true,
-                            Ex::List(v) | Ex::Tuple(v) => v.iter().any(has_str),
-                            _ => false,
-                        }
-                    }
-                    if args.iter().any(|x| matches!(x, Arg::Pos(e) if matches!(e, Ex::List(_) | Ex::Tuple(_)) && has_str(e))) {
-                        return Err(err(line, "numpy: arrays of strings are not in Brevi's native numpy yet"));
-                    }
                     let ok = match md.as_str() {
                         "numpy" => np_func_kw(m),
                         "numpy.random" => np_rand_kw(m),

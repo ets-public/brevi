@@ -1034,6 +1034,14 @@ pub fn len(v: &V) -> Result<usize, E> {
     })
 }
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
+    // a library value standing for a str (numpy's np.str_) is that str here
+    if let V::Ext(e) = x {
+        if matches!(c, V::Str(_)) {
+            if let Some(n) = e.native() {
+                return contains(c, &n?);
+            }
+        }
+    }
     Ok(match c {
         V::Class(k) if is_enum(k) => enum_contains(k, x)?,
         V::Ext(e) if e.is_py() || e.any().is::<BytesV>() => match e.method(c, "__contains__", &mut Args::p(vec![x.clone()])) {
@@ -1106,6 +1114,13 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             }
             false
         }
+        V::Ext(e) => match e.method(c, "__contains__", &mut Args::p(vec![x.clone()])) {
+            Some(r) => truth(&r?)?,
+            None => match e.native() {
+                Some(n) => contains(&n?, x)?,
+                None => return type_err(format!("argument of type '{}' is not iterable", tn(c))),
+            },
+        },
         _ => return type_err(format!("argument of type '{}' is not iterable", tn(c))),
     })
 }

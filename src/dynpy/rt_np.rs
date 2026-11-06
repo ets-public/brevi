@@ -14,6 +14,8 @@ pub enum NT {
     F,
     I32,
     F32,
+    // numpy's fixed-width unicode strings (<U n): n characters
+    U(u32),
 }
 impl NT {
     pub fn name(self) -> &'static str {
@@ -23,12 +25,24 @@ impl NT {
             NT::F => "float64",
             NT::I32 => "int32",
             NT::F32 => "float32",
+            NT::U(_) => "str",
         }
+    }
+    // the name numpy's repr gives: '<U9' for strings
+    pub fn full_name(self) -> String {
+        match self {
+            NT::U(w) => format!("<U{w}"),
+            d => d.name().to_string(),
+        }
+    }
+    pub fn is_u(self) -> bool {
+        matches!(self, NT::U(_))
     }
     fn size(self) -> i64 {
         match self {
             NT::B => 1,
             NT::I32 | NT::F32 => 4,
+            NT::U(w) => 4 * w as i64,
             _ => 8,
         }
     }
@@ -46,7 +60,18 @@ impl NT {
         match self {
             NT::B => 0,
             NT::I | NT::I32 => 1,
+            NT::U(_) => 3,
             _ => 2,
+        }
+    }
+    // the characters numpy's str() of a value of this type can take (astype(str), np.array([1, "a"]))
+    pub fn str_width(self) -> u32 {
+        match self {
+            NT::B => 5,
+            NT::I => 21,
+            NT::I32 => 11,
+            NT::F | NT::F32 => 32,
+            NT::U(w) => w,
         }
     }
     // the default type of numpy (float64, int64, bool): repr leaves its dtype out
@@ -59,6 +84,9 @@ pub fn np_promote(a: NT, b: NT) -> NT {
     use NT::*;
     match (a, b) {
         (x, y) if x == y => x,
+        // strings take the wider width; a number among strings becomes its str() (np.array([1, "a"]))
+        (U(x), U(y)) => U(x.max(y)),
+        (U(x), y) | (y, U(x)) => U(x.max(y.str_width())),
         (B, y) | (y, B) => y,
         (I32, I) | (I, I32) => I,
         (F32, F) | (F, F32) => F,
@@ -76,6 +104,50 @@ pub enum Sc {
     F(f64),
     I32(i32),
     F32(f32),
+    // a string, by its number in np_strs (so Sc stays Copy)
+    U(u32),
+}
+thread_local! {
+    static NP_STRS: RefCell<(Vec<Rc<str>>, HashMap<Rc<str>, u32>)> = RefCell::new((vec![Rc::from("")], HashMap::from([(Rc::from(""), 0u32)])));
+}
+// The number of a string in the table of numpy string values (each distinct string is kept once).
+pub fn np_sid(x: &str) -> u32 {
+    NP_STRS.with(|t| {
+        let mut t = t.borrow_mut();
+        if let Some(i) = t.1.get(x) {
+            return *i;
+        }
+        let r: Rc<str> = Rc::from(x);
+        let i = t.0.len() as u32;
+        t.0.push(r.clone());
+        t.1.insert(r, i);
+        i
+    })
+}
+pub fn np_sget(i: u32) -> Rc<str> {
+    NP_STRS.with(|t| t.borrow().0[i as usize].clone())
+}
+// A string cut to w characters, as numpy stores it in a <U w array.
+pub fn np_strunc(i: u32, w: u32) -> u32 {
+    let s = np_sget(i);
+    if s.len() <= w as usize || s.chars().count() <= w as usize {
+        return i;
+    }
+    np_sid(&s.chars().take(w as usize).collect::<String>())
+}
+pub fn np_nchars(i: u32) -> u32 {
+    np_sget(i).chars().count() as u32
+}
+// numpy's str() of a number stored in a string array (astype(str), a[i] = 5 in a string array)
+pub fn np_num_str(x: Sc) -> String {
+    match x {
+        Sc::U(i) => np_sget(i).to_string(),
+        Sc::B(b) => (if b { "True" } else { "False" }).into(),
+        Sc::I(i) => i.to_string(),
+        Sc::I32(i) => i.to_string(),
+        Sc::F(f) => float_repr(f),
+        Sc::F32(f) => np_f32_str(f),
+    }
 }
 impl Sc {
     pub fn dt(self) -> NT {
@@ -85,8 +157,10 @@ impl Sc {
             Sc::F(_) => NT::F,
             Sc::I32(_) => NT::I32,
             Sc::F32(_) => NT::F32,
+            Sc::U(i) => NT::U(np_nchars(i)),
         }
     }
+    // (a string's number: its float() when it has one; casts from strings are checked first, np_str_cast_check)
     pub fn f(self) -> f64 {
         match self {
             Sc::B(b) => b as i64 as f64,
@@ -94,6 +168,7 @@ impl Sc {
             Sc::F(x) => x,
             Sc::I32(i) => i as f64,
             Sc::F32(x) => x as f64,
+            Sc::U(i) => np_parse_f(&np_sget(i)).unwrap_or(f64::NAN),
         }
     }
     pub fn i(self) -> i64 {
@@ -103,6 +178,7 @@ impl Sc {
             Sc::F(x) => f_to_i(x),
             Sc::I32(i) => i as i64,
             Sc::F32(x) => f_to_i(x as f64),
+            Sc::U(i) => np_parse_i(&np_sget(i)).unwrap_or(0),
         }
     }
     pub fn b(self) -> bool {
@@ -112,6 +188,7 @@ impl Sc {
             Sc::F(x) => x != 0.0,
             Sc::I32(i) => i != 0,
             Sc::F32(x) => x != 0.0,
+            Sc::U(i) => i != 0,
         }
     }
     // the C casts numpy's astype makes (an integer becomes float32 in one rounding)
@@ -122,6 +199,7 @@ impl Sc {
             Sc::I32(i) => i as f32,
             Sc::F32(x) => x,
             Sc::F(x) => f_to_f32(x),
+            Sc::U(_) => f_to_f32(self.f()),
         }
     }
     pub fn i32v(self) -> i32 {
@@ -131,6 +209,14 @@ impl Sc {
             Sc::I32(i) => i,
             Sc::F(x) => f_to_i32(x),
             Sc::F32(x) => f_to_i32(x as f64),
+            Sc::U(_) => self.i() as i32,
+        }
+    }
+    // the string number of this value in a <U w array
+    pub fn uv(self, w: u32) -> u32 {
+        match self {
+            Sc::U(i) => np_strunc(i, w),
+            x => np_strunc(np_sid(&np_num_str(x)), w),
         }
     }
     pub fn cast(self, d: NT) -> Sc {
@@ -140,7 +226,50 @@ impl Sc {
             NT::F => Sc::F(self.f()),
             NT::I32 => Sc::I32(self.i32v()),
             NT::F32 => Sc::F32(self.f32v()),
+            NT::U(w) => Sc::U(self.uv(w)),
         }
+    }
+}
+// a string array's item cast to a number, with Python's errors (numpy's casts call int() and float())
+pub fn np_str_int(i: u32) -> Result<i64, E> {
+    let s = np_sget(i);
+    np_parse_i(&s).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: np.str_({})", str_repr(&s))))
+}
+pub fn np_str_float(i: u32) -> Result<f64, E> {
+    let s = np_sget(i);
+    np_parse_f(&s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: np.str_({})", str_repr(&s))))
+}
+// Before casting string values to a number type: each must parse (numpy raises otherwise); to bool is refused.
+pub fn np_str_cast_check(b: &Buf, d: NT) -> Result<(), E> {
+    if let Buf::U(v, _) = b {
+        match d {
+            NT::U(_) => {}
+            NT::B => return Err(np_unsup("casting strings to bool")),
+            NT::I | NT::I32 => {
+                for i in v {
+                    let x = np_str_int(*i)?;
+                    if d == NT::I32 {
+                        py_i32(x)?;
+                    }
+                }
+            }
+            NT::F | NT::F32 => {
+                for i in v {
+                    np_str_float(*i)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+// float() and int() of a string as numpy's casts read it (Python's float()/int() rules); None when it is not one
+pub fn np_parse_f(s: &str) -> Option<f64> {
+    parse_float(s)
+}
+pub fn np_parse_i(s: &str) -> Option<i64> {
+    match to_int(&V::Str(Rc::new(S { s: s.to_string(), ascii: s.is_ascii() }))) {
+        Ok(V::Int(i)) => Some(i),
+        _ => None,
     }
 }
 fn f_to_i(x: f64) -> i64 {
@@ -173,6 +302,8 @@ pub enum Buf {
     F(Vec<f64>),
     I32(Vec<i32>),
     F32(Vec<f32>),
+    // string numbers (np_sget) and the width in characters
+    U(Vec<u32>, u32),
 }
 // the same expression over each kind of buffer (v is the Vec, and W the variant)
 macro_rules! buf_map {
@@ -183,6 +314,7 @@ macro_rules! buf_map {
             Buf::F($v) => Buf::F($e),
             Buf::I32($v) => Buf::I32($e),
             Buf::F32($v) => Buf::F32($e),
+            Buf::U($v, w) => Buf::U($e, *w),
         }
     };
 }
@@ -194,6 +326,7 @@ impl Buf {
             Buf::F(_) => NT::F,
             Buf::I32(_) => NT::I32,
             Buf::F32(_) => NT::F32,
+            Buf::U(_, w) => NT::U(*w),
         }
     }
     pub fn len(&self) -> usize {
@@ -203,6 +336,7 @@ impl Buf {
             Buf::F(v) => v.len(),
             Buf::I32(v) => v.len(),
             Buf::F32(v) => v.len(),
+            Buf::U(v, _) => v.len(),
         }
     }
     pub fn get(&self, p: usize) -> Sc {
@@ -212,6 +346,7 @@ impl Buf {
             Buf::F(v) => Sc::F(v[p]),
             Buf::I32(v) => Sc::I32(v[p]),
             Buf::F32(v) => Sc::F32(v[p]),
+            Buf::U(v, _) => Sc::U(v[p]),
         }
     }
     pub fn set(&mut self, p: usize, x: Sc) {
@@ -221,6 +356,7 @@ impl Buf {
             Buf::F(v) => v[p] = x.f(),
             Buf::I32(v) => v[p] = x.i32v(),
             Buf::F32(v) => v[p] = x.f32v(),
+            Buf::U(v, w) => v[p] = x.uv(*w),
         }
     }
     pub fn zeros(d: NT, n: usize) -> Buf {
@@ -230,6 +366,7 @@ impl Buf {
             NT::F => Buf::F(vec![0.0; n]),
             NT::I32 => Buf::I32(vec![0; n]),
             NT::F32 => Buf::F32(vec![0.0; n]),
+            NT::U(w) => Buf::U(vec![0; n], w.max(1)),
         }
     }
     pub fn from_sc(d: NT, xs: &[Sc]) -> Buf {
@@ -239,6 +376,7 @@ impl Buf {
             NT::F => Buf::F(xs.iter().map(|x| x.f()).collect()),
             NT::I32 => Buf::I32(xs.iter().map(|x| x.i32v()).collect()),
             NT::F32 => Buf::F32(xs.iter().map(|x| x.f32v()).collect()),
+            NT::U(w) => Buf::U(xs.iter().map(|x| x.uv(w)).collect(), w),
         }
     }
     // one value n times
@@ -249,6 +387,7 @@ impl Buf {
             Sc::F(v) => Buf::F(vec![v; n]),
             Sc::I32(v) => Buf::I32(vec![v; n]),
             Sc::F32(v) => Buf::F32(vec![v; n]),
+            Sc::U(v) => Buf::U(vec![v; n], np_nchars(v)),
         }
     }
     pub fn pick(&self, ps: &[usize]) -> Buf {
@@ -520,6 +659,9 @@ pub fn np_dtype_arg(v: &V) -> Result<Option<NT>, E> {
         "bool" | "numpy.bool" | "numpy.bool_" | "bool_" | "?" | "b1" => NT::B,
         "numpy.float32" | "float32" | "f4" | "<f4" | "f" | "single" | "numpy.single" => NT::F32,
         "numpy.int32" | "int32" | "i4" | "<i4" | "i" | "intc" | "numpy.intc" => NT::I32,
+        // strings; U(0) is "as wide as needed" (each use sizes it)
+        "str" | "numpy.str_" | "str_" | "U" | "<U" | "unicode" => NT::U(0),
+        n if (n.starts_with("<U") || n.starts_with('U')) && n.trim_start_matches(['<', 'U']).parse::<u32>().is_ok() => NT::U(n.trim_start_matches(['<', 'U']).parse().unwrap()),
         n => return Err(np_unsup(&format!("dtype {n}"))),
     }))
 }
@@ -596,9 +738,12 @@ fn np_walk(v: &V, depth: usize, shape: &mut Vec<usize>, out: &mut Vec<Sc>) -> Re
     }
     match py_sc(v)? {
         Some(s) => out.push(s),
+        None if matches!(v, V::Str(_)) => {
+            let V::Str(x) = v else { unreachable!() };
+            out.push(Sc::U(np_sid(&x.s)));
+        }
         None => {
             return Err(match v {
-                V::Str(_) => np_unsup("an array of strings"),
                 V::None => np_unsup("an array holding None"),
                 _ => np_unsup(&format!("an array of {}", tn(v))),
             })
@@ -612,7 +757,10 @@ pub fn np_from(v: &V, dt: Option<NT>) -> Result<NdArr, E> {
     if let Some(a) = as_np(v) {
         let b = a.vals();
         return Ok(NdArr::new(match dt {
-            Some(d) => b.cast(d),
+            Some(d) => {
+                np_str_cast_check(&b, d)?;
+                b.cast(d)
+            }
             None => b,
         }, a.shape.clone()));
     }
@@ -620,6 +768,14 @@ pub fn np_from(v: &V, dt: Option<NT>) -> Result<NdArr, E> {
     let mut out = vec![];
     np_walk(v, 0, &mut shape, &mut out)?;
     let d = dt.unwrap_or_else(|| np_promote_all(out.iter().map(|x| x.dt())).unwrap_or(NT::F));
+    // dtype=str with no width: the widest item's str() (np.array([1, 22], dtype=str) is <U2)
+    // (an array of "" is still <U1)
+    let d = if d == NT::U(0) && dt.is_none() { NT::U(1) } else { d };
+    let d = if d == NT::U(0) && dt.is_some() { NT::U(out.iter().map(|x| np_nchars(x.uv(u32::MAX))).max().unwrap_or(1).max(1)) } else { d };
+    if !d.is_u() && out.iter().any(|x| matches!(x, Sc::U(_))) {
+        let strs: Vec<u32> = out.iter().filter_map(|x| if let Sc::U(i) = x { Some(*i) } else { None }).collect();
+        np_str_cast_check(&Buf::U(strs, 0), d)?;
+    }
     if dt == Some(NT::I) || dt == Some(NT::B) {
         if let (Some(NT::I), Some(x)) = (dt, out.iter().find(|x| matches!(x, Sc::F(f) if !f.is_finite()))) {
             let _ = x;
@@ -635,6 +791,7 @@ pub fn np_from(v: &V, dt: Option<NT>) -> Result<NdArr, E> {
                 Sc::B(v) => v as i32,
                 Sc::I32(v) => v,
                 Sc::I(v) => py_i32(v)?,
+                Sc::U(i) => py_i32(np_str_int(i)?)?,
                 Sc::F(_) | Sc::F32(_) => {
                     let f = x.f();
                     if f.is_nan() {
@@ -752,6 +909,10 @@ pub fn np_opnd(v: &V) -> Result<Option<Opnd>, E> {
     if let Some(s) = py_sc(v)? {
         return Ok(Some(Opnd { a: NdArr::new(Buf::from_sc(s.dt(), &[s]), vec![]), weak: true, scalar: true }));
     }
+    if let V::Str(x) = v {
+        let i = np_sid(&x.s);
+        return Ok(Some(Opnd { a: NdArr::new(Buf::fill(Sc::U(i), 1), vec![]), weak: true, scalar: true }));
+    }
     if seq_items(v).is_some() {
         return Ok(Some(Opnd { a: np_from(v, None)?, weak: false, scalar: false }));
     }
@@ -759,6 +920,10 @@ pub fn np_opnd(v: &V) -> Result<Option<Opnd>, E> {
 }
 // The result type of a ufunc over these operands.
 pub fn np_rtype(ops: &[&Opnd]) -> NT {
+    // strings: the widest (a Python str is as wide as itself)
+    if ops.iter().any(|o| o.a.dt().is_u()) {
+        return np_promote_all(ops.iter().map(|o| o.a.dt())).unwrap();
+    }
     let strong = np_promote_all(ops.iter().filter(|o| !o.weak).map(|o| o.a.dt()));
     let mut d = strong.unwrap_or_else(|| np_promote_all(ops.iter().map(|o| o.a.dt())).unwrap_or(NT::F));
     for o in ops.iter().filter(|o| o.weak) {
@@ -1125,6 +1290,9 @@ pub fn np_binop(a: &V, b: &V, op: &str) -> Option<R> {
             _ => return Err(exc("TypeError", format!("unsupported operand type(s) for {op}: '{}' and '{}'", tn(a), tn(b)))),
         };
         let scalar = x.scalar && y.scalar;
+        if x.a.dt().is_u() || y.a.dt().is_u() {
+            return np_str_binop(&x, &y, op);
+        }
         let d = np_rtype(&[&x, &y]);
         let bitwise = matches!(op, "&" | "|" | "^" | "<<" | ">>");
         if (d.is_f() || op == "/") && bitwise {
@@ -1231,6 +1399,68 @@ fn np_fast_pow(x: &Opnd, y: &Opnd) -> Option<&'static str> {
         0.5 => Some("sqrt"),
         _ => None,
     }
+}
+
+// numpy's own error for a function or method with no loop for strings (d is the string array's dtype)
+pub fn np_str_noloop(n: &str, d: NT) -> Option<E> {
+    let f = d.full_name();
+    Some(match n {
+        "sum" | "mean" | "std" | "var" | "median" | "average" | "nansum" | "nanmean" => exc("TypeError", format!("the resolved dtypes are not compatible with add.reduce. Resolved (dtype('{f}'), dtype('{f}'), dtype('{}'))", NT::U(d.str_width() * 2).full_name())),
+        "cumsum" => exc("TypeError", format!("the resolved dtypes are not compatible with add.accumulate. Resolved (dtype('{f}'), dtype('{f}'), dtype('{}'))", NT::U(d.str_width() * 2).full_name())),
+        "abs" | "absolute" | "negative" | "positive" => exc("UFuncTypeError", format!("ufunc '{}' did not contain a loop with signature matching types <class 'numpy.dtypes.StrDType'> -> None", if n == "abs" { "absolute" } else { n })),
+        "sqrt" | "exp" | "exp2" | "expm1" | "log" | "log10" | "log2" | "log1p" | "sin" | "cos" | "tan" | "arcsin" | "arccos" | "arctan" | "sinh" | "cosh" | "tanh"
+        | "arcsinh" | "arccosh" | "arctanh" | "cbrt" | "floor" | "ceil" | "trunc" | "rint" | "round" | "around" | "fix" | "square" | "reciprocal" | "sign" | "degrees" | "radians"
+        | "deg2rad" | "rad2deg" | "isnan" | "isinf" | "isfinite" | "logical_not" | "fabs" => {
+            let u = match n { "round" | "around" => "rint", "fix" => return None, _ => n };
+            exc("TypeError", format!("ufunc '{u}' not supported for the input types, and the inputs could not be safely coerced to any supported types according to the casting rule ''safe''"))
+        }
+        _ => return None,
+    })
+}
+
+// An operator with a string array or np.str_ on a side: comparisons compare the strings (with a number only
+// == and != work, giving all False / all True), + joins them; numpy has no other loop for strings.
+fn np_str_binop(x: &Opnd, y: &Opnd, op: &str) -> R {
+    let shape = np_bshape(&x.a.shape, &y.a.shape)?;
+    let (dx, dy) = (x.a.dt(), y.a.dt());
+    let cmp = matches!(op, "<" | ">" | "<=" | ">=" | "==" | "!=");
+    let no_loop = || {
+        let name = |d: NT, o: &Opnd| if o.weak { match d { NT::U(_) => format!("dtype('{}')", d.full_name()), NT::F => "<class 'numpy.dtypes._PyFloatDType'>".into(), NT::B => "<class 'numpy.dtypes.BoolDType'>".into(), _ => "<class 'numpy.dtypes._PyLongDType'>".into() } } else { format!("dtype('{}')", d.full_name()) };
+        exc("UFuncTypeError", format!("ufunc '{}' did not contain a loop with signature matching types ({}, {}) -> None", ufunc_name(op), name(dx, x), name(dy, y)))
+    };
+    if !(dx.is_u() && dy.is_u()) {
+        return match op {
+            "==" | "!=" => Ok(np_out(Buf::B(vec![op == "!="; shape.iter().product()]), shape)),
+            "*" => type_err("The 'out' kwarg is necessary when using the string multiply ufunc directly. Use numpy.strings.multiply to multiply strings without specifying 'out'.".into()),
+            _ => Err(no_loop()),
+        };
+    }
+    let (xv, yv) = (np_bvals(&x.a, &shape), np_bvals(&y.a, &shape));
+    let (Buf::U(xv, _), Buf::U(yv, _)) = (xv, yv) else { unreachable!() };
+    if cmp {
+        let r: Vec<bool> = xv.iter().zip(&yv).map(|(p, q)| {
+            if op == "==" || op == "!=" {
+                return (p == q) == (op == "==");
+            }
+            let (p, q) = (np_sget(*p), np_sget(*q));
+            match op {
+                "<" => p < q,
+                ">" => p > q,
+                "<=" => p <= q,
+                _ => p >= q,
+            }
+        }).collect();
+        return Ok(np_out(Buf::B(r), shape));
+    }
+    if op == "+" {
+        let (NT::U(wx), NT::U(wy)) = (dx, dy) else { unreachable!() };
+        let r: Vec<u32> = xv.iter().zip(&yv).map(|(p, q)| np_sid(&format!("{}{}", np_sget(*p), np_sget(*q)))).collect();
+        return Ok(np_out(Buf::U(r, wx + wy), shape));
+    }
+    if op == "*" {
+        return type_err("The 'out' kwarg is necessary when using the string multiply ufunc directly. Use numpy.strings.multiply to multiply strings without specifying 'out'.".into());
+    }
+    Err(no_loop())
 }
 
 // a OP= b on an array: in place (other names of the same buffer see it), in the array's own type.
@@ -2946,6 +3176,20 @@ pub fn red_shape(a: &NdArr, o: &RedOpts, out_shape: Vec<usize>) -> Vec<usize> {
 }
 
 pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
+    // strings: argmax/argmin compare them, any/all/count_nonzero test them for being empty; numpy has no
+    // sum, mean, max, ... loop for them
+    if let NT::U(_) = a.dt() {
+        if !matches!(what, "argmax" | "argmin" | "any" | "all" | "count_nonzero") {
+            let uf = match what {
+                "max" => "maximum",
+                "min" => "minimum",
+                "prod" => "multiply",
+                _ => return Err(np_str_noloop(what, a.dt()).unwrap_or_else(|| np_unsup(&format!("{what} of a string array")))),
+            };
+            let d = a.dt().full_name();
+            return Err(exc("UFuncTypeError", format!("ufunc '{uf}' did not contain a loop with signature matching types (dtype('{d}'), dtype('{d}')) -> None")));
+        }
+    }
     if matches!(what, "argmax" | "argmin") && o.axis.is_none() && (a.ndim() != 1 || !a.contig()) {
         // over the flattened array (C order), not memory order
         let fa = NdArr::new(a.vals(), vec![a.size()]);
@@ -3066,6 +3310,7 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
                 Buf::I(v) => Buf::I((0..ng).map(|k| { let g = v[k * n..(k + 1) * n].iter(); if mx { *g.max().unwrap() } else { *g.min().unwrap() } }).collect()),
                 Buf::I32(v) => Buf::I32((0..ng).map(|k| { let g = v[k * n..(k + 1) * n].iter(); if mx { *g.max().unwrap() } else { *g.min().unwrap() } }).collect()),
                 Buf::B(v) => Buf::B((0..ng).map(|k| { let g = &v[k * n..(k + 1) * n]; if mx { g.iter().any(|x| *x) } else { g.iter().all(|x| *x) } }).collect()),
+                Buf::U(..) => unreachable!(),
             }
         }
         "argmax" | "argmin" => {
@@ -3096,6 +3341,10 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
                 Buf::F32(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: f32, b: f32| if mx { a > b } else { a < b }, |a: f32| a.is_nan())).collect(),
                 Buf::I32(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: i32, b: i32| if mx { a > b } else { a < b }, |_| false)).collect(),
                 Buf::B(v) => (0..ng).map(|k| arg(&v[k * n..(k + 1) * n], |a: bool, b: bool| if mx { a & !b } else { !a & b }, |_| false)).collect(),
+                Buf::U(v, _) => {
+                    let sv: Vec<Rc<str>> = v.iter().map(|i| np_sget(*i)).collect();
+                    (0..ng).map(|k| arg(&(k * n..(k + 1) * n).collect::<Vec<usize>>(), |a: usize, b: usize| if mx { sv[a] > sv[b] } else { sv[a] < sv[b] }, |_| false)).collect()
+                }
             })
         }
         "any" | "all" => {

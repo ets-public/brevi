@@ -259,6 +259,7 @@ enum EFmt {
     F(FFmt, bool),
     I(usize),
     B,
+    U,
 }
 impl EFmt {
     fn new(data: &Buf, o: &NpOpts) -> EFmt {
@@ -268,12 +269,15 @@ impl EFmt {
             Buf::I(v) => EFmt::I(v.iter().map(|x| x.to_string().len()).max().unwrap_or(0)),
             Buf::I32(v) => EFmt::I(v.iter().map(|x| x.to_string().len()).max().unwrap_or(0)),
             Buf::B(_) => EFmt::B,
+            Buf::U(..) => EFmt::U,
         }
     }
     fn fmt(&self, x: Sc, zero_d: bool) -> String {
         match (self, x) {
             (EFmt::F(f, w), x) => np_as_f32(*w, || f.fmt(x.f())),
             (EFmt::I(w), x) => format!("{:>w$}", x.i(), w = *w),
+            // a string shows as Python's repr of it, unpadded
+            (EFmt::U, x) => str_repr(&np_num_str(x)),
             (EFmt::B, x) => (if x.b() {
                 if zero_d {
                     "True"
@@ -442,10 +446,13 @@ pub fn np_array_repr(vals: &Buf, shape: &[usize]) -> String {
         extras.push(format!("shape={}", np_shape_repr(shape)));
     }
     if !(size > 0 && vals.dt().default_dt()) {
-        extras.push(format!("dtype={}", vals.dt().name()));
+        extras.push(format!("dtype={}", match vals.dt() {
+            NT::U(_) => format!("'{}'", vals.dt().full_name()),
+            d => d.name().to_string(),
+        }));
     }
     let dt = format!("{})", extras.join(", "));
-    let last = s.len() - s.rfind('\n').map_or(0, |i| i + 1);
+    let last = s[s.rfind('\n').map_or(0, |i| i + 1)..].chars().count();
     if last + dt.len() + 1 > np_opts().linewidth {
         format!("{s}\n      {dt}")
     } else {
@@ -488,6 +495,7 @@ pub fn np_sc_str(x: Sc) -> String {
         Sc::B(b) => (if b { "True" } else { "False" }).into(),
         Sc::I32(i) => i.to_string(),
         Sc::F32(f) => np_f32_str(f),
+        Sc::U(i) => np_sget(i).to_string(),
     }
 }
 pub fn np_sc_repr(x: Sc) -> String {
@@ -497,5 +505,6 @@ pub fn np_sc_repr(x: Sc) -> String {
         Sc::B(b) => (if b { "np.True_" } else { "np.False_" }).into(),
         Sc::I32(i) => format!("np.int32({i})"),
         Sc::F32(f) => format!("np.float32({})", np_f32_str(f)),
+        Sc::U(i) => format!("np.str_({})", str_repr(&np_sget(i))),
     }
 }
