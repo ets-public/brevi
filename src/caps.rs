@@ -200,6 +200,13 @@ const OWN_ASYNCIO: &[&str] = &[
 const OWN_TIKTOKEN: &[&str] = &["Encoding", "get_encoding", "encoding_for_model", "encoding_name_for_model", "list_encoding_names", "__version__"];
 // Encoding methods Brevi's tiktoken lacks (numpy arrays, the unstable API, regex splitting in Python).
 const TIKTOKEN_LACKS: &[&str] = &["encode_to_numpy", "encode_with_unstable", "_encode_bytes", "_encode_only_native_bpe", "__getstate__", "__setstate__"];
+// What src/dynpy/py/tokenizers.py has.
+const OWN_TOKENIZERS: &[&str] = &["Tokenizer", "AddedToken", "__version__"];
+// Tokenizer and Encoding methods Brevi's tokenizers lacks (saving, training, async, the component objects).
+const TOKENIZERS_LACKS: &[&str] = &[
+    "train", "train_from_iterator", "save", "to_str", "post_process", "from_buffer", "decode_stream", "async_encode", "async_encode_batch",
+    "async_decode_batch", "pre_tokenizer", "post_processor", "normalizer", "decoder", "set_sequence_id", "get_added_vocab",
+];
 // Event loop methods Brevi's asyncio lacks (they reach sockets, files, threads, processes or signals).
 const ASYNCIO_LOOP_IO: &[&str] = &[
     "run_in_executor", "set_default_executor", "getaddrinfo", "getnameinfo", "create_connection", "create_server", "create_unix_connection",
@@ -221,6 +228,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "argparse" => Some("argparse"),
         "asyncio" => Some("asyncio"),
         "tiktoken" => Some("tiktoken"),
+        "tokenizers" => Some("tokenizers"),
         _ => None,
     }
 }
@@ -236,6 +244,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "argparse" => attr != "FileType",
         "asyncio" => OWN_ASYNCIO.contains(&attr),
         "tiktoken" => OWN_TIKTOKEN.contains(&attr),
+        "tokenizers" => OWN_TOKENIZERS.contains(&attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -358,7 +367,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             } else if let Some(rest) = t.strip_prefix("from ") {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
-                if m.trim().starts_with("tiktoken.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -397,6 +406,17 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
         for (n, l) in &lines {
             if let Some(m) = TIKTOKEN_LACKS.iter().find(|m| l.contains(&format!(".{m}"))) {
                 bad.push((*n, format!("tiktoken Encoding.{m}")));
+            }
+        }
+    }
+    if names.values().any(|m| *m == "tokenizers") {
+        for (n, l) in &lines {
+            let hit = TOKENIZERS_LACKS.iter().find(|m| {
+                let pat = format!(".{m}");
+                l.match_indices(&pat).any(|(i, _)| !l[i + pat.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+            });
+            if let Some(m) = hit {
+                bad.push((*n, format!("tokenizers .{m}")));
             }
         }
     }
@@ -667,6 +687,21 @@ mod tests {
             }
             for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess", "Thread"] {
                 assert!(!l.contains(bad), "tiktoken.py uses {bad}");
+            }
+        }
+    }
+
+    // Brevi's tokenizers is the same: it imports only its native core, and the tokenizer.json files it reads
+    // were built into the program by the compiler, so it opens nothing and reaches no network.
+    #[test]
+    fn tokenizers_reaches_nothing() {
+        let src = include_str!("dynpy/py/tokenizers.py");
+        for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                assert_eq!(m.split_whitespace().next().unwrap(), "_brevi_hf", "tokenizers.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess", "Thread"] {
+                assert!(!l.contains(bad), "tokenizers.py uses {bad}");
             }
         }
     }

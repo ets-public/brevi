@@ -121,6 +121,24 @@ for f in tests/tiktoken/*.py; do
     echo "ok   $f"
   fi
 done
+# tokenizers programs must print what CPython's tokenizers prints, with Brevi's own tokenizers: never CPython.
+# The .expected files come from tokenizers 0.23.3 (CI has none): `--update` needs it installed. Building one
+# gets each Hub tokenizer.json once (from huggingface_hub's cache when it has it, else into Brevi's cache).
+for f in tests/tokenizers/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then
+    python3 -c "import tokenizers" 2>/dev/null && python3 "$f" > "$exp" 2>/dev/null
+    continue
+  fi
+  out=$(BREVI_PATH=1 timeout 300 $BREVI run "$f" --native 2>/tmp/brevi_hf_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_hf_err; then
+    echo "FAIL $f (not built with Brevi's tokenizers)"; cat /tmp/brevi_hf_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_hf_err | tail -5; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"

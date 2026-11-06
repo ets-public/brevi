@@ -112,6 +112,18 @@ The compiler builds the vocabularies a program names into the binary: from tikto
 
 Text is split by a regex engine written for tiktoken's patterns (leftmost-first alternation, possessive and lazy repeats, atomic groups, lookahead, `\p{L}`-style classes read off tiktoken's own regex library, so the Unicode version is the same), then merged by BPE in tiktoken's order. Not native yet (the program runs with CPython's tiktoken, or `--native` refuses it): `encode_to_numpy`, `encode_with_unstable`, `tiktoken.load`, `tiktoken.core` and the other submodules, plugins, and `Encoding(pat_str=...)` with a pattern the engine lacks (lookbehind, backreferences) or one it cannot see at build time.
 
+## tokenizers
+
+From the next release, a Python file that uses Hugging Face `tokenizers` builds with Brevi's own port of tokenizers 0.23.3: no CPython at run time, and the same ids, tokens, offsets, word ids, masks, decoded text and errors.
+
+- Load a tokenizer with `Tokenizer.from_pretrained("bert-base-uncased")` (a literal model id, and a literal `revision` if you give one), `Tokenizer.from_file("tokenizer.json")` (a literal path) or `Tokenizer.from_str(json_text)`.
+- Models: BPE (byte-level as in GPT-2, RoBERTa, Qwen and Llama 3; SentencePiece-style with byte fallback as in Llama 2 and TinyLlama), WordPiece (BERT, MiniLM, other sentence-transformers) and WordLevel, with the normalizers, pre-tokenizers, post-processors and decoders those tokenizers use.
+- `encode` (with a pair, or pre-tokenized input), `encode_batch`, `encode_batch_fast`, `decode`, `decode_batch`, `enable_truncation` (stride, strategy, direction; overflowing encodings), `enable_padding`, `add_tokens`, `add_special_tokens`, `AddedToken`, `get_vocab`, `get_vocab_size`, `token_to_id`, `id_to_token`, `get_added_tokens_decoder`, `encode_special_tokens`, and the `Encoding` fields (`ids`, `tokens`, `offsets`, `word_ids`, `type_ids`, `attention_mask`, `special_tokens_mask`, `overflowing`, ...) and position methods (`char_to_token`, `token_to_word`, ...).
+
+The compiler reads each `tokenizer.json` a program names: a Hub model from huggingface_hub's cache (`HF_HUB_CACHE`, `HF_HOME` or `~/.cache/huggingface/hub`), else downloaded once with `curl` (using `HF_TOKEN` if set). It checks the file with the same port the program runs and builds it into the binary, so a built program tokenizes under `--sandbox` with nothing granted. Character classes and Unicode normalization are read off tokenizers itself, so they match its Unicode version.
+
+Not native yet (the program runs with CPython's tokenizers, or `--native` refuses it): Unigram models (T5, XLM-R, ALBERT), building a `Tokenizer` from `tokenizers.models`, training, `save` and `to_str`, the `tokenizers.*` submodules, and a model id or path the build cannot see (a variable, not a literal).
+
 ## Libraries (numpy, pandas, ...)
 
 A Python file that imports a module Brevi does not build itself (numpy, pandas, requests, sqlite3, Pillow, ...) still builds natively: each library call runs in CPython, loaded into the native program, so results are CPython's own, and the rest of the program stays native and fast. Brevi's own modules (math, re, json, datetime, ...) stay native: what the typed build lacks of them goes to the dynamic build, never to CPython (from v0.24.3; see [What runs native](#what-runs-native)).

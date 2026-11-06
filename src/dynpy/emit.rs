@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 33] = ["_brevi_async", "_brevi_tok", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 34] = ["_brevi_async", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -182,6 +182,11 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
         "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
         "_brevi_tok" => &["core", "ranks", "max_rank", "n_ranks", "find_special"],
+        "_brevi_hf" => &[
+            "load", "load_built", "encode", "encode_batch", "decode", "decode_batch", "token_to_id", "id_to_token", "vocab", "vocab_size",
+            "n_added", "set_truncation", "truncation", "set_padding", "padding", "add_tokens", "set_encode_special", "encode_special",
+            "added_tokens", "lacks",
+        ],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "replace", "MISSING"],
