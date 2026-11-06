@@ -288,6 +288,43 @@ const PYDANTIC_LACKS: &[&str] = &[
     "__get_pydantic_core_schema__", "__get_pydantic_json_schema__", "ser_json_", "val_json_", "regex_engine", "coerce_numbers_to_str",
     "plain_serializer", "defer_build", "protected_namespaces", "context=", "warnings=", "validate_call", "SkipValidation",
 ];
+// What src/dynpy/py/anthropic.py has (module attributes; anthropic.types names are those its generated file
+// defines), and what sends a program to CPython's anthropic instead.
+const OWN_ANTHROPIC: &[&str] = &[
+    "Anthropic", "AsyncAnthropic", "Client", "AsyncClient", "Stream", "AsyncStream", "types", "__version__", "__title__", "NOT_GIVEN", "NotGiven",
+    "not_given", "Omit", "omit", "BaseModel", "Timeout", "DEFAULT_TIMEOUT", "DEFAULT_MAX_RETRIES", "DEFAULT_CONNECTION_LIMITS", "HUMAN_PROMPT",
+    "AI_PROMPT", "AnthropicError", "APIError", "APIStatusError", "APITimeoutError", "APIConnectionError", "APIResponseValidationError",
+    "APIWebhookValidationError", "BadRequestError", "AuthenticationError", "PermissionDeniedError", "NotFoundError", "RequestTimeoutError",
+    "ConflictError", "PreconditionFailedError", "ContentTooLargeError", "RequestTooLargeError", "UnprocessableEntityError", "RateLimitError",
+    "RequestHeaderFieldsTooLargeError", "ClientClosedRequestError", "InternalServerError", "HTTPNotImplementedError", "ServiceUnavailableError",
+    "GatewayTimeoutError", "DeadlineExceededError", "OverloadedError", "RetryableError", "CredentialsError", "IdentityTokenFileError",
+    "CMEKKeyDisabledError", "RampLimitExceededError", "CMEKKeyUnreachableError", "OrganizationOnHoldError", "CMEKKeyNetworkBlockedError",
+    "CMEKContextUnavailableError", "ClaudeCodeVersionTooOldError", "EnforcedSpendLimitReachedError", "RequestBodyEncodingInvalidError",
+    "OrganizationTypeNotSupportedError", "ClaudeCodeKeyCreatorNotMemberError", "RequestBodyEncodingUnsupportedError",
+    "RequestBodyTooLargeAfterDecodingError",
+];
+const ANTHROPIC_LACKS: &[&str] = &[
+    ".beta", ".batches", ".files", ".skills", ".organization", ".user_profiles", ".parse(", "tool_runner", "with_raw_response",
+    "with_streaming_response", "output_format=", "http_client=", "credentials=", "config=", "profile=", "middleware=", "open_telemetry=",
+    "_strict_response_validation", ".get_api_list(", "._client", ".raw_events(",
+];
+// What src/dynpy/py/openai.py has, and what sends a program to CPython's openai instead.
+const OWN_OPENAI: &[&str] = &[
+    "OpenAI", "AsyncOpenAI", "Client", "AsyncClient", "Stream", "AsyncStream", "types", "__version__", "__title__", "VERSION", "NOT_GIVEN",
+    "NotGiven", "not_given", "Omit", "omit", "BaseModel", "Timeout", "DEFAULT_TIMEOUT", "DEFAULT_MAX_RETRIES", "DEFAULT_CONNECTION_LIMITS",
+    "OpenAIError", "APIError", "APIStatusError", "APITimeoutError", "APIConnectionError", "APIResponseValidationError", "BadRequestError",
+    "AuthenticationError", "PermissionDeniedError", "NotFoundError", "ConflictError", "UnprocessableEntityError", "RateLimitError",
+    "InternalServerError", "LengthFinishReasonError", "ContentFilterFinishReasonError", "InvalidWebhookSignatureError",
+];
+const OPENAI_LACKS: &[&str] = &[
+    ".beta", ".audio", ".images", ".files", ".uploads", ".batches", ".fine_tuning", ".vector_stores", ".moderations", ".completions.parse(",
+    ".responses.parse(", ".responses.stream(", ".chat.completions.stream(", ".chat.completions.list(", ".chat.completions.update(",
+    ".chat.completions.delete(", ".chat.completions.messages", ".responses.delete(", ".responses.cancel(", ".responses.input_items",
+    ".responses.compact(", ".input_tokens", ".models.delete(", ".realtime", ".webhooks", ".containers", ".conversations", ".evals", ".skills",
+    ".videos", ".admin", ".graders", "with_raw_response", "with_streaming_response", "http_client=", "workload_identity=",
+    "provider=", "data_residency=", "azure", "Azure", "_strict_response_validation", ".get_api_list(", "._client", "pydantic_function_tool",
+    "openai.lib", "openai.resources", "openai.pagination", "openai.helpers", "openai.Completion", "client.completions",
+];
 const HTTPX_LACKS: &[&str] = &[
     "http2=", "transport=", "mounts=", "proxies=", "cert=", "files=", "app=", ".extensions", ".sync_auth_flow", ".async_auth_flow",
 ];
@@ -319,6 +356,12 @@ fn path_module(m: &str) -> Option<&'static str> {
         "requests.auth" => Some("requests.auth"),
         "httpx" => Some("httpx"),
         "pydantic" => Some("pydantic"),
+        "anthropic" => Some("anthropic"),
+        "anthropic.types" => Some("anthropic.types"),
+        "openai" => Some("openai"),
+        "openai.types" => Some("openai.types"),
+        "openai.types.chat" => Some("openai.types.chat"),
+        "openai.types.responses" => Some("openai.types.responses"),
         _ => None,
     }
 }
@@ -340,8 +383,26 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "requests.auth" => matches!(attr, "HTTPBasicAuth" | "AuthBase"),
         "httpx" => OWN_HTTPX.contains(&attr),
         "pydantic" => OWN_PYDANTIC.contains(&attr),
+        "anthropic" => OWN_ANTHROPIC.contains(&attr),
+        "anthropic.types" => defines(include_str!("dynpy/py/anthropic_types.py"), attr),
+        "openai" => OWN_OPENAI.contains(&attr),
+        "openai.types" => defines(include_str!("dynpy/py/openai_types.py"), attr),
+        "openai.types.chat" => defines(include_str!("dynpy/py/openai_types_chat.py"), attr),
+        "openai.types.responses" => defines(include_str!("dynpy/py/openai_types_responses.py"), attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
+}
+
+// A generated export file (anthropic_types.py, ...) binds the name: `from M import ..., name` or `name = ...`.
+fn defines(src: &str, name: &str) -> bool {
+    src.lines().any(|l| {
+        if let Some(rest) = l.strip_prefix("from ") {
+            let list = rest.split_once(" import ").map_or("", |x| x.1);
+            list.split(',').any(|p| p.split_whitespace().last() == Some(name))
+        } else {
+            l.split_once(" = ").is_some_and(|(n, _)| n == name)
+        }
+    })
 }
 
 // The program's lines with comments and the text of plain strings blanked (f-string text is kept: it may hold
@@ -464,7 +525,8 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             } else if let Some(rest) = t.strip_prefix("from ") {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" {
+                let deep = |p: &str| m.trim().starts_with(p) && path_module(m.trim()).is_none();
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -519,7 +581,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
@@ -636,9 +698,9 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
         }
         uses.push((line, "native", format!("import {m} (a Python library, run by CPython)")));
     }
-    // Brevi's requests and httpx reach the network.
+    // Brevi's requests, httpx, anthropic and openai reach the network.
     for (line, m) in crate::pybridge::bridged_imports(src) {
-        if matches!(m.split('.').next().unwrap_or(""), "requests" | "httpx") {
+        if matches!(m.split('.').next().unwrap_or(""), "requests" | "httpx" | "anthropic" | "openai") {
             uses.push((line, "net", format!("import {m} (the network)")));
         }
     }
@@ -821,7 +883,7 @@ mod tests {
         }
     }
 
-    // Brevi's requests and httpx reach the network only through _brevi_net, whose native side the compiler puts
+    // Brevi's requests, httpx, anthropic and openai reach the network.only through _brevi_net, whose native side the compiler puts
     // into a program only when the network is granted (or outside the sandbox), and whose every connection
     // passes the host check: they open no files, start nothing and import nothing else that reaches out.
     #[test]
@@ -848,6 +910,54 @@ mod tests {
         // the network itself is in the glue pasted into a program, never in the runtime every program carries
         assert!(!crate::dynpy::RUNTIME.contains("std::net"));
         assert!(include_str!("dynpy/netglue.rs").contains("host_ok"));
+    }
+
+    // Brevi's anthropic and openai reach the network only through Brevi's httpx (so only through _brevi_net and
+    // its host check): their files import nothing else that reaches out, open nothing and start nothing.
+    #[test]
+    fn llm_copies_reach_only_httpx() {
+        let ok = [
+            "_brevi_sdk", "_brevi_http", "_brevi_anthropic_types", "_brevi_openai_types", "httpx", "asyncio", "base64", "datetime", "json", "random",
+            "time", "sys", "anthropic.types", "openai.types",
+        ];
+        for (name, src) in [
+            ("_brevi_sdk.py", include_str!("dynpy/py/_brevi_sdk.py")),
+            ("anthropic.py", include_str!("dynpy/py/anthropic.py")),
+            ("anthropic_types.py", include_str!("dynpy/py/anthropic_types.py")),
+            ("_brevi_anthropic_types.py", include_str!("dynpy/py/_brevi_anthropic_types.py")),
+            ("openai.py", include_str!("dynpy/py/openai.py")),
+            ("openai_types.py", include_str!("dynpy/py/openai_types.py")),
+            ("openai_types_chat.py", include_str!("dynpy/py/openai_types_chat.py")),
+            ("openai_types_responses.py", include_str!("dynpy/py/openai_types_responses.py")),
+            ("_brevi_openai_types.py", include_str!("dynpy/py/_brevi_openai_types.py")),
+        ] {
+            for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+                if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                    let m = m.split_whitespace().next().unwrap();
+                    assert!(ok.contains(&m), "{name} imports {m}");
+                }
+                for bad in ["open(", "__import__", "exec(", "eval(", "socket.", "subprocess", "threading", "Thread(", "os.environ", "getattr(sys"] {
+                    assert!(!l.contains(bad), "{name} uses {bad}");
+                }
+            }
+        }
+    }
+
+    // A program using what Brevi's anthropic / openai have stays on them; what they lack sends it to CPython's.
+    #[test]
+    fn path_uses_llm_sdks() {
+        let uses = |s: &str| super::path_uses(s).unwrap().into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+        let a = "import anthropic\nfrom anthropic.types import Message, TextBlock\nc = anthropic.Anthropic()\nm = c.messages.create(model='m', max_tokens=9, messages=[])\nprint(m.content[0].text)\n";
+        assert!(uses(a).is_empty(), "{:?}", uses(a));
+        assert!(!uses("from anthropic import AsyncAnthropic, RateLimitError\nc = AsyncAnthropic()\nprint(c.organization)\n").is_empty());
+        assert!(!uses("import anthropic\nanthropic.Anthropic().beta.messages.create()\n").is_empty());
+        assert!(!uses("from anthropic.lib.streaming import MessageStream\n").is_empty());
+        assert!(!uses("from anthropic import Bedrock\n").is_empty());
+        let o = "from openai import OpenAI\nfrom openai.types.chat import ChatCompletion\nc = OpenAI()\nprint(c.organization, c.chat.completions.create(model='m', messages=[]))\n";
+        assert!(uses(o).is_empty(), "{:?}", uses(o));
+        assert!(!uses("import openai\nopenai.OpenAI().images.generate(prompt='x')\n").is_empty());
+        assert!(!uses("from openai import AzureOpenAI\n").is_empty());
+        assert!(!uses("from openai.types.chat import NoSuchThing\n").is_empty());
     }
 
     // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it

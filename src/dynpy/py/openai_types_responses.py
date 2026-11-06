@@ -1,0 +1,102 @@
+# openai.types.responses, from Brevi's openai copy: written by tools/gen_llm_types.py, do not edit.
+from _brevi_openai_types import ApplyPatchTool, ComputerTool, ComputerUsePreviewTool, ContainerAuto, ContainerNetworkPolicyAllowlist, ContainerNetworkPolicyDisabled, ContainerNetworkPolicyDomainSecret, ContainerReference
+from _brevi_openai_types import CustomTool, EasyInputMessage, FileSearchTool, FunctionShellTool, FunctionTool, InlineSkill, InlineSkillSource, LocalEnvironment
+from _brevi_openai_types import LocalSkill, NamespaceTool, Response, ResponseApplyPatchToolCall, ResponseApplyPatchToolCallOutput, ResponseAudioDeltaEvent, ResponseAudioDoneEvent, ResponseAudioTranscriptDeltaEvent
+from _brevi_openai_types import ResponseAudioTranscriptDoneEvent, ResponseCodeInterpreterCallCodeDeltaEvent, ResponseCodeInterpreterCallCodeDoneEvent, ResponseCodeInterpreterCallCompletedEvent, ResponseCodeInterpreterCallInProgressEvent, ResponseCodeInterpreterCallInterpretingEvent, ResponseCodeInterpreterToolCall, ResponseCompactionCompactingEvent
+from _brevi_openai_types import ResponseCompactionItem, ResponseCompactionItemParam, ResponseCompletedEvent, ResponseComputerToolCall, ResponseComputerToolCallOutputItem, ResponseComputerToolCallOutputScreenshot, ResponseConfigurationUpdateItemParam, ResponseContainerReference
+from _brevi_openai_types import ResponseContentPartAddedEvent, ResponseContentPartDoneEvent, ResponseCreatedEvent, ResponseCustomToolCall, ResponseCustomToolCallInputDeltaEvent, ResponseCustomToolCallInputDoneEvent, ResponseCustomToolCallOutput, ResponseCustomToolCallOutputItem
+from _brevi_openai_types import ResponseError, ResponseErrorEvent, ResponseFailedEvent, ResponseFileSearchCallCompletedEvent, ResponseFileSearchCallInProgressEvent, ResponseFileSearchCallSearchingEvent, ResponseFileSearchToolCall, ResponseFormatTextJSONSchemaConfig
+from _brevi_openai_types import ResponseFunctionCallArgumentsDeltaEvent, ResponseFunctionCallArgumentsDoneEvent, ResponseFunctionShellCallOutputContent, ResponseFunctionShellToolCall, ResponseFunctionShellToolCallOutput, ResponseFunctionToolCall, ResponseFunctionToolCallOutputItem, ResponseFunctionWebSearch
+from _brevi_openai_types import ResponseImageGenCallCompletedEvent, ResponseImageGenCallGeneratingEvent, ResponseImageGenCallInProgressEvent, ResponseImageGenCallPartialImageEvent, ResponseInProgressEvent, ResponseIncompleteEvent, ResponseInputFile, ResponseInputFileContent
+from _brevi_openai_types import ResponseInputImage, ResponseInputImageContent, ResponseInputText, ResponseInputTextContent, ResponseLocalEnvironment, ResponseMcpCallArgumentsDeltaEvent, ResponseMcpCallArgumentsDoneEvent, ResponseMcpCallCompletedEvent
+from _brevi_openai_types import ResponseMcpCallFailedEvent, ResponseMcpCallInProgressEvent, ResponseMcpListToolsCompletedEvent, ResponseMcpListToolsFailedEvent, ResponseMcpListToolsInProgressEvent, ResponseOutputItemAddedEvent, ResponseOutputItemDoneEvent, ResponseOutputMessage
+from _brevi_openai_types import ResponseOutputRefusal, ResponseOutputText, ResponseOutputTextAnnotationAddedEvent, ResponsePrompt, ResponseQueuedEvent, ResponseReasoningItem, ResponseReasoningSummaryPartAddedEvent, ResponseReasoningSummaryPartDoneEvent
+from _brevi_openai_types import ResponseReasoningSummaryTextDeltaEvent, ResponseReasoningSummaryTextDoneEvent, ResponseReasoningTextDeltaEvent, ResponseReasoningTextDoneEvent, ResponseRefusalDeltaEvent, ResponseRefusalDoneEvent, ResponseShellCallCommandAddedEvent, ResponseShellCallCommandDeltaEvent
+from _brevi_openai_types import ResponseShellCallCommandDoneEvent, ResponseShellCallOutputContentDeltaEvent, ResponseShellCallOutputContentDoneEvent, ResponseTextConfig, ResponseTextDeltaEvent, ResponseTextDoneEvent, ResponseToolSearchCall, ResponseToolSearchOutputItem
+from _brevi_openai_types import ResponseToolSearchOutputItemParam, ResponseUsage, ResponseWebSearchCallCompletedEvent, ResponseWebSearchCallInProgressEvent, ResponseWebSearchCallSearchingEvent, SkillReference, ToolChoiceAllowed, ToolChoiceApplyPatch
+from _brevi_openai_types import ToolChoiceCustom, ToolChoiceFunction, ToolChoiceMcp, ToolChoiceShell, ToolChoiceTypes, ToolSearchOutputNamespaceTool, ToolSearchTool, WebSearchPreviewTool
+from _brevi_openai_types import WebSearchTool
+ApplyPatchToolParam = dict
+ComputerActionListParam = dict
+ComputerActionParam = dict
+ComputerToolParam = dict
+ComputerUsePreviewToolParam = dict
+ContainerAutoParam = dict
+ContainerNetworkPolicyAllowlistParam = dict
+ContainerNetworkPolicyDisabledParam = dict
+ContainerNetworkPolicyDomainSecretParam = dict
+ContainerReferenceParam = dict
+CustomToolParam = dict
+EasyInputMessageParam = dict
+FileSearchToolParam = dict
+FunctionShellToolParam = dict
+FunctionToolParam = dict
+ImageDetail = str
+InlineSkillParam = dict
+InlineSkillSourceParam = dict
+InputItemListParams = dict
+InputTokenCountParams = dict
+LocalEnvironmentParam = dict
+LocalSkillParam = dict
+McpToolCallErrorParam = dict
+NamespaceToolParam = dict
+ResponseCodeInterpreterToolCallParam = dict
+ResponseCompactParams = dict
+ResponseCompactionItemParamParam = dict
+ResponseComputerToolCallOutputScreenshotParam = dict
+ResponseComputerToolCallParam = dict
+ResponseConfigurationUpdateItemParamParam = dict
+ResponseConversationParam = dict
+ResponseConversationParamParam = dict
+ResponseCreateParams = dict
+ResponseCustomToolCallOutputParam = dict
+ResponseCustomToolCallParam = dict
+ResponseFileSearchToolCallParam = dict
+ResponseFormatTextConfigParam = dict
+ResponseFormatTextJSONSchemaConfigParam = dict
+ResponseFunctionCallOutputItemListParam = dict
+ResponseFunctionCallOutputItemParam = dict
+ResponseFunctionShellCallOutputContentParam = dict
+ResponseFunctionToolCallParam = dict
+ResponseFunctionWebSearchParam = dict
+ResponseIncludable = str
+ResponseInputAudioParam = dict
+ResponseInputContentParam = dict
+ResponseInputFileContentParam = dict
+ResponseInputFileParam = dict
+ResponseInputImageContentParam = dict
+ResponseInputImageParam = dict
+ResponseInputItemParam = dict
+ResponseInputMessageContentListParam = dict
+ResponseInputParam = dict
+ResponseInputTextContentParam = dict
+ResponseInputTextParam = dict
+ResponseOutputMessageParam = dict
+ResponseOutputRefusalParam = dict
+ResponseOutputTextParam = dict
+ResponsePromptParam = dict
+ResponseReasoningItemParam = dict
+ResponseRetrieveParams = dict
+ResponseStatus = str
+ResponseSteerErrorCode = str
+ResponseSteerEventParam = dict
+ResponseSteerInputContentParam = dict
+ResponseSteerInputParam = dict
+ResponseSteerPendingReason = str
+ResponseTextConfigParam = dict
+ResponseToolSearchOutputItemParamParam = dict
+ResponsesClientEventParam = dict
+SkillReferenceParam = dict
+ToolChoiceAllowedParam = dict
+ToolChoiceApplyPatchParam = dict
+ToolChoiceCustomParam = dict
+ToolChoiceFunctionParam = dict
+ToolChoiceMcpParam = dict
+ToolChoiceOptions = str
+ToolChoiceShellParam = dict
+ToolChoiceTypesParam = dict
+ToolParam = dict
+ToolSearchOutputNamespaceToolParam = dict
+ToolSearchToolParam = dict
+WebSearchPreviewToolParam = dict
+WebSearchToolParam = dict

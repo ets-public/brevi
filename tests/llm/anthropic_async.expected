@@ -1,0 +1,31 @@
+Message(id='msg_2ed4b5b8d71cf155623c', container=None, content=[TextBlock(citations=None, text='Echo: async hello', type='text')], diagnostics=None, model='claude-mock-sonnet', role='assistant', stop_details=None, stop_reason='end_turn', stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=16, output_tokens=7, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None))
+req_57d951fd6a9a
+['Echo: q0', 'Echo: q1', 'Echo: q2', 'Echo: q3', 'Echo: q4']
+AsyncStream
+message_start
+content_block_start
+content_block_delta
+content_block_delta
+content_block_delta
+content_block_stop
+message_delta
+message_stop
+'Echo: one '
+'two three'
+Echo: one two three ParsedMessage
+Echo: one two three
+message_start
+content_block_start
+content_block_delta
+text
+content_block_stop
+message_delta
+message_stop
+BadRequestError 400 mock error 400 for /v1/messages
+Echo: flaky
+MessageTokensCount(input_tokens=12)
+['claude-mock-opus'] True
+['claude-mock-opus', 'claude-mock-sonnet', 'claude-mock-haiku']
+Claude Mock Opus
+Echo: with
+APIConnectionError Connection error.
