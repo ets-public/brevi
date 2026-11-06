@@ -4,7 +4,7 @@ Brevi is in public preview. Fixes go into the latest release only.
 
 ## Reporting a vulnerability
 
-Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. Please do not open a public issue.
+Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. Please do not open a public issue. If you cannot use GitHub, email support@brevi-lang.org with "security" in the subject.
 
 Include what you ran, what happened, and the Brevi version (`brevi --version`). You should get a first reply within a week.
 

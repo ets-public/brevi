@@ -470,7 +470,7 @@ def footer(site="org", public=False):
     </div>
     <div><h4>Docs</h4><a href="%s/docs/install">Install</a><a href="%s/docs/usage">Using Brevi</a><a href="%s/docs/agents">For agents</a><a href="%s/docs/architecture">Architecture</a></div>
     <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/changelog">Changelog</a><a href="%s/docs/faq">FAQ</a><a href="%s/pricing">Pricing</a><a href="%s/docs/contributing">Contributing</a></div>
-    <div><h4>Elsewhere</h4>%s<a href="https://brevi.run">brevi.run</a><a href="%s/llms.txt">llms.txt</a></div>
+    <div><h4>Elsewhere</h4>%s<a href="https://brevi.run">brevi.run</a><a href="%s/llms.txt">llms.txt</a><a href="mailto:support@brevi-lang.org">support@brevi-lang.org</a></div>
   </div>
 </footer>""" % (LOGO % (20, 20), base, base, base, base, base, base, base, base, base, base, gh, base)
 
