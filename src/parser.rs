@@ -1946,7 +1946,8 @@ impl Parser {
             let e = self.unary()?;
             // `10 ** -2` is 0.01 in Python: a negative literal power makes the result a float.
             let base = match &e {
-                Expr::Unary("-", x) if self.py && matches!(x.as_ref(), Expr::Int(_)) => Expr::Method(Box::new(base), "float".into(), vec![], self.line()),
+                // (not on a Python library value: Python's own `**` gives the float, and float() of an array fails)
+                Expr::Unary("-", x) if self.py && matches!(x.as_ref(), Expr::Int(_)) && !crate::pybridge::is_py(&base) => Expr::Method(Box::new(base), "float".into(), vec![], self.line()),
                 _ => base,
             };
             return Ok(Expr::Binary("**", Box::new(base), Box::new(e)));

@@ -604,7 +604,8 @@ pub fn is_py(e: &Expr) -> bool {
 pub fn unkw(n: &str) -> String {
     match n.strip_suffix('_') {
         Some(b) if matches!(b, "as" | "yield" | "try" | "self" | "type" | "match" | "test" | "fn" | "let" | "var" | "enum" | "mut") => b.to_string(),
-        _ => n.to_string(),
+        // Rust words too: `np.where` is lexed as `where_`.
+        _ => crate::lexer::py_ident(n).to_string(),
     }
 }
 

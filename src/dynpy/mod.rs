@@ -181,6 +181,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     emit::NP_NATIVE.store(!np_off, Relaxed);
     let r = to_rust_np(file);
     emit::NP_ON.store(false, Relaxed);
+    emit::NP_NARROW.store(false, Relaxed);
     // Something of numpy that Brevi's own numpy lacks: no dynamic build. CPython's numpy through
     // the dynamic bridge is not used: the typed build's bridge (or CPython itself) runs it right.
     if let Err((f, l, m)) = &r {
@@ -271,6 +272,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         // numpy's arrays would cross into the bridged library: both go to CPython
         return Err((file.to_string(), 0, "numpy: arrays passed to a library CPython runs".into()));
     }
+    emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && texts.values().any(|(_, t)| emit::names_narrow(t)), std::sync::atomic::Ordering::Relaxed);
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
             Some((p, _)) => p.clone(),

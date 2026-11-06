@@ -19,6 +19,48 @@ pub fn np_native() -> bool {
 fn np_on() -> bool {
     NP_ON.load(std::sync::atomic::Ordering::Relaxed)
 }
+// Set while the program names float32 or int32 (so its arrays may be of those types): only the numpy functions
+// in NP_NARROW_FUNCS are native then, and `@` is refused (float32 matmul is OpenBLAS's sgemm, not modelled).
+pub static NP_NARROW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn np_narrow() -> bool {
+    NP_NARROW.load(std::sync::atomic::Ordering::Relaxed)
+}
+// Whether Python source names the float32 or int32 dtypes.
+pub fn names_narrow(src: &str) -> bool {
+    if ["float32", "int32", "intc", "single"].iter().any(|t| src.contains(t)) {
+        return true;
+    }
+    for q in ['\'', '"'] {
+        for t in ["f4", "i4", "<f4", "<i4", "f", "i"] {
+            let lit = format!("{q}{t}{q}");
+            if t.len() > 1 && src.contains(&lit) {
+                return true;
+            }
+            // a one-letter code only as a dtype: dtype='f', astype('i'), np.dtype("f")
+            for pre in ["dtype=", "dtype = ", "astype(", "dtype("] {
+                if src.contains(&format!("{pre}{lit}")) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+// The numpy functions native for float32 and int32 arrays (the runtime's np_narrow_ok has the same list).
+const NP_NARROW_FUNCS: &[&str] = &[
+    "pi", "e", "inf", "nan", "euler_gamma", "newaxis", "True_", "False_", "float64", "double", "int64", "int_", "intp", "bool_", "bool", "ndarray",
+    "integer", "signedinteger", "floating", "number", "generic", "inexact", "float32", "single", "int32", "intc",
+    "array", "asarray", "asanyarray", "copy", "zeros", "ones", "empty", "full", "zeros_like", "ones_like", "empty_like", "full_like",
+    "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype",
+    "sum", "mean", "std", "var", "prod", "max", "min", "amax", "amin", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "around", "clip",
+    "reshape", "ravel", "transpose", "squeeze", "diagonal", "nonzero", "argsort", "repeat", "sort", "count_nonzero", "where", "argwhere", "flatnonzero",
+    "unique", "concatenate", "stack", "vstack", "hstack", "column_stack", "atleast_1d", "atleast_2d", "expand_dims", "flip", "fliplr", "flipud", "roll",
+    "diff", "outer", "array_equal", "searchsorted", "tile", "meshgrid", "diag", "fill_diagonal", "unravel_index",
+    "abs", "absolute", "negative", "positive", "sqrt", "floor", "ceil", "trunc", "rint", "fix", "square", "reciprocal", "sign", "isnan", "isinf", "isfinite", "logical_not",
+    "add", "subtract", "multiply", "divide", "true_divide", "floor_divide", "mod", "remainder", "power", "maximum", "minimum", "fmax", "fmin",
+    "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
+    "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift", "random",
+];
 pub fn builtin_mod(m: &str) -> bool {
     BUILTIN_MODULES.contains(&m) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
@@ -26,6 +68,7 @@ pub fn builtin_mod(m: &str) -> bool {
 const NP_FUNCS: &[(&str, &[&str])] = &[
     ("pi", &[]), ("e", &[]), ("inf", &[]), ("nan", &[]), ("euler_gamma", &[]), ("newaxis", &[]), ("True_", &[]), ("False_", &[]),
     ("float64", &[]), ("double", &[]), ("int64", &[]), ("int_", &[]), ("intp", &[]), ("bool_", &[]), ("bool", &[]), ("ndarray", &[]),
+    ("float32", &[]), ("single", &[]), ("int32", &[]), ("intc", &[]),
     ("integer", &[]), ("signedinteger", &[]), ("floating", &[]), ("number", &[]), ("generic", &[]), ("inexact", &[]),
     ("array", &["dtype", "copy", "ndmin"]), ("asarray", &["dtype"]), ("asanyarray", &["dtype"]), ("copy", &[]),
     ("zeros", &["dtype"]), ("ones", &["dtype"]), ("empty", &["dtype"]), ("full", &["dtype", "fill_value"]),
@@ -38,7 +81,7 @@ const NP_FUNCS: &[(&str, &[&str])] = &[
     ("argmax", &["axis", "keepdims"]), ("argmin", &["axis", "keepdims"]), ("any", &["axis", "keepdims"]), ("all", &["axis", "keepdims"]),
     ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("around", &["decimals"]), ("clip", &["a_min", "a_max", "min", "max"]),
     ("reshape", &["shape", "newshape"]), ("ravel", &[]), ("transpose", &["axes"]), ("squeeze", &["axis"]), ("trace", &[]), ("diagonal", &["offset"]),
-    ("nonzero", &[]), ("argsort", &["axis", "kind"]), ("repeat", &["axis"]), ("sort", &["axis"]), ("median", &["axis", "keepdims"]),
+    ("nonzero", &[]), ("argsort", &["axis", "kind"]), ("repeat", &["axis"]), ("sort", &["axis", "kind"]), ("median", &["axis", "keepdims"]),
     ("percentile", &["axis", "keepdims", "method"]), ("quantile", &["axis", "keepdims", "method"]),
     ("nansum", &["axis", "keepdims"]), ("nanmean", &["axis", "keepdims"]), ("nanstd", &["axis", "keepdims", "ddof"]), ("nanvar", &["axis", "keepdims", "ddof"]), ("nanmax", &["axis", "keepdims"]), ("nanmin", &["axis", "keepdims"]),
     ("average", &["axis", "weights"]), ("count_nonzero", &["axis"]), ("where", &[]), ("argwhere", &[]), ("flatnonzero", &[]),
@@ -102,6 +145,9 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
     if !np_on() || !NP_ATTR_ALL.contains(&n) {
         return Ok(());
     }
+    if np_narrow() && matches!(n, "dot" | "trace") {
+        return Err(err(line, &format!("numpy: .{n} of float32 arrays is not in Brevi's native numpy")));
+    }
     match NP_ATTR_OK.iter().find(|(a, _)| *a == n) {
         None => Err(err(line, &format!("numpy: .{n} is not in Brevi's native numpy"))),
         Some((_, ok)) => match kws.iter().find(|k| !ok.contains(k)) {
@@ -115,9 +161,9 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "typing" | "__future__" => return true,
-        "numpy" => return np_func_kw(n).is_some(),
+        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n)),
         "numpy.random" => return np_rand_kw(n).is_some(),
-        "numpy.linalg" => return np_linalg_kw(n).is_some(),
+        "numpy.linalg" => return np_linalg_kw(n).is_some() && !np_narrow(),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -973,6 +1019,9 @@ impl Em {
             }
             Ex::Call(f, args) => self.call(f, args, line)?,
             Ex::Bin(op, a, b) => {
+                if *op == "@" && np_on() && np_narrow() {
+                    return Err(err(line, "numpy: @ with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
+                }
                 let aa = self.ex(a, line)?;
                 let bb = self.ex(b, line)?;
                 match *op {
@@ -1270,7 +1319,7 @@ impl Em {
             // np.maximum.accumulate(x), np.add.reduce(x, axis=1), ...: numpy's ufunc methods
             if let Ex::Attr(o2, uf) = &**o {
                 if np_native() && self.static_module(o2).as_deref() == Some("numpy") && matches!(m.as_str(), "reduce" | "accumulate") {
-                    if !matches!(uf.as_str(), "add" | "multiply" | "maximum" | "minimum" | "logical_and" | "logical_or") || (uf.starts_with("logical") && m == "accumulate") {
+                    if np_narrow() || !matches!(uf.as_str(), "add" | "multiply" | "maximum" | "minimum" | "logical_and" | "logical_or") || (uf.starts_with("logical") && m == "accumulate") {
                         return Err(err(line, &format!("numpy: np.{uf}.{m} is not in Brevi's native numpy")));
                     }
                     for x in args {
@@ -1569,6 +1618,9 @@ impl Em {
                 None => String::new(),
             },
             St::AugAssign(t, op, v) => {
+                if *op == "@" && np_on() && np_narrow() {
+                    return Err(err(line, "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
+                }
                 let vv = self.ex(v, line)?;
                 match t {
                     Ex::Name(n) => {

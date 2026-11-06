@@ -19,11 +19,35 @@ pub fn np_opts() -> NpOpts {
     NPOPT.with(|o| o.borrow().clone())
 }
 
+thread_local! {
+    // Whether the value being printed is a float32 (its shortest digits are float32's).
+    static NP_F32: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+// f with the digit functions below working on float32 values.
+pub fn np_as_f32<T>(on: bool, f: impl FnOnce() -> T) -> T {
+    let was = NP_F32.with(|c| c.replace(on));
+    let r = f();
+    NP_F32.with(|c| c.set(was));
+    r
+}
+
 // The shortest digits that round-trip and the decimal exponent: x = d[0].d[1..] * 10^e (x >= 0).
+// Like numpy's Dragon4, a tie between two shortest candidates goes to the one from rounding the exact value
+// half-to-even (Rust's shortest form rounds such ties up).
 fn np_short(a: f64) -> (Vec<u8>, i32) {
-    let s = format!("{:e}", a);
+    let f32m = NP_F32.with(|c| c.get());
+    let s = if f32m { format!("{:e}", a as f32) } else { format!("{:e}", a) };
     let (m, e) = s.split_once('e').unwrap();
-    (m.bytes().filter(|c| *c != b'.').collect(), e.parse().unwrap())
+    let d: Vec<u8> = m.bytes().filter(|c| *c != b'.').collect();
+    if a.is_finite() && a != 0.0 && d.len() >= if f32m { 6 } else { 15 } {
+        let x = format!("{:.*e}", d.len() - 1, a);
+        let back = if f32m { x.parse::<f32>().map(|v| v as f64 == a).unwrap_or(false) } else { x.parse::<f64>().map(|v| v == a).unwrap_or(false) };
+        if back && x != s {
+            let (m2, e2) = x.split_once('e').unwrap();
+            return (m2.bytes().filter(|c| *c != b'.').collect(), e2.parse().unwrap());
+        }
+    }
+    (d, e.parse().unwrap())
 }
 
 // Positional digits of |x|: (integer part, fractional digits), the shortest unique ones when they have at most
@@ -76,6 +100,14 @@ pub fn np_fmt_pos(x: f64, p: usize, trim: char, min_digits: usize, pad_left: usi
             f.pop();
         }
     }
+    if f.len() < min_digits && x != 0.0 {
+        // Dragon4 pads to min_digits with the value's exact digits, not zeros (float32 0.7 -> 0.69999999).
+        let s = format!("{:.*}", min_digits, x.abs());
+        if let Some((i2, f2)) = s.split_once('.') {
+            i = i2.to_string();
+            f = f2.to_string();
+        }
+    }
     while f.len() < min_digits {
         f.push('0');
     }
@@ -96,11 +128,19 @@ pub fn np_fmt_pos(x: f64, p: usize, trim: char, min_digits: usize, pad_left: usi
 }
 
 pub fn np_fmt_sci(x: f64, p: usize, trim: char, min_digits: usize, pad_left: usize, exp_digits: usize) -> String {
-    let (mut i, mut f, e) = np_sci_digits(x.abs(), p);
+    let (mut i, mut f, mut e) = np_sci_digits(x.abs(), p);
     if trim == '.' {
         while f.ends_with('0') {
             f.pop();
         }
+    }
+    if f.len() < min_digits && x != 0.0 {
+        let s = format!("{:.*e}", min_digits, x.abs());
+        let (m, ex) = s.split_once('e').unwrap();
+        let (i2, f2) = m.split_once('.').unwrap_or((m, ""));
+        i = i2.to_string();
+        f = f2.to_string();
+        e = ex.parse().unwrap();
     }
     while f.len() < min_digits {
         f.push('0');
@@ -135,7 +175,14 @@ impl FFmt {
         if !nz.is_empty() {
             let mx = nz.iter().cloned().fold(f64::MIN, f64::max);
             let mn = nz.iter().cloned().fold(f64::MAX, f64::min);
-            if mx >= 1e8 || (!o.suppress && (mn < 0.0001 || mx / mn > 1000.0)) {
+            // numpy: the max cutoff is 10**min(8, finfo precision), 1e6 for float32, and the tests run in the
+            // array's dtype (float32 0.0001 is below 1e-4 as a double but not as a float32).
+            if NP_F32.with(|c| c.get()) {
+                let (mx, mn) = (mx as f32, mn as f32);
+                if mx >= 1e6 || (!o.suppress && (mn < 0.0001 || mx / mn > 1000.0)) {
+                    exp = true;
+                }
+            } else if mx >= 1e8 || (!o.suppress && (mn < 0.0001 || mx / mn > 1000.0)) {
                 exp = true;
             }
         }
@@ -209,21 +256,23 @@ impl FFmt {
 }
 
 enum EFmt {
-    F(FFmt),
+    F(FFmt, bool),
     I(usize),
     B,
 }
 impl EFmt {
     fn new(data: &Buf, o: &NpOpts) -> EFmt {
         match data {
-            Buf::F(v) => EFmt::F(FFmt::new(v, o)),
+            Buf::F(v) => EFmt::F(FFmt::new(v, o), false),
+            Buf::F32(v) => EFmt::F(np_as_f32(true, || FFmt::new(&v.iter().map(|x| *x as f64).collect::<Vec<_>>(), o)), true),
             Buf::I(v) => EFmt::I(v.iter().map(|x| x.to_string().len()).max().unwrap_or(0)),
+            Buf::I32(v) => EFmt::I(v.iter().map(|x| x.to_string().len()).max().unwrap_or(0)),
             Buf::B(_) => EFmt::B,
         }
     }
     fn fmt(&self, x: Sc, zero_d: bool) -> String {
         match (self, x) {
-            (EFmt::F(f), x) => f.fmt(x.f()),
+            (EFmt::F(f, w), x) => np_as_f32(*w, || f.fmt(x.f())),
             (EFmt::I(w), x) => format!("{:>w$}", x.i(), w = *w),
             (EFmt::B, x) => (if x.b() {
                 if zero_d {
@@ -379,14 +428,23 @@ pub fn np_shape_repr(shape: &[usize]) -> String {
 
 pub fn np_array_repr(vals: &Buf, shape: &[usize]) -> String {
     let size: usize = shape.iter().product();
-    let skip = size > 0;
+    // numpy 2: a summarized array (more items than the threshold) also shows its shape.
+    let big = size > np_opts().threshold;
+    let skip = size > 0 && vals.dt().default_dt() && !big;
     let suffix = if skip { ")" } else { "," };
     let lst = if size > 0 || shape == [0] { np_array2string(vals, shape, ", ", "array(", suffix) } else { format!("[], shape={}", np_shape_repr(shape)) };
     let s = format!("array({lst}{suffix}");
     if skip {
         return s;
     }
-    let dt = format!("dtype={})", vals.dt().name());
+    let mut extras = vec![];
+    if big {
+        extras.push(format!("shape={}", np_shape_repr(shape)));
+    }
+    if !(size > 0 && vals.dt().default_dt()) {
+        extras.push(format!("dtype={}", vals.dt().name()));
+    }
+    let dt = format!("{})", extras.join(", "));
     let last = s.len() - s.rfind('\n').map_or(0, |i| i + 1);
     if last + dt.len() + 1 > np_opts().linewidth {
         format!("{s}\n      {dt}")
@@ -395,11 +453,41 @@ pub fn np_array_repr(vals: &Buf, shape: &[usize]) -> String {
     }
 }
 
+// str() of a float32 scalar (floattype_str_either: positional from 1e-4 up to 1e6, else scientific; shortest
+// float32 digits).
+pub fn np_f32_str(x: f32) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return (if x < 0.0 { "-inf" } else { "inf" }).into();
+    }
+    let a = (x as f64).abs();
+    np_as_f32(true, || {
+        if x == 0.0 || (a < 1e6 && a >= 1e-4) {
+            // trim LeaveOneZero: 1.0, 0.5
+            let mut s = np_fmt_pos(x as f64, usize::MAX >> 1, '.', 0, 0, 0);
+            if s.ends_with('.') {
+                s.push('0');
+            }
+            s
+        } else {
+            // trim DptZeros: 1e+06, 1.5e-05
+            let mut s = np_fmt_sci(x as f64, usize::MAX >> 1, '.', 0, 0, 2);
+            if let Some(i) = s.find(".e") {
+                s.replace_range(i..i + 1, "");
+            }
+            s
+        }
+    })
+}
 pub fn np_sc_str(x: Sc) -> String {
     match x {
         Sc::F(f) => float_repr(f),
         Sc::I(i) => i.to_string(),
         Sc::B(b) => (if b { "True" } else { "False" }).into(),
+        Sc::I32(i) => i.to_string(),
+        Sc::F32(f) => np_f32_str(f),
     }
 }
 pub fn np_sc_repr(x: Sc) -> String {
@@ -407,5 +495,7 @@ pub fn np_sc_repr(x: Sc) -> String {
         Sc::F(f) => format!("np.float64({})", float_repr(f)),
         Sc::I(i) => format!("np.int64({i})"),
         Sc::B(b) => (if b { "np.True_" } else { "np.False_" }).into(),
+        Sc::I32(i) => format!("np.int32({i})"),
+        Sc::F32(f) => format!("np.float32({})", np_f32_str(f)),
     }
 }

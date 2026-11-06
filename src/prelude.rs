@@ -326,9 +326,29 @@ fn ax_py_float(x: f64) -> String {
         return if x > 0.0 { "inf".into() } else { "-inf".into() };
     }
     let a = x.abs();
+    // Rust's shortest digits round a tie between two shortest candidates up; Python takes the exact value
+    // rounded half-to-even (-254.62014770507812, not ...813).
+    // (Two shortest candidates fit only when 15+ digits are needed.)
+    let mut t = format!("{x:e}");
+    let (nd, ex) = match t.split_once('e') {
+        Some((m, e)) => (m.bytes().filter(|c| c.is_ascii_digit()).count(), e.parse::<i32>().unwrap_or(0)),
+        None => (0, 0),
+    };
+    {
+        if nd >= 15 {
+            let r = format!("{:.*e}", nd - 1, x);
+            if r != t && r.parse::<f64>() == Ok(x) {
+                t = r;
+                if !(a >= 1e16 || a < 1e-4) {
+                    let fd = (nd as i32 - 1 - ex).max(0) as usize;
+                    let p = format!("{:.*}", fd, x);
+                    return if p.contains('.') { p } else { format!("{p}.0") };
+                }
+            }
+        }
+    }
     if a != 0.0 && (a >= 1e16 || a < 1e-4) {
         // 1e-05 and 1e+16, as Python writes them.
-        let t = format!("{x:e}");
         let (m, e) = t.split_once('e').unwrap();
         let n: i32 = e.parse().unwrap();
         let m = if m.contains('.') { m.to_string() } else { m.to_string() };
