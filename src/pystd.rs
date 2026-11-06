@@ -15,16 +15,8 @@ use std::collections::{HashMap, HashSet};
 
 // (module, name, Python source of `def __bv_<module>_<name>`).
 const SHIMS: &[(&str, &str, &str)] = &[
-    (
-        "math",
-        "gcd",
-        "def __bv_math_gcd(a, b):\n    a = abs(a)\n    b = abs(b)\n    while b:\n        a, b = b, a % b\n    return a\n",
-    ),
-    (
-        "math",
-        "lcm",
-        "def __bv_math_lcm(a, b):\n    if a == 0 or b == 0:\n        return 0\n    x = abs(a)\n    y = abs(b)\n    g = x\n    h = y\n    while h:\n        g, h = h, g % h\n    return x // g * y\n",
-    ),
+    ("math", "gcd", "def __bv_math_gcd(a, b):\n    a = abs(a)\n    b = abs(b)\n    while b:\n        a, b = b, a % b\n    return a\n"),
+    ("math", "lcm", "def __bv_math_lcm(a, b):\n    if a == 0 or b == 0:\n        return 0\n    x = abs(a)\n    y = abs(b)\n    g = x\n    h = y\n    while h:\n        g, h = h, g % h\n    return x // g * y\n"),
     (
         "math",
         "comb",
@@ -47,51 +39,19 @@ const SHIMS: &[(&str, &str, &str)] = &[
     ),
     // Functions with a domain: ValueError as math raises it, which an except can catch (the typed build's own
     // methods behind them could only stop the program).
-    (
-        "math",
-        "sqrt",
-        "def __bv_math_sqrt(x):\n    if x < 0.0:\n        raise ValueError(\"math domain error\")\n    return math.sqrt(x)\n",
-    ),
-    (
-        "math",
-        "log",
-        "def __bv_math_log(x):\n    if x <= 0.0:\n        raise ValueError(\"math domain error\")\n    return math.log(x)\n",
-    ),
+    ("math", "sqrt", "def __bv_math_sqrt(x):\n    if x < 0.0:\n        raise ValueError(\"math domain error\")\n    return math.sqrt(x)\n"),
+    ("math", "log", "def __bv_math_log(x):\n    if x <= 0.0:\n        raise ValueError(\"math domain error\")\n    return math.log(x)\n"),
     (
         "math",
         "logb",
         "def __bv_math_logb(x, b):\n    if x <= 0.0 or b <= 0.0:\n        raise ValueError(\"math domain error\")\n    if b == 1:\n        raise ZeroDivisionError(\"float division by zero\")\n    return math.log(x, b)\n",
     ),
-    (
-        "math",
-        "log2",
-        "def __bv_math_log2(x):\n    if x <= 0.0:\n        raise ValueError(\"math domain error\")\n    return math.log2(x)\n",
-    ),
-    (
-        "math",
-        "log10",
-        "def __bv_math_log10(x):\n    if x <= 0.0:\n        raise ValueError(\"math domain error\")\n    return math.log10(x)\n",
-    ),
-    (
-        "math",
-        "log1p",
-        "def __bv_math_log1p(x):\n    if x <= -1.0:\n        raise ValueError(\"math domain error\")\n    return math.log1p(x)\n",
-    ),
-    (
-        "math",
-        "asin",
-        "def __bv_math_asin(x):\n    if x < -1.0 or x > 1.0:\n        raise ValueError(\"math domain error\")\n    return math.asin(x)\n",
-    ),
-    (
-        "math",
-        "acos",
-        "def __bv_math_acos(x):\n    if x < -1.0 or x > 1.0:\n        raise ValueError(\"math domain error\")\n    return math.acos(x)\n",
-    ),
-    (
-        "math",
-        "fmod",
-        "def __bv_math_fmod(x, y):\n    if y == 0.0:\n        raise ValueError(\"math domain error\")\n    return math.fmod(x, y)\n",
-    ),
+    ("math", "log2", "def __bv_math_log2(x):\n    if x <= 0.0:\n        raise ValueError(\"math domain error\")\n    return math.log2(x)\n"),
+    ("math", "log10", "def __bv_math_log10(x):\n    if x <= 0.0:\n        raise ValueError(\"math domain error\")\n    return math.log10(x)\n"),
+    ("math", "log1p", "def __bv_math_log1p(x):\n    if x <= -1.0:\n        raise ValueError(\"math domain error\")\n    return math.log1p(x)\n"),
+    ("math", "asin", "def __bv_math_asin(x):\n    if x < -1.0 or x > 1.0:\n        raise ValueError(\"math domain error\")\n    return math.asin(x)\n"),
+    ("math", "acos", "def __bv_math_acos(x):\n    if x < -1.0 or x > 1.0:\n        raise ValueError(\"math domain error\")\n    return math.acos(x)\n"),
+    ("math", "fmod", "def __bv_math_fmod(x, y):\n    if y == 0.0:\n        raise ValueError(\"math domain error\")\n    return math.fmod(x, y)\n"),
 ];
 
 // Names of these modules the parser maps itself (math.sqrt, math.pi): a from-import of one is rewritten too.
@@ -166,29 +126,20 @@ fn stdout_alias(src: &str) -> Option<String> {
     let mut changed = false;
     for i in 0..lines.len() {
         let t = lines[i].trim().to_string();
-        let Some((n, rhs)) = t.split_once('=') else {
-            continue;
-        };
+        let Some((n, rhs)) = t.split_once('=') else { continue };
         let n = n.trim().to_string();
         let n = n.as_str();
-        if rhs.trim() != "sys.stdout"
-            || n.is_empty()
-            || !n.chars().all(ident)
-            || n.chars().next().unwrap().is_ascii_digit()
-        {
+        if rhs.trim() != "sys.stdout" || n.is_empty() || !n.chars().all(ident) || n.chars().next().unwrap().is_ascii_digit() {
             continue;
         }
-        let calls = src.matches(&format!("csv.writer({n},")).count()
-            + src.matches(&format!("csv.writer({n})")).count();
+        let calls = src.matches(&format!("csv.writer({n},")).count() + src.matches(&format!("csv.writer({n})")).count();
         if calls == 0 || words(n) != 1 + calls {
             continue;
         }
         let indent: String = lines[i].chars().take_while(|c| c.is_whitespace()).collect();
         lines[i] = format!("{indent}pass");
         for l in lines.iter_mut() {
-            *l = l
-                .replace(&format!("csv.writer({n},"), "csv.writer(sys.stdout,")
-                .replace(&format!("csv.writer({n})"), "csv.writer(sys.stdout)");
+            *l = l.replace(&format!("csv.writer({n},"), "csv.writer(sys.stdout,").replace(&format!("csv.writer({n})"), "csv.writer(sys.stdout)");
         }
         changed = true;
     }
@@ -208,9 +159,7 @@ pub fn rewrite(src: &str) -> String {
     if !SHIMS.iter().any(|s| src.contains(s.0)) && !MAPPED.iter().any(|s| src.contains(s.0)) {
         return src.to_string();
     }
-    let Ok(body) = parse::parse(src) else {
-        return src.to_string();
-    };
+    let Ok(body) = parse::parse(src) else { return src.to_string() };
     // Modules imported plainly (`import math`, not `import math as m`).
     let mut plain: HashSet<String> = HashSet::new();
     // alias -> (module, name) of `from M import name as alias`, at the top level.
@@ -226,10 +175,7 @@ pub fn rewrite(src: &str) -> String {
                 }
             }
             St::ImportFrom(m, names) => {
-                let v: Vec<(String, String)> = names
-                    .iter()
-                    .map(|(n, a)| (n.clone(), a.clone().unwrap_or_else(|| n.clone())))
-                    .collect();
+                let v: Vec<(String, String)> = names.iter().map(|(n, a)| (n.clone(), a.clone().unwrap_or_else(|| n.clone()))).collect();
                 from_lines.push((s.line, m.clone(), v));
             }
             _ => {}
@@ -241,20 +187,11 @@ pub fn rewrite(src: &str) -> String {
     let mut lines: Vec<String> = src.lines().map(String::from).collect();
     for (line, m, names) in &from_lines {
         // Only a one-line `from M import a, b` all of whose names are written here is rewritten.
-        let Some(l) = lines.get(line - 1) else {
-            continue;
-        };
-        if !l.trim_start().starts_with("from ")
-            || l.contains('(')
-            || l.contains('\\')
-            || l.contains(';')
-        {
+        let Some(l) = lines.get(line - 1) else { continue };
+        if !l.trim_start().starts_with("from ") || l.contains('(') || l.contains('\\') || l.contains(';') {
             continue;
         }
-        if names
-            .iter()
-            .any(|(n, a)| !known(m, n) || bound.contains(a) || n == "*")
-        {
+        if names.iter().any(|(n, a)| !known(m, n) || bound.contains(a) || n == "*") {
             continue;
         }
         let indent: String = l.chars().take_while(|c| c.is_whitespace()).collect();
@@ -300,15 +237,11 @@ thread_local! {
 // The generated Rust with the appended copies' line marks dropped: an error raised in one (math domain
 // error) names the line of the program's call, not a line past the end of the file.
 pub fn drop_shim_lines(rust: String) -> String {
-    let Some((a, b)) = SHIM_LINES.with(|x| x.get()) else {
-        return rust;
-    };
+    let Some((a, b)) = SHIM_LINES.with(|x| x.get()) else { return rust };
     // Line 0 marks (a conversion the parser made, `x < 0.0` on an int) would hide the caller's line too.
     let mut out = rust.replace("ax_l(0);", "");
     for l in a..=b {
-        out = out
-            .replace(&format!("/*@L{l}*/ax_l({l});"), "")
-            .replace(&format!("ax_l({l});"), "");
+        out = out.replace(&format!("/*@L{l}*/ax_l({l});"), "").replace(&format!("ax_l({l});"), "");
     }
     out
 }
@@ -369,12 +302,7 @@ fn bound_names(st: &St, out: &mut HashSet<String>) {
 
 // One line with names renamed outside strings and comments: a from-imported `gcd` becomes `math.gcd`, and
 // `math.gcd(` of a function written here `__bv_math_gcd(`.
-fn rename_line<'a>(
-    l: &str,
-    froms: &HashMap<String, (String, String)>,
-    plain: &HashSet<String>,
-    used: &mut Vec<(&'a str, &'a str)>,
-) -> String {
+fn rename_line<'a>(l: &str, froms: &HashMap<String, (String, String)>, plain: &HashSet<String>, used: &mut Vec<(&'a str, &'a str)>) -> String {
     let cs: Vec<char> = l.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -394,9 +322,7 @@ fn rename_line<'a>(
                     i += 2;
                     continue;
                 }
-                if cs[i] == c
-                    && (!triple || (cs.get(i + 1) == Some(&c) && cs.get(i + 2) == Some(&c)))
-                {
+                if cs[i] == c && (!triple || (cs.get(i + 1) == Some(&c) && cs.get(i + 2) == Some(&c))) {
                     i += if triple { 3 } else { 1 };
                     break;
                 }
@@ -416,11 +342,7 @@ fn rename_line<'a>(
             }
             let w: String = cs[start..i].iter().collect();
             // String prefixes (f"...", r'...'): the word is part of the literal that follows.
-            if i < cs.len()
-                && (cs[i] == '"' || cs[i] == '\'')
-                && w.len() <= 2
-                && w.chars().all(|c| "rRbBfFuU".contains(c))
-            {
+            if i < cs.len() && (cs[i] == '"' || cs[i] == '\'') && w.len() <= 2 && w.chars().all(|c| "rRbBfFuU".contains(c)) {
                 out.push_str(&w);
                 continue;
             }
@@ -431,9 +353,7 @@ fn rename_line<'a>(
             if !after_dot {
                 if let Some((m, n)) = froms.get(&w) {
                     // `gcd=3` as a keyword argument keeps its name.
-                    if !(next == Some('=')
-                        && cs[i..].iter().filter(|c| !c.is_whitespace()).nth(1) != Some(&'='))
-                    {
+                    if !(next == Some('=') && cs[i..].iter().filter(|c| !c.is_whitespace()).nth(1) != Some(&'=')) {
                         word = format!("{m}.{n}");
                         name = Some((m.clone(), n.clone()));
                     }
@@ -531,17 +451,9 @@ mod tests {
     #[test]
     fn stdout_alias_for_csv_writer() {
         let src = "import csv, sys\ndef f():\n    out = sys.stdout\n    w = csv.writer(out, lineterminator='\\n')\n";
-        assert_eq!(
-            super::stdout_alias(src).unwrap(),
-            "import csv, sys\ndef f():\n    pass\n    w = csv.writer(sys.stdout, lineterminator='\\n')\n"
-        );
+        assert_eq!(super::stdout_alias(src).unwrap(), "import csv, sys\ndef f():\n    pass\n    w = csv.writer(sys.stdout, lineterminator='\\n')\n");
         // Used for something else too: left alone.
-        assert!(
-            super::stdout_alias(
-                "import csv, sys\nout = sys.stdout\nw = csv.writer(out)\nprint(1, file=out)\n"
-            )
-            .is_none()
-        );
+        assert!(super::stdout_alias("import csv, sys\nout = sys.stdout\nw = csv.writer(out)\nprint(1, file=out)\n").is_none());
     }
 
     #[test]

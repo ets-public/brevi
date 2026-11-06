@@ -16,13 +16,13 @@
 // - Files are written to one work directory per server, which is removed, with its build directories, when
 //   the server stops. Directories left by servers that died are removed at start.
 use crate::diag::esc;
-use crate::json::{J, parse};
+use crate::json::{parse, J};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 // The protocol versions this server speaks; the newest is offered when a client asks for another.
@@ -42,13 +42,7 @@ fn to_json(j: &J) -> String {
         J::Num(n) => n.to_string(),
         J::Str(s) => format!("\"{}\"", esc(s)),
         J::Arr(xs) => format!("[{}]", xs.iter().map(to_json).collect::<Vec<_>>().join(",")),
-        J::Obj(kv) => format!(
-            "{{{}}}",
-            kv.iter()
-                .map(|(k, v)| format!("\"{}\":{}", esc(k), to_json(v)))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
+        J::Obj(kv) => format!("{{{}}}", kv.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), to_json(v))).collect::<Vec<_>>().join(",")),
     }
 }
 
@@ -81,70 +75,13 @@ fn spec(tool: &str) -> Option<&'static [(&'static str, Kind, bool)]> {
     const AN: (&str, Kind, bool) = ("allow_net", Strs, false);
     Some(match tool {
         "guide" => &[("word", Str, false)],
-        "check" => &[
-            ("code", Str, false),
-            ("file", Str, false),
-            ("fast", Bool, false),
-            ("fix", Bool, false),
-            SB,
-            AL,
-            AP,
-            AN,
-        ],
-        "run" => &[
-            ("code", Str, false),
-            ("file", Str, false),
-            ("stdin", Str, false),
-            ("args", Strs, false),
-            ("cases", Cases, false),
-            SB,
-            AL,
-            AP,
-            AN,
-            ("timeout", Int, false),
-        ],
-        "test" => &[
-            ("code", Str, false),
-            ("file", Str, false),
-            SB,
-            AL,
-            AP,
-            AN,
-            ("timeout", Int, false),
-        ],
-        "patch" => &[
-            ("patch", Str, true),
-            ("file", Str, false),
-            ("code", Str, false),
-            SB,
-            AL,
-            AP,
-            AN,
-        ],
-        "edit" => &[
-            ("from", Int, true),
-            ("to", Int, true),
-            ("text", Str, true),
-            ("file", Str, false),
-            SB,
-            AL,
-            AP,
-            AN,
-        ],
-        "show" => &[
-            ("file", Str, false),
-            ("from", Int, false),
-            ("to", Int, false),
-        ],
-        "verify" => &[
-            ("code", Str, false),
-            ("file", Str, false),
-            ("inputs", Strs, false),
-            ("args", Strs, false),
-            SB,
-            ("once", Bool, false),
-            ("timeout", Int, false),
-        ],
+        "check" => &[("code", Str, false), ("file", Str, false), ("fast", Bool, false), ("fix", Bool, false), SB, AL, AP, AN],
+        "run" => &[("code", Str, false), ("file", Str, false), ("stdin", Str, false), ("args", Strs, false), ("cases", Cases, false), SB, AL, AP, AN, ("timeout", Int, false)],
+        "test" => &[("code", Str, false), ("file", Str, false), SB, AL, AP, AN, ("timeout", Int, false)],
+        "patch" => &[("patch", Str, true), ("file", Str, false), ("code", Str, false), SB, AL, AP, AN],
+        "edit" => &[("from", Int, true), ("to", Int, true), ("text", Str, true), ("file", Str, false), SB, AL, AP, AN],
+        "show" => &[("file", Str, false), ("from", Int, false), ("to", Int, false)],
+        "verify" => &[("code", Str, false), ("file", Str, false), ("inputs", Strs, false), ("args", Strs, false), SB, ("once", Bool, false), ("timeout", Int, false)],
         _ => return None,
     })
 }
@@ -168,10 +105,7 @@ fn validate(tool: &str, a: &J) -> Result<J, String> {
     let mut out = vec![];
     for (k, v) in kv {
         let Some(&(_, kind, _)) = sp.iter().find(|s| s.0 == k) else {
-            return Err(format!(
-                "{tool} has no argument {k:?}; it takes: {}",
-                names()
-            ));
+            return Err(format!("{tool} has no argument {k:?}; it takes: {}", names()));
         };
         if matches!(v, J::Null) {
             continue;
@@ -181,9 +115,7 @@ fn validate(tool: &str, a: &J) -> Result<J, String> {
             Kind::Str => J::Str(text(v).ok_or_else(|| bad("a string"))?),
             Kind::Int => match v {
                 J::Num(n) if n.fract() == 0.0 => J::Num(*n),
-                J::Str(s) if s.trim().parse::<i64>().is_ok() => {
-                    J::Num(s.trim().parse::<i64>().unwrap() as f64)
-                }
+                J::Str(s) if s.trim().parse::<i64>().is_ok() => J::Num(s.trim().parse::<i64>().unwrap() as f64),
                 _ => return Err(bad("a whole number")),
             },
             Kind::Bool => match v {
@@ -192,41 +124,21 @@ fn validate(tool: &str, a: &J) -> Result<J, String> {
                 _ => return Err(bad("true or false")),
             },
             Kind::Strs => match v {
-                J::Arr(xs) => J::Arr(
-                    xs.iter()
-                        .map(|x| text(x).map(J::Str))
-                        .collect::<Option<_>>()
-                        .ok_or_else(|| bad("a list of strings"))?,
-                ),
+                J::Arr(xs) => J::Arr(xs.iter().map(|x| text(x).map(J::Str)).collect::<Option<_>>().ok_or_else(|| bad("a list of strings"))?),
                 _ => return Err(bad("a list of strings")),
             },
             Kind::Cases => {
-                let J::Arr(xs) = v else {
-                    return Err(bad("a list of {stdin, expect} objects"));
-                };
+                let J::Arr(xs) = v else { return Err(bad("a list of {stdin, expect} objects")) };
                 let mut cases = vec![];
                 for (i, c) in xs.iter().enumerate() {
-                    let J::Obj(ckv) = c else {
-                        return Err(format!(
-                            "case {} must be an object {{stdin, expect}}",
-                            i + 1
-                        ));
-                    };
+                    let J::Obj(ckv) = c else { return Err(format!("case {} must be an object {{stdin, expect}}", i + 1)) };
                     let mut o = vec![];
                     for (ck, cv) in ckv {
                         if ck != "stdin" && ck != "expect" {
-                            return Err(format!(
-                                "case {} has {ck:?}; a case takes stdin and expect",
-                                i + 1
-                            ));
+                            return Err(format!("case {} has {ck:?}; a case takes stdin and expect", i + 1));
                         }
                         if !matches!(cv, J::Null) {
-                            o.push((
-                                ck.clone(),
-                                J::Str(text(cv).ok_or_else(|| {
-                                    format!("case {} {ck} must be a string", i + 1)
-                                })?),
-                            ));
+                            o.push((ck.clone(), J::Str(text(cv).ok_or_else(|| format!("case {} {ck} must be a string", i + 1))?)));
                         }
                     }
                     cases.push(J::Obj(o));
@@ -250,14 +162,10 @@ fn file_ok(name: &str) -> Result<(), String> {
         || name.len() > 200
         || name.contains(['\\', ':', '\0'])
         || name.starts_with('/')
-        || name
-            .split('/')
-            .any(|p| p.is_empty() || p == "." || p == ".." || p.starts_with('.'))
+        || name.split('/').any(|p| p.is_empty() || p == "." || p == ".." || p.starts_with('.'))
         || name.chars().any(char::is_control);
     if bad {
-        return Err(format!(
-            "file {name:?} is not allowed: use a plain relative name like util.py or pkg/util.py"
-        ));
+        return Err(format!("file {name:?} is not allowed: use a plain relative name like util.py or pkg/util.py"));
     }
     Ok(())
 }
@@ -284,14 +192,8 @@ impl Files {
 // Brevi rather than Python: an `fn` or `enum` item, a `test "..."` block or a `use "x.bv"` line (none is Python).
 fn is_brevi(code: &str) -> bool {
     code.lines().any(|l| {
-        let w = l
-            .split(|c: char| c.is_whitespace() || c == '(')
-            .next()
-            .unwrap_or("");
-        (w == "fn" && l.contains('('))
-            || (w == "enum" && l.trim_end().ends_with(':'))
-            || l.starts_with("test \"")
-            || l.starts_with("use \"")
+        let w = l.split(|c: char| c.is_whitespace() || c == '(').next().unwrap_or("");
+        (w == "fn" && l.contains('(')) || (w == "enum" && l.trim_end().ends_with(':')) || l.starts_with("test \"") || l.starts_with("use \"")
     })
 }
 
@@ -329,14 +231,7 @@ fn warm_up() {
     // The typed build's runtime library, then the dynamic one.
     for dynamic in [false, true] {
         let mut c = Command::new(&exe);
-        c.arg("build")
-            .arg(&f)
-            .arg("-o")
-            .arg(dir.join("warm"))
-            .current_dir(&dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        c.arg("build").arg(&f).arg("-o").arg(dir.join("warm")).current_dir(&dir).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         if dynamic {
             c.env("BREVI_DYN", "1");
         }
@@ -346,12 +241,7 @@ fn warm_up() {
             let start = Instant::now();
             loop {
                 match ch.try_wait() {
-                    Ok(None)
-                        if start.elapsed() < Duration::from_secs(300)
-                            && !SHUTTING.load(Ordering::SeqCst) =>
-                    {
-                        std::thread::sleep(Duration::from_millis(20))
-                    }
+                    Ok(None) if start.elapsed() < Duration::from_secs(300) && !SHUTTING.load(Ordering::SeqCst) => std::thread::sleep(Duration::from_millis(20)),
                     Ok(None) => {
                         crate::proc::stop(&mut ch);
                         let _ = ch.wait();
@@ -370,13 +260,8 @@ fn warm_up() {
 fn wait_warm() {
     let mut done = WARM.0.lock().unwrap_or_else(|e| e.into_inner());
     let start = Instant::now();
-    while !*done && !CANCELLED.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(300)
-    {
-        done = WARM
-            .1
-            .wait_timeout(done, Duration::from_millis(50))
-            .unwrap_or_else(|e| e.into_inner())
-            .0;
+    while !*done && !CANCELLED.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(300) {
+        done = WARM.1.wait_timeout(done, Duration::from_millis(50)).unwrap_or_else(|e| e.into_inner()).0;
     }
 }
 
@@ -389,8 +274,7 @@ fn work_dir() -> &'static PathBuf {
 fn write_files(files: &Files) -> Result<PathBuf, String> {
     let dir = work_dir().clone();
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot make the work directory {}: {e}", dir.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot make the work directory {}: {e}", dir.display()))?;
     for (name, text) in &files.all {
         file_ok(name)?;
         let p = dir.join(name);
@@ -415,10 +299,7 @@ impl Cap {
         let mut s = String::from_utf8_lossy(&self.head).into_owned();
         if self.total > self.head.len() {
             let tail: Vec<u8> = self.tail.iter().copied().collect();
-            s.push_str(&format!(
-                "\n[... {} bytes cut ...]\n",
-                self.total - self.head.len() - tail.len()
-            ));
+            s.push_str(&format!("\n[... {} bytes cut ...]\n", self.total - self.head.len() - tail.len()));
             s.push_str(&String::from_utf8_lossy(&tail));
         }
         s
@@ -460,14 +341,10 @@ fn spawn(mut c: Command, stdin: &str, limit: Duration) -> Result<Done, String> {
     if CANCELLED.load(Ordering::SeqCst) {
         return Err("cancelled".into());
     }
-    c.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     crate::proc::die_with_parent(&mut c);
-    let mut child = c
-        .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
+    let mut child = c.spawn().map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
     CHILD.store(child.id(), Ordering::SeqCst);
     // A cancel that came between the check above and the store: stop now.
     if CANCELLED.load(Ordering::SeqCst) {
@@ -499,21 +376,12 @@ fn spawn(mut c: Command, stdin: &str, limit: Duration) -> Result<Done, String> {
     // Anything the program left running (a background child holding the pipes) goes too.
     crate::proc::stop_pid(child.id());
     CHILD.store(0, Ordering::SeqCst);
-    let get = |rx: mpsc::Receiver<Cap>| {
-        rx.recv_timeout(Duration::from_secs(2))
-            .map(|c| c.text())
-            .unwrap_or_default()
-    };
+    let get = |rx: mpsc::Receiver<Cap>| rx.recv_timeout(Duration::from_secs(2)).map(|c| c.text()).unwrap_or_default();
     let (out, err) = (get(out), get(err));
     if CANCELLED.load(Ordering::SeqCst) {
         return Err("cancelled".into());
     }
-    Ok(Done {
-        out,
-        err,
-        status,
-        timed_out,
-    })
+    Ok(Done { out, err, status, timed_out })
 }
 
 fn secs(d: Duration) -> String {
@@ -521,13 +389,7 @@ fn secs(d: Duration) -> String {
 }
 
 // Runs this same binary on the kept files: (text, failed, the main file afterwards: `brevi fix` rewrites it).
-fn brevi_file(
-    files: &mut Files,
-    cmd: &str,
-    extra: &[String],
-    stdin: &str,
-    limit: Duration,
-) -> (String, bool, String) {
+fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Duration) -> (String, bool, String) {
     wait_warm();
     let dir = match write_files(files) {
         Ok(d) => d,
@@ -573,10 +435,7 @@ fn brevi_file(
         text.push_str("Brevi needs the Rust toolchain: install it from https://rustup.rs, then restart the MCP client.\n");
     }
     if !st.success() && text.trim().is_empty() {
-        text = format!(
-            "failed with exit code {} and no output",
-            st.code().map_or("?".into(), |c| c.to_string())
-        );
+        text = format!("failed with exit code {} and no output", st.code().map_or("?".into(), |c| c.to_string()));
     }
     (text, !st.success(), after)
 }
@@ -600,12 +459,8 @@ fn take_path(err: &mut String) -> Option<String> {
 // The text and structuredContent of a tool result: the path line is also the text's last line when the
 // program is off the typed path, for clients that ignore structured results.
 fn with_path(text: String, path: Option<&str>) -> (String, String) {
-    let Some(p) = path else {
-        return (text, String::new());
-    };
-    let typed = parse(p)
-        .and_then(|j| j.get("path").and_then(|v| v.str()).map(|v| v == "typed"))
-        .unwrap_or(false);
+    let Some(p) = path else { return (text, String::new()) };
+    let typed = parse(p).and_then(|j| j.get("path").and_then(|v| v.str()).map(|v| v == "typed")).unwrap_or(false);
     let text = if typed {
         text
     } else if text.is_empty() || text.ends_with('\n') {
@@ -616,13 +471,7 @@ fn with_path(text: String, path: Option<&str>) -> (String, String) {
     (text, format!(",\"structuredContent\":{p}"))
 }
 
-fn brevi(
-    files: &mut Files,
-    cmd: &str,
-    extra: &[String],
-    stdin: &str,
-    limit: Duration,
-) -> (String, bool) {
+fn brevi(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Duration) -> (String, bool) {
     let (t, err, _) = brevi_file(files, cmd, extra, stdin, limit);
     (t, err)
 }
@@ -632,52 +481,23 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
     let n = |k: &str| a.get(k).and_then(|v| v.num()).map(|x| x as i64);
     // Sandboxed unless the caller says otherwise: no file access or native code without an `allow` line.
     let sandboxed = a.get("sandbox").map_or(true, |v| v.truthy());
-    let mut sandbox: Vec<String> = if sandboxed {
-        vec!["--sandbox".into()]
-    } else {
-        vec![]
-    };
+    let mut sandbox: Vec<String> = if sandboxed { vec!["--sandbox".into()] } else { vec![] };
     // What the caller grants the sandboxed program: an allow line in the code grants nothing under the sandbox.
     if sandboxed {
-        for (k, flag) in [
-            ("allow", "--allow"),
-            ("allow_py", "--allow-py"),
-            ("allow_net", "--allow-net"),
-        ] {
-            let list: Vec<String> = a
-                .get(k)
-                .map(|v| {
-                    v.arr()
-                        .iter()
-                        .filter_map(|x| x.str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
+        for (k, flag) in [("allow", "--allow"), ("allow_py", "--allow-py"), ("allow_net", "--allow-net")] {
+            let list: Vec<String> = a.get(k).map(|v| v.arr().iter().filter_map(|x| x.str().map(String::from)).collect()).unwrap_or_default();
             if list.is_empty() {
                 continue;
             }
-            let parsed = if k == "allow_net" {
-                crate::caps::parse_net(&list.join(","))
-            } else {
-                crate::caps::parse_grant(k == "allow_py", &list.join(","))
-            };
+            let parsed = if k == "allow_net" { crate::caps::parse_net(&list.join(",")) } else { crate::caps::parse_grant(k == "allow_py", &list.join(",")) };
             if let Err(m) = parsed {
-                return (
-                    m.replace("--allow-py", "allow_py")
-                        .replace("--allow-net", "allow_net")
-                        .replace("--allow", "allow"),
-                    true,
-                );
+                return (m.replace("--allow-py", "allow_py").replace("--allow-net", "allow_net").replace("--allow", "allow"), true);
             }
             sandbox.extend([flag.to_string(), list.join(",")]);
         }
     }
     let limit = Duration::from_secs(n("timeout").map_or(cfg().timeout, |t| t.clamp(1, 600) as u64));
-    let code = a
-        .get("code")
-        .and_then(|v| v.str())
-        .map(String::from)
-        .filter(|_| name != "guide");
+    let code = a.get("code").and_then(|v| v.str()).map(String::from).filter(|_| name != "guide");
     let named = Some(s("file")).filter(|f| !f.is_empty());
     if let Some(f) = &named {
         if let Err(m) = file_ok(f) {
@@ -688,56 +508,27 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
     // program: main.py, or main.bv when it is Brevi. The first file given, or any main.*, is the program too.
     let file = match (&named, &code) {
         (Some(f), _) => f.clone(),
-        (None, Some(c))
-            if files
-                .main
-                .as_deref()
-                .map_or(true, |m| m.starts_with("main.")) =>
-        {
-            if is_brevi(c) {
-                "main.bv".into()
-            } else {
-                "main.py".into()
-            }
+        (None, Some(c)) if files.main.as_deref().map_or(true, |m| m.starts_with("main.")) => {
+            if is_brevi(c) { "main.bv".into() } else { "main.py".into() }
         }
         _ => files.main(),
     };
     if let Some(c) = code {
         if files.main.is_none() || file.starts_with("main.") {
-            if let Some(old) = files
-                .main
-                .replace(file.clone())
-                .filter(|o| *o != file && o.starts_with("main."))
-            {
+            if let Some(old) = files.main.replace(file.clone()).filter(|o| *o != file && o.starts_with("main.")) {
                 files.all.remove(&old);
             }
         }
         files.all.insert(file.clone(), c);
     }
-    if name != "guide"
-        && !files
-            .main
-            .as_ref()
-            .is_some_and(|m| files.all.contains_key(m))
-    {
-        return (
-            "no program yet: pass code once (later calls can leave it out)".into(),
-            true,
-        );
+    if name != "guide" && !files.main.as_ref().is_some_and(|m| files.all.contains_key(m)) {
+        return ("no program yet: pass code once (later calls can leave it out)".into(), true);
     }
     match name {
         "guide" => {
             let w = s("word");
-            let g = if w.is_empty() {
-                crate::GUIDE.to_string()
-            } else {
-                crate::guide_lookup(&w)
-            };
-            if g.is_empty() {
-                (format!("nothing in the guide for {w}"), true)
-            } else {
-                (g, false)
-            }
+            let g = if w.is_empty() { crate::GUIDE.to_string() } else { crate::guide_lookup(&w) };
+            if g.is_empty() { (format!("nothing in the guide for {w}"), true) } else { (g, false) }
         }
         "check" => {
             let mut flags = sandbox.clone();
@@ -748,17 +539,10 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
                 let main = files.main();
                 let before = files.all[&main].clone();
                 let (t, err, after) = brevi_file(files, "fix", &flags, "", limit);
-                let head = if t.trim().is_empty() && !err {
-                    "OK".to_string()
-                } else {
-                    t.trim_end().to_string()
-                };
+                let head = if t.trim().is_empty() && !err { "OK".to_string() } else { t.trim_end().to_string() };
                 if !after.is_empty() && after != before {
                     files.all.insert(main, after);
-                    return (
-                        format!("{head}\n(fixes applied to the kept program; show prints it)"),
-                        err,
-                    );
+                    return (format!("{head}\n(fixes applied to the kept program; show prints it)"), err);
                 }
                 return (head, err);
             }
@@ -766,40 +550,20 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
         }
         "run" => {
             let mut extra = sandbox.clone();
-            let args: Vec<String> = a
-                .get("args")
-                .map(|v| {
-                    v.arr()
-                        .iter()
-                        .filter_map(|x| x.str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let args: Vec<String> = a.get("args").map(|v| v.arr().iter().filter_map(|x| x.str().map(String::from)).collect()).unwrap_or_default();
             if !args.is_empty() {
                 extra.push("--".to_string());
                 extra.extend(args);
             }
-            match a
-                .get("cases")
-                .map(|c| c.arr().to_vec())
-                .filter(|c| !c.is_empty())
-            {
-                Some(cases) => run_cases(
-                    files,
-                    &extra,
-                    &cases,
-                    sandboxed,
-                    n("timeout").map(|t| Duration::from_secs(t.clamp(1, 600) as u64)),
-                ),
+            match a.get("cases").map(|c| c.arr().to_vec()).filter(|c| !c.is_empty()) {
+                Some(cases) => run_cases(files, &extra, &cases, sandboxed, n("timeout").map(|t| Duration::from_secs(t.clamp(1, 600) as u64))),
                 None => brevi(files, "run", &extra, &s("stdin"), limit),
             }
         }
         "test" => brevi(files, "test", &sandbox, "", limit),
         "verify" => verify(files, a, sandboxed, limit),
         "patch" => {
-            let Some(cur) = files.all.get(&file).cloned() else {
-                return (format!("no file {file}"), true);
-            };
+            let Some(cur) = files.all.get(&file).cloned() else { return (format!("no file {file}"), true) };
             match crate::patch::patch(&cur, &s("patch")) {
                 Ok((out, done)) => {
                     files.all.insert(file, out);
@@ -809,54 +573,23 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             }
         }
         "edit" => {
-            let Some(cur) = files.all.get(&file).cloned() else {
-                return (format!("no file {file}"), true);
-            };
+            let Some(cur) = files.all.get(&file).cloned() else { return (format!("no file {file}"), true) };
             let mut lines: Vec<&str> = cur.split('\n').collect();
             let (from, to) = (n("from").unwrap_or(0), n("to").unwrap_or(-1));
-            if from < 1
-                || to < from - 1
-                || from as usize > lines.len() + 1
-                || to as usize > lines.len()
-            {
-                return (
-                    format!("lines {from}..{to} are outside 1..{}", lines.len()),
-                    true,
-                );
+            if from < 1 || to < from - 1 || from as usize > lines.len() + 1 || to as usize > lines.len() {
+                return (format!("lines {from}..{to} are outside 1..{}", lines.len()), true);
             }
             let text = s("text");
-            let new: Vec<&str> = if text.is_empty() {
-                vec![]
-            } else {
-                text.trim_end_matches('\n').split('\n').collect()
-            };
+            let new: Vec<&str> = if text.is_empty() { vec![] } else { text.trim_end_matches('\n').split('\n').collect() };
             let added = new.len();
             lines.splice(from as usize - 1..to as usize, new);
             files.all.insert(file, lines.join("\n"));
-            then_check(
-                files,
-                &sandbox,
-                &format!(
-                    "lines {from}..{to} now {added} line{}",
-                    if added == 1 { "" } else { "s" }
-                ),
-                limit,
-            )
+            then_check(files, &sandbox, &format!("lines {from}..{to} now {added} line{}", if added == 1 { "" } else { "s" }), limit)
         }
         "show" => {
-            let Some(cur) = files.all.get(&file) else {
-                return (format!("no file {file}"), true);
-            };
-            let (from, to) = (
-                n("from").unwrap_or(1).max(1) as usize,
-                n("to").map_or(usize::MAX, |t| t.max(0) as usize),
-            );
-            let text: Vec<String> = cur
-                .split('\n')
-                .enumerate()
-                .filter(|(i, _)| i + 1 >= from && i + 1 <= to)
-                .map(|(i, l)| format!("{} {l}", i + 1))
-                .collect();
+            let Some(cur) = files.all.get(&file) else { return (format!("no file {file}"), true) };
+            let (from, to) = (n("from").unwrap_or(1).max(1) as usize, n("to").map_or(usize::MAX, |t| t.max(0) as usize));
+            let text: Vec<String> = cur.split('\n').enumerate().filter(|(i, _)| i + 1 >= from && i + 1 <= to).map(|(i, l)| format!("{} {l}", i + 1)).collect();
             (text.join("\n"), false)
         }
         _ => (format!("unknown tool {name}"), true),
@@ -872,16 +605,7 @@ fn verify(files: &mut Files, a: &J, sandboxed: bool, limit: Duration) -> (String
     if !files.main().ends_with(".py") {
         return ("verify compares plain Python with CPython; Brevi code has no CPython answer to compare with (use test)".into(), true);
     }
-    let strs = |k: &str| -> Vec<String> {
-        a.get(k)
-            .map(|v| {
-                v.arr()
-                    .iter()
-                    .filter_map(|x| x.str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
+    let strs = |k: &str| -> Vec<String> { a.get(k).map(|v| v.arr().iter().filter_map(|x| x.str().map(String::from)).collect()).unwrap_or_default() };
     let inputs = strs("inputs");
     let mut extra: Vec<String> = vec!["--timeout".into(), limit.as_secs().max(1).to_string()];
     let once = a.get("once").map_or(false, |v| v.truthy());
@@ -911,36 +635,19 @@ fn verify(files: &mut Files, a: &J, sandboxed: bool, limit: Duration) -> (String
     // The build, then CPython twice and the build once per input, each within the limit.
     let runs = if once { 2 } else { 3 } * inputs.len().max(1) as u32 + 1;
     let total = Duration::from_secs(cfg().timeout).max(limit) + limit * runs;
-    let (t, err) = brevi(
-        files,
-        "verify",
-        &extra,
-        "",
-        total.min(Duration::from_secs(1800)),
-    );
+    let (t, err) = brevi(files, "verify", &extra, "", total.min(Duration::from_secs(1800)));
     let _ = std::fs::remove_dir_all(&dir);
     // Input paths are the server's own temporary files: name them input1, input2, ... in the reply.
     let shown = esc(&(dir.to_string_lossy().to_string() + std::path::MAIN_SEPARATOR_STR));
     let work = esc(&(work_dir().to_string_lossy().to_string() + std::path::MAIN_SEPARATOR_STR));
     // The CLI's advice in the tool's own words.
-    let t = t
-        .replace(&shown, "")
-        .replace(&work, "")
-        .replace("pass --once", "pass once true")
-        .replace("pass --timeout SECS", "pass timeout (seconds)");
+    let t = t.replace(&shown, "").replace(&work, "").replace("pass --once", "pass once true").replace("pass --timeout SECS", "pass timeout (seconds)");
     (t, err)
 }
 
 fn check(files: &mut Files, flags: &[String], limit: Duration) -> (String, bool) {
     let (t, err) = brevi(files, "check", flags, "", limit);
-    (
-        if t.trim().is_empty() && !err {
-            "OK".into()
-        } else {
-            t
-        },
-        err,
-    )
+    (if t.trim().is_empty() && !err { "OK".into() } else { t }, err)
 }
 
 // After a change: what changed, then OK or the errors, in one reply.
@@ -951,31 +658,14 @@ fn then_check(files: &mut Files, flags: &[String], what: &str, limit: Duration) 
 
 // Builds once, then runs each case. Prints ok per case, or the first line that differs. Plain Python that
 // only CPython can run (sandbox off) runs each case through `brevi run`, as run without cases would.
-fn run_cases(
-    files: &mut Files,
-    extra: &[String],
-    cases: &[J],
-    sandboxed: bool,
-    per_case: Option<Duration>,
-) -> (String, bool) {
+fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, per_case: Option<Duration>) -> (String, bool) {
     let mut flags: Vec<String> = extra.iter().take_while(|a| *a != "--").cloned().collect();
-    let args: Vec<String> = extra
-        .iter()
-        .skip_while(|a| *a != "--")
-        .skip(1)
-        .cloned()
-        .collect();
+    let args: Vec<String> = extra.iter().skip_while(|a| *a != "--").skip(1).cloned().collect();
     let bin_name = ".brevi-cases-bin";
     let bin = work_dir().join(bin_name);
     flags.extend(["-o".to_string(), bin.to_string_lossy().to_string()]);
     let per_case = per_case.unwrap_or(Duration::from_secs(10));
-    let (t, err) = brevi(
-        files,
-        "build",
-        &flags,
-        "",
-        Duration::from_secs(cfg().timeout).max(per_case),
-    );
+    let (t, err) = brevi(files, "build", &flags, "", Duration::from_secs(cfg().timeout).max(per_case));
     let mut via_run = false;
     if err {
         if sandboxed || !files.main().ends_with(".py") {
@@ -993,61 +683,34 @@ fn run_cases(
         let stdin = c.get("stdin").and_then(|v| v.str()).unwrap_or("");
         let want = c.get("expect").and_then(|v| v.str()).unwrap_or("");
         let (got, code) = if via_run {
-            let (got, failed) = brevi(
-                files,
-                "run",
-                extra,
-                stdin,
-                per_case + Duration::from_secs(cfg().timeout),
-            );
+            let (got, failed) = brevi(files, "run", extra, stdin, per_case + Duration::from_secs(cfg().timeout));
             // Not a fallback: the build error is the answer, as for run without cases.
             // (The {"path":"cpython"} line is already out of got, in files.path.)
-            if i == 0
-                && !files
-                    .path
-                    .as_deref()
-                    .is_some_and(|p| p.starts_with("{\"path\":\"cpython\""))
-            {
+            if i == 0 && !files.path.as_deref().is_some_and(|p| p.starts_with("{\"path\":\"cpython\"")) {
                 return (got, true);
             }
             (got, failed)
         } else {
             run_bin(&bin, &args, stdin, per_case)
         };
-        let (gl, wl): (Vec<&str>, Vec<&str>) = (
-            got.trim_end().lines().map(str::trim_end).collect(),
-            want.trim_end().lines().map(str::trim_end).collect(),
-        );
+        let (gl, wl): (Vec<&str>, Vec<&str>) = (got.trim_end().lines().map(str::trim_end).collect(), want.trim_end().lines().map(str::trim_end).collect());
         if gl == wl && !code {
             out.push(format!("case {}: ok", i + 1));
             continue;
         }
         failed += 1;
         if gl == wl {
-            out.push(format!(
-                "case {}: output matches but the program failed",
-                i + 1
-            ));
+            out.push(format!("case {}: output matches but the program failed", i + 1));
             continue;
         }
         let k = gl.iter().zip(&wl).take_while(|(g, w)| g == w).count();
-        let g = gl
-            .get(k)
-            .map_or("(no more output)".to_string(), |l| format!("{l:?}"));
-        let w = wl
-            .get(k)
-            .map_or("(no more output)".to_string(), |l| format!("{l:?}"));
+        let g = gl.get(k).map_or("(no more output)".to_string(), |l| format!("{l:?}"));
+        let w = wl.get(k).map_or("(no more output)".to_string(), |l| format!("{l:?}"));
         let crash = if code { " (program failed)" } else { "" };
-        out.push(format!(
-            "case {}: line {} want {w} got {g}{crash}",
-            i + 1,
-            k + 1
-        ));
+        out.push(format!("case {}: line {} want {w} got {g}{crash}", i + 1, k + 1));
         // The error itself, when the program failed: the model needs it to fix the program.
         if code {
-            if let Some(e) = gl.iter().rev().find(|l| {
-                l.starts_with("{\"e\"") || l.starts_with("{\"line\"") || l.contains("Error")
-            }) {
+            if let Some(e) = gl.iter().rev().find(|l| l.starts_with("{\"e\"") || l.starts_with("{\"line\"") || l.contains("Error")) {
                 if Some(e) != gl.get(k) {
                     out.push(format!("  {e}"));
                 }
@@ -1079,10 +742,7 @@ fn run_bin(bin: &Path, args: &[String], stdin: &str, limit: Duration) -> (String
         t.push_str(d.err.trim_end());
     }
     if d.timed_out {
-        t.push_str(&format!(
-            "\n{{\"e\":\"timeout\",\"msg\":\"stopped after {}\"}}",
-            secs(limit)
-        ));
+        t.push_str(&format!("\n{{\"e\":\"timeout\",\"msg\":\"stopped after {}\"}}", secs(limit)));
     }
     (t, failed)
 }
@@ -1101,13 +761,7 @@ fn clip(t: &str) -> String {
         s += 1;
     }
     let cut = &t[h..s];
-    format!(
-        "{}\n[... {} lines, {} bytes cut ...]\n{}",
-        &t[..h],
-        cut.matches('\n').count(),
-        cut.len(),
-        &t[s..]
-    )
+    format!("{}\n[... {} lines, {} bytes cut ...]\n{}", &t[..h], cut.matches('\n').count(), cut.len(), &t[s..])
 }
 
 // One reply line on stdout. If the client has gone, there is nothing left to do.
@@ -1123,10 +777,7 @@ fn send(line: &str) {
 fn reply(id: &str, result: Result<String, (i32, String)>) {
     match result {
         Ok(r) => send(&format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{r}}}"#)),
-        Err((code, m)) => send(&format!(
-            r#"{{"jsonrpc":"2.0","id":{id},"error":{{"code":{code},"message":"{}"}}}}"#,
-            esc(&m)
-        )),
+        Err((code, m)) => send(&format!(r#"{{"jsonrpc":"2.0","id":{id},"error":{{"code":{code},"message":"{}"}}}}"#, esc(&m))),
     }
 }
 
@@ -1135,47 +786,32 @@ fn clean(built: &BTreeSet<String>) {
     let w = work_dir();
     if let Ok(real) = std::fs::canonicalize(w) {
         for name in built {
-            let _ =
-                std::fs::remove_dir_all(crate::build_dir_path(&real.join(name).to_string_lossy()));
+            let _ = std::fs::remove_dir_all(crate::build_dir_path(&real.join(name).to_string_lossy()));
         }
     }
     let _ = std::fs::remove_dir_all(w);
     let warm = warm_dir();
     if let Ok(real) = std::fs::canonicalize(&warm) {
-        let _ = std::fs::remove_dir_all(crate::build_dir_path(
-            &real.join("warm.py").to_string_lossy(),
-        ));
+        let _ = std::fs::remove_dir_all(crate::build_dir_path(&real.join("warm.py").to_string_lossy()));
     }
     let _ = std::fs::remove_dir_all(warm);
 }
 
 // Work directories of servers that are no longer running.
 fn clean_stale() {
-    let Ok(rd) = std::fs::read_dir(std::env::temp_dir()) else {
-        return;
-    };
+    let Ok(rd) = std::fs::read_dir(std::env::temp_dir()) else { return };
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
-        let Some(rest) = name.strip_prefix("brevi-mcp-") else {
-            continue;
-        };
-        let Ok(pid) = rest.split('-').next().unwrap_or("").parse::<u32>() else {
-            continue;
-        };
-        let old = e
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|a| a > Duration::from_secs(7 * 86400));
+        let Some(rest) = name.strip_prefix("brevi-mcp-") else { continue };
+        let Ok(pid) = rest.split('-').next().unwrap_or("").parse::<u32>() else { continue };
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|a| a > Duration::from_secs(7 * 86400));
         if pid == std::process::id() || (crate::proc::alive(pid) && !old) {
             continue;
         }
         if let Ok(real) = std::fs::canonicalize(e.path()) {
             if let Ok(inner) = std::fs::read_dir(&real) {
                 for f in inner.flatten() {
-                    let _ =
-                        std::fs::remove_dir_all(crate::build_dir_path(&f.path().to_string_lossy()));
+                    let _ = std::fs::remove_dir_all(crate::build_dir_path(&f.path().to_string_lossy()));
                 }
             }
         }
@@ -1203,10 +839,7 @@ struct Job {
 }
 
 pub fn serve(argv: &[String]) {
-    let mut c = Cfg {
-        timeout: 20,
-        mem_mb: default_mem_mb(),
-    };
+    let mut c = Cfg { timeout: 20, mem_mb: default_mem_mb() };
     let mut i = 0;
     while i < argv.len() {
         let v = argv.get(i + 1).and_then(|v| v.parse::<u64>().ok());
@@ -1243,13 +876,8 @@ pub fn serve(argv: &[String]) {
                     CANCELLED.store(false, Ordering::SeqCst);
                 }
                 files.path = None;
-                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    call(&mut files, &job.name, &job.args)
-                }));
-                BUILT
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .extend(files.built.iter().cloned());
+                let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(&mut files, &job.name, &job.args)));
+                BUILT.lock().unwrap_or_else(|e| e.into_inner()).extend(files.built.iter().cloned());
                 let (text, err) = r.unwrap_or_else(|p| {
                     let m = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
                     (format!("internal error in brevi mcp ({m}); the kept program is unchanged. Please report it."), true)
@@ -1262,13 +890,7 @@ pub fn serve(argv: &[String]) {
                 // A cancelled request gets no reply (the MCP spec's rule).
                 if !cancelled {
                     let (text, structured) = with_path(clip(&text), files.path.take().as_deref());
-                    reply(
-                        &job.id,
-                        Ok(format!(
-                            r#"{{"content":[{{"type":"text","text":"{}"}}]{structured},"isError":{err}}}"#,
-                            esc(&text)
-                        )),
-                    );
+                    reply(&job.id, Ok(format!(r#"{{"content":[{{"type":"text","text":"{}"}}]{structured},"isError":{err}}}"#, esc(&text))));
                 }
             }
         })
@@ -1284,10 +906,7 @@ pub fn serve(argv: &[String]) {
             Ok(_) => {}
         }
         let Ok(line) = std::str::from_utf8(&buf) else {
-            reply(
-                "null",
-                Err((-32700, "parse error: the message is not UTF-8".into())),
-            );
+            reply("null", Err((-32700, "parse error: the message is not UTF-8".into())));
             continue;
         };
         let line = line.trim();
@@ -1299,11 +918,7 @@ pub fn serve(argv: &[String]) {
             continue;
         };
         let J::Obj(_) = msg else {
-            let m = if matches!(msg, J::Arr(_)) {
-                "batches are not supported: send one request per line"
-            } else {
-                "a request must be a JSON object"
-            };
+            let m = if matches!(msg, J::Arr(_)) { "batches are not supported: send one request per line" } else { "a request must be a JSON object" };
             reply("null", Err((-32600, m.into())));
             continue;
         };
@@ -1311,10 +926,7 @@ pub fn serve(argv: &[String]) {
             Some(v @ (J::Str(_) | J::Num(_))) => Some(to_json(v)),
             Some(J::Null) | None => None,
             Some(_) => {
-                reply(
-                    "null",
-                    Err((-32600, "id must be a string or a number".into())),
-                );
+                reply("null", Err((-32600, "id must be a string or a number".into())));
                 continue;
             }
         };
@@ -1333,11 +945,7 @@ pub fn serve(argv: &[String]) {
         let Some(id) = id else {
             // A notification: no reply. Cancelling stops the named call, or skips it if it has not started.
             if method == "notifications/cancelled" {
-                if let Some(rid) = params
-                    .get("requestId")
-                    .filter(|v| matches!(v, J::Str(_) | J::Num(_)))
-                    .map(to_json)
-                {
+                if let Some(rid) = params.get("requestId").filter(|v| matches!(v, J::Str(_) | J::Num(_))).map(to_json) {
                     let cur = current.lock().unwrap();
                     if cur.as_deref() == Some(rid.as_str()) {
                         CANCELLED.store(true, Ordering::SeqCst);
@@ -1358,59 +966,26 @@ pub fn serve(argv: &[String]) {
         }
         match method.as_str() {
             "initialize" => {
-                let asked = params
-                    .get("protocolVersion")
-                    .and_then(|v| v.str())
-                    .unwrap_or("");
-                let v = VERSIONS
-                    .iter()
-                    .find(|v| **v == asked)
-                    .unwrap_or(&VERSIONS[0]);
-                reply(
-                    &id,
-                    Ok(format!(
-                        r#"{{"protocolVersion":"{v}","capabilities":{{"tools":{{"listChanged":false}}}},"serverInfo":{{"name":"brevi","title":"Brevi","version":"{}"}},"instructions":"Write plain Python: Brevi compiles it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. No guide needed (it covers Brevi syntax, .bv files). Pass your program as code once; then fix errors with patch (whole defs by name) or edit (lines), which change only what you send and check again."}}"#,
-                        env!("CARGO_PKG_VERSION")
-                    )),
-                );
+                let asked = params.get("protocolVersion").and_then(|v| v.str()).unwrap_or("");
+                let v = VERSIONS.iter().find(|v| **v == asked).unwrap_or(&VERSIONS[0]);
+                reply(&id, Ok(format!(r#"{{"protocolVersion":"{v}","capabilities":{{"tools":{{"listChanged":false}}}},"serverInfo":{{"name":"brevi","title":"Brevi","version":"{}"}},"instructions":"Write plain Python: Brevi compiles it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. No guide needed (it covers Brevi syntax, .bv files). Pass your program as code once; then fix errors with patch (whole defs by name) or edit (lines), which change only what you send and check again."}}"#, env!("CARGO_PKG_VERSION"))));
             }
             "ping" => reply(&id, Ok("{}".into())),
-            "tools/list" => reply(
-                &id,
-                Ok(format!(r#"{{"tools":{}}}"#, TOOLS.replace('\n', ""))),
-            ),
+            "tools/list" => reply(&id, Ok(format!(r#"{{"tools":{}}}"#, TOOLS.replace('\n', "")))),
             "tools/call" => {
                 let Some(name) = params.get("name").and_then(|v| v.str()) else {
                     reply(&id, Err((-32602, "tools/call needs params.name".into())));
                     continue;
                 };
                 if spec(name).is_none() {
-                    reply(
-                        &id,
-                        Err((
-                            -32602,
-                            format!(
-                                "unknown tool {name:?}; the tools are guide, check, run, test, patch, edit, show"
-                            ),
-                        )),
-                    );
+                    reply(&id, Err((-32602, format!("unknown tool {name:?}; the tools are guide, check, run, test, patch, edit, show"))));
                     continue;
                 }
                 match validate(name, &params.get("arguments").cloned().unwrap_or(J::Null)) {
                     // A wrong argument is a tool error, so the model sees it and can correct the call.
-                    Err(m) => reply(
-                        &id,
-                        Ok(format!(
-                            r#"{{"content":[{{"type":"text","text":"{}"}}],"isError":true}}"#,
-                            esc(&m)
-                        )),
-                    ),
+                    Err(m) => reply(&id, Ok(format!(r#"{{"content":[{{"type":"text","text":"{}"}}],"isError":true}}"#, esc(&m)))),
                     Ok(args) => {
-                        let _ = tx.send(Job {
-                            id,
-                            name: name.to_string(),
-                            args,
-                        });
+                        let _ = tx.send(Job { id, name: name.to_string(), args });
                     }
                 }
             }
@@ -1443,18 +1018,9 @@ fn find_rust() {
     if std::env::split_paths(&path).any(|d| d.join(exe).is_file()) {
         return;
     }
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from);
-    let cargo = std::env::var_os("CARGO_HOME")
-        .map(PathBuf::from)
-        .or_else(|| home.map(|h| h.join(".cargo")));
-    let Some(bin) = cargo
-        .map(|c| c.join("bin"))
-        .filter(|b| b.join(exe).is_file())
-    else {
-        return;
-    };
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+    let cargo = std::env::var_os("CARGO_HOME").map(PathBuf::from).or_else(|| home.map(|h| h.join(".cargo")));
+    let Some(bin) = cargo.map(|c| c.join("bin")).filter(|b| b.join(exe).is_file()) else { return };
     let mut dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
     dirs.insert(0, bin);
     if let Ok(p) = std::env::join_paths(dirs) {
@@ -1465,10 +1031,8 @@ fn find_rust() {
 
 // Half the machine's memory (at least 2 GB) on Linux; elsewhere no limit.
 fn default_mem_mb() -> u64 {
-    let total_kb = std::fs::read_to_string("/proc/meminfo").ok().and_then(|m| {
-        m.lines()
-            .find(|l| l.starts_with("MemTotal:"))
-            .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
-    });
+    let total_kb = std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|m| m.lines().find(|l| l.starts_with("MemTotal:")).and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok()));
     total_kb.map_or(0, |kb| (kb / 1024 / 2).max(2048))
 }

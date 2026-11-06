@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 struct Occ {
     name: String,
-    value: bool,          // read in a spot where a copy would be made
-    movable: bool,        // not in a lambda, and not in a loop that the variable outlives
+    value: bool,   // read in a spot where a copy would be made
+    movable: bool, // not in a lambda, and not in a loop that the variable outlives
     depth: Option<usize>, // loop depth, or None inside a lambda
 }
 
@@ -31,26 +31,11 @@ pub fn mark_moves(items: &mut [Item]) {
         .collect();
     for item in items.iter_mut() {
         let (params, body): (Vec<String>, &mut Expr) = match item {
-            Item::Fn { params, body, .. } => (
-                params
-                    .iter()
-                    .filter(|p| !p.is_mut)
-                    .map(|p| p.name.clone())
-                    .collect(),
-                body,
-            ),
+            Item::Fn { params, body, .. } => (params.iter().filter(|p| !p.is_mut).map(|p| p.name.clone()).collect(), body),
             Item::Test { body, .. } => (vec![], body),
             _ => continue,
         };
-        let mut w = Walk {
-            occs: vec![],
-            decl_depth: HashMap::new(),
-            loop_depth: 0,
-            lambda: 0,
-            reassign: vec![],
-            mut_fns: &mut_fns,
-            apply: None,
-        };
+        let mut w = Walk { occs: vec![], decl_depth: HashMap::new(), loop_depth: 0, lambda: 0, reassign: vec![], mut_fns: &mut_fns, apply: None };
         for p in &params {
             w.decl_depth.insert(p.clone(), 0);
         }
@@ -59,26 +44,12 @@ pub fn mark_moves(items: &mut [Item]) {
         for (i, o) in w.occs.iter().enumerate() {
             last.insert(&o.name, i);
         }
-        let mut chosen: HashSet<usize> = w
-            .occs
-            .iter()
-            .enumerate()
-            .filter(|(i, o)| o.value && o.movable && last[o.name.as_str()] == *i)
-            .map(|(i, _)| i)
-            .collect();
+        let mut chosen: HashSet<usize> = w.occs.iter().enumerate().filter(|(i, o)| o.value && o.movable && last[o.name.as_str()] == *i).map(|(i, _)| i).collect();
         chosen.extend(w.reassign.iter().copied().filter(|&i| w.occs[i].value));
         if chosen.is_empty() {
             continue;
         }
-        let mut w2 = Walk {
-            occs: vec![],
-            decl_depth: HashMap::new(),
-            loop_depth: 0,
-            lambda: 0,
-            reassign: vec![],
-            mut_fns: &mut_fns,
-            apply: Some(chosen),
-        };
+        let mut w2 = Walk { occs: vec![], decl_depth: HashMap::new(), loop_depth: 0, lambda: 0, reassign: vec![], mut_fns: &mut_fns, apply: Some(chosen) };
         for p in &params {
             w2.decl_depth.insert(p.clone(), 0);
         }
@@ -103,23 +74,10 @@ impl Walk<'_> {
 
     fn ident(&mut self, e: &mut Expr, value: bool) {
         let Expr::Ident(n) = e else { return };
-        let movable = self.lambda == 0
-            && self
-                .decl_depth
-                .get(n.as_str())
-                .map_or(false, |&d| self.loop_depth <= d);
+        let movable = self.lambda == 0 && self.decl_depth.get(n.as_str()).map_or(false, |&d| self.loop_depth <= d);
         let i = self.occs.len();
-        let depth = if self.lambda == 0 {
-            Some(self.loop_depth)
-        } else {
-            None
-        };
-        self.occs.push(Occ {
-            name: n.clone(),
-            value,
-            movable,
-            depth,
-        });
+        let depth = if self.lambda == 0 { Some(self.loop_depth) } else { None };
+        self.occs.push(Occ { name: n.clone(), value, movable, depth });
         if self.apply.as_ref().map_or(false, |s| s.contains(&i)) {
             *e = Expr::Move(n.clone());
         }
@@ -132,18 +90,13 @@ impl Walk<'_> {
                     self.expr(value, true);
                     self.declare_pat(name);
                 }
-                Stmt::Assign {
-                    target, op, value, ..
-                } => {
+                Stmt::Assign { target, op, value, .. } => {
                     let start = self.occs.len();
                     self.expr(value, true);
                     if let (Expr::Ident(n), "=") = (&*target, *op) {
                         // The variable is set right after, so its last read in the value can move.
                         let (n, depth) = (n.clone(), Some(self.loop_depth));
-                        if let Some(i) = (start..self.occs.len())
-                            .rev()
-                            .find(|&i| self.occs[i].name == n)
-                        {
+                        if let Some(i) = (start..self.occs.len()).rev().find(|&i| self.occs[i].name == n) {
                             if self.lambda == 0 && self.occs[i].depth == depth {
                                 self.reassign.push(i);
                             }

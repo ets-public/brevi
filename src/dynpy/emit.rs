@@ -5,44 +5,8 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 36] = [
-    "atexit",
-    "_brevi_async",
-    "_brevi_net",
-    "_brevi_tok",
-    "_brevi_hf",
-    "_brevi_mt",
-    "_brevi_term",
-    "hashlib",
-    "base64",
-    "binascii",
-    "json.decoder",
-    "enum",
-    "sys",
-    "math",
-    "collections",
-    "heapq",
-    "bisect",
-    "functools",
-    "itertools",
-    "copy",
-    "operator",
-    "string",
-    "time",
-    "typing",
-    "dataclasses",
-    "abc",
-    "re",
-    "json",
-    "__future__",
-    "decimal",
-    "fractions",
-    "datetime",
-    "csv",
-    "html",
-    "statistics",
-    "threading",
-];
+pub const BUILTIN_MODULES: [&str; 36] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+
 
 // ---------- numpy, natively (rt_np*.rs) ----------
 // Set while a build uses Brevi's own numpy (on until a refusal names numpy; then CPython's numpy is used).
@@ -65,10 +29,7 @@ fn np_narrow() -> bool {
 }
 // Whether Python source names the float32 or int32 dtypes.
 pub fn names_narrow(src: &str) -> bool {
-    if ["float32", "int32", "intc", "single"]
-        .iter()
-        .any(|t| src.contains(t))
-    {
+    if ["float32", "int32", "intc", "single"].iter().any(|t| src.contains(t)) {
         return true;
     }
     for q in ['\'', '"'] {
@@ -89,719 +50,92 @@ pub fn names_narrow(src: &str) -> bool {
 }
 // The numpy functions native for float32 and int32 arrays (the runtime's np_narrow_ok has the same list).
 const NP_NARROW_FUNCS: &[&str] = &[
-    "pi",
-    "e",
-    "inf",
-    "nan",
-    "euler_gamma",
-    "newaxis",
-    "True_",
-    "False_",
-    "float64",
-    "double",
-    "int64",
-    "int_",
-    "intp",
-    "bool_",
-    "bool",
-    "ndarray",
-    "integer",
-    "signedinteger",
-    "floating",
-    "number",
-    "generic",
-    "inexact",
-    "float32",
-    "single",
-    "int32",
-    "intc",
-    "array",
-    "asarray",
-    "asanyarray",
-    "copy",
-    "zeros",
-    "ones",
-    "empty",
-    "full",
-    "zeros_like",
-    "ones_like",
-    "empty_like",
-    "full_like",
-    "arange",
-    "linspace",
-    "eye",
-    "identity",
-    "set_printoptions",
-    "shape",
-    "ndim",
-    "size",
-    "dtype",
-    "isscalar",
-    "issubdtype",
-    "sum",
-    "mean",
-    "std",
-    "var",
-    "prod",
-    "max",
-    "min",
-    "amax",
-    "amin",
-    "argmax",
-    "argmin",
-    "any",
-    "all",
-    "cumsum",
-    "cumprod",
-    "round",
-    "around",
-    "clip",
-    "reshape",
-    "ravel",
-    "transpose",
-    "swapaxes",
-    "squeeze",
-    "diagonal",
-    "nonzero",
-    "argsort",
-    "repeat",
-    "sort",
-    "count_nonzero",
-    "str_",
-    "where",
-    "argwhere",
-    "flatnonzero",
-    "unique",
-    "concatenate",
-    "stack",
-    "vstack",
-    "hstack",
-    "column_stack",
-    "atleast_1d",
-    "atleast_2d",
-    "expand_dims",
-    "flip",
-    "fliplr",
-    "flipud",
-    "roll",
-    "diff",
-    "outer",
-    "array_equal",
-    "searchsorted",
-    "tile",
-    "meshgrid",
-    "diag",
-    "fill_diagonal",
-    "unravel_index",
-    "abs",
-    "absolute",
-    "negative",
-    "positive",
-    "sqrt",
-    "floor",
-    "ceil",
-    "trunc",
-    "rint",
-    "fix",
-    "square",
-    "reciprocal",
-    "sign",
-    "isnan",
-    "isinf",
-    "isfinite",
-    "logical_not",
-    "add",
-    "subtract",
-    "multiply",
-    "divide",
-    "true_divide",
-    "floor_divide",
-    "mod",
-    "remainder",
-    "power",
-    "maximum",
-    "minimum",
-    "fmax",
-    "fmin",
-    "equal",
-    "not_equal",
-    "less",
-    "less_equal",
-    "greater",
-    "greater_equal",
-    "logical_and",
-    "logical_or",
-    "logical_xor",
-    "bitwise_and",
-    "bitwise_or",
-    "bitwise_xor",
-    "left_shift",
-    "right_shift",
-    "random",
+    "pi", "e", "inf", "nan", "euler_gamma", "newaxis", "True_", "False_", "float64", "double", "int64", "int_", "intp", "bool_", "bool", "ndarray",
+    "integer", "signedinteger", "floating", "number", "generic", "inexact", "float32", "single", "int32", "intc",
+    "array", "asarray", "asanyarray", "copy", "zeros", "ones", "empty", "full", "zeros_like", "ones_like", "empty_like", "full_like",
+    "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype",
+    "sum", "mean", "std", "var", "prod", "max", "min", "amax", "amin", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "around", "clip",
+    "reshape", "ravel", "transpose", "swapaxes", "squeeze", "diagonal", "nonzero", "argsort", "repeat", "sort", "count_nonzero", "str_", "where", "argwhere", "flatnonzero",
+    "unique", "concatenate", "stack", "vstack", "hstack", "column_stack", "atleast_1d", "atleast_2d", "expand_dims", "flip", "fliplr", "flipud", "roll",
+    "diff", "outer", "array_equal", "searchsorted", "tile", "meshgrid", "diag", "fill_diagonal", "unravel_index",
+    "abs", "absolute", "negative", "positive", "sqrt", "floor", "ceil", "trunc", "rint", "fix", "square", "reciprocal", "sign", "isnan", "isinf", "isfinite", "logical_not",
+    "add", "subtract", "multiply", "divide", "true_divide", "floor_divide", "mod", "remainder", "power", "maximum", "minimum", "fmax", "fmin",
+    "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
+    "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift", "random",
 ];
 // collections.abc as Brevi's typing forms (off when the program needs CPython's ABCs: the bridge runs them).
 pub static ABC_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    BUILTIN_MODULES.contains(&m)
-        || m == "typing_extensions"
-        || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed))
-        || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    BUILTIN_MODULES.contains(&m) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
-    ("pi", &[]),
-    ("e", &[]),
-    ("inf", &[]),
-    ("nan", &[]),
-    ("euler_gamma", &[]),
-    ("newaxis", &[]),
-    ("True_", &[]),
-    ("False_", &[]),
-    ("float64", &[]),
-    ("double", &[]),
-    ("int64", &[]),
-    ("int_", &[]),
-    ("intp", &[]),
-    ("bool_", &[]),
-    ("bool", &[]),
-    ("ndarray", &[]),
-    ("float32", &[]),
-    ("single", &[]),
-    ("int32", &[]),
-    ("intc", &[]),
-    ("str_", &[]),
-    ("integer", &[]),
-    ("signedinteger", &[]),
-    ("floating", &[]),
-    ("number", &[]),
-    ("generic", &[]),
-    ("inexact", &[]),
-    ("array", &["dtype", "copy", "ndmin"]),
-    ("asarray", &["dtype"]),
-    ("asanyarray", &["dtype"]),
-    ("copy", &[]),
-    ("zeros", &["dtype"]),
-    ("ones", &["dtype"]),
-    ("empty", &["dtype"]),
-    ("full", &["dtype", "fill_value"]),
-    ("zeros_like", &["dtype"]),
-    ("ones_like", &["dtype"]),
-    ("empty_like", &["dtype"]),
-    ("full_like", &["dtype", "fill_value"]),
-    ("arange", &["start", "stop", "step", "dtype"]),
-    ("linspace", &["num", "endpoint", "retstep", "dtype"]),
-    ("eye", &["M", "k", "dtype"]),
-    ("identity", &["dtype"]),
-    (
-        "set_printoptions",
-        &[
-            "precision",
-            "suppress",
-            "linewidth",
-            "threshold",
-            "edgeitems",
-        ],
-    ),
-    ("shape", &[]),
-    ("ndim", &[]),
-    ("size", &[]),
-    ("dtype", &[]),
-    ("isscalar", &[]),
-    ("issubdtype", &[]),
-    ("sum", &["axis", "keepdims"]),
-    ("mean", &["axis", "keepdims"]),
-    ("std", &["axis", "keepdims", "ddof"]),
-    ("var", &["axis", "keepdims", "ddof"]),
-    ("prod", &["axis", "keepdims"]),
-    ("max", &["axis", "keepdims"]),
-    ("min", &["axis", "keepdims"]),
-    ("amax", &["axis", "keepdims"]),
-    ("amin", &["axis", "keepdims"]),
-    ("argmax", &["axis", "keepdims"]),
-    ("argmin", &["axis", "keepdims"]),
-    ("any", &["axis", "keepdims"]),
-    ("all", &["axis", "keepdims"]),
-    ("cumsum", &["axis"]),
-    ("cumprod", &["axis"]),
-    ("round", &["decimals"]),
-    ("around", &["decimals"]),
-    ("clip", &["a_min", "a_max", "min", "max"]),
-    ("reshape", &["shape", "newshape"]),
-    ("ravel", &[]),
-    ("transpose", &["axes"]),
-    ("swapaxes", &["axis1", "axis2"]),
-    ("squeeze", &["axis"]),
-    ("trace", &[]),
-    ("diagonal", &["offset"]),
-    ("nonzero", &[]),
-    ("argsort", &["axis", "kind"]),
-    ("repeat", &["axis"]),
-    ("sort", &["axis", "kind"]),
-    ("median", &["axis", "keepdims"]),
-    ("percentile", &["axis", "keepdims", "method"]),
-    ("quantile", &["axis", "keepdims", "method"]),
-    ("nansum", &["axis", "keepdims"]),
-    ("nanmean", &["axis", "keepdims"]),
-    ("nanstd", &["axis", "keepdims", "ddof"]),
-    ("nanvar", &["axis", "keepdims", "ddof"]),
-    ("nanmax", &["axis", "keepdims"]),
-    ("nanmin", &["axis", "keepdims"]),
-    ("average", &["axis", "weights"]),
-    ("count_nonzero", &["axis"]),
-    ("where", &[]),
-    ("argwhere", &[]),
-    ("flatnonzero", &[]),
-    (
-        "unique",
-        &["return_index", "return_inverse", "return_counts"],
-    ),
-    ("concatenate", &["axis"]),
-    ("stack", &["axis"]),
-    ("vstack", &[]),
-    ("hstack", &[]),
-    ("column_stack", &[]),
-    ("atleast_1d", &[]),
-    ("atleast_2d", &[]),
-    ("expand_dims", &["axis"]),
-    ("flip", &["axis"]),
-    ("fliplr", &[]),
-    ("flipud", &[]),
-    ("roll", &["shift", "axis"]),
-    ("diff", &["n", "axis", "prepend", "append"]),
-    ("outer", &[]),
-    ("dot", &[]),
-    ("matmul", &[]),
-    ("inner", &[]),
-    ("vdot", &[]),
-    ("isclose", &["rtol", "atol", "equal_nan"]),
-    ("allclose", &["rtol", "atol", "equal_nan"]),
-    ("array_equal", &[]),
-    ("searchsorted", &["side"]),
-    ("tile", &[]),
-    ("meshgrid", &["indexing"]),
-    ("diag", &["k"]),
-    ("fill_diagonal", &[]),
-    ("unravel_index", &[]),
-    ("cross", &[]),
-    ("convolve", &["mode"]),
-    ("histogram", &["bins", "range", "density", "weights"]),
-    ("cov", &["m", "y", "rowvar", "bias", "ddof"]),
-    ("corrcoef", &["x", "y", "rowvar"]),
-    ("trapezoid", &["y", "x", "dx", "axis"]),
-    ("polyfit", &["x", "y", "deg", "rcond", "full", "w", "cov"]),
-    ("polyval", &["p", "x"]),
-    ("abs", &[]),
-    ("absolute", &[]),
-    ("fabs", &[]),
-    ("negative", &[]),
-    ("positive", &[]),
-    ("sqrt", &[]),
-    ("exp", &[]),
-    ("exp2", &[]),
-    ("expm1", &[]),
-    ("log", &[]),
-    ("log10", &[]),
-    ("log2", &[]),
-    ("log1p", &[]),
-    ("sin", &[]),
-    ("cos", &[]),
-    ("tan", &[]),
-    ("arcsin", &[]),
-    ("arccos", &[]),
-    ("arctan", &[]),
-    ("sinh", &[]),
-    ("cosh", &[]),
-    ("tanh", &[]),
-    ("arcsinh", &[]),
-    ("arccosh", &[]),
-    ("arctanh", &[]),
-    ("cbrt", &[]),
-    ("floor", &[]),
-    ("ceil", &[]),
-    ("trunc", &[]),
-    ("rint", &[]),
-    ("fix", &[]),
-    ("square", &[]),
-    ("reciprocal", &[]),
-    ("sign", &[]),
-    ("degrees", &[]),
-    ("radians", &[]),
-    ("deg2rad", &[]),
-    ("rad2deg", &[]),
-    ("isnan", &[]),
-    ("isinf", &[]),
-    ("isfinite", &[]),
-    ("logical_not", &[]),
-    ("add", &[]),
-    ("subtract", &[]),
-    ("multiply", &[]),
-    ("divide", &[]),
-    ("true_divide", &[]),
-    ("floor_divide", &[]),
-    ("mod", &[]),
-    ("remainder", &[]),
-    ("power", &[]),
-    ("maximum", &[]),
-    ("minimum", &[]),
-    ("fmax", &[]),
-    ("fmin", &[]),
-    ("arctan2", &[]),
-    ("hypot", &[]),
-    ("copysign", &[]),
-    ("fmod", &[]),
-    ("logaddexp", &[]),
-    ("equal", &[]),
-    ("not_equal", &[]),
-    ("less", &[]),
-    ("less_equal", &[]),
-    ("greater", &[]),
-    ("greater_equal", &[]),
-    ("logical_and", &[]),
-    ("logical_or", &[]),
-    ("logical_xor", &[]),
-    ("bitwise_and", &[]),
-    ("bitwise_or", &[]),
-    ("bitwise_xor", &[]),
-    ("left_shift", &[]),
-    ("right_shift", &[]),
+    ("pi", &[]), ("e", &[]), ("inf", &[]), ("nan", &[]), ("euler_gamma", &[]), ("newaxis", &[]), ("True_", &[]), ("False_", &[]),
+    ("float64", &[]), ("double", &[]), ("int64", &[]), ("int_", &[]), ("intp", &[]), ("bool_", &[]), ("bool", &[]), ("ndarray", &[]),
+    ("float32", &[]), ("single", &[]), ("int32", &[]), ("intc", &[]), ("str_", &[]),
+    ("integer", &[]), ("signedinteger", &[]), ("floating", &[]), ("number", &[]), ("generic", &[]), ("inexact", &[]),
+    ("array", &["dtype", "copy", "ndmin"]), ("asarray", &["dtype"]), ("asanyarray", &["dtype"]), ("copy", &[]),
+    ("zeros", &["dtype"]), ("ones", &["dtype"]), ("empty", &["dtype"]), ("full", &["dtype", "fill_value"]),
+    ("zeros_like", &["dtype"]), ("ones_like", &["dtype"]), ("empty_like", &["dtype"]), ("full_like", &["dtype", "fill_value"]),
+    ("arange", &["start", "stop", "step", "dtype"]), ("linspace", &["num", "endpoint", "retstep", "dtype"]), ("eye", &["M", "k", "dtype"]), ("identity", &["dtype"]),
+    ("set_printoptions", &["precision", "suppress", "linewidth", "threshold", "edgeitems"]),
+    ("shape", &[]), ("ndim", &[]), ("size", &[]), ("dtype", &[]), ("isscalar", &[]), ("issubdtype", &[]),
+    ("sum", &["axis", "keepdims"]), ("mean", &["axis", "keepdims"]), ("std", &["axis", "keepdims", "ddof"]), ("var", &["axis", "keepdims", "ddof"]),
+    ("prod", &["axis", "keepdims"]), ("max", &["axis", "keepdims"]), ("min", &["axis", "keepdims"]), ("amax", &["axis", "keepdims"]), ("amin", &["axis", "keepdims"]),
+    ("argmax", &["axis", "keepdims"]), ("argmin", &["axis", "keepdims"]), ("any", &["axis", "keepdims"]), ("all", &["axis", "keepdims"]),
+    ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("around", &["decimals"]), ("clip", &["a_min", "a_max", "min", "max"]),
+    ("reshape", &["shape", "newshape"]), ("ravel", &[]), ("transpose", &["axes"]), ("swapaxes", &["axis1", "axis2"]), ("squeeze", &["axis"]), ("trace", &[]), ("diagonal", &["offset"]),
+    ("nonzero", &[]), ("argsort", &["axis", "kind"]), ("repeat", &["axis"]), ("sort", &["axis", "kind"]), ("median", &["axis", "keepdims"]),
+    ("percentile", &["axis", "keepdims", "method"]), ("quantile", &["axis", "keepdims", "method"]),
+    ("nansum", &["axis", "keepdims"]), ("nanmean", &["axis", "keepdims"]), ("nanstd", &["axis", "keepdims", "ddof"]), ("nanvar", &["axis", "keepdims", "ddof"]), ("nanmax", &["axis", "keepdims"]), ("nanmin", &["axis", "keepdims"]),
+    ("average", &["axis", "weights"]), ("count_nonzero", &["axis"]), ("where", &[]), ("argwhere", &[]), ("flatnonzero", &[]),
+    ("unique", &["return_index", "return_inverse", "return_counts"]), ("concatenate", &["axis"]), ("stack", &["axis"]), ("vstack", &[]), ("hstack", &[]), ("column_stack", &[]),
+    ("atleast_1d", &[]), ("atleast_2d", &[]), ("expand_dims", &["axis"]), ("flip", &["axis"]), ("fliplr", &[]), ("flipud", &[]), ("roll", &["shift", "axis"]),
+    ("diff", &["n", "axis", "prepend", "append"]), ("outer", &[]), ("dot", &[]), ("matmul", &[]), ("inner", &[]), ("vdot", &[]),
+    ("isclose", &["rtol", "atol", "equal_nan"]), ("allclose", &["rtol", "atol", "equal_nan"]), ("array_equal", &[]), ("searchsorted", &["side"]),
+    ("tile", &[]), ("meshgrid", &["indexing"]), ("diag", &["k"]), ("fill_diagonal", &[]), ("unravel_index", &[]), ("cross", &[]), ("convolve", &["mode"]),
+    ("histogram", &["bins", "range", "density", "weights"]), ("cov", &["m", "y", "rowvar", "bias", "ddof"]), ("corrcoef", &["x", "y", "rowvar"]), ("trapezoid", &["y", "x", "dx", "axis"]), ("polyfit", &["x", "y", "deg", "rcond", "full", "w", "cov"]), ("polyval", &["p", "x"]),
+    ("abs", &[]), ("absolute", &[]), ("fabs", &[]), ("negative", &[]), ("positive", &[]), ("sqrt", &[]), ("exp", &[]), ("exp2", &[]), ("expm1", &[]), ("log", &[]), ("log10", &[]), ("log2", &[]), ("log1p", &[]),
+    ("sin", &[]), ("cos", &[]), ("tan", &[]), ("arcsin", &[]), ("arccos", &[]), ("arctan", &[]), ("sinh", &[]), ("cosh", &[]), ("tanh", &[]), ("arcsinh", &[]), ("arccosh", &[]), ("arctanh", &[]),
+    ("cbrt", &[]), ("floor", &[]), ("ceil", &[]), ("trunc", &[]), ("rint", &[]), ("fix", &[]), ("square", &[]), ("reciprocal", &[]), ("sign", &[]), ("degrees", &[]), ("radians", &[]), ("deg2rad", &[]), ("rad2deg", &[]),
+    ("isnan", &[]), ("isinf", &[]), ("isfinite", &[]), ("logical_not", &[]),
+    ("add", &[]), ("subtract", &[]), ("multiply", &[]), ("divide", &[]), ("true_divide", &[]), ("floor_divide", &[]), ("mod", &[]), ("remainder", &[]), ("power", &[]),
+    ("maximum", &[]), ("minimum", &[]), ("fmax", &[]), ("fmin", &[]), ("arctan2", &[]), ("hypot", &[]), ("copysign", &[]), ("fmod", &[]), ("logaddexp", &[]),
+    ("equal", &[]), ("not_equal", &[]), ("less", &[]), ("less_equal", &[]), ("greater", &[]), ("greater_equal", &[]),
+    ("logical_and", &[]), ("logical_or", &[]), ("logical_xor", &[]), ("bitwise_and", &[]), ("bitwise_or", &[]), ("bitwise_xor", &[]), ("left_shift", &[]), ("right_shift", &[]),
 ];
 // Every attribute name of numpy arrays, scalars and dtypes; the second list is those the native numpy has
 // (with the keyword arguments of the methods). A program using any other of these names gets CPython's numpy.
-const NP_ATTR_ALL: &[&str] = &[
-    "T",
-    "alignment",
-    "all",
-    "any",
-    "argmax",
-    "argmin",
-    "argpartition",
-    "argsort",
-    "as_integer_ratio",
-    "astype",
-    "base",
-    "bit_count",
-    "byteorder",
-    "byteswap",
-    "char",
-    "choose",
-    "clip",
-    "compress",
-    "conj",
-    "conjugate",
-    "copy",
-    "ctypes",
-    "cumprod",
-    "cumsum",
-    "data",
-    "denominator",
-    "descr",
-    "device",
-    "diagonal",
-    "dot",
-    "dtype",
-    "dump",
-    "dumps",
-    "fields",
-    "fill",
-    "flags",
-    "flat",
-    "flatten",
-    "fromhex",
-    "getfield",
-    "hasobject",
-    "hex",
-    "imag",
-    "is_integer",
-    "isalignedstruct",
-    "isbuiltin",
-    "isnative",
-    "item",
-    "itemsize",
-    "kind",
-    "mT",
-    "max",
-    "mean",
-    "metadata",
-    "min",
-    "name",
-    "names",
-    "nbytes",
-    "ndim",
-    "newbyteorder",
-    "nonzero",
-    "num",
-    "numerator",
-    "partition",
-    "prod",
-    "ptp",
-    "put",
-    "ravel",
-    "real",
-    "repeat",
-    "reshape",
-    "resize",
-    "round",
-    "searchsorted",
-    "setfield",
-    "setflags",
-    "shape",
-    "size",
-    "sort",
-    "squeeze",
-    "std",
-    "str",
-    "strides",
-    "subdtype",
-    "sum",
-    "swapaxes",
-    "take",
-    "to_device",
-    "tobytes",
-    "tofile",
-    "tolist",
-    "trace",
-    "transpose",
-    "type",
-    "var",
-    "view",
-    "integers",
-    "standard_normal",
-    "exponential",
-    "standard_exponential",
-    "permutation",
-    "binomial",
-    "poisson",
-    "beta",
-    "gamma",
-    "lognormal",
-    "multivariate_normal",
-    "geometric",
-    "laplace",
-    "logistic",
-    "chisquare",
-    "dirichlet",
-    "gumbel",
-    "hypergeometric",
-    "multinomial",
-    "multivariate_hypergeometric",
-    "negative_binomial",
-    "noncentral_chisquare",
-    "noncentral_f",
-    "pareto",
-    "power",
-    "rayleigh",
-    "standard_cauchy",
-    "standard_gamma",
-    "standard_t",
-    "vonmises",
-    "wald",
-    "zipf",
-    "permuted",
-    "spawn",
-    "bit_generator",
-    "random_integers",
-    "tomaxint",
-    "get_state",
-    "set_state",
-    "rand",
-    "randn",
-    "random_sample",
-    "ranf",
-    "randint",
-    "normal",
-    "uniform",
-    "choice",
-    "shuffle",
-    "sample",
-    "random",
-    "seed",
-    "accumulate",
-    "reduce",
-    "reduceat",
-    "at",
-    "nin",
-    "nout",
-    "nargs",
-    "ntypes",
-    "types",
-    "signature",
-];
+const NP_ATTR_ALL: &[&str] = &["T", "alignment", "all", "any", "argmax", "argmin", "argpartition", "argsort", "as_integer_ratio", "astype", "base", "bit_count", "byteorder", "byteswap", "char", "choose", "clip", "compress", "conj", "conjugate", "copy", "ctypes", "cumprod", "cumsum", "data", "denominator", "descr", "device", "diagonal", "dot", "dtype", "dump", "dumps", "fields", "fill", "flags", "flat", "flatten", "fromhex", "getfield", "hasobject", "hex", "imag", "is_integer", "isalignedstruct", "isbuiltin", "isnative", "item", "itemsize", "kind", "mT", "max", "mean", "metadata", "min", "name", "names", "nbytes", "ndim", "newbyteorder", "nonzero", "num", "numerator", "partition", "prod", "ptp", "put", "ravel", "real", "repeat", "reshape", "resize", "round", "searchsorted", "setfield", "setflags", "shape", "size", "sort", "squeeze", "std", "str", "strides", "subdtype", "sum", "swapaxes", "take", "to_device", "tobytes", "tofile", "tolist", "trace", "transpose", "type", "var", "view", "integers", "standard_normal", "exponential", "standard_exponential", "permutation", "binomial", "poisson", "beta", "gamma", "lognormal", "multivariate_normal", "geometric", "laplace", "logistic", "chisquare", "dirichlet", "gumbel", "hypergeometric", "multinomial", "multivariate_hypergeometric", "negative_binomial", "noncentral_chisquare", "noncentral_f", "pareto", "power", "rayleigh", "standard_cauchy", "standard_gamma", "standard_t", "vonmises", "wald", "zipf", "permuted", "spawn", "bit_generator", "random_integers", "tomaxint", "get_state", "set_state", "rand", "randn", "random_sample", "ranf", "randint", "normal", "uniform", "choice", "shuffle", "sample", "random", "seed", "accumulate", "reduce", "reduceat", "at", "nin", "nout", "nargs", "ntypes", "types", "signature"];
 const NP_ATTR_OK: &[(&str, &[&str])] = &[
-    ("T", &[]),
-    ("mT", &[]),
-    ("shape", &[]),
-    ("ndim", &[]),
-    ("size", &[]),
-    ("dtype", &[]),
-    ("itemsize", &[]),
-    ("nbytes", &[]),
-    ("real", &[]),
-    ("strides", &[]),
-    ("imag", &[]),
-    ("name", &[]),
-    ("kind", &[]),
-    ("char", &[]),
-    ("type", &[]),
-    ("sum", &["axis", "keepdims"]),
-    ("mean", &["axis", "keepdims"]),
-    ("std", &["axis", "keepdims", "ddof"]),
-    ("var", &["axis", "keepdims", "ddof"]),
-    ("prod", &["axis", "keepdims"]),
-    ("max", &["axis", "keepdims"]),
-    ("min", &["axis", "keepdims"]),
-    ("argmax", &["axis", "keepdims"]),
-    ("argmin", &["axis", "keepdims"]),
-    ("any", &["axis", "keepdims"]),
-    ("all", &["axis", "keepdims"]),
-    ("cumsum", &["axis"]),
-    ("cumprod", &["axis"]),
-    ("round", &["decimals"]),
-    ("clip", &["min", "max"]),
-    ("reshape", &[]),
-    ("ravel", &[]),
-    ("flatten", &[]),
-    ("copy", &[]),
-    ("transpose", &[]),
-    ("swapaxes", &["axis1", "axis2"]),
-    ("astype", &[]),
-    ("tolist", &[]),
-    ("item", &[]),
-    ("fill", &[]),
-    ("sort", &["axis", "kind"]),
-    ("argsort", &["axis", "kind"]),
-    ("nonzero", &[]),
-    ("dot", &[]),
-    ("squeeze", &["axis"]),
-    ("diagonal", &["offset"]),
-    ("trace", &[]),
-    ("repeat", &["axis"]),
-    ("conj", &[]),
-    ("conjugate", &[]),
-    ("is_integer", &[]),
-    ("as_integer_ratio", &[]),
+    ("T", &[]), ("mT", &[]), ("shape", &[]), ("ndim", &[]), ("size", &[]), ("dtype", &[]), ("itemsize", &[]), ("nbytes", &[]), ("real", &[]), ("strides", &[]), ("imag", &[]),
+    ("name", &[]), ("kind", &[]), ("char", &[]), ("type", &[]),
+    ("sum", &["axis", "keepdims"]), ("mean", &["axis", "keepdims"]), ("std", &["axis", "keepdims", "ddof"]), ("var", &["axis", "keepdims", "ddof"]), ("prod", &["axis", "keepdims"]),
+    ("max", &["axis", "keepdims"]), ("min", &["axis", "keepdims"]), ("argmax", &["axis", "keepdims"]), ("argmin", &["axis", "keepdims"]), ("any", &["axis", "keepdims"]), ("all", &["axis", "keepdims"]),
+    ("cumsum", &["axis"]), ("cumprod", &["axis"]), ("round", &["decimals"]), ("clip", &["min", "max"]), ("reshape", &[]), ("ravel", &[]), ("flatten", &[]), ("copy", &[]),
+    ("transpose", &[]), ("swapaxes", &["axis1", "axis2"]), ("astype", &[]), ("tolist", &[]), ("item", &[]), ("fill", &[]), ("sort", &["axis", "kind"]), ("argsort", &["axis", "kind"]), ("nonzero", &[]), ("dot", &[]),
+    ("squeeze", &["axis"]), ("diagonal", &["offset"]), ("trace", &[]), ("repeat", &["axis"]), ("conj", &[]), ("conjugate", &[]), ("is_integer", &[]), ("as_integer_ratio", &[]),
     // Generator and RandomState methods (rt_nprand.rs); the same names on Python's random.Random are fine too
-    ("integers", &["low", "high", "size", "dtype", "endpoint"]),
-    ("random", &["size"]),
-    ("random_sample", &["size"]),
-    ("sample", &["size"]),
-    ("ranf", &["size"]),
-    ("rand", &[]),
-    ("randn", &[]),
-    ("randint", &["low", "high", "size", "dtype"]),
-    ("normal", &["loc", "scale", "size"]),
-    ("uniform", &["low", "high", "size"]),
-    ("standard_normal", &["size"]),
-    ("exponential", &["scale", "size"]),
-    ("standard_exponential", &["size"]),
-    ("choice", &["a", "size", "replace", "p"]),
-    ("shuffle", &["x"]),
-    ("permutation", &["x"]),
-    ("seed", &["seed"]),
+    ("integers", &["low", "high", "size", "dtype", "endpoint"]), ("random", &["size"]), ("random_sample", &["size"]), ("sample", &["size"]), ("ranf", &["size"]), ("rand", &[]), ("randn", &[]),
+    ("randint", &["low", "high", "size", "dtype"]), ("normal", &["loc", "scale", "size"]), ("uniform", &["low", "high", "size"]), ("standard_normal", &["size"]),
+    ("exponential", &["scale", "size"]), ("standard_exponential", &["size"]), ("choice", &["a", "size", "replace", "p"]), ("shuffle", &["x"]), ("permutation", &["x"]), ("seed", &["seed"]),
     // the distributions (rt_nprdist.rs)
-    ("standard_gamma", &["shape", "size"]),
-    ("gamma", &["shape", "scale", "size"]),
-    ("beta", &["a", "b", "size"]),
-    ("chisquare", &["df", "size"]),
-    ("noncentral_chisquare", &["df", "nonc", "size"]),
-    ("f", &["dfnum", "dfden", "size"]),
-    ("noncentral_f", &["dfnum", "dfden", "nonc", "size"]),
-    ("standard_cauchy", &["size"]),
-    ("standard_t", &["df", "size"]),
-    ("vonmises", &["mu", "kappa", "size"]),
-    ("pareto", &["a", "size"]),
-    ("weibull", &["a", "size"]),
-    ("power", &["a", "size"]),
-    ("laplace", &["loc", "scale", "size"]),
-    ("gumbel", &["loc", "scale", "size"]),
-    ("logistic", &["loc", "scale", "size"]),
-    ("lognormal", &["mean", "sigma", "size"]),
-    ("rayleigh", &["scale", "size"]),
-    ("wald", &["mean", "scale", "size"]),
-    ("triangular", &["left", "mode", "right", "size"]),
-    ("poisson", &["lam", "size"]),
-    ("zipf", &["a", "size"]),
-    ("geometric", &["p", "size"]),
-    ("logseries", &["p", "size"]),
-    ("negative_binomial", &["n", "p", "size"]),
-    ("binomial", &["n", "p", "size"]),
-    ("hypergeometric", &["ngood", "nbad", "nsample", "size"]),
-    ("multinomial", &["n", "pvals", "size"]),
-    ("dirichlet", &["alpha", "size"]),
+    ("standard_gamma", &["shape", "size"]), ("gamma", &["shape", "scale", "size"]), ("beta", &["a", "b", "size"]), ("chisquare", &["df", "size"]), ("noncentral_chisquare", &["df", "nonc", "size"]), ("f", &["dfnum", "dfden", "size"]), ("noncentral_f", &["dfnum", "dfden", "nonc", "size"]), ("standard_cauchy", &["size"]), ("standard_t", &["df", "size"]), ("vonmises", &["mu", "kappa", "size"]), ("pareto", &["a", "size"]), ("weibull", &["a", "size"]), ("power", &["a", "size"]), ("laplace", &["loc", "scale", "size"]), ("gumbel", &["loc", "scale", "size"]), ("logistic", &["loc", "scale", "size"]), ("lognormal", &["mean", "sigma", "size"]), ("rayleigh", &["scale", "size"]), ("wald", &["mean", "scale", "size"]), ("triangular", &["left", "mode", "right", "size"]), ("poisson", &["lam", "size"]), ("zipf", &["a", "size"]), ("geometric", &["p", "size"]), ("logseries", &["p", "size"]), ("negative_binomial", &["n", "p", "size"]), ("binomial", &["n", "p", "size"]), ("hypergeometric", &["ngood", "nbad", "nsample", "size"]), ("multinomial", &["n", "pvals", "size"]), ("dirichlet", &["alpha", "size"]),
     // names Python's own values have too: fine on those, and the native numpy has them or they are not numpy's
-    ("count", &[]),
-    ("index", &[]),
-    ("hex", &[]),
-    ("fromhex", &[]),
-    ("numerator", &[]),
-    ("denominator", &[]),
-    ("bit_count", &[]),
+    ("count", &[]), ("index", &[]), ("hex", &[]), ("fromhex", &[]), ("numerator", &[]), ("denominator", &[]), ("bit_count", &[]),
 ];
 // np.random's functions (the legacy global RandomState, and default_rng), with their keyword arguments;
 // Generator and RandomState methods are in NP_ATTR_OK.
 const NP_RAND_FUNCS: &[(&str, &[&str])] = &[
-    ("default_rng", &["seed"]),
-    ("RandomState", &["seed"]),
-    ("seed", &["seed"]),
-    ("rand", &[]),
-    ("randn", &[]),
-    ("randint", &["low", "high", "size", "dtype"]),
-    ("random", &["size"]),
-    ("random_sample", &["size"]),
-    ("sample", &["size"]),
-    ("ranf", &["size"]),
-    ("uniform", &["low", "high", "size"]),
-    ("normal", &["loc", "scale", "size"]),
-    ("standard_normal", &["size"]),
-    ("exponential", &["scale", "size"]),
-    ("standard_exponential", &["size"]),
-    ("choice", &["a", "size", "replace", "p"]),
-    ("shuffle", &["x"]),
-    ("permutation", &["x"]),
-    ("standard_gamma", &["shape", "size"]),
-    ("gamma", &["shape", "scale", "size"]),
-    ("beta", &["a", "b", "size"]),
-    ("chisquare", &["df", "size"]),
-    ("noncentral_chisquare", &["df", "nonc", "size"]),
-    ("f", &["dfnum", "dfden", "size"]),
-    ("noncentral_f", &["dfnum", "dfden", "nonc", "size"]),
-    ("standard_cauchy", &["size"]),
-    ("standard_t", &["df", "size"]),
-    ("vonmises", &["mu", "kappa", "size"]),
-    ("pareto", &["a", "size"]),
-    ("weibull", &["a", "size"]),
-    ("power", &["a", "size"]),
-    ("laplace", &["loc", "scale", "size"]),
-    ("gumbel", &["loc", "scale", "size"]),
-    ("logistic", &["loc", "scale", "size"]),
-    ("lognormal", &["mean", "sigma", "size"]),
-    ("rayleigh", &["scale", "size"]),
-    ("wald", &["mean", "scale", "size"]),
-    ("triangular", &["left", "mode", "right", "size"]),
-    ("poisson", &["lam", "size"]),
-    ("zipf", &["a", "size"]),
-    ("geometric", &["p", "size"]),
-    ("logseries", &["p", "size"]),
-    ("negative_binomial", &["n", "p", "size"]),
-    ("binomial", &["n", "p", "size"]),
-    ("hypergeometric", &["ngood", "nbad", "nsample", "size"]),
-    ("multinomial", &["n", "pvals", "size"]),
-    ("dirichlet", &["alpha", "size"]),
+    ("default_rng", &["seed"]), ("RandomState", &["seed"]), ("seed", &["seed"]), ("rand", &[]), ("randn", &[]), ("randint", &["low", "high", "size", "dtype"]),
+    ("random", &["size"]), ("random_sample", &["size"]), ("sample", &["size"]), ("ranf", &["size"]), ("uniform", &["low", "high", "size"]),
+    ("normal", &["loc", "scale", "size"]), ("standard_normal", &["size"]), ("exponential", &["scale", "size"]), ("standard_exponential", &["size"]),
+    ("choice", &["a", "size", "replace", "p"]), ("shuffle", &["x"]), ("permutation", &["x"]),
+    ("standard_gamma", &["shape", "size"]), ("gamma", &["shape", "scale", "size"]), ("beta", &["a", "b", "size"]), ("chisquare", &["df", "size"]), ("noncentral_chisquare", &["df", "nonc", "size"]), ("f", &["dfnum", "dfden", "size"]), ("noncentral_f", &["dfnum", "dfden", "nonc", "size"]), ("standard_cauchy", &["size"]), ("standard_t", &["df", "size"]), ("vonmises", &["mu", "kappa", "size"]), ("pareto", &["a", "size"]), ("weibull", &["a", "size"]), ("power", &["a", "size"]), ("laplace", &["loc", "scale", "size"]), ("gumbel", &["loc", "scale", "size"]), ("logistic", &["loc", "scale", "size"]), ("lognormal", &["mean", "sigma", "size"]), ("rayleigh", &["scale", "size"]), ("wald", &["mean", "scale", "size"]), ("triangular", &["left", "mode", "right", "size"]), ("poisson", &["lam", "size"]), ("zipf", &["a", "size"]), ("geometric", &["p", "size"]), ("logseries", &["p", "size"]), ("negative_binomial", &["n", "p", "size"]), ("binomial", &["n", "p", "size"]), ("hypergeometric", &["ngood", "nbad", "nsample", "size"]), ("multinomial", &["n", "pvals", "size"]), ("dirichlet", &["alpha", "size"]),
 ];
-const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[
-    ("norm", &["x", "ord", "axis", "keepdims"]),
-    ("det", &[]),
-    ("slogdet", &[]),
-    ("solve", &[]),
-    ("inv", &[]),
-    ("matrix_power", &[]),
-    ("lstsq", &["a", "b", "rcond"]),
-    ("LinAlgError", &[]),
-];
+const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[("norm", &["x", "ord", "axis", "keepdims"]), ("det", &[]), ("slogdet", &[]), ("solve", &[]), ("inv", &[]), ("matrix_power", &[]), ("lstsq", &["a", "b", "rcond"]), ("LinAlgError", &[])];
 fn np_linalg_kw(n: &str) -> Option<&'static [&'static str]> {
-    NP_LINALG_FUNCS
-        .iter()
-        .find(|(f, _)| *f == n)
-        .map(|(_, k)| *k)
+    NP_LINALG_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
 fn np_rand_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_RAND_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
@@ -816,21 +150,12 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
         return Ok(());
     }
     if np_narrow() && matches!(n, "dot" | "trace") {
-        return Err(err(
-            line,
-            &format!("numpy: .{n} of float32 arrays is not in Brevi's native numpy"),
-        ));
+        return Err(err(line, &format!("numpy: .{n} of float32 arrays is not in Brevi's native numpy")));
     }
     match NP_ATTR_OK.iter().find(|(a, _)| *a == n) {
-        None => Err(err(
-            line,
-            &format!("numpy: .{n} is not in Brevi's native numpy"),
-        )),
+        None => Err(err(line, &format!("numpy: .{n} is not in Brevi's native numpy"))),
         Some((_, ok)) => match kws.iter().find(|k| !ok.contains(k)) {
-            Some(k) => Err(err(
-                line,
-                &format!("numpy: .{n}({k}=...) is not in Brevi's native numpy"),
-            )),
+            Some(k) => Err(err(line, &format!("numpy: .{n}({k}=...) is not in Brevi's native numpy"))),
             None => Ok(()),
         },
     }
@@ -840,385 +165,47 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "__future__" => return true,
-        "typing" | "typing_extensions" | "collections.abc" => {
-            return super::typing::module_has(m, n);
-        }
-        "numpy" => {
-            return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n));
-        }
+        "typing" | "typing_extensions" | "collections.abc" => return super::typing::module_has(m, n),
+        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n)),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && !np_narrow(),
-        "sys" => &[
-            "exit",
-            "setrecursionlimit",
-            "getrecursionlimit",
-            "getsizeof",
-            "intern",
-            "set_int_max_str_digits",
-            "stdin",
-            "stdout",
-            "stderr",
-            "argv",
-            "maxsize",
-            "platform",
-            "byteorder",
-            "version_info",
-            "version",
-            "modules",
-            "path",
-        ],
-        "math" => &[
-            "acos",
-            "asin",
-            "atan",
-            "atan2",
-            "ceil",
-            "comb",
-            "copysign",
-            "cos",
-            "cosh",
-            "degrees",
-            "dist",
-            "exp",
-            "fabs",
-            "factorial",
-            "floor",
-            "fmod",
-            "frexp",
-            "fsum",
-            "gcd",
-            "hypot",
-            "isclose",
-            "isfinite",
-            "isinf",
-            "isnan",
-            "isqrt",
-            "lcm",
-            "ldexp",
-            "log",
-            "log10",
-            "log1p",
-            "log2",
-            "modf",
-            "perm",
-            "pow",
-            "prod",
-            "radians",
-            "remainder",
-            "sin",
-            "sinh",
-            "sqrt",
-            "tan",
-            "tanh",
-            "trunc",
-            "pi",
-            "e",
-            "tau",
-            "inf",
-            "nan",
-        ],
-        "atexit" => &[
-            "register",
-            "unregister",
-            "_run_exitfuncs",
-            "_clear",
-            "_ncallbacks",
-        ],
-        "heapq" => &[
-            "heapify",
-            "heappop",
-            "heappush",
-            "heappushpop",
-            "heapreplace",
-            "merge",
-            "nlargest",
-            "nsmallest",
-        ],
-        "bisect" => &[
-            "bisect",
-            "bisect_left",
-            "bisect_right",
-            "insort",
-            "insort_left",
-            "insort_right",
-        ],
-        "functools" => &[
-            "cache",
-            "cmp_to_key",
-            "lru_cache",
-            "partial",
-            "reduce",
-            "total_ordering",
-            "wraps",
-        ],
-        "itertools" => &[
-            "accumulate",
-            "chain",
-            "combinations",
-            "combinations_with_replacement",
-            "compress",
-            "count",
-            "cycle",
-            "dropwhile",
-            "filterfalse",
-            "groupby",
-            "islice",
-            "pairwise",
-            "permutations",
-            "product",
-            "repeat",
-            "starmap",
-            "takewhile",
-            "zip_longest",
-        ],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path"],
+        "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
+        "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
+        "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
+        "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
+        "functools" => &["cache", "cmp_to_key", "lru_cache", "partial", "reduce", "total_ordering", "wraps"],
+        "itertools" => &["accumulate", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
-        "operator" => &[
-            "add",
-            "and_",
-            "attrgetter",
-            "contains",
-            "eq",
-            "floordiv",
-            "ge",
-            "getitem",
-            "gt",
-            "index",
-            "itemgetter",
-            "le",
-            "lshift",
-            "lt",
-            "methodcaller",
-            "mod",
-            "mul",
-            "ne",
-            "neg",
-            "not_",
-            "or_",
-            "pow",
-            "rshift",
-            "sub",
-            "truediv",
-            "truth",
-            "xor",
-        ],
-        "string" => &[
-            "ascii_lowercase",
-            "ascii_uppercase",
-            "ascii_letters",
-            "digits",
-            "hexdigits",
-            "octdigits",
-            "punctuation",
-            "whitespace",
-            "printable",
-        ],
-        "time" => &[
-            "time",
-            "perf_counter",
-            "monotonic",
-            "process_time",
-            "sleep",
-            "time_ns",
-            "perf_counter_ns",
-            "monotonic_ns",
-            "process_time_ns",
-            "gmtime",
-            "strftime",
-        ],
+        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
+        "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
+        "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "abstractmethod"],
-        "enum" => &[
-            "Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique",
-        ],
+        "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
-        "base64" => &[
-            "b64encode",
-            "b64decode",
-            "standard_b64encode",
-            "standard_b64decode",
-            "urlsafe_b64encode",
-            "urlsafe_b64decode",
-            "encodebytes",
-            "decodebytes",
-            "b16encode",
-            "b16decode",
-        ],
+        "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
-        "_brevi_async" => &[
-            "suspend",
-            "iscoroutine",
-            "isawaitable",
-            "isasyncgen",
-            "set_hooks",
-            "track",
-            "untrack",
-            "tracked",
-        ],
+        "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
         "_brevi_tok" => &["core", "ranks", "max_rank", "n_ranks", "find_special"],
-        "_brevi_net" => &[
-            "open",
-            "open_nb",
-            "ready",
-            "tls",
-            "handshake",
-            "settimeout",
-            "setblocking",
-            "send",
-            "sendall",
-            "fill",
-            "head",
-            "line",
-            "take",
-            "avail",
-            "fileno",
-            "close",
-            "poll",
-            "env",
-            "host_ok",
-            "zopen",
-            "zfeed",
-            "zstate",
-            "zrest",
-            "zclose",
-        ],
+        "_brevi_net" => &["open", "open_nb", "ready", "tls", "handshake", "settimeout", "setblocking", "send", "sendall", "fill", "head", "line", "take", "avail", "fileno", "close", "poll", "env", "host_ok", "zopen", "zfeed", "zstate", "zrest", "zclose"],
         "_brevi_hf" => &[
-            "load",
-            "load_built",
-            "encode",
-            "encode_batch",
-            "decode",
-            "decode_batch",
-            "token_to_id",
-            "id_to_token",
-            "vocab",
-            "vocab_size",
-            "n_added",
-            "set_truncation",
-            "truncation",
-            "set_padding",
-            "padding",
-            "add_tokens",
-            "set_encode_special",
-            "encode_special",
-            "added_tokens",
-            "lacks",
+            "load", "load_built", "encode", "encode_batch", "decode", "decode_batch", "token_to_id", "id_to_token", "vocab", "vocab_size",
+            "n_added", "set_truncation", "truncation", "set_padding", "padding", "add_tokens", "set_encode_special", "encode_special",
+            "added_tokens", "lacks",
         ],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
-        "collections" => &[
-            "defaultdict",
-            "Counter",
-            "OrderedDict",
-            "deque",
-            "namedtuple",
-        ],
-        "dataclasses" => &[
-            "asdict",
-            "astuple",
-            "dataclass",
-            "field",
-            "fields",
-            "replace",
-            "is_dataclass",
-            "MISSING",
-            "KW_ONLY",
-            "InitVar",
-            "Field",
-            "FrozenInstanceError",
-        ],
-        "re" => &[
-            "compile",
-            "escape",
-            "findall",
-            "finditer",
-            "fullmatch",
-            "match",
-            "purge",
-            "search",
-            "split",
-            "sub",
-            "subn",
-            "IGNORECASE",
-            "I",
-            "MULTILINE",
-            "M",
-            "DOTALL",
-            "S",
-            "VERBOSE",
-            "X",
-            "ASCII",
-            "A",
-            "error",
-        ],
-        "json" => &[
-            "dump",
-            "dumps",
-            "load",
-            "loads",
-            "JSONDecodeError",
-            "JSONDecoder",
-            "JSONEncoder",
-        ],
+        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
+        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "error"],
+        "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
-        "decimal" => &[
-            "Decimal",
-            "getcontext",
-            "InvalidOperation",
-            "DivisionByZero",
-            "DecimalException",
-            "ROUND_HALF_EVEN",
-            "ROUND_HALF_UP",
-            "ROUND_HALF_DOWN",
-            "ROUND_UP",
-            "ROUND_DOWN",
-            "ROUND_CEILING",
-            "ROUND_FLOOR",
-            "ROUND_05UP",
-        ],
+        "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
         "fractions" => &["Fraction"],
-        "datetime" => &[
-            "date",
-            "datetime",
-            "time",
-            "timedelta",
-            "timezone",
-            "UTC",
-            "MINYEAR",
-            "MAXYEAR",
-        ],
-        "csv" => &[
-            "DictReader",
-            "DictWriter",
-            "reader",
-            "writer",
-            "QUOTE_MINIMAL",
-            "QUOTE_ALL",
-            "QUOTE_NONNUMERIC",
-            "QUOTE_NONE",
-            "Error",
-        ],
-        "statistics" => &[
-            "fmean",
-            "mean",
-            "median",
-            "median_high",
-            "median_low",
-            "mode",
-            "multimode",
-            "pstdev",
-            "pvariance",
-            "stdev",
-            "variance",
-            "StatisticsError",
-        ],
-        "threading" => &[
-            "Lock",
-            "RLock",
-            "Thread",
-            "active_count",
-            "current_thread",
-            "main_thread",
-            "stack_size",
-        ],
+        "datetime" => &["date", "datetime", "time", "timedelta", "timezone", "UTC", "MINYEAR", "MAXYEAR"],
+        "csv" => &["DictReader", "DictWriter", "reader", "writer", "QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE", "Error"],
+        "statistics" => &["fmean", "mean", "median", "median_high", "median_low", "mode", "multimode", "pstdev", "pvariance", "stdev", "variance", "StatisticsError"],
+        "threading" => &["Lock", "RLock", "Thread", "active_count", "current_thread", "main_thread", "stack_size"],
         "html" => &["escape", "unescape"],
         _ => return false,
     };
@@ -1226,149 +213,19 @@ pub fn module_has(m: &str, n: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(
-        n,
-        "exec"
-            | "eval"
-            | "compile"
-            | "__import__"
-            | "bytearray"
-            | "memoryview"
-            | "complex"
-            | "dir"
-            | "help"
-            | "breakpoint"
-            | "open"
-            | "__build_class__"
-            | "globals"
-            | "locals"
-    )
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "bytearray" | "memoryview" | "complex" | "dir" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print"
-            | "input"
-            | "len"
-            | "repr"
-            | "ascii"
-            | "abs"
-            | "min"
-            | "max"
-            | "sum"
-            | "sorted"
-            | "reversed"
-            | "enumerate"
-            | "zip"
-            | "map"
-            | "filter"
-            | "any"
-            | "all"
-            | "iter"
-            | "next"
-            | "isinstance"
-            | "issubclass"
-            | "hasattr"
-            | "getattr"
-            | "setattr"
-            | "delattr"
-            | "callable"
-            | "ord"
-            | "chr"
-            | "hex"
-            | "oct"
-            | "bin"
-            | "round"
-            | "divmod"
-            | "pow"
-            | "hash"
-            | "id"
-            | "format"
-            | "vars"
-            | "exit"
-            | "quit"
-            | "staticmethod"
-            | "classmethod"
-            | "property"
-            | "int"
-            | "float"
-            | "str"
-            | "bool"
-            | "list"
-            | "tuple"
-            | "dict"
-            | "set"
-            | "frozenset"
-            | "object"
-            | "type"
-            | "range"
-            | "slice"
-            | "super"
-            | "NotImplemented"
-            | "Ellipsis"
-            | "__name__"
-            | "bytes"
-            | "__bytes_lit"
-            | "aiter"
-            | "anext"
-            | "__brevi_aenter"
-            | "__brevi_aexit"
-            | "__brevi_eg_split"
-            | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException"
-            | "Exception"
-            | "SystemExit"
-            | "KeyboardInterrupt"
-            | "GeneratorExit"
-            | "ArithmeticError"
-            | "ZeroDivisionError"
-            | "OverflowError"
-            | "FloatingPointError"
-            | "LookupError"
-            | "KeyError"
-            | "IndexError"
-            | "ValueError"
-            | "UnicodeError"
-            | "UnicodeDecodeError"
-            | "UnicodeEncodeError"
-            | "TypeError"
-            | "AttributeError"
-            | "NameError"
-            | "UnboundLocalError"
-            | "RuntimeError"
-            | "RecursionError"
-            | "NotImplementedError"
-            | "StopIteration"
-            | "StopAsyncIteration"
-            | "TimeoutError"
-            | "ConnectionError"
-            | "ConnectionRefusedError"
-            | "ConnectionResetError"
-            | "ConnectionAbortedError"
-            | "BrokenPipeError"
-            | "BaseExceptionGroup"
-            | "ExceptionGroup"
-            | "AssertionError"
-            | "ImportError"
-            | "ModuleNotFoundError"
-            | "OSError"
-            | "IOError"
-            | "EnvironmentError"
-            | "FileNotFoundError"
-            | "PermissionError"
-            | "IsADirectoryError"
-            | "EOFError"
-            | "MemoryError"
-            | "BufferError"
-            | "Warning"
-            | "UserWarning"
-            | "DeprecationWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
     )
 }
 
@@ -1413,12 +270,7 @@ fn visit_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
             }
             visit_ex(x, f)
         }),
-        Ex::Star(x)
-        | Ex::Attr(x, _)
-        | Ex::Unary(_, x)
-        | Ex::Walrus(_, x)
-        | Ex::YieldFrom(x)
-        | Ex::Await(x) => visit_ex(x, f),
+        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => visit_ex(x, f),
         Ex::Yield(x) => {
             if let Some(x) = x {
                 visit_ex(x, f)
@@ -1694,10 +546,7 @@ fn scope_of(body: &[Stmt], params: &[String]) -> Scope {
                 }
                 St::Import(v) => {
                     for (m, a) in v {
-                        sc.locals.insert(
-                            a.clone()
-                                .unwrap_or_else(|| m.split('.').next().unwrap().to_string()),
-                        );
+                        sc.locals.insert(a.clone().unwrap_or_else(|| m.split('.').next().unwrap().to_string()));
                     }
                 }
                 St::ImportFrom(_, v) => {
@@ -1771,10 +620,7 @@ fn free_of_def(params: &[String], body: &[Stmt]) -> BTreeSet<String> {
     for n in nested_free(body) {
         used.insert(n);
     }
-    used.into_iter()
-        .filter(|n| !sc.locals.contains(n) || sc.nonlocals.contains(n))
-        .filter(|n| !sc.globals.contains(n))
-        .collect()
+    used.into_iter().filter(|n| !sc.locals.contains(n) || sc.nonlocals.contains(n)).filter(|n| !sc.globals.contains(n)).collect()
 }
 // free names of the defs and classes directly nested in body
 fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
@@ -1861,10 +707,7 @@ fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
     out
 }
 // Generators switch stacks with a few lines of assembly (rt_gen.rs), written for these targets.
-const GEN_OK: bool = cfg!(all(
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(windows)
-));
+const GEN_OK: bool = cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(windows)));
 
 // The line of a yield inside a try that has a finally, or inside a with block.
 fn yield_in_cleanup(body: &[Stmt], inside: bool) -> Option<usize> {
@@ -1886,12 +729,8 @@ fn yield_in_cleanup(body: &[Stmt], inside: bool) -> Option<usize> {
                 r
             }
             St::With(_, b) => here(b),
-            St::If(arms, els) => arms
-                .iter()
-                .find_map(|(_, b)| yield_in_cleanup(b, inside))
-                .or_else(|| els.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
-            St::While(_, b, e) | St::For(_, _, b, e) => yield_in_cleanup(b, inside)
-                .or_else(|| e.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
+            St::If(arms, els) => arms.iter().find_map(|(_, b)| yield_in_cleanup(b, inside)).or_else(|| els.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
+            St::While(_, b, e) | St::For(_, _, b, e) => yield_in_cleanup(b, inside).or_else(|| e.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
             _ if inside => here(std::slice::from_ref(s)),
             _ => None,
         };
@@ -1907,18 +746,9 @@ pub fn uses_async(body: &[Stmt]) -> bool {
     body.iter().any(|s| match &s.st {
         St::Def(d) => d.is_async || uses_async(&d.body),
         St::Class(c) => uses_async(&c.body),
-        St::If(arms, els) => {
-            arms.iter().any(|(_, b)| uses_async(b)) || els.as_deref().is_some_and(uses_async)
-        }
-        St::For(_, _, b, e) | St::While(_, b, e) => {
-            uses_async(b) || e.as_deref().is_some_and(uses_async)
-        }
-        St::Try(b, hs, e, f) => {
-            uses_async(b)
-                || hs.iter().any(|h| uses_async(&h.body))
-                || e.as_deref().is_some_and(uses_async)
-                || f.as_deref().is_some_and(uses_async)
-        }
+        St::If(arms, els) => arms.iter().any(|(_, b)| uses_async(b)) || els.as_deref().is_some_and(uses_async),
+        St::For(_, _, b, e) | St::While(_, b, e) => uses_async(b) || e.as_deref().is_some_and(uses_async),
+        St::Try(b, hs, e, f) => uses_async(b) || hs.iter().any(|h| uses_async(&h.body)) || e.as_deref().is_some_and(uses_async) || f.as_deref().is_some_and(uses_async),
         St::With(_, b) => uses_async(b),
         _ => false,
     })
@@ -1942,18 +772,9 @@ fn has_yield(body: &[Stmt]) -> bool {
 fn has_jump(body: &[Stmt]) -> bool {
     body.iter().any(|s| match &s.st {
         St::Break | St::Continue | St::Return(_) => true,
-        St::If(arms, els) => {
-            arms.iter().any(|(_, b)| has_jump(b)) || els.as_deref().is_some_and(has_jump)
-        }
-        St::For(_, _, b, e) | St::While(_, b, e) => {
-            has_jump(b) || e.as_deref().is_some_and(has_jump)
-        }
-        St::Try(b, hs, e, f) => {
-            has_jump(b)
-                || hs.iter().any(|h| has_jump(&h.body))
-                || e.as_deref().is_some_and(has_jump)
-                || f.as_deref().is_some_and(has_jump)
-        }
+        St::If(arms, els) => arms.iter().any(|(_, b)| has_jump(b)) || els.as_deref().is_some_and(has_jump),
+        St::For(_, _, b, e) | St::While(_, b, e) => has_jump(b) || e.as_deref().is_some_and(has_jump),
+        St::Try(b, hs, e, f) => has_jump(b) || hs.iter().any(|h| has_jump(&h.body)) || e.as_deref().is_some_and(has_jump) || f.as_deref().is_some_and(has_jump),
         St::With(_, b) => has_jump(b),
         _ => false,
     })
@@ -2055,8 +876,7 @@ impl Em {
         }
         let i = self.nglobals;
         self.nglobals += 1;
-        self.globals
-            .insert((module.to_string(), name.to_string()), i);
+        self.globals.insert((module.to_string(), name.to_string()), i);
         i
     }
     fn konst(&mut self, s: &str) -> String {
@@ -2146,16 +966,10 @@ impl Em {
                     return Ok(self.q("pyd_builtin(\"open\")"));
                 }
                 if name == "globals" {
-                    return Err(err(
-                        line,
-                        "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()",
-                    ));
+                    return Err(err(line, "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"));
                 }
                 if is_missing_builtin(name) {
-                    return Err(err(
-                        line,
-                        &format!("{name}() is not supported in dynamic builds"),
-                    ));
+                    return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
                 }
                 Ok(self.q(&format!("name_err({})", lit(name))))
             }
@@ -2217,12 +1031,7 @@ impl Em {
                 // set, which can order the items differently from adding them one by one.
                 fn konst(e: &Ex) -> bool {
                     match e {
-                        Ex::Int(_)
-                        | Ex::Float(_)
-                        | Ex::Str(_)
-                        | Ex::NoneV
-                        | Ex::True
-                        | Ex::False => true,
+                        Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False => true,
                         Ex::Unary("-", x) => matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)),
                         Ex::Tuple(xs) => xs.iter().all(konst),
                         _ => false,
@@ -2264,10 +1073,7 @@ impl Em {
                         return self.user_mod_load(&m, n, line);
                     }
                     if !module_has(&m, n) {
-                        return Err(err(
-                            line,
-                            &format!("{m}.{n} is not supported in dynamic builds"),
-                        ));
+                        return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
                     return Ok(self.q(&format!("module_attr({}, {})", lit(&m), lit(n))));
                 }
@@ -2297,10 +1103,7 @@ impl Em {
             Ex::Call(f, args) => self.call(f, args, line)?,
             Ex::Bin(op, a, b) => {
                 if *op == "@" && np_on() && np_narrow() {
-                    return Err(err(
-                        line,
-                        "numpy: @ with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy",
-                    ));
+                    return Err(err(line, "numpy: @ with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let aa = self.ex(a, line)?;
                 let bb = self.ex(b, line)?;
@@ -2341,11 +1144,7 @@ impl Em {
                 let t = self.q("truth(&__t)");
                 format!("{{ let __t = {aa}; if {t} {{ __t }} else {{ {bb} }} }}")
             }
-            Ex::Cmp(a, rest)
-                if np_on()
-                    && rest.len() == 1
-                    && !matches!(rest[0].0, "is" | "is not" | "in" | "not in") =>
-            {
+            Ex::Cmp(a, rest) if np_on() && rest.len() == 1 && !matches!(rest[0].0, "is" | "is not" | "in" | "not in") => {
                 let aa = self.ex(a, line)?;
                 let bb = self.ex(&rest[0].1, line)?;
                 self.q(&format!("cmp_v(&{aa}, &{bb}, {})", lit(rest[0].0)))
@@ -2358,19 +1157,9 @@ impl Em {
                 format!("(if {cc} {{ {aa} }} else {{ {bb} }})")
             }
             Ex::Lambda(p, body) => {
-                let ret = Stmt {
-                    line,
-                    st: St::Return(Some((**body).clone())),
-                };
+                let ret = Stmt { line, st: St::Return(Some((**body).clone())) };
                 let f = self.closure("<lambda>", p, &[ret], line, false)?;
-                if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
-                    format!(
-                        "with_np({f}, {})",
-                        if p.star.is_some() { 99 } else { p.pos.len() }
-                    )
-                } else {
-                    f
-                }
+                if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) { format!("with_np({f}, {})", if p.star.is_some() { 99 } else { p.pos.len() }) } else { f }
             }
             Ex::Comp(kind, elt, val, gens) => self.comp(*kind, elt, val.as_deref(), gens, line)?,
             Ex::Walrus(n, v) => {
@@ -2460,10 +1249,7 @@ impl Em {
     fn cond(&mut self, e: &Ex, line: usize) -> ER<String> {
         Ok(match e {
             Ex::Cmp(a, rest) => {
-                if rest.len() == 1
-                    && np_on()
-                    && !matches!(rest[0].0, "is" | "is not" | "in" | "not in")
-                {
+                if rest.len() == 1 && np_on() && !matches!(rest[0].0, "is" | "is not" | "in" | "not in") {
                     let aa = self.ex(a, line)?;
                     let bb = self.ex(&rest[0].1, line)?;
                     let c = self.q(&format!("cmp_v(&{aa}, &{bb}, {})", lit(rest[0].0)));
@@ -2473,20 +1259,14 @@ impl Em {
                     let aa = self.ex(a, line)?;
                     let op = rest[0].0;
                     let is_g = matches!(op, "in" | "not in") && self.is_globals(&rest[0].1);
-                    let bb = if is_g {
-                        String::new()
-                    } else {
-                        self.ex(&rest[0].1, line)?
-                    };
+                    let bb = if is_g { String::new() } else { self.ex(&rest[0].1, line)? };
                     return Ok(match op {
                         "is" => format!("is(&{aa}, &{bb})"),
                         "is not" => format!("!is(&{aa}, &{bb})"),
                         "==" => self.q(&format!("eq(&{aa}, &{bb})")),
                         "!=" => self.q(&format!("ne(&{aa}, &{bb})")),
                         "in" if is_g => self.q(&format!("glob_has({}, &{aa})", self.gtab())),
-                        "not in" if is_g => {
-                            format!("!{}", self.q(&format!("glob_has({}, &{aa})", self.gtab())))
-                        }
+                        "not in" if is_g => format!("!{}", self.q(&format!("glob_has({}, &{aa})", self.gtab()))),
                         "in" => self.q(&format!("contains(&{bb}, &{aa})")),
                         "not in" => format!("!{}", self.q(&format!("contains(&{bb}, &{aa})"))),
                         _ => self.q(&format!("rich(&{aa}, &{bb}, {})", lit(op))),
@@ -2518,10 +1298,7 @@ impl Em {
     fn static_module(&self, e: &Ex) -> Option<String> {
         if let Ex::Name(n) = e {
             if let Some(Var::Global(_)) = self.lookup(n) {
-                return self
-                    .mod_alias
-                    .get(&(self.module.clone(), n.clone()))
-                    .cloned();
+                return self.mod_alias.get(&(self.module.clone(), n.clone())).cloned();
             }
         }
         // `json.decoder` after `import json.decoder` (or `import json`, which loads it too).
@@ -2537,10 +1314,7 @@ impl Em {
     }
     fn user_mod_load(&mut self, m: &str, n: &str, line: usize) -> ER<String> {
         if !self.mod_names.get(m).is_some_and(|s| s.contains(n)) {
-            return Ok(self.q(&format!(
-                "Err::<V, E>(exc(\"AttributeError\", {}.into()))",
-                lit(&format!("module '{m}' has no attribute '{n}'"))
-            )));
+            return Ok(self.q(&format!("Err::<V, E>(exc(\"AttributeError\", {}.into()))", lit(&format!("module '{m}' has no attribute '{n}'")))));
         }
         let i = self.gslot(m, n);
         let _ = line;
@@ -2564,11 +1338,7 @@ impl Em {
             if kw.is_empty() {
                 return Ok(format!("Args::p(vec![{}])", pos.join(", ")));
             }
-            return Ok(format!(
-                "Args {{ p: vec![{}], k: vec![{}] }}",
-                pos.join(", "),
-                kw.join(", ")
-            ));
+            return Ok(format!("Args {{ p: vec![{}], k: vec![{}] }}", pos.join(", "), kw.join(", ")));
         }
         let mut b = format!("{{ let mut __a = Args::p(vec![{}]); ", pos.join(", "));
         for a in args {
@@ -2606,11 +1376,7 @@ impl Em {
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
         // globals().get(k) / globals().get(k, d)
         if let Ex::Attr(o, m) = f {
-            if m == "get"
-                && self.is_globals(o)
-                && (1..=2).contains(&args.len())
-                && args.iter().all(|a| matches!(a, Arg::Pos(_)))
-            {
+            if m == "get" && self.is_globals(o) && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
                 let mut xs = vec![];
                 for a in args {
                     if let Arg::Pos(x) = a {
@@ -2637,12 +1403,8 @@ impl Em {
                         (a, b)
                     } else {
                         let fr = self.fstack.last().unwrap();
-                        let cls = fr.class_expr.clone().ok_or_else(|| {
-                            err(line, "super() outside a method is not supported")
-                        })?;
-                        let me = fr.self_name.clone().ok_or_else(|| {
-                            err(line, "super() outside a method is not supported")
-                        })?;
+                        let cls = fr.class_expr.clone().ok_or_else(|| err(line, "super() outside a method is not supported"))?;
+                        let me = fr.self_name.clone().ok_or_else(|| err(line, "super() outside a method is not supported"))?;
                         let cls = self.load_raw(&cls, line)?;
                         let me = self.load(&me, line)?;
                         (cls, me)
@@ -2654,47 +1416,19 @@ impl Em {
             }
             // np.maximum.accumulate(x), np.add.reduce(x, axis=1), ...: numpy's ufunc methods
             if let Ex::Attr(o2, uf) = &**o {
-                if np_native()
-                    && self.static_module(o2).as_deref() == Some("numpy")
-                    && matches!(m.as_str(), "reduce" | "accumulate")
-                {
-                    if np_narrow()
-                        || !matches!(
-                            uf.as_str(),
-                            "add"
-                                | "multiply"
-                                | "maximum"
-                                | "minimum"
-                                | "logical_and"
-                                | "logical_or"
-                        )
-                        || (uf.starts_with("logical") && m == "accumulate")
-                    {
-                        return Err(err(
-                            line,
-                            &format!("numpy: np.{uf}.{m} is not in Brevi's native numpy"),
-                        ));
+                if np_native() && self.static_module(o2).as_deref() == Some("numpy") && matches!(m.as_str(), "reduce" | "accumulate") {
+                    if np_narrow() || !matches!(uf.as_str(), "add" | "multiply" | "maximum" | "minimum" | "logical_and" | "logical_or") || (uf.starts_with("logical") && m == "accumulate") {
+                        return Err(err(line, &format!("numpy: np.{uf}.{m} is not in Brevi's native numpy")));
                     }
                     for x in args {
                         match x {
                             Arg::Pos(_) => {}
-                            Arg::Kw(k, _)
-                                if matches!(k.as_str(), "array" | "axis" | "keepdims") => {}
-                            _ => {
-                                return Err(err(
-                                    line,
-                                    &format!(
-                                        "numpy: np.{uf}.{m}(...) with these arguments is not in Brevi's native numpy"
-                                    ),
-                                ));
-                            }
+                            Arg::Kw(k, _) if matches!(k.as_str(), "array" | "axis" | "keepdims") => {}
+                            _ => return Err(err(line, &format!("numpy: np.{uf}.{m}(...) with these arguments is not in Brevi's native numpy"))),
                         }
                     }
                     let a = self.args(args, line, None)?;
-                    return Ok(self.q(&format!(
-                        "module_call(\"numpy\", {}, {a})",
-                        lit(&format!("{uf}.{m}"))
-                    )));
+                    return Ok(self.q(&format!("module_call(\"numpy\", {}, {a})", lit(&format!("{uf}.{m}")))));
                 }
             }
             if let Some(md) = self.static_module(o) {
@@ -2705,17 +1439,11 @@ impl Em {
                 }
                 // time.strftime(fmt) formats local time, which dynamic builds do not know: CPython runs it.
                 if md == "time" && m == "strftime" && args.len() < 2 {
-                    return Err(err(
-                        line,
-                        "time.strftime without a time tuple (local time) is not supported in dynamic builds",
-                    ));
+                    return Err(err(line, "time.strftime without a time tuple (local time) is not supported in dynamic builds"));
                 }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
-                    return Err(err(
-                        line,
-                        &format!("{md}.{m} is not supported in dynamic builds"),
-                    ));
+                    return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
                 }
                 if md == "numpy" || md == "numpy.random" || md == "numpy.linalg" {
                     let ok = match md.as_str() {
@@ -2726,58 +1454,17 @@ impl Em {
                     .unwrap_or(&[]);
                     for x in args {
                         match x {
-                            Arg::Kw(k, _)
-                                if !ok.contains(&k.as_str())
-                                    && !matches!(
-                                        k.as_str(),
-                                        "a" | "x"
-                                            | "object"
-                                            | "ar"
-                                            | "q"
-                                            | "v"
-                                            | "shape"
-                                            | "fill_value"
-                                            | "dtype"
-                                            | "out"
-                                    )
-                                    || matches!(x, Arg::Kw(k, _) if k == "out") =>
-                            {
-                                return Err(err(
-                                    line,
-                                    &format!(
-                                        "numpy: np.{m}(..., {}=...) is not in Brevi's native numpy",
-                                        if let Arg::Kw(k, _) = x {
-                                            k.as_str()
-                                        } else {
-                                            ""
-                                        }
-                                    ),
-                                ));
+                            Arg::Kw(k, _) if !ok.contains(&k.as_str()) && !matches!(k.as_str(), "a" | "x" | "object" | "ar" | "q" | "v" | "shape" | "fill_value" | "dtype" | "out") || matches!(x, Arg::Kw(k, _) if k == "out") => {
+                                return Err(err(line, &format!("numpy: np.{m}(..., {}=...) is not in Brevi's native numpy", if let Arg::Kw(k, _) = x { k.as_str() } else { "" })));
                             }
                             Arg::Pos(_) | Arg::Kw(..) => {}
-                            _ => {
-                                return Err(err(
-                                    line,
-                                    &format!(
-                                        "numpy: np.{m}(*args or **kwargs) is not in Brevi's native numpy"
-                                    ),
-                                ));
-                            }
+                            _ => return Err(err(line, &format!("numpy: np.{m}(*args or **kwargs) is not in Brevi's native numpy"))),
                         }
                     }
                 }
                 return Ok(self.q(&format!("module_call({}, {}, {a})", lit(&md), lit(m))));
             }
-            let kws: Vec<&str> = args
-                .iter()
-                .filter_map(|x| {
-                    if let Arg::Kw(k, _) = x {
-                        Some(k.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let kws: Vec<&str> = args.iter().filter_map(|x| if let Arg::Kw(k, _) = x { Some(k.as_str()) } else { None }).collect();
             np_attr_check(m, &kws, line)?;
             let oo = self.ex(o, line)?;
             let a = self.args(args, line, None)?;
@@ -2797,10 +1484,7 @@ impl Em {
             if let Some(Var::Global(_)) = self.lookup(n) {
                 let key = (self.module.clone(), n.clone());
                 if let Some((rf, np, dslots)) = self.direct.get(&key).cloned() {
-                    if args.iter().all(|a| matches!(a, Arg::Pos(_)))
-                        && args.len() <= np
-                        && args.len() + dslots.len() >= np
-                    {
+                    if args.iter().all(|a| matches!(a, Arg::Pos(_))) && args.len() <= np && args.len() + dslots.len() >= np {
                         let mut parts = vec![];
                         for a in args {
                             if let Arg::Pos(x) = a {
@@ -2825,42 +1509,21 @@ impl Em {
     fn load_raw(&mut self, name: &str, line: usize) -> ER<String> {
         self.load(name, line)
     }
-    fn comp(
-        &mut self,
-        kind: char,
-        elt: &Ex,
-        val: Option<&Ex>,
-        gens: &[CompFor],
-        line: usize,
-    ) -> ER<String> {
+    fn comp(&mut self, kind: char, elt: &Ex, val: Option<&Ex>, gens: &[CompFor], line: usize) -> ER<String> {
         // `async for` clauses and `await`s: the comprehension runs in place in the async function (CPython inlines
         // it too). A generator expression with them is an async generator, which Brevi builds eagerly: refused.
         let mut awaits = gens.iter().any(|g| g.is_async);
-        visit_ex(
-            &Ex::Comp(
-                kind,
-                Box::new(elt.clone()),
-                val.map(|v| Box::new(v.clone())),
-                gens.to_vec(),
-            ),
-            &mut |x| {
-                if matches!(x, Ex::Await(_)) {
-                    awaits = true;
-                }
-            },
-        );
+        visit_ex(&Ex::Comp(kind, Box::new(elt.clone()), val.map(|v| Box::new(v.clone())), gens.to_vec()), &mut |x| {
+            if matches!(x, Ex::Await(_)) {
+                awaits = true;
+            }
+        });
         if awaits {
             if kind == 'g' {
-                return Err(err(
-                    line,
-                    "asynchronous generator expressions are not supported in dynamic builds",
-                ));
+                return Err(err(line, "asynchronous generator expressions are not supported in dynamic builds"));
             }
             if !self.fstack.last().unwrap().is_async {
-                return Err(err(
-                    line,
-                    "asynchronous comprehension outside of an asynchronous function",
-                ));
+                return Err(err(line, "asynchronous comprehension outside of an asynchronous function"));
             }
         }
         // comprehension variables are fresh locals for the duration
@@ -2869,10 +1532,7 @@ impl Em {
         for g in gens {
             target_names(&g.target, &mut names);
         }
-        let saved: Vec<(String, Option<Var>)> = names
-            .iter()
-            .map(|n| (n.clone(), self.f().vars.get(n).cloned()))
-            .collect();
+        let saved: Vec<(String, Option<Var>)> = names.iter().map(|n| (n.clone(), self.f().vars.get(n).cloned())).collect();
         // the first iterable is evaluated in the enclosing scope
         let first_iter = self.ex(&gens[0].iter, line)?;
         let mut decl = String::new();
@@ -2890,28 +1550,14 @@ impl Em {
         write!(b, "{{ {acc}{decl}").unwrap();
         let mut close = String::new();
         for (k, g) in gens.iter().enumerate() {
-            let it = if k == 0 {
-                first_iter.clone()
-            } else {
-                self.ex(&g.iter, line)?
-            };
+            let it = if k == 0 { first_iter.clone() } else { self.ex(&g.iter, line)? };
             let lbl = format!("'cl{id}_{k}");
             let (itv, nx) = if g.is_async {
-                (
-                    self.q(&format!("bi_aiter(Args::p(vec![{it}]))")),
-                    self.q(&format!("afor_next(&__it{k})")),
-                )
+                (self.q(&format!("bi_aiter(Args::p(vec![{it}]))")), self.q(&format!("afor_next(&__it{k})")))
             } else {
-                (
-                    self.q(&format!("iter(&{it})")),
-                    self.q(&format!("__it{k}.next()")),
-                )
+                (self.q(&format!("iter(&{it})")), self.q(&format!("__it{k}.next()")))
             };
-            write!(
-                b,
-                "let mut __it{k} = {itv}; {lbl}: while let Some(__x{k}) = {nx} {{ "
-            )
-            .unwrap();
+            write!(b, "let mut __it{k} = {itv}; {lbl}: while let Some(__x{k}) = {nx} {{ ").unwrap();
             let asg = self.assign(&g.target, &format!("__x{k}"), line)?;
             b.push_str(&asg);
             for c in &g.ifs {
@@ -3080,10 +1726,7 @@ impl Em {
             },
             St::AugAssign(t, op, v) => {
                 if *op == "@" && np_on() && np_narrow() {
-                    return Err(err(
-                        line,
-                        "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy",
-                    ));
+                    return Err(err(line, "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let vv = self.ex(v, line)?;
                 match t {
@@ -3098,9 +1741,7 @@ impl Em {
                         let g = self.q(&format!("getattr(&__o, {})", lit(n)));
                         let r = self.q(&format!("iop(&__c, &__r, {})", lit(op)));
                         let st = self.q(&format!("setattr(&__o, {}, __n)", lit(n)));
-                        format!(
-                            "{{ let __o = {oo}; let __c = {g}; let __r = {vv}; let __n = {r}; {st}; }}"
-                        )
+                        format!("{{ let __o = {oo}; let __c = {g}; let __r = {vv}; let __n = {r}; {st}; }}")
                     }
                     Ex::Index(o, i) => {
                         let oo = self.ex(o, line)?;
@@ -3108,9 +1749,7 @@ impl Em {
                         let g = self.q("getitem(&__o, &__i)");
                         let r = self.q(&format!("iop(&__c, &__r, {})", lit(op)));
                         let st = self.q("setitem(&__o, &__i, __n)");
-                        format!(
-                            "{{ let __o = {oo}; let __i = {ii}; let __c = {g}; let __r = {vv}; let __n = {r}; {st}; }}"
-                        )
+                        format!("{{ let __o = {oo}; let __i = {ii}; let __c = {g}; let __r = {vv}; let __n = {r}; {st}; }}")
                     }
                     _ => return Err(err(line, "bad augmented assignment target")),
                 }
@@ -3131,25 +1770,21 @@ impl Em {
             }
             St::Break => self.jump("break", "", line)?,
             St::Continue => self.jump("continue", "", line)?,
-            St::Raise(e, _cause) => {
-                match e {
-                    None => {
-                        let cur = self.fstack.last().unwrap().exc_vars.last().cloned();
-                        match cur {
-                            Some(v) => self.raise_code(&format!("E({v}.clone())")) + ";",
-                            None => self.raise_code(
-                                "exc(\"RuntimeError\", \"No active exception to reraise\".into())",
-                            ) + ";",
-                        }
-                    }
-                    Some(e) => {
-                        let ee = self.ex(e, line)?;
-                        let mk = self.q(&format!("make_exc({ee})"));
-                        let r = self.raise_code("__e");
-                        format!("{{ let __e = {mk}; {r}; }}")
+            St::Raise(e, _cause) => match e {
+                None => {
+                    let cur = self.fstack.last().unwrap().exc_vars.last().cloned();
+                    match cur {
+                        Some(v) => self.raise_code(&format!("E({v}.clone())")) + ";",
+                        None => self.raise_code("exc(\"RuntimeError\", \"No active exception to reraise\".into())") + ";",
                     }
                 }
-            }
+                Some(e) => {
+                    let ee = self.ex(e, line)?;
+                    let mk = self.q(&format!("make_exc({ee})"));
+                    let r = self.raise_code("__e");
+                    format!("{{ let __e = {mk}; {r}; }}")
+                }
+            },
             St::Global(_) | St::Nonlocal(_) => String::new(),
             St::Del(ts) => {
                 let mut b = String::new();
@@ -3174,10 +1809,7 @@ impl Em {
                         }
                         Ex::Tuple(v) | Ex::List(v) => {
                             for x in v {
-                                b.push_str(&self.stmt(&Stmt {
-                                    line,
-                                    st: St::Del(vec![x.clone()]),
-                                })?);
+                                b.push_str(&self.stmt(&Stmt { line, st: St::Del(vec![x.clone()]) })?);
                             }
                         }
                         _ => return Err(err(line, "bad del target")),
@@ -3208,17 +1840,13 @@ impl Em {
                         write!(b, "{init}; ").unwrap();
                         b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
                     } else if self.bridge.has(m) {
-                        self.bridged_used
-                            .insert(m.split('.').next().unwrap_or(m).to_string());
+                        self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
                         let v = self.q(&format!("pyd_import({}, {})", lit(m), a.is_none()));
                         b.push_str(&self.store(&bind, &v));
                     } else if builtin_mod(target.as_str()) || matches!(target.as_str(), "os.path") {
                         b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
                     } else {
-                        return Err(err(
-                            line,
-                            &format!("module '{m}' is not supported in dynamic builds"),
-                        ));
+                        return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
                     }
                 }
                 b
@@ -3230,14 +1858,10 @@ impl Em {
                 }
                 let user = self.user_modules.contains(m);
                 if !user && !builtin_mod(m.as_str()) && self.bridge.has(m) {
-                    self.bridged_used
-                        .insert(m.split('.').next().unwrap_or(m).to_string());
+                    self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
                     for (n, a) in names {
                         if n == "*" {
-                            return Err(err(
-                                line,
-                                "from ... import * is not supported for library modules",
-                            ));
+                            return Err(err(line, "from ... import * is not supported for library modules"));
                         }
                         let v = self.q(&format!("pyd_from({}, {})", lit(m), lit(n)));
                         b.push_str(&self.store(a.as_ref().unwrap_or(n), &v));
@@ -3248,54 +1872,30 @@ impl Em {
                     let init = self.q(&format!("init_{}()", rust_ident(m)));
                     write!(b, "{init}; ").unwrap();
                 } else if !builtin_mod(m.as_str()) {
-                    return Err(err(
-                        line,
-                        &format!("module '{m}' is not supported in dynamic builds"),
-                    ));
+                    return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
                 }
                 for (n, a) in names {
                     if n == "*" {
                         if user {
-                            let all: Vec<String> = self
-                                .mod_names
-                                .get(m)
-                                .cloned()
-                                .unwrap_or_default()
-                                .into_iter()
-                                .filter(|x| !x.starts_with('_'))
-                                .collect();
+                            let all: Vec<String> = self.mod_names.get(m).cloned().unwrap_or_default().into_iter().filter(|x| !x.starts_with('_')).collect();
                             for x in all {
                                 let v = self.user_mod_load(m, &x, line)?;
                                 b.push_str(&self.store(&x, &v));
                             }
                             continue;
                         }
-                        return Err(err(
-                            line,
-                            "from ... import * is not supported for library modules",
-                        ));
+                        return Err(err(line, "from ... import * is not supported for library modules"));
                     }
                     let bind = a.clone().unwrap_or(n.clone());
                     if !user && !module_has(m, n) {
-                        return Err(err(
-                            line,
-                            &format!("{m}.{n} is not supported in dynamic builds"),
-                        ));
+                        return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
-                    let v = if user {
-                        self.user_mod_load(m, n, line)?
-                    } else {
-                        self.q(&format!("module_attr({}, {})", lit(m), lit(n)))
-                    };
+                    let v = if user { self.user_mod_load(m, n, line)? } else { self.q(&format!("module_attr({}, {})", lit(m), lit(n))) };
                     b.push_str(&self.store(&bind, &v));
                 }
                 b
             }
-            St::If(arms, els)
-                if arms.len() == 1 && els.is_none() && super::typing::type_checking(&arms[0].0) =>
-            {
-                String::new()
-            }
+            St::If(arms, els) if arms.len() == 1 && els.is_none() && super::typing::type_checking(&arms[0].0) => String::new(),
             St::If(arms, els) => {
                 let mut b = String::new();
                 for (k, (c, body)) in arms.iter().enumerate() {
@@ -3323,52 +1923,29 @@ impl Em {
                     None => format!("{lbl}: while {cc} {{\n{bb}}}"),
                     Some(e) => {
                         let eb = self.block(e)?;
-                        let bb2 = bb.replace(
-                            &format!("break {lbl};"),
-                            &format!("{{ __brk{id} = true; break {lbl}; }}"),
-                        );
-                        format!(
-                            "{{ let mut __brk{id} = false; {lbl}: while {cc} {{\n{bb2}}} if !__brk{id} {{ {eb} }} }}"
-                        )
+                        let bb2 = bb.replace(&format!("break {lbl};"), &format!("{{ __brk{id} = true; break {lbl}; }}"));
+                        format!("{{ let mut __brk{id} = false; {lbl}: while {cc} {{\n{bb2}}} if !__brk{id} {{ {eb} }} }}")
                     }
                 }
             }
             St::For(t, it, body, els) => self.for_stmt(t, it, body, els.as_deref(), line)?,
-            St::Try(body, handlers, els, fin) => {
-                self.try_stmt(body, handlers, els.as_deref(), fin.as_deref(), line)?
-            }
+            St::Try(body, handlers, els, fin) => self.try_stmt(body, handlers, els.as_deref(), fin.as_deref(), line)?,
             St::With(items, body) => self.with_stmt(items, body, line)?,
             St::Def(d) => {
                 let f = self.def(d)?;
                 self.store(&d.name, &f)
             }
             St::Class(c) => {
-                if let Some(src) = self
-                    .bridge
-                    .classes
-                    .get(&(self.module.clone(), c.line))
-                    .cloned()
-                {
+                if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
                     let m = self.module.clone();
                     let imports = self.bridge.imports.get(&m).cloned().unwrap_or_default();
                     let file = self.bridge.files.get(&m).cloned().unwrap_or_default();
-                    let v = self.q(&format!(
-                        "pyd_class({}, {}, {}, {}, {})",
-                        lit(&m),
-                        lit(&imports),
-                        lit(&src),
-                        lit(&c.name),
-                        lit(&file)
-                    ));
+                    let v = self.q(&format!("pyd_class({}, {}, {}, {}, {})", lit(&m), lit(&imports), lit(&src), lit(&c.name), lit(&file)));
                     return Ok(self.store(&c.name, &v));
                 }
                 // `__del__` runs when CPython frees the object (reference counts), which dynamic builds do not track:
                 // the program's output could differ, so CPython runs it.
-                if let Some(d) = c
-                    .body
-                    .iter()
-                    .find(|s| matches!(&s.st, St::Def(d) if d.name == "__del__"))
-                {
+                if let Some(d) = c.body.iter().find(|s| matches!(&s.st, St::Def(d) if d.name == "__del__")) {
                     return Err(err(d.line, "__del__ is not supported in dynamic builds"));
                 }
                 let v = self.class(c)?;
@@ -3376,14 +1953,7 @@ impl Em {
             }
         })
     }
-    fn for_stmt(
-        &mut self,
-        t: &Ex,
-        it: &Ex,
-        body: &[Stmt],
-        els: Option<&[Stmt]>,
-        line: usize,
-    ) -> ER<String> {
+    fn for_stmt(&mut self, t: &Ex, it: &Ex, body: &[Stmt], els: Option<&[Stmt]>, line: usize) -> ER<String> {
         let id = self.id();
         let lbl = format!("'l{id}");
         let brk = els.is_some();
@@ -3391,11 +1961,7 @@ impl Em {
         let mut head = String::new();
         let mut fast = false;
         if let Ex::Call(f, args) = it {
-            if matches!(&**f, Ex::Name(n) if n == "range")
-                && self.lookup("range").is_none()
-                && (1..=2).contains(&args.len())
-                && args.iter().all(|a| matches!(a, Arg::Pos(_)))
-            {
+            if matches!(&**f, Ex::Name(n) if n == "range") && self.lookup("range").is_none() && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
                 let mut vals = vec![];
                 for a in args {
                     if let Arg::Pos(x) = a {
@@ -3403,14 +1969,8 @@ impl Em {
                         vals.push(self.q(&format!("range_int(&{xx})")));
                     }
                 }
-                let (a, b) = if vals.len() == 1 {
-                    ("0i64".to_string(), vals[0].clone())
-                } else {
-                    (vals[0].clone(), vals[1].clone())
-                };
-                head = format!(
-                    "let __a{id}: i64 = {a}; let __b{id}: i64 = {b}; let mut __i{id} = __a{id}; {lbl}: while __i{id} < __b{id} {{ let __x{id} = V::Int(__i{id}); __i{id} += 1; "
-                );
+                let (a, b) = if vals.len() == 1 { ("0i64".to_string(), vals[0].clone()) } else { (vals[0].clone(), vals[1].clone()) };
+                head = format!("let __a{id}: i64 = {a}; let __b{id}: i64 = {b}; let mut __i{id} = __a{id}; {lbl}: while __i{id} < __b{id} {{ let __x{id} = V::Int(__i{id}); __i{id} += 1; ");
                 fast = true;
             }
         }
@@ -3429,46 +1989,26 @@ impl Em {
         }
         // for/else: else runs when the loop ends without break
         let eb = self.block(els.unwrap())?;
-        let bb2 = bb.replace(
-            &format!("break {lbl};"),
-            &format!("{{ __brk{id} = true; break {lbl}; }}"),
-        );
-        Ok(format!(
-            "{{ let mut __brk{id} = false; {head}{asg}\n{bb2}}} if !__brk{id} {{ {eb} }} }}"
-        ))
+        let bb2 = bb.replace(&format!("break {lbl};"), &format!("{{ __brk{id} = true; break {lbl}; }}"));
+        Ok(format!("{{ let mut __brk{id} = false; {head}{asg}\n{bb2}}} if !__brk{id} {{ {eb} }} }}"))
     }
-    fn try_stmt(
-        &mut self,
-        body: &[Stmt],
-        handlers: &[Handler],
-        els: Option<&[Stmt]>,
-        fin: Option<&[Stmt]>,
-        line: usize,
-    ) -> ER<String> {
+    fn try_stmt(&mut self, body: &[Stmt], handlers: &[Handler], els: Option<&[Stmt]>, fin: Option<&[Stmt]>, line: usize) -> ER<String> {
         if let Some(fin) = fin {
             let id = self.id();
             let lbl = format!("'f{id}");
             self.f().frames.push(Frame::Fin(lbl.clone()));
-            let inner = if handlers.is_empty() && els.is_none() {
-                self.block(body)?
-            } else {
-                self.try_stmt(body, handlers, els, None, line)?
-            };
+            let inner = if handlers.is_empty() && els.is_none() { self.block(body)? } else { self.try_stmt(body, handlers, els, None, line)? };
             self.f().frames.pop();
             let fb = self.block(fin)?;
             let after = self.flow_dispatch(id, line)?;
-            return Ok(format!(
-                "{{ let __fl{id}: Flow = {lbl}: {{ {inner}\nFlow::Normal }};\n{fb}\n{after} }}"
-            ));
+            return Ok(format!("{{ let __fl{id}: Flow = {lbl}: {{ {inner}\nFlow::Normal }};\n{fb}\n{after} }}"));
         }
         let id = self.id();
         let lbl = format!("'t{id}");
         self.f().frames.push(Frame::Exc(lbl.clone()));
         let bb = self.block(body)?;
         self.f().frames.pop();
-        let mut b = format!(
-            "{{ let __r{id}: Result<(), E> = {lbl}: {{ {bb}\nOk(()) }};\nmatch __r{id} {{ Ok(()) => {{ "
-        );
+        let mut b = format!("{{ let __r{id}: Result<(), E> = {lbl}: {{ {bb}\nOk(()) }};\nmatch __r{id} {{ Ok(()) => {{ ");
         if let Some(e) = els {
             b.push_str(&self.block(e)?);
         }
@@ -3501,20 +2041,8 @@ impl Em {
             let hb = match &h.name {
                 Some(n) if has_jump(&h.body) && !has_yield(&h.body) => {
                     let nm = Ex::Name(n.clone());
-                    let fin = vec![
-                        Stmt {
-                            line: h.line,
-                            st: St::Assign(vec![nm.clone()], Ex::NoneV),
-                        },
-                        Stmt {
-                            line: h.line,
-                            st: St::Del(vec![nm]),
-                        },
-                    ];
-                    let wrapped = [Stmt {
-                        line: h.line,
-                        st: St::Try(h.body.clone(), vec![], None, Some(fin)),
-                    }];
+                    let fin = vec![Stmt { line: h.line, st: St::Assign(vec![nm.clone()], Ex::NoneV) }, Stmt { line: h.line, st: St::Del(vec![nm]) }];
+                    let wrapped = [Stmt { line: h.line, st: St::Try(h.body.clone(), vec![], None, Some(fin)) }];
                     self.block(&wrapped)?
                 }
                 _ => self.block(&h.body)?,
@@ -3534,41 +2062,20 @@ impl Em {
         Ok(b)
     }
     fn flow_dispatch(&mut self, id: usize, line: usize) -> ER<String> {
-        let ret = if self.fstack.last().unwrap().is_module {
-            "Flow::Ret(_) => {}".to_string()
-        } else {
-            format!(
-                "Flow::Ret(__v) => {{ {} }}",
-                self.jump("return", "__v", line)?
-            )
-        };
+        let ret = if self.fstack.last().unwrap().is_module { "Flow::Ret(_) => {}".to_string() } else { format!("Flow::Ret(__v) => {{ {} }}", self.jump("return", "__v", line)?) };
         let brk = match self.loop_or_fin() {
-            true => format!(
-                "Flow::Brk => {{ {} }} Flow::Cont => {{ {} }}",
-                self.jump("break", "", line)?,
-                self.jump("continue", "", line)?
-            ),
+            true => format!("Flow::Brk => {{ {} }} Flow::Cont => {{ {} }}", self.jump("break", "", line)?, self.jump("continue", "", line)?),
             false => "Flow::Brk | Flow::Cont => {}".to_string(),
         };
         let exc = self.raise_code("__e");
-        Ok(format!(
-            "match __fl{id} {{ Flow::Normal => {{}} {ret} {brk} Flow::Exc(__e) => {{ {exc}; }} }}"
-        ))
+        Ok(format!("match __fl{id} {{ Flow::Normal => {{}} {ret} {brk} Flow::Exc(__e) => {{ {exc}; }} }}"))
     }
     fn loop_or_fin(&self) -> bool {
-        self.fstack
-            .last()
-            .unwrap()
-            .frames
-            .iter()
-            .any(|f| matches!(f, Frame::Loop(_)))
+        self.fstack.last().unwrap().frames.iter().any(|f| matches!(f, Frame::Loop(_)))
     }
     fn with_stmt(&mut self, items: &[(Ex, Option<Ex>)], body: &[Stmt], line: usize) -> ER<String> {
         if items.len() > 1 {
-            let inner = Stmt {
-                line,
-                st: St::With(items[1..].to_vec(), body.to_vec()),
-            };
+            let inner = Stmt { line, st: St::With(items[1..].to_vec(), body.to_vec()) };
             return self.with_stmt(&items[..1], &[inner], line);
         }
         let (e, t) = &items[0];
@@ -3579,9 +2086,7 @@ impl Em {
         }
         let id = self.id();
         let ee = self.ex(e, line)?;
-        let enter = self.q(&format!(
-            "call_method(&__m{id}, \"__enter__\", Args::p(vec![]))"
-        ));
+        let enter = self.q(&format!("call_method(&__m{id}, \"__enter__\", Args::p(vec![]))"));
         let bind = match t {
             Some(t) => self.assign(t, &format!("__en{id}"), line)?,
             None => String::new(),
@@ -3590,9 +2095,7 @@ impl Em {
         self.f().frames.push(Frame::Fin(lbl.clone()));
         let bb = self.block(body)?;
         self.f().frames.pop();
-        let exit_ok = self.q(&format!(
-            "call_method(&__m{id}, \"__exit__\", Args::p(vec![V::None, V::None, V::None]))"
-        ));
+        let exit_ok = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::None, V::None, V::None]))"));
         let exit_err = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::Class(type_of(&__ev)), __ev.clone(), V::None]))"));
         let sup = self.q("truth(&__sx)");
         let after = self.flow_dispatch(id, line)?;
@@ -3605,25 +2108,16 @@ impl Em {
     fn def(&mut self, d: &FuncDef) -> ER<String> {
         if has_yield(&d.body) && !d.is_async {
             if !GEN_OK {
-                return Err(err(
-                    d.line,
-                    "generators (yield) are not supported in dynamic builds on this platform",
-                ));
+                return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
             }
             // CPython runs a finally (or a with block's exit) when a generator left part way is dropped;
             // here a dropped generator just stops.
             if let Some(l) = yield_in_cleanup(&d.body, false) {
-                return Err(err(
-                    l,
-                    "a yield inside try/finally or with is not supported in dynamic builds",
-                ));
+                return Err(err(l, "a yield inside try/finally or with is not supported in dynamic builds"));
             }
         }
         if d.is_async && !GEN_OK {
-            return Err(err(
-                d.line,
-                "async functions are not supported in dynamic builds on this platform",
-            ));
+            return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
         }
         self.next_async = d.is_async;
         let v = self.closure(&d.name, &d.params, &d.body, d.line, true);
@@ -3633,11 +2127,7 @@ impl Em {
             v = format!("with_doc({v}, {})", lit(doc));
         }
         if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
-            let n = if d.params.star.is_some() {
-                99
-            } else {
-                d.params.pos.len()
-            };
+            let n = if d.params.star.is_some() { 99 } else { d.params.pos.len() };
             v = format!("with_np({v}, {n})");
         }
         for dec in d.decorators.iter().rev() {
@@ -3648,14 +2138,7 @@ impl Em {
     }
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
-    fn closure(
-        &mut self,
-        name: &str,
-        p: &Params,
-        body: &[Stmt],
-        line: usize,
-        is_def: bool,
-    ) -> ER<String> {
+    fn closure(&mut self, name: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
         let id = self.id();
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
@@ -3663,8 +2146,7 @@ impl Em {
         let sc = scope_of(body, &params);
         let inner_free = nested_free(body);
         let at_top = self.fstack.len() == 1;
-        let in_class_top =
-            self.class_ctx.is_some() && self.fstack.len() == 2 && self.fstack[0].is_module;
+        let in_class_top = self.class_ctx.is_some() && self.fstack.len() == 2 && self.fstack[0].is_module;
         // defaults, evaluated now
         let mut dflt_codes = vec![];
         for (_, dv) in p.pos.iter() {
@@ -3704,22 +2186,8 @@ impl Em {
         }
         // this function's frame
         let parent = self.fstack.last().unwrap();
-        let (class_expr, self_name) = if self.class_ctx.is_some() {
-            (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone()))
-        } else {
-            (parent.class_expr.clone(), parent.self_name.clone())
-        };
-        let mut fr = Func {
-            vars: HashMap::new(),
-            frames: vec![],
-            class_expr,
-            self_name,
-            exc_vars: vec![],
-            is_module: false,
-            is_class: false,
-            is_async,
-            is_agen: is_async && is_gen,
-        };
+        let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -3761,30 +2229,18 @@ impl Em {
         self.fstack.pop();
         self.class_ctx = saved_ctx;
         let body_code = body_code?;
-        let pdecl: Vec<String> = params
-            .iter()
-            .map(|n| format!("mut v_{}: V", rust_ident(n)))
-            .collect();
+        let pdecl: Vec<String> = params.iter().map(|n| format!("mut v_{}: V", rust_ident(n))).collect();
         let dkey = (self.module.clone(), name.to_string());
-        let pre = if is_def && at_top {
-            self.direct.get(&dkey).cloned()
-        } else {
-            None
-        };
+        let pre = if is_def && at_top { self.direct.get(&dkey).cloned() } else { None };
         let fname = match &pre {
             Some(p) => p.0.clone(),
             None => format!("d{id}_{}", rust_ident(name)),
         };
         let qname = lit(name);
-        let sig = format!(
-            "Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, star: {star}, kwstar: {kwstar} }}"
-        );
+        let sig = format!("Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, star: {star}, kwstar: {kwstar} }}");
         let dflt_all: Vec<String> = dflt_codes.iter().chain(kwd.iter()).cloned().collect();
         let nparams = params.len();
-        let unpack: String = (0..nparams)
-            .map(|k| format!("__b.next().unwrap()"))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let unpack: String = (0..nparams).map(|k| format!("__b.next().unwrap()")).collect::<Vec<_>>().join(", ");
         if captures.is_empty() && (at_top || in_class_top) {
             // a plain Rust function
             if is_async {
@@ -3810,43 +2266,17 @@ impl Em {
                     slots.push(slot);
                     write!(sets, "gs({slot}, {}); ", dflt_codes[k]).unwrap();
                 }
-                let dv: Vec<String> = (0..npos)
-                    .map(|k| {
-                        if k >= npos - nd {
-                            format!("gr({})", slots[k - (npos - nd)])
-                        } else {
-                            "V::Unbound".into()
-                        }
-                    })
-                    .collect();
-                return Ok(format!(
-                    "{{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}",
-                    dv.join(", ")
-                ));
+                let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
+                return Ok(format!("{{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dv.join(", ")));
             }
             let _ = need_defaults;
-            return Ok(format!(
-                "{{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}",
-                dflt_all.join(", ")
-            ));
+            return Ok(format!("{{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dflt_all.join(", ")));
         }
         // a closure
-        let caps: String = captures
-            .iter()
-            .map(|(_, r)| format!("let {r} = {r}.clone(); "))
-            .collect();
-        let bind_params: String = params
-            .iter()
-            .map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n)))
-            .collect();
+        let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
+        let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
         if is_gen || is_async {
-            let mk = if is_async && is_gen {
-                format!("make_agen(sym({qname}), ")
-            } else if is_async {
-                format!("make_acoro(sym({qname}), ")
-            } else {
-                "make_gen(".to_string()
-            };
+            let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
                 "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
                 dflt_all.join(", ")
@@ -3867,17 +2297,7 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func {
-            vars: HashMap::new(),
-            frames: parent.frames.clone(),
-            class_expr: parent.class_expr.clone(),
-            self_name: parent.self_name.clone(),
-            exc_vars: parent.exc_vars.clone(),
-            is_module: false,
-            is_class: true,
-            is_async: false,
-            is_agen: false,
-        };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false };
         let mut decls = String::new();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -3919,10 +2339,7 @@ impl Em {
         let mut order: Vec<&String> = vec![];
         for s in &c.body {
             let names: Vec<&String> = match &s.st {
-                St::Assign(ts, _) => ts
-                    .iter()
-                    .filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None })
-                    .collect(),
+                St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
                 St::AnnAssign(Ex::Name(n), _, _) => vec![n],
                 St::Def(d) => vec![&d.name],
                 St::Class(k) => vec![&k.name],
@@ -3942,33 +2359,15 @@ impl Em {
         let mut attrs = String::new();
         for n in order {
             let r = format!("a{id}_{}", rust_ident(n));
-            write!(
-                attrs,
-                "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ",
-                lit(n)
-            )
-            .unwrap();
+            write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
         }
         // every class has its own __doc__ (None without a docstring), not its parent's
         if !sc.locals.contains("__doc__") {
-            let doc =
-                docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
+            let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
             write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
         }
-        let mk = self.q(&format!(
-            "make_class_f({}, {}, vec![{}], __at, vec![{}])",
-            lit(&c.name),
-            lit(if self.module == "__main__" {
-                "__main__"
-            } else {
-                &self.module
-            }),
-            bases.join(", "),
-            fields.join(", ")
-        ));
-        let mut v = format!(
-            "{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}"
-        );
+        let mk = self.q(&format!("make_class_f({}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(if self.module == "__main__" { "__main__" } else { &self.module }), bases.join(", "), fields.join(", ")));
+        let mut v = format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}");
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
             v = self.q(&format!("call(&{dd}, Args::p(vec![{v}]))"));
@@ -3988,19 +2387,12 @@ fn ann_kind(a: &Ex) -> Option<&'static str> {
         Ex::Attr(_, n) => n.as_str(),
         Ex::Str(t) => {
             let t = t.trim();
-            let t = t
-                .strip_prefix("typing.")
-                .or_else(|| t.strip_prefix("dataclasses."))
-                .unwrap_or(t);
-            return ["ClassVar", "InitVar", "KW_ONLY"]
-                .into_iter()
-                .find(|k| t == *k || t.starts_with(&format!("{k}[")));
+            let t = t.strip_prefix("typing.").or_else(|| t.strip_prefix("dataclasses.")).unwrap_or(t);
+            return ["ClassVar", "InitVar", "KW_ONLY"].into_iter().find(|k| t == *k || t.starts_with(&format!("{k}[")));
         }
         _ => return None,
     };
-    ["ClassVar", "InitVar", "KW_ONLY"]
-        .into_iter()
-        .find(|k| name == *k)
+    ["ClassVar", "InitVar", "KW_ONLY"].into_iter().find(|k| name == *k)
 }
 
 // The docstring of a def or class body.
@@ -4013,8 +2405,7 @@ fn docstring(body: &[Stmt]) -> Option<&str> {
 
 fn builtin_fast(n: &str) -> Option<String> {
     Some(match n {
-        "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset"
-        | "range" | "type" | "slice" => format!("bi_{n}"),
+        "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "range" | "type" | "slice" => format!("bi_{n}"),
         "object" => "bi_object".into(),
         "exit" | "quit" => "bi_exit".into(),
         _ if is_exc_name(n) => return None,
@@ -4037,10 +2428,7 @@ pub fn rust_ident(n: &str) -> String {
 
 // The Rust program for a set of modules (the first is __main__).
 // An error names the module whose code it is in, so the message can name that module's file.
-pub fn program(
-    mods: &[Module],
-    bridge: Bridge,
-) -> Result<(String, Vec<String>), (String, usize, String)> {
+pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     let mut em = Em {
         out: String::new(),
         items: String::new(),
@@ -4111,26 +2499,14 @@ pub fn program(
         let mut binds: HashMap<String, usize> = HashMap::new();
         let mut import_of: HashMap<String, String> = HashMap::new();
         let mut def_names: HashSet<String> = HashSet::new();
-        fn count(
-            body: &[Stmt],
-            binds: &mut HashMap<String, usize>,
-            import_of: &mut HashMap<String, String>,
-            defs: &mut HashSet<String>,
-            top: bool,
-        ) {
+        fn count(body: &[Stmt], binds: &mut HashMap<String, usize>, import_of: &mut HashMap<String, String>, defs: &mut HashSet<String>, top: bool) {
             for s in body {
                 let mut b = BTreeSet::new();
                 match &s.st {
                     St::Import(v) => {
                         for (m, a) in v {
-                            let bind = a
-                                .clone()
-                                .unwrap_or_else(|| m.split('.').next().unwrap().to_string());
-                            let target = if a.is_some() {
-                                m.clone()
-                            } else {
-                                m.split('.').next().unwrap().to_string()
-                            };
+                            let bind = a.clone().unwrap_or_else(|| m.split('.').next().unwrap().to_string());
+                            let target = if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() };
                             import_of.insert(bind.clone(), target);
                             b.insert(bind);
                         }
@@ -4156,10 +2532,7 @@ pub fn program(
         let mut fn_globals = BTreeSet::new();
         globals_in(&m.body, &mut fn_globals);
         for (n, t) in import_of {
-            if binds.get(&n) == Some(&1)
-                && !fn_globals.contains(&n)
-                && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t))
-            {
+            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
                 em.mod_alias.insert((m.name.clone(), n), t);
             }
         }
@@ -4167,29 +2540,12 @@ pub fn program(
             if let St::Def(d) = &s.st {
                 let n = &d.name;
                 let p = &d.params;
-                if def_names.contains(n)
-                    && binds.get(n) == Some(&1)
-                    && !fn_globals.contains(n)
-                    && p.star.is_none()
-                    && p.kwstar.is_none()
-                    && p.kwonly.is_empty()
-                    && !has_yield(&d.body)
-                    && !d.is_async
-                {
+                if def_names.contains(n) && binds.get(n) == Some(&1) && !fn_globals.contains(n) && p.star.is_none() && p.kwstar.is_none() && p.kwonly.is_empty() && !has_yield(&d.body) && !d.is_async {
                     em.direct_ok.insert((m.name.clone(), n.clone()));
                     let npos = p.pos.len();
                     let nd = p.pos.iter().rev().take_while(|x| x.1.is_some()).count();
-                    let slots: Vec<usize> = (npos - nd..npos)
-                        .map(|k| em.gslot(&m.name, &format!("<default {n} {k}>")))
-                        .collect();
-                    em.direct.insert(
-                        (m.name.clone(), n.clone()),
-                        (
-                            format!("f_{}_{}", rust_ident(&m.name), rust_ident(n)),
-                            npos,
-                            slots,
-                        ),
-                    );
+                    let slots: Vec<usize> = (npos - nd..npos).map(|k| em.gslot(&m.name, &format!("<default {n} {k}>"))).collect();
+                    em.direct.insert((m.name.clone(), n.clone()), (format!("f_{}_{}", rust_ident(&m.name), rust_ident(n)), npos, slots));
                 }
             }
         }
@@ -4202,17 +2558,7 @@ pub fn program(
     let mut inits = String::new();
     for m in mods {
         em.module = m.name.clone();
-        let mut fr = Func {
-            vars: HashMap::new(),
-            frames: vec![],
-            class_expr: None,
-            self_name: None,
-            exc_vars: vec![],
-            is_module: true,
-            is_class: false,
-            is_async: false,
-            is_agen: false,
-        };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false };
         for n in em.mod_names[&m.name].clone() {
             let i = em.gslot(&m.name, &n);
             fr.vars.insert(n.clone(), Var::Global(i));
@@ -4242,19 +2588,9 @@ pub fn program(
     out.push_str(&hook);
     // name -> global slot, per module, for globals()
     for m in mods {
-        let mut slots: Vec<(String, usize)> = em
-            .globals
-            .iter()
-            .filter(|((mm, n), _)| mm == &m.name && !n.starts_with('<'))
-            .map(|((_, n), i)| (n.clone(), *i))
-            .collect();
+        let mut slots: Vec<(String, usize)> = em.globals.iter().filter(|((mm, n), _)| mm == &m.name && !n.starts_with('<')).map(|((_, n), i)| (n.clone(), *i)).collect();
         slots.sort();
-        write!(
-            out,
-            "#[allow(dead_code)] fn gtab_{}(k: &str) -> Option<usize> {{ match k {{ ",
-            rust_ident(&m.name)
-        )
-        .unwrap();
+        write!(out, "#[allow(dead_code)] fn gtab_{}(k: &str) -> Option<usize> {{ match k {{ ", rust_ident(&m.name)).unwrap();
         for (n, i) in slots {
             write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
         }

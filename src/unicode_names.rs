@@ -6,12 +6,8 @@ fn lookup(name: &str) -> Option<char> {
     let want = name.to_ascii_uppercase();
     let (mut cur, mut code) = (String::new(), u32::MAX);
     for line in NAMES.lines() {
-        let (text, hex) = line
-            .split_once('\t')
-            .map_or((line, None), |(t, h)| (t, Some(h)));
-        code = hex.map_or(code.wrapping_add(1), |h| {
-            u32::from_str_radix(h, 16).unwrap()
-        });
+        let (text, hex) = line.split_once('\t').map_or((line, None), |(t, h)| (t, Some(h)));
+        code = hex.map_or(code.wrapping_add(1), |h| u32::from_str_radix(h, 16).unwrap());
         cur.truncate((text.as_bytes()[0] - 33) as usize);
         cur.push_str(&text[1..]);
         if cur == want {

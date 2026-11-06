@@ -45,11 +45,7 @@ pub fn program(bin: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut c = Command::new(bin);
     die_with_parent(&mut c);
     #[cfg(target_os = "linux")]
-    if let Some(mb) = std::env::var("BREVI_MEM_MB")
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .filter(|m| *m > 0)
-    {
+    if let Some(mb) = std::env::var("BREVI_MEM_MB").ok().and_then(|v| v.trim().parse::<u64>().ok()).filter(|m| *m > 0) {
         use std::os::unix::process::CommandExt;
         let bytes = mb.saturating_mul(1 << 20);
         // RLIMIT_AS is 9 on every Linux architecture Rust targets.
@@ -74,11 +70,8 @@ pub fn code(status: ExitStatus) -> i32 {
         use std::os::unix::process::ExitStatusExt;
         if let Some(sig) = status.signal() {
             let msg = match sig {
-                9 => "the program was killed (signal 9): out of memory, or stopped from outside"
-                    .to_string(),
-                11 | 7 => format!(
-                    "the program crashed (signal {sig}): often recursion too deep for the stack"
-                ),
+                9 => "the program was killed (signal 9): out of memory, or stopped from outside".to_string(),
+                11 | 7 => format!("the program crashed (signal {sig}): often recursion too deep for the stack"),
                 6 => "the program aborted (signal 6)".to_string(),
                 s => format!("the program was stopped by signal {s}"),
             };

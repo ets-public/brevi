@@ -36,8 +36,7 @@ pub fn turn_off() {
 }
 
 pub fn on() -> bool {
-    !OFF.load(std::sync::atomic::Ordering::Relaxed)
-        && std::env::var("BREVI_NO_CACHE").map_or(true, |v| v.is_empty() || v == "0")
+    !OFF.load(std::sync::atomic::Ordering::Relaxed) && std::env::var("BREVI_NO_CACHE").map_or(true, |v| v.is_empty() || v == "0")
 }
 
 // Inside the child build: the cache is the parent's business.
@@ -66,31 +65,16 @@ fn take_not_kept(stderr: &mut Vec<u8>) -> bool {
     if !text.lines().any(|l| l == NOT_KEPT) {
         return false;
     }
-    let kept: String = text
-        .split_inclusive('\n')
-        .filter(|l| l.trim_end_matches(['\n', '\r']) != NOT_KEPT)
-        .collect();
+    let kept: String = text.split_inclusive('\n').filter(|l| l.trim_end_matches(['\n', '\r']) != NOT_KEPT).collect();
     *stderr = kept.into_bytes();
     true
 }
 
 // Runs `brevi ARGS` (a check, or a build to `bin`), or replays it from the cache. `file` is the program.
-pub fn phase(
-    args: &[String],
-    file: &str,
-    bin: Option<&Path>,
-    envs: &[(&str, &str)],
-    refusals: bool,
-) -> Done {
+pub fn phase(args: &[String], file: &str, bin: Option<&Path>, envs: &[(&str, &str)], refusals: bool) -> Done {
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
-    let key = if on() {
-        key(args, file, envs, &me)
-    } else {
-        None
-    };
-    let dir = key
-        .as_ref()
-        .map(|k| crate::cache_dir().join("runs").join(k));
+    let key = if on() { key(args, file, envs, &me) } else { None };
+    let dir = key.as_ref().map(|k| crate::cache_dir().join("runs").join(k));
     if let Some(d) = &dir {
         if let Some(done) = replay(d, bin) {
             return done;
@@ -103,22 +87,8 @@ pub fn phase(
     }
     crate::proc::die_with_parent(&mut c);
     let mut done = match c.output() {
-        Ok(o) => Done {
-            stdout: o.stdout,
-            stderr: o.stderr,
-            code: o.status.code(),
-            hit: false,
-        },
-        Err(e) => Done {
-            stdout: format!(
-                "{{\"e\":\"io\",\"msg\":\"{}\"}}\n",
-                crate::diag::esc(&e.to_string())
-            )
-            .into_bytes(),
-            stderr: vec![],
-            code: Some(1),
-            hit: false,
-        },
+        Ok(o) => Done { stdout: o.stdout, stderr: o.stderr, code: o.status.code(), hit: false },
+        Err(e) => Done { stdout: format!("{{\"e\":\"io\",\"msg\":\"{}\"}}\n", crate::diag::esc(&e.to_string())).into_bytes(), stderr: vec![], code: Some(1), hit: false },
     };
     let machine = take_not_kept(&mut done.stderr);
     if let Some(d) = &dir {
@@ -130,11 +100,7 @@ pub fn phase(
 }
 
 fn replay(d: &Path, bin: Option<&Path>) -> Option<Done> {
-    let code: i32 = std::fs::read_to_string(d.join("code"))
-        .ok()?
-        .trim()
-        .parse()
-        .ok()?;
+    let code: i32 = std::fs::read_to_string(d.join("code")).ok()?.trim().parse().ok()?;
     let stdout = std::fs::read(d.join("out")).ok()?;
     let stderr = std::fs::read(d.join("err")).ok()?;
     if code == 0 {
@@ -145,12 +111,7 @@ fn replay(d: &Path, bin: Option<&Path>) -> Option<Done> {
         }
     }
     crate::touch(&d.join("code"));
-    Some(Done {
-        stdout,
-        stderr,
-        code: Some(code),
-        hit: true,
-    })
+    Some(Done { stdout, stderr, code: Some(code), hit: true })
 }
 
 // Successes are always kept. A refusal (exit 1, or 3 for a sure mistake) is kept only for a program that
@@ -158,11 +119,7 @@ fn replay(d: &Path, bin: Option<&Path>) -> Option<Done> {
 // program: no rustc, a missing folder, a full disk, a crate download (errors with no line of the program).
 fn refusal_kept(done: &Done, file: &str) -> bool {
     let text = String::from_utf8_lossy(&done.stdout);
-    matches!(done.code, Some(1 | 3))
-        && !text.contains("\"e\":")
-        && !text.contains("cargo")
-        && !text.contains("\"line\":0")
-        && only_local_and_stdlib(file)
+    matches!(done.code, Some(1 | 3)) && !text.contains("\"e\":") && !text.contains("cargo") && !text.contains("\"line\":0") && only_local_and_stdlib(file)
 }
 
 fn save(d: &Path, done: &Done, bin: Option<&Path>) {
@@ -175,8 +132,7 @@ fn save(d: &Path, done: &Done, bin: Option<&Path>) {
     if std::fs::create_dir_all(&tmp).is_err() {
         return;
     }
-    let mut ok = std::fs::write(tmp.join("out"), &done.stdout).is_ok()
-        && std::fs::write(tmp.join("err"), &done.stderr).is_ok();
+    let mut ok = std::fs::write(tmp.join("out"), &done.stdout).is_ok() && std::fs::write(tmp.join("err"), &done.stderr).is_ok();
     if done.ok() {
         if let Some(b) = bin {
             ok = ok && crate::copy_bin(b, &tmp.join("bin"));
@@ -216,43 +172,15 @@ fn key(args: &[String], file: &str, envs: &[(&str, &str)], me: &Path) -> Option<
         parts.push(format!("{k}={v}"));
     }
     let mut vars: Vec<(String, String)> = std::env::vars()
-        .filter(|(k, _)| {
-            (k.starts_with("BREVI_")
-                && !matches!(
-                    k.as_str(),
-                    "BREVI_TIME"
-                        | "BREVI_NO_CACHE"
-                        | "BREVI_CACHE_MB"
-                        | "BREVI_PHASE"
-                        | "BREVI_MEM_MB"
-                ))
-                || matches!(
-                    k.as_str(),
-                    "PYTHONPATH" | "PYTHONHOME" | "VIRTUAL_ENV" | "CONDA_PREFIX"
-                )
-        })
+        .filter(|(k, _)| (k.starts_with("BREVI_") && !matches!(k.as_str(), "BREVI_TIME" | "BREVI_NO_CACHE" | "BREVI_CACHE_MB" | "BREVI_PHASE" | "BREVI_MEM_MB")) || matches!(k.as_str(), "PYTHONPATH" | "PYTHONHOME" | "VIRTUAL_ENV" | "CONDA_PREFIX"))
         .collect();
     vars.sort();
     parts.extend(vars.into_iter().map(|(k, v)| format!("{k}={v}")));
     // The Python that library calls link against (an upgrade in place leaves PATH as it was).
     let py = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
-    let found = std::env::var_os("PATH")
-        .map(|p| {
-            std::env::split_paths(&p)
-                .map(|d| d.join(&py))
-                .find(|f| f.is_file())
-        })
-        .flatten();
-    if let Some(m) = found
-        .and_then(|f| std::fs::canonicalize(f).ok())
-        .and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m)))
-    {
-        parts.push(format!(
-            "{} {} {:?}",
-            m.0.display(),
-            m.1.len(),
-            m.1.modified().ok()
-        ));
+    let found = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join(&py)).find(|f| f.is_file())).flatten();
+    if let Some(m) = found.and_then(|f| std::fs::canonicalize(f).ok()).and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m))) {
+        parts.push(format!("{} {} {:?}", m.0.display(), m.1.len(), m.1.modified().ok()));
     }
     let path = std::fs::canonicalize(file).ok()?;
     parts.push(path.to_string_lossy().into());
@@ -261,11 +189,7 @@ fn key(args: &[String], file: &str, envs: &[(&str, &str)], me: &Path) -> Option<
         parts.push(std::fs::read_to_string(&f).ok()?);
     }
     let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
-    Some(format!(
-        "{:016x}{:016x}",
-        crate::fnv(&refs, 21),
-        crate::fnv(&refs, 22)
-    ))
+    Some(format!("{:016x}{:016x}", crate::fnv(&refs, 21), crate::fnv(&refs, 22)))
 }
 
 // The program's files: every .py and .bv file in its folder (sorted), and those of the folders its files
@@ -281,9 +205,7 @@ fn sources(path: &Path) -> Option<Vec<PathBuf>> {
         k += 1;
         let files = src_files(&d)?;
         for f in &files {
-            let Ok(text) = std::fs::read_to_string(f) else {
-                continue;
-            };
+            let Ok(text) = std::fs::read_to_string(f) else { continue };
             let here = f.parent().unwrap_or(&root).to_path_buf();
             let mut reach: Vec<PathBuf> = vec![];
             for m in imports(&text) {
@@ -298,11 +220,7 @@ fn sources(path: &Path) -> Option<Vec<PathBuf>> {
                 }
             }
             for l in text.lines() {
-                if let Some(u) = l
-                    .trim()
-                    .strip_prefix("use \"")
-                    .and_then(|r| r.split('"').next())
-                {
+                if let Some(u) = l.trim().strip_prefix("use \"").and_then(|r| r.split('"').next()) {
                     if let Some(d) = here.join(u).parent() {
                         reach.push(d.to_path_buf());
                     }
@@ -328,9 +246,7 @@ fn src_files(dir: &Path) -> Option<Vec<PathBuf>> {
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| {
-            p.is_file() && matches!(p.extension().and_then(|e| e.to_str()), Some("py" | "bv"))
-        })
+        .filter(|p| p.is_file() && matches!(p.extension().and_then(|e| e.to_str()), Some("py" | "bv")))
         .take(201)
         .collect();
     v.sort();
@@ -359,22 +275,14 @@ fn imports(text: &str) -> Vec<String> {
 
 // True when every module the program's files import is one of them or part of Python's standard library.
 fn only_local_and_stdlib(file: &str) -> bool {
-    let Ok(path) = std::fs::canonicalize(file) else {
-        return false;
-    };
-    let Some(files) = sources(&path) else {
-        return false;
-    };
+    let Ok(path) = std::fs::canonicalize(file) else { return false };
+    let Some(files) = sources(&path) else { return false };
     let dir = path.parent().unwrap_or(Path::new("."));
     files.iter().all(|f| {
         let text = std::fs::read_to_string(f).unwrap_or_default();
         imports(&text).iter().all(|m| {
             let top = m.trim_start_matches('.').split('.').next().unwrap_or("");
-            m.starts_with('.')
-                || top.is_empty()
-                || STDLIB.split(' ').any(|s| s == top)
-                || dir.join(format!("{top}.py")).exists()
-                || dir.join(top).is_dir()
+            m.starts_with('.') || top.is_empty() || STDLIB.split(' ').any(|s| s == top) || dir.join(format!("{top}.py")).exists() || dir.join(top).is_dir()
         })
     })
 }
@@ -385,48 +293,20 @@ const STDLIB: &str = "abc antigravity argparse array ast asyncio atexit base64 b
 // Keeps the result cache under BREVI_CACHE_MB megabytes (default 1024, shared with the binary cache):
 // past it, the least recently used entries go until it is down to three quarters.
 pub fn prune(dir: &Path) {
-    let limit: u64 = std::env::var("BREVI_CACHE_MB")
-        .ok()
-        .and_then(|v| v.trim().parse().ok())
-        .unwrap_or(1024)
-        * (1 << 20)
-        / 2;
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
+    let limit: u64 = std::env::var("BREVI_CACHE_MB").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(1024) * (1 << 20) / 2;
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
     let size = |p: &Path| -> u64 {
         if p.is_dir() {
-            std::fs::read_dir(p)
-                .map(|r| {
-                    r.flatten()
-                        .filter_map(|e| e.metadata().ok())
-                        .map(|m| m.len())
-                        .sum()
-                })
-                .unwrap_or(0)
+            std::fs::read_dir(p).map(|r| r.flatten().filter_map(|e| e.metadata().ok()).map(|m| m.len()).sum()).unwrap_or(0)
         } else {
             std::fs::metadata(p).map_or(0, |m| m.len())
         }
     };
     let used = |p: &Path| -> std::time::SystemTime {
-        let at = if p.is_dir() {
-            p.join("code")
-        } else {
-            p.to_path_buf()
-        };
-        std::fs::metadata(at)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH)
+        let at = if p.is_dir() { p.join("code") } else { p.to_path_buf() };
+        std::fs::metadata(at).and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH)
     };
-    let mut es: Vec<(std::time::SystemTime, u64, PathBuf)> = rd
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            !p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with(".tmp-"))
-        })
-        .map(|p| (used(&p), size(&p), p))
-        .collect();
+    let mut es: Vec<(std::time::SystemTime, u64, PathBuf)> = rd.flatten().map(|e| e.path()).filter(|p| !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(".tmp-"))).map(|p| (used(&p), size(&p), p)).collect();
     let mut total: u64 = es.iter().map(|e| e.1).sum();
     if total <= limit {
         return;

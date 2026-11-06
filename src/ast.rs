@@ -1,9 +1,9 @@
 #[derive(Debug, Clone)]
 pub enum Ty {
-    Named(String),         // int, f64, bool, str, or a user type
-    List(Box<Ty>),         // [T]
+    Named(String),       // int, f64, bool, str, or a user type
+    List(Box<Ty>),       // [T]
     Map(Box<Ty>, Box<Ty>), // {K: V}
-    Tuple(Vec<Ty>),        // (A, B)
+    Tuple(Vec<Ty>),      // (A, B)
     Unit,
 }
 
@@ -38,21 +38,9 @@ pub enum Item {
         line: usize,
         script: bool, // made from top-level statements
     },
-    Type {
-        name: String,
-        fields: Vec<Field>,
-        line: usize,
-    },
-    Enum {
-        name: String,
-        variants: Vec<Variant>,
-        line: usize,
-    },
-    Test {
-        name: String,
-        body: Expr,
-        line: usize,
-    },
+    Type { name: String, fields: Vec<Field>, line: usize },
+    Enum { name: String, variants: Vec<Variant>, line: usize },
+    Test { name: String, body: Expr, line: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -68,37 +56,13 @@ pub enum Pat {
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    Let {
-        name: Pat,
-        ty: Option<Ty>,
-        value: Expr,
-        mutable: bool,
-        line: usize,
-    },
-    Assign {
-        target: Expr,
-        op: &'static str,
-        value: Expr,
-        line: usize,
-    },
-    Expr {
-        expr: Expr,
-        line: usize,
-    },
-    Return {
-        value: Option<Expr>,
-        line: usize,
-    },
-    Break {
-        line: usize,
-    },
-    Continue {
-        line: usize,
-    },
-    Assert {
-        cond: Expr,
-        line: usize,
-    },
+    Let { name: Pat, ty: Option<Ty>, value: Expr, mutable: bool, line: usize },
+    Assign { target: Expr, op: &'static str, value: Expr, line: usize },
+    Expr { expr: Expr, line: usize },
+    Return { value: Option<Expr>, line: usize },
+    Break { line: usize },
+    Continue { line: usize },
+    Assert { cond: Expr, line: usize },
 }
 
 #[derive(Debug, Clone)]

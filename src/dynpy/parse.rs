@@ -23,9 +23,7 @@ pub struct Lexed {
 }
 
 const OPS: [&str; 49] = [
-    "**=", "//=", ">>=", "<<=", "...", "->", ":=", "**", "//", ">>", "<<", "<=", ">=", "==", "!=",
-    "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "@=", "+", "-", "*", "/", "%", "&", "|", "^",
-    "~", "<", ">", "(", ")", "[", "]", "{", "}", ",", ":", ".", ";", "@", "=", "!", "\\",
+    "**=", "//=", ">>=", "<<=", "...", "->", ":=", "**", "//", ">>", "<<", "<=", ">=", "==", "!=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "@=", "+", "-", "*", "/", "%", "&", "|", "^", "~", "<", ">", "(", ")", "[", "]", "{", "}", ",", ":", ".", ";", "@", "=", "!", "\\",
 ];
 
 pub fn err(line: usize, msg: &str) -> (usize, String) {
@@ -52,9 +50,7 @@ fn bytes_unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
         i += 1;
     }
     let v = unescape(&pre, line)?;
-    Ok(v.chars()
-        .map(|c| char::from_u32(c as u32 & 0xff).unwrap())
-        .collect())
+    Ok(v.chars().map(|c| char::from_u32(c as u32 & 0xff).unwrap()).collect())
 }
 
 fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
@@ -89,8 +85,7 @@ fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
                     _ => 8,
                 };
                 let h: String = cs[i..(i + k).min(cs.len())].iter().collect();
-                let v =
-                    u32::from_str_radix(&h, 16).map_err(|_| err(line, "bad escape in string"))?;
+                let v = u32::from_str_radix(&h, 16).map_err(|_| err(line, "bad escape in string"))?;
                 out.push(char::from_u32(v).ok_or_else(|| err(line, "bad escape in string"))?);
                 i += k;
             }
@@ -105,8 +100,7 @@ fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
                 out.push(char::from_u32(v).unwrap_or('?'));
             }
             'N' => {
-                let (ch, k) = crate::unicode_names::escape(&cs[i..])
-                    .ok_or_else(|| err(line, "cannot read this \\N{...} escape"))?;
+                let (ch, k) = crate::unicode_names::escape(&cs[i..]).ok_or_else(|| err(line, "cannot read this \\N{...} escape"))?;
                 out.push(ch);
                 i += k;
             }
@@ -163,10 +157,7 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
                     toks.push((Tok::Dedent, line));
                 }
                 if col != *indents.last().unwrap() {
-                    return Err(err(
-                        line,
-                        "unindent does not match any outer indentation level",
-                    ));
+                    return Err(err(line, "unindent does not match any outer indentation level"));
                 }
             }
             i = j;
@@ -194,24 +185,17 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
             }
             continue;
         }
-        if c == '\\'
-            && i + 1 < cs.len()
-            && (cs[i + 1] == '\n' || (cs[i + 1] == '\r' && i + 2 < cs.len() && cs[i + 2] == '\n'))
-        {
+        if c == '\\' && i + 1 < cs.len() && (cs[i + 1] == '\n' || (cs[i + 1] == '\r' && i + 2 < cs.len() && cs[i + 2] == '\n')) {
             i += if cs[i + 1] == '\r' { 3 } else { 2 };
             line += 1;
             continue;
         }
         // strings (with prefixes)
         let mut j = i;
-        while j < cs.len() && j - i < 2 && cs[j].is_ascii_alphabetic() && "rRbBfFuU".contains(cs[j])
-        {
+        while j < cs.len() && j - i < 2 && cs[j].is_ascii_alphabetic() && "rRbBfFuU".contains(cs[j]) {
             j += 1;
         }
-        if j < cs.len()
-            && (cs[j] == '\'' || cs[j] == '"')
-            && (j == i || cs[i..j].iter().all(|c| "rRbBfFuU".contains(*c)))
-        {
+        if j < cs.len() && (cs[j] == '\'' || cs[j] == '"') && (j == i || cs[i..j].iter().all(|c| "rRbBfFuU".contains(*c))) {
             let prefix: String = cs[i..j].iter().collect::<String>().to_lowercase();
             let q = cs[j];
             let triple = j + 2 < cs.len() && cs[j + 1] == q && cs[j + 2] == q;
@@ -251,27 +235,16 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
             if prefix.contains('b') {
                 if let Some(c) = body.chars().find(|c| !c.is_ascii()) {
                     let _ = c;
-                    return Err(err(
-                        start_line,
-                        "bytes can only contain ASCII literal characters",
-                    ));
+                    return Err(err(start_line, "bytes can only contain ASCII literal characters"));
                 }
-                let v = if raw {
-                    body
-                } else {
-                    bytes_unescape(&body, start_line)?
-                };
+                let v = if raw { body } else { bytes_unescape(&body, start_line)? };
                 toks.push((Tok::Bytes(v), start_line));
                 continue;
             }
             if prefix.contains('f') {
                 toks.push((Tok::FStr(body, raw), start_line));
             } else {
-                let v = if raw {
-                    body
-                } else {
-                    unescape(&body, start_line)?
-                };
+                let v = if raw { body } else { unescape(&body, start_line)? };
                 toks.push((Tok::Str(v, raw), start_line));
             }
             continue;
@@ -293,11 +266,7 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
                 while j < cs.len() && (cs[j].is_ascii_hexdigit() || cs[j] == '_') {
                     j += 1;
                 }
-                lower = cs[i..j]
-                    .iter()
-                    .collect::<String>()
-                    .to_lowercase()
-                    .replace('_', "");
+                lower = cs[i..j].iter().collect::<String>().to_lowercase().replace('_', "");
                 toks.push((Tok::Int(lower), line));
                 i = j;
                 continue;
@@ -333,10 +302,7 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
             }
             let t: String = cs[i..j].iter().filter(|c| **c != '_').collect();
             if is_float {
-                toks.push((
-                    Tok::Float(t.parse().map_err(|_| err(line, "bad number"))?),
-                    line,
-                ));
+                toks.push((Tok::Float(t.parse().map_err(|_| err(line, "bad number"))?), line));
             } else {
                 toks.push((Tok::Int(t), line));
             }
@@ -490,12 +456,7 @@ pub enum St {
     If(Vec<(Ex, Vec<Stmt>)>, Option<Vec<Stmt>>),
     While(Ex, Vec<Stmt>, Option<Vec<Stmt>>),
     For(Ex, Ex, Vec<Stmt>, Option<Vec<Stmt>>),
-    Try(
-        Vec<Stmt>,
-        Vec<Handler>,
-        Option<Vec<Stmt>>,
-        Option<Vec<Stmt>>,
-    ),
+    Try(Vec<Stmt>, Vec<Handler>, Option<Vec<Stmt>>, Option<Vec<Stmt>>),
     With(Vec<(Ex, Option<Ex>)>, Vec<Stmt>),
     Def(Box<FuncDef>),
     Class(Box<ClassDef>),
@@ -536,9 +497,7 @@ impl P {
     }
     // `for` or `async for`: a comprehension's first clause
     fn comp_starts(&self) -> bool {
-        self.is_kw("for")
-            || (self.is_kw("async")
-                && matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(n)) if n == "for"))
+        self.is_kw("for") || (self.is_kw("async") && matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(n)) if n == "for"))
     }
     fn is_kw(&self, k: &str) -> bool {
         matches!(self.peek(), Tok::Name(n) if n == k)
@@ -563,10 +522,7 @@ impl P {
         if self.eat_op(op) {
             Ok(())
         } else {
-            Err(err(
-                self.line(),
-                &format!("expected '{op}', found {:?}", self.peek()),
-            ))
+            Err(err(self.line(), &format!("expected '{op}', found {:?}", self.peek())))
         }
     }
     fn expect_kw(&mut self, k: &str) -> PR<()> {
@@ -649,11 +605,7 @@ impl P {
                 self.next();
                 let c = self.expr()?;
                 let b = self.block()?;
-                let els = if self.eat_kw("else") {
-                    Some(self.block()?)
-                } else {
-                    None
-                };
+                let els = if self.eat_kw("else") { Some(self.block()?) } else { None };
                 St::While(c, b, els)
             }
             "for" => {
@@ -662,11 +614,7 @@ impl P {
                 self.expect_kw("in")?;
                 let it = self.exprlist()?;
                 let b = self.block()?;
-                let els = if self.eat_kw("else") {
-                    Some(self.block()?)
-                } else {
-                    None
-                };
+                let els = if self.eat_kw("else") { Some(self.block()?) } else { None };
                 St::For(t, it, b, els)
             }
             "try" => {
@@ -679,10 +627,7 @@ impl P {
                     self.next();
                     let is_star = self.eat_op("*");
                     if star.is_some_and(|s| s != is_star) {
-                        return Err(err(
-                            hl,
-                            "cannot have both 'except' and 'except*' on the same 'try'",
-                        ));
+                        return Err(err(hl, "cannot have both 'except' and 'except*' on the same 'try'"));
                     }
                     star = Some(is_star);
                     if is_star && self.is_op(":") {
@@ -692,31 +637,14 @@ impl P {
                         (None, None)
                     } else {
                         let t = self.expr()?;
-                        let n = if self.eat_kw("as") {
-                            Some(self.name()?)
-                        } else {
-                            None
-                        };
+                        let n = if self.eat_kw("as") { Some(self.name()?) } else { None };
                         (Some(t), n)
                     };
                     let b = self.block()?;
-                    hs.push(Handler {
-                        types,
-                        name,
-                        body: b,
-                        line: hl,
-                    });
+                    hs.push(Handler { types, name, body: b, line: hl });
                 }
-                let els = if self.eat_kw("else") {
-                    Some(self.block()?)
-                } else {
-                    None
-                };
-                let fin = if self.eat_kw("finally") {
-                    Some(self.block()?)
-                } else {
-                    None
-                };
+                let els = if self.eat_kw("else") { Some(self.block()?) } else { None };
+                let fin = if self.eat_kw("finally") { Some(self.block()?) } else { None };
                 if hs.is_empty() && fin.is_none() {
                     return Err(err(line, "try needs except or finally"));
                 }
@@ -736,11 +664,7 @@ impl P {
                 }
                 loop {
                     let e = self.expr()?;
-                    let t = if self.eat_kw("as") {
-                        Some(self.target()?)
-                    } else {
-                        None
-                    };
+                    let t = if self.eat_kw("as") { Some(self.target()?) } else { None };
                     items.push((e, t));
                     if !self.eat_op(",") {
                         break;
@@ -792,19 +716,11 @@ impl P {
                     self.expect_kw("in")?;
                     let it = self.exprlist()?;
                     let b = self.block()?;
-                    let els = if self.eat_kw("else") {
-                        Some(self.block()?)
-                    } else {
-                        None
-                    };
+                    let els = if self.eat_kw("else") { Some(self.block()?) } else { None };
                     return Ok(self.async_for(line, t, it, b, els));
                 } else if self.is_kw("with") {
                     let w = self.stmt()?;
-                    let Some(Stmt {
-                        st: St::With(items, b),
-                        ..
-                    }) = w.into_iter().next()
-                    else {
+                    let Some(Stmt { st: St::With(items, b), .. }) = w.into_iter().next() else {
                         return Err(err(line, "expected a with statement"));
                     };
                     return Ok(self.async_with(line, &items, b));
@@ -812,9 +728,7 @@ impl P {
                     return Err(err(line, "expected def, for or with after async"));
                 }
             }
-            "match" if self.is_match_stmt() => {
-                return Err(err(line, "match statements are not supported"));
-            }
+            "match" if self.is_match_stmt() => return Err(err(line, "match statements are not supported")),
             _ => return self.simple_line(),
         };
         Ok(vec![Stmt { line, st }])
@@ -848,10 +762,7 @@ impl P {
             match &self.toks[j].0 {
                 Tok::Op("(") | Tok::Op("[") | Tok::Op("{") => d += 1,
                 Tok::Op(")") | Tok::Op("]") | Tok::Op("}") => d -= 1,
-                Tok::Op(":") if d == 0 => {
-                    return matches!(self.toks.get(j + 1).map(|t| &t.0), Some(Tok::Newline))
-                        && j > self.i + 1;
-                }
+                Tok::Op(":") if d == 0 => return matches!(self.toks.get(j + 1).map(|t| &t.0), Some(Tok::Newline)) && j > self.i + 1,
                 Tok::Op("=") if d == 0 => return false,
                 Tok::Newline => return false,
                 _ => {}
@@ -876,10 +787,7 @@ impl P {
         }
         match self.next() {
             Tok::Newline | Tok::Eof => Ok(out),
-            t => Err(err(
-                self.line(),
-                &format!("unexpected {t:?} at the end of a statement"),
-            )),
+            t => Err(err(self.line(), &format!("unexpected {t:?} at the end of a statement"))),
         }
     }
     fn small(&mut self) -> PR<St> {
@@ -911,11 +819,7 @@ impl P {
                         return Ok(St::Raise(None, None));
                     }
                     let e = self.expr()?;
-                    let c = if self.eat_kw("from") {
-                        Some(self.expr()?)
-                    } else {
-                        None
-                    };
+                    let c = if self.eat_kw("from") { Some(self.expr()?) } else { None };
                     return Ok(St::Raise(Some(e), c));
                 }
                 "global" | "nonlocal" => {
@@ -924,11 +828,7 @@ impl P {
                     while self.eat_op(",") {
                         ns.push(self.name()?);
                     }
-                    return Ok(if n == "global" {
-                        St::Global(ns)
-                    } else {
-                        St::Nonlocal(ns)
-                    });
+                    return Ok(if n == "global" { St::Global(ns) } else { St::Nonlocal(ns) });
                 }
                 "del" => {
                     self.next();
@@ -944,11 +844,7 @@ impl P {
                 "assert" => {
                     self.next();
                     let c = self.expr()?;
-                    let m = if self.eat_op(",") {
-                        Some(self.expr()?)
-                    } else {
-                        None
-                    };
+                    let m = if self.eat_op(",") { Some(self.expr()?) } else { None };
                     return Ok(St::Assert(c, m));
                 }
                 "import" => {
@@ -960,11 +856,7 @@ impl P {
                             m.push('.');
                             m.push_str(&self.name()?);
                         }
-                        let a = if self.eat_kw("as") {
-                            Some(self.name()?)
-                        } else {
-                            None
-                        };
+                        let a = if self.eat_kw("as") { Some(self.name()?) } else { None };
                         v.push((m, a));
                         if !self.eat_op(",") {
                             break;
@@ -976,9 +868,7 @@ impl P {
                     self.next();
                     let mut m = String::new();
                     while self.is_op(".") || self.is_op("...") {
-                        m.push_str(if self.eat_op(".") {
-                            "."
-                        } else {
+                        m.push_str(if self.eat_op(".") { "." } else {
                             self.next();
                             "..."
                         });
@@ -1001,11 +891,7 @@ impl P {
                                 break;
                             }
                             let n = self.name()?;
-                            let a = if self.eat_kw("as") {
-                                Some(self.name()?)
-                            } else {
-                                None
-                            };
+                            let a = if self.eat_kw("as") { Some(self.name()?) } else { None };
                             v.push((n, a));
                             if !self.eat_op(",") {
                                 break;
@@ -1026,17 +912,11 @@ impl P {
             // annotated assignment
             self.next();
             let ann = self.expr()?;
-            let v = if self.eat_op("=") {
-                Some(self.exprlist_star_or_yield()?)
-            } else {
-                None
-            };
+            let v = if self.eat_op("=") { Some(self.exprlist_star_or_yield()?) } else { None };
             check_target(&first, line)?;
             return Ok(St::AnnAssign(first, v, Box::new(ann)));
         }
-        for op in [
-            "+=", "-=", "*=", "/=", "//=", "%=", "**=", "&=", "|=", "^=", ">>=", "<<=", "@=",
-        ] {
+        for op in ["+=", "-=", "*=", "/=", "//=", "%=", "**=", "&=", "|=", "^=", ">>=", "<<=", "@="] {
             if self.is_op(op) {
                 self.next();
                 let v = self.exprlist_star_or_yield()?;
@@ -1098,31 +978,11 @@ impl P {
     fn except_star(&mut self, line: usize, hs: Vec<Handler>) -> PR<Handler> {
         self.anon += 1;
         let k = self.anon;
-        let (x, r, l, g, m, h) = (
-            format!("__brevi_sx{k}"),
-            format!("__brevi_sr{k}"),
-            format!("__brevi_sl{k}"),
-            format!("__brevi_sg{k}"),
-            format!("__brevi_sm{k}"),
-            format!("__brevi_sh{k}"),
-        );
+        let (x, r, l, g, m, h) = (format!("__brevi_sx{k}"), format!("__brevi_sr{k}"), format!("__brevi_sl{k}"), format!("__brevi_sg{k}"), format!("__brevi_sm{k}"), format!("__brevi_sh{k}"));
         let st = |st: St| Stmt { line, st };
         let name = |n: &str| Ex::Name(n.to_string());
-        let call = |f: &str, a: Vec<Ex>| {
-            Ex::Call(
-                Box::new(Ex::Name(f.to_string())),
-                a.into_iter().map(Arg::Pos).collect(),
-            )
-        };
-        let append = |lst: &str, v: &str| {
-            St::Expr(Ex::Call(
-                Box::new(Ex::Attr(
-                    Box::new(Ex::Name(lst.to_string())),
-                    "append".into(),
-                )),
-                vec![Arg::Pos(Ex::Name(v.to_string()))],
-            ))
-        };
+        let call = |f: &str, a: Vec<Ex>| Ex::Call(Box::new(Ex::Name(f.to_string())), a.into_iter().map(Arg::Pos).collect());
+        let append = |lst: &str, v: &str| St::Expr(Ex::Call(Box::new(Ex::Attr(Box::new(Ex::Name(lst.to_string())), "append".into())), vec![Arg::Pos(Ex::Name(v.to_string()))]));
         let mut out = vec![
             st(St::Assign(vec![name(&r)], name(&x))),
             st(St::Assign(vec![name(&l)], Ex::List(vec![]))),
@@ -1130,19 +990,10 @@ impl P {
         ];
         for hd in hs {
             if jumps_out(&hd.body) {
-                return Err(err(
-                    hd.line,
-                    "'break', 'continue' and 'return' cannot appear in an except* block",
-                ));
+                return Err(err(hd.line, "'break', 'continue' and 'return' cannot appear in an except* block"));
             }
             let t = hd.types.clone().unwrap();
-            out.push(Stmt {
-                line: hd.line,
-                st: St::Assign(
-                    vec![Ex::Tuple(vec![name(&m), name(&r)])],
-                    call("__brevi_eg_split", vec![name(&r), t]),
-                ),
-            });
+            out.push(Stmt { line: hd.line, st: St::Assign(vec![Ex::Tuple(vec![name(&m), name(&r)])], call("__brevi_eg_split", vec![name(&r), t])) });
             let mut body = vec![];
             if let Some(n) = &hd.name {
                 body.push(st(St::Assign(vec![name(n)], name(&m))));
@@ -1153,47 +1004,18 @@ impl P {
             }
             let inner = st(St::Try(
                 vec![st(St::Raise(Some(name(&m)), None))],
-                vec![Handler {
-                    types: Some(name("BaseException")),
-                    name: None,
-                    body,
-                    line: hd.line,
-                }],
+                vec![Handler { types: Some(name("BaseException")), name: None, body, line: hd.line }],
                 None,
                 None,
             ));
-            let outer = st(St::Try(
-                vec![inner],
-                vec![Handler {
-                    types: Some(name("BaseException")),
-                    name: Some(h.clone()),
-                    body: vec![st(append(&l, &h))],
-                    line: hd.line,
-                }],
-                None,
-                None,
-            ));
+            let outer = st(St::Try(vec![inner], vec![Handler { types: Some(name("BaseException")), name: Some(h.clone()), body: vec![st(append(&l, &h))], line: hd.line }], None, None));
             out.push(Stmt {
                 line: hd.line,
-                st: St::If(
-                    vec![(
-                        Ex::Cmp(Box::new(name(&m)), vec![("is not", Ex::NoneV)]),
-                        vec![st(append(&g, &m)), outer],
-                    )],
-                    None,
-                ),
+                st: St::If(vec![(Ex::Cmp(Box::new(name(&m)), vec![("is not", Ex::NoneV)]), vec![st(append(&g, &m)), outer])], None),
             });
         }
-        out.push(st(St::Expr(call(
-            "__brevi_eg_reraise",
-            vec![name(&x), name(&r), name(&l), name(&g)],
-        ))));
-        Ok(Handler {
-            types: Some(name("BaseException")),
-            name: Some(x),
-            body: out,
-            line,
-        })
+        out.push(st(St::Expr(call("__brevi_eg_reraise", vec![name(&x), name(&r), name(&l), name(&g)]))));
+        Ok(Handler { types: Some(name("BaseException")), name: Some(x), body: out, line })
     }
     // `async for t in it: body else: els` as CPython runs it:
     //     __ai = aiter(it)
@@ -1203,21 +1025,10 @@ impl P {
     //         t = __ax
     //         body
     //     [if __ae: els]
-    fn async_for(
-        &mut self,
-        line: usize,
-        t: Ex,
-        it: Ex,
-        body: Vec<Stmt>,
-        els: Option<Vec<Stmt>>,
-    ) -> Vec<Stmt> {
+    fn async_for(&mut self, line: usize, t: Ex, it: Ex, body: Vec<Stmt>, els: Option<Vec<Stmt>>) -> Vec<Stmt> {
         self.anon += 1;
         let k = self.anon;
-        let (ai, ax, ae) = (
-            format!("__brevi_ai{k}"),
-            format!("__brevi_ax{k}"),
-            format!("__brevi_ae{k}"),
-        );
+        let (ai, ax, ae) = (format!("__brevi_ai{k}"), format!("__brevi_ax{k}"), format!("__brevi_ae{k}"));
         let st = |st: St| Stmt { line, st };
         let name = |n: &str| Ex::Name(n.to_string());
         let call = |f: &str, a: Ex| Ex::Call(Box::new(Ex::Name(f.to_string())), vec![Arg::Pos(a)]);
@@ -1229,16 +1040,8 @@ impl P {
         }
         stop.push(st(St::Break));
         let get = st(St::Try(
-            vec![st(St::Assign(
-                vec![name(&ax)],
-                Ex::Await(Box::new(call("anext", name(&ai)))),
-            ))],
-            vec![Handler {
-                types: Some(name("StopAsyncIteration")),
-                name: None,
-                body: stop,
-                line,
-            }],
+            vec![st(St::Assign(vec![name(&ax)], Ex::Await(Box::new(call("anext", name(&ai))))))],
+            vec![Handler { types: Some(name("StopAsyncIteration")), name: None, body: stop, line }],
             None,
             None,
         ));
@@ -1246,12 +1049,7 @@ impl P {
         wb.extend(body);
         // The iterator is let go when the loop ends, however it ends, as CPython's stack lets it go: an async
         // generator left part way is then finalized (closed by the loop) at the same point.
-        out.push(st(St::Try(
-            vec![st(St::While(Ex::True, wb, None))],
-            vec![],
-            None,
-            Some(vec![st(St::Assign(vec![name(&ai)], Ex::NoneV))]),
-        )));
+        out.push(st(St::Try(vec![st(St::While(Ex::True, wb, None))], vec![], None, Some(vec![st(St::Assign(vec![name(&ai)], Ex::NoneV))]))));
         if let Some(e) = els {
             out.push(st(St::If(vec![(name(&ae), e)], None)));
         }
@@ -1267,40 +1065,20 @@ impl P {
     //         if not await __ax(__am, type(__ae), __ae, None): raise
     //     finally:
     //         if __ak: await __ax(__am, None, None, None)
-    fn async_with(
-        &mut self,
-        line: usize,
-        items: &[(Ex, Option<Ex>)],
-        body: Vec<Stmt>,
-    ) -> Vec<Stmt> {
-        let body = if items.len() > 1 {
-            self.async_with(line, &items[1..], body)
-        } else {
-            body
-        };
+    fn async_with(&mut self, line: usize, items: &[(Ex, Option<Ex>)], body: Vec<Stmt>) -> Vec<Stmt> {
+        let body = if items.len() > 1 { self.async_with(line, &items[1..], body) } else { body };
         let (m, t) = items[0].clone();
         self.anon += 1;
         let k = self.anon;
-        let (am, ax, ak, ae) = (
-            format!("__brevi_am{k}"),
-            format!("__brevi_ax{k}"),
-            format!("__brevi_ak{k}"),
-            format!("__brevi_ae{k}"),
-        );
+        let (am, ax, ak, ae) = (format!("__brevi_am{k}"), format!("__brevi_ax{k}"), format!("__brevi_ak{k}"), format!("__brevi_ae{k}"));
         let st = |st: St| Stmt { line, st };
         let name = |n: &str| Ex::Name(n.to_string());
         let call = |f: Ex, a: Vec<Ex>| Ex::Call(Box::new(f), a.into_iter().map(Arg::Pos).collect());
         let mut out = vec![
             st(St::Assign(vec![name(&am)], m)),
-            st(St::Assign(
-                vec![name(&ax)],
-                call(name("__brevi_aexit"), vec![name(&am)]),
-            )),
+            st(St::Assign(vec![name(&ax)], call(name("__brevi_aexit"), vec![name(&am)]))),
         ];
-        let enter = Ex::Await(Box::new(call(
-            call(name("__brevi_aenter"), vec![name(&am)]),
-            vec![name(&am)],
-        )));
+        let enter = Ex::Await(Box::new(call(call(name("__brevi_aenter"), vec![name(&am)]), vec![name(&am)])));
         out.push(st(match t {
             Some(t) => St::Assign(vec![t], enter),
             None => St::Expr(enter),
@@ -1310,44 +1088,12 @@ impl P {
         let h = vec![
             st(St::Assign(vec![name(&ak)], Ex::False)),
             st(St::If(
-                vec![(
-                    Ex::Unary(
-                        "not",
-                        Box::new(exit(vec![
-                            name(&am),
-                            call(name("type"), vec![name(&ae)]),
-                            name(&ae),
-                            Ex::NoneV,
-                        ])),
-                    ),
-                    vec![st(St::Raise(None, None))],
-                )],
+                vec![(Ex::Unary("not", Box::new(exit(vec![name(&am), call(name("type"), vec![name(&ae)]), name(&ae), Ex::NoneV]))), vec![st(St::Raise(None, None))])],
                 None,
             )),
         ];
-        let fin = vec![st(St::If(
-            vec![(
-                name(&ak),
-                vec![st(St::Expr(exit(vec![
-                    name(&am),
-                    Ex::NoneV,
-                    Ex::NoneV,
-                    Ex::NoneV,
-                ])))],
-            )],
-            None,
-        ))];
-        out.push(st(St::Try(
-            body,
-            vec![Handler {
-                types: Some(name("BaseException")),
-                name: Some(ae),
-                body: h,
-                line,
-            }],
-            None,
-            Some(fin),
-        )));
+        let fin = vec![st(St::If(vec![(name(&ak), vec![st(St::Expr(exit(vec![name(&am), Ex::NoneV, Ex::NoneV, Ex::NoneV])))])], None))];
+        out.push(st(St::Try(body, vec![Handler { types: Some(name("BaseException")), name: Some(ae), body: h, line }], None, Some(fin))));
         out
     }
     fn funcdef(&mut self, decorators: Vec<Ex>) -> PR<FuncDef> {
@@ -1361,14 +1107,7 @@ impl P {
             self.expr()?;
         }
         let body = self.block()?;
-        Ok(FuncDef {
-            name,
-            params,
-            body,
-            decorators,
-            line,
-            is_async: false,
-        })
+        Ok(FuncDef { name, params, body, decorators, line, is_async: false })
     }
     fn params(&mut self, end: &str) -> PR<Params> {
         let mut p = Params::default();
@@ -1397,11 +1136,7 @@ impl P {
                 if end == ")" && self.eat_op(":") {
                     self.expr()?;
                 }
-                let d = if self.eat_op("=") {
-                    Some(self.expr()?)
-                } else {
-                    None
-                };
+                let d = if self.eat_op("=") { Some(self.expr()?) } else { None };
                 if kwonly {
                     p.kwonly.push((n, d));
                 } else {
@@ -1429,9 +1164,7 @@ impl P {
                             self.next();
                             self.next();
                             let m = self.expr()?;
-                            if !matches!(&m, Ex::Name(x) if x == "ABCMeta")
-                                && !matches!(&m, Ex::Attr(_, x) if x == "ABCMeta")
-                            {
+                            if !matches!(&m, Ex::Name(x) if x == "ABCMeta") && !matches!(&m, Ex::Attr(_, x) if x == "ABCMeta") {
                                 return Err(err(line, "metaclasses are not supported"));
                             }
                             if !self.eat_op(",") {
@@ -1460,14 +1193,7 @@ impl P {
             self.expect_op(")")?;
         }
         let body = self.block()?;
-        Ok(ClassDef {
-            name,
-            bases,
-            body,
-            decorators,
-            line,
-            kwargs,
-        })
+        Ok(ClassDef { name, bases, body, decorators, line, kwargs })
     }
 
     // ---- expressions ----
@@ -1506,19 +1232,7 @@ impl P {
         Ok(Ex::Tuple(v))
     }
     fn ends_list(&self) -> bool {
-        matches!(self.peek(), Tok::Newline | Tok::Eof)
-            || self.is_op("=")
-            || self.is_op(")")
-            || self.is_op("]")
-            || self.is_op("}")
-            || self.is_op(":")
-            || self.is_op(";")
-            || self.is_kw("in")
-            || [
-                "+=", "-=", "*=", "/=", "//=", "%=", "|=", "&=", "^=", "**=", ">>=", "<<=",
-            ]
-            .iter()
-            .any(|o| self.is_op(o))
+        matches!(self.peek(), Tok::Newline | Tok::Eof) || self.is_op("=") || self.is_op(")") || self.is_op("]") || self.is_op("}") || self.is_op(":") || self.is_op(";") || self.is_kw("in") || ["+=", "-=", "*=", "/=", "//=", "%=", "|=", "&=", "^=", "**=", ">>=", "<<="].iter().any(|o| self.is_op(o))
     }
     fn exprlist(&mut self) -> PR<Ex> {
         self.exprlist_star()
@@ -1537,22 +1251,14 @@ impl P {
     }
     fn target_list(&mut self) -> PR<Ex> {
         let line = self.line();
-        let first = if self.eat_op("*") {
-            Ex::Star(Box::new(self.or_expr_level()?))
-        } else {
-            self.or_expr_level()?
-        };
+        let first = if self.eat_op("*") { Ex::Star(Box::new(self.or_expr_level()?)) } else { self.or_expr_level()? };
         let t = if self.is_op(",") {
             let mut v = vec![first];
             while self.eat_op(",") {
                 if self.is_kw("in") || self.is_op("=") {
                     break;
                 }
-                v.push(if self.eat_op("*") {
-                    Ex::Star(Box::new(self.or_expr_level()?))
-                } else {
-                    self.or_expr_level()?
-                });
+                v.push(if self.eat_op("*") { Ex::Star(Box::new(self.or_expr_level()?)) } else { self.or_expr_level()? });
             }
             Ex::Tuple(v)
         } else {
@@ -1569,10 +1275,7 @@ impl P {
             let b = self.expr()?;
             return Ok(Ex::Lambda(Box::new(p), Box::new(b)));
         }
-        if let (Tok::Name(n), Some(Tok::Op(":="))) = (
-            self.peek().clone(),
-            self.toks.get(self.i + 1).map(|t| t.0.clone()),
-        ) {
+        if let (Tok::Name(n), Some(Tok::Op(":="))) = (self.peek().clone(), self.toks.get(self.i + 1).map(|t| t.0.clone())) {
             self.next();
             self.next();
             let v = self.expr()?;
@@ -1639,14 +1342,16 @@ impl P {
             } else if self.is_kw("in") {
                 self.next();
                 "in"
-            } else if self.is_kw("not")
-                && matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(n)) if n == "in")
-            {
+            } else if self.is_kw("not") && matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(n)) if n == "in") {
                 self.next();
                 self.next();
                 "not in"
             } else if self.eat_kw("is") {
-                if self.eat_kw("not") { "is not" } else { "is" }
+                if self.eat_kw("not") {
+                    "is not"
+                } else {
+                    "is"
+                }
             } else {
                 break;
             };
@@ -1662,14 +1367,7 @@ impl P {
         self.bin_level(0)
     }
     fn bin_level(&mut self, lvl: usize) -> PR<Ex> {
-        const LEVELS: [&[&str]; 6] = [
-            &["|"],
-            &["^"],
-            &["&"],
-            &["<<", ">>"],
-            &["+", "-"],
-            &["*", "/", "//", "%", "@"],
-        ];
+        const LEVELS: [&[&str]; 6] = [&["|"], &["^"], &["&"], &["<<", ">>"], &["+", "-"], &["*", "/", "//", "%", "@"]];
         if lvl == LEVELS.len() {
             return self.unary();
         }
@@ -1706,11 +1404,7 @@ impl P {
         self.power()
     }
     fn power(&mut self) -> PR<Ex> {
-        let base = if self.eat_kw("await") {
-            Ex::Await(Box::new(self.primary()?))
-        } else {
-            self.primary()?
-        };
+        let base = if self.eat_kw("await") { Ex::Await(Box::new(self.primary()?)) } else { self.primary()? };
         if self.eat_op("**") {
             let e = self.unary()?;
             return Ok(Ex::Bin("**", Box::new(base), Box::new(e)));
@@ -1723,12 +1417,7 @@ impl P {
             if self.eat_op(".") {
                 let n = match self.next() {
                     Tok::Name(n) => n,
-                    t => {
-                        return Err(err(
-                            self.line(),
-                            &format!("expected an attribute name, found {t:?}"),
-                        ));
-                    }
+                    t => return Err(err(self.line(), &format!("expected an attribute name, found {t:?}"))),
                 };
                 e = Ex::Attr(Box::new(e), n);
             } else if self.eat_op("(") {
@@ -1760,19 +1449,11 @@ impl P {
         Ok(first)
     }
     fn slice_item(&mut self) -> PR<Ex> {
-        let a = if self.is_op(":") {
-            None
-        } else {
-            Some(Box::new(self.star_or_expr()?))
-        };
+        let a = if self.is_op(":") { None } else { Some(Box::new(self.star_or_expr()?)) };
         if !self.eat_op(":") {
             return Ok(*a.unwrap());
         }
-        let b = if self.is_op(":") || self.is_op("]") || self.is_op(",") {
-            None
-        } else {
-            Some(Box::new(self.expr()?))
-        };
+        let b = if self.is_op(":") || self.is_op("]") || self.is_op(",") { None } else { Some(Box::new(self.expr()?)) };
         let c = if self.eat_op(":") {
             if self.is_op("]") || self.is_op(",") {
                 None
@@ -1791,10 +1472,7 @@ impl P {
                 args.push(Arg::KwStar(self.expr()?));
             } else if self.eat_op("*") {
                 args.push(Arg::Star(self.expr()?));
-            } else if let (Tok::Name(n), Some(Tok::Op("="))) = (
-                self.peek().clone(),
-                self.toks.get(self.i + 1).map(|t| t.0.clone()),
-            ) {
+            } else if let (Tok::Name(n), Some(Tok::Op("="))) = (self.peek().clone(), self.toks.get(self.i + 1).map(|t| t.0.clone())) {
                 self.next();
                 self.next();
                 args.push(Arg::Kw(n, self.expr()?));
@@ -1829,12 +1507,7 @@ impl P {
                 self.next();
                 ifs.push(self.expr_nocond()?);
             }
-            gens.push(CompFor {
-                target: t,
-                iter: it,
-                ifs,
-                is_async,
-            });
+            gens.push(CompFor { target: t, iter: it, ifs, is_async });
         }
         Ok(gens)
     }
@@ -1861,16 +1534,11 @@ impl P {
                             b.push_str(&x);
                             self.next();
                         }
-                        Tok::Str(..) | Tok::FStr(..) => {
-                            return Err(err(line, "cannot mix bytes and nonbytes literals"));
-                        }
+                        Tok::Str(..) | Tok::FStr(..) => return Err(err(line, "cannot mix bytes and nonbytes literals")),
                         _ => break,
                     }
                 }
-                Ok(Ex::Call(
-                    Box::new(Ex::Name("__bytes_lit".into())),
-                    vec![Arg::Pos(Ex::Str(b))],
-                ))
+                Ok(Ex::Call(Box::new(Ex::Name("__bytes_lit".into())), vec![Arg::Pos(Ex::Str(b))]))
             }
             Tok::Op("...") => Ok(Ex::Ellipsis),
             Tok::Str(s0, _) | Tok::FStr(s0, _) => {
@@ -1890,9 +1558,7 @@ impl P {
                             parts.extend(parse_fstring(&body, raw, l)?);
                             self.next();
                         }
-                        Tok::Bytes(_) => {
-                            return Err(err(line, "cannot mix bytes and nonbytes literals"));
-                        }
+                        Tok::Bytes(_) => return Err(err(line, "cannot mix bytes and nonbytes literals")),
                         _ => break,
                     }
                 }
@@ -2017,41 +1683,7 @@ impl P {
 fn is_keyword(n: &str) -> bool {
     matches!(
         n,
-        "False"
-            | "None"
-            | "True"
-            | "and"
-            | "as"
-            | "assert"
-            | "async"
-            | "await"
-            | "break"
-            | "class"
-            | "continue"
-            | "def"
-            | "del"
-            | "elif"
-            | "else"
-            | "except"
-            | "finally"
-            | "for"
-            | "from"
-            | "global"
-            | "if"
-            | "import"
-            | "in"
-            | "is"
-            | "lambda"
-            | "nonlocal"
-            | "not"
-            | "or"
-            | "pass"
-            | "raise"
-            | "return"
-            | "try"
-            | "while"
-            | "with"
-            | "yield"
+        "False" | "None" | "True" | "and" | "as" | "assert" | "async" | "await" | "break" | "class" | "continue" | "def" | "del" | "elif" | "else" | "except" | "finally" | "for" | "from" | "global" | "if" | "import" | "in" | "is" | "lambda" | "nonlocal" | "not" | "or" | "pass" | "raise" | "return" | "try" | "while" | "with" | "yield"
     )
 }
 
@@ -2083,11 +1715,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
     let mut i = 0;
     let flush = |lit: &mut String, parts: &mut Vec<FPart>| -> PR<()> {
         if !lit.is_empty() {
-            let v = if raw {
-                lit.clone()
-            } else {
-                unescape(lit, line)?
-            };
+            let v = if raw { lit.clone() } else { unescape(lit, line)? };
             parts.push(FPart::Lit(v));
             lit.clear();
         }
@@ -2097,14 +1725,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
         let c = cs[i];
         // `\\` before a brace is one backslash, and the braces of `\N{BULLET}` are no value: unescape reads them.
         if c == '\\' && !raw && matches!(cs.get(i + 1), Some('\\' | 'N')) {
-            let n = if cs[i + 1] == 'N' && cs.get(i + 2) == Some(&'{') {
-                cs[i..]
-                    .iter()
-                    .position(|c| *c == '}')
-                    .map_or(cs.len() - i, |e| e + 1)
-            } else {
-                2
-            };
+            let n = if cs[i + 1] == 'N' && cs.get(i + 2) == Some(&'{') { cs[i..].iter().position(|c| *c == '}').map_or(cs.len() - i, |e| e + 1) } else { 2 };
             lit.extend(&cs[i..i + n]);
             i += n;
             continue;
@@ -2143,11 +1764,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
                         }
                         break;
                     }
-                    '!' if depth == 0
-                        && j + 1 < cs.len()
-                        && cs[j + 1] != '='
-                        && expr_end.is_none() =>
-                    {
+                    '!' if depth == 0 && j + 1 < cs.len() && cs[j + 1] != '=' && expr_end.is_none() => {
                         expr_end = Some(j);
                         conv = Some(cs[j + 1]);
                         j += 2;
@@ -2200,12 +1817,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
             // `{x=}` debugging form
             let mut self_doc = None;
             let trimmed = text.trim_end();
-            if trimmed.ends_with('=')
-                && !trimmed.ends_with("==")
-                && !trimmed.ends_with("!=")
-                && !trimmed.ends_with("<=")
-                && !trimmed.ends_with(">=")
-            {
+            if trimmed.ends_with('=') && !trimmed.ends_with("==") && !trimmed.ends_with("!=") && !trimmed.ends_with("<=") && !trimmed.ends_with(">=") {
                 self_doc = Some(text.clone());
                 text = trimmed[..trimmed.len() - 1].to_string();
             }
@@ -2216,23 +1828,12 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
                 }
                 None => vec![],
             };
-            let lx = lex(&format!("({})", text.replace('\n', " ")))
-                .map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
-            let mut p = P {
-                toks: lx.toks,
-                i: 0,
-                anon: 0,
-            };
-            let e = p
-                .expr()
-                .map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
+            let lx = lex(&format!("({})", text.replace('\n', " "))).map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
+            let mut p = P { toks: lx.toks, i: 0, anon: 0 };
+            let e = p.expr().map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
             if let Some(d) = self_doc {
                 parts.push(FPart::Lit(d));
-                let conv = conv.or(if spec_parts.is_empty() {
-                    Some('r')
-                } else {
-                    None
-                });
+                let conv = conv.or(if spec_parts.is_empty() { Some('r') } else { None });
                 parts.push(FPart::Expr(Box::new(e), conv, spec_parts, String::new()));
             } else {
                 parts.push(FPart::Expr(Box::new(e), conv, spec_parts, String::new()));
@@ -2256,11 +1857,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
 
 pub fn parse(src: &str) -> PR<Vec<Stmt>> {
     let lx = lex(src)?;
-    let mut p = P {
-        toks: lx.toks,
-        i: 0,
-        anon: 0,
-    };
+    let mut p = P { toks: lx.toks, i: 0, anon: 0 };
     p.file()
 }
 
@@ -2268,18 +1865,9 @@ pub fn parse(src: &str) -> PR<Vec<Stmt>> {
 fn jumps_out(b: &[Stmt]) -> bool {
     b.iter().any(|s| match &s.st {
         St::Break | St::Continue | St::Return(_) => true,
-        St::If(arms, els) => {
-            arms.iter().any(|(_, x)| jumps_out(x)) || els.as_deref().is_some_and(jumps_out)
-        }
-        St::While(_, x, e) | St::For(_, _, x, e) => {
-            x.iter().any(|s| matches!(s.st, St::Return(_))) || e.as_deref().is_some_and(jumps_out)
-        }
-        St::Try(x, hs, e, f) => {
-            jumps_out(x)
-                || hs.iter().any(|h| jumps_out(&h.body))
-                || e.as_deref().is_some_and(jumps_out)
-                || f.as_deref().is_some_and(jumps_out)
-        }
+        St::If(arms, els) => arms.iter().any(|(_, x)| jumps_out(x)) || els.as_deref().is_some_and(jumps_out),
+        St::While(_, x, e) | St::For(_, _, x, e) => x.iter().any(|s| matches!(s.st, St::Return(_))) || e.as_deref().is_some_and(jumps_out),
+        St::Try(x, hs, e, f) => jumps_out(x) || hs.iter().any(|h| jumps_out(&h.body)) || e.as_deref().is_some_and(jumps_out) || f.as_deref().is_some_and(jumps_out),
         St::With(_, x) => jumps_out(x),
         _ => false,
     })

@@ -17,10 +17,7 @@ const FOLD_AT: usize = 24;
 
 impl<V: Clone> Map<V> {
     pub fn new() -> Self {
-        Map {
-            base: Rc::new(HashMap::new()),
-            top: HashMap::new(),
-        }
+        Map { base: Rc::new(HashMap::new()), top: HashMap::new() }
     }
 
     pub fn get(&self, k: &str) -> Option<&V> {
@@ -66,11 +63,7 @@ impl<V: Clone> Map<V> {
     }
 
     pub fn retain(&mut self, mut keep: impl FnMut(&String, &V) -> bool) {
-        let gone: Vec<String> = self
-            .iter()
-            .filter(|(k, v)| !keep(k, v))
-            .map(|(k, _)| k.clone())
-            .collect();
+        let gone: Vec<String> = self.iter().filter(|(k, v)| !keep(k, v)).map(|(k, _)| k.clone()).collect();
         for k in gone {
             self.remove(&k);
         }
@@ -85,14 +78,8 @@ impl<V: Clone> Map<V> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (&String, &V)> {
-        let top = self
-            .top
-            .iter()
-            .filter_map(|(k, v)| v.as_ref().map(|v| (k, v)));
-        let base = self
-            .base
-            .iter()
-            .filter(|(k, _)| !self.top.contains_key(k.as_str()));
+        let top = self.top.iter().filter_map(|(k, v)| v.as_ref().map(|v| (k, v)));
+        let base = self.base.iter().filter(|(k, _)| !self.top.contains_key(k.as_str()));
         top.chain(base)
     }
 
@@ -126,10 +113,7 @@ impl<V: Clone> Map<V> {
 
 impl<V: Clone> Clone for Map<V> {
     fn clone(&self) -> Self {
-        Map {
-            base: Rc::clone(&self.base),
-            top: self.top.clone(),
-        }
+        Map { base: Rc::clone(&self.base), top: self.top.clone() }
     }
 }
 
@@ -167,10 +151,7 @@ impl<V: Clone + PartialEq> PartialEq for Map<V> {
 
 impl<V: Clone> FromIterator<(String, V)> for Map<V> {
     fn from_iter<I: IntoIterator<Item = (String, V)>>(it: I) -> Self {
-        Map {
-            base: Rc::new(it.into_iter().collect()),
-            top: HashMap::new(),
-        }
+        Map { base: Rc::new(it.into_iter().collect()), top: HashMap::new() }
     }
 }
 
@@ -186,10 +167,7 @@ impl<V: Clone> IntoIterator for Map<V> {
     type Item = (String, V);
     type IntoIter = std::vec::IntoIter<(String, V)>;
     fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect::<Vec<_>>()
-            .into_iter()
+        self.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>().into_iter()
     }
 }
 
@@ -211,9 +189,7 @@ mod tests {
         // Random edits on a plain HashMap and on copies of a Map must agree at every step.
         let mut seed: u64 = 7;
         let mut rnd = |n: u64| {
-            seed = seed
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
             (seed >> 33) % n
         };
         let mut plain: Vec<HashMap<String, u64>> = vec![HashMap::new()];
@@ -231,11 +207,7 @@ mod tests {
                     ours.remove(i);
                 }
                 2 | 3 => assert_eq!(plain[i].remove(&k), ours[i].remove(&k), "step {step}"),
-                _ => assert_eq!(
-                    plain[i].insert(k.clone(), step),
-                    ours[i].insert(k, step),
-                    "step {step}"
-                ),
+                _ => assert_eq!(plain[i].insert(k.clone(), step), ours[i].insert(k, step), "step {step}"),
             }
             for (p, o) in plain.iter().zip(&ours) {
                 assert_eq!(p.len(), o.len(), "step {step}");

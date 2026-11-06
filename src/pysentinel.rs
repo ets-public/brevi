@@ -20,24 +20,16 @@ use crate::typed_guard::{each_block, walk_ex, walk_st};
 use std::collections::HashSet;
 
 pub fn rewrite(src: &str) -> String {
-    let Ok(body) = parse::parse(src) else {
-        return src.to_string();
-    };
+    let Ok(body) = parse::parse(src) else { return src.to_string() };
     let mut lines: Vec<String> = src.lines().map(String::from).collect();
     let mut changed = false;
     for s in &body {
-        let St::Assign(ts, Ex::Call(f, args)) = &s.st else {
-            continue;
-        };
-        let ([Ex::Name(n)], Ex::Name(o)) = (ts.as_slice(), f.as_ref()) else {
-            continue;
-        };
+        let St::Assign(ts, Ex::Call(f, args)) = &s.st else { continue };
+        let ([Ex::Name(n)], Ex::Name(o)) = (ts.as_slice(), f.as_ref()) else { continue };
         if o != "object" || !args.is_empty() || !safe(&body, n) {
             continue;
         }
-        let Some(new) = replace(&lines, s.line, n) else {
-            continue;
-        };
+        let Some(new) = replace(&lines, s.line, n) else { continue };
         lines = new;
         changed = true;
     }
@@ -72,9 +64,7 @@ fn mentions(e: &Ex, n: &str) -> bool {
 // `x is None`, `x is not None`, `x == None`, `x != None`: (x, the op).
 fn none_test(e: &Ex) -> Option<(&Ex, &'static str)> {
     let Ex::Cmp(l, ops) = e else { return None };
-    let [(op, r)] = ops.as_slice() else {
-        return None;
-    };
+    let [(op, r)] = ops.as_slice() else { return None };
     if !matches!(*op, "is" | "is not" | "==" | "!=") {
         return None;
     }
@@ -87,9 +77,7 @@ fn none_test(e: &Ex) -> Option<(&Ex, &'static str)> {
 // `x is N` (or `x is not N`, ==, !=): (x, the op).
 fn sentinel_test<'a>(e: &'a Ex, n: &str) -> Option<(&'a Ex, &'static str)> {
     let Ex::Cmp(l, ops) = e else { return None };
-    let [(op, r)] = ops.as_slice() else {
-        return None;
-    };
+    let [(op, r)] = ops.as_slice() else { return None };
     match (l.as_ref(), r) {
         (x, y) | (y, x) if is_name(y, n) && !is_name(x, n) => Some((x, op)),
         _ => None,
@@ -122,9 +110,7 @@ fn chain<'a>(e: &'a Ex, or: bool, out: &mut Vec<&'a Ex>) {
 fn re_call(e: &Ex) -> bool {
     match e {
         Ex::Call(f, _) => match f.as_ref() {
-            Ex::Attr(r, m) => {
-                is_name(r, "re") || matches!(m.as_str(), "match" | "search" | "fullmatch")
-            }
+            Ex::Attr(r, m) => is_name(r, "re") || matches!(m.as_str(), "match" | "search" | "fullmatch"),
             _ => false,
         },
         _ => false,
@@ -156,18 +142,10 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                     }
                 }
             }
-            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) | St::For(t, ..) if mentions(t, n) => {
-                ok = false
-            }
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) | St::For(t, ..) if mentions(t, n) => ok = false,
             St::Global(v) | St::Nonlocal(v) if v.iter().any(|x| x == n) => ok = false,
             St::Def(d) => {
-                if d.name == n
-                    || d.params
-                        .pos
-                        .iter()
-                        .chain(&d.params.kwonly)
-                        .any(|p| p.0 == n)
-                {
+                if d.name == n || d.params.pos.iter().chain(&d.params.kwonly).any(|p| p.0 == n) {
                     ok = false;
                 }
                 for (p, dflt) in d.params.pos.iter().chain(&d.params.kwonly) {
@@ -177,11 +155,7 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                 }
             }
             St::Class(c) if c.name == n => ok = false,
-            St::Import(v) | St::ImportFrom(_, v)
-                if v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n) =>
-            {
-                ok = false
-            }
+            St::Import(v) | St::ImportFrom(_, v) if v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n) => ok = false,
             _ => {}
         }
         if let St::Try(_, hs, _, _) = &s.st {
@@ -197,33 +171,19 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                     chain(e, or, &mut leaves);
                     for l in &leaves {
                         if let Some((x, op)) = sentinel_test(l, n) {
-                            if negated(op) != or
-                                && leaves.iter().any(|m| {
-                                    none_test(m).is_some_and(|(y, op2)| {
-                                        same(x, y) && negated(op2) == negated(op)
-                                    })
-                                })
-                            {
+                            if negated(op) != or && leaves.iter().any(|m| none_test(m).is_some_and(|(y, op2)| same(x, y) && negated(op2) == negated(op))) {
                                 s_paired.insert(*l as *const Ex);
                             }
                         }
                         if let Some((x, op)) = none_test(l) {
-                            if negated(op) != or
-                                && leaves.iter().any(|m| {
-                                    sentinel_test(m, n).is_some_and(|(y, op2)| {
-                                        same(x, y) && negated(op2) == negated(op)
-                                    })
-                                })
-                            {
+                            if negated(op) != or && leaves.iter().any(|m| sentinel_test(m, n).is_some_and(|(y, op2)| same(x, y) && negated(op2) == negated(op))) {
                                 paired.insert(*l as *const Ex);
                             }
                         }
                     }
                 }
                 Ex::Cmp(l, ops) => {
-                    let sides: Vec<&Ex> = std::iter::once(l.as_ref())
-                        .chain(ops.iter().map(|(_, x)| x))
-                        .collect();
+                    let sides: Vec<&Ex> = std::iter::once(l.as_ref()).chain(ops.iter().map(|(_, x)| x)).collect();
                     if sides.iter().any(|x| is_name(x, n)) {
                         match sentinel_test(e, n) {
                             Some((x, op)) if matches!(op, "is" | "is not" | "==" | "!=") => {
@@ -251,17 +211,9 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                     }
                 }
                 Ex::FStr(_) | Ex::Bin("%", ..) if mentions(e, n) => ok = false,
-                Ex::Lambda(p, _)
-                    if p.pos
-                        .iter()
-                        .any(|x| x.0 == n || x.1.as_ref().is_some_and(|d| mentions(d, n))) =>
-                {
-                    ok = false
-                }
+                Ex::Lambda(p, _) if p.pos.iter().any(|x| x.0 == n || x.1.as_ref().is_some_and(|d| mentions(d, n))) => ok = false,
                 Ex::Walrus(m, _) if m == n => ok = false,
-                Ex::Comp(_, _, _, fors) if fors.iter().any(|c| mentions(&c.target, n)) => {
-                    ok = false
-                }
+                Ex::Comp(_, _, _, fors) if fors.iter().any(|c| mentions(&c.target, n)) => ok = false,
                 _ => {}
             }
         });
@@ -293,37 +245,22 @@ fn safe(body: &[Stmt], n: &str) -> bool {
     !tested
 }
 
-fn truth_tests(
-    stmts: &[Stmt],
-    n: &str,
-    carriers: &HashSet<String>,
-    guarded: &HashSet<String>,
-    tested: &mut bool,
-) {
+fn truth_tests(stmts: &[Stmt], n: &str, carriers: &HashSet<String>, guarded: &HashSet<String>, tested: &mut bool) {
     let mut g = guarded.clone();
     for s in stmts {
         // A name set again here may hold the sentinel again.
         let mut sets: Vec<String> = vec![];
-        each_stmt(std::slice::from_ref(s), &mut |x| match &x.st {
-            St::Assign(ts, _) => ts.iter().for_each(|t| {
-                walk_ex(t, &mut |e| {
-                    if let Ex::Name(m) = e {
-                        sets.push(m.clone())
-                    }
-                })
-            }),
-            St::For(t, ..) => walk_ex(t, &mut |e| {
-                if let Ex::Name(m) = e {
-                    sets.push(m.clone())
-                }
-            }),
-            _ => {}
+        each_stmt(std::slice::from_ref(s), &mut |x| {
+            match &x.st {
+                St::Assign(ts, _) => ts.iter().for_each(|t| walk_ex(t, &mut |e| if let Ex::Name(m) = e { sets.push(m.clone()) })),
+                St::For(t, ..) => walk_ex(t, &mut |e| if let Ex::Name(m) = e { sets.push(m.clone()) }),
+                _ => {}
+            }
         });
         for m in &sets {
             g.remove(m);
         }
-        let truth =
-            |e: &Ex| matches!(e, Ex::Name(m) if (carriers.contains(m) || m == n) && !g.contains(m));
+        let truth = |e: &Ex| matches!(e, Ex::Name(m) if (carriers.contains(m) || m == n) && !g.contains(m));
         match &s.st {
             St::If(arms, _) => *tested |= arms.iter().any(|(c, _)| truth(c)),
             St::While(c, ..) | St::Assert(c, _) => *tested |= truth(c),
@@ -340,19 +277,12 @@ fn truth_tests(
             _ => {}
         });
         // Nested blocks: a function body starts with nothing guarded.
-        let inner = if matches!(s.st, St::Def(_) | St::Class(_)) {
-            HashSet::new()
-        } else {
-            g.clone()
-        };
+        let inner = if matches!(s.st, St::Def(_) | St::Class(_)) { HashSet::new() } else { g.clone() };
         each_block(&s.st, &mut |b| truth_tests(b, n, carriers, &inner, tested));
         // `if v is MISSING or ...: return` (one arm, no else): v is not the sentinel after it.
         if let St::If(arms, None) = &s.st {
             if let [(c, b)] = arms.as_slice() {
-                let leaves_block = matches!(
-                    b.last().map(|x| &x.st),
-                    Some(St::Return(_) | St::Raise(..) | St::Continue | St::Break)
-                );
+                let leaves_block = matches!(b.last().map(|x| &x.st), Some(St::Return(_) | St::Raise(..) | St::Continue | St::Break));
                 let mut leaves = vec![];
                 chain(c, true, &mut leaves);
                 if leaves_block {
@@ -379,10 +309,7 @@ fn makes_none(body: &[Stmt], paired: &HashSet<*const Ex>) -> bool {
     let mut gives_none: HashSet<String> = HashSet::new();
     each_stmt(body, &mut |s| {
         if let St::Def(d) = &s.st {
-            let mut bare = !matches!(
-                d.body.last().map(|s| &s.st),
-                Some(St::Return(Some(_)) | St::Raise(..))
-            );
+            let mut bare = !matches!(d.body.last().map(|s| &s.st), Some(St::Return(Some(_)) | St::Raise(..)));
             each_stmt(&d.body, &mut |x| bare |= matches!(x.st, St::Return(None)));
             if bare {
                 gives_none.insert(d.name.clone());
@@ -397,9 +324,7 @@ fn makes_none(body: &[Stmt], paired: &HashSet<*const Ex>) -> bool {
         if let St::Expr(e) = &s.st {
             dropped.insert(e as *const Ex);
             if let Ex::Call(f, args) = e {
-                if let (Ex::Attr(_, m), [Arg::Pos(_), Arg::Pos(x @ Ex::NoneV)]) =
-                    (f.as_ref(), args.as_slice())
-                {
+                if let (Ex::Attr(_, m), [Arg::Pos(_), Arg::Pos(x @ Ex::NoneV)]) = (f.as_ref(), args.as_slice()) {
                     if m == "pop" {
                         ok_none.insert(x as *const Ex);
                     }
@@ -407,18 +332,11 @@ fn makes_none(body: &[Stmt], paired: &HashSet<*const Ex>) -> bool {
             }
         }
         if let St::Def(d) = &s.st {
-            found |= d
-                .params
-                .pos
-                .iter()
-                .chain(&d.params.kwonly)
-                .any(|p| matches!(p.1, Some(Ex::NoneV)));
+            found |= d.params.pos.iter().chain(&d.params.kwonly).any(|p| matches!(p.1, Some(Ex::NoneV)));
         }
         walk_st(&s.st, &mut |e| {
             if let Ex::Cmp(l, ops) = e {
-                if paired.contains(&(e as *const Ex))
-                    || none_test(e).is_some_and(|(x, _)| re_call(x))
-                {
+                if paired.contains(&(e as *const Ex)) || none_test(e).is_some_and(|(x, _)| re_call(x)) {
                     ok_none.insert(l.as_ref() as *const Ex);
                     ops.iter().for_each(|(_, x)| {
                         ok_none.insert(x as *const Ex);
@@ -434,11 +352,7 @@ fn makes_none(body: &[Stmt], paired: &HashSet<*const Ex>) -> bool {
             Ex::Call(f, args) => {
                 let used = !dropped.contains(&(e as *const Ex));
                 match f.as_ref() {
-                    Ex::Attr(_, m)
-                        if args.len() == 1 && matches!(m.as_str(), "get" | "setdefault") =>
-                    {
-                        found = true
-                    }
+                    Ex::Attr(_, m) if args.len() == 1 && matches!(m.as_str(), "get" | "setdefault") => found = true,
                     Ex::Attr(_, m) | Ex::Name(m) if used && gives_none.contains(m) => found = true,
                     _ => {}
                 }
@@ -454,10 +368,7 @@ fn makes_none(body: &[Stmt], paired: &HashSet<*const Ex>) -> bool {
 fn replace(lines: &[String], def_line: usize, n: &str) -> Option<Vec<String>> {
     let mut out = lines.to_vec();
     let d = out.get_mut(def_line.checked_sub(1)?)?;
-    if d.trim() != format!("{n} = object()")
-        && !d.trim().starts_with(&format!("{n} = object()  #"))
-        && !d.trim().starts_with(&format!("{n} = object() #"))
-    {
+    if d.trim() != format!("{n} = object()") && !d.trim().starts_with(&format!("{n} = object()  #")) && !d.trim().starts_with(&format!("{n} = object() #")) {
         return None;
     }
     *d = "pass".into();
@@ -503,10 +414,7 @@ fn swap_words(l: &str, n: &str) -> Option<String> {
             i += 1;
             continue;
         }
-        if b[i..].starts_with(&nc)
-            && (i == 0 || !word(b[i - 1]) && b[i - 1] != '.')
-            && b.get(i + nc.len()).map_or(true, |&c| !word(c))
-        {
+        if b[i..].starts_with(&nc) && (i == 0 || !word(b[i - 1]) && b[i - 1] != '.') && b.get(i + nc.len()).map_or(true, |&c| !word(c)) {
             out.push_str("None");
             i += nc.len();
             continue;
@@ -527,49 +435,25 @@ mod tests {
     fn sentinel_made_none() {
         let src = "store = {}\nlog = []\nMISSING = object()\ndef setk(k, v):\n    log.append((k, store.get(k, MISSING)))\n    if v is MISSING:\n        store.pop(k, None)\n    else:\n        store[k] = v\nsetk('a', '1')\nfor k, old in log:\n    if old is MISSING:\n        print(k)\n";
         let out = rewrite(src);
-        assert!(
-            out.contains("store.get(k, None)")
-                && out.contains("if old is None:")
-                && out.contains("\npass\n"),
-            "{out}"
-        );
-        assert!(swapped(
-            "M = object()\ndef f(v=M):\n    return v is M or v is None\nprint(f())\n"
-        ));
-        assert!(swapped(
-            "import re\nM = object()\nx = M\nprint(x is M, re.match('a', 'a') is not None)\n"
-        ));
+        assert!(out.contains("store.get(k, None)") && out.contains("if old is None:") && out.contains("\npass\n"), "{out}");
+        assert!(swapped("M = object()\ndef f(v=M):\n    return v is M or v is None\nprint(f())\n"));
+        assert!(swapped("import re\nM = object()\nx = M\nprint(x is M, re.match('a', 'a') is not None)\n"));
     }
     #[test]
     fn sentinel_kept_when_none_or_truth_could_tell() {
         // An unpaired None test: the value may be either.
-        assert!(!swapped(
-            "M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None)\n"
-        ));
+        assert!(!swapped("M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None)\n"));
         // Tested for truth: object() is true, None is false.
-        assert!(!swapped(
-            "M = object()\nd = {}\nv = d.get('k', M)\nif v:\n    print(1)\n"
-        ));
+        assert!(!swapped("M = object()\nd = {}\nv = d.get('k', M)\nif v:\n    print(1)\n"));
         // Shown.
         assert!(!swapped("M = object()\nprint(M)\n"));
         assert!(!swapped("M = object()\nprint(f'{M}')\n"));
-        assert_eq!(
-            rewrite("M = object()  # M marks none\nx = 'M'\nprint(x is M)\n"),
-            "pass\nx = 'M'\nprint(x is None)\n"
-        );
+        assert_eq!(rewrite("M = object()  # M marks none\nx = 'M'\nprint(x is M)\n"), "pass\nx = 'M'\nprint(x is None)\n");
         // None passed on as a value, told apart from the sentinel: rewriting would make the two one.
-        assert!(!swapped(
-            "M = object()\ndef get(d, k, default=M):\n    if k in d:\n        return d[k]\n    if default is M:\n        raise KeyError(k)\n    return default\nprint(get({}, 'a', None))\n"
-        ));
-        assert!(!swapped(
-            "M = object()\ndef f(x=M):\n    if x is M:\n        return 'unset'\n    return 'set'\nprint(f(None), f())\n"
-        ));
-        assert!(!swapped(
-            "M = object()\nd = {}\nv = d.get('k')\nprint(v is M)\n"
-        ));
-        assert!(!swapped(
-            "M = object()\ndef g():\n    pass\nv = g()\nprint(v is M)\n"
-        ));
+        assert!(!swapped("M = object()\ndef get(d, k, default=M):\n    if k in d:\n        return d[k]\n    if default is M:\n        raise KeyError(k)\n    return default\nprint(get({}, 'a', None))\n"));
+        assert!(!swapped("M = object()\ndef f(x=M):\n    if x is M:\n        return 'unset'\n    return 'set'\nprint(f(None), f())\n"));
+        assert!(!swapped("M = object()\nd = {}\nv = d.get('k')\nprint(v is M)\n"));
+        assert!(!swapped("M = object()\ndef g():\n    pass\nv = g()\nprint(v is M)\n"));
         // Set twice.
         assert!(!swapped("M = object()\nM = object()\nprint(1 is M)\n"));
     }

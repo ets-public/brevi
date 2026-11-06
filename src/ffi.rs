@@ -25,12 +25,12 @@ pub struct Dep {
 #[derive(Debug, Clone, Default)]
 pub struct Foreign {
     pub deps: Vec<Dep>,
-    pub rust_fns: Vec<String>, // bodies, indexed by the K in __rust__(K)
+    pub rust_fns: Vec<String>,         // bodies, indexed by the K in __rust__(K)
     pub py_fns: Vec<(String, String)>, // (param names joined by ", ", body)
-    pub rust_top: String,      // `rust:` blocks
-    pub py_top: String,        // `py:` blocks
+    pub rust_top: String,              // `rust:` blocks
+    pub py_top: String,                // `py:` blocks
     pub rust_lines: Vec<(usize, usize)>, // first and last source line of each rust fn and rust: block
-    pub rust_starts: Vec<usize>,         // the source line of each rust fn body's first line
+    pub rust_starts: Vec<usize>,       // the source line of each rust fn body's first line
 }
 
 fn indent_of(l: &str) -> usize {
@@ -47,22 +47,8 @@ fn take_block(lines: &[&str], start: usize) -> (usize, String) {
         end -= 1;
     }
     let body = &lines[start..end];
-    let min = body
-        .iter()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| indent_of(l))
-        .min()
-        .unwrap_or(0);
-    let text: Vec<&str> = body
-        .iter()
-        .map(|l| {
-            if l.len() >= min {
-                &l[min..]
-            } else {
-                l.trim_start()
-            }
-        })
-        .collect();
+    let min = body.iter().filter(|l| !l.trim().is_empty()).map(|l| indent_of(l)).min().unwrap_or(0);
+    let text: Vec<&str> = body.iter().map(|l| if l.len() >= min { &l[min..] } else { l.trim_start() }).collect();
     (end, text.join("\n"))
 }
 
@@ -74,15 +60,8 @@ fn parse_use(l: &str, line: usize) -> Option<Dep> {
         None => rest,
     }
     .trim();
-    let (name, mut tail) = rest
-        .split_once(char::is_whitespace)
-        .map_or((rest, ""), |(a, b)| (a, b.trim()));
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        || !name.chars().next()?.is_ascii_alphabetic()
-    {
+    let (name, mut tail) = rest.split_once(char::is_whitespace).map_or((rest, ""), |(a, b)| (a, b.trim()));
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') || !name.chars().next()?.is_ascii_alphabetic() {
         return None;
     }
     let mut strs = vec![];
@@ -94,26 +73,9 @@ fn parse_use(l: &str, line: usize) -> Option<Dep> {
     if !tail.is_empty() || strs.len() > 2 {
         return None;
     }
-    let version = strs
-        .first()
-        .cloned()
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| "*".into());
-    let features = strs
-        .get(1)
-        .map(|f| {
-            f.split(|c: char| c == ',' || c.is_whitespace())
-                .filter(|s| !s.is_empty())
-                .map(String::from)
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(Dep {
-        name: name.to_string(),
-        version,
-        features,
-        line,
-    })
+    let version = strs.first().cloned().filter(|v| !v.is_empty()).unwrap_or_else(|| "*".into());
+    let features = strs.get(1).map(|f| f.split(|c: char| c == ',' || c.is_whitespace()).filter(|s| !s.is_empty()).map(String::from).collect()).unwrap_or_default();
+    Some(Dep { name: name.to_string(), version, features, line })
 }
 
 // Splits `rust fn sig:` / `rust fn sig = expr` into (sig, Some(one-line body)) where sig ends after the return type.
@@ -138,10 +100,7 @@ fn split_sig(rest: &str) -> Option<(String, Option<String>)> {
     let after = &rest[close + 1..];
     if let Some(eq) = after.find('=').filter(|&i| !after[i..].starts_with("=>")) {
         let body = after[eq + 1..].trim().to_string();
-        return Some((
-            format!("{}{}", &rest[..=close], after[..eq].trim_end()),
-            Some(body),
-        ));
+        return Some((format!("{}{}", &rest[..=close], after[..eq].trim_end()), Some(body)));
     }
     let t = after.trim_end();
     let t = t.strip_suffix(':')?;
@@ -205,14 +164,7 @@ pub fn split(src: &str) -> (String, Foreign) {
             continue;
         };
         let (end, body) = match inline {
-            Some(b) => (
-                i + 1,
-                if lang == "py" {
-                    format!("return {b}")
-                } else {
-                    b
-                },
-            ),
+            Some(b) => (i + 1, if lang == "py" { format!("return {b}") } else { b }),
             None => take_block(&lines, i + 1),
         };
         let mut sig = sig;
@@ -275,11 +227,7 @@ fn split_params(s: &str) -> Vec<String> {
 
 // Rust code with a line marker on each line, so rustc errors point at the Brevi source line.
 pub fn marked(code: &str, first: usize) -> String {
-    code.lines()
-        .enumerate()
-        .map(|(k, l)| format!("/*@L{}*/{l}", first + k))
-        .collect::<Vec<_>>()
-        .join("\n")
+    code.lines().enumerate().map(|(k, l)| format!("/*@L{}*/{l}", first + k)).collect::<Vec<_>>().join("\n")
 }
 
 // Puts each foreign body into its marker call: `__rust__(K)` becomes `__rust__("code")`.
@@ -289,13 +237,7 @@ pub fn attach(items: &mut [Item], f: &Foreign) {
             if let Expr::Call(name, args, _) = body {
                 if (name == "__rust__" || name == "__py__") && args.len() == 1 {
                     if let Expr::Int(k) = args[0].1 {
-                        let code = if name == "__rust__" {
-                            f.rust_fns
-                                .get(k as usize)
-                                .map(|c| marked(c, f.rust_starts[k as usize]))
-                        } else {
-                            f.py_fns.get(k as usize).map(|p| p.1.clone())
-                        };
+                        let code = if name == "__rust__" { f.rust_fns.get(k as usize).map(|c| marked(c, f.rust_starts[k as usize])) } else { f.py_fns.get(k as usize).map(|p| p.1.clone()) };
                         args[0].1 = Expr::Str(vec![StrPart::Lit(code.unwrap_or_default())]);
                     }
                 }
@@ -325,42 +267,14 @@ pub fn foreign_body(body: &Expr) -> Option<(&'static str, &str)> {
 }
 
 const NOT_CRATES: &[&str] = &[
-    "std",
-    "core",
-    "alloc",
-    "crate",
-    "self",
-    "super",
-    "i8",
-    "i16",
-    "i32",
-    "i64",
-    "i128",
-    "isize",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
-    "u128",
-    "usize",
-    "f32",
-    "f64",
-    "bool",
-    "char",
-    "str",
-    "proc_macro",
+    "std", "core", "alloc", "crate", "self", "super", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
+    "f32", "f64", "bool", "char", "str", "proc_macro",
 ];
 
 // Crates that rust code names by path (`sha2::Sha256`, `use rand::Rng`) and no `use` line declares: added at any version.
 pub fn all_deps(f: &Foreign) -> Vec<Dep> {
     let mut deps = f.deps.clone();
-    let code: String = f
-        .rust_fns
-        .iter()
-        .map(|s| s.as_str())
-        .chain([f.rust_top.as_str()])
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code: String = f.rust_fns.iter().map(|s| s.as_str()).chain([f.rust_top.as_str()]).collect::<Vec<_>>().join("\n");
     let b = code.as_bytes();
     let mut i = 0;
     while i < b.len() {
@@ -383,34 +297,15 @@ pub fn all_deps(f: &Foreign) -> Vec<Dep> {
             }
             continue;
         }
-        if c.is_ascii_lowercase()
-            && (i == 0
-                || !(b[i - 1].is_ascii_alphanumeric()
-                    || b[i - 1] == b'_'
-                    || b[i - 1] == b':'
-                    || b[i - 1] == b'\''
-                    || b[i - 1] == b'.'))
-        {
+        if c.is_ascii_lowercase() && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b':' || b[i - 1] == b'\'' || b[i - 1] == b'.')) {
             let s = i;
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
                 i += 1;
             }
             let w = &code[s..i];
-            let local_mod =
-                code.contains(&format!("mod {w} ")) || code.contains(&format!("mod {w}{{"));
-            if code[i..].starts_with("::")
-                && !code[i..].starts_with("::<")
-                && !local_mod
-                && !NOT_CRATES.contains(&w)
-                && !w.starts_with("ax_")
-                && !deps.iter().any(|d| d.name.replace('-', "_") == w)
-            {
-                deps.push(Dep {
-                    name: w.to_string(),
-                    version: "*".into(),
-                    features: vec![],
-                    line: 0,
-                });
+            let local_mod = code.contains(&format!("mod {w} ")) || code.contains(&format!("mod {w}{{"));
+            if code[i..].starts_with("::") && !code[i..].starts_with("::<") && !local_mod && !NOT_CRATES.contains(&w) && !w.starts_with("ax_") && !deps.iter().any(|d| d.name.replace('-', "_") == w) {
+                deps.push(Dep { name: w.to_string(), version: "*".into(), features: vec![], line: 0 });
             }
             continue;
         }
@@ -435,40 +330,13 @@ pub fn cargo_toml(name: &str, deps: &[Dep]) -> String {
 }
 
 // Rust for one foreign function. Brevi values arrive as Rust values (str is String, [T] is Vec<T>, `mut` params are &mut).
-pub fn rust_fn(
-    name: &str,
-    params: &[Param],
-    ret: &Ty,
-    fallible: bool,
-    lang: &str,
-    code: &str,
-    line: usize,
-    py_index: usize,
-) -> String {
+pub fn rust_fn(name: &str, params: &[Param], ret: &Ty, fallible: bool, lang: &str, code: &str, line: usize, py_index: usize) -> String {
     use crate::emit::rust_ty;
-    let ps: Vec<String> = params
-        .iter()
-        .map(|p| {
-            if p.is_mut {
-                format!("{}: &mut {}", p.name, rust_ty(&p.ty))
-            } else {
-                format!("mut {}: {}", p.name, rust_ty(&p.ty))
-            }
-        })
-        .collect();
+    let ps: Vec<String> = params.iter().map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) }).collect();
     let names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
     let rt = rust_ty(ret);
     if lang == "py" {
-        let args: Vec<String> = params
-            .iter()
-            .map(|p| {
-                format!(
-                    "AxToJson::ax_json(&{}{})",
-                    if p.is_mut { "*" } else { "" },
-                    p.name
-                )
-            })
-            .collect();
+        let args: Vec<String> = params.iter().map(|p| format!("AxToJson::ax_json(&{}{})", if p.is_mut { "*" } else { "" }, p.name)).collect();
         return format!(
             "/*@L{line}*/fn {name}({}) -> R<{rt}> {{\n    AX_LINE.store({line}, std::sync::atomic::Ordering::Relaxed);\n    let v = ax_py({py_index}, vec![{}])?;\n    AxFromJson::ax_from(&v).map_err(|m| AxErr(format!(\"{name}: python returned {{}}, {{}}\", v.show(), m)))\n}}\n",
             ps.join(", "),
@@ -478,16 +346,7 @@ pub fn rust_fn(
     let code = code.replace('\n', "\n        ");
     let code = code.trim_start();
     if fallible {
-        let inner: Vec<String> = params
-            .iter()
-            .map(|p| {
-                if p.is_mut {
-                    format!("{}: &mut {}", p.name, rust_ty(&p.ty))
-                } else {
-                    format!("mut {}: {}", p.name, rust_ty(&p.ty))
-                }
-            })
-            .collect();
+        let inner: Vec<String> = params.iter().map(|p| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) }).collect();
         format!(
             "/*@L{line}*/fn {name}({}) -> R<{rt}> {{\n    #[allow(unused_mut, unused_imports)]\n    fn ax_inner({}) -> Result<{rt}, Box<dyn std::error::Error>> {{\n        {code}\n    }}\n/*@L{line}*/    ax_inner({}).map_err(|e| AxErr(e.to_string()))\n}}\n",
             ps.join(", "),
@@ -495,15 +354,8 @@ pub fn rust_fn(
             names.join(", ")
         )
     } else {
-        let r = if matches!(ret, Ty::Unit) {
-            String::new()
-        } else {
-            format!(" -> {rt}")
-        };
-        format!(
-            "/*@L{line}*/#[allow(unused_mut, unused_imports)]\nfn {name}({}){r} {{\n        {code}\n}}\n",
-            ps.join(", ")
-        )
+        let r = if matches!(ret, Ty::Unit) { String::new() } else { format!(" -> {rt}") };
+        format!("/*@L{line}*/#[allow(unused_mut, unused_imports)]\nfn {name}({}){r} {{\n        {code}\n}}\n", ps.join(", "))
     }
 }
 
@@ -515,20 +367,14 @@ pub fn py_driver(f: &Foreign, names: &[String]) -> String {
     for (k, (params, body)) in f.py_fns.iter().enumerate() {
         let name = names.get(k).cloned().unwrap_or_else(|| format!("f{k}"));
         s.push_str(&format!("def {name}({params}):\n"));
-        let b = if body.trim().is_empty() {
-            "pass".to_string()
-        } else {
-            body.clone()
-        };
+        let b = if body.trim().is_empty() { "pass".to_string() } else { body.clone() };
         for l in b.lines() {
             s.push_str("    ");
             s.push_str(l);
             s.push('\n');
         }
     }
-    let list: Vec<String> = (0..f.py_fns.len())
-        .map(|k| names.get(k).cloned().unwrap_or_else(|| format!("f{k}")))
-        .collect();
+    let list: Vec<String> = (0..f.py_fns.len()).map(|k| names.get(k).cloned().unwrap_or_else(|| format!("f{k}"))).collect();
     s.push_str(&format!("_ax_fns = [{}]\n", list.join(", ")));
     s.push_str(
         "def _ax_conv(o):\n    if hasattr(o, 'tolist'): return o.tolist()\n    if isinstance(o, (set, frozenset)): return sorted(o)\n    if hasattr(o, 'item'): return o.item()\n    if hasattr(o, '__dict__'): return o.__dict__\n    return str(o)\n\
@@ -544,15 +390,7 @@ pub fn py_support(driver: &str, items: &[Item]) -> String {
     for it in items {
         match it {
             Item::Type { name, fields, .. } => {
-                let to: Vec<String> = fields
-                    .iter()
-                    .map(|f| {
-                        format!(
-                            "m.insert({:?}.to_string(), AxToJson::ax_json(&self.{}));",
-                            f.name, f.name
-                        )
-                    })
-                    .collect();
+                let to: Vec<String> = fields.iter().map(|f| format!("m.insert({:?}.to_string(), AxToJson::ax_json(&self.{}));", f.name, f.name)).collect();
                 let from: Vec<String> = fields.iter().map(|f| format!("{}: AxFromJson::ax_from(o.get(&{:?}.to_string()).unwrap_or(&Json::Null)).map_err(|e| format!(\"field {}: {{e}}\"))?,", f.name, f.name, f.name)).collect();
                 s.push_str(&format!(
                     "impl AxToJson for {name} {{ fn ax_json(&self) -> Json {{ let mut m = AxM::ordered(); {} Json::Obj {{ v: m }} }} }}\nimpl AxFromJson for {name} {{ fn ax_from(j: &Json) -> Result<Self, String> {{ match j {{ Json::Obj {{ v: o }} => Ok({name} {{ {} }}), _ => Err(\"expected an object\".into()) }} }} }}\n",

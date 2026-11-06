@@ -21,17 +21,13 @@ use crate::diag::esc;
 use crate::dynpy::tok::{hex, sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Stdio, exit};
+use std::process::{exit, Stdio};
 use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage: brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]";
 
 fn usage(msg: &str) -> ! {
-    println!(
-        "{{\"verify\":\"error\",\"msg\":\"{}\",\"fix\":\"{}\"}}",
-        esc(msg),
-        esc(USAGE)
-    );
+    println!("{{\"verify\":\"error\",\"msg\":\"{}\",\"fix\":\"{}\"}}", esc(msg), esc(USAGE));
     exit(2);
 }
 
@@ -45,14 +41,10 @@ struct Run {
 }
 
 fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration) -> Result<Run, String> {
-    c.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     let start = Instant::now();
-    let mut child = c
-        .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
+    let mut child = c.spawn().map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
     let si = child.stdin.take();
     let input = stdin.to_vec();
     std::thread::spawn(move || {
@@ -69,18 +61,8 @@ fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration) -> Result<Ru
             b
         })
     };
-    let out = read(
-        child
-            .stdout
-            .take()
-            .map(|r| Box::new(r) as Box<dyn Read + Send>),
-    );
-    let err = read(
-        child
-            .stderr
-            .take()
-            .map(|r| Box::new(r) as Box<dyn Read + Send>),
-    );
+    let out = read(child.stdout.take().map(|r| Box::new(r) as Box<dyn Read + Send>));
+    let err = read(child.stderr.take().map(|r| Box::new(r) as Box<dyn Read + Send>));
     let mut timed_out = false;
     let status = loop {
         match child.try_wait() {
@@ -98,13 +80,7 @@ fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration) -> Result<Ru
     let ms = start.elapsed().as_millis();
     // Anything the program left running (a background child holding the pipes) goes too.
     crate::proc::stop_pid(child.id());
-    Ok(Run {
-        out: out.join().unwrap_or_default(),
-        err: err.join().unwrap_or_default(),
-        code: status.and_then(|s| exit_code(s)),
-        ms,
-        timed_out,
-    })
+    Ok(Run { out: out.join().unwrap_or_default(), err: err.join().unwrap_or_default(), code: status.and_then(|s| exit_code(s)), ms, timed_out })
 }
 
 fn exit_code(s: std::process::ExitStatus) -> Option<i32> {
@@ -152,9 +128,7 @@ fn first_diff(a: &[u8], b: &[u8]) -> (usize, String, String) {
 }
 
 fn clip(l: &str) -> String {
-    let l = l
-        .strip_suffix('\n')
-        .map_or_else(|| format!("{l}(no newline)"), |s| s.to_string());
+    let l = l.strip_suffix('\n').map_or_else(|| format!("{l}(no newline)"), |s| s.to_string());
     if l.chars().count() > 200 {
         format!("{}...", l.chars().take(200).collect::<String>())
     } else {
@@ -168,21 +142,9 @@ fn inputs(paths: &[String]) -> Vec<(String, Vec<u8>)> {
         let path = Path::new(p);
         if path.is_dir() {
             let mut files: Vec<PathBuf> = std::fs::read_dir(path)
-                .map(|rd| {
-                    rd.filter_map(|e| e.ok().map(|e| e.path()))
-                        .filter(|f| {
-                            f.is_file()
-                                && !f
-                                    .file_name()
-                                    .is_some_and(|n| n.to_string_lossy().starts_with('.'))
-                        })
-                        .collect()
-                })
+                .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).filter(|f| f.is_file() && !f.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))).collect())
                 .unwrap_or_default();
-            if files
-                .iter()
-                .any(|f| f.extension().is_some_and(|e| e == "in"))
-            {
+            if files.iter().any(|f| f.extension().is_some_and(|e| e == "in")) {
                 files.retain(|f| f.extension().is_some_and(|e| e == "in"));
             }
             files.sort();
@@ -191,13 +153,11 @@ fn inputs(paths: &[String]) -> Vec<(String, Vec<u8>)> {
             }
             for f in files {
                 let name = f.to_string_lossy().to_string();
-                let data = std::fs::read(&f)
-                    .unwrap_or_else(|e| usage(&format!("cannot read {name}: {e}")));
+                let data = std::fs::read(&f).unwrap_or_else(|e| usage(&format!("cannot read {name}: {e}")));
                 out.push((name, data));
             }
         } else {
-            let data =
-                std::fs::read(path).unwrap_or_else(|e| usage(&format!("cannot read {p}: {e}")));
+            let data = std::fs::read(path).unwrap_or_else(|e| usage(&format!("cannot read {p}: {e}")));
             out.push((p.clone(), data));
         }
     }
@@ -208,17 +168,11 @@ fn inputs(paths: &[String]) -> Vec<(String, Vec<u8>)> {
 }
 
 fn python_version(python: &str) -> String {
-    let o = crate::proc::program(python)
-        .arg("-c")
-        .arg("import sys; print('%d.%d.%d' % sys.version_info[:3])")
-        .output();
+    let o = crate::proc::program(python).arg("-c").arg("import sys; print('%d.%d.%d' % sys.version_info[:3])").output();
     match o {
         Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
         _ => {
-            println!(
-                "{{\"verify\":\"error\",\"msg\":\"{} not found: verify compares the build with CPython\",\"fix\":\"install python3, or set BREVI_PYTHON to the interpreter to compare with\"}}",
-                esc(python)
-            );
+            println!("{{\"verify\":\"error\",\"msg\":\"{} not found: verify compares the build with CPython\",\"fix\":\"install python3, or set BREVI_PYTHON to the interpreter to compare with\"}}", esc(python));
             exit(2);
         }
     }
@@ -235,12 +189,7 @@ pub fn main(argv: &[String]) -> ! {
     let mut i = 0;
     while i < dash {
         let a = argv[i].as_str();
-        let value = |i: usize| {
-            argv.get(i + 1)
-                .filter(|_| i + 1 < dash)
-                .cloned()
-                .unwrap_or_else(|| usage(&format!("{a} needs a value")))
-        };
+        let value = |i: usize| argv.get(i + 1).filter(|_| i + 1 < dash).cloned().unwrap_or_else(|| usage(&format!("{a} needs a value")));
         match a {
             "--input" => {
                 input_paths.push(value(i));
@@ -249,12 +198,7 @@ pub fn main(argv: &[String]) -> ! {
             _ if a.starts_with("--input=") => input_paths.push(a["--input=".len()..].to_string()),
             "--timeout" => {
                 let v = value(i);
-                limit = Duration::from_secs(
-                    v.parse::<u64>()
-                        .ok()
-                        .filter(|s| *s > 0)
-                        .unwrap_or_else(|| usage("--timeout takes whole seconds above 0")),
-                );
+                limit = Duration::from_secs(v.parse::<u64>().ok().filter(|s| *s > 0).unwrap_or_else(|| usage("--timeout takes whole seconds above 0")));
                 i += 1;
             }
             "--once" => once = true,
@@ -265,19 +209,13 @@ pub fn main(argv: &[String]) -> ! {
             ),
             _ if a.starts_with('-') => usage(&format!("verify has no option {a}")),
             _ if file.is_none() => file = Some(a.to_string()),
-            _ => usage(&format!(
-                "one file at a time ({a} is a second one); pass program arguments after --"
-            )),
+            _ => usage(&format!("one file at a time ({a} is a second one); pass program arguments after --")),
         }
         i += 1;
     }
-    let Some(file) = file else {
-        usage("verify needs a .py file")
-    };
+    let Some(file) = file else { usage("verify needs a .py file") };
     if !file.ends_with(".py") {
-        usage(
-            "verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)",
-        );
+        usage("verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)");
     }
     let src = std::fs::read(&file).unwrap_or_else(|e| usage(&format!("cannot read {file}: {e}")));
     let cases = inputs(&input_paths);
@@ -285,18 +223,9 @@ pub fn main(argv: &[String]) -> ! {
     let pyver = python_version(&python);
 
     // The native build, strict: no CPython fallback, so what runs below is Brevi's own code.
-    let stem = Path::new(&file)
-        .file_stem()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
+    let stem = Path::new(&file).file_stem().unwrap().to_string_lossy().to_string();
     let bin = crate::build_dir_path(&file).join(format!("{stem}-verify"));
-    let mut args: Vec<String> = vec![
-        "build".into(),
-        file.clone(),
-        "-o".into(),
-        bin.to_string_lossy().to_string(),
-    ];
+    let mut args: Vec<String> = vec!["build".into(), file.clone(), "-o".into(), bin.to_string_lossy().to_string()];
     if release {
         args.push("--release".into());
     }
@@ -308,25 +237,13 @@ pub fn main(argv: &[String]) -> ! {
         let mut c = std::process::Command::new(me);
         c.args(&args).envs(envs).env("BREVI_NO_CACHE", "1");
         match c.output() {
-            Ok(o) => crate::runcache::Done {
-                stdout: o.stdout,
-                stderr: o.stderr,
-                code: o.status.code(),
-                hit: false,
-            },
+            Ok(o) => crate::runcache::Done { stdout: o.stdout, stderr: o.stderr, code: o.status.code(), hit: false },
             Err(e) => usage(&format!("cannot start brevi build: {e}")),
         }
     };
     let err = String::from_utf8_lossy(&built.stderr).to_string();
-    let path_line = err
-        .lines()
-        .find(|l| l.starts_with("{\"path\":"))
-        .map(String::from);
-    let path = path_line
-        .as_deref()
-        .and_then(crate::json::parse)
-        .and_then(|j| j.get("path").and_then(|v| v.str()).map(String::from))
-        .unwrap_or_else(|| "typed".into());
+    let path_line = err.lines().find(|l| l.starts_with("{\"path\":")).map(String::from);
+    let path = path_line.as_deref().and_then(crate::json::parse).and_then(|j| j.get("path").and_then(|v| v.str()).map(String::from)).unwrap_or_else(|| "typed".into());
     let common = format!(
         "\"file\":\"{}\",\"sha256\":\"{}\",\"brevi\":\"{}\",\"python\":\"{}\"",
         esc(&file),
@@ -337,12 +254,8 @@ pub fn main(argv: &[String]) -> ! {
     if !built.ok() {
         // Brevi's own errors (one JSON line each), then the verdict: nothing was compared.
         print!("{}", String::from_utf8_lossy(&built.stdout));
-        err.lines()
-            .filter(|l| !l.starts_with("{\"path\":"))
-            .for_each(|l| println!("{l}"));
-        println!(
-            "{{\"verify\":\"not built\",{common},\"msg\":\"Brevi could not build this file natively, so there is nothing to compare; brevi run would hand it to CPython\"}}"
-        );
+        err.lines().filter(|l| !l.starts_with("{\"path\":")).for_each(|l| println!("{l}"));
+        println!("{{\"verify\":\"not built\",{common},\"msg\":\"Brevi could not build this file natively, so there is nothing to compare; brevi run would hand it to CPython\"}}");
         exit(1);
     }
 
@@ -352,11 +265,7 @@ pub fn main(argv: &[String]) -> ! {
     for (n, (name, data)) in cases.iter().enumerate() {
         let n = n + 1;
         let head = format!("\"case\":{n},\"input\":\"{}\"", esc(name));
-        ins.push(format!(
-            "{{\"input\":\"{}\",\"sha256\":\"{}\"}}",
-            esc(name),
-            hex(&sha256(data))
-        ));
+        ins.push(format!("{{\"input\":\"{}\",\"sha256\":\"{}\"}}", esc(name), hex(&sha256(data))));
         let py = || {
             let mut c = crate::proc::program(&python);
             c.arg(&file).args(&prog_args);
@@ -379,18 +288,8 @@ pub fn main(argv: &[String]) -> ! {
         };
         if p.timed_out || b.timed_out {
             timeouts += 1;
-            let who = if p.timed_out {
-                "CPython"
-            } else {
-                "the native build"
-            };
-            fail(
-                &format!(
-                    "\"on\":\"timeout\",\"msg\":\"{who} was stopped after {} s\"",
-                    limit.as_secs()
-                ),
-                "pass --timeout SECS for a longer run",
-            );
+            let who = if p.timed_out { "CPython" } else { "the native build" };
+            fail(&format!("\"on\":\"timeout\",\"msg\":\"{who} was stopped after {} s\"", limit.as_secs()), "pass --timeout SECS for a longer run");
             continue;
         }
         if !once {
@@ -401,9 +300,7 @@ pub fn main(argv: &[String]) -> ! {
             if p2.out != p.out || p2.code != p.code || norm_err(&p2.err) != norm_err(&p.err) {
                 unstable += 1;
                 let (line, a, b2) = first_diff(&p.out, &p2.out);
-                let msg = format!(
-                    "CPython itself answered differently on two runs (line {line}: '{a}' then '{b2}'), so no answer can be certified"
-                );
+                let msg = format!("CPython itself answered differently on two runs (line {line}: '{a}' then '{b2}'), so no answer can be certified");
                 fail(
                     &format!("\"on\":\"unstable\",\"msg\":\"{}\"", esc(&msg)),
                     "seed random, sort sets before printing them, leave out times and ids; or pass --once to compare one run",
@@ -417,84 +314,35 @@ pub fn main(argv: &[String]) -> ! {
         if p.out != b.out {
             differ += 1;
             let (line, a, bb) = first_diff(&p.out, &b.out);
-            fail(
-                &format!(
-                    "\"on\":\"stdout\",\"line\":{line},\"cpython\":\"{}\",\"brevi\":\"{}\",{timing}",
-                    esc(&a),
-                    esc(&bb)
-                ),
-                "a wrong answer from Brevi: please report it at https://github.com/ets-public/brevi/issues; until it is fixed, run this file with python3",
-            );
+            fail(&format!("\"on\":\"stdout\",\"line\":{line},\"cpython\":\"{}\",\"brevi\":\"{}\",{timing}", esc(&a), esc(&bb)), "a wrong answer from Brevi: please report it at https://github.com/ets-public/brevi/issues; until it is fixed, run this file with python3");
         } else if p.code != b.code {
             differ += 1;
             let c = |x: Option<i32>| x.map_or("none".to_string(), |v| v.to_string());
-            let last = |e: &[u8]| {
-                norm_err(e)
-                    .into_iter()
-                    .rev()
-                    .find(|l| !l.is_empty())
-                    .unwrap_or_default()
-            };
+            let last = |e: &[u8]| norm_err(e).into_iter().rev().find(|l| !l.is_empty()).unwrap_or_default();
             fail(
-                &format!(
-                    "\"on\":\"exit code\",\"cpython\":{},\"brevi\":{},\"cpython_err\":\"{}\",\"brevi_err\":\"{}\",{timing}",
-                    c(p.code),
-                    c(b.code),
-                    esc(&last(&p.err)),
-                    esc(&last(&b.err))
-                ),
+                &format!("\"on\":\"exit code\",\"cpython\":{},\"brevi\":{},\"cpython_err\":\"{}\",\"brevi_err\":\"{}\",{timing}", c(p.code), c(b.code), esc(&last(&p.err)), esc(&last(&b.err))),
                 "a wrong answer from Brevi: please report it at https://github.com/ets-public/brevi/issues",
             );
         } else if norm_err(&p.err) != norm_err(&b.err) {
             differ += 1;
-            let (pe, be) = (
-                norm_err(&p.err).join("\n") + "\n",
-                norm_err(&b.err).join("\n") + "\n",
-            );
+            let (pe, be) = (norm_err(&p.err).join("\n") + "\n", norm_err(&b.err).join("\n") + "\n");
             let (line, a, bb) = first_diff(pe.as_bytes(), be.as_bytes());
-            fail(
-                &format!(
-                    "\"on\":\"stderr\",\"line\":{line},\"cpython\":\"{}\",\"brevi\":\"{}\",{timing}",
-                    esc(&a),
-                    esc(&bb)
-                ),
-                "stdout and the exit code match; only stderr differs",
-            );
+            fail(&format!("\"on\":\"stderr\",\"line\":{line},\"cpython\":\"{}\",\"brevi\":\"{}\",{timing}", esc(&a), esc(&bb)), "stdout and the exit code match; only stderr differs");
         } else {
             println!("{{{head},\"same\":true,{timing}}}");
         }
     }
     let _ = std::fs::remove_file(&bin);
     let bad = differ + unstable + timeouts;
-    let speed = if bad == 0 && bv_ms > 0 {
-        format!(",\"speedup\":{:.1}", py_ms as f64 / bv_ms as f64)
-    } else {
-        String::new()
-    };
+    let speed = if bad == 0 && bv_ms > 0 { format!(",\"speedup\":{:.1}", py_ms as f64 / bv_ms as f64) } else { String::new() };
     // A wrong answer outranks the rest: unstable and timed out inputs certify nothing either way.
-    let verdict = if differ > 0 {
-        "differs"
-    } else if unstable > 0 {
-        "unstable"
-    } else if timeouts > 0 {
-        "timeout"
-    } else {
-        "identical"
-    };
-    let checked = if once {
-        "stdout, exit code and stderr, one CPython run"
-    } else {
-        "stdout, exit code and stderr, CPython run twice"
-    };
+    let verdict = if differ > 0 { "differs" } else if unstable > 0 { "unstable" } else if timeouts > 0 { "timeout" } else { "identical" };
+    let checked = if once { "stdout, exit code and stderr, one CPython run" } else { "stdout, exit code and stderr, CPython run twice" };
     println!(
         "{{\"verify\":\"{verdict}\",{common},\"path\":\"{}\",\"inputs\":[{}],\"args\":[{}],\"compared\":\"{checked}\",\"differ\":{differ},\"unstable\":{unstable},\"timeout\":{timeouts},\"cpython_ms\":{py_ms},\"brevi_ms\":{bv_ms}{speed}}}",
         esc(&path),
         ins.join(","),
-        prog_args
-            .iter()
-            .map(|a| format!("\"{}\"", esc(a)))
-            .collect::<Vec<_>>()
-            .join(",")
+        prog_args.iter().map(|a| format!("\"{}\"", esc(a))).collect::<Vec<_>>().join(",")
     );
     exit(if bad == 0 { 0 } else { 1 });
 }

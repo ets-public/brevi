@@ -19,20 +19,18 @@ struct G {
     set_fns: HashSet<String>,    // functions returning a set
     holder_fns: HashSet<String>, // functions returning a container of sets
     params: Vec<(String, Vec<String>)>,
-    matches: HashSet<String>, // names holding a re match (a Match object or None)
-    dicts: HashSet<String>,   // names holding a dict
-    pure_gens: HashSet<String>, // generator functions the typed build may run eagerly
-    tups: HashSet<String>, // names holding tuple(...) of a list or iterator, or containers of them
-    tups1: HashSet<String>, // names holding a one-item tuple `(x,)` ("e:name": a list of them; "f()": returned)
-    pure_fns: HashSet<String>, // functions with no effect but their value (see pure_fns)
+    matches: HashSet<String>,    // names holding a re match (a Match object or None)
+    dicts: HashSet<String>,      // names holding a dict
+    pure_gens: HashSet<String>,  // generator functions the typed build may run eagerly
+    tups: HashSet<String>,       // names holding tuple(...) of a list or iterator, or containers of them
+    tups1: HashSet<String>,      // names holding a one-item tuple `(x,)` ("e:name": a list of them; "f()": returned)
+    pure_fns: HashSet<String>,   // functions with no effect but their value (see pure_fns)
     fn_changes: HashMap<String, Changes>, // what each function changes in place (see program_changes)
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
 pub fn check(src: &str) -> Option<(usize, String)> {
-    check_soft(src)
-        .unwrap_or_else(|(l, m)| Some((l, m, vec![])))
-        .map(|(l, w, _)| (l, w))
+    check_soft(src).unwrap_or_else(|(l, m)| Some((l, m, vec![]))).map(|(l, w, _)| (l, w))
 }
 
 // As check, with the names the typed build may still take the file on (empty: it may not). Every reason
@@ -53,8 +51,7 @@ fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
             return;
         }
         if let Ex::Call(f, args) = e {
-            if matches!(f.as_ref(), Ex::Attr(m, n) if n == "dumps" && matches!(m.as_ref(), Ex::Name(j) if j == "json"))
-            {
+            if matches!(f.as_ref(), Ex::Attr(m, n) if n == "dumps" && matches!(m.as_ref(), Ex::Name(j) if j == "json")) {
                 for a in args {
                     let odd = match a {
                         Arg::Kw(k, v) => match k.as_str() {
@@ -70,10 +67,7 @@ fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
                             Arg::Kw(k, _) => format!("{k}="),
                             _ => "*".into(),
                         };
-                        hit = Some((
-                            line,
-                            format!("json.dumps(..., {k}) the typed build would leave out"),
-                        ));
+                        hit = Some((line, format!("json.dumps(..., {k}) the typed build would leave out")));
                         return;
                     }
                 }
@@ -86,25 +80,9 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     let mut g = G::default();
     collect_params(body, &mut g);
     for _ in 0..8 {
-        let before = (
-            g.sets.len(),
-            g.holders.len(),
-            g.set_fns.len(),
-            g.holder_fns.len(),
-            g.tups.len(),
-            g.tups1.len(),
-        );
+        let before = (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len(), g.tups1.len());
         learn(body, None, &mut g);
-        if before
-            == (
-                g.sets.len(),
-                g.holders.len(),
-                g.set_fns.len(),
-                g.holder_fns.len(),
-                g.tups.len(),
-                g.tups1.len(),
-            )
-        {
+        if before == (g.sets.len(), g.holders.len(), g.set_fns.len(), g.holder_fns.len(), g.tups.len(), g.tups1.len()) {
             break;
         }
     }
@@ -122,27 +100,14 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
         let mut used = HashSet::new();
         nested_names(body, &mut used);
         if let Some(n) = gr.iter().find(|n| used.contains(*n)) {
-            let line = body
-                .iter()
-                .find(|s| matches!(&s.st, St::Assign(..) | St::AugAssign(..)))
-                .map_or(1, |s| s.line);
-            return Some((
-                line,
-                format!(
-                    "`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int"
-                ),
-                vec![],
-            ));
+            let line = body.iter().find(|s| matches!(&s.st, St::Assign(..) | St::AugAssign(..))).map_or(1, |s| s.line);
+            return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int"), vec![]));
         }
     }
     if let Some(line) = crate::dynpy::typing::typed_isinstance(body) {
         return Some((line, "isinstance with a typing name".into(), vec![]));
     }
-    if let Some((line, why)) = odd_decorator(body)
-        .or_else(|| json_kwargs(body))
-        .or_else(|| findall_groups(body))
-        .or_else(|| default_reads(body))
-    {
+    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| findall_groups(body)).or_else(|| default_reads(body)) {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];
@@ -153,17 +118,11 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     if let Some(h) = hits.iter().find(|h| h.2.is_none()) {
         return Some((h.0, h.1.clone(), vec![]));
     }
-    let mut names: Vec<String> = hits
-        .iter()
-        .flat_map(|h| h.2.clone().unwrap_or_default())
-        .collect();
+    let mut names: Vec<String> = hits.iter().flat_map(|h| h.2.clone().unwrap_or_default()).collect();
     names.sort();
     names.dedup();
     // Each name must be set only by `name = ...` (or be a def's parameter), where the typed build checks it.
-    if names
-        .iter()
-        .any(|k| bound_oddly(body, k.split_once(':').map_or(k.as_str(), |x| x.1)))
-    {
+    if names.iter().any(|k| bound_oddly(body, k.split_once(':').map_or(k.as_str(), |x| x.1))) {
         return Some((line, why, vec![]));
     }
     Some((line, why, names))
@@ -189,22 +148,14 @@ fn odd_decorator(body: &[Stmt]) -> Option<(usize, String)> {
         ("typing_extensions", "overload"),
         ("typing_extensions", "runtime_checkable"),
     ];
-    fn imports(
-        body: &[Stmt],
-        mods: &mut HashMap<String, String>,
-        names: &mut HashMap<String, (String, String)>,
-        defined: &mut HashSet<String>,
-    ) {
+    fn imports(body: &[Stmt], mods: &mut HashMap<String, String>, names: &mut HashMap<String, (String, String)>, defined: &mut HashSet<String>) {
         for s in body {
             match &s.st {
                 St::Import(v) => v.iter().for_each(|(m, a)| {
                     mods.insert(a.clone().unwrap_or_else(|| m.clone()), m.clone());
                 }),
                 St::ImportFrom(m, v) => v.iter().for_each(|(n, a)| {
-                    names.insert(
-                        a.clone().unwrap_or_else(|| n.clone()),
-                        (m.clone(), n.clone()),
-                    );
+                    names.insert(a.clone().unwrap_or_else(|| n.clone()), (m.clone(), n.clone()));
                 }),
                 St::Def(d) => {
                     defined.insert(d.name.clone());
@@ -230,28 +181,17 @@ fn odd_decorator(body: &[Stmt]) -> Option<(usize, String)> {
             d => d,
         };
         match d {
-            Ex::Name(n) if matches!(n.as_str(), "staticmethod" | "classmethod" | "property") => {
-                !defined.contains(n) && !names.contains_key(n)
-            }
-            Ex::Name(n) => names
-                .get(n)
-                .is_some_and(|(m, o)| KNOWN.contains(&(m.as_str(), o.as_str()))),
+            Ex::Name(n) if matches!(n.as_str(), "staticmethod" | "classmethod" | "property") => !defined.contains(n) && !names.contains_key(n),
+            Ex::Name(n) => names.get(n).is_some_and(|(m, o)| KNOWN.contains(&(m.as_str(), o.as_str()))),
             Ex::Attr(r, a) => match r.as_ref() {
-                Ex::Name(p) if props.contains(p) => {
-                    matches!(a.as_str(), "setter" | "getter" | "deleter")
-                }
-                Ex::Name(m) => mods
-                    .get(m)
-                    .is_some_and(|m| KNOWN.contains(&(m.as_str(), a.as_str()))),
+                Ex::Name(p) if props.contains(p) => matches!(a.as_str(), "setter" | "getter" | "deleter"),
+                Ex::Name(m) => mods.get(m).is_some_and(|m| KNOWN.contains(&(m.as_str(), a.as_str()))),
                 _ => false,
             },
             _ => false,
         }
     };
-    fn walk(
-        body: &[Stmt],
-        known: &dyn Fn(&Ex, &HashSet<String>) -> bool,
-    ) -> Option<(usize, String)> {
+    fn walk(body: &[Stmt], known: &dyn Fn(&Ex, &HashSet<String>) -> bool) -> Option<(usize, String)> {
         // names of properties in this class body, for `@x.setter`
         let mut props = HashSet::new();
         for s in body {
@@ -259,11 +199,7 @@ fn odd_decorator(body: &[Stmt]) -> Option<(usize, String)> {
                 St::Def(d) => (&d.decorators, d.line, &d.name),
                 St::Class(c) => (&c.decorators, c.line, &c.name),
                 _ => {
-                    if let Some(r) = {
-                        let mut r = None;
-                        each_block(&s.st, &mut |b| r = r.take().or_else(|| walk(b, known)));
-                        r
-                    } {
+                    if let Some(r) = { let mut r = None; each_block(&s.st, &mut |b| r = r.take().or_else(|| walk(b, known))); r } {
                         return Some(r);
                     }
                     continue;
@@ -271,17 +207,11 @@ fn odd_decorator(body: &[Stmt]) -> Option<(usize, String)> {
             };
             for d in decs {
                 if !known(d, &props) {
-                    return Some((
-                        line,
-                        format!("`{name}` has a decorator the typed build would leave out"),
-                    ));
+                    return Some((line, format!("`{name}` has a decorator the typed build would leave out")));
                 }
             }
             if let St::Def(d) = &s.st {
-                if d.decorators
-                    .iter()
-                    .any(|x| matches!(x, Ex::Name(n) if n == "property"))
-                {
+                if d.decorators.iter().any(|x| matches!(x, Ex::Name(n) if n == "property")) {
                     props.insert(d.name.clone());
                 }
             }
@@ -308,35 +238,17 @@ fn bound_oddly(body: &[Stmt], n: &str) -> bool {
     for s in body {
         match &s.st {
             St::For(t, ..) => odd |= names_in(t, n),
-            St::Assign(ts, _) => {
-                odd |= ts.iter().any(|t| {
-                    !matches!(t, Ex::Name(_))
-                        && matches!(t, Ex::Tuple(_) | Ex::List(_) | Ex::Star(_))
-                        && names_in(t, n)
-                })
-            }
-            St::With(items, _) => {
-                odd |= items
-                    .iter()
-                    .any(|(_, t)| t.as_ref().is_some_and(|t| names_in(t, n)))
-            }
+            St::Assign(ts, _) => odd |= ts.iter().any(|t| !matches!(t, Ex::Name(_)) && matches!(t, Ex::Tuple(_) | Ex::List(_) | Ex::Star(_)) && names_in(t, n)),
+            St::With(items, _) => odd |= items.iter().any(|(_, t)| t.as_ref().is_some_and(|t| names_in(t, n))),
             St::Try(_, hs, _, _) => odd |= hs.iter().any(|h| h.name.as_deref() == Some(n)),
-            St::Import(v) | St::ImportFrom(_, v) => {
-                odd |= v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n)
-            }
-            St::Def(d) => {
-                odd |= d.params.star.as_deref() == Some(n)
-                    || d.params.kwstar.as_deref() == Some(n)
-                    || d.params.kwonly.iter().any(|p| p.0 == n)
-            }
+            St::Import(v) | St::ImportFrom(_, v) => odd |= v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n),
+            St::Def(d) => odd |= d.params.star.as_deref() == Some(n) || d.params.kwstar.as_deref() == Some(n) || d.params.kwonly.iter().any(|p| p.0 == n),
             _ => {}
         }
         walk_st(&s.st, &mut |e| match e {
             Ex::Comp(_, _, _, fors) => odd |= fors.iter().any(|c| names_in(&c.target, n)),
             Ex::Walrus(m, _) => odd |= m == n,
-            Ex::Lambda(p, _) => {
-                odd |= p.pos.iter().any(|x| x.0 == n) || p.star.as_deref() == Some(n)
-            }
+            Ex::Lambda(p, _) => odd |= p.pos.iter().any(|x| x.0 == n) || p.star.as_deref() == Some(n),
             _ => {}
         });
         each_block(&s.st, &mut |b| odd |= bound_oddly(b, n));
@@ -350,50 +262,29 @@ fn soft_keys(e: &Ex, g: &G) -> Option<Vec<String>> {
     match e {
         Ex::Name(n) if g.sets.contains(n) && !g.holders.contains(n) => Some(vec![format!("s:{n}")]),
         Ex::Name(n) if g.holders.contains(n) && !g.sets.contains(n) => Some(vec![format!("h:{n}")]),
-        Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if n == "set" || n == "frozenset") => {
-            match args.as_slice() {
-                [Arg::Pos(Ex::Name(m))] => Some(vec![format!("s:{m}")]),
-                _ => None,
-            }
-        }
+        Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if n == "set" || n == "frozenset") => match args.as_slice() {
+            [Arg::Pos(Ex::Name(m))] => Some(vec![format!("s:{m}")]),
+            _ => None,
+        },
         Ex::Call(f, args) if args.is_empty() => match f.as_ref() {
             Ex::Attr(r, m) if m == "copy" => soft_keys(r, g),
             _ => None,
         },
         // `adj.get(u, ())` on a dict of sets: one of its sets (or an empty tuple).
-        Ex::Call(f, args)
-            if matches!(
-                args.as_slice(),
-                [Arg::Pos(_)]
-                    | [
-                        Arg::Pos(_),
-                        Arg::Pos(Ex::Tuple(_) | Ex::List(_) | Ex::Set(_))
-                    ]
-                    | [Arg::Pos(_), Arg::Pos(Ex::Call(..))]
-            ) =>
-        {
-            match f.as_ref() {
-                Ex::Attr(r, m) if m == "get" => match r.as_ref() {
-                    Ex::Name(h) if g.holders.contains(h) && !g.sets.contains(h) => {
-                        Some(vec![format!("h:{h}")])
-                    }
-                    _ => None,
-                },
+        Ex::Call(f, args) if matches!(args.as_slice(), [Arg::Pos(_)] | [Arg::Pos(_), Arg::Pos(Ex::Tuple(_) | Ex::List(_) | Ex::Set(_))] | [Arg::Pos(_), Arg::Pos(Ex::Call(..))]) => match f.as_ref() {
+            Ex::Attr(r, m) if m == "get" => match r.as_ref() {
+                Ex::Name(h) if g.holders.contains(h) && !g.sets.contains(h) => Some(vec![format!("h:{h}")]),
                 _ => None,
-            }
-        }
+            },
+            _ => None,
+        },
         Ex::Index(b, _) => match b.as_ref() {
-            Ex::Name(h) if g.holders.contains(h) && !g.sets.contains(h) => {
-                Some(vec![format!("h:{h}")])
-            }
+            Ex::Name(h) if g.holders.contains(h) && !g.sets.contains(h) => Some(vec![format!("h:{h}")]),
             _ => None,
         },
         Ex::Bin("|" | "&" | "-" | "^", a, b) => {
-            let mut v =
-                soft_keys(a, g).or_else(|| (!is_set(a, g) && !is_holder(a, g)).then(Vec::new))?;
-            v.extend(
-                soft_keys(b, g).or_else(|| (!is_set(b, g) && !is_holder(b, g)).then(Vec::new))?,
-            );
+            let mut v = soft_keys(a, g).or_else(|| (!is_set(a, g) && !is_holder(a, g)).then(Vec::new))?;
+            v.extend(soft_keys(b, g).or_else(|| (!is_set(b, g) && !is_holder(b, g)).then(Vec::new))?);
             (!v.is_empty()).then_some(v)
         }
         _ => None,
@@ -415,21 +306,13 @@ fn soft_all<'a>(xs: impl IntoIterator<Item = &'a Ex>, g: &G) -> Option<Vec<Strin
 fn order_free_call(e: &Ex) -> Option<&Ex> {
     let Ex::Call(f, args) = e else { return None };
     let Ex::Name(n) = f.as_ref() else { return None };
-    if !matches!(
-        n.as_str(),
-        "max" | "min" | "sorted" | "any" | "all" | "len" | "set" | "frozenset" | "sum"
-    ) {
+    if !matches!(n.as_str(), "max" | "min" | "sorted" | "any" | "all" | "len" | "set" | "frozenset" | "sum") {
         return None;
     }
-    if args.iter().any(|a| {
-        !matches!(a, Arg::Pos(_) | Arg::Kw(..))
-            || matches!(a, Arg::Kw(k, _) if k != "reverse" && k != "default")
-    }) {
+    if args.iter().any(|a| !matches!(a, Arg::Pos(_) | Arg::Kw(..)) || matches!(a, Arg::Kw(k, _) if k != "reverse" && k != "default")) {
         return None;
     }
-    let [Arg::Pos(x), ..] = args.as_slice() else {
-        return None;
-    };
+    let [Arg::Pos(x), ..] = args.as_slice() else { return None };
     // sum: only counting (`sum(1 for ...)`); float sums depend on the order.
     if n == "sum" && !matches!(x, Ex::Comp(_, elt, None, _) if matches!(elt.as_ref(), Ex::Int(_))) {
         return None;
@@ -441,10 +324,7 @@ fn collect_params(body: &[Stmt], g: &mut G) {
     for s in body {
         match &s.st {
             St::Def(f) => {
-                g.params.push((
-                    f.name.clone(),
-                    f.params.pos.iter().map(|p| p.0.clone()).collect(),
-                ));
+                g.params.push((f.name.clone(), f.params.pos.iter().map(|p| p.0.clone()).collect()));
                 collect_params(&f.body, g);
             }
             St::Class(c) => collect_params(&c.body, g),
@@ -505,10 +385,7 @@ fn is_set(e: &Ex, g: &G) -> bool {
             Ex::Name(n) if n == "set" || n == "frozenset" => true,
             Ex::Name(n) => g.set_fns.contains(n),
             Ex::Attr(r, m) => {
-                (matches!(
-                    m.as_str(),
-                    "union" | "intersection" | "difference" | "symmetric_difference"
-                ) && is_set(r, g))
+                (matches!(m.as_str(), "union" | "intersection" | "difference" | "symmetric_difference") && is_set(r, g))
                     || (m == "copy" && is_set(r, g))
                     || (matches!(m.as_str(), "get" | "pop" | "setdefault") && is_holder(r, g))
                     || g.set_fns.contains(m.as_str())
@@ -530,19 +407,9 @@ fn jumps_out(body: &[Stmt], in_loop: bool) -> bool {
     body.iter().any(|s| match &s.st {
         St::Return(_) => true,
         St::Break | St::Continue => !in_loop,
-        St::If(arms, e) => {
-            arms.iter().any(|(_, b)| jumps_out(b, in_loop))
-                || e.as_deref().is_some_and(|e| jumps_out(e, in_loop))
-        }
-        St::While(_, b, e) | St::For(_, _, b, e) => {
-            jumps_out(b, true) || e.as_deref().is_some_and(|e| jumps_out(e, in_loop))
-        }
-        St::Try(b, hs, e, f) => {
-            jumps_out(b, in_loop)
-                || hs.iter().any(|h| jumps_out(&h.body, in_loop))
-                || e.as_deref().is_some_and(|e| jumps_out(e, in_loop))
-                || f.as_deref().is_some_and(|f| jumps_out(f, in_loop))
-        }
+        St::If(arms, e) => arms.iter().any(|(_, b)| jumps_out(b, in_loop)) || e.as_deref().is_some_and(|e| jumps_out(e, in_loop)),
+        St::While(_, b, e) | St::For(_, _, b, e) => jumps_out(b, true) || e.as_deref().is_some_and(|e| jumps_out(e, in_loop)),
+        St::Try(b, hs, e, f) => jumps_out(b, in_loop) || hs.iter().any(|h| jumps_out(&h.body, in_loop)) || e.as_deref().is_some_and(|e| jumps_out(e, in_loop)) || f.as_deref().is_some_and(|f| jumps_out(f, in_loop)),
         St::With(_, b) => jumps_out(b, in_loop),
         _ => false,
     })
@@ -556,26 +423,16 @@ fn is_tup1(e: &Ex, g: &G) -> bool {
     match e {
         Ex::Tuple(v) if v.len() == 1 => true,
         Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().any(|x| is_tup1(x, g)),
-        Ex::Dict(items) => items
-            .iter()
-            .any(|(k, v)| k.as_ref().is_some_and(|k| is_tup1(k, g)) || is_tup1(v, g)),
+        Ex::Dict(items) => items.iter().any(|(k, v)| k.as_ref().is_some_and(|k| is_tup1(k, g)) || is_tup1(v, g)),
         // `(a,) + (b,)`: two lists joined is a list; `(a,) + t` with t a real tuple is joined as a tuple.
         Ex::Bin("+", a, b) => is_tup1(a, g) && is_tup1(b, g),
         Ex::Bin("*", a, b) => is_tup1(a, g) || is_tup1(b, g),
-        Ex::Comp(_, elt, val, _) => {
-            is_tup1(elt, g) || val.as_deref().is_some_and(|v| is_tup1(v, g))
-        }
-        Ex::Name(_) | Ex::Attr(..) => {
-            key(e).is_some_and(|k| g.tups1.contains(&k) || g.tups1.contains(&format!("e:{k}")))
-        }
-        Ex::Index(b, i) if !matches!(i.as_ref(), Ex::Slice(..)) => {
-            key(b).is_some_and(|k| g.tups1.contains(&format!("e:{k}")))
-        }
+        Ex::Comp(_, elt, val, _) => is_tup1(elt, g) || val.as_deref().is_some_and(|v| is_tup1(v, g)),
+        Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.tups1.contains(&k) || g.tups1.contains(&format!("e:{k}"))),
+        Ex::Index(b, i) if !matches!(i.as_ref(), Ex::Slice(..)) => key(b).is_some_and(|k| g.tups1.contains(&format!("e:{k}"))),
         Ex::Call(f, args) => match f.as_ref() {
             Ex::Name(n) if g.tups1.contains(&format!("{n}()")) => true,
-            Ex::Name(n) if matches!(n.as_str(), "sorted" | "list" | "reversed") => args
-                .iter()
-                .any(|a| matches!(a, Arg::Pos(x) if is_tup1(x, g))),
+            Ex::Name(n) if matches!(n.as_str(), "sorted" | "list" | "reversed") => args.iter().any(|a| matches!(a, Arg::Pos(x) if is_tup1(x, g))),
             _ => false,
         },
         Ex::IfExp(_, a, b) | Ex::Or(a, b) => is_tup1(a, g) || is_tup1(b, g),
@@ -591,36 +448,17 @@ fn is_tup(e: &Ex, g: &G) -> bool {
             // A function that returns tuple(...) values (or a list of them).
             Ex::Name(n) if g.tups.contains(&format!("{n}()")) => true,
             Ex::Attr(_, m) if g.tups.contains(&format!("{m}()")) => true,
-            Ex::Name(n)
-                if matches!(
-                    n.as_str(),
-                    "sorted" | "list" | "reversed" | "set" | "frozenset" | "dict"
-                ) =>
-            {
-                args.iter()
-                    .any(|a| matches!(a, Arg::Pos(x) if is_tup(x, g)))
-            }
-            Ex::Attr(r, m)
-                if matches!(
-                    m.as_str(),
-                    "copy" | "items" | "keys" | "values" | "get" | "pop"
-                ) =>
-            {
-                is_tup(r, g)
-            }
+            Ex::Name(n) if matches!(n.as_str(), "sorted" | "list" | "reversed" | "set" | "frozenset" | "dict") => args.iter().any(|a| matches!(a, Arg::Pos(x) if is_tup(x, g))),
+            Ex::Attr(r, m) if matches!(m.as_str(), "copy" | "items" | "keys" | "values" | "get" | "pop") => is_tup(r, g),
             // m.groups() is a tuple.
             Ex::Attr(_, m) if m == "groups" => true,
             _ => false,
         },
         Ex::Comp(_, elt, val, _) => is_tup(elt, g) || val.as_deref().is_some_and(|v| is_tup(v, g)),
         Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().any(|x| is_tup(x, g)),
-        Ex::Dict(items) => items
-            .iter()
-            .any(|(k, v)| k.as_ref().is_some_and(|k| is_tup(k, g)) || is_tup(v, g)),
+        Ex::Dict(items) => items.iter().any(|(k, v)| k.as_ref().is_some_and(|k| is_tup(k, g)) || is_tup(v, g)),
         // ("k:name": a dict with tuple(...) keys only; shown whole it shows them, but its values are not tuples.)
-        Ex::Name(_) | Ex::Attr(..) => {
-            key(e).is_some_and(|k| g.tups.contains(&k) || g.tups.contains(&format!("k:{k}")))
-        }
+        Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.tups.contains(&k) || g.tups.contains(&format!("k:{k}"))),
         Ex::Index(b, _) => match b.as_ref() {
             Ex::Name(_) | Ex::Attr(..) => key(b).is_some_and(|k| g.tups.contains(&k)),
             b => is_tup(b, g),
@@ -656,9 +494,7 @@ fn is_holder(e: &Ex, g: &G) -> bool {
 // re.match(...), pat.search(...): a match, which a program that prints one builds over dynamic values.
 fn is_match(e: &Ex, g: &G) -> bool {
     match e {
-        Ex::Call(f, _) => {
-            matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "match" | "search" | "fullmatch"))
-        }
+        Ex::Call(f, _) => matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "match" | "search" | "fullmatch")),
         Ex::Name(_) | Ex::Attr(..) => key(e).is_some_and(|k| g.matches.contains(&k)),
         Ex::Walrus(_, v) => is_match(v, g),
         _ => false,
@@ -668,9 +504,7 @@ fn is_match(e: &Ex, g: &G) -> bool {
 fn is_dict(e: &Ex) -> bool {
     match e {
         Ex::Dict(_) | Ex::Comp('d', ..) => true,
-        Ex::Call(f, _) => {
-            matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "dict" | "defaultdict" | "Counter" | "OrderedDict"))
-        }
+        Ex::Call(f, _) => matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "dict" | "defaultdict" | "Counter" | "OrderedDict")),
         _ => false,
     }
 }
@@ -716,19 +550,7 @@ fn grows_while_walked(target: &Ex, it: &Ex, body: &[Stmt], g: &G) -> bool {
             walk_st(&s.st, &mut |e| {
                 if let Ex::Call(f, _) = e {
                     if let Ex::Attr(r, m) = f.as_ref() {
-                        if on_k(r)
-                            && matches!(
-                                m.as_str(),
-                                "pop"
-                                    | "popitem"
-                                    | "setdefault"
-                                    | "update"
-                                    | "clear"
-                                    | "add"
-                                    | "discard"
-                                    | "remove"
-                            )
-                        {
+                        if on_k(r) && matches!(m.as_str(), "pop" | "popitem" | "setdefault" | "update" | "clear" | "add" | "discard" | "remove") {
                             *hit = true;
                         }
                     }
@@ -748,14 +570,9 @@ fn bind(t: &Ex, v: &Ex, g: &mut G) {
     match t {
         Ex::Name(_) | Ex::Attr(..) => {
             let k = key(t).unwrap();
-            let keys_only =
-                matches!(v, Ex::Dict(items) if !items.iter().any(|(_, x)| is_tup(x, g)));
+            let keys_only = matches!(v, Ex::Dict(items) if !items.iter().any(|(_, x)| is_tup(x, g)));
             if is_tup(v, g) {
-                g.tups.insert(if keys_only {
-                    format!("k:{k}")
-                } else {
-                    k.clone()
-                });
+                g.tups.insert(if keys_only { format!("k:{k}") } else { k.clone() });
             }
             if is_tup1(v, g) {
                 g.tups1.insert(k.clone());
@@ -775,8 +592,7 @@ fn bind(t: &Ex, v: &Ex, g: &mut G) {
         Ex::Index(b, i) => {
             if is_tup(v, g) || is_tup(i, g) {
                 if let Some(r) = root(b) {
-                    g.tups
-                        .insert(if is_tup(v, g) { r } else { format!("k:{r}") });
+                    g.tups.insert(if is_tup(v, g) { r } else { format!("k:{r}") });
                 }
             }
             if is_set(v, g) || is_holder(v, g) {
@@ -843,48 +659,19 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
         // Sets put into containers (`groups.append(s)`, `d.setdefault(k, set())`) and passed to functions.
         walk_st(&s.st, &mut |e| {
             if let Ex::Call(f, args) = e {
-                let pos: Vec<&Ex> = args
-                    .iter()
-                    .filter_map(|a| if let Arg::Pos(x) = a { Some(x) } else { None })
-                    .collect();
+                let pos: Vec<&Ex> = args.iter().filter_map(|a| if let Arg::Pos(x) = a { Some(x) } else { None }).collect();
                 if let Ex::Attr(r, m) = f.as_ref() {
-                    if matches!(m.as_str(), "append" | "appendleft" | "insert" | "add")
-                        && pos.last().is_some_and(|x| is_tup1(x, g))
-                    {
+                    if matches!(m.as_str(), "append" | "appendleft" | "insert" | "add") && pos.last().is_some_and(|x| is_tup1(x, g)) {
                         if let Some(k) = key(r) {
                             g.tups1.insert(format!("e:{k}"));
                         }
                     }
-                    if matches!(
-                        m.as_str(),
-                        "append"
-                            | "appendleft"
-                            | "insert"
-                            | "extend"
-                            | "add"
-                            | "setdefault"
-                            | "update"
-                            | "put"
-                            | "push"
-                    ) && pos.iter().any(|x| is_tup(x, g))
-                    {
+                    if matches!(m.as_str(), "append" | "appendleft" | "insert" | "extend" | "add" | "setdefault" | "update" | "put" | "push") && pos.iter().any(|x| is_tup(x, g)) {
                         if let Some(k) = root(r) {
                             g.tups.insert(k);
                         }
                     }
-                    if matches!(
-                        m.as_str(),
-                        "append"
-                            | "appendleft"
-                            | "insert"
-                            | "extend"
-                            | "add"
-                            | "setdefault"
-                            | "update"
-                            | "put"
-                            | "push"
-                    ) && pos.iter().any(|x| is_set(x, g) || is_holder(x, g))
-                    {
+                    if matches!(m.as_str(), "append" | "appendleft" | "insert" | "extend" | "add" | "setdefault" | "update" | "put" | "push") && pos.iter().any(|x| is_set(x, g) || is_holder(x, g)) {
                         if let Some(k) = root(r) {
                             g.holders.insert(k);
                         }
@@ -923,25 +710,7 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
 // Every expression in a statement (not in nested blocks' statements, which each_block visits).
 // Does this statement (or a block inside it) change the list, dict or set named x in place?
 fn changes_name(st: &St, x: &str) -> bool {
-    const MUT: &[&str] = &[
-        "append",
-        "extend",
-        "insert",
-        "remove",
-        "pop",
-        "clear",
-        "sort",
-        "reverse",
-        "add",
-        "discard",
-        "update",
-        "setdefault",
-        "popitem",
-        "appendleft",
-        "popleft",
-        "difference_update",
-        "intersection_update",
-    ];
+    const MUT: &[&str] = &["append", "extend", "insert", "remove", "pop", "clear", "sort", "reverse", "add", "discard", "update", "setdefault", "popitem", "appendleft", "popleft", "difference_update", "intersection_update"];
     let is_x = |e: &Ex| matches!(e, Ex::Name(n) if n == x);
     let target_in = |e: &Ex| matches!(e, Ex::Index(b, _) if is_x(b));
     let hit = match st {
@@ -970,9 +739,7 @@ fn changes_name(st: &St, x: &str) -> bool {
         return false;
     }
     let mut inner = false;
-    each_block(st, &mut |b| {
-        inner = inner || b.iter().any(|s| changes_name(&s.st, x))
-    });
+    each_block(st, &mut |b| inner = inner || b.iter().any(|s| changes_name(&s.st, x)));
     inner
 }
 
@@ -1017,9 +784,7 @@ pub(crate) fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
     f(e);
     // `3 ** 50 % m` of number literals: one value, worked out when the typed build compiles.
     if let Ex::Bin("%", l, r) = e {
-        if matches!(l.as_ref(), Ex::Bin("**", a, b) if lit_int(a).is_some() && lit_int(b).is_some())
-            && lit_int(r).is_some()
-        {
+        if matches!(l.as_ref(), Ex::Bin("**", a, b) if lit_int(a).is_some() && lit_int(b).is_some()) && lit_int(r).is_some() {
             return;
         }
     }
@@ -1062,10 +827,7 @@ pub(crate) fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
             if let Some(v) = val {
                 go(v);
             }
-            for CompFor {
-                target, iter, ifs, ..
-            } in fors
-            {
+            for CompFor { target, iter, ifs, .. } in fors {
                 go(target);
                 go(iter);
                 ifs.iter().for_each(&mut go);
@@ -1101,15 +863,9 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
         // `book = asks if buy else bids`, then `book.remove(o)`: in Python book is one of the two lists, so
         // the change shows in it; the typed build changes a copy.
         if let St::Assign(ts, Ex::IfExp(_, a, b)) = &s.st {
-            if let ([Ex::Name(x)], true) = (
-                ts.as_slice(),
-                matches!(a.as_ref(), Ex::Name(_) | Ex::Attr(..))
-                    && matches!(b.as_ref(), Ex::Name(_) | Ex::Attr(..)),
-            ) {
+            if let ([Ex::Name(x)], true) = (ts.as_slice(), matches!(a.as_ref(), Ex::Name(_) | Ex::Attr(..)) && matches!(b.as_ref(), Ex::Name(_) | Ex::Attr(..))) {
                 if body[k + 1..].iter().any(|st| changes_name(&st.st, x)) {
-                    hit = Some(format!(
-                        "{x} is one of two lists picked by a condition and is changed later; Python changes that list itself"
-                    ));
+                    hit = Some(format!("{x} is one of two lists picked by a condition and is changed later; Python changes that list itself"));
                 }
             }
         }
@@ -1122,17 +878,7 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
         // The typed build stops at these errors (a Rust panic) instead of raising them where an except can
         // catch them; only errors from failing calls (int("x"): ValueError) are caught there.
         if let St::Try(_, hs, _, _) = &s.st {
-            const UNCAUGHT: &[&str] = &[
-                "ZeroDivisionError",
-                "ArithmeticError",
-                "AssertionError",
-                "EOFError",
-                "IndexError",
-                "KeyError",
-                "LookupError",
-                "OverflowError",
-                "RecursionError",
-            ];
+            const UNCAUGHT: &[&str] = &["ZeroDivisionError", "ArithmeticError", "AssertionError", "EOFError", "IndexError", "KeyError", "LookupError", "OverflowError", "RecursionError"];
             for h in hs {
                 let mut names = vec![];
                 if let Some(t) = &h.types {
@@ -1143,21 +889,14 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
                     });
                 }
                 if let Some(n) = names.iter().find(|n| UNCAUGHT.contains(&n.as_str())) {
-                    hit = Some(format!(
-                        "except {n}: the typed build stops at this error instead of raising it"
-                    ));
+                    hit = Some(format!("except {n}: the typed build stops at this error instead of raising it"));
                 }
             }
         }
         // `return`, `break` or `continue` leaving a try that has a finally: the typed build leaves without running
         // the finally (and a return there was lost: the function returned None).
         if let St::Try(b, hs, e, Some(fin)) = &s.st {
-            if hit.is_none()
-                && (jumps_out(b, false)
-                    || hs.iter().any(|h| jumps_out(&h.body, false))
-                    || e.as_deref().is_some_and(|e| jumps_out(e, false))
-                    || jumps_out(fin, false))
-            {
+            if hit.is_none() && (jumps_out(b, false) || hs.iter().any(|h| jumps_out(&h.body, false)) || e.as_deref().is_some_and(|e| jumps_out(e, false)) || jumps_out(fin, false)) {
                 hit = Some("return, break or continue leaves a try that has a finally, which the typed build does not run then".into());
             }
         }
@@ -1167,20 +906,14 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
             }
         }
         if let St::Class(c) = &s.st {
-            if hit.is_none()
-                && c.body
-                    .iter()
-                    .any(|m| matches!(&m.st, St::Def(d) if d.name == "__del__"))
-            {
+            if hit.is_none() && c.body.iter().any(|m| matches!(&m.st, St::Def(d) if d.name == "__del__")) {
                 hit = Some("__del__ runs when CPython frees the object, which the typed build does not track".into());
             }
         }
         if let St::Def(d) = &s.st {
             if hit.is_none() {
                 if let Some(n) = shared_growth(d) {
-                    hit = Some(format!(
-                        "`{n}` can grow past 64 bits and is shared with another function (a closure, nonlocal or global), where the typed build keeps it a 64-bit int"
-                    ));
+                    hit = Some(format!("`{n}` can grow past 64 bits and is shared with another function (a closure, nonlocal or global), where the typed build keeps it a 64-bit int"));
                 }
             }
             if hit.is_none() && own_yield(&d.body) && !pure_gen(d, g) {
@@ -1226,9 +959,7 @@ fn growing(body: &[Stmt], out: &mut HashSet<String>) {
         let mut found = false;
         walk_ex(e, &mut |x| {
             if let Ex::Bin("*" | "**" | "<<", a, b) = x {
-                if matches!(a.as_ref(), Ex::Name(m) if m == n)
-                    || matches!(b.as_ref(), Ex::Name(m) if m == n)
-                {
+                if matches!(a.as_ref(), Ex::Name(m) if m == n) || matches!(b.as_ref(), Ex::Name(m) if m == n) {
                     found = true;
                 }
             }
@@ -1370,31 +1101,7 @@ fn find_pure_gens(body: &[Stmt], g: &mut G) {
 // arguments and locals (the caller cannot change what it sees part way), it prints and raises nothing, and
 // no value is sent into it.
 fn pure_gen(d: &crate::dynpy::parse::FuncDef, g: &G) -> bool {
-    const PURE: &[&str] = &[
-        "range",
-        "len",
-        "abs",
-        "min",
-        "max",
-        "sum",
-        "str",
-        "int",
-        "float",
-        "bool",
-        "tuple",
-        "enumerate",
-        "zip",
-        "reversed",
-        "sorted",
-        "ord",
-        "chr",
-        "divmod",
-        "round",
-        "isinstance",
-        "True",
-        "False",
-        "None",
-    ];
+    const PURE: &[&str] = &["range", "len", "abs", "min", "max", "sum", "str", "int", "float", "bool", "tuple", "enumerate", "zip", "reversed", "sorted", "ord", "chr", "divmod", "round", "isinstance", "True", "False", "None"];
     let mut locals: HashSet<String> = d.params.pos.iter().map(|(n, _)| n.clone()).collect();
     locals.extend(d.params.star.clone());
     locals.extend(d.params.kwonly.iter().map(|(n, _)| n.clone()));
@@ -1413,15 +1120,11 @@ fn pure_gen(d: &crate::dynpy::parse::FuncDef, g: &G) -> bool {
         body.iter().all(|s| match &s.st {
             St::Assign(ts, v) => {
                 ts.iter().for_each(|t| targets(t, locals));
-                ts.iter().all(|t| matches!(t, Ex::Name(_) | Ex::Tuple(_)))
-                    && !matches!(v, Ex::Yield(_) | Ex::YieldFrom(_))
+                ts.iter().all(|t| matches!(t, Ex::Name(_) | Ex::Tuple(_))) && !matches!(v, Ex::Yield(_) | Ex::YieldFrom(_))
             }
             St::AugAssign(t, _, _) => matches!(t, Ex::Name(_)),
             St::Expr(_) | St::Pass | St::Break | St::Continue | St::Return(_) => true,
-            St::If(arms, els) => {
-                arms.iter().all(|(_, b)| stmts_ok(b, locals))
-                    && els.as_ref().is_none_or(|b| stmts_ok(b, locals))
-            }
+            St::If(arms, els) => arms.iter().all(|(_, b)| stmts_ok(b, locals)) && els.as_ref().is_none_or(|b| stmts_ok(b, locals)),
             St::For(t, _, b, e) => {
                 targets(t, locals);
                 stmts_ok(b, locals) && e.as_ref().is_none_or(|b| stmts_ok(b, locals))
@@ -1445,14 +1148,7 @@ fn pure_gen(d: &crate::dynpy::parse::FuncDef, g: &G) -> bool {
     });
     let mut ok = true;
     all_exprs(&d.body, &mut |e| match e {
-        Ex::Name(n)
-            if !locals.contains(n)
-                && !PURE.contains(&n.as_str())
-                && !g.pure_gens.contains(n)
-                && n != &d.name =>
-        {
-            ok = false
-        }
+        Ex::Name(n) if !locals.contains(n) && !PURE.contains(&n.as_str()) && !g.pure_gens.contains(n) && n != &d.name => ok = false,
         Ex::Attr(..) | Ex::Lambda(..) | Ex::Walrus(..) => ok = false,
         _ => {}
     });
@@ -1472,24 +1168,13 @@ fn lit_int(e: &Ex) -> Option<i64> {
 fn shown(e: &Ex, g: &G) -> Option<(String, Option<Vec<String>>)> {
     let why = shown_why(e, g)?;
     let keys = match e {
-        Ex::Call(_, args) => soft_all(
-            args.iter()
-                .filter_map(|a| {
-                    if let Arg::Pos(x) | Arg::Star(x) = a {
-                        Some(x)
-                    } else {
-                        None
-                    }
-                })
-                .chain(match e {
-                    Ex::Call(f, _) => match f.as_ref() {
-                        Ex::Attr(r, _) => Some(r.as_ref()),
-                        _ => None,
-                    },
-                    _ => None,
-                }),
-            g,
-        ),
+        Ex::Call(_, args) => soft_all(args.iter().filter_map(|a| if let Arg::Pos(x) | Arg::Star(x) = a { Some(x) } else { None }).chain(match e {
+            Ex::Call(f, _) => match f.as_ref() {
+                Ex::Attr(r, _) => Some(r.as_ref()),
+                _ => None,
+            },
+            _ => None,
+        }), g),
         Ex::FStr(parts) => {
             let mut xs = vec![];
             fparts(parts, &mut |x| xs.push(x.clone()));
@@ -1500,15 +1185,8 @@ fn shown(e: &Ex, g: &G) -> Option<(String, Option<Vec<String>>)> {
             x => soft_all([x], g),
         },
         Ex::Comp(_, _, _, fors) => {
-            let sets: Vec<&Ex> = fors
-                .iter()
-                .map(|c| &c.iter)
-                .filter(|x| is_set(x, g))
-                .collect();
-            sets.iter()
-                .map(|x| soft_keys(x, g))
-                .collect::<Option<Vec<_>>>()
-                .map(|v| v.concat())
+            let sets: Vec<&Ex> = fors.iter().map(|c| &c.iter).filter(|x| is_set(x, g)).collect();
+            sets.iter().map(|x| soft_keys(x, g)).collect::<Option<Vec<_>>>().map(|v| v.concat())
         }
         _ => None,
     };
@@ -1520,11 +1198,7 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
     // `d.items() <= e.items()`, `d.values() == e.values()`: views compare as sets (values by identity) in CPython.
     let view = |x: &Ex| matches!(x, Ex::Call(f, a) if a.is_empty() && matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "keys" | "items" | "values")));
     if let Ex::Cmp(first, rest) = e {
-        if rest
-            .iter()
-            .any(|(op, _)| matches!(*op, "<" | "<=" | ">" | ">=" | "==" | "!="))
-            && (view(first) || rest.iter().any(|(_, x)| view(x)))
-        {
+        if rest.iter().any(|(op, _)| matches!(*op, "<" | "<=" | ">" | ">=" | "==" | "!=")) && (view(first) || rest.iter().any(|(_, x)| view(x))) {
             return Some("comparing dict views (d.keys(), d.items(), d.values()) follows set rules the typed build does not".into());
         }
     }
@@ -1608,52 +1282,15 @@ fn shown_why(e: &Ex, g: &G) -> Option<String> {
 // `map(str, s)` handed to join.
 fn is_mapped_set(x: &Ex, g: &G) -> bool {
     match x {
-        Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if n == "map" || n == "filter") => {
-            args.iter()
-                .any(|a| matches!(a, Arg::Pos(y) if is_set(y, g)))
-        }
+        Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if n == "map" || n == "filter") => args.iter().any(|a| matches!(a, Arg::Pos(y) if is_set(y, g))),
         Ex::Comp(_, _, _, fors) => fors.iter().any(|c| is_set(&c.iter, g)),
         _ => false,
     }
 }
 
 // Methods that change their receiver, and standard-library functions that change their first argument.
-const CHANGING: &[&str] = &[
-    "pop",
-    "popleft",
-    "popitem",
-    "append",
-    "appendleft",
-    "add",
-    "remove",
-    "insert",
-    "extend",
-    "extendleft",
-    "update",
-    "setdefault",
-    "clear",
-    "sort",
-    "reverse",
-    "discard",
-    "rotate",
-    "move_to_end",
-    "difference_update",
-    "intersection_update",
-    "symmetric_difference_update",
-    "heappop",
-    "heappush",
-];
-const CHANGING_FNS: &[&str] = &[
-    "heappop",
-    "heappush",
-    "heapify",
-    "heapreplace",
-    "heappushpop",
-    "insort",
-    "insort_left",
-    "insort_right",
-    "shuffle",
-];
+const CHANGING: &[&str] = &["pop", "popleft", "popitem", "append", "appendleft", "add", "remove", "insert", "extend", "extendleft", "update", "setdefault", "clear", "sort", "reverse", "discard", "rotate", "move_to_end", "difference_update", "intersection_update", "symmetric_difference_update", "heappop", "heappush"];
+const CHANGING_FNS: &[&str] = &["heappop", "heappush", "heapify", "heapreplace", "heappushpop", "insort", "insort_left", "insort_right", "shuffle"];
 
 // print(q, q.popleft()): an argument changes a name another argument shows.
 fn print_changes(args: &[&Ex]) -> Option<String> {
@@ -1688,10 +1325,7 @@ fn print_changes(args: &[&Ex]) -> Option<String> {
             let mut names = false;
             walk_ex(a, &mut |e| names |= key(e).as_ref() == Some(k));
             if names {
-                return Some(format!(
-                    "print() reads every argument before writing; one changes {}",
-                    k.trim_start_matches('.')
-                ));
+                return Some(format!("print() reads every argument before writing; one changes {}", k.trim_start_matches('.')));
             }
         }
     }
@@ -1704,9 +1338,7 @@ fn print_changes(args: &[&Ex]) -> Option<String> {
 fn later_changes(args: &[&Ex], g: &G) -> Option<String> {
     for j in 1..args.len() {
         let mut changed = vec![];
-        walk_ex(args[j], &mut |e| {
-            call_changes(e, &g.fn_changes, &mut changed)
-        });
+        walk_ex(args[j], &mut |e| call_changes(e, &g.fn_changes, &mut changed));
         let mut shown = vec![];
         args[..j].iter().for_each(|a| held(a, &mut shown));
         if let Some(k) = changed.iter().find(|k| shown.contains(k)) {
@@ -1719,50 +1351,9 @@ fn later_changes(args: &[&Ex], g: &G) -> Option<String> {
 // The names (and `.attr` names) whose objects the value of `e` may be, or may hold. Values made fresh
 // (`len(xs)`, `str(xs)`, an f-string, a comparison, what `xs.pop()` took out) hold none.
 fn held(e: &Ex, out: &mut Vec<String>) {
-    const FRESH: &[&str] = &[
-        "len",
-        "sum",
-        "str",
-        "repr",
-        "ascii",
-        "format",
-        "int",
-        "float",
-        "bool",
-        "abs",
-        "round",
-        "any",
-        "all",
-        "ord",
-        "chr",
-        "hash",
-        "id",
-        "type",
-        "isinstance",
-        "bin",
-        "hex",
-        "oct",
-    ];
+    const FRESH: &[&str] = &["len", "sum", "str", "repr", "ascii", "format", "int", "float", "bool", "abs", "round", "any", "all", "ord", "chr", "hash", "id", "type", "isinstance", "bin", "hex", "oct"];
     // pygen::NEXT is `next(g)`: it holds what the generator gave, not the generator.
-    const FRESH_METHODS: &[&str] = &[
-        crate::pygen::NEXT,
-        "join",
-        "count",
-        "index",
-        "find",
-        "rfind",
-        "format",
-        "startswith",
-        "endswith",
-        "upper",
-        "lower",
-        "strip",
-        "lstrip",
-        "rstrip",
-        "split",
-        "replace",
-        "title",
-    ];
+    const FRESH_METHODS: &[&str] = &[crate::pygen::NEXT, "join", "count", "index", "find", "rfind", "format", "startswith", "endswith", "upper", "lower", "strip", "lstrip", "rstrip", "split", "replace", "title"];
     match e {
         Ex::Name(n) => out.push(n.clone()),
         Ex::Attr(b, a) => {
@@ -1780,11 +1371,7 @@ fn held(e: &Ex, out: &mut Vec<String>) {
         Ex::Call(f, args) => {
             match f.as_ref() {
                 Ex::Name(n) if FRESH.contains(&n.as_str()) => return,
-                Ex::Attr(_, m)
-                    if FRESH_METHODS.contains(&m.as_str()) || CHANGING.contains(&m.as_str()) =>
-                {
-                    return;
-                }
+                Ex::Attr(_, m) if FRESH_METHODS.contains(&m.as_str()) || CHANGING.contains(&m.as_str()) => return,
                 Ex::Attr(r, _) => held(r, out),
                 _ => {}
             }
@@ -1816,12 +1403,7 @@ fn program_changes(body: &[Stmt]) -> HashMap<String, Changes> {
         each_def(body, false, &mut |k, d, skip| {
             let c = changes_of(d, &all);
             let e = next.entry(k).or_default();
-            e.params.extend(
-                c.params
-                    .iter()
-                    .filter(|p| **p >= skip)
-                    .map(|p| if *p == ANY_PARAM { *p } else { p - skip }),
-            );
+            e.params.extend(c.params.iter().filter(|p| **p >= skip).map(|p| if *p == ANY_PARAM { *p } else { p - skip }));
             e.names.extend(c.names);
         });
         if next == all {
@@ -1837,15 +1419,7 @@ fn each_def(body: &[Stmt], in_class: bool, f: &mut dyn FnMut(String, &FuncDef, u
     for s in body {
         match &s.st {
             St::Def(d) => {
-                f(
-                    if in_class {
-                        format!(".{}", d.name)
-                    } else {
-                        d.name.clone()
-                    },
-                    d,
-                    0,
-                );
+                f(if in_class { format!(".{}", d.name) } else { d.name.clone() }, d, 0);
                 each_def(&d.body, false, f);
             }
             St::Class(c) => {
@@ -1868,7 +1442,7 @@ fn changes_of(d: &FuncDef, known: &HashMap<String, Changes>) -> Changes {
     #[derive(Default)]
     struct Scan {
         local: HashSet<String>,
-        outer: HashSet<String>, // named by `global` or `nonlocal`
+        outer: HashSet<String>,                 // named by `global` or `nonlocal`
         from: HashMap<String, HashSet<String>>, // a local name -> what it may be the same object as
         changed: Vec<String>,
     }
@@ -1882,10 +1456,7 @@ fn changes_of(d: &FuncDef, known: &HashMap<String, Changes>) -> Changes {
                 walk_ex(t, &mut |x| {
                     if let Ex::Name(n) = x {
                         sc.local.insert(n.clone());
-                        sc.from
-                            .entry(n.clone())
-                            .or_default()
-                            .extend(objs.iter().cloned());
+                        sc.from.entry(n.clone()).or_default().extend(objs.iter().cloned());
                     }
                 });
             }
@@ -1921,10 +1492,7 @@ fn changes_of(d: &FuncDef, known: &HashMap<String, Changes>) -> Changes {
                     }
                     held(t, &mut sc.changed);
                 }
-                St::Del(ts) => ts
-                    .iter()
-                    .filter(|t| matches!(t, Ex::Index(..) | Ex::Attr(..)))
-                    .for_each(|t| held(t, &mut sc.changed)),
+                St::Del(ts) => ts.iter().filter(|t| matches!(t, Ex::Index(..) | Ex::Attr(..))).for_each(|t| held(t, &mut sc.changed)),
                 _ => {}
             }
             walk_st(&s.st, &mut |e| call_changes(e, known, &mut sc.changed));
@@ -1934,14 +1502,8 @@ fn changes_of(d: &FuncDef, known: &HashMap<String, Changes>) -> Changes {
     let mut sc = Scan::default();
     let p = &d.params;
     let pos: Vec<&String> = p.pos.iter().map(|x| &x.0).collect();
-    let rest: Vec<&String> = p
-        .star
-        .iter()
-        .chain(&p.kwstar)
-        .chain(p.kwonly.iter().map(|x| &x.0))
-        .collect();
-    sc.local
-        .extend(pos.iter().chain(&rest).map(|n| n.to_string()));
+    let rest: Vec<&String> = p.star.iter().chain(&p.kwstar).chain(p.kwonly.iter().map(|x| &x.0)).collect();
+    sc.local.extend(pos.iter().chain(&rest).map(|n| n.to_string()));
     scan(&d.body, known, &mut sc);
     let mut out = Changes::default();
     let mut seen = HashSet::new();
@@ -1991,9 +1553,7 @@ fn call_changes(e: &Ex, known: &HashMap<String, Changes>, out: &mut Vec<String>)
             match a {
                 Arg::Pos(x) if any || c.params.contains(&(i + skip)) => held(x, out),
                 // Which parameter these reach is not followed here.
-                Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) if !c.params.is_empty() => {
-                    held(x, out)
-                }
+                Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) if !c.params.is_empty() => held(x, out),
                 _ => {}
             }
         }
@@ -2026,17 +1586,7 @@ mod tests {
     // A later argument changes what an earlier one holds: not typed.
     #[test]
     fn later_change_leaves_the_typed_build() {
-        for tail in [
-            "print(xs, grow(xs))",
-            "print(xs, grow(v=xs))",
-            "print(xs, grow(xs), sep='|')",
-            "print((xs, 1), grow(xs))",
-            "print([xs], grow(xs))",
-            "print({'k': xs}, grow(xs))",
-            "u = (xs, grow(xs))",
-            "u = [xs, grow(xs)]",
-            "print(xs[0:1], grow(xs))",
-        ] {
+        for tail in ["print(xs, grow(xs))", "print(xs, grow(v=xs))", "print(xs, grow(xs), sep='|')", "print((xs, 1), grow(xs))", "print([xs], grow(xs))", "print({'k': xs}, grow(xs))", "u = (xs, grow(xs))", "u = [xs, grow(xs)]", "print(xs[0:1], grow(xs))"] {
             assert!(verdict(&format!("{GROW}{tail}\n")).is_some(), "{tail}");
         }
         let cases = [
@@ -2090,9 +1640,7 @@ mod tests {
     fn sets_shown_or_walked() {
         assert!(needs("s = {3, -1}\nprint(s)\n"));
         assert!(needs("s = set()\ns.add(5)\nfor x in s:\n    print(x)\n"));
-        assert!(needs(
-            "from collections import defaultdict\ng = defaultdict(set)\ng[1].add(2)\nprint(dict(g))\n"
-        ));
+        assert!(needs("from collections import defaultdict\ng = defaultdict(set)\ng[1].add(2)\nprint(dict(g))\n"));
         assert!(needs("def f():\n    return {1, 2}\nprint(f())\n"));
         assert!(needs("s = {1, 2}\nprint(', '.join(map(str, s)))\n"));
         assert!(needs("s = {1, 2}\nxs = list(s)\n"));
@@ -2101,60 +1649,36 @@ mod tests {
         assert!(needs("t = tuple(map(int, '1 2'.split()))\nprint(t)\n"));
         assert!(needs("u = []\nu.append(tuple([1, 2]))\nprint(f'{u}')\n"));
         // Through a helper's parameter, and through a function's result.
-        assert!(needs(
-            "def go(cur, out):\n    out.append(tuple(cur))\ndef main():\n    res = []\n    go([1, 2], res)\n    print(res)\nmain()\n"
-        ));
-        assert!(needs(
-            "def f():\n    out = []\n    out.append(tuple([1, 2]))\n    return out\nprint(f())\n"
-        ));
+        assert!(needs("def go(cur, out):\n    out.append(tuple(cur))\ndef main():\n    res = []\n    go([1, 2], res)\n    print(res)\nmain()\n"));
+        assert!(needs("def f():\n    out = []\n    out.append(tuple([1, 2]))\n    return out\nprint(f())\n"));
         assert!(needs("seen = {tuple([1, 2]): 0}\nprint(seen)\n"));
-        assert!(!needs(
-            "seen = {tuple([1, 2]): 0}\ns = seen[tuple([1, 2])]\nprint('%d' % (s,))\n"
-        ));
+        assert!(!needs("seen = {tuple([1, 2]): 0}\ns = seen[tuple([1, 2])]\nprint('%d' % (s,))\n"));
         // A one-item tuple shown whole (kept as a one-item list), but not one used as a key, a `%` argument
         // list, joined to a real tuple, or inside a real tuple read back by index.
         assert!(needs("t = ('a',)\nprint(t)\n"));
         assert!(needs("print([(3,), (4,)])\n"));
         assert!(needs("d = {(1,): 'x'}\nprint(d)\n"));
         assert!(needs("print((1,) + (2,))\n"));
-        assert!(needs(
-            "out = []\nfor x in 'ab':\n    out.append((x,))\nprint(out[0])\n"
-        ));
+        assert!(needs("out = []\nfor x in 'ab':\n    out.append((x,))\nprint(out[0])\n"));
         assert!(needs("def f(x):\n    return (x,)\nprint(f(1))\n"));
         assert!(needs("def show(t):\n    print(t)\nshow((1,))\n"));
         assert!(needs("t = (1,)\nprint(f'{t}')\n"));
         assert!(!needs("d = {('a',): 1}\nprint(d[('a',)], '%s' % ('x',))\n"));
         assert!(!needs("ids = ('a', 'b')\nprint(ids + ('c',))\n"));
         assert!(needs("t = (5,)\nprint('%s' % t)\n"));
-        assert!(needs(
-            "d = {1: 1}\ne = {1: 2}\nprint(d.items() <= e.items())\n"
-        ));
-        assert!(needs(
-            "class F:\n    def __del__(self):\n        print('bye')\nx = F()\n"
-        ));
+        assert!(needs("d = {1: 1}\ne = {1: 2}\nprint(d.items() <= e.items())\n"));
+        assert!(needs("class F:\n    def __del__(self):\n        print('bye')\nx = F()\n"));
         // A jump out of a try with a finally; a loop of its own inside the try is fine.
-        assert!(needs(
-            "def f(x):\n    try:\n        return x\n    finally:\n        print('done')\nprint(f(1))\n"
-        ));
-        assert!(needs(
-            "for i in range(3):\n    try:\n        continue\n    finally:\n        print(i)\n"
-        ));
-        assert!(!needs(
-            "def f(xs):\n    try:\n        for x in xs:\n            if x:\n                break\n    finally:\n        print('done')\n    return 1\nprint(f([1]))\n"
-        ));
+        assert!(needs("def f(x):\n    try:\n        return x\n    finally:\n        print('done')\nprint(f(1))\n"));
+        assert!(needs("for i in range(3):\n    try:\n        continue\n    finally:\n        print(i)\n"));
+        assert!(!needs("def f(xs):\n    try:\n        for x in xs:\n            if x:\n                break\n    finally:\n        print('done')\n    return 1\nprint(f([1]))\n"));
         assert!(!needs("n = 5\nprint('%d items' % (n,))\n"));
-        assert!(!needs(
-            "best = {}\nv = (0, ('s',), 'x')\nc = (v[0] + 1, v[1] + ('u',), 'via')\nbest[1] = c\nans = best[1]\nprint('%s' % ans[2], len(ans[1]))\n"
-        ));
+        assert!(!needs("best = {}\nv = (0, ('s',), 'x')\nc = (v[0] + 1, v[1] + ('u',), 'via')\nbest[1] = c\nans = best[1]\nprint('%s' % ans[2], len(ans[1]))\n"));
     }
     #[test]
     fn order_free_set_use_stays_typed() {
-        assert!(!needs(
-            "s = set()\ns.add(5)\nprint(5 in s, len(s), sorted(s), max(s), sum(s))\n"
-        ));
-        assert!(!needs(
-            "seen = set()\nfor i in range(9):\n    if i % 3 not in seen:\n        seen.add(i % 3)\nprint(len(seen))\n"
-        ));
+        assert!(!needs("s = set()\ns.add(5)\nprint(5 in s, len(s), sorted(s), max(s), sum(s))\n"));
+        assert!(!needs("seen = set()\nfor i in range(9):\n    if i % 3 not in seen:\n        seen.add(i % 3)\nprint(len(seen))\n"));
         assert!(!needs("xs = [3, 1]\nprint(xs, sorted(set(xs)))\n"));
     }
     #[test]
@@ -2170,72 +1694,33 @@ mod tests {
     fn string_set_walks_wait_for_rustc() {
         use super::check_soft;
         // Named for the typed build to check (rustc proves the items are strings), not refused outright.
-        assert_eq!(
-            check_soft("ws = set('a b a'.split())\nfor w in ws:\n    print(w)\n")
-                .unwrap()
-                .map(|x| x.2),
-            Some(vec!["s:ws".to_string()])
-        );
+        assert_eq!(check_soft("ws = set('a b a'.split())\nfor w in ws:\n    print(w)\n").unwrap().map(|x| x.2), Some(vec!["s:ws".to_string()]));
         // A set made by a function, or bound as a loop variable, cannot be checked by name.
-        assert_eq!(
-            check_soft("def f():\n    return {'a'}\nfor w in f():\n    print(w)\n")
-                .unwrap()
-                .map(|x| x.2),
-            Some(vec![])
-        );
-        assert_eq!(
-            check_soft("for s in [{'a'}]:\n    for w in s:\n        print(w)\n")
-                .unwrap()
-                .map(|x| x.2.is_empty()),
-            Some(true)
-        );
+        assert_eq!(check_soft("def f():\n    return {'a'}\nfor w in f():\n    print(w)\n").unwrap().map(|x| x.2), Some(vec![]));
+        assert_eq!(check_soft("for s in [{'a'}]:\n    for w in s:\n        print(w)\n").unwrap().map(|x| x.2.is_empty()), Some(true));
         // Order-free consumers of a comprehension over a set.
-        assert!(!needs(
-            "s = {3, 1}\nprint(max(x * 2 for x in s), sorted(x for x in s), any(x > 2 for x in s))\n"
-        ));
-        assert!(needs(
-            "s = {3, 1}\nprint(max((x for x in s), key=lambda v: v % 2))\n"
-        ));
+        assert!(!needs("s = {3, 1}\nprint(max(x * 2 for x in s), sorted(x for x in s), any(x > 2 for x in s))\n"));
+        assert!(needs("s = {3, 1}\nprint(max((x for x in s), key=lambda v: v % 2))\n"));
     }
     #[test]
     fn print_argument_changed_later() {
-        assert!(needs(
-            "from collections import deque\nq = deque([1, 2])\nprint(q, q.popleft())\n"
-        ));
+        assert!(needs("from collections import deque\nq = deque([1, 2])\nprint(q, q.popleft())\n"));
         assert!(!needs("q = [1, 2]\nprint(q.pop(), len([]))\n"));
     }
     #[test]
     fn matches_errors_and_loops() {
         assert!(needs("import re\nprint(re.match('a', 'b'))\n"));
-        assert!(!needs(
-            "import re\nm = re.match('a', 'ab')\nprint(m.group() if m else '')\n"
-        ));
-        assert!(needs(
-            "try:\n    x = [1][3]\nexcept IndexError:\n    pass\n"
-        ));
-        assert!(!needs(
-            "try:\n    x = int('q')\nexcept ValueError:\n    pass\n"
-        ));
+        assert!(!needs("import re\nm = re.match('a', 'ab')\nprint(m.group() if m else '')\n"));
+        assert!(needs("try:\n    x = [1][3]\nexcept IndexError:\n    pass\n"));
+        assert!(!needs("try:\n    x = int('q')\nexcept ValueError:\n    pass\n"));
         assert!(needs("d = {1: 2}\nfor k in d:\n    d[k + 1] = 0\n"));
         assert!(needs("import copy\nb = copy.copy([[1]])\n"));
-        assert!(needs(
-            "a = []\nb = []\nbook = a if len(a) else b\nbook.append(1)\nprint(b)\n"
-        ));
-        assert!(needs(
-            "a = [1]\nb = []\ndef f(c):\n    book = a if c else b\n    if book:\n        book.remove(1)\n"
-        ));
-        assert!(!needs(
-            "a = [1]\nb = [2]\nbook = a if len(a) else b\nprint(len(book))\n"
-        ));
-        assert!(!needs(
-            "import re\nm = re.match('(a)(b)?', 'a')\nprint(m.group(2) is None)\n"
-        ));
-        assert!(needs(
-            "import re\nm = re.match('(a)(b)?', 'a')\nprint(m.groups())\n"
-        ));
-        assert!(!needs(
-            "d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"
-        ));
+        assert!(needs("a = []\nb = []\nbook = a if len(a) else b\nbook.append(1)\nprint(b)\n"));
+        assert!(needs("a = [1]\nb = []\ndef f(c):\n    book = a if c else b\n    if book:\n        book.remove(1)\n"));
+        assert!(!needs("a = [1]\nb = [2]\nbook = a if len(a) else b\nprint(len(book))\n"));
+        assert!(!needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.group(2) is None)\n"));
+        assert!(needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.groups())\n"));
+        assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
     }
 }
 
@@ -2258,9 +1743,7 @@ pub(crate) fn re_groups(p: &str) -> usize {
             }
             ']' if class => class = false,
             '(' if !class => {
-                if b.get(i + 1) != Some(&'?')
-                    || (b.get(i + 2) == Some(&'P') && b.get(i + 3) == Some(&'<'))
-                {
+                if b.get(i + 1) != Some(&'?') || (b.get(i + 2) == Some(&'P') && b.get(i + 3) == Some(&'<')) {
                     n += 1;
                 }
             }
@@ -2285,13 +1768,7 @@ fn findall_groups(body: &[Stmt]) -> Option<(usize, String)> {
             }
         }
     }
-    let lit = |e: &Ex| {
-        if let Ex::Str(p) = e {
-            Some(p.clone())
-        } else {
-            None
-        }
-    };
+    let lit = |e: &Ex| if let Ex::Str(p) = e { Some(p.clone()) } else { None };
     let pos = |a: &[Arg], k: usize| match a.get(k) {
         Some(Arg::Pos(x)) => Some(x.clone()),
         _ => None,
@@ -2317,9 +1794,7 @@ fn findall_groups(body: &[Stmt]) -> Option<(usize, String)> {
                     _ => continue,
                 };
                 let p = match v {
-                    Ex::Call(f, a) if matches!(f.as_ref(), Ex::Attr(m, c) if c == "compile" && matches!(m.as_ref(), Ex::Name(r) if r == "re")) => {
-                        pos(a, 0).as_ref().and_then(lit)
-                    }
+                    Ex::Call(f, a) if matches!(f.as_ref(), Ex::Attr(m, c) if c == "compile" && matches!(m.as_ref(), Ex::Name(r) if r == "re")) => pos(a, 0).as_ref().and_then(lit),
                     _ => None,
                 };
                 let e = pats.entry(n).or_insert(p.clone());
@@ -2368,9 +1843,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
     }
     let key = |e: &Ex| match e {
         Ex::Name(n) => Some(n.clone()),
-        Ex::Attr(o, n) if matches!(o.as_ref(), Ex::Name(s) if s == "self") => {
-            Some(format!("self.{n}"))
-        }
+        Ex::Attr(o, n) if matches!(o.as_ref(), Ex::Name(s) if s == "self") => Some(format!("self.{n}")),
         _ => None,
     };
     let is_dd = |v: &Ex| matches!(v, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Name(n) if n == "defaultdict") || matches!(f.as_ref(), Ex::Attr(m, n) if n == "defaultdict" && matches!(m.as_ref(), Ex::Name(c) if c == "collections")));
@@ -2390,35 +1863,15 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
         return None;
     }
     // Methods on d[k] that change it (and so go through the typed build's insert-on-miss path).
-    const CHANGES: &[&str] = &[
-        "append",
-        "extend",
-        "add",
-        "update",
-        "insert",
-        "appendleft",
-        "discard",
-        "remove",
-        "pop",
-        "popleft",
-        "clear",
-        "setdefault",
-        "sort",
-    ];
+    const CHANGES: &[&str] = &["append", "extend", "add", "update", "insert", "appendleft", "discard", "remove", "pop", "popleft", "clear", "setdefault", "sort"];
     // A loop over a defaultdict's keys (`for k in d`, `sorted(d)`, `d.items()`): reading `d2[k]` with that k
     // finds the key (in d; also taken as found in another defaultdict filled by the same loop, `inn[mo]` and
     // `out[mo]`), so it puts nothing in.
     fn over_keys(it: &Ex, dds: &HashSet<String>, key: &dyn Fn(&Ex) -> Option<String>) -> bool {
         match it {
             Ex::Call(f, a) => match (f.as_ref(), a.first()) {
-                (Ex::Attr(o, m), _) if matches!(m.as_str(), "keys" | "items") => {
-                    key(o).is_some_and(|k| dds.contains(&k))
-                }
-                (Ex::Name(n), Some(Arg::Pos(x)))
-                    if matches!(n.as_str(), "sorted" | "list" | "reversed") =>
-                {
-                    over_keys(x, dds, key)
-                }
+                (Ex::Attr(o, m), _) if matches!(m.as_str(), "keys" | "items") => key(o).is_some_and(|k| dds.contains(&k)),
+                (Ex::Name(n), Some(Arg::Pos(x))) if matches!(n.as_str(), "sorted" | "list" | "reversed") => over_keys(x, dds, key),
                 _ => false,
             },
             x => key(x).is_some_and(|k| dds.contains(&k)),
@@ -2435,9 +1888,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
         for s in body {
             // `a = min(d, key=...)`: a is one of d's keys from here on.
             if let St::Assign(ts, Ex::Call(f, a)) = &s.st {
-                if let ([Ex::Name(n)], Ex::Name(m), Some(Arg::Pos(x))) =
-                    (ts.as_slice(), f.as_ref(), a.first())
-                {
+                if let ([Ex::Name(n)], Ex::Name(m), Some(Arg::Pos(x))) = (ts.as_slice(), f.as_ref(), a.first()) {
                     if matches!(m.as_str(), "min" | "max") && over_keys(x, sc.dds, sc.key) {
                         keys.push(n.clone());
                     }
@@ -2460,9 +1911,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
                 match e {
                     Ex::Call(f, a) => {
                         if let (Ex::Name(n), Some(Arg::Pos(x))) = (f.as_ref(), a.first()) {
-                            if matches!(n.as_str(), "min" | "max" | "sorted")
-                                && over_keys(x, dds, key)
-                            {
+                            if matches!(n.as_str(), "min" | "max" | "sorted") && over_keys(x, dds, key) {
                                 for k in a {
                                     if let Arg::Kw(w, Ex::Lambda(p, _)) = k {
                                         if w == "key" {
@@ -2473,14 +1922,11 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
                             }
                         }
                         if let Ex::Attr(o, m) = f.as_ref() {
-                            if CHANGES.contains(&m.as_str()) && matches!(o.as_ref(), Ex::Index(..))
-                            {
+                            if CHANGES.contains(&m.as_str()) && matches!(o.as_ref(), Ex::Index(..)) {
                                 safe.push(o.as_ref() as *const Ex);
                             }
                             // `d.get(k)`, `d.setdefault(...)`, `d.pop(k, ...)`: the dict itself is not looked at.
-                            if key(o).is_some_and(|k| dds.contains(&k))
-                                && matches!(m.as_str(), "get" | "setdefault" | "pop")
-                            {
+                            if key(o).is_some_and(|k| dds.contains(&k)) && matches!(m.as_str(), "get" | "setdefault" | "pop") {
                                 inner.push(o.as_ref() as *const Ex);
                             }
                         }
@@ -2499,13 +1945,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
                         }
                         inner.push(o.as_ref() as *const Ex);
                     }
-                    Ex::Name(n)
-                        if dds.contains(n)
-                            && !inner.contains(&(e as *const Ex))
-                            && !safe.contains(&(e as *const Ex)) =>
-                    {
-                        seen = true
-                    }
+                    Ex::Name(n) if dds.contains(n) && !inner.contains(&(e as *const Ex)) && !safe.contains(&(e as *const Ex)) => seen = true,
                     _ => {}
                 }
             });
@@ -2536,12 +1976,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
             }
         }
     }
-    let mut sc = Scan {
-        dds: &dds,
-        key: &key,
-        read_at: None,
-        seen: false,
-    };
+    let mut sc = Scan { dds: &dds, key: &key, read_at: None, seen: false };
     scan(body, &[], &mut sc);
     let (read_at, seen) = (sc.read_at, sc.seen);
     match (read_at, seen) {
@@ -2551,85 +1986,21 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
 }
 
 // Calls whose only effect is their value. Methods are by name, whatever the receiver.
-const PURE_CALLS: &[&str] = &[
-    "len",
-    "abs",
-    "min",
-    "max",
-    "int",
-    "str",
-    "float",
-    "bool",
-    "sorted",
-    "isinstance",
-    "ord",
-    "chr",
-    "range",
-    "tuple",
-    "list",
-    "set",
-    "frozenset",
-    "sum",
-    "any",
-    "all",
-    "enumerate",
-    "zip",
-    "round",
-    "divmod",
-    "repr",
-    "reversed",
-    "map",
-    "filter",
-];
-const PURE_METHODS: &[&str] = &[
-    "get",
-    "lower",
-    "upper",
-    "strip",
-    "lstrip",
-    "rstrip",
-    "startswith",
-    "endswith",
-    "isdigit",
-    "isalpha",
-    "isalnum",
-    "isspace",
-    "isupper",
-    "islower",
-    "split",
-    "join",
-    "find",
-    "rfind",
-    "count",
-    "index",
-    "replace",
-    "keys",
-    "values",
-    "items",
-    "copy",
-    "issubset",
-    "issuperset",
-    "union",
-    "intersection",
-    "difference",
-];
+const PURE_CALLS: &[&str] = &["len", "abs", "min", "max", "int", "str", "float", "bool", "sorted", "isinstance", "ord", "chr", "range", "tuple", "list", "set", "frozenset", "sum", "any", "all", "enumerate", "zip", "round", "divmod", "repr", "reversed", "map", "filter"];
+const PURE_METHODS: &[&str] = &["get", "lower", "upper", "strip", "lstrip", "rstrip", "startswith", "endswith", "isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower", "split", "join", "find", "rfind", "count", "index", "replace", "keys", "values", "items", "copy", "issubset", "issuperset", "union", "intersection", "difference"];
 
 fn pure_ex(e: &Ex, fns: &HashSet<String>) -> bool {
     let mut ok = true;
     walk_ex(e, &mut |x| match x {
         Ex::Call(f, args) => {
-            ok &= args
-                .iter()
-                .all(|a| matches!(a, Arg::Pos(_) | Arg::Kw(..) | Arg::Star(_)));
+            ok &= args.iter().all(|a| matches!(a, Arg::Pos(_) | Arg::Kw(..) | Arg::Star(_)));
             ok &= match f.as_ref() {
                 Ex::Name(n) => PURE_CALLS.contains(&n.as_str()) || fns.contains(n),
                 Ex::Attr(_, m) => PURE_METHODS.contains(&m.as_str()),
                 _ => false,
             };
         }
-        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => {
-            ok = false
-        }
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => ok = false,
         _ => {}
     });
     ok
@@ -2682,35 +2053,26 @@ fn fn_pure(d: &FuncDef, pure: &HashSet<String>) -> bool {
                     for t in ts {
                         match t {
                             Ex::Name(n) => {
-                                let lit = matches!(
-                                    v,
-                                    Ex::List(_) | Ex::Set(_) | Ex::Dict(_) | Ex::Comp(..)
-                                ) || matches!(v, Ex::Call(f, a) if a.is_empty() && matches!(f.as_ref(), Ex::Name(c) if matches!(c.as_str(), "list" | "set" | "dict")));
+                                let lit = matches!(v, Ex::List(_) | Ex::Set(_) | Ex::Dict(_) | Ex::Comp(..)) || matches!(v, Ex::Call(f, a) if a.is_empty() && matches!(f.as_ref(), Ex::Name(c) if matches!(c.as_str(), "list" | "set" | "dict")));
                                 if lit {
                                     fresh.insert(n.clone());
                                 } else {
                                     fresh.remove(n);
                                 }
                             }
-                            Ex::Tuple(xs) | Ex::List(xs)
-                                if xs.iter().all(|x| matches!(x, Ex::Name(_))) =>
-                            {
-                                xs.iter().for_each(|x| {
-                                    if let Ex::Name(n) = x {
-                                        fresh.remove(n);
-                                    }
-                                })
-                            }
-                            Ex::Index(b, _) if matches!(b.as_ref(), Ex::Name(n) if fresh.contains(n)) =>
-                                {}
+                            Ex::Tuple(xs) | Ex::List(xs) if xs.iter().all(|x| matches!(x, Ex::Name(_))) => xs.iter().for_each(|x| {
+                                if let Ex::Name(n) = x {
+                                    fresh.remove(n);
+                                }
+                            }),
+                            Ex::Index(b, _) if matches!(b.as_ref(), Ex::Name(n) if fresh.contains(n)) => {}
                             _ => *ok = false,
                         }
                     }
                     *ok &= pure_or_fresh(v, fresh, fns);
                 }
                 St::AugAssign(t, _, v) => {
-                    *ok &= matches!(t, Ex::Name(_))
-                        || matches!(t, Ex::Index(b, _) if matches!(b.as_ref(), Ex::Name(n) if fresh.contains(n)));
+                    *ok &= matches!(t, Ex::Name(_)) || matches!(t, Ex::Index(b, _) if matches!(b.as_ref(), Ex::Name(n) if fresh.contains(n)));
                     *ok &= pure_or_fresh(v, fresh, fns);
                 }
                 St::Expr(e) => *ok &= pure_or_fresh(e, fresh, fns),
@@ -2749,19 +2111,7 @@ fn fn_pure(d: &FuncDef, pure: &HashSet<String>) -> bool {
         }
     }
     go(&d.body, &mut fresh, &fns, &mut ok);
-    ok && d
-        .params
-        .pos
-        .iter()
-        .chain(&d.params.kwonly)
-        .all(|(_, dflt)| {
-            dflt.as_ref().map_or(true, |x| {
-                matches!(
-                    x,
-                    Ex::Int(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Float(_)
-                )
-            })
-        })
+    ok && d.params.pos.iter().chain(&d.params.kwonly).all(|(_, dflt)| dflt.as_ref().map_or(true, |x| matches!(x, Ex::Int(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Float(_))))
 }
 
 // As pure_ex, with changes (`seen.add(x)`) allowed on names the function made itself.
@@ -2769,35 +2119,14 @@ fn pure_or_fresh(e: &Ex, fresh: &HashSet<String>, fns: &HashSet<String>) -> bool
     let mut ok = true;
     walk_ex(e, &mut |x| match x {
         Ex::Call(f, args) => {
-            ok &= args
-                .iter()
-                .all(|a| matches!(a, Arg::Pos(_) | Arg::Kw(..) | Arg::Star(_)));
+            ok &= args.iter().all(|a| matches!(a, Arg::Pos(_) | Arg::Kw(..) | Arg::Star(_)));
             ok &= match f.as_ref() {
                 Ex::Name(n) => PURE_CALLS.contains(&n.as_str()) || fns.contains(n),
-                Ex::Attr(r, m) => {
-                    PURE_METHODS.contains(&m.as_str())
-                        || (matches!(r.as_ref(), Ex::Name(n) if fresh.contains(n))
-                            && matches!(
-                                m.as_str(),
-                                "add"
-                                    | "append"
-                                    | "extend"
-                                    | "insert"
-                                    | "pop"
-                                    | "remove"
-                                    | "discard"
-                                    | "update"
-                                    | "setdefault"
-                                    | "sort"
-                                    | "clear"
-                            ))
-                }
+                Ex::Attr(r, m) => PURE_METHODS.contains(&m.as_str()) || (matches!(r.as_ref(), Ex::Name(n) if fresh.contains(n)) && matches!(m.as_str(), "add" | "append" | "extend" | "insert" | "pop" | "remove" | "discard" | "update" | "setdefault" | "sort" | "clear")),
                 _ => false,
             };
         }
-        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => {
-            ok = false
-        }
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => ok = false,
         _ => {}
     });
     ok
@@ -2818,37 +2147,19 @@ fn order_free_loop(target: &Ex, it: &Ex, body: &[Stmt], els: Option<&[Stmt]>, g:
     let mut sets_to: HashMap<String, String> = HashMap::new();
     let mut reads: Vec<&Ex> = vec![];
     let mut ok = true;
-    fn go<'a>(
-        b: &'a [Stmt],
-        lv: Option<&String>,
-        walked: &Option<String>,
-        g: &G,
-        changed: &mut HashSet<String>,
-        sets_to: &mut HashMap<String, String>,
-        reads: &mut Vec<&'a Ex>,
-        ok: &mut bool,
-    ) {
+    fn go<'a>(b: &'a [Stmt], lv: Option<&String>, walked: &Option<String>, g: &G, changed: &mut HashSet<String>, sets_to: &mut HashMap<String, String>, reads: &mut Vec<&'a Ex>, ok: &mut bool) {
         for s in b {
             match &s.st {
                 St::Pass | St::Continue => {}
                 St::Expr(Ex::Call(f, args)) => match (f.as_ref(), args.as_slice()) {
-                    (Ex::Attr(r, m), [Arg::Pos(a)])
-                        if matches!(m.as_str(), "add" | "discard") || m == "append" =>
-                    {
+                    (Ex::Attr(r, m), [Arg::Pos(a)]) if matches!(m.as_str(), "add" | "discard") || m == "append" => {
                         match r.as_ref() {
                             // `nxt.add(q + 1)`: a set (not the one walked).
-                            Ex::Name(n)
-                                if m != "append" && walked.as_deref() != Some(n.as_str()) =>
-                            {
+                            Ex::Name(n) if m != "append" && walked.as_deref() != Some(n.as_str()) => {
                                 changed.insert(n.clone());
                             }
                             // `children[d].append(n)` with d the element: one entry per pass.
-                            Ex::Index(b, i)
-                                if matches!(b.as_ref(), Ex::Name(_))
-                                    && lv.is_some_and(
-                                        |v| matches!(i.as_ref(), Ex::Name(x) if x == v),
-                                    ) =>
-                            {
+                            Ex::Index(b, i) if matches!(b.as_ref(), Ex::Name(_)) && lv.is_some_and(|v| matches!(i.as_ref(), Ex::Name(x) if x == v)) => {
                                 if let Ex::Name(n) = b.as_ref() {
                                     changed.insert(n.clone());
                                 }
@@ -2860,24 +2171,20 @@ fn order_free_loop(target: &Ex, it: &Ex, body: &[Stmt], els: Option<&[Stmt]>, g:
                     _ => *ok = false,
                 },
                 // `indeg[n] += 1`, `count -= 1`: a constant int.
-                St::AugAssign(t, op, v) if matches!(*op, "+" | "-") && matches!(v, Ex::Int(_)) => {
-                    match t {
-                        Ex::Name(n) => {
+                St::AugAssign(t, op, v) if matches!(*op, "+" | "-") && matches!(v, Ex::Int(_)) => match t {
+                    Ex::Name(n) => {
+                        changed.insert(n.clone());
+                    }
+                    Ex::Index(b, i) if matches!(b.as_ref(), Ex::Name(_)) => {
+                        if let Ex::Name(n) = b.as_ref() {
                             changed.insert(n.clone());
                         }
-                        Ex::Index(b, i) if matches!(b.as_ref(), Ex::Name(_)) => {
-                            if let Ex::Name(n) = b.as_ref() {
-                                changed.insert(n.clone());
-                            }
-                            reads.push(i);
-                        }
-                        _ => *ok = false,
+                        reads.push(i);
                     }
-                }
+                    _ => *ok = false,
+                },
                 // `found = True`: every pass that sets it sets the same constant.
-                St::Assign(ts, v @ (Ex::True | Ex::False | Ex::NoneV | Ex::Int(_)))
-                    if matches!(ts.as_slice(), [Ex::Name(_)]) =>
-                {
+                St::Assign(ts, v @ (Ex::True | Ex::False | Ex::NoneV | Ex::Int(_))) if matches!(ts.as_slice(), [Ex::Name(_)]) => {
                     let Ex::Name(n) = &ts[0] else { unreachable!() };
                     let c = format!("{v:?}");
                     if sets_to.get(n).is_some_and(|x| *x != c) {
@@ -2899,16 +2206,7 @@ fn order_free_loop(target: &Ex, it: &Ex, body: &[Stmt], els: Option<&[Stmt]>, g:
             }
         }
     }
-    go(
-        body,
-        lv,
-        &walked,
-        g,
-        &mut changed,
-        &mut sets_to,
-        &mut reads,
-        &mut ok,
-    );
+    go(body, lv, &walked, g, &mut changed, &mut sets_to, &mut reads, &mut ok);
     let _ = els;
     if !ok {
         return false;
@@ -2933,13 +2231,10 @@ fn order_free_loop(target: &Ex, it: &Ex, body: &[Stmt], els: Option<&[Stmt]>, g:
             }
             _ => {}
         });
-        let outside =
-            |n: &String| all.get(n).copied().unwrap_or(0) > in_rhs.get(n).copied().unwrap_or(0);
+        let outside = |n: &String| all.get(n).copied().unwrap_or(0) > in_rhs.get(n).copied().unwrap_or(0);
         let mut bad = changed.iter().any(|n| outside(n));
         // `x in s` is the same whatever came first only on a set that the passes add to.
-        bad |= in_rhs
-            .keys()
-            .any(|n| changed.contains(n) && (!g.sets.contains(n) || sets_to.contains_key(n)));
+        bad |= in_rhs.keys().any(|n| changed.contains(n) && (!g.sets.contains(n) || sets_to.contains_key(n)));
         if bad {
             return false;
         }

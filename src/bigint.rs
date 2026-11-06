@@ -23,8 +23,7 @@ fn fold_pows(e: &mut Expr) {
             Expr::Binary("%", p, m) => match (p.as_ref(), lit(m)) {
                 (Expr::Binary("**", a, b), Some(m)) if m > 0 => match (lit(a), lit(b)) {
                     (Some(a), Some(b)) if b >= 0 => {
-                        let (mut r, mut base, mut k) =
-                            (1i128 % m as i128, (a as i128).rem_euclid(m as i128), b);
+                        let (mut r, mut base, mut k) = (1i128 % m as i128, (a as i128).rem_euclid(m as i128), b);
                         while k > 0 {
                             if k & 1 == 1 {
                                 r = r * base % m as i128;
@@ -59,23 +58,12 @@ pub fn promote(items: &mut [Item]) {
     int_consts(items);
     big_fns(items);
     // Names each function reads: a top-level name read by another function must stay an int.
-    let names: Vec<HashSet<String>> = items
-        .iter()
-        .map(|it| match it {
-            Item::Fn { body, .. } => idents(&format!("{body:?}")),
-            _ => HashSet::new(),
-        })
-        .collect();
+    let names: Vec<HashSet<String>> = items.iter().map(|it| match it {
+        Item::Fn { body, .. } => idents(&format!("{body:?}")),
+        _ => HashSet::new(),
+    }).collect();
     for (i, it) in items.iter_mut().enumerate() {
-        if let Item::Fn {
-            name,
-            params,
-            body,
-            ret,
-            script,
-            ..
-        } = it
-        {
+        if let Item::Fn { name, params, body, ret, script, .. } = it {
             let mut keep: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
             // A function's own locals are its own unless it declares them global; the top-level code's
             // names may be read by every function.
@@ -101,28 +89,14 @@ pub fn promote(items: &mut [Item]) {
 fn int_consts(items: &[Item]) {
     let mut sets: HashMap<String, (usize, bool)> = HashMap::new();
     for it in items {
-        let Item::Fn { body, script, .. } = it else {
-            continue;
-        };
+        let Item::Fn { body, script, .. } = it else { continue };
         let mut b = body.clone();
         crate::parser::walk_mut(&mut b, &mut |e| {
             if let Expr::Block(ss, _) = e {
                 for st in ss {
                     let (n, lit) = match st {
-                        Stmt::Let {
-                            name: Pat::Bind(n),
-                            value,
-                            ..
-                        } => (n.clone(), matches!(value, Expr::Int(_)) && *script),
-                        Stmt::Assign {
-                            target: Expr::Ident(n),
-                            op,
-                            value,
-                            ..
-                        } => (
-                            n.clone(),
-                            *op == "=" && matches!(value, Expr::Int(_)) && *script,
-                        ),
+                        Stmt::Let { name: Pat::Bind(n), value, .. } => (n.clone(), matches!(value, Expr::Int(_)) && *script),
+                        Stmt::Assign { target: Expr::Ident(n), op, value, .. } => (n.clone(), *op == "=" && matches!(value, Expr::Int(_)) && *script),
                         _ => continue,
                     };
                     let en = sets.entry(n).or_insert((0, true));
@@ -132,11 +106,7 @@ fn int_consts(items: &[Item]) {
             }
         });
     }
-    let cs = sets
-        .into_iter()
-        .filter(|(_, (k, lit))| *k == 1 && *lit)
-        .map(|(n, _)| n)
-        .collect();
+    let cs = sets.into_iter().filter(|(_, (k, lit))| *k == 1 && *lit).map(|(n, _)| n).collect();
     CONSTS.with(|c| *c.borrow_mut() = cs);
 }
 
@@ -148,12 +118,7 @@ fn big_fns(items: &mut [Item]) {
     let mut cands: HashSet<String> = items
         .iter()
         .filter_map(|it| match it {
-            Item::Fn {
-                name,
-                ret: Ty::Named(t),
-                script: false,
-                ..
-            } if t == "?" || t == "int" => Some(name.clone()),
+            Item::Fn { name, ret: Ty::Named(t), script: false, .. } if t == "?" || t == "int" => Some(name.clone()),
             _ => None,
         })
         .collect();
@@ -166,27 +131,15 @@ fn big_fns(items: &mut [Item]) {
             wrap_calls(body, &cands, true);
         }
     }
-    let names: Vec<HashSet<String>> = items
-        .iter()
-        .map(|it| match it {
-            Item::Fn { body, .. } => idents(&format!("{body:?}")),
-            _ => HashSet::new(),
-        })
-        .collect();
+    let names: Vec<HashSet<String>> = items.iter().map(|it| match it {
+        Item::Fn { body, .. } => idents(&format!("{body:?}")),
+        _ => HashSet::new(),
+    }).collect();
     loop {
         BIGF.with(|b| *b.borrow_mut() = cands.clone());
         let mut next = HashSet::new();
         for (i, it) in items.iter().enumerate() {
-            let Item::Fn {
-                name,
-                params,
-                body,
-                script,
-                ..
-            } = it
-            else {
-                continue;
-            };
+            let Item::Fn { name, params, body, script, .. } = it else { continue };
             if !cands.contains(name) {
                 continue;
             }
@@ -259,10 +212,7 @@ fn wrap_calls(e: &mut Expr, fs: &HashSet<String>, _top: bool) {
 fn unwrap_calls(e: &mut Expr, drop: &HashSet<String>) {
     crate::parser::walk_mut(e, &mut |x| {
         if let Expr::Method(r, m, a, _) = x {
-            if m == "int"
-                && a.is_empty()
-                && matches!(r.as_ref(), Expr::Call(f, _, _) if drop.contains(f))
-            {
+            if m == "int" && a.is_empty() && matches!(r.as_ref(), Expr::Call(f, _, _) if drop.contains(f)) {
                 let inner = std::mem::replace(r.as_mut(), Expr::Int(0));
                 *x = inner;
             }
@@ -321,10 +271,7 @@ fn promote_ret(body: &mut Expr, keep: &HashSet<String>, params: &HashSet<String>
     let mut rs = vec![];
     returns(body, &mut rs);
     // A function whose end can be reached returns None.
-    let ok = !rs.is_empty()
-        && ends_in_return(body)
-        && rs.iter().all(|v| bigable(v, &c))
-        && rs.iter().any(|v| big_growth(v, &c));
+    let ok = !rs.is_empty() && ends_in_return(body) && rs.iter().all(|v| bigable(v, &c)) && rs.iter().any(|v| big_growth(v, &c));
     if ok {
         rewrite_returns(body, &c);
         rewrite(body, &c, false);
@@ -334,10 +281,7 @@ fn promote_ret(body: &mut Expr, keep: &HashSet<String>, params: &HashSet<String>
 
 fn ends_in_return(body: &Expr) -> bool {
     match body {
-        Expr::Block(ss, None) => {
-            matches!(ss.last(), Some(Stmt::Return { value: Some(_), .. }))
-                || matches!(ss.last(), Some(Stmt::Expr { expr, .. }) if ends_in_return(expr))
-        }
+        Expr::Block(ss, None) => matches!(ss.last(), Some(Stmt::Return { value: Some(_), .. })) || matches!(ss.last(), Some(Stmt::Expr { expr, .. }) if ends_in_return(expr)),
         Expr::Block(_, Some(l)) => ends_in_return(l),
         Expr::If(_, a, Some(b)) => ends_in_return(a) && ends_in_return(b),
         _ => false,
@@ -350,9 +294,7 @@ fn rewrite_returns(e: &mut Expr, c: &HashSet<String>) {
             for s in ss.iter_mut() {
                 match s {
                     Stmt::Return { value: Some(v), .. } => conv(v, c),
-                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => {
-                        rewrite_returns(value, c)
-                    }
+                    Stmt::Let { value, .. } | Stmt::Assign { value, .. } => rewrite_returns(value, c),
                     Stmt::Expr { expr, .. } => rewrite_returns(expr, c),
                     _ => {}
                 }
@@ -415,11 +357,7 @@ thread_local! {
 // An int that cannot be big itself: a range loop's name, ord(c), len(xs).
 fn small(e: &Expr) -> bool {
     match e {
-        Expr::Ident(n) | Expr::Move(n) => {
-            SMALL.with(|s| s.borrow().contains(n))
-                || RET_PARAMS.with(|s| s.borrow().contains(n))
-                || CONSTS.with(|s| s.borrow().contains(n))
-        }
+        Expr::Ident(n) | Expr::Move(n) => SMALL.with(|s| s.borrow().contains(n)) || RET_PARAMS.with(|s| s.borrow().contains(n)) || CONSTS.with(|s| s.borrow().contains(n)),
         Expr::Method(_, m, a, _) => (m == "code" || m == "len") && a.is_empty(),
         _ => false,
     }
@@ -429,9 +367,7 @@ fn range_names(e: &Expr, out: &mut HashSet<String>) {
     let mut f = |x: &Expr| range_names(x, out);
     match e {
         Expr::For(Pat::Bind(n), xs, b) => {
-            if matches!(xs.as_ref(), Expr::Range(..))
-                || matches!(xs.as_ref(), Expr::Method(r, m, _, _) if m == "step" && matches!(r.as_ref(), Expr::Range(..)))
-            {
+            if matches!(xs.as_ref(), Expr::Range(..)) || matches!(xs.as_ref(), Expr::Method(r, m, _, _) if m == "step" && matches!(r.as_ref(), Expr::Range(..))) {
                 out.insert(n.clone());
             }
             range_names(b, out);
@@ -482,27 +418,14 @@ fn each_sub(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 // `f *= i`, `h = h * 31 + ord(c)`: a name multiplied by something and kept, which can outgrow 64 bits.
 fn grows(n: &str, v: &Expr) -> bool {
     match v {
-        Expr::Binary("*", a, b) => {
-            matches!(a.as_ref(), Expr::Ident(m) | Expr::Move(m) if m == n)
-                || matches!(b.as_ref(), Expr::Ident(m) | Expr::Move(m) if m == n)
-                || grows(n, a)
-                || grows(n, b)
-        }
+        Expr::Binary("*", a, b) => matches!(a.as_ref(), Expr::Ident(m) | Expr::Move(m) if m == n) || matches!(b.as_ref(), Expr::Ident(m) | Expr::Move(m) if m == n) || grows(n, a) || grows(n, b),
         // `a, b = b, a + b`: a sum of two names that are not small ints (Fibonacci numbers grow past 64 bits).
         // Also `a + b + c` (Tribonacci).
-        Expr::Binary("+", ..)
-            if {
-                let mut leaves = vec![];
-                sum_leaves(v, &mut leaves);
-                leaves.len() >= 2
-                    && leaves
-                        .iter()
-                        .all(|x| matches!(x, Expr::Ident(_) | Expr::Move(_)) && !small(x))
-                    && leaves.iter().any(|x| mentions_one(x, n))
-            } =>
-        {
-            true
-        }
+        Expr::Binary("+", ..) if {
+            let mut leaves = vec![];
+            sum_leaves(v, &mut leaves);
+            leaves.len() >= 2 && leaves.iter().all(|x| matches!(x, Expr::Ident(_) | Expr::Move(_)) && !small(x)) && leaves.iter().any(|x| mentions_one(x, n))
+        } => true,
         Expr::Binary("+" | "-", a, b) => grows(n, a) || grows(n, b),
         _ => false,
     }
@@ -581,12 +504,7 @@ impl Scan<'_> {
     fn stmt(&mut self, s: &Stmt) {
         match s {
             Stmt::Let { name, value, .. } => self.def(name, Some(value)),
-            Stmt::Assign {
-                target: Expr::Ident(n),
-                op,
-                value,
-                ..
-            } => {
+            Stmt::Assign { target: Expr::Ident(n), op, value, .. } => {
                 if *op == "=" {
                     self.def(&Pat::Bind(n.clone()), Some(value));
                 } else if ["+=", "-=", "*=", "//=", "%="].contains(op) {
@@ -598,11 +516,7 @@ impl Scan<'_> {
                         "//=" => "//",
                         _ => "%",
                     };
-                    let whole = Expr::Binary(
-                        bop,
-                        Box::new(Expr::Ident(n.clone())),
-                        Box::new(value.clone()),
-                    );
+                    let whole = Expr::Binary(bop, Box::new(Expr::Ident(n.clone())), Box::new(value.clone()));
                     self.defs.entry(n.clone()).or_default().push(whole);
                     let ok = self.c.contains(n);
                     self.expr(value, ok);
@@ -611,12 +525,7 @@ impl Scan<'_> {
                     self.expr(value, false);
                 }
             }
-            Stmt::Assign {
-                target: Expr::Tuple(ts),
-                op: "=",
-                value,
-                ..
-            } if ts.iter().all(|t| matches!(t, Expr::Ident(_))) => {
+            Stmt::Assign { target: Expr::Tuple(ts), op: "=", value, .. } if ts.iter().all(|t| matches!(t, Expr::Ident(_))) => {
                 self.def(&tuple_pat(ts), Some(value));
             }
             Stmt::Assign { target, value, .. } => {
@@ -660,9 +569,7 @@ impl Scan<'_> {
                     }
                 }
             }
-            Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => {
-                self.expr(a, false)
-            }
+            Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => self.expr(a, false),
             Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) => {
                 self.expr(a, false);
                 self.expr(b, false);
@@ -720,49 +627,27 @@ fn promote_body(body: &mut Expr, params: &HashSet<String>) {
 
 // The locals of body that become big integers. keep: names that must stay ints; ret_params: the parameters
 // of a function returning a big integer.
-fn promote_names(
-    body: &Expr,
-    params: &HashSet<String>,
-    ret_params: &HashSet<String>,
-) -> HashSet<String> {
+fn promote_names(body: &Expr, params: &HashSet<String>, ret_params: &HashSet<String>) -> HashSet<String> {
     RET_PARAMS.with(|s| *s.borrow_mut() = ret_params.clone());
     let mut rn = HashSet::new();
     range_names(body, &mut rn);
     SMALL.with(|s| *s.borrow_mut() = rn);
     // Start from every name set from int(text) somewhere, then drop names with a use or a value that
     // cannot be big, until nothing changes.
-    let mut seed = Scan {
-        c: &HashSet::new(),
-        bad: HashSet::new(),
-        defs: HashMap::new(),
-    };
+    let mut seed = Scan { c: &HashSet::new(), bad: HashSet::new(), defs: HashMap::new() };
     seed.expr(body, false);
     // Every local is a candidate at first; the fixed point keeps those whose every value and use can
     // be big, and then only the ones whose values come (through other kept names) from int(text).
-    let mut c: HashSet<String> = seed
-        .defs
-        .keys()
-        .filter(|n| !params.contains(*n))
-        .cloned()
-        .collect();
+    let mut c: HashSet<String> = seed.defs.keys().filter(|n| !params.contains(*n)).cloned().collect();
     loop {
         loop {
             if c.is_empty() {
                 break;
             }
-            let mut s = Scan {
-                c: &c,
-                bad: HashSet::new(),
-                defs: HashMap::new(),
-            };
+            let mut s = Scan { c: &c, bad: HashSet::new(), defs: HashMap::new() };
             s.expr(body, false);
-            let mut next: HashSet<String> =
-                c.iter().filter(|n| !s.bad.contains(*n)).cloned().collect();
-            next.retain(|n| {
-                s.defs
-                    .get(n)
-                    .is_some_and(|vs| vs.iter().all(|v| bigable(v, &c)))
-            });
+            let mut next: HashSet<String> = c.iter().filter(|n| !s.bad.contains(*n)).cloned().collect();
+            next.retain(|n| s.defs.get(n).is_some_and(|vs| vs.iter().all(|v| bigable(v, &c))));
             if next == c {
                 break;
             }
@@ -772,12 +657,7 @@ fn promote_names(
         loop {
             let before = reach.len();
             for n in &c {
-                if seed.defs[n].iter().any(|v| {
-                    has_text(v)
-                        || grows(n, v)
-                        || matches!(v, Expr::Int(k) if k.unsigned_abs() >= 1 << 40)
-                        || mentions_name(v, &reach)
-                }) {
+                if seed.defs[n].iter().any(|v| has_text(v) || grows(n, v) || matches!(v, Expr::Int(k) if k.unsigned_abs() >= 1 << 40) || mentions_name(v, &reach)) {
                     reach.insert(n.clone());
                 }
             }
@@ -821,19 +701,10 @@ fn conv(e: &mut Expr, c: &HashSet<String>) {
 fn rewrite_stmt(s: &mut Stmt, c: &HashSet<String>) {
     match s {
         Stmt::Let { name, value, .. } => rewrite_def(name, value, c),
-        Stmt::Assign {
-            target: Expr::Ident(n),
-            value,
-            ..
-        } if c.contains(n.as_str()) => {
+        Stmt::Assign { target: Expr::Ident(n), value, .. } if c.contains(n.as_str()) => {
             conv(value, c);
         }
-        Stmt::Assign {
-            target: Expr::Tuple(ts),
-            op: "=",
-            value,
-            ..
-        } if ts.iter().all(|t| matches!(t, Expr::Ident(_))) => {
+        Stmt::Assign { target: Expr::Tuple(ts), op: "=", value, .. } if ts.iter().all(|t| matches!(t, Expr::Ident(_))) => {
             rewrite_def(&tuple_pat(ts), value, c);
         }
         Stmt::Assign { target, value, .. } => {
@@ -861,13 +732,7 @@ fn rewrite_def(p: &Pat, v: &mut Expr, c: &HashSet<String>) {
 
 fn rewrite(e: &mut Expr, c: &HashSet<String>, _in: bool) {
     match e {
-        Expr::Binary(op, a, b)
-            if (ARITH.contains(op) || CMP.contains(op))
-                && bigable(a, c)
-                && bigable(b, c)
-                && (mentions(a, c) || mentions(b, c))
-                && (mentions_name(a, c) || mentions_name(b, c)) =>
-        {
+        Expr::Binary(op, a, b) if (ARITH.contains(op) || CMP.contains(op)) && bigable(a, c) && bigable(b, c) && (mentions(a, c) || mentions(b, c)) && (mentions_name(a, c) || mentions_name(b, c)) => {
             conv(a, c);
             conv(b, c);
         }
@@ -882,20 +747,14 @@ fn rewrite(e: &mut Expr, c: &HashSet<String>, _in: bool) {
                 printed(x, c);
             }
         }),
-        Expr::Call(f, args, _) if f == "print" || f == "str" => {
-            args.iter_mut().for_each(|(n, a)| {
-                if n.is_none() {
-                    printed(a, c)
-                } else {
-                    rewrite(a, c, false)
-                }
-            })
-        }
-        Expr::Unary(_, a)
-        | Expr::Field(a, _)
-        | Expr::TupleField(a, _)
-        | Expr::Try(a)
-        | Expr::Lambda(_, a) => rewrite(a, c, false),
+        Expr::Call(f, args, _) if f == "print" || f == "str" => args.iter_mut().for_each(|(n, a)| {
+            if n.is_none() {
+                printed(a, c)
+            } else {
+                rewrite(a, c, false)
+            }
+        }),
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) | Expr::Lambda(_, a) => rewrite(a, c, false),
         Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) => {
             rewrite(a, c, false);
             rewrite(b, c, false);
@@ -939,26 +798,12 @@ fn mentions_name(e: &Expr, c: &HashSet<String>) -> bool {
 }
 
 fn tuple_pat(ts: &[Expr]) -> Pat {
-    Pat::Tuple(
-        ts.iter()
-            .map(|t| {
-                if let Expr::Ident(n) = t {
-                    Pat::Bind(n.clone())
-                } else {
-                    Pat::Wild
-                }
-            })
-            .collect(),
-    )
+    Pat::Tuple(ts.iter().map(|t| if let Expr::Ident(n) = t { Pat::Bind(n.clone()) } else { Pat::Wild }).collect())
 }
 
 // print(int(p[0]) + int(p[1])): sums of int(text) printed straight away are big too.
 fn printed(e: &mut Expr, c: &HashSet<String>) {
-    if matches!(e, Expr::Method(r, m, a, _) if m == "int" && a.is_empty() && big_call(r))
-        || matches!(e, Expr::Binary(op, ..) if ARITH.contains(op))
-            && bigable(e, c)
-            && mentions(e, c)
-    {
+    if matches!(e, Expr::Method(r, m, a, _) if m == "int" && a.is_empty() && big_call(r)) || matches!(e, Expr::Binary(op, ..) if ARITH.contains(op)) && bigable(e, c) && mentions(e, c) {
         conv(e, c);
     } else {
         rewrite(e, c, false);
