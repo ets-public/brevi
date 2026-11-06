@@ -2,6 +2,7 @@
 // dynamic value type (runtime in rt_*.rs), so mixed-type values work as they do in CPython.
 pub mod emit;
 pub mod parse;
+pub mod tok;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -48,6 +49,9 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_nprdist.rs"),
     include_str!("rt_nplinalg.rs"),
     include_str!("rt_nplsq.rs"),
+    include_str!("rt_tokre.rs"),
+    include_str!("rt_tokuni.rs"),
+    include_str!("rt_tok.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -123,6 +127,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "textwrap" => include_str!("py/textwrap.py"),
         "argparse" => include_str!("py/argparse.py"),
         "asyncio" => include_str!("py/asyncio.py"),
+        "tiktoken" => include_str!("py/tiktoken.py"),
         _ => return None,
     })
 }
@@ -202,7 +207,7 @@ fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse or asyncio beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio or tiktoken beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -218,6 +223,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let pure = |s: &str| crate::caps::path_uses(s).map_or(true, |v| v.is_empty()) && int_seeds(s);
     let mut own_ok = pure(&src);
     let mut own_used = false;
+    let mut own_mods: HashSet<String> = HashSet::new();
     let mut bridge = emit::Bridge::default();
     let mut texts: HashMap<String, (String, String)> = HashMap::new();
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
@@ -241,6 +247,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             if !p.exists() && ((copies && own_ok) || !crate::pybridge::py_allowed(&m)) {
                 if let Some(src) = sandbox_module(&m) {
                     own_used = true;
+                    own_mods.insert(m.clone());
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
                     mods.push(emit::Module { name: m, body });
                     continue;
@@ -281,6 +288,23 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         // numpy's arrays would cross into the bridged library: both go to CPython
         return Err((file.to_string(), 0, "numpy: arrays passed to a library CPython runs".into()));
     }
+    // Brevi's tiktoken: the vocabularies to build in, and its patterns checked
+    let tok_files = if own_mods.contains("tiktoken") {
+        let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
+        let r = tok::check(&user).and_then(|f| tok::blobs(&crate::cache_dir(), &f));
+        match r {
+            Ok(b) => Some(b),
+            Err(m) => {
+                if std::env::var("BREVI_TOK_DEBUG").is_ok() {
+                    eprintln!("native tiktoken refused: {m}");
+                }
+                // CPython's tiktoken, through the bridge, when it may be used
+                return Err((file.to_string(), 0, if copies && bridge_ok() && crate::pybridge::py_allowed("tiktoken") { BEYOND_COPIES.into() } else { m }));
+            }
+        }
+    } else {
+        None
+    };
     emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && texts.values().any(|(_, t)| emit::names_narrow(t)), std::sync::atomic::Ordering::Relaxed);
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
@@ -295,6 +319,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push_str(&crate::pybridge::dyn_runtime());
         rust.push_str(GLUE);
         *BRIDGED.lock().unwrap() = used;
+    }
+    if let Some(b) = &tok_files {
+        rust = tok::embed(rust, b);
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("fn main() { run_main(__run); }", "fn main() { TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);

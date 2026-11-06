@@ -321,6 +321,18 @@ pub fn to_str(v: &V) -> Result<String, E> {
             }
             if o.cls.base_bt() == BT::Exc {
                 let args = o.get("args").unwrap_or(tup(vec![]));
+                // UnicodeDecodeError(encoding, object, start, end, reason)
+                if let V::Tuple(t) = &args {
+                    if t.len() == 5 && o.cls.is_sub(&exc_class("UnicodeDecodeError")) {
+                        if let (V::Str(e), Some(b), V::Int(a), V::Int(z), V::Str(r)) = (&t[0], bytes_of(&t[1]), &t[2], &t[3], &t[4]) {
+                            return Ok(if *z == *a + 1 && (*a as usize) < b.len() {
+                                format!("'{}' codec can't decode byte 0x{:02x} in position {a}: {}", e.s, b[*a as usize], r.s)
+                            } else {
+                                format!("'{}' codec can't decode bytes in position {a}-{}: {}", e.s, z - 1, r.s)
+                            });
+                        }
+                    }
+                }
                 return Ok(match &args {
                     V::Tuple(t) if t.is_empty() => String::new(),
                     V::Tuple(t) if t.len() == 1 => {

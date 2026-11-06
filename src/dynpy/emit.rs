@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 32] = ["_brevi_async", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 33] = ["_brevi_async", "_brevi_tok", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -181,6 +181,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
         "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
+        "_brevi_tok" => &["core", "ranks", "max_rank", "n_ranks", "find_special"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "replace", "MISSING"],
@@ -320,6 +321,56 @@ fn visit_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
             }
         }
         _ => {}
+    }
+}
+// Visit every expression of the statements, nested defs, classes and lambda bodies included.
+pub fn visit_any(body: &[Stmt], f: &mut dyn FnMut(&Ex)) {
+    fn lam(e: &Ex, f: &mut dyn FnMut(&Ex)) {
+        visit_ex(e, &mut |x| {
+            f(x);
+            if let Ex::Lambda(_, b) = x {
+                lam(b, f);
+            }
+        });
+    }
+    let mut ex = vec![];
+    stmt_exprs(body, &mut ex);
+    for e in ex {
+        lam(e, f);
+    }
+    fn nested<'a>(body: &'a [Stmt], out: &mut Vec<&'a [Stmt]>) {
+        for s in body {
+            match &s.st {
+                St::Def(d) => out.push(&d.body),
+                St::Class(c) => out.push(&c.body),
+                St::If(arms, els) => {
+                    arms.iter().for_each(|(_, b)| nested(b, out));
+                    if let Some(b) = els {
+                        nested(b, out);
+                    }
+                }
+                St::For(_, _, b, e) | St::While(_, b, e) => {
+                    nested(b, out);
+                    if let Some(b) = e {
+                        nested(b, out);
+                    }
+                }
+                St::Try(b, hs, e, fi) => {
+                    nested(b, out);
+                    hs.iter().for_each(|h| nested(&h.body, out));
+                    for b in [e, fi].into_iter().flatten() {
+                        nested(b, out);
+                    }
+                }
+                St::With(_, b) => nested(b, out),
+                _ => {}
+            }
+        }
+    }
+    let mut inner = vec![];
+    nested(body, &mut inner);
+    for b in inner {
+        visit_any(b, f);
     }
 }
 // Expressions directly in a statement list (not entering nested defs/classes, except decorators,

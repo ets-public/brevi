@@ -1,0 +1,51 @@
+disallowed ! ValueError ValueError("Encountered text corresponding to disallowed special token '<|endoftext|>'.\nIf you want this text to be encoded as a special token, pass it to `allowed_special`, e.g. `allowed_special={'<|endoftext|>', ...}`.\nIf you want this text to be encoded as normal text, disable the check for this token by passing `disallowed_special=(enc.special_tokens_set - {'<|endoftext|>'})`.\nTo disable this check for all special tokens, pass `disallowed_special=()`.\n")
+disallowed2 ! ValueError ValueError("Encountered text corresponding to disallowed special token '<|fim_prefix|>'.\nIf you want this text to be encoded as a special token, pass it to `allowed_special`, e.g. `allowed_special={'<|fim_prefix|>', ...}`.\nIf you want this text to be encoded as normal text, disable the check for this token by passing `disallowed_special=(enc.special_tokens_set - {'<|fim_prefix|>'})`.\nTo disable this check for all special tokens, pass `disallowed_special=()`.\n")
+disallowed str ! ValueError ValueError("Encountered text corresponding to disallowed special token '<'.\nIf you want this text to be encoded as a special token, pass it to `allowed_special`, e.g. `allowed_special={'<', ...}`.\nIf you want this text to be encoded as normal text, disable the check for this token by passing `disallowed_special=(enc.special_tokens_set - {'<'})`.\nTo disable this check for all special tokens, pass `disallowed_special=()`.\n")
+disallowed list ! ValueError ValueError("Encountered text corresponding to disallowed special token '<|endofprompt|>'.\nIf you want this text to be encoded as a special token, pass it to `allowed_special`, e.g. `allowed_special={'<|endofprompt|>', ...}`.\nIf you want this text to be encoded as normal text, disable the check for this token by passing `disallowed_special=(enc.special_tokens_set - {'<|endofprompt|>'})`.\nTo disable this check for all special tokens, pass `disallowed_special=()`.\n")
+allowed list ! TypeError TypeError("unsupported operand type(s) for -: 'set' and 'list'")
+allowed frozenset -> [100257]
+allowed both -> [100257]
+allowed int ! TypeError TypeError("'int' object is not an instance of 'str'")
+allowed nonspecial -> [87, 100257]
+partial special -> [27, 91, 8862, 728, 428]
+plain -> [27, 91, 8862, 728, 428, 91, 29]
+encode int ! TypeError TypeError("a bytes-like object is required, not 'int'")
+encode bytes ! TypeError TypeError('cannot use a string pattern on a bytes-like object')
+encode None ! TypeError TypeError("a bytes-like object is required, not 'NoneType'")
+encode int plain ! TypeError TypeError("'int' object is not an instance of 'str'")
+ordinary int ! TypeError TypeError("'int' object is not an instance of 'str'")
+ordinary bytes ! TypeError TypeError("'bytes' object is not an instance of 'str'")
+decode bad ! KeyError KeyError('Invalid token for decoding: 999999')
+decode gap ! KeyError KeyError('Invalid token for decoding: 100261')
+decode str ! TypeError TypeError("Can't extract `str` to `Vec`")
+decode int ! TypeError TypeError("'int' object is not an instance of 'Sequence'")
+decode None ! TypeError TypeError("'None' is not an instance of 'Sequence'")
+decode float ! TypeError TypeError("'float' object cannot be interpreted as an integer")
+decode strs ! TypeError TypeError("'str' object cannot be interpreted as an integer")
+decode big ! OverflowError OverflowError('out of range integral type conversion attempted')
+decode huge ! OverflowError OverflowError('Python int too large to convert to C long')
+decode neg ! OverflowError OverflowError('out of range integral type conversion attempted')
+decode range -> '!"#'
+decode tuple -> '"#'
+decode bool -> '"'
+decode strict ! UnicodeDecodeError UnicodeDecodeError('utf-8', b'\xa1', 0, 1, 'invalid start byte')
+decode replace -> '�'
+decode ignore -> 'hello'
+offsets bad utf8 ! UnicodeDecodeError UnicodeDecodeError('utf-8', b'\xa1', 0, 1, 'invalid start byte')
+single bad ! KeyError KeyError('999999')
+single neg ! OverflowError OverflowError('out of range integral type conversion attempted')
+single huge ! OverflowError OverflowError('Python int too large to convert to C long')
+single str ! TypeError TypeError("'str' object cannot be interpreted as an integer")
+encode single missing ! KeyError KeyError(b'notatoken')
+encode single int ! TypeError TypeError("'int' object is not an instance of 'bytes'")
+encode single bytes ! KeyError KeyError(b'\xff\xfe')
+is_special float ! AssertionError AssertionError()
+get_encoding unknown ! ValueError ValueError("Unknown encoding foo.\nPlugins found: ['tiktoken_ext.openai_public']\ntiktoken version: 0.14.0 (are you on latest?)")
+get_encoding int ! ValueError ValueError("Expected a string in get_encoding, got <class 'int'>")
+model unknown ! KeyError KeyError('Could not automatically map foo to a tokeniser. Please use `tiktoken.get_encoding` to explicitly get the tokeniser you expect.')
+model name unknown ! KeyError KeyError('Could not automatically map claude-3 to a tokeniser. Please use `tiktoken.get_encoding` to explicitly get the tokeniser you expect.')
+same object -> True
+specials set cached -> True
+specials -> {'<|endoftext|>': 100257, '<|fim_prefix|>': 100258, '<|fim_middle|>': 100259, '<|fim_suffix|>': 100260, '<|endofprompt|>': 100276}
+pattern -> "'(?i:[sdmt]|ll|ve|re)|[^\\r\\n\\p{L}\\p{N}]?+\\p{L}++|\\p{N}{1,3}+| ?[^\\s\\p{L}\\p{N}]++[\\r\\n]*+|\\s++$|\\s*[\\r\\n]|\\s+(?!\\S)|\\s"
+ranks -> (100256, 15339, [(b'!', 0), (b'"', 1), (b'#', 2)])

@@ -103,6 +103,24 @@ for f in tests/numpy/*.py; do
     echo "ok   $f"
   fi
 done
+# tiktoken programs must print what CPython's tiktoken prints, with Brevi's own tiktoken: never CPython. The
+# .expected files come from tiktoken 0.14 (CI has none): `--update` needs it installed. Building one gets OpenAI's
+# vocabularies once, into tiktoken's cache, as tiktoken itself does.
+for f in tests/tiktoken/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then
+    python3 -c "import tiktoken" 2>/dev/null && python3 "$f" > "$exp" 2>&1
+    continue
+  fi
+  out=$(BREVI_PATH=1 timeout 300 $BREVI run "$f" --native 2>/tmp/brevi_tok_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_tok_err; then
+    echo "FAIL $f (not built with Brevi's tiktoken)"; cat /tmp/brevi_tok_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_tok_err | tail -5; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"
