@@ -85,8 +85,10 @@ pub fn np_promote(a: NT, b: NT) -> NT {
     match (a, b) {
         (x, y) if x == y => x,
         // strings take the wider width; a number among strings becomes its str() (np.array([1, "a"]))
-        (U(x), U(y)) => U(x.max(y)),
-        (U(x), y) | (y, U(x)) => U(x.max(y.str_width())),
+        // (written without an or-pattern: rustc 1.99's code for `(U(x), y) | (y, U(x))` jumped out of
+        // its jump table here)
+        (U(x), _) => U(x.max(b.str_width())),
+        (_, U(y)) => U(y.max(a.str_width())),
         (B, y) | (y, B) => y,
         (I32, I) | (I, I32) => I,
         (F32, F) | (F, F32) => F,
