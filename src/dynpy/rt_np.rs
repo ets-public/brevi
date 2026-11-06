@@ -1040,11 +1040,44 @@ fn np_blas() -> Blas {
         Blas::Plain
     })
 }
+// a * b + c rounded once. The runtime is built for baseline x86-64, where this is a software routine; the
+// hot kernels below are also compiled for CPUs with FMA (fma_on) and pick that copy at run time, where it is
+// the CPU's own instruction. Either way the result is the same.
+#[inline(always)]
 fn fma(a: f64, b: f64, c: f64) -> f64 {
     a.mul_add(b, c)
 }
+fn fma_cpu() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        return std::arch::is_x86_feature_detected!("fma");
+    }
+    #[allow(unreachable_code)]
+    false
+}
+// fma_on!(fname(args: types) -> ret): a copy of the #[inline(always)] function `fname_i` built with FMA,
+// chosen when the CPU has it
+macro_rules! fma_on {
+    ($name:ident, $imp:ident, ($($a:ident: $t:ty),*) -> $r:ty) => {
+        fn $name($($a: $t),*) -> $r {
+            #[cfg(target_arch = "x86_64")]
+            {
+                #[target_feature(enable = "fma")]
+                unsafe fn hw($($a: $t),*) -> $r {
+                    $imp($($a),*)
+                }
+                if fma_cpu() {
+                    return unsafe { hw($($a),*) };
+                }
+            }
+            $imp($($a),*)
+        }
+    };
+}
 // OpenBLAS ddot on one thread's share (dot_compute in kernel/x86_64/ddot.c)
-fn ddot1(x: &[f64], y: &[f64], unit: bool, k: Blas) -> f64 {
+fma_on!(ddot1, ddot1_i, (x: &[f64], y: &[f64], unit: bool, k: Blas) -> f64);
+#[inline(always)]
+fn ddot1_i(x: &[f64], y: &[f64], unit: bool, k: Blas) -> f64 {
     let n = x.len();
     if k == Blas::Plain {
         let mut s = 0.0;
@@ -1182,7 +1215,9 @@ fn np_gemv_split(n: usize, nt: usize) -> Vec<(usize, usize)> {
     out
 }
 // one dot of dgemv_t: kind 4 (the AVX2 four-row kernel), 2 or 1 (the SSE two- and one-row kernels)
-fn gemv_t_row(a: &[f64], x: &[f64], kind: usize) -> f64 {
+fma_on!(gemv_t_row, gemv_t_row_i, (a: &[f64], x: &[f64], kind: usize) -> f64);
+#[inline(always)]
+fn gemv_t_row_i(a: &[f64], x: &[f64], kind: usize) -> f64 {
     let k = a.len();
     let kb = k - k % 4;
     let mut y = 0.0;
@@ -1229,6 +1264,10 @@ fn gemv_t_row(a: &[f64], x: &[f64], kind: usize) -> f64 {
 }
 // A x for row-major A (m x k)
 fn np_gemv_t(a: &[f64], m: usize, k: usize, x: &[f64]) -> Vec<f64> {
+    np_gemv_t_ld(a, 0, k, m, k, x)
+}
+// the same with row r at a[off + r * ld..][..k]
+fn np_gemv_t_ld(a: &[f64], off: usize, ld: usize, m: usize, k: usize, x: &[f64]) -> Vec<f64> {
     let mut y = vec![0.0; m];
     let nt = np_gemv_nt(m, k);
     let chunks = if nt > 1 { np_gemv_split(m, nt) } else { vec![(0, m)] };
@@ -1242,13 +1281,16 @@ fn np_gemv_t(a: &[f64], m: usize, k: usize, x: &[f64]) -> Vec<f64> {
             } else {
                 1
             };
-            y[r0 + j] = gemv_t_row(&a[(r0 + j) * k..(r0 + j + 1) * k], x, kind);
+            let o = off + (r0 + j) * ld;
+            y[r0 + j] = gemv_t_row(&a[o..o + k], x, kind);
         }
     }
     y
 }
 // dgemv_n over rows r0..r0+rn and columns c0..c0+cn of the column-major m x k matrix a (lda m); a fresh y
-fn gemv_n_part(a: &[f64], m: usize, r0: usize, rn: usize, c0: usize, cn: usize, x: &[f64], unit: bool) -> Vec<f64> {
+fma_on!(gemv_n_part, gemv_n_part_i, (a: &[f64], m: usize, r0: usize, rn: usize, c0: usize, cn: usize, x: &[f64], unit: bool, ldm: bool) -> Vec<f64>);
+#[inline(always)]
+fn gemv_n_part_i(a: &[f64], m: usize, r0: usize, rn: usize, c0: usize, cn: usize, x: &[f64], unit: bool, ldm: bool) -> Vec<f64> {
     let skx = np_blas() == Blas::Skx;
     let at = |r: usize, c: usize| a[r0 + r + (c0 + c) * m];
     let xs = &x[c0..c0 + cn];
@@ -1277,7 +1319,8 @@ fn gemv_n_part(a: &[f64], m: usize, r0: usize, rn: usize, c0: usize, cn: usize, 
         }
         y[r] = t;
     }
-    let pair = (m == 2 || m == 3) && unit;
+    // the kernel's lda == 2 / 3 special case (ldm: the matrix's leading dimension is its row count)
+    let pair = (m == 2 || m == 3) && unit && ldm;
     for r in mb..rn {
         let (mut c, mut t) = (0, 0.0);
         if pair {
@@ -1298,16 +1341,19 @@ fn gemv_n_part(a: &[f64], m: usize, r0: usize, rn: usize, c0: usize, cn: usize, 
 }
 // A x for column-major A (m x k): numpy's vector @ matrix, and matrix @ vector for a Fortran-ordered matrix
 fn np_gemv_n(a: &[f64], m: usize, k: usize, x: &[f64], unit: bool) -> Vec<f64> {
+    np_gemv_n_ld(a, m, k, x, unit, true)
+}
+fn np_gemv_n_ld(a: &[f64], m: usize, k: usize, x: &[f64], unit: bool, ldm: bool) -> Vec<f64> {
     let nt = np_gemv_nt(m, k);
     if nt == 1 {
-        return gemv_n_part(a, m, 0, m, 0, k, x, unit);
+        return gemv_n_part(a, m, 0, m, 0, k, x, unit, ldm);
     }
     let rows = np_gemv_split(m, nt);
     if rows.len() < nt && m * k > 9216 && m * nt <= 1024 {
         // split the dot instead, then add each thread's part in order
         let mut y = vec![0.0; m];
         for (c0, cn) in np_gemv_split(k, nt) {
-            let p = gemv_n_part(a, m, 0, m, c0, cn, x, unit);
+            let p = gemv_n_part(a, m, 0, m, c0, cn, x, unit, ldm);
             for j in 0..m {
                 y[j] += p[j];
             }
@@ -1316,7 +1362,7 @@ fn np_gemv_n(a: &[f64], m: usize, k: usize, x: &[f64], unit: bool) -> Vec<f64> {
     }
     let mut y = vec![];
     for (r0, rn) in rows {
-        y.extend(gemv_n_part(a, m, r0, rn, 0, k, x, unit));
+        y.extend(gemv_n_part(a, m, r0, rn, 0, k, x, unit, ldm));
     }
     y
 }
@@ -1344,7 +1390,9 @@ fn np_gemm_kblocks(k: usize, q: usize, um: usize, threaded: bool) -> Vec<(usize,
     }
     out
 }
-fn np_gemm(xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf: bool) -> Vec<f64> {
+fma_on!(np_gemm, np_gemm_i, (xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf: bool) -> Vec<f64>);
+#[inline(always)]
+fn np_gemm_i(xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf: bool) -> Vec<f64> {
     let ycol: Vec<Vec<f64>> = (0..n).map(|i| (0..k).map(|t| yv[t * n + i]).collect()).collect();
     let xr = |j: usize| &xv[j * k..(j + 1) * k];
     let chain = |a: &[f64], b: &[f64]| {
@@ -1422,6 +1470,7 @@ fn np_gemm(xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf: b
 }
 // one kernel chunk's sum over a k-block (see np_gemm's regular path): rs x cs is the chunk, wok whether the
 // SkylakeX kernel's two- and four-lane sums apply to this call
+#[inline(always)]
 fn np_kacc(a: &[f64], b: &[f64], rs: usize, cs: usize, skx: bool, wok: bool) -> f64 {
     let ml = a.len();
     let w = if skx && wok && cs == 12 {
@@ -1472,7 +1521,9 @@ fn np_kacc(a: &[f64], b: &[f64], rs: usize, cs: usize, skx: bool, wok: bool) -> 
 // (n + 1) n k > 439776 on more than one core, rows split so each thread gets about the same area of the
 // triangle) cut it into calls; syrk_kernel.c takes the part of each call below the diagonal through the
 // gemm kernel and 32 x 32 diagonal blocks through it into a scratch block.
-fn np_syrk(v: &[Vec<f64>], k: usize) -> Vec<f64> {
+fma_on!(np_syrk, np_syrk_i, (v: &[Vec<f64>], k: usize) -> Vec<f64>);
+#[inline(always)]
+fn np_syrk_i(v: &[Vec<f64>], k: usize) -> Vec<f64> {
     let n = v.len();
     let skx = np_blas() == Blas::Skx;
     let lkh = if skx { Lk { skx: true, um: 16, un: 2, q: 384 } } else { Lk { skx: false, um: 4, un: 8, q: if cfg!(windows) { 128 } else { 256 } } };

@@ -47,7 +47,7 @@ const NP_FUNCS: &[(&str, &[&str])] = &[
     ("diff", &["n", "axis", "prepend", "append"]), ("outer", &[]), ("dot", &[]), ("matmul", &[]), ("inner", &[]), ("vdot", &[]),
     ("isclose", &["rtol", "atol", "equal_nan"]), ("allclose", &["rtol", "atol", "equal_nan"]), ("array_equal", &[]), ("searchsorted", &["side"]),
     ("tile", &[]), ("meshgrid", &["indexing"]), ("diag", &["k"]), ("fill_diagonal", &[]), ("unravel_index", &[]), ("cross", &[]), ("convolve", &["mode"]),
-    ("histogram", &["bins", "range", "density", "weights"]), ("cov", &["m", "y", "rowvar", "bias", "ddof"]), ("corrcoef", &["x", "y", "rowvar"]), ("trapezoid", &["y", "x", "dx", "axis"]),
+    ("histogram", &["bins", "range", "density", "weights"]), ("cov", &["m", "y", "rowvar", "bias", "ddof"]), ("corrcoef", &["x", "y", "rowvar"]), ("trapezoid", &["y", "x", "dx", "axis"]), ("polyfit", &["x", "y", "deg", "rcond", "full", "w", "cov"]), ("polyval", &["p", "x"]),
     ("abs", &[]), ("absolute", &[]), ("fabs", &[]), ("negative", &[]), ("positive", &[]), ("sqrt", &[]), ("exp", &[]), ("exp2", &[]), ("expm1", &[]), ("log", &[]), ("log10", &[]), ("log2", &[]), ("log1p", &[]),
     ("sin", &[]), ("cos", &[]), ("tan", &[]), ("arcsin", &[]), ("arccos", &[]), ("arctan", &[]), ("sinh", &[]), ("cosh", &[]), ("tanh", &[]), ("arcsinh", &[]), ("arccosh", &[]), ("arctanh", &[]),
     ("cbrt", &[]), ("floor", &[]), ("ceil", &[]), ("trunc", &[]), ("rint", &[]), ("fix", &[]), ("square", &[]), ("reciprocal", &[]), ("sign", &[]), ("degrees", &[]), ("radians", &[]), ("deg2rad", &[]), ("rad2deg", &[]),
@@ -86,7 +86,7 @@ const NP_RAND_FUNCS: &[(&str, &[&str])] = &[
     ("choice", &["a", "size", "replace", "p"]), ("shuffle", &["x"]), ("permutation", &["x"]),
     ("standard_gamma", &["shape", "size"]), ("gamma", &["shape", "scale", "size"]), ("beta", &["a", "b", "size"]), ("chisquare", &["df", "size"]), ("noncentral_chisquare", &["df", "nonc", "size"]), ("f", &["dfnum", "dfden", "size"]), ("noncentral_f", &["dfnum", "dfden", "nonc", "size"]), ("standard_cauchy", &["size"]), ("standard_t", &["df", "size"]), ("vonmises", &["mu", "kappa", "size"]), ("pareto", &["a", "size"]), ("weibull", &["a", "size"]), ("power", &["a", "size"]), ("laplace", &["loc", "scale", "size"]), ("gumbel", &["loc", "scale", "size"]), ("logistic", &["loc", "scale", "size"]), ("lognormal", &["mean", "sigma", "size"]), ("rayleigh", &["scale", "size"]), ("wald", &["mean", "scale", "size"]), ("triangular", &["left", "mode", "right", "size"]), ("poisson", &["lam", "size"]), ("zipf", &["a", "size"]), ("geometric", &["p", "size"]), ("logseries", &["p", "size"]), ("negative_binomial", &["n", "p", "size"]), ("binomial", &["n", "p", "size"]), ("hypergeometric", &["ngood", "nbad", "nsample", "size"]), ("multinomial", &["n", "pvals", "size"]), ("dirichlet", &["alpha", "size"]),
 ];
-const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[("norm", &["x", "ord", "axis", "keepdims"]), ("det", &[]), ("slogdet", &[]), ("solve", &[]), ("inv", &[]), ("matrix_power", &[]), ("LinAlgError", &[])];
+const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[("norm", &["x", "ord", "axis", "keepdims"]), ("det", &[]), ("slogdet", &[]), ("solve", &[]), ("inv", &[]), ("matrix_power", &[]), ("lstsq", &["a", "b", "rcond"]), ("LinAlgError", &[])];
 fn np_linalg_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_LINALG_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
