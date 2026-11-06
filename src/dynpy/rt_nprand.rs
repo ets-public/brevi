@@ -359,6 +359,9 @@ impl Ext for NpRng {
         if np_narrow_args(a) {
             return Some(Err(np_unsup(&format!("{n}() with float32 or int32 values"))));
         }
+        if np_str_args(a) && !matches!(n, "choice" | "permutation" | "shuffle") {
+            return Some(Err(np_unsup(&format!("{n}() with strings"))));
+        }
         Some(np_rng_call(self, n, a))
     }
 }

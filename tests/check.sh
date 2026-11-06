@@ -98,7 +98,7 @@ for f in tests/numpy/*.py; do
   if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
     echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
   elif [ "$out" != "$(cat "$exp")" ]; then
-    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_np_err | tail -5; fail=1
   else
     echo "ok   $f"
   fi

@@ -449,7 +449,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                 }
             }
             match name {
-                "__name__" | "__qualname__" => Ok(s(c.name)),
+                // numpy's classes: float64, str_ (their module is numpy)
+                "__name__" | "__qualname__" => Ok(s(c.name.strip_prefix("numpy.").filter(|n| !n.contains('.')).unwrap_or(c.name))),
                 "__module__" => Ok(s(c.module)),
                 "__mro__" => Ok(tup(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect())),
                 "__bases__" => Ok(tup(c.bases.iter().map(|k| V::Class(k.clone())).collect())),

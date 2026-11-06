@@ -1245,7 +1245,35 @@ fn modfn(m: &'static str, n: &str) -> V {
     let n: Sym = sym(n);
     builtin(n, move |a: Args| module_call(m, n, a))
 }
+// A library str (numpy's np.str_) given to a text module is that str (re.match(p, names[0])); json reads
+// it inside lists and dicts too.
+fn native_strs(v: &V, deep: bool) -> V {
+    match v {
+        V::Ext(e) => match e.native() {
+            Some(Ok(s @ V::Str(_))) => s,
+            _ => v.clone(),
+        },
+        V::List(l) if deep => list(l.borrow().iter().map(|x| native_strs(x, true)).collect()),
+        V::Tuple(t) if deep => tup(t.iter().map(|x| native_strs(x, true)).collect()),
+        V::Dict(d) if deep => {
+            let mut o = Dict::new();
+            for (k, x) in d.borrow().items() {
+                let _ = o.set(native_strs(&k, true), native_strs(&x, true));
+            }
+            V::Dict(Rc::new(RefCell::new(o)))
+        }
+        _ => v.clone(),
+    }
+}
 pub fn module_call(m: &str, n: &str, a: Args) -> R {
+    let a = if matches!(m, "re" | "json" | "textwrap" | "string" | "os" | "os.path" | "unicodedata" | "hashlib" | "base64" | "difflib" | "fnmatch" | "shlex" | "html" | "urllib.parse")
+        && (a.p.iter().any(|x| !matches!(x, V::Str(_) | V::Int(_) | V::Float(_))) || !a.k.is_empty())
+    {
+        let deep = m == "json";
+        Args { p: a.p.iter().map(|x| native_strs(x, deep)).collect(), k: a.k.iter().map(|(k, x)| (*k, native_strs(x, deep))).collect() }
+    } else {
+        a
+    };
     match m {
         "math" => math_fn(n, a),
         "heapq" => heapq_fn(n, a),

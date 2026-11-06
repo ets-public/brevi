@@ -1060,6 +1060,7 @@ fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
             LAST.with(|l| *l.borrow_mut() = Some((x.clone(), c.clone())));
             Ok((c, v.clone()))
         }
+        V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => re_str(&e.native().unwrap()?),
         _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
     }
 }
