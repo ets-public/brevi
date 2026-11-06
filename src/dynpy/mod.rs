@@ -3,6 +3,7 @@
 pub mod emit;
 pub mod parse;
 pub mod tok;
+pub mod hf;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -52,6 +53,11 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_tokre.rs"),
     include_str!("rt_tokuni.rs"),
     include_str!("rt_tok.rs"),
+    include_str!("rt_hfuni.rs"),
+    include_str!("rt_hfcls.rs"),
+    include_str!("rt_hfnorm.rs"),
+    include_str!("rt_hfcore.rs"),
+    include_str!("rt_hf.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -128,6 +134,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "argparse" => include_str!("py/argparse.py"),
         "asyncio" => include_str!("py/asyncio.py"),
         "tiktoken" => include_str!("py/tiktoken.py"),
+        "tokenizers" => include_str!("py/tokenizers.py"),
         _ => return None,
     })
 }
@@ -207,7 +214,7 @@ fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio or tiktoken beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken or tokenizers beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -305,6 +312,21 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     } else {
         None
     };
+    // Brevi's tokenizers: the tokenizer.json files to build in, each read by Brevi's port
+    let hf_files = if own_mods.contains("tokenizers") {
+        let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
+        match hf::check(&user).and_then(|f| hf::files(&crate::cache_dir(), &f)) {
+            Ok(b) => Some(b),
+            Err(m) => {
+                if std::env::var("BREVI_TOK_DEBUG").is_ok() {
+                    eprintln!("native tokenizers refused: {m}");
+                }
+                return Err((file.to_string(), 0, if copies && bridge_ok() && crate::pybridge::py_allowed("tokenizers") { BEYOND_COPIES.into() } else { m }));
+            }
+        }
+    } else {
+        None
+    };
     emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && texts.values().any(|(_, t)| emit::names_narrow(t)), std::sync::atomic::Ordering::Relaxed);
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
@@ -322,6 +344,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     }
     if let Some(b) = &tok_files {
         rust = tok::embed(rust, b);
+    }
+    if let Some(b) = &hf_files {
+        rust = hf::embed(rust, b);
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("fn main() { run_main(__run); }", "fn main() { TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);
