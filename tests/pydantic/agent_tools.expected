@@ -1,0 +1,7 @@
+ok search {"query":"rust compilers","limit":10,"sort":"relevance","site":null}
+retry SearchArgs [{"field": "query", "problem": "String should have at least 1 character"}, {"field": "limit", "problem": "Input should be less than or equal to 50"}, {"field": "sort", "problem": "Input should be 'relevance' or 'date'"}]
+ok weather {"city":"Oslo","unit":"f","days":3}
+retry WeatherArgs [{"field": "city", "problem": "Field required"}, {"field": "days", "problem": "Input should be greater than or equal to 1"}]
+retry SearchArgs [{"field": "site", "problem": "Value error, give a bare domain, like example.com"}]
+retry ToolCall [{"field": "name", "problem": "Input should be 'search' or 'weather'"}]
+retry ToolCall [{"field": "", "problem": "Invalid JSON: EOF while parsing an object at line 1 column 56"}]

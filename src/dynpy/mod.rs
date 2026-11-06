@@ -2,6 +2,7 @@
 // dynamic value type (runtime in rt_*.rs), so mixed-type values work as they do in CPython.
 pub mod emit;
 pub mod parse;
+pub mod pyd;
 pub mod tok;
 pub mod hf;
 pub mod typing;
@@ -145,6 +146,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "requests.exceptions" => include_str!("py/requests_exceptions.py"),
         "requests.auth" => include_str!("py/requests_auth.py"),
         "httpx" => include_str!("py/httpx.py"),
+        "pydantic" => include_str!("py/pydantic.py"),
         "_brevi_http" => include_str!("py/_brevi_http.py"),
         _ => return None,
     })
@@ -207,6 +209,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let r = to_rust_np(file);
     emit::NP_ON.store(false, Relaxed);
     emit::NP_NARROW.store(false, Relaxed);
+    emit::PYD_ON.store(false, Relaxed);
     // Something of numpy that Brevi's own numpy lacks: no dynamic build. CPython's numpy through
     // the dynamic bridge is not used: the typed build's bridge (or CPython itself) runs it right.
     if let Err((f, l, m)) = &r {
@@ -239,7 +242,7 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests or httpx beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx or pydantic beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -368,6 +371,28 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     } else {
         None
     };
+    // Brevi's pydantic: models' annotations as descriptors, each model checked
+    emit::PYD_ON.store(own_mods.contains("pydantic"), Ordering::Relaxed);
+    if own_mods.contains("pydantic") {
+        let (classes, models) = {
+            let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
+            (pyd::class_names(&user), pyd::models(&user))
+        };
+        for m in mods.iter_mut().filter(|m| !own_mods.contains(&m.name)) {
+            pyd::rewrite(&mut m.body, &classes, &models);
+        }
+        let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
+        if let Err((m, l, why)) = pyd::check(&user) {
+            if std::env::var("BREVI_PYD_DEBUG").is_ok() {
+                eprintln!("native pydantic refused: {m}:{l}: {why}");
+            }
+            if copies && bridge_ok() && crate::pybridge::py_allowed("pydantic") {
+                return Err((file.to_string(), 0, BEYOND_COPIES.into()));
+            }
+            let f = texts.get(&m).map_or(file.to_string(), |t| t.0.clone());
+            return Err((f, l, why));
+        }
+    }
     emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && texts.values().any(|(_, t)| emit::names_narrow(t)), std::sync::atomic::Ordering::Relaxed);
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {

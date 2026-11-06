@@ -199,11 +199,28 @@ pub fn make_class_f(name: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, 
         c.set(n, v);
     }
     *c.fields.borrow_mut() = fields;
-    // __init_subclass__ / __set_name__ are not supported (rare)
+    // __set_name__ is not supported (rare)
     if is_enum(&c) {
         enum_setup(&c)?;
     }
+    // the first __init_subclass__ of a base (an implicit classmethod), called with the new class
+    let hook = c.mro.borrow().iter().skip(1).find_map(|b| b.own("__init_subclass__"));
+    if let Some(f) = hook {
+        let f = match &f {
+            V::Bound(b) => b.1.clone(),
+            f => f.clone(),
+        };
+        call(&f, Args::p(vec![V::Class(c.clone())]))?;
+    }
     Ok(V::Class(c))
+}
+// A def's number of positional parameters, for Brevi's pydantic (which calls a validator with info only when
+// it takes it, as pydantic reads the signature).
+pub fn with_np(f: V, n: i64) -> V {
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__bv_np__", V::Int(n)));
+    }
+    f
 }
 // A def's docstring, as its __doc__.
 pub fn with_doc(f: V, doc: &str) -> V {
@@ -397,6 +414,9 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
             _ => 0,
         }))));
     }
+    if name == "__init_subclass__" {
+        return Ok(builtin("__init_subclass__", |_a: Args| Ok(V::None)));
+    }
     if name == "__setattr__" {
         let me2 = me.clone();
         return Ok(builtin("__setattr__", move |a: Args| {
@@ -453,6 +473,10 @@ pub fn getattr(o: &V, name: &str) -> R {
                 "__dict__" => {
                     let mut d = Dict::new();
                     for (k, v) in ob.d.borrow().iter() {
+                        // pydantic keeps these in slots, not in __dict__
+                        if k.starts_with("__pydantic_") {
+                            continue;
+                        }
                         d.set(s(k), v.clone())?;
                     }
                     return Ok(V::Dict(Rc::new(RefCell::new(d))));
@@ -533,6 +557,8 @@ pub fn getattr(o: &V, name: &str) -> R {
         }
         V::Func(f) => match name {
             "__name__" | "__qualname__" => Ok(s(f.name)),
+            // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
+            "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
             _ => {
                 if let Some(v) = f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()) {
@@ -570,6 +596,8 @@ pub fn getattr(o: &V, name: &str) -> R {
             "stop" => sl.1.clone(),
             _ => sl.2.clone(),
         }),
+        V::Prop(p) if name == "fget" => Ok(p.0.clone()),
+        V::Prop(p) if name == "fset" => Ok(p.1.clone()),
         V::Prop(p) if matches!(name, "setter" | "getter" | "deleter") => {
             let p = p.clone();
             let which = name.to_string();
@@ -646,6 +674,8 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
                 Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
             }
         }
+        V::Class(c) if c.del(name) => Ok(()),
+        V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
         _ => Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", tn(o), name))),
     }
 }

@@ -126,6 +126,19 @@ The compiler reads each `tokenizer.json` a program names: a Hub model from huggi
 
 Not native yet (the program runs with CPython's tokenizers, or `--native` refuses it): Unigram models (T5, XLM-R, ALBERT), building a `Tokenizer` from `tokenizers.models`, training, `save` and `to_str`, the `tokenizers.*` submodules, and a model id or path the build cannot see (a variable, not a literal).
 
+## pydantic
+
+From the next release, a Python file that uses pydantic v2 models builds with Brevi's own pydantic, written to answer as pydantic 2.13 (pydantic-core 2.46) does: no CPython at run time, and the same values, reprs, dumps, JSON text and validation errors (type, location, message, input and context of each error, union labels, cut-short input reprs, and JSON parse errors with their columns).
+
+- **Field types:** `int`, `float`, `str`, `bool`, `bytes`, `None`, `Any`, `Optional`, `Union` and `X | Y` (pydantic's smart mode), `Literal`, `list`, `set`, `frozenset`, `dict`, `tuple` (fixed and `tuple[X, ...]`), `Annotated`, enums (`Enum`, `IntEnum`, `str` enums), other models (nested, self-referencing, string annotations and `from __future__ import annotations`), module-level type aliases, `ClassVar`, and the constrained types (`PositiveInt`, `NonNegativeFloat`, `StrictStr`, ...). With `arbitrary_types_allowed`, a class of your own is checked with `isinstance`.
+- **Models:** `model_validate`, `model_validate_json`, `model_validate_strings`, `model_construct`, `model_dump` and `model_dump_json` (`mode`, `include`, `exclude`, `by_alias`, `exclude_unset`, `exclude_defaults`, `exclude_none`, `indent`), `model_copy` (`update`, `deep`), `model_fields`, `model_fields_set`, `model_extra`, `model_post_init`, `==`, `hash` of frozen models, `repr` and `str`, and inheritance.
+- **Fields and validators:** `Field` (default, `default_factory`, `alias`, `validation_alias`, `serialization_alias`, `gt`/`ge`/`lt`/`le`/`multiple_of`, `min_length`/`max_length`, `pattern`, `strict`, `frozen`, `exclude`, `repr`), `field_validator` (`before`, `after`, `wrap`, `plain`, `"*"`, with `ValidationInfo`), `model_validator` (`before`, `after`, `wrap`), `computed_field`, `AfterValidator`, `BeforeValidator`, `PlainValidator`, `WrapValidator`, `PrivateAttr`, `ValidationError` (`errors()`, `json()`, `error_count()`, `title`) and `PydanticCustomError`.
+- **`ConfigDict`:** `extra`, `frozen`, `strict`, `validate_assignment`, `populate_by_name`, `from_attributes`, `use_enum_values`, `validate_default`, `arbitrary_types_allowed`, `title`, `hide_input_in_errors`, and the `str_` options.
+
+The compiler reads each model's annotations into its field types (they are still never evaluated), so a built program validates under `--sandbox` with nothing granted. A small program starts in about 4 ms, where CPython with pydantic takes about 120 ms; validating many models in a loop is slower than pydantic's Rust core for now (about 15x on 100,000 small models).
+
+Not native yet (the program runs with CPython's pydantic, or `--sandbox` refuses it unless the caller grants `--allow-py pydantic`): `model_json_schema`, `TypeAdapter`, generic models, `RootModel`, discriminated unions, `datetime`, `UUID`, `Decimal`, URL and email fields, `field_serializer` and `model_serializer`, the v1 API (`.dict()`, `.json()`, `@validator`, `class Config`), `alias_generator`, `context=`, and `validate_call`. Serializer warnings (`PydanticSerializationUnexpectedValue`) are not printed.
+
 ## requests and httpx
 
 From the next release, a Python file that uses `requests` or `httpx` builds with Brevi's own copies of requests 2.34 and httpx 0.28: no CPython at run time. They speak HTTP/1.1 over native sockets and TLS (the system's OpenSSL, loaded when the program first opens an HTTPS connection), and print what CPython's libraries print: the headers sent and their order, URL quoting, redirects, cookies, encodings, the decoded body, and the exceptions with their messages.
@@ -142,7 +155,7 @@ Speed: on a local server Brevi's requests and `httpx.Client` take about the same
 
 ## Libraries (numpy, pandas, ...)
 
-A Python file that imports a module Brevi does not build itself (pandas, pydantic, sqlite3, Pillow, ...) still builds natively: each library call runs in CPython, loaded into the native program, so results are CPython's own, and the rest of the program stays native and fast. Brevi's own modules (math, re, json, datetime, ...) stay native: what the typed build lacks of them goes to the dynamic build, never to CPython (from v0.24.3; see [What runs native](#what-runs-native)).
+A Python file that imports a module Brevi does not build itself (pandas, sqlite3, Pillow, ...) still builds natively: each library call runs in CPython, loaded into the native program, so results are CPython's own, and the rest of the program stays native and fast. Brevi's own modules (math, re, json, datetime, ...) stay native: what the typed build lacks of them goes to the dynamic build, never to CPython (from v0.24.3; see [What runs native](#what-runs-native)).
 
 Limits today:
 

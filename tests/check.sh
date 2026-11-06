@@ -139,6 +139,30 @@ for f in tests/tokenizers/*.py; do
     echo "ok   $f"
   fi
 done
+# pydantic programs must print what CPython's pydantic prints, with Brevi's own pydantic: never CPython. The
+# .expected files come from pydantic 2.13.5 / pydantic-core 2.46.5 (CI has none): `--update` needs it installed.
+for f in tests/pydantic/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then
+    python3 -c "import pydantic" 2>/dev/null && python3 "$f" > "$exp" 2>&1
+    continue
+  fi
+  out=$(BREVI_PATH=1 timeout 300 $BREVI run "$f" --native 2>/tmp/brevi_pyd_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_pyd_err || grep -q '"py"' /tmp/brevi_pyd_err; then
+    echo "FAIL $f (not built with Brevi's pydantic)"; cat /tmp/brevi_pyd_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_pyd_err | tail -5; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+if [ "$1" != "--update" ]; then
+  out=$($BREVI run --sandbox tests/pydantic/sandbox/schema.py 2>&1)
+  case "$out" in
+    *"pydantic model_json_schema needs allow native"*) echo "ok   sandbox pydantic (what the copy lacks is refused)" ;;
+    *) echo "FAIL sandbox pydantic (what the copy lacks is refused)"; printf '%s\n' "$out"; fail=1 ;;
+  esac
+fi
 # requests and httpx programs must print what CPython's requests 2.34 and httpx 0.28 print, with Brevi's own copies
 # over native sockets and TLS: never CPython. They talk to tests/http/server.py (HTTP on 18080, HTTPS on 18081)
 # and pass verify= themselves, so a CA bundle in the environment changes nothing. `--update` needs both libraries.

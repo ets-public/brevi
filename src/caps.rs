@@ -273,6 +273,21 @@ const OWN_HTTPX: &[&str] = &[
     "ResponseNotRead", "RequestNotRead", "__version__", "Cookies", "Limits", "Proxy", "USE_CLIENT_DEFAULT", "CookieConflict",
     "DEFAULT_TIMEOUT_CONFIG", "DEFAULT_LIMITS", "DEFAULT_MAX_REDIRECTS", "ByteStream", "__title__",
 ];
+// What src/dynpy/py/pydantic.py has, and what it lacks.
+const OWN_PYDANTIC: &[&str] = &[
+    "BaseModel", "Field", "ConfigDict", "ValidationError", "field_validator", "model_validator", "computed_field", "PrivateAttr",
+    "ValidationInfo", "PydanticUserError", "PydanticSchemaGenerationError", "Strict", "AfterValidator", "BeforeValidator",
+    "PlainValidator", "WrapValidator", "PositiveInt", "NegativeInt", "NonNegativeInt", "NonPositiveInt", "PositiveFloat",
+    "NegativeFloat", "NonNegativeFloat", "NonPositiveFloat", "FiniteFloat", "StrictInt", "StrictFloat", "StrictStr", "StrictBool",
+    "StrictBytes", "VERSION", "__version__", "ValidatorFunctionWrapHandler", "ModelWrapValidatorHandler",
+];
+const PYDANTIC_LACKS: &[&str] = &[
+    ".model_json_schema(", ".model_rebuild(", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
+    ".parse_file(", ".from_orm(", ".dict(", ".json(", ".update_forward_refs(", ".__fields__", ".__pydantic_", ".model_fields_set.",
+    "discriminator=", "alias_generator", "union_mode=", "json_schema_mode", "serialize_as_any", "round_trip=", "fallback=",
+    "__get_pydantic_core_schema__", "__get_pydantic_json_schema__", "ser_json_", "val_json_", "regex_engine", "coerce_numbers_to_str",
+    "plain_serializer", "defer_build", "protected_namespaces", "context=", "warnings=", "validate_call", "SkipValidation",
+];
 const HTTPX_LACKS: &[&str] = &[
     "http2=", "transport=", "mounts=", "proxies=", "cert=", "files=", "app=", ".extensions", ".sync_auth_flow", ".async_auth_flow",
 ];
@@ -303,6 +318,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "requests.exceptions" => Some("requests.exceptions"),
         "requests.auth" => Some("requests.auth"),
         "httpx" => Some("httpx"),
+        "pydantic" => Some("pydantic"),
         _ => None,
     }
 }
@@ -323,6 +339,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "requests.exceptions" => REQUESTS_EXC.contains(&attr),
         "requests.auth" => matches!(attr, "HTTPBasicAuth" | "AuthBase"),
         "httpx" => OWN_HTTPX.contains(&attr),
+        "pydantic" => OWN_PYDANTIC.contains(&attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -424,6 +441,8 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     let mut bad = vec![];
     let mut any = false;
     let mut imports = vec![];
+    // modules named by `from M import ...` (their names are not in `names`)
+    let mut from_mods: Vec<&'static str> = vec![];
     for (n, l) in &lines {
         for st in l.split(';') {
             let t = st.trim();
@@ -445,7 +464,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             } else if let Some(rest) = t.strip_prefix("from ") {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -454,6 +473,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 let Some(pm) = path_module(m.trim()) else { continue };
                 imports.push(*n);
                 any = true;
+                from_mods.push(pm);
                 for part in list.trim_matches(|c: char| c == '(' || c == ')' || c.is_whitespace()).split(',') {
                     let mut w = part.split_whitespace();
                     let a = w.next().unwrap_or("");
@@ -473,21 +493,22 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     if !any {
         return None;
     }
-    if names.values().any(|m| *m == "asyncio") {
+    let uses = |m: &str| names.values().chain(from_mods.iter()).any(|x| x.starts_with(m));
+    if uses("asyncio") {
         for (n, l) in &lines {
             if let Some(m) = ASYNCIO_LOOP_IO.iter().find(|m| l.contains(&format!(".{m}("))) {
                 bad.push((*n, format!("asyncio loop.{m}")));
             }
         }
     }
-    if names.values().any(|m| *m == "tiktoken") {
+    if uses("tiktoken") {
         for (n, l) in &lines {
             if let Some(m) = TIKTOKEN_LACKS.iter().find(|m| l.contains(&format!(".{m}"))) {
                 bad.push((*n, format!("tiktoken Encoding.{m}")));
             }
         }
     }
-    if names.values().any(|m| *m == "tokenizers") {
+    if uses("tokenizers") {
         for (n, l) in &lines {
             let hit = TOKENIZERS_LACKS.iter().find(|m| {
                 let pat = format!(".{m}");
@@ -498,8 +519,8 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS)] {
-        if names.values().any(|x| x.starts_with(m)) {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS)] {
+        if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
@@ -895,6 +916,10 @@ x", Some(vec!["read".into(), "native".into()]), true);
         assert_eq!(uses("import os\nx = (os.environ\n     ['HOME'])\n"), ["os.environ"]);
         assert_eq!(uses("import random\nrandom.seed(1)\nrandom.betavariate(1, 2)\n"), ["random.betavariate"]);
         assert!(uses("import argparse\np = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)\n").is_empty());
+        // what Brevi's copies lack is found after `from M import ...` too
+        assert!(uses("from pydantic import BaseModel, Field\nclass M(BaseModel):\n    x: int = Field(ge=0)\n").is_empty());
+        assert_eq!(uses("from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema()\n"), ["pydantic model_json_schema"]);
+        assert_eq!(uses("from tokenizers import Tokenizer\nt = Tokenizer.from_file('t.json')\nt.save('u.json')\n"), ["tokenizers .save"]);
         assert_eq!(uses("import argparse\np = argparse.ArgumentParser(fromfile_prefix_chars='@')\np.add_argument('f', type=argparse.FileType('r'))\n"), ["argparse fromfile_prefix_chars", "argparse.FileType"]);
     }
 

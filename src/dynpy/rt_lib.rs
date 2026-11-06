@@ -941,6 +941,8 @@ fn rewrap(x: &Rc<Func>, kind: u8) -> V {
     let g = func(x.name, move |a: Args| call(&inner, a));
     if let V::Func(gf) = &g {
         gf.kind.set(kind);
+        // the wrapped function's attributes (__doc__, __bv_np__) read through, as through CPython's __func__
+        *gf.attrs.borrow_mut() = x.attrs.borrow().clone();
     }
     g
 }
@@ -1085,6 +1087,31 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
     // dict.fromkeys, str.maketrans, int.from_bytes ... and unbound methods (str.lower)
     match (c.name, name) {
         ("bytes", "fromhex") => Some(builtin("fromhex", bytes_fromhex)),
+        // an instance of a plain class, its __init__ not run
+        ("object", "__new__") => Some(builtin("__new__", |a: Args| match a.p.first() {
+            Some(V::Class(c)) if matches!(c.base_bt(), BT::Object | BT::Other) && c.module != "typing" && !is_enum(c) => Ok(V::Obj(Obj::new(c.clone()))),
+            Some(V::Class(c)) => Err(unsupported(&format!("object.__new__({})", c.name))),
+            _ => type_err("object.__new__(X): X is not a type object".into()),
+        })),
+        ("object", "__init_subclass__") => Some(builtin("__init_subclass__", |_a: Args| Ok(V::None))),
+        // the lookup without the class's __getattr__ fallback
+        ("object", "__getattribute__") => Some(builtin("__getattribute__", |a: Args| {
+            let (Some(o), Some(V::Str(n))) = (a.p.first(), a.p.get(1)) else {
+                return type_err("object.__getattribute__(o, name): name must be a string".into());
+            };
+            match o {
+                V::Obj(ob) => {
+                    if let Some(v) = ob.get(&n.s) {
+                        return Ok(v);
+                    }
+                    if ob.cls.lookup(&n.s).is_some() || n.s == "__class__" || n.s == "__dict__" {
+                        return getattr(o, &n.s);
+                    }
+                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, n.s)))
+                }
+                _ => getattr(o, &n.s),
+            }
+        })),
         ("dict", "fromkeys") | ("OrderedDict", "fromkeys") | ("Counter", "fromkeys") => Some(builtin("fromkeys", |a: Args| {
             let v = a.p.get(1).cloned().unwrap_or(V::None);
             let mut d = Dict::new();

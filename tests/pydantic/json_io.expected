@@ -1,0 +1,69 @@
+x=1.0 y=2.5 label='café 😀' data=[1, 1.0, 1000.0, -0.0, None, True, {'a': []}]
+x=3.5 y=0 label=None data=None
+{"x":1e+16,"y":1e-7,"label":null,"data":[0.1,1000000000000000.0,123456789.0,1.5e+300,2.5e-10,null,null,"tab\there","quote\"","é","\u0001"]}
+{
+    "x": 1e+16,
+    "y": 1e-7,
+    "label": null,
+    "data": [
+        0.1,
+        1000000000000000.0,
+        123456789.0,
+        1.5e+300,
+        2.5e-10,
+        null,
+        null,
+        "tab\there",
+        "quote\"",
+        "é",
+        "\u0001"
+    ]
+}
+{'x': 1e+16, 'y': 1e-07, 'label': None, 'data': [0.1, 1000000000000000.0, 123456789.0, 1.5e+300, 2.5e-10, None, None, 'tab\there', 'quote"', 'é', '\x01']}
+1 validation error for Point
+  Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Invalid JSON: trailing comma at line 1 column 9 [type=json_invalid, input_value='{"x": 1,}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Input should be an object [type=model_type, input_value=[1, 2], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/model_type
+1 validation error for Point
+  Invalid JSON: expected ident at line 1 column 8 [type=json_invalid, input_value='{"x": nan}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Invalid JSON: expected `:` at line 1 column 6 [type=json_invalid, input_value='{"x" 1}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Invalid JSON: trailing characters at line 1 column 10 [type=json_invalid, input_value='{"x": 1} extra', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+x
+  Input should be a valid number, unable to parse string as a number [type=float_parsing, input_value='a', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/float_parsing
+1 validation error for Point
+x
+  Field required [type=missing, input_value={'y': 1}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+1 validation error for Point
+  Invalid JSON: invalid number at line 1 column 8 [type=json_invalid, input_value='{"x": 01}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Invalid JSON: invalid number at line 1 column 9 [type=json_invalid, input_value='{"x": 1e}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Input should be an object [type=model_type, input_value='text', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/model_type
+1 validation error for Point
+  Invalid JSON: expected `,` or `]` at line 1 column 9 [type=json_invalid, input_value='{"x": [1}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Invalid JSON: expected ident at line 3 column 0 [type=json_invalid, input_value='{\n  "x": tru\n}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  Invalid JSON: invalid escape at line 1 column 9 [type=json_invalid, input_value='{"x": "\\q"}', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+1 validation error for Point
+  JSON input should be string, bytes or bytearray [type=json_type, input_value=5, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_type

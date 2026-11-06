@@ -13,6 +13,8 @@ pub const BUILTIN_MODULES: [&str; 36] = ["atexit", "_brevi_async", "_brevi_net",
 pub static NP_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 // Set while the program being emitted imports numpy natively.
 pub static NP_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// The program uses Brevi's pydantic: defs carry their number of positional parameters (src/dynpy/pyd.rs).
+pub static PYD_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn np_native() -> bool {
     NP_NATIVE.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -1156,7 +1158,8 @@ impl Em {
             }
             Ex::Lambda(p, body) => {
                 let ret = Stmt { line, st: St::Return(Some((**body).clone())) };
-                self.closure("<lambda>", p, &[ret], line, false)?
+                let f = self.closure("<lambda>", p, &[ret], line, false)?;
+                if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) { format!("with_np({f}, {})", if p.star.is_some() { 99 } else { p.pos.len() }) } else { f }
             }
             Ex::Comp(kind, elt, val, gens) => self.comp(*kind, elt, val.as_deref(), gens, line)?,
             Ex::Walrus(n, v) => {
@@ -2122,6 +2125,10 @@ impl Em {
         let mut v = v?;
         if let Some(doc) = docstring(&d.body) {
             v = format!("with_doc({v}, {})", lit(doc));
+        }
+        if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            let n = if d.params.star.is_some() { 99 } else { d.params.pos.len() };
+            v = format!("with_np({v}, {n})");
         }
         for dec in d.decorators.iter().rev() {
             let dd = self.ex(dec, d.line)?;
