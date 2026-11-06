@@ -1320,6 +1320,309 @@ fn np_gemv_n(a: &[f64], m: usize, k: usize, x: &[f64], unit: bool) -> Vec<f64> {
     }
     y
 }
+// numpy's float matrix @ matrix is OpenBLAS's dgemm (0.3.3x as numpy 2.x ships it), called row-major, so
+// OpenBLAS computes the column-major product C^T = Y^T X^T: its rows are numpy's columns. Each element is a
+// fused multiply-add chain over k, which the kernels split and regroup:
+// - SkylakeX (AVX-512), up to 100^3 multiplies: the small-matrix kernels (dgemm_small_kernel_{nn,nt,tn,tt}
+//   _skylakex.c). NN and TN sum some elements in eight lanes of k and reduce the lanes in one of two orders;
+//   NT and TT are plain chains. TN is refused when the result has more than 1200 values or k < 32.
+// - otherwise the regular path (below): blocks of k (GEMM_Q values) whose sums are added into C, each block
+//   through dgemm_kernel_16x2_skylakex.c or dgemm_kernel_4x8_haswell.S, in the pieces level3.c (one thread)
+//   or level3_thread.c (from 2 * 262144 multiplies, on as many threads as the machine has cores) cut.
+// xf / yf: OpenBLAS reads that operand transposed.
+fn np_gemm_kblocks(k: usize, q: usize, um: usize, threaded: bool) -> Vec<(usize, usize)> {
+    let (mut out, mut ls) = (vec![], 0);
+    while ls < k {
+        let mut ml = k - ls;
+        if ml >= 2 * q {
+            ml = q;
+        } else if ml > q {
+            ml = if threaded { ml.div_ceil(2) } else { (ml / 2).div_ceil(um) * um };
+        }
+        out.push((ls, ml));
+        ls += ml;
+    }
+    out
+}
+fn np_gemm(xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf: bool) -> Vec<f64> {
+    let ycol: Vec<Vec<f64>> = (0..n).map(|i| (0..k).map(|t| yv[t * n + i]).collect()).collect();
+    let xr = |j: usize| &xv[j * k..(j + 1) * k];
+    let chain = |a: &[f64], b: &[f64]| {
+        let mut s = 0.0;
+        for t in 0..a.len() {
+            s = fma(a[t], b[t], s);
+        }
+        s
+    };
+    let mnk = m as f64 * n as f64 * k as f64;
+    let ncpu = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
+    let nthreads = if mnk <= 262144.0 {
+        1
+    } else if mnk / (ncpu as f64) < 262144.0 {
+        (mnk / 262144.0) as usize
+    } else {
+        ncpu
+    };
+    let mut c = vec![0.0; m * n];
+    if np_blas() == Blas::Skx {
+        if mnk <= 1e6 && !(yf && !xf && (m * n > 1200 || k < 32)) {
+            // f4: REDUCE_4's order; otherwise _mm512_reduce_add_pd's
+            let lanes = |a: &[f64], b: &[f64], f4: bool| {
+                let mut l = [0.0f64; 8];
+                for t in 0..a.len() {
+                    l[t % 8] = fma(a[t], b[t], l[t % 8]);
+                }
+                if f4 {
+                    ((l[0] + l[1]) + (l[2] + l[3])) + ((l[4] + l[5]) + (l[6] + l[7]))
+                } else {
+                    ((l[0] + l[4]) + (l[2] + l[6])) + ((l[1] + l[5]) + (l[3] + l[7]))
+                }
+            };
+            let (m8, m4, n4) = (n & !7, n & !3, m & !3);
+            // NN: only the last (n % 8 <= 4) rows of a k >= 16 product go through lanes
+            let nn_lanes = n - m8 <= 4 && k >= 16;
+            for j in 0..m {
+                for i in 0..n {
+                    let (a, b) = (&ycol[i][..], xr(j));
+                    c[j * n + i] = match (yf, xf) {
+                        (false, false) if i >= m8 && nn_lanes => lanes(a, b, i < m4 || j < n4),
+                        (true, false) => lanes(a, b, i < m4 || j < n4),
+                        _ => chain(a, b),
+                    };
+                }
+            }
+            return c;
+        }
+    }
+    // the regular path: each kernel call is a k-block of a block of rows by columns, which the kernel takes in
+    // chunks (lk_row_chunks, lk_col_chunks). dgemm_kernel_4x8_haswell.S sums a chunk of four rows by one column
+    // in four lanes; dgemm_kernel_16x2_skylakex.c sums 4 x 12 chunks two k at a time and 2 x 12 and 1 x 12
+    // ones four at a time, except in the calls that pack their columns of B first (`first`), which sum in
+    // plain chains (found by testing against numpy; the order of the other calls is the kernel's own).
+    let skx = np_blas() == Blas::Skx;
+    let lkh = if skx { Lk { skx: true, um: 16, un: 2, q: 384 } } else { Lk { skx: false, um: 4, un: 8, q: if cfg!(windows) { 128 } else { 256 } } };
+    let (calls, thr) = np_gemm_calls(n, m, nthreads, skx);
+    for (ls, ml) in np_gemm_kblocks(k, lkh.q, lkh.um, thr) {
+        for &(i0, mi, j0, nj, first) in &calls {
+            for (cc, cs) in lk_col_chunks(&lkh, nj) {
+                for (rr, rs) in lk_row_chunks(&lkh, mi) {
+                    for i in i0 + rr..i0 + rr + rs {
+                        let a = &ycol[i][ls..ls + ml];
+                        for j in j0 + cc..j0 + cc + cs {
+                            let b = &xr(j)[ls..ls + ml];
+                            let w = if skx && !first && cs == 12 {
+                                match rs {
+                                    4 => 2,
+                                    2 | 1 => 4,
+                                    _ => 1,
+                                }
+                            } else {
+                                1
+                            };
+                            let acc = if w > 1 && ml >= w {
+                                let mut q = [0.0f64; 4];
+                                let mut t = 0;
+                                while ml - t >= w {
+                                    for l in 0..w {
+                                        q[l] = fma(a[t + l], b[t + l], q[l]);
+                                    }
+                                    t += w;
+                                }
+                                let mut acc = if w == 2 { q[0] + q[1] } else { (q[0] + q[1]) + (q[2] + q[3]) };
+                                while t < ml {
+                                    acc = fma(a[t], b[t], acc);
+                                    t += 1;
+                                }
+                                acc
+                            } else if !skx && rs == 4 && cs == 1 {
+                                let mut q = [0.0f64; 4];
+                                let k8 = ml / 8 * 8;
+                                for t in 0..k8 {
+                                    q[t % 4] = fma(a[t], b[t], q[t % 4]);
+                                }
+                                for t in k8..ml {
+                                    q[0] = fma(a[t], b[t], q[0]);
+                                }
+                                (q[0] + q[1]) + (q[2] + q[3])
+                            } else {
+                                chain(a, b)
+                            };
+                            c[j * n + i] += acc;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    c
+}
+// The kernel calls (row0, rows, col0, cols) OpenBLAS makes for an mm x nn (column-major) product, and whether
+// it ran threaded. One thread: level3.c. More: level3_thread.c splits rows and columns over a grid of threads
+// (at least SWITCH_RATIO each, widths rounded to GEMM_PREFERRED_SIZE: 8 on Haswell and 16 on SkylakeX, the
+// values OpenBLAS's runtime CPU table holds); each thread handles its own columns in min_jj pieces and the
+// other threads' columns in halves. GEMM_R (13824 / 8640 columns) is not reached by sizes this handles alike.
+fn np_gemm_calls(mm: usize, nn: usize, nth: usize, skx: bool) -> (Vec<(usize, usize, usize, usize, bool)>, bool) {
+    let (p, um, un, sr, ps) = if skx { (192, 16, 2, 16, 16) } else { (512, 4, 8, 8, 8) };
+    let isz = |rest: usize, first: bool| {
+        if rest >= 2 * p {
+            p
+        } else if rest > p {
+            (if first { rest / 2 } else { rest.div_ceil(2) }).div_ceil(um) * um
+        } else {
+            rest
+        }
+    };
+    let jjsz = |rest: usize| {
+        if skx {
+            rest.min(6 * un)
+        } else if rest >= 3 * un {
+            3 * un
+        } else {
+            rest.min(un)
+        }
+    };
+    let rup = |rem: usize, w: usize| if ps > rem || w <= ps { w } else { w.div_ceil(ps) * ps };
+    let mut cl = vec![];
+    let (mut nm, mut nnt) = (1, 1);
+    if nth > 1 {
+        if mm >= 2 * sr {
+            nm = nth;
+            while mm < nm * sr {
+                nm /= 2;
+            }
+        }
+        if nn >= sr * nm {
+            nnt = nn.div_ceil(sr * nm);
+            if nm * nnt > nth {
+                nnt = nth / nm;
+            }
+            let (mut cost, mut div) = (0, 0);
+            let mut i = 1;
+            while i * i <= nm {
+                if nm % i == 0 {
+                    let j = nm / i;
+                    let (ci, cj) = (nn * j + mm * nnt * i, nn * i + mm * nnt * j);
+                    if cost == 0 || ci < cost {
+                        cost = ci;
+                        div = i;
+                    }
+                    if cj < cost {
+                        cost = cj;
+                        div = j;
+                    }
+                }
+                i += 1;
+            }
+            if div > 1 {
+                nm /= div;
+                nnt *= div;
+            }
+        }
+    }
+    if nm * nnt <= 1 {
+        let r = if skx { 8640 } else { 13824 };
+        let mut js = 0;
+        while js < nn {
+            let mj = (nn - js).min(r);
+            let mi = isz(mm, true);
+            let mut jjs = js;
+            while jjs < js + mj {
+                let mjj = jjsz(js + mj - jjs);
+                cl.push((0, mi, jjs, mjj, true));
+                jjs += mjj;
+            }
+            let mut is = mi;
+            while is < mm {
+                let mi = isz(mm - is, true);
+                cl.push((is, mi, js, mj, false));
+                is += mi;
+            }
+            js += mj;
+        }
+        return (cl, false);
+    }
+    let nt = nm * nnt;
+    let mut rm = vec![0usize];
+    let (mut m, mut parts) = (mm as isize, 0);
+    while m > 0 {
+        let mut w = rup(m as usize, (m as usize + nm - parts - 1) / (nm - parts)) as isize;
+        m -= w;
+        if m < 0 {
+            w += m;
+        }
+        rm.push(rm[parts] + w as usize);
+        parts += 1;
+    }
+    while rm.len() < nm + 1 {
+        rm.push(*rm.last().unwrap());
+    }
+    let mut rn = vec![0usize];
+    let mut n = nn;
+    for j in 0..nnt {
+        let mut wn = n.div_ceil(nnt - j) as isize;
+        n -= wn as usize;
+        for i in 0..nm {
+            let mut w = ((wn as usize + nm - i - 1) / (nm - i)).max(sr);
+            w = rup(wn.max(0) as usize, w);
+            wn -= w as isize;
+            let mut w = w as isize;
+            if wn < 0 {
+                w += wn;
+                wn = 0;
+            }
+            rn.push(rn[rn.len() - 1] + w as usize);
+        }
+    }
+    for pos in 0..nt {
+        let (pm, pn) = (pos % nm, pos / nm);
+        let (mf, mt) = (rm[pm], rm[pm + 1]);
+        if mt <= mf {
+            continue;
+        }
+        let (nf, ntt) = (rn[pos], rn[pos + 1]);
+        let mi = isz(mt - mf, true);
+        let divn = (ntt - nf).div_ceil(2).max(1);
+        let mut js = nf;
+        while js < ntt {
+            let end = ntt.min(js + divn);
+            let mut jjs = js;
+            while jjs < end {
+                let mjj = jjsz(end - jjs);
+                cl.push((mf, mi, jjs, mjj, true));
+                jjs += mjj;
+            }
+            js += divn;
+        }
+        let next = |c: usize| if c + 1 >= (pn + 1) * nm { pn * nm } else { c + 1 };
+        let halves = |cl: &mut Vec<(usize, usize, usize, usize, bool)>, cur: usize, is: usize, mi: usize| {
+            let d = (rn[cur + 1] - rn[cur]).div_ceil(2).max(1);
+            let mut js = rn[cur];
+            while js < rn[cur + 1] {
+                cl.push((is, mi, js, (rn[cur + 1] - js).min(d), false));
+                js += d;
+            }
+        };
+        let mut cur = next(pos);
+        while cur != pos {
+            halves(&mut cl, cur, mf, mi);
+            cur = next(cur);
+        }
+        let mut is = mf + mi;
+        while is < mt {
+            let mi = isz(mt - is, false);
+            let mut cur = pos;
+            loop {
+                halves(&mut cl, cur, is, mi);
+                cur = next(cur);
+                if cur == pos {
+                    break;
+                }
+            }
+            is += mi;
+        }
+    }
+    (cl, true)
+}
 pub fn np_matmul(a: &V, b: &V) -> R {
     let (x, y) = match (np_opnd(a)?, np_opnd(b)?) {
         (Some(x), Some(y)) => (x, y),
@@ -1410,7 +1713,16 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                 // a 2-d operand stored in Fortran order (a transpose) reaches BLAS as the other kind of gemv
                 let ford = |a: &NdArr| a.ndim() == 2 && a.shape[0] > 1 && a.shape[1] > 1 && a.st[0] == 1;
                 let vunit = |a: &NdArr| a.st.first().is_none_or(|s| *s == 1);
-                if blas && x.ndim() == 2 && y.ndim() == 1 && m > 1 && k > 0 {
+                // a matrix times its own transpose: numpy calls dsyrk, another kernel (not followed yet)
+                let syrk = |a: &NdArr, b: &NdArr| {
+                    Rc::ptr_eq(&a.buf, &b.buf) && a.off == b.off && a.shape[0] == b.shape[1] && a.shape[1] == b.shape[0] && a.st[0] == b.st[1] && a.st[1] == b.st[0]
+                };
+                // numpy (matmul and np.dot alike) treats a one-row or one-column matrix as a vector
+                let xvec = x.ndim() == 1 || m == 1;
+                let yvec = y.ndim() == 1 || n == 1;
+                let xunit = if x.ndim() == 1 { vunit(x) } else { k <= 1 || x.st[1] == 1 };
+                let yunit = if y.ndim() == 1 { vunit(y) } else { k <= 1 || y.st[0] == 1 };
+                if blas && !xvec && yvec && k > 0 {
                     // matrix @ vector
                     Buf::F(if ford(x) {
                         let mut cm = vec![0.0; m * k];
@@ -1419,11 +1731,11 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                                 cm[i + t * m] = xv[i * k + t];
                             }
                         }
-                        np_gemv_n(&cm, m, k, &yv, vunit(y))
+                        np_gemv_n(&cm, m, k, &yv, yunit)
                     } else {
                         np_gemv_t(&xv, m, k, &yv)
                     })
-                } else if blas && x.ndim() == 1 && y.ndim() == 2 && n > 1 && k > 0 {
+                } else if blas && xvec && !yvec && k > 0 {
                     // vector @ matrix: y is k x n, column-major n x k when C-ordered
                     Buf::F(if ford(y) {
                         let mut rm = vec![0.0; n * k];
@@ -1434,9 +1746,9 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                         }
                         np_gemv_t(&rm, n, k, &xv)
                     } else {
-                        np_gemv_n(&yv, n, k, &xv, vunit(x))
+                        np_gemv_n(&yv, n, k, &xv, xunit)
                     })
-                } else if x.ndim() + y.ndim() == 3 && blas && k > 0 {
+                } else if xvec && yvec && blas && k > 0 {
                     // one row or one column: numpy takes ddot
                     let mut o = vec![0.0; m * n];
                     let mut col = vec![0.0; k];
@@ -1445,10 +1757,24 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                             col[t] = yv[t * n + j];
                         }
                         for i in 0..m {
-                            o[i * n + j] = np_ddot(&xv[i * k..(i + 1) * k], &col, true);
+                            o[i * n + j] = np_ddot(&xv[i * k..(i + 1) * k], &col, xunit && yunit);
                         }
                     }
                     Buf::F(o)
+                } else if np_blas() != Blas::Plain && x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 && !(syrk(x, y) && bl2(x)) {
+                    // which operands OpenBLAS reads transposed: matmul passes a strided matrix BLAS can describe
+                    // as it is and copies any other (numpy 2.5, keeping it Fortran-like when its rows are closer
+                    // together than its columns); np.dot passes only a contiguous one and copies the rest to C order
+                    let tr = |a: &NdArr| {
+                        if !matmul {
+                            a.st[0] == 1 && a.st[1] == a.shape[0] as isize
+                        } else if bl2(a) {
+                            !(a.st[1] == 1 && a.st[0] >= a.shape[1] as isize)
+                        } else {
+                            a.st[0].abs() < a.st[1].abs()
+                        }
+                    };
+                    Buf::F(np_gemm(&xv, &yv, m, k, n, tr(x), tr(y)))
                 } else {
                     let mut o = vec![0.0; m * n];
                     let mut col = vec![0.0; k];
@@ -1457,7 +1783,7 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                             col[t] = yv[t * n + j];
                         }
                         for i in 0..m {
-                            o[i * n + j] = if !blas && matmul && x.ndim() + y.ndim() == 3 {
+                            o[i * n + j] = if !blas && matmul {
                                 // numpy's own loop (no BLAS): left to right
                                 let mut acc = 0.0;
                                 for t in 0..k {
