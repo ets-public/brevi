@@ -662,7 +662,7 @@ pub(crate) fn walk_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
             }
             go(v);
         }),
-        Ex::Star(x) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) => go(x),
+        Ex::Star(x) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => go(x),
         Ex::Attr(x, _) => go(x),
         Ex::Index(a, b) | Ex::Bin(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => {
             go(a);
@@ -1862,7 +1862,7 @@ fn pure_ex(e: &Ex, fns: &HashSet<String>) -> bool {
                 _ => false,
             };
         }
-        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Lambda(..) => ok = false,
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => ok = false,
         _ => {}
     });
     ok
@@ -1988,7 +1988,7 @@ fn pure_or_fresh(e: &Ex, fresh: &HashSet<String>, fns: &HashSet<String>) -> bool
                 _ => false,
             };
         }
-        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Lambda(..) => ok = false,
+        Ex::Walrus(..) | Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) => ok = false,
         _ => {}
     });
     ok

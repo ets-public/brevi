@@ -48,7 +48,7 @@ fn code_line(l: &str) -> bool {
 // The rewritten file, or None when this function is not such a generator.
 fn one(d: &parse::FuncDef, lines: &[String]) -> Option<Vec<String>> {
     let p = &d.params;
-    if !d.decorators.is_empty() || p.star.is_some() || p.kwstar.is_some() || !p.kwonly.is_empty() || p.pos.iter().any(|(_, def)| def.is_some()) {
+    if d.is_async || !d.decorators.is_empty() || p.star.is_some() || p.kwstar.is_some() || !p.kwonly.is_empty() || p.pos.iter().any(|(_, def)| def.is_some()) {
         return None;
     }
     let (setup, last) = d.body.split_at(d.body.len().checked_sub(1)?);
@@ -226,7 +226,7 @@ fn has_yield_st(s: &Stmt) -> bool {
     let mut found = false;
     fn ex(e: &Ex, f: &mut bool) {
         match e {
-            Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Lambda(..) | Ex::Walrus(..) => *f = true,
+            Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) | Ex::Lambda(..) | Ex::Walrus(..) => *f = true,
             Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().for_each(|x| ex(x, f)),
             Ex::Dict(v) => v.iter().for_each(|(k, x)| {
                 if let Some(k) = k {

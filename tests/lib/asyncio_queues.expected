@@ -1,0 +1,23 @@
+put 0 1
+put 1 2
+c1 got 0
+put 2 2
+c1 got 1
+put 3 2
+c1 got 2
+put 4 2
+c1 got 3
+put 5 2
+c1 got 4
+c1 got 5
+[None, 15]
+True False 0 2
+[(1, '1'), (2, '2'), (4, '4'), (5, '5')]
+['c', 'b', 'a']
+empty
+full
+drain 0
+drain 1
+drain 2
+joined
+<Queue maxsize=0 _getters[1]>

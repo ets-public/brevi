@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 31] = ["_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 32] = ["_brevi_async", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -180,6 +180,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
+        "_brevi_async" => &["suspend", "iscoroutine", "isawaitable"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "replace", "MISSING"],
@@ -199,19 +200,19 @@ pub fn module_has(m: &str, n: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(n, "exec" | "eval" | "compile" | "__import__" | "bytearray" | "memoryview" | "complex" | "dir" | "help" | "breakpoint" | "open" | "aiter" | "anext" | "__build_class__" | "globals" | "locals")
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "bytearray" | "memoryview" | "complex" | "dir" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "__bytes_lit"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
     )
 }
 
@@ -256,7 +257,7 @@ fn visit_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
             }
             visit_ex(x, f)
         }),
-        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) => visit_ex(x, f),
+        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => visit_ex(x, f),
         Ex::Yield(x) => {
             if let Some(x) = x {
                 visit_ex(x, f)
@@ -677,6 +678,19 @@ fn yield_in_cleanup(body: &[Stmt], inside: bool) -> Option<usize> {
     None
 }
 
+// An async def anywhere in this code (nested ones too).
+pub fn uses_async(body: &[Stmt]) -> bool {
+    body.iter().any(|s| match &s.st {
+        St::Def(d) => d.is_async || uses_async(&d.body),
+        St::Class(c) => uses_async(&c.body),
+        St::If(arms, els) => arms.iter().any(|(_, b)| uses_async(b)) || els.as_deref().is_some_and(uses_async),
+        St::For(_, _, b, e) | St::While(_, b, e) => uses_async(b) || e.as_deref().is_some_and(uses_async),
+        St::Try(b, hs, e, f) => uses_async(b) || hs.iter().any(|h| uses_async(&h.body)) || e.as_deref().is_some_and(uses_async) || f.as_deref().is_some_and(uses_async),
+        St::With(_, b) => uses_async(b),
+        _ => false,
+    })
+}
+
 fn has_yield(body: &[Stmt]) -> bool {
     let mut ex = vec![];
     stmt_exprs(body, &mut ex);
@@ -730,6 +744,8 @@ struct Func {
     exc_vars: Vec<String>,
     is_module: bool,
     is_class: bool,
+    // an async def's body: await may be used
+    is_async: bool,
 }
 
 pub struct Module {
@@ -776,6 +792,8 @@ pub struct Em {
     // names assigned anywhere at module level, per module
     mod_names: HashMap<String, BTreeSet<String>>,
     class_ctx: Option<String>,
+    // the def being built is an async def (read by closure)
+    next_async: bool,
     direct_ok: HashSet<(String, String)>,
     bridge: Bridge,
     // what the program has CPython run, for the path report
@@ -1093,6 +1111,13 @@ impl Em {
             Ex::YieldFrom(x) => {
                 let xx = self.ex(x, line)?;
                 self.q(&format!("gen_yield_from(&{xx})"))
+            }
+            Ex::Await(x) => {
+                if !self.fstack.last().unwrap().is_async {
+                    return Err(err(line, "'await' outside async function"));
+                }
+                let xx = self.ex(x, line)?;
+                self.q(&format!("aw(&{xx})"))
             }
         })
     }
@@ -1995,7 +2020,16 @@ impl Em {
                 return Err(err(l, "a yield inside try/finally or with is not supported in dynamic builds"));
             }
         }
-        let mut v = self.closure(&d.name, &d.params, &d.body, d.line, true)?;
+        if d.is_async && !GEN_OK {
+            return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
+        }
+        if d.is_async && has_yield(&d.body) {
+            return Err(err(d.line, "async generators are not supported in dynamic builds yet"));
+        }
+        self.next_async = d.is_async;
+        let v = self.closure(&d.name, &d.params, &d.body, d.line, true);
+        self.next_async = false;
+        let mut v = v?;
         for dec in d.decorators.iter().rev() {
             let dd = self.ex(dec, d.line)?;
             v = self.q(&format!("call(&{dd}, Args::p(vec![{v}]))"));
@@ -2006,6 +2040,7 @@ impl Em {
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
     fn closure(&mut self, name: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
         let id = self.id();
+        let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
         let params = lambda_params(p);
         let sc = scope_of(body, &params);
@@ -2052,7 +2087,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -2108,7 +2143,9 @@ impl Em {
         let unpack: String = (0..nparams).map(|k| format!("__b.next().unwrap()")).collect::<Vec<_>>().join(", ");
         if captures.is_empty() && (at_top || in_class_top) {
             // a plain Rust function
-            if is_gen {
+            if is_async {
+                write!(self.items, "fn {fname}({}) -> R {{ Ok(make_acoro(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
+            } else if is_gen {
                 write!(self.items, "fn {fname}({}) -> R {{ Ok(make_gen(move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else {
                 write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
@@ -2137,9 +2174,10 @@ impl Em {
         // a closure
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
         let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
-        if is_gen {
+        if is_gen || is_async {
+            let mk = if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
-                "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok(make_gen(move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
+                "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
                 dflt_all.join(", ")
             ));
         }
@@ -2158,7 +2196,7 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false };
         let mut decls = String::new();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -2268,6 +2306,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         mod_alias: HashMap::new(),
         mod_names: HashMap::new(),
         class_ctx: None,
+        next_async: false,
         direct_ok: HashSet::new(),
         bridge,
         bridged_used: BTreeSet::new(),
@@ -2363,7 +2402,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             if let St::Def(d) = &s.st {
                 let n = &d.name;
                 let p = &d.params;
-                if def_names.contains(n) && binds.get(n) == Some(&1) && !fn_globals.contains(n) && p.star.is_none() && p.kwstar.is_none() && p.kwonly.is_empty() && !has_yield(&d.body) {
+                if def_names.contains(n) && binds.get(n) == Some(&1) && !fn_globals.contains(n) && p.star.is_none() && p.kwstar.is_none() && p.kwonly.is_empty() && !has_yield(&d.body) && !d.is_async {
                     em.direct_ok.insert((m.name.clone(), n.clone()));
                     let npos = p.pos.len();
                     let nd = p.pos.iter().rev().take_while(|x| x.1.is_some()).count();
@@ -2381,7 +2420,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let mut inits = String::new();
     for m in mods {
         em.module = m.name.clone();
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false };
         for n in em.mod_names[&m.name].clone() {
             let i = em.gslot(&m.name, &n);
             fr.vars.insert(n.clone(), Var::Global(i));

@@ -1294,9 +1294,30 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         },
         "string" => Err(unsupported(&format!("string.{n}"))),
         "time" => match n {
-            "time" | "perf_counter" | "monotonic" | "process_time" => Ok(V::Float(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0))),
-            "sleep" => Ok(V::None),
-            "time_ns" | "perf_counter_ns" | "monotonic_ns" | "process_time_ns" => Ok(V::Int(now_us() as i64 * 1000)),
+            "time" => Ok(V::Float(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0))),
+            "time_ns" => Ok(V::Int(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as i64).unwrap_or(0))),
+            // CPython's clocks: perf_counter and monotonic are CLOCK_MONOTONIC, process_time the process's CPU time
+            "perf_counter" | "monotonic" => Ok(V::Float(clock_ns(false) as f64 * 1e-9)),
+            "perf_counter_ns" | "monotonic_ns" => Ok(V::Int(clock_ns(false))),
+            "process_time" => Ok(V::Float(clock_ns(true) as f64 * 1e-9)),
+            "process_time_ns" => Ok(V::Int(clock_ns(true))),
+            "sleep" => {
+                let x = a1(&a, "sleep")?;
+                let secs = match &x {
+                    V::Int(i) => *i as f64,
+                    V::Bool(b) => *b as i64 as f64,
+                    V::Float(f) => *f,
+                    _ => return Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", type_name(&x)))),
+                };
+                if secs.is_nan() {
+                    return Err(exc("ValueError", "Invalid value NaN (not a number)".into()));
+                }
+                if secs < 0.0 {
+                    return Err(exc("ValueError", "sleep length must be non-negative".into()));
+                }
+                std::thread::sleep(std::time::Duration::from_secs_f64(secs.min(1e9)));
+                Ok(V::None)
+            }
             "gmtime" => time_gmtime(a),
             "strftime" => time_strftime(a),
             _ => Err(unsupported(&format!("time.{n}"))),
@@ -1641,6 +1662,7 @@ fn make_dataclass(c: &Rc<Class>, order: bool, frozen: bool, eqf: bool) -> Result
         if let Some(V::Obj(o)) = c.own(f) {
             if Rc::ptr_eq(&o.cls, &field_class()) {
                 c.attrs.borrow_mut().retain(|(k, _)| k != f);
+                class_changed();
                 if let Some(d) = dv {
                     c.set(f, d.clone());
                 }
@@ -1774,6 +1796,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "json" => json_fn(n, a),
         "enum" => enum_fn(n, a),
         "_brevi_mt" => brevi_mt_fn(n, a),
+        "_brevi_async" => brevi_async_fn(n, a),
         "hashlib" => hashlib_fn(n, a),
         "base64" => base64_fn(n, a),
         "binascii" => binascii_fn(n, a),
@@ -1869,4 +1892,23 @@ pub fn run_main(f: fn() -> Result<(), E>) {
 pub static TERM_COLS: std::sync::OnceLock<fn() -> i64> = std::sync::OnceLock::new();
 fn term_columns() -> i64 {
     TERM_COLS.get().map_or(80, |f| f())
+}
+
+#[repr(C)]
+struct Timespec {
+    sec: i64,
+    nsec: i64,
+}
+extern "C" {
+    fn clock_gettime(clk: i32, ts: *mut Timespec) -> i32;
+}
+// clock_gettime(CLOCK_MONOTONIC or CLOCK_PROCESS_CPUTIME_ID) in nanoseconds
+pub fn clock_ns(cpu: bool) -> i64 {
+    #[cfg(target_os = "macos")]
+    let clk = if cpu { 12 } else { 6 };
+    #[cfg(not(target_os = "macos"))]
+    let clk = if cpu { 2 } else { 1 };
+    let mut ts = Timespec { sec: 0, nsec: 0 };
+    unsafe { clock_gettime(clk, &mut ts) };
+    ts.sec * 1_000_000_000 + ts.nsec
 }

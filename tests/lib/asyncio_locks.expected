@@ -1,0 +1,16 @@
+['a+', 'a-', 'b+', 'b-', 'c+', 'c-'] False
+w0 waiting
+w1 waiting
+w2 waiting
+set False
+w0 released
+w1 released
+w2 released
+True True
+False
+[0, 1, 2, 3, 4] {'now': 0, 'max': 2}
+BoundedSemaphore released too many times
+consumer 1 sees [0]
+consumer 2 sees [0, 1]
+False True True
+Lock is not acquired.

@@ -33,6 +33,7 @@ Works in native builds:
 - Classes, inheritance and `super()`, operator methods (`__add__`, `__eq__`, `__lt__`, `__repr__`, ...), properties
 - Comprehensions, generators and `yield`, iterators, `zip`, `enumerate`, `map`, `filter`, `sorted` with `key`
 - `try` / `except` / `else` / `finally`, `raise`, custom exceptions, `with` blocks
+- `async def`, `await`, `async with` and `async for` (from the next release), run by Brevi's own `asyncio`: see the table below
 - f-strings with format specs, `%` formatting, `str.format`
 - The walrus operator, slicing, tuple unpacking, chained comparisons
 - Multi-file programs: sibling modules and packages imported as usual
@@ -61,13 +62,15 @@ Standard-library modules are built by Brevi itself, with no CPython. The typed b
 | `argparse` | | all of it but `FileType` and `fromfile_prefix_chars` (also under `--sandbox`): CPython 3.13's own argparse, so usage lines, help text and error messages match it |
 | `io` | | `StringIO` (also under `--sandbox`); `BytesIO` and the rest run in CPython |
 | `enum` | | `Enum` (members, aliases, `auto()`, methods and properties, `__init__` on tuple values, `C(value)`, `C[name]`, iteration, `len`, `in`, `__members__`), `class C(str, Enum)` and `(int, Enum)`, `@unique`; `IntEnum`, `StrEnum` and `Flag` still run in CPython |
+| `asyncio` | | from the next release: `run`, `Runner`, `create_task`, `gather`, `sleep`, `wait`, `wait_for`, `as_completed`, `shield`, `timeout`, `timeout_at`, `TaskGroup`, `Queue` (and `PriorityQueue`, `LifoQueue`), `Lock`, `Event`, `Condition`, `Semaphore`, `BoundedSemaphore`, `Future`, `current_task`, `all_tasks`, `get_running_loop` and the loop's `call_soon`, `call_later`, `call_at`, `create_future`, `run_until_complete` and `time` (also under `--sandbox`). It is CPython 3.13's own asyncio, cut down to callbacks and timers, so tasks run, interleave and print in CPython's order, cancellation included. Sockets, subprocesses, threads (`to_thread`, executors) and signals run in CPython |
 | `statistics`, `copy`, `operator`, `csv`, `html`, `fractions`, `threading`, `abc` | parts (`operator.lt` and friends, `csv.reader`, `csv.DictReader`, `csv.writer(sys.stdout)`, `Fraction`) | the rest |
 
 Run in CPython for now (`brevi run` still works; under `--sandbox` the caller grants them with `--allow-py`): `random` beyond the common functions (`betavariate`, a str seed, ...), `textwrap` with `fix_sentence_endings`, `argparse.FileType`, `io` beyond `StringIO`, `os` beyond path text, `enum.IntEnum`, `StrEnum` and `Flag`, `bytearray`, binary files and `sys.stdout.buffer`, and `hashlib` beyond MD5 and the SHA-1/SHA-2 family. These are next on the [roadmap](/docs/roadmap).
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
-- `async` / `await` and `asyncio`
+- Async generators (`yield` inside an `async def`), async comprehensions and `await` inside a generator expression, `except*` and a `TaskGroup` whose tasks fail (it raises an `ExceptionGroup`)
+- `asyncio` with sockets, subprocesses, threads or signals, and printing a `Task` (its repr shows where the coroutine is waiting)
 - The `match` statement
 - `eval`, `exec` and other run-time code generation
 - Modules outside the list above in a program that also needs the dynamic build (see below)
@@ -132,5 +135,5 @@ These are tracked on the [roadmap](/docs/roadmap):
 
 - **Classes built on a library's classes** (`class Post(BaseModel)`) run in CPython as a whole, and in some layouts send the whole file to CPython.
 - **Dynamic builds are slower** than typed ones; widening what the typed build accepts is ongoing work.
-- **`async`, `match` and `eval`** are not built natively.
+- **`match`, `eval` and async generators** are not built natively.
 - **Cold builds** take about 0.15 to 0.3 seconds for a small program (a few seconds with `--release`), plus 5 to 15 seconds once for Brevi's runtime on the very first build. That still matters for agents that build many one-off programs; repeat builds are cached.

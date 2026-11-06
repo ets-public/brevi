@@ -394,6 +394,7 @@ pub enum Ex {
     Walrus(String, Box<Ex>),
     Yield(Option<Box<Ex>>),
     YieldFrom(Box<Ex>),
+    Await(Box<Ex>),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -419,6 +420,7 @@ pub struct FuncDef {
     pub body: Vec<Stmt>,
     pub decorators: Vec<Ex>,
     pub line: usize,
+    pub is_async: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -467,6 +469,8 @@ pub struct Stmt {
 pub struct P {
     toks: Vec<(Tok, usize)>,
     i: usize,
+    // numbers the hidden names `async for` and `async with` are rewritten with
+    anon: usize,
 }
 type PR<T> = Result<T, (usize, String)>;
 
@@ -671,12 +675,40 @@ impl P {
                 } else if self.is_kw("class") {
                     St::Class(Box::new(self.classdef(decs)?))
                 } else if self.is_kw("async") {
-                    return Err(err(self.line(), "async functions are not supported"));
+                    self.next();
+                    if !self.is_kw("def") {
+                        return Err(err(self.line(), "expected def after async"));
+                    }
+                    let mut d = self.funcdef(decs)?;
+                    d.is_async = true;
+                    St::Def(Box::new(d))
                 } else {
                     return Err(err(self.line(), "expected def or class after a decorator"));
                 }
             }
-            "async" => return Err(err(line, "async is not supported")),
+            "async" => {
+                self.next();
+                if self.is_kw("def") {
+                    let mut d = self.funcdef(vec![])?;
+                    d.is_async = true;
+                    St::Def(Box::new(d))
+                } else if self.eat_kw("for") {
+                    let t = self.target_list()?;
+                    self.expect_kw("in")?;
+                    let it = self.exprlist()?;
+                    let b = self.block()?;
+                    let els = if self.eat_kw("else") { Some(self.block()?) } else { None };
+                    return Ok(self.async_for(line, t, it, b, els));
+                } else if self.is_kw("with") {
+                    let w = self.stmt()?;
+                    let Some(Stmt { st: St::With(items, b), .. }) = w.into_iter().next() else {
+                        return Err(err(line, "expected a with statement"));
+                    };
+                    return Ok(self.async_with(line, &items, b));
+                } else {
+                    return Err(err(line, "expected def, for or with after async"));
+                }
+            }
             "match" if self.is_match_stmt() => return Err(err(line, "match statements are not supported")),
             _ => return self.simple_line(),
         };
@@ -907,6 +939,83 @@ impl P {
         }
         Ok(St::Expr(first))
     }
+    // `async for t in it: body else: els` as CPython runs it:
+    //     __ai = aiter(it)
+    //     while True:
+    //         try: __ax = await anext(__ai)
+    //         except StopAsyncIteration: [__ae = True;] break
+    //         t = __ax
+    //         body
+    //     [if __ae: els]
+    fn async_for(&mut self, line: usize, t: Ex, it: Ex, body: Vec<Stmt>, els: Option<Vec<Stmt>>) -> Vec<Stmt> {
+        self.anon += 1;
+        let k = self.anon;
+        let (ai, ax, ae) = (format!("__brevi_ai{k}"), format!("__brevi_ax{k}"), format!("__brevi_ae{k}"));
+        let st = |st: St| Stmt { line, st };
+        let name = |n: &str| Ex::Name(n.to_string());
+        let call = |f: &str, a: Ex| Ex::Call(Box::new(Ex::Name(f.to_string())), vec![Arg::Pos(a)]);
+        let mut out = vec![st(St::Assign(vec![name(&ai)], call("aiter", it)))];
+        let mut stop = vec![];
+        if els.is_some() {
+            out.push(st(St::Assign(vec![name(&ae)], Ex::False)));
+            stop.push(st(St::Assign(vec![name(&ae)], Ex::True)));
+        }
+        stop.push(st(St::Break));
+        let get = st(St::Try(
+            vec![st(St::Assign(vec![name(&ax)], Ex::Await(Box::new(call("anext", name(&ai))))))],
+            vec![Handler { types: Some(name("StopAsyncIteration")), name: None, body: stop, line }],
+            None,
+            None,
+        ));
+        let mut wb = vec![get, st(St::Assign(vec![t], name(&ax)))];
+        wb.extend(body);
+        out.push(st(St::While(Ex::True, wb, None)));
+        if let Some(e) = els {
+            out.push(st(St::If(vec![(name(&ae), e)], None)));
+        }
+        out
+    }
+    // `async with m as t: body` as CPython runs it (one item at a time):
+    //     __am = m; __ax = type(__am).__aexit__
+    //     t = await type(__am).__aenter__(__am)
+    //     __ak = True
+    //     try: body
+    //     except BaseException as __ae:
+    //         __ak = False
+    //         if not await __ax(__am, type(__ae), __ae, None): raise
+    //     finally:
+    //         if __ak: await __ax(__am, None, None, None)
+    fn async_with(&mut self, line: usize, items: &[(Ex, Option<Ex>)], body: Vec<Stmt>) -> Vec<Stmt> {
+        let body = if items.len() > 1 { self.async_with(line, &items[1..], body) } else { body };
+        let (m, t) = items[0].clone();
+        self.anon += 1;
+        let k = self.anon;
+        let (am, ax, ak, ae) = (format!("__brevi_am{k}"), format!("__brevi_ax{k}"), format!("__brevi_ak{k}"), format!("__brevi_ae{k}"));
+        let st = |st: St| Stmt { line, st };
+        let name = |n: &str| Ex::Name(n.to_string());
+        let call = |f: Ex, a: Vec<Ex>| Ex::Call(Box::new(f), a.into_iter().map(Arg::Pos).collect());
+        let mut out = vec![
+            st(St::Assign(vec![name(&am)], m)),
+            st(St::Assign(vec![name(&ax)], call(name("__brevi_aexit"), vec![name(&am)]))),
+        ];
+        let enter = Ex::Await(Box::new(call(call(name("__brevi_aenter"), vec![name(&am)]), vec![name(&am)])));
+        out.push(st(match t {
+            Some(t) => St::Assign(vec![t], enter),
+            None => St::Expr(enter),
+        }));
+        out.push(st(St::Assign(vec![name(&ak)], Ex::True)));
+        let exit = |args: Vec<Ex>| Ex::Await(Box::new(call(name(&ax), args)));
+        let h = vec![
+            st(St::Assign(vec![name(&ak)], Ex::False)),
+            st(St::If(
+                vec![(Ex::Unary("not", Box::new(exit(vec![name(&am), call(name("type"), vec![name(&ae)]), name(&ae), Ex::NoneV]))), vec![st(St::Raise(None, None))])],
+                None,
+            )),
+        ];
+        let fin = vec![st(St::If(vec![(name(&ak), vec![st(St::Expr(exit(vec![name(&am), Ex::NoneV, Ex::NoneV, Ex::NoneV])))])], None))];
+        out.push(st(St::Try(body, vec![Handler { types: Some(name("BaseException")), name: Some(ae), body: h, line }], None, Some(fin))));
+        out
+    }
     fn funcdef(&mut self, decorators: Vec<Ex>) -> PR<FuncDef> {
         let line = self.line();
         self.expect_kw("def")?;
@@ -918,7 +1027,7 @@ impl P {
             self.expr()?;
         }
         let body = self.block()?;
-        Ok(FuncDef { name, params, body, decorators, line })
+        Ok(FuncDef { name, params, body, decorators, line, is_async: false })
     }
     fn params(&mut self, end: &str) -> PR<Params> {
         let mut p = Params::default();
@@ -1204,10 +1313,7 @@ impl P {
         self.power()
     }
     fn power(&mut self) -> PR<Ex> {
-        if self.is_kw("await") {
-            return Err(err(self.line(), "await is not supported"));
-        }
-        let base = self.primary()?;
+        let base = if self.eat_kw("await") { Ex::Await(Box::new(self.primary()?)) } else { self.primary()? };
         if self.eat_op("**") {
             let e = self.unary()?;
             return Ok(Ex::Bin("**", Box::new(base), Box::new(e)));
@@ -1631,7 +1737,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
                 None => vec![],
             };
             let lx = lex(&format!("({})", text.replace('\n', " "))).map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
-            let mut p = P { toks: lx.toks, i: 0 };
+            let mut p = P { toks: lx.toks, i: 0, anon: 0 };
             let e = p.expr().map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
             if let Some(d) = self_doc {
                 parts.push(FPart::Lit(d));
@@ -1659,6 +1765,6 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
 
 pub fn parse(src: &str) -> PR<Vec<Stmt>> {
     let lx = lex(src)?;
-    let mut p = P { toks: lx.toks, i: 0 };
+    let mut p = P { toks: lx.toks, i: 0, anon: 0 };
     p.file()
 }

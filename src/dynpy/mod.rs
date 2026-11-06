@@ -37,6 +37,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_ext.rs"),
     include_str!("rt_glue.rs"),
     include_str!("rt_gen.rs"),
+    include_str!("rt_async.rs"),
     include_str!("rt_enum.rs"),
     include_str!("rt_rand.rs"),
     include_str!("rt_bytes.rs"),
@@ -121,6 +122,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "io" => include_str!("py/io.py"),
         "textwrap" => include_str!("py/textwrap.py"),
         "argparse" => include_str!("py/argparse.py"),
+        "asyncio" => include_str!("py/asyncio.py"),
         _ => return None,
     })
 }
@@ -200,7 +202,7 @@ fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap or argparse beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse or asyncio beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -253,6 +255,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 own_ok &= pure(&src);
                 texts.insert(m.clone(), (ps.clone(), src.to_string()));
                 mods.push(emit::Module { name: m, body });
+            } else if m == "asyncio" || m.starts_with("asyncio.") {
+                // Brevi's coroutines run only on Brevi's own asyncio.
+                return Err((file.to_string(), 0, format!("module {m} beyond Brevi's own asyncio runs in CPython")));
             } else if !m.starts_with('.') && crate::pybridge::py_allowed(&m) && (bridge.on || bridge_ok()) {
                 // A library Brevi lacks: CPython runs it inside the program.
                 bridge.on = true;
@@ -265,6 +270,10 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         return Err((file.to_string(), 0, BEYOND_COPIES.into()));
     }
     if bridge.on {
+        // A coroutine handed to a library CPython runs would not be one of CPython's.
+        if mods.iter().any(|m| m.name != "asyncio" && emit::uses_async(&m.body)) {
+            return Err((file.to_string(), 0, "async code with a library CPython runs".into()));
+        }
         lib_classes(&mods, &texts, &mut bridge)?;
     }
     // The file of the module the error is in, not always the main file (#194).

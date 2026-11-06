@@ -1,0 +1,13 @@
+8
+/tmp/claude-0/-home-user-brevi/93619b17-33b6-5829-a23e-a7d1949e16c2/scratchpad/c/a12_old_style.py:7: DeprecationWarning: There is no current event loop
+  print(loop.run_until_complete(asyncio.gather(work(1), work(2))))
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user-brevi/93619b17-33b6-5829-a23e-a7d1949e16c2/scratchpad/c/a12_old_style.py", line 7, in <module>
+    print(loop.run_until_complete(asyncio.gather(work(1), work(2))))
+          ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/asyncio/base_events.py", line 705, in run_until_complete
+    future = tasks.ensure_future(future, loop=self)
+  File "/usr/local/lib/python3.13/asyncio/tasks.py", line 739, in ensure_future
+    raise ValueError('The future belongs to a different loop than '
+                    'the one specified as the loop argument')
+ValueError: The future belongs to a different loop than the one specified as the loop argument
