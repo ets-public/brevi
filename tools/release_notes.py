@@ -14,6 +14,20 @@ thanked = sorted(set(re.findall(r"thanks (@[A-Za-z0-9-]+)", body)), key=str.lowe
 if thanked:
     print("**Contributors:** thanks to " + ", ".join(thanked) + " for their work in this release.")
     print()
+# The latest CPython conformance run (tools/conformance.py writes the report): how often a native build of
+# CPython's own tests gives a different answer, published with every release.
+report = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bench", "conformance", "report.md")
+if os.path.exists(report):
+    r = open(report).read()
+    who = re.search(r"^Brevi (\S+) against CPython (\S+)[^,]*, (\d{4}-\d\d-\d\d)", r, re.M)
+    cov = re.search(r"\*\*Coverage ([\d.]+%)\*\* \((\d+) of (\d+) tests", r)
+    wrong = re.search(r"\*\*Wrong: (\d+)\*\*", r)
+    if who and cov and wrong:
+        print(f"**CPython conformance:** {cov.group(2)} of {cov.group(3)} scored tests from CPython {who.group(2)}'s own suite ({cov.group(1)}) "
+              f"print exactly what CPython prints from a native build, and {wrong.group(1)} give a different answer "
+              f"(Brevi {who.group(1)}, {who.group(3)}; [report](https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/report.md)). "
+              "Check your own program the same way with `brevi verify`.")
+        print()
 print("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs. "
       "On Linux and macOS, `sh install.sh` installs rustc if it is missing and picks the right download; on Windows, "
       "install Rust with rustup and unzip the .zip. Details: https://brevi-lang.org/docs/install")

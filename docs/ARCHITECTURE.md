@@ -102,7 +102,8 @@ All commands live in `src/main.rs`.
 | `brevi fix FILE` | Apply every suggested fix to the file. |
 | `brevi patch FILE PATCH` | Replace whole functions/types by name (`src/patch.rs`). |
 | `brevi guide [SECTION]` | Print the language guide or one section. |
-| `brevi mcp` | MCP server over stdin/stdout (`src/mcp.rs`): guide, check, run, test, patch, edit, show. |
+| `brevi verify` | Native build against CPython on the same inputs, with a certificate (`src/verify.rs`). |
+| `brevi mcp` | MCP server over stdin/stdout (`src/mcp.rs`): guide, check, run, test, verify, patch, edit, show. |
 
 Flags: `--release` (opt-level 3), `--sandbox` (only what the caller grants with `--allow read,write,native` / `--allow-py MODULES`; the file's allow lines grant nothing), `--window` (real tkinter windows via egui), `--explain`, `--native`.
 

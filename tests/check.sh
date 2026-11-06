@@ -273,6 +273,21 @@ if [ -n "$(ls -A "$t2/cache/runs" 2>/dev/null)" ] || printf '%s\n' "$t2out" | gr
   echo "FAIL result cache keeps a machine failure"; printf '%s\n' "$t2out"; ls -A "$t2/cache/runs"; fail=1
 else echo "ok   result cache keeps no machine failure"; fi
 rm -rf "$t2"
+# brevi verify: the native build against CPython on the same inputs. The certificate's timings, versions and
+# path are left out (they change from machine to machine); the verdicts, cases and hashes must match.
+v() { echo "-- $*"; o=$($BREVI verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | sed -E 's/"(cpython_ms|brevi_ms|speedup)":[0-9.]+,?//g; s/"(brevi|python)":"[0-9.]+",?//g; s/"path":"[a-z]+",?//g; s/on two runs \(line [0-9]+: [^)]*\)/on two runs (line 1: ...)/; s/,}/}/'; echo "exit $c"; }
+vout=$(v tests/verify/sq.py --input tests/verify/sq
+  v tests/verify/argsum.py -- 3 4
+  v tests/verify/clock.py
+  v tests/verify/spin.py --once --timeout 1
+  v tests/verify/refused.py
+  BREVI_PYTHON=tests/verify/fakepy.sh v tests/verify/sq.py
+  v tests/verify/sq.py --sandbox
+  v tests/run/arm_map.bv)
+exp=tests/verify.expected
+if [ "$1" = "--update" ]; then printf '%s\n' "$vout" > "$exp"
+elif [ "$vout" != "$(cat "$exp")" ]; then echo "FAIL brevi verify"; printf '%s\n' "$vout" | diff "$exp" - ; fail=1
+else echo "ok   brevi verify"; fi
 exp=tests/cache.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
 elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1

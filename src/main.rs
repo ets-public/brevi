@@ -26,13 +26,14 @@ mod pystd;
 mod pygen;
 mod scoped;
 mod runcache;
+mod verify;
 
 use diag::{esc, Diag};
 use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,native] [--allow-py MODULES] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,native] [--allow-py MODULES] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -154,11 +155,14 @@ fn main() {
         println!("brevi {}", env!("CARGO_PKG_VERSION"));
         return;
     }
-    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "test" | "check" | "fix")) {
+    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "test" | "check" | "fix" | "verify")) {
         // Find rustc and its version while the front end works.
         std::thread::spawn(|| {
             rustc_version();
         });
+    }
+    if argv.first().map(|a| a.as_str()) == Some("verify") {
+        verify::main(&argv[1..]);
     }
     if argv.first().map(|a| a.as_str()) == Some("guide") {
         let q = argv[1..].join(" ");

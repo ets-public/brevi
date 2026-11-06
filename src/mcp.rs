@@ -53,6 +53,7 @@ const TOOLS: &str = r#"[
 {"name":"test","title":"Run tests","description":"Run the test blocks of the kept program (or code).","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds (default 20)"}},"additionalProperties":false}},
 {"name":"patch","title":"Patch program","description":"Replace each def or class in patch by name in the kept program (or add it); del def name removes one. Then checks: prints what changed and OK or the errors.","inputSchema":{"type":"object","properties":{"patch":{"type":"string"},"file":{"type":"string"},"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"}},"required":["patch"],"additionalProperties":false},"annotations":{"openWorldHint":false}},
 {"name":"edit","title":"Edit lines","description":"Replace lines from..to (1-based, inclusive) of the kept program with text (empty text deletes; to = from - 1 inserts before from). Then checks like patch.","inputSchema":{"type":"object","properties":{"from":{"type":"integer","minimum":1},"to":{"type":"integer","minimum":0},"text":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"}},"required":["from","to","text"],"additionalProperties":false},"annotations":{"openWorldHint":false}},
+{"name":"verify","title":"Verify against CPython","description":"Proof the native build answers as CPython does: builds the kept program (or code, plain Python) natively, runs it and python3 on each input, and compares stdout, exit code and stderr (CPython runs twice, so output that changes run to run is reported, not certified). One JSON line per input, then a certificate {verify: identical, differs, unstable, timeout or not built; sha256, path, speedup}. Runs CPython on the code, which the sandbox cannot hold, so it needs sandbox false.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string"},"inputs":{"type":"array","items":{"type":"string"},"description":"stdin for each run (default one run, empty stdin)"},"args":{"type":"array","items":{"type":"string"}},"sandbox":{"type":"boolean","description":"Must be false: verify runs python3 on the code"},"once":{"type":"boolean","description":"Run CPython once, not twice"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for each run (default 20)"}},"additionalProperties":false},"annotations":{"openWorldHint":false}},
 {"name":"show","title":"Show program","description":"The kept program, or lines from..to of it, with line numbers.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"from":{"type":"integer","minimum":1},"to":{"type":"integer","minimum":0}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}}
 ]"#;
 
@@ -79,6 +80,7 @@ fn spec(tool: &str) -> Option<&'static [(&'static str, Kind, bool)]> {
         "patch" => &[("patch", Str, true), ("file", Str, false), ("code", Str, false), SB, AL, AP],
         "edit" => &[("from", Int, true), ("to", Int, true), ("text", Str, true), ("file", Str, false), SB, AL, AP],
         "show" => &[("file", Str, false), ("from", Int, false), ("to", Int, false)],
+        "verify" => &[("code", Str, false), ("file", Str, false), ("inputs", Strs, false), ("args", Strs, false), SB, ("once", Bool, false), ("timeout", Int, false)],
         _ => return None,
     })
 }
@@ -557,6 +559,7 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             }
         }
         "test" => brevi(files, "test", &sandbox, "", limit),
+        "verify" => verify(files, a, sandboxed, limit),
         "patch" => {
             let Some(cur) = files.all.get(&file).cloned() else { return (format!("no file {file}"), true) };
             match crate::patch::patch(&cur, &s("patch")) {
@@ -589,6 +592,55 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
         }
         _ => (format!("unknown tool {name}"), true),
     }
+}
+
+// `brevi verify` on the kept program: each input is written next to it and fed to both runs. CPython runs the
+// code, so the sandbox (on by default) refuses it rather than run it unheld.
+fn verify(files: &mut Files, a: &J, sandboxed: bool, limit: Duration) -> (String, bool) {
+    if sandboxed {
+        return ("verify runs python3 on the code, which the sandbox cannot hold to its grants: pass sandbox false to verify code you would run with python3".into(), true);
+    }
+    if !files.main().ends_with(".py") {
+        return ("verify compares plain Python with CPython; Brevi code has no CPython answer to compare with (use test)".into(), true);
+    }
+    let strs = |k: &str| -> Vec<String> { a.get(k).map(|v| v.arr().iter().filter_map(|x| x.str().map(String::from)).collect()).unwrap_or_default() };
+    let inputs = strs("inputs");
+    let mut extra: Vec<String> = vec!["--timeout".into(), limit.as_secs().max(1).to_string()];
+    let once = a.get("once").map_or(false, |v| v.truthy());
+    if once {
+        extra.push("--once".into());
+    }
+    // Next to the work directory, which every call writes afresh.
+    let dir = PathBuf::from(format!("{}-verify", work_dir().display()));
+    let _ = std::fs::remove_dir_all(&dir);
+    if !inputs.is_empty() {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            return (format!("cannot write the inputs: {e}"), true);
+        }
+        for (i, text) in inputs.iter().enumerate() {
+            let f = dir.join(format!("input{}", i + 1));
+            if let Err(e) = std::fs::write(&f, text) {
+                return (format!("cannot write the inputs: {e}"), true);
+            }
+            extra.extend(["--input".to_string(), f.to_string_lossy().to_string()]);
+        }
+    }
+    let args = strs("args");
+    if !args.is_empty() {
+        extra.push("--".into());
+        extra.extend(args);
+    }
+    // The build, then CPython twice and the build once per input, each within the limit.
+    let runs = if once { 2 } else { 3 } * inputs.len().max(1) as u32 + 1;
+    let total = Duration::from_secs(cfg().timeout).max(limit) + limit * runs;
+    let (t, err) = brevi(files, "verify", &extra, "", total.min(Duration::from_secs(1800)));
+    let _ = std::fs::remove_dir_all(&dir);
+    // Input paths are the server's own temporary files: name them input1, input2, ... in the reply.
+    let shown = esc(&(dir.to_string_lossy().to_string() + std::path::MAIN_SEPARATOR_STR));
+    let work = esc(&(work_dir().to_string_lossy().to_string() + std::path::MAIN_SEPARATOR_STR));
+    // The CLI's advice in the tool's own words.
+    let t = t.replace(&shown, "").replace(&work, "").replace("pass --once", "pass once true").replace("pass --timeout SECS", "pass timeout (seconds)");
+    (t, err)
 }
 
 fn check(files: &mut Files, flags: &[String], limit: Duration) -> (String, bool) {
