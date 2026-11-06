@@ -377,68 +377,6 @@ fn np_fdraw(size: Option<Vec<usize>>, mut f: impl FnMut() -> f64) -> V {
         }
     }
 }
-// a float parameter that may be an array: numpy broadcasts it with size and draws in C order
-fn np_fparams(ps: &[Option<V>], size: Option<Vec<usize>>) -> Result<(Vec<Vec<f64>>, Option<Vec<usize>>), E> {
-    let arrs: Vec<Option<NdArr>> = ps
-        .iter()
-        .map(|p| match p {
-            Some(v) if as_np(v).is_some() || seq_items(v).is_some() => np_as(v).map(Some),
-            _ => Ok(None),
-        })
-        .collect::<Result<_, E>>()?;
-    if arrs.iter().all(|a| a.is_none()) {
-        let n: usize = size.as_ref().map_or(1, |s| s.iter().product());
-        let vals = ps.iter().map(|p| p.as_ref().map(|v| np_f_arg(v)).transpose().map(|x| vec![x.unwrap_or(f64::NAN); n])).collect::<Result<_, E>>()?;
-        return Ok((vals, size));
-    }
-    let mut shape: Vec<usize> = vec![];
-    for a in arrs.iter().flatten() {
-        shape = np_bshape(&shape, &a.shape)?;
-    }
-    if let Some(s) = &size {
-        if np_bshape(&shape, s)? != *s {
-            return val_err(format!("shape mismatch: objects cannot be broadcast to a single shape.  Mismatch is between arg 0 with shape {} and arg 1 with shape {}.", np_shape_repr(s), np_shape_repr(&shape)));
-        }
-        shape = s.clone();
-    }
-    let mut vals = vec![];
-    for (p, a) in ps.iter().zip(&arrs) {
-        vals.push(match (p, a) {
-            (_, Some(a)) => np_bvals(a, &shape).fv(),
-            (Some(v), None) => vec![np_f_arg(v)?; shape.iter().product()],
-            (None, None) => vec![f64::NAN; shape.iter().product()],
-        });
-    }
-    Ok((vals, Some(shape)))
-}
-fn np_pdraw(ps: &[Option<V>], defaults: &[f64], size: Option<Vec<usize>>, mut f: impl FnMut(&[f64]) -> f64) -> R {
-    let ps2: Vec<Option<V>> = ps.iter().zip(defaults).map(|(p, d)| Some(p.clone().unwrap_or(V::Float(*d)))).collect();
-    let (vals, shape) = np_fparams(&ps2, size)?;
-    match shape {
-        None => {
-            let xs: Vec<f64> = vals.iter().map(|v| v[0]).collect();
-            Ok(V::Float(f(&xs)))
-        }
-        Some(sh) => {
-            let n: usize = sh.iter().product();
-            let mut out = Vec::with_capacity(n);
-            let mut xs = vec![0.0; vals.len()];
-            for i in 0..n {
-                for (k, v) in vals.iter().enumerate() {
-                    xs[k] = v[i];
-                }
-                out.push(f(&xs));
-            }
-            Ok(np_new(Buf::F(out), sh))
-        }
-    }
-}
-fn np_check_scale(v: f64, what: &str) -> Result<(), E> {
-    if v < 0.0 || v.is_nan() {
-        return val_err(format!("{what} < 0"));
-    }
-    Ok(())
-}
 fn np_int_bound(v: &V, what: &str) -> Result<i64, E> {
     if as_np(v).is_some() || seq_items(v).is_some() {
         return Err(np_unsup(&format!("array bounds for {what}")));
@@ -508,6 +446,9 @@ fn np_shuffle(r: &NpRng, v: &V) -> Result<(), E> {
 fn np_rng_call(r: &NpRng, n: &str, a: &mut Args) -> R {
     let a = &*a;
     let leg = r.legacy;
+    if let Some(res) = np_dist_call(r, n, a) {
+        return res;
+    }
     match n {
         "random" | "random_sample" | "rand" | "sample" | "ranf" => {
             let size = if n == "rand" {
@@ -541,41 +482,13 @@ fn np_rng_call(r: &NpRng, n: &str, a: &mut Args) -> R {
             let mut bg = r.bg.borrow_mut();
             Ok(np_fdraw(size, || bg.normal()))
         }
-        "normal" => {
-            let size = np_size(a, 2)?;
-            let ps = [npa(a, 0, "loc"), npa(a, 1, "scale")];
-            if let Some(s) = &ps[1] {
-                if as_np(s).is_none() && seq_items(s).is_none() {
-                    np_check_scale(np_f_arg(s)?, "scale")?;
-                }
-            }
-            let mut bg = r.bg.borrow_mut();
-            np_pdraw(&ps, &[0.0, 1.0], size, |x| x[0] + x[1] * bg.normal())
-        }
-        "uniform" => {
-            let size = np_size(a, 2)?;
-            let ps = [npa(a, 0, "low"), npa(a, 1, "high")];
-            let mut bg = r.bg.borrow_mut();
-            np_pdraw(&ps, &[0.0, 1.0], size, |x| {
-                let d = bg.dbl();
-                x[0] + (x[1] - x[0]) * d
-            })
-        }
-        "exponential" | "standard_exponential" => {
-            let (size, ps) = if n == "exponential" { (np_size(a, 1)?, vec![npa(a, 0, "scale")]) } else { (np_size(a, 0)?, vec![]) };
-            if n == "standard_exponential" && (npa(a, 1, "dtype").is_some() || npa(a, 2, "method").is_some()) {
+        "standard_exponential" => {
+            if npa(a, 1, "dtype").is_some() || npa(a, 2, "method").is_some() {
                 return Err(np_unsup("standard_exponential(dtype=/method=)"));
             }
-            if let Some(Some(s)) = ps.first() {
-                if as_np(s).is_none() && seq_items(s).is_none() {
-                    np_check_scale(np_f_arg(s)?, "scale")?;
-                }
-            }
+            let size = np_size(a, 0)?;
             let mut bg = r.bg.borrow_mut();
-            if ps.is_empty() {
-                return Ok(np_fdraw(size, || bg.exponential()));
-            }
-            np_pdraw(&ps, &[1.0], size, |x| x[0] * bg.exponential())
+            Ok(np_fdraw(size, || bg.exponential()))
         }
         "integers" if !leg => {
             let low = npa(a, 0, "low").ok_or_else(|| exc("TypeError", "integers() missing required argument 'low' (pos 0)".into()))?;
