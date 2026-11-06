@@ -139,6 +139,36 @@ for f in tests/tokenizers/*.py; do
     echo "ok   $f"
   fi
 done
+# requests and httpx programs must print what CPython's requests 2.34 and httpx 0.28 print, with Brevi's own copies
+# over native sockets and TLS: never CPython. They talk to tests/http/server.py (HTTP on 18080, HTTPS on 18081)
+# and pass verify= themselves, so a CA bundle in the environment changes nothing. `--update` needs both libraries.
+python3 tests/http/server.py 18080 > /tmp/brevi_http_srv 2>&1 &
+srv=$!
+for i in 1 2 3 4 5 6 7 8 9 10; do grep -q ready /tmp/brevi_http_srv 2>/dev/null && break; sleep 0.5; done
+for f in tests/http/requests_*.py tests/http/httpx_*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then
+    python3 -c "import requests, httpx" 2>/dev/null && python3 "$f" > "$exp" 2>/dev/null
+    continue
+  fi
+  out=$(BREVI_PATH=1 timeout 300 $BREVI run "$f" --native 2>/tmp/brevi_http_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_http_err || grep -q '"py"' /tmp/brevi_http_err; then
+    echo "FAIL $f (not built with Brevi's requests / httpx)"; cat /tmp/brevi_http_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_http_err | tail -5; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+# Under --sandbox the network needs the caller's grant: none refuses the build, --allow-net lets in only the
+# hosts it names (127.0.0.1 here, so localhost is refused when the program connects).
+if [ "$1" != "--update" ]; then
+  out=$($BREVI run --sandbox tests/http/sandbox_net.py 2>&1; echo "exit $?")
+  if printf '%s\n' "$out" | grep -q 'needs allow net' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   sandbox net (no grant)"; else echo "FAIL sandbox net (no grant)"; printf '%s\n' "$out"; fail=1; fi
+  out=$(timeout 300 $BREVI run --sandbox --allow-net 127.0.0.1 tests/http/sandbox_net.py 2>/dev/null)
+  if [ "$out" = "$(cat tests/http/sandbox_net.expected)" ]; then echo "ok   sandbox net (--allow-net 127.0.0.1)"; else echo "FAIL sandbox net (--allow-net 127.0.0.1)"; printf '%s\n' "$out" | diff tests/http/sandbox_net.expected -; fail=1; fi
+fi
+kill $srv 2>/dev/null
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"

@@ -1546,6 +1546,11 @@ pub fn init_builtin_classes() {
         ("PermissionError", "OSError"),
         ("IsADirectoryError", "OSError"),
         ("TimeoutError", "OSError"),
+        ("ConnectionError", "OSError"),
+        ("ConnectionRefusedError", "ConnectionError"),
+        ("ConnectionResetError", "ConnectionError"),
+        ("ConnectionAbortedError", "ConnectionError"),
+        ("BrokenPipeError", "ConnectionError"),
         ("EOFError", "Exception"),
         ("MemoryError", "Exception"),
         ("BufferError", "Exception"),
@@ -1579,7 +1584,13 @@ pub fn init_builtin_classes() {
     m.insert("AxisError", Class::new("AxisError", "numpy.exceptions", vec![ve.clone(), ie], BT::Exc));
     m.insert("UFuncTypeError", Class::new("UFuncTypeError", "numpy._core._exceptions", vec![te], BT::Exc));
     m.insert("LinAlgError", Class::new("LinAlgError", "numpy.linalg", vec![ve.clone()], BT::Exc));
-    m.insert("binascii.Error", Class::new("Error", "binascii", vec![ve], BT::Exc));
+    m.insert("binascii.Error", Class::new("Error", "binascii", vec![ve.clone()], BT::Exc));
+    let ose = m["OSError"].clone();
+    m.insert("socket.gaierror", Class::new("gaierror", "socket", vec![ose.clone()], BT::Exc));
+    let sslerr = Class::new("SSLError", "ssl", vec![ose], BT::Exc);
+    m.insert("ssl.SSLError", sslerr.clone());
+    m.insert("ssl.SSLCertVerificationError", Class::new("SSLCertVerificationError", "ssl", vec![sslerr, ve.clone()], BT::Exc));
+    m.insert("zlib.error", Class::new("error", "zlib", vec![m["Exception"].clone()], BT::Exc));
     let ae = m["AttributeError"].clone();
     m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);

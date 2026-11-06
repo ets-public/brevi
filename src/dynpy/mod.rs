@@ -60,6 +60,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_hfnorm.rs"),
     include_str!("rt_hfcore.rs"),
     include_str!("rt_hf.rs"),
+    include_str!("rt_net.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -140,6 +141,11 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "asyncio" => include_str!("py/asyncio.py"),
         "tiktoken" => include_str!("py/tiktoken.py"),
         "tokenizers" => include_str!("py/tokenizers.py"),
+        "requests" => include_str!("py/requests.py"),
+        "requests.exceptions" => include_str!("py/requests_exceptions.py"),
+        "requests.auth" => include_str!("py/requests_auth.py"),
+        "httpx" => include_str!("py/httpx.py"),
+        "_brevi_http" => include_str!("py/_brevi_http.py"),
         _ => return None,
     })
 }
@@ -233,7 +239,7 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken or tokenizers beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests or httpx beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -250,6 +256,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let mut own_ok = pure(&src);
     let mut own_used = false;
     let mut own_mods: HashSet<String> = HashSet::new();
+    let mut net_used = false;
     let mut bridge = emit::Bridge::default();
     let mut texts: HashMap<String, (String, String)> = HashMap::new();
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
@@ -259,6 +266,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         walk_imports(&mods[k].body, &mut imps);
         for m in imps {
             if mods.iter().any(|x| x.name == m) || emit::builtin_mod(&m) {
+                if m == "_brevi_net" {
+                    net_used = true;
+                }
                 if m == "numpy" {
                     emit::NP_ON.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -379,11 +389,31 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     if let Some(b) = &hf_files {
         rust = hf::embed(rust, b);
     }
+    if net_used {
+        if !cfg!(unix) {
+            return Err((file.to_string(), 0, "Brevi's own requests and httpx run on Linux and macOS".into()));
+        }
+        rust = rust.replacen("fn main() { ", "fn main() { NET.set(brevi_netglue::ops()).ok(); ", 1);
+        rust.push_str(&net_glue());
+    }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
-        rust = rust.replacen("fn main() { run_main(__run); }", "fn main() { TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);
+        rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);
         rust.push_str(TERM_COLS_FN);
     }
     Ok(format!("{HEADER}{rust}"))
+}
+
+// The network for Brevi's requests and httpx (netglue.rs), with the hosts the caller granted under --sandbox.
+fn net_glue() -> String {
+    let (any, hosts) = crate::caps::net_hosts();
+    let list: Vec<String> = hosts.iter().map(|h| format!("{h:?}")).collect();
+    format!(
+        "\nconst NET_ANY: bool = {any};\nconst NET_HOSTS: &[&str] = &[{}];\nconst NET_SANDBOX: bool = {};\nconst NET_READ: bool = {};\n{}",
+        list.join(", "),
+        crate::caps::sandboxed(),
+        crate::caps::granted("read"),
+        include_str!("netglue.rs")
+    )
 }
 
 // The runtime as a library, built once per rustc version into the cache.

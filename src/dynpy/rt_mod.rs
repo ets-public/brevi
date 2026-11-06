@@ -2055,6 +2055,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "_brevi_mt" => brevi_mt_fn(n, a),
         "_brevi_async" => brevi_async_fn(n, a),
         "_brevi_tok" => brevi_tok_fn(n, a),
+        "_brevi_net" => brevi_net_fn(n, a),
         "_brevi_hf" => brevi_hf_fn(n, a),
         "hashlib" => hashlib_fn(n, a),
         "base64" => base64_fn(n, a),

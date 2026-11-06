@@ -4,10 +4,12 @@
 //
 //   read    read(path)
 //   write   write(path, text)
+//   net     the network, for Brevi's own requests and httpx (and Python's under --allow-py): any host, or under
+//           --sandbox only the hosts of `--allow-net HOSTS` (grants "net:HOST")
 //   native  rust fn, py fn, rust: and py: blocks, crates (use NAME "VER"), and Python libraries CPython runs
 //           (import os, import numpy: pybridge.rs): these can do anything
 //
-// Under --sandbox only the caller grants capabilities: `--allow read,write,native` and `--allow-py requests,...`
+// Under --sandbox only the caller grants capabilities: `--allow read,write,net,native`, `--allow-net HOSTS` and `--allow-py pydantic,...`
 // (the MCP tools' allow and allow_py arguments). The code being held cannot free itself: an allow line in it that
 // asks for more than the caller granted is refused, and one that asks for less narrows nothing. `--allow-py`
 // grants CPython for the named Python modules only (and whatever CPython reaches through them), not rust fn,
@@ -23,14 +25,14 @@
 use crate::ast::{Expr, Item, Stmt, StrPart};
 use crate::diag::Diag;
 
-pub const CAPS: &[&str] = &["read", "write", "native"];
+pub const CAPS: &[&str] = &["read", "write", "net", "native"];
 
 // What the caller granted with --allow and --allow-py: "read", "write", "native", "py:requests".
 pub static GRANT: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 // Whether this run is under --sandbox (or --allow / --allow-py, which imply it).
 pub static SANDBOX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn sandboxed() -> bool {
+pub fn sandboxed() -> bool {
     SANDBOX.load(std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -38,7 +40,39 @@ fn grant() -> Vec<String> {
     GRANT.get().cloned().unwrap_or_default()
 }
 
-// The value of --allow (read, write, native, comma or space separated) or --allow-py (Python module names).
+// The network a program built now may reach: (every host, the hosts granted one by one). Outside --sandbox every
+// host; under it what the caller granted with --allow net (all) or --allow-net HOSTS.
+pub fn net_hosts() -> (bool, Vec<String>) {
+    if !sandboxed() {
+        return (true, vec![]);
+    }
+    let g = grant();
+    (g.iter().any(|c| c == "net"), g.iter().filter_map(|c| c.strip_prefix("net:")).map(String::from).collect())
+}
+
+// Whether the caller granted this capability (under --sandbox).
+pub fn granted(cap: &str) -> bool {
+    grant().iter().any(|c| c == cap)
+}
+
+// A host name for --allow-net: letters, digits, '-', '.', or an IP address.
+fn host_name(w: &str) -> bool {
+    !w.is_empty() && (w.parse::<std::net::IpAddr>().is_ok() || w.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'))
+}
+
+// The value of --allow (read, write, net, native, comma or space separated), --allow-py (Python module names)
+// or --allow-net (host names, as "net:HOST").
+pub fn parse_net(value: &str) -> Result<Vec<String>, String> {
+    let mut out = vec![];
+    for w in value.split([',', ' ']).map(str::trim).filter(|w| !w.is_empty()) {
+        if !host_name(w) {
+            return Err(format!("--allow-net takes host names (api.example.com, localhost), not '{w}'"));
+        }
+        out.push(format!("net:{}", w.to_ascii_lowercase()));
+    }
+    Ok(out)
+}
+
 pub fn parse_grant(py: bool, value: &str) -> Result<Vec<String>, String> {
     let mut out = vec![];
     for w in value.split([',', ' ']).map(str::trim).filter(|w| !w.is_empty()) {
@@ -50,7 +84,7 @@ pub fn parse_grant(py: bool, value: &str) -> Result<Vec<String>, String> {
         } else if CAPS.contains(&w) {
             out.push(w.to_string());
         } else if w != "none" {
-            return Err(format!("--allow takes read, write or native, not '{w}'"));
+            return Err(format!("--allow takes read, write, net or native, not '{w}'"));
         }
     }
     Ok(out)
@@ -59,14 +93,18 @@ pub fn parse_grant(py: bool, value: &str) -> Result<Vec<String>, String> {
 // The grant as flags, for the brevi processes this one starts (and the result cache's key).
 pub fn grant_flags() -> Vec<String> {
     let g = grant();
-    let caps: Vec<&str> = g.iter().filter(|c| !c.starts_with("py:")).map(String::as_str).collect();
+    let caps: Vec<&str> = g.iter().filter(|c| !c.starts_with("py:") && !c.starts_with("net:")).map(String::as_str).collect();
     let py: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("py:")).collect();
+    let hosts: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("net:")).collect();
     let mut out = vec![];
     if !caps.is_empty() {
         out.extend(["--allow".to_string(), caps.join(",")]);
     }
     if !py.is_empty() {
         out.extend(["--allow-py".to_string(), py.join(",")]);
+    }
+    if !hosts.is_empty() {
+        out.extend(["--allow-net".to_string(), hosts.join(",")]);
     }
     out
 }
@@ -88,7 +126,7 @@ pub fn held(src: &str, allowed: Option<Vec<String>>, sandbox: bool) -> (Vec<Stri
         return (allowed.unwrap_or_default(), vec![]);
     }
     let g = grant();
-    let covered = |c: &str| c == "none" || g.iter().any(|x| x == c) || (c == "native" && g.iter().any(|x| x.starts_with("py:")));
+    let covered = |c: &str| c == "none" || g.iter().any(|x| x == c) || (c == "native" && g.iter().any(|x| x.starts_with("py:"))) || (c == "net" && g.iter().any(|x| x.starts_with("net:")));
     let mut errs = vec![];
     for (i, l) in src.split('\n').enumerate() {
         let list = match l.strip_prefix("allow ").filter(|r| !r.trim_start().starts_with(['=', '.', '(', '[', '+', '-'])) {
@@ -116,6 +154,7 @@ pub fn grant_hint(cap: &str, module: Option<&str>) -> String {
             let list = m.split(", ").map(|x| format!("\"{x}\"")).collect::<Vec<_>>().join(", ");
             format!("do without it, or the caller grants it: --allow-py {} (MCP tools: \"allow_py\": [{list}])", m.replace(", ", ","))
         }
+        _ if cap == "net" => "do without it, or the caller grants it: --allow-net HOST,... for some hosts or --allow net for all (MCP tools: \"allow_net\": [\"HOST\"] or \"allow\": [\"net\"])".to_string(),
         _ => format!("do without it, or the caller grants it: --allow {cap} (MCP tools: \"allow\": [\"{cap}\"])"),
     }
 }
@@ -151,7 +190,7 @@ pub fn split(src: &str) -> (String, Option<Vec<String>>, Vec<Diag>) {
             if CAPS.contains(&c) || c == "none" {
                 list.push(c.to_string());
             } else {
-                errs.push(Diag::new("caps", i + 1, 1, &format!("unknown capability '{c}'")).fix_hint("allow takes read, write, native or none"));
+                errs.push(Diag::new("caps", i + 1, 1, &format!("unknown capability '{c}'")).fix_hint("allow takes read, write, net, native or none"));
             }
         }
         out.push("");
@@ -207,6 +246,37 @@ const TOKENIZERS_LACKS: &[&str] = &[
     "train", "train_from_iterator", "save", "to_str", "post_process", "from_buffer", "decode_stream", "async_encode", "async_encode_batch",
     "async_decode_batch", "pre_tokenizer", "post_processor", "normalizer", "decoder", "set_sequence_id", "get_added_vocab",
 ];
+// What src/dynpy/py/requests.py and httpx.py have, and what they lack: methods, attributes and keyword
+// arguments that send a file of the program to CPython's library (or, without it, refuse the build).
+const OWN_REQUESTS: &[&str] = &[
+    "get", "post", "put", "patch", "delete", "head", "options", "request", "Session", "session", "Response", "PreparedRequest", "exceptions",
+    "codes", "auth", "RequestException", "ConnectionError", "HTTPError", "Timeout", "ConnectTimeout", "ReadTimeout", "TooManyRedirects",
+    "URLRequired", "JSONDecodeError", "InvalidURL", "InvalidSchema", "MissingSchema", "InvalidHeader", "ChunkedEncodingError",
+    "ContentDecodingError", "SSLError", "ProxyError", "StreamConsumedError", "RetryError", "InvalidJSONError", "__version__",
+    "HTTPBasicAuth", "AuthBase", "status_codes",
+];
+const REQUESTS_EXC: &[&str] = &[
+    "RequestException", "ConnectionError", "HTTPError", "Timeout", "ConnectTimeout", "ReadTimeout", "TooManyRedirects", "URLRequired",
+    "JSONDecodeError", "InvalidURL", "InvalidSchema", "MissingSchema", "InvalidHeader", "ChunkedEncodingError", "ContentDecodingError",
+    "SSLError", "ProxyError", "StreamConsumedError", "RetryError", "InvalidJSONError",
+];
+const REQUESTS_LACKS: &[&str] = &[
+    ".raw", ".mount(", "files=", "cert=", "hooks=", "proxies=", ".prepare_request(", ".send(", ".adapters", ".merge_environment_settings(",
+    ".cookies.set(", ".connection", ".get_adapter(", ".resolve_redirects(", ".rebuild_",
+];
+const OWN_HTTPX: &[&str] = &[
+    "get", "post", "put", "patch", "delete", "head", "options", "request", "stream", "Client", "AsyncClient", "Response", "Request",
+    "Headers", "URL", "QueryParams", "Timeout", "codes", "BasicAuth", "Auth", "HTTPError", "RequestError", "TransportError",
+    "TimeoutException", "ConnectTimeout", "ReadTimeout", "WriteTimeout", "PoolTimeout", "NetworkError", "ConnectError", "ReadError",
+    "WriteError", "CloseError", "ProtocolError", "RemoteProtocolError", "LocalProtocolError", "ProxyError", "UnsupportedProtocol",
+    "DecodingError", "TooManyRedirects", "HTTPStatusError", "InvalidURL", "StreamError", "StreamConsumed", "StreamClosed",
+    "ResponseNotRead", "RequestNotRead", "__version__", "Cookies", "Limits", "Proxy", "USE_CLIENT_DEFAULT", "CookieConflict",
+    "DEFAULT_TIMEOUT_CONFIG", "DEFAULT_LIMITS", "DEFAULT_MAX_REDIRECTS", "ByteStream", "__title__",
+];
+const HTTPX_LACKS: &[&str] = &[
+    "http2=", "transport=", "mounts=", "proxies=", "cert=", "files=", "app=", ".extensions", ".sync_auth_flow", ".async_auth_flow",
+];
+
 // Event loop methods Brevi's asyncio lacks (they reach sockets, files, threads, processes or signals).
 const ASYNCIO_LOOP_IO: &[&str] = &[
     "run_in_executor", "set_default_executor", "getaddrinfo", "getnameinfo", "create_connection", "create_server", "create_unix_connection",
@@ -229,6 +299,10 @@ fn path_module(m: &str) -> Option<&'static str> {
         "asyncio" => Some("asyncio"),
         "tiktoken" => Some("tiktoken"),
         "tokenizers" => Some("tokenizers"),
+        "requests" => Some("requests"),
+        "requests.exceptions" => Some("requests.exceptions"),
+        "requests.auth" => Some("requests.auth"),
+        "httpx" => Some("httpx"),
         _ => None,
     }
 }
@@ -245,6 +319,10 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "asyncio" => OWN_ASYNCIO.contains(&attr),
         "tiktoken" => OWN_TIKTOKEN.contains(&attr),
         "tokenizers" => OWN_TOKENIZERS.contains(&attr),
+        "requests" => OWN_REQUESTS.contains(&attr),
+        "requests.exceptions" => REQUESTS_EXC.contains(&attr),
+        "requests.auth" => matches!(attr, "HTTPBasicAuth" | "AuthBase"),
+        "httpx" => OWN_HTTPX.contains(&attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -420,6 +498,15 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS)] {
+        if names.values().any(|x| x.starts_with(m)) {
+            for (n, l) in &lines {
+                if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
+                    bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
+                }
+            }
+        }
+    }
     // argparse's `@file` arguments read files; Brevi's copy has no way to.
     if names.values().any(|m| *m == "argparse") {
         if let Some((n, _)) = lines.iter().find(|(_, l)| l.contains("fromfile_prefix_chars")) {
@@ -528,6 +615,12 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
         }
         uses.push((line, "native", format!("import {m} (a Python library, run by CPython)")));
     }
+    // Brevi's requests and httpx reach the network.
+    for (line, m) in crate::pybridge::bridged_imports(src) {
+        if matches!(m.split('.').next().unwrap_or(""), "requests" | "httpx") {
+            uses.push((line, "net", format!("import {m} (the network)")));
+        }
+    }
     for (line, what) in paths.unwrap_or_default() {
         uses.push((line, "native", what));
     }
@@ -537,7 +630,8 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     for (line, cap, what) in uses {
         let module = if cap == "native" { use_module(&what) } else { None };
         let py_granted = module.as_ref().is_some_and(|m| allowed.iter().any(|a| a.strip_prefix("py:") == Some(m.as_str())));
-        if allowed.iter().any(|a| a == cap) || py_granted || seen.contains(&(line, cap)) {
+        let net_granted = cap == "net" && allowed.iter().any(|a| a.starts_with("net:"));
+        if allowed.iter().any(|a| a == cap) || py_granted || net_granted || seen.contains(&(line, cap)) {
             continue;
         }
         seen.push((line, cap));
@@ -706,6 +800,35 @@ mod tests {
         }
     }
 
+    // Brevi's requests and httpx reach the network only through _brevi_net, whose native side the compiler puts
+    // into a program only when the network is granted (or outside the sandbox), and whose every connection
+    // passes the host check: they open no files, start nothing and import nothing else that reaches out.
+    #[test]
+    fn http_copies_reach_only_brevi_net() {
+        for (name, src) in [
+            ("requests.py", include_str!("dynpy/py/requests.py")),
+            ("requests_exceptions.py", include_str!("dynpy/py/requests_exceptions.py")),
+            ("requests_auth.py", include_str!("dynpy/py/requests_auth.py")),
+            ("httpx.py", include_str!("dynpy/py/httpx.py")),
+            ("_brevi_http.py", include_str!("dynpy/py/_brevi_http.py")),
+        ] {
+            for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+                if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                    let m = m.split_whitespace().next().unwrap();
+                    assert!(["_brevi_net", "_brevi_http", "requests", "asyncio", "base64", "datetime", "json", "time", "enum", "re"].contains(&m), "{name} imports {m}");
+                }
+                for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess", "Thread", "os.environ"] {
+                    // (as a name of its own: _brevi_net.open( is the checked connection)
+                    let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.'));
+                    assert!(!own, "{name} uses {bad}");
+                }
+            }
+        }
+        // the network itself is in the glue pasted into a program, never in the runtime every program carries
+        assert!(!crate::dynpy::RUNTIME.contains("std::net"));
+        assert!(include_str!("dynpy/netglue.rs").contains("host_ok"));
+    }
+
     // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it
     // uses sys and getattr, but imports only Brevi's own modules and opens nothing.
     #[test]
@@ -725,7 +848,11 @@ mod tests {
     #[test]
     fn caller_grants() {
         assert_eq!(super::parse_grant(false, "read, write").unwrap(), ["read", "write"]);
-        assert!(super::parse_grant(false, "net").is_err());
+        assert_eq!(super::parse_grant(false, "net").unwrap(), ["net"]);
+        assert!(super::parse_grant(false, "network").is_err());
+        assert_eq!(super::parse_net("API.example.com, localhost").unwrap(), ["net:api.example.com", "net:localhost"]);
+        assert!(super::parse_net("http://x.com").is_err());
+        assert!(super::parse_net("127.0.0.1:80").is_err());
         assert_eq!(super::parse_grant(true, "requests,google.genai").unwrap(), ["py:requests", "py:google"]);
         assert!(super::parse_grant(true, "os;rm").is_err());
         // Outside the sandbox the file's own allow lines hold it; under it they add nothing (no grant here).

@@ -1193,13 +1193,34 @@ pub fn has_method(o: &V, name: &str) -> bool {
         V::Deque(_) => &["append", "appendleft", "pop", "popleft", "extend", "extendleft", "rotate", "clear", "copy", "count", "index", "remove", "reverse", "insert"],
         V::Int(_) | V::Big(_) | V::Bool(_) => &["bit_length", "to_bytes", "conjugate", "bit_count", "as_integer_ratio", "is_integer"],
         V::Float(_) => &["is_integer", "as_integer_ratio", "hex", "conjugate"],
-        V::Iter(_) => &["__next__", "__iter__"],
+        V::Iter(_) => &["__next__", "__iter__", "send", "throw", "close"],
         V::Ext(_) => return true,
         _ => &[],
     };
     // Dunder methods (`__len__`, `__add__`, ...) are there; dunder data that only functions, classes and modules
     // carry is not: `hasattr("s", "__name__")` is False, as in CPython (argparse tests it on every value).
     const NOT_ON_VALUES: &[&str] = &["__name__", "__qualname__", "__dict__", "__module__", "__wrapped__", "__self__", "__func__", "__code__", "__defaults__", "__kwdefaults__", "__annotations__", "__file__", "__all__", "__mro__", "__bases__", "__members__", "__dataclass_fields__", "__slots__", "__origin__", "__args__", "__version__", "__path__", "__closure__", "__globals__", "__match_args__"];
+    // Protocol methods numbers and None do not have, and the ones containers do not (hasattr(3, "__iter__") is
+    // False: requests and httpx test values that way).
+    const NOT_ON_ANY: &[&str] = &["__next__", "__call__", "__enter__", "__exit__", "__await__", "__aiter__", "__anext__", "__aenter__", "__aexit__", "__fspath__", "__missing__", "read", "__get__", "__set__"];
+    const NOT_ON_SCALARS: &[&str] = &["__iter__", "__len__", "__getitem__", "__contains__", "__setitem__", "__delitem__", "__reversed__"];
+    if names.contains(&name) {
+        return true;
+    }
+    if name.starts_with("__") || name == "read" {
+        let scalar = matches!(o, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::None);
+        // (iterators and generators have __next__ and __iter__, listed above, and none of the others)
+        let container = matches!(o, V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) | V::Deque(_) | V::Iter(_));
+        if (scalar || container) && NOT_ON_ANY.contains(&name) {
+            return false;
+        }
+        if scalar && NOT_ON_SCALARS.contains(&name) {
+            return false;
+        }
+        if matches!(o, V::Set(_) | V::FSet(_)) && matches!(name, "__getitem__" | "__setitem__" | "__reversed__") {
+            return false;
+        }
+    }
     names.contains(&name) || (name.starts_with("__") && !NOT_ON_VALUES.contains(&name))
 }
 fn bad_method(o: &V, name: &str) -> R {

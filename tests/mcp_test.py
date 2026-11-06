@@ -116,7 +116,10 @@ expect("sandbox allow argument", call("run", code="with open('/etc/hostname') as
 expect("sandbox allow read not write", call("run", code="open('x.txt', 'w').write('x')\n", allow=["read"]), "needs allow write", True)
 expect("sandbox allow_py", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"]), "True", False)
 expect("sandbox allow_py other", call("run", code="import os\nprint(os.listdir('.'))\n", allow_py=["json"]), "allow_py", True)
-expect("sandbox bad allow", call("run", code="print(1)\n", allow=["net"]), "allow takes read, write or native", True)
+expect("sandbox bad allow", call("run", code="print(1)\n", allow=["network"]), "allow takes read, write, net or native", True)
+# requests and httpx are Brevi's own: they need the network granted (allow net, or allow_net hosts), not native.
+expect("sandbox net refused", call("run", code="import httpx\nprint(1)\n"), "needs allow net", True)
+expect("sandbox bad allow_net", call("run", code="print(1)\n", allow_net=["http://x.com"]), "takes host names", True)
 expect("sandbox off", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", sandbox=False), "True", False)
 
 # Brevi code, recognised by its fn items.
