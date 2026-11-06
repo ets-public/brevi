@@ -889,7 +889,9 @@ unsafe fn pyd_args(pre: &[V], args: &Args) -> Result<PydArgs, E> {
         out.kw = (a.DictNew)();
         for (k, x) in &args.k {
             let p = one(x, &mut out.back)?;
-            let kk = pyd_str_obj(k);
+            // interned, as CPython's own keyword names are (orjson tells its keywords apart by identity)
+            let mut kk = pyd_str_obj(k);
+            (a.Intern)(&mut kk);
             (a.DictSet)(out.kw, kk, p);
             (a.DecRef)(kk);
             (a.DecRef)(p);

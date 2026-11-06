@@ -1,0 +1,4 @@
+Pt(x=1, y=0) Pt(x=1, y=3) {'x': 1, 'y': 0} ('x', 'y') 1 0 1 True A point. Q(a, b) {'b': 1.5} Q(a='z', b=2)
+5 6 2 [Pt(x=1, y=9), Pt(x=2, y=0)]
+Non-default namedtuple field y cannot follow default field x
+P2(u=1, v='a')

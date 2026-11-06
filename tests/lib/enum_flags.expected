@@ -1,0 +1,16 @@
+P.R|W True False <P.R|W: 3> False [<P.R: 1>, <P.W: 2>] P.W P.W|X <P.W|X: 6> 2 P(0) <P: 0> True R|W 3 [<P.R: 1>, <P.W: 2>, <P.X: 4>] P.R|W|X P(0) <P: 0> P.R|W True True P.R|W
+[<Q.A: 1>, <Q.B: 4>, <Q.C: 16>] Q.AB <Q.A|C: 17> Q.A|B|C [<Q.A: 1>, <Q.B: 4>, <Q.C: 16>] Q.B|C ['A', 'B', 'AB', 'C'] <Q.AB: 5> Q(0) True 3
+"<flag 'P'> invalid value 8\n    given 0b0 1000\n  allowed 0b0 0111"
+3 3 3 <I.A|B: 3> 5 <I.A|4: 5> 2 2 <I.B: 2> 0 <I: 0> 3 True 9 <I.A|8: 9> [<I.A: 1>, <I.B: 2>] 1 <flag 'I'> 3 <I.A|B: 3> True 2
+[<F.B: 2>, <F.A: 1>] 2 ['NONE', 'B', 'A', 'AB'] F.NONE <F.NONE: 0> F.NONE F.AB [<F.B: 2>, <F.A: 1>] F.AB 3 3 3 True True F.B F.AB <F.AB: 3>
+'A' NONE 1
+unsupported operand type(s) for |: 'F' and 'int'
+unsupported operand type(s) for 'in': 'int' and 'F'
+[<G.X: 1>, <G.Y: 2>, <G.Z: 8>, <G.W: 16>] [1, 2, 8, 16]
+invalid flag value 'x'
+5 <J.R|W|X: 7> [<J.R: 4>, <J.W: 2>, <J.X: 1>] True True [<J.W: 2>, <J.R: 4>] 4 4 4 8 True -4
+   C.A| C.A <flag 'P'> <flag 'I'> <enum 'C'>
+1 <K.A: 1> 2 1 2 6 6 2 True True 5 2 [<K.A: 1>, <K.B: 2>, <K.C: 5>, <K.D: 6>] True 2 <class 'int'> x    1 A 6 ['A', 'B', 'C', 'D'] -5 -2
+x <S.X: 'x'> yy ZZ True zz [<S.X: 'x'>, <S.Yy: 'yy'>, <S.Z: 'zz'>] x! x-yy-zz [<S.X: 'x'>, <S.Yy: 'yy'>, <S.Z: 'zz'>]    zz 1 1
+1 is not a string
+9 is not a valid K

@@ -1,0 +1,21 @@
+P(x=1, y=2, tags=['t']) {'x': 1, 'y': 2, 'tags': ['t']} (1, 2, ['t']) P(x=1, y=9, tags=['t']) 0 {1}
+['x', 'y', 'tags'] True True False ('x', 'y', 'tags')
+[Q(a=1, b='a'), Q(a=1, b='z'), Q(a=2, b='z')] True True True
+FrozenInstanceError cannot assign to field 'a' True
+FrozenInstanceError cannot delete field 'a'
+K(a=1, b=2) W(a=1, b=4, c=5) W(a=2, b=3, c=0)
+K.__init__() takes 1 positional argument but 2 were given
+W.__init__() missing 1 required keyword-only argument: 'c'
+P.__init__() missing 1 required positional argument: 'x'
+P.__init__() takes from 2 to 4 positional arguments but 5 were given
+P.__init__() got an unexpected keyword argument 'z'
+P.__init__() got multiple values for argument 'x'
+I(a=6, total=7) I(a=3, total=4) ['a', 'total'] I(a=4, total=5)
+False F(b=1) True 1 5 5
+C(x=4, y=7, z=1) True ['x', 'y', 'z'] {'x': 4, 'y': 7, 'z': 1}
+mutable default <class 'list'> for field xs is not allowed: use default_factory
+non-default argument 'b' follows default argument 'a'
+{'pts': [Pt(x=1, y=2)], 'meta': {'k': [{'x': 3, 'y': 0, 'tags': []}]}} ([Pt(x=1, y=2)], {'k': [(3, 0, [])]})
+True 2
+NI(v=3) 3
+str

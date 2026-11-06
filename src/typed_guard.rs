@@ -42,6 +42,40 @@ pub fn check_soft(src: &str) -> Result<Option<(usize, String, Vec<String>)>, (us
     Ok(check_body(&crate::dynpy::parse::parse(src)?))
 }
 
+// json.dumps(x, ...): the typed build writes indent, separators (a pair), sort_keys and ensure_ascii; any other
+// keyword (allow_nan, default, cls, ...) it would leave out.
+fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
+    let mut hit = None;
+    crate::dynpy::typing::walk_all(body, &mut |e, line| {
+        if hit.is_some() {
+            return;
+        }
+        if let Ex::Call(f, args) = e {
+            if matches!(f.as_ref(), Ex::Attr(m, n) if n == "dumps" && matches!(m.as_ref(), Ex::Name(j) if j == "json")) {
+                for a in args {
+                    let odd = match a {
+                        Arg::Kw(k, v) => match k.as_str() {
+                            "indent" | "sort_keys" | "ensure_ascii" => false,
+                            "separators" => !matches!(v, Ex::Tuple(t) if t.len() == 2),
+                            _ => true,
+                        },
+                        Arg::Pos(_) => false,
+                        _ => true,
+                    };
+                    if odd {
+                        let k = match a {
+                            Arg::Kw(k, _) => format!("{k}="),
+                            _ => "*".into(),
+                        };
+                        hit = Some((line, format!("json.dumps(..., {k}) the typed build would leave out")));
+                        return;
+                    }
+                }
+            }
+        }
+    });
+    hit
+}
 fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     let mut g = G::default();
     collect_params(body, &mut g);
@@ -70,7 +104,10 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
             return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int"), vec![]));
         }
     }
-    if let Some((line, why)) = findall_groups(body).or_else(|| default_reads(body)) {
+    if let Some(line) = crate::dynpy::typing::typed_isinstance(body) {
+        return Some((line, "isinstance with a typing name".into(), vec![]));
+    }
+    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| findall_groups(body)).or_else(|| default_reads(body)) {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];
@@ -89,6 +126,104 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
         return Some((line, why, vec![]));
     }
     Some((line, why, names))
+}
+
+// A decorator the typed build would drop although it changes what the def or class does (`@retry` from
+// tenacity, `@atexit.register`, `@cached_property`, a program's own): the typed build drops every decorator
+// but these, which it builds itself or which change nothing it prints.
+fn odd_decorator(body: &[Stmt]) -> Option<(usize, String)> {
+    const KNOWN: &[(&str, &str)] = &[
+        ("functools", "lru_cache"),
+        ("functools", "cache"),
+        ("functools", "total_ordering"),
+        ("dataclasses", "dataclass"),
+        ("abc", "abstractmethod"),
+        ("typing", "final"),
+        ("typing", "override"),
+        ("typing", "overload"),
+        ("typing", "no_type_check"),
+        ("typing", "runtime_checkable"),
+        ("typing_extensions", "final"),
+        ("typing_extensions", "override"),
+        ("typing_extensions", "overload"),
+        ("typing_extensions", "runtime_checkable"),
+    ];
+    fn imports(body: &[Stmt], mods: &mut HashMap<String, String>, names: &mut HashMap<String, (String, String)>, defined: &mut HashSet<String>) {
+        for s in body {
+            match &s.st {
+                St::Import(v) => v.iter().for_each(|(m, a)| {
+                    mods.insert(a.clone().unwrap_or_else(|| m.clone()), m.clone());
+                }),
+                St::ImportFrom(m, v) => v.iter().for_each(|(n, a)| {
+                    names.insert(a.clone().unwrap_or_else(|| n.clone()), (m.clone(), n.clone()));
+                }),
+                St::Def(d) => {
+                    defined.insert(d.name.clone());
+                }
+                St::Class(c) => {
+                    defined.insert(c.name.clone());
+                }
+                St::Assign(ts, _) => ts.iter().for_each(|t| {
+                    if let Ex::Name(n) = t {
+                        defined.insert(n.clone());
+                    }
+                }),
+                _ => {}
+            }
+            each_block(&s.st, &mut |b| imports(b, mods, names, defined));
+        }
+    }
+    let (mut mods, mut names, mut defined) = (HashMap::new(), HashMap::new(), HashSet::new());
+    imports(body, &mut mods, &mut names, &mut defined);
+    let known = |d: &Ex, props: &HashSet<String>| -> bool {
+        let d = match d {
+            Ex::Call(f, _) => f.as_ref(),
+            d => d,
+        };
+        match d {
+            Ex::Name(n) if matches!(n.as_str(), "staticmethod" | "classmethod" | "property") => !defined.contains(n) && !names.contains_key(n),
+            Ex::Name(n) => names.get(n).is_some_and(|(m, o)| KNOWN.contains(&(m.as_str(), o.as_str()))),
+            Ex::Attr(r, a) => match r.as_ref() {
+                Ex::Name(p) if props.contains(p) => matches!(a.as_str(), "setter" | "getter" | "deleter"),
+                Ex::Name(m) => mods.get(m).is_some_and(|m| KNOWN.contains(&(m.as_str(), a.as_str()))),
+                _ => false,
+            },
+            _ => false,
+        }
+    };
+    fn walk(body: &[Stmt], known: &dyn Fn(&Ex, &HashSet<String>) -> bool) -> Option<(usize, String)> {
+        // names of properties in this class body, for `@x.setter`
+        let mut props = HashSet::new();
+        for s in body {
+            let (decs, line, name) = match &s.st {
+                St::Def(d) => (&d.decorators, d.line, &d.name),
+                St::Class(c) => (&c.decorators, c.line, &c.name),
+                _ => {
+                    if let Some(r) = { let mut r = None; each_block(&s.st, &mut |b| r = r.take().or_else(|| walk(b, known))); r } {
+                        return Some(r);
+                    }
+                    continue;
+                }
+            };
+            for d in decs {
+                if !known(d, &props) {
+                    return Some((line, format!("`{name}` has a decorator the typed build would leave out")));
+                }
+            }
+            if let St::Def(d) = &s.st {
+                if d.decorators.iter().any(|x| matches!(x, Ex::Name(n) if n == "property")) {
+                    props.insert(d.name.clone());
+                }
+            }
+            let mut r = None;
+            each_block(&s.st, &mut |b| r = r.take().or_else(|| walk(b, known)));
+            if r.is_some() {
+                return r;
+            }
+        }
+        None
+    }
+    walk(body, &known)
 }
 
 // Is `n` bound other than by `n = ...` or as a plain def parameter (a loop variable, a tuple target,
@@ -491,7 +626,7 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
     for s in body {
         match &s.st {
             St::Assign(ts, v) => ts.iter().for_each(|t| bind(t, v, g)),
-            St::AnnAssign(t, Some(v)) => bind(t, v, g),
+            St::AnnAssign(t, Some(v), _) => bind(t, v, g),
             St::For(t, it, _, _) => {
                 if is_holder(it, g) {
                     match t {
@@ -620,7 +755,7 @@ pub(crate) fn walk_st(st: &St, f: &mut dyn FnMut(&Ex)) {
             go(t);
             go(v);
         }
-        St::AnnAssign(t, v) => {
+        St::AnnAssign(t, v, _) => {
             go(t);
             if let Some(v) = v {
                 go(v);
@@ -1340,7 +1475,7 @@ fn changes_of(d: &FuncDef, known: &HashMap<String, Changes>) -> Changes {
                 }
                 St::Global(v) | St::Nonlocal(v) => sc.outer.extend(v.iter().cloned()),
                 St::Assign(ts, v) => ts.iter().for_each(|t| bind(t, v, sc)),
-                St::AnnAssign(t, Some(v)) => bind(t, v, sc),
+                St::AnnAssign(t, Some(v), _) => bind(t, v, sc),
                 St::For(t, it, ..) => bind(t, it, sc),
                 St::With(items, _) => items.iter().for_each(|(e, t)| {
                     if let Some(t) = t {
@@ -1717,7 +1852,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
         St::Assign(ts, v) if is_dd(v) => ts.iter().filter_map(key).for_each(|k| {
             dds.insert(k);
         }),
-        St::AnnAssign(t, Some(v)) if is_dd(v) => {
+        St::AnnAssign(t, Some(v), _) if is_dd(v) => {
             if let Some(k) = key(t) {
                 dds.insert(k);
             }

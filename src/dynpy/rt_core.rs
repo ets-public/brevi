@@ -861,8 +861,10 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                 if matches!(f, V::None) {
                     return type_err(format!("unhashable type: '{}'", o.cls.name));
                 }
+                // a __hash__ result that fits a machine word is kept as it is (only -1 becomes -2)
                 match call(&f, Args::p(vec![v.clone()]))? {
-                    V::Int(i) => hash_int(i),
+                    V::Int(-1) => -2,
+                    V::Int(i) => i,
                     x => py_hash(&x)?,
                 }
             } else if o.cls.lookup("__eq__").is_some() {
@@ -1578,6 +1580,8 @@ pub fn init_builtin_classes() {
     m.insert("UFuncTypeError", Class::new("UFuncTypeError", "numpy._core._exceptions", vec![te], BT::Exc));
     m.insert("LinAlgError", Class::new("LinAlgError", "numpy.linalg", vec![ve.clone()], BT::Exc));
     m.insert("binascii.Error", Class::new("Error", "binascii", vec![ve], BT::Exc));
+    let ae = m["AttributeError"].clone();
+    m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
 }
 

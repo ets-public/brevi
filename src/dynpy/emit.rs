@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 34] = ["_brevi_async", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 35] = ["atexit", "_brevi_async", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -61,8 +61,10 @@ const NP_NARROW_FUNCS: &[&str] = &[
     "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
     "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift", "random",
 ];
+// collections.abc as Brevi's typing forms (off when the program needs CPython's ABCs: the bridge runs them).
+pub static ABC_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    BUILTIN_MODULES.contains(&m) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    BUILTIN_MODULES.contains(&m) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -160,12 +162,14 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 // Names a builtin module provides in dynamic builds (anything else is refused when the program is built).
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
-        "typing" | "__future__" => return true,
+        "__future__" => return true,
+        "typing" | "typing_extensions" | "collections.abc" => return super::typing::module_has(m, n),
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n)),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && !np_narrow(),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
+        "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
         "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
         "functools" => &["cache", "cmp_to_key", "lru_cache", "partial", "reduce", "total_ordering", "wraps"],
@@ -175,7 +179,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "abstractmethod"],
-        "enum" => &["Enum", "auto", "unique"],
+        "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
@@ -189,9 +193,9 @@ pub fn module_has(m: &str, n: &str) -> bool {
         ],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
-        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "replace", "MISSING"],
+        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
         "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "error"],
-        "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder"],
+        "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
         "fractions" => &["Fraction"],
@@ -392,7 +396,7 @@ fn stmt_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Ex>) {
                 out.push(t);
                 out.push(v);
             }
-            St::AnnAssign(t, v) => {
+            St::AnnAssign(t, v, _) => {
                 out.push(t);
                 if let Some(v) = v {
                     out.push(v);
@@ -486,7 +490,7 @@ fn scope_of(body: &[Stmt], params: &[String]) -> Scope {
         for s in body {
             match &s.st {
                 St::Assign(ts, _) => ts.iter().for_each(|t| target_names(t, &mut sc.locals)),
-                St::AugAssign(t, _, _) | St::AnnAssign(t, _) => target_names(t, &mut sc.locals),
+                St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) => target_names(t, &mut sc.locals),
                 St::For(t, _, b, e) => {
                     target_names(t, &mut sc.locals);
                     walk(b, sc);
@@ -1709,7 +1713,7 @@ impl Em {
                 b.push('}');
                 b
             }
-            St::AnnAssign(t, v) => match v {
+            St::AnnAssign(t, v, _) => match v {
                 Some(v) => {
                     let vv = self.ex(v, line)?;
                     self.assign(t, &vv, line)?
@@ -1887,6 +1891,7 @@ impl Em {
                 }
                 b
             }
+            St::If(arms, els) if arms.len() == 1 && els.is_none() && super::typing::type_checking(&arms[0].0) => String::new(),
             St::If(arms, els) => {
                 let mut b = String::new();
                 for (k, (c, body)) in arms.iter().enumerate() {
@@ -2114,6 +2119,9 @@ impl Em {
         let v = self.closure(&d.name, &d.params, &d.body, d.line, true);
         self.next_async = false;
         let mut v = v?;
+        if let Some(doc) = docstring(&d.body) {
+            v = format!("with_doc({v}, {})", lit(doc));
+        }
         for dec in d.decorators.iter().rev() {
             let dd = self.ex(dec, d.line)?;
             v = self.q(&format!("call(&{dd}, Args::p(vec![{v}]))"));
@@ -2290,8 +2298,13 @@ impl Em {
         }
         let mut fields = vec![];
         for s in &c.body {
-            if let St::AnnAssign(Ex::Name(n), _) = &s.st {
-                fields.push(lit(n));
+            if let St::AnnAssign(Ex::Name(n), _, ann) = &s.st {
+                // dataclasses: a ClassVar is no field; InitVar and KW_ONLY are marked
+                match ann_kind(ann) {
+                    Some("ClassVar") => {}
+                    Some(k) => fields.push(lit(&format!("{k}:{n}"))),
+                    None => fields.push(lit(n)),
+                }
             }
         }
         let saved = self.class_ctx.replace(c.name.clone());
@@ -2319,7 +2332,7 @@ impl Em {
         for s in &c.body {
             let names: Vec<&String> = match &s.st {
                 St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
-                St::AnnAssign(Ex::Name(n), _) => vec![n],
+                St::AnnAssign(Ex::Name(n), _, _) => vec![n],
                 St::Def(d) => vec![&d.name],
                 St::Class(k) => vec![&k.name],
                 _ => vec![],
@@ -2340,13 +2353,45 @@ impl Em {
             let r = format!("a{id}_{}", rust_ident(n));
             write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
         }
-        let mk = self.q(&format!("make_class({}, {}, vec![{}], __at)", lit(&c.name), lit(if self.module == "__main__" { "__main__" } else { &self.module }), bases.join(", ")));
-        let mut v = format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; if let V::Class(__k) = &__c {{ *__k.fields.borrow_mut() = vec![{}]; }} __c }}", fields.join(", "));
+        // every class has its own __doc__ (None without a docstring), not its parent's
+        if !sc.locals.contains("__doc__") {
+            let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
+            write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
+        }
+        let mk = self.q(&format!("make_class_f({}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(if self.module == "__main__" { "__main__" } else { &self.module }), bases.join(", "), fields.join(", ")));
+        let mut v = format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}");
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
             v = self.q(&format!("call(&{dd}, Args::p(vec![{v}]))"));
         }
         Ok(v)
+    }
+}
+
+// What a class-body annotation tells dataclasses: ClassVar, InitVar or KW_ONLY (as a name, or in a string).
+fn ann_kind(a: &Ex) -> Option<&'static str> {
+    let head = match a {
+        Ex::Index(o, _) => o.as_ref(),
+        a => a,
+    };
+    let name = match head {
+        Ex::Name(n) => n.as_str(),
+        Ex::Attr(_, n) => n.as_str(),
+        Ex::Str(t) => {
+            let t = t.trim();
+            let t = t.strip_prefix("typing.").or_else(|| t.strip_prefix("dataclasses.")).unwrap_or(t);
+            return ["ClassVar", "InitVar", "KW_ONLY"].into_iter().find(|k| t == *k || t.starts_with(&format!("{k}[")));
+        }
+        _ => return None,
+    };
+    ["ClassVar", "InitVar", "KW_ONLY"].into_iter().find(|k| name == *k)
+}
+
+// The docstring of a def or class body.
+fn docstring(body: &[Stmt]) -> Option<&str> {
+    match body.first().map(|s| &s.st) {
+        Some(St::Expr(Ex::Str(d))) => Some(d.as_str()),
+        _ => None,
     }
 }
 
