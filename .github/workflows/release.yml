@@ -1,5 +1,8 @@
 # Prebuilt brevi binaries. Push a tag like v0.17.0 (or run this by hand) and each
-# platform's binary is built, smoke-tested and attached to that GitHub release.
+# platform's binary is built, smoke-tested and attached to that GitHub release, then published to
+# PyPI (`pip install brevi`), npm (`npx brevi`), crates.io (`cargo install brevi`) and the MCP registry.
+# Publishing uses trusted publishing (OIDC): no tokens are stored in the repo. Each registry trusts
+# this file by name (release.yml), so renaming it breaks publishing. See packaging/README.md.
 name: release
 on:
   push:
@@ -9,8 +12,12 @@ on:
       tag:
         description: "Release tag to build and attach to (made if missing), e.g. v0.17.0"
         required: true
-      wheels:
-        description: "Also build the Python wheels (only needed once PyPI publishing starts)"
+      publish:
+        description: "Publish to PyPI, npm, crates.io and the MCP registry (skipped for versions already there)"
+        type: boolean
+        default: true
+      from_release:
+        description: "Skip the build: publish the binaries already attached to this release (crates.io is skipped, since it publishes source)"
         type: boolean
         default: false
 permissions:
@@ -19,6 +26,7 @@ jobs:
   # Actions minutes are shared and metered (macOS counts 10x), so: one macOS job builds both Mac
   # targets, and only the Linux x86-64 job runs the full test suite (CI already tests every push to main).
   build:
+    if: ${{ !inputs.from_release }}
     strategy:
       fail-fast: false
       matrix:
@@ -69,35 +77,8 @@ jobs:
         with:
           name: brevi-${{ matrix.os }}
           path: brevi-*.*
-  # Python wheels holding the same binary (packaging/pypi), for `pip install brevi`. They are attached to the
-  # release; publishing them to PyPI is a separate step for launch.
-  wheels:
-    # Off by default: wheels are not published until launch, and this job adds another macOS build.
-    if: ${{ github.event.inputs.wheels == 'true' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-22.04, target: x86_64 }
-          - { os: ubuntu-22.04-arm, target: aarch64 }
-          - { os: macos-15, target: universal2-apple-darwin }
-          - { os: windows-2022, target: x64 }
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: PyO3/maturin-action@v1
-        with:
-          working-directory: packaging/pypi
-          target: ${{ matrix.target }}
-          args: --release --locked --out dist
-          manylinux: auto
-      - uses: actions/upload-artifact@v7
-        with:
-          name: wheel-${{ matrix.os }}-${{ matrix.target }}
-          path: packaging/pypi/dist/*.whl
   release:
-    needs: [build, wheels]
+    needs: [build]
     # Attach whatever built, so one platform's runner trouble does not hold back the rest.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
@@ -105,12 +86,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
+        if: ${{ !inputs.from_release }}
         with:
           path: dist
           merge-multiple: true
+      - name: Download the release's binaries
+        if: ${{ inputs.from_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" -D dist -p 'brevi-*' -p SHA256SUMS
+          cd dist && sha256sum -c SHA256SUMS
       - name: Checksums
+        if: ${{ !inputs.from_release }}
         run: cd dist && sha256sum brevi-* > SHA256SUMS
       - name: Attach to release
+        if: ${{ !inputs.from_release }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -120,3 +111,119 @@ jobs:
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes-file notes.md
           gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
+      # PyPI wheels repack these same binaries (tools/make_wheels.py), so they cost no extra build.
+      - name: Wheels
+        if: ${{ needs.build.result == 'success' || inputs.from_release }}
+        run: python3 tools/make_wheels.py dist wheels
+      - uses: actions/upload-artifact@v7
+        if: ${{ needs.build.result == 'success' || inputs.from_release }}
+        with:
+          name: wheels
+          path: wheels/*.whl
+
+  # Publishing runs only when every platform built and the tag matches Cargo.toml's version, so a
+  # registry never gets a release that the GitHub release (which npm downloads from) is missing.
+  # Each job skips a version that is already published, so re-running a release is safe.
+  # `!cancelled()` is needed because with from_release the build job is skipped, and a job whose
+  # needs include a skipped job is otherwise skipped too.
+  pypi:
+    needs: [build, release]
+    if: ${{ !cancelled() && (needs.build.result == 'success' || inputs.from_release) && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version check
+        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
+      - uses: actions/download-artifact@v8
+        with:
+          name: wheels
+          path: wheels
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheels
+          skip-existing: true
+
+  npm:
+    needs: [build, release]
+    if: ${{ !cancelled() && (needs.build.result == 'success' || inputs.from_release) && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version check
+        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Publish
+        working-directory: packaging/npm
+        run: |
+          # Trusted publishing needs npm 11.5.1 or later.
+          npm install -g npm@^11.5.1
+          v=$(node -p 'require("./package.json").version')
+          if [ "$(npm view "brevi@$v" version 2>/dev/null)" = "$v" ]; then echo "brevi@$v is already on npm"; exit 0; fi
+          npm publish --access public
+
+  crates:
+    needs: [build, release]
+    if: ${{ needs.build.result == 'success' && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version check
+        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
+      - name: Already published?
+        id: check
+        run: |
+          v=$(python3 -c 'import re;print(re.search(r"^version = \"([^\"]+)\"",open("Cargo.toml").read(),re.M)[1])')
+          code=$(curl -s -o /dev/null -w '%{http_code}' -A 'brevi-release (github.com/ets-public/brevi)' "https://crates.io/api/v1/crates/brevi/$v")
+          if [ "$code" = 200 ]; then echo "brevi $v is already on crates.io"; echo skip=true >> "$GITHUB_OUTPUT"; fi
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ steps.check.outputs.skip != 'true' }}
+      - uses: rust-lang/crates-io-auth-action@v1.0.6
+        if: ${{ steps.check.outputs.skip != 'true' }}
+        id: auth
+      - name: Publish
+        if: ${{ steps.check.outputs.skip != 'true' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          # Cargo leaves out any folder holding its own Cargo.toml, but the compiler embeds
+          # runtime/brevi_tk/src with include_str!, so hide that manifest while packaging.
+          # --no-verify: the build job above already built and tested this exact source.
+          mv runtime/brevi_tk/Cargo.toml runtime/brevi_tk/Cargo.toml.off
+          cargo publish --locked --no-verify --allow-dirty
+
+  # The MCP registry checks that the PyPI and npm packages exist and name this server, so it goes last.
+  mcp-registry:
+    needs: [pypi, npm]
+    # Without !cancelled() this is skipped whenever build was (from_release), even though pypi and npm ran.
+    if: ${{ !cancelled() && needs.pypi.result == 'success' && needs.npm.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Publish server.json
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          # A new npm version can take a few minutes to show, and the registry checks it exists, so retry.
+          for try in 1 2 3 4 5 6; do
+            if ./mcp-publisher publish > out.txt 2>&1; then cat out.txt; exit 0; fi
+            cat out.txt
+            # Re-runs of a release hit the version that is already there.
+            if grep -qiE "already (exists|published)|duplicate" out.txt; then exit 0; fi
+            sleep 60
+          done
+          exit 1

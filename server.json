@@ -2,7 +2,10 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "io.github.ets-public/brevi",
   "description": "Build and run plain Python as fast native programs: check, run, test and patch tools for agents.",
-  "repository": { "url": "https://github.com/ets-public/brevi", "source": "github" },
+  "repository": {
+    "url": "https://github.com/ets-public/brevi",
+    "source": "github"
+  },
   "websiteUrl": "https://brevi-lang.org",
   "version": "0.25.0",
   "packages": [
@@ -10,8 +13,29 @@
       "registryType": "pypi",
       "identifier": "brevi",
       "version": "0.25.0",
-      "transport": { "type": "stdio" },
-      "packageArguments": [{ "type": "positional", "value": "mcp" }]
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    },
+    {
+      "registryType": "npm",
+      "identifier": "brevi",
+      "version": "0.25.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
     }
   ]
 }

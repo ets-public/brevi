@@ -20,7 +20,14 @@ The script installs the Rust toolchain if it is missing (Brevi compiles through 
 
 Windows: install Rust with [rustup](https://rustup.rs), then unzip `brevi-x86_64-pc-windows-msvc.zip` from the [latest release](https://github.com/ets-public/brevi/releases/latest) and put `brevi.exe` on your PATH. Python files that import libraries such as numpy run with CPython there for now.
 
-Docker, building from source and the release archives: [Install](https://brevi-lang.org/docs/install). Packages for npm, PyPI, Homebrew and crates.io come later in the preview; the names there are only placeholders for now.
+With a package manager (Rust is still needed, from [rustup](https://rustup.rs)):
+
+```
+pip install brevi          # or: uvx brevi mcp
+npm install -g brevi       # or: npx brevi mcp
+```
+
+`cargo install brevi` works from the next release. Docker, building from source and the release archives: [Install](https://brevi-lang.org/docs/install).
 
 ## Quick start
 

@@ -16,7 +16,7 @@ Brevi's direction stays the same: **AI-first**, with speed and safety as the rea
 
 ## Next
 
-- **Package managers.** `pip install brevi`, `npx brevi mcp`, `brew install`, `cargo install brevi` and the MCP registry. The packaging is ready.
+- **Homebrew.** `brew install ets-public/brevi/brevi`; the formula is ready. (`pip install brevi`, `npx brevi` and the MCP registry are live, and `cargo install brevi` follows with the next release.)
 - **brevi.run.** The compiler as a hosted API for agents: check, run and test over HTTPS, sandboxed, with cached builds. Then a playground in the browser.
 - **More of Python natively.** `match` statements, `async`, and more standard modules in dynamic builds.
 

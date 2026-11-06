@@ -57,6 +57,59 @@ INTROS = {
     "repo:docs/ARCHITECTURE.md": "This page is built from [docs/ARCHITECTURE.md](repo:docs/ARCHITECTURE.md) in the repository, so it always describes the code that shipped.",
 }
 
+# Search descriptions for pages made from repo files (site/docs pages carry their own <!-- description: -->).
+REPO_DESCS = {
+    "repo:docs/ARCHITECTURE.md": "How the Brevi compiler works: parsing Python, type inference, the typed and dynamic builds, the CPython bridge, and code generation through rustc.",
+    "repo:BREVI.md": "The Brevi language guide for .bv files: syntax, types, errors, concurrency and the standard library, written for models and people.",
+    "repo:REFERENCE.md": "Brevi language reference: the details kept out of the core guide, looked up one name at a time with brevi guide WORD.",
+    "repo:LIBRARIES.md": "Using libraries from Brevi: other .bv files, Rust crates, Python code, and Python packages imported from Python programs.",
+    "repo:CHANGELOG.md": "Every Brevi release, newest first: new features, fixes and breaking changes, with what is on main for the next release.",
+}
+
+SITE_NAMES = {"org": ("Brevi", "https://brevi-lang.org", "/social.png"), "run": ("brevi.run", "https://brevi.run", "/social-run.png")}
+
+
+def seo(page, path, site="org", jsonld=None):
+    """Adds the canonical address, Open Graph and Twitter card tags (and optional JSON-LD) before </head>,
+    taking the title and description the page already has."""
+    name, origin, image = SITE_NAMES[site]
+    title = re.search(r"<title>(.*?)</title>", page, re.S).group(1)
+    desc = re.search(r'<meta name="description" content="(.*?)">', page, re.S).group(1)
+    url = origin + path
+    tags = [
+        '<link rel="canonical" href="%s">' % url,
+        '<meta property="og:type" content="%s">' % ("website" if path == "/" else "article"),
+        '<meta property="og:site_name" content="%s">' % name,
+        '<meta property="og:title" content="%s">' % title,
+        '<meta property="og:description" content="%s">' % desc,
+        '<meta property="og:url" content="%s">' % url,
+        '<meta property="og:image" content="%s%s">' % (origin, image),
+        '<meta property="og:image:width" content="1200">',
+        '<meta property="og:image:height" content="630">',
+        '<meta property="og:image:alt" content="%s">' % title,
+        '<meta name="twitter:card" content="summary_large_image">',
+    ]
+    if jsonld:
+        tags.append('<script type="application/ld+json">%s</script>' % json.dumps(jsonld, separators=(",", ":")).replace("</", "<\\/"))
+    return page.replace("</head>", "\n".join(tags) + "\n</head>", 1)
+
+
+def home_jsonld(version):
+    return [{
+        "@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Brevi",
+        "url": "https://brevi-lang.org/", "image": "https://brevi-lang.org/social.png",
+        "description": "A compiler that builds the Python an AI coding agent writes into a fast, memory-safe native binary through Rust, with the same output as CPython.",
+        "applicationCategory": "DeveloperApplication", "applicationSubCategory": "Compiler",
+        "operatingSystem": "Linux, macOS, Windows", "softwareVersion": version,
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "downloadUrl": "https://brevi-lang.org/docs/install",
+        "codeRepository": GITHUB, "programmingLanguage": ["Python", "Rust"],
+        "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+    }, {
+        "@context": "https://schema.org", "@type": "WebSite", "name": "Brevi", "url": "https://brevi-lang.org/",
+    }]
+
+
 warnings = []
 FULLVERSION = ""
 
@@ -458,7 +511,11 @@ def build(out, out_run, version, guide_tokens, public):
                                     (os.path.join(S, "pricing.html"), os.path.join(out, "pricing.html"), "org", "pricing"),
                                     (os.path.join(S, "run", "index.html"), os.path.join(out_run, "index.html"), "run", "run")]:
         t = open(src).read().replace("__HEADER__", header(active, site, public)).replace("__FOOTER__", footer(site, public))
-        open(dst, "w").write(F(t))
+        path = "/pricing" if active == "pricing" else "/"
+        ld = home_jsonld(FULLVERSION or version) if active == "home" else None
+        if active == "run":
+            ld = {"@context": "https://schema.org", "@type": "WebSite", "name": "brevi.run", "url": "https://brevi.run/"}
+        open(dst, "w").write(F(seo(t, path, site, ld)))
 
     for dst, site in [(out, "org"), (out_run, "run")]:
         nf = """%s
@@ -490,6 +547,8 @@ def build(out, out_run, version, guide_tokens, public):
             dm = re.search(r"<!--\s*description:\s*(.*?)\s*-->", text)
             desc = dm.group(1) if dm else ""
             body_md = re.sub(r"<!--\s*description:.*?-->\n?", "", body_md)
+        else:
+            desc = REPO_DESCS.get(src, "")
         body, toc = md(body_md, ctx, line_per_para=src in LINE_PER_PARA)
         h1 = inline(h1m.group(1), ctx) if h1m and not src.startswith("repo:") else html.escape(title)
         lead = '<p class="lead">%s</p>' % inline(intro, ctx) if intro else ""
@@ -549,7 +608,7 @@ def build(out, out_run, version, guide_tokens, public):
        current, "".join(side), html.escape(group), h1, lead, meta, body, pn, toc_html, footer("org", public),
        ZOOM_JS if 'class="zoom"' in body else "")
         name = "index" if slug_ == "index" else slug_
-        open(os.path.join(out, "docs", name + ".html"), "w").write(F(doc))
+        open(os.path.join(out, "docs", name + ".html"), "w").write(F(seo(doc, "/docs/" if slug_ == "index" else "/docs/" + slug_)))
         # The Markdown twin, for agents: the source as written, with repo: links made absolute or plain.
         md_text = text
         if intro and src.startswith("repo:"):

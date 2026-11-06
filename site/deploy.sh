@@ -64,6 +64,9 @@ export default {
       return waitlist(req, env || {}, url);
     }
     let p = url.pathname;
+    // One address per page for search engines: www goes to the bare domain, and .html to the clean address.
+    if (url.hostname.startsWith("www.")) return Response.redirect("https://" + url.hostname.slice(4) + p + url.search, 301);
+    if (p.endsWith(".html") && p !== "/404.html" && FILES[p]) return Response.redirect(url.origin + p.replace(/(index)?\\.html$/, "") + url.search, 301);
     // Clean addresses: /docs/usage serves docs/usage.html; /docs (a folder) redirects to /docs/.
     if (!p.endsWith("/") && !FILES[p] && FILES[p + "/index.html"]) return Response.redirect(url.origin + p + "/" + url.search, 301);
     if (p.endsWith("/")) p += "index.html";
@@ -75,7 +78,11 @@ export default {
     }
     // Pages change with each deploy; fonts, icons and diagrams almost never do (style.css is versioned in its URL).
     const cache = /\\.(woff2|png|ico|svg|css)$/.test(p) ? "public, max-age=604800, stale-while-revalidate=86400" : "public, max-age=300, stale-while-revalidate=3600";
-    return new Response(f[2] ? bytes(f[0]) : f[0], { headers: { "content-type": f[1], "cache-control": cache } });
+    const headers = { "content-type": f[1], "cache-control": cache };
+    // A docs page's Markdown twin names the HTML page as the one to index.
+    const twin = p.match(/^\\/docs\\/(.+)\\.md$/);
+    if (twin && FILES["/docs/" + twin[1] + ".html"]) headers.link = '<' + url.origin + (twin[1] === "index" ? "/docs/" : "/docs/" + twin[1]) + '>; rel="canonical"';
+    return new Response(f[2] ? bytes(f[0]) : f[0], { headers });
   },
 };''')
 PY
