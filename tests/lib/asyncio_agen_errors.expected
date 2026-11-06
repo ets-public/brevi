@@ -1,0 +1,32 @@
+bs1 1
+bs2 RuntimeError async generator raised StopAsyncIteration
+bs3 StopAsyncIteration 
+bi1 1
+bi2 RuntimeError async generator raised StopIteration
+r1 1
+r2 KeyError 'k'
+r3 StopAsyncIteration 
+s1 1
+s2 RuntimeError async generator ignored GeneratorExit
+c1 1
+closing slowly
+closed
+c2 None
+c3 None
+race RuntimeError anext(): asynchronous generator is already running
+t1 0
+send-fresh TypeError can't send non-None value to a just-started async generator
+athrow-fresh ValueError v
+after athrow-fresh StopAsyncIteration 
+a1 0
+reuse RuntimeError cannot reuse already awaited __anext__()/asend()
+cl None
+cl reuse RuntimeError cannot reuse already awaited aclose()/athrow()
+async_generator slow False
+async_generator_asend async_generator_athrow True
+athrow cls None
+wait_for TimeoutError 
+wait_for ok [0, 1, 2]
+slow 0
+timed out
+done

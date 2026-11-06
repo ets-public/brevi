@@ -1,0 +1,13 @@
+async_generator_asend True <async_generator_asend object 
+1
+RuntimeError cannot reuse already awaited __anext__()/asend()
+fin
+None
+SAI StopAsyncIteration()
+None
+athrow fresh ValueError x
+None
+None
+async_generator ag False
+1
+fin

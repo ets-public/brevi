@@ -180,7 +180,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
-        "_brevi_async" => &["suspend", "iscoroutine", "isawaitable"],
+        "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "replace", "MISSING"],
@@ -746,6 +746,8 @@ struct Func {
     is_class: bool,
     // an async def's body: await may be used
     is_async: bool,
+    // an async def with yield: an async generator
+    is_agen: bool,
 }
 
 pub struct Module {
@@ -1106,9 +1108,16 @@ impl Em {
                     Some(x) => self.ex(x, line)?,
                     None => "V::None".into(),
                 };
-                self.q(&format!("gen_yield({xx})"))
+                if self.fstack.last().unwrap().is_agen {
+                    self.q(&format!("agen_yield({xx})"))
+                } else {
+                    self.q(&format!("gen_yield({xx})"))
+                }
             }
             Ex::YieldFrom(x) => {
+                if self.fstack.last().unwrap().is_async {
+                    return Err(err(line, "'yield from' inside async function"));
+                }
                 let xx = self.ex(x, line)?;
                 self.q(&format!("gen_yield_from(&{xx})"))
             }
@@ -1437,6 +1446,22 @@ impl Em {
         self.load(name, line)
     }
     fn comp(&mut self, kind: char, elt: &Ex, val: Option<&Ex>, gens: &[CompFor], line: usize) -> ER<String> {
+        // `async for` clauses and `await`s: the comprehension runs in place in the async function (CPython inlines
+        // it too). A generator expression with them is an async generator, which Brevi builds eagerly: refused.
+        let mut awaits = gens.iter().any(|g| g.is_async);
+        visit_ex(&Ex::Comp(kind, Box::new(elt.clone()), val.map(|v| Box::new(v.clone())), gens.to_vec()), &mut |x| {
+            if matches!(x, Ex::Await(_)) {
+                awaits = true;
+            }
+        });
+        if awaits {
+            if kind == 'g' {
+                return Err(err(line, "asynchronous generator expressions are not supported in dynamic builds"));
+            }
+            if !self.fstack.last().unwrap().is_async {
+                return Err(err(line, "asynchronous comprehension outside of an asynchronous function"));
+            }
+        }
         // comprehension variables are fresh locals for the duration
         let id = self.id();
         let mut names = BTreeSet::new();
@@ -1463,8 +1488,11 @@ impl Em {
         for (k, g) in gens.iter().enumerate() {
             let it = if k == 0 { first_iter.clone() } else { self.ex(&g.iter, line)? };
             let lbl = format!("'cl{id}_{k}");
-            let itv = self.q(&format!("iter(&{it})"));
-            let nx = self.q(&format!("__it{k}.next()"));
+            let (itv, nx) = if g.is_async {
+                (self.q(&format!("bi_aiter(Args::p(vec![{it}]))")), self.q(&format!("afor_next(&__it{k})")))
+            } else {
+                (self.q(&format!("iter(&{it})")), self.q(&format!("__it{k}.next()")))
+            };
             write!(b, "let mut __it{k} = {itv}; {lbl}: while let Some(__x{k}) = {nx} {{ ").unwrap();
             let asg = self.assign(&g.target, &format!("__x{k}"), line)?;
             b.push_str(&asg);
@@ -1665,6 +1693,9 @@ impl Em {
             St::Return(v) => {
                 if self.fstack.last().unwrap().is_module {
                     return Err(err(line, "'return' outside function"));
+                }
+                if self.fstack.last().unwrap().is_agen && v.is_some() {
+                    return Err(err(line, "'return' with value in async generator"));
                 }
                 let vv = match v {
                     Some(v) => self.ex(v, line)?,
@@ -2010,7 +2041,7 @@ impl Em {
 
     // ---- functions and classes ----
     fn def(&mut self, d: &FuncDef) -> ER<String> {
-        if has_yield(&d.body) {
+        if has_yield(&d.body) && !d.is_async {
             if !GEN_OK {
                 return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
             }
@@ -2022,9 +2053,6 @@ impl Em {
         }
         if d.is_async && !GEN_OK {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
-        }
-        if d.is_async && has_yield(&d.body) {
-            return Err(err(d.line, "async generators are not supported in dynamic builds yet"));
         }
         self.next_async = d.is_async;
         let v = self.closure(&d.name, &d.params, &d.body, d.line, true);
@@ -2087,7 +2115,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -2144,7 +2172,8 @@ impl Em {
         if captures.is_empty() && (at_top || in_class_top) {
             // a plain Rust function
             if is_async {
-                write!(self.items, "fn {fname}({}) -> R {{ Ok(make_acoro(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
+                let mk = if is_gen { "make_agen" } else { "make_acoro" };
+                write!(self.items, "fn {fname}({}) -> R {{ Ok({mk}(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else if is_gen {
                 write!(self.items, "fn {fname}({}) -> R {{ Ok(make_gen(move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else {
@@ -2175,7 +2204,7 @@ impl Em {
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
         let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
         if is_gen || is_async {
-            let mk = if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
+            let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
                 "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
                 dflt_all.join(", ")
@@ -2196,7 +2225,7 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false };
         let mut decls = String::new();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -2420,7 +2449,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let mut inits = String::new();
     for m in mods {
         em.module = m.name.clone();
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false };
         for n in em.mod_names[&m.name].clone() {
             let i = em.gslot(&m.name, &n);
             fr.vars.insert(n.clone(), Var::Global(i));

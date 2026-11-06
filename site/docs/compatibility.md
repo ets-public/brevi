@@ -69,7 +69,7 @@ Run in CPython for now (`brevi run` still works; under `--sandbox` the caller gr
 
 Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
-- Async generators (`yield` inside an `async def`), async comprehensions and `await` inside a generator expression
+- Asynchronous generator expressions (`(x async for x in it)`, or `await` inside a generator expression); async generators and async list, set and dict comprehensions are native from the next release
 - `asyncio` with sockets, subprocesses, threads or signals, and printing a `Task` (its repr shows where the coroutine is waiting)
 - The `match` statement
 - `eval`, `exec` and other run-time code generation
@@ -135,5 +135,5 @@ These are tracked on the [roadmap](/docs/roadmap):
 
 - **Classes built on a library's classes** (`class Post(BaseModel)`) run in CPython as a whole, and in some layouts send the whole file to CPython.
 - **Dynamic builds are slower** than typed ones; widening what the typed build accepts is ongoing work.
-- **`match`, `eval` and async generators** are not built natively.
+- **`match` and `eval`** are not built natively (async generators are, from the next release).
 - **Cold builds** take about 0.15 to 0.3 seconds for a small program (a few seconds with `--release`), plus 5 to 15 seconds once for Brevi's runtime on the very first build. That still matters for agents that build many one-off programs; repeat builds are cached.
