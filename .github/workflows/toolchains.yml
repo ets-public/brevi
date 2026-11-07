@@ -217,6 +217,10 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 -m py_compile bench/*.py bench/ref/*.py tools/*.py
 
+      - name: Agent platform templates (static checks)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 templates/test.py
+
       - name: Drop the replay cache and machine-specific paths before saving
         if: >
           success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&

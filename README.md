@@ -55,6 +55,7 @@ Mistakes that Python itself only finds when a line runs raise there, as in CPyth
 - **Skill and plugin:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package (setup, then write plain Python and fix only the lines an error names). In Claude Code, `/plugin marketplace add ets-public/brevi` and `/plugin install brevi@brevi` add the skill and the MCP server together.
 - **llms.txt:** [brevi-lang.org/llms.txt](https://brevi-lang.org/llms.txt), [llms-full.txt](https://brevi-lang.org/llms-full.txt), and every docs page as Markdown (add `.md` to its address).
 - **Editor rules** for Cursor, Copilot, Windsurf and Cline in [skills/rules/](skills/rules/), and tested examples for LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK in [integrations/](integrations/README.md).
+- **Agent platform templates** in [templates/](templates/README.md): run the Python an agent writes on E2B, Daytona, Modal or Cloudflare Sandbox (or Docker), with only the capabilities and limits your code grants, from one image and one `run_python` tool.
 - **Prompting:** ask for the plain, direct solution and say it will be compiled. Models that expect CPython hand-optimise, which costs tokens and is often slower under Brevi. Details in [For AI agents](https://brevi-lang.org/docs/agents).
 
 ## How it works
@@ -103,6 +104,7 @@ Needs Rust stable and `python3`. Working on the compiler itself: [AGENTS.md](AGE
 | `tools/conformance.py` | CPython's own test suite, cut into standalone scripts and built with Brevi; [latest result](bench/conformance/report.md) |
 | `tools/compat.py`, `compat/baseline.txt` | Every bench solution that ever passed; must keep passing on new toolchains |
 | `integrations/` | Examples for LangChain, OpenAI Agents SDK, CrewAI and Vercel AI SDK over `brevi mcp` |
+| `templates/` | Agent sandboxes on E2B, Daytona, Modal, Cloudflare and Docker, running code under Brevi's sandbox and limits |
 | `grammar/`, `tools/grammar_check.py`, `tools/lark_to_gbnf.py` | Grammar for constrained decoding, and its checks |
 | `tools/upstream_watch.py` | Opens review issues for new Rust, Python and crate releases |
 | `.github/` | Daily toolchain matrix, upstream watch, auto-fix, Dependabot (see "Staying current") |

@@ -30,6 +30,18 @@ Each side's prompt cache is kept apart so neither pays the other's cache writes.
 
 The bar is "no more expensive than Python", not "cheaper", on purpose: on ordinary tasks a model writes much the same Python either way, so the cost should come out level, and the speed and safety of the result come free. The test exists to catch Brevi making an agent work harder, by rejecting valid Python or answering differently.
 
+## Weekly agent-code benchmark
+
+<!-- weekly:start -->
+
+Each week Claude Sonnet and Claude Haiku solve the 24 tasks of the `rel` suite twice in plain Python: once checked with CPython, once checked and built with Brevi, with the same prompt. The whole API bill is counted, retries included. **Ratio** is Brevi's cost over CPython's (below 1.00x is cheaper). **Programs run** is the time the finished programs took on their tests, over the tasks both sides finished, and **Speed** is CPython's time over Brevi's. These test inputs are small, so most of each figure is process start-up; the [heavy tasks](#heavy-tasks-and-the-plain-solution-line) show the gap on real work. The data is [bench/weekly.json](repo:bench/weekly.json) and every run's log is in [bench/logs/e2e](repo:bench/logs/e2e).
+
+| Date | Brevi | Model | Cost per run, Brevi / CPython | Ratio | Tasks finished, Brevi / CPython | Built natively | Programs run, Brevi / CPython | Speed |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-04 | v0.25.0 | Sonnet 5.5 | $0.729 / $0.671 | **1.09x** | 48/48 / 48/48 | 47/48 | not timed | - |
+| 2026-11-04 | v0.25.0 | Haiku 5.5 | $0.086 / $0.085 | **1.01x** | 48/48 / 47/48 | 48/48 | not timed | - |
+<!-- weekly:end -->
+
 ## Heavy tasks and the plain-solution line
 
 The `speed` set has four tasks with small inputs and tens of millions of steps under a 10-second limit: Game of Life up to 600x600, 0/1 knapsack, edit distance on 10,000-letter texts, and Collatz chains. A plain Python solution takes CPython 15 to 80 seconds, so a model writing for CPython has to hand-optimise.

@@ -108,7 +108,20 @@ The repository is also a Claude Code plugin marketplace. The plugin adds the ski
 
 ## Agent frameworks
 
-The repository's `integrations/` folder has short, tested examples that connect `brevi mcp` to LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK.
+The repository's `integrations/` folder has short, tested examples that connect `brevi mcp` to LangChain, the OpenAI Agents SDK, CrewAI and the Vercel AI SDK. To run an agent's code on a hosted sandbox platform instead, see the next section.
+
+## Agent platforms: E2B, Daytona, Modal, Cloudflare
+
+The repository's `templates/` folder<!--public--> ([on GitHub](repo:templates/README.md))<!--/public--> runs the Python an agent writes inside a hosted sandbox, compiled and held by Brevi: an [E2B](https://e2b.dev) template, a [Daytona](https://daytona.io) snapshot, a [Modal](https://modal.com) image, a [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/) Worker, and plain Docker for your own machine. All five use one image (Debian, Rust, Brevi, python3) and one tool for the model, `run_python(code, stdin)`.
+
+The platform gives each run a throwaway machine; Brevi adds what a VM cannot see. The program may use only the capabilities your code grants (`--sandbox`, `--allow`, `--allow-net HOST`), and it is stopped at the CPU, memory, time, output and file-size limits your code sets (`--limit`), with one JSON line naming the limit. The tool has no field for either, so the model cannot widen them. The platform's network switch follows the grant: no internet unless the program is granted the network.
+
+```sh
+python templates/agent.py --platform e2b --allow-net api.github.com --limit cpu=5,mem=256,time=10 \
+  "How many open issues does ets-public/brevi have?"
+```
+
+`agent.py` is a plain Claude tool loop; `brevi_tool.py` has the tool definition, the grants and the result type to use in your own agent. Give each sandbox about 2 GB of memory, which rustc needs to link a program.
 
 ## Errors an agent can act on
 

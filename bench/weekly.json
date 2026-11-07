@@ -1,0 +1,50 @@
+[
+ {
+  "date": "2026-11-04",
+  "version": "v0.25.0",
+  "runs": [
+   "r250c",
+   "r250d"
+  ],
+  "models": {
+   "Sonnet 5.5": {
+    "pyb": {
+     "tasks": 48,
+     "passed": 48,
+     "usd_per_run": 0.7289,
+     "secs_per_task": null,
+     "run_ms": null,
+     "native": 47
+    },
+    "python": {
+     "tasks": 48,
+     "passed": 48,
+     "usd_per_run": 0.6711,
+     "secs_per_task": null,
+     "run_ms": null
+    },
+    "speedup": null,
+    "cost_ratio": 1.086
+   },
+   "Haiku 5.5": {
+    "pyb": {
+     "tasks": 48,
+     "passed": 48,
+     "usd_per_run": 0.0856,
+     "secs_per_task": null,
+     "run_ms": null,
+     "native": 48
+    },
+    "python": {
+     "tasks": 48,
+     "passed": 47,
+     "usd_per_run": 0.0845,
+     "secs_per_task": null,
+     "run_ms": null
+    },
+    "speedup": null,
+    "cost_ratio": 1.013
+   }
+  }
+ }
+]
