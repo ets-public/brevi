@@ -1,0 +1,54 @@
+InvalidInputException Invalid Input Error: No open result set
+InvalidInputException Invalid Input Error: No open result set
+None
+-1
+-1
+[(0,)]
+[(1,), (2,), (3,), (4,)]
+[(1,)]
+[(0,), (1,), (2,)]
+ResourceInUseException Resource In Use Error: connection has an unfinished result from execute(); call complete() or abort(), or fetch until a fetch returns no rows, before other work on this connection, or use a separate connection from cursor()
+[(0,), (1,), (2,)]
+[(3,)]
+[(4,)]
+[]
+None
+[]
+[(5,)]
+[(0,)]
+[(6,)]
+ConnectionException Connection Error: Connection already closed!
+[(1,)]
+[(4,)]
+2
+(2,)
+[(1,)]
+[(9,), (9,)]
+[('x', 3.5, None)]
+[(datetime.date(2026, 1, 2), datetime.datetime(2026, 1, 2, 3, 4, 5, 6), datetime.time(1, 2, 3), Decimal('1.25'), b'ab\x00')]
+[([1, 2], {'a': 1, 'b': 'x'}, True)]
+[(1000000000000000000000000000000,)]
+[(datetime.timedelta(days=1, seconds=3),)]
+[(datetime.timedelta(days=32),)]
+[('a',)]
+[((1, 2), {'a': 1})]
+[(2, 18446744073709551615, 170141183460469231731687303715884105727, -5)]
+[(Decimal('123.456'), Decimal('-0.5'), Decimal('12345678901234567890.12'))]
+[(b'x', b'\xff\x00')]
+[(1, 2)]
+[(3,)]
+InvalidInputException Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess parameters: b
+[(5,)]
+BinderException Binder Error: Parameter/argument count mismatch for prepared statement. Expected 0, got 1
+AttributeError 'NoneType' object has no attribute 'fetchall'
+AttributeError 'NoneType' object has no attribute 'fetchall'
+[(1,)]
+NotImplementedException Not implemented Error: Prepared parameters are only supported for the last statement, please split your query up into separate 'execute' calls if you want to use prepared parameters
+[(2,)]
+[('1', INTEGER, None, None, None, None, None)]
+[('d', DECIMAL(4,2), None, None, None, None, None), ('l', INTEGER[], None, None, None, None, None), ('s', STRUCT(a INTEGER), None, None, None, None, None), ('n', "NULL", None, None, None, None, None), ('b', BLOB, None, None, None, None, None), ('dt', DATE, None, None, None, None, None)]
+[(1,)]
+InvalidInputException Invalid Input Error: The following options were not recognized: nope
+None
+None
+ConnectionException Connection Error: Connection has already been closed

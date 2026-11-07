@@ -1,0 +1,8 @@
+PermissionException Permission Error: Cannot access file "/tmp/brevi_sb_duck.csv" - file system operations are disabled by configuration
+PermissionException Permission Error: Cannot access file "/etc/passwd" - file system operations are disabled by configuration
+PermissionException Permission Error: Cannot access file "/etc/hostname" - file system operations are disabled by configuration
+PermissionException Permission Error: Cannot access file "/tmp/brevi_sb_duck_attach.db" - file system operations are disabled by configuration
+PermissionException True
+InvalidInputException Invalid Input Error: Cannot change configuration option ""enable_external_access"" - the configuration has been locked
+PermissionException Permission Error: Cannot access file "/etc/*" - file system operations are disabled by configuration
+[(42,)]

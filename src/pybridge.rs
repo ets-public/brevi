@@ -303,7 +303,7 @@ pub fn stdlib_only() -> bool {
 // is tried first (it refuses what that numpy lacks, and the typed build with CPython's numpy goes instead).
 pub fn numpy_only() -> bool {
     let u = uses();
-    let own = |top: &str| matches!(top, "numpy" | "tiktoken" | "tokenizers" | "requests" | "httpx" | "anthropic" | "openai" | "jinja2" | "markupsafe" | "polars" | "sqlite3");
+    let own = |top: &str| matches!(top, "numpy" | "tiktoken" | "tokenizers" | "requests" | "httpx" | "anthropic" | "openai" | "jinja2" | "markupsafe" | "polars" | "sqlite3" | "duckdb");
     u.iter().any(|m| own(m.split('.').next().unwrap_or(m)))
         && u.iter().all(|m| {
             let top = m.split('.').next().unwrap_or(m);

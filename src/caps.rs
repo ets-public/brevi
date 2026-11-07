@@ -379,6 +379,27 @@ const SQLITE3_LACKS: &[&str] = &[
     "set_trace_callback", "enable_load_extension", "load_extension", "backup(", "blobopen", "serialize(", "getconfig", "setconfig",
     "FromTicks", "enable_callback_tracebacks", "sqlite3.Blob", "check_same_thread=False", "memoryview", "bytearray",
 ];
+// Brevi's duckdb (src/dynpy/py/duckdb.py) over DuckDB's own engine: connections, fetches, parameters, relations
+// built as SQL and DuckDB's table printer. Data frame / Arrow / numpy interop, Python functions, extensions,
+// filesystems, expressions and the API's file readers and writers it lacks; a program using them runs CPython's duckdb.
+const DUCKDB_LACKS: &[&str] = &[
+    ".df(", ".fetchdf(", ".fetch_df(", ".fetch_df_chunk(", ".fetchnumpy(", ".arrow(", ".pl(", ".tf(", ".torch(", ".to_df(",
+    ".fetch_arrow", ".to_arrow", ".fetch_record_batch(", "from_df(", "from_arrow(", "query_df(",
+    "create_function", "remove_function", "install_extension", "load_extension", "filesystem", ".read_csv(", ".read_json(",
+    ".read_parquet(", "from_csv_auto(", "from_parquet(", ".to_csv(", ".write_csv(", ".to_parquet(", ".write_parquet(",
+    ".sql_query(", ".explain(", ".describe(", ".materialize(", ".with_columns(", ".value_counts(", ".unpivot(", ".pivot(",
+    ".unnest(", "union_by_name(", ".select_dtypes(", ".select_types(", ".apply(", ".map(", ".rename(", ".drop(",
+    ".n_tile(", ".quantile", ".histogram(", ".geomean(", ".bitstring_agg(", ".fsum(", ".favg(", ".nth_value(",
+    ".row_number(", ".rank(", ".rank_dense(", ".dense_rank(", ".percent_rank(", ".cume_dist(", ".lag(", ".lead(",
+    ".first_value(", ".last_value(", ".preview(", "_repr_", "Expression", "duckdb.col(", "duckdb.lit(", "duckdb.star(",
+    "duckdb.fn", "duckdb.when(", "duckdb.coalesce(", "duckdb.typing", "sqltypes", "duckdb.func", "duckdb.value",
+    "Value(", "query_progress", "profiling", "tokenize(", "extract_statements", "appender", "Appender",
+    "get_table_names", "list_type(", "struct_type(", "map_type(", "enum_type(", "decimal_type(", "array_type(",
+    "union_type(", "string_type(", "row_type(", "sqltype(", "dtype(", "RenderMode", "render_mode", "suffix=", "distinct(on",
+    "window_spec", "ExpectedResultType", "ExplainType", "StatementType", "PythonExceptionHandling", "token_type",
+    "CSVLineTerminator", "Statement", "check_same_thread", "duckdb.experimental", "duckdb.query_graph", "duckdb.udf",
+    "bytearray", "memoryview",
+];
 const OWN_CONTEXTLIB: &[&str] = &[
     "contextmanager", "asynccontextmanager", "suppress", "nullcontext", "closing", "aclosing", "ExitStack", "AsyncExitStack",
     "AbstractContextManager", "AbstractAsyncContextManager",
@@ -431,6 +452,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "polars" => Some("polars"),
         "polars.exceptions" => Some("polars.exceptions"),
         "sqlite3" | "sqlite3.dbapi2" => Some("sqlite3"),
+        "duckdb" => Some("duckdb"),
         "mcp" => Some("mcp"),
         "mcp.types" => Some("mcp.types"),
         "mcp_types" => Some("mcp_types"),
@@ -477,6 +499,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "markupsafe" => OWN_MARKUPSAFE.contains(&attr),
         "polars" => own_polars(attr),
         "sqlite3" => own_def(include_str!("dynpy/py/sqlite3.py"), attr) || attr == "dbapi2",
+        "duckdb" => own_def(include_str!("dynpy/py/duckdb.py"), attr) || attr == "__version__",
         "polars.exceptions" => defines(include_str!("dynpy/py/polars_exceptions.py"), attr),
         "jinja2.ext" => defines(include_str!("dynpy/py/jinja2_ext.py"), attr),
         "jinja2.exceptions" => defines(include_str!("dynpy/py/jinja2_exceptions.py"), attr),
@@ -656,7 +679,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
                 let deep = |p: &str| m.trim().starts_with(p) && path_module(m.trim()).is_none();
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") || deep("polars.") || deep("sqlite3.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") || deep("polars.") || deep("sqlite3.") || deep("duckdb.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -711,7 +734,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
@@ -829,6 +852,35 @@ fn polars_files(src: &str) -> Vec<(usize, &'static str, String)> {
     out
 }
 
+// The lines where Brevi's duckdb opens a database file: a connect() of anything but nothing, ":memory:" or "".
+// read_only=True needs only the read grant. (SQL that reads or writes files, read_csv / ATTACH / COPY, needs both
+// grants at run time: under --sandbox DuckDB's external access is off without them.)
+fn duckdb_files(src: &str) -> Vec<(usize, &'static str, String)> {
+    let mut out = vec![];
+    for (n, l) in code_lines(src) {
+        if !l.contains("connect(") {
+            continue;
+        }
+        let raw = src.lines().nth(n - 1).unwrap_or("");
+        for (i, _) in raw.match_indices("connect(") {
+            if raw[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let arg = raw[i + 8..].trim_start();
+            let arg = arg.strip_prefix("database=").unwrap_or(arg);
+            let memory = [")", "config=", "read_only=", r#"":memory"#, "':memory", r#""")"#, r#""","#, "'')", "'',"].iter().any(|m| arg.starts_with(m));
+            if memory {
+                continue;
+            }
+            out.push((n, "read", "duckdb connect(file)".to_string()));
+            if !raw.replace(' ', "").contains("read_only=True") {
+                out.push((n, "write", "duckdb connect(file)".to_string()));
+            }
+        }
+    }
+    out
+}
+
 // The lines where Brevi's sqlite3 opens a database file: a connect() of anything but ":memory:" or "" (SQLite's
 // private temporary database). A read-only URI (mode=ro) needs only the read grant.
 fn sqlite_files(src: &str) -> Vec<(usize, &'static str, String)> {
@@ -907,6 +959,10 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     // Brevi's sqlite3 opens database files (connect("app.db")); ":memory:" needs nothing.
     if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("sqlite3")) {
         uses.extend(sqlite_files(src));
+    }
+    // Brevi's duckdb opens database files (duckdb.connect("app.duckdb")); memory needs nothing.
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("duckdb")) {
+        uses.extend(duckdb_files(src));
     }
     uses.sort();
     let mut seen = Vec::new();
@@ -1289,6 +1345,51 @@ mod tests {
         }
         let src = "import sqlite3\na = sqlite3.connect(':memory:')\nb = sqlite3.connect(\"app.db\")\nc = sqlite3.connect('file:x.db?mode=ro', uri=True)\nd = sqlite3.connect(database=\"\")\n";
         let files: Vec<(usize, &str)> = super::sqlite_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
+        assert_eq!(files, [(3, "read"), (3, "write"), (4, "read")]);
+    }
+
+    // Brevi's duckdb imports only _brevi_duckdb, its one way to the engine; the engine reaches files only as the
+    // grants allow (duckglue.rs sets DuckDB's own switches under --sandbox).
+    #[test]
+    fn duckdb_copy_reaches_nothing() {
+        let src = include_str!("dynpy/py/duckdb.py");
+        for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                let m = m.split_whitespace().next().unwrap();
+                assert!(["_brevi_duckdb"].contains(&m), "duckdb.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
+                let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') && !l[..i].ends_with("def "));
+                assert!(!own, "duckdb.py uses {bad}");
+            }
+        }
+        let glue = include_str!("dynpy/duckglue.rs");
+        for switch in ["\"enable_external_access\"", "\"autoinstall_known_extensions\"", "\"autoload_known_extensions\"", "\"allow_community_extensions\"", "\"lock_configuration\"", "\"READ_ONLY\""] {
+            assert!(glue.contains(switch), "duckglue.rs lacks {switch}");
+        }
+        assert!(glue.contains("if !FS_SANDBOX {") && glue.contains("if FS_SANDBOX && !memory && !FS_READ {"));
+    }
+
+    // A duckdb program stays on Brevi's duckdb; data frames, Python functions and extensions send it to CPython's.
+    // A database file needs the read and write grants under --sandbox (read_only=True: read); memory needs nothing.
+    #[test]
+    fn path_uses_duckdb() {
+        let uses = |s: &str| super::path_uses(s).unwrap().into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+        let ok = "import duckdb\nfrom duckdb import CatalogException\ncon = duckdb.connect()\nrel = con.sql('select 1 as a').filter('a > 0')\nprint(rel, rel.fetchall(), duckdb.__version__, con.execute('select ?', [1]).fetchone())\nduckdb.sql('select 2').show()\n";
+        assert!(uses(ok).is_empty(), "{:?}", uses(ok));
+        for bad in [
+            "import duckdb\ncon = duckdb.connect()\nprint(con.sql('select 1').df())\n",
+            "import duckdb\ncon = duckdb.connect()\ncon.create_function('f', len)\n",
+            "import duckdb\ncon = duckdb.connect()\ncon.install_extension('httpfs')\n",
+            "import duckdb\nprint(duckdb.read_csv('x.csv'))\n",
+            "import duckdb\nx = duckdb.col('a')\n",
+            "from duckdb.typing import INTEGER\n",
+            "import duckdb\nf = duckdb\n",
+        ] {
+            assert!(!uses(bad).is_empty(), "{bad}");
+        }
+        let src = "import duckdb\na = duckdb.connect()\nb = duckdb.connect(\"app.duckdb\")\nc = duckdb.connect('x.duckdb', read_only=True)\nd = duckdb.connect(':memory:')\ne = duckdb.connect(config={'threads': 1})\n";
+        let files: Vec<(usize, &str)> = super::duckdb_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
         assert_eq!(files, [(3, "read"), (3, "write"), (4, "read")]);
     }
 

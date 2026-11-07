@@ -1,0 +1,12 @@
+3
+[('pen', Decimal('1.50')), ('book', Decimal('12.99')), ('lamp', Decimal('30.00'))]
+constraint: Constraint Error: Duplicate key "id: 1" violates primary key constraint.
+┌───────┬───────────────┐
+│   n   │     total     │
+│ int64 │ decimal(38,2) │
+├───────┼───────────────┤
+│     3 │         44.49 │
+└───────┴───────────────┘
+
+InvalidInputException Invalid Input Error: Cannot execute statement of type "DELETE" on database "brevi_duckdb_test" which is attached in read-only mode!
+[(1, 'pen', Decimal('3.00')), (2, 'book', Decimal('12.99')), (3, 'lamp', Decimal('30.00'))]

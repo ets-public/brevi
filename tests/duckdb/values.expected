@@ -1,0 +1,13 @@
+[('1', '2', '[1, 2]', "{'x': y}", '1.5', '1e+100', '\\xFF', '1 month', '2020-01-01 00:00:00', '1.10', '0.1', 'true', '[a, NULL]', '{k=[1]}', '2020-01-02', '01:02:03.5', '0.3', '0.3333333333333333')]
+select ?, ? None InvalidInputException Invalid Input Error: Values were not provided for the following parameters: 1, 2
+select ?, ? [] InvalidInputException Invalid Input Error: Values were not provided for the following parameters: 1, 2
+select ?, ? [1] InvalidInputException Invalid Input Error: Values were not provided for the following parameters: 2
+select ?, ? [1, 2, 3] InvalidInputException Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess parameters: 3
+select ?, ? {'a': 1} InvalidInputException Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess parameters: a
+select ?, ? {'b': 1, 'a': 2, 'c': 3} InvalidInputException Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess parameters: a, b, c
+select $a, $b None InvalidInputException Invalid Input Error: Values were not provided for the following parameters: a, b
+select $a, $b [] InvalidInputException Invalid Input Error: Values were not provided for the following parameters: a, b
+select $a, $b [1] InvalidInputException Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess parameters: 1
+select $a, $b [1, 2, 3] InvalidInputException Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess parameters: 1, 2, 3
+select $a, $b {'a': 1} InvalidInputException Invalid Input Error: Values were not provided for the following parameters: b
+select $a, $b {'b': 1, 'a': 2, 'c': 3} InvalidInputException Invalid Input Error: Parameter argument/count mismatch, identifiers of the excess parameters: c

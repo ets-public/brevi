@@ -1,0 +1,106 @@
+['sum(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "sum(a)"
+['avg(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "avg(a)"
+['avg(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "avg(a)"
+['min(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "min(a)"
+['max(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "max(a)"
+['median(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "median(a)"
+['count(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "count(a)"
+['stddev_samp(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "stddev_samp(a)"
+['stddev_samp(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "stddev_samp(a)"
+['var_samp(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "var_samp(a)"
+["string_agg(s, ',')"]
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "string_agg(s, ',')"
+['list(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "list(a)"
+['"first"(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: ""first"(a)"
+['"last"(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: ""last"(a)"
+['any_value(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "any_value(a)"
+['"mode"(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: ""mode"(a)"
+['product(a)']
+BinderException Binder Error: Referenced column "g" not found in FROM clause!
+Candidate bindings: "product(a)"
+BinderException Binder Error: No function matches the given name and argument types 'bool_and(BIGINT)'. You might need to add explicit type casts.
+	Candidate functions:
+	bool_and(arg BOOLEAN, /) -> BOOLEAN
+
+BinderException Binder Error: No function matches the given name and argument types 'bool_and(BIGINT)'. You might need to add explicit type casts.
+	Candidate functions:
+	bool_and(arg BOOLEAN, /) -> BOOLEAN
+
+[(6,)]
+[(0,), (1,)]
+['g']
+[(0, 0, 'n0'), (1, 1, 'n1')]
+[(4, 0, 'n4'), (5, 1, 'n5')]
+[(5, 1, 'n5'), (4, 0, 'n4')]
+[(4, 0, 'n4'), (2, 0, 'n2'), (0, 0, 'n0')]
+[(0, 'n0')]
+['b']
+[(2, 0, 'n2'), (3, 1, 'n3')]
+[(15,)]
+[(0, 6), (1, 9)]
+['sum(a)']
+'t'
+'zz'
+'t'
+'unnamed_relation_'
+┌─────────┐
+│ Success │
+│ boolean │
+└─────────┘
+  0 rows 
+
+[VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR]
+[VARCHAR]
+[INTEGER, VARCHAR, VARCHAR, BOOLEAN, VARCHAR, BOOLEAN]
+[(1,)]
+[(1,)]
+[(3,)]
+[(5,)]
+BinderException Binder Error: Parameter/argument count mismatch for prepared statement. Expected 0, got 1
+CatalogException Catalog Error: Table with name nope does not exist!
+Did you mean "pg_enum"?
+BinderException Binder Error: Referenced column "nope" not found in FROM clause!
+Candidate bindings: "a"
+InvalidInputException Invalid Input Error: Both relations have the same alias, please change the alias of one or both relations using 'rel = rel.set_alias(<new alias>)'
+['a', 'g', 's', 'g', 's']
+['a', 'g', 's', 'a', 'g', 's']
+InvalidInputException Invalid Input Error: Unsupported join type nope, try one of: 'inner', 'left', 'right', 'outer', 'full', 'semi', 'anti', 'cross', 'positional', 'natural', 'asof'
+['a', 'g', 's', 'a', 'g', 's']
+[(0, 0, 'n0'), (1, 1, 'n1')]
+[{'a': 0, 'g': 0, 's': 'n0'}, {'a': 1, 'g': 1, 's': 'n1'}]
+[(0, 0, 'n0'), (1, 1, 'n1')]
+['a', 'g', 's']
+'BIGINT'
+'bigint'
+['DECIMAL(2,1)', 'INTEGER[]', 'STRUCT(a INTEGER)', 'MAP(VARCHAR, INTEGER)', "ENUM('a', 'b')", 'INTEGER[2]', '"NULL"', 'HUGEINT']

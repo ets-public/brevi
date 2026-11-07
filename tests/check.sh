@@ -247,6 +247,43 @@ if [ "$1" != "--update" ]; then
     echo "FAIL sandbox sqlite3 (SQL reaches no file)"; printf '%s\n' "$out"; fail=1
   fi
 fi
+# duckdb programs must print what CPython's duckdb 2.0.0 prints (stdout), with Brevi's own duckdb over DuckDB's
+# engine (libduckdb, or the duckdb package's library): never CPython. Skipped without the duckdb package (CI has
+# none). `--update` writes the .expected files with python3.
+if python3 -c "import duckdb" 2>/dev/null; then
+  for f in tests/duckdb/*.py; do
+    exp="${f%.py}.expected"
+    if [ "$1" = "--update" ]; then
+      python3 "$f" > "$exp" 2>/dev/null
+      continue
+    fi
+    out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_dk_err)
+    if ! grep -q '"path":"dynamic"' /tmp/brevi_dk_err || grep -q '"py"' /tmp/brevi_dk_err; then
+      echo "FAIL $f (not built with Brevi's duckdb)"; cat /tmp/brevi_dk_err; fail=1
+    elif [ "$out" != "$(cat "$exp")" ]; then
+      echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_dk_err | tail -5; fail=1
+    else
+      echo "ok   $f"
+    fi
+  done
+  if [ "$1" != "--update" ]; then
+    out=$($BREVI run --sandbox tests/duckdb/sandbox/files.py 2>&1)
+    case "$out" in
+      *"line\":6,\"msg\":\"duckdb connect(file) needs allow read"*"line\":7,\"msg\":\"duckdb connect(file) needs allow write"*) echo "ok   sandbox duckdb (files need allow read, write)" ;;
+      *) echo "FAIL sandbox duckdb (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
+    esac
+    # SQL that reads or writes files (COPY, read_csv, ATTACH, glob), installs extensions or unlocks the settings is
+    # refused by DuckDB under --sandbox
+    out=$($BREVI run --sandbox tests/duckdb/sandbox/sql.py 2>/dev/null)
+    if [ "$out" = "$(cat tests/duckdb/sandbox/sql.expected)" ] && ! ls /tmp/brevi_sb_duck.csv /tmp/brevi_sb_duck_attach.db >/dev/null 2>&1; then
+      echo "ok   sandbox duckdb (SQL reaches no file)"
+    else
+      echo "FAIL sandbox duckdb (SQL reaches no file)"; printf '%s\n' "$out"; fail=1
+    fi
+  fi
+else
+  echo "skip tests/duckdb (no duckdb package)"
+fi
 # requests and httpx programs must print what CPython's requests 2.34 and httpx 0.28 print, with Brevi's own copies
 # over native sockets and TLS: never CPython. They talk to tests/http/server.py (HTTP on 18080, HTTPS on 18081)
 # and pass verify= themselves, so a CA bundle in the environment changes nothing. `--update` needs both libraries.

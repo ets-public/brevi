@@ -1,0 +1,295 @@
+┌─────────────────┬──────────────────┬───────────────────┬───┬──────────────────────────────┬──────────────────────────┐
+│    column_0     │     column_1     │     column_2      │ … │          column_12           │        column_13         │
+│     varchar     │     varchar      │      varchar      │ … │           varchar            │         varchar          │
+├─────────────────┼──────────────────┼───────────────────┼───┼──────────────────────────────┼──────────────────────────┤
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+└─────────────────┴──────────────────┴───────────────────┴───┴──────────────────────────────┴──────────────────────────┘
+  3 rows                                                                                          14 columns (5 shown)
+
+┌─────────────────┬──────────────────┬───────────────────┬───┬──────────────────────────────┬──────────────────────────┐
+│    column_0     │     column_1     │     column_2      │ … │          column_12           │        column_13         │
+│     varchar     │     varchar      │      varchar      │ … │           varchar            │         varchar          │
+├─────────────────┼──────────────────┼───────────────────┼───┼──────────────────────────────┼──────────────────────────┤
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│        ·        │        ·         │         ·         │ … │ ·                            │              ·         … │
+│        ·        │        ·         │         ·         │ … │ ·                            │              ·         … │
+│        ·        │        ·         │         ·         │ … │ ·                            │              ·         … │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ … │ value number 12 xxxxxxxxxxxx │ value number 13 xxxxxxx… │
+└─────────────────┴──────────────────┴───────────────────┴───┴──────────────────────────────┴──────────────────────────┘
+  30 rows (20 shown)                                                                              14 columns (5 shown)
+
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┬───────┐
+│                                                  long_text                                                   │   n   │
+│                                                   varchar                                                    │ int32 │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────┼───────┤
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefgh │    42 │
+│ ijabcdefghijabcdefghijabcdefghijabcdefghij                                                                   │       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────┴───────┘
+
+┌──────────────────────────────────────────────────────┬───────────────────────────────────────────────────────┬───────┐
+│                      long_text                       │                         other                         │   n   │
+│                       varchar                        │                        varchar                        │ int32 │
+├──────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┼───────┤
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijab │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz │    42 │
+│ cdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcd │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz │       │
+│ efghijabcdefghijabcdefghijabcdefghijabcdefghij       │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz                    │       │
+└──────────────────────────────────────────────────────┴───────────────────────────────────────────────────────┴───────┘
+
+┌──────────────────────────────────────────────────────┬───────────────────────────────────────────────────────┬───────┐
+│                      long_text                       │                         other                         │   n   │
+│                       varchar                        │                        varchar                        │ int32 │
+├──────────────────────────────────────────────────────┼───────────────────────────────────────────────────────┼───────┤
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│                          ·                           │                           ·                           │     · │
+│                          ·                           │                           ·                           │     · │
+│                          ·                           │                           ·                           │     · │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+│ abcdefghijabcdefghijabcdefghijabcdefghijabcdefghija… │ zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz… │    42 │
+└──────────────────────────────────────────────────────┴───────────────────────────────────────────────────────┴───────┘
+  25 rows (20 shown)                                                                                         3 columns
+
+┌───────────────┬─────────────────┬───────┐
+│       s       │        j        │ range │
+│    varchar    │     varchar     │ int64 │
+├───────────────┼─────────────────┼───────┤
+│ héllo wörld 0 │ 日本語テキスト0 │     0 │
+│ héllo wörld 1 │ 日本語テキスト1 │     1 │
+│ héllo wörld 2 │ 日本語テキスト2 │     2 │
+│ héllo wörld 3 │ 日本語テキスト3 │     3 │
+└───────────────┴─────────────────┴───────┘
+
+┌───────┬─────────┐
+│   r   │    s    │
+│ int64 │ varchar │
+├───────┼─────────┤
+│     0 │ x       │
+│     1 │ x       │
+│     2 │ x       │
+│     3 │ x       │
+│     4 │ x       │
+│     5 │ x       │
+│     6 │ x       │
+│     7 │ x       │
+│     8 │ x       │
+│     9 │ x       │
+│     · │ ·       │
+│     · │ ·       │
+│     · │ ·       │
+│    14 │ x       │
+│    15 │ x       │
+│    16 │ x       │
+│    17 │ x       │
+│    18 │ x       │
+│    19 │ x       │
+│    20 │ x       │
+│    21 │ x       │
+│    22 │ x       │
+│    23 │ x       │
+└───────┴─────────┘
+      24 rows    
+    (20 shown)    
+
+┌───────┐
+│   r   │
+│ int64 │
+├───────┤
+│     0 │
+│     1 │
+│     2 │
+│     3 │
+│     4 │
+│     5 │
+│     6 │
+│     7 │
+│     8 │
+│     9 │
+│    10 │
+│    11 │
+│    12 │
+│    13 │
+│    14 │
+│    15 │
+│    16 │
+│    17 │
+│    18 │
+│    19 │
+│    20 │
+│    21 │
+│    22 │
+└───────┘
+
+┌───────┬───────┬─────────┐
+│   r   │   d   │    s    │
+│ int64 │ int64 │ varchar │
+├───────┼───────┼─────────┤
+│     0 │     0 │ a       │
+│     1 │     2 │ a       │
+│     2 │     4 │ a       │
+│     3 │     6 │ a       │
+│     4 │     8 │ a       │
+│     5 │    10 │ a       │
+│     6 │    12 │ a       │
+│     7 │    14 │ a       │
+│     8 │    16 │ a       │
+│     9 │    18 │ a       │
+└───────┴───────┴─────────┘
+  10 rows       3 columns
+
+┌───────┐
+│   r   │
+│ int64 │
+├───────┤
+│     0 │
+│     1 │
+│     2 │
+│     3 │
+│     4 │
+│     5 │
+│     6 │
+│     7 │
+│     8 │
+│     9 │
+└───────┘
+
+┌───────┐
+│   r   │
+│ int64 │
+├───────┤
+│     0 │
+│     1 │
+│     2 │
+│     3 │
+│     4 │
+│     5 │
+│     6 │
+│     7 │
+│     8 │
+└───────┘
+
+┌───────┬─────────┐
+│   a   │    b    │
+│ int32 │ varchar │
+├───────┼─────────┤
+│  NULL │ NULL    │
+└───────┴─────────┘
+
+┌────────────┬───────┬───────────┐
+│ weird name │ Upper │ tab\there │
+│   int32    │ int32 │   int32   │
+├────────────┼───────┼───────────┤
+│          1 │     2 │         3 │
+└────────────┴───────┴───────────┘
+
+┌───────┐
+│ range │
+│ int64 │
+├───────┤
+│     0 │
+│     1 │
+│     2 │
+└───────┘
+
+┌─────────┬────────┐
+│    x    │   y    │
+│ varchar │ "null" │
+├─────────┼────────┤
+│ a       │ ∅      │
+└─────────┴────────┘
+
+┌─────────────────┬──────────────────┬───────────────────┬────────────────────┬─────────────────────┬───┬─────────────────────────┬──────────────────────┬──────────────────────┬──────────────────────┐
+│    column_0     │     column_1     │     column_2      │      column_3      │      column_4       │ … │        column_10        │      column_11       │      column_12       │      column_13       │
+│     varchar     │     varchar      │      varchar      │      varchar       │       varchar       │ … │         varchar         │       varchar        │       varchar        │       varchar        │
+├─────────────────┼──────────────────┼───────────────────┼────────────────────┼─────────────────────┼───┼─────────────────────────┼──────────────────────┼──────────────────────┼──────────────────────┤
+│ value number 0  │ value number 1 x │ value number 2 xx │ value number 3 xxx │ value number 4 xxxx │ … │ value number 10 xxxxxx… │ value number 11 xxx… │ value number 12 xxx… │ value number 13 xxx… │
+│ value number 0  │ value number 1 x │ value number 2 xx │ value number 3 xxx │ value number 4 xxxx │ … │ value number 10 xxxxxx… │ value number 11 xxx… │ value number 12 xxx… │ value number 13 xxx… │
+└─────────────────┴──────────────────┴───────────────────┴────────────────────┴─────────────────────┴───┴─────────────────────────┴──────────────────────┴──────────────────────┴──────────────────────┘
+  2 rows                                                                                                                                                                          14 columns (9 shown)
+
+┌───────────────┬──────────┬──────────┬──────────┬──────────┬───┬──────────┬──────────┬──────────┬──────────┬──────────┐
+│   column_0    │ column_1 │ column_2 │ column_3 │ column_4 │ … │ column_9 │ column_… │ column_… │ column_… │ column_… │
+│    varchar    │ varchar  │ varchar  │ varchar  │ varchar  │ … │ varchar  │ varchar  │ varchar  │ varchar  │ varchar  │
+├───────────────┼──────────┼──────────┼──────────┼──────────┼───┼──────────┼──────────┼──────────┼──────────┼──────────┤
+│ value number… │ value n… │ value n… │ value n… │ value n… │ … │ value n… │ value n… │ value n… │ value n… │ value n… │
+│ value number… │ value n… │ value n… │ value n… │ value n… │ … │ value n… │ value n… │ value n… │ value n… │ value n… │
+└───────────────┴──────────┴──────────┴──────────┴──────────┴───┴──────────┴──────────┴──────────┴──────────┴──────────┘
+  2 rows                                                                                         14 columns (10 shown)
+
+┌───────────┬──────────────────────────────┬───────────────────────┬───────────────┐
+│     l     │              s               │           m           │      ll       │
+│  int32[]  │ struct(a integer, b varchar) │ map(varchar, varchar) │   int32[][]   │
+├───────────┼──────────────────────────────┼───────────────────────┼───────────────┤
+│ [1, 2, 3] │ {'a': 1, 'b': two}           │ {k=v}                 │ [[1], [2, 3]] │
+└───────────┴──────────────────────────────┴───────────────────────┴───────────────┘
+
+┌──────────────┬────────┬──────────────┬───────────────┬────────┐
+│     neg      │  big   │    small     │      dec      │  nan   │
+│ decimal(2,1) │ double │ decimal(7,6) │ decimal(10,4) │ double │
+├──────────────┼────────┼──────────────┼───────────────┼────────┤
+│         -1.5 │ 1e+300 │     0.000001 │    12345.6789 │    nan │
+└──────────────┴────────┴──────────────┴───────────────┴────────┘
+
+┌───────┬────────┐
+│   g   │   s    │
+│ int64 │ int128 │
+├───────┼────────┤
+│     0 │   1683 │
+│     1 │   1617 │
+│     2 │   1650 │
+└───────┴────────┘
+
+┌────────┐
+│ range  │
+│ int64  │
+└────────┘
+  0 rows
+
+┌──────────┬──────────┬──────────┬──────────┬──────────┬───┬──────────┬───────────┬───────────┬───────────┬───────────┐
+│ column_0 │ column_1 │ column_2 │ column_3 │ column_4 │ … │ column_9 │ column_10 │ column_11 │ column_12 │ column_13 │
+│ varchar  │ varchar  │ varchar  │ varchar  │ varchar  │ … │ varchar  │  varchar  │  varchar  │  varchar  │  varchar  │
+└──────────┴──────────┴──────────┴──────────┴──────────┴───┴──────────┴───────────┴───────────┴───────────┴───────────┘
+                                                        0 rows                                                       
+
+┌────────────┬──────────┬─────────────────────────┬──────────┬─────────┬──────┐
+│     d      │    t     │           ts            │    i     │    b    │  bl  │
+│    date    │   time   │        timestamp        │ interval │ boolean │ blob │
+├────────────┼──────────┼─────────────────────────┼──────────┼─────────┼──────┤
+│ 2026-11-07 │ 12:34:56 │ 2026-11-07 12:34:56.789 │ 05:00:00 │ true    │ x    │
+└────────────┴──────────┴─────────────────────────┴──────────┴─────────┴──────┘
+

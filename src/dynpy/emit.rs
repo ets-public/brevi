@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 39] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_sqlite", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 40] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -193,6 +193,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
             "load", "open", "close", "errmsg", "errcode", "errstr", "prepare", "finalize", "reset", "clear", "step", "bind", "nparams", "param_name",
             "ncols", "col_name", "col_decl", "row", "col", "run", "fetch", "fetch_all", "db_int", "stmt_int", "busy_timeout", "interrupt", "limit", "complete",
         ],
+        "_brevi_duckdb" => &["load", "open", "connect", "disconnect", "close", "query", "many", "describe", "cols", "info", "fetch", "free", "interrupt", "term"],
         "_brevi_tok" => &["core", "ranks", "max_rank", "n_ranks", "find_special"],
         "_brevi_net" => &["open", "open_nb", "ready", "tls", "handshake", "settimeout", "setblocking", "send", "sendall", "fill", "head", "line", "take", "avail", "fileno", "close", "poll", "env", "host_ok", "zopen", "zfeed", "zstate", "zrest", "zclose"],
         "_brevi_hf" => &[
