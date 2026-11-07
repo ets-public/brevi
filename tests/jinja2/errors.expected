@@ -1,0 +1,93 @@
+TemplateSyntaxError | Expected an expression, got 'end of statement block' | 1 | None | Expected an expression, got 'end of statement block'
+TemplateSyntaxError | unexpected 'end of print statement' | 1 | None | unexpected 'end of print statement'
+TemplateSyntaxError | Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'. | 1 | None | Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'.
+TemplateSyntaxError | Encountered unknown tag 'endfor'. | 1 | None | Encountered unknown tag 'endfor'.
+TemplateAssertionError | No filter named 'nofilter'. | 1 | None | No filter named 'nofilter'.
+TemplateAssertionError | block 'a' defined twice | 1 | None | block 'a' defined twice
+TemplateAssertionError | No test named 'notatest'. | 1 | None | No test named 'notatest'.
+TemplateSyntaxError | non-default argument follows default argument | 1 | None | non-default argument follows default argument
+ok "{% extends 'a' %}{% extends 'b' %}x"
+TemplateSyntaxError | unexpected char "'" at 3 | 1 | None | unexpected char "'" at 3
+ok '{% set loop = 1 %}'
+TemplateSyntaxError | Missing end of raw directive | 1 | None | Missing end of raw directive
+TemplateSyntaxError | Expected an expression, got 'end of print statement' | 1 | None | Expected an expression, got 'end of print statement'
+TemplateSyntaxError | unexpected 'end of statement block' | 1 | None | unexpected 'end of statement block'
+TemplateSyntaxError | Encountered unknown tag 'endif'. | 1 | None | Encountered unknown tag 'endif'.
+TemplateSyntaxError | unexpected '}', expected ')' | 1 | None | unexpected '}', expected ')'
+TemplateSyntaxError | Encountered unknown tag 'foo'. | 1 | None | Encountered unknown tag 'foo'.
+TemplateSyntaxError | unexpected '}', expected ']' | 1 | None | unexpected '}', expected ']'
+TemplateSyntaxError | expected token 'name', got 'end of print statement' | 3 | None | expected token 'name', got 'end of print statement'
+TemplateSyntaxError | Encountered unknown tag 'break'. Jinja was looking for the following tags: 'endfor' or 'else'. The innermost block that needs to be closed is 'for'. | 1 | None | Encountered unknown tag 'break'. Jinja was looking for the following tags: 'endfor' or 'else'. The innermost block that needs to be closed is 'for'.
+Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'. 2 bad.txt None | Unexpected end of template. Jinja was looking for the following tags: 'elif' or 'else' or 'endif'. The innermost block that needs to be closed is 'if'.
+Undefined [{{ x }}] => '[]'
+Undefined [{{ x.y }}] => UndefinedError: 'x' is undefined
+Undefined [{{ d.nokey }}] => '[]'
+Undefined [{{ x|default('dflt') }}] => '[dflt]'
+Undefined [{{ x is defined }}] => '[False]'
+Undefined [{% if x %}t{% else %}f{% endif %}] => '[f]'
+Undefined [{{ x ~ 'a' }}] => '[a]'
+Undefined [{{ x|length if false else '-' }}] => '[-]'
+Undefined [{% for i in x %}{{ i }}{% endfor %}] => '[]'
+Undefined [{{ x + 1 }}] => UndefinedError: 'x' is undefined
+Undefined [{{ d['nokey'] }}] => '[]'
+Undefined [{{ l[5] }}] => '[]'
+Undefined [{{ x|list }}] => '[[]]'
+Undefined [{{ x == none }}] => '[False]'
+Undefined [{{ x.y.z }}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ x }}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ x.y }}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ d.nokey }}] => UndefinedError: 'dict object' has no attribute 'nokey'
+StrictUndefined [{{ x|default('dflt') }}] => '[dflt]'
+StrictUndefined [{{ x is defined }}] => '[False]'
+StrictUndefined [{% if x %}t{% else %}f{% endif %}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ x ~ 'a' }}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ x|length if false else '-' }}] => '[-]'
+StrictUndefined [{% for i in x %}{{ i }}{% endfor %}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ x + 1 }}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ d['nokey'] }}] => UndefinedError: 'dict object' has no attribute 'nokey'
+StrictUndefined [{{ l[5] }}] => UndefinedError: list object has no element 5
+StrictUndefined [{{ x|list }}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ x == none }}] => UndefinedError: 'x' is undefined
+StrictUndefined [{{ x.y.z }}] => UndefinedError: 'x' is undefined
+ChainableUndefined [{{ x }}] => '[]'
+ChainableUndefined [{{ x.y }}] => '[]'
+ChainableUndefined [{{ d.nokey }}] => '[]'
+ChainableUndefined [{{ x|default('dflt') }}] => '[dflt]'
+ChainableUndefined [{{ x is defined }}] => '[False]'
+ChainableUndefined [{% if x %}t{% else %}f{% endif %}] => '[f]'
+ChainableUndefined [{{ x ~ 'a' }}] => '[a]'
+ChainableUndefined [{{ x|length if false else '-' }}] => '[-]'
+ChainableUndefined [{% for i in x %}{{ i }}{% endfor %}] => '[]'
+ChainableUndefined [{{ x + 1 }}] => UndefinedError: 'x' is undefined
+ChainableUndefined [{{ d['nokey'] }}] => '[]'
+ChainableUndefined [{{ l[5] }}] => '[]'
+ChainableUndefined [{{ x|list }}] => '[[]]'
+ChainableUndefined [{{ x == none }}] => '[False]'
+ChainableUndefined [{{ x.y.z }}] => '[]'
+DebugUndefined [{{ x }}] => '[{{ x }}]'
+DebugUndefined [{{ x.y }}] => UndefinedError: 'x' is undefined
+DebugUndefined [{{ d.nokey }}] => "[{{ no such element: dict object['nokey'] }}]"
+DebugUndefined [{{ x|default('dflt') }}] => '[dflt]'
+DebugUndefined [{{ x is defined }}] => '[False]'
+DebugUndefined [{% if x %}t{% else %}f{% endif %}] => '[f]'
+DebugUndefined [{{ x ~ 'a' }}] => '[{{ x }}a]'
+DebugUndefined [{{ x|length if false else '-' }}] => '[-]'
+DebugUndefined [{% for i in x %}{{ i }}{% endfor %}] => '[]'
+DebugUndefined [{{ x + 1 }}] => UndefinedError: 'x' is undefined
+DebugUndefined [{{ d['nokey'] }}] => "[{{ no such element: dict object['nokey'] }}]"
+DebugUndefined [{{ l[5] }}] => '[{{ no such element: list object[5] }}]'
+DebugUndefined [{{ x|list }}] => '[[]]'
+DebugUndefined [{{ x == none }}] => '[False]'
+DebugUndefined [{{ x.y.z }}] => UndefinedError: 'x' is undefined
+TemplateNotFound missing.txt True True True
+ZeroDivisionError division by zero
+TypeError can only concatenate str (not "int") to str
+TypeError no loader for this environment specified
+RuntimeError at least one item has to be provided
+safe
+'' False 0 [] True Undefined True
+'custom hint'
+strict str: 'q' is undefined
+default attr of undefined: 'x' is undefined
+dict: 'dict object' has no attribute 'a'
+object: '__main__.Obj object' has no attribute 'missing'

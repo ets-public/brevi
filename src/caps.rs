@@ -336,6 +336,29 @@ const MCP_LACKS: &[&str] = &[
     "on_subscriptions_listen", "on_subscribe_resource", "on_unsubscribe_resource", "raise_exceptions", "ClientSession", "stdio_client",
     "anyio", "transport=", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
 ];
+// What src/dynpy/py/jinja2.py has, and what sends a program to CPython's jinja2 instead: async rendering, the
+// sandbox, i18n, custom extensions, bytecode caches, loaders that read files, the low-level API (lexer, parser,
+// nodes, meta), streaming. JINJA2_RAW is looked for in the program's text, strings included (templates).
+const OWN_JINJA2: &[&str] = &[
+    "BaseLoader", "ChainableUndefined", "ChoiceLoader", "DebugUndefined", "DictLoader", "Environment", "FunctionLoader", "PrefixLoader",
+    "StrictUndefined", "Template", "TemplateAssertionError", "TemplateError", "TemplateNotFound", "TemplateRuntimeError", "TemplateSyntaxError",
+    "TemplatesNotFound", "Undefined", "UndefinedError", "__version__", "clear_caches", "is_undefined", "pass_context", "pass_environment",
+    "pass_eval_context", "select_autoescape", "Markup", "escape",
+];
+const OWN_MARKUPSAFE: &[&str] = &["Markup", "escape", "escape_silent", "soft_str", "__version__"];
+const JINJA2_LACKS: &[&str] = &[
+    "render_async", "generate_async", "make_module_async", "enable_async", ".generate(", ".stream(", "sandbox", "Sandboxed", "FileSystemLoader",
+    "PackageLoader", "ModuleLoader", "bytecode_cache", "BytecodeCache", "i18n", "gettext", "NativeEnvironment", "nativetypes", "jinja2.meta",
+    "jinja2.nodes", "jinja2.lexer", "jinja2.parser", "jinja2.compiler", "jinja2.visitor", "jinja2.debug", "jinja2.filters", "jinja2.tests",
+    "jinja2.environment", "jinja2.defaults", "jinja2.idtracking", "jinja2.optimizer", "jinja2.bccache", "jinja2.async_utils", ".lex(",
+    ".preprocess(", ".overlay(", ".iter_extensions(", ".root_render_func", ".from_code(", ".from_module_dict(", "make_logging_undefined",
+    "(Extension)", "(jinja2.ext.Extension)", "code_generator_class", "context_class", "template_class", "concat =", "lipsum",
+    "generate_lorem_ipsum", "LRUCache", ".parse(", "debug_info", ".debug", "DebugExtension", "linked_to", ".blocks[", ".compile(",
+];
+const JINJA2_RAW: &[&str] = &[
+    "{% trans", "{%- trans", "{%+ trans", "{% pluralize", "{% debug", "{%- debug", "pprint", "lipsum", "jinja2.ext.i18n", "jinja2.ext.debug",
+    "ext.i18n", "\\N{",
+];
 const OWN_CONTEXTLIB: &[&str] = &[
     "contextmanager", "asynccontextmanager", "suppress", "nullcontext", "closing", "aclosing", "ExitStack", "AsyncExitStack",
     "AbstractContextManager", "AbstractAsyncContextManager",
@@ -378,6 +401,13 @@ fn path_module(m: &str) -> Option<&'static str> {
         "openai.types.chat" => Some("openai.types.chat"),
         "openai.types.responses" => Some("openai.types.responses"),
         "contextlib" => Some("contextlib"),
+        "jinja2" => Some("jinja2"),
+        "jinja2.ext" => Some("jinja2.ext"),
+        "jinja2.exceptions" => Some("jinja2.exceptions"),
+        "jinja2.runtime" => Some("jinja2.runtime"),
+        "jinja2.utils" => Some("jinja2.utils"),
+        "jinja2.loaders" => Some("jinja2.loaders"),
+        "markupsafe" => Some("markupsafe"),
         "mcp" => Some("mcp"),
         "mcp.types" => Some("mcp.types"),
         "mcp_types" => Some("mcp_types"),
@@ -420,6 +450,13 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "openai.types.chat" => defines(include_str!("dynpy/py/openai_types_chat.py"), attr),
         "openai.types.responses" => defines(include_str!("dynpy/py/openai_types_responses.py"), attr),
         "contextlib" => OWN_CONTEXTLIB.contains(&attr),
+        "jinja2" => OWN_JINJA2.contains(&attr),
+        "markupsafe" => OWN_MARKUPSAFE.contains(&attr),
+        "jinja2.ext" => defines(include_str!("dynpy/py/jinja2_ext.py"), attr),
+        "jinja2.exceptions" => defines(include_str!("dynpy/py/jinja2_exceptions.py"), attr),
+        "jinja2.runtime" => defines(include_str!("dynpy/py/jinja2_runtime.py"), attr) || attr == "identity",
+        "jinja2.utils" => defines(include_str!("dynpy/py/jinja2_utils.py"), attr) || attr == "concat",
+        "jinja2.loaders" => defines(include_str!("dynpy/py/jinja2_loaders.py"), attr),
         "mcp" => attr == "types" || defines(include_str!("dynpy/py/mcp.py"), attr),
         "mcp.types" | "mcp_types" => defines(include_str!("dynpy/py/mcp_types.py"), attr),
         "mcp.server" => defines(include_str!("dynpy/py/mcp_server.py"), attr),
@@ -570,7 +607,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
                 let deep = |p: &str| m.trim().starts_with(p) && path_module(m.trim()).is_none();
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -625,12 +662,20 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
                 }
+            }
+        }
+    }
+    // Template text Brevi's jinja2 lacks, in strings too (where most templates are).
+    if uses("jinja2") {
+        for (n, l) in src.lines().enumerate() {
+            if let Some(x) = JINJA2_RAW.iter().find(|x| l.contains(*x)) {
+                bad.push((n + 1, format!("jinja2 {x}")));
             }
         }
     }
@@ -1002,6 +1047,53 @@ mod tests {
         assert!(!uses("import openai\nopenai.OpenAI().images.generate(prompt='x')\n").is_empty());
         assert!(!uses("from openai import AzureOpenAI\n").is_empty());
         assert!(!uses("from openai.types.chat import NoSuchThing\n").is_empty());
+    }
+
+    // Brevi's jinja2 and markupsafe interpret templates themselves (no exec of generated code): they import only
+    // each other and pure modules, and open, run and reach nothing. Loaders that read files are not in them.
+    #[test]
+    fn jinja2_copies_reach_nothing() {
+        for (name, src) in [
+            ("jinja2.py", include_str!("dynpy/py/jinja2.py")),
+            ("jinja2_ext.py", include_str!("dynpy/py/jinja2_ext.py")),
+            ("jinja2_exceptions.py", include_str!("dynpy/py/jinja2_exceptions.py")),
+            ("jinja2_runtime.py", include_str!("dynpy/py/jinja2_runtime.py")),
+            ("jinja2_utils.py", include_str!("dynpy/py/jinja2_utils.py")),
+            ("jinja2_loaders.py", include_str!("dynpy/py/jinja2_loaders.py")),
+            ("markupsafe.py", include_str!("dynpy/py/markupsafe.py")),
+        ] {
+            for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+                if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                    let m = m.split_whitespace().next().unwrap();
+                    assert!(["jinja2", "markupsafe", "json", "math", "random", "re", "textwrap"].contains(&m), "{name} imports {m}");
+                }
+                for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
+                    let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.'));
+                    assert!(!own, "{name} uses {bad}");
+                }
+            }
+        }
+    }
+
+    // A template program stays on Brevi's jinja2; what it lacks (files, async, sandbox, i18n, the AST APIs) sends
+    // it to CPython's, and so does template text that names what it lacks.
+    #[test]
+    fn path_uses_jinja2() {
+        let uses = |s: &str| super::path_uses(s).unwrap().into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+        let ok = "from jinja2 import Environment, DictLoader, Template, StrictUndefined, pass_context\nfrom jinja2.exceptions import TemplateError\nfrom markupsafe import Markup, escape\nenv = Environment(loader=DictLoader({}), trim_blocks=True, extensions=['jinja2.ext.loopcontrols'])\nprint(env.from_string('{{ x|tojson }}').render(x=1), Template('a').render(), Markup('<b>'), escape('<'))\n";
+        assert!(uses(ok).is_empty(), "{:?}", uses(ok));
+        for bad in [
+            "from jinja2 import Environment, FileSystemLoader\nEnvironment(loader=FileSystemLoader('t'))\n",
+            "import jinja2\njinja2.Environment(enable_async=True).from_string('x').render_async()\n",
+            "from jinja2.sandbox import SandboxedEnvironment\n",
+            "from jinja2 import meta\n",
+            "from jinja2 import Template\nfor s in Template('x').generate():\n    print(s)\n",
+            "from jinja2 import Environment\nEnvironment(extensions=['jinja2.ext.i18n'])\n",
+            "from jinja2 import Template\nprint(Template('{% trans %}hi{% endtrans %}').render())\n",
+            "from jinja2 import Template\nprint(Template('{{ lipsum() }}').render())\n",
+        ] {
+            assert!(!uses(bad).is_empty(), "{bad}");
+        }
     }
 
     // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it

@@ -35,6 +35,12 @@
       "unset_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
       "stderr": true
     },
+    "jinja2": {
+      "watch": {"jinja2": "3.1.6"},
+      "also": {"markupsafe": "3.0.3"},
+      "tests": ["tests/jinja2/*.py"],
+      "stderr": true
+    },
     "mcp": {
       "watch": {"mcp": "2.3.0"},
       "tests": [],

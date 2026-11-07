@@ -398,6 +398,10 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                         _ => repr(&args)?,
                     }));
                 }
+                // str.__repr__(self) / super().__str__() on a subclass of a builtin: the builtin value's text
+                if let Some(i) = o.inner.borrow().clone() {
+                    return Ok(st(if rep { repr(&i)? } else { to_str(&i)? }));
+                }
                 return Ok(st(format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.name, Rc::as_ptr(o) as *const u8 as usize)));
             }
             Ok(s(""))

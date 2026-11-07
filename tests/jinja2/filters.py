@@ -1,0 +1,51 @@
+# The built-in filters and tests on the values prompt code feeds them.
+from jinja2 import Environment
+
+env = Environment()
+users = [{"name": "ada", "age": 36, "langs": ["en", "fr"], "admin": True},
+         {"name": "Bob", "age": 25, "langs": [], "admin": False},
+         {"name": "cy", "age": 36, "langs": ["de"], "admin": False}]
+T = [
+    "{{ users|map(attribute='name')|join(', ') }}",
+    "{{ users|selectattr('admin')|map(attribute='name')|list }}",
+    "{{ users|rejectattr('admin')|map(attribute='age')|sum }}",
+    "{{ users|sum(attribute='age') }} {{ users|max(attribute='age')|attr('name') if false else (users|max(attribute='age')).name }}",
+    "{{ users|sort(attribute='name')|map(attribute='name')|join }} {{ users|sort(attribute='name', case_sensitive=true)|map(attribute='name')|join }}",
+    "{{ users|sort(attribute='age,name', reverse=true)|map(attribute='name')|join(' ') }}",
+    "{% for g in users|groupby('age') %}{{ g.grouper }}:{{ g.list|map(attribute='name')|join('+') }} {% endfor %}",
+    "{% for age, items in users|groupby('age', default=0) %}{{ age }}={{ items|length }} {% endfor %}",
+    "{{ users|map(attribute='langs')|map('length')|list }} {{ users|selectattr('langs')|list|length }}",
+    "{{ [3, 1, 2]|sort }} {{ [3, 1, 2]|sort(reverse=true) }} {{ 'cBa'|list|sort|join }} {{ [1, 2, 2, 3, 1]|unique|list }}",
+    "{{ ['A', 'a', 'b']|unique|list }} {{ ['A', 'a', 'b']|unique(case_sensitive=true)|list }} {{ [4, 9, 2]|min }} {{ []|max }}",
+    "{{ 'hello world'|title }} {{ 'HELLO'|lower }} {{ 'hello'|capitalize }} {{ 'a b c'|upper }} {{ '  x  '|trim }}|{{ 'xxhixx'|trim('x') }}",
+    "{{ 'hello'|replace('l', 'L') }} {{ 'hello'|replace('l', 'L', 1) }} {{ 'ab'|reverse }} {{ [1, 2, 3]|reverse|list }}",
+    "{{ 'The quick brown fox jumps over the lazy dog'|truncate(20) }}|{{ 'The quick brown fox'|truncate(9, true, '..') }}|{{ 'short'|truncate(10) }}",
+    "{{ 'one two three four'|wordcount }} {{ 'abc'|length }} {{ {'a': 1}|count }} {{ 'x'|center(7) }}|",
+    "{{ 'hello %s, you are %d'|format('ada', 36) }} {{ '%(a)s-%(b)s'|format(a=1, b=2) }} {{ 3.14159|round(2) }} {{ 3.5|round }} {{ 2.5|round(0, 'floor') }} {{ 2.1|round(0, 'ceil') }}",
+    "{{ '42'|int }} {{ 'x'|int }} {{ 'x'|int(7) }} {{ '0x1A'|int(0, 16) }} {{ '3.5'|float }} {{ 'nan?'|float(1.5) }} {{ -3|abs }} {{ 7|string ~ '!' }}",
+    "{{ 1234567|filesizeformat }} {{ 1234567|filesizeformat(true) }} {{ 999|filesizeformat }} {{ 1|filesizeformat }}",
+    "{{ none|default('d') }} {{ ''|default('d') }} {{ ''|default('d', true) }} {{ missing|d('m') }} {{ 0|default(5, boolean=true) }}",
+    "{{ [1, 2, 3, 4, 5]|batch(2)|list }} {{ [1, 2, 3, 4, 5]|batch(2, 'x')|list }} {{ [1, 2, 3, 4, 5]|slice(2)|list }}",
+    "{{ {'b': 2, 'a': 1, 'C': 3}|dictsort }} {{ {'b': 2, 'a': 1}|dictsort(by='value', reverse=true) }} {{ {'b': 1, 'a': 2}|items|list }}",
+    "{{ 'a\\nb\\n\\nc'|indent(2) }}|{{ 'a\\nb'|indent(2, true) }}|{{ 'a\\n\\nb'|indent('> ', blank=true) }}",
+    "{{ 'lorem ipsum dolor sit amet consectetur'|wordwrap(12) }}|{{ 'abcdefghij'|wordwrap(4, break_long_words=true, wrapstring='/') }}",
+    "{{ 'Hello World & Co'|urlencode }} {{ {'q': 'a b', 'n': 1}|urlencode }} {{ [('x', 'y/z')]|urlencode }}",
+    "{{ 'see https://example.com/a?b=1 and www.x.org.'|urlize }}|{{ 'mail bob@example.com'|urlize }}",
+    "{{ '<b>bold</b> &amp; text'|striptags }} {{ '<p>x</p>'|escape }} {{ '<p>x</p>'|e }} {{ '<i>'|forceescape }}",
+    "{{ {'a': [1, 'x', none, true], 'b': '<&>'}|tojson }} {{ [1, 2]|tojson(indent=2) }}",
+    "{{ users|map(attribute='name')|map('upper')|select('ne', 'BOB')|list }} {{ range(10)|select('odd')|list }} {{ range(10)|reject('even')|list }}",
+    "{{ range(10)|select('divisibleby', 3)|list }} {{ [1, none, 0, 'a']|select|list }} {{ [1, 2, 3]|map('string')|join('-') }}",
+    "{{ users|map(attribute='missing', default='?')|join }} {{ [[1, 2], [3]]|map('sum')|list }} {{ [1, 2]|map('add', 10)|list if false else 'skip' }}",
+    "{{ 'abc'|first }}{{ 'abc'|last }} {{ [1, 2]|first }} {{ []|first }} {{ 'xyz'|random in 'xyz' }}",
+    "{{ 5 is odd }} {{ 4 is even }} {{ 9 is divisibleby(3) }} {{ x is defined }} {{ x is undefined }} {{ none is none }} {{ 1 is number }} {{ 'a' is string }}",
+    "{{ [] is sequence }} {{ {} is mapping }} {{ 'abc' is iterable }} {{ 3 is iterable }} {{ users[0] is mapping }} {{ 'A' is upper }} {{ 'a' is lower }}",
+    "{{ 1 is eq 1 }} {{ 2 is gt 1 }} {{ 2 is le 1 }} {{ 'a' is in 'abc' }} {{ 1 is sameas 1 }} {{ true is true }} {{ 0 is false }} {{ 1.5 is float }} {{ 2 is integer }}",
+    "{{ range is callable }} {{ 'x' is escaped }} {{ 'upper' is filter }} {{ 'odd' is test }} {{ 'nope' is filter }}",
+    "{{ users|map(attribute='langs')|map('join', '/')|list }} {{ ['b', 'A', 'c']|sort(case_sensitive=false) }} {{ ['b', 'A', 'c']|sort(case_sensitive=true) }}",
+    "{{ 10 // 3 }} {{ 10 / 4 }} {{ 10 % 3 }} {{ 2 ** 10 }} {{ 'ab' * 3 }} {{ 'a' ~ 1 ~ none }} {{ [1] + [2] }} {{ 1 < 2 < 3 }} {{ not 1 in [1] }}",
+    "{{ 'x' if 1 else 'y' }} {{ 'x' if 0 }}|{{ (1, 2)[1] }} {{ {'a': {'b': 3}}.a.b }} {{ 'abcdef'[1:4] }} {{ 'abcdef'[::-2] }} {{ [1, 2, 3][-1] }}",
+    "{{ 'Hello'.upper() }} {{ 'a,b'.split(',') }} {{ {'k': 1}.get('k') }} {{ {'k': 1}.items()|list }} {{ '%05.1f'|format(3.14159) }} {{ '{:>5}|'.format('ab') }}",
+    "{{ range(3)|list }} {{ range(1, 10, 3)|list }} {{ dict(a=1, b=2) }} {{ cycler('a', 'b').next() }} {{ joiner is callable }}",
+]
+for t in T:
+    print(env.from_string(t).render(users=users))
