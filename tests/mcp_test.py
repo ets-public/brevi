@@ -179,6 +179,28 @@ want("version echoed", r["protocolVersion"] == "2025-06-18", r)
 raw_send(q, {"jsonrpc": "2.0", "method": "notifications/initialized"})
 raw_send(q, {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {"protocolVersion": "1999-01-01"}})
 want("unknown version gets the newest", raw_recv(q)["result"]["protocolVersion"] == "2025-11-25", "")
+# 2026-07-28: no handshake; each request carries its envelope, and results name the server (as mcp 2.3.0 does)
+env = {"io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientInfo": {"name": "t", "version": "1"},
+       "io.modelcontextprotocol/clientCapabilities": {}}
+raw_send(q, {"jsonrpc": "2.0", "id": 20, "method": "server/discover", "params": {"_meta": env}})
+r = raw_recv(q)["result"]
+want("discover", r["supportedVersions"] == ["2026-07-28"] and r["resultType"] == "complete" and r["cacheScope"] == "private" and r["ttlMs"] == 0
+     and r["capabilities"] == {"tools": {"listChanged": False}} and "plain Python" in r["instructions"]
+     and r["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "brevi", r)
+raw_send(q, {"jsonrpc": "2.0", "id": 21, "method": "tools/list", "params": {"_meta": env}})
+r = raw_recv(q)["result"]
+want("modern tools/list", len(r["tools"]) == 8 and r["resultType"] == "complete" and "ttlMs" in r and "_meta" in r, r)
+raw_send(q, {"jsonrpc": "2.0", "id": 22, "method": "tools/list", "params": {"_meta": dict(env, **{"io.modelcontextprotocol/protocolVersion": "2099-01-01"})}})
+r = raw_recv(q)["error"]
+want("modern unknown version", r == {"code": -32022, "message": "Unsupported protocol version", "data": {"supported": ["2026-07-28"], "requested": "2099-01-01"}}, r)
+raw_send(q, {"jsonrpc": "2.0", "id": 23, "method": "tools/list", "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}})
+r = raw_recv(q)["error"]
+want("modern envelope without capabilities", r["code"] == -32602 and "clientCapabilities" in r["message"], r)
+raw_send(q, {"jsonrpc": "2.0", "id": 24, "method": "server/discover"})
+want("discover without envelope", raw_recv(q)["error"]["code"] == -32602, "")
+raw_send(q, {"jsonrpc": "2.0", "id": 25, "method": "tools/call", "params": {"name": "run", "arguments": {"code": "print(6 * 7)\n"}, "_meta": env}})
+r = raw_recv(q)
+want("modern tools/call", "42" in text_of(r) and r["result"]["resultType"] == "complete" and "_meta" in r["result"], r)
 raw_send(q, {"jsonrpc": "2.0", "id": "s", "method": "tools/list"})
 r = raw_recv(q)
 want("notification has no reply", r["id"] == "s", r)

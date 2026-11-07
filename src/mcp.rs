@@ -25,8 +25,41 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-// The protocol versions this server speaks; the newest is offered when a client asks for another.
+// The protocol versions this server speaks through the initialize handshake; the newest is offered when a
+// client asks for another.
 const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+// The versions without a handshake (2026-07-28 on): each request carries its version, the client's info and
+// capabilities in params._meta, `server/discover` replaces initialize, and every result says
+// "resultType":"complete" and names the server in its _meta. Errors and shapes follow the mcp 2.3.0 SDK.
+const MODERN: [&str; 1] = ["2026-07-28"];
+const K_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
+const K_CAPS: &str = "io.modelcontextprotocol/clientCapabilities";
+const INSTRUCTIONS: &str = "Write plain Python: Brevi compiles it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. No guide needed (it covers Brevi syntax, .bv files). Pass your program as code once; then fix errors with patch (whole defs by name) or edit (lines), which change only what you send and check again.";
+
+// A 2026-07-28 request's envelope: Ok(true) for one, Ok(false) for a request without one (the handshake era),
+// Err(the error object) when the envelope names a version this server lacks or leaves a key out.
+fn envelope(params: &J) -> Result<bool, String> {
+    let Some(meta) = params.get("_meta") else { return Ok(false) };
+    let Some(v) = meta.get(K_VERSION) else { return Ok(false) };
+    let asked = v.str().unwrap_or("");
+    if !MODERN.contains(&asked) {
+        let req = if v.str().is_some() { format!("\"{}\"", esc(asked)) } else { to_json(v) };
+        return Err(format!(r#"{{"code":-32022,"message":"Unsupported protocol version","data":{{"supported":["{}"],"requested":{req}}}}}"#, MODERN.join("\",\"")));
+    }
+    if !matches!(meta.get(K_CAPS), Some(J::Obj(_))) {
+        return Err(format!(r#"{{"code":-32602,"message":"params._meta is missing the required envelope key(s): {K_CAPS}"}}"#));
+    }
+    Ok(true)
+}
+
+// A result as the 2026-07-28 protocol sends it: resultType and the server's name added (cache fields for
+// lists and discovery, which say how long a client may keep them: not at all).
+fn stamp(result: &str, cached: bool) -> String {
+    let body = result.trim_end().strip_suffix('}').unwrap_or(result);
+    let sep = if body.trim_end().ends_with('{') { "" } else { "," };
+    let cache = if cached { r#""cacheScope":"private","ttlMs":0,"# } else { "" };
+    format!(r#"{body}{sep}{cache}"resultType":"complete","_meta":{{"io.modelcontextprotocol/serverInfo":{{"name":"brevi","title":"Brevi","version":"{}"}}}}}}"#, env!("CARGO_PKG_VERSION"))
+}
 
 // What a reply shows of long output: the start and the end.
 const CLIP_HEAD: usize = 16_000;
@@ -836,6 +869,7 @@ struct Job {
     id: String,
     name: String,
     args: J,
+    modern: bool,
 }
 
 pub fn serve(argv: &[String]) {
@@ -890,7 +924,8 @@ pub fn serve(argv: &[String]) {
                 // A cancelled request gets no reply (the MCP spec's rule).
                 if !cancelled {
                     let (text, structured) = with_path(clip(&text), files.path.take().as_deref());
-                    reply(&job.id, Ok(format!(r#"{{"content":[{{"type":"text","text":"{}"}}]{structured},"isError":{err}}}"#, esc(&text))));
+                    let r = format!(r#"{{"content":[{{"type":"text","text":"{}"}}]{structured},"isError":{err}}}"#, esc(&text));
+                    reply(&job.id, Ok(if job.modern { stamp(&r, false) } else { r }));
                 }
             }
         })
@@ -964,14 +999,29 @@ pub fn serve(argv: &[String]) {
             reply(&id, Err((-32602, "params must be an object".into())));
             continue;
         }
+        let modern = match envelope(&params) {
+            Ok(m) => m,
+            Err(e) => {
+                send(&format!(r#"{{"jsonrpc":"2.0","id":{id},"error":{e}}}"#));
+                continue;
+            }
+        };
+        let done = |r: String, cached: bool| if modern { stamp(&r, cached) } else { r };
         match method.as_str() {
             "initialize" => {
                 let asked = params.get("protocolVersion").and_then(|v| v.str()).unwrap_or("");
                 let v = VERSIONS.iter().find(|v| **v == asked).unwrap_or(&VERSIONS[0]);
-                reply(&id, Ok(format!(r#"{{"protocolVersion":"{v}","capabilities":{{"tools":{{"listChanged":false}}}},"serverInfo":{{"name":"brevi","title":"Brevi","version":"{}"}},"instructions":"Write plain Python: Brevi compiles it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. No guide needed (it covers Brevi syntax, .bv files). Pass your program as code once; then fix errors with patch (whole defs by name) or edit (lines), which change only what you send and check again."}}"#, env!("CARGO_PKG_VERSION"))));
+                reply(&id, Ok(format!(r#"{{"protocolVersion":"{v}","capabilities":{{"tools":{{"listChanged":false}}}},"serverInfo":{{"name":"brevi","title":"Brevi","version":"{}"}},"instructions":"{}"}}"#, env!("CARGO_PKG_VERSION"), esc(INSTRUCTIONS))));
             }
-            "ping" => reply(&id, Ok("{}".into())),
-            "tools/list" => reply(&id, Ok(format!(r#"{{"tools":{}}}"#, TOOLS.replace('\n', "")))),
+            "server/discover" if !modern => send(&format!(
+                r#"{{"jsonrpc":"2.0","id":{id},"error":{{"code":-32602,"message":"params._meta must be an object carrying the required '{K_VERSION}' and '{K_CAPS}' envelope keys"}}}}"#
+            )),
+            "server/discover" => reply(
+                &id,
+                Ok(stamp(&format!(r#"{{"supportedVersions":["{}"],"capabilities":{{"tools":{{"listChanged":false}}}},"instructions":"{}"}}"#, MODERN.join("\",\""), esc(INSTRUCTIONS)), true)),
+            ),
+            "ping" => reply(&id, Ok(done("{}".into(), false))),
+            "tools/list" => reply(&id, Ok(done(format!(r#"{{"tools":{}}}"#, TOOLS.replace('\n', "")), true))),
             "tools/call" => {
                 let Some(name) = params.get("name").and_then(|v| v.str()) else {
                     reply(&id, Err((-32602, "tools/call needs params.name".into())));
@@ -983,9 +1033,9 @@ pub fn serve(argv: &[String]) {
                 }
                 match validate(name, &params.get("arguments").cloned().unwrap_or(J::Null)) {
                     // A wrong argument is a tool error, so the model sees it and can correct the call.
-                    Err(m) => reply(&id, Ok(format!(r#"{{"content":[{{"type":"text","text":"{}"}}],"isError":true}}"#, esc(&m)))),
+                    Err(m) => reply(&id, Ok(done(format!(r#"{{"content":[{{"type":"text","text":"{}"}}],"isError":true}}"#, esc(&m)), false))),
                     Ok(args) => {
-                        let _ = tx.send(Job { id, name: name.to_string(), args });
+                        let _ = tx.send(Job { id, name: name.to_string(), args, modern });
                     }
                 }
             }
