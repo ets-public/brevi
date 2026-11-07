@@ -309,4 +309,4 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists 10 t
 
 ## Writing Brevi itself
 
-Brevi also has its own Python-like language for `.bv` files, shorter for a model to write and checked fully before it runs. You do not need it to build Python. See the [Language guide](/docs/language).
+Brevi also has its own Python-like language for `.bv` files, shorter for a model to write and checked fully before it runs. You do not need it to build Python. A `.bv` file that is plain Python (it uses `def`, `class` or `import`, CPython could compile it, and it uses none of Brevi's own names or `"{n}"` strings) is built exactly as the same file saved as `.py`, except that it never falls back to python3. See the [Language guide](/docs/language).

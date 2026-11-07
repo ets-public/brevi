@@ -1,0 +1,7 @@
+# Python-style, but Brevi's way: "{n}" interpolates and a function's last bare value is returned.
+# Neither means that in Python, so the file stays a Brevi file (typed build, Brevi's meaning).
+def total(xs):
+    sum(xs) * 2
+
+n = total([1, 2, 3])
+print("total {n}")

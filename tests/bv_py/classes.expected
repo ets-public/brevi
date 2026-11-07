@@ -1,0 +1,4 @@
+[('a', 3), ('b', 2), ('c', 1)] None 0
+[Rect('rect', 6.00), Shape('dot', 0.00), Rect('rect', 3.00)] 9.0
+7 True float 1.5 3
+<a href="/x" id="7">

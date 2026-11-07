@@ -1,0 +1,18 @@
+# async def / await in a plain-Python .bv file run on Brevi's native async.
+import asyncio
+
+
+async def fetch(i, delay):
+    await asyncio.sleep(delay)
+    return i * i
+
+
+async def main():
+    out = await asyncio.gather(*(fetch(i, 0.01 * (3 - i)) for i in range(3)))
+    print(out)
+    try:
+        await asyncio.wait_for(asyncio.sleep(1), 0.01)
+    except asyncio.TimeoutError:
+        print("timed out")
+
+asyncio.run(main())
