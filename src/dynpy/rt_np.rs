@@ -565,7 +565,11 @@ impl NdArr {
         self.buf.borrow().get(self.off)
     }
     pub fn copy(&self) -> NdArr {
-        NdArr::new(self.vals(), self.shape.clone())
+        let c = NdArr::new(self.vals(), self.shape.clone());
+        if np_is_ll(self) {
+            np_mark_ll(&c);
+        }
+        c
     }
     pub fn ndim(&self) -> usize {
         self.shape.len()
@@ -577,6 +581,23 @@ impl NdArr {
         }
         NdArr::new(self.vals(), shape)
     }
+}
+
+// int64 arrays of numpy's other 64-bit integer type, longlong (onnxruntime's results): their repr names the dtype
+// (`array([2, 0], dtype=int64)`). The mark is on the buffer, so views and copies of such an array keep it; arrays
+// computed from it do not (numpy's mostly stay longlong).
+thread_local! {
+    static NP_LL: RefCell<Vec<std::rc::Weak<RefCell<Buf>>>> = RefCell::new(vec![]);
+}
+pub fn np_mark_ll(a: &NdArr) {
+    NP_LL.with(|v| {
+        let mut v = v.borrow_mut();
+        v.retain(|w| w.strong_count() > 0);
+        v.push(Rc::downgrade(&a.buf));
+    });
+}
+pub fn np_is_ll(a: &NdArr) -> bool {
+    NP_LL.with(|v| v.borrow().iter().any(|w| w.strong_count() > 0 && std::ptr::eq(w.as_ptr(), Rc::as_ptr(&a.buf))))
 }
 
 pub struct NpArr(pub NdArr);

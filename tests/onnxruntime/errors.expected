@@ -1,0 +1,17 @@
+InvalidArgument [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Unexpected input data type. Actual: (tensor(double)) , expected: (tensor(float))
+ValueError Required inputs (['x']) are missing from input feed (['y']).
+InvalidArgument [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Got invalid dimensions for input: x for the following indices
+ index: 1 Got: 2 Expected: 4
+ Please fix either the inputs/outputs or the model.
+ValueError Required inputs (['x']) are missing from input feed ([]).
+InvalidArgument [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Unexpected input data type. Actual: (tensor(int32)) , expected: (tensor(float))
+InvalidArgument [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Invalid rank for input: x Got: 1 Expected: 2 Please fix either the inputs/outputs or the model.
+InvalidArgument [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Invalid output name:nope
+InvalidArgument [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : Invalid output name:nope
+2
+InvalidProtobuf [ONNXRuntimeError] : 7 : INVALID_PROTOBUF : Load model from tests/onnxruntime/models/broken.onnx failed:Protobuf parsing failed.
+NoSuchFile [ONNXRuntimeError] : 3 : NO_SUCHFILE : Load model from tests/onnxruntime/models/nope.onnx failed:Load model tests/onnxruntime/models/nope.onnx failed. File doesn't exist
+InvalidProtobuf [ONNXRuntimeError] : 7 : INVALID_PROTOBUF : Failed to load model because protobuf parsing failed.
+InvalidArgument [ONNXRuntimeError] : 2 : INVALID_ARGUMENT : No graph was found in the protobuf.
+TypeError
+TypeError

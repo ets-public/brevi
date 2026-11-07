@@ -431,10 +431,15 @@ pub fn np_shape_repr(shape: &[usize]) -> String {
 }
 
 pub fn np_array_repr(vals: &Buf, shape: &[usize]) -> String {
+    np_array_repr_ll(vals, shape, false)
+}
+
+// ll: an int64 array of numpy's longlong type, whose repr always names the dtype
+pub fn np_array_repr_ll(vals: &Buf, shape: &[usize], ll: bool) -> String {
     let size: usize = shape.iter().product();
     // numpy 2: a summarized array (more items than the threshold) also shows its shape.
     let big = size > np_opts().threshold;
-    let skip = size > 0 && vals.dt().default_dt() && !big;
+    let skip = size > 0 && vals.dt().default_dt() && !big && !ll;
     let suffix = if skip { ")" } else { "," };
     let lst = if size > 0 || shape == [0] { np_array2string(vals, shape, ", ", "array(", suffix) } else { format!("[], shape={}", np_shape_repr(shape)) };
     let s = format!("array({lst}{suffix}");
@@ -445,7 +450,7 @@ pub fn np_array_repr(vals: &Buf, shape: &[usize]) -> String {
     if big {
         extras.push(format!("shape={}", np_shape_repr(shape)));
     }
-    if !(size > 0 && vals.dt().default_dt()) {
+    if !(size > 0 && vals.dt().default_dt()) || ll {
         extras.push(format!("dtype={}", match vals.dt() {
             NT::U(_) => format!("'{}'", vals.dt().full_name()),
             d => d.name().to_string(),

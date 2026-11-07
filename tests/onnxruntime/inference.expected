@@ -1,0 +1,26 @@
+x tensor(float) ['batch', 4] NodeArg(name='x', type='tensor(float)', shape=['batch', 4])
+probs tensor(float) ['batch', 3] NodeArg(name='probs', type='tensor(float)', shape=['batch', 3])
+label tensor(int64) ['batch'] NodeArg(name='label', type='tensor(int64)', shape=['batch'])
+brevi-tests mlp org.brevi a tiny classifier two dense layers 3 {'task': 'classify', 'author': 'brevi'}
+['CPUExecutionProvider'] ['AzureExecutionProvider', 'CPUExecutionProvider'] CPU
+[[0.35441974 0.1083793  0.537201  ]
+ [0.12342489 0.0701222  0.80645293]] [2 2]
+float32 int64 [1. 1.]
+[array([2], dtype=int64)]
+2
+[[-0.1629206  -0.16651364  0.27504995 -0.06669574  1.3720909   0.54165274
+   0.4244871   0.18493293]
+ [-0.03786391 -0.13792016  0.23921748 -0.13856973  0.7739579  -0.10116032
+   1.0205793   0.91223115]] [[[2.140e-01 3.459e-01 4.401e-01]
+  [8.542e-01 8.000e-04 1.451e-01]
+  [5.977e-01 5.220e-02 3.501e-01]]
+
+ [[9.571e-01 4.190e-02 9.000e-04]
+  [5.890e-01 3.281e-01 8.290e-02]
+  [9.985e-01 1.400e-03 1.000e-04]]] [2 3]
+[('a', 'tensor(double)'), ('n', 'tensor(int32)'), ('mask', 'tensor(bool)')] [('kept', 'tensor(double)'), ('both', 'tensor(bool)'), ('ki', 'tensor(int32)'), ('n2', 'tensor(int32)'), ('cs', 'tensor(double)')]
+[array([ 3.25, 11.  ,  0.  ]), array([ True,  True, False]), array([ 3, 11,  0], dtype=int32), array([ 2, 14,  4], dtype=int32), array([ 3.25, 14.25, 14.25])]
+(2, 5) [[0.0000000e+00 9.5161629e-01 5.4315239e-02 4.1816175e-02 0.0000000e+00]
+ [5.3229928e-04 7.1394444e-04 9.8986983e-01 5.1303053e-01 8.9406967e-08]]
+[array([[-0.50289184, -0.999816  ,  0.9996725 , -0.97777283, -0.9786507 ,
+        -0.99874   ]], dtype=float32)]

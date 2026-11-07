@@ -63,6 +63,8 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_hf.rs"),
     include_str!("rt_net.rs"),
     include_str!("rt_db.rs"),
+    include_str!("rt_st.rs"),
+    include_str!("rt_ort.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -186,6 +188,10 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "polars.exceptions" => include_str!("py/polars_exceptions.py"),
         "sqlite3" | "sqlite3.dbapi2" => include_str!("py/sqlite3.py"),
         "duckdb" => include_str!("py/duckdb.py"),
+        "safetensors" => include_str!("py/safetensors.py"),
+        "safetensors.numpy" => include_str!("py/safetensors_numpy.py"),
+        "onnxruntime" => include_str!("py/onnxruntime.py"),
+        "onnxruntime.capi.onnxruntime_pybind11_state" => include_str!("py/onnxruntime_state.py"),
         _ => return None,
     })
 }
@@ -247,6 +253,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     let r = to_rust_np(file);
     emit::NP_ON.store(false, Relaxed);
     emit::NP_NARROW.store(false, Relaxed);
+    emit::NP_ATTR_ST.store(false, Relaxed);
     emit::PYD_ON.store(false, Relaxed);
     // Something of numpy that Brevi's own numpy lacks: no dynamic build. CPython's numpy through
     // the dynamic bridge is not used: the typed build's bridge (or CPython itself) runs it right.
@@ -291,7 +298,16 @@ fn duck_libs() -> (Vec<String>, String) {
     (parts.filter(|x| !x.is_empty()).collect(), pre)
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3 or duckdb beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3, duckdb, safetensors or onnxruntime beyond Brevi's own copies runs in CPython";
+
+// The ONNX Runtime library inside the onnxruntime Python package (it has the C API), asked of python3 when the
+// program is built, without importing onnxruntime.
+fn ort_libs() -> Vec<String> {
+    const Q: &str = "import importlib.util, glob, os\ns = importlib.util.find_spec('onnxruntime')\nd = list(s.submodule_search_locations)[0] if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, 'capi', 'libonnxruntime.so*')) + glob.glob(os.path.join(d, 'capi', 'libonnxruntime*.dylib'))) if d else []\nprint('\\x01'.join(libs))";
+    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let Ok(o) = std::process::Command::new(&exe).args(["-I", "-c", Q]).output() else { return vec![] };
+    String::from_utf8_lossy(&o.stdout).trim().split('\x01').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
+}
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -313,6 +329,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let mut fs_used = false;
     let mut sql_used = false;
     let mut duck_used = false;
+    let mut ort_used = false;
     let mut bridge = emit::Bridge::default();
     let mut texts: HashMap<String, (String, String)> = HashMap::new();
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
@@ -336,6 +353,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 }
                 if m == "_brevi_duckdb" {
                     duck_used = true;
+                }
+                if m == "_brevi_ort" {
+                    ort_used = true;
                 }
                 if m == "numpy" {
                     emit::NP_ON.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -482,7 +502,10 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             }
         }
     }
-    emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && texts.values().any(|(_, t)| emit::names_narrow(t)), std::sync::atomic::Ordering::Relaxed);
+    // arrays from safetensors files and ONNX models are often float32 / int32, whatever the program names
+    let narrow_libs = ["safetensors", "safetensors.numpy", "onnxruntime"].iter().any(|m| own_mods.contains(*m));
+    emit::NP_ATTR_ST.store(own_mods.contains("safetensors"), std::sync::atomic::Ordering::Relaxed);
+    emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && (narrow_libs || texts.values().any(|(_, t)| emit::names_narrow(t))), std::sync::atomic::Ordering::Relaxed);
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
             Some((p, _)) => p.clone(),
@@ -518,7 +541,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push('\n');
         rust.push_str(include_str!("stdioglue.rs"));
     }
-    if fs_used || sql_used || duck_used {
+    if fs_used || sql_used || duck_used || ort_used {
         rust.push_str(&format!(
             "\nconst FS_SANDBOX: bool = {};\nconst FS_READ: bool = {};\nconst FS_WRITE: bool = {};\n",
             crate::caps::sandboxed(),
@@ -545,6 +568,14 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust = rust.replacen("fn main() { ", "fn main() { DUCK.set(brevi_duckglue::ops()).ok(); ", 1);
         rust.push_str(&format!("\nconst DUCK_LIBS: &[&str] = &{libs:?};\nconst DUCK_PRELOAD: &str = {pre:?};\n"));
         rust.push_str(include_str!("duckglue.rs"));
+    }
+    if ort_used {
+        if !cfg!(unix) {
+            return Err((file.to_string(), 0, "Brevi's own onnxruntime runs on Linux and macOS".into()));
+        }
+        rust = rust.replacen("fn main() { ", "fn main() { ORT.set(brevi_ortglue::ops()).ok(); ", 1);
+        rust.push_str(&format!("\nconst ORT_LIBS: &[&str] = &{:?};\n", ort_libs()));
+        rust.push_str(include_str!("ortglue.rs"));
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);

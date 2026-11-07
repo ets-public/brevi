@@ -1,0 +1,9 @@
+GraphOptimizationLevel.ORT_ENABLE_ALL <ExecutionMode.ORT_SEQUENTIAL: 0> 0 0
+True True -1 False False
+GraphOptimizationLevel.ORT_DISABLE_ALL 2 0
+[[0.35441974 0.1083793  0.537201  ]
+ [0.12342489 0.0701222  0.80645293]]
+brevi 3 False
+[array([2, 2], dtype=int64)]
+['CPUExecutionProvider'] {'CPUExecutionProvider': {}}
+True ExecutionMode.ORT_PARALLEL

@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 40] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 42] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -145,8 +145,14 @@ fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
 }
 // Refusal (which sends the program to CPython's numpy) for an attribute or method of a numpy value that the
 // native numpy lacks.
+// Set while the program uses Brevi's safetensors: its safe_open has .metadata(), which numpy's dtypes have too
+// (a dtype's .metadata is rare; on one it raises AttributeError).
+pub static NP_ATTR_ST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
     if !np_on() || !NP_ATTR_ALL.contains(&n) {
+        return Ok(());
+    }
+    if n == "metadata" && NP_ATTR_ST.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
     }
     if np_narrow() && matches!(n, "dot" | "trace") {
@@ -188,7 +194,9 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
         "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
         "_brevi_stdio" => &["claim", "release", "read", "write", "poll"],
-        "_brevi_fs" => &["read", "write"],
+        "_brevi_fs" => &["read", "write", "read_at", "size", "write_bytes"],
+        "_brevi_ort" => &["load", "providers", "build_info", "session", "run", "free"],
+        "_brevi_st" => &["header", "header_len", "tensor", "dtype_name", "slice", "serialize"],
         "_brevi_sqlite" => &[
             "load", "open", "close", "errmsg", "errcode", "errstr", "prepare", "finalize", "reset", "clear", "step", "bind", "nparams", "param_name",
             "ncols", "col_name", "col_decl", "row", "col", "run", "fetch", "fetch_all", "db_int", "stmt_int", "busy_timeout", "interrupt", "limit", "complete",

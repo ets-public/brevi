@@ -1,5 +1,5 @@
 
-// ---------- files, for Brevi's polars (pasted into the program; see _brevi_fs in rt_net.rs) ----------
+// ---------- files, for Brevi's polars and safetensors (pasted into the program; see _brevi_fs in rt_net.rs) ----------
 // Whole-file reads and writes, with polars' error messages ("No such file or directory (os error 2): x.csv").
 // Under --sandbox, reading needs the read grant and writing the write grant (FS_READ / FS_WRITE).
 mod brevi_fsglue {
@@ -40,7 +40,40 @@ mod brevi_fsglue {
         f.write_all(t.as_bytes()).map_err(|e| os_err(e, p))
     }
 
+    fn read_at(p: &str, off: u64, len: i64) -> Result<Vec<u8>, NetErr> {
+        use std::io::{Read, Seek, SeekFrom};
+        if FS_SANDBOX && !FS_READ {
+            return Err(refuse("read", p));
+        }
+        let mut f = std::fs::File::open(p).map_err(|e| os_err(e, p))?;
+        if f.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+            return Err(NetErr { kind: "IsADirectoryError", msg: format!("Is a directory (os error 21): {p}") });
+        }
+        f.seek(SeekFrom::Start(off)).map_err(|e| os_err(e, p))?;
+        let mut out = vec![];
+        if len < 0 {
+            f.read_to_end(&mut out).map_err(|e| os_err(e, p))?;
+        } else {
+            f.take(len as u64).read_to_end(&mut out).map_err(|e| os_err(e, p))?;
+        }
+        Ok(out)
+    }
+
+    fn size(p: &str) -> Result<u64, NetErr> {
+        if FS_SANDBOX && !FS_READ {
+            return Err(refuse("read", p));
+        }
+        std::fs::metadata(p).map(|m| m.len()).map_err(|e| os_err(e, p))
+    }
+
+    fn write_bytes(p: &str, b: &[u8]) -> Result<(), NetErr> {
+        if FS_SANDBOX && !FS_WRITE {
+            return Err(refuse("write", p));
+        }
+        std::fs::write(p, b).map_err(|e| os_err(e, p))
+    }
+
     pub fn ops() -> FsOps {
-        FsOps { read, write }
+        FsOps { read, write, read_at, size, write_bytes }
     }
 }
