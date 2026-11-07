@@ -757,6 +757,12 @@ pub struct FsOps {
     pub read: fn(&str) -> Result<String, NetErr>,
     // write or append the text
     pub write: fn(&str, &str, bool) -> Result<(), NetErr>,
+    // bytes of a file: len bytes from off (len < 0: to the end); short when the file is
+    pub read_at: fn(&str, u64, i64) -> Result<Vec<u8>, NetErr>,
+    // the file's size in bytes
+    pub size: fn(&str) -> Result<u64, NetErr>,
+    // write the bytes (the file replaced)
+    pub write_bytes: fn(&str, &[u8]) -> Result<(), NetErr>,
 }
 
 pub static FS: std::sync::OnceLock<FsOps> = std::sync::OnceLock::new();
@@ -772,6 +778,16 @@ pub fn brevi_fs_fn(n: &str, a: Args) -> R {
         "write" => {
             let app = truth(&arg(2))?;
             (fs_ops()?.write)(&net_s(&arg(0)), &net_s(&arg(1)), app).map_err(net_err)?;
+            Ok(V::None)
+        }
+        "read_at" => {
+            let off = match arg(1) { V::Int(i) if i > 0 => i as u64, _ => 0 };
+            let len = match arg(2) { V::Int(i) => i, _ => -1 };
+            Ok(bytesv((fs_ops()?.read_at)(&net_s(&arg(0)), off, len).map_err(net_err)?))
+        }
+        "size" => Ok(V::Int((fs_ops()?.size)(&net_s(&arg(0))).map_err(net_err)? as i64)),
+        "write_bytes" => {
+            (fs_ops()?.write_bytes)(&net_s(&arg(0)), &bytes_of(&arg(1)).unwrap_or_default()).map_err(net_err)?;
             Ok(V::None)
         }
         _ => Err(unsupported(&format!("_brevi_fs.{n}"))),

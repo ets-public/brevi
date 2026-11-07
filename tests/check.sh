@@ -284,6 +284,66 @@ if python3 -c "import duckdb" 2>/dev/null; then
 else
   echo "skip tests/duckdb (no duckdb package)"
 fi
+# safetensors programs must print what CPython's safetensors 0.8 (numpy framework) prints, with Brevi's own
+# safetensors over its native numpy: never CPython. Brevi needs no package; `--update` needs safetensors and numpy.
+for f in tests/safetensors/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then
+    python3 -c "import safetensors, numpy" 2>/dev/null && python3 "$f" > "$exp" 2>/dev/null
+    continue
+  fi
+  out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_st_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_st_err || grep -q '"py"' /tmp/brevi_st_err; then
+    echo "FAIL $f (not built with Brevi's safetensors)"; cat /tmp/brevi_st_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_st_err | tail -5; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+if [ "$1" != "--update" ]; then
+  out=$($BREVI run --sandbox --allow-py numpy tests/safetensors/sandbox/files.py 2>&1)
+  case "$out" in
+    *"save_file(file) needs allow write"*"load_file(file) needs allow read"*"safe_open(file) needs allow read"*) echo "ok   sandbox safetensors (files need allow read, write)" ;;
+    *) echo "FAIL sandbox safetensors (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
+  esac
+fi
+# onnxruntime programs must print what CPython's onnxruntime 1.29 prints, with Brevi's own onnxruntime over ONNX
+# Runtime's C API (the onnxruntime package's library, or libonnxruntime): never CPython. Skipped without the
+# onnxruntime package (CI has none). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
+if python3 -c "import onnxruntime" 2>/dev/null; then
+  for f in tests/onnxruntime/*.py; do
+    exp="${f%.py}.expected"
+    if [ "$1" = "--update" ]; then
+      python3 "$f" > "$exp" 2>/dev/null
+      continue
+    fi
+    out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_ort_err)
+    if ! grep -q '"path":"dynamic"' /tmp/brevi_ort_err || grep -q '"py"' /tmp/brevi_ort_err; then
+      echo "FAIL $f (not built with Brevi's onnxruntime)"; cat /tmp/brevi_ort_err; fail=1
+    elif [ "$out" != "$(cat "$exp")" ]; then
+      echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_ort_err | tail -5; fail=1
+    else
+      echo "ok   $f"
+    fi
+  done
+  if [ "$1" != "--update" ]; then
+    out=$($BREVI run --sandbox --allow-py numpy tests/onnxruntime/sandbox/files.py 2>&1)
+    case "$out" in
+      *"line\":5,\"msg\":\"onnxruntime InferenceSession(model file) needs allow read"*"line\":7,\"msg\":\"onnxruntime files it writes"*"line\":8,"*) echo "ok   sandbox onnxruntime (files need allow read, write)" ;;
+      *) echo "FAIL sandbox onnxruntime (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
+    esac
+    # a model given as bytes needs no grant, unless its weights are in external data files
+    out=$($BREVI run --sandbox --allow-py numpy tests/onnxruntime/sandbox/bytes.py 2>/dev/null)
+    if [ "$out" = "$(cat tests/onnxruntime/sandbox/bytes.expected)" ]; then
+      echo "ok   sandbox onnxruntime (external data needs allow read)"
+    else
+      echo "FAIL sandbox onnxruntime (external data needs allow read)"; printf '%s\n' "$out"; fail=1
+    fi
+  fi
+else
+  echo "skip tests/onnxruntime (no onnxruntime package)"
+fi
 # requests and httpx programs must print what CPython's requests 2.34 and httpx 0.28 print, with Brevi's own copies
 # over native sockets and TLS: never CPython. They talk to tests/http/server.py (HTTP on 18080, HTTPS on 18081)
 # and pass verify= themselves, so a CA bundle in the environment changes nothing. `--update` needs both libraries.

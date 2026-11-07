@@ -1,0 +1,44 @@
+(3, 4) float32 [[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]]
+(3, 4) float32 [[12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]]
+(3, 4) float32 [[12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]]
+(3, 4) float32 [[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]]
+(4,) float32 [4.0, 5.0, 6.0, 7.0]
+() float32 23.0
+(2, 4) float32 [[4.0, 5.0, 6.0, 7.0], [16.0, 17.0, 18.0, 19.0]]
+(2, 3) float32 [[2.0, 6.0, 10.0], [14.0, 18.0, 22.0]]
+(3, 4) float32 [[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]]
+(2, 3, 4) float32 [[[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]], [[12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]]]
+(2, 2, 4) float32 [[[4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]], [[16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]]]
+(2, 3, 2) float32 [[[0.0, 2.0], [4.0, 6.0], [8.0, 10.0]], [[12.0, 14.0], [16.0, 18.0], [20.0, 22.0]]]
+(1, 3, 4) float32 [[[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]]]
+(1, 2, 2) float32 [[[13.0, 15.0], [17.0, 19.0]]]
+(3, 1) float32 [[1.0], [5.0], [9.0]]
+(2, 3, 4) float32 [[[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]], [[12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]]]
+(3, 4) float32 [[12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]]
+(3, 4) float32 [[12.0, 13.0, 14.0, 15.0], [16.0, 17.0, 18.0, 19.0], [20.0, 21.0, 22.0, 23.0]]
+(3,) int64 [1, 2, 3]
+(2,) int64 [0, 3]
+() int64 4
+() int64 0
+(0,) int64 []
+(0,) int64 []
+SafetensorError Error during slicing [0:6] with shape [5]: index 5 out of bounds for tensor dimension #0 of size 5
+SafetensorError Error during slicing [5] with shape [5]: index 5 out of bounds for tensor dimension #0 of size 5
+SafetensorError Invalid index -6 for dimension 0 of size 5
+SafetensorError Error during slicing [0, 0] with shape [5]: more slicing indexes than dimensions in tensor
+SafetensorError Only one ellipsis (...) is allowed in slice index
+SafetensorError Slice step must be a positive integer, got 0
+SafetensorError Slice step must be a positive integer, got -1
+OverflowError can't convert negative int to unsigned
+SafetensorError Unsupported slice index at position 0: expected slice, int, or ellipsis
+SafetensorError Non empty lists are not implemented
+(0,) int64 []
+SafetensorError Unsupported slice index at position 0: expected slice, int, or ellipsis
+SafetensorError Unsupported slice index at position 0: expected slice, int, or ellipsis
+SafetensorError Error during slicing [:] with shape [0, 2]: index 0 out of bounds for tensor dimension #0 of size 0
+SafetensorError Error during slicing [0:0] with shape [0, 2]: index 0 out of bounds for tensor dimension #0 of size 0
+(2,) bool [False, True]
+SafetensorError Error during slicing [3] with shape [2, 3, 4]: index 3 out of bounds for tensor dimension #0 of size 2
+SafetensorError Error during slicing [:, 3] with shape [2, 3, 4]: index 3 out of bounds for tensor dimension #1 of size 3
+SafetensorError Error during slicing [:, :, 0:5] with shape [2, 3, 4]: index 4 out of bounds for tensor dimension #2 of size 4
+[2, 3, 4] F32 I64

@@ -2146,7 +2146,7 @@ impl Ext for NpArr {
         "numpy.ndarray"
     }
     fn repr(&self) -> String {
-        np_array_repr(&self.0.vals(), &self.0.shape)
+        np_array_repr_ll(&self.0.vals(), &self.0.shape, np_is_ll(&self.0))
     }
     fn str_(&self) -> String {
         np_array_str(&self.0.vals(), &self.0.shape)

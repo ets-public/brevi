@@ -2059,6 +2059,8 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "_brevi_net" => brevi_net_fn(n, a),
         "_brevi_stdio" => brevi_stdio_fn(n, a),
         "_brevi_fs" => brevi_fs_fn(n, a),
+        "_brevi_st" => brevi_st_fn(n, a),
+        "_brevi_ort" => brevi_ort_fn(n, a),
         "_brevi_sqlite" => brevi_sqlite_fn(n, a),
         "_brevi_duckdb" => brevi_duckdb_fn(n, a),
         "_brevi_hf" => brevi_hf_fn(n, a),

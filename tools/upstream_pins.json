@@ -51,6 +51,16 @@
       "tests": ["tests/duckdb/*.py"],
       "stderr": false
     },
+    "safetensors": {
+      "watch": {"safetensors": "0.8.0"},
+      "tests": ["tests/safetensors/*.py"],
+      "stderr": false
+    },
+    "onnxruntime": {
+      "watch": {"onnxruntime": "1.29.0"},
+      "tests": ["tests/onnxruntime/*.py"],
+      "stderr": false
+    },
     "mcp": {
       "watch": {"mcp": "2.3.0"},
       "tests": [],

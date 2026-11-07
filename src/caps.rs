@@ -400,6 +400,33 @@ const DUCKDB_LACKS: &[&str] = &[
     "CSVLineTerminator", "Statement", "check_same_thread", "duckdb.experimental", "duckdb.query_graph", "duckdb.udf",
     "bytearray", "memoryview",
 ];
+// Brevi's safetensors (src/dynpy/py/safetensors.py, safetensors_numpy.py) reads and writes numpy arrays; the other
+// frameworks, raw TensorSpec serialization and deserialize's bytearrays it lacks (CPython's safetensors runs them).
+const SAFETENSORS_LACKS: &[&str] = &[
+    "safetensors.torch", "safetensors.tensorflow", "safetensors.flax", "safetensors.mlx", "safetensors.paddle", "TensorSpec",
+    "serialize(", "serialize_file(", "deserialize(", "_safetensors_rust", "_safe_open_handle", "bytearray", "memoryview",
+];
+// Frameworks and devices other than numpy on the CPU, named in strings (which the code checks blank) on lines that
+// open files: a program naming them is run by CPython's safetensors.
+const SAFETENSORS_RAW: &[&str] = &[
+    "\"pt\"", "'pt'", "\"torch\"", "'torch'", "\"pytorch\"", "'pytorch'", "\"tf\"", "'tf'", "\"tensorflow\"", "'tensorflow'",
+    "\"flax\"", "'flax'", "\"jax\"", "'jax'", "\"mlx\"", "'mlx'", "\"paddle\"", "'paddle'", "cuda", "\"mps", "'mps",
+];
+// Brevi's onnxruntime (src/dynpy/py/onnxruntime.py) runs models on ONNX Runtime's own engine, CPU only. IO binding,
+// OrtValue, sparse tensors, custom op libraries, LoRA adapters, model compilation, async runs and the rest of the
+// binding it lacks; a program using them runs CPython's onnxruntime.
+const ONNXRUNTIME_LACKS: &[&str] = &[
+    "OrtValue", "io_binding", "IOBinding", "run_with_iobinding", "run_with_ort_values", "run_with_ortvaluevector", "run_async",
+    "SparseTensor", "register_custom_ops_library", "LoraAdapter", "add_active_adapter", "AdapterFormat", "ModelCompiler",
+    "add_external_initializers", "add_initializer", "add_free_dimension_override", "add_provider", "set_provider_selection_policy",
+    "OrtDevice", "OrtMemoryInfo", "OrtArenaCfg", "create_and_register_allocator", "get_ep_devices", "OrtEpDevice", "register_execution_provider_library",
+    "set_global_thread_pool_sizes", "use_per_session_threads", "end_profiling", "get_profiling_start_time_ns", "get_tuning_results", "set_tuning_results",
+    "set_ep_dynamic_options", "get_input_memory_infos", "get_output_memory_infos", "get_input_epdevices", "get_provider_graph_assignment_info",
+    "set_load_cancellation_flag", "set_seed", "onnxruntime.training", "onnxruntime.quantization", "onnxruntime.transformers", "onnxruntime.tools",
+    "onnxruntime.experimental", ".capi._pybind_state", "capi.onnxruntime_inference_collection", "disabled_optimizers", "NotImplemented,",
+    "import NotImplemented", ".NotImplemented", "has_collective_ops", "enable_telemetry_events", "disable_telemetry_events",
+    "set_default_logger_verbosity", "bytearray", "memoryview",
+];
 const OWN_CONTEXTLIB: &[&str] = &[
     "contextmanager", "asynccontextmanager", "suppress", "nullcontext", "closing", "aclosing", "ExitStack", "AsyncExitStack",
     "AbstractContextManager", "AbstractAsyncContextManager",
@@ -453,6 +480,10 @@ fn path_module(m: &str) -> Option<&'static str> {
         "polars.exceptions" => Some("polars.exceptions"),
         "sqlite3" | "sqlite3.dbapi2" => Some("sqlite3"),
         "duckdb" => Some("duckdb"),
+        "safetensors" => Some("safetensors"),
+        "safetensors.numpy" => Some("safetensors.numpy"),
+        "onnxruntime" => Some("onnxruntime"),
+        "onnxruntime.capi.onnxruntime_pybind11_state" => Some("onnxruntime.capi.onnxruntime_pybind11_state"),
         "mcp" => Some("mcp"),
         "mcp.types" => Some("mcp.types"),
         "mcp_types" => Some("mcp_types"),
@@ -500,6 +531,10 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "polars" => own_polars(attr),
         "sqlite3" => own_def(include_str!("dynpy/py/sqlite3.py"), attr) || attr == "dbapi2",
         "duckdb" => own_def(include_str!("dynpy/py/duckdb.py"), attr) || attr == "__version__",
+        "safetensors" => own_def(include_str!("dynpy/py/safetensors.py"), attr) || matches!(attr, "__version__" | "numpy"),
+        "safetensors.numpy" => own_def(include_str!("dynpy/py/safetensors_numpy.py"), attr),
+        "onnxruntime" => own_def(include_str!("dynpy/py/onnxruntime.py"), attr) || attr == "__version__",
+        "onnxruntime.capi.onnxruntime_pybind11_state" => own_def(include_str!("dynpy/py/onnxruntime_state.py"), attr),
         "polars.exceptions" => defines(include_str!("dynpy/py/polars_exceptions.py"), attr),
         "jinja2.ext" => defines(include_str!("dynpy/py/jinja2_ext.py"), attr),
         "jinja2.exceptions" => defines(include_str!("dynpy/py/jinja2_exceptions.py"), attr),
@@ -679,7 +714,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
                 let deep = |p: &str| m.trim().starts_with(p) && path_module(m.trim()).is_none();
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") || deep("polars.") || deep("sqlite3.") || deep("duckdb.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") || deep("polars.") || deep("sqlite3.") || deep("duckdb.") || deep("safetensors.") || deep("onnxruntime.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -734,12 +769,22 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
                 }
+            }
+        }
+    }
+    if uses("safetensors") {
+        for (n, l) in src.lines().enumerate() {
+            if !(l.contains("safe_open(") || l.contains("framework")) {
+                continue;
+            }
+            if let Some(x) = SAFETENSORS_RAW.iter().find(|x| l.contains(*x)) {
+                bad.push((n + 1, format!("safetensors framework or device {}", x.trim_matches(|c| c == '"' || c == '\''))));
             }
         }
     }
@@ -881,6 +926,68 @@ fn duckdb_files(src: &str) -> Vec<(usize, &'static str, String)> {
     out
 }
 
+// The lines where Brevi's safetensors reads a file (safe_open, load_file) or writes one (save_file).
+fn safetensors_files(src: &str) -> Vec<(usize, &'static str, String)> {
+    let mut out = vec![];
+    for (n, l) in code_lines(src) {
+        for (f, cap) in [("safe_open", "read"), ("load_file", "read"), ("save_file", "write")] {
+            let pat = format!("{f}(");
+            if l.match_indices(&pat).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_')) {
+                out.push((n, cap, format!("safetensors {f}(file)")));
+            }
+        }
+    }
+    out
+}
+
+// The lines where Brevi's onnxruntime loads a model file (InferenceSession of anything but a bytes literal) or
+// writes one (optimized_model_filepath, profiling).
+fn onnxruntime_files(src: &str) -> Vec<(usize, &'static str, String)> {
+    let bytes_lit = |a: &str| a.starts_with("b\"") || a.starts_with("b'") || a.starts_with("rb\"") || a.starts_with("rb'");
+    // names only ever bound to bytes literals (`MODEL = b"..."`): a model given as bytes reads no file
+    let mut bound: std::collections::HashMap<&str, bool> = Default::default();
+    for raw in src.lines() {
+        let t = raw.trim_start();
+        let Some((lhs, rhs)) = t.split_once('=') else { continue };
+        let lhs = lhs.trim();
+        if lhs.is_empty() || !lhs.chars().all(|c| c.is_alphanumeric() || c == '_') || rhs.starts_with('=') {
+            continue;
+        }
+        let ok = bytes_lit(rhs.trim_start());
+        let e = bound.entry(lhs).or_insert(ok);
+        *e = *e && ok;
+    }
+    let mut out = vec![];
+    for (n, l) in code_lines(src) {
+        let raw = src.lines().nth(n - 1).unwrap_or("");
+        for (i, _) in raw.match_indices("InferenceSession(") {
+            if raw[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let arg = raw[i + 17..].trim_start();
+            let arg = arg.strip_prefix("path_or_bytes=").unwrap_or(arg).trim_start();
+            let name: String = arg.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            let named_bytes = !name.is_empty() && bound.get(name.as_str()) == Some(&true) && arg[name.len()..].trim_start().starts_with([',', ')']);
+            if !(bytes_lit(arg) || named_bytes) {
+                out.push((n, "read", "onnxruntime InferenceSession(model file)".to_string()));
+            }
+        }
+        if l.contains("optimized_model_filepath") || l.contains("enable_profiling") {
+            out.push((n, "write", "onnxruntime files it writes (optimized model, profile)".to_string()));
+        }
+        // config entries naming files (external initializers, profiles, ...) read and write them
+        for (i, _) in raw.match_indices("add_session_config_entry(") {
+            let key = raw[i + 25..].trim_start().trim_start_matches(['"', '\'']);
+            let key: String = key.chars().take_while(|c| !matches!(c, '"' | '\'' | ',' | ')')).collect::<String>().to_lowercase();
+            if ["file", "path", "folder", "dir"].iter().any(|w| key.contains(w)) || !raw[i + 25..].trim_start().starts_with(['"', '\'']) {
+                out.push((n, "read", "onnxruntime session config entry naming a file".to_string()));
+                out.push((n, "write", "onnxruntime session config entry naming a file".to_string()));
+            }
+        }
+    }
+    out
+}
+
 // The lines where Brevi's sqlite3 opens a database file: a connect() of anything but ":memory:" or "" (SQLite's
 // private temporary database). A read-only URI (mode=ro) needs only the read grant.
 fn sqlite_files(src: &str) -> Vec<(usize, &'static str, String)> {
@@ -963,6 +1070,13 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     // Brevi's duckdb opens database files (duckdb.connect("app.duckdb")); memory needs nothing.
     if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("duckdb")) {
         uses.extend(duckdb_files(src));
+    }
+    // Brevi's safetensors and onnxruntime read model files (and write safetensors files).
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("safetensors")) {
+        uses.extend(safetensors_files(src));
+    }
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("onnxruntime")) {
+        uses.extend(onnxruntime_files(src));
     }
     uses.sort();
     let mut seen = Vec::new();
@@ -1391,6 +1505,60 @@ mod tests {
         let src = "import duckdb\na = duckdb.connect()\nb = duckdb.connect(\"app.duckdb\")\nc = duckdb.connect('x.duckdb', read_only=True)\nd = duckdb.connect(':memory:')\ne = duckdb.connect(config={'threads': 1})\n";
         let files: Vec<(usize, &str)> = super::duckdb_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
         assert_eq!(files, [(3, "read"), (3, "write"), (4, "read")]);
+    }
+
+    // Brevi's safetensors and onnxruntime import only Brevi's own modules (files through _brevi_fs, which checks
+    // the grants; models through _brevi_ort, whose glue checks them) and open, run and reach nothing themselves.
+    #[test]
+    fn safetensors_onnxruntime_copies_reach_nothing() {
+        for (name, src, ok) in [
+            ("safetensors.py", include_str!("dynpy/py/safetensors.py"), &["_brevi_fs", "_brevi_st"][..]),
+            ("safetensors_numpy.py", include_str!("dynpy/py/safetensors_numpy.py"), &["numpy", "_brevi_fs", "_brevi_st", "safetensors"][..]),
+            ("onnxruntime.py", include_str!("dynpy/py/onnxruntime.py"), &["sys", "numpy", "_brevi_ort", "onnxruntime.capi.onnxruntime_pybind11_state"][..]),
+            ("onnxruntime_state.py", include_str!("dynpy/py/onnxruntime_state.py"), &[][..]),
+        ] {
+            for l in src.lines().map(str::trim) {
+                if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                    let m = m.split_whitespace().next().unwrap();
+                    assert!(ok.contains(&m), "{name} imports {m}");
+                }
+                for bad in ["open(", "__import__", "exec(", "eval(", "environ", "sys.modules", "getattr(sys"] {
+                    let hit = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_'));
+                    assert!(!hit, "{name} uses {bad}");
+                }
+            }
+        }
+        // the glue that loads ONNX Runtime is pasted into programs, never part of the runtime
+        assert!(!crate::dynpy::RUNTIME.contains("brevi_ortglue"));
+    }
+
+    #[test]
+    fn path_uses_safetensors_onnxruntime() {
+        let uses = |s: &str| super::path_uses(s).unwrap().into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+        let ok = "import numpy as np\nfrom safetensors import safe_open, SafetensorError\nfrom safetensors.numpy import save, load, save_file\nb = save({'a': np.ones(2)}, metadata={'k': 'v'})\nwith safe_open('m.safetensors', framework='np') as f:\n    print(f.keys(), f.get_slice('a')[0:1], f.metadata())\n";
+        assert!(uses(ok).is_empty(), "{:?}", uses(ok));
+        let ok = "import numpy as np\nimport onnxruntime as ort\nso = ort.SessionOptions()\nso.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL\ns = ort.InferenceSession('m.onnx', so, providers=['CPUExecutionProvider'])\nprint(s.get_inputs()[0].shape, s.run(None, {'x': np.ones((1, 4), np.float32)}))\n";
+        assert!(uses(ok).is_empty(), "{:?}", uses(ok));
+        for bad in [
+            "from safetensors.torch import load_file\n",
+            "from safetensors import safe_open\nf = safe_open('m', framework='pt')\n",
+            "from safetensors import safe_open\nwith safe_open('m', \"torch\", device='cuda:0') as f:\n    pass\n",
+            "from safetensors import serialize\n",
+            "from safetensors.numpy import load\nload(bytearray(b'x'))\n",
+            "import onnxruntime as ort\nv = ort.OrtValue.ortvalue_from_numpy(x)\n",
+            "import onnxruntime as ort\ns = ort.InferenceSession('m.onnx')\nb = s.io_binding()\n",
+            "import onnxruntime as ort\nort.set_seed(1)\n",
+            "from onnxruntime.quantization import quantize_dynamic\n",
+            "import onnxruntime as ort\nf = ort\n",
+        ] {
+            assert!(!uses(bad).is_empty(), "{bad}");
+        }
+        let src = "from safetensors import safe_open\nfrom safetensors.numpy import load_file, save_file, save\nsave_file(d, 'a.st')\nx = load_file('a.st')\nf = safe_open('a.st', 'np')\nb = save(d)\n";
+        let files: Vec<(usize, &str)> = super::safetensors_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
+        assert_eq!(files, [(3, "write"), (4, "read"), (5, "read")]);
+        let src = "import onnxruntime as ort\nM = b'onnx'\na = ort.InferenceSession(M)\nb = ort.InferenceSession(b'x')\nc = ort.InferenceSession('m.onnx')\nso.optimized_model_filepath = 'o.onnx'\nso.add_session_config_entry('session.use_env_allocators', '1')\nso.add_session_config_entry('session.profile_file_prefix', 'p')\nN = b'x'\nN = open('m', 'rb').read()\nd = ort.InferenceSession(N)\n";
+        let files: Vec<(usize, &str)> = super::onnxruntime_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
+        assert_eq!(files, [(5, "read"), (6, "write"), (8, "read"), (8, "write"), (11, "read")]);
     }
 
     // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it

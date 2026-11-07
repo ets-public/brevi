@@ -1,0 +1,33 @@
+635 b'\xe8\x01\x00\x00\x00\x00\x00\x00' c64e5928e7a164b9a387f01a9fe19dbcaf06c6b8e3ed8d6e00bd1e44ef2353c5
+b'{"ids":{"dtype":"I64","shape":[2,2],"data_offsets":[0,32]},"a.b/c":{"dtype":"F64","shape":[2],"data_offsets":[32,48]},"bias":{"dtype":"F64","shape":[3],"data_offsets":[48,72]},"empty":{"dtype":"F32","shape":[0,3],"data_offsets":[72,72]},"scalar":{"dtype":"F32","shape":[],"data_offsets":[72,76]},"weight":{"dtype":"F32","shape":[3,4],"data_offsets":[76,124]},"small":{"dtype":"I32","shape":[3],"data_offsets":[124,136]},"mask":{"dtype":"BOOL","shape":[3],"data_offsets":[136,139]}}       '
+a.b/c float64 (2,) [1.0, 1.0]
+bias float64 (3,) [0.5, -1.25, 2.0]
+empty float32 (0, 3) []
+ids int64 (2, 2) [[1, 2], [3, 4]]
+mask bool (3,) [True, False, True]
+scalar float32 () 3.5
+small int32 (3,) [7, -8, 9]
+weight float32 (3, 4) [[0.0, 0.3333333432674408, 0.6666666865348816, 1.0], [1.3333333730697632, 1.6666666269302368, 2.0, 2.3333332538604736], [2.6666667461395264, 3.0, 3.3333332538604736, 3.6666667461395264]]
+b'{"__metadata__":{"format":"np"},"x":{"dtype":"F64","shape":[4],"data_offsets":[0,32]}}  '
+['ids', 'a.b/c', 'bias', 'empty', 'scalar', 'weight', 'small', 'mask']
+[[0.         0.33333334 0.6666667  1.        ]
+ [1.3333334  1.6666666  2.         2.3333333 ]
+ [2.6666667  3.         3.3333333  3.6666667 ]]
+array([ 0.5 , -1.25,  2.  ]) array([ 7, -8,  9], dtype=int32) array(3.5, dtype=float32) array([], shape=(0, 3), dtype=float32)
+22.0 [[2 4]
+ [6 8]] True
+['a.b/c', 'bias', 'empty', 'ids', 'mask', 'scalar', 'small', 'weight']
+['ids', 'a.b/c', 'bias', 'empty', 'scalar', 'weight', 'small', 'mask']
+{'producer': 'brevi tests'}
+[[1 2]
+ [3 4]]
+['ids', 'a.b/c', 'bias', 'empty', 'scalar', 'weight', 'small', 'mask'] [ True False  True]
+int32 [3, 4] F32
+[5.8313036 2.036606  2.6641946 9.772299 ] float32
+96f79d328e0c6c123d5fea4a2ee1d0fc2dbf8d765c7164973006d0c0163cc182
+[[0. 1.]
+ [2. 3.]
+ [4. 5.]]
+[[0. 1.]
+ [2. 3.]]
+[3. 4. 5.]
