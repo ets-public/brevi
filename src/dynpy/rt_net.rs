@@ -692,3 +692,57 @@ impl Inflater {
         }
     }
 }
+
+// ---------- _brevi_stdio: the stdio an MCP server speaks JSON-RPC over (Brevi's mcp, py/_brevi_mcp.py) ----------
+// As the SDK's stdio_server claims fds 0 and 1: private duplicates of both for the protocol, fd 0 then reading
+// /dev/null and fd 1 writing to stderr, so that print() cannot corrupt the stream; release puts them back. The
+// system calls are in src/dynpy/stdioglue.rs, pasted into a program that imports Brevi's mcp.
+
+pub struct StdioOps {
+    // (private stdin fd, private stdout fd)
+    pub claim: fn() -> Result<(i64, i64), NetErr>,
+    pub release: fn(),
+    // Ok(bytes), empty at the end
+    pub read: fn(i64, usize) -> Result<Vec<u8>, NetErr>,
+    pub write: fn(i64, &[u8]) -> Result<(), NetErr>,
+    pub poll: fn(&[(i64, i64)], f64) -> Result<Vec<i64>, NetErr>,
+}
+
+pub static STDIO: std::sync::OnceLock<StdioOps> = std::sync::OnceLock::new();
+
+fn stdio() -> Result<&'static StdioOps, E> {
+    STDIO.get().ok_or_else(|| exc("OSError", "brevi: this program was built without Brevi's mcp stdio".into()))
+}
+
+pub fn brevi_stdio_fn(n: &str, a: Args) -> R {
+    let arg = |i: usize| a.p.get(i).cloned().unwrap_or(V::None);
+    match n {
+        "claim" => {
+            let ops = stdio()?;
+            out_flush();
+            let (i, o) = (ops.claim)().map_err(net_err)?;
+            Ok(tup(vec![V::Int(i), V::Int(o)]))
+        }
+        "release" => {
+            (stdio()?.release)();
+            Ok(V::None)
+        }
+        "read" => Ok(bytesv((stdio()?.read)(net_id(&arg(0))?, net_id(&arg(1))?.max(1) as usize).map_err(net_err)?)),
+        "write" => {
+            let b = bytes_of(&arg(1)).ok_or_else(|| exc("TypeError", "a bytes-like object is required".into()))?;
+            (stdio()?.write)(net_id(&arg(0))?, &b).map_err(net_err)?;
+            Ok(V::None)
+        }
+        "poll" => {
+            let ops = stdio()?;
+            let mut fds = vec![];
+            for x in to_vec(&arg(0))? {
+                let p = to_vec(&x)?;
+                fds.push((net_id(&p[0])?, net_id(&p[1])?));
+            }
+            let r = (ops.poll)(&fds, net_f(&arg(1))).map_err(net_err)?;
+            Ok(list(r.into_iter().map(V::Int).collect()))
+        }
+        _ => Err(unsupported(&format!("_brevi_stdio.{n}"))),
+    }
+}

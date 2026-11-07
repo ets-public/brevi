@@ -1,0 +1,9 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2024-11-05","serverInfo":{"name":"demo","version":""}}}
+> {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+< {"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Add two numbers.","inputSchema":{"properties":{"a":{"title":"A","type":"integer"},"b":{"default":2,"title":"B","type":"integer"}},"required":["a"],"type":"object","title":"addArguments"},"name":"add","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"addOutput"}},{"description":"","inputSchema":{"properties":{"name":{"title":"Name","type":"string"},"excited":{"default":false,"title":"Excited","type":"boolean"}},"required":["name"],"type":"object","title":"greetArguments"},"name":"greet","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"greetOutput"}}]}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add","arguments":{"a":1}}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"3","type":"text"}],"isError":false,"structuredContent":{"result":3}}}
+> {"jsonrpc":"2.0","id":4,"method":"initialize","params":{"protocolVersion":"2099-01-01","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+< {"jsonrpc":"2.0","id":4,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-11-25","serverInfo":{"name":"demo","version":""}}}
+exit 0

@@ -10,7 +10,7 @@
 //
 // check() refuses, when the program is built, a model with an annotation the copy has no validator for, so
 // CPython's pydantic runs that program instead.
-use super::parse::{self, Arg, ClassDef, Ex, Params, St, Stmt};
+use super::parse::{self, Arg, ClassDef, Ex, FuncDef, Params, St, Stmt};
 use std::collections::HashSet;
 
 fn tag(s: &str) -> Ex {
@@ -575,4 +575,283 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------- MCP tool signatures
+//
+// Brevi's mcp copy (py/_brevi_mcp.py) builds a tool's input and output schemas, and validates its arguments,
+// from the function's signature, which the SDK reads with inspect and typing. Brevi keeps no annotations at
+// run time, so every function of a module that imports mcp gets `f.__brevi_sig__ = (params, ret, has_ret,
+// is_async, doc)` set right after its def: each parameter (name, descriptor or None, kind, has default,
+// default), kind 0 positional, 1 *args, 2 keyword-only, 3 **kwargs; descriptors as for models. A function
+// the mcp decorators (`@x.tool()`, `@x.resource(..)`, `@x.prompt()`) are on gets it before they run: the
+// decorators become assignments after the def. A signature Brevi's copy cannot read on such a function (or
+// on one handed to add_tool / from_function) refuses the build. Err(line, why).
+
+const MCP_DECORATORS: &[&str] = &["tool", "resource", "prompt"];
+const MCP_GENERIC: &[&str] = &["Context", "RequestContext", "ServerRequestContext"];
+
+pub fn mcp_sigs(body: &mut Vec<Stmt>, classes: &HashSet<String>, models: &HashSet<String>, extra: &HashSet<String>) -> Result<(), (usize, String)> {
+    let mut all: HashSet<String> = classes.clone();
+    all.extend(extra.iter().cloned());
+    let mut cv = Conv {
+        lazy: future_annotations(body),
+        classes: &all,
+        models,
+        aliases: HashSet::new(),
+    };
+    for s in body.iter() {
+        if let St::Assign(ts, v) = &s.st {
+            if let [Ex::Name(n)] = ts.as_slice() {
+                if matches!(v, Ex::Tuple(t) if matches!(t.first(), Some(Ex::Str(_)))) {
+                    cv.aliases.insert(n.clone());
+                }
+            }
+        }
+    }
+    let mut handed = HashSet::new();
+    handed_names(body, &mut handed);
+    sig_walk(body, &cv, &handed)
+}
+
+// names of functions passed to add_tool(...) / X.from_function(...)
+fn handed_names(body: &[Stmt], out: &mut HashSet<String>) {
+    fn ex(e: &Ex, out: &mut HashSet<String>) {
+        if let Ex::Call(f, args) = e {
+            if let Ex::Attr(_, m) = f.as_ref() {
+                if m == "add_tool" || m == "from_function" {
+                    for a in args {
+                        if let Some(Ex::Name(n)) = arg_value(a) {
+                            out.insert(n.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+            ex(f, out);
+            for a in args {
+                if let Some(v) = arg_value(a) {
+                    ex(v, out);
+                }
+            }
+        }
+    }
+    for s in body {
+        match &s.st {
+            St::Expr(e) | St::Assign(_, e) => ex(e, out),
+            St::Def(d) => handed_names(&d.body, out),
+            St::Class(c) => handed_names(&c.body, out),
+            St::If(arms, els) => {
+                for (c, b) in arms {
+                    ex(c, out);
+                    handed_names(b, out);
+                }
+                if let Some(b) = els {
+                    handed_names(b, out);
+                }
+            }
+            St::For(_, it, b, e) => {
+                ex(it, out);
+                handed_names(b, out);
+                if let Some(b) = e {
+                    handed_names(b, out);
+                }
+            }
+            St::While(_, b, _) | St::With(_, b) => handed_names(b, out),
+            St::Try(b, hs, e, f) => {
+                handed_names(b, out);
+                for h in hs {
+                    handed_names(&h.body, out);
+                }
+                for x in [e, f].into_iter().flatten() {
+                    handed_names(x, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn arg_value(a: &Arg) -> Option<&Ex> {
+    match a {
+        Arg::Pos(e) => Some(e),
+        _ => None,
+    }
+}
+
+fn is_mcp_decorator(d: &Ex) -> bool {
+    if let Ex::Call(f, _) = d {
+        if let Ex::Attr(_, m) = f.as_ref() {
+            return MCP_DECORATORS.contains(&m.as_str());
+        }
+    }
+    false
+}
+
+fn sig_walk(body: &mut Vec<Stmt>, cv: &Conv, handed: &HashSet<String>) -> Result<(), (usize, String)> {
+    let mut i = 0;
+    while i < body.len() {
+        let line = body[i].line;
+        let mut extra: Vec<Stmt> = vec![];
+        match &mut body[i].st {
+            St::Def(d) => {
+                sig_walk(&mut d.body, cv, handed)?;
+                let mcp = d.decorators.iter().any(is_mcp_decorator);
+                let needed = mcp || handed.contains(&d.name);
+                let sig = signature(d, cv);
+                match sig {
+                    Ok(s) => {
+                        if d.decorators.is_empty() || mcp {
+                            let target = Ex::Attr(Box::new(Ex::Name(d.name.clone())), "__brevi_sig__".into());
+                            extra.push(Stmt { line, st: St::Assign(vec![target], s) });
+                            if mcp {
+                                let decs = std::mem::take(&mut d.decorators);
+                                let mut v = Ex::Name(d.name.clone());
+                                for dec in decs.into_iter().rev() {
+                                    v = Ex::Call(Box::new(dec), vec![Arg::Pos(v)]);
+                                }
+                                extra.push(Stmt { line, st: St::Assign(vec![Ex::Name(d.name.clone())], v) });
+                            }
+                        } else if needed {
+                            return Err((line, format!("mcp: {} is handed to the SDK but has other decorators", d.name)));
+                        }
+                    }
+                    Err(why) => {
+                        if needed {
+                            return Err((line, format!("mcp: the signature of {}: {why}", d.name)));
+                        }
+                    }
+                }
+            }
+            St::Class(c) => sig_walk(&mut c.body, cv, handed)?,
+            St::If(arms, els) => {
+                for (_, b) in arms.iter_mut() {
+                    sig_walk(b, cv, handed)?;
+                }
+                if let Some(b) = els {
+                    sig_walk(b, cv, handed)?;
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                sig_walk(b, cv, handed)?;
+                for h in hs.iter_mut() {
+                    sig_walk(&mut h.body, cv, handed)?;
+                }
+                if let Some(x) = e {
+                    sig_walk(x, cv, handed)?;
+                }
+                if let Some(x) = f {
+                    sig_walk(x, cv, handed)?;
+                }
+            }
+            St::With(_, b) | St::While(_, b, _) => sig_walk(b, cv, handed)?,
+            St::For(_, _, b, _) => sig_walk(b, cv, handed)?,
+            _ => {}
+        }
+        let k = extra.len();
+        for (j, s) in extra.into_iter().enumerate() {
+            body.insert(i + 1 + j, s);
+        }
+        i += 1 + k;
+    }
+    Ok(())
+}
+
+fn strip_generic(e: &Ex) -> Ex {
+    match e {
+        Ex::Index(h, i) => {
+            let n = match h.as_ref() {
+                Ex::Name(n) => Some(n.as_str()),
+                Ex::Attr(_, n) => Some(n.as_str()),
+                _ => None,
+            };
+            if n.is_some_and(|n| MCP_GENERIC.contains(&n)) {
+                return (**h).clone();
+            }
+            Ex::Index(Box::new(strip_generic(h)), Box::new(strip_generic(i)))
+        }
+        Ex::Tuple(v) => Ex::Tuple(v.iter().map(strip_generic).collect()),
+        Ex::Bin(op, a, b) => Ex::Bin(op, Box::new(strip_generic(a)), Box::new(strip_generic(b))),
+        _ => e.clone(),
+    }
+}
+
+fn signature(d: &FuncDef, cv: &Conv) -> Result<Ex, String> {
+    let ann = |n: &str| -> Result<Ex, String> {
+        match d.params.ann.iter().find(|(m, _)| m == n) {
+            Some((_, a)) => cv.desc(&strip_generic(a)),
+            None => Ok(Ex::NoneV),
+        }
+    };
+    let mut ps = vec![];
+    let param = |n: &str, kind: i64, dflt: &Option<Ex>| -> Result<Ex, String> {
+        Ok(tup(vec![
+            tag(n),
+            ann(n)?,
+            Ex::Int(kind.to_string()),
+            boolean(dflt.is_some()),
+            dflt.clone().unwrap_or(Ex::NoneV),
+        ]))
+    };
+    for (n, dflt) in &d.params.pos {
+        ps.push(param(n, 0, dflt)?);
+    }
+    if let Some(n) = &d.params.star {
+        ps.push(param(n, 1, &None)?);
+    }
+    for (n, dflt) in &d.params.kwonly {
+        ps.push(param(n, 2, dflt)?);
+    }
+    if let Some(n) = &d.params.kwstar {
+        ps.push(param(n, 3, &None)?);
+    }
+    let ret = match &d.ret {
+        Some(r) => cv.desc(&strip_generic(r))?,
+        None => Ex::NoneV,
+    };
+    let doc = match d.body.first().map(|s| &s.st) {
+        Some(St::Expr(Ex::Str(s))) => Ex::Str(clean_doc(s)),
+        _ => Ex::NoneV,
+    };
+    Ok(tup(vec![tup(ps), ret, boolean(d.ret.is_some()), boolean(d.is_async), doc]))
+}
+
+// a docstring as CPython 3.13's compiler keeps it: tabs expanded, the first line's leading whitespace gone,
+// the common indentation of the other lines removed, blank lines emptied
+fn clean_doc(s: &str) -> String {
+    let lines: Vec<String> = s.split('\n').map(expand_tabs).collect();
+    let margin = lines
+        .iter()
+        .skip(1)
+        .filter(|l| !l.trim_start_matches(' ').is_empty())
+        .map(|l| l.len() - l.trim_start_matches(' ').len())
+        .min()
+        .unwrap_or(0);
+    let mut out = vec![];
+    for (i, l) in lines.iter().enumerate() {
+        if i == 0 {
+            out.push(l.trim_start_matches(' ').to_string());
+        } else if l.trim_start_matches(' ').is_empty() {
+            out.push(String::new());
+        } else {
+            out.push(l[margin..].to_string());
+        }
+    }
+    out.join("\n")
+}
+
+fn expand_tabs(l: &str) -> String {
+    let mut out = String::new();
+    let mut col = 0;
+    for c in l.chars() {
+        if c == '\t' {
+            let n = 8 - col % 8;
+            out.push_str(&" ".repeat(n));
+            col += n;
+        } else {
+            out.push(c);
+            col += 1;
+        }
+    }
+    out
 }

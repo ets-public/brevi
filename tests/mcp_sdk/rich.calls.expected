@@ -1,0 +1,86 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{"sampling":{}},"clientInfo":{"name":"t","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"completions":{},"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"instructions":"Use tools","protocolVersion":"2025-11-25","serverInfo":{"name":"demo3","version":"0.3","websiteUrl":"https://example.com"}}}
+> {"jsonrpc":"2.0","method":"notifications/initialized"}
+> {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+< {"jsonrpc":"2.0","id":2,"result":{"tools":[{"annotations":{"readOnlyHint":true},"description":"Move p by dx.","inputSchema":{"properties":{"p":{"$ref":"#/$defs/Point"},"dx":{"default":1,"title":"Dx","type":"integer"},"mode":{"default":"fast","enum":["fast","slow"],"title":"Mode","type":"string"}},"required":["p"],"type":"object","$defs":{"Point":{"properties":{"x":{"title":"X","type":"integer"},"y":{"default":0,"title":"Y","type":"integer"},"label":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Label"}},"required":["x"],"title":"Point","type":"object"}},"title":"moveArguments"},"name":"move","outputSchema":{"properties":{"x":{"title":"X","type":"integer"},"y":{"default":0,"title":"Y","type":"integer"},"label":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Label"}},"required":["x"],"type":"object","title":"Point"},"title":"Move a point"},{"description":"","inputSchema":{"properties":{"city":{"description":"City name","minLength":2,"title":"City","type":"string"},"days":{"default":1,"maximum":7,"minimum":1,"title":"Days","type":"integer"}},"required":["city"],"type":"object","title":"weatherArguments"},"name":"weather","outputSchema":{"properties":{"city":{"title":"City","type":"string"},"temp":{"description":"Celsius","title":"Temp","type":"number"},"tags":{"default":[],"items":{"type":"string"},"title":"Tags","type":"array"}},"required":["city","temp"],"type":"object","description":"Weather report.","title":"Weather"}},{"description":"","inputSchema":{"properties":{"n":{"anyOf":[{"type":"integer"},{"type":"null"}],"default":null,"title":"N"},"s":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"S"}},"type":"object","title":"maybeArguments"},"name":"maybe","outputSchema":{"properties":{"result":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Result"}},"required":["result"],"type":"object","title":"maybeOutput"}},{"description":"","inputSchema":{"properties":{"items":{"items":{"$ref":"#/$defs/Point"},"title":"Items","type":"array"}},"required":["items"],"type":"object","$defs":{"Point":{"properties":{"x":{"title":"X","type":"integer"},"y":{"default":0,"title":"Y","type":"integer"},"label":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Label"}},"required":["x"],"title":"Point","type":"object"}},"title":"manyArguments"},"name":"many","outputSchema":{"properties":{"result":{"items":{"$ref":"#/$defs/Point"},"title":"Result","type":"array"}},"required":["result"],"type":"object","$defs":{"Point":{"properties":{"x":{"title":"X","type":"integer"},"y":{"default":0,"title":"Y","type":"integer"},"label":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Label"}},"required":["x"],"title":"Point","type":"object"}},"title":"manyOutput"}},{"description":"","inputSchema":{"properties":{"xs":{"items":{"type":"number"},"title":"Xs","type":"array"}},"required":["xs"],"type":"object","title":"statsArguments"},"name":"stats","outputSchema":{"type":"object","additionalProperties":{"type":"number"},"title":"statsDictOutput"}},{"description":"","inputSchema":{"properties":{"x":{"title":"X","type":"integer"}},"required":["x"],"type":"object","title":"rawArguments"},"name":"raw"},{"description":"","inputSchema":{"properties":{"kind":{"title":"Kind","type":"string"}},"required":["kind"],"type":"object","title":"failsArguments"},"name":"fails","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"failsOutput"}},{"description":"","inputSchema":{"properties":{},"type":"object","title":"picArguments"},"name":"pic"},{"description":"","inputSchema":{"properties":{},"type":"object","title":"mixedArguments"},"name":"mixed"},{"description":"","inputSchema":{"properties":{},"type":"object","title":"lifespan_infoArguments"},"name":"lifespan_info","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"lifespan_infoOutput"}},{"description":"","inputSchema":{"properties":{"uri":{"title":"Uri","type":"string"}},"required":["uri"],"type":"object","title":"readerArguments"},"name":"reader","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"readerOutput"}},{"description":"Custom description","inputSchema":{"properties":{"a":{"title":"A","type":"boolean"},"b":{"default":"x","format":"binary","title":"B","type":"string"}},"required":["a"],"type":"object","title":"origArguments"},"name":"renamed","outputSchema":{"properties":{"result":{"title":"Result","type":"boolean"}},"required":["result"],"type":"object","title":"origOutput"}}]}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"move","arguments":{"p":{"x":1,"y":2}}}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"{\n  \"x\": 2,\n  \"y\": 2,\n  \"label\": \"fast\"\n}","type":"text"}],"isError":false,"structuredContent":{"x":2,"y":2,"label":"fast"}}}
+> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"move","arguments":{"p":"{\"x\": 5}","dx":"3","mode":"slow"}}}
+< {"jsonrpc":"2.0","id":4,"result":{"content":[{"text":"{\n  \"x\": 8,\n  \"y\": 0,\n  \"label\": \"slow\"\n}","type":"text"}],"isError":false,"structuredContent":{"x":8,"y":0,"label":"slow"}}}
+> {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"move","arguments":{"p":{"x":"a"},"mode":"medium"}}}
+< {"jsonrpc":"2.0","id":5,"result":{"content":[{"text":"Error executing tool move: 2 validation errors for moveArguments\np.x\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='a', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing\nmode\n  Input should be 'fast' or 'slow' [type=literal_error, input_value='medium', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/literal_error","type":"text"}],"isError":true}}
+> {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"weather","arguments":{"city":"Oslo","days":2}}}
+< {"jsonrpc":"2.0","id":6,"result":{"content":[{"text":"{\n  \"city\": \"Oslo\",\n  \"temp\": 21.5,\n  \"tags\": [\n    \"sunny\",\n    \"sunny\"\n  ]\n}","type":"text"}],"isError":false,"structuredContent":{"city":"Oslo","temp":21.5,"tags":["sunny","sunny"]}}}
+> {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"weather","arguments":{"city":"O","days":9}}}
+< {"jsonrpc":"2.0","id":7,"result":{"content":[{"text":"Error executing tool weather: 2 validation errors for weatherArguments\ncity\n  String should have at least 2 characters [type=string_too_short, input_value='O', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/string_too_short\ndays\n  Input should be less than or equal to 7 [type=less_than_equal, input_value=9, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.13/v/less_than_equal","type":"text"}],"isError":true}}
+> {"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"maybe","arguments":{}}}
+< {"jsonrpc":"2.0","id":8,"result":{"content":[],"isError":false,"structuredContent":{"result":null}}}
+> {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"maybe","arguments":{"n":4,"s":"!"}}}
+< {"jsonrpc":"2.0","id":9,"result":{"content":[{"text":"4!","type":"text"}],"isError":false,"structuredContent":{"result":"4!"}}}
+> {"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"many","arguments":{"items":[{"x":1},{"x":2,"label":"b"}]}}}
+< {"jsonrpc":"2.0","id":10,"result":{"content":[{"text":"{\n  \"x\": 2,\n  \"y\": 0,\n  \"label\": \"b\"\n}","type":"text"},{"text":"{\n  \"x\": 1,\n  \"y\": 0,\n  \"label\": null\n}","type":"text"}],"isError":false,"structuredContent":{"result":[{"x":2,"y":0,"label":"b"},{"x":1,"y":0,"label":null}]}}}
+> {"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"stats","arguments":{"xs":[1,2.5]}}}
+< {"jsonrpc":"2.0","id":11,"result":{"content":[{"text":"{\n  \"sum\": 3.5,\n  \"n\": 2.0\n}","type":"text"}],"isError":false,"structuredContent":{"sum":3.5,"n":2.0}}}
+> {"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"raw","arguments":{"x":21}}}
+< {"jsonrpc":"2.0","id":12,"result":{"content":[{"text":"42","type":"text"}],"isError":false}}
+> {"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"fails","arguments":{"kind":"tool"}}}
+< {"jsonrpc":"2.0","id":13,"result":{"content":[{"text":"Error executing tool fails: nope tool","type":"text"}],"isError":true}}
+> {"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"fails","arguments":{"kind":"mcp"}}}
+< {"jsonrpc":"2.0","id":14,"error":{"code":-32099,"message":"custom","data":{"k":1}}}
+> {"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"fails","arguments":{"kind":"key"}}}
+< {"jsonrpc":"2.0","id":15,"result":{"content":[{"text":"Error executing tool fails","type":"text"}],"isError":true}}
+> {"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"pic","arguments":{}}}
+< {"jsonrpc":"2.0","id":16,"result":{"content":[{"data":"iVBORw0K","mimeType":"image/png","type":"image"}],"isError":false}}
+> {"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"mixed","arguments":{}}}
+< {"jsonrpc":"2.0","id":17,"result":{"content":[{"text":"a","type":"text"},{"text":"1","type":"text"},{"text":"{\n  \"b\": 2\n}","type":"text"}],"isError":false}}
+> {"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"lifespan_info","arguments":{}}}
+< {"jsonrpc":"2.0","id":18,"result":{"content":[{"text":"conn-1 18","type":"text"}],"isError":false,"structuredContent":{"result":"conn-1 18"}}}
+> {"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"reader","arguments":{"uri":"config://app"}}}
+< {"jsonrpc":"2.0","id":19,"result":{"content":[{"text":"{\n  \"debug\": true,\n  \"level\": 3\n}","type":"text"}],"isError":false,"structuredContent":{"result":"{\n  \"debug\": true,\n  \"level\": 3\n}"}}}
+> {"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"reader","arguments":{"uri":"data://blob"}}}
+< {"jsonrpc":"2.0","id":20,"result":{"content":[{"text":"bytes","type":"text"}],"isError":false,"structuredContent":{"result":"bytes"}}}
+> {"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"renamed","arguments":{"a":true}}}
+< {"jsonrpc":"2.0","id":21,"result":{"content":[{"text":"false","type":"text"}],"isError":false,"structuredContent":{"result":false}}}
+> {"jsonrpc":"2.0","id":22,"method":"resources/list"}
+< {"jsonrpc":"2.0","id":22,"result":{"resources":[{"description":"","mimeType":"application/json","name":"app_config","uri":"config://app"},{"description":"","mimeType":"text/plain","name":"blob","uri":"data://blob"}]}}
+> {"jsonrpc":"2.0","id":23,"method":"resources/templates/list"}
+< {"jsonrpc":"2.0","id":23,"result":{"resourceTemplates":[{"description":"","mimeType":"text/plain","name":"profile","uriTemplate":"users://{uid}/profile/{field}"},{"description":"","mimeType":"text/plain","name":"files","uriTemplate":"files://{+path}"},{"description":"","mimeType":"text/plain","name":"search","uriTemplate":"search://items{?q,limit}"},{"description":"","mimeType":"text/plain","name":"err","uriTemplate":"err://{x}"}]}}
+> {"jsonrpc":"2.0","id":24,"method":"resources/read","params":{"uri":"config://app"}}
+< {"jsonrpc":"2.0","id":24,"result":{"contents":[{"mimeType":"application/json","text":"{\n  \"debug\": true,\n  \"level\": 3\n}","uri":"config://app"}]}}
+> {"jsonrpc":"2.0","id":25,"method":"resources/read","params":{"uri":"data://blob"}}
+< {"jsonrpc":"2.0","id":25,"result":{"contents":[{"blob":"AAEC","mimeType":"text/plain","uri":"data://blob"}]}}
+> {"jsonrpc":"2.0","id":26,"method":"resources/read","params":{"uri":"users://42/profile/name"}}
+< {"jsonrpc":"2.0","id":26,"result":{"contents":[{"mimeType":"text/plain","text":"42:name","uri":"users://42/profile/name"}]}}
+> {"jsonrpc":"2.0","id":27,"method":"resources/read","params":{"uri":"users://a%20b/profile/x%2Fy"}}
+< {"jsonrpc":"2.0","id":27,"result":{"contents":[{"mimeType":"text/plain","text":"a b:x/y","uri":"users://a%20b/profile/x%2Fy"}]}}
+> {"jsonrpc":"2.0","id":28,"method":"resources/read","params":{"uri":"files://a/b/c.txt"}}
+< {"jsonrpc":"2.0","id":28,"result":{"contents":[{"mimeType":"text/plain","text":"file a/b/c.txt","uri":"files://a/b/c.txt"}]}}
+> {"jsonrpc":"2.0","id":29,"method":"resources/read","params":{"uri":"files://../etc/passwd"}}
+< {"jsonrpc":"2.0","id":29,"error":{"code":-32602,"message":"Unknown resource: files://../etc/passwd","data":{"uri":"files://../etc/passwd"}}}
+> {"jsonrpc":"2.0","id":30,"method":"resources/read","params":{"uri":"search://items?q=hi&limit=5"}}
+< {"jsonrpc":"2.0","id":30,"result":{"contents":[{"mimeType":"text/plain","text":"q=hi limit=5","uri":"search://items?q=hi&limit=5"}]}}
+> {"jsonrpc":"2.0","id":31,"method":"resources/read","params":{"uri":"search://items"}}
+< {"jsonrpc":"2.0","id":31,"result":{"contents":[{"mimeType":"text/plain","text":"q= limit=10","uri":"search://items"}]}}
+> {"jsonrpc":"2.0","id":32,"method":"resources/read","params":{"uri":"err://z"}}
+< {"jsonrpc":"2.0","id":32,"error":{"code":-32603,"message":"Error creating resource from template err://z","data":{"uri":"err://z"}}}
+> {"jsonrpc":"2.0","id":33,"method":"prompts/list"}
+< {"jsonrpc":"2.0","id":33,"result":{"prompts":[{"arguments":[{"name":"topic","required":true},{"name":"tone","required":false}],"description":"Start a chat.","name":"chat","title":"Chat"},{"arguments":[{"name":"x","required":true}],"description":"","name":"failing"}]}}
+> {"jsonrpc":"2.0","id":34,"method":"prompts/get","params":{"name":"chat","arguments":{"topic":"rust"}}}
+< {"jsonrpc":"2.0","id":34,"result":{"description":"Start a chat.","messages":[{"content":{"text":"Talk about rust","type":"text"},"role":"user"},{"content":{"text":"Sure, in a friendly tone.","type":"text"},"role":"assistant"},{"content":{"text":"go","type":"text"},"role":"user"}]}}
+> {"jsonrpc":"2.0","id":35,"method":"prompts/get","params":{"name":"failing","arguments":{"x":"1"}}}
+< {"jsonrpc":"2.0","id":35,"error":{"code":0,"message":"Error rendering prompt failing"}}
+> {"jsonrpc":"2.0","id":36,"method":"prompts/get","params":{"name":"nope"}}
+< {"jsonrpc":"2.0","id":36,"error":{"code":0,"message":"Unknown prompt: nope"}}
+> {"jsonrpc":"2.0","id":37,"method":"completion/complete","params":{"ref":{"type":"ref/prompt","name":"chat"},"argument":{"name":"topic","value":"r"}}}
+< {"jsonrpc":"2.0","id":37,"result":{"completion":{"hasMore":false,"total":3,"values":["rust"]}}}
+> {"jsonrpc":"2.0","id":38,"method":"completion/complete","params":{"ref":{"type":"ref/resource","uri":"users://{uid}/profile/{field}"},"argument":{"name":"uid","value":""}}}
+< {"jsonrpc":"2.0","id":38,"result":{"completion":{"values":["u1","u2"]}}}
+> {"jsonrpc":"2.0","id":39,"method":"completion/complete","params":{"ref":{"type":"ref/prompt","name":"chat"},"argument":{"name":"tone","value":""}}}
+< {"jsonrpc":"2.0","id":39,"result":{"completion":{"values":[]}}}
+> {"jsonrpc":"2.0","id":40,"method":"completion/complete","params":{"ref":{"type":"ref/other"},"argument":{"name":"tone","value":""}}}
+< {"jsonrpc":"2.0","id":40,"error":{"code":-32602,"message":"Invalid request parameters","data":""}}
+> {"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"move","arguments":{"p":{"x":1},"extra":5}}}
+< {"jsonrpc":"2.0","id":41,"result":{"content":[{"text":"{\n  \"x\": 2,\n  \"y\": 0,\n  \"label\": \"fast\"\n}","type":"text"}],"isError":false,"structuredContent":{"x":2,"y":0,"label":"fast"}}}
+> {"jsonrpc":"2.0","id":42,"method":"resources/read","params":{"uri":"users://42/profile"}}
+< {"jsonrpc":"2.0","id":42,"error":{"code":-32602,"message":"Unknown resource: users://42/profile","data":{"uri":"users://42/profile"}}}
+exit 0

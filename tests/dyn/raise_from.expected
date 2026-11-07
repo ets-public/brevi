@@ -1,0 +1,5 @@
+ValueError v True
+None True
+None False
+KeyError()
+ValueError(1)

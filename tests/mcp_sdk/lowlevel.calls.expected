@@ -1,0 +1,36 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"tools":{"listChanged":true}},"protocolVersion":"2025-06-18","serverInfo":{"name":"low","version":"9"}}}
+> {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+< {"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Square","inputSchema":{"properties":{"n":{"type":"number"}},"required":["n"],"type":"object"},"name":"sq"}]}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"sq","arguments":{"n":7}}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"49","type":"text"}],"isError":false}}
+> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"dict","arguments":{}}}
+< {"jsonrpc":"2.0","id":4,"result":{"content":[{"text":"from dict","type":"text"}]}}
+> {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"bad","arguments":{}}}
+< {"jsonrpc":"2.0","id":5,"error":{"code":-32603,"message":"Handler returned an invalid result"}}
+> {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"err","arguments":{}}}
+< {"jsonrpc":"2.0","id":6,"error":{"code":-32000,"message":"as data"}}
+> {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"zzz","arguments":{}}}
+< {"jsonrpc":"2.0","id":7,"error":{"code":0,"message":"unknown zzz"}}
+> {"jsonrpc":"2.0","id":8,"method":"prompts/list"}
+< {"jsonrpc":"2.0","id":8,"result":{"prompts":[{"arguments":[{"name":"a","required":true}],"name":"p1"}]}}
+> {"jsonrpc":"2.0","id":9,"method":"prompts/get","params":{"name":"p1","arguments":{"a":"x"}}}
+< {"jsonrpc":"2.0","id":9,"result":{"messages":[{"content":{"text":"hi {'a': 'x'}","type":"text"},"role":"user"}]}}
+> {"jsonrpc":"2.0","id":10,"method":"resources/list"}
+< {"jsonrpc":"2.0","id":10,"error":{"code":-32601,"message":"Method not found","data":"resources/list"}}
+> {"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"slow","arguments":{}}}
+> {"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":11,"reason":"x"}}
+> {"jsonrpc":"2.0","id":12,"method":"ping"}
+< {"jsonrpc":"2.0","id":12,"result":{}}
+> {"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"slow","arguments":{}}}
+> {"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"sq","arguments":{"n":2}}}
+< {"jsonrpc":"2.0","id":14,"result":{"content":[{"text":"4","type":"text"}],"isError":false}}
+< {"jsonrpc":"2.0","id":13,"result":{"content":[{"text":"slow done","type":"text"}],"isError":false}}
+> {"jsonrpc":"2.0","id":"15","method":"tools/call","params":{"name":"slow","arguments":{}}}
+> {"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":15}}
+> {"jsonrpc":"2.0","id":17,"method":"ping"}
+< {"jsonrpc":"2.0","id":17,"result":{}}
+> {"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"slow","arguments":{}}}
+< {"jsonrpc":"2.0","id":16,"error":{"code":-32000,"message":"Connection closed"}}
+< after run
+exit 0

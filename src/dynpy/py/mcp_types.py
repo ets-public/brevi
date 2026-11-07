@@ -1,0 +1,26 @@
+# mcp.types (and mcp_types), from Brevi's mcp copy: written by tools/gen_mcp_shims.py, do not edit.
+from _brevi_mcp_models import RequestParams, PaginatedRequestParams, NotificationParams, Request, PaginatedRequest, Notification, Result, PaginatedResult
+from _brevi_mcp_models import CacheableResult, EmptyResult, BaseMetadata, Icon, Implementation, RootsCapability, SamplingContextCapability, SamplingToolsCapability
+from _brevi_mcp_models import FormElicitationCapability, UrlElicitationCapability, ElicitationCapability, SamplingCapability, TasksListCapability, TasksCancelCapability, TasksCreateMessageCapability, TasksSamplingCapability
+from _brevi_mcp_models import TasksCreateElicitationCapability, TasksElicitationCapability, ClientTasksRequestsCapability, ClientTasksCapability, ClientCapabilities, UnsupportedProtocolVersionErrorData, MissingRequiredClientCapabilityErrorData, PromptsCapability
+from _brevi_mcp_models import ResourcesCapability, ToolsCapability, LoggingCapability, CompletionsCapability, TasksCallCapability, TasksToolsCapability, ServerTasksRequestsCapability, ServerTasksCapability
+from _brevi_mcp_models import ServerCapabilities, InitializeRequestParams, InitializeRequest, InitializeResult, InitializedNotification, PingRequest, DiscoverRequest, DiscoverResult
+from _brevi_mcp_models import ToolExecution, TaskMetadata, RelatedTaskMetadata, Task, CreateTaskResult, GetTaskRequestParams, GetTaskRequest, GetTaskResult
+from _brevi_mcp_models import CancelTaskRequestParams, CancelTaskRequest, CancelTaskResult, TaskStatusNotificationParams, TaskStatusNotification, GetTaskPayloadRequestParams, GetTaskPayloadRequest, GetTaskPayloadResult
+from _brevi_mcp_models import ListTasksRequest, ListTasksResult, ProgressNotificationParams, ProgressNotification, ListResourcesRequest, Annotations, Resource, ResourceTemplate
+from _brevi_mcp_models import ListResourcesResult, ListResourceTemplatesRequest, ListResourceTemplatesResult, TextContent, ImageContent, AudioContent, CreateMessageResult, ToolUseContent
+from _brevi_mcp_models import ResourceLink, ResourceContents, TextResourceContents, BlobResourceContents, EmbeddedResource, ToolResultContent, CreateMessageResultWithTools, Root
+from _brevi_mcp_models import ListRootsResult, ElicitResult, InputResponseRequestParams, ReadResourceRequestParams, ReadResourceRequest, ReadResourceResult, ResourceListChangedNotification, SubscribeRequestParams
+from _brevi_mcp_models import SubscribeRequest, UnsubscribeRequestParams, UnsubscribeRequest, ResourceUpdatedNotificationParams, ResourceUpdatedNotification, SubscriptionFilter, SubscriptionsListenRequestParams, SubscriptionsListenRequest
+from _brevi_mcp_models import SubscriptionsAcknowledgedNotificationParams, SubscriptionsAcknowledgedNotification, SubscriptionsListenResult, ListPromptsRequest, PromptArgument, Prompt, ListPromptsResult, GetPromptRequestParams
+from _brevi_mcp_models import GetPromptRequest, SamplingMessage, PromptMessage, GetPromptResult, PromptListChangedNotification, ListToolsRequest, ToolAnnotations, Tool
+from _brevi_mcp_models import ListToolsResult, CallToolRequestParams, CallToolRequest, CallToolResult, ToolListChangedNotification, SetLevelRequestParams, SetLevelRequest, LoggingMessageNotificationParams
+from _brevi_mcp_models import LoggingMessageNotification, ModelHint, ModelPreferences, ToolChoice, CreateMessageRequestParams, CreateMessageRequest, ResourceTemplateReference, PromptReference
+from _brevi_mcp_models import CompletionArgument, CompletionContext, CompleteRequestParams, CompleteRequest, Completion, CompleteResult, ListRootsRequest, RootsListChangedNotification
+from _brevi_mcp_models import CancelledNotificationParams, CancelledNotification, ElicitCompleteNotificationParams, ElicitCompleteNotification, ElicitRequestFormParams, ElicitRequestURLParams, ElicitRequest, ElicitationRequiredErrorData
+from _brevi_mcp_models import InputRequiredResult, ErrorData, JSONRPCError, JSONRPCNotification, JSONRPCRequest, JSONRPCResponse, ContentBlock, ElicitRequestParams
+from _brevi_mcp_models import InputRequest, InputResponse, SamplingContent, SamplingMessageContentBlock, ClientNotification, ClientRequest, ClientResult, ServerNotification
+from _brevi_mcp_models import ServerRequest, ServerResult, JSONRPCMessage
+from _brevi_mcp import INVALID_PARAMS, METHOD_NOT_FOUND, INTERNAL_ERROR, INVALID_REQUEST, PARSE_ERROR, CONNECTION_CLOSED, REQUEST_TIMEOUT, HEADER_MISMATCH
+from _brevi_mcp import MISSING_REQUIRED_CLIENT_CAPABILITY, UNSUPPORTED_PROTOCOL_VERSION, URL_ELICITATION_REQUIRED, LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY, SERVER_INFO_META_KEY
+from _brevi_mcp import LOG_LEVEL_META_KEY

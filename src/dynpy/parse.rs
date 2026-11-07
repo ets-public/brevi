@@ -404,6 +404,8 @@ pub struct Params {
     pub star: Option<String>,
     pub kwonly: Vec<(String, Option<Ex>)>,
     pub kwstar: Option<String>,
+    // each annotated parameter's annotation (read by the MCP signature pass, mcpsig.rs; nothing else uses them)
+    pub ann: Vec<(String, Ex)>,
 }
 
 #[derive(Clone, Debug)]
@@ -422,6 +424,8 @@ pub struct FuncDef {
     pub decorators: Vec<Ex>,
     pub line: usize,
     pub is_async: bool,
+    // the return annotation
+    pub ret: Option<Ex>,
 }
 
 #[derive(Clone, Debug)]
@@ -1103,11 +1107,9 @@ impl P {
         self.expect_op("(")?;
         let params = self.params(")")?;
         self.expect_op(")")?;
-        if self.eat_op("->") {
-            self.expr()?;
-        }
+        let ret = if self.eat_op("->") { Some(self.expr()?) } else { None };
         let body = self.block()?;
-        Ok(FuncDef { name, params, body, decorators, line, is_async: false })
+        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret })
     }
     fn params(&mut self, end: &str) -> PR<Params> {
         let mut p = Params::default();
@@ -1119,22 +1121,27 @@ impl P {
             if self.eat_op("/") {
                 // positional-only marker: treat as ordinary
             } else if self.eat_op("**") {
-                p.kwstar = Some(self.name()?);
+                let n = self.name()?;
                 if end == ")" && self.eat_op(":") {
-                    self.expr()?;
+                    let a = self.expr()?;
+                    p.ann.push((n.clone(), a));
                 }
+                p.kwstar = Some(n);
             } else if self.eat_op("*") {
                 kwonly = true;
                 if !self.is_op(",") && !self.is_op(end) {
-                    p.star = Some(self.name()?);
+                    let n = self.name()?;
                     if end == ")" && self.eat_op(":") {
-                        self.expr()?;
+                        let a = self.expr()?;
+                        p.ann.push((n.clone(), a));
                     }
+                    p.star = Some(n);
                 }
             } else {
                 let n = self.name()?;
                 if end == ")" && self.eat_op(":") {
-                    self.expr()?;
+                    let a = self.expr()?;
+                    p.ann.push((n.clone(), a));
                 }
                 let d = if self.eat_op("=") { Some(self.expr()?) } else { None };
                 if kwonly {

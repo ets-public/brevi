@@ -111,6 +111,22 @@ pub fn make_exc(v: V) -> Result<E, E> {
         _ => make_exc_obj(v),
     }
 }
+// `raise X from Y`
+pub fn set_cause(e: &E, c: V) -> Result<(), E> {
+    let c = match c {
+        V::None => V::None,
+        V::Class(_) => make_exc(c)?.0,
+        v => match make_exc_obj(v) {
+            Ok(x) => x.0,
+            Err(_) => return Err(exc("TypeError", "exception causes must derive from BaseException".into())),
+        },
+    };
+    if let V::Obj(o) = &e.0 {
+        o.set("__cause__", c);
+        o.set("__suppress_context__", V::Bool(true));
+    }
+    Ok(())
+}
 fn make_exc_obj(v: V) -> Result<E, E> {
     if isinstance(&v, &V::Class(exc_class("BaseException")))? {
         Ok(E(v))

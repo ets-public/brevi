@@ -1,0 +1,26 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"héllo ☃ \"q\" \\ \n \t \u0001 😀"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"f","arguments":{"x":2}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"f","arguments":{"x":1e300}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"f","arguments":{"x":"3.5"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"nothing","arguments":{}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"lst","arguments":{"n":3}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"dct","arguments":{"k":"a"}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"plain","arguments":{"x":[1,2]}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"boom","arguments":{"x":1}}}
+{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"logs","arguments":{"n":1},"_meta":{"progressToken":"p1"}}}
+{"jsonrpc":"2.0","id":13,"method":"logging/setLevel","params":{"level":"warning"}}
+{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"logs","arguments":{"n":1}}}
+{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"echo","arguments":[1]}}
+{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"echo","arguments":{"text":"x","extra":1}}}
+{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"lst","arguments":{"n":"[1]"}}}
+{"jsonrpc":"2.0","id":null,"method":"ping"}
+{"jsonrpc":"2.0","id":18,"method":"ping","params":{"_meta":{"x":1}}}
+#nowait {"jsonrpc":"1.0","id":19,"method":"ping"}
+#nowait {"id":20,"method":"ping"}
+#nowait {"jsonrpc":"2.0","id":21,"result":{}}
+#nowait {"jsonrpc":"2.0","id":22.5,"method":"ping"}
+#nowait {"jsonrpc":"2.0","id":23,"method":"ping","params":[1]}
+{"jsonrpc":"2.0","id":24,"method":"ping"}
