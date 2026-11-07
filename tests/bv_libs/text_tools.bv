@@ -1,0 +1,9 @@
+# textwrap and polars from Brevi-style code
+import textwrap
+import polars as pl
+
+para = "Brevi compiles to Rust. Libraries a Brevi file imports run on the same native engine as Python files."
+for line in textwrap.wrap(para, width=30):
+  print("| {line}")
+df = pl.DataFrame({"city": ["Oslo", "Rome", "Oslo"], "temp": [3, 18, 5]})
+print(df.group_by("city").agg(pl.col("temp").mean()).sort("city"))

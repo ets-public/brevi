@@ -68,7 +68,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("../alloc_rt.rs"),
 );
 
-const HEADER: &str = "#![allow(warnings)] #[macro_use] extern crate brevi_dyn; use brevi_dyn::*; use std::rc::Rc; use std::cell::{Cell, RefCell};\n";
+pub const HEADER: &str = "#![allow(warnings)] #[macro_use] extern crate brevi_dyn; use brevi_dyn::*; use std::rc::Rc; use std::cell::{Cell, RefCell};\n";
 
 fn fnv(parts: &[&str]) -> u64 {
     let mut h: u64 = 1469598103934665603;
@@ -506,6 +506,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let narrow_libs = ["safetensors", "safetensors.numpy", "onnxruntime"].iter().any(|m| own_mods.contains(*m));
     emit::NP_ATTR_ST.store(own_mods.contains("safetensors"), std::sync::atomic::Ordering::Relaxed);
     emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && (narrow_libs || texts.values().any(|(_, t)| emit::names_narrow(t))), std::sync::atomic::Ordering::Relaxed);
+    *emit::OWN_COPIES.lock().unwrap() = own_mods.iter().cloned().collect();
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
             Some((p, _)) => p.clone(),
@@ -595,6 +596,11 @@ fn net_glue() -> String {
         crate::caps::granted("read"),
         include_str!("netglue.rs")
     )
+}
+
+// The runtime as a library for a typed program's engine (engine.rs).
+pub fn runtime_lib_path() -> Result<PathBuf, String> {
+    runtime_lib(&crate::cache_dir(), crate::rustc_version())
 }
 
 // The runtime as a library, built once per rustc version into the cache.

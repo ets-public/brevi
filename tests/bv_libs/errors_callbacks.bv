@@ -1,0 +1,17 @@
+# library errors keep their classes; Brevi lambdas run inside the library
+import numpy as np
+import json
+import markupsafe
+
+a = np.arange(6)
+try:
+  b = a.reshape(4, 4)
+except ValueError as e:
+  print("ValueError:", e)
+
+
+print(markupsafe.escape("<b>"), sorted(["b", "a"], key=s => s.upper()))
+xs = [3.5, 1.25, 2.0]
+print(np.sort(np.array(xs)), sum(xs))
+fn norm(v): float(np.linalg.norm(np.array(v)))
+print("{norm([3.0, 4.0]):.1f}")

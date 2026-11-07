@@ -936,3 +936,12 @@ macro_rules! ax_pyb_assign_ops {
     )*};
 }
 ax_pyb_assign_ops!(AddAssign add_assign "+=", SubAssign sub_assign "-=", MulAssign mul_assign "*=", DivAssign div_assign "/=");
+// `{v:.3f}` in a string: Python's format() of the library value.
+impl AxSpec for AxPy {
+    fn ax_spec(&self, spec: String) -> String {
+        match ax_pyb_format(self.clone(), spec) {
+            Ok(s) => s,
+            Err(e) => panic!("{}", ax_exc_msg(&e.0)),
+        }
+    }
+}

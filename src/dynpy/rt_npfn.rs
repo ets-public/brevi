@@ -103,11 +103,19 @@ fn np_reshape(a: &NdArr, dims: &[i64]) -> Result<NdArr, E> {
     }
     Ok(a.reshaped(shape))
 }
+// numpy's npy_shape_to_string: no spaces, a leading unknown (-1) dimension left out, later ones "newaxis".
 fn np_shape_repr_py(d: &[i64]) -> String {
-    match d.len() {
-        1 => format!("({},)", d[0]),
-        _ => format!("({})", d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", ")),
+    let Some(i) = d.iter().position(|x| *x >= 0) else { return "()".into() };
+    let mut s = format!("({}", d[i]);
+    for x in &d[i + 1..] {
+        if *x < 0 {
+            s.push_str(",newaxis");
+        } else {
+            s.push_str(&format!(",{x}"));
+        }
     }
+    s.push_str(if d.len() == 1 { ",)" } else { ")" });
+    s
 }
 fn np_dims_args(a: &Args, from: usize) -> Result<Vec<i64>, E> {
     let xs: Vec<V> = if a.p.len() == from + 1 && matches!(a.p[from], V::Tuple(_) | V::List(_)) { to_vec(&a.p[from])? } else { a.p[from..].to_vec() };
