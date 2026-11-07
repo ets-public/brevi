@@ -1,0 +1,13 @@
+| Brevi compiles to Rust.
+| Libraries a Brevi file imports
+| run on the same native engine
+| as Python files.
+shape: (2, 2)
+┌──────┬──────┐
+│ city ┆ temp │
+│ ---  ┆ ---  │
+│ str  ┆ f64  │
+╞══════╪══════╡
+│ Oslo ┆ 4.0  │
+│ Rome ┆ 18.0 │
+└──────┴──────┘

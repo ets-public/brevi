@@ -6,6 +6,7 @@ mod caps;
 mod diag;
 mod dynpy;
 mod emit;
+mod engine;
 mod ffi;
 mod gui;
 mod json;
@@ -953,7 +954,7 @@ fn forced_dyn() -> bool {
 
 // The typed path's own report: typed, or pybridge naming what CPython runs.
 fn say_typed() {
-    if pybridge::active() {
+    if pybridge::active() && !engine::on() {
         let uses = pybridge::uses();
         let list = uses.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(",");
         let why = if uses.is_empty() { "library calls run in CPython".to_string() } else { format!("{} run in CPython", uses.join(", ")) };
@@ -1233,8 +1234,15 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&caps::grant_hint("native", None))]);
     }
     if pybridge::active() {
-        pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
-        foreign.rust_top.push_str(&pybridge::runtime());
+        // Libraries Brevi has natively run on its own engine (engine.rs); others in CPython.
+        let (mods, froms) = pybridge::engine_imports();
+        match engine::glue(&mods, &froms, &items) {
+            Some(g) => foreign.rust_top.push_str(&g),
+            None => {
+                pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
+                foreign.rust_top.push_str(&pybridge::runtime());
+            }
+        }
     }
     ffi::attach(&mut items, &foreign);
     used_consts_first(&mut items);
@@ -1571,7 +1579,8 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     // a changed runtime (a brevi upgrade) must not reuse a binary or error built against the old one.
     static PRELUDE_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let ph = PRELUDE_HASH.get_or_init(|| format!("{:016x}", fnv(&[emit::PRELUDE, env!("CARGO_PKG_VERSION")], 3)));
-    let key = format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version(), ph], 0), fnv(&[rust, &extra.join(" "), rustc_version(), ph], 7));
+    let eng = engine::lib().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let key = format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version(), ph, &eng], 0), fnv(&[rust, &extra.join(" "), rustc_version(), ph, &eng], 7));
     let cdir = cache_dir().join("bin");
     let cached = cdir.join(&key);
     if use_cache {
@@ -1583,9 +1592,19 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
             return Some(Ok(()));
         }
     }
+    // Libraries on Brevi's engine: its runtime is linked too, and the program uses that runtime's allocator.
+    let engine_lib = engine::lib();
+    let rust: &str = &match engine_lib {
+        // (as many lines as it replaces, so rustc's line numbers still match the program's)
+        Some(_) => rust.replacen(include_str!("alloc_rt.rs"), &format!("pub use brevi_dyn::AX_ASCII;{}", "\n".repeat(include_str!("alloc_rt.rs").matches('\n').count())), 1),
+        None => rust.to_string(),
+    };
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = rustc_cmd();
+    if let Some(lib) = engine_lib {
+        c.arg("--extern").arg(format!("brevi_dyn={}", lib.display()));
+    }
     c.args(["--edition", "2021", "--error-format=json", "--crate-name", "brevi_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
     c.args(extra);
     if !release {
@@ -1665,7 +1684,7 @@ fn use_runtime_lib(rust: &str, release: bool) -> String {
     let rest = rust.strip_prefix(emit::PRELUDE).or_else(|| rust.strip_prefix(short));
     match rest {
         // Python interop implements prelude traits for prelude types, which only works inside one crate.
-        Some(rest) if DEPS.get().map_or(true, |d| d.is_empty()) && !rest.contains("trait AxFromJson") && runtime_lib(release).is_some() => format!("{RT_HEADER}{rest}"),
+        Some(rest) if DEPS.get().map_or(true, |d| d.is_empty()) && !rest.contains("trait AxFromJson") && engine::lib().is_none() && runtime_lib(release).is_some() => format!("{RT_HEADER}{rest}"),
         _ => rust.to_string(),
     }
 }
@@ -1717,7 +1736,7 @@ fn runtime_lib_source() -> String {
 }
 
 // `rustc -vV`, asked once per run. Part of every cache key, so a new toolchain never reuses old builds.
-fn rustc_version() -> &'static str {
+pub(crate) fn rustc_version() -> &'static str {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     V.get_or_init(|| rustc_cmd().arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default())
 }

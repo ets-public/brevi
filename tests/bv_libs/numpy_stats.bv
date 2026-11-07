@@ -1,0 +1,19 @@
+# numpy from Brevi-style code: arrays on Brevi's own engine
+import numpy as np
+
+fn zscores(xs):
+  a = np.array(xs)
+  (a - a.mean()) / a.std()
+
+scores = [72, 85, 90, 66, 98, 79]
+z = zscores(scores)
+print(z.round(3))
+print("max z {z.max():.3f} at {int(z.argmax())}")
+m = np.arange(12).reshape(3, 4)
+print(m)
+print(m.sum(axis=0), m.T.shape)
+print(m @ np.ones(4))
+best = [i for i in 0..len(scores) if scores[i] > 80]
+print(best, np.mean(np.array(scores)[best]))
+rng = np.random.default_rng(7)
+print(rng.integers(0, 10, size=5))

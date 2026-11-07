@@ -80,6 +80,21 @@ for f in tests/lib/*.py; do
     echo "ok   $f"
   fi
 done
+# Brevi files (.bv) that import libraries: Brevi's own copies run them, on the dynamic build's engine (engine.rs),
+# never CPython. The .expected files match what the same programs print with CPython's libraries
+# (BREVI_ENGINE=0, where python3 has them).
+for f in tests/bv_libs/*.bv; do
+  exp="${f%.bv}.expected"
+  out=$(cd tests/bv_libs && BREVI_PATH=1 timeout 120 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
+    echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_bv_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; cat /tmp/brevi_bv_err; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
 # The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output

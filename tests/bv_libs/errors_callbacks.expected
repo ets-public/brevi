@@ -1,0 +1,4 @@
+ValueError: cannot reshape array of size 6 into shape (4,4)
+&lt;b&gt; ['a', 'b']
+[1.25 2.   3.5 ] 6.75
+5.0

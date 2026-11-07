@@ -291,6 +291,28 @@ pub fn uses() -> Vec<String> {
     v
 }
 
+// For engine.rs: the bridged modules the program imports (and Brevi's own modules whose missing functions it
+// calls), and the (module, name) pairs it imports from bridged modules.
+pub fn engine_imports() -> (Vec<String>, Vec<(String, String)>) {
+    let (mut mods, froms): (Vec<String>, Vec<(String, String)>) = reg(|r| {
+        let mut m: Vec<String> = r.mods.values().cloned().collect();
+        m.sort();
+        m.dedup();
+        let mut f: Vec<(String, String)> = r.names.values().filter(|(m, _)| bridged(m)).cloned().collect();
+        f.sort();
+        f.dedup();
+        (m, f)
+    })
+    .unwrap_or_default();
+    for (m, _) in EXTRA.with(|x| x.borrow().iter().cloned().collect::<Vec<_>>()) {
+        if !mods.contains(&m) {
+            mods.push(m);
+        }
+    }
+    mods.sort();
+    (mods, froms)
+}
+
 // The program's CPython calls are all functions of Brevi's own modules (`math.gcd`, `itertools.product`), not
 // libraries Brevi lacks: the dynamic build, which has them natively, is tried first.
 pub fn stdlib_only() -> bool {
@@ -675,7 +697,13 @@ fn to_py(e: Expr, line: usize) -> Expr {
         Expr::Ident(n) | Expr::Move(n) if !n.starts_with("ax_") => call("ax_pyb_argm", vec![Expr::Ident(n)], line),
         // A lambda given to Python (`key=lambda r: r[1]`, `reduce(lambda a, b: a * b, xs)`): a Python function
         // that runs it; its parameters are Python values.
-        Expr::Lambda(ps, body) if ps.len() <= 3 => call(&format!("ax_pyb_fn{}", ps.len()), vec![Expr::Lambda(ps, body)], line),
+        Expr::Lambda(ps, body) if ps.len() <= 3 => {
+            // its parameters hold library values (the parse runs again to read its body that way)
+            for p in &ps {
+                hold(p);
+            }
+            call(&format!("ax_pyb_fn{}", ps.len()), vec![Expr::Lambda(ps, body)], line)
+        }
         other => call("ax_pyb", vec![other], line),
     }
 }
@@ -788,6 +816,47 @@ pub fn member(recv: Expr, name: &str, args: Option<Vec<(Option<String>, Expr)>>,
 pub fn py_method(m: &str) -> bool {
     // Brevi's own method names are left to Brevi (a wrong one fails the build, loudly).
     active() && !crate::emit::METHODS.contains(&m) && !matches!(m, "map" | "filter" | "flatten" | "str" | "len" | "int" | "float" | "fmt" | "spec" | "py_repr" | "__call" | "or" | "lax")
+}
+
+// A method of Brevi's own name called on a library value known by its type (`z.max()`, `a.round(3)`, or
+// `s.strip()`, which the parser spelled `trim`): the library's method of that name, in Python's spelling.
+// Names the compiler itself calls (map, len, or, ...) stay Brevi's.
+pub fn py_name(m: &str) -> Option<&str> {
+    if py_method(m) {
+        return Some(m);
+    }
+    if !active() {
+        return None;
+    }
+    Some(match m {
+        "max" | "min" | "sum" | "round" | "sort" | "replace" | "split" | "lower" | "upper" | "keys" | "values" | "join" | "insert" | "remove" | "pop" | "clear" | "update" | "find"
+        | "title" | "capitalize" | "zfill" | "center" | "ljust" | "rjust" | "most_common" | "copy" | "abs" => m,
+        "push" => "append",
+        "trim" | "trim_of" => "strip",
+        "trim_end" | "trim_end_of" => "rstrip",
+        "trim_start" | "trim_start_of" => "lstrip",
+        "lines" | "lines_keep" => "splitlines",
+        "pop_at" | "pop_or" => "pop",
+        "is_upper" => "isupper",
+        "is_lower" => "islower",
+        "is_alnum" => "isalnum",
+        "is_digit" => "isdigit",
+        "is_alpha" => "isalpha",
+        "is_space" => "isspace",
+        "words" | "split_n" => "split",
+        "rsplit_n" => "rsplit",
+        "starts_with" | "starts_with_at" => "startswith",
+        "ends_with" | "ends_with_at" => "endswith",
+        "pairs" => "items",
+        "index_of" => "index",
+        "get_or" => "get",
+        "find_from" => "find",
+        "most_common_all" => "most_common",
+        "center_with" => "center",
+        "ljust_with" => "ljust",
+        "rjust_with" => "rjust",
+        _ => return None,
+    })
 }
 
 // `v.name(args)` with v a Python value by its type: CPython's method.

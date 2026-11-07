@@ -148,8 +148,13 @@ fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
 // Set while the program uses Brevi's safetensors: its safe_open has .metadata(), which numpy's dtypes have too
 // (a dtype's .metadata is rare; on one it raises AttributeError).
 pub static NP_ATTR_ST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// Brevi's own copies of libraries (jinja2, polars, ...): their `.partition()` or `.fields` is never numpy's.
+pub static OWN_COPIES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+thread_local! {
+    static IN_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
-    if !np_on() || !NP_ATTR_ALL.contains(&n) {
+    if !np_on() || !NP_ATTR_ALL.contains(&n) || IN_COPY.with(|c| c.get()) {
         return Ok(());
     }
     if n == "metadata" && NP_ATTR_ST.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2582,6 +2587,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let mut inits = String::new();
     for m in mods {
         em.module = m.name.clone();
+        IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
         let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false };
         for n in em.mod_names[&m.name].clone() {
             let i = em.gslot(&m.name, &n);

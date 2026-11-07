@@ -1,0 +1,7 @@
+# tiktoken from Brevi-style code
+import tiktoken
+
+enc = tiktoken.get_encoding("cl100k_base")
+ids = enc.encode("Brevi is an AI-first language.")
+print(len(ids), ids[:4])
+print(enc.decode(ids))

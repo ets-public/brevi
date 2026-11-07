@@ -1167,7 +1167,7 @@ impl Cx<'_> {
     fn method(&self, recv: &Expr, m: &str, args: &[Expr], env: &Env) -> T {
         let r = self.ty(recv, env);
         // pybridge: a Python library value's own method gives a Python value.
-        if matches!(&r, Named(n) if n == "AxPy") && crate::pybridge::py_method(m) {
+        if matches!(&r, Named(n) if n == "AxPy") && crate::pybridge::py_name(m).is_some() {
             return Named("AxPy".into());
         }
         let a = |i: usize| args.get(i).map(|x| self.ty(x, env)).unwrap_or(Hole);
@@ -3502,13 +3502,27 @@ impl Ck<'_, '_> {
         }
         // pybridge: `d.strftime(f)` with d a Python library value known by its type: CPython's method.
         if let Expr::Method(r, m, args, line) = &*e {
-            if crate::pybridge::py_method(m) && matches!(self.cx.ty(r, env), Named(n) if n == "AxPy") {
-                *e = crate::pybridge::typed_call(r, m, args, *line);
+            if let Some(py) = crate::pybridge::py_name(m).filter(|_| matches!(self.cx.ty(r, env), Named(n) if n == "AxPy")) {
+                *e = crate::pybridge::typed_call(r, py, args, *line);
+            } else if args.is_empty() && matches!(m.as_str(), "int" | "float" | "str" | "len" | "bool") && matches!(self.cx.ty(r, env), Named(n) if n == "AxPy") {
+                // int(v), float(v), ... of a library value the parser could not see as one: Python's conversion
+                *e = Expr::Try(Box::new(Expr::Call(format!("ax_pyb_{m}"), vec![(None, (**r).clone())], *line)));
             }
         }
         // pybridge: only a list or dict given to a library is read back after the call (`random.shuffle(xs)`).
         if let Expr::Call(f, a, _) = &mut *e {
-            if f == "ax_pyb_argm" && a.len() == 1 && !matches!(self.cx.ty(&a[0].1, env), List(_) | Map(..) | Hole) {
+            // (and only when its items can come back: a list of records goes in as dicts and is not read back)
+            fn back(t: &T) -> bool {
+                match t {
+                    Int | F64 | Bool | Str | Dec | Json | Hole => true,
+                    Named(n) => n == "AxPy",
+                    List(x) => back(x),
+                    Map(k, v) => back(k) && back(v),
+                    Tuple(xs) => xs.len() <= 4 && xs.iter().all(back),
+                    _ => false,
+                }
+            }
+            if f == "ax_pyb_argm" && a.len() == 1 && { let t = self.cx.ty(&a[0].1, env); !matches!(t, List(_) | Map(..) | Hole) || !back(&t) } {
                 *f = "ax_pyb".into();
             }
         }

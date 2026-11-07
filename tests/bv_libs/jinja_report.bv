@@ -1,0 +1,9 @@
+# jinja2 templates from Brevi-style code
+from jinja2 import Template
+
+t = Template('{% for r in rows %}{{ r.name }}: {{ r.score }}{% if not loop.last %}, {% endif %}{% endfor %}')
+rows = [{"name": "ann", "score": 3}, {"name": "bob", "score": 5}]
+print(t.render(rows=rows))
+hello = Template('Hello {{ who | upper }}!')
+for w in ["world", "brevi"]:
+  print(hello.render(who=w))

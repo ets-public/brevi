@@ -234,6 +234,17 @@ flowchart LR
 - A class built on a library class (`class Post(BaseModel)`, or a class with a library decorator) is run by CPython whole. Its lines are compiled in a Python module named like the program's, after that file's import lines (`dynpy::lib_classes`). Such a class is refused, so the file runs in CPython, in three cases: it sits inside a function or block, it uses a name of the program that CPython cannot see, or a class in another file builds on it.
 - The `{"path":"dynamic"}` line names what CPython runs (`"py":[...]`). The dynamic runtime itself still reaches no file, process or CPython. The bridge code is added to the program only when the program imports a library.
 
+### Libraries on Brevi's engine (`.bv` files)
+
+> **Brevi native.** A `.bv` file whose libraries Brevi all has copies of runs them without CPython.
+
+A Brevi file only takes the typed path, so its library calls go through pybridge too. When every library it imports is one the dynamic build has natively (numpy, tiktoken, tokenizers, requests, httpx, anthropic, openai, pydantic, jinja2, markupsafe, polars, sqlite3, duckdb, safetensors, onnxruntime, textwrap, io, argparse, and Brevi's built-in modules), `engine.rs` puts those calls on the dynamic build's runtime instead:
+
+- `engine_rt.rs` is a second implementation of `pyrt.rs`'s calls (`AxPy`, `ax_pyb_call`, `ax_pyb_op`, conversions, write-back, lambdas as callables), over `brevi_dyn::V`. The typed build's lowering is the same either way.
+- The libraries are compiled by the dynamic build from a stub: one `import` per module the program uses, and every library call the typed program makes (`engine::shapes`, read off the `ax_pyb_*` calls after parsing) repeated with the same names, keyword names and string literals in a function that never runs. So the dynamic build's own build-time refusals (a numpy method its copy lacks, an unknown tiktoken encoding, a polars feature) still apply; a refused stub keeps CPython's libraries. `BREVI_ENGINE_DEBUG=1` prints the refusal and the stub.
+- The dynamic build's Rust goes into a `mod __dyn` of the typed program (its `main` becomes `__bv_main`, run before the first library call), and rustc links the dynamic runtime library (`--extern brevi_dyn`) next to the pasted prelude. That runtime brings its allocator, so the prelude's copy is left out.
+- Off for `.py` files (their dynamic build is tried first), under `--sandbox`, on Windows, and with `BREVI_ENGINE=0`. The path line says `typed`.
+
 ## Stage 4: compiling the Rust
 
 > **Brevi native.** Typed and dynamic builds both end here, as a native executable.
@@ -292,11 +303,11 @@ For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as 
 | What Rust did Brevi write? | `brevi emit x.py` (typed) or `BREVI_DYN=1 brevi emit x.py` (dynamic) |
 | Why did `brevi run` use CPython? | The `{"path":"cpython"}` line on stderr names the first error and its function; `brevi run --native x.py` shows them all |
 | A wrong answer compared with CPython | `tools/parity_probe.py`; typed fixes go in `infer.rs`/`emit.rs`/`prelude.rs`, dynamic ones in `dynpy/rt_*.rs` |
-| A new Python library | `pybridge.rs` (`NATIVE` list decides what stays native) |
+| A new Python library | `pybridge.rs` (`NATIVE` list decides what stays native); for `.bv` files also `engine.rs` (`OWN`) |
 
 ## Tests
 
-- `tests/check.sh`: every program in `tests/run` and `tests/errors` must match its `.expected` file; `tests/dyn/*.py` run with `BREVI_DYN=1` against `python3`'s output; `tests/fallback` covers the CPython fallback.
+- `tests/check.sh`: every program in `tests/run` and `tests/errors` must match its `.expected` file; `tests/bv_libs/*.bv` must run their libraries on the engine (never CPython); `tests/dyn/*.py` run with `BREVI_DYN=1` against `python3`'s output; `tests/fallback` covers the CPython fallback.
 - `bench/verify.sh OLD NEW`: every saved benchmark solution must still give the same output.
 - `tools/compat.py check`: every solution in `compat/baseline.txt` must keep building on new Rust and Python releases.
 - `sh tools/ci_local.sh`: the PR checks, run locally before merging.

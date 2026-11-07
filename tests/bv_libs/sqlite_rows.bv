@@ -1,0 +1,12 @@
+# sqlite3 from Brevi-style code
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.execute("create table t (name text, n integer)")
+for (name, n) in [("a", 3), ("b", 7), ("c", 5)]:
+  db.execute("insert into t values (?, ?)", (name, n))
+total = 0
+for row in db.execute("select name, n from t order by n desc"):
+  print(row)
+  total += int(row[1])
+print("total {total}")
