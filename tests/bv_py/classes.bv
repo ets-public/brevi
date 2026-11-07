@@ -1,0 +1,54 @@
+# A .bv file written in plain Python gets what a .py file gets: here, code the typed build refuses
+# (a dict subclass, inheritance with super(), closures, **kwargs) built over dynamic values.
+class Counts(dict):
+    def __missing__(self, key):
+        self[key] = 0
+        return 0
+
+
+class Shape:
+    def __init__(self, name):
+        self.name = name
+
+    def area(self):
+        return 0
+
+    def __repr__(self):
+        return f"{type(self).__name__}({self.name!r}, {self.area():.2f})"
+
+
+class Rect(Shape):
+    def __init__(self, w, h):
+        super().__init__("rect")
+        self.w, self.h = w, h
+
+    def area(self):
+        return self.w * self.h
+
+
+def counter():
+    n = 0
+
+    def bump(by=1):
+        nonlocal n
+        n += by
+        return n
+    return bump
+
+
+def tag(name, **attrs):
+    inner = " ".join(f'{k}="{v}"' for k, v in sorted(attrs.items()))
+    return f"<{name} {inner}>"
+
+
+c = Counts()
+for w in "a b a c a b".split():
+    c[w] += 1
+print(sorted(c.items()), c.get("z"), c["q"])
+shapes = [Rect(2, 3), Shape("dot"), Rect(1.5, 2)]
+print(shapes, sum(s.area() for s in shapes))
+b = counter()
+b()
+b(5)
+print(b(), isinstance(shapes[0], Shape), type(3 / 2).__name__, 3 / 2, 7 // 2)
+print(tag("a", href="/x", id=7))

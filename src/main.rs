@@ -267,12 +267,16 @@ fn main() {
             exit(2);
         }
     };
+    // A .bv file written in plain Python (no Brevi spellings) takes the .py path: the guard, the typed build and the
+    // dynamic build, but never python3 (it is a Brevi file).
+    let bv_py = matches!(cmd, "build" | "run" | "check" | "emit") && bv_as_py(&file);
+    let native = native || bv_py;
     // `brevi run x.py` falls back to CPython when Brevi cannot build the file; --native (or BREVI_NATIVE=1) keeps it strict.
-    if file.ends_with(".py") {
+    if is_py(&file) {
         PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     // An unchanged program is not built again: check, build and strict runs replay the build from the cache.
-    if matches!(cmd, "check" | "build" | "run") && !(cmd == "run" && file.ends_with(".py") && !native) && !standalone && runcache::on() && !runcache::in_child() {
+    if matches!(cmd, "check" | "build" | "run") && !(cmd == "run" && is_py(&file) && !native) && !standalone && runcache::on() && !runcache::in_child() {
         let mut flags: Vec<String> = vec![];
         for (on, f) in [(fast, "--fast"), (sandbox, "--sandbox"), (gui::window(), "--window"), (EXPLAIN.load(std::sync::atomic::Ordering::Relaxed), "--explain"), (native, "--native")] {
             if on {
@@ -284,20 +288,20 @@ fn main() {
     }
     // Capabilities first: a refusal here is final, before any dynamic, pybridge or python3 path can run.
     let held = matches!(cmd, "build" | "run" | "check" | "emit" | "test" | "fix") && hold_to_caps(&file, sandbox);
-    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "emit") && std::env::var("BREVI_DYN").map_or(false, |v| v == "1") {
+    if is_py(&file) && matches!(cmd, "build" | "run" | "emit") && std::env::var("BREVI_DYN").map_or(false, |v| v == "1") {
         dyn_cmd(cmd, &file, &argv);
     }
-    if cmd == "run" && file.ends_with(".py") && !native {
+    if cmd == "run" && is_py(&file) && !native {
         run_or_fall_back(&file, &argv, sandbox, held);
     }
     // Brevi's own syntax in a .py file: CPython stops on it, so Brevi does too.
-    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check") {
+    if is_py(&file) && matches!(cmd, "build" | "run" | "check") {
         refuse_not_python(&file);
     }
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
     let mut unread = None;
-    if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
+    if is_py(&file) && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
         let guard;
         (guard, unread) = guard_files(&file);
         if std::env::var("BREVI_GUARD").is_ok_and(|v| v == "print") {
@@ -332,7 +336,7 @@ fn main() {
     // Errors with a sure one-word fix (a typo of a known name) are fixed before building; `brevi fix` writes
     // every suggested fix back to the file.
     let src = modules::fill_file_name(&src, Path::new(&file));
-    let src = if file.ends_with(".py") { pystd::rewrite(&pysentinel::rewrite(&pygen::rewrite(&src))) } else { src };
+    let src = if is_py(&file) { pystd::rewrite(&pysentinel::rewrite(&pygen::rewrite(&src))) } else { src };
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
@@ -386,7 +390,7 @@ fn main() {
         }
     }
     // A Python file the typed path cannot build is built over dynamic values instead (still native, no CPython).
-    let dyn_ok = matches!(cmd, "build" | "run" | "check") && file.ends_with(".py");
+    let dyn_ok = matches!(cmd, "build" | "run" | "check") && is_py(&file);
     // The set-order guard let the file through on names rustc must prove hold strings: any failure from here
     // on is reported as the guard's reason, and goes where the guard would have sent it.
     let soft_fail = |cmd: &str| {
@@ -397,7 +401,7 @@ fn main() {
     let rust = match compile_to_rust(&src, true, true) {
         Ok(r) => {
             // The typed build takes Brevi's names (`fail("x")`, `s.trim()`), which are mistakes in a .py file.
-            if file.ends_with(".py") && matches!(cmd, "build" | "run" | "check") {
+            if is_py(&file) && matches!(cmd, "build" | "run" | "check") {
                 refuse_sure(&file, pydiag::scan_brevi);
             }
             // The typed build took a file the guard could not read, so nothing says it matches CPython. (A file
@@ -417,7 +421,7 @@ fn main() {
             // A mistake CPython would also stop on (a name defined nowhere, `x.uppr()`, `"n=" + len(xs)`) is
             // reported, not handed to the dynamic build, where it would only show when the line ran.
             let dir = Path::new(&file).parent().unwrap_or(Path::new("."));
-            let sure = if file.ends_with(".py") {
+            let sure = if is_py(&file) {
                 Some(pydiag::definite(&diags, &src, dir)).filter(|s| !s.is_empty()).unwrap_or_else(|| pydiag::scan(&src, dir))
             } else {
                 vec![]
@@ -2136,6 +2140,85 @@ fn fix_for(code: &str, msg: &str) -> Option<String> {
 // `brevi run --traceback` (or BREVI_TRACEBACK=1): a fallback to CPython shows its whole traceback.
 static TRACEBACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub static PY_FILE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// Set when the .bv file being built is plain Python (bv_as_py).
+static BV_PY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+// A Python file: a .py file, or a .bv file written in plain Python.
+pub fn is_py(file: &str) -> bool {
+    file.ends_with(".py") || BV_PY.get().is_some_and(|f| f == file)
+}
+
+// A .bv file written as Python with no Brevi spellings: CPython could compile it (no `fn`, `=>`, `use "x.bv"`,
+// foreign code), it uses no Brevi-only names (`fail(...)`, `.push(...)`), it is Python-style (so the typed
+// build already gives it Python's meaning), and no plain string in it would interpolate (`"{n}"` is Brevi's
+// interpolation, Python's literal text). Such a file gets what a .py file gets.
+fn bv_as_py(file: &str) -> bool {
+    if !file.ends_with(".bv") || std::env::var("BREVI_BV_PY").is_ok_and(|v| v == "0") {
+        return false;
+    }
+    let Ok(text) = std::fs::read_to_string(file) else { return false };
+    let src = caps::split(&text).0;
+    let dir = Path::new(file).parent().unwrap_or(Path::new("."));
+    let foreign = src.lines().any(|l| {
+        let t = l.trim_start();
+        t.starts_with("use ") || t.starts_with("rust ") || t.starts_with("py fn") || t == "rust:" || t == "py:" || t.starts_with("test \"")
+    });
+    let ok = !foreign && python_style(&src) && pydiag::not_python(&text).is_none() && pydiag::scan_brevi(&src, dir).is_empty() && !brevi_interpolates(&src);
+    if ok {
+        BV_PY.set(file.to_string()).ok();
+    }
+    ok
+}
+
+// Whether a plain (not f-) string literal holds `{name`, `{(`, which Brevi interpolates and Python does not.
+fn brevi_interpolates(src: &str) -> bool {
+    let c: Vec<char> = src.chars().collect();
+    let mut i = 0;
+    while i < c.len() {
+        match c[i] {
+            '#' => {
+                while i < c.len() && c[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '"' | '\'' => {
+                let q = c[i];
+                let mut k = i;
+                let mut f = false;
+                while k > 0 && c[k - 1].is_ascii_alphabetic() {
+                    k -= 1;
+                    f |= matches!(c[k], 'f' | 'F');
+                }
+                let triple = c.get(i + 1) == Some(&q) && c.get(i + 2) == Some(&q);
+                let mut j = if triple { i + 3 } else { i + 1 };
+                let mut hit = false;
+                while j < c.len() {
+                    if c[j] == '\\' {
+                        j += 2;
+                        continue;
+                    }
+                    if c[j] == q && (!triple || (c.get(j + 1) == Some(&q) && c.get(j + 2) == Some(&q))) {
+                        break;
+                    }
+                    if !triple && c[j] == '\n' {
+                        break;
+                    }
+                    if c[j] == '{' && c.get(j + 1).is_some_and(|n| n.is_alphabetic() || matches!(n, '_' | '(')) {
+                        hit = true;
+                    }
+                    j += 1;
+                }
+                if hit && !f {
+                    return true;
+                }
+                i = if triple { j + 3 } else { j + 1 };
+            }
+            _ => i += 1,
+        }
+    }
+    false
+}
 
 pub fn python_style(src: &str) -> bool {
     if PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {

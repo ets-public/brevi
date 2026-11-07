@@ -83,9 +83,11 @@ done
 # Brevi files (.bv) that import libraries: Brevi's own copies run them, on the dynamic build's engine (engine.rs),
 # never CPython. The .expected files match what the same programs print with CPython's libraries
 # (BREVI_ENGINE=0, where python3 has them).
-for f in tests/bv_libs/*.bv; do
+# A .bv file written in plain Python (tests/bv_py) gets the .py path: the dynamic build when the typed one
+# refuses it, never python3.
+for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
   exp="${f%.bv}.expected"
-  out=$(cd tests/bv_libs && BREVI_PATH=1 timeout 120 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
+  out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 120 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
     echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_bv_err; fail=1
