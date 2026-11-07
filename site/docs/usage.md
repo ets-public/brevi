@@ -55,7 +55,7 @@ Brevi tries the fastest way first and only moves on when it cannot match CPython
 
 1. **Typed build.** Brevi works out the type of every value and writes plain Rust. This is where the big speedups come from, and it covers most programs.
 2. **Dynamic build.** If the program changes a value's type, mixes types in a list, or uses something the typed build cannot match exactly, Brevi builds it over dynamic values that behave like CPython's objects. Still native, no CPython involved, with [one line](#which-path-ran) saying why the typed build was not used.
-3. **Library calls.** Imports Brevi does not build itself (numpy, pandas, sqlite3, requests, ...) run in CPython loaded into the native program; the rest of the program stays native.
+3. **Library calls.** Imports Brevi does not build itself (pandas, yaml, ...) run in CPython loaded into the native program; the rest of the program stays native.
 4. **CPython fallback.** Only `brevi run`, only when nothing above can build the file.
 
 [Architecture](/docs/architecture) explains each step in detail.
@@ -201,6 +201,7 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 - **jinja2:** Brevi's own jinja2 and markupsafe need nothing granted; what they lack (see [jinja2](/docs/compatibility#jinja2)), such as `FileSystemLoader`, is refused by name unless the caller grants `--allow-py jinja2`.
 - **polars:** Brevi's own polars needs `allow read` to read a file and `allow write` to write one (text in memory needs nothing); what it lacks (see [polars](/docs/compatibility#polars)), such as Parquet or date columns, is refused by name unless the caller grants `--allow-py polars`.
+- **sqlite3 and duckdb:** Brevi's own copies need `allow read` to open a database file and `allow write` to change one (`:memory:` needs nothing; a read-only open needs only `allow read`). DuckDB SQL that reads or writes other files (`read_csv`, `COPY`, `ATTACH`) needs both grants; extensions never load. What they lack (see [sqlite3 and duckdb](/docs/compatibility#sqlite3-and-duckdb)), such as `create_function` or data frames, is refused by name unless the caller grants `--allow-py sqlite3` or `--allow-py duckdb`.
 - **mcp:** Brevi's own copy of the MCP SDK; a stdio server needs no grant. What it lacks (the HTTP transports, sampling, elicitation; see [mcp](/docs/compatibility#mcp-mcp-servers)) is refused by name unless the caller grants `--allow-py mcp`.
 - **anthropic and openai:** Brevi's own copies of the SDKs, over its httpx; they need `allow net` too (`--allow-net api.anthropic.com` or `--allow-net api.openai.com`), not `allow native`. What they lack (see [anthropic and openai](/docs/compatibility#anthropic-and-openai)) is refused by name unless the caller grants `--allow-py anthropic` or `--allow-py openai`.
 
@@ -277,7 +278,7 @@ window "tk"
 
 ## Libraries
 
-- **Python packages** in Python files: `import numpy as np`, `pandas`, `sqlite3`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
+- **Python packages** in Python files: `import numpy as np`, `pandas`, `yaml`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
 - **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py`, about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux only.
 - **Rust crates and Python code from Brevi programs**: `use sha2 "0.10"` with a `rust fn`, or a `py fn` with a Python body. See [Libraries](/docs/libraries).
 

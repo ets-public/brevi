@@ -1,0 +1,100 @@
+┌───────┬─────────┬────────┐
+│  id   │    x    │   y    │
+│ int32 │ varchar │ double │
+├───────┼─────────┼────────┤
+│     1 │ p       │    0.5 │
+│     3 │ r       │    1.5 │
+└───────┴─────────┴────────┘
+
+┌───────┬─────────┬───────┬────────┐
+│  id   │    x    │  id   │   y    │
+│ int32 │ varchar │ int32 │ double │
+├───────┼─────────┼───────┼────────┤
+│     1 │ p       │     1 │    0.5 │
+│     2 │ q       │  NULL │   NULL │
+│     3 │ r       │     3 │    1.5 │
+└───────┴─────────┴───────┴────────┘
+
+[(1, 'p'), (1, 'p'), (2, 'q'), (2, 'q'), (3, 'r'), (3, 'r')]
+[(2, 'q'), (3, 'r')]
+[(1, 'p'), (2, 'q'), (3, 'r')]
+┌───────┬─────────┐
+│  id   │    x    │
+│ int32 │ varchar │
+└───────┴─────────┘
+      0 rows     
+
+2
+┌────────────────────────┐
+│         range          │
+│         int64          │
+├────────────────────────┤
+│                      0 │
+│                      1 │
+│                      2 │
+│                      3 │
+│                      4 │
+│                      5 │
+│                      6 │
+│                      7 │
+│                      8 │
+│                      9 │
+│                      · │
+│                      · │
+│                      · │
+│                   9990 │
+│                   9991 │
+│                   9992 │
+│                   9993 │
+│                   9994 │
+│                   9995 │
+│                   9996 │
+│                   9997 │
+│                   9998 │
+│                   9999 │
+└────────────────────────┘
+          ? rows        
+  (>9999 rows, 20 shown) 
+
+┌───────┬───────┐
+│   g   │   c   │
+│ int64 │ int64 │
+├───────┼───────┤
+│     0 │    10 │
+│     1 │    10 │
+│     2 │    10 │
+└───────┴───────┘
+
+[(2, 'q')]
+[('p', 1), ('q', 1), ('r', 1)]
+
+AttributeError Relations no longer have fetchone(): a relation keeps no result between calls, so every call runs it again. Use rel.limit(1).fetchall() instead.
+AttributeError Relations no longer have execute(): a relation keeps no result between calls, so every call runs it again. Use rel.materialize() to run it once and keep its rows, or a method such as fetchall() instead.
+[(1, 'p'), (2, 'q'), (3, 'r')]
+[(4,)]
+[INTEGER, VARCHAR] [('id', INTEGER, None, None, None, None, None), ('x', VARCHAR, None, None, None, None, None)]
+┌─────────┬─────────┬─────────┐
+│    s    │    j    │    t    │
+│ varchar │ varchar │ varchar │
+├─────────┼─────────┼─────────┤
+│ a\nb    │ 日本語  │ tab\t   │
+└─────────┴─────────┴─────────┘
+
+┌─────────┐
+│  name   │
+│ varchar │
+├─────────┤
+│ a       │
+│ a2      │
+│ b       │
+└─────────┘
+
+┌─────────────┬─────────────┬─────────┬─────────┬─────────┬─────────┐
+│ column_name │ column_type │  null   │   key   │ default │  extra  │
+│   varchar   │   varchar   │ varchar │ varchar │ varchar │ varchar │
+├─────────────┼─────────────┼─────────┼─────────┼─────────┼─────────┤
+│ id          │ INTEGER     │ YES     │ NULL    │ NULL    │ NULL    │
+│ x           │ VARCHAR     │ YES     │ NULL    │ NULL    │ NULL    │
+└─────────────┴─────────────┴─────────┴─────────┴─────────┴─────────┘
+
+[(3,)]

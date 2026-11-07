@@ -1,0 +1,6 @@
+refused unable to open database: /tmp/brevi_sb_attach.db
+refused no such vfs: unix
+refused unable to open database: /tmp/brevi_sb_vacuum.db
+refused not authorized
+(1000, 499500)
+[(999,), (998,)]

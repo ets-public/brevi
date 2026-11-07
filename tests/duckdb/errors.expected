@@ -1,0 +1,76 @@
+BinderException Binder Error: Referenced column "nope" not found in FROM clause!
+Candidate bindings: "a"
+BinderException Binder Error: Referenced column "nope" not found in FROM clause!
+Candidate bindings: "a"
+BinderException Binder Error: Referenced column "zzz" not found in FROM clause!
+Candidate bindings: "a"
+BinderException Binder Error: No function matches the given name and argument types 'sum(VARCHAR)'. You might need to add explicit type casts.
+	Candidate functions:
+	sum(arg DECIMAL) -> DECIMAL
+	sum(arg BOOLEAN, /) -> HUGEINT
+	sum(arg SMALLINT, /) -> HUGEINT
+	sum(arg INTEGER, /) -> HUGEINT
+	sum(arg BIGINT, /) -> HUGEINT
+	sum(arg HUGEINT, /) -> HUGEINT
+	sum(arg DOUBLE, /) -> DOUBLE
+	sum(arg BIGNUM, /) -> BIGNUM
+
+BinderException Binder Error: Referenced column "nope" not found in FROM clause!
+Candidate bindings: "a"
+ParserException Parser Error: syntax error at or near ">"
+
+LINE 1: SELECT a >
+                 ^
+BinderException Binder Error: Column "nope" does not exist on left side of join!
+[(1, 1, 'n1')]
+[(3,)]
+[(50,), (40,)]
+[(1,)]
+[]
+['x']
+['1']
+ConnectionException Connection Error: Connection has already been closed
+ConnectionException Connection Error: Connection has already been closed
+ResourceInUseException Resource In Use Error: connection has an unfinished result from execute(); call complete() or abort(), or fetch until a fetch returns no rows, before other work on this connection, or use a separate connection from cursor()
+ResourceInUseException Resource In Use Error: connection has an unfinished result from execute(); call complete() or abort(), or fetch until a fetch returns no rows, before other work on this connection, or use a separate connection from cursor()
+3
+(3, 1)
+[('1',), ('x',)]
+[(2, 3)]
+[(7,)]
+[(9,)]
+(1,)
+[(0,), (1,), (2,)]
+[{'a': 1, 'b': 'b'}]
+(0,)
+(1,)
+ParserException Parser Error: syntax error at or near "selec"
+
+LINE 1: selec 1
+        ^^^^^
+BinderException Binder Error: Referenced column "nope" not found in FROM clause!
+Candidate bindings: "a"
+ConversionException Conversion Error: Could not convert string 'x' to DOUBLE
+
+LINE 3: select 1/'x'
+                 ^^^
+ParserException Parser Error: syntax error at or near "+"
+
+LINE 1: SELECT 1 ORDER BY a +
+                            ^
+ParserException Parser Error: syntax error at or near "+"
+
+LINE 1: SELECT sum(a) +
+                      ^
+ParserException Parser Error: syntax error at or near "+"
+
+LINE 1: SELECT 42 GROUP BY a +
+                             ^
+ConversionException Conversion Error: Could not convert string 'x' to INT64
+
+LINE 1: insert into t values ('x', 1, 2)
+                              ^^^
+ParserException Parser Error: syntax error at or near "+"
+
+LINE 1: SELECT a +
+                 ^

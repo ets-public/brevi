@@ -1,0 +1,32 @@
+import duckdb
+con = duckdb.connect()
+con.execute("create table a(id int, x varchar); insert into a values (1,'p'),(2,'q'),(3,'r')")
+con.execute("create table b(id int, y double); insert into b values (1, 0.5),(3, 1.5),(4, 2.5)")
+A = con.table("a"); B = con.table("b")
+print(A.join(B, "id"))
+print(A.join(B, "a.id = b.id", how="left").order("a.id"))
+print(A.union(A).order("id").fetchall())
+print(A.except_(A.filter("id = 1")).order("id").fetchall())
+print(A.distinct().order("id").fetchall())
+print(A.filter("id > 5"))
+print(len(A.filter("id > 1")))
+print(con.sql("select * from range(20000)"))
+print(con.sql("select range % 3 as g, count(*) c from range(30) group by g order by g"))
+print(A.limit(1, offset=1).fetchall())
+print(A.aggregate("x, count(*) as n", "x").order("x").fetchall())
+print(A.count("id", groups="x").fetchall() if False else "")
+try:
+    A.fetchone()
+except Exception as e:
+    print(type(e).__name__, e)
+try:
+    A.execute()
+except Exception as e:
+    print(type(e).__name__, e)
+A.create("a2"); print(con.table("a2").fetchall())
+A.filter("id=1").insert_into("a2"); print(con.execute("select count(*) from a2").fetchall())
+print(A.dtypes, A.description)
+print(con.sql("select 'a' || chr(10) || 'b' as s, '日本語' as j, 'tab' || chr(9) as t"))
+print(con.sql("show tables"))
+print(con.sql("describe a"))
+print(con.sql("select * from a").query("v", "select count(*) from v").fetchall())

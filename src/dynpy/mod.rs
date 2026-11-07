@@ -62,6 +62,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_hfcore.rs"),
     include_str!("rt_hf.rs"),
     include_str!("rt_net.rs"),
+    include_str!("rt_db.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -183,6 +184,8 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "markupsafe" => include_str!("py/markupsafe.py"),
         "polars" => include_str!("py/polars.py"),
         "polars.exceptions" => include_str!("py/polars_exceptions.py"),
+        "sqlite3" | "sqlite3.dbapi2" => include_str!("py/sqlite3.py"),
+        "duckdb" => include_str!("py/duckdb.py"),
         _ => return None,
     })
 }
@@ -277,7 +280,18 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2 or polars beyond Brevi's own copies runs in CPython";
+// Where the duckdb Python package's library is (it holds DuckDB's C API) and CPython's library, which it needs
+// loaded first: asked of python3 when the program is built, without importing duckdb.
+fn duck_libs() -> (Vec<String>, String) {
+    const Q: &str = "import importlib.util, glob, os, sysconfig\ns = importlib.util.find_spec('duckdb')\nd = os.path.dirname(list(s.submodule_search_locations)[0]) if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, '_duckdb*.so'))) if d else []\nlib = os.path.join(sysconfig.get_config_var('LIBDIR') or '', sysconfig.get_config_var('INSTSONAME') or sysconfig.get_config_var('LDLIBRARY') or '')\nprint('\\x01'.join([lib] + libs))";
+    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let out = std::process::Command::new(&exe).args(["-c", Q]).output().map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string()).unwrap_or_default();
+    let mut parts = out.split('\u{1}').map(String::from);
+    let pre = parts.next().unwrap_or_default();
+    (parts.filter(|x| !x.is_empty()).collect(), pre)
+}
+
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3 or duckdb beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -297,6 +311,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let mut net_used = false;
     let mut stdio_used = false;
     let mut fs_used = false;
+    let mut sql_used = false;
+    let mut duck_used = false;
     let mut bridge = emit::Bridge::default();
     let mut texts: HashMap<String, (String, String)> = HashMap::new();
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
@@ -314,6 +330,12 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 }
                 if m == "_brevi_fs" {
                     fs_used = true;
+                }
+                if m == "_brevi_sqlite" {
+                    sql_used = true;
+                }
+                if m == "_brevi_duckdb" {
+                    duck_used = true;
                 }
                 if m == "numpy" {
                     emit::NP_ON.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -496,15 +518,33 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push('\n');
         rust.push_str(include_str!("stdioglue.rs"));
     }
-    if fs_used {
-        rust = rust.replacen("fn main() { ", "fn main() { FS.set(brevi_fsglue::ops()).ok(); ", 1);
+    if fs_used || sql_used || duck_used {
         rust.push_str(&format!(
-            "\nconst FS_SANDBOX: bool = {};\nconst FS_READ: bool = {};\nconst FS_WRITE: bool = {};\n{}",
+            "\nconst FS_SANDBOX: bool = {};\nconst FS_READ: bool = {};\nconst FS_WRITE: bool = {};\n",
             crate::caps::sandboxed(),
             crate::caps::granted("read"),
             crate::caps::granted("write"),
-            include_str!("fsglue.rs")
         ));
+    }
+    if fs_used {
+        rust = rust.replacen("fn main() { ", "fn main() { FS.set(brevi_fsglue::ops()).ok(); ", 1);
+        rust.push_str(include_str!("fsglue.rs"));
+    }
+    if sql_used {
+        if !cfg!(unix) {
+            return Err((file.to_string(), 0, "Brevi's own sqlite3 runs on Linux and macOS".into()));
+        }
+        rust = rust.replacen("fn main() { ", "fn main() { SQL.set(brevi_sqlglue::ops()).ok(); ", 1);
+        rust.push_str(include_str!("sqlglue.rs"));
+    }
+    if duck_used {
+        if !cfg!(unix) {
+            return Err((file.to_string(), 0, "Brevi's own duckdb runs on Linux and macOS".into()));
+        }
+        let (libs, pre) = duck_libs();
+        rust = rust.replacen("fn main() { ", "fn main() { DUCK.set(brevi_duckglue::ops()).ok(); ", 1);
+        rust.push_str(&format!("\nconst DUCK_LIBS: &[&str] = &{libs:?};\nconst DUCK_PRELOAD: &str = {pre:?};\n"));
+        rust.push_str(include_str!("duckglue.rs"));
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);

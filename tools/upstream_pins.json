@@ -46,6 +46,11 @@
       "tests": ["tests/polars/*.py"],
       "stderr": false
     },
+    "duckdb": {
+      "watch": {"duckdb": "2.0.0"},
+      "tests": ["tests/duckdb/*.py"],
+      "stderr": false
+    },
     "mcp": {
       "watch": {"mcp": "2.3.0"},
       "tests": [],

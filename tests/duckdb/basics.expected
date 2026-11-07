@@ -1,0 +1,114 @@
+True -1 [('Count', BIGINT, None, None, None, None, None)]
+3 [('Count', BIGINT, None, None, None, None, None)] [(3,)]
+2 [(1,)]
+(1, 'x', 1.5)
+(2, 'y', None) [(3, None, 2.25), (4, 'z', 0.1)] [(5, 'w', 1e+20)] None []
+5
+┌───────┐
+│ Count │
+│ int64 │
+├───────┤
+│     1 │
+└───────┘
+
+┌───────┐
+│ Count │
+│ int64 │
+├───────┤
+│     2 │
+└───────┘
+
+┌───────┬─────────┬────────┐
+│   a   │    b    │   c    │
+│ int32 │ varchar │ double │
+├───────┼─────────┼────────┤
+│     1 │ x       │    1.5 │
+│     2 │ y       │   NULL │
+│     3 │ NULL    │   2.25 │
+│     4 │ z       │    0.1 │
+│     5 │ w       │    0.0 │
+│     6 │ q       │    0.0 │
+└───────┴─────────┴────────┘
+
+[(2, 'y', None)]
+[(1, 2)]
+[(2,)]
+['a', 'b', 'c'] [INTEGER, VARCHAR, DOUBLE] 6 (6, 3) t
+[(6, 'q', 0.0), (5, 'w', 0.0)]
+┌───────┬─────────┐
+│   a   │    b    │
+│ int32 │ varchar │
+├───────┼─────────┤
+│     1 │ x       │
+└───────┴─────────┘
+
+┌───────┬────────┐
+│   n   │ sum(a) │
+│ int64 │ int128 │
+├───────┼────────┤
+│     6 │     21 │
+└───────┴────────┘
+
+┌──────────────┐
+│ count_star() │
+│    int64     │
+├──────────────┤
+│            6 │
+└──────────────┘
+
+┌────────┐
+│ sum(a) │
+│ int128 │
+├────────┤
+│     21 │
+└────────┘
+
+True INTEGER
+┌───────┬─────────┬────────┐
+│   a   │    b    │   c    │
+│ int32 │ varchar │ double │
+├───────┼─────────┼────────┤
+│     1 │ x       │    1.5 │
+│     2 │ y       │   NULL │
+│     3 │ NULL    │   2.25 │
+│     4 │ z       │    0.1 │
+│     5 │ w       │    0.0 │
+│     6 │ q       │    0.0 │
+└───────┴─────────┴────────┘
+
+[(1.5, 0.3333333333333333, 2.0, 1e+20, inf, -0.0)]
+┌───────┬────────────────────┬────────┬────────┬────────┬────────┐
+│   a   │         b          │   c    │   d    │   e    │   f    │
+│ float │       double       │ double │ double │ double │ double │
+├───────┼────────────────────┼────────┼────────┼────────┼────────┤
+│   1.5 │ 0.3333333333333333 │    2.0 │  1e+20 │    inf │   -0.0 │
+└───────┴────────────────────┴────────┴────────┴────────┴────────┘
+
+[(42,)]
+[(43,)]
+2.0.0 2.0 qmark 1
+CatalogException ['ProgrammingError', 'DatabaseError', 'Error'] Catalog Error: Table with name nope does not exist!
+Did you mean "pg_enum"?
+
+LINE 1: select * from nope
+                      ^^^^
+ParserException ['ProgrammingError', 'DatabaseError', 'Error'] Parser Error: syntax error at or near "selec"
+
+LINE 1: selec 1
+        ^^^^^
+ConversionException ['DataError', 'DatabaseError', 'Error'] Conversion Error: Could not convert string 'a' to DOUBLE
+
+LINE 1: select 1/'a'
+                 ^^^
+ConversionException ['DataError', 'DatabaseError', 'Error'] Conversion Error: Could not convert string 'x' to INT32
+
+LINE 1: insert into t values ('x', 1, 1)
+                              ^^^
+ConversionException ['DataError', 'DatabaseError', 'Error'] Conversion Error: Could not convert string 'abc' to INT32
+
+LINE 1: select cast('abc' as int)
+               ^^^^^^^^^^^^^^^^^^
+CatalogException ['ProgrammingError', 'DatabaseError', 'Error'] Catalog Error: Table with name "t" already exists!
+InvalidInputException Invalid Input Error: Prepared parameters can only be passed as a list or a dictionary
+InvalidInputException Invalid Input Error: Values were not provided for the following parameters: 2
+ConnectionException Connection Error: Connection already closed!

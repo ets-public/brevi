@@ -210,7 +210,7 @@ Switches: `BREVI_DYN=1` forces the dynamic build, `BREVI_DYN=0` disables it, `BR
 
 > **Partly native.** The program is native; only the library calls themselves run in CPython.
 
-For Python files that import libraries Brevi does not build itself (pandas, pydantic, sqlite3, yaml, ...).
+For Python files that import libraries Brevi does not build itself (pandas, yaml, ...).
 
 ```mermaid
 flowchart LR
