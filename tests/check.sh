@@ -4,7 +4,10 @@
 # Pass --update to rewrite the expected files.
 BREVI=${BREVI:-./target/debug/brevi}
 fail=0
+# tests/run and tests/errors check what the typed build makes of each file, Python-style ones included: a .bv
+# file in plain Python is kept off the .py path here (BREVI_BV_PY=0, BREVI_BV_DYN=0; tests/bv_py checks that path).
 for f in tests/run/*.bv tests/errors/*.bv; do
+  export BREVI_BV_PY=0 BREVI_BV_DYN=0
   exp="${f%.bv}.expected"
   case "$f" in
     tests/run/*) inp="${f%.bv}.in"; [ -f "$inp" ] || inp=/dev/null; out=$($BREVI run "$f" < "$inp" 2>&1; $BREVI test "$f" 2>&1 | grep "test result" | sed "s/; finished in .*//") ;;
@@ -17,6 +20,7 @@ for f in tests/run/*.bv tests/errors/*.bv; do
     echo "ok   $f"
   fi
 done
+unset BREVI_BV_PY BREVI_BV_DYN
 # Python mistakes CPython would also stop on: check reports them (exit 1) instead of building the file over
 # dynamic values, and run says so in its note when it runs the file with python3, then shows only the error
 # line of CPython's traceback (error lines left out: they change between Python versions). py_valid.py and py_unreached.py are controls (a caught TypeError, a
