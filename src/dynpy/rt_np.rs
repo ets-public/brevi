@@ -1526,6 +1526,11 @@ pub fn np_unary(v: &V, op: &str) -> R {
 
 // a OP b for comparisons, as a value: arrays compare elementwise.
 pub fn cmp_v(a: &V, b: &V, op: &str) -> R {
+    if matches!(a, V::Obj(_)) || matches!(b, V::Obj(_)) {
+        if let Some(r) = obj_cmp(a, b, op) {
+            return r;
+        }
+    }
     if matches!(op, "<" | ">" | "<=" | ">=" | "==" | "!=") && (is_np(a) || is_np(b)) {
         if let Some(r) = np_binop(a, b, op) {
             match r {
@@ -1539,7 +1544,41 @@ pub fn cmp_v(a: &V, b: &V, op: &str) -> R {
             }
         }
     }
+    // a value from CPython (the dynamic build's bridge): the library's own result (a polars expression, a
+    // pandas Series), as CPython gives it
+    for (x, y, right) in [(a, b, false), (b, a, true)] {
+        if let V::Ext(e) = x {
+            match e.cmp_value(x, op, y, right) {
+                Some(Ok(V::NotImpl)) | None => {}
+                Some(r) => return r,
+            }
+        }
+    }
     Ok(V::Bool(cmp_op(a, b, op)?))
+}
+
+// `a OP b` for objects: what the first __eq__ / __ne__ / __lt__ ... that does not answer NotImplemented returns,
+// as CPython does (not its truth). None when no dunder answers (cmp_op then gives the default).
+fn obj_cmp(a: &V, b: &V, op: &str) -> Option<R> {
+    let (l, r) = match op {
+        "==" => ("__eq__", "__eq__"),
+        "!=" => ("__ne__", "__ne__"),
+        "<" => ("__lt__", "__gt__"),
+        ">" => ("__gt__", "__lt__"),
+        "<=" => ("__le__", "__ge__"),
+        _ => ("__ge__", "__le__"),
+    };
+    for (x, y, d) in [(a, b, l), (b, a, r)] {
+        if let V::Obj(o) = x {
+            if let Some(f) = o.cls.lookup(d) {
+                match call(&f, Args::p(vec![x.clone(), y.clone()])) {
+                    Ok(V::NotImpl) => {}
+                    res => return Some(res),
+                }
+            }
+        }
+    }
+    None
 }
 
 // The truth of an array (numpy refuses one with more than one element).

@@ -41,6 +41,11 @@
       "tests": ["tests/jinja2/*.py"],
       "stderr": true
     },
+    "polars": {
+      "watch": {"polars": "2.1.0"},
+      "tests": ["tests/polars/*.py"],
+      "stderr": false
+    },
     "mcp": {
       "watch": {"mcp": "2.3.0"},
       "tests": [],

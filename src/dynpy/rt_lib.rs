@@ -645,6 +645,8 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             Some(r) => r,
             None => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
         },
+        // the builtin slice is a function here (builtin_value), the type of slice objects
+        V::Func(f) if &*f.name == "slice" => Ok(matches!(x, V::Slice(_))),
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }
