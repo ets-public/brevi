@@ -1,0 +1,52 @@
+ada, Bob, cy
+['ada']
+61
+97 ada
+adaBobcy Bobadacy
+cy ada Bob
+25:Bob 36:ada+cy 
+25=1 36=2 
+[2, 0, 1] 2
+[1, 2, 3] [3, 2, 1] aBc [1, 2, 3]
+['A', 'b'] ['A', 'a', 'b'] 2 
+Hello World hello Hello A B C x|hi
+heLLo heLlo ba [3, 2, 1]
+The quick brown...|The qui..|short
+4 3 1    x   |
+hello ada, you are 36 1-2 3.14 4.0 2.0 3.0
+42 0 7 26 3.5 1.5 3 7!
+1.2 MB 1.2 MiB 999 Bytes 1 Byte
+None  d m 5
+[[1, 2], [3, 4], [5]] [[1, 2], [3, 4], [5, 'x']] [[1, 2, 3], [4, 5]]
+[('a', 1), ('b', 2), ('C', 3)] [('b', 2), ('a', 1)] [('b', 1), ('a', 2)]
+a
+  b
+
+  c|  a
+  b|a
+> 
+> b
+lorem ipsum
+dolor sit
+amet
+consectetur|abcd/efgh/ij
+Hello%20World%20%26%20Co q=a+b&n=1 x=y%2Fz
+see <a href="https://example.com/a?b=1" rel="noopener">https://example.com/a?b=1</a> and <a href="https://www.x.org" rel="noopener">www.x.org</a>.|mail <a href="mailto:bob@example.com">bob@example.com</a>
+bold & text &lt;p&gt;x&lt;/p&gt; &lt;p&gt;x&lt;/p&gt; &lt;i&gt;
+{"a": [1, "x", null, true], "b": "\u003c\u0026\u003e"} [
+  1,
+  2
+]
+['ADA', 'CY'] [1, 3, 5, 7, 9] [1, 3, 5, 7, 9]
+[0, 3, 6, 9] [1, 'a'] 1-2-3
+??? [3, 3] skip
+ac 1  True
+True True True False True True True True
+True True True False True True True
+True True False True True True False True True
+True False True True False
+['en/fr', '', 'de'] ['A', 'b', 'c'] ['A', 'b', 'c']
+3 2.5 1 1024 ababab a1None [1, 2] True False
+x |2 3 bcd fdb 3
+HELLO ['a', 'b'] 1 [('k', 1)] 003.1    ab|
+[0, 1, 2] [1, 4, 7] {'a': 1, 'b': 2} a True

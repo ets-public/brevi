@@ -1,0 +1,60 @@
+<|im_start|>system
+You are a helpful assistant.
+
+# Tools
+
+You may call one or more functions.
+<tools>
+{"type": "function", "function": {"name": "get_weather", "description": "Weather for a city", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}
+</tools><|im_end|>
+<|im_start|>user
+What's the weather in Paris?<|im_end|>
+<|im_start|>assistant
+<tool_call>
+{"name": "get_weather", "arguments": {"city": "Paris", "unit": "c"}}
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+{"temp": 18}
+</tool_response>
+<tool_response>
+{"humidity": 0.4}
+</tool_response><|im_end|>
+<|im_start|>assistant
+It is 18°C in Paris.<|im_end|>
+<|im_start|>user
+Thanks! Please stop now.<|im_end|>
+<|im_start|>assistant
+
+---
+<|im_start|>system
+You are a helpful assistant.<|im_end|>
+<|im_start|>user
+What's the weather in Paris?<|im_end|>
+
+---
+<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+
+Cutting Knowledge Date: December 2023
+Today Date: 07 Nov 2026
+
+You are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+What's the weather in Paris?<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+Sunny.<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+
+---
+<s>[INST] hi [/INST]hello</s>[INST] bye [/INST]
+TemplateError: Conversation roles must alternate user/assistant/user/assistant/...
+TemplateError: Conversation roles must alternate user/assistant/user/assistant/...
+TemplateError: Conversation roles must alternate user/assistant/user/assistant/...
+---
+[2/7] USER: What's the weather in Paris?
+[3/7] ASSISTANT: 
+[4/7] TOOL: {"temp": 18}
+[5/7] TOOL: {"humidity": 0.4}
+[6/7] ASSISTANT: It is 18°C in Paris.
+turns=6 found=True last_user="Thanks! Please stop now."
+id=7, model=m1, temperature=0.2

@@ -345,6 +345,11 @@ pub fn to_str(v: &V) -> Result<String, E> {
                     _ => repr(&args)?,
                 });
             }
+            // str defines its own __str__, so a str subclass's __repr__ never stands in for it (int and float
+            // define only __repr__, so theirs does)
+            if let Some(i @ V::Str(_)) = inner_of(v) {
+                return to_str(&i);
+            }
             if o.cls.lookup("__repr__").is_some() {
                 return repr(v);
             }

@@ -174,6 +174,13 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "_brevi_mcp_models" => include_str!("py/_brevi_mcp_models.py"),
         "_brevi_mcp_types" => include_str!("py/_brevi_mcp_types.py"),
         "contextlib" => include_str!("py/contextlib.py"),
+        "jinja2" => include_str!("py/jinja2.py"),
+        "jinja2.ext" => include_str!("py/jinja2_ext.py"),
+        "jinja2.exceptions" => include_str!("py/jinja2_exceptions.py"),
+        "jinja2.runtime" => include_str!("py/jinja2_runtime.py"),
+        "jinja2.utils" => include_str!("py/jinja2_utils.py"),
+        "jinja2.loaders" => include_str!("py/jinja2_loaders.py"),
+        "markupsafe" => include_str!("py/markupsafe.py"),
         _ => return None,
     })
 }
@@ -268,7 +275,7 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic or openai beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai or jinja2 beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;

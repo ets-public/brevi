@@ -1,0 +1,22 @@
+child.txt => 'HEAD+child\nbody of ada\n[<0>][<1>]'
+grand.txt => 'HEAD+child+grand\nHEAD+child+grand / body of ada\n[<0>][<1>]'
+page.txt => '<input type="text" name="user" value=""> <input type="password" name="pw" value=""> v1.2 1.2\n[T|inside ada|()|{}]\npart(ada) part(ada) |'
+loopy.txt => '<a><b>'
+ctx.txt => 'name=ada name=none'
+lib/x.txt => 'lib x ada'
+fn_one => 'fn:fn_one'
+'HEAD\ndynamic base.txt\n[0][1]'
+"HEAD+child\ndynamic <Template 'child.txt'>\n[<0>][<1>]"
+part(sel) part.txt
+['base.txt', 'child.txt', 'ctx.txt', 'dyn.txt', 'grand.txt'] True
+TemplateNotFound nothere.txt nothere.txt ['nothere.txt']
+TemplateNotFound lib/none.txt lib/none.txt ['lib/none.txt']
+TemplatesNotFound none of the templates given were found: a.txt, b.txt
+<input type="text" name="q" value="3"> 1.2 
+1.2
+field ('name', 'value', 'type') False False False
+54321|2 321
+12cap1|UP CAP1|11
+341empty
+1(2(33)2)141
+o-b4True eac3False obd2True ec-1False 
