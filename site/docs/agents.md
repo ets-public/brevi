@@ -24,7 +24,7 @@ On four heavy tasks (Game of Life, knapsack, edit distance, Collatz chains), add
 
 ## MCP server
 
-`brevi mcp` is a Model Context Protocol server over stdio. Add it to any MCP client as the command `brevi` with the argument `mcp`.
+`brevi mcp` is a Model Context Protocol server over stdio. It speaks every protocol version up to the newest: 2026-07-28 (from the next release; `server/discover`, no handshake) and the handshake versions 2024-11-05 to 2025-11-25. Add it to any MCP client as the command `brevi` with the argument `mcp`.
 
 **Claude Code:**
 
