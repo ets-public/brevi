@@ -65,3 +65,7 @@ Not yet. The packaging is ready and the names are reserved, but nothing is publi
 ## Who makes Brevi?
 
 Brevi is developed largely by AI coding agents (Claude) working under the direction of its maintainer, with every change tested against the benchmarks and regression suites before it is merged.
+
+## How do I get help or contact you?
+
+Email [support@brevi-lang.org](mailto:support@brevi-lang.org) for questions, licensing or anything you would rather not post in public. Bugs and feature requests are best as a GitHub issue, and security reports go through [SECURITY.md](repo:SECURITY.md).

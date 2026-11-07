@@ -81,7 +81,7 @@ for f in tests/lib/*.py; do
   fi
 done
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
-# The .expected files come from real numpy (numpy 2.x; CI has none): `--update` needs it installed.
+# The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
 # in NAME.avx2.expected, which a CPU without AVX-512 checks against.
 np_avx512=1

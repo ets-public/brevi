@@ -1,0 +1,2 @@
+# Python tools CI installs (Dependabot keeps these current; tools/advisories.py checks them).
+lark==1.2.2
