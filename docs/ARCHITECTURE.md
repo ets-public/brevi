@@ -238,6 +238,8 @@ flowchart LR
 
 `bv_as_py` in `src/main.rs` decides, before anything else runs, whether a `.bv` file is plain Python: Python-style (`python_style`), compilable by CPython (`pydiag::not_python`), free of Brevi-only names (`pydiag::scan_brevi`), with no plain string holding `{name` (Brevi interpolates it, Python does not), and with no function ending in a bare value (`bvpy::returns_tail`: Brevi returns it, Python drops it). Such a file is marked in `BV_PY`, and `is_py(file)` (used wherever `main.rs` once tested `.py`) treats it as Python: the guard, the `.py` rewrites, the typed build with Python's meaning and the dynamic fallback. `--native` is implied, so it never runs in python3. `BREVI_BV_PY=0` turns this off.
 
+A Python-style `.bv` file that fails those tests only by Brevi's spellings is rewritten to Python by `bvpy::to_python` (line for line: `fn` to `def`, implicit returns, `=>` lambdas, interpolating strings to f-strings, `name: value` arguments, `&&`/`||`/`!`, `true`/`false`, `.push`, `a..b` in `for`), and when the rewrite passes the same tests `dynpy::set_source` hands it to the dynamic build, which then reads it instead of the file. The typed build still goes first on the file as written; only its refusal reaches the dynamic build. `BREVI_BV_DYN=0` turns this off; `print` shows the rewrite.
+
 ### Libraries on Brevi's engine (`.bv` files)
 
 > **Brevi native.** A `.bv` file whose libraries Brevi all has copies of runs them without CPython.

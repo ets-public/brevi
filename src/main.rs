@@ -391,7 +391,7 @@ fn main() {
         }
     }
     // A Python file the typed path cannot build is built over dynamic values instead (still native, no CPython).
-    let dyn_ok = matches!(cmd, "build" | "run" | "check") && is_py(&file);
+    let dyn_ok = matches!(cmd, "build" | "run" | "check") && (is_py(&file) || dynpy::has_source(&file));
     // The set-order guard let the file through on names rustc must prove hold strings: any failure from here
     // on is reported as the guard's reason, and goes where the guard would have sent it.
     let soft_fail = |cmd: &str| {
@@ -2169,6 +2169,15 @@ fn bv_as_py(file: &str) -> bool {
     let ok = !foreign && python_style(&src) && pydiag::not_python(&text).is_none() && pydiag::scan_brevi(&src, dir).is_empty() && !bvpy::interpolates(&src) && !bvpy::returns_tail(&src);
     if ok {
         BV_PY.set(file.to_string()).ok();
+    } else if !foreign && python_style(&src) && std::env::var("BREVI_BV_DYN").map_or(true, |v| v != "0") {
+        // Python-style but with Brevi's spellings (`fn`, `x => e`, `"{n}"`): built typed as it is, and if the
+        // typed build refuses it, over dynamic values from the same program in Python's spellings.
+        if let Some(py) = bvpy::to_python(&src).filter(|py| python_style(py) && pydiag::not_python(py).is_none() && pydiag::scan_brevi(py, dir).is_empty() && !bvpy::interpolates(py)) {
+            if std::env::var("BREVI_BV_DYN").is_ok_and(|v| v == "print") {
+                eprint!("{py}");
+            }
+            dynpy::set_source(file, py);
+        }
     }
     ok
 }
