@@ -141,13 +141,16 @@ def mcp_spec():
     except urllib.error.HTTPError as e:
         loc = e.headers.get("Location", "")
     latest = re.search(r"\d{4}-\d{2}-\d{2}", loc).group(0)
-    ours = re.search(r'const VERSIONS: \[&str; \d+\] = \["([\d-]+)"', (ROOT / "src/mcp.rs").read_text()).group(1)
+    # the newest version the server speaks: handshake ones in VERSIONS, 2026-07-28 on in MODERN
+    src = (ROOT / "src/mcp.rs").read_text()
+    lists = re.findall(r'const (?:VERSIONS|MODERN): \[&str; \d+\] = \[([^\]]*)\]', src)
+    ours = max(re.findall(r'"(\d{4}-\d{2}-\d{2})"', " ".join(lists)))
     if latest > ours:
         body = f"""MCP specification {latest} is published: https://modelcontextprotocol.io/specification/{latest}
 (changelog: https://modelcontextprotocol.io/specification/{latest}/changelog). `brevi mcp` speaks up to {ours}.
 
 - [ ] Read the changelog for changes to initialize, tools/list, tools/call, errors and cancellation
-- [ ] Support what applies in `src/mcp.rs` and add `{latest}` first in `VERSIONS`
+- [ ] Support what applies in `src/mcp.rs` and add `{latest}` first in `MODERN` (or `VERSIONS`, for a version with the initialize handshake)
 - [ ] `python3 tests/mcp_test.py` passes, and a real client on the new version connects (official MCP Python SDK)
 """
         open_issue(f"Review MCP specification {latest} for Brevi", body)
