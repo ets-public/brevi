@@ -1,0 +1,15 @@
+# super() in a class's methods calls the base class's version.
+class Animal:
+  fn __init__(self, name):
+    self.name = name
+  fn speak(self):
+    "{self.name} makes a sound"
+
+class Dog(Animal):
+  fn __init__(self, name, tricks):
+    super().__init__(name)
+    self.tricks = tricks
+  fn speak(self):
+    super().speak() + " and knows {self.tricks.len()} tricks"
+
+print(Dog("rex", ["sit", "roll"]).speak(), Animal("cat").speak())

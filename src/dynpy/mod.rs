@@ -309,8 +309,23 @@ fn ort_libs() -> Vec<String> {
     String::from_utf8_lossy(&o.stdout).trim().split('\x01').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
 }
 
+// A program's text in Python's spellings, for a Python-style .bv file written with Brevi's (main.rs's bv_as_py).
+static SOURCE: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+pub fn set_source(file: &str, py: String) {
+    *SOURCE.lock().unwrap() = Some((file.to_string(), py));
+}
+
+pub fn has_source(file: &str) -> bool {
+    SOURCE.lock().unwrap().as_ref().is_some_and(|(f, _)| f == file)
+}
+
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
-    let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
+    let given = SOURCE.lock().unwrap().as_ref().filter(|(f, _)| f == file).map(|(_, t)| t.clone());
+    let src = match given {
+        Some(t) => t,
+        None => std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?,
+    };
     let src = crate::modules::fill_file_name(&src, Path::new(file));
     // `allow` lines (checked in main.rs before this runs) are not Python.
     let src = crate::caps::split(&src).0;

@@ -19,6 +19,7 @@ type Point:
   x: f64
   y: f64
   label: str = ""              # default
+  fn sum(self) = self.x + self.y   # method: p.sum()
 enum Shape:
   Circle(r: f64)
   Rect(w: f64, h: f64)

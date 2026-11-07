@@ -1,0 +1,33 @@
+# Python-style, with Brevi's spellings, using what only the dynamic build has (async, **kwargs, a dict
+# subclass): built over dynamic values from the same program in Python's spellings.
+import asyncio
+
+class Counts(dict):
+  fn __missing__(self, key):
+    self[key] = 0
+    0
+
+fn tag(name, **attrs):
+  inner = " ".join(sorted('{k}="{v}"' for k, v in attrs.items()))
+  "<{name} {inner}>"
+
+async fn square(x, delay):
+  await asyncio.sleep(delay)
+  x * x
+
+async fn main():
+  out = await asyncio.gather(*[square(i, 0.01 * (3 - i)) for i in 0..3])
+  print("squares {out}")
+
+fn scaled(xs, by) = list(map(x => x * by, xs))
+
+c = Counts()
+for w in "a b a".split():
+  c[w] += 1
+seen = []
+for i in 1..4:
+  seen.push(i)
+print(sorted(c.items()), c["z"], seen, scaled(seen, 2), true && !false)
+print(tag("a", href: "/x", id: 7))
+print("{{braces}} and {len(seen)} items")
+asyncio.run(main())
