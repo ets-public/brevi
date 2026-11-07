@@ -910,6 +910,10 @@ pub fn to_float(v: &V) -> Result<f64, E> {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
             None => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
         },
+        V::Ext(x) if x.any().is::<BytesV>() => {
+            let b = bytes_of(v).unwrap_or_default();
+            parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", bytes_repr(&b))))
+        }
         V::Ext(x) => x.to_f64().ok_or_else(|| exc("TypeError", format!("float() argument must be a string or a real number, not '{}'", tn(v)))),
         _ => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
     }
@@ -1014,6 +1018,12 @@ pub fn to_int(v: &V) -> R {
                 return to_int(&i);
             }
             type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v)))
+        }
+        // int(b"42"), as CPython reads ASCII digits from bytes
+        V::Ext(x) if x.any().is::<BytesV>() => {
+            let b = bytes_of(v).unwrap_or_default();
+            let t = String::from_utf8_lossy(&b).into_owned();
+            parse_int(&t, 10).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", bytes_repr(&b))))
         }
         V::Ext(x) => match x.method(v, "__int__", &mut Args::p(vec![])) {
             Some(r) => r,

@@ -1231,7 +1231,7 @@ pub fn has_method(o: &V, name: &str) -> bool {
     const NOT_ON_VALUES: &[&str] = &["__name__", "__qualname__", "__dict__", "__module__", "__wrapped__", "__self__", "__func__", "__code__", "__defaults__", "__kwdefaults__", "__annotations__", "__file__", "__all__", "__mro__", "__bases__", "__members__", "__dataclass_fields__", "__slots__", "__origin__", "__args__", "__version__", "__path__", "__closure__", "__globals__", "__match_args__"];
     // Protocol methods numbers and None do not have, and the ones containers do not (hasattr(3, "__iter__") is
     // False: requests and httpx test values that way).
-    const NOT_ON_ANY: &[&str] = &["__next__", "__call__", "__enter__", "__exit__", "__await__", "__aiter__", "__anext__", "__aenter__", "__aexit__", "__fspath__", "__missing__", "read", "__get__", "__set__", "__html__", "__html_format__"];
+    const NOT_ON_ANY: &[&str] = &["__next__", "__call__", "__enter__", "__exit__", "__await__", "__aiter__", "__anext__", "__aenter__", "__aexit__", "__fspath__", "__missing__", "read", "__get__", "__set__", "__html__", "__html_format__", "__conform__"];
     const NOT_ON_SCALARS: &[&str] = &["__iter__", "__len__", "__getitem__", "__contains__", "__setitem__", "__delitem__", "__reversed__"];
     if names.contains(&name) {
         return true;
@@ -1241,6 +1241,10 @@ pub fn has_method(o: &V, name: &str) -> bool {
         // (iterators and generators have __next__ and __iter__, listed above, and none of the others)
         let container = matches!(o, V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) | V::Deque(_) | V::Iter(_));
         if (scalar || container) && NOT_ON_ANY.contains(&name) {
+            return false;
+        }
+        // sqlite3's adaptation protocol: no library value has it
+        if name == "__conform__" && matches!(o, V::Ext(_)) {
             return false;
         }
         if scalar && NOT_ON_SCALARS.contains(&name) {

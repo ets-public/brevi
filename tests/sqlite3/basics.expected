@@ -1,0 +1,73 @@
+multi ProgrammingError You can only execute one statement at a time. None None
+few ProgrammingError Incorrect number of bindings supplied. The current statement uses 2, and there are 1 supplied. None None
+named ProgrammingError You did not supply a value for binding parameter :a. None None
+list ProgrammingError Error binding parameter 1: type 'list' is not supported None None
+int ProgrammingError parameters are of unsupported type None None
+str ProgrammingError Incorrect number of bindings supplied. The current statement uses 1, and there are 2 supplied. None None
+syntax OperationalError near "selec": syntax error 1 SQLITE_ERROR
+table OperationalError no such table: nope 1 SQLITE_ERROR
+rowid ok 1
+unique IntegrityError UNIQUE constraint failed: t.b 2067 SQLITE_CONSTRAINT_UNIQUE
+notnull IntegrityError NOT NULL constraint failed: t.b 1299 SQLITE_CONSTRAINT_NOTNULL
+many-select ProgrammingError executemany() can only execute DML statements. None None
+desc ok (('1', None, None, None, None, None, None),)
+desc-dml ok None
+rowcount-select ok -1
+rowcount-update ok 2
+rowcount-many ok 2
+in_tx ok True
+iso ok ''
+total ok 6
+values ok (b'\x00\x01', 1.5, None, 4611686018427387904, 'é', -0.0, 1e+300)
+big OverflowError Python int too large to convert to SQLite INTEGER None None
+float ok [(1.5,)]
+bool ok [(1, 0)]
+bytes ok [(b'ab', 'blob')]
+none ok [(None, 'null')]
+unicode ok [('日本語', 3)]
+complete1 ok False
+complete2 ok True
+consts ok ('qmark', '2.0', 3, 1, 2)
+codes ok (0, 2067, 1, 7)
+fresh-fetch ok None
+fresh-attrs ok (1, None, None, -1, True)
+closed-cursor ProgrammingError Cannot operate on a closed cursor. None None
+closed-db ProgrammingError Cannot operate on a closed database. None None
+closed-commit ProgrammingError Cannot operate on a closed database. None None
+closed-close ok None
+cantopen OperationalError unable to open database file 14 SQLITE_CANTOPEN
+row ok (1, 1, 'x', ['a', 'B'], 2, [1, 'x'], (1, 'x'), True, {'a': 1, 'B': 'x'}, 'x', (1,))
+row-key IndexError No item with that key None None
+row-index IndexError tuple index out of range None None
+row-type ok 'Row'
+fetchmany ok 1
+fetchmany2 ok [(1,), (2,)]
+text-bytes ok (b'ab', 1)
+text-func ok ('AB', 2, b'A')
+bad-utf8 OperationalError Could not decode to UTF-8 column 'cast(x'ff' as text)' with text '�' None None
+bad-utf8-alias OperationalError Could not decode to UTF-8 column 'q' with text '�A' None None
+pragma ok (0,)
+colnames ok (('a b', None, None, None, None, None, None), ('[x]', None, None, None, None, None, None))
+mro ok ['IntegrityError', 'DatabaseError', 'Error', 'Exception', 'BaseException', 'object']
+script ok []
+after-script ok [(1,), (2,)]
+dump ok ['BEGIN TRANSACTION;', 'CREATE TABLE a(x);', 'INSERT INTO "a" VALUES(1);', 'INSERT INTO "a" VALUES(2);', 'COMMIT;']
+empty ok None
+comment ok [(3,)]
+trailing ok [(4,)]
+trailing2 ok [(5,)]
+returning ok [(7, 14)]
+upsert ok -1
+upsert2 ok 3
+kv ok [('a', 6), ('b', 2)]
+named-ok ok [(3, 1, 2)]
+numbered ok [(2, 1)]
+iterate ok [(1,), (2,), (7,)]
+type-sql TypeError execute() argument 1 must be str, not int None None
+json ok ('{"a":1,"b":[1,2]}',)
+math ok (3, 3.5, 1, 2.67, 3)
+agg ok (3, 10, 3.3333333333333335, '1|2|7', 7)
+window ok [(1, 1), (2, 3), (7, 10)]
+cte ok ('1,2,3,4,5',)
+limit ok (10, 10, 3)
+limit-bad ProgrammingError 'category' is out of bounds None None

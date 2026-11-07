@@ -216,6 +216,37 @@ if [ "$1" != "--update" ]; then
     *) echo "FAIL sandbox polars (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
   esac
 fi
+# sqlite3 programs must print what CPython's sqlite3 prints (stdout), with Brevi's own sqlite3 over the system's
+# SQLite: never CPython. `--update` writes the .expected files with python3.
+for f in tests/sqlite3/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then
+    python3 "$f" > "$exp" 2>/dev/null
+    continue
+  fi
+  out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_sq_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_sq_err || grep -q '"py"' /tmp/brevi_sq_err; then
+    echo "FAIL $f (not built with Brevi's sqlite3)"; cat /tmp/brevi_sq_err; fail=1
+  elif [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_sq_err | tail -5; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+if [ "$1" != "--update" ]; then
+  out=$($BREVI run --sandbox tests/sqlite3/sandbox/files.py 2>&1)
+  case "$out" in
+    *"sqlite3 connect(file) needs allow read"*"sqlite3 connect(file) needs allow write"*) echo "ok   sandbox sqlite3 (files need allow read, write)" ;;
+    *) echo "FAIL sandbox sqlite3 (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
+  esac
+  # SQL that opens files itself (ATTACH, VACUUM INTO, a vfs= URI, load_extension) is refused by SQLite's file layer
+  out=$($BREVI run --sandbox tests/sqlite3/sandbox/attach.py 2>/dev/null)
+  if [ "$out" = "$(cat tests/sqlite3/sandbox/attach.expected)" ] && ! ls /tmp/brevi_sb_attach.db /tmp/brevi_sb_vacuum.db >/dev/null 2>&1; then
+    echo "ok   sandbox sqlite3 (SQL reaches no file)"
+  else
+    echo "FAIL sandbox sqlite3 (SQL reaches no file)"; printf '%s\n' "$out"; fail=1
+  fi
+fi
 # requests and httpx programs must print what CPython's requests 2.34 and httpx 0.28 print, with Brevi's own copies
 # over native sockets and TLS: never CPython. They talk to tests/http/server.py (HTTP on 18080, HTTPS on 18081)
 # and pass verify= themselves, so a CA bundle in the environment changes nothing. `--update` needs both libraries.

@@ -371,6 +371,14 @@ const POLARS_LACKS: &[&str] = &[
     ".plot", ".style", "to_torch", "to_jax", "estimated_size", "agg_groups", "split_exact", "json_decode", "str.encode", ".hash(",
     "show_versions", "map_batches", "pl.datatypes", "polars.datatypes", "storage_options",
 ];
+// Brevi's sqlite3 (src/dynpy/py/sqlite3.py) over the system's SQLite: connections, cursors, rows, parameters,
+// transactions, adapters and converters, iterdump. What calls back into Python from SQLite, and blobs, backups,
+// serialize and extensions, it lacks; a program using them runs CPython's sqlite3.
+const SQLITE3_LACKS: &[&str] = &[
+    "create_function", "create_aggregate", "create_window_function", "create_collation", "set_authorizer", "set_progress_handler",
+    "set_trace_callback", "enable_load_extension", "load_extension", "backup(", "blobopen", "serialize(", "getconfig", "setconfig",
+    "FromTicks", "enable_callback_tracebacks", "sqlite3.Blob", "check_same_thread=False", "memoryview", "bytearray",
+];
 const OWN_CONTEXTLIB: &[&str] = &[
     "contextmanager", "asynccontextmanager", "suppress", "nullcontext", "closing", "aclosing", "ExitStack", "AsyncExitStack",
     "AbstractContextManager", "AbstractAsyncContextManager",
@@ -422,6 +430,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "markupsafe" => Some("markupsafe"),
         "polars" => Some("polars"),
         "polars.exceptions" => Some("polars.exceptions"),
+        "sqlite3" | "sqlite3.dbapi2" => Some("sqlite3"),
         "mcp" => Some("mcp"),
         "mcp.types" => Some("mcp.types"),
         "mcp_types" => Some("mcp_types"),
@@ -467,6 +476,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "jinja2" => OWN_JINJA2.contains(&attr),
         "markupsafe" => OWN_MARKUPSAFE.contains(&attr),
         "polars" => own_polars(attr),
+        "sqlite3" => own_def(include_str!("dynpy/py/sqlite3.py"), attr) || attr == "dbapi2",
         "polars.exceptions" => defines(include_str!("dynpy/py/polars_exceptions.py"), attr),
         "jinja2.ext" => defines(include_str!("dynpy/py/jinja2_ext.py"), attr),
         "jinja2.exceptions" => defines(include_str!("dynpy/py/jinja2_exceptions.py"), attr),
@@ -502,6 +512,15 @@ fn own_polars(name: &str) -> bool {
             let def = l.strip_prefix("def ").or_else(|| l.strip_prefix("class ")).is_some_and(|r| r.strip_prefix(name).is_some_and(|r| r.starts_with(['(', ':'])));
             let set = l.strip_prefix(name).and_then(|r| r.strip_prefix(" = ")).is_some_and(|r| !r.starts_with("_no("));
             def || set
+        })
+}
+
+// A public top-level def, class or assignment of a copy.
+fn own_def(src: &str, name: &str) -> bool {
+    !name.starts_with('_')
+        && src.lines().any(|l| {
+            let def = l.strip_prefix("def ").or_else(|| l.strip_prefix("class ")).is_some_and(|r| r.strip_prefix(name).is_some_and(|r| r.starts_with(['(', ':'])));
+            def || l.strip_prefix(name).is_some_and(|r| r.starts_with(" = "))
         })
 }
 
@@ -637,7 +656,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
                 let deep = |p: &str| m.trim().starts_with(p) && path_module(m.trim()).is_none();
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") || deep("polars.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") || deep("polars.") || deep("sqlite3.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -692,7 +711,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
@@ -810,6 +829,35 @@ fn polars_files(src: &str) -> Vec<(usize, &'static str, String)> {
     out
 }
 
+// The lines where Brevi's sqlite3 opens a database file: a connect() of anything but ":memory:" or "" (SQLite's
+// private temporary database). A read-only URI (mode=ro) needs only the read grant.
+fn sqlite_files(src: &str) -> Vec<(usize, &'static str, String)> {
+    let mut out = vec![];
+    for (n, l) in code_lines(src) {
+        if !l.contains("connect(") {
+            continue;
+        }
+        // the argument as written (code_lines blanks the text of strings)
+        let raw = src.lines().nth(n - 1).unwrap_or("");
+        for (i, _) in raw.match_indices("connect(") {
+            if raw[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let arg = raw[i + 8..].trim_start();
+            let arg = arg.strip_prefix("database=").unwrap_or(arg);
+            let memory = [r#"":memory:""#, "':memory:'", r#""")"#, r#""","#, "'')", "'',"].iter().any(|m| arg.starts_with(m));
+            if memory {
+                continue;
+            }
+            out.push((n, "read", "sqlite3 connect(file)".to_string()));
+            if !raw.contains("mode=ro") {
+                out.push((n, "write", "sqlite3 connect(file)".to_string()));
+            }
+        }
+    }
+    out
+}
+
 // Every use of a capability not in `allowed`, one error per line.
 pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     let mut uses: Vec<(usize, &'static str, String)> = Vec::new();
@@ -855,6 +903,10 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     // Brevi's polars reads and writes files (read_csv("x.csv"), df.write_csv("out.csv")).
     if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("polars")) {
         uses.extend(polars_files(src));
+    }
+    // Brevi's sqlite3 opens database files (connect("app.db")); ":memory:" needs nothing.
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("sqlite3")) {
+        uses.extend(sqlite_files(src));
     }
     uses.sort();
     let mut seen = Vec::new();
@@ -1197,6 +1249,47 @@ mod tests {
         let src = "import polars as pl\nimport io\ndf = pl.read_csv(io.StringIO('a\\n1'))\ndf.write_csv('out.csv')\nprint(df.write_csv())\npl.read_csv('in.csv')\n";
         let files: Vec<(usize, &str)> = super::polars_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
         assert_eq!(files, [(4, "write"), (6, "read")]);
+    }
+
+    // Brevi's sqlite3 imports only datetime and _brevi_sqlite, its one way to the engine; the engine reaches files
+    // only through the glue's file layer, which honours the read and write grants under --sandbox.
+    #[test]
+    fn sqlite3_copy_reaches_nothing() {
+        let src = include_str!("dynpy/py/sqlite3.py");
+        for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                let m = m.split_whitespace().next().unwrap();
+                assert!(["datetime", "_brevi_sqlite"].contains(&m), "sqlite3.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
+                let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') && !l[..i].ends_with("def "));
+                assert!(!own, "sqlite3.py uses {bad}");
+            }
+        }
+        let glue = include_str!("dynpy/sqlglue.rs");
+        assert!(glue.contains("if !FS_READ {") && glue.contains("if !FS_WRITE && flags & OPEN_READWRITE != 0"));
+        assert!(glue.contains("vfs_unregister") && !glue.contains("enable_load_extension"));
+    }
+
+    // A sqlite3 program stays on Brevi's sqlite3; user functions, backups, blobs and extensions send it to
+    // CPython's. A database file needs the read and write grants under --sandbox; ":memory:" needs nothing.
+    #[test]
+    fn path_uses_sqlite3() {
+        let uses = |s: &str| super::path_uses(s).unwrap().into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+        let ok = "import sqlite3\nfrom sqlite3 import Row, IntegrityError\nc = sqlite3.connect(':memory:')\nc.row_factory = sqlite3.Row\nprint(c.execute('select 1').fetchall(), sqlite3.PARSE_DECLTYPES, sqlite3.sqlite_version)\n";
+        assert!(uses(ok).is_empty(), "{:?}", uses(ok));
+        for bad in [
+            "import sqlite3\nc = sqlite3.connect(':memory:')\nc.create_function('f', 1, len)\n",
+            "import sqlite3\nc = sqlite3.connect(':memory:')\nc.backup(c)\n",
+            "import sqlite3\nc = sqlite3.connect(':memory:')\nc.enable_load_extension(True)\n",
+            "from sqlite3 import Blob\n",
+            "import sqlite3\nf = sqlite3\n",
+        ] {
+            assert!(!uses(bad).is_empty(), "{bad}");
+        }
+        let src = "import sqlite3\na = sqlite3.connect(':memory:')\nb = sqlite3.connect(\"app.db\")\nc = sqlite3.connect('file:x.db?mode=ro', uri=True)\nd = sqlite3.connect(database=\"\")\n";
+        let files: Vec<(usize, &str)> = super::sqlite_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
+        assert_eq!(files, [(3, "read"), (3, "write"), (4, "read")]);
     }
 
     // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it

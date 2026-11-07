@@ -1,0 +1,29 @@
+False
+True
+(0,) False
+[(2,)] False
+[(2,), (3,)] False
+caught boom
+[(2,), (3,)] False
+None
+False
+True
+[(2,), (3,), (5,)]
+'DEFERRED'
+'IMMEDIATE'
+'EXCLUSIVE'
+''
+ValueError isolation_level string must be '', 'DEFERRED', 'IMMEDIATE', or 'EXCLUSIVE'
+TypeError isolation_level must be str or None
+True 7
+False True
+True
+gone: no such table: q
+False True
+False [(1,)]
+autocommit must be True, False, or sqlite3.LEGACY_TRANSACTION_CONTROL
+(2,) [(3,)] None
+3 4
+1 6
+6
+3
