@@ -157,6 +157,23 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "openai.types.responses" => include_str!("py/openai_types_responses.py"),
         "_brevi_openai_types" => include_str!("py/_brevi_openai_types.py"),
         "_brevi_http" => include_str!("py/_brevi_http.py"),
+        "mcp" => include_str!("py/mcp.py"),
+        "mcp.types" | "mcp_types" => include_str!("py/mcp_types.py"),
+        "mcp.server" => include_str!("py/mcp_server.py"),
+        "mcp.server.mcpserver" => include_str!("py/mcp_server_mcpserver.py"),
+        "mcp.server.lowlevel" => include_str!("py/mcp_server_lowlevel.py"),
+        "mcp.server.stdio" => include_str!("py/mcp_server_stdio.py"),
+        "mcp.shared.exceptions" => include_str!("py/mcp_shared_exceptions.py"),
+        "mcp.server.mcpserver.exceptions" => include_str!("py/mcp_server_mcpserver_exceptions.py"),
+        "mcp.server.mcpserver.prompts" => include_str!("py/mcp_server_mcpserver_prompts.py"),
+        "mcp.server.mcpserver.prompts.base" => include_str!("py/mcp_server_mcpserver_prompts_base.py"),
+        "mcp.server.mcpserver.resources" => include_str!("py/mcp_server_mcpserver_resources.py"),
+        "mcp.server.mcpserver.tools" => include_str!("py/mcp_server_mcpserver_tools.py"),
+        "mcp.server.mcpserver.utilities.types" => include_str!("py/mcp_server_mcpserver_utilities_types.py"),
+        "_brevi_mcp" => include_str!("py/_brevi_mcp.py"),
+        "_brevi_mcp_models" => include_str!("py/_brevi_mcp_models.py"),
+        "_brevi_mcp_types" => include_str!("py/_brevi_mcp_types.py"),
+        "contextlib" => include_str!("py/contextlib.py"),
         _ => return None,
     })
 }
@@ -269,6 +286,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let mut own_used = false;
     let mut own_mods: HashSet<String> = HashSet::new();
     let mut net_used = false;
+    let mut stdio_used = false;
     let mut bridge = emit::Bridge::default();
     let mut texts: HashMap<String, (String, String)> = HashMap::new();
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
@@ -280,6 +298,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             if mods.iter().any(|x| x.name == m) || emit::builtin_mod(&m) {
                 if m == "_brevi_net" {
                     net_used = true;
+                }
+                if m == "_brevi_stdio" {
+                    stdio_used = true;
                 }
                 if m == "numpy" {
                     emit::NP_ON.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -402,6 +423,30 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             return Err((f, l, why));
         }
     }
+    // Brevi's mcp: each function's signature for the SDK's tool / resource / prompt machinery (pyd::mcp_sigs)
+    if own_mods.contains("_brevi_mcp") {
+        let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
+        let (classes, models) = (pyd::class_names(&user), pyd::models(&user));
+        let mut extra: HashSet<String> = include_str!("py/_brevi_mcp_models.py")
+            .lines()
+            .filter_map(|l| l.strip_prefix("class ").and_then(|r| r.split('(').next()).map(|n| n.to_string()))
+            .collect();
+        for n in ["Context", "Image", "Audio", "Message", "UserMessage", "AssistantMessage", "ServerSession", "ServerRequestContext", "MCPServer"] {
+            extra.insert(n.to_string());
+        }
+        for m in mods.iter_mut().filter(|m| !own_mods.contains(&m.name)) {
+            if let Err((l, why)) = pyd::mcp_sigs(&mut m.body, &classes, &models, &extra) {
+                if std::env::var("BREVI_MCP_DEBUG").is_ok() {
+                    eprintln!("native mcp refused: {}:{l}: {why}", m.name);
+                }
+                if copies && bridge_ok() && crate::pybridge::py_allowed("mcp") {
+                    return Err((file.to_string(), 0, BEYOND_COPIES.into()));
+                }
+                let f = texts.get(&m.name).map_or(file.to_string(), |t| t.0.clone());
+                return Err((f, l, why));
+            }
+        }
+    }
     emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && texts.values().any(|(_, t)| emit::names_narrow(t)), std::sync::atomic::Ordering::Relaxed);
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
@@ -429,6 +474,14 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         rust = rust.replacen("fn main() { ", "fn main() { NET.set(brevi_netglue::ops()).ok(); ", 1);
         rust.push_str(&net_glue());
+    }
+    if stdio_used {
+        if !cfg!(unix) {
+            return Err((file.to_string(), 0, "Brevi's own mcp runs on Linux and macOS".into()));
+        }
+        rust = rust.replacen("fn main() { ", "fn main() { STDIO.set(brevi_stdioglue::ops()).ok(); ", 1);
+        rust.push('\n');
+        rust.push_str(include_str!("stdioglue.rs"));
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);

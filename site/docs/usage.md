@@ -22,7 +22,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `brevi build FILE [-o OUT]` | Build a native program and write it to `OUT` (default: the file name without its extension). Never falls back. |
 | `brevi check FILE [--fast]` | Build without running and print the errors, or nothing. `--fast` runs only Brevi's own checks, in milliseconds, without `rustc`. |
 | `brevi test FILE` | Run the `test "name":` blocks of a Brevi program. |
-| `brevi verify FILE.py [--input PATH]... [-- ARGS]` | Build natively, run the program and `python3` on the same inputs, and print a certificate when the two agree: stdout, exit code and stderr. See [Verify against CPython](#verify-against-cpython). |
+| `brevi verify FILE.py [--input PATH]... [--mcp] [-- ARGS]` | Build natively, run the program and `python3` on the same inputs, and print a certificate when the two agree: stdout, exit code and stderr. See [Verify against CPython](#verify-against-cpython). |
 | `brevi emit FILE` | Print the Rust that Brevi generates. |
 | `brevi fix FILE` | Apply every suggested fix to a `.bv` file in place. |
 | `brevi patch FILE PATCH` | Replace each `fn`, `type`, `enum` or `test` in `PATCH` by name in `FILE`, or add it; `del fn name` removes one. |
@@ -104,6 +104,7 @@ $ brevi verify main.py --input tests/ -- --verbose
 - `--input PATH` feeds a file to stdin, one run per `--input`; a folder gives one run per file in it (only its `*.in` files when it has any). With no input the program runs once with empty stdin. Arguments after `--` go to both.
 - The last line is the certificate: the verdict, the SHA-256 of the file and of every input, the Brevi and Python versions, which [path](#which-path-ran) built it, and the time each side took. A CI job or an agent can keep it, and gate on the exit status.
 - Verdicts: `identical` (exit 0); `differs`, a wrong answer from Brevi, with the first line that differs (`"on":"stdout"`, `"exit code"` or `"stderr"`); `unstable`; `timeout` (`--timeout SECS`, default 60 per run); `not built`, with Brevi's errors above it. Every verdict but `identical` exits 1; a usage error exits 2.
+- An MCP server is verified with a client session: when the file imports `mcp`, a `.jsonl` input (or any input, with `--mcp`) holds one JSON-RPC message per line, and each request is sent once the reply to the one before it is out, so the answer does not depend on timing. `#nowait MSG` sends a request without waiting (to cancel it, or to leave it running when the client hangs up), `#wait N` waits for N more lines, `#raw TEXT` sends a line that is not JSON, and `# ...` is a comment.
 - `--once` runs CPython once instead of twice. `--release` verifies the fully optimised build.
 - The program runs three times per input, so a program that writes files sees its own earlier runs.
 - `--sandbox` is refused: verify runs the code under CPython, which cannot be held to the sandbox's grants. Verify only code you would run with `python3`.
@@ -196,6 +197,7 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 - **requests and httpx:** Brevi's own copies, over native sockets and TLS; they need `allow net` (or `--allow-net` for some hosts), not `allow native`.
 
+- **mcp:** Brevi's own copy of the MCP SDK; a stdio server needs no grant. What it lacks (the HTTP transports, sampling, elicitation; see [mcp](/docs/compatibility#mcp-mcp-servers)) is refused by name unless the caller grants `--allow-py mcp`.
 - **anthropic and openai:** Brevi's own copies of the SDKs, over its httpx; they need `allow net` too (`--allow-net api.anthropic.com` or `--allow-net api.openai.com`), not `allow native`. What they lack (see [anthropic and openai](/docs/compatibility#anthropic-and-openai)) is refused by name unless the caller grants `--allow-py anthropic` or `--allow-py openai`.
 
 - **random:** `seed`, `random`, `randint`, `randrange`, `choice`, `choices`, `shuffle`, `sample`, `uniform`, `gauss`, `getrandbits` and `random.Random`, using CPython's own generator, so a seeded program draws the same numbers as in CPython. Seeds must be ints. Other functions (`random.betavariate`, ...) give one error naming them.

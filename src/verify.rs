@@ -5,10 +5,12 @@
 // program names the exception, not the frames). CPython runs each input twice, so output that changes from
 // run to run (set order, time, unseeded random) is reported as unstable rather than certified.
 //
-//   brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]
+//   brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]
 //
 // --input PATH is fed to the program's stdin, one run per path; a folder gives one run per file in it (only
 // its *.in files when it has any). With no input the program runs once with empty stdin. ARGS go to both.
+// For an MCP server (a file that imports mcp) a .jsonl input, or any input with --mcp, is a JSON-RPC session:
+// each request goes in once the reply to the one before it is out, as a client sends them (see lockstep).
 //
 // One JSON line per input, then the certificate:
 //   {"case":1,"input":"t/1.in","same":true,"cpython_ms":38,"brevi_ms":2}
@@ -24,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Stdio};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]";
+const USAGE: &str = "usage: brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]";
 
 fn usage(msg: &str) -> ! {
     println!("{{\"verify\":\"error\",\"msg\":\"{}\",\"fix\":\"{}\"}}", esc(msg), esc(USAGE));
@@ -40,18 +42,13 @@ struct Run {
     timed_out: bool,
 }
 
-fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration) -> Result<Run, String> {
+fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration, session: bool) -> Result<Run, String> {
     c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     let start = Instant::now();
     let mut child = c.spawn().map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
     let si = child.stdin.take();
     let input = stdin.to_vec();
-    std::thread::spawn(move || {
-        if let Some(mut si) = si {
-            let _ = si.write_all(&input);
-        }
-    });
     let read = |r: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {
             let mut b = vec![];
@@ -61,7 +58,41 @@ fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration) -> Result<Ru
             b
         })
     };
-    let out = read(child.stdout.take().map(|r| Box::new(r) as Box<dyn Read + Send>));
+    let out = if session {
+        // a JSON-RPC session (an MCP server): each line goes in once the reply to the one before it is out
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let so = child.stdout.take();
+        let out = std::thread::spawn(move || {
+            let mut all = vec![];
+            if let Some(so) = so {
+                let mut r = std::io::BufReader::new(so);
+                loop {
+                    let mut l = vec![];
+                    match std::io::BufRead::read_until(&mut r, b'\n', &mut l) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            all.extend_from_slice(&l);
+                            let _ = tx.send(String::from_utf8_lossy(&l).trim_end().to_string());
+                        }
+                    }
+                }
+            }
+            all
+        });
+        std::thread::spawn(move || {
+            if let Some(si) = si {
+                lockstep(si, &input, &rx, limit);
+            }
+        });
+        out
+    } else {
+        std::thread::spawn(move || {
+            if let Some(mut si) = si {
+                let _ = si.write_all(&input);
+            }
+        });
+        read(child.stdout.take().map(|r| Box::new(r) as Box<dyn Read + Send>))
+    };
     let err = read(child.stderr.take().map(|r| Box::new(r) as Box<dyn Read + Send>));
     let mut timed_out = false;
     let status = loop {
@@ -81,6 +112,78 @@ fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration) -> Result<Ru
     // Anything the program left running (a background child holding the pipes) goes too.
     crate::proc::stop_pid(child.id());
     Ok(Run { out: out.join().unwrap_or_default(), err: err.join().unwrap_or_default(), code: status.and_then(|s| exit_code(s)), ms, timed_out })
+}
+
+// The id a JSON-RPC message answers or asks with, as Python compares them (1 == 1.0, "1" != 1); None for none.
+fn rpc_id(j: &crate::json::J) -> Option<String> {
+    match j.get("id")? {
+        crate::json::J::Num(n) => Some(format!("n{n}")),
+        crate::json::J::Str(t) => Some(format!("s{t}")),
+        crate::json::J::Bool(b) => Some(format!("n{}", *b as u8)),
+        _ => None,
+    }
+}
+
+// Plays a session script (tests/mcp_sdk/drive.py's): one message per line, sent as written; a request (a
+// method and an id) waits for the reply with its id. `#nowait MSG` sends without waiting, `#wait N` waits for N
+// more lines, `#raw TEXT` sends TEXT and waits up to 2 s for a line, `#close` ends the session, `# ...` is a
+// comment. stdin closes at the end, as a client hanging up.
+fn lockstep(mut si: std::process::ChildStdin, script: &[u8], rx: &std::sync::mpsc::Receiver<String>, limit: Duration) {
+    let text = String::from_utf8_lossy(script).to_string();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let send = |si: &mut std::process::ChildStdin, m: &str| si.write_all(format!("{m}\n").as_bytes()).and_then(|_| si.flush()).is_ok();
+        if let Some(m) = line.strip_prefix("#raw ") {
+            if !send(&mut si, m) {
+                return;
+            }
+            let _ = rx.recv_timeout(Duration::from_secs(2));
+            continue;
+        }
+        if let Some(n) = line.strip_prefix("#wait ") {
+            for _ in 0..n.trim().parse::<usize>().unwrap_or(0) {
+                if rx.recv_timeout(limit).is_err() {
+                    return;
+                }
+            }
+            continue;
+        }
+        if let Some(m) = line.strip_prefix("#nowait ") {
+            if !send(&mut si, m) {
+                return;
+            }
+            continue;
+        }
+        if line.starts_with("#close") {
+            return;
+        }
+        if line.starts_with('#') {
+            continue;
+        }
+        if !send(&mut si, line) {
+            return;
+        }
+        let Some(msg) = crate::json::parse(t) else { continue };
+        let Some(id) = rpc_id(&msg) else { continue };
+        if msg.get("method").is_none() {
+            continue;
+        }
+        loop {
+            match rx.recv_timeout(limit) {
+                Ok(l) => {
+                    if let Some(r) = crate::json::parse(&l) {
+                        if r.get("method").is_none() && rpc_id(&r).as_deref() == Some(id.as_str()) {
+                            break;
+                        }
+                    }
+                }
+                Err(_) => return,
+            }
+        }
+    }
 }
 
 fn exit_code(s: std::process::ExitStatus) -> Option<i32> {
@@ -185,6 +288,7 @@ pub fn main(argv: &[String]) -> ! {
     let mut input_paths: Vec<String> = vec![];
     let mut once = false;
     let mut release = false;
+    let mut mcp = false;
     let mut limit = Duration::from_secs(60);
     let mut i = 0;
     while i < dash {
@@ -202,6 +306,7 @@ pub fn main(argv: &[String]) -> ! {
                 i += 1;
             }
             "--once" => once = true,
+            "--mcp" => mcp = true,
             "--release" => release = true,
             "--no-cache" => crate::runcache::turn_off(),
             _ if a == "--sandbox" || a.starts_with("--allow") => usage(
@@ -219,6 +324,10 @@ pub fn main(argv: &[String]) -> ! {
     }
     let src = std::fs::read(&file).unwrap_or_else(|e| usage(&format!("cannot read {file}: {e}")));
     let cases = inputs(&input_paths);
+    let serves_mcp = String::from_utf8_lossy(&src).lines().any(|l| {
+        let l = l.trim_start();
+        l.starts_with("from mcp") || l.starts_with("import mcp")
+    });
     let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
     let pyver = python_version(&python);
 
@@ -264,12 +373,14 @@ pub fn main(argv: &[String]) -> ! {
     let mut ins = vec![];
     for (n, (name, data)) in cases.iter().enumerate() {
         let n = n + 1;
+        // an MCP server's .jsonl input is a session: played in lockstep, so the answer does not depend on timing
+        let session = mcp || (name.ends_with(".jsonl") && serves_mcp);
         let head = format!("\"case\":{n},\"input\":\"{}\"", esc(name));
         ins.push(format!("{{\"input\":\"{}\",\"sha256\":\"{}\"}}", esc(name), hex(&sha256(data))));
         let py = || {
             let mut c = crate::proc::program(&python);
             c.arg(&file).args(&prog_args);
-            run(c, data, limit)
+            run(c, data, limit, session)
         };
         let fail = |what: &str, fix: &str| {
             println!("{{{head},\"same\":false,{what},\"fix\":\"{}\"}}", esc(fix));
@@ -281,7 +392,7 @@ pub fn main(argv: &[String]) -> ! {
         let b = {
             let mut c = crate::proc::script(&bin, &file);
             c.args(&prog_args);
-            match run(c, data, limit) {
+            match run(c, data, limit, session) {
                 Ok(r) => r,
                 Err(m) => usage(&m),
             }

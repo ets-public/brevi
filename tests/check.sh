@@ -222,6 +222,46 @@ if [ "$1" != "--update" ]; then
   if [ "$out" = "$(cat tests/llm/openai_async.expected)" ]; then echo "ok   sandbox llm (--allow-net 127.0.0.1)"; else echo "FAIL sandbox llm (--allow-net 127.0.0.1)"; printf '%s\n' "$out" | diff tests/llm/openai_async.expected -; fail=1; fi
 fi
 kill $srv 2>/dev/null
+# MCP servers on the official mcp SDK (MCPServer, the low-level Server, stdio) must answer what CPython's mcp 2.3.0
+# answers, built with Brevi's own copy: never CPython. tests/mcp_sdk/drive.py plays each NAME.CASE.jsonl to the
+# server in lockstep; the .expected transcripts are CPython's, stderr left out. `--update` needs mcp installed.
+for f in tests/mcp_sdk/*.py; do
+  case "$f" in */drive.py|*/devrun.py) continue ;; esac
+  n=$(basename "$f" .py)
+  if [ "$1" = "--update" ]; then
+    python3 -c "import mcp" 2>/dev/null || continue
+    for j in tests/mcp_sdk/$n.*.jsonl; do python3 tests/mcp_sdk/drive.py "$j" -- python3 "$f" | grep -v '^stderr: ' > "${j%.jsonl}.expected"; done
+    continue
+  fi
+  if ! BREVI_PATH=1 $BREVI build "$f" -o /tmp/brevi_mcp_$n 2>/tmp/brevi_mcp_err || ! grep -q '"path":"dynamic"' /tmp/brevi_mcp_err || grep -q '"py"' /tmp/brevi_mcp_err; then
+    echo "FAIL $f (not built with Brevi's mcp)"; cat /tmp/brevi_mcp_err; fail=1; continue
+  fi
+  for j in tests/mcp_sdk/$n.*.jsonl; do
+    out=$(python3 tests/mcp_sdk/drive.py "$j" -- /tmp/brevi_mcp_$n | grep -v '^stderr: ')
+    if [ "$out" != "$(cat "${j%.jsonl}.expected")" ]; then
+      echo "FAIL $j"; printf '%s\n' "$out" | diff "${j%.jsonl}.expected" - | head -20; fail=1
+    else
+      echo "ok   $j"
+    fi
+  done
+  rm -f /tmp/brevi_mcp_$n
+done
+# brevi verify plays a server's .jsonl session in lockstep and certifies it (only where CPython has mcp installed).
+if [ "$1" != "--update" ] && python3 -c "import mcp" 2>/dev/null; then
+  for c in basics.lead lowlevel.calls rich.calls; do
+    o=$($BREVI verify tests/mcp_sdk/${c%%.*}.py --input tests/mcp_sdk/$c.jsonl 2>&1 | tail -1)
+    case "$o" in '{"verify":"identical"'*) echo "ok   brevi verify tests/mcp_sdk/$c.jsonl" ;; *) echo "FAIL brevi verify tests/mcp_sdk/$c.jsonl"; printf '%s\n' "$o"; fail=1 ;; esac
+  done
+fi
+# Under --sandbox a stdio server needs no grant (it only reads stdin and writes stdout); what the copy lacks is refused.
+if [ "$1" != "--update" ]; then
+  out=$(head -3 tests/mcp_sdk/basics.calls.jsonl | timeout 300 $BREVI run --sandbox tests/mcp_sdk/basics.py 2>/dev/null | tail -1)
+  case "$out" in '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Add two numbers."'*) echo "ok   sandbox mcp (stdio, no grant)" ;;
+    *) echo "FAIL sandbox mcp (stdio, no grant)"; printf '%s\n' "$out"; fail=1 ;; esac
+  out=$($BREVI run --sandbox tests/mcp_sdk/sandbox/http.py 2>&1)
+  case "$out" in *"mcp transport needs allow native"*) echo "ok   sandbox mcp (what the copy lacks is refused)" ;;
+    *) echo "FAIL sandbox mcp (what the copy lacks is refused)"; printf '%s\n' "$out"; fail=1 ;; esac
+fi
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"

@@ -1,0 +1,20 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"sq","arguments":{"n":7}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"dict","arguments":{}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"bad","arguments":{}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"err","arguments":{}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"zzz","arguments":{}}}
+{"jsonrpc":"2.0","id":8,"method":"prompts/list"}
+{"jsonrpc":"2.0","id":9,"method":"prompts/get","params":{"name":"p1","arguments":{"a":"x"}}}
+{"jsonrpc":"2.0","id":10,"method":"resources/list"}
+#nowait {"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"slow","arguments":{}}}
+{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":11,"reason":"x"}}
+{"jsonrpc":"2.0","id":12,"method":"ping"}
+#nowait {"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"slow","arguments":{}}}
+{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"sq","arguments":{"n":2}}}
+#wait 1
+#nowait {"jsonrpc":"2.0","id":"15","method":"tools/call","params":{"name":"slow","arguments":{}}}
+{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":15}}
+{"jsonrpc":"2.0","id":17,"method":"ping"}
+#nowait {"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"slow","arguments":{}}}

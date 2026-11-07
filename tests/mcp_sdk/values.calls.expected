@@ -1,0 +1,53 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"instructions":"Be nice","protocolVersion":"2025-06-18","serverInfo":{"name":"demo2","version":"1.2"}}}
+> {"jsonrpc":"2.0","method":"notifications/initialized"}
+> {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+< {"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"","inputSchema":{"properties":{"text":{"title":"Text","type":"string"}},"required":["text"],"type":"object","title":"echoArguments"},"name":"echo","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"echoOutput"}},{"description":"","inputSchema":{"properties":{"x":{"title":"X","type":"number"}},"required":["x"],"type":"object","title":"fArguments"},"name":"f","outputSchema":{"properties":{"result":{"title":"Result","type":"number"}},"required":["result"],"type":"object","title":"fOutput"}},{"description":"","inputSchema":{"properties":{},"type":"object","title":"nothingArguments"},"name":"nothing","outputSchema":{"properties":{"result":{"title":"Result","type":"null"}},"required":["result"],"type":"object","title":"nothingOutput"}},{"description":"","inputSchema":{"properties":{"n":{"title":"N","type":"integer"}},"required":["n"],"type":"object","title":"lstArguments"},"name":"lst","outputSchema":{"properties":{"result":{"items":{"type":"integer"},"title":"Result","type":"array"}},"required":["result"],"type":"object","title":"lstOutput"}},{"description":"","inputSchema":{"properties":{"k":{"title":"K","type":"string"}},"required":["k"],"type":"object","title":"dctArguments"},"name":"dct"},{"description":"","inputSchema":{"properties":{"x":{"title":"x","type":"string"}},"required":["x"],"type":"object","title":"plainArguments"},"name":"plain"},{"description":"","inputSchema":{"properties":{"x":{"title":"X","type":"integer"}},"required":["x"],"type":"object","title":"boomArguments"},"name":"boom","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"boomOutput"}},{"description":"","inputSchema":{"properties":{"n":{"title":"N","type":"integer"}},"required":["n"],"type":"object","title":"logsArguments"},"name":"logs","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"logsOutput"}}]}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"echo","arguments":{"text":"héllo ☃ \"q\" \\ \n \t \u0001 😀"}}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"héllo ☃ \"q\" \\ \n \t \u0001 😀","type":"text"}],"isError":false,"structuredContent":{"result":"héllo ☃ \"q\" \\ \n \t \u0001 😀"}}}
+> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"f","arguments":{"x":2}}}
+< {"jsonrpc":"2.0","id":4,"result":{"content":[{"text":"3.0","type":"text"}],"isError":false,"structuredContent":{"result":3.0}}}
+> {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"f","arguments":{"x":1e300}}}
+< {"jsonrpc":"2.0","id":5,"result":{"content":[{"text":"1.5e+300","type":"text"}],"isError":false,"structuredContent":{"result":1.5e+300}}}
+> {"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"f","arguments":{"x":"3.5"}}}
+< {"jsonrpc":"2.0","id":6,"result":{"content":[{"text":"5.25","type":"text"}],"isError":false,"structuredContent":{"result":5.25}}}
+> {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"nothing","arguments":{}}}
+< {"jsonrpc":"2.0","id":7,"result":{"content":[],"isError":false,"structuredContent":{"result":null}}}
+> {"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"lst","arguments":{"n":3}}}
+< {"jsonrpc":"2.0","id":8,"result":{"content":[{"text":"0","type":"text"},{"text":"1","type":"text"},{"text":"2","type":"text"}],"isError":false,"structuredContent":{"result":[0,1,2]}}}
+> {"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"dct","arguments":{"k":"a"}}}
+< {"jsonrpc":"2.0","id":9,"result":{"content":[{"text":"{\n  \"a\": 1.0,\n  \"u\": \"é\"\n}","type":"text"}],"isError":false}}
+> {"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"plain","arguments":{"x":[1,2]}}}
+< {"jsonrpc":"2.0","id":10,"result":{"content":[{"text":"{\n  \"x\": [\n    1,\n    2\n  ]\n}","type":"text"}],"isError":false}}
+> {"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"boom","arguments":{"x":1}}}
+< {"jsonrpc":"2.0","id":11,"result":{"content":[{"text":"Error executing tool boom","type":"text"}],"isError":true}}
+> {"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"logs","arguments":{"n":1},"_meta":{"progressToken":"p1"}}}
+< {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"hello"}}
+< {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"debug","data":"dbg"}}
+< {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"warning","data":"w"}}
+< {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"p1","progress":1,"total":2,"message":"half"}}
+< {"jsonrpc":"2.0","id":12,"result":{"content":[{"text":"done","type":"text"}],"isError":false,"structuredContent":{"result":"done"}}}
+> {"jsonrpc":"2.0","id":13,"method":"logging/setLevel","params":{"level":"warning"}}
+< {"jsonrpc":"2.0","id":13,"error":{"code":-32601,"message":"Method not found","data":"logging/setLevel"}}
+> {"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"logs","arguments":{"n":1}}}
+< {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"hello"}}
+< {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"debug","data":"dbg"}}
+< {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"warning","data":"w"}}
+< {"jsonrpc":"2.0","id":14,"result":{"content":[{"text":"done","type":"text"}],"isError":false,"structuredContent":{"result":"done"}}}
+> {"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"echo","arguments":[1]}}
+< {"jsonrpc":"2.0","id":15,"error":{"code":-32602,"message":"Invalid request parameters","data":""}}
+> {"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"echo","arguments":{"text":"x","extra":1}}}
+< {"jsonrpc":"2.0","id":16,"result":{"content":[{"text":"x","type":"text"}],"isError":false,"structuredContent":{"result":"x"}}}
+> {"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"lst","arguments":{"n":"[1]"}}}
+< {"jsonrpc":"2.0","id":17,"result":{"content":[{"text":"Error executing tool lst: 1 validation error for lstArguments\nn\n  Input should be a valid integer [type=int_type, input_value=[1], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_type","type":"text"}],"isError":true}}
+> {"jsonrpc":"2.0","id":null,"method":"ping"}
+> {"jsonrpc":"2.0","id":18,"method":"ping","params":{"_meta":{"x":1}}}
+< {"jsonrpc":"2.0","id":18,"result":{}}
+> {"jsonrpc":"1.0","id":19,"method":"ping"}
+> {"id":20,"method":"ping"}
+> {"jsonrpc":"2.0","id":21,"result":{}}
+> {"jsonrpc":"2.0","id":22.5,"method":"ping"}
+> {"jsonrpc":"2.0","id":23,"method":"ping","params":[1]}
+> {"jsonrpc":"2.0","id":24,"method":"ping"}
+< {"jsonrpc":"2.0","id":24,"result":{}}
+exit 0

@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 36] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 37] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -187,6 +187,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
         "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
+        "_brevi_stdio" => &["claim", "release", "read", "write", "poll"],
         "_brevi_tok" => &["core", "ranks", "max_rank", "n_ranks", "find_special"],
         "_brevi_net" => &["open", "open_nb", "ready", "tls", "handshake", "settimeout", "setblocking", "send", "sendall", "fill", "head", "line", "take", "avail", "fileno", "close", "poll", "env", "host_ok", "zopen", "zfeed", "zstate", "zrest", "zclose"],
         "_brevi_hf" => &[
@@ -1770,7 +1771,7 @@ impl Em {
             }
             St::Break => self.jump("break", "", line)?,
             St::Continue => self.jump("continue", "", line)?,
-            St::Raise(e, _cause) => match e {
+            St::Raise(e, cause) => match e {
                 None => {
                     let cur = self.fstack.last().unwrap().exc_vars.last().cloned();
                     match cur {
@@ -1782,7 +1783,15 @@ impl Em {
                     let ee = self.ex(e, line)?;
                     let mk = self.q(&format!("make_exc({ee})"));
                     let r = self.raise_code("__e");
-                    format!("{{ let __e = {mk}; {r}; }}")
+                    match cause {
+                        // `raise X from Y`: Y (an instance, a class made one, or None) is X.__cause__
+                        Some(c) => {
+                            let cc = self.ex(c, line)?;
+                            let sc = self.q(&format!("set_cause(&__e, {cc})"));
+                            format!("{{ let __e = {mk}; {sc}; {r}; }}")
+                        }
+                        None => format!("{{ let __e = {mk}; {r}; }}"),
+                    }
                 }
             },
             St::Global(_) | St::Nonlocal(_) => String::new(),

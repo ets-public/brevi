@@ -1,0 +1,6 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"tools":{"listChanged":true}},"protocolVersion":"2025-06-18","serverInfo":{"name":"low","version":"9"}}}
+> {"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"slow","arguments":{}}}
+< {"jsonrpc":"2.0","id":16,"error":{"code":-32000,"message":"Connection closed"}}
+< after run
+exit 0

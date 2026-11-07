@@ -325,6 +325,21 @@ const OPENAI_LACKS: &[&str] = &[
     "provider=", "data_residency=", "azure", "Azure", "_strict_response_validation", ".get_api_list(", "._client", "pydantic_function_tool",
     "openai.lib", "openai.resources", "openai.pagination", "openai.helpers", "openai.Completion", "client.completions",
 ];
+// What Brevi's mcp lacks (src/dynpy/py/_brevi_mcp.py): server-to-client requests (sampling, elicitation, roots),
+// the HTTP transports, auth, extensions and middleware, the subscription bus, request state, and the client.
+// A program using any of them is run by CPython's mcp.
+const MCP_LACKS: &[&str] = &[
+    ".elicit(", ".elicit_url(", ".elicit_form(", ".create_message(", ".list_roots(", ".send_ping(", ".send_request(", ".send_raw_request(",
+    "notify_tools_changed", "notify_prompts_changed", "notify_resources_changed", "notify_resource_updated", "subscriptions=",
+    "streamable_http", "streamable-http", "\"sse\"", "'sse'", "sse_app", "run_sse_async", "custom_route", "session_manager", "auth=",
+    "auth_server_provider", "token_verifier", "extensions=", "middleware", "request_state", "cache_hints", "input_responses", "InputRequiredResult",
+    "on_subscriptions_listen", "on_subscribe_resource", "on_unsubscribe_resource", "raise_exceptions", "ClientSession", "stdio_client",
+    "anyio", "transport=", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
+];
+const OWN_CONTEXTLIB: &[&str] = &[
+    "contextmanager", "asynccontextmanager", "suppress", "nullcontext", "closing", "aclosing", "ExitStack", "AsyncExitStack",
+    "AbstractContextManager", "AbstractAsyncContextManager",
+];
 const HTTPX_LACKS: &[&str] = &[
     "http2=", "transport=", "mounts=", "proxies=", "cert=", "files=", "app=", ".extensions", ".sync_auth_flow", ".async_auth_flow",
 ];
@@ -362,6 +377,21 @@ fn path_module(m: &str) -> Option<&'static str> {
         "openai.types" => Some("openai.types"),
         "openai.types.chat" => Some("openai.types.chat"),
         "openai.types.responses" => Some("openai.types.responses"),
+        "contextlib" => Some("contextlib"),
+        "mcp" => Some("mcp"),
+        "mcp.types" => Some("mcp.types"),
+        "mcp_types" => Some("mcp_types"),
+        "mcp.server" => Some("mcp.server"),
+        "mcp.server.mcpserver" => Some("mcp.server.mcpserver"),
+        "mcp.server.lowlevel" => Some("mcp.server.lowlevel"),
+        "mcp.server.stdio" => Some("mcp.server.stdio"),
+        "mcp.shared.exceptions" => Some("mcp.shared.exceptions"),
+        "mcp.server.mcpserver.exceptions" => Some("mcp.server.mcpserver.exceptions"),
+        "mcp.server.mcpserver.prompts" => Some("mcp.server.mcpserver.prompts"),
+        "mcp.server.mcpserver.prompts.base" => Some("mcp.server.mcpserver.prompts.base"),
+        "mcp.server.mcpserver.resources" => Some("mcp.server.mcpserver.resources"),
+        "mcp.server.mcpserver.tools" => Some("mcp.server.mcpserver.tools"),
+        "mcp.server.mcpserver.utilities.types" => Some("mcp.server.mcpserver.utilities.types"),
         _ => None,
     }
 }
@@ -389,6 +419,20 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "openai.types" => defines(include_str!("dynpy/py/openai_types.py"), attr),
         "openai.types.chat" => defines(include_str!("dynpy/py/openai_types_chat.py"), attr),
         "openai.types.responses" => defines(include_str!("dynpy/py/openai_types_responses.py"), attr),
+        "contextlib" => OWN_CONTEXTLIB.contains(&attr),
+        "mcp" => attr == "types" || defines(include_str!("dynpy/py/mcp.py"), attr),
+        "mcp.types" | "mcp_types" => defines(include_str!("dynpy/py/mcp_types.py"), attr),
+        "mcp.server" => defines(include_str!("dynpy/py/mcp_server.py"), attr),
+        "mcp.server.mcpserver" => defines(include_str!("dynpy/py/mcp_server_mcpserver.py"), attr),
+        "mcp.server.lowlevel" => defines(include_str!("dynpy/py/mcp_server_lowlevel.py"), attr),
+        "mcp.server.stdio" => defines(include_str!("dynpy/py/mcp_server_stdio.py"), attr),
+        "mcp.shared.exceptions" => defines(include_str!("dynpy/py/mcp_shared_exceptions.py"), attr),
+        "mcp.server.mcpserver.exceptions" => defines(include_str!("dynpy/py/mcp_server_mcpserver_exceptions.py"), attr),
+        "mcp.server.mcpserver.prompts" => defines(include_str!("dynpy/py/mcp_server_mcpserver_prompts.py"), attr),
+        "mcp.server.mcpserver.prompts.base" => defines(include_str!("dynpy/py/mcp_server_mcpserver_prompts_base.py"), attr),
+        "mcp.server.mcpserver.resources" => defines(include_str!("dynpy/py/mcp_server_mcpserver_resources.py"), attr),
+        "mcp.server.mcpserver.tools" => defines(include_str!("dynpy/py/mcp_server_mcpserver_tools.py"), attr),
+        "mcp.server.mcpserver.utilities.types" => defines(include_str!("dynpy/py/mcp_server_mcpserver_utilities_types.py"), attr),
         _ => PURE_PATHLIB.contains(&attr),
     }
 }
@@ -526,7 +570,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
                 let deep = |p: &str| m.trim().starts_with(p) && path_module(m.trim()).is_none();
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -581,7 +625,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
