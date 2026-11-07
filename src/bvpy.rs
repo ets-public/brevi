@@ -5,7 +5,6 @@
 // strings that run over several physical lines. Comments are left out of `text`.
 pub struct Line {
     pub start: usize,
-    pub end: usize,
     pub indent: usize,
     pub text: String,
 }
@@ -35,7 +34,6 @@ pub fn logical(src: &str) -> Vec<Line> {
         let start = i;
         let mut text = String::new();
         let mut depth = 0i32;
-        let mut end = i;
         while i < b.len() {
             let c = b[i];
             if c == b'#' {
@@ -48,7 +46,6 @@ pub fn logical(src: &str) -> Vec<Line> {
                 let (s, e) = (i, string_end(b, i));
                 text.push_str(&src[s..e]);
                 i = e;
-                end = e;
                 continue;
             }
             if c == b'\\' && b.get(i + 1) == Some(&b'\n') {
@@ -72,11 +69,8 @@ pub fn logical(src: &str) -> Vec<Line> {
             let ch = src[i..].chars().next().unwrap_or(' ');
             text.push(ch);
             i += ch.len_utf8();
-            if !ch.is_whitespace() {
-                end = i;
-            }
         }
-        out.push(Line { start, end, indent, text: text.trim_end().to_string() });
+        out.push(Line { start, indent, text: text.trim_end().to_string() });
         i += 1;
     }
     out
