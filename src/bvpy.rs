@@ -442,6 +442,15 @@ pub fn to_python(src: &str) -> Option<String> {
                         }
                         if m < toks.len() && text(m) == "=" {
                             edits.push((toks[m].0.0, toks[m].0.1, ": return".into()));
+                        } else if m + 1 < toks.len() && text(m) == ":" && !matches!(toks[m + 1].1, T::Nl) {
+                            // `fn f(x): e` on one line: the body after the colon is the last value too.
+                            let b = toks[m + 1].0.0;
+                            let end = (m + 1..toks.len()).find(|&n| matches!(toks[n].1, T::Nl)).map(|n| toks[n].0.0).unwrap_or(src.len());
+                            let body = src[b..end].trim();
+                            let no_yield = body.split(|c: char| !(c.is_alphanumeric() || c == '_')).all(|w| w != "yield");
+                            if text(k + 1) != "__init__" && no_yield && bare_value(body, true).is_some() {
+                                edits.push((b, b, "return ".into()));
+                            }
                         }
                     }
                     "lambda" => lambda_depth = Some(stack.len()),
@@ -645,6 +654,8 @@ mod rewrite_tests {
         let p = |s: &str| to_python(s).unwrap();
         assert_eq!(p("fn f(x):\n  x * 2\n"), "def f(x):\n  return x * 2\n");
         assert_eq!(p("fn f(x) = x * 2\n"), "def f(x) : return x * 2\n");
+        assert_eq!(p("fn f(x): float(x)\n"), "def f(x): return float(x)\n");
+        assert_eq!(p("fn __init__(self): self.x = 1\n"), "def __init__(self): self.x = 1\n");
         assert_eq!(p("async fn f(x):\n  await g(x)\n"), "async def f(x):\n  return await g(x)\n");
         assert_eq!(p("ys = map(x => x + 1, xs)\n"), "ys = map(lambda x: x + 1, xs)\n");
         assert_eq!(p("print(\"n={n} {{ok}}\")\n"), "print(f\"n={n} {{ok}}\")\n");
