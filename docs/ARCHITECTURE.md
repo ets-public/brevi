@@ -236,7 +236,7 @@ flowchart LR
 
 ### Plain Python in a `.bv` file
 
-`bv_as_py` in `src/main.rs` decides, before anything else runs, whether a `.bv` file is plain Python: Python-style (`python_style`), compilable by CPython (`pydiag::not_python`), free of Brevi-only names (`pydiag::scan_brevi`), and with no plain string holding `{name` (Brevi interpolates it, Python does not). Such a file is marked in `BV_PY`, and `is_py(file)` (used wherever `main.rs` once tested `.py`) treats it as Python: the guard, the `.py` rewrites, the typed build with Python's meaning and the dynamic fallback. `--native` is implied, so it never runs in python3. `BREVI_BV_PY=0` turns this off.
+`bv_as_py` in `src/main.rs` decides, before anything else runs, whether a `.bv` file is plain Python: Python-style (`python_style`), compilable by CPython (`pydiag::not_python`), free of Brevi-only names (`pydiag::scan_brevi`), with no plain string holding `{name` (Brevi interpolates it, Python does not), and with no function ending in a bare value (`bvpy::returns_tail`: Brevi returns it, Python drops it). Such a file is marked in `BV_PY`, and `is_py(file)` (used wherever `main.rs` once tested `.py`) treats it as Python: the guard, the `.py` rewrites, the typed build with Python's meaning and the dynamic fallback. `--native` is implied, so it never runs in python3. `BREVI_BV_PY=0` turns this off.
 
 ### Libraries on Brevi's engine (`.bv` files)
 

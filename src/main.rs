@@ -1,4 +1,5 @@
 mod alias;
+mod bvpy;
 mod records;
 mod ast;
 mod bigint;
@@ -2152,7 +2153,8 @@ pub fn is_py(file: &str) -> bool {
 // A .bv file written as Python with no Brevi spellings: CPython could compile it (no `fn`, `=>`, `use "x.bv"`,
 // foreign code), it uses no Brevi-only names (`fail(...)`, `.push(...)`), it is Python-style (so the typed
 // build already gives it Python's meaning), and no plain string in it would interpolate (`"{n}"` is Brevi's
-// interpolation, Python's literal text). Such a file gets what a .py file gets.
+// interpolation, Python's literal text), and no function ends with a bare value (`x * 2`: Brevi returns it, Python
+// drops it). Such a file gets what a .py file gets.
 fn bv_as_py(file: &str) -> bool {
     if !file.ends_with(".bv") || std::env::var("BREVI_BV_PY").is_ok_and(|v| v == "0") {
         return false;
@@ -2164,60 +2166,11 @@ fn bv_as_py(file: &str) -> bool {
         let t = l.trim_start();
         t.starts_with("use ") || t.starts_with("rust ") || t.starts_with("py fn") || t == "rust:" || t == "py:" || t.starts_with("test \"")
     });
-    let ok = !foreign && python_style(&src) && pydiag::not_python(&text).is_none() && pydiag::scan_brevi(&src, dir).is_empty() && !brevi_interpolates(&src);
+    let ok = !foreign && python_style(&src) && pydiag::not_python(&text).is_none() && pydiag::scan_brevi(&src, dir).is_empty() && !bvpy::interpolates(&src) && !bvpy::returns_tail(&src);
     if ok {
         BV_PY.set(file.to_string()).ok();
     }
     ok
-}
-
-// Whether a plain (not f-) string literal holds `{name`, `{(`, which Brevi interpolates and Python does not.
-fn brevi_interpolates(src: &str) -> bool {
-    let c: Vec<char> = src.chars().collect();
-    let mut i = 0;
-    while i < c.len() {
-        match c[i] {
-            '#' => {
-                while i < c.len() && c[i] != '\n' {
-                    i += 1;
-                }
-            }
-            '"' | '\'' => {
-                let q = c[i];
-                let mut k = i;
-                let mut f = false;
-                while k > 0 && c[k - 1].is_ascii_alphabetic() {
-                    k -= 1;
-                    f |= matches!(c[k], 'f' | 'F');
-                }
-                let triple = c.get(i + 1) == Some(&q) && c.get(i + 2) == Some(&q);
-                let mut j = if triple { i + 3 } else { i + 1 };
-                let mut hit = false;
-                while j < c.len() {
-                    if c[j] == '\\' {
-                        j += 2;
-                        continue;
-                    }
-                    if c[j] == q && (!triple || (c.get(j + 1) == Some(&q) && c.get(j + 2) == Some(&q))) {
-                        break;
-                    }
-                    if !triple && c[j] == '\n' {
-                        break;
-                    }
-                    if c[j] == '{' && c.get(j + 1).is_some_and(|n| n.is_alphabetic() || matches!(n, '_' | '(')) {
-                        hit = true;
-                    }
-                    j += 1;
-                }
-                if hit && !f {
-                    return true;
-                }
-                i = if triple { j + 3 } else { j + 1 };
-            }
-            _ => i += 1,
-        }
-    }
-    false
 }
 
 pub fn python_style(src: &str) -> bool {
