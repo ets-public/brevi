@@ -24,8 +24,8 @@ exit 1
 {"verify":"differs","file":"tests/verify/sq.py","sha256":"15532f5ac9d457e04d013dd407d06e61ef01916a9723afb2b2de68155bff5098","inputs":[{"input":"(empty stdin)","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}],"args":[],"compared":"stdout, exit code and stderr, CPython run twice","differ":1,"unstable":0,"timeout":0}
 exit 1
 -- tests/verify/sq.py --sandbox
-{"verify":"error","msg":"verify runs the program under CPython, which the sandbox cannot hold to its grants, so verify does not take --sandbox or --allow; verify only code you would run with python3","fix":"usage: brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]"}
+{"verify":"error","msg":"verify runs the program under CPython, which the sandbox cannot hold to its grants, so verify does not take --sandbox or --allow; verify only code you would run with python3","fix":"usage: brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]"}
 exit 2
 -- tests/run/arm_map.bv
-{"verify":"error","msg":"verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)","fix":"usage: brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]"}
+{"verify":"error","msg":"verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)","fix":"usage: brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]"}
 exit 2
