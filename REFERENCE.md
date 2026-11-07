@@ -17,7 +17,7 @@ Escapes: `\n \t \r \0 \" \\ \{ \}`.
 `2.5.fmt(2)` is "2.50"; f64 `round(n)` rounds to n places.
 
 ## Type details
-`let (a, b) = t` or `(a, b) = t` destructures a tuple. `Point(x, y)` works as a constructor when variables x and y exist. A `mut` parameter is called as `f(x)`. A return type is optional (`fn f(x: int) = x * 2`); write `-> T` if an error asks.
+`let (a, b) = t` or `(a, b) = t` destructures a tuple. `Point(x, y)` works as a constructor when variables x and y exist. A `type` block can hold `fn` methods taking `self` (`fn grow(self, n): self.size += n`), and a `class` (Python style, `fn __init__(self, ...)`) can extend another: `class Dog(Animal):`, with `super().__init__(...)` and `super().speak()`. A `mut` parameter is called as `f(x)`. A return type is optional (`fn f(x: int) = x * 2`); write `-> T` if an error asks.
 A missing map key reads as the type's zero (0, 0.0, "", [], dec 0). `print(a, b)` puts a space between.
 
 ## Python

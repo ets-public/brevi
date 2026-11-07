@@ -157,7 +157,12 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
         if p.peek() == &Tok::Eof {
             break;
         }
-        if matches!(p.peek(), Tok::Kw("fn" | "type" | "enum" | "test")) {
+        if p.is_kw("type") && p.type_has_methods() {
+            // `type Point:` with `fn` methods in its block: fields and methods, made as a class is.
+            let (ty, fns, bases) = p.class()?;
+            classes.push((ty, bases));
+            items.extend(fns);
+        } else if matches!(p.peek(), Tok::Kw("fn" | "type" | "enum" | "test")) {
             items.push(p.item()?);
         } else if p.error_class() {
             continue;
@@ -745,6 +750,32 @@ impl Parser {
     // Python's class: a type whose fields are the `self.x` it sets, `__init__` as the function `C_new`
     // (`C(a, b)` calls it), and each method `m` as the function `C_m(self, ...)`; `obj.m(x)` calls become
     // `C_m(obj, x)` in lower_methods. Field types are worked out like parameter types (infer::returns).
+    // `type Name:` whose block holds an `fn` at its own level.
+    fn type_has_methods(&self) -> bool {
+        let t = |k: usize| self.toks.get(self.pos + k).map(|t| &t.tok);
+        if !matches!(t(1), Some(Tok::Ident(_))) || t(2) != Some(&Tok::Sym("{")) {
+            return false;
+        }
+        let mut depth = 0;
+        let mut k = 2;
+        while let Some(tok) = t(k) {
+            match tok {
+                Tok::Sym("{" | "(" | "[") => depth += 1,
+                Tok::Sym("}" | ")" | "]") => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return false;
+                    }
+                }
+                Tok::Kw("fn") if depth == 1 => return true,
+                Tok::Eof => return false,
+                _ => {}
+            }
+            k += 1;
+        }
+        false
+    }
+
     fn class(&mut self) -> R<(Item, Vec<Item>, Vec<String>)> {
         let line = self.line();
         self.next();
@@ -4680,6 +4711,46 @@ fn inherit(items: &mut Vec<Item>, classes: &mut [(Item, Vec<String>)]) {
             copies.push(Item::Fn { name: new_name, params, ret: ret.clone(), fallible: *fallible, body, line: *line, script: *script });
         }
         items.extend(copies);
+        // super().m(args) in our own methods: the base's m, copied as `Me__super_m` with self typed as ours.
+        let mut wanted: Vec<String> = Vec::new();
+        for it in items.iter_mut() {
+            let Item::Fn { name, body, .. } = it else { continue };
+            if !name.starts_with(&format!("{me}_")) {
+                continue;
+            }
+            walk_mut(body, &mut |e| {
+                let Expr::Method(r, m, args, line) = e else { return };
+                if m == "__init__" || !matches!(r.as_ref(), Expr::Call(f, a, _) if f == "super_" && a.is_empty()) {
+                    return;
+                }
+                let mut a: Vec<(Option<String>, Expr)> = vec![(None, Expr::Ident("self_".into()))];
+                a.extend(args.drain(..).map(|x| (None, x)));
+                if !wanted.contains(m) {
+                    wanted.push(m.clone());
+                }
+                *e = Expr::Call(format!("{me}__super_{m}"), a, *line);
+            });
+        }
+        for m in wanted {
+            let base_fn = items.iter().find_map(|i| match i {
+                Item::Fn { name, params, ret, fallible, body, line, script } if *name == format!("{base}_{m}") => Some(Item::Fn {
+                    name: format!("{me}__super_{m}"),
+                    params: params.iter().cloned().enumerate().map(|(k, mut p)| {
+                        if k == 0 && p.name == "self_" {
+                            p.ty = Ty::Named(me.clone());
+                        }
+                        p
+                    }).collect(),
+                    ret: ret.clone(),
+                    fallible: *fallible,
+                    body: body.clone(),
+                    line: *line,
+                    script: *script,
+                }),
+                _ => None,
+            });
+            items.extend(base_fn);
+        }
         // super().__init__(args) inside our own __init__.
         if let Some((bps, Expr::Block(bst, _))) = base_new {
             for it in items.iter_mut() {

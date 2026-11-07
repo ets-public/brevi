@@ -19,6 +19,7 @@ type Point:
   x: f64
   y: f64
   label: str = ""              # default
+  fn dist(self) = (self.x * self.x + self.y * self.y).sqrt()   # a method: p.dist()
 enum Shape:
   Circle(r: f64)
   Rect(w: f64, h: f64)

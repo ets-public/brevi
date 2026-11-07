@@ -1,0 +1,4 @@
+ann: 120 after 2 deposits true
+bob: 5 after 0 deposits false
+Account { owner: "ann", balance: 120, history: [50, 70] }
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

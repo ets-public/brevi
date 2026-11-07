@@ -1,0 +1,19 @@
+# fn methods in a type block.
+type Account:
+  owner: str
+  balance: int = 0
+  history: [int] = []
+  fn deposit(self, n):
+    self.balance += n
+    self.history.push(n)
+  fn report(self):
+    "{self.owner}: {self.balance} after {self.history.len()} deposits"
+  fn rich(self) = self.balance > 100
+
+a = Account(owner: "ann")
+a.deposit(50)
+a.deposit(70)
+print(a.report(), a.rich())
+b = Account("bob", 5)
+print(b.report(), b.rich())
+print(a)
