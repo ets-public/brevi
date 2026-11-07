@@ -1,0 +1,710 @@
+mod Int64 [2, 1, 0, None]
+fdiv Int64 [-4, 3, 0, None]
+fdiv0 Int64 [None, None, None, None]
+mod0 Int64 [None, None, None, None]
+div0 Float64 [-inf, inf, nan, None]
+pow Int64 [49, 49, 0, None]
+powf Float64 [nan, 2.6457513110645907, 0.0, None]
+neg Int64 [7, -7, 0, None]
+[Int32] [Int64] [Float64] [String] [Null] [Boolean]
+Int32 Float64 Int64 Float64
+shape: (1,)
+Series: '' [i64]
+[
+	0
+]
+[1, -2] [1, None]
+InvalidOperationError conversion from `str` to `i64` failed in column '' for 1 out of 2 values: ["x"]
+[0.0, 2.0, 2.0, -0.0] [1.2, 1.4]
+[None, 1, 2, 3] [None, 3, 2, 1]
+[True, None] [False, True]
+shape: (2,)
+Series: '' [str]
+[
+	"ax"
+	"bx"
+]
+1.0 None 2.5 2.0
+3.0 nan 0 None None
+Int64 List(Int64) True False String
+shape: (3,)
+Series: '' [str]
+[
+	"a
+b"
+	"q"z"
+	"tab	x"
+]
+shape: (2, 2)
+┌─────┬─────┐
+│ s   ┆ n   │
+│ --- ┆ --- │
+│ str ┆ i64 │
+╞═════╪═════╡
+│ a   ┆ 1   │
+│ b   ┆     │
+│ x   ┆ 2   │
+└─────┴─────┘
+shape: (8,)
+Series: '' [f64]
+[
+	0.0000001
+	1.23456789e8
+	1234567.5
+	0.1234567
+	12.0
+	99999.99999
+	1.0000e15
+	0.000025
+]
+shape: (5, 5)
+┌──────┬──────┬────────┬───────────────────┬──────┐
+│ name ┆ age  ┆ score  ┆ tags              ┆ team │
+│ ---  ┆ ---  ┆ ---    ┆ ---               ┆ ---  │
+│ str  ┆ i64  ┆ f64    ┆ list[str]         ┆ str  │
+╞══════╪══════╪════════╪═══════════════════╪══════╡
+│ Ann  ┆ 34   ┆ 88.5   ┆ ["a", "b"]        ┆ x    │
+│ bob  ┆ null ┆ 92.25  ┆ []                ┆ y    │
+│ Cara ┆ 29   ┆ null   ┆ ["c"]             ┆ x    │
+│ null ┆ 41   ┆ 70.0   ┆ null              ┆ y    │
+│ dave ┆ 22   ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    │
+└──────┴──────┴────────┴───────────────────┴──────┘
+shape: (5, 8)
+┌──────┬──────┬────────┬───────────────────┬──────┬───────┬────────┬──────┐
+│ name ┆ age  ┆ score  ┆ tags              ┆ team ┆ lower ┆ pad    ┆ nb   │
+│ ---  ┆ ---  ┆ ---    ┆ ---               ┆ ---  ┆ ---   ┆ ---    ┆ ---  │
+│ str  ┆ i64  ┆ f64    ┆ list[str]         ┆ str  ┆ str   ┆ str    ┆ u32  │
+╞══════╪══════╪════════╪═══════════════════╪══════╪═══════╪════════╪══════╡
+│ Ann  ┆ 34   ┆ 88.5   ┆ ["a", "b"]        ┆ x    ┆ ann   ┆ ***Ann ┆ 3    │
+│ bob  ┆ null ┆ 92.25  ┆ []                ┆ y    ┆ bob   ┆ ***bob ┆ 3    │
+│ Cara ┆ 29   ┆ null   ┆ ["c"]             ┆ x    ┆ cara  ┆ **Cara ┆ 4    │
+│ null ┆ 41   ┆ 70.0   ┆ null              ┆ y    ┆ null  ┆ *****? ┆ null │
+│ dave ┆ 22   ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    ┆ dave  ┆ **dave ┆ 4    │
+└──────┴──────┴────────┴───────────────────┴──────┴───────┴────────┴──────┘
+shape: (5, 6)
+┌──────┬──────┬────────┬───────────────────┬──────┬──────┐
+│ name ┆ age  ┆ score  ┆ tags              ┆ team ┆ a2   │
+│ ---  ┆ ---  ┆ ---    ┆ ---               ┆ ---  ┆ ---  │
+│ str  ┆ i64  ┆ f64    ┆ list[str]         ┆ str  ┆ i64  │
+╞══════╪══════╪════════╪═══════════════════╪══════╪══════╡
+│ Ann  ┆ 34   ┆ 88.5   ┆ ["a", "b"]        ┆ x    ┆ -34  │
+│ bob  ┆ null ┆ 92.25  ┆ []                ┆ y    ┆ null │
+│ Cara ┆ 29   ┆ null   ┆ ["c"]             ┆ x    ┆ 58   │
+│ null ┆ 41   ┆ 70.0   ┆ null              ┆ y    ┆ 82   │
+│ dave ┆ 22   ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    ┆ -22  │
+└──────┴──────┴────────┴───────────────────┴──────┴──────┘
+shape: (5, 3)
+┌──────┬─────────┬───────┐
+│ tags ┆ j       ┆ has_a │
+│ ---  ┆ ---     ┆ ---   │
+│ str  ┆ str     ┆ bool  │
+╞══════╪═════════╪═══════╡
+│ a    ┆ a-b     ┆ true  │
+│ null ┆         ┆ false │
+│ c    ┆ c       ┆ false │
+│ null ┆ null    ┆ null  │
+│ a    ┆ a-c-d-e ┆ true  │
+└──────┴─────────┴───────┘
+shape: (8, 5)
+┌──────┬─────┬────────┬──────┬──────┐
+│ name ┆ age ┆ score  ┆ tags ┆ team │
+│ ---  ┆ --- ┆ ---    ┆ ---  ┆ ---  │
+│ str  ┆ i64 ┆ f64    ┆ str  ┆ str  │
+╞══════╪═════╪════════╪══════╪══════╡
+│ Ann  ┆ 34  ┆ 88.5   ┆ a    ┆ x    │
+│ Ann  ┆ 34  ┆ 88.5   ┆ b    ┆ x    │
+│ Cara ┆ 29  ┆ null   ┆ c    ┆ x    │
+│ null ┆ 41  ┆ 70.0   ┆ null ┆ y    │
+│ dave ┆ 22  ┆ 65.125 ┆ a    ┆ x    │
+│ dave ┆ 22  ┆ 65.125 ┆ c    ┆ x    │
+│ dave ┆ 22  ┆ 65.125 ┆ d    ┆ x    │
+│ dave ┆ 22  ┆ 65.125 ┆ e    ┆ x    │
+└──────┴─────┴────────┴──────┴──────┘
+shape: (5, 6)
+┌──────┬──────┬────────┬───────────────────┬──────┬────────────┐
+│ name ┆ age  ┆ score  ┆ tags              ┆ team ┆ age_bucket │
+│ ---  ┆ ---  ┆ ---    ┆ ---               ┆ ---  ┆ ---        │
+│ str  ┆ i64  ┆ f64    ┆ list[str]         ┆ str  ┆ str        │
+╞══════╪══════╪════════╪═══════════════════╪══════╪════════════╡
+│ Ann  ┆ 34   ┆ 88.5   ┆ ["a", "b"]        ┆ x    ┆ mid        │
+│ bob  ┆ null ┆ 92.25  ┆ []                ┆ y    ┆ old        │
+│ Cara ┆ 29   ┆ null   ┆ ["c"]             ┆ x    ┆ young      │
+│ null ┆ 41   ┆ 70.0   ┆ null              ┆ y    ┆ old        │
+│ dave ┆ 22   ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    ┆ young      │
+└──────┴──────┴────────┴───────────────────┴──────┴────────────┘
+shape: (5, 5)
+┌──────┬──────┬────────┬───────────────────┬──────┐
+│ name ┆ age  ┆ score  ┆ tags              ┆ team │
+│ ---  ┆ ---  ┆ ---    ┆ ---               ┆ ---  │
+│ str  ┆ i64  ┆ f64    ┆ list[str]         ┆ str  │
+╞══════╪══════╪════════╪═══════════════════╪══════╡
+│ dave ┆ 22   ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    │
+│ Cara ┆ 29   ┆ null   ┆ ["c"]             ┆ x    │
+│ Ann  ┆ 34   ┆ 88.5   ┆ ["a", "b"]        ┆ x    │
+│ null ┆ 41   ┆ 70.0   ┆ null              ┆ y    │
+│ bob  ┆ null ┆ 92.25  ┆ []                ┆ y    │
+└──────┴──────┴────────┴───────────────────┴──────┘
+shape: (5, 5)
+┌──────┬──────┬────────┬───────────────────┬──────┐
+│ name ┆ age  ┆ score  ┆ tags              ┆ team │
+│ ---  ┆ ---  ┆ ---    ┆ ---               ┆ ---  │
+│ str  ┆ i64  ┆ f64    ┆ list[str]         ┆ str  │
+╞══════╪══════╪════════╪═══════════════════╪══════╡
+│ Cara ┆ 29   ┆ null   ┆ ["c"]             ┆ x    │
+│ bob  ┆ null ┆ 92.25  ┆ []                ┆ y    │
+│ Ann  ┆ 34   ┆ 88.5   ┆ ["a", "b"]        ┆ x    │
+│ null ┆ 41   ┆ 70.0   ┆ null              ┆ y    │
+│ dave ┆ 22   ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    │
+└──────┴──────┴────────┴───────────────────┴──────┘
+shape: (5, 2)
+┌────────┬──────┐
+│ score  ┆ age2 │
+│ ---    ┆ ---  │
+│ f64    ┆ f64  │
+╞════════╪══════╡
+│ 88.5   ┆ 34.0 │
+│ 92.25  ┆ 31.5 │
+│ 92.25  ┆ 29.0 │
+│ 70.0   ┆ 41.0 │
+│ 65.125 ┆ 22.0 │
+└────────┴──────┘
+shape: (2, 4)
+┌──────┬─────────────────────────┬───────┬────────┐
+│ team ┆ name                    ┆ score ┆ over25 │
+│ ---  ┆ ---                     ┆ ---   ┆ ---    │
+│ str  ┆ list[str]               ┆ f64   ┆ u32    │
+╞══════╪═════════════════════════╪═══════╪════════╡
+│ x    ┆ ["Ann", "Cara", "dave"] ┆ 88.5  ┆ 2      │
+│ y    ┆ ["bob", null]           ┆ 92.25 ┆ 1      │
+└──────┴─────────────────────────┴───────┴────────┘
+{'name': ['Ann', 'bob', 'Cara', None, 'dave'], 'age': [34, None, 29, 41, 22], 'score': [88.5, 92.25, None, 70.0, 65.125], 'tags': [['a', 'b'], [], ['c'], None, ['a', 'c', 'd', 'e']], 'team': ['x', 'y', 'x', 'y', 'x']}
+('x',) 3
+('y',) 2
+(3, 5)
+shape: (5, 1)
+┌─────┐
+│ f   │
+│ --- │
+│ i32 │
+╞═════╡
+│ 35  │
+│ 1   │
+│ 30  │
+│ 42  │
+│ 23  │
+└─────┘
+shape: (5, 1)
+┌────────┐
+│ cs     │
+│ ---    │
+│ str    │
+╞════════╡
+│ Ann/x  │
+│ bob/y  │
+│ Cara/x │
+│ null   │
+│ dave/x │
+└────────┘
+shape: (1, 5)
+┌──────────┬───────────┬──────┬─────┬────────┐
+│ sd       ┆ va        ┆ q    ┆ s   ┆ p      │
+│ ---      ┆ ---       ┆ ---  ┆ --- ┆ ---    │
+│ f64      ┆ f64       ┆ f64  ┆ i64 ┆ i64    │
+╞══════════╪═══════════╪══════╪═════╪════════╡
+│ 13.40801 ┆ 179.77474 ┆ 88.5 ┆ 126 ┆ 889372 │
+└──────────┴───────────┴──────┴─────┴────────┘
+(10, 6)
+shape: (4, 4)
+┌─────┬─────┬──────┬──────┐
+│ k1  ┆ k2  ┆ v    ┆ w    │
+│ --- ┆ --- ┆ ---  ┆ ---  │
+│ i64 ┆ str ┆ i64  ┆ i64  │
+╞═════╪═════╪══════╪══════╡
+│ 1   ┆ a   ┆ 1    ┆ 10   │
+│ 1   ┆ b   ┆ 2    ┆ null │
+│ 2   ┆ a   ┆ 3    ┆ 20   │
+│ 2   ┆ b   ┆ null ┆ 30   │
+└─────┴─────┴──────┴──────┘
+shape: (4, 5)
+┌─────┬─────┬─────┬──────────┬─────┐
+│ k1  ┆ k2  ┆ v   ┆ k2_right ┆ w   │
+│ --- ┆ --- ┆ --- ┆ ---      ┆ --- │
+│ i64 ┆ str ┆ i64 ┆ str      ┆ i64 │
+╞═════╪═════╪═════╪══════════╪═════╡
+│ 1   ┆ a   ┆ 1   ┆ a        ┆ 10  │
+│ 1   ┆ b   ┆ 2   ┆ a        ┆ 10  │
+│ 2   ┆ a   ┆ 3   ┆ a        ┆ 20  │
+│ 2   ┆ a   ┆ 3   ┆ b        ┆ 30  │
+└─────┴─────┴─────┴──────────┴─────┘
+shape: (4,)
+Series: 'x' [i64]
+[
+	null
+	1
+	2
+	3
+] shape: (5,)
+Series: 'x' [i64]
+[
+	null
+	3
+	3
+	2
+	1
+] shape: (5,)
+Series: 'x' [bool]
+[
+	false
+	false
+	true
+	false
+	false
+] 4 1
+shape: (5, 1)
+┌──────┐
+│ x    │
+│ ---  │
+│ i64  │
+╞══════╡
+│ 3    │
+│ 1    │
+│ null │
+│ 2    │
+│ 3    │
+└──────┘ y shape: (5,)
+Series: 'x' [str]
+[
+	"3"
+	"1"
+	null
+	"2"
+	"3"
+] shape: (5,)
+Series: 'x' [i64]
+[
+	3
+	4
+	4
+	6
+	9
+]
+shape: (4, 2)
+┌──────┬───────┐
+│ x    ┆ count │
+│ ---  ┆ ---   │
+│ i64  ┆ u32   │
+╞══════╪═══════╡
+│ 3    ┆ 2     │
+│ 1    ┆ 1     │
+│ null ┆ 1     │
+│ 2    ┆ 1     │
+└──────┴───────┘
+[3, 1, None, 2, 3] 5 [False, True, None, True, False] [6, 2, None, 4, 6] 0 1
+shape: (10, 1)
+┌─────┐
+│ v   │
+│ --- │
+│ i64 │
+╞═════╡
+│ 0   │
+│ 1   │
+│ …   │
+│ 8   │
+│ 9   │
+└─────┘
+shape: (5, 5)
+┌──────┬──────┬───┬──────┐
+│ name ┆ age  ┆ … ┆ team │
+│ ---  ┆ ---  ┆   ┆ ---  │
+│ str  ┆ i64  ┆   ┆ str  │
+╞══════╪══════╪═══╪══════╡
+│ Ann  ┆ 34   ┆ … ┆ x    │
+│ bob  ┆ null ┆ … ┆ y    │
+│ Cara ┆ 29   ┆ … ┆ x    │
+│ null ┆ 41   ┆ … ┆ y    │
+│ dave ┆ 22   ┆ … ┆ x    │
+└──────┴──────┴───┴──────┘
+shape: (2, 12)
+┌───────────┬───────────┬───────────┬───────────┬───┬───────────┬───────────┬───────────┬──────────┐
+│ column_nu ┆ column_nu ┆ column_nu ┆ column_nu ┆ … ┆ column_nu ┆ column_nu ┆ column_nu ┆ column_n │
+│ mber_0    ┆ mber_1    ┆ mber_2    ┆ mber_3    ┆   ┆ mber_8    ┆ mber_9    ┆ mber_10   ┆ umber_11 │
+│ ---       ┆ ---       ┆ ---       ┆ ---       ┆   ┆ ---       ┆ ---       ┆ ---       ┆ ---      │
+│ f64       ┆ f64       ┆ f64       ┆ f64       ┆   ┆ f64       ┆ f64       ┆ f64       ┆ f64      │
+╞═══════════╪═══════════╪═══════════╪═══════════╪═══╪═══════════╪═══════════╪═══════════╪══════════╡
+│ 0.0       ┆ 1000.5    ┆ 2001.0    ┆ 3001.5    ┆ … ┆ 8004.0    ┆ 9004.5    ┆ 10005.0   ┆ 11005.5  │
+│ 0.0       ┆ 1.0       ┆ 2.0       ┆ 3.0       ┆ … ┆ 8.0       ┆ 9.0       ┆ 10.0      ┆ 11.0     │
+└───────────┴───────────┴───────────┴───────────┴───┴───────────┴───────────┴───────────┴──────────┘
+CNF unable to find column "nope"; valid columns: ["name", "age", "score", "tags", "team"]
+InvalidOperationError arithmetic on dtypes str and dyn int is not allowed (lhs: column 'name', rhs: expression `dyn int: 1`); try an explicit cast first
+shape: (4, 2)
+┌──────┬──────┐
+│ name ┆ next │
+│ ---  ┆ ---  │
+│ str  ┆ i64  │
+╞══════╪══════╡
+│ Ann  ┆ 35   │
+│ Cara ┆ 30   │
+│ null ┆ 42   │
+│ dave ┆ 23   │
+└──────┴──────┘
+shape: (3, 5)
+┌──────┬──────┬────────┬───────────────────┬──────┐
+│ name ┆ age  ┆ score  ┆ tags              ┆ team │
+│ ---  ┆ ---  ┆ ---    ┆ ---               ┆ ---  │
+│ str  ┆ i64  ┆ f64    ┆ list[str]         ┆ str  │
+╞══════╪══════╪════════╪═══════════════════╪══════╡
+│ Ann  ┆ 34   ┆ 88.5   ┆ ["a", "b"]        ┆ x    │
+│ bob  ┆ null ┆ 92.25  ┆ []                ┆ y    │
+│ dave ┆ 22   ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    │
+└──────┴──────┴────────┴───────────────────┴──────┘
+name,age,score,team
+Ann,34,88.5,x
+bob,,92.25,y
+Cara,29,,x
+,41,70.0,y
+dave,22,65.125,x
+
+[{"name":"Ann","age":34},{"name":"bob","age":null},{"name":"Cara","age":29},{"name":null,"age":41},{"name":"dave","age":22}]
+Schema({'name': String, 'age': Int64, 'score': Float64, 'tags': List(String), 'team': String}) ['name', 'age', 'score', 'tags', 'team']
+['age'] ['name', 'score', 'team']
+[34, None, 29, 35, 25]
+[True, None, True, False, False]
+2 2
+34 bob (2, 2) shape: (1, 5)
+┌──────┬─────┬────────┬───────────────────┬──────┐
+│ name ┆ age ┆ score  ┆ tags              ┆ team │
+│ ---  ┆ --- ┆ ---    ┆ ---               ┆ ---  │
+│ str  ┆ i64 ┆ f64    ┆ list[str]         ┆ str  │
+╞══════╪═════╪════════╪═══════════════════╪══════╡
+│ dave ┆ 22  ┆ 65.125 ┆ ["a", "c", … "e"] ┆ x    │
+└──────┴─────┴────────┴───────────────────┴──────┘
+shape: (2, 1)
+┌─────┐
+│ a   │
+│ --- │
+│ f64 │
+╞═════╡
+│ 4.5 │
+│ 3.5 │
+└─────┘
+shape: (2, 2)
+┌─────┬─────────┐
+│ m   ┆ s       │
+│ --- ┆ ---     │
+│ i64 ┆ str     │
+╞═════╪═════════╡
+│ 3   ┆ 1|3|0.5 │
+│ 2   ┆ null    │
+└─────┴─────────┘
+shape: (2, 3)
+┌─────┬──────┬─────┐
+│ a   ┆ b    ┆ c   │
+│ --- ┆ ---  ┆ --- │
+│ f64 ┆ i64  ┆ f64 │
+╞═════╪══════╪═════╡
+│ 2.0 ┆ 3    ┆ 0.5 │
+│ 2.0 ┆ null ┆ 1.5 │
+└─────┴──────┴─────┘
+shape: (2, 1)
+┌─────────┐
+│ literal │
+│ ---     │
+│ i32     │
+╞═════════╡
+│ 4       │
+│ null    │
+└─────────┘
+shape: (2, 1)
+┌──────┐
+│ x    │
+│ ---  │
+│ i32  │
+╞══════╡
+│ 4    │
+│ null │
+└──────┘
+shape: (2, 1)
+┌──────┐
+│ a    │
+│ ---  │
+│ f64  │
+╞══════╡
+│ 4.5  │
+│ null │
+└──────┘
+shape: (2, 1)
+┌──────┐
+│ a    │
+│ ---  │
+│ i64  │
+╞══════╡
+│ 3    │
+│ null │
+└──────┘
+shape: (2, 1)
+┌─────────┐
+│ literal │
+│ ---     │
+│ f64     │
+╞═════════╡
+│ 1.5     │
+│ 3.5     │
+└─────────┘
+[(0,), (1,)] [Int32]
+[(1,), (3,)]
+[(0.5,), (1.5,)]
+add name OK [('azz',)]
+add n InvalidOperationError arithmetic on dtypes i64 and str is not allowed (lhs: column 'n', rhs: expression `"zz"`); try an explicit cast first
+add rev OK [('zza',)]
+sub name InvalidOperationError sub operation not supported for dtypes `str` and `str`
+sub n InvalidOperationError arithmetic on dtypes i64 and str is not allowed (lhs: column 'n', rhs: column 'zz'); try an explicit cast first
+sub rev InvalidOperationError sub operation not supported for dtypes `str` and `str`
+mul name InvalidOperationError mul operation not supported for dtypes `str` and `str`
+mul n InvalidOperationError arithmetic on dtypes i64 and str is not allowed (lhs: column 'n', rhs: column 'zz'); try an explicit cast first
+mul rev InvalidOperationError mul operation not supported for dtypes `str` and `str`
+truediv name InvalidOperationError division with 'String' datatypes is not allowed
+truediv n InvalidOperationError division with 'String' datatypes is not allowed
+truediv rev InvalidOperationError division with 'String' datatypes is not allowed
+floordiv name InvalidOperationError floor_div operation not supported for dtype `str`
+floordiv n InvalidOperationError arithmetic on dtypes i64 and str is not allowed (lhs: column 'n', rhs: column 'zz'); try an explicit cast first
+floordiv rev InvalidOperationError floor_div operation not supported for dtype `str`
+mod name InvalidOperationError rem operation not supported for dtypes `str` and `str`
+mod n InvalidOperationError arithmetic on dtypes i64 and str is not allowed (lhs: column 'n', rhs: column 'zz'); try an explicit cast first
+mod rev TypeError not all arguments converted during string formatting
+pow name InvalidOperationError `pow` operation not supported for dtype `str` as base
+pow n InvalidOperationError `pow` operation not supported for dtype `str` as exponent
+pow rev InvalidOperationError `pow` operation not supported for dtype `str` as base
+eq name OK [(False,)]
+eq n ComputeError cannot compare string with numeric type (i64)
+eq rev OK [(False,)]
+ne name OK [(True,)]
+ne n ComputeError cannot compare string with numeric type (i64)
+ne rev OK [(True,)]
+lt name OK [(True,)]
+lt n ComputeError cannot compare string with numeric type (i64)
+lt rev OK [(False,)]
+ge name OK [(False,)]
+ge n ComputeError cannot compare string with numeric type (i64)
+ge rev OK [(True,)]
+InvalidOperationError arithmetic on dtypes str and dyn int is not allowed (lhs: column 'name', rhs: expression `dyn int: 1`); try an explicit cast first
+InvalidOperationError arithmetic on dtypes str and i64 is not allowed (lhs: column 'name', rhs: column 'n'); try an explicit cast first
+InvalidOperationError arithmetic on dtypes i64 and str is not allowed (lhs: column 'n', rhs: column 'name'); try an explicit cast first
+InvalidOperationError arithmetic on dtypes str and dyn float is not allowed (lhs: column 'name', rhs: expression `dyn float: 2.5`); try an explicit cast first
+InvalidOperationError arithmetic on dtypes dyn int and str is not allowed (lhs: expression `dyn int: 1`, rhs: column 'name'); try an explicit cast first
+InvalidOperationError arithmetic on dtypes str and dyn float is not allowed (lhs: column 'name', rhs: expression `dyn float: 1.5`); try an explicit cast first
+InvalidOperationError arithmetic on dtypes f64 and str is not allowed (lhs: column 'f', rhs: column 'name'); try an explicit cast first
+1.4586496783662022 -0.4753662740591795 0.9035993058753787 48.25 4
+shape: (1,)
+Series: 'x' [f64]
+[
+	2.0
+] shape: (5,)
+Series: 'x' [f64]
+[
+	4.0
+	1.0
+	2.5
+	2.5
+	5.0
+] shape: (5,)
+Series: 'x' [u32]
+[
+	1
+	2
+	3
+	0
+	4
+] shape: (2,)
+Series: 'x' [f64]
+[
+	5.5
+	3.0
+] shape: (5,)
+Series: 'x' [f64]
+[
+	null
+	-0.666667
+	1.0
+	0.0
+	1.75
+] shape: (5,)
+Series: 'x' [f64]
+[
+	null
+	2.0
+	1.5
+	2.0
+	3.75
+] shape: (5,)
+Series: 'x' [f64]
+[
+	null
+	4.0
+	3.0
+	4.0
+	7.5
+] shape: (5,)
+Series: 'x' [bool]
+[
+	false
+	false
+	true
+	true
+	false
+]
+shape: (5,)
+Series: 'x' [f64]
+[
+	1.732
+	1.0
+	1.414
+	1.414
+	2.345
+] shape: (5,)
+Series: 'x' [f64]
+[
+	1.0986
+	0.0
+	0.6931
+	0.6931
+	1.7047
+] shape: (5,)
+Series: 'x' [f64]
+[
+	3.0
+	2.0
+	2.0
+	2.0
+	3.0
+] shape: (5,)
+Series: 'x' [f64]
+[
+	3.0
+	3.0
+	3.0
+	3.0
+	5.5
+] shape: (4,)
+Series: 'x' [u32]
+[
+	1
+	1
+	2
+	1
+] shape: (2,)
+Series: 'x' [f64]
+[
+	3.0
+	2.0
+] shape: (3,)
+Series: 'x' [f64]
+[
+	3.0
+	2.0
+	5.5
+]
+shape: (5,)
+Series: 'x' [f64]
+[
+	3.0
+	1.0
+	20.0
+	20.0
+	5.5
+] shape: (5,)
+Series: 'x' [f64]
+[
+	5.5
+	2.0
+	2.0
+	1.0
+	3.0
+] shape: (5,)
+Series: 'x' [f64]
+[
+	1.0
+	2.0
+	2.0
+	5.5
+	null
+] shape: (5,)
+Series: 'x' [f64]
+[
+	null
+	-2.0
+	1.0
+	0.0
+	3.5
+] shape: (5,)
+Series: 'x' [f64]
+[
+	3.0
+	1.0
+	2.0
+	2.0
+	5.5
+]
+2.7 1.7175564037317668 2.95 2.0 2.0 13.5 1.0 5.5 66.0 4 3.0 5.5
+False True True True True
+nan 1.4591479170272448 0.0 0.5623351446188083 -3.295836866004329
+-0.02797991926 0.076167542728 2.998639526908
+nan None
+shape: (1, 3)
+┌───────────┬───────────────┬──────┐
+│ id        ┆ cv            ┆ sp   │
+│ ---       ┆ ---           ┆ ---  │
+│ f64       ┆ f64           ┆ f64  │
+╞═══════════╪═══════════════╪══════╡
+│ -0.618744 ┆ -23666.833333 ┆ -0.4 │
+└───────────┴───────────────┴──────┘
+shape: (2, 3)
+┌─────┬──────┬──────────┐
+│ g   ┆ c    ┆ v        │
+│ --- ┆ ---  ┆ ---      │
+│ str ┆ f64  ┆ f64      │
+╞═════╪══════╪══════════╡
+│ a   ┆ -1.0 ┆ -56000.0 │
+│ b   ┆ -1.0 ┆ -15000.5 │
+└─────┴──────┴──────────┘
+[(0.063897512868, 0.005276321267)]
+[(nan,)] [(None,)]
+[(2,)] [(2,)]
+[(col("a")) + (len())] len()
+[1, True] Int64 [1, 1]
+[None, 2.5, 1] Float64 [None, 2.5, 1.0]
+[1, 2.5] TypeError "unexpected value while building Series of type Int64; found value of type Float64: 2.5\n\nThis error occurred with the following context stack:\n\t[1] while constructing Series 's'\n\n\nHint: Try setting `strict=False` to allow passing data with mixed types."
+[1.5, 'a'] TypeError 'unexpected value while building Series of type Float64; found value of type String: "a"\n\nThis error occurred with the following context stack:\n\t[1] while constructing Series \'s\'\n\n\nHint: Try setting `strict=False` to allow passing data with mixed types.'
+['a', 1] TypeError "unexpected value while building Series of type String; found value of type Int64: 1\n\nThis error occurred with the following context stack:\n\t[1] while constructing Series 's'\n\n\nHint: Try setting `strict=False` to allow passing data with mixed types."
+[True, 1] TypeError "unexpected value while building Series of type Boolean; found value of type Int64: 1\n\nThis error occurred with the following context stack:\n\t[1] while constructing Series 's'\n\n\nHint: Try setting `strict=False` to allow passing data with mixed types."
+[1, 1180591620717411303424] TypeError "unexpected value while building Series of type Int64; found value of type Int128: 1180591620717411303424\n\nThis error occurred with the following context stack:\n\t[1] while constructing Series 's'\n\n\nHint: Try setting `strict=False` to allow passing data with mixed types."
+[1.0, True] Float64 [1.0, 1.0]
+[None, None] Null [None, None]
+[9223372036854775807, -9223372036854775808] Int64 [9223372036854775807, -9223372036854775808]
+"unexpected value while building Series of type Int64; found value of type Float64: 2.5\n\nThis error occurred with the following context stack:\n\t[1] while constructing Series 'a'\n\n\nHint: Try setting `strict=False` to allow passing data with mixed types."
+0 [-915484.0, 421460.0, 1e+300, 0.0, 123456789.0, 0.0, 1e+20, 3.0, 0.0, -0.0, 0.0, -2.0] 1e+300
+0 [-915484.0, 421460.0, 1e+300, 0.0, 123456789.0, 0.0, 1e+20, 3.0, 0.0, -1.0, 1.0, -3.0] 464338324355520953
+-2005366628984549100
+1 [-915484.4, 421460.1, 1e+300, 0.0, 123456789.1, 0.0, 1e+20, 2.7, 0.5, -0.5, 0.5, -2.5] 1e+300
+1 [-915484.4, 421460.1, 1e+300, 0.0, 123456789.1, 0.0, 1e+20, 2.7, 0.5, -0.5, 0.5, -2.5] 391575615205628439
+-8463348917893404488
+2 [-915484.41, 421460.09, 1e+300, 0.0, 123456789.12, 0.0, 1e+20, 2.68, 0.5, -0.5, 0.5, -2.5] 1e+300
+2 [-915484.41, 421460.09, 1e+300, 0.0, 123456789.13, 0.0, 1e+20, 2.68, 0.5, -0.5, 0.5, -2.5] 8392025990351679223
+-4108376108114397588
+3 [-915484.407, 421460.094, 1e+300, 0.0, 123456789.125, 0.0, 9.999999999999998e+19, 2.675, 0.5, -0.5, 0.5, -2.5] 1e+300
+3 [-915484.407, 421460.094, 1e+300, 0.0, 123456789.125, 0.0, 9.999999999999998e+19, 2.675, 0.5, -0.5, 0.5, -2.5] 8618054227651132588
+-4255652970529884751
+7 [-915484.4073473, 421460.0942457, 1e+300, 0.0, 123456789.125, 0.0, 1e+20, 2.675, 0.5, -0.5, 0.5, -2.5] 1e+300
+7 [-915484.4073473, 421460.0942457, 1e+300, 0.0, 123456789.125, 0.0, 1e+20, 2.675, 0.5, -0.5, 0.5, -2.5] 1074216206062943765
+1074216206062943765
+300 [-915484.4073472683, 421460.0942457046, 1e+300, 9.999999999999994e-301, 123456789.125, 0.0, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] 1e+300
+300 [-915484.4073472683, 421460.0942457046, 1e+300, 9.999999999999994e-301, 123456789.125, 0.0, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] -8302855162658157519
+-8302855162658157519
+310 [-915484.4073472683, 421460.0942457046, 1e+300, 9.999999999999994e-301, 123456789.125, 0.0, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] 1e+300
+310 [-915484.4073472683, 421460.0942457046, 1e+300, 9.999999999999994e-301, 123456789.125, 0.0, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] 6066903933073929973
+6066903933073929973
+320 [-915484.4073472683, 421460.0942457046, 1e+300, 1e-300, 123456789.125, 0.0, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] 1e+300
+320 [-915484.4073472683, 421460.0942457046, 1e+300, 1e-300, 123456789.125, 0.0, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] -5159314936730057787
+-5159314936730057787
+330 [-915484.4073472683, 421460.0942457046, 1e+300, 1e-300, 123456789.125, 5e-324, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] 1e+300
+330 [-915484.4073472683, 421460.0942457046, 1e+300, 1e-300, 123456789.125, 5e-324, 1e+20, 2.675, 0.49999999999999994, -0.5, 0.5, -2.5] -8889980481881563137
+-8889980481881563137

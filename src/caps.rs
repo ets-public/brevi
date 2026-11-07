@@ -359,6 +359,18 @@ const JINJA2_RAW: &[&str] = &[
     "{% trans", "{%- trans", "{%+ trans", "{% pluralize", "{% debug", "{%- debug", "pprint", "lipsum", "jinja2.ext.i18n", "jinja2.ext.debug",
     "ext.i18n", "\\N{",
 ];
+// Brevi's polars (src/dynpy/py/polars.py): eager and lazy frames over Python lists, numeric, string, boolean and
+// list columns. Lacks temporal, struct, categorical and decimal dtypes, parquet / IPC / Excel / databases, SQL,
+// selectors, numpy / pandas / arrow interop, and the expressions below; a program using them runs CPython's.
+const POLARS_LACKS: &[&str] = &[
+    ".dt.", ".struct.", ".cat.", ".bin.", ".arr.", ".meta.", ".list.eval(", "pl.element(", "polars.element(", "Date", "Datetime", "Duration",
+    "pl.Time", "Struct", "Categorical", "pl.Enum", "Decimal", "Int128", "UInt128", "pl.Array", "pl.Binary", "pl.Object", "try_parse_dates",
+    "decimal_comma", "SQLContext", ".sql(", "selectors", "parquet", "_ipc(", "excel", "database", "avro", "_delta(", "_iceberg(", "to_numpy",
+    "to_pandas", "from_pandas", "from_numpy", "from_arrow", "to_arrow", "__array__", ".sample(", ".explain(", "show_graph", ".sink_",
+    "collect_async", "group_by_dynamic", "rolling(", "upsample", "strptime", "to_date", "to_datetime", "to_time",
+    ".plot", ".style", "to_torch", "to_jax", "estimated_size", "agg_groups", "split_exact", "json_decode", "str.encode", ".hash(",
+    "show_versions", "map_batches", "pl.datatypes", "polars.datatypes", "storage_options",
+];
 const OWN_CONTEXTLIB: &[&str] = &[
     "contextmanager", "asynccontextmanager", "suppress", "nullcontext", "closing", "aclosing", "ExitStack", "AsyncExitStack",
     "AbstractContextManager", "AbstractAsyncContextManager",
@@ -408,6 +420,8 @@ fn path_module(m: &str) -> Option<&'static str> {
         "jinja2.utils" => Some("jinja2.utils"),
         "jinja2.loaders" => Some("jinja2.loaders"),
         "markupsafe" => Some("markupsafe"),
+        "polars" => Some("polars"),
+        "polars.exceptions" => Some("polars.exceptions"),
         "mcp" => Some("mcp"),
         "mcp.types" => Some("mcp.types"),
         "mcp_types" => Some("mcp_types"),
@@ -452,6 +466,8 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "contextlib" => OWN_CONTEXTLIB.contains(&attr),
         "jinja2" => OWN_JINJA2.contains(&attr),
         "markupsafe" => OWN_MARKUPSAFE.contains(&attr),
+        "polars" => own_polars(attr),
+        "polars.exceptions" => defines(include_str!("dynpy/py/polars_exceptions.py"), attr),
         "jinja2.ext" => defines(include_str!("dynpy/py/jinja2_ext.py"), attr),
         "jinja2.exceptions" => defines(include_str!("dynpy/py/jinja2_exceptions.py"), attr),
         "jinja2.runtime" => defines(include_str!("dynpy/py/jinja2_runtime.py"), attr) || attr == "identity",
@@ -475,6 +491,20 @@ fn pure_attr(module: &str, attr: &str) -> bool {
 }
 
 // A generated export file (anthropic_types.py, ...) binds the name: `from M import ..., name` or `name = ...`.
+// A public name Brevi's polars has: a top-level def, class or assignment that is not one of its stubs for what
+// it lacks (`read_parquet = _no("read_parquet")`).
+fn own_polars(name: &str) -> bool {
+    if name == "__version__" || name == "exceptions" {
+        return true;
+    }
+    !name.starts_with('_')
+        && include_str!("dynpy/py/polars.py").lines().any(|l| {
+            let def = l.strip_prefix("def ").or_else(|| l.strip_prefix("class ")).is_some_and(|r| r.strip_prefix(name).is_some_and(|r| r.starts_with(['(', ':'])));
+            let set = l.strip_prefix(name).and_then(|r| r.strip_prefix(" = ")).is_some_and(|r| !r.starts_with("_no("));
+            def || set
+        })
+}
+
 fn defines(src: &str, name: &str) -> bool {
     src.lines().any(|l| {
         if let Some(rest) = l.strip_prefix("from ") {
@@ -607,7 +637,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 let Some((m, list)) = rest.split_once(" import ") else { continue };
                 // tiktoken.core, tiktoken.load, ...: not in Brevi's tiktoken
                 let deep = |p: &str| m.trim().starts_with(p) && path_module(m.trim()).is_none();
-                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") {
+                if m.trim().starts_with("tiktoken.") || m.trim().starts_with("tokenizers.") || m.trim().starts_with("pydantic.") || m.trim() == "pydantic_core" || deep("anthropic.") || deep("openai.") || deep("mcp.") || deep("contextlib.") || deep("jinja2.") || deep("markupsafe.") || deep("polars.") {
                     imports.push(*n);
                     any = true;
                     bad.push((*n, m.trim().to_string()));
@@ -662,7 +692,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
@@ -754,6 +784,32 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     Some(bad)
 }
 
+// The lines where Brevi's polars reads or writes a file: a read_* / scan_* of anything but text in memory
+// (io.StringIO, bytes), a write_* given a file.
+fn polars_files(src: &str) -> Vec<(usize, &'static str, String)> {
+    let mut out = vec![];
+    for (n, l) in code_lines(src) {
+        for f in ["read_csv", "scan_csv", "read_json", "read_ndjson", "scan_ndjson", "write_csv", "write_json", "write_ndjson"] {
+            let pat = format!("{f}(");
+            for (i, _) in l.match_indices(&pat) {
+                if l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let arg = l[i + pat.len()..].trim_start();
+                let memory = ["io.", "StringIO", "BytesIO", "b\"", "b'", ")", "file=None"].iter().any(|m| arg.starts_with(m));
+                if f.starts_with("write") {
+                    if !memory {
+                        out.push((n, "write", format!("polars {f}(file)")));
+                    }
+                } else if !memory || arg.starts_with(')') {
+                    out.push((n, "read", format!("polars {f}(file)")));
+                }
+            }
+        }
+    }
+    out
+}
+
 // Every use of a capability not in `allowed`, one error per line.
 pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     let mut uses: Vec<(usize, &'static str, String)> = Vec::new();
@@ -795,6 +851,10 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     }
     for (line, what) in paths.unwrap_or_default() {
         uses.push((line, "native", what));
+    }
+    // Brevi's polars reads and writes files (read_csv("x.csv"), df.write_csv("out.csv")).
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("polars")) {
+        uses.extend(polars_files(src));
     }
     uses.sort();
     let mut seen = Vec::new();
@@ -1094,6 +1154,49 @@ mod tests {
         ] {
             assert!(!uses(bad).is_empty(), "{bad}");
         }
+    }
+
+    // Brevi's polars imports only pure modules and _brevi_fs, the one way it reaches files (the read and write
+    // grants hold it: fsglue.rs), and opens, runs and reaches nothing itself.
+    #[test]
+    fn polars_copy_reaches_nothing() {
+        for (name, src) in [("polars.py", include_str!("dynpy/py/polars.py")), ("polars_exceptions.py", include_str!("dynpy/py/polars_exceptions.py"))] {
+            for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+                if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                    let m = m.split_whitespace().next().unwrap();
+                    assert!(["polars", "math", "json", "re", "io", "_brevi_fs"].contains(&m), "{name} imports {m}");
+                }
+                for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
+                    let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') && !l[..i].ends_with("def "));
+                    assert!(!own, "{name} uses {bad}");
+                }
+            }
+        }
+        let glue = include_str!("dynpy/fsglue.rs");
+        assert!(glue.contains("FS_SANDBOX && !FS_READ") && glue.contains("FS_SANDBOX && !FS_WRITE"));
+    }
+
+    // A polars program stays on Brevi's polars; what it lacks (parquet, temporal dtypes, selectors, interop)
+    // sends it to CPython's. Its file reads and writes need the read and write grants under --sandbox.
+    #[test]
+    fn path_uses_polars() {
+        let uses = |s: &str| super::path_uses(s).unwrap().into_iter().map(|(_, w)| w).collect::<Vec<_>>();
+        let ok = "import polars as pl\nfrom polars.exceptions import ColumnNotFoundError\ndf = pl.DataFrame({'a': [1, 2]})\nprint(df.group_by('a').agg(pl.col('a').sum().alias('s'), pl.len()).sort('a'))\nprint(pl.concat([df, df]), pl.when(pl.col('a') > 1).then(pl.lit('x')).otherwise(pl.lit('y')), pl.Config, pl.Int64)\n";
+        assert!(uses(ok).is_empty(), "{:?}", uses(ok));
+        for bad in [
+            "import polars as pl\npl.read_parquet('x.parquet')\n",
+            "import polars as pl\ndf = pl.DataFrame({'d': []})\ndf.select(pl.col('d').dt.year())\n",
+            "import polars as pl\nimport polars.selectors as cs\n",
+            "import polars as pl\npl.DataFrame({'a': [1]}).to_pandas()\n",
+            "import polars as pl\nx = pl.Datetime\n",
+            "from polars import read_parquet\n",
+            "import polars as pl\nf = pl\n",
+        ] {
+            assert!(!uses(bad).is_empty(), "{bad}");
+        }
+        let src = "import polars as pl\nimport io\ndf = pl.read_csv(io.StringIO('a\\n1'))\ndf.write_csv('out.csv')\nprint(df.write_csv())\npl.read_csv('in.csv')\n";
+        let files: Vec<(usize, &str)> = super::polars_files(src).into_iter().map(|(l, c, _)| (l, c)).collect();
+        assert_eq!(files, [(4, "write"), (6, "read")]);
     }
 
     // Brevi's argparse (CPython's, edited: see its header) reads sys.argv and writes to stdout and stderr, so it

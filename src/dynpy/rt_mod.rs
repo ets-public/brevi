@@ -1158,7 +1158,8 @@ pub fn operator_fn(name: &str, a: Args) -> R {
                         "eq" => "==",
                         _ => "!=",
                     };
-                    return Ok(V::Bool(cmp_op(&a.p[0], &a.p[1], o)?));
+                    // as `a < b`: an object's __lt__ result is the value (polars, numpy)
+                    return cmp_v(&a.p[0], &a.p[1], o);
                 }
                 "neg" => return neg(&a1(&a, name)?),
                 "not_" => return not(&a1(&a, name)?),
@@ -2057,6 +2058,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "_brevi_tok" => brevi_tok_fn(n, a),
         "_brevi_net" => brevi_net_fn(n, a),
         "_brevi_stdio" => brevi_stdio_fn(n, a),
+        "_brevi_fs" => brevi_fs_fn(n, a),
         "_brevi_hf" => brevi_hf_fn(n, a),
         "hashlib" => hashlib_fn(n, a),
         "base64" => base64_fn(n, a),

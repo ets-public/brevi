@@ -181,6 +181,8 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "jinja2.utils" => include_str!("py/jinja2_utils.py"),
         "jinja2.loaders" => include_str!("py/jinja2_loaders.py"),
         "markupsafe" => include_str!("py/markupsafe.py"),
+        "polars" => include_str!("py/polars.py"),
+        "polars.exceptions" => include_str!("py/polars_exceptions.py"),
         _ => return None,
     })
 }
@@ -275,7 +277,7 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
     }
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai or jinja2 beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2 or polars beyond Brevi's own copies runs in CPython";
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let src = std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?;
@@ -294,6 +296,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let mut own_mods: HashSet<String> = HashSet::new();
     let mut net_used = false;
     let mut stdio_used = false;
+    let mut fs_used = false;
     let mut bridge = emit::Bridge::default();
     let mut texts: HashMap<String, (String, String)> = HashMap::new();
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
@@ -308,6 +311,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 }
                 if m == "_brevi_stdio" {
                     stdio_used = true;
+                }
+                if m == "_brevi_fs" {
+                    fs_used = true;
                 }
                 if m == "numpy" {
                     emit::NP_ON.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -489,6 +495,16 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust = rust.replacen("fn main() { ", "fn main() { STDIO.set(brevi_stdioglue::ops()).ok(); ", 1);
         rust.push('\n');
         rust.push_str(include_str!("stdioglue.rs"));
+    }
+    if fs_used {
+        rust = rust.replacen("fn main() { ", "fn main() { FS.set(brevi_fsglue::ops()).ok(); ", 1);
+        rust.push_str(&format!(
+            "\nconst FS_SANDBOX: bool = {};\nconst FS_READ: bool = {};\nconst FS_WRITE: bool = {};\n{}",
+            crate::caps::sandboxed(),
+            crate::caps::granted("read"),
+            crate::caps::granted("write"),
+            include_str!("fsglue.rs")
+        ));
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);

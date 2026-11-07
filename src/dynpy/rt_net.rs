@@ -746,3 +746,34 @@ pub fn brevi_stdio_fn(n: &str, a: Args) -> R {
         _ => Err(unsupported(&format!("_brevi_stdio.{n}"))),
     }
 }
+
+// ---------- _brevi_fs: whole-file reads and writes for Brevi's polars (read_csv, write_csv, ...) ----------
+// The file system calls are in src/dynpy/fsglue.rs, pasted into a program that imports Brevi's polars. Under
+// --sandbox the glue reads only with the read grant and writes only with the write grant (FS_READ / FS_WRITE,
+// set by the compiler), as caps.rs already demands of the source.
+
+pub struct FsOps {
+    // the file's text (UTF-8)
+    pub read: fn(&str) -> Result<String, NetErr>,
+    // write or append the text
+    pub write: fn(&str, &str, bool) -> Result<(), NetErr>,
+}
+
+pub static FS: std::sync::OnceLock<FsOps> = std::sync::OnceLock::new();
+
+fn fs_ops() -> Result<&'static FsOps, E> {
+    FS.get().ok_or_else(|| exc("OSError", "brevi: this program was built without file access".into()))
+}
+
+pub fn brevi_fs_fn(n: &str, a: Args) -> R {
+    let arg = |i: usize| a.p.get(i).cloned().unwrap_or(V::None);
+    match n {
+        "read" => Ok(s(&(fs_ops()?.read)(&net_s(&arg(0))).map_err(net_err)?)),
+        "write" => {
+            let app = truth(&arg(2))?;
+            (fs_ops()?.write)(&net_s(&arg(0)), &net_s(&arg(1)), app).map_err(net_err)?;
+            Ok(V::None)
+        }
+        _ => Err(unsupported(&format!("_brevi_fs.{n}"))),
+    }
+}

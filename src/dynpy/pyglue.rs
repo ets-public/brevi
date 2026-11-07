@@ -1031,6 +1031,13 @@ fn pyd_opname(op: &str) -> Option<&'static str> {
         "&" => "and_",
         "|" => "or_",
         "^" => "xor",
+        // comparisons as values (cmp_v): a library's own result, such as a polars or pandas expression
+        "<" => "lt",
+        "<=" => "le",
+        ">" => "gt",
+        ">=" => "ge",
+        "==" => "eq",
+        "!=" => "ne",
         _ => return None,
     })
 }
@@ -1176,6 +1183,9 @@ impl Ext for PyV {
                 r
             })()
         })
+    }
+    fn cmp_value(&self, me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+        self.binop(me, op, o, right)
     }
     fn try_truth(&self) -> Option<Result<bool, E>> {
         let _g = PydGil::take();

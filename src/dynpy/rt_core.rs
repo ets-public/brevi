@@ -94,6 +94,10 @@ pub trait Ext {
     fn rich(&self, _me: &V, _op: &str, _o: &V, _right: bool) -> Option<Result<bool, E>> {
         None
     }
+    // `a OP b` as a value (==, <, ... in an expression), when the library's answer is not a bool
+    fn cmp_value(&self, _me: &V, _op: &str, _o: &V, _right: bool) -> Option<R> {
+        None
+    }
     fn isinst(&self, _cls: &Class) -> Option<bool> {
         None
     }

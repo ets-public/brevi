@@ -200,6 +200,7 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 - **requests and httpx:** Brevi's own copies, over native sockets and TLS; they need `allow net` (or `--allow-net` for some hosts), not `allow native`.
 
 - **jinja2:** Brevi's own jinja2 and markupsafe need nothing granted; what they lack (see [jinja2](/docs/compatibility#jinja2)), such as `FileSystemLoader`, is refused by name unless the caller grants `--allow-py jinja2`.
+- **polars:** Brevi's own polars needs `allow read` to read a file and `allow write` to write one (text in memory needs nothing); what it lacks (see [polars](/docs/compatibility#polars)), such as Parquet or date columns, is refused by name unless the caller grants `--allow-py polars`.
 - **mcp:** Brevi's own copy of the MCP SDK; a stdio server needs no grant. What it lacks (the HTTP transports, sampling, elicitation; see [mcp](/docs/compatibility#mcp-mcp-servers)) is refused by name unless the caller grants `--allow-py mcp`.
 - **anthropic and openai:** Brevi's own copies of the SDKs, over its httpx; they need `allow net` too (`--allow-net api.anthropic.com` or `--allow-net api.openai.com`), not `allow native`. What they lack (see [anthropic and openai](/docs/compatibility#anthropic-and-openai)) is refused by name unless the caller grants `--allow-py anthropic` or `--allow-py openai`.
 

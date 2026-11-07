@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 37] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 38] = ["atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -188,6 +188,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
         "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
         "_brevi_stdio" => &["claim", "release", "read", "write", "poll"],
+        "_brevi_fs" => &["read", "write"],
         "_brevi_tok" => &["core", "ranks", "max_rank", "n_ranks", "find_special"],
         "_brevi_net" => &["open", "open_nb", "ready", "tls", "handshake", "settimeout", "setblocking", "send", "sendall", "fill", "head", "line", "take", "avail", "fileno", "close", "poll", "env", "host_ok", "zopen", "zfeed", "zstate", "zrest", "zclose"],
         "_brevi_hf" => &[
@@ -1145,7 +1146,8 @@ impl Em {
                 let t = self.q("truth(&__t)");
                 format!("{{ let __t = {aa}; if {t} {{ __t }} else {{ {bb} }} }}")
             }
-            Ex::Cmp(a, rest) if np_on() && rest.len() == 1 && !matches!(rest[0].0, "is" | "is not" | "in" | "not in") => {
+            // One comparison as a value: an object's __eq__ / __lt__ ... result is the value (polars expressions, numpy arrays).
+            Ex::Cmp(a, rest) if rest.len() == 1 && !matches!(rest[0].0, "is" | "is not" | "in" | "not in") => {
                 let aa = self.ex(a, line)?;
                 let bb = self.ex(&rest[0].1, line)?;
                 self.q(&format!("cmp_v(&{aa}, &{bb}, {})", lit(rest[0].0)))
