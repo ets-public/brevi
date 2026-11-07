@@ -1,0 +1,2 @@
+exit 124
+{"e":"limit","on":"mem","limit":"200 MB","msg":"the program ran out of its 200 MB of memory","fix":"raise it with --limit mem=... if the program needs more"}

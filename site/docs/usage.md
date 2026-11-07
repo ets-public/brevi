@@ -41,6 +41,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
 | `--allow-net HOSTS` | run, check, test | Under the sandbox, let the program reach only these hosts over the network, such as `--allow-net api.openai.com,localhost` (implies `--sandbox`). |
 | `--allow-py MODULES` | run, check, test | Under the sandbox, let CPython run these Python libraries only, such as `--allow-py requests,pydantic` (implies `--sandbox`). |
+| `--limit cpu=S,mem=MB,time=S,output=KB,file=MB` | run, test, verify | Stop the program at the first resource limit it reaches (see [Resource limits](#resource-limits)). Works with or without the sandbox. |
 | `--traceback` | run | When run falls back to CPython on a sure mistake, show CPython's whole traceback instead of its last line. `BREVI_TRACEBACK=1` does the same. |
 | `--window` | run, build | tkinter programs open a real window instead of running headless (see [GUI programs](#gui-programs)). |
 | `--explain` | any | Under each error, add the lines of the guide about the names it mentions. For Python files, also print [which path ran](#which-path-ran) even when it is the typed one, with every reason. |
@@ -98,13 +99,14 @@ Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a
 $ brevi verify main.py --input tests/ -- --verbose
 {"case":1,"input":"tests/1.in","same":true,"cpython_ms":38,"brevi_ms":2}
 {"case":2,"input":"tests/2.in","same":true,"cpython_ms":41,"brevi_ms":2}
-{"verify":"identical","file":"main.py","sha256":"15532f5a...","brevi":"0.25.0","python":"3.13.13","path":"typed","inputs":[{"input":"tests/1.in","sha256":"7de1555d..."},{"input":"tests/2.in","sha256":"10159baf..."}],"args":["--verbose"],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":0,"timeout":0,"cpython_ms":79,"brevi_ms":4,"speedup":19.8}
+{"verify":"identical","file":"main.py","sha256":"15532f5a...","brevi":"0.25.0","python":"3.13.13","path":"typed","inputs":[{"input":"tests/1.in","sha256":"7de1555d..."},{"input":"tests/2.in","sha256":"10159baf..."}],"args":["--verbose"],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":0,"timeout":0,"limit":0,"cpython_ms":79,"brevi_ms":4,"speedup":19.8}
 ```
 
 - `--input PATH` feeds a file to stdin, one run per `--input`; a folder gives one run per file in it (only its `*.in` files when it has any). With no input the program runs once with empty stdin. Arguments after `--` go to both.
 - The last line is the certificate: the verdict, the SHA-256 of the file and of every input, the Brevi and Python versions, which [path](#which-path-ran) built it, and the time each side took. A CI job or an agent can keep it, and gate on the exit status.
-- Verdicts: `identical` (exit 0); `differs`, a wrong answer from Brevi, with the first line that differs (`"on":"stdout"`, `"exit code"` or `"stderr"`); `unstable`; `timeout` (`--timeout SECS`, default 60 per run); `not built`, with Brevi's errors above it. Every verdict but `identical` exits 1; a usage error exits 2.
+- Verdicts: `identical` (exit 0); `differs`, a wrong answer from Brevi, with the first line that differs (`"on":"stdout"`, `"exit code"` or `"stderr"`); `unstable`; `timeout` (`--timeout SECS`, default 60 per run); `limit` (a `--limit` stopped one side); `not built`, with Brevi's errors above it. Every verdict but `identical` exits 1; a usage error exits 2.
 - An MCP server is verified with a client session: when the file imports `mcp`, a `.jsonl` input (or any input, with `--mcp`) holds one JSON-RPC message per line, and each request is sent once the reply to the one before it is out, so the answer does not depend on timing. `#nowait MSG` sends a request without waiting (to cancel it, or to leave it running when the client hangs up), `#wait N` waits for N more lines, `#raw TEXT` sends a line that is not JSON, and `# ...` is a comment.
+- `--limit cpu=2,mem=512,...` holds both CPython and the native build to the same [resource limits](#resource-limits). An input on which either side reaches one gives the verdict `limit`, which certifies nothing, as `timeout` does.
 - `--once` runs CPython once instead of twice. `--release` verifies the fully optimised build.
 - The program runs three times per input, so a program that writes files sees its own earlier runs.
 - `--sandbox` is refused: verify runs the code under CPython, which cannot be held to the sandbox's grants. Verify only code you would run with `python3`.
@@ -205,6 +207,38 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 The check runs before every build path, and a refusal is final. A refused program is never built over dynamic values, never run through a library call, and never run with python3. A sandboxed program never falls back to CPython for any reason, because CPython cannot enforce `allow` lines. If Brevi cannot build it, you get the build errors and a note saying so. Without `--allow native` or `--allow-py`, the library bridge is off completely, so no path from the program reaches CPython; with `--allow-py`, only the named modules do.
 
 The MCP tools sandbox by default (pass `sandbox: false` to turn it off). Outside the sandbox the path-text, `io.StringIO`, `textwrap`, `argparse` and `random` copies are used too, whenever a program needs nothing more of those modules (random's generator core is native).
+
+### Resource limits
+
+The sandbox decides what a program may touch; `--limit` decides how much it may use (from the release after v0.25.0; on `main` now). The caller sets the limits, as with grants, and the program is stopped at the first one it reaches:
+
+| Limit | Unit | Holds | How |
+| --- | --- | --- | --- |
+| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`) |
+| `mem` | MB | address space, Linux only | the kernel (`RLIMIT_AS`) |
+| `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
+| `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |
+| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`) |
+
+Plain numbers use those units; `mem=1gb`, `output=512kb`, `time=1.5` and `time=500ms` work too. Join limits with commas:
+
+```
+$ brevi run --sandbox --limit cpu=2,mem=512,time=10,output=64 agent_code.py
+...
+{"e":"limit","on":"cpu","limit":"2 s","msg":"the program used up its 2 s of CPU time","fix":"raise it with --limit cpu=... if the program needs more"}
+$ echo $?
+124
+```
+
+A program stopped by a limit exits with status 124 and its last stderr line is one JSON line naming the limit (`"on"` is `cpu`, `mem`, `time`, `output` or `file`). Output written before the limit is kept (with `output`, exactly up to it); output a program had buffered but not yet written when it was stopped is lost.
+
+- The kernel limits are set in the program's own process before it starts, so nothing in it can raise them, CPython loaded through `--allow-py` included. Memory counts address space, not resident memory: CPython and numpy reserve more than they touch, so give a program that loads them a few hundred MB.
+- The limits hold the program, not the build: a cold first build can take longer than `time`. `brevi build` and `brevi check` refuse `--limit`.
+- With `output` (or `mem`, which reads stderr to tell an out-of-memory stop from a crash) the program's stdout or stderr is a pipe, not the terminal.
+- A limit Brevi cannot enforce on the machine is refused, never ignored: `mem` on macOS, and `cpu`, `mem` and `file` on Windows, give an error and the program does not run.
+- In the MCP tools `run`, `test` and `verify` take `limits: {"cpu": 2, "mem": 512, "time": 10, "output": 64, "file": 10}` (each `cases` entry is held to them separately). The call's `timeout` still covers build and run together.
+
+What the sandbox and the limits protect against, and what they do not, is in the [threat model](https://github.com/ets-public/brevi/blob/main/docs/THREAT_MODEL.md).
 
 > This is the behaviour from v0.24.1. In v0.24.0 and earlier the check covered only Brevi programs and typed Python builds: a Python file that fell to the dynamic build, a library call or the CPython fallback was not held to it. Whatever the version, running code you do not trust inside a container or VM is still wise.
 

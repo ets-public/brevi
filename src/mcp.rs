@@ -82,11 +82,11 @@ fn to_json(j: &J) -> String {
 const TOOLS: &str = r#"[
 {"name":"guide","title":"Brevi guide","description":"The Brevi language guide. Not needed to start: write plain Python (a .py file) and Brevi builds it to native code, which runs plain loops 10 to 50 times faster than CPython, so write the plain, direct solution and do not hand-optimise it. Ask with a word (sections: Strings, Lists, Python, Libraries) for only the lines about it, e.g. when a build error names something; with no word, the whole core.","inputSchema":{"type":"object","properties":{"word":{"type":"string"}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
 {"name":"check","title":"Check program","description":"Compile without running. OK or one JSON error per line: {line, msg, fix}. The server keeps the program: pass code once, then omit it and change it with patch or edit.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string","description":"Default main.py; other files are modules it imports (util.py for import util)"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested fix to the kept program"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"}},"additionalProperties":false},"annotations":{"openWorldHint":false}},
-{"name":"run","title":"Run program","description":"Compile and run the kept program (or code, plain Python). With cases, runs each and prints ok or the first differing line.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cases":{"type":"array","items":{"type":"object","properties":{"stdin":{"type":"string"},"expect":{"type":"string"}},"additionalProperties":false}},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for build and run (default 20; per case 10)"}},"additionalProperties":false}},
-{"name":"test","title":"Run tests","description":"Run the test blocks of the kept program (or code).","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds (default 20)"}},"additionalProperties":false}},
+{"name":"run","title":"Run program","description":"Compile and run the kept program (or code, plain Python). With cases, runs each and prints ok or the first differing line.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cases":{"type":"array","items":{"type":"object","properties":{"stdin":{"type":"string"},"expect":{"type":"string"}},"additionalProperties":false}},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds"},"mem":{"type":"number","description":"Memory, MB (Linux)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for build and run (default 20; per case 10)"}},"additionalProperties":false}},
+{"name":"test","title":"Run tests","description":"Run the test blocks of the kept program (or code).","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds"},"mem":{"type":"number","description":"Memory, MB (Linux)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds (default 20)"}},"additionalProperties":false}},
 {"name":"patch","title":"Patch program","description":"Replace each def or class in patch by name in the kept program (or add it); del def name removes one. Then checks: prints what changed and OK or the errors.","inputSchema":{"type":"object","properties":{"patch":{"type":"string"},"file":{"type":"string"},"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"}},"required":["patch"],"additionalProperties":false},"annotations":{"openWorldHint":false}},
 {"name":"edit","title":"Edit lines","description":"Replace lines from..to (1-based, inclusive) of the kept program with text (empty text deletes; to = from - 1 inserts before from). Then checks like patch.","inputSchema":{"type":"object","properties":{"from":{"type":"integer","minimum":1},"to":{"type":"integer","minimum":0},"text":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox; an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"}},"required":["from","to","text"],"additionalProperties":false},"annotations":{"openWorldHint":false}},
-{"name":"verify","title":"Verify against CPython","description":"Proof the native build answers as CPython does: builds the kept program (or code, plain Python) natively, runs it and python3 on each input, and compares stdout, exit code and stderr (CPython runs twice, so output that changes run to run is reported, not certified). One JSON line per input, then a certificate {verify: identical, differs, unstable, timeout or not built; sha256, path, speedup}. Runs CPython on the code, which the sandbox cannot hold, so it needs sandbox false.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string"},"inputs":{"type":"array","items":{"type":"string"},"description":"stdin for each run (default one run, empty stdin)"},"args":{"type":"array","items":{"type":"string"}},"sandbox":{"type":"boolean","description":"Must be false: verify runs python3 on the code"},"once":{"type":"boolean","description":"Run CPython once, not twice"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for each run (default 20)"}},"additionalProperties":false},"annotations":{"openWorldHint":false}},
+{"name":"verify","title":"Verify against CPython","description":"Proof the native build answers as CPython does: builds the kept program (or code, plain Python) natively, runs it and python3 on each input, and compares stdout, exit code and stderr (CPython runs twice, so output that changes run to run is reported, not certified). One JSON line per input, then a certificate {verify: identical, differs, unstable, timeout, limit or not built; sha256, path, speedup}. Runs CPython on the code, which the sandbox cannot hold, so it needs sandbox false.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string"},"inputs":{"type":"array","items":{"type":"string"},"description":"stdin for each run (default one run, empty stdin)"},"args":{"type":"array","items":{"type":"string"}},"sandbox":{"type":"boolean","description":"Must be false: verify runs python3 on the code"},"once":{"type":"boolean","description":"Run CPython once, not twice"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds"},"mem":{"type":"number","description":"Memory, MB (Linux)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for each run (default 20)"}},"additionalProperties":false},"annotations":{"openWorldHint":false}},
 {"name":"show","title":"Show program","description":"The kept program, or lines from..to of it, with line numbers.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"from":{"type":"integer","minimum":1},"to":{"type":"integer","minimum":0}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}}
 ]"#;
 
@@ -97,6 +97,7 @@ enum Kind {
     Bool,
     Strs,
     Cases,
+    Limits,
 }
 
 // Each tool's arguments: name, kind, required.
@@ -106,15 +107,16 @@ fn spec(tool: &str) -> Option<&'static [(&'static str, Kind, bool)]> {
     const AL: (&str, Kind, bool) = ("allow", Strs, false);
     const AP: (&str, Kind, bool) = ("allow_py", Strs, false);
     const AN: (&str, Kind, bool) = ("allow_net", Strs, false);
+    const LI: (&str, Kind, bool) = ("limits", Limits, false);
     Some(match tool {
         "guide" => &[("word", Str, false)],
         "check" => &[("code", Str, false), ("file", Str, false), ("fast", Bool, false), ("fix", Bool, false), SB, AL, AP, AN],
-        "run" => &[("code", Str, false), ("file", Str, false), ("stdin", Str, false), ("args", Strs, false), ("cases", Cases, false), SB, AL, AP, AN, ("timeout", Int, false)],
-        "test" => &[("code", Str, false), ("file", Str, false), SB, AL, AP, AN, ("timeout", Int, false)],
+        "run" => &[("code", Str, false), ("file", Str, false), ("stdin", Str, false), ("args", Strs, false), ("cases", Cases, false), SB, AL, AP, AN, LI, ("timeout", Int, false)],
+        "test" => &[("code", Str, false), ("file", Str, false), SB, AL, AP, AN, LI, ("timeout", Int, false)],
         "patch" => &[("patch", Str, true), ("file", Str, false), ("code", Str, false), SB, AL, AP, AN],
         "edit" => &[("from", Int, true), ("to", Int, true), ("text", Str, true), ("file", Str, false), SB, AL, AP, AN],
         "show" => &[("file", Str, false), ("from", Int, false), ("to", Int, false)],
-        "verify" => &[("code", Str, false), ("file", Str, false), ("inputs", Strs, false), ("args", Strs, false), SB, ("once", Bool, false), ("timeout", Int, false)],
+        "verify" => &[("code", Str, false), ("file", Str, false), ("inputs", Strs, false), ("args", Strs, false), SB, ("once", Bool, false), LI, ("timeout", Int, false)],
         _ => return None,
     })
 }
@@ -177,6 +179,24 @@ fn validate(tool: &str, a: &J) -> Result<J, String> {
                     cases.push(J::Obj(o));
                 }
                 J::Arr(cases)
+            }
+            // {cpu, mem, time, output, file}: numbers (seconds, MB, seconds, KB, MB) or text such as "512kb".
+            Kind::Limits => {
+                let J::Obj(lkv) = v else { return Err(bad("an object such as {\"cpu\": 2, \"mem\": 256, \"time\": 5, \"output\": 64, \"file\": 10}")) };
+                let mut o = vec![];
+                for (lk, lv) in lkv {
+                    if !["cpu", "mem", "time", "output", "file"].contains(&lk.as_str()) {
+                        return Err(format!("limits has {lk:?}; it takes cpu (seconds), mem (MB), time (seconds), output (KB) and file (MB)"));
+                    }
+                    if matches!(lv, J::Null) {
+                        continue;
+                    }
+                    let t = text(lv).filter(|t| !t.contains([',', '=', ' '])).ok_or_else(|| format!("limits {lk} must be a number"))?;
+                    let mut l = crate::proc::Limits::default();
+                    l.parse(&format!("{lk}={t}")).map_err(|m| m.replace("--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, comma separated (cpu=2,mem=256,time=5)", &format!("limits {lk} must be a number above 0")).replace("--limit", "limits"))?;
+                    o.push((lk.clone(), J::Str(t)));
+                }
+                J::Obj(o)
             }
         };
         out.push((k.clone(), v));
@@ -339,7 +359,7 @@ impl Cap {
     }
 }
 
-fn reader(mut r: impl Read + Send + 'static) -> mpsc::Receiver<Cap> {
+fn reader(mut r: impl Read + Send + 'static, seen: Arc<std::sync::atomic::AtomicU64>) -> mpsc::Receiver<Cap> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut cap = Cap::default();
@@ -349,6 +369,7 @@ fn reader(mut r: impl Read + Send + 'static) -> mpsc::Receiver<Cap> {
                 break;
             }
             cap.total += n;
+            seen.fetch_add(n as u64, Ordering::SeqCst);
             let room = KEEP.saturating_sub(cap.head.len()).min(n);
             cap.head.extend_from_slice(&buf[..room]);
             cap.tail.extend(&buf[room..n]);
@@ -366,11 +387,18 @@ struct Done {
     err: String,
     status: Option<std::process::ExitStatus>,
     timed_out: bool,
+    // Stopped for writing past its output limit.
+    over: bool,
 }
 
 // Runs a command with stdin, a time limit and its output read as it comes. The child and everything it starts
 // are killed when it ends, times out or the call is cancelled.
-fn spawn(mut c: Command, stdin: &str, limit: Duration) -> Result<Done, String> {
+fn spawn(c: Command, stdin: &str, limit: Duration) -> Result<Done, String> {
+    spawn_capped(c, stdin, limit, None)
+}
+
+// spawn, stopping the program once stdout and stderr together pass out_cap bytes (Done.over).
+fn spawn_capped(mut c: Command, stdin: &str, limit: Duration, out_cap: Option<u64>) -> Result<Done, String> {
     if CANCELLED.load(Ordering::SeqCst) {
         return Err("cancelled".into());
     }
@@ -389,13 +417,21 @@ fn spawn(mut c: Command, stdin: &str, limit: Duration) -> Result<Done, String> {
             let _ = si.write_all(&s);
         });
     }
-    let out = reader(child.stdout.take().unwrap());
-    let err = reader(child.stderr.take().unwrap());
+    let seen = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let out = reader(child.stdout.take().unwrap(), seen.clone());
+    let err = reader(child.stderr.take().unwrap(), seen.clone());
     let start = Instant::now();
     let mut timed_out = false;
+    let mut over = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break Some(s),
+            Ok(None) if out_cap.is_some_and(|c| seen.load(Ordering::SeqCst) > c) => {
+                over = true;
+                crate::proc::stop(&mut child);
+                let _ = child.wait();
+                break None;
+            }
             Ok(None) if start.elapsed() > limit || CANCELLED.load(Ordering::SeqCst) => {
                 timed_out = !CANCELLED.load(Ordering::SeqCst);
                 crate::proc::stop(&mut child);
@@ -414,7 +450,8 @@ fn spawn(mut c: Command, stdin: &str, limit: Duration) -> Result<Done, String> {
     if CANCELLED.load(Ordering::SeqCst) {
         return Err("cancelled".into());
     }
-    Ok(Done { out, err, status, timed_out })
+    let over = over || out_cap.is_some_and(|c| seen.load(Ordering::SeqCst) > c);
+    Ok(Done { out, err, status, timed_out, over })
 }
 
 fn secs(d: Duration) -> String {
@@ -449,11 +486,13 @@ fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
     let after = std::fs::read_to_string(&f).unwrap_or_default();
     // Notes like {"line":3,"fixed":"totl -> total"} go to stderr; keep them, they matter to the model.
     let mut text = done.out;
-    if !done.err.trim().is_empty() {
+    // The CLI's --limit advice in the tool's own words.
+    let err = done.err.replace("raise it with --limit ", "raise it in limits: ");
+    if !err.trim().is_empty() {
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
         }
-        text.push_str(&done.err);
+        text.push_str(&err);
     }
     let Some(st) = done.status else {
         if done.timed_out {
@@ -530,6 +569,15 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
         }
     }
     let limit = Duration::from_secs(n("timeout").map_or(cfg().timeout, |t| t.clamp(1, 600) as u64));
+    // The caller's resource limits on the program (validate checked each one).
+    let mut lims = crate::proc::Limits::default();
+    if let Some(J::Obj(kv)) = a.get("limits") {
+        for (k, v) in kv {
+            if let Some(t) = v.str() {
+                let _ = lims.parse(&format!("{k}={t}"));
+            }
+        }
+    }
     let code = a.get("code").and_then(|v| v.str()).map(String::from).filter(|_| name != "guide");
     let named = Some(s("file")).filter(|f| !f.is_empty());
     if let Some(f) = &named {
@@ -583,18 +631,19 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
         }
         "run" => {
             let mut extra = sandbox.clone();
+            extra.extend(lims.flags());
             let args: Vec<String> = a.get("args").map(|v| v.arr().iter().filter_map(|x| x.str().map(String::from)).collect()).unwrap_or_default();
             if !args.is_empty() {
                 extra.push("--".to_string());
                 extra.extend(args);
             }
             match a.get("cases").map(|c| c.arr().to_vec()).filter(|c| !c.is_empty()) {
-                Some(cases) => run_cases(files, &extra, &cases, sandboxed, n("timeout").map(|t| Duration::from_secs(t.clamp(1, 600) as u64))),
+                Some(cases) => run_cases(files, &extra, &cases, sandboxed, n("timeout").map(|t| Duration::from_secs(t.clamp(1, 600) as u64)), &lims),
                 None => brevi(files, "run", &extra, &s("stdin"), limit),
             }
         }
-        "test" => brevi(files, "test", &sandbox, "", limit),
-        "verify" => verify(files, a, sandboxed, limit),
+        "test" => brevi(files, "test", &[sandbox.clone(), lims.flags()].concat(), "", limit),
+        "verify" => verify(files, a, sandboxed, limit, &lims),
         "patch" => {
             let Some(cur) = files.all.get(&file).cloned() else { return (format!("no file {file}"), true) };
             match crate::patch::patch(&cur, &s("patch")) {
@@ -631,7 +680,7 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
 
 // `brevi verify` on the kept program: each input is written next to it and fed to both runs. CPython runs the
 // code, so the sandbox (on by default) refuses it rather than run it unheld.
-fn verify(files: &mut Files, a: &J, sandboxed: bool, limit: Duration) -> (String, bool) {
+fn verify(files: &mut Files, a: &J, sandboxed: bool, limit: Duration, lims: &crate::proc::Limits) -> (String, bool) {
     if sandboxed {
         return ("verify runs python3 on the code, which the sandbox cannot hold to its grants: pass sandbox false to verify code you would run with python3".into(), true);
     }
@@ -641,6 +690,7 @@ fn verify(files: &mut Files, a: &J, sandboxed: bool, limit: Duration) -> (String
     let strs = |k: &str| -> Vec<String> { a.get(k).map(|v| v.arr().iter().filter_map(|x| x.str().map(String::from)).collect()).unwrap_or_default() };
     let inputs = strs("inputs");
     let mut extra: Vec<String> = vec!["--timeout".into(), limit.as_secs().max(1).to_string()];
+    extra.extend(lims.flags());
     let once = a.get("once").map_or(false, |v| v.truthy());
     if once {
         extra.push("--once".into());
@@ -674,7 +724,7 @@ fn verify(files: &mut Files, a: &J, sandboxed: bool, limit: Duration) -> (String
     let shown = esc(&(dir.to_string_lossy().to_string() + std::path::MAIN_SEPARATOR_STR));
     let work = esc(&(work_dir().to_string_lossy().to_string() + std::path::MAIN_SEPARATOR_STR));
     // The CLI's advice in the tool's own words.
-    let t = t.replace(&shown, "").replace(&work, "").replace("pass --once", "pass once true").replace("pass --timeout SECS", "pass timeout (seconds)");
+    let t = t.replace(&shown, "").replace(&work, "").replace("pass --once", "pass once true").replace("pass --timeout SECS", "pass timeout (seconds)").replace("raise it with --limit ", "raise it in limits: ");
     (t, err)
 }
 
@@ -691,8 +741,12 @@ fn then_check(files: &mut Files, flags: &[String], what: &str, limit: Duration) 
 
 // Builds once, then runs each case. Prints ok per case, or the first line that differs. Plain Python that
 // only CPython can run (sandbox off) runs each case through `brevi run`, as run without cases would.
-fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, per_case: Option<Duration>) -> (String, bool) {
+fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, per_case: Option<Duration>, lims: &crate::proc::Limits) -> (String, bool) {
+    // --limit holds the runs, not the build.
     let mut flags: Vec<String> = extra.iter().take_while(|a| *a != "--").cloned().collect();
+    if let Some(i) = flags.iter().position(|f| f == "--limit") {
+        flags.drain(i..(i + 2).min(flags.len()));
+    }
     let args: Vec<String> = extra.iter().skip_while(|a| *a != "--").skip(1).cloned().collect();
     let bin_name = ".brevi-cases-bin";
     let bin = work_dir().join(bin_name);
@@ -724,9 +778,15 @@ fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, 
             }
             (got, failed)
         } else {
-            run_bin(&bin, &args, stdin, per_case)
+            run_bin(&bin, &args, stdin, per_case, lims)
         };
         let (gl, wl): (Vec<&str>, Vec<&str>) = (got.trim_end().lines().map(str::trim_end).collect(), want.trim_end().lines().map(str::trim_end).collect());
+        // Stopped by one of the caller's limits: that is the answer, not a line that differs.
+        if let Some(l) = gl.iter().rev().find(|l| l.starts_with("{\"e\":\"limit\"")).filter(|_| code) {
+            failed += 1;
+            out.push(format!("case {}: {l}", i + 1));
+            continue;
+        }
         if gl == wl && !code {
             out.push(format!("case {}: ok", i + 1));
             continue;
@@ -758,23 +818,46 @@ fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, 
     (out.join("\n"), failed > 0)
 }
 
-// Runs a built program with a time limit; stdout plus any error line, and whether it failed.
-fn run_bin(bin: &Path, args: &[String], stdin: &str, limit: Duration) -> (String, bool) {
+// Runs a built program with a time limit and the call's resource limits; stdout plus any error line, and
+// whether it failed.
+fn run_bin(bin: &Path, args: &[String], stdin: &str, limit: Duration, lims: &crate::proc::Limits) -> (String, bool) {
     let mut c = crate::proc::program(bin);
     c.args(args).current_dir(work_dir());
-    let d = match spawn(c, stdin, limit) {
+    crate::proc::apply(&mut c, lims);
+    let wall = lims.time.map_or(limit, |t| t.min(limit));
+    let d = match spawn_capped(c, stdin, wall, lims.output) {
         Ok(d) => d,
         Err(m) => return (m, true),
     };
     let mut t = d.out;
-    let failed = !d.status.is_some_and(|s| s.success());
-    if failed && !d.err.trim().is_empty() {
+    if let Some(o) = lims.output {
+        // What the program wrote up to its limit, as `brevi run --limit output=...` passes on.
+        let mut cut = (o as usize).min(t.len());
+        while !t.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        t.truncate(cut);
+    }
+    let hit = if d.over {
+        Some("output")
+    } else if d.timed_out && lims.time.is_some_and(|x| x <= limit) {
+        Some("time")
+    } else {
+        d.status.and_then(|s| crate::proc::limit_hit(lims, s, &d.err))
+    };
+    let failed = hit.is_some() || !d.status.is_some_and(|s| s.success());
+    if failed && hit.is_none() && !d.err.trim().is_empty() {
         if !t.is_empty() && !t.ends_with('\n') {
             t.push('\n');
         }
         t.push_str(d.err.trim_end());
     }
-    if d.timed_out {
+    if let Some(on) = hit {
+        if !t.is_empty() && !t.ends_with('\n') {
+            t.push('\n');
+        }
+        t.push_str(&crate::proc::limit_line(lims, on).replace("raise it with --limit ", "raise it in limits: "));
+    } else if d.timed_out {
         t.push_str(&format!("\n{{\"e\":\"timeout\",\"msg\":\"stopped after {}\"}}", secs(limit)));
     }
     (t, failed)

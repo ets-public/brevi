@@ -13,7 +13,8 @@ Include what you ran, what happened, and the Brevi version (`brevi --version`). 
 Brevi compiles programs into native binaries, so the most important cases are:
 
 - a program declared with `allow` lines, or run with `brevi run --sandbox` or through the `brevi mcp` tools (sandboxed by default), that reads or writes files, reaches the network or the environment without declaring it;
+- a `--limit` (MCP `limits`) that does not hold where the [threat model](docs/THREAT_MODEL.md) says it does;
 - generated Rust that is memory-unsafe for a program Brevi accepted;
 - `install.sh` or a release download fetching or running something it should not.
 
-A wrong answer that is not a sandbox escape is a normal bug: please open an issue.
+A wrong answer that is not a sandbox escape is a normal bug: please open an issue. What the sandbox does and does not protect against is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
