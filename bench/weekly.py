@@ -1,0 +1,110 @@
+"""The weekly public agent-code benchmark: what it costs Claude models to finish the 24 `rel` tasks in plain
+Python checked by Brevi (pyb) and by CPython (python), how many they finish, and how fast the finished
+programs run. The Monday routine runs the release test (e2e.py, two runs per side and model) and then:
+
+    python3 bench/weekly.py add w1109 --date 2026-11-09 --version "main after v0.25.0"
+    python3 bench/weekly.py render
+
+`add` reads logs/e2e/PREFIX*-MODEL-LANG.jsonl and appends one entry to bench/weekly.json (the data, public in
+the repository); `render` writes bench/WEEKLY.md and the table in site/docs/benchmarks.md between the
+`weekly:start` and `weekly:end` markers. Entries before 7 Nov 2026 have no timings (e2e.py did not log them).
+"""
+import argparse, glob, json, sys
+from pathlib import Path
+
+B = Path(__file__).resolve().parent
+DATA = B / "weekly.json"
+PAGE = B / "WEEKLY.md"
+SITE = B.parent / "site" / "docs" / "benchmarks.md"
+MODELS = {"claude-sonnet-5-5": "Sonnet 5.5", "claude-haiku-5-5": "Haiku 5.5"}
+
+
+def entry(prefix, date, version):
+    files = sorted(glob.glob(str(B / "logs" / "e2e" / f"{prefix}*-*-*.jsonl")))
+    rows = [json.loads(l) for f in files for l in open(f) if l.strip()]
+    rows = [r for r in rows if r["lang"] in ("pyb", "python")]
+    if not rows:
+        sys.exit(f"error: no pyb or python logs match logs/e2e/{prefix}*")
+    out = {"date": date, "version": version, "runs": sorted({r["run"].split("-")[0] for r in rows}), "models": {}}
+    for model in sorted({r["model"] for r in rows}, key=lambda m: list(MODELS).index(m) if m in MODELS else 99):
+        m = {}
+        for lang in ("pyb", "python"):
+            rs = [r for r in rows if r["model"] == model and r["lang"] == lang]
+            if not rs:
+                sys.exit(f"error: {prefix} has no {lang} runs for {model}")
+            runs = len({r["run"] for r in rs})
+            timed = [r for r in rs if r.get("run_ms") is not None]
+            m[lang] = {
+                "tasks": len(rs), "passed": sum(bool(r["pass"]) for r in rs),
+                "usd_per_run": round(sum(r["usd"] for r in rs) / runs, 4),
+                "secs_per_task": round(sum(r["secs"] for r in rs) / len(rs), 1) if all("secs" in r for r in rs) else None,
+                # milliseconds the passing programs took on their tests, summed over the tasks both sides passed
+                "run_ms": {f'{r["run"].split("-")[0]}/{r["task"]}': r["run_ms"] for r in timed},
+            }
+            if lang == "pyb":
+                m[lang]["native"] = sum(1 for r in rs if r.get("native"))
+        both = set(m["pyb"]["run_ms"]) & set(m["python"]["run_ms"])
+        pyb_ms = sum(m["pyb"]["run_ms"][k] for k in both)
+        m["speedup"] = round(sum(m["python"]["run_ms"][k] for k in both) / pyb_ms, 2) if both and pyb_ms else None
+        for lang in ("pyb", "python"):
+            m[lang]["run_ms"] = round(sum(m[lang]["run_ms"][k] for k in both), 1) if both else None
+        m["cost_ratio"] = round(m["pyb"]["usd_per_run"] / m["python"]["usd_per_run"], 3)
+        out["models"][MODELS.get(model, model)] = m
+    return out
+
+
+def table(data):
+    head = ("| Date | Brevi | Model | Cost per run, Brevi / CPython | Ratio | Tasks finished, Brevi / CPython "
+            "| Built natively | Programs run, Brevi / CPython | Speed |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+    lines = []
+    for e in reversed(data):
+        for name, m in e["models"].items():
+            p, c = m["pyb"], m["python"]
+            speed = f"{p['run_ms'] / 1000:.2f} s / {c['run_ms'] / 1000:.2f} s" if m["speedup"] else "not timed"
+            lines.append(f"| {e['date']} | {e['version']} | {name} | ${p['usd_per_run']:.3f} / ${c['usd_per_run']:.3f} | **{m['cost_ratio']:.2f}x** "
+                         f"| {p['passed']}/{p['tasks']} / {c['passed']}/{c['tasks']} | {p['native']}/{p['tasks']} | {speed} "
+                         f"| {str(m['speedup']) + 'x' if m['speedup'] else '-'} |")
+    return head + "\n".join(lines) + "\n"
+
+
+ABOUT = ("Each week Claude Sonnet and Claude Haiku solve the 24 tasks of the `rel` suite twice in plain Python: once checked "
+         "with CPython, once checked and built with Brevi, with the same prompt. The whole API bill is counted, retries "
+         "included. **Ratio** is Brevi's cost over CPython's (below 1.00x is cheaper). **Programs run** is the time the "
+         "finished programs took on their tests, over the tasks both sides finished, and **Speed** is CPython's time over "
+         "Brevi's. These test inputs are small, so most of each figure is process start-up; the "
+         "[heavy tasks](#heavy-tasks-and-the-plain-solution-line) show the gap on real work. The data is "
+         "[bench/weekly.json](repo:bench/weekly.json) and every run's log is in [bench/logs/e2e](repo:bench/logs/e2e).")
+
+
+def render():
+    data = json.loads(DATA.read_text())
+    t = table(data)
+    PAGE.write_text("# Weekly agent-code benchmark\n\nGenerated by `bench/weekly.py render` from `bench/weekly.json`.\n\n"
+                    + ABOUT.replace("(repo:", "(../").replace("(#heavy-tasks-and-the-plain-solution-line)",
+                                                              "(../site/docs/benchmarks.md#heavy-tasks-and-the-plain-solution-line)")
+                    + "\n\n" + t)
+    s = SITE.read_text()
+    a, b = s.index("<!-- weekly:start -->"), s.index("<!-- weekly:end -->")
+    SITE.write_text(s[:a] + "<!-- weekly:start -->\n\n" + ABOUT + "\n\n" + t + s[b:])
+    print(f"wrote {PAGE.name} and the table in {SITE.relative_to(B.parent)} ({len(data)} weeks)")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=["add", "render"])
+    ap.add_argument("prefix", nargs="?", help="add: the runs' prefix, e.g. w1109 for w1109a and w1109b")
+    ap.add_argument("--date")
+    ap.add_argument("--version", default="main")
+    a = ap.parse_args()
+    if a.cmd == "add":
+        if not (a.prefix and a.date):
+            ap.error("add needs PREFIX and --date")
+        data = json.loads(DATA.read_text()) if DATA.exists() else []
+        data = [e for e in data if e["date"] != a.date] + [entry(a.prefix, a.date, a.version)]
+        data.sort(key=lambda e: e["date"])
+        DATA.write_text(json.dumps(data, indent=1) + "\n")
+    render()
+
+
+if __name__ == "__main__":
+    main()

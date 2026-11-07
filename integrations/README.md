@@ -29,6 +29,8 @@ const client = await createMCPClient({ transport: new Experimental_StdioMCPTrans
 const tools = await client.tools();
 ```
 
+To run an agent's code on a hosted sandbox (E2B, Daytona, Modal, Cloudflare) rather than on the agent's own machine, see [templates/](../templates/README.md).
+
 Any other MCP client works the same way: the command is `brevi`, with the argument `mcp`. A sandboxed agent can use the Docker image instead: `docker run --rm -i brevi mcp`.
 
 ## With Composio: live app data, sandboxed code

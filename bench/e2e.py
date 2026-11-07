@@ -74,6 +74,9 @@ def tools(lang):
 # The path Brevi's last pyb build of each work dir took ("typed", "pybridge", "dynamic"; None when it did not
 # build), from its {"path":...} line (BREVI_PATH=1).
 LAST_PATH = {}
+# Milliseconds the task's tests took to run in the last check that passed, by (lang, work dir): the speed of the
+# program the model wrote (Brevi's native binary for pyb, CPython for python). Logged as run_ms from 7 Nov 2026.
+LAST_RUN_MS = {}
 
 
 def build_path(stderr):
@@ -123,11 +126,13 @@ def run_check(lang, task, work, native_only=False):
     # GUI tasks (tasks/NAME/gui): CPython runs tkinter programs through the headless stand-in in tkshim/.
     env = dict(os.environ, PYTHONPATH=str(B / "tkshim")) if (tdir / "gui").exists() and cmd[0] == sys.executable else None
     tests = sorted(glob.glob(str(tdir / "tests" / "*.in")))
-    passed, first = 0, None
+    passed, first, ms = 0, None, 0.0
     for t in tests:
         want = Path(t[:-3] + ".out").read_text()
         try:
+            t0 = time.perf_counter()
             got = subprocess.run(cmd, stdin=open(t), capture_output=True, text=True, timeout=10, cwd=work, env=env)
+            ms += (time.perf_counter() - t0) * 1000
             out = (got.stdout + got.stderr).rstrip("\n")
         except subprocess.TimeoutExpired:
             out = "timeout after 10 s"
@@ -137,6 +142,7 @@ def run_check(lang, task, work, native_only=False):
             first = f"test {Path(t).stem} failed\ninput:\n{Path(t).read_text().rstrip()}\nexpected:\n{want.rstrip()}\ngot:\n{out}"
     native = native if lang == "pyb" else None
     if passed == len(tests):
+        LAST_RUN_MS[(lang, str(work))] = round(ms, 1)
         return f"PASS {passed}/{len(tests)}", native
     return f"{first}\npassed {passed}/{len(tests)}", native
 
@@ -154,6 +160,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     checks, passed, calls, stop, native = start_checks, False, 0, "", None
     # pyb only: for each check, whether CPython passes the same files (a False where pyb failed is a Brevi bug)
     shadow = []
+    started = time.time()
     while calls < 40:
         calls += 1
         for attempt in range(6):
@@ -220,7 +227,8 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     (work / "conversation.json").write_text(json.dumps([{"role": m["role"], "content": plain(m["content"])} for m in messages], indent=1))
     pin, pout, pread = PRICES[model]
     cost = (use["input"] * pin + use["cache_write"] * pin * 1.25 + use["cache_read"] * pread + use["output"] * pout) / 1e6
-    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **({"shadow": shadow, "path": LAST_PATH.get(str(work))} if lang == "pyb" else {}), **use, "usd": round(cost, 5)}
+    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **({"shadow": shadow, "path": LAST_PATH.get(str(work))} if lang == "pyb" else {}), **use, "usd": round(cost, 5),
+            "secs": round(time.time() - started, 1), "run_ms": LAST_RUN_MS.get((lang, str(work))) if passed else None}
 
 
 def summary(pattern):

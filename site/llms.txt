@@ -19,6 +19,7 @@
 ## Tools
 
 - [Compiler source](https://github.com/ets-public/brevi): Apache-2.0, written in Rust.
+- [Agent platform templates](https://github.com/ets-public/brevi/tree/main/templates): run an agent's Python under Brevi's sandbox and limits on E2B, Daytona, Modal, Cloudflare Sandbox or Docker.
 - Contact: support@brevi-lang.org (questions, licensing; bugs go to GitHub issues).
 
 ## Optional
