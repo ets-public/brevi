@@ -1,6 +1,6 @@
 """Checks `brevi mcp`: plain Python by default, the kept program, patch and edit with a check, show, run
 with cases, for Python and for Brevi code; then the protocol (versions, bad input, errors), argument checks,
-long output, timeouts, cancel, exit on EOF and the memory limit.
+long output, timeouts, cancel, exit on EOF, the memory limit and the caller's resource limits.
 usage: python3 tests/mcp_test.py [BREVI]"""
 import json, subprocess, sys
 
@@ -121,6 +121,21 @@ expect("sandbox bad allow", call("run", code="print(1)\n", allow=["network"]), "
 expect("sandbox net refused", call("run", code="import httpx\nprint(1)\n"), "needs allow net", True)
 expect("sandbox bad allow_net", call("run", code="print(1)\n", allow_net=["http://x.com"]), "takes host names", True)
 expect("sandbox off", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", sandbox=False), "True", False)
+# Resource limits: the caller's limits stop the program at the first one it reaches, and the reply names it.
+spin = "n = 0\nwhile True:\n    n += 1\n"
+expect("limits cpu", call("run", code=spin, limits={"cpu": 1}), '"on":"cpu"', True)
+expect("limits time", call("run", code=spin, limits={"time": 0.5}), '"on":"time"', True)
+expect("limits advice", call("run", code=spin, limits={"time": 0.5}), "raise it in limits: time=", True)
+loud = "i = 0\nwhile True:\n    print('line', i)\n    i += 1\n"
+expect("limits output", call("run", code=loud, limits={"output": 1}), '"on":"output"', True)
+expect("limits output in cases", call("run", code=loud, limits={"output": 1}, cases=[{"stdin": "", "expect": "x"}]), '"on":"output"', True)
+expect("limits cpu in cases", call("run", code=spin, limits={"cpu": 1}, cases=[{"stdin": "", "expect": "x"}]), '"on":"cpu"', True)
+expect("limits pass", call("run", code="print(sum(range(10)))\n", limits={"cpu": 2, "time": 5, "output": 64}), "45", False)
+expect("limits pass in cases", call("run", limits={"cpu": 2, "time": 5}, cases=[{"stdin": "", "expect": "45\n"}]), "passed 1/1", False)
+expect("limits test", call("test", code="fn main():\n  print(1)\n\ntest \"spins\":\n  var n = 0\n  while true:\n    n = n + 1\n", limits={"time": 1}), '"on":"time"', True)
+expect("limits bad name", call("run", code="print(1)\n", limits={"cpus": 1}), "limits has \"cpus\"", True)
+expect("limits bad value", call("run", code="print(1)\n", limits={"cpu": -1}), "limits cpu must be a number above 0", True)
+expect("limits verify", call("verify", sandbox=False, code=spin, limits={"cpu": 1}), '"verify":"limit"', True)
 
 # Brevi code, recognised by its fn items.
 start()

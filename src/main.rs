@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -229,6 +229,18 @@ fn main() {
             }
         }
         sandbox = true;
+    }
+    // --limit cpu=2,mem=256,time=5,output=64,file=10: what the program may use while it runs (proc.rs).
+    let limits = proc::take_limit_flags(&mut argv).unwrap_or_else(|m| {
+        eprintln!("{m}");
+        exit(2);
+    });
+    if !limits.is_empty() {
+        if !matches!(argv.first().map(String::as_str), Some("run" | "test")) {
+            eprintln!("--limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)");
+            exit(2);
+        }
+        proc::LIMITS.set(limits).ok();
     }
     grant.sort();
     grant.dedup();
@@ -508,11 +520,11 @@ fn main() {
             } else {
                 c.args(&prog_args);
             }
-            let status = c.status().unwrap_or_else(|e| {
+            let code = proc::run(c).unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 exit(1);
             });
-            exit(proc::code(status));
+            exit(code);
         }
         _ => {
             eprintln!("{USAGE}");
@@ -585,11 +597,13 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     let (wfile, line, func, why, extra, relocate) = why;
     say_path("dynamic", &wfile, line, func, &why, &format!("{extra}{}", dyn_py_field()), relocate);
     if cmd == "run" {
-        let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+        let mut c = proc::script(&bin, file);
+        c.args(argv.get(dash + 1..).unwrap_or(&[]));
+        let code = proc::run(c).unwrap_or_else(|e| {
             println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
             exit(1);
         });
-        exit(proc::code(status));
+        exit(code);
     }
     true
 }
@@ -707,11 +721,13 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     if cmd == "build" {
         exit(0);
     }
-    let status = proc::script(&bin, file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+    let mut c = proc::script(&bin, file);
+    c.args(argv.get(dash + 1..).unwrap_or(&[]));
+    let code = proc::run(c).unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
-    exit(proc::code(status));
+    exit(code);
 }
 
 // check, build and run through the result cache (src/runcache.rs): the build runs as a child `brevi check` or
@@ -747,11 +763,13 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
     if cmd != "run" || !done.ok() {
         exit(done.code.unwrap_or(1));
     }
-    let status = proc::script(bin.as_ref().unwrap(), file).args(argv.get(dash + 1..).unwrap_or(&[])).status().unwrap_or_else(|e| {
+    let mut c = proc::script(bin.as_ref().unwrap(), file);
+    c.args(argv.get(dash + 1..).unwrap_or(&[]));
+    let code = proc::run(c).unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
-    exit(proc::code(status));
+    exit(code);
 }
 
 // `brevi run x.py`: builds with Brevi and runs the program; when the build fails, runs the file with python3
@@ -795,7 +813,9 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     let code = match built {
         Ok(o) if o.ok() => {
             std::io::stderr().write_all(&o.stderr).ok();
-            proc::script(&bin, file).args(&prog_args).status().map(proc::code).unwrap_or_else(|e| {
+            let mut c = proc::script(&bin, file);
+            c.args(&prog_args);
+            proc::run(c).unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 1
             })
@@ -815,6 +835,11 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
             let short = o.code == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
             let mut cmd = proc::program(&python);
             cmd.arg(file).args(&prog_args);
+            // Under --limit the program runs through proc::run, which shows the whole traceback.
+            if !proc::limits().is_empty() {
+                say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
+                exit(proc::run(cmd).unwrap_or(1));
+            }
             if short {
                 cmd.stderr(std::process::Stdio::piped());
             }

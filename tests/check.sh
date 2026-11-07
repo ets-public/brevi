@@ -313,6 +313,27 @@ for f in tests/sandbox/*.py; do
     echo "ok   $f"
   fi
 done
+# --limit: the caller's resource limits. Each test's .flags holds them; the program's stdout, its exit status
+# (124 when a limit stopped it) and the last stderr line, which names the limit, are compared.
+for f in tests/limits/*.py; do
+  exp="${f%.py}.expected"
+  g=$(cat "${f%.py}.flags")
+  case "$f" in */mem.py) [ "$(uname)" = Linux ] || continue ;; esac
+  out=$($BREVI run --sandbox $g "$f" 2>/tmp/brevi-limits-err; echo "exit $?"; tail -1 /tmp/brevi-limits-err)
+  rm -f limits-file.out /tmp/brevi-limits-err
+  if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
+out=$($BREVI run --limit cpu=x tests/limits/within.py 2>&1; echo "exit $?"; $BREVI build --limit cpu=1 tests/limits/within.py 2>&1; echo "exit $?")
+want='--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, comma separated (cpu=2,mem=256,time=5); '"'cpu=x'"' is not a number above 0
+exit 2
+--limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)
+exit 2'
+if [ "$out" = "$want" ]; then echo "ok   --limit usage errors"; else echo "FAIL --limit usage errors"; printf '%s\n' "$out"; fail=1; fi
 # Exit status, which the loops above do not compare: a Python file must exit as python3 does on both native
 # paths, with its stdout written first. A .bv program stops with status 101 at a runtime error.
 for f in tests/exit/*.py; do
@@ -403,6 +424,7 @@ vout=$(v tests/verify/sq.py --input tests/verify/sq
   v tests/verify/argsum.py -- 3 4
   v tests/verify/clock.py
   v tests/verify/spin.py --once --timeout 1
+  v tests/verify/spin.py --once --limit cpu=1
   v tests/verify/refused.py
   BREVI_PYTHON=tests/verify/fakepy.sh v tests/verify/sq.py
   v tests/verify/sq.py --sandbox

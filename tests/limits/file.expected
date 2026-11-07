@@ -1,0 +1,2 @@
+exit 124
+{"e":"limit","on":"file","limit":"1 MB","msg":"the program tried to write a file over 1 MB","fix":"raise it with --limit file=... if the program needs more"}

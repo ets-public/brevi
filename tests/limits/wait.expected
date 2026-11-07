@@ -1,0 +1,2 @@
+exit 124
+{"e":"limit","on":"time","limit":"1 s","msg":"the program was stopped after 1 s of wall-clock time","fix":"raise it with --limit time=... if the program needs more"}

@@ -5,7 +5,7 @@
 // program names the exception, not the frames). CPython runs each input twice, so output that changes from
 // run to run (set order, time, unseeded random) is reported as unstable rather than certified.
 //
-//   brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]
+//   brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--limit SPEC] [--release] [--no-cache] [-- ARGS...]
 //
 // --input PATH is fed to the program's stdin, one run per path; a folder gives one run per file in it (only
 // its *.in files when it has any). With no input the program runs once with empty stdin. ARGS go to both.
@@ -16,7 +16,9 @@
 //   {"case":1,"input":"t/1.in","same":true,"cpython_ms":38,"brevi_ms":2}
 //   {"verify":"identical","file":"a.py","sha256":"...","inputs":[...],"path":"typed",...}
 // The verdict is identical, differs (a wrong answer from Brevi), unstable (CPython's own answer changed between
-// its two runs), timeout, or not built (Brevi refused the file natively, so nothing was compared).
+// its two runs), timeout, limit (a --limit stopped CPython or the build on an input, so it certifies nothing),
+// or not built (Brevi refused the file natively, so nothing was compared). --limit holds both runs to the same
+// limits (proc.rs).
 // Exit 0 when every input matched, 1 when one differed, was unstable or timed out, or the file did not build,
 // 2 for a usage error. --sandbox is refused: verify runs the program under CPython, which cannot hold it.
 use crate::diag::esc;
@@ -26,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Stdio};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--release] [--no-cache] [-- ARGS...]";
+const USAGE: &str = "usage: brevi verify FILE.py [--input PATH]... [--once] [--mcp] [--timeout SECS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB] [--release] [--no-cache] [-- ARGS...]";
 
 fn usage(msg: &str) -> ! {
     println!("{{\"verify\":\"error\",\"msg\":\"{}\",\"fix\":\"{}\"}}", esc(msg), esc(USAGE));
@@ -40,9 +42,14 @@ struct Run {
     code: Option<i32>,
     ms: u128,
     timed_out: bool,
+    // The --limit that stopped it (cpu, mem, time, output, file), if one did.
+    hit: Option<&'static str>,
 }
 
 fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration, session: bool) -> Result<Run, String> {
+    let lim = crate::proc::limits();
+    crate::proc::apply(&mut c, &lim);
+    let limit = lim.time.map_or(limit, |t| t.min(limit));
     c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     let start = Instant::now();
@@ -111,7 +118,17 @@ fn run(mut c: std::process::Command, stdin: &[u8], limit: Duration, session: boo
     let ms = start.elapsed().as_millis();
     // Anything the program left running (a background child holding the pipes) goes too.
     crate::proc::stop_pid(child.id());
-    Ok(Run { out: out.join().unwrap_or_default(), err: err.join().unwrap_or_default(), code: status.and_then(|s| exit_code(s)), ms, timed_out })
+    let (out, err) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+    let tail = String::from_utf8_lossy(&err[err.len().saturating_sub(4096)..]).to_string();
+    let hit = if timed_out && lim.time.is_some_and(|t| t <= limit) {
+        Some("time")
+    } else if lim.output.is_some_and(|o| (out.len() + err.len()) as u64 > o) {
+        Some("output")
+    } else {
+        status.and_then(|s| crate::proc::limit_hit(&lim, s, &tail))
+    };
+    let timed_out = timed_out && hit.is_none();
+    Ok(Run { out, err, code: status.and_then(|s| exit_code(s)), ms, timed_out, hit })
 }
 
 // The id a JSON-RPC message answers or asks with, as Python compares them (1 == 1.0, "1" != 1); None for none.
@@ -290,6 +307,7 @@ pub fn main(argv: &[String]) -> ! {
     let mut release = false;
     let mut mcp = false;
     let mut limit = Duration::from_secs(60);
+    let mut lims = crate::proc::Limits::default();
     let mut i = 0;
     while i < dash {
         let a = argv[i].as_str();
@@ -305,6 +323,14 @@ pub fn main(argv: &[String]) -> ! {
                 limit = Duration::from_secs(v.parse::<u64>().ok().filter(|s| *s > 0).unwrap_or_else(|| usage("--timeout takes whole seconds above 0")));
                 i += 1;
             }
+            "--limit" => {
+                let v = value(i);
+                lims.parse(&v).unwrap_or_else(|m| usage(&m));
+                i += 1;
+            }
+            _ if a.starts_with("--limit=") => {
+                lims.parse(&a["--limit=".len()..]).unwrap_or_else(|m| usage(&m));
+            }
             "--once" => once = true,
             "--mcp" => mcp = true,
             "--release" => release = true,
@@ -318,6 +344,7 @@ pub fn main(argv: &[String]) -> ! {
         }
         i += 1;
     }
+    let _ = crate::proc::LIMITS.set(lims);
     let Some(file) = file else { usage("verify needs a .py file") };
     if !file.ends_with(".py") {
         usage("verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)");
@@ -368,7 +395,7 @@ pub fn main(argv: &[String]) -> ! {
         exit(1);
     }
 
-    let (mut differ, mut unstable, mut timeouts) = (0, 0, 0);
+    let (mut differ, mut unstable, mut timeouts, mut limited) = (0, 0, 0, 0);
     let (mut py_ms, mut bv_ms) = (0u128, 0u128);
     let mut ins = vec![];
     for (n, (name, data)) in cases.iter().enumerate() {
@@ -397,6 +424,15 @@ pub fn main(argv: &[String]) -> ! {
                 Err(m) => usage(&m),
             }
         };
+        if let Some(on) = p.hit.or(b.hit) {
+            limited += 1;
+            let who = if p.hit.is_some() { "CPython" } else { "the native build" };
+            let l = crate::proc::limits();
+            let line = crate::proc::limit_line(&l, on);
+            let msg = crate::json::parse(&line).and_then(|j| j.get("msg").and_then(|m| m.str()).map(String::from)).unwrap_or_default();
+            fail(&format!("\"on\":\"limit\",\"limit\":\"{on}\",\"msg\":\"{who}: {}\"", esc(&msg)), &format!("raise it with --limit {on}=..., or leave the limit out"));
+            continue;
+        }
         if p.timed_out || b.timed_out {
             timeouts += 1;
             let who = if p.timed_out { "CPython" } else { "the native build" };
@@ -444,13 +480,13 @@ pub fn main(argv: &[String]) -> ! {
         }
     }
     let _ = std::fs::remove_file(&bin);
-    let bad = differ + unstable + timeouts;
+    let bad = differ + unstable + timeouts + limited;
     let speed = if bad == 0 && bv_ms > 0 { format!(",\"speedup\":{:.1}", py_ms as f64 / bv_ms as f64) } else { String::new() };
     // A wrong answer outranks the rest: unstable and timed out inputs certify nothing either way.
-    let verdict = if differ > 0 { "differs" } else if unstable > 0 { "unstable" } else if timeouts > 0 { "timeout" } else { "identical" };
+    let verdict = if differ > 0 { "differs" } else if unstable > 0 { "unstable" } else if timeouts > 0 { "timeout" } else if limited > 0 { "limit" } else { "identical" };
     let checked = if once { "stdout, exit code and stderr, one CPython run" } else { "stdout, exit code and stderr, CPython run twice" };
     println!(
-        "{{\"verify\":\"{verdict}\",{common},\"path\":\"{}\",\"inputs\":[{}],\"args\":[{}],\"compared\":\"{checked}\",\"differ\":{differ},\"unstable\":{unstable},\"timeout\":{timeouts},\"cpython_ms\":{py_ms},\"brevi_ms\":{bv_ms}{speed}}}",
+        "{{\"verify\":\"{verdict}\",{common},\"path\":\"{}\",\"inputs\":[{}],\"args\":[{}],\"compared\":\"{checked}\",\"differ\":{differ},\"unstable\":{unstable},\"timeout\":{timeouts},\"limit\":{limited},\"cpython_ms\":{py_ms},\"brevi_ms\":{bv_ms}{speed}}}",
         esc(&path),
         ins.join(","),
         prog_args.iter().map(|a| format!("\"{}\"", esc(a))).collect::<Vec<_>>().join(",")

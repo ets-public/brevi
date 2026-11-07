@@ -44,19 +44,317 @@ pub fn script(bin: impl AsRef<std::ffi::OsStr>, file: &str) -> Command {
 pub fn program(bin: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut c = Command::new(bin);
     die_with_parent(&mut c);
-    #[cfg(target_os = "linux")]
-    if let Some(mb) = std::env::var("BREVI_MEM_MB").ok().and_then(|v| v.trim().parse::<u64>().ok()).filter(|m| *m > 0) {
+    apply(&mut c, &Limits::default());
+    c
+}
+
+// ---- Resource limits (`--limit cpu=2,mem=256,time=5,output=64,file=10`) ----
+//
+// The caller's limits on one program run, beside the sandbox's capability grants (caps.rs): CPU seconds,
+// address space (MB), wall-clock time (seconds), bytes written to stdout and stderr together (KB) and the size
+// of any one file the program writes (MB). cpu, mem and file are kernel limits (setrlimit) set in the child
+// before it starts, so the program cannot raise them; time and output are held by the process that started it,
+// which stops the program when either runs out. They hold the program, not the build.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct Limits {
+    pub cpu: Option<u64>,
+    pub mem: Option<u64>,
+    pub time: Option<std::time::Duration>,
+    pub output: Option<u64>,
+    pub file: Option<u64>,
+}
+
+pub static LIMITS: std::sync::OnceLock<Limits> = std::sync::OnceLock::new();
+
+pub fn limits() -> Limits {
+    LIMITS.get().copied().unwrap_or_default()
+}
+
+// The exit code of a program stopped by one of its limits (as timeout(1) uses for its time limit).
+pub const LIMIT_EXIT: i32 = 124;
+
+impl Limits {
+    pub fn is_empty(&self) -> bool {
+        *self == Limits::default()
+    }
+
+    // Parses `cpu=2,mem=256mb,time=1.5,output=64kb,file=10` into these limits (later names win). Plain numbers
+    // are seconds for cpu and time, MB for mem and file, and KB for output; sizes also take kb, mb or gb and
+    // times s or ms. Refuses a limit this OS cannot enforce rather than run the program without it.
+    pub fn parse(&mut self, spec: &str) -> Result<(), String> {
+        const HINT: &str = "--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, comma separated (cpu=2,mem=256,time=5)";
+        for part in spec.split([',', ' ']).map(str::trim).filter(|p| !p.is_empty()) {
+            let Some((k, v)) = part.split_once('=') else { return Err(format!("{HINT}; '{part}' has no value")) };
+            let (k, v) = (k.trim().to_ascii_lowercase(), v.trim().to_ascii_lowercase());
+            let bad = || format!("{HINT}; '{part}' is not a number above 0");
+            match k.as_str() {
+                "cpu" | "time" => {
+                    let (num, scale) = match v.strip_suffix("ms") {
+                        Some(n) => (n, 0.001),
+                        None => (v.strip_suffix('s').unwrap_or(&v), 1.0),
+                    };
+                    let secs = num.trim().parse::<f64>().ok().map(|n| n * scale).filter(|n| n.is_finite() && *n > 0.0 && *n <= 86_400.0).ok_or_else(bad)?;
+                    if k == "cpu" {
+                        // The kernel counts whole seconds.
+                        self.cpu = Some(secs.ceil() as u64);
+                    } else {
+                        self.time = Some(std::time::Duration::from_secs_f64(secs));
+                    }
+                }
+                "mem" | "output" | "file" => {
+                    let unit = if k == "output" { 1u64 << 10 } else { 1 << 20 };
+                    let (num, scale) = [("gb", 1u64 << 30), ("g", 1 << 30), ("mb", 1 << 20), ("m", 1 << 20), ("kb", 1 << 10), ("k", 1 << 10), ("b", 1)]
+                        .iter()
+                        .find_map(|(s, m)| v.strip_suffix(s).map(|n| (n, *m)))
+                        .unwrap_or((&v, unit));
+                    let bytes = num.trim().parse::<f64>().ok().filter(|n| n.is_finite() && *n > 0.0).map(|n| (n * scale as f64) as u64).filter(|b| *b > 0).ok_or_else(bad)?;
+                    match k.as_str() {
+                        // mem and file are kept in MB, at least 1.
+                        "mem" => self.mem = Some(bytes.div_ceil(1 << 20)),
+                        "file" => self.file = Some(bytes.div_ceil(1 << 20)),
+                        _ => self.output = Some(bytes),
+                    }
+                }
+                _ => return Err(format!("{HINT}; there is no limit '{k}'")),
+            }
+        }
+        if cfg!(windows) && (self.cpu.is_some() || self.mem.is_some() || self.file.is_some()) {
+            return Err("--limit cpu, mem and file are not enforced on Windows yet (time and output are); leave them out, or run on Linux or macOS".into());
+        }
+        if cfg!(target_os = "macos") && self.mem.is_some() {
+            return Err("--limit mem is not enforced on macOS (the kernel ignores an address-space limit); leave it out, or run on Linux".into());
+        }
+        Ok(())
+    }
+
+    // The limits as one flag value, for the brevi processes this one starts: cpu=2,mem=256,...
+    pub fn spec(&self) -> String {
+        let mut p = vec![];
+        if let Some(c) = self.cpu {
+            p.push(format!("cpu={c}"));
+        }
+        if let Some(m) = self.mem {
+            p.push(format!("mem={m}"));
+        }
+        if let Some(t) = self.time {
+            p.push(format!("time={}ms", t.as_millis().max(1)));
+        }
+        if let Some(o) = self.output {
+            p.push(format!("output={o}b"));
+        }
+        if let Some(f) = self.file {
+            p.push(format!("file={f}"));
+        }
+        p.join(",")
+    }
+
+    pub fn flags(&self) -> Vec<String> {
+        if self.is_empty() { vec![] } else { vec!["--limit".into(), self.spec()] }
+    }
+}
+
+// Pulls every `--limit SPEC` / `--limit=SPEC` before `--` out of argv. Err: the message for a bad one.
+pub fn take_limit_flags(argv: &mut Vec<String>) -> Result<Limits, String> {
+    let mut l = Limits::default();
+    loop {
+        let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+        let Some(i) = argv[..dash].iter().position(|a| a == "--limit" || a.starts_with("--limit=")) else { break };
+        let flag = argv.remove(i);
+        let value = match flag.strip_prefix("--limit=") {
+            Some(v) => v.to_string(),
+            None if i < dash - 1 => argv.remove(i),
+            None => return Err("--limit needs a value: --limit cpu=2,mem=256,time=5,output=64,file=10".into()),
+        };
+        l.parse(&value)?;
+    }
+    Ok(l)
+}
+
+// Sets the kernel limits (cpu, mem, file) in the child before it starts, together with BREVI_MEM_MB (the
+// smaller memory limit wins). If one cannot be set, the program does not start: it never runs unlimited.
+#[allow(unused_variables)]
+pub fn apply(c: &mut Command, l: &Limits) {
+    #[cfg(unix)]
+    {
         use std::os::unix::process::CommandExt;
-        let bytes = mb.saturating_mul(1 << 20);
-        // RLIMIT_AS is 9 on every Linux architecture Rust targets.
+        let env_mb = std::env::var("BREVI_MEM_MB").ok().and_then(|v| v.trim().parse::<u64>().ok()).filter(|m| *m > 0);
+        let mem = match (env_mb, l.mem) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        // Only Linux holds a program to an address-space limit; BREVI_MEM_MB is ignored elsewhere.
+        let mem = if cfg!(target_os = "linux") { mem.map(|m| m.saturating_mul(1 << 20)) } else { None };
+        let (cpu, file) = (l.cpu, l.file.map(|f| f.saturating_mul(1 << 20)));
+        if mem.is_none() && cpu.is_none() && file.is_none() {
+            return;
+        }
+        // RLIMIT_CPU is 0 and RLIMIT_FSIZE 1 on Linux and macOS; RLIMIT_AS is 9 on every Linux architecture
+        // Rust targets.
         unsafe {
             c.pre_exec(move || {
-                setrlimit(9, &[bytes, bytes]);
+                let set = |res: i32, soft: u64, hard: u64| {
+                    if setrlimit(res, &[soft, hard]) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                };
+                if let Some(b) = mem {
+                    set(9, b, b)?;
+                }
+                // SIGXCPU at the limit; SIGKILL a second later for a program that ignores it.
+                if let Some(s) = cpu {
+                    set(0, s, s + 1)?;
+                }
+                if let Some(b) = file {
+                    set(1, b, b)?;
+                }
                 Ok(())
             });
         }
     }
-    c
+}
+
+#[cfg(unix)]
+unsafe extern "C" {
+    #[cfg(not(target_os = "linux"))]
+    fn setrlimit(resource: i32, rlim: *const [u64; 2]) -> i32;
+}
+
+// Which limit stopped a program that ended with this status and stderr, if one did.
+pub fn limit_hit(l: &Limits, status: ExitStatus, err_tail: &str) -> Option<&'static str> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        match status.signal() {
+            Some(24) if l.cpu.is_some() => return Some("cpu"),
+            Some(25) if l.file.is_some() => return Some("file"),
+            Some(6) if l.mem.is_some() && err_tail.contains("memory allocation of") => return Some("mem"),
+            _ => {}
+        }
+    }
+    if l.mem.is_some() && status.code() == Some(1) && err_tail.lines().rev().find(|x| !x.trim().is_empty()).is_some_and(|x| x.starts_with("MemoryError")) {
+        return Some("mem");
+    }
+    let _ = (status, err_tail);
+    None
+}
+
+// The JSON line for a program stopped by a limit (printed on stderr).
+pub fn limit_line(l: &Limits, on: &str) -> String {
+    let (limit, msg) = match on {
+        "cpu" => (format!("{} s", l.cpu.unwrap_or(0)), format!("the program used up its {} s of CPU time", l.cpu.unwrap_or(0))),
+        "mem" => (format!("{} MB", l.mem.unwrap_or(0)), format!("the program ran out of its {} MB of memory", l.mem.unwrap_or(0))),
+        "time" => {
+            let t = l.time.unwrap_or_default().as_secs_f64();
+            (format!("{t} s"), format!("the program was stopped after {t} s of wall-clock time"))
+        }
+        "output" => (format!("{} bytes", l.output.unwrap_or(0)), format!("the program was stopped after writing {} bytes to stdout and stderr", l.output.unwrap_or(0))),
+        _ => (format!("{} MB", l.file.unwrap_or(0)), format!("the program tried to write a file over {} MB", l.file.unwrap_or(0))),
+    };
+    format!("{{\"e\":\"limit\",\"on\":\"{on}\",\"limit\":\"{limit}\",\"msg\":\"{msg}\",\"fix\":\"raise it with --limit {on}=... if the program needs more\"}}")
+}
+
+// Runs a program under the limits this process was given (--limit) and returns the exit code to pass on.
+// Without time and output limits the program inherits stdout and stderr as before; with an output limit both
+// are piped through this process, which counts the bytes and stops the program at the limit.
+pub fn run(mut c: Command) -> std::io::Result<i32> {
+    run_with(&mut c, &limits())
+}
+
+pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
+    if l.is_empty() {
+        return c.status().map(code);
+    }
+    apply(c, l);
+    // stderr's last bytes, to tell a memory limit from another abort.
+    let tail = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let over = Arc::new(AtomicBool::new(false));
+    let mut pumps = vec![];
+    if l.output.is_some() || l.mem.is_some() {
+        c.stderr(std::process::Stdio::piped());
+    }
+    if l.output.is_some() {
+        c.stdout(std::process::Stdio::piped());
+    }
+    let start = std::time::Instant::now();
+    let mut child = c.spawn()?;
+    let written = Arc::new(AtomicU64::new(0));
+    let cap = l.output.unwrap_or(u64::MAX);
+    let streams: Vec<(Box<dyn Read + Send>, bool)> = [child.stdout.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, true)), child.stderr.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, false))].into_iter().flatten().collect();
+    for (mut r, is_out) in streams {
+        let (written, over, tail) = (written.clone(), over.clone(), tail.clone());
+        pumps.push(std::thread::spawn(move || {
+            let mut buf = [0u8; 16384];
+            loop {
+                let n = match r.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                let before = written.fetch_add(n as u64, Ordering::SeqCst);
+                let room = cap.saturating_sub(before).min(n as u64) as usize;
+                let chunk = &buf[..room];
+                if is_out {
+                    let mut o = std::io::stdout().lock();
+                    let _ = o.write_all(chunk).and_then(|_| o.flush());
+                } else {
+                    let _ = std::io::stderr().write_all(chunk);
+                    let mut t = tail.lock().unwrap_or_else(|e| e.into_inner());
+                    t.extend_from_slice(chunk);
+                    let len = t.len();
+                    if len > 4096 {
+                        t.drain(..len - 4096);
+                    }
+                }
+                if room < n {
+                    over.store(true, Ordering::SeqCst);
+                    break;
+                }
+            }
+        }));
+    }
+    let mut nap = std::time::Duration::from_micros(100);
+    let mut stopped = None;
+    let status = loop {
+        if let Some(s) = child.try_wait()? {
+            break s;
+        }
+        if stopped.is_none() {
+            if over.load(Ordering::SeqCst) {
+                stopped = Some("output");
+            } else if l.time.is_some_and(|t| start.elapsed() >= t) {
+                stopped = Some("time");
+            }
+            if stopped.is_some() {
+                let _ = child.kill();
+                continue;
+            }
+        }
+        std::thread::sleep(nap);
+        nap = (nap * 2).min(std::time::Duration::from_millis(5));
+    };
+    // The pumps end at the program's end of output; one held open by something it started is not waited for.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        pumps.into_iter().for_each(|p| {
+            let _ = p.join();
+        });
+        let _ = tx.send(());
+    });
+    let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
+    // A program that wrote past the limit just as it ended is still over it.
+    if stopped.is_none() && over.load(Ordering::SeqCst) {
+        stopped = Some("output");
+    }
+    let tail = String::from_utf8_lossy(&tail.lock().unwrap_or_else(|e| e.into_inner())).to_string();
+    if let Some(on) = stopped.or_else(|| limit_hit(l, status, &tail)) {
+        let _ = std::io::stdout().flush();
+        eprintln!("{}", limit_line(l, on));
+        return Ok(LIMIT_EXIT);
+    }
+    Ok(code(status))
 }
 
 // The exit code to pass on for a program's status. A program killed by a signal has no code: say what
@@ -129,5 +427,45 @@ pub fn alive(pid: u32) -> bool {
     {
         let _ = pid;
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn parses_limits() {
+        let mut l = Limits::default();
+        l.parse("cpu=1.2,time=500ms,output=2kb,file=3").unwrap();
+        assert_eq!(l.cpu, Some(2));
+        assert_eq!(l.time, Some(Duration::from_millis(500)));
+        assert_eq!(l.output, Some(2048));
+        assert_eq!(l.file, Some(3));
+        let mut back = Limits::default();
+        back.parse(&l.spec()).unwrap();
+        assert_eq!(back, l);
+        let mut o = Limits::default();
+        o.parse("output=64").unwrap();
+        assert_eq!(o.output, Some(64 << 10));
+        for bad in ["cpu", "cpu=0", "cpu=-1", "time=x", "disk=1", "mem=nan", "time=inf"] {
+            assert!(Limits::default().parse(bad).is_err(), "{bad} should be refused");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let mut m = Limits::default();
+            m.parse("mem=1gb").unwrap();
+            assert_eq!(m.mem, Some(1024));
+        }
+    }
+
+    #[test]
+    fn takes_limit_flags_before_dashes() {
+        let mut argv: Vec<String> = ["run", "x.py", "--limit", "cpu=1", "--limit=time=2", "--", "--limit", "cpu=9"].iter().map(|s| s.to_string()).collect();
+        let l = take_limit_flags(&mut argv).unwrap();
+        assert_eq!(l.cpu, Some(1));
+        assert_eq!(l.time, Some(Duration::from_secs(2)));
+        assert_eq!(argv, ["run", "x.py", "--", "--limit", "cpu=9"]);
     }
 }

@@ -1,0 +1,2 @@
+exit 124
+{"e":"limit","on":"cpu","limit":"1 s","msg":"the program used up its 1 s of CPU time","fix":"raise it with --limit cpu=... if the program needs more"}
