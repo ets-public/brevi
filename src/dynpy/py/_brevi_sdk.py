@@ -58,6 +58,8 @@ class BaseModel:
     _F = ()
     _FN = {}
     _RN = None
+    # fields left out of dumps (pydantic's Field(exclude=True))
+    _EX = ()
 
     def __init__(self, **data):
         _fill(self, data)
@@ -181,8 +183,10 @@ def _items(m):
 def _fill(m, values):
     cls = type(m)
     fs = []
+    used = set()
     for name, alias, d, dflt in cls._F:
         key = alias if alias is not None else name
+        used.add(key)
         if key in values:
             v = values[key]
             if v is None:
@@ -194,9 +198,8 @@ def _fill(m, values):
             v = _default(dflt)
         setattr(m, name, v)
     ex = {}
-    fn = cls._FN
     for k in values:
-        if k not in fn:
+        if k not in used and k not in cls._FN:
             ex[k] = values[k]
     m._bv_fs = fs
     m._bv_extra = ex
@@ -432,7 +435,10 @@ def parse_date(v):
 def _dump(m, js, by_alias, unset, defaults, none, include, exclude):
     out = {}
     fs = m._bv_fs
+    ex = type(m)._EX
     for name, alias, d, dflt in type(m)._F:
+        if name in ex:
+            continue
         if unset and name not in fs:
             continue
         if include is not None and name not in include:
@@ -464,6 +470,9 @@ def _dv(v, js, by_alias, unset, defaults, none):
         return t if js else tuple(t)
     if isinstance(v, dict):
         return {k: _dv(x, js, by_alias, unset, defaults, none) for k, x in v.items()}
+    if not isinstance(v, (str, int, float, bytes, _dt.datetime, _dt.date)) and v is not None and hasattr(v, "model_dump") and hasattr(v, "model_fields"):
+        # a pydantic model of the program (a parsed structured output)
+        return v.model_dump(mode="json" if js else "python", by_alias=by_alias, exclude_unset=unset, exclude_defaults=defaults, exclude_none=none)
     if js:
         if isinstance(v, _dt.datetime):
             return _iso_pyd(v)

@@ -576,6 +576,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     // typing names used only where Brevi's typing forms behave as CPython's
     {
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
+        typing::OWN_PYDANTIC.store(own_mods.contains("pydantic"), Ordering::Relaxed);
         if let Err((m, l, why)) = typing::check(&user) {
             // collections.abc as a value (isinstance(x, Mapping)): CPython's, through the bridge
             if emit::ABC_NATIVE.load(Ordering::Relaxed) && typing::uses_abc(&user) && bridge_ok() && crate::pybridge::py_allowed("collections") {

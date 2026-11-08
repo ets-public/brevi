@@ -4,7 +4,8 @@
 # and models.retrieve, with_options / copy, the SDK's errors, retries and request headers. Response objects are
 # the SDK's own models (src/dynpy/py/_brevi_anthropic_types.py, written from the SDK by tools/gen_llm_types.py).
 # It runs over Brevi's httpx. caps.rs lists what it has (OWN_ANTHROPIC) and what sends a program to CPython's
-# anthropic instead (ANTHROPIC_LACKS: beta, batches, files, parse, tool runners, raw responses, ...).
+# anthropic instead (ANTHROPIC_LACKS: beta, batches, files, tool runners, raw responses, ...). messages.parse and
+# output_format (structured outputs) build on Brevi's pydantic TypeAdapter.
 # Its behaviour follows anthropic-sdk-python (Copyright Anthropic, PBC; Apache-2.0 and MIT licensed), whose error messages
 # it repeats.
 import json
@@ -42,6 +43,7 @@ from _brevi_anthropic_types import (
     ServerToolUseBlock,
 )
 import _brevi_anthropic_types as _ty
+import pydantic as _pyd
 
 __title__ = "anthropic"
 __version__ = "2.6.0"
@@ -532,6 +534,148 @@ def _count_body(messages, model, cache_control, output_config, speed, system, th
             "system": system, "thinking": thinking, "tool_choice": tool_choice, "tools": tools}
 
 
+# ---------- structured outputs (messages.parse, output_format) ----------
+
+_SUPPORTED_STRING_FORMATS = {"date-time", "time", "date", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid"}
+
+
+def transform_schema(json_schema):
+    # the SDK's lib/_parse/_transform.py: a JSON schema as the API takes it
+    if isinstance(json_schema, type) and issubclass(json_schema, _pyd.BaseModel):
+        json_schema = json_schema.model_json_schema()
+    strict_schema = {}
+    json_schema = dict(json_schema)
+    defs = json_schema.pop("$defs", None)
+    if defs is not None:
+        strict_defs = {}
+        strict_schema["$defs"] = strict_defs
+        for name, schema in defs.items():
+            strict_defs[name] = transform_schema(schema)
+    ref = json_schema.pop("$ref", None)
+    if ref is not None:
+        strict_schema["$ref"] = ref
+        return strict_schema
+    type_ = json_schema.pop("type", None)
+    any_of = json_schema.pop("anyOf", None)
+    one_of = json_schema.pop("oneOf", None)
+    all_of = json_schema.pop("allOf", None)
+    if isinstance(any_of, list):
+        strict_schema["anyOf"] = [transform_schema(v) for v in any_of]
+    elif isinstance(one_of, list):
+        strict_schema["anyOf"] = [transform_schema(v) for v in one_of]
+    elif isinstance(all_of, list):
+        strict_schema["allOf"] = [transform_schema(v) for v in all_of]
+    else:
+        if type_ is None:
+            raise ValueError("Schema must have a 'type', 'anyOf', 'oneOf', or 'allOf' field.")
+        strict_schema["type"] = type_
+    enum = json_schema.pop("enum", None)
+    if isinstance(enum, list):
+        strict_schema["enum"] = enum
+    description = json_schema.pop("description", None)
+    if description is not None:
+        strict_schema["description"] = description
+    title = json_schema.pop("title", None)
+    if title is not None:
+        strict_schema["title"] = title
+    if type_ == "object":
+        strict_schema["properties"] = {key: transform_schema(ps) for key, ps in json_schema.pop("properties", {}).items()}
+        json_schema.pop("additionalProperties", None)
+        strict_schema["additionalProperties"] = False
+        required = json_schema.pop("required", None)
+        if required is not None:
+            strict_schema["required"] = required
+    elif type_ == "string":
+        fmt = json_schema.pop("format", None)
+        if fmt and fmt in _SUPPORTED_STRING_FORMATS:
+            strict_schema["format"] = fmt
+        elif fmt:
+            json_schema["format"] = fmt
+    elif type_ == "array":
+        items = json_schema.pop("items", None)
+        if items is not None:
+            strict_schema["items"] = transform_schema(items)
+        min_items = json_schema.pop("minItems", None)
+        if min_items is not None and min_items == 0 or min_items == 1:
+            strict_schema["minItems"] = min_items
+        elif min_items is not None:
+            json_schema["minItems"] = min_items
+    if json_schema:
+        description = strict_schema.get("description")
+        strict_schema["description"] = ((description + "\n\n" if description is not None else "") + "{"
+                                        + ", ".join("%s: %s" % (key, value) for key, value in json_schema.items()) + "}")
+    return strict_schema
+
+
+def _json_format(output_format):
+    # output_format=T as the request's output_config.format, or not_given
+    if not is_given(output_format) or output_format is None:
+        return not_given
+    if isinstance(output_format, dict):
+        raise TypeError("`output_format` must be a type; pass a schema dict as `output_config={'format': ...}` instead")
+    try:
+        schema = _pyd.TypeAdapter(output_format).json_schema()
+    except _pyd.PydanticSchemaGenerationError:
+        raise TypeError("Could not generate JSON schema for the given `output_format` type. Use a type that works with `pydantic.TypeAdapter`")
+    return {"schema": transform_schema(schema), "type": "json_schema"}
+
+
+def _merge_config(output_config, fmt):
+    if is_given(fmt):
+        if is_given(output_config):
+            d = dict(output_config)
+            d["format"] = fmt
+            return d
+        return {"format": fmt}
+    return output_config
+
+
+def _parse_text(text, output_format):
+    if is_given(output_format) and output_format is not None:
+        return _pyd.TypeAdapter(output_format).validate_json(text)
+    return None
+
+
+def _parsed_output(self):
+    for content in self.content:
+        if content.type == "text" and content.parsed_output:
+            return content.parsed_output
+    return None
+
+
+_ty.ParsedTextBlock._EX = ("parsed_output",)
+ParsedMessage.parsed_output = property(_parsed_output)
+# what parse() returns: pydantic's names for the SDK's generic models
+_GTextBlock = type("ParsedTextBlock[TypeVar]", (_ty.ParsedTextBlock,), {"__module__": "anthropic.types.parsed_message"})
+_GMessage = type("ParsedMessage[TypeVar]", (ParsedMessage,), {"__module__": "anthropic.types.parsed_message"})
+
+
+def _parse_response(response, output_format):
+    content = []
+    for block in response.content:
+        if block.type == "text":
+            d = block.to_dict()
+            d["parsed_output"] = _parse_text(block.text, output_format)
+            content.append(_GTextBlock.construct(**d))
+        else:
+            content.append(block)
+    d = response.to_dict()
+    d["content"] = []
+    m = _GMessage.construct(**d)
+    m.content = content
+    rid = getattr(response, "_request_id", None)
+    if rid is not None:
+        m._request_id = rid
+    return m
+
+
+def _parse_headers(user_profile_id, workspace_id, extra_headers):
+    h = {"x-stainless-helper": "messages.parse"}
+    for k, v in _headers(user_profile_id, workspace_id, extra_headers).items():
+        h[k] = v
+    return h
+
+
 class Messages:
     def __init__(self, client):
         self._client = client
@@ -550,12 +694,25 @@ class Messages:
                                extra_body=extra_body, timeout=timeout)
         return c.post("/v1/messages", body=body, options=opts, cast_to=Message, stream=bool(stream), stream_cls=(Stream, _EVENT))
 
+    def parse(self, *, max_tokens, messages, model, diagnostics=omit, metadata=omit, output_config=omit, output_format=omit, service_tier=omit,
+              speed=omit, stop_sequences=omit, system=omit, thinking=omit, tool_choice=omit, tools=omit, extra_headers=None, extra_query=None,
+              extra_body=None, timeout=not_given):
+        c = self._client
+        if not is_given(timeout) and c.timeout == DEFAULT_TIMEOUT:
+            timeout = c._calculate_nonstreaming_timeout(max_tokens, MODEL_NONSTREAMING_TOKENS.get(model, None))
+        output_config = _merge_config(output_config, _json_format(output_format))
+        body = {"max_tokens": max_tokens, "messages": messages, "model": model, "diagnostics": diagnostics, "metadata": metadata,
+                "output_config": output_config, "service_tier": service_tier, "speed": speed, "stop_sequences": stop_sequences, "system": system,
+                "thinking": thinking, "tool_choice": tool_choice, "tools": tools}
+        opts = request_options(extra_headers=_parse_headers(omit, omit, extra_headers), extra_query=extra_query, extra_body=extra_body,
+                               timeout=timeout)
+        return _parse_response(c.post("/v1/messages", body=body, options=opts, cast_to=Message), output_format)
+
     def stream(self, *, max_tokens, messages, model, cache_control=omit, diagnostics=omit, inference_geo=omit, metadata=omit, output_config=omit,
                output_format=omit, container=omit, service_tier=omit, speed=omit, stop_sequences=omit, system=omit, thinking=omit,
                tool_choice=omit, tools=omit, user_profile_id=omit, workspace_id=omit, extra_headers=None, extra_query=None, extra_body=None,
                timeout=not_given):
-        if is_given(output_format) and output_format is not None:
-            raise TypeError("Brevi's anthropic has no output_format")
+        output_config = _merge_config(output_config, _json_format(output_format))
         body = _stream_body(max_tokens, messages, model, cache_control, diagnostics, inference_geo, metadata, output_config, container,
                             service_tier, speed, stop_sequences, system, tools, thinking, tool_choice)
         opts = request_options(extra_headers=_headers(user_profile_id, workspace_id, extra_headers), extra_query=extra_query,
@@ -565,13 +722,12 @@ class Messages:
         def make_request():
             return c.post("/v1/messages", body=body, options=opts, cast_to=Message, stream=True, stream_cls=(Stream, _EVENT))
 
-        return MessageStreamManager(make_request)
+        return MessageStreamManager(make_request, output_format)
 
     def count_tokens(self, *, messages, model, cache_control=omit, output_config=omit, output_format=omit, speed=omit, system=omit, thinking=omit,
                      tool_choice=omit, tools=omit, user_profile_id=omit, workspace_id=omit, extra_headers=None, extra_query=None, extra_body=None,
                      timeout=not_given):
-        if is_given(output_format) and output_format is not None:
-            raise TypeError("Brevi's anthropic has no output_format")
+        output_config = _merge_config(output_config, _json_format(output_format))
         body = _count_body(messages, model, cache_control, output_config, speed, system, thinking, tool_choice, tools)
         opts = request_options(extra_headers=_headers(user_profile_id, workspace_id, extra_headers), extra_query=extra_query,
                                extra_body=extra_body, timeout=timeout)
@@ -596,24 +752,36 @@ class AsyncMessages:
                                extra_body=extra_body, timeout=timeout)
         return await c.post("/v1/messages", body=body, options=opts, cast_to=Message, stream=bool(stream), stream_cls=(AsyncStream, _EVENT))
 
+    async def parse(self, *, max_tokens, messages, model, diagnostics=omit, metadata=omit, output_config=omit, output_format=omit, service_tier=omit,
+              speed=omit, stop_sequences=omit, system=omit, thinking=omit, tool_choice=omit, tools=omit, extra_headers=None, extra_query=None,
+              extra_body=None, timeout=not_given):
+        c = self._client
+        if not is_given(timeout) and c.timeout == DEFAULT_TIMEOUT:
+            timeout = c._calculate_nonstreaming_timeout(max_tokens, MODEL_NONSTREAMING_TOKENS.get(model, None))
+        output_config = _merge_config(output_config, _json_format(output_format))
+        body = {"max_tokens": max_tokens, "messages": messages, "model": model, "diagnostics": diagnostics, "metadata": metadata,
+                "output_config": output_config, "service_tier": service_tier, "speed": speed, "stop_sequences": stop_sequences, "system": system,
+                "thinking": thinking, "tool_choice": tool_choice, "tools": tools}
+        opts = request_options(extra_headers=_parse_headers(omit, omit, extra_headers), extra_query=extra_query, extra_body=extra_body,
+                               timeout=timeout)
+        return _parse_response(await c.post("/v1/messages", body=body, options=opts, cast_to=Message), output_format)
+
     def stream(self, *, max_tokens, messages, model, cache_control=omit, diagnostics=omit, inference_geo=omit, metadata=omit, output_config=omit,
                output_format=omit, container=omit, service_tier=omit, speed=omit, stop_sequences=omit, system=omit, thinking=omit,
                tool_choice=omit, tools=omit, user_profile_id=omit, workspace_id=omit, extra_headers=None, extra_query=None, extra_body=None,
                timeout=not_given):
-        if is_given(output_format) and output_format is not None:
-            raise TypeError("Brevi's anthropic has no output_format")
+        output_config = _merge_config(output_config, _json_format(output_format))
         body = _stream_body(max_tokens, messages, model, cache_control, diagnostics, inference_geo, metadata, output_config, container,
                             service_tier, speed, stop_sequences, system, tools, thinking, tool_choice)
         opts = request_options(extra_headers=_headers(user_profile_id, workspace_id, extra_headers), extra_query=extra_query,
                                extra_body=extra_body, timeout=timeout)
         return AsyncMessageStreamManager(self._client.post("/v1/messages", body=body, options=opts, cast_to=Message, stream=True,
-                                                           stream_cls=(AsyncStream, _EVENT)))
+                                                           stream_cls=(AsyncStream, _EVENT)), output_format)
 
     async def count_tokens(self, *, messages, model, cache_control=omit, output_config=omit, output_format=omit, speed=omit, system=omit,
                            thinking=omit, tool_choice=omit, tools=omit, user_profile_id=omit, workspace_id=omit, extra_headers=None,
                            extra_query=None, extra_body=None, timeout=not_given):
-        if is_given(output_format) and output_format is not None:
-            raise TypeError("Brevi's anthropic has no output_format")
+        output_config = _merge_config(output_config, _json_format(output_format))
         body = _count_body(messages, model, cache_control, output_config, speed, system, thinking, tool_choice, tools)
         opts = request_options(extra_headers=_headers(user_profile_id, workspace_id, extra_headers), extra_query=extra_query,
                                extra_body=extra_body, timeout=timeout)
@@ -905,8 +1073,9 @@ def _final_text(message):
 
 
 class MessageStream:
-    def __init__(self, raw_stream):
+    def __init__(self, raw_stream, output_format=not_given):
         self._raw_stream = raw_stream
+        self._output_format = output_format
         self._snapshot = None
         self._json_bufs = {}
         self._iterator = self._stream()
@@ -961,6 +1130,10 @@ class MessageStream:
                 yield ev
                 continue
             self._snapshot = accumulate_event(ev, self._snapshot, self._json_bufs)
+            if ev.type == "content_block_stop" and is_given(self._output_format):
+                block = self._snapshot.content[ev.index]
+                if block.type == "text":
+                    block.parsed_output = _parse_text(block.text, self._output_format)
             for e in build_events(ev, self._snapshot):
                 yield e
 
@@ -971,12 +1144,13 @@ class MessageStream:
 
 
 class MessageStreamManager:
-    def __init__(self, api_request):
+    def __init__(self, api_request, output_format=not_given):
         self._stream = None
         self._api_request = api_request
+        self._output_format = output_format
 
     def __enter__(self):
-        self._stream = MessageStream(self._api_request())
+        self._stream = MessageStream(self._api_request(), self._output_format)
         return self._stream
 
     def __exit__(self, exc_type, exc, tb):
@@ -985,8 +1159,9 @@ class MessageStreamManager:
 
 
 class AsyncMessageStream:
-    def __init__(self, raw_stream):
+    def __init__(self, raw_stream, output_format=not_given):
         self._raw_stream = raw_stream
+        self._output_format = output_format
         self._snapshot = None
         self._json_bufs = {}
         self._iterator = self._stream()
@@ -1041,6 +1216,10 @@ class AsyncMessageStream:
                 yield ev
                 continue
             self._snapshot = accumulate_event(ev, self._snapshot, self._json_bufs)
+            if ev.type == "content_block_stop" and is_given(self._output_format):
+                block = self._snapshot.content[ev.index]
+                if block.type == "text":
+                    block.parsed_output = _parse_text(block.text, self._output_format)
             for e in build_events(ev, self._snapshot):
                 yield e
 
@@ -1051,12 +1230,13 @@ class AsyncMessageStream:
 
 
 class AsyncMessageStreamManager:
-    def __init__(self, api_request):
+    def __init__(self, api_request, output_format=not_given):
         self._stream = None
         self._api_request = api_request
+        self._output_format = output_format
 
     async def __aenter__(self):
-        self._stream = AsyncMessageStream(await self._api_request)
+        self._stream = AsyncMessageStream(await self._api_request, self._output_format)
         return self._stream
 
     async def __aexit__(self, exc_type, exc, tb):

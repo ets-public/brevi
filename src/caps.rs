@@ -351,10 +351,17 @@ const OWN_PYDANTIC: &[&str] = &[
     "ValidationInfo", "PydanticUserError", "PydanticSchemaGenerationError", "Strict", "AfterValidator", "BeforeValidator",
     "PlainValidator", "WrapValidator", "PositiveInt", "NegativeInt", "NonNegativeInt", "NonPositiveInt", "PositiveFloat",
     "NegativeFloat", "NonNegativeFloat", "NonPositiveFloat", "FiniteFloat", "StrictInt", "StrictFloat", "StrictStr", "StrictBool",
-    "StrictBytes", "VERSION", "__version__", "ValidatorFunctionWrapHandler", "ModelWrapValidatorHandler",
+    "StrictBytes", "VERSION", "__version__", "ValidatorFunctionWrapHandler", "ModelWrapValidatorHandler", "TypeAdapter",
 ];
+// A lack in a line. A keyword lack (`config=`) is a whole name, so `output_config=` is not `config=`.
+fn lack_hit(l: &str, x: &str) -> bool {
+    if !x.ends_with('=') || !x.starts_with(|c: char| c.is_alphabetic() || c == '_') {
+        return l.contains(x);
+    }
+    l.match_indices(x).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_'))
+}
 const PYDANTIC_LACKS: &[&str] = &[
-    ".model_json_schema(", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
+    "schema_generator", "GenerateJsonSchema", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
     ".parse_file(", ".from_orm(", ".dict(", ".json(", ".update_forward_refs(", ".__fields__", ".__pydantic_", ".model_fields_set.",
     "discriminator=", "alias_generator", "union_mode=", "json_schema_mode", "serialize_as_any", "round_trip=", "fallback=",
     "__get_pydantic_core_schema__", "__get_pydantic_json_schema__", "ser_json_", "val_json_", "regex_engine", "coerce_numbers_to_str",
@@ -376,8 +383,8 @@ const OWN_ANTHROPIC: &[&str] = &[
     "RequestBodyTooLargeAfterDecodingError",
 ];
 const ANTHROPIC_LACKS: &[&str] = &[
-    ".beta", ".batches", ".files", ".skills", ".organization", ".user_profiles", ".parse(", "tool_runner", "with_raw_response",
-    "with_streaming_response", "output_format=", "http_client=", "credentials=", "config=", "profile=", "middleware=", "open_telemetry=",
+    ".beta", ".batches", ".files", ".skills", ".organization", ".user_profiles", "tool_runner", "with_raw_response",
+    "with_streaming_response", "http_client=", "credentials=", "config=", "profile=", "middleware=", "open_telemetry=",
     "_strict_response_validation", ".get_api_list(", "._client", ".raw_events(",
 ];
 // What src/dynpy/py/openai.py has, and what sends a program to CPython's openai instead.
@@ -387,14 +394,14 @@ const OWN_OPENAI: &[&str] = &[
     "OpenAIError", "APIError", "APIStatusError", "APITimeoutError", "APIConnectionError", "APIResponseValidationError", "BadRequestError",
     "AuthenticationError", "PermissionDeniedError", "NotFoundError", "ConflictError", "UnprocessableEntityError", "RateLimitError",
     "InternalServerError", "LengthFinishReasonError", "ContentFilterFinishReasonError", "InvalidWebhookSignatureError",
+    "pydantic_function_tool", "pydantic_responses_function_tool",
 ];
 const OPENAI_LACKS: &[&str] = &[
-    ".beta", ".audio", ".images", ".files", ".uploads", ".batches", ".fine_tuning", ".vector_stores", ".moderations", ".completions.parse(",
-    ".responses.parse(", ".responses.stream(", ".chat.completions.stream(", ".chat.completions.list(", ".chat.completions.update(",
-    ".chat.completions.delete(", ".chat.completions.messages", ".responses.delete(", ".responses.cancel(", ".responses.input_items",
+    ".beta", ".audio", ".images", ".files", ".uploads", ".batches", ".fine_tuning", ".vector_stores", ".moderations",
+    ".chat.completions.list(", ".chat.completions.update(", ".chat.completions.delete(", ".chat.completions.messages", ".responses.delete(", ".responses.cancel(", ".responses.input_items",
     ".responses.compact(", ".input_tokens", ".models.delete(", ".realtime", ".webhooks", ".containers", ".conversations", ".evals", ".skills",
     ".videos", ".admin", ".graders", "with_raw_response", "with_streaming_response", "http_client=", "workload_identity=",
-    "provider=", "data_residency=", "azure", "Azure", "_strict_response_validation", ".get_api_list(", "._client", "pydantic_function_tool",
+    "provider=", "data_residency=", "azure", "Azure", "_strict_response_validation", ".get_api_list(", "._client", "starting_after=",
     "openai.lib", "openai.resources", "openai.pagination", "openai.helpers", "openai.Completion", "client.completions",
 ];
 // What Brevi's mcp lacks (src/dynpy/py/_brevi_mcp.py): server-to-client requests (sampling, elicitation, roots),
@@ -855,9 +862,25 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
-                if let Some(x) = lacks.iter().find(|x| l.contains(*x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
+                if let Some(x) = lacks.iter().find(|x| lack_hit(l, x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
                 }
+            }
+        }
+    }
+    // a serialization-mode JSON schema (the mode is a string, which code_lines leaves out)
+    if uses("pydantic") {
+        for (n, l) in src.lines().enumerate() {
+            if l.contains("mode=\"serialization\"") || l.contains("mode='serialization'") {
+                bad.push((n + 1, "pydantic mode=\"serialization\"".to_string()));
+            }
+        }
+    }
+    // openai's responses.stream(response_id=...): streaming a response that already exists is CPython's
+    if uses("openai") {
+        for (n, l) in &lines {
+            if l.contains(".stream(") && l.contains("response_id=") {
+                bad.push((*n, "openai responses.stream(response_id=)".to_string()));
             }
         }
     }
@@ -1330,6 +1353,12 @@ pub fn check_src(src: &str, allowed: &[String]) -> Vec<Diag> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn keyword_lacks_are_whole_names() {
+        assert!(super::lack_hit("Anthropic(config=c)", "config="));
+        assert!(!super::lack_hit("m.create(output_config={})", "config="));
+        assert!(super::lack_hit("x.parse_obj(d)", ".parse_obj("));
+    }
     // --allow-read / --allow-write DIR: a path is held to the granted folders by its real path, so .., symlinks
     // and names that do not exist yet cannot lead outside.
     #[cfg(unix)]
@@ -1461,7 +1490,7 @@ mod tests {
     fn llm_copies_reach_only_httpx() {
         let ok = [
             "_brevi_sdk", "_brevi_http", "_brevi_anthropic_types", "_brevi_openai_types", "httpx", "asyncio", "base64", "datetime", "json", "random",
-            "time", "sys", "anthropic.types", "openai.types",
+            "time", "sys", "anthropic.types", "openai.types", "pydantic",
         ];
         for (name, src) in [
             ("_brevi_sdk.py", include_str!("dynpy/py/_brevi_sdk.py")),
@@ -1802,7 +1831,8 @@ x", Some(vec!["read".into(), "native".into()]), true);
         assert!(uses("import argparse\np = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)\n").is_empty());
         // what Brevi's copies lack is found after `from M import ...` too
         assert!(uses("from pydantic import BaseModel, Field\nclass M(BaseModel):\n    x: int = Field(ge=0)\n").is_empty());
-        assert_eq!(uses("from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema()\n"), ["pydantic model_json_schema"]);
+        assert!(uses("from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema()\n").is_empty());
+        assert_eq!(uses("from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema(mode=\"serialization\")\n"), ["pydantic mode=\"serialization\""]);
         assert_eq!(uses("from tokenizers import Tokenizer\nt = Tokenizer.from_file('t.json')\nt.save('u.json')\n"), ["tokenizers .save"]);
         assert_eq!(uses("import argparse\np = argparse.ArgumentParser(fromfile_prefix_chars='@')\np.add_argument('f', type=argparse.FileType('r'))\n"), ["argparse fromfile_prefix_chars", "argparse.FileType"]);
     }

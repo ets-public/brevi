@@ -6,9 +6,9 @@
 # pydantic reads a model's annotations as Python's typing objects. Brevi builds no typing objects: the compiler
 # gives each class of a program that imports pydantic an `__annotations__` of descriptors instead (tuples such as
 # ('list', ('int',), 'list', False), see src/dynpy/pyd.rs), and checks when the program is built that every
-# annotation of every model is one this copy has. What it lacks (generic models, TypeAdapter, datetime, UUID,
-# JSON schema, serializers, discriminated unions, ...) is refused when the program is built (src/caps.rs), and
-# CPython's pydantic runs such a program.
+# annotation of every model is one this copy has (TypeAdapter's type too). What it lacks (generic models, datetime,
+# UUID, serialization-mode JSON schema, serializers, discriminated unions, ...) is refused when the program is built
+# (src/caps.rs), and CPython's pydantic runs such a program.
 
 import json as _json
 import math as _math
@@ -2802,6 +2802,10 @@ class BaseModel:
         return _top(cls, run, True)
 
     @classmethod
+    def model_json_schema(cls, by_alias=True, ref_template="#/$defs/{model}", mode="validation", *, union_format="any_of"):
+        return _js_top(("cls", cls), _JsDefs(ref_template, by_alias))
+
+    @classmethod
     def model_validate_strings(cls, obj, *, strict=None, context=None):
         return cls.model_validate(obj, strict=strict, context=context)
 
@@ -3034,6 +3038,435 @@ def _deep(v):
         return v.model_copy(deep=True)
     return v
 
+
+
+# ---------------------------------------------------------------- JSON schema (model_json_schema, TypeAdapter.json_schema)
+# pydantic's GenerateJsonSchema for the descriptors this copy has: models and enums go to $defs (referenced by
+# ref_template), keys sorted as pydantic sorts them (not inside properties or a default), field titles from the
+# names, defaults in their JSON form. Brevi's mcp builds its tool schemas with these too.
+
+
+class _NoJsonSchema(PydanticSchemaGenerationError):
+    pass
+
+
+def _js_title(name):
+    # pydantic's default field title
+    return name.title().replace("_", " ")
+
+
+def _js_sort(v, parent=None):
+    if isinstance(v, dict):
+        keys = list(v.keys())
+        if parent not in ("properties", "default"):
+            keys = sorted(keys)
+        out = {}
+        for k in keys:
+            out[k] = _js_sort(v[k], k)
+        return out
+    if isinstance(v, list):
+        return [_js_sort(x, parent) for x in v]
+    return v
+
+
+class _JsDefs:
+    def __init__(self, ref_template="#/$defs/{model}", by_alias=True):
+        self.defs = {}
+        self.building = set()
+        self.ref_template = ref_template
+        self.by_alias = by_alias
+        # the names a $ref was made to (a model that refers to itself goes to $defs too)
+        self.refd = set()
+
+    def ref(self, name):
+        self.refd.add(name)
+        return {"$ref": self.ref_template.replace("{model}", name)}
+
+
+def _js_jsonable(v):
+    if v is None or v is True or v is False:
+        return v
+    t = type(v)
+    if t is int or t is str:
+        return v
+    if t is float:
+        if v != v or v in (float("inf"), float("-inf")):
+            return None
+        return v
+    if isinstance(v, BaseModel):
+        return v.model_dump(mode="json")
+    if isinstance(v, (list, tuple, set, frozenset)):
+        return [_js_jsonable(e) for e in v]
+    if isinstance(v, dict):
+        out = {}
+        for k, e in v.items():
+            if isinstance(k, str):
+                k2 = k
+            elif k is None:
+                k2 = "None"
+            elif k is True:
+                k2 = "true"
+            elif k is False:
+                k2 = "false"
+            elif isinstance(k, (int, float)):
+                k2 = _jdump(k)
+            else:
+                k2 = str(k)
+            out[k2] = _js_jsonable(e)
+        return out
+    if isinstance(v, bytes):
+        return v.decode("utf-8")
+    if isinstance(v, int):
+        return int(v)
+    if isinstance(v, float):
+        return float(v)
+    if isinstance(v, str):
+        return str(v)
+    if _js_is_enum_value(v):
+        return _js_jsonable(v.value)
+    if hasattr(v, "__dataclass_fields__"):
+        out = {}
+        for k in v.__dataclass_fields__:
+            out[k] = _js_jsonable(getattr(v, k))
+        return out
+    return str(v)
+
+
+def _js_is_enum_value(v):
+    for b in type(v).__mro__:
+        if b.__name__ == "Enum" and b.__module__ == "enum":
+            return True
+    return False
+
+
+def _js_cons(metas):
+    # the constraints and field info in Annotated metadata / Field(...)
+    cons = {}
+    info = {}
+    for m in metas:
+        if isinstance(m, FieldInfo):
+            for k in ("title", "description", "examples", "default", "default_factory", "alias", "deprecated", "json_schema_extra"):
+                v = getattr(m, k, None)
+                if k == "default":
+                    if v is not PydanticUndefined:
+                        info.setdefault("default", v)
+                    continue
+                if v is not None and k not in info:
+                    info[k] = v
+            for mm in m.metadata:
+                _js_meta(mm, cons)
+        else:
+            _js_meta(m, cons)
+    return cons, info
+
+
+def _js_meta(m, cons):
+    if isinstance(m, _Meta):
+        cons[m.key] = m.value
+    elif isinstance(m, _General):
+        for k, v in m.items:
+            cons[k] = v
+
+
+_JS_NUM = {"gt": "exclusiveMinimum", "ge": "minimum", "lt": "exclusiveMaximum", "le": "maximum", "multiple_of": "multipleOf"}
+
+
+def _js_apply(s, cons, kind):
+    for k, v in cons.items():
+        if k in _JS_NUM and kind in ("int", "float"):
+            s[_JS_NUM[k]] = v
+        elif k == "min_length":
+            s["minLength" if kind in ("str", "bytes") else ("minProperties" if kind == "dict" else "minItems")] = v
+        elif k == "max_length":
+            s["maxLength" if kind in ("str", "bytes") else ("maxProperties" if kind == "dict" else "maxItems")] = v
+        elif k == "pattern" and kind == "str":
+            s["pattern"] = v
+    return s
+
+
+def _js_types(vals):
+    ts = set()
+    for v in vals:
+        if v is None:
+            ts.add("null")
+        elif isinstance(v, bool):
+            ts.add("boolean")
+        elif isinstance(v, int):
+            ts.add("integer")
+        elif isinstance(v, float):
+            ts.add("number")
+        elif isinstance(v, str):
+            ts.add("string")
+        else:
+            ts.add("?")
+    return ts
+
+
+def _js_schema(d, cx, metas=()):
+    t = d[0]
+    if t == "ann":
+        return _js_schema(d[1], cx, tuple(d[2]) + tuple(metas))
+    cons, info = _js_cons(metas)
+    if t == "cls":
+        v = d[1]
+        if isinstance(v, tuple):
+            return _js_schema(v, cx, metas)
+        return _js_cls(v, cx, cons)
+    if t == "lazy":
+        return _js_cls(d[1](), cx, cons)
+    if t in ("int", "float", "str", "bool", "bytes", "none"):
+        s = {"int": {"type": "integer"}, "float": {"type": "number"}, "str": {"type": "string"}, "bool": {"type": "boolean"},
+             "bytes": {"format": "binary", "type": "string"}, "none": {"type": "null"}}[t]
+        return _js_apply(dict(s), cons, t)
+    if t == "any":
+        return {}
+    if t in ("list", "set", "frozenset", "tuplevar"):
+        s = {"items": _js_schema(d[1], cx), "type": "array"}
+        if t in ("set", "frozenset"):
+            s["uniqueItems"] = True
+        return _js_apply(s, cons, "list")
+    if t == "tuple":
+        n = len(d[1])
+        s = {"maxItems": n, "minItems": n, "type": "array"}
+        if n:
+            s["prefixItems"] = [_js_schema(x, cx) for x in d[1]]
+        return s
+    if t == "dict":
+        if d[4]:
+            s = {"additionalProperties": True, "type": "object"}
+        else:
+            s = {"additionalProperties": _js_schema(d[2], cx), "type": "object"}
+        return _js_apply(s, cons, "dict")
+    if t == "union":
+        arms = []
+        for x in d[1]:
+            sx = _js_schema(x, cx)
+            if sx not in arms:
+                arms.append(sx)
+        if len(arms) == 1:
+            return arms[0]
+        return {"anyOf": arms}
+    if t == "literal":
+        vals = [(v.value if _js_is_enum_value(v) else v) for v in d[1]]
+        ts = _js_types(vals)
+        s = {}
+        if len(vals) == 1:
+            s["const"] = vals[0]
+        else:
+            s["enum"] = vals
+        if len(ts) == 1 and "?" not in ts:
+            s["type"] = list(ts)[0]
+        return s
+    raise _NoJsonSchema("no JSON schema for %r" % (d,))
+
+
+def _js_cls(c, cx, cons):
+    if c is int:
+        return _js_apply({"type": "integer"}, cons, "int")
+    if c is float:
+        return _js_apply({"type": "number"}, cons, "float")
+    if c is str:
+        return _js_apply({"type": "string"}, cons, "str")
+    if c is bool:
+        return {"type": "boolean"}
+    if c is bytes:
+        return _js_apply({"format": "binary", "type": "string"}, cons, "bytes")
+    if c is type(None):
+        return {"type": "null"}
+    if c is object:
+        return {}
+    if isinstance(c, type) and issubclass(c, BaseModel):
+        name = c.__name__
+        if name not in cx.defs and name not in cx.building:
+            cx.building.add(name)
+            cx.defs[name] = _js_model(c, cx)
+            cx.building.discard(name)
+        return cx.ref(name)
+    if isinstance(c, type) and _is_enum(c):
+        name = c.__name__
+        if name not in cx.defs:
+            vals = [m.value for m in c]
+            s = {"enum": vals, "title": name}
+            ts = _js_types(vals)
+            if len(ts) == 1 and "?" not in ts:
+                s["type"] = list(ts)[0]
+            doc = c.__dict__.get("__doc__")
+            if doc and doc != "An enumeration.":
+                s["description"] = _js_doc(doc)
+            cx.defs[name] = s
+        return cx.ref(name)
+    raise _NoJsonSchema("no JSON schema for %r" % (c,))
+
+
+def _js_doc(doc):
+    # inspect.cleandoc, as pydantic reads a model's docstring
+    lines = doc.expandtabs().split("\n")
+    margin = None
+    for l in lines[1:]:
+        content = len(l.lstrip())
+        if content:
+            ind = len(l) - content
+            margin = ind if margin is None else min(margin, ind)
+    out = [lines[0].lstrip()]
+    for l in lines[1:]:
+        out.append(l[margin:] if margin is not None else l)
+    while out and not out[-1]:
+        out.pop()
+    while out and not out[0]:
+        out.pop(0)
+    return "\n".join(out)
+
+
+def _js_model(cls, cx):
+    _schema(cls)
+    info = _INFO[cls]
+    props = {}
+    req = []
+    for name, f in info.fields.items():
+        key = f.alias if (f.alias is not None and cx.by_alias) else name
+        props[key] = _js_prop(name, f._desc, f, cx)
+        if f.default is PydanticUndefined and f.default_factory is None:
+            req.append(key)
+    s = {"properties": props}
+    if req:
+        s["required"] = req
+    s["title"] = info.cfg.get("title") or cls.__name__
+    s["type"] = "object"
+    doc = cls.__dict__.get("__doc__")
+    if doc:
+        s["description"] = _js_doc(doc)
+    if info.cfg.get("extra") == "forbid":
+        s["additionalProperties"] = False
+    return s
+
+
+def _js_refish(d):
+    # whether a field of descriptor d gets no title: pydantic sets none on a model or enum (they have a ref),
+    # also when Optional
+    while d[0] == "ann" or (d[0] == "cls" and isinstance(d[1], tuple)):
+        d = d[1]
+    if d[0] == "union":
+        arms = [x for x in d[1] if x[0] != "none"]
+        if len(arms) == 1 and len(arms) < len(d[1]):
+            return _js_refish(arms[0])
+        return False
+    if d[0] == "lazy":
+        return True
+    if d[0] == "cls":
+        c = d[1]
+        return isinstance(c, type) and (issubclass(c, BaseModel) or _is_enum(c))
+    return False
+
+
+def _js_prop(name, d, f, cx):
+    # one field: its type's schema with the field's title, default, description, ...
+    metas = list(f.metadata) if f is not None else []
+    s = dict(_js_schema(d, cx, metas))
+    title = getattr(f, "title", None) if f is not None else None
+    if title is not None:
+        s["title"] = title
+    elif "$ref" not in s and not _js_refish(d):
+        s["title"] = _js_title(name)
+    if f is not None:
+        if f.description is not None:
+            s["description"] = f.description
+        if f.default is not PydanticUndefined:
+            s["default"] = _js_jsonable(f.default)
+        if getattr(f, "examples", None) is not None:
+            s["examples"] = _js_jsonable(f.examples)
+        if getattr(f, "deprecated", None):
+            s["deprecated"] = True
+        extra = getattr(f, "json_schema_extra", None)
+        if isinstance(extra, dict):
+            s.update(extra)
+    return s
+
+
+def _js_top(d, cx):
+    # the schema of a type at the top: a model's own schema (in $defs with a $ref when it refers to itself)
+    c = d[1] if d[0] == "cls" and not isinstance(d[1], tuple) else None
+    if isinstance(c, type) and issubclass(c, BaseModel):
+        name = c.__name__
+        cx.building.add(name)
+        s = _js_model(c, cx)
+        cx.building.discard(name)
+        if name in cx.refd:
+            cx.defs[name] = s
+            s = cx.ref(name)
+    else:
+        s = dict(_js_schema(d, cx))
+    if cx.defs:
+        s["$defs"] = cx.defs
+    return _js_sort(s)
+
+
+# ---------------------------------------------------------------- TypeAdapter
+
+
+class TypeAdapter:
+    # validation, dumping and the JSON schema of a type that is not a model. The compiler hands the type over as
+    # a descriptor (src/dynpy/pyd.rs), as it does for model fields; a class (a model, int) comes as itself.
+    def __init__(self, type, *, config=None, _parent_depth=2, module=None):
+        d = type
+        if not isinstance(d, tuple):
+            d = ("cls", d)
+        self._desc = d
+        self._cfg = dict(config) if config else {}
+        self._val = None
+
+    def _v(self):
+        if self._val is None:
+            self._val = _build(self._desc, _Ctx(self._cfg))
+        return self._val
+
+    def _run(self, f, json_mode=False):
+        v = self._v()
+        try:
+            return f(v)
+        except _Err as er:
+            if json_mode:
+                for ln in er.lines:
+                    if ln.t in _JSON_MSG and not ln.custom:
+                        ln.msg = _JSON_MSG[ln.t]
+            raise ValidationError(_ta_title(v), er.lines, self._cfg.get("hide_input_in_errors", False)) from None
+
+    def _st(self, strict, context, mode="python"):
+        return _St(strict=self._cfg.get("strict", False) if strict is None else strict, mode=mode, context=context)
+
+    def validate_python(self, object, /, *, strict=None, extra=None, from_attributes=None, context=None, experimental_allow_partial=False,
+                        by_alias=None, by_name=None):
+        st = self._st(strict, context)
+        return self._run(lambda v: v.v(object, st))
+
+    def validate_json(self, data, /, *, strict=None, extra=None, context=None, experimental_allow_partial=False, by_alias=None, by_name=None):
+        st = self._st(strict, context, "json")
+        return self._run(lambda v: v.v(_from_json(data), st), True)
+
+    def validate_strings(self, obj, /, *, strict=None, extra=None, context=None, experimental_allow_partial=False, by_alias=None, by_name=None):
+        st = self._st(strict, context, "json")
+        return self._run(lambda v: v.v(obj, st), True)
+
+    def dump_python(self, instance, /, *, mode="python", include=None, exclude=None, by_alias=None, exclude_unset=False,
+                    exclude_defaults=False, exclude_none=False, exclude_computed_fields=False, round_trip=False, warnings=True,
+                    fallback=None, serialize_as_any=False, context=None):
+        ctx = _DumpCtx(mode, bool(by_alias), exclude_unset, exclude_defaults, exclude_none, round_trip)
+        return _nested(self._v(), instance, ctx, include, exclude)
+
+    def dump_json(self, instance, /, *, indent=None, ensure_ascii=False, include=None, exclude=None, by_alias=None, exclude_unset=False,
+                  exclude_defaults=False, exclude_none=False, exclude_computed_fields=False, round_trip=False, warnings=True,
+                  fallback=None, serialize_as_any=False, context=None):
+        ctx = _DumpCtx("json", bool(by_alias), exclude_unset, exclude_defaults, exclude_none, round_trip)
+        return _jdump(_nested(self._v(), instance, ctx, include, exclude), indent).encode()
+
+    def json_schema(self, *, by_alias=True, ref_template="#/$defs/{model}", union_format="any_of", mode="validation"):
+        return _js_top(self._desc, _JsDefs(ref_template, by_alias))
+
+
+def _ta_title(v):
+    # pydantic-core titles a TypeAdapter's errors with its validator's name; a model's are the model's title
+    if isinstance(v, _Model):
+        return _title(v.cls)
+    return v.name()
 
 # the constrained types of pydantic.types, as annotation descriptors
 def _c(t, name, key, v):

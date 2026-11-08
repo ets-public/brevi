@@ -1,0 +1,56 @@
+{'type': 'function', 'function': {'name': 'GetWeather', 'strict': True, 'parameters': {'description': 'Get the weather in a city.', 'properties': {'city': {'title': 'City', 'type': 'string'}, 'days': {'default': 1, 'title': 'Days', 'type': 'integer'}}, 'required': ['city', 'days'], 'title': 'GetWeather', 'type': 'object', 'additionalProperties': False}, 'description': 'Get the weather in a city.'}}
+{'type': 'function', 'function': {'name': 'weather', 'strict': True, 'parameters': {'description': 'Get the weather in a city.', 'properties': {'city': {'title': 'City', 'type': 'string'}, 'days': {'default': 1, 'title': 'Days', 'type': 'integer'}}, 'required': ['city', 'days'], 'title': 'GetWeather', 'type': 'object', 'additionalProperties': False}, 'description': 'Weather now'}}
+ParsedChatCompletion[TypeVar] ParsedChoice[TypeVar] ParsedChatCompletionMessage[TypeVar]
+{"steps": [{"explanation": "solve 8x + 31 = 2", "output": "solve 8x + 31 = 2"}], "final_answer": "solve 8x + 31 = 2", "confidence": 2.5, "color": "red", "note": "solve 8x + 31 = 2"}
+Math steps=[Step(explanation='solve 8x + 31 = 2', output='solve 8x + 31 = 2')] final_answer='solve 8x + 31 = 2' confidence=2.5 color=<Color.red: 'red'> note='solve 8x + 31 = 2'
+solve 8x + 31 = 2 True None
+ParsedChatCompletion[TypeVar](id='chatcmpl-58ce291812b434e0b8c5', choices=[ParsedChoice[TypeVar](finish_reason='stop', index=0, logprobs=None, message=ParsedChatCompletionMessage[TypeVar](content='{"steps": [{"explanation": "solve 8x + 31 = 2", "output": "solve 8x + 31 = 2"}], "final_answer": "solve 8x + 31 = 2", "confidence": 2.5, "color": "red", "note": "solve 8x + 31 = 2"}', refusal=None, role='assistant', annotations=[], audio=None, function_call=None, tool_calls=None, parsed=Math(steps=[Step(explanation='solve 8x + 31 = 2', output='solve 8x + 31 = 2')], final_answer='solve 8x + 31 = 2', confidence=2.5, color=<Color.red: 'red'>, note='solve 8x + 31 = 2')))], created=1767248334, model='gpt-mock', object='chat.completion', metadata=None, moderation=None, service_tier='default', system_fingerprint='fp_mock', usage=CompletionUsage(completion_tokens=40, prompt_tokens=19, total_tokens=59, completion_tokens_details=CompletionTokensDetails(accepted_prediction_tokens=0, audio_tokens=0, reasoning_tokens=0, rejected_prediction_tokens=0, text_tokens=None), prompt_tokens_details=PromptTokensDetails(audio_tokens=0, cache_write_tokens=None, cached_tokens=0, image_tokens=None, text_tokens=None)))
+{'content': '{"steps": [{"explanation": "solve 8x + 31 = 2", "output": "solve 8x + 31 = 2"}], "final_answer": "solve 8x + 31 = 2", "confidence": 2.5, "color": "red", "note": "solve 8x + 31 = 2"}', 'refusal': None, 'role': 'assistant', 'annotations': [], 'tool_calls': None, 'parsed': {'steps': [{'explanation': 'solve 8x + 31 = 2', 'output': 'solve 8x + 31 = 2'}], 'final_answer': 'solve 8x + 31 = 2', 'confidence': 2.5, 'color': <Color.red: 'red'>, 'note': 'solve 8x + 31 = 2'}}
+Echo: plain None
+ParsedFunctionToolCall ParsedFunction GetWeather {"city": "weather in Oslo", "days": 42}
+GetWeather city='weather in Oslo' days=42
+done ContentDoneEvent steps=[Step(explanation='stream it', output='stream it')] final_answer='stream it' confidence=2.5 color=<Color.red: 'red'> note='stream it'
+['chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.delta', 'chunk', 'content.done']
+ParsedChatCompletion[TypeVar] steps=[Step(explanation='stream it', output='stream it')] final_answer='stream it' confidence=2.5 color=<Color.red: 'red'> note='stream it'
+'' '' None
+'Echo: plain ' 'Echo: plain ' None
+'words here' 'Echo: plain words here' None
+content.done 'Echo: plain words here' None
+Echo: plain words here
+GetWeather 0 '' '' None
+GetWeather 0 '{"city":' '{"city":' {}
+GetWeather 0 ' "weathe' '{"city": "weathe' {}
+GetWeather 0 'r in Rom' '{"city": "weather in Rom' {}
+GetWeather 0 'e", "day' '{"city": "weather in Rome", "day' {'city': 'weather in Rome'}
+GetWeather 0 's": 42}' '{"city": "weather in Rome", "days": 42}' {'city': 'weather in Rome', 'days': 42}
+args.done GetWeather 0 {"city": "weather in Rome", "days": 42} city='weather in Rome' days=42
+city='weather in Rome' days=42
+ParsedResponse ParsedResponseOutputMessage ParsedResponseOutputText
+{"steps": [{"explanation": "solve 2x = 4", "output": "solve 2x = 4"}], "final_answer": "solve 2x = 4", "confidence": 2.5, "color": "red", "note": "solve 2x = 4"}
+Math steps=[Step(explanation='solve 2x = 4', output='solve 2x = 4')] final_answer='solve 2x = 4' confidence=2.5 color=<Color.red: 'red'> note='solve 2x = 4'
+True
+ResponseTextConfig(format=ResponseFormatTextJSONSchemaConfig(name='Math', schema_={'$defs': {'Color': {'enum': ['red', 'blue'], 'title': 'Color', 'type': 'string'}, 'Step': {'properties': {'explanation': {'title': 'Explanation', 'type': 'string'}, 'output': {'title': 'Output', 'type': 'string'}}, 'required': ['explanation', 'output'], 'title': 'Step', 'type': 'object', 'additionalProperties': False}}, 'description': 'A worked answer.', 'properties': {'steps': {'items': {'$ref': '#/$defs/Step'}, 'title': 'Steps', 'type': 'array'}, 'final_answer': {'description': 'The answer', 'title': 'Final Answer', 'type': 'string'}, 'confidence': {'title': 'Confidence', 'type': 'number'}, 'color': {'$ref': '#/$defs/Color'}, 'note': {'anyOf': [{'type': 'string'}, {'type': 'null'}], 'title': 'Note'}}, 'required': ['steps', 'final_answer', 'confidence', 'color', 'note'], 'title': 'Math', 'type': 'object', 'additionalProperties': False}, type='json_schema', description=None, strict=True), verbosity='medium')
+ParsedResponseFunctionToolCall get_weather {"city": "weather in Lima"} {'city': 'weather in Lima'}
+Echo: hi there None
+'{"steps": [{"explanation": ' '{"steps": [{"explanation": '
+'"stream a ' '{"steps": [{"explanation": "stream a '
+'response", "output": ' '{"steps": [{"explanation": "stream a response", "output": '
+'"stream a ' '{"steps": [{"explanation": "stream a response", "output": "stream a '
+'response"}], "final_answer": ' '{"steps": [{"explanation": "stream a response", "output": "stream a response"}], "final_answer": '
+'"stream a ' '{"steps": [{"explanation": "stream a response", "output": "stream a response"}], "final_answer": "stream a '
+'response", "confidence": ' '{"steps": [{"explanation": "stream a response", "output": "stream a response"}], "final_answer": "stream a response", "confidence": '
+'2.5, "color": ' '{"steps": [{"explanation": "stream a response", "output": "stream a response"}], "final_answer": "stream a response", "confidence": 2.5, "color": '
+'"red", "note": ' '{"steps": [{"explanation": "stream a response", "output": "stream a response"}], "final_answer": "stream a response", "confidence": 2.5, "color": "red", "note": '
+'"stream a ' '{"steps": [{"explanation": "stream a response", "output": "stream a response"}], "final_answer": "stream a response", "confidence": 2.5, "color": "red", "note": "stream a '
+'response"}' '{"steps": [{"explanation": "stream a response", "output": "stream a response"}], "final_answer": "stream a response", "confidence": 2.5, "color": "red", "note": "stream a response"}'
+['response.created', 'response.in_progress', 'response.output_item.added', 'response.content_part.added', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.delta', 'response.output_text.done', 'response.content_part.done', 'response.output_item.done', 'response.completed']
+ParsedResponse steps=[Step(explanation='stream a response', output='stream a response')] final_answer='stream a response' confidence=2.5 color=<Color.red: 'red'> note='stream a response'
+'Echo: say ' 'Echo: say '
+'words' 'Echo: say words'
+Echo: say words
+None
+explanation='async solve' output='async solve'
+async done explanation='async stream' output='async stream'
+explanation='async stream' output='async stream'
+explanation='async response' output='async response'
+explanation='async response stream' output='async response stream'

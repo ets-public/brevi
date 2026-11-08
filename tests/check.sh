@@ -202,7 +202,7 @@ done
 if [ "$1" != "--update" ]; then
   out=$($BREVI run --sandbox tests/pydantic/sandbox/schema.py 2>&1)
   case "$out" in
-    *"pydantic model_json_schema needs allow native"*) echo "ok   sandbox pydantic (what the copy lacks is refused)" ;;
+    *"pydantic parse_obj needs allow native"*) echo "ok   sandbox pydantic (what the copy lacks is refused)" ;;
     *) echo "FAIL sandbox pydantic (what the copy lacks is refused)"; printf '%s\n' "$out"; fail=1 ;;
   esac
 fi
