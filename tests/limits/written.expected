@@ -1,0 +1,2 @@
+exit 124
+{"e":"limit","on":"written","limit":"1048576 bytes","msg":"the program wrote more than 1048576 bytes (files, pipes and sockets; stdout and stderr not counted)","fix":"raise it with --limit written=... if the program needs more"}

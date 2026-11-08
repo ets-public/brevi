@@ -5,7 +5,7 @@ use crate::diag::Diag;
 use std::collections::{HashMap, HashSet};
 
 // The allocator comes first so that the inner attribute can lead the file.
-pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("prelude.rs"));
+pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"));
 
 const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__exc_obj", "__exc_get", "__default", "__zero", "__truediv", "__readline", "__try_read", "__eprint"];
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
@@ -1091,6 +1091,7 @@ impl Emitter {
         }
         let fs: Vec<String> = self.files.iter().map(|(f, a, n)| format!("({f:?}, {a}, {n})")).collect();
         out.push_str(&format!("static AX_FILES: &[(&str, usize, usize)] = &[{}];\n", fs.join(", ")));
+        out.push_str(&format!("static AX_FS: AxFs = {};\n", crate::caps::fs_static()));
         out.push_str(&self.foreign.rust_top);
         out.push('\n');
         let mut py_names: Vec<String> = vec![];
@@ -1230,7 +1231,7 @@ impl Emitter {
                     self.nested = nested_lists(body);
                     let b = self.body(body, &Ty::Unit, true);
                     let py = if self.py_mode { "ax_py_mode();\n    " } else { "" };
-                    let b = b.replacen("{\n", &format!("{{\n    {py}AX_FILES_REG.set(AX_FILES).ok();\n"), 1);
+                    let b = b.replacen("{\n", &format!("{{\n    {py}AX_FILES_REG.set(AX_FILES).ok(); AX_FS_REG.set(AX_FS).ok();\n"), 1);
                     tests.push_str(&format!("/*@L{line}*/#[test] fn t{test_n}_{}() -> R<()> {b}\n", slug(name)));
                 }
             }
@@ -1242,7 +1243,7 @@ impl Emitter {
             Some(sig) if sig.fallible => {
                 let py = self.py_start();
                 out.push_str(&format!(
-                    "fn main() {{\n    ax_init(AX_FILES);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), ax_exc_msg(&e.0));\n        std::process::exit(1);\n    }}\n}}\n"
+                    "fn main() {{\n    ax_init(AX_FILES, AX_FS);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), ax_exc_msg(&e.0));\n        std::process::exit(1);\n    }}\n}}\n"
                 ))
             }
             Some(_) => {}
@@ -1358,7 +1359,7 @@ impl Emitter {
             .map(|(i, p)| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else if set_at.contains(&i) { format!("mut {}: AxSet<{}", p.name, &rust_ty(&p.ty)[4..]) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
         let rname = if name == "main" && fallible { "ax_main" } else { name };
-        let init = if name == "main" && !fallible { format!("ax_init(AX_FILES);\n{}", self.py_start()) } else { String::new() };
+        let init = if name == "main" && !fallible { format!("ax_init(AX_FILES, AX_FS);\n{}", self.py_start()) } else { String::new() };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }
@@ -2457,7 +2458,7 @@ impl Emitter {
             "__readline" => return "ax_readline()".to_string(),
             "__one" => return format!("ax_one({})", plain.join(", ")),
             "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
-            "__try_read" => return format!("std::fs::read_to_string({}.to_string()).unwrap_or_default()", plain.join(", ")),
+            "__try_read" => return format!("ax_try_read({}.to_string())", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),
             "__global" => return "()".to_string(),

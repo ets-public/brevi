@@ -14,8 +14,8 @@ Under `--sandbox` a program gets stdin, stdout, stderr, its arguments, the clock
 
 | Capability | Grant | Without it |
 | --- | --- | --- |
-| read files | `--allow read` | refused at build time |
-| write files | `--allow write` | refused at build time |
+| read files | `--allow read` (all), `--allow-read DIR,...` (inside those folders) | refused at build time; outside the folders, refused when opened |
+| write files | `--allow write` (all), `--allow-write DIR,...` (inside those folders) | refused at build time; outside the folders, refused when opened |
 | network | `--allow-net HOST,...` (named hosts) or `--allow net` (all) | refused at build time; with named hosts, a connection to any other host fails when it is made |
 | CPython for some modules | `--allow-py MOD,...` | the CPython bridge is off |
 | native code (`rust fn`, crates, any CPython library) | `--allow native` | refused at build time |
@@ -29,11 +29,14 @@ Under the sandbox:
 
 ## What the limits promise
 
-`--limit cpu=S,mem=MB,time=S,output=KB,file=MB` (MCP: `limits`) bounds how much the program may use. Each limit holds with or without the sandbox:
+`--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N` (MCP: `limits`) bounds how much the program may use. Each limit but `files` and `net` holds with or without the sandbox:
 
 - `cpu`, `mem` and `file` are kernel limits (`RLIMIT_CPU`, `RLIMIT_AS`, `RLIMIT_FSIZE`) set in the program's process before its first instruction. The program cannot raise them, and CPython loaded through `--allow-py` is held by them too.
+- `fds` is a kernel limit too (`RLIMIT_NOFILE`): an open past it fails inside the program.
 - `time` and `output` are held by the `brevi` process that started the program, which stops it (SIGKILL) once either is reached.
-- A limit the platform cannot enforce is refused, never silently dropped: `mem` on macOS; `cpu`, `mem` and `file` on Windows.
+- `threads` and `written` (Linux) are the kernel's own counts for the program's process (`/proc/PID/status` threads, `/proc/PID/io` bytes written less what went to stdout and stderr), read by `brevi` every few milliseconds; the program can overshoot them by what it does between two reads. Processes the program starts (only possible with `--allow native` or `--allow-py`) are not counted.
+- `files` and `net` are counted by Brevi's own file and network code inside the program, so they need `--sandbox` without `--allow-py` or `--allow native` (refused otherwise): a program with neither has no other way to create a file or open a socket.
+- A limit the platform cannot enforce is refused, never silently dropped: `mem` on macOS; `written` and `threads` outside Linux; `cpu`, `mem`, `file` and `fds` on Windows.
 - A program stopped by a limit exits 124 and its last stderr line names the limit.
 
 ## How it is enforced, and where that is weaker than a VM
@@ -42,7 +45,7 @@ The sandbox is **a compile-time capability check plus a runtime with nothing in 
 
 - **The guarantee rests on Brevi being right.** A bug that lets source reach a system call Brevi did not mean to expose (a missed name in the capability check, a runtime function that touches the file system) is an escape. So is any memory-safety bug in generated code or the runtime that a program can steer into running its own machine code. Both are treated as security bugs ([SECURITY.md](../SECURITY.md)).
 - **`--allow-py` and `--allow native` are full trust.** Once CPython is loaded, Python code can reach `os` through object introspection whatever module was named, and `rust fn` or a crate is arbitrary native code. Grant them only to code you would run unsandboxed. `--allow-py` limits which modules a program may import; it does not contain what those modules do.
-- **`read` and `write` are whole-account grants.** They are not scoped to a folder: a program with `--allow write` can write anywhere the user can.
+- **`--allow read` and `--allow write` are whole-account grants**: a program with `--allow write` can write anywhere the user can. `--allow-read DIR` and `--allow-write DIR` hold it to folders instead. Brevi resolves each path the program opens (`..` and symlinks) and opens the resolved path only if it lies inside a granted folder. The check and the open are two steps, so another process that swaps a folder for a symlink between them could redirect the open; the program itself has no way to make a symlink. Under `--allow-py` or `--allow native` the folders hold only Brevi's own code, not CPython's or native code's.
 - **The network grant matches host names, not addresses.** `--allow-net api.example.com` lets the program reach whatever that name resolves to. Under `--allow net` the program can reach anything the machine can, including services on `localhost` and cloud metadata endpoints.
 
 For hostile code, the sandbox and limits are a first layer. Running `brevi` itself inside a container or VM with no credentials is still the advice for code you have reason to distrust.
@@ -51,7 +54,7 @@ For hostile code, the sandbox and limits are a first layer. Running `brevi` itse
 
 - **Output is untrusted.** Whatever the program prints reaches the caller, and an agent reading it can be steered by it (prompt injection). The `output` limit bounds its size, not its content.
 - **Side channels.** Timing, CPU load and memory use are visible to the program and to anything else on the machine.
-- **Resources without a limit:** thread count (CPU time and memory still bound them), number of files written and total disk use (`file` bounds each file, not their sum), open file descriptors, network bandwidth and the number of connections to granted hosts.
+- **Resources without a limit:** the number of connections to granted hosts (`net` bounds their bytes, `fds` how many are open at once), disk space a program uses by writing over the same bytes (`written` counts bytes written, not space used), and writes through memory maps (which only CPython or native code can make).
 - **Output the program had buffered when it was stopped** is lost; output it wrote before is kept.
 - **The build.** Limits hold the program, not `brevi build` or `rustc`. A build is bounded by the MCP call's `timeout` (or by the caller). Brevi compiles source to Rust and runs `rustc` on it; the program cannot add Rust of its own without `native`.
 - **The machine's own state:** a malicious `rustc`, Python or shared library on `PATH`, or a build cache written by another user, is outside this model.

@@ -1,0 +1,5 @@
+(1, 2)
+refused brevi: --sandbox: 'tests/sandbox/scoped/secret.txt' is outside the folders granted to read (--allow-read)
+refused brevi: --sandbox: 'tests/sandbox/scoped/in/link.txt' is outside the folders granted to read (--allow-read)
+wrote out/o.csv
+refused brevi: --sandbox: 'tests/sandbox/scoped/in/o.csv' is outside the folders granted to write (--allow-write)

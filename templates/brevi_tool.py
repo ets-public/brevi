@@ -41,6 +41,8 @@ class Grants:
     allow: list = field(default_factory=list)        # any of "read", "write", "net", "native"
     allow_net: list = field(default_factory=list)    # hosts the program may connect to, e.g. ["api.github.com"]
     allow_py: list = field(default_factory=list)     # Python modules CPython may run (needs "native")
+    allow_read: list = field(default_factory=list)   # folders the program may read inside, e.g. ["data"]
+    allow_write: list = field(default_factory=list)  # folders the program may write inside, e.g. ["out"]
     limits: dict = field(default_factory=lambda: {"cpu": 10, "mem": 512, "time": 20, "output": 256, "file": 16})
 
     def flags(self):
@@ -51,6 +53,10 @@ class Grants:
             f += ["--allow-net", ",".join(self.allow_net)]
         if self.allow_py:
             f += ["--allow-py", ",".join(self.allow_py)]
+        if self.allow_read:
+            f += ["--allow-read", ",".join(self.allow_read)]
+        if self.allow_write:
+            f += ["--allow-write", ",".join(self.allow_write)]
         if self.limits:
             f += ["--limit", ",".join(f"{k}={v}" for k, v in self.limits.items())]
         return f

@@ -317,12 +317,29 @@ mod brevi_duckglue {
         if FS_SANDBOX && !memory && !FS_READ {
             return Err(format!("Permission Error: brevi: --sandbox: '{path}' needs allow read"));
         }
+        // --allow-read / --allow-write DIR: the database file is inside them (opened read-only when only the
+        // read grant holds it), and SQL reaches files only in folders granted both.
+        // --limit files=N: DuckDB's SQL could create files uncounted, so it reaches none; a new database counts
+        let counted = std::env::var_os("BREVI_LIMIT_FILES").is_some();
+        if counted && !memory {
+            brevi_new_file(path);
+        }
+        let scoped = FS_READ_IN.is_some() || FS_WRITE_IN.is_some() || counted;
+        let ro_scope = FS_SANDBOX && !memory && FS_WRITE && brevi_fs_path(path, true).is_err();
+        if FS_SANDBOX && !memory {
+            brevi_fs_path(path, false).map_err(|m| format!("Permission Error: {m}"))?;
+        }
+        let sql_dirs: Vec<String> = match (FS_READ_IN, FS_WRITE_IN) {
+            (None, None) => vec![],
+            _ if counted => vec![],
+            (r, w) => r.into_iter().flatten().chain(w.into_iter().flatten()).filter(|d| brevi_fs_path(d, false).is_ok() && brevi_fs_path(d, true).is_ok()).map(|d| d.to_string()).collect(),
+        };
         unsafe {
             let mut c: P = std::ptr::null_mut();
             (l.create_config)(&mut c);
             let mut all: Vec<(String, String)> = cfg.to_vec();
             if FS_SANDBOX {
-                if !memory && !FS_WRITE {
+                if !memory && (!FS_WRITE || ro_scope) {
                     all.push(("access_mode".into(), "READ_ONLY".into()));
                 }
                 for (k, v) in [("autoinstall_known_extensions", "false"), ("autoload_known_extensions", "false"), ("allow_community_extensions", "false"), ("allow_unsigned_extensions", "false")] {
@@ -331,7 +348,10 @@ mod brevi_duckglue {
                 if !(FS_READ && FS_WRITE) {
                     all.push(("enable_external_access".into(), "false".into()));
                 }
-                all.push(("lock_configuration".into(), "true".into()));
+                // held to folders: allowed_directories can only be set once the database runs (below)
+                if !scoped {
+                    all.push(("lock_configuration".into(), "true".into()));
+                }
             }
             for (k, v) in &all {
                 let (kc, vc) = (CString::new(k.as_str()).unwrap_or_default(), CString::new(v.as_str()).unwrap_or_default());
@@ -351,6 +371,35 @@ mod brevi_duckglue {
             let mut con: P = std::ptr::null_mut();
             if (l.connect)(db, &mut con) != 0 {
                 return Err("Connection Error: could not connect".into());
+            }
+            if FS_SANDBOX && scoped {
+                let q = |d: &String, end: &str| format!("'{}{end}'", d.replace('\'', "''"));
+                let dirs: Vec<String> = sql_dirs.iter().filter(|d| std::path::Path::new(d.as_str()).is_dir()).map(|d| q(d, "/")).collect();
+                let files: Vec<String> = sql_dirs.iter().filter(|d| !std::path::Path::new(d.as_str()).is_dir()).map(|d| q(d, "")).collect();
+                let mut sets = vec![];
+                if !dirs.is_empty() {
+                    sets.push(format!("SET allowed_directories = [{}]", dirs.join(", ")));
+                }
+                if !files.is_empty() {
+                    sets.push(format!("SET allowed_paths = [{}]", files.join(", ")));
+                }
+                sets.push("SET enable_external_access = false".into());
+                sets.push("SET lock_configuration = true".into());
+                for q in sets {
+                    let c = CString::new(q).unwrap_or_default();
+                    let mut r = Res { a: 0, b: 0, c: 0, d: std::ptr::null_mut(), e: std::ptr::null_mut(), internal: std::ptr::null_mut() };
+                    let bad = (l.query)(con, c.as_ptr(), &mut r) != 0;
+                    let e = if bad { cs((l.result_error)(&mut r)) } else { String::new() };
+                    (l.destroy_result)(&mut r);
+                    if bad {
+                        // never run unheld
+                        let mut cc = con;
+                        (l.disconnect)(&mut cc);
+                        let mut dd = db;
+                        (l.close)(&mut dd);
+                        return Err(format!("brevi: --sandbox: could not hold DuckDB to the granted folders ({e})"));
+                    }
+                }
             }
             Ok((db as usize as i64, con as usize as i64))
         }
