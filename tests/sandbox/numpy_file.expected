@@ -1,0 +1,8 @@
+{"line":4,"msg":"numpy.save needs allow native","fix":"do without it, or the caller grants it: --allow-py numpy (MCP tools: \"allow_py\": [\"numpy\"])"}
+exit 1
+-- dynamic
+{"line":4,"msg":"numpy.save needs allow native","fix":"do without it, or the caller grants it: --allow-py numpy (MCP tools: \"allow_py\": [\"numpy\"])"}
+exit 1
+-- typed
+{"line":4,"msg":"numpy.save needs allow native","fix":"do without it, or the caller grants it: --allow-py numpy (MCP tools: \"allow_py\": [\"numpy\"])"}
+exit 1

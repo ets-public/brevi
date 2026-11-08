@@ -323,7 +323,7 @@ for f in tests/safetensors/*.py; do
   fi
 done
 if [ "$1" != "--update" ]; then
-  out=$($BREVI run --sandbox --allow-py numpy tests/safetensors/sandbox/files.py 2>&1)
+  out=$($BREVI run --sandbox tests/safetensors/sandbox/files.py 2>&1)
   case "$out" in
     *"save_file(file) needs allow write"*"load_file(file) needs allow read"*"safe_open(file) needs allow read"*) echo "ok   sandbox safetensors (files need allow read, write)" ;;
     *) echo "FAIL sandbox safetensors (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
@@ -349,13 +349,13 @@ if python3 -c "import onnxruntime" 2>/dev/null; then
     fi
   done
   if [ "$1" != "--update" ]; then
-    out=$($BREVI run --sandbox --allow-py numpy tests/onnxruntime/sandbox/files.py 2>&1)
+    out=$($BREVI run --sandbox tests/onnxruntime/sandbox/files.py 2>&1)
     case "$out" in
       *"line\":5,\"msg\":\"onnxruntime InferenceSession(model file) needs allow read"*"line\":7,\"msg\":\"onnxruntime files it writes"*"line\":8,"*) echo "ok   sandbox onnxruntime (files need allow read, write)" ;;
       *) echo "FAIL sandbox onnxruntime (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
     esac
     # a model given as bytes needs no grant, unless its weights are in external data files
-    out=$($BREVI run --sandbox --allow-py numpy tests/onnxruntime/sandbox/bytes.py 2>/dev/null)
+    out=$($BREVI run --sandbox tests/onnxruntime/sandbox/bytes.py 2>/dev/null)
     if [ "$out" = "$(cat tests/onnxruntime/sandbox/bytes.expected)" ]; then
       echo "ok   sandbox onnxruntime (external data needs allow read)"
     else
