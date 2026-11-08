@@ -1,0 +1,27 @@
+{
+ "date": "2026-11-08",
+ "brevi": "brevi 0.25.0",
+ "python": "3.13.18",
+ "machine": "Linux x86_64, 4 cores",
+ "showcases": [
+  {
+   "name": "sqlite_mcp",
+   "title": "SQLite MCP server",
+   "metric": "first tool call answered",
+   "runs": 10,
+   "same_output": true,
+   "brevi": {
+    "first_s": 0.029041935500004,
+    "total_s": 0.03392958400002044
+   },
+   "cpython": {
+    "first_s": 0.6138240745000303,
+    "total_s": 0.8154733459999761
+   },
+   "speedup": 21.1357839597139,
+   "binary_mb": 16.1,
+   "needs_python": false,
+   "build_s": 0.1
+  }
+ ]
+}

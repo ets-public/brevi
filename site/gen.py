@@ -34,6 +34,7 @@ NAV = [
         ("architecture", "Architecture", "repo:docs/ARCHITECTURE.md"),
         ("compatibility", "What works, and limits", "compatibility.md"),
         ("benchmarks", "Benchmarks", "benchmarks.md"),
+        ("showcases", "Showcases", "showcases.md"),
     ]),
     ("Brevi language (.bv)", [
         ("language", "Language guide", "repo:BREVI.md"),
@@ -604,7 +605,7 @@ def build(out, out_run, version, guide_tokens, public):
 </body>
 </html>
 """ % (head("%s · Brevi docs" % title, desc or "Brevi documentation: %s." % title),
-       header("agents" if slug_ == "agents" else "benchmarks" if slug_ == "benchmarks" else "docs", "org", public),
+       header("agents" if slug_ == "agents" else "benchmarks" if slug_ in ("benchmarks", "showcases") else "docs", "org", public),
        current, "".join(side), html.escape(group), h1, lead, meta, body, pn, toc_html, footer("org", public),
        ZOOM_JS if 'class="zoom"' in body else "")
         name = "index" if slug_ == "index" else slug_
