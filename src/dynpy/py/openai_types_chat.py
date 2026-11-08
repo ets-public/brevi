@@ -1,5 +1,6 @@
 # openai.types.chat, from Brevi's openai copy: written by tools/gen_llm_types.py, do not edit.
 from _brevi_openai_types import ChatCompletion, ChatCompletionAudio, ChatCompletionChunk, ChatCompletionMessage, ChatCompletionMessageCustomToolCall, ChatCompletionMessageFunctionToolCall, ChatCompletionMessageFunctionToolCall as ChatCompletionMessageToolCall, ChatCompletionTokenLogprob
+from _brevi_openai_types import ParsedChatCompletion, ParsedChatCompletionMessage, ParsedChoice, ParsedFunction, ParsedFunctionToolCall
 ChatCompletionAllowedToolChoiceParam = dict
 ChatCompletionAllowedToolsParam = dict
 ChatCompletionAssistantMessageParam = dict

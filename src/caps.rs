@@ -394,14 +394,14 @@ const OWN_OPENAI: &[&str] = &[
     "OpenAIError", "APIError", "APIStatusError", "APITimeoutError", "APIConnectionError", "APIResponseValidationError", "BadRequestError",
     "AuthenticationError", "PermissionDeniedError", "NotFoundError", "ConflictError", "UnprocessableEntityError", "RateLimitError",
     "InternalServerError", "LengthFinishReasonError", "ContentFilterFinishReasonError", "InvalidWebhookSignatureError",
+    "pydantic_function_tool", "pydantic_responses_function_tool",
 ];
 const OPENAI_LACKS: &[&str] = &[
-    ".beta", ".audio", ".images", ".files", ".uploads", ".batches", ".fine_tuning", ".vector_stores", ".moderations", ".completions.parse(",
-    ".responses.parse(", ".responses.stream(", ".chat.completions.stream(", ".chat.completions.list(", ".chat.completions.update(",
-    ".chat.completions.delete(", ".chat.completions.messages", ".responses.delete(", ".responses.cancel(", ".responses.input_items",
+    ".beta", ".audio", ".images", ".files", ".uploads", ".batches", ".fine_tuning", ".vector_stores", ".moderations",
+    ".chat.completions.list(", ".chat.completions.update(", ".chat.completions.delete(", ".chat.completions.messages", ".responses.delete(", ".responses.cancel(", ".responses.input_items",
     ".responses.compact(", ".input_tokens", ".models.delete(", ".realtime", ".webhooks", ".containers", ".conversations", ".evals", ".skills",
     ".videos", ".admin", ".graders", "with_raw_response", "with_streaming_response", "http_client=", "workload_identity=",
-    "provider=", "data_residency=", "azure", "Azure", "_strict_response_validation", ".get_api_list(", "._client", "pydantic_function_tool",
+    "provider=", "data_residency=", "azure", "Azure", "_strict_response_validation", ".get_api_list(", "._client", "starting_after=",
     "openai.lib", "openai.resources", "openai.pagination", "openai.helpers", "openai.Completion", "client.completions",
 ];
 // What Brevi's mcp lacks (src/dynpy/py/_brevi_mcp.py): server-to-client requests (sampling, elicitation, roots),
@@ -873,6 +873,14 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
         for (n, l) in src.lines().enumerate() {
             if l.contains("mode=\"serialization\"") || l.contains("mode='serialization'") {
                 bad.push((n + 1, "pydantic mode=\"serialization\"".to_string()));
+            }
+        }
+    }
+    // openai's responses.stream(response_id=...): streaming a response that already exists is CPython's
+    if uses("openai") {
+        for (n, l) in &lines {
+            if l.contains(".stream(") && l.contains("response_id=") {
+                bad.push((*n, "openai responses.stream(response_id=)".to_string()));
             }
         }
     }

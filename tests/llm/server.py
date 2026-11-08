@@ -314,6 +314,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 calls.append({"id": "call_" + h(json.dumps([msgs, k]).encode(), 16), "type": "function",
                               "function": {"name": f["name"], "arguments": json.dumps(tool_input(f.get("parameters"), said))}})
             return {"role": "assistant", "content": None, "tool_calls": calls}, "tool_calls"
+        fmt = json_format(body)
+        if fmt is not None:
+            return {"role": "assistant", "content": json.dumps(sample(fmt, said))}, "stop"
         system = [text_of(m.get("content")) for m in msgs if m.get("role") in ("system", "developer")]
         text = "Echo: " + said + ((" [system: %s]" % system[0]) if system else "")
         stop = body.get("stop")
@@ -402,6 +405,8 @@ class H(http.server.BaseHTTPRequestHandler):
             output.append({"type": "function_call", "id": "fc_" + h(raw, 16), "call_id": "call_" + h(raw + b"c", 16), "name": t["name"],
                            "arguments": json.dumps(tool_input(t.get("parameters"), said)), "status": "completed"})
             text = None
+        elif json_format(body) is not None:
+            text = json.dumps(sample(json_format(body), said))
         else:
             text = "Echo: " + said + ((" [instructions: %s]" % body["instructions"]) if body.get("instructions") else "")
         if text is not None:
@@ -413,7 +418,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 "error": None, "incomplete_details": None, "instructions": body.get("instructions"), "max_output_tokens": body.get("max_output_tokens"),
                 "model": body.get("model"), "output": output, "parallel_tool_calls": True, "previous_response_id": body.get("previous_response_id"),
                 "reasoning": {"effort": None, "summary": None}, "service_tier": "default", "store": True, "temperature": 1.0,
-                "text": {"format": {"type": "text"}, "verbosity": "medium"}, "tool_choice": "auto", "tools": body.get("tools") or [], "top_p": 1.0,
+                "text": {"format": (body.get("text") or {}).get("format") or {"type": "text"}, "verbosity": "medium"}, "tool_choice": "auto", "tools": body.get("tools") or [], "top_p": 1.0,
                 "truncation": "disabled", "usage": {"input_tokens": it, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": ot,
                                                     "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": it + ot},
                 "user": None, "metadata": {}}

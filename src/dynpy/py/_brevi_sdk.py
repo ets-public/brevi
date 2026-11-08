@@ -183,8 +183,10 @@ def _items(m):
 def _fill(m, values):
     cls = type(m)
     fs = []
+    used = set()
     for name, alias, d, dflt in cls._F:
         key = alias if alias is not None else name
+        used.add(key)
         if key in values:
             v = values[key]
             if v is None:
@@ -196,9 +198,8 @@ def _fill(m, values):
             v = _default(dflt)
         setattr(m, name, v)
     ex = {}
-    fn = cls._FN
     for k in values:
-        if k not in fn:
+        if k not in used and k not in cls._FN:
             ex[k] = values[k]
     m._bv_fs = fs
     m._bv_extra = ex
@@ -469,6 +470,9 @@ def _dv(v, js, by_alias, unset, defaults, none):
         return t if js else tuple(t)
     if isinstance(v, dict):
         return {k: _dv(x, js, by_alias, unset, defaults, none) for k, x in v.items()}
+    if not isinstance(v, (str, int, float, bytes, _dt.datetime, _dt.date)) and v is not None and hasattr(v, "model_dump") and hasattr(v, "model_fields"):
+        # a pydantic model of the program (a parsed structured output)
+        return v.model_dump(mode="json" if js else "python", by_alias=by_alias, exclude_unset=unset, exclude_defaults=defaults, exclude_none=none)
     if js:
         if isinstance(v, _dt.datetime):
             return _iso_pyd(v)
