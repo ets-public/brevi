@@ -1786,7 +1786,8 @@ x", Some(vec!["read".into(), "native".into()]), true);
         assert!(uses("import os\nprint(os.path.join('a', 'b'), os.sep)  # os.system\ns = 'os.listdir'\n").is_empty());
         assert!(uses("import os.path as p\nfrom pathlib import PurePath\nprint(p.basename('x'), PurePath('a'))\n").is_empty());
         assert_eq!(uses("import os as o\no.system('x')\n"), ["os.system"]);
-        assert_eq!(uses("from os import path, remove\npath.exists('x')\n"), ["os.remove", "os.path.exists"]);
+        // os.path.exists is Brevi's own (a read, which the sandbox check asks for separately); os.remove is not
+        assert_eq!(uses("from os import path, remove\npath.exists('x')\n"), ["os.remove"]);
         assert_eq!(uses("import os\nf = getattr(os, 'system')\n"), ["os used as a value"]);
         assert_eq!(uses("import os\nprint(f\"{os.getcwd()}\")\n"), ["os.getcwd"]);
         assert_eq!(uses("from pathlib import Path\n"), ["pathlib.Path"]);
