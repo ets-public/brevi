@@ -588,11 +588,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
     }
     if bridge.on {
-        // A coroutine handed to a library CPython runs would not be one of CPython's.
+        // A coroutine handed to a library CPython runs would not be one of CPython's, nor CPython's awaitables
+        // Brevi's: async code builds next to the library only when none can cross (emit::async_crosses_bridge).
         if mods.iter().any(|m| m.name != "asyncio" && emit::uses_async(&m.body)) {
-            let mut libs: Vec<&str> = bridge.modules.iter().map(|m| m.as_str()).collect();
-            libs.sort();
-            return Err((file.to_string(), 0, format!("async code with a library CPython runs ({})", libs.join(", "))));
+            let bodies: Vec<&[parse::Stmt]> = mods.iter().map(|m| m.body.as_slice()).collect();
+            if let Some((l, what)) = emit::async_crosses_bridge(&bodies, &|m: &str| bridge.has(m)) {
+                let mut libs: Vec<&str> = bridge.modules.iter().map(|m| m.as_str()).collect();
+                libs.sort();
+                return Err((file.to_string(), l, format!("async code with a library CPython runs ({}): {what}", libs.join(", "))));
+            }
         }
         lib_classes(&mods, &texts, &mut bridge)?;
     }

@@ -801,6 +801,202 @@ pub fn uses_async(body: &[Stmt]) -> bool {
     })
 }
 
+// Async code next to a library CPython runs builds natively unless a coroutine could cross between the two:
+// a coroutine function, method or lambda handed to the library (or a class built on one of its classes with
+// async methods, or an async def it decorates), or something the library made being awaited (CPython's
+// awaitables are not Brevi's). What the library made is followed by name, file-wide: the names its imports
+// bind, then names and attributes assigned from those, and functions returning them. Returns the line and
+// what crosses, for the first such use.
+pub fn async_crosses_bridge(mods: &[&[Stmt]], bridged: &dyn Fn(&str) -> bool) -> Option<(usize, String)> {
+    fn all<'a>(body: &'a [Stmt], out: &mut Vec<&'a Stmt>) {
+        for s in body {
+            out.push(s);
+            match &s.st {
+                St::Def(d) => all(&d.body, out),
+                St::Class(c) => all(&c.body, out),
+                St::If(arms, els) => {
+                    arms.iter().for_each(|(_, b)| all(b, out));
+                    if let Some(b) = els {
+                        all(b, out);
+                    }
+                }
+                St::For(_, _, b, e) | St::While(_, b, e) => {
+                    all(b, out);
+                    if let Some(e) = e {
+                        all(e, out);
+                    }
+                }
+                St::Try(b, hs, e, f) => {
+                    all(b, out);
+                    hs.iter().for_each(|h| all(&h.body, out));
+                    for x in [e, f].into_iter().flatten() {
+                        all(x, out);
+                    }
+                }
+                St::With(_, b) => all(b, out),
+                _ => {}
+            }
+        }
+    }
+    // the expressions of one statement, not of the blocks inside it
+    fn own(s: &Stmt) -> Vec<&Ex> {
+        let mut v = vec![];
+        match &s.st {
+            St::If(arms, _) => arms.iter().for_each(|(c, _)| v.push(c)),
+            St::While(c, _, _) => v.push(c),
+            St::For(t, i, _, _) => {
+                v.push(t);
+                v.push(i)
+            }
+            St::With(items, _) => items.iter().for_each(|(e, t)| {
+                v.push(e);
+                if let Some(t) = t {
+                    v.push(t)
+                }
+            }),
+            St::Try(_, hs, _, _) => hs.iter().filter_map(|h| h.types.as_ref()).for_each(|t| v.push(t)),
+            St::Def(_) | St::Class(_) => stmt_exprs(std::slice::from_ref(s), &mut v),
+            _ => stmt_exprs(std::slice::from_ref(s), &mut v),
+        }
+        v
+    }
+    let mut stmts = vec![];
+    for b in mods {
+        all(b, &mut stmts);
+    }
+    let mut names: HashSet<String> = HashSet::new();
+    let mut attrs: HashSet<String> = HashSet::new();
+    let mut coros: HashSet<String> = HashSet::new();
+    for s in &stmts {
+        match &s.st {
+            St::Import(ns) => {
+                for (m, a) in ns {
+                    if bridged(m) {
+                        names.insert(a.clone().unwrap_or_else(|| m.split('.').next().unwrap_or(m).to_string()));
+                    }
+                }
+            }
+            St::ImportFrom(m, ns) if bridged(m) => {
+                for (n, a) in ns {
+                    names.insert(a.clone().unwrap_or_else(|| n.clone()));
+                }
+            }
+            St::Def(d) if d.is_async => {
+                coros.insert(d.name.clone());
+            }
+            _ => {}
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    let refers = |e: &Ex, names: &HashSet<String>, attrs: &HashSet<String>| {
+        let mut hit = false;
+        visit_ex(e, &mut |x| match x {
+            Ex::Name(n) if names.contains(n) => hit = true,
+            Ex::Attr(_, n) if attrs.contains(n) => hit = true,
+            _ => {}
+        });
+        hit
+    };
+    fn bind(t: &Ex, names: &mut HashSet<String>, attrs: &mut HashSet<String>) -> bool {
+        match t {
+            Ex::Name(n) => names.insert(n.clone()),
+            Ex::Attr(_, n) => attrs.insert(n.clone()),
+            Ex::Tuple(v) | Ex::List(v) => v.iter().fold(false, |a, x| bind(x, names, attrs) | a),
+            Ex::Star(x) => bind(x, names, attrs),
+            _ => false,
+        }
+    }
+    loop {
+        let mut grew = false;
+        for s in &stmts {
+            match &s.st {
+                St::Assign(ts, v) if refers(v, &names, &attrs) => ts.iter().for_each(|t| grew |= bind(t, &mut names, &mut attrs)),
+                St::AnnAssign(t, Some(v), _) if refers(v, &names, &attrs) => grew |= bind(t, &mut names, &mut attrs),
+                St::For(t, i, _, _) if refers(i, &names, &attrs) => grew |= bind(t, &mut names, &mut attrs),
+                St::With(items, _) => {
+                    for (e, t) in items {
+                        if let Some(t) = t {
+                            if refers(e, &names, &attrs) {
+                                grew |= bind(t, &mut names, &mut attrs);
+                            }
+                        }
+                    }
+                }
+                // (an async def returning what it made gives a coroutine of Brevi's, which may be awaited)
+                St::Def(d) if !d.is_async && !names.contains(&d.name) => {
+                    let mut body = vec![];
+                    all(&d.body, &mut body);
+                    if body.iter().any(|x| matches!(&x.st, St::Return(Some(e)) if refers(e, &names, &attrs))) {
+                        names.insert(d.name.clone());
+                        grew = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    // what the library made, at the head of an expression: `x`, `x.y`, `x.f()`, `x[0]`, `lib.f()`
+    fn head(e: &Ex, names: &HashSet<String>, attrs: &HashSet<String>) -> bool {
+        match e {
+            Ex::Name(n) => names.contains(n),
+            Ex::Attr(b, n) => attrs.contains(n) || head(b, names, attrs),
+            Ex::Call(f, _) | Ex::Index(f, _) => head(f, names, attrs),
+            _ => false,
+        }
+    }
+    let asyncio_call = |f: &Ex| {
+        let mut b = f;
+        while let Ex::Attr(x, _) = b {
+            b = x;
+        }
+        matches!(b, Ex::Name(n) if n == "asyncio")
+    };
+    let is_coro = |e: &Ex| match e {
+        Ex::Lambda(..) => true,
+        Ex::Name(n) | Ex::Attr(_, n) => coros.contains(n),
+        Ex::Call(f, _) => matches!(&**f, Ex::Name(n) | Ex::Attr(_, n) if coros.contains(n)),
+        _ => false,
+    };
+    for s in &stmts {
+        match &s.st {
+            St::Def(d) if d.is_async && d.decorators.iter().any(|x| refers(x, &names, &attrs)) => return Some((s.line, format!("async def {} decorated by it", d.name))),
+            St::Class(c) if c.bases.iter().any(|x| refers(x, &names, &attrs)) && uses_async(&c.body) => return Some((s.line, format!("class {} with async methods on its class", c.name))),
+            _ => {}
+        }
+        for e in own(s) {
+            let mut found: Option<String> = None;
+            visit_ex(e, &mut |x| {
+                if found.is_some() {
+                    return;
+                }
+                match x {
+                    Ex::Await(a) if head(a, &names, &attrs) => found = Some("awaiting what it made".into()),
+                    Ex::Call(f, args)
+                        if asyncio_call(f) && args.iter().any(|a| matches!(a, Arg::Pos(v) | Arg::Kw(_, v) | Arg::Star(v) | Arg::KwStar(v) if head(v, &names, &attrs))) =>
+                    {
+                        found = Some("handing what it made to asyncio".into())
+                    }
+                    Ex::Call(f, args) if refers(f, &names, &attrs) => {
+                        if args.iter().any(|a| matches!(a, Arg::Pos(v) | Arg::Kw(_, v) | Arg::Star(v) | Arg::KwStar(v) if is_coro(v))) {
+                            found = Some("a coroutine function or lambda handed to it".into());
+                        }
+                    }
+                    _ => {}
+                }
+            });
+            if let Some(w) = found {
+                return Some((s.line, w));
+            }
+        }
+    }
+    None
+}
+
 fn has_yield(body: &[Stmt]) -> bool {
     let mut ex = vec![];
     stmt_exprs(body, &mut ex);

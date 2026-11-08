@@ -540,6 +540,13 @@ for f in tests/bridge/*.py; do
     fi
   done
 done
+# A coroutine function handed to a library CPython runs would not be one of CPython's: the dynamic build refuses.
+t=$(mktemp -d); cp -r tests/bridge/brlib "$t"
+printf 'import asyncio\nfrom brlib import apply\nasync def f(x):\n    return x\nasync def main():\n    print(await asyncio.gather(*apply(f, [1, 2])))\nasyncio.run(main())\n' > "$t/m.py"
+B=$BREVI; case $B in /*) ;; *) B=$PWD/$B ;; esac
+o=$(cd "$t" && BREVI_DYN=1 $B run m.py 2>&1)
+case "$o" in *"async code with a library CPython runs (brlib)"*) echo "ok   async code handing a coroutine to a bridged library is refused" ;; *) echo "FAIL async code handing a coroutine to a bridged library"; printf '%s\n' "$o"; fail=1 ;; esac
+rm -rf "$t"
 # Under the C locale (no LANG), text files a bridged library reads decode as UTF-8, as in python3 (#211).
 f=tests/bridge/c_locale/read_utf8.py
 out=$(env -u LANG -u LC_ALL -u LC_CTYPE $BREVI run --native "$f" 2>/dev/null)
