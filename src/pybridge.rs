@@ -1276,7 +1276,34 @@ fn consts() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\n")
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\n", fs_hold())
+}
+
+// Under --sandbox, CPython (granted with --allow-py or --allow native) is held to the file grants by the
+// kernel (Landlock, pyrt_load.rs ax_pyb_hold), since Brevi cannot check what CPython's code opens.
+// None: no sandbox, or read and write both granted for every folder. Otherwise (read, write, scoped): the
+// folders each may reach (None = every folder, Some(empty) = none), and whether the caller named folders.
+fn fs_hold() -> String {
+    if !crate::caps::sandboxed() {
+        return "None".into();
+    }
+    let (r, w) = (crate::caps::fs_scope("read"), crate::caps::fs_scope("write"));
+    if r.is_none() && w.is_none() {
+        return "None".into();
+    }
+    let scoped = r.as_ref().is_some_and(|x| !x.is_empty()) || w.as_ref().is_some_and(|x| !x.is_empty());
+    let one = |x: &Option<Vec<String>>| match x {
+        None => "None".to_string(),
+        Some(v) => format!("Some(&[{}])", v.iter().map(|p| format!("{p:?}")).collect::<Vec<_>>().join(", ")),
+    };
+    // The libraries CPython may import from the program's own folder: the granted ones (any, under native).
+    let g = crate::caps::GRANT.get().cloned().unwrap_or_default();
+    let local = if g.iter().any(|x| x == "native") {
+        "None".to_string()
+    } else {
+        one(&Some(g.iter().filter_map(|x| x.strip_prefix("py:")).map(String::from).collect()))
+    };
+    format!("Some(({}, {}, {scoped}, {local}))", one(&r), one(&w))
 }
 
 // ------------------------------------------------------------------------------------------- standalone builds

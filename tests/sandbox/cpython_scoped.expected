@@ -1,0 +1,34 @@
+{"path":"pybridge","why":"os run in CPython","py":["os"]}
+read hello
+refused
+refused
+refused
+['a.txt', 'd.csv', 'link.txt']
+list refused
+wrote
+refused
+refused
+exit 0
+-- dynamic
+read hello
+refused
+refused
+refused
+['a.txt', 'd.csv', 'link.txt']
+list refused
+wrote
+refused
+refused
+exit 0
+-- typed
+{"path":"pybridge","why":"os run in CPython","py":["os"]}
+read hello
+refused
+refused
+refused
+['a.txt', 'd.csv', 'link.txt']
+list refused
+wrote
+refused
+refused
+exit 0
