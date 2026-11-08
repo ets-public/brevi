@@ -1815,11 +1815,11 @@ x", Some(vec!["read".into(), "native".into()]), true);
         for bad in ["std::fs", "std::process::Command", "std::net", "std::env::var", "std::env::set", "File::", "libpython", "Py_Initialize", "dlopen", "#[link"] {
             assert!(!rt.contains(bad), "the dynamic runtime uses {bad}: check it in caps.rs before --sandbox builds over it");
         }
-        // C functions it declares: only the generator stacks' memory calls and the clock.
+        // C functions it declares: only the generator stacks' memory calls, the clock and malloc's tuning.
         for block in rt.split("extern \"C\" {").skip(1) {
             let decls = &block[..block.find('}').unwrap()];
             for d in decls.lines().map(str::trim).filter(|l| !l.is_empty()) {
-                assert!(["fn mmap(", "fn munmap(", "fn mprotect(", "fn clock_gettime("].iter().any(|ok| d.starts_with(ok)), "the dynamic runtime declares {d}");
+                assert!(["fn mmap(", "fn munmap(", "fn mprotect(", "fn clock_gettime(", "fn mallopt("].iter().any(|ok| d.starts_with(ok)), "the dynamic runtime declares {d}");
             }
         }
     }
