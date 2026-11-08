@@ -1561,7 +1561,7 @@ mod tests {
             }
         }
         let glue = include_str!("dynpy/sqlglue.rs");
-        assert!(glue.contains("if !FS_READ {") && glue.contains("if !FS_WRITE && flags & OPEN_READWRITE != 0"));
+        assert!(glue.contains("if !FS_READ || !in_scope(name, false) {") && glue.contains("if (!FS_WRITE || !in_scope(name, true)) && flags & OPEN_READWRITE != 0"));
         assert!(glue.contains("vfs_unregister") && !glue.contains("enable_load_extension"));
     }
 
