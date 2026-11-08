@@ -77,6 +77,22 @@ SHOWCASES = [
         "beside": {"server.py": ("mcp_server_time", "server.py")},
         "env": {"TZ": "Europe/Paris"},
     },
+    {
+        "name": "count_tokens_file",
+        "title": "Token count, one file",
+        "file": "count_tokens.py",
+        "kind": "cli",
+        "args": [os.path.join(ROOT, "README.md")],
+        "metric": "count of one file printed",
+    },
+    {
+        "name": "count_tokens_tree",
+        "title": "Token count, a source tree",
+        "file": "count_tokens.py",
+        "kind": "cli",
+        "args": [os.path.join(ROOT, "src"), os.path.join(ROOT, "site", "docs"), "--ext", ".rs", ".py", ".md"],
+        "metric": "Brevi's own source counted",
+    },
 ]
 
 
