@@ -120,6 +120,11 @@ fn hub_file(cache: &Path, id: &str, rev: &str) -> Result<PathBuf, String> {
     if dst.is_file() {
         return Ok(dst);
     }
+    // a download names the model to the Hub: under --sandbox only with the caller's network grant for it
+    let (any, hosts) = crate::caps::net_hosts();
+    if !any && !hosts.iter().any(|h| h == "huggingface.co") {
+        return Err(format!("tokenizers: Tokenizer.from_pretrained('{id}') is not in the Hugging Face cache, and downloading it under --sandbox needs --allow-net huggingface.co"));
+    }
     std::fs::create_dir_all(dst.parent().unwrap()).map_err(|e| e.to_string())?;
     let tmp = dst.with_extension(format!("tmp{}", std::process::id()));
     let url = format!("https://huggingface.co/{id}/resolve/{rev}/tokenizer.json");
@@ -146,7 +151,8 @@ pub fn files(cache: &Path, srcs: &[Src]) -> Result<Vec<(String, PathBuf)>, Strin
             continue;
         }
         let path = match s {
-            Src::File(p) => PathBuf::from(p),
+            // read now, by the compiler, for the program: under --sandbox only with the caller's read grant
+            Src::File(p) => PathBuf::from(crate::caps::build_read(p).map_err(|m| format!("tokenizers: Tokenizer.from_file('{p}'): {m}"))?),
             Src::Hub(id, rev) => hub_file(cache, id, rev)?,
         };
         let text = std::fs::read_to_string(&path).map_err(|e| format!("tokenizers: {}: {e}", path.display()))?;

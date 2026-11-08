@@ -578,13 +578,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust = rust.replacen("fn main() { ", "fn main() { ZONE_FS.set(brevi_zoneglue::ops()).ok(); ", 1);
         rust.push_str(include_str!("zoneglue.rs"));
     }
-    if fs_used || sql_used || duck_used || ort_used {
-        rust.push_str(&format!(
-            "\nconst FS_SANDBOX: bool = {};\nconst FS_READ: bool = {};\nconst FS_WRITE: bool = {};\n",
-            crate::caps::sandboxed(),
-            crate::caps::granted("read"),
-            crate::caps::granted("write"),
-        ));
+    if fs_used || sql_used || duck_used || ort_used || net_used {
+        rust.push_str(&fs_consts());
     }
     if fs_used {
         rust = rust.replacen("fn main() { ", "fn main() { FS.set(brevi_fsglue::ops()).ok(); ", 1);
@@ -620,6 +615,37 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     }
     Ok(format!("{HEADER}{rust}"))
 }
+
+// What the caller granted the program's files under --sandbox, for the glue that opens them (fsglue.rs,
+// sqlglue.rs, duckglue.rs, ortglue.rs, netglue.rs' CA files): read and write, and the folders each is held to
+// (--allow-read DIR, --allow-write DIR; None: every file). brevi_fs_path checks a path against them.
+fn fs_consts() -> String {
+    let scope = |cap: &str| match crate::caps::fs_scope(cap) {
+        None => "None".to_string(),
+        Some(r) => format!("Some(&[{}])", r.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ")),
+    };
+    format!(
+        "\nconst FS_SANDBOX: bool = {};\nconst FS_READ: bool = {};\nconst FS_WRITE: bool = {};\nconst FS_READ_IN: Option<&[&str]> = {};\nconst FS_WRITE_IN: Option<&[&str]> = {};\n{}{}",
+        crate::caps::sandboxed(),
+        crate::caps::granted("read"),
+        crate::caps::granted("write"),
+        scope("read"),
+        scope("write"),
+        include_str!("../fsscope.rs"),
+        FS_PATH_FN,
+    )
+}
+
+const FS_PATH_FN: &str = r#"
+// The path to open for a program's file: itself, or under folder-scoped grants the checked real path.
+fn brevi_fs_path(p: &str, write: bool) -> Result<String, String> {
+    let (scope, cap) = if write { (FS_WRITE_IN, "write") } else { (FS_READ_IN, "read") };
+    match scope {
+        None => Ok(p.to_string()),
+        Some(r) => brevi_scoped(p, r, cap),
+    }
+}
+"#;
 
 // The network for Brevi's requests and httpx (netglue.rs), with the hosts the caller granted under --sandbox.
 fn net_glue() -> String {

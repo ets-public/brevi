@@ -101,6 +101,16 @@ for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
     echo "ok   $f"
   fi
 done
+# The same Brevi files under --sandbox with no grant: Brevi's own libraries hold to the sandbox, so they run
+# natively there too (never CPython, which a sandbox without a grant refuses).
+for f in tests/bv_libs/*.bv; do
+  out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 120 ../../$BREVI run --sandbox "$(basename "$f")" 2>/tmp/brevi_bv_err)
+  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err || [ "$out" != "$(cat "${f%.bv}.expected")" ]; then
+    echo "FAIL $f (--sandbox)"; cat /tmp/brevi_bv_err; fail=1
+  else
+    echo "ok   $f (--sandbox)"
+  fi
+done
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
 # The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
@@ -160,6 +170,18 @@ for f in tests/tokenizers/*.py; do
     echo "ok   $f"
   fi
 done
+if [ "$1" != "--update" ]; then
+  out=$($BREVI run --sandbox tests/tokenizers/sandbox/from_file.py 2>&1)
+  case "$out" in
+    *"tokenizers Tokenizer.from_file(file) needs allow read"*) echo "ok   sandbox tokenizers (from_file needs allow read)" ;;
+    *) echo "FAIL sandbox tokenizers (from_file needs allow read)"; printf '%s\n' "$out"; fail=1 ;;
+  esac
+  out=$($BREVI run --sandbox --allow-read tests/tokenizers tests/tokenizers/sandbox/from_file.py 2>&1)
+  case "$out" in
+    *"is outside the folders granted to read"*) echo "ok   sandbox tokenizers (from_file held to the granted folders)" ;;
+    *) echo "FAIL sandbox tokenizers (from_file held to the granted folders)"; printf '%s\n' "$out"; fail=1 ;;
+  esac
+fi
 # pydantic programs must print what CPython's pydantic prints, with Brevi's own pydantic: never CPython. The
 # .expected files come from pydantic 2.13.5 / pydantic-core 2.46.5 (CI has none): `--update` needs it installed.
 for f in tests/pydantic/*.py; do
@@ -235,7 +257,9 @@ if [ "$1" != "--update" ]; then
   case "$out" in
     *"polars write_csv(file) needs allow write"*"polars read_csv(file) needs allow read"*) echo "ok   sandbox polars (files need allow read, write)" ;;
     *) echo "FAIL sandbox polars (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
-  esac
+  esac  # --allow-read / --allow-write DIR: only inside the granted folders
+  out=$($BREVI run --sandbox --allow-read tests/sandbox/scoped/in,tests/sandbox/scoped/out --allow-write tests/sandbox/scoped/out tests/polars/sandbox/scoped.py 2>/dev/null)
+  if [ "$out" = "$(cat tests/polars/sandbox/scoped.expected)" ]; then echo "ok   sandbox polars (held to the granted folders)"; else echo "FAIL sandbox polars (held to the granted folders)"; printf '%s\n' "$out"; fail=1; fi
 fi
 # sqlite3 programs must print what CPython's sqlite3 prints (stdout), with Brevi's own sqlite3 over the system's
 # SQLite: never CPython. `--update` writes the .expected files with python3.
@@ -266,6 +290,12 @@ if [ "$1" != "--update" ]; then
     echo "ok   sandbox sqlite3 (SQL reaches no file)"
   else
     echo "FAIL sandbox sqlite3 (SQL reaches no file)"; printf '%s\n' "$out"; fail=1
+  fi
+  out=$($BREVI run --sandbox --allow-read tests/sandbox/scoped/in,tests/sandbox/scoped/out --allow-write tests/sandbox/scoped/out tests/sqlite3/sandbox/scoped.py 2>/dev/null)
+  if [ "$out" = "$(cat tests/sqlite3/sandbox/scoped.expected)" ] && ! ls tests/sandbox/scoped/x.db tests/sandbox/scoped/in/x.db >/dev/null 2>&1; then
+    echo "ok   sandbox sqlite3 (held to the granted folders)"
+  else
+    echo "FAIL sandbox sqlite3 (held to the granted folders)"; printf '%s\n' "$out"; fail=1
   fi
 fi
 # duckdb programs must print what CPython's duckdb 2.0.0 prints (stdout), with Brevi's own duckdb over DuckDB's
@@ -393,6 +423,11 @@ if [ "$1" != "--update" ]; then
   if printf '%s\n' "$out" | grep -q 'needs allow net' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   sandbox net (no grant)"; else echo "FAIL sandbox net (no grant)"; printf '%s\n' "$out"; fail=1; fi
   out=$(timeout 300 $BREVI run --sandbox --allow-net 127.0.0.1 tests/http/sandbox_net.py 2>/dev/null)
   if [ "$out" = "$(cat tests/http/sandbox_net.expected)" ]; then echo "ok   sandbox net (--allow-net 127.0.0.1)"; else echo "FAIL sandbox net (--allow-net 127.0.0.1)"; printf '%s\n' "$out" | diff tests/http/sandbox_net.expected -; fail=1; fi
+  out=$(timeout 300 $BREVI run --sandbox --allow-net 127.0.0.1 --limit net=20kb tests/http/sandbox_net_limit.py 2>&1; echo "exit $?")
+  case "$out" in
+    *'"on":"net"'*"exit 124") echo "ok   sandbox net (--limit net)" ;;
+    *) echo "FAIL sandbox net (--limit net)"; printf '%s\n' "$out" | tail -3; fail=1 ;;
+  esac
 fi
 kill $srv 2>/dev/null
 # anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.46 print (models, streams,
@@ -522,7 +557,7 @@ for f in tests/limits/*.py; do
   g=$(cat "${f%.py}.flags")
   case "$f" in */mem.py) [ "$(uname)" = Linux ] || continue ;; esac
   out=$($BREVI run --sandbox $g "$f" 2>/tmp/brevi-limits-err; echo "exit $?"; tail -1 /tmp/brevi-limits-err)
-  rm -f limits-file.out /tmp/brevi-limits-err
+  rm -f limits-*.out /tmp/brevi-limits-err
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -531,7 +566,7 @@ for f in tests/limits/*.py; do
   fi
 done
 out=$($BREVI run --limit cpu=x tests/limits/within.py 2>&1; echo "exit $?"; $BREVI build --limit cpu=1 tests/limits/within.py 2>&1; echo "exit $?")
-want='--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, comma separated (cpu=2,mem=256,time=5); '"'cpu=x'"' is not a number above 0
+want='--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, written=MB, net=MB, threads=N, fds=N, files=N, comma separated (cpu=2,mem=256,time=5); '"'cpu=x'"' is not a number above 0
 exit 2
 --limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)
 exit 2'

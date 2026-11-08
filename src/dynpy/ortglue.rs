@@ -385,22 +385,37 @@ mod brevi_ortglue {
 
     fn session(src: Result<&str, &[u8]>, o: &OrtOpts) -> Result<OrtSess, (i64, String)> {
         let a = api().map_err(|m| (-2, m))?;
+        // held to folders (--allow-read / --allow-write DIR)
+        let scoped = FS_READ_IN.is_some() || FS_WRITE_IN.is_some();
+        let held = |p: &str, write: bool| brevi_fs_path(p, write).map_err(|m| (-1, m));
         if FS_SANDBOX {
             if let Ok(p) = src {
                 if !FS_READ {
                     return Err(refuse("read", &format!("the model file '{p}'")));
                 }
+                held(p, false)?;
+                // ONNX Runtime reads external data files itself, next to the model: not held to the folders
+                if FS_READ_IN.is_some() && std::fs::read(brevi_fs_path(p, false).unwrap_or_default()).is_ok_and(|b| pb_external(&b, 0)) {
+                    return Err(refuse("read of every file (--allow read)", "a model whose weights are in external data files"));
+                }
             }
             if !FS_WRITE && !o.optimized_path.is_empty() {
                 return Err(refuse("write", "optimized_model_filepath"));
             }
+            if !o.optimized_path.is_empty() {
+                held(&o.optimized_path, true)?;
+                brevi_new_file(&o.optimized_path);
+            }
             if !FS_WRITE && o.profiling {
                 return Err(refuse("write", "enable_profiling"));
             }
+            if o.profiling && FS_WRITE_IN.is_some() {
+                return Err(refuse("write of every file (--allow write)", "enable_profiling"));
+            }
             for (k, _) in &o.config {
                 let lk = k.to_lowercase();
-                if (!FS_WRITE || !FS_READ) && ["file", "path", "folder", "dir"].iter().any(|w| lk.contains(w)) {
-                    return Err(refuse("read and write", &format!("the session setting '{k}'")));
+                if (!FS_WRITE || !FS_READ || scoped) && ["file", "path", "folder", "dir"].iter().any(|w| lk.contains(w)) {
+                    return Err(refuse("read and write of every file", &format!("the session setting '{k}'")));
                 }
             }
             // a model in bytes still reads its external data from files

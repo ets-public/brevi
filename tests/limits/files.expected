@@ -1,0 +1,5 @@
+created 0
+created 1
+created 2
+exit 124
+{"e":"limit","on":"files","limit":"3 files","msg":"the program tried to create more than 3 files","fix":"raise it with --limit files=... if the program needs more"}
