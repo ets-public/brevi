@@ -12,7 +12,9 @@ use std::rc::Rc;
 pub type R = Result<V, E>;
 pub type Sym = &'static str;
 
-#[derive(Clone)]
+// The tag in a whole word: values move as three aligned words (a one-byte tag moved bytes 1..24 unaligned,
+// which stalls the CPU when the next load reads them back).
+#[repr(u64)]
 pub enum V {
     Unbound,
     None,
@@ -41,6 +43,61 @@ pub enum V {
     Ext(Rc<dyn Ext>),
     NotImpl,
     Ellipsis,
+}
+
+// Clone by hand: the common cases are tested one by one before the full match, whose jump table the CPU
+// mispredicts when floats, objects and tuples alternate (as in an autograd graph's inner loops).
+impl Clone for V {
+    #[inline]
+    fn clone(&self) -> V {
+        if let V::Float(f) = self {
+            return V::Float(*f);
+        }
+        if let V::Obj(o) = self {
+            return V::Obj(o.clone());
+        }
+        if let V::Int(i) = self {
+            return V::Int(*i);
+        }
+        if let V::Tuple(t) = self {
+            return V::Tuple(t.clone());
+        }
+        self.clone_slow()
+    }
+}
+impl V {
+    #[inline(never)]
+    fn clone_slow(&self) -> V {
+        match self {
+            V::Unbound => V::Unbound,
+            V::None => V::None,
+            V::Bool(x) => V::Bool(x.clone()),
+            V::Int(x) => V::Int(x.clone()),
+            V::Big(x) => V::Big(x.clone()),
+            V::Float(x) => V::Float(x.clone()),
+            V::Str(x) => V::Str(x.clone()),
+            V::List(x) => V::List(x.clone()),
+            V::Tuple(x) => V::Tuple(x.clone()),
+            V::Dict(x) => V::Dict(x.clone()),
+            V::Set(x) => V::Set(x.clone()),
+            V::FSet(x) => V::FSet(x.clone()),
+            V::Func(x) => V::Func(x.clone()),
+            V::Class(x) => V::Class(x.clone()),
+            V::Obj(x) => V::Obj(x.clone()),
+            V::Bound(x) => V::Bound(x.clone()),
+            V::BMeth(x) => V::BMeth(x.clone()),
+            V::Iter(x) => V::Iter(x.clone()),
+            V::Range(x) => V::Range(x.clone()),
+            V::Slice(x) => V::Slice(x.clone()),
+            V::Deque(x) => V::Deque(x.clone()),
+            V::Module(x) => V::Module(x.clone()),
+            V::View(x) => V::View(x.clone()),
+            V::Prop(x) => V::Prop(x.clone()),
+            V::Ext(x) => V::Ext(x.clone()),
+            V::NotImpl => V::NotImpl,
+            V::Ellipsis => V::Ellipsis,
+        }
+    }
 }
 
 // Values of library types (Decimal, Fraction, date, regex match, ...) implement Ext.
@@ -1920,3 +1977,5 @@ pub fn inner_of(v: &V) -> Option<V> {
     }
     None
 }
+
+const _: () = assert!(std::mem::size_of::<V>() == 24 && std::mem::size_of::<Option<V>>() == 24);

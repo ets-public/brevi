@@ -923,6 +923,10 @@ pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, 
     let lib = runtime_lib(cache, rustc_v)?;
     let opt = if release { "opt-level=3" } else { "opt-level=1" };
     let key = format!("{:016x}", fnv(&[rust, opt, rustc_v, RUNTIME, "dyn"]));
+    // BREVI_DYN_SRC=file: save the generated Rust there (for profiling a dynamic build)
+    if let Ok(p) = std::env::var("BREVI_DYN_SRC") {
+        let _ = std::fs::write(p, rust);
+    }
     let cdir = cache.join("bin");
     let cached = cdir.join(&key);
     let use_cache = crate::runcache::on();

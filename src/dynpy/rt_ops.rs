@@ -449,7 +449,32 @@ fn ffloordiv(x: f64, y: f64) -> f64 {
         }
     }
 }
+// float arithmetic, the inner loop of numeric code: inline at the call, where `op` is a constant
+#[inline(always)]
+fn float_fast(a: &V, b: &V, op: &str) -> Option<V> {
+    let (x, y) = match (a, b) {
+        (V::Float(x), V::Float(y)) => (*x, *y),
+        (V::Float(x), V::Int(y)) => (*x, *y as f64),
+        (V::Int(x), V::Float(y)) => (*x as f64, *y),
+        _ => return None,
+    };
+    match op {
+        "+" => Some(V::Float(x + y)),
+        "-" => Some(V::Float(x - y)),
+        "*" => Some(V::Float(x * y)),
+        "/" if y != 0.0 => Some(V::Float(x / y)),
+        _ => None,
+    }
+}
+#[inline]
 pub fn binop(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = float_fast(a, b, op) {
+        return Ok(r);
+    }
+    binop_slow(a, b, op)
+}
+#[inline(never)]
+fn binop_slow(a: &V, b: &V, op: &str) -> R {
     // fast paths
     if let (V::Int(x), V::Int(y)) = (a, b) {
         let (x, y) = (*x, *y);
@@ -776,7 +801,15 @@ pub fn sub(a: &V, b: &V) -> R {
     binop(a, b, "-")
 }
 // a OP= b: lists, sets, dicts and deques change in place; other values make a new value.
+#[inline]
 pub fn iop(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = float_fast(a, b, op) {
+        return Ok(r);
+    }
+    iop_slow(a, b, op)
+}
+#[inline(never)]
+fn iop_slow(a: &V, b: &V, op: &str) -> R {
     if let Some(x) = as_np(a) {
         return np_iop(x, a, b, op);
     }
@@ -1477,7 +1510,26 @@ pub struct Iter {
     pub it: It,
 }
 impl It {
+    // lists and tuples first, inline in the loop that runs them; the rest through one match
+    #[inline]
     pub fn next(&mut self) -> Result<Option<V>, E> {
+        if let It::Tuple(t, i) = self {
+            return Ok(t.get(*i).map(|x| {
+                *i += 1;
+                x.clone()
+            }));
+        }
+        if let It::List(l, i) = self {
+            let l = l.borrow();
+            return Ok(l.get(*i).map(|x| {
+                *i += 1;
+                x.clone()
+            }));
+        }
+        self.next_slow()
+    }
+    #[inline(never)]
+    fn next_slow(&mut self) -> Result<Option<V>, E> {
         match self {
             It::List(l, i) => {
                 let l = l.borrow();
