@@ -553,7 +553,12 @@ fn ax_pyb_hold(h: (Option<&[&str]>, Option<&[&str]>, bool, Option<&[&str]>), lib
         }
         // Python would write __pycache__ files it may no longer make.
         std::env::set_var("PYTHONDONTWRITEBYTECODE", "1");
-        if unsafe { prctl(38, 1u64, 0u64, 0u64, 0u64) } != 0 || unsafe { syscall(RESTRICT, fd as c_int, 0u32) } != 0 {
+        extern "C" {
+            fn close(fd: c_int) -> c_int;
+        }
+        let held = unsafe { prctl(38, 1u64, 0u64, 0u64, 0u64) } == 0 && unsafe { syscall(RESTRICT, fd as c_int, 0u32) } == 0;
+        unsafe { close(fd as c_int) };
+        if !held {
             return Err(format!("brevi: --sandbox: Landlock did not hold the program ({})", std::io::Error::last_os_error()));
         }
         Ok(())
