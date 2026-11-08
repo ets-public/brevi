@@ -1,7 +1,7 @@
 # Showcases
 <!-- description: Real Python programs built with Brevi against CPython running the same files: MCP servers, token tools and pure-Python ML, with every number reproducible. -->
 
-Each showcase is an ordinary Python program, run two ways: built with `brevi build --release`, and run by CPython. Both sides get the same input. Output has to match byte for byte, or the showcase doesn't count. The native builds use Brevi from `main`; the libraries they need (`mcp`, `zoneinfo`, `open()`, `tiktoken`) ship in the next release, Monday 9 November. The numbers are medians of 10 runs. The programs and the script that times them are in [bench/showcase](repo:bench/showcase), and `python3 bench/showcase/run.py` reruns them all.
+Each showcase is an ordinary Python program, run two ways: built with `brevi build --release`, and run by CPython. Both sides get the same input. Output has to match byte for byte, or the showcase doesn't count. The native builds use Brevi from `main`; the libraries they need (`mcp`, `zoneinfo`, `open()`, `tiktoken`, and native builds of a program's own packages) ship in the next release, Monday 9 November. The numbers are medians of 10 runs. The programs and the script that times them are in [bench/showcase](repo:bench/showcase), and `python3 bench/showcase/run.py` reruns them all.
 
 <!-- showcases:start -->
 
@@ -11,6 +11,7 @@ Each showcase is an ordinary Python program, run two ways: built with `brevi bui
 | [MCP time server](#the-official-mcp-time-server) (official, unchanged) | Start to first tool call answered | **29 ms** | 650 ms | **22x** | yes | 17.5 MB | no |
 | [Token count, one file](#token-counting) | Count of one file printed | **27 ms** | 371 ms | **14x** | yes | 11.3 MB | no |
 | [Token count, a source tree](#token-counting) | 1.8M tokens of Brevi's source counted | **321 ms** | 735 ms | **2.3x** | yes | 11.3 MB | no |
+| [micrograd](#micrograd) (Karpathy's, unchanged) | An MLP trained for 30 steps | **5.5 s** | 30.3 s | **5.5x** | yes | 6.2 MB | no |
 
 Measured 8 November 2026 with Brevi 0.25.0 (main) on Linux x86_64 with 4 cores. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
 
@@ -52,8 +53,20 @@ brevi build bench/showcase/count_tokens.py --release -o count-tokens
 
 Under `--sandbox` it needs a read grant, and `--allow-read src,docs` holds it to those folders.
 
+## micrograd
+
+[micrograd](https://github.com/karpathy/micrograd) is Andrej Karpathy's tiny autograd engine: a `Value` class that overloads Python's operators and records closures for the backward pass, plus a small neural-network library on top. That is the class-heavy, closure-heavy kind of Python that usually stays on CPython. Brevi builds the package as published, with no edits, along with [micrograd_train.py](repo:bench/showcase/micrograd_train.py). That driver trains a 2-16-16-1 MLP on a two-moons dataset for 30 steps, as Karpathy's demo notebook does, and prints the loss and accuracy at each step. The result is a 6.2 MB binary that finishes training in 5.5 s, where CPython takes 30.3 s, with the same numbers printed at every step. The speed is the gain here: this build uses more memory than CPython does, because micrograd's backward closures form cycles that Brevi does not free yet.
+
+```bash
+pip download micrograd==0.1.0 --no-deps
+unzip micrograd-0.1.0-py3-none-any.whl 'micrograd/*'
+curl -sO https://raw.githubusercontent.com/ets-public/brevi/main/bench/showcase/micrograd_train.py
+brevi build micrograd_train.py --release -o train
+./train
+```
+
 ## Next showcases
 
 These are being made to build natively now. Each gets a row in the table above once its output matches CPython:
 
-- **Karpathy's [micrograd](https://github.com/karpathy/micrograd) and [microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95)**: an autograd engine and a GPT trained in pure Python. Today Brevi runs this class-heavy code slower than CPython, and the speed work is under way.
+- **Karpathy's [microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95)**: a GPT trained and sampled in pure Python. It builds natively, and the speed work to make it beat CPython is under way.
