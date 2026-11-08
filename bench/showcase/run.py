@@ -93,6 +93,15 @@ SHOWCASES = [
         "args": [os.path.join(ROOT, "src"), os.path.join(ROOT, "site", "docs"), "--ext", ".rs", ".py", ".md"],
         "metric": "Brevi's own source counted",
     },
+    {
+        "name": "micrograd",
+        "title": "micrograd, an MLP trained for 30 steps",
+        "file": "micrograd_train.py",
+        "kind": "cli",
+        # Karpathy's package, unchanged, from the installed copy (pip install micrograd)
+        "beside": {"micrograd": ("micrograd", None)},
+        "metric": "training finished",
+    },
 ]
 
 
@@ -106,7 +115,10 @@ def measure(sc, runs, work):
             spec = importlib.util.find_spec(pkg)
             if spec is None:
                 return {"name": sc["name"], "error": "%s is not installed (pip install %s)" % (pkg, pkg.replace("_", "-"))}
-            shutil.copy(os.path.join(os.path.dirname(spec.origin), f), os.path.join(d, name))
+            if f is None:  # the whole package, unchanged
+                shutil.copytree(os.path.dirname(spec.origin), os.path.join(d, name), ignore=shutil.ignore_patterns("__pycache__"))
+            else:
+                shutil.copy(os.path.join(os.path.dirname(spec.origin), f), os.path.join(d, name))
         src = os.path.join(d, sc["file"])
     exe = os.path.join(work, sc["name"])
     t0 = time.perf_counter()
