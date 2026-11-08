@@ -168,6 +168,7 @@ fn ort_array(t: OrtTensor) -> R {
         6 => Buf::I32(d.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect()),
         9 => Buf::B(d.iter().map(|&c| c != 0).collect()),
         8 => return Err(np_unsup(&format!("a tensor(string) result (numpy's object arrays)"))),
+        e if ort_sd(e).is_some() => Buf::S(d.clone(), ort_sd(e).unwrap()),
         e => return Err(np_unsup(&format!("a tensor({}) result (numpy {})", ort_elem_name(e), ort_np_name(e)))),
     };
     let ll = t.elem == 7;
@@ -177,6 +178,21 @@ fn ort_array(t: OrtTensor) -> R {
         np_mark_ll(&a);
     }
     Ok(np_arr(a))
+}
+
+// onnxruntime's element types that are numpy storage dtypes (rt_np.rs SD)
+fn ort_sd(e: i32) -> Option<SD> {
+    Some(match e {
+        2 => SD::U8,
+        3 => SD::I8,
+        4 => SD::U16,
+        5 => SD::I16,
+        10 => SD::F16,
+        12 => SD::U32,
+        13 => SD::U64,
+        14 => SD::C64,
+        _ => return None,
+    })
 }
 
 fn ort_np_name(e: i32) -> &'static str {
@@ -233,6 +249,7 @@ fn ort_tensor(v: &V) -> Result<OrtTensor, E> {
         Buf::I32(x) => (6, x.iter().flat_map(|y| y.to_le_bytes()).collect(), vec![]),
         Buf::B(x) => (9, x.iter().map(|&y| y as u8).collect(), vec![]),
         Buf::U(x, _) => (8, vec![], x.iter().map(|&i| np_sget(i).to_string()).collect()),
+        Buf::S(x, sd) => ((2..=14).find(|e| ort_sd(*e) == Some(sd)).unwrap(), x, vec![]),
     };
     Ok(OrtTensor { elem, shape, data, strs })
 }

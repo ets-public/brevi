@@ -5,7 +5,8 @@
 # Not here (caps.rs SAFETENSORS_LACKS sends a program using them to CPython's safetensors): the torch, tensorflow,
 # flax, mlx and paddle frameworks, TensorSpec with serialize / serialize_file, deserialize (its bytearrays),
 # devices other than the CPU.
-# Tensors of dtypes Brevi's numpy lacks (F16, BF16, U8, I8, ...) raise NotImplementedError when they are read.
+# F16, the 8- and 16-bit and unsigned integers and C64 tensors become numpy arrays of those dtypes (shape, printing,
+# indexing and astype; math on them needs an astype first). BF16, F8 and F4 fail as with numpy, which lacks them.
 import _brevi_fs as _fs
 import _brevi_st as _st
 
@@ -188,15 +189,20 @@ class safe_open:
             return None
         return dict(self._meta)
 
+    def _tensor(self, t):
+        try:
+            return _st.tensor(self._bytes(t), t[1], t[2], True)
+        except ValueError as e:
+            raise SafetensorError(str(e))
+
     def get_tensor(self, name):
-        t = self._info(name)
-        return _st.tensor(self._bytes(t), t[1], t[2])
+        return self._tensor(self._info(name))
 
     def get_tensors(self):
         self._check()
         out = {}
         for t in self._tensors:
-            out[t[0]] = _st.tensor(self._bytes(t), t[1], t[2])
+            out[t[0]] = self._tensor(t)
         return out
 
     def get_slice(self, name):

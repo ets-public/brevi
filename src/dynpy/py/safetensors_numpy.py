@@ -1,5 +1,6 @@
 # Brevi's safetensors.numpy: save, save_file, load and load_file of the safetensors 0.8 package, for arrays of
-# Brevi's numpy (float64, float32, int64, int32, bool). The file's bytes are those the package writes: tensors
+# Brevi's numpy (float64, float32, int64, int32, bool, and the storage dtypes float16, int8, uint8, int16, uint16,
+# uint32, uint64, complex64 that loading gives). The file's bytes are those the package writes: tensors
 # sorted by dtype then name, the header padded to 8 bytes (metadata keys sorted; the package's order is its
 # HashMap's). load returns the tensors in the file's order (the package's is its HashMap's too).
 import numpy as np
@@ -58,7 +59,7 @@ def load(data):
     base = hdr[0] + 8
     out = {}
     for t in hdr[2]:
-        out[t[0]] = _st.tensor(data[base + t[3]:base + t[4]], t[1], t[2])
+        out[t[0]] = _st.tensor(data[base + t[3]:base + t[4]], t[1], t[2], False)
     return out
 
 
