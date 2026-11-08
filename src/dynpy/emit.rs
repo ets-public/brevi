@@ -134,13 +134,13 @@ const NP_RAND_FUNCS: &[(&str, &[&str])] = &[
     ("standard_gamma", &["shape", "size"]), ("gamma", &["shape", "scale", "size"]), ("beta", &["a", "b", "size"]), ("chisquare", &["df", "size"]), ("noncentral_chisquare", &["df", "nonc", "size"]), ("f", &["dfnum", "dfden", "size"]), ("noncentral_f", &["dfnum", "dfden", "nonc", "size"]), ("standard_cauchy", &["size"]), ("standard_t", &["df", "size"]), ("vonmises", &["mu", "kappa", "size"]), ("pareto", &["a", "size"]), ("weibull", &["a", "size"]), ("power", &["a", "size"]), ("laplace", &["loc", "scale", "size"]), ("gumbel", &["loc", "scale", "size"]), ("logistic", &["loc", "scale", "size"]), ("lognormal", &["mean", "sigma", "size"]), ("rayleigh", &["scale", "size"]), ("wald", &["mean", "scale", "size"]), ("triangular", &["left", "mode", "right", "size"]), ("poisson", &["lam", "size"]), ("zipf", &["a", "size"]), ("geometric", &["p", "size"]), ("logseries", &["p", "size"]), ("negative_binomial", &["n", "p", "size"]), ("binomial", &["n", "p", "size"]), ("hypergeometric", &["ngood", "nbad", "nsample", "size"]), ("multinomial", &["n", "pvals", "size"]), ("dirichlet", &["alpha", "size"]),
 ];
 const NP_LINALG_FUNCS: &[(&str, &[&str])] = &[("norm", &["x", "ord", "axis", "keepdims"]), ("det", &[]), ("slogdet", &[]), ("solve", &[]), ("inv", &[]), ("matrix_power", &[]), ("lstsq", &["a", "b", "rcond"]), ("LinAlgError", &[])];
-fn np_linalg_kw(n: &str) -> Option<&'static [&'static str]> {
+pub(crate) fn np_linalg_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_LINALG_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
-fn np_rand_kw(n: &str) -> Option<&'static [&'static str]> {
+pub(crate) fn np_rand_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_RAND_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
-fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
+pub(crate) fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
     NP_FUNCS.iter().find(|(f, _)| *f == n).map(|(_, k)| *k)
 }
 // Refusal (which sends the program to CPython's numpy) for an attribute or method of a numpy value that the
