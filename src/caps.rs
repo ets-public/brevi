@@ -425,6 +425,22 @@ const OWN_JINJA2: &[&str] = &[
     "TemplatesNotFound", "Undefined", "UndefinedError", "__version__", "clear_caches", "is_undefined", "pass_context", "pass_environment",
     "pass_eval_context", "select_autoescape", "Markup", "escape",
 ];
+// Brevi's logging (src/dynpy/py/logging.py) and what it has not got: other handlers and config, files, and
+// the record fields it cannot fill (the caller's file, line and function, process and thread ids), which a
+// format names in a string (LOGGING_RAW).
+const OWN_LOGGING: &[&str] = &[
+    "BASIC_FORMAT", "BufferingFormatter", "CRITICAL", "DEBUG", "ERROR", "FATAL", "Filter", "Filterer", "Formatter", "Handler", "INFO", "LogRecord",
+    "Logger", "LoggerAdapter", "Manager", "NOTSET", "NullHandler", "PercentStyle", "RootLogger", "StrFormatStyle", "StreamHandler",
+    "StringTemplateStyle", "WARN", "WARNING", "addLevelName", "basicConfig", "critical", "debug", "disable", "error", "exception", "fatal",
+    "getHandlerByName", "getHandlerNames", "getLevelName", "getLevelNamesMapping", "getLogRecordFactory", "getLogger", "getLoggerClass",
+    "info", "lastResort", "log", "makeLogRecord", "raiseExceptions", "root", "setLogRecordFactory", "setLoggerClass", "shutdown", "warn",
+    "warning", "logThreads", "logProcesses", "logMultiprocessing", "logAsyncioTasks",
+];
+const LOGGING_LACKS: &[&str] = &["FileHandler", "captureWarnings", "stack_info=", ".findCaller(", "currentframe", "_srcfile"];
+const LOGGING_RAW: &[&str] = &[
+    "logging.handlers", "logging.config", "lineno", "funcName", "pathname", "(filename)", "{filename", "$filename", "(module)", "{module",
+    "$module", "(process", "{process", "$process", "(thread", "{thread", "$thread", "taskName",
+];
 const OWN_MARKUPSAFE: &[&str] = &["Markup", "escape", "escape_silent", "soft_str", "__version__"];
 const JINJA2_LACKS: &[&str] = &[
     "render_async", "generate_async", "make_module_async", "enable_async", ".generate(", ".stream(", "sandbox", "Sandboxed", "FileSystemLoader",
@@ -533,6 +549,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "random" => Some("random"),
         "io" => Some("io"),
         "textwrap" => Some("textwrap"),
+        "logging" => Some("logging"),
         "numpy" => Some("numpy"),
         "numpy.linalg" => Some("numpy.linalg"),
         "numpy.random" => Some("numpy.random"),
@@ -593,6 +610,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "random" => OWN_RANDOM.contains(&attr),
         "io" => attr == "StringIO",
         "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
+        "logging" => OWN_LOGGING.contains(&attr),
         // Brevi's numpy (rt_np*.rs) has no file, network or process access: np.load, np.save, tofile and the rest
         // are not in it. What else it lacks the dynamic build refuses, naming the grant.
         "numpy" => matches!(attr, "linalg" | "random" | "__version__") || crate::dynpy::emit::np_func_kw(attr).is_some(),
@@ -859,7 +877,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS), ("logging", LOGGING_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| lack_hit(l, x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
@@ -891,6 +909,20 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
             if let Some(x) = SAFETENSORS_RAW.iter().find(|x| l.contains(*x)) {
                 bad.push((n + 1, format!("safetensors framework or device {}", x.trim_matches(|c| c == '"' || c == '\''))));
+            }
+        }
+    }
+    // Record fields Brevi's logging cannot fill, named in format strings, and logging's other modules.
+    if uses("logging") {
+        for (n, l) in src.lines().enumerate() {
+            if let Some(x) = LOGGING_RAW.iter().find(|x| l.contains(*x)) {
+                bad.push((n + 1, format!("logging {}", x.trim_matches(|c| c == '(' || c == ')' || c == '{' || c == '$'))));
+            }
+        }
+        // basicConfig(filename=...) writes a file
+        if src.contains("basicConfig(") {
+            if let Some((n, _)) = lines.iter().find(|(_, l)| lack_hit(l, "filename=") || lack_hit(l, "filemode=")) {
+                bad.push((*n, "logging basicConfig(filename=)".into()));
             }
         }
     }
@@ -1773,6 +1805,20 @@ mod tests {
             }
             for bad in ["open(", "__import__", "exec(", "eval(", "_sys.stdin", "environ"] {
                 assert!(!l.contains(bad), "argparse.py uses {bad}");
+            }
+        }
+    }
+
+    // Brevi's logging writes records to the streams it is given (sys.stderr by default) and opens nothing.
+    #[test]
+    fn logging_copy_reaches_nothing() {
+        for l in include_str!("dynpy/py/logging.py").lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                let m = m.split_whitespace().next().unwrap();
+                assert!(["sys", "time", "re", "datetime", "tzlocal"].contains(&m), "logging.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "environ", "stdin"] {
+                assert!(!l.contains(bad), "logging.py uses {bad}");
             }
         }
     }

@@ -180,7 +180,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n)),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && !np_narrow(),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path"],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -1878,6 +1878,7 @@ impl Em {
                     let ee = self.ex(e, line)?;
                     let mk = self.q(&format!("make_exc({ee})"));
                     let r = self.raise_code("__e");
+                    let r = format!("set_context(&__e); {r}");
                     match cause {
                         // `raise X from Y`: Y (an instance, a class made one, or None) is X.__cause__
                         Some(c) => {
@@ -2192,7 +2193,8 @@ impl Em {
                 Some(n) => self.store(n, "V::Unbound"),
                 None => String::new(),
             };
-            write!(b, "if {test} {{ {bind}\n{hb}\n{unbind} }}").unwrap();
+            let guard = if has_yield(&h.body) { String::new() } else { format!("let _exg{id} = ExcGuard::push({ev}.clone());") };
+            write!(b, "if {test} {{ {guard}{bind}\n{hb}\n{unbind} }}").unwrap();
         }
         if !caught_all {
             let r = self.raise_code(&format!("E({ev})"));

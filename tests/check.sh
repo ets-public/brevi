@@ -84,6 +84,18 @@ for f in tests/lib/*.py; do
     echo "ok   $f"
   fi
 done
+# Brevi's logging writes to stderr what CPython's writes, natively, but for traceback frames (Brevi writes an
+# exception as it writes an uncaught one: the header and the last line).
+for f in tests/logging/*.py; do
+  exp="${f%.py}.expected"
+  if [ "$1" = "--update" ]; then python3 "$f" 2>&1 | grep -v '^  \|^Call stack:' > "$exp"; continue; fi
+  out=$(BREVI_PATH=1 timeout 120 $BREVI run "$f" --native 2>&1 | grep -v '^{"path"')
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 # Brevi files (.bv) that import libraries: Brevi's own copies run them, on the dynamic build's engine (engine.rs),
 # never CPython. The .expected files match what the same programs print with CPython's libraries
 # (BREVI_ENGINE=0, where python3 has them).

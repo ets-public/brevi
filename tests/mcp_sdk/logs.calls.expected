@@ -1,0 +1,10 @@
+> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+< {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"demo","version":""}}}
+> {"jsonrpc":"2.0","method":"notifications/initialized"}
+> {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add","arguments":{"a":1}}}
+< {"jsonrpc":"2.0","id":2,"result":{"content":[{"text":"3","type":"text"}],"isError":false,"structuredContent":{"result":3}}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lookup","arguments":{"key":"a"}}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"apple","type":"text"}],"isError":false,"structuredContent":{"result":"apple"}}}
+> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"lookup","arguments":{"key":"z"}}}
+< {"jsonrpc":"2.0","id":4,"result":{"content":[{"text":"Error executing tool lookup","type":"text"}],"isError":true}}
+exit 0

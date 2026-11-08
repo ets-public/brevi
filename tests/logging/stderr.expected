@@ -1,0 +1,31 @@
+no handlers 1
+between
+WARNING:root:root warn 2
+--- Logging error ---
+Traceback (most recent call last):
+TypeError: %d format: a real number is required, not str
+Message: 'bad args %d'
+Arguments: ('x',)
+ERROR:__main__:lookup failed
+Traceback (most recent call last):
+KeyError: 'k'
+ERROR:__main__:with instance
+Traceback (most recent call last):
+ValueError: v
+[%]|timed
+[%]|chained
+Traceback (most recent call last):
+ValueError: invalid literal for int() with base 10: 'q'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+RuntimeError: wrapped
+[%]|context
+Traceback (most recent call last):
+IndexError: list index out of range
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+KeyError: 'during'

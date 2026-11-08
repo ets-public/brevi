@@ -268,6 +268,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "pathlib" => include_str!("py/pathlib.py"),
         "io" => include_str!("py/io.py"),
         "textwrap" => include_str!("py/textwrap.py"),
+        "logging" => include_str!("py/logging.py"),
         "argparse" => include_str!("py/argparse.py"),
         "asyncio" => include_str!("py/asyncio.py"),
         "tiktoken" => include_str!("py/tiktoken.py"),
@@ -427,7 +428,7 @@ fn duck_libs() -> (Vec<String>, String) {
     (parts.filter(|x| !x.is_empty()).collect(), pre)
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3, duckdb, safetensors or onnxruntime beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, logging, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3, duckdb, safetensors or onnxruntime beyond Brevi's own copies runs in CPython";
 
 // The ONNX Runtime library inside the onnxruntime Python package (it has the C API), asked of python3 when the
 // program is built, without importing onnxruntime.
