@@ -436,6 +436,9 @@ fn main() {
                 exit(0);
             }
             dyn_blocked_note();
+            // --sandbox without CPython: Brevi's own library (numpy, polars, ...) lacks what the program uses, so
+            // say what, in place of the typed build's "a call CPython runs needs allow native".
+            let diags = own_lib_refusal(diags);
             for d in diags {
                 print_diag(&d);
             }
@@ -683,6 +686,31 @@ fn exit_sure() -> ! {
 
 // The set-order guard reason the typed build was let past (see guard_files), for when it fails after all.
 static SOFT_GUARD: std::sync::Mutex<Option<(usize, String, PathBuf)>> = std::sync::Mutex::new(None);
+
+// Under --sandbox without a CPython grant: when the typed build refused only because CPython would run the
+// program's libraries and the dynamic build (Brevi's own copies of them) refused too, one error naming what the
+// copy lacks and the grant that runs CPython's instead.
+fn own_lib_refusal(diags: Vec<Diag>) -> Vec<Diag> {
+    let generic = |d: &Diag| d.msg == "a call CPython runs needs allow native" || (d.line == 1 && d.msg.ends_with(" not in the typed build"));
+    if !caps::sandboxed() || !pybridge::no_native() || !diags.iter().any(generic) {
+        return diags;
+    }
+    let Some((f, line, msg)) = DYN_BLOCKED.lock().unwrap().clone() else { return diags };
+    let mut mods: Vec<String> = pybridge::uses().iter().map(|u| u.split('.').next().unwrap_or(u).to_string()).collect();
+    mods.sort();
+    mods.dedup();
+    if mods.is_empty() {
+        return diags;
+    }
+    let shown = Path::new(&f).file_name().unwrap_or_default().to_string_lossy().to_string();
+    let main = SEGS.get().and_then(|s| s.first()).and_then(|g| g.path.file_name()).map_or(true, |n| n.to_string_lossy() == shown);
+    let at = if main { String::new() } else { format!(" ({shown})") };
+    let text = format!("{msg}{at}; under --sandbox CPython's {} needs a grant", mods.join(", "));
+    let d = Diag::new("caps", line.max(1), 1, &text).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))));
+    let mut out = vec![d];
+    out.extend(diags.into_iter().filter(|d| !generic(d)));
+    out
+}
 
 // Why the dynamic build refused the file (file, line, msg), for the path report of a CPython run.
 static DYN_BLOCKED: std::sync::Mutex<Option<(String, usize, String)>> = std::sync::Mutex::new(None);
@@ -1233,7 +1261,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     }
     if pybridge::active() && pybridge::no_native() {
         // Only modules the dynamic build has: it builds them, so say why the typed build did not.
-        if pybridge::stdlib_only() {
+        if pybridge::stdlib_only() || pybridge::numpy_only() {
             return Err(vec![Diag::new("check", 1, 1, &format!("{} not in the typed build", pybridge::uses().join(", "))).fix_hint("the dynamic build has them: build it without BREVI_DYN=0")]);
         }
         return Err(vec![Diag::new("caps", 1, 1, "a call CPython runs needs allow native").fix_hint(&caps::grant_hint("native", None))]);

@@ -1,0 +1,17 @@
+{"path":"dynamic","line":1,"why":"numpy not in the typed build"}
+[3. 5. 7.] 2.5
+[[ 5. 14.]
+ [14. 50.]]
+[9 6 6 8]
+5.000000000000001
+exit 0
+-- dynamic
+[3. 5. 7.] 2.5
+[[ 5. 14.]
+ [14. 50.]]
+[9 6 6 8]
+5.000000000000001
+exit 0
+-- typed
+{"line":1,"msg":"numpy not in the typed build","fix":"the dynamic build has them: build it without BREVI_DYN=0"}
+exit 1

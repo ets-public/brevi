@@ -454,6 +454,9 @@ fn path_module(m: &str) -> Option<&'static str> {
         "random" => Some("random"),
         "io" => Some("io"),
         "textwrap" => Some("textwrap"),
+        "numpy" => Some("numpy"),
+        "numpy.linalg" => Some("numpy.linalg"),
+        "numpy.random" => Some("numpy.random"),
         "argparse" => Some("argparse"),
         "asyncio" => Some("asyncio"),
         "tiktoken" => Some("tiktoken"),
@@ -511,6 +514,11 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "random" => OWN_RANDOM.contains(&attr),
         "io" => attr == "StringIO",
         "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
+        // Brevi's numpy (rt_np*.rs) has no file, network or process access: np.load, np.save, tofile and the rest
+        // are not in it. What else it lacks the dynamic build refuses, naming the grant.
+        "numpy" => matches!(attr, "linalg" | "random" | "__version__") || crate::dynpy::emit::np_func_kw(attr).is_some(),
+        "numpy.linalg" => crate::dynpy::emit::np_linalg_kw(attr).is_some(),
+        "numpy.random" => crate::dynpy::emit::np_rand_kw(attr).is_some(),
         // all of argparse but FileType, which opens files
         "argparse" => attr != "FileType",
         "asyncio" => OWN_ASYNCIO.contains(&attr),

@@ -1,0 +1,9 @@
+{"line":4,"msg":"numpy.linalg.eig is not supported in dynamic builds; under --sandbox CPython's numpy needs a grant","fix":"do without it, or the caller grants it: --allow-py numpy (MCP tools: \"allow_py\": [\"numpy\"])"}
+note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines
+exit 1
+-- dynamic
+{"e":"dyn","at":"tests/sandbox/numpy_lacks.py","line":4,"msg":"numpy.linalg.eig is not supported in dynamic builds"}
+exit 1
+-- typed
+{"line":1,"msg":"numpy not in the typed build","fix":"the dynamic build has them: build it without BREVI_DYN=0"}
+exit 1
