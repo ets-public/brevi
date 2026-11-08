@@ -1,4 +1,6 @@
-# os.path for sandboxed builds (src/dynpy/mod.rs): the pure, POSIX subset, no file access.
+# os.path for native builds (src/dynpy/mod.rs): the POSIX path functions, and the file tests (exists, isfile,
+# isdir, islink, getsize) through _brevi_fs, which holds --sandbox's read grant and folders.
+import _brevi_fs
 sep = "/"
 curdir = "."
 pardir = ".."
@@ -107,3 +109,48 @@ def commonprefix(m):
             return s1[:i]
         i += 1
     return s1
+
+
+def _st(p, follow):
+    return _brevi_fs.stat(_s(p), follow)
+
+
+def exists(path):
+    try:
+        _st(path, True)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def lexists(path):
+    try:
+        _st(path, False)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def isfile(path):
+    try:
+        return _st(path, True)[0] == 1
+    except (OSError, ValueError):
+        return False
+
+
+def isdir(s):
+    try:
+        return _st(s, True)[0] == 2
+    except (OSError, ValueError):
+        return False
+
+
+def islink(path):
+    try:
+        return _st(path, False)[0] == 4
+    except (OSError, ValueError):
+        return False
+
+
+def getsize(filename):
+    return _st(filename, True)[1]

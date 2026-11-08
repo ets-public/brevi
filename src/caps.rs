@@ -293,8 +293,8 @@ pub fn allow_line(cap: &str) -> String {
 // Python's os, os.path and pathlib reach files, processes and the environment; their path functions do not.
 // Without `allow native` a program may use only these, and random only as far as Brevi's own copy goes (all
 // built from src/dynpy/py, see dynpy::sandbox_module).
-const PURE_OS: &[&str] = &["path", "sep", "curdir", "pardir", "extsep", "altsep", "linesep", "name"];
-const PURE_OS_PATH: &[&str] = &["join", "basename", "dirname", "split", "splitext", "normpath", "normcase", "isabs", "commonprefix", "sep", "curdir", "pardir", "extsep", "altsep"];
+const PURE_OS: &[&str] = &["path", "sep", "curdir", "pardir", "extsep", "altsep", "linesep", "name", "fspath", "listdir", "walk"];
+const PURE_OS_PATH: &[&str] = &["join", "basename", "dirname", "split", "splitext", "normpath", "normcase", "isabs", "commonprefix", "sep", "curdir", "pardir", "extsep", "altsep", "exists", "lexists", "isfile", "isdir", "islink", "getsize"];
 const PURE_PATHLIB: &[&str] = &["PurePath", "PurePosixPath"];
 // What src/dynpy/py/random.py has (CPython's generator, so seeded draws match).
 const OWN_RANDOM: &[&str] = &["Random", "seed", "random", "getrandbits", "randrange", "randint", "choice", "choices", "shuffle", "sample", "uniform", "gauss"];
@@ -956,6 +956,45 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
 
 // The lines where Brevi's polars reads or writes a file: a read_* / scan_* of anything but text in memory
 // (io.StringIO, bytes), a write_* given a file.
+// The lines where a program opens a file with the builtin open() (read, or write for a "w", "a" or "x" mode),
+// or lists folders and tests paths with os (listdir, walk, os.path.exists and the rest).
+fn py_files(src: &str) -> Vec<(usize, &'static str, String)> {
+    let mut out = vec![];
+    for (n, l) in code_lines(src) {
+        for (i, _) in l.match_indices("open(") {
+            if l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') {
+                continue;
+            }
+            let rest = &l[i + 5..];
+            // the mode: the second argument or mode=, read when there is none
+            let mode = rest.split_once("mode=").map(|x| x.1).or_else(|| rest.split_once(',').map(|x| x.1)).map(str::trim_start).unwrap_or("");
+            let lit = mode.starts_with(['\'', '"']);
+            let m: String = if lit { mode[1..].chars().take_while(|c| !matches!(c, '\'' | '"')).collect() } else { String::new() };
+            // another keyword argument (encoding=...) where the mode would be
+            let kw = !lit && mode.find('=').is_some_and(|e| mode.find([',', ')']).is_none_or(|c| e < c));
+            let (r, w) = if mode.is_empty() || kw || mode.starts_with(')') || !lit && mode.starts_with(|c: char| !c.is_alphanumeric()) {
+                (true, false)
+            } else if lit {
+                (m.contains('r') || m.contains('+'), m.contains(['w', 'a', 'x']))
+            } else {
+                (true, true)
+            };
+            if r {
+                out.push((n, "read", "open(file)".to_string()));
+            }
+            if w {
+                out.push((n, "write", "open(file)".to_string()));
+            }
+        }
+        for f in ["listdir(", "walk(", "path.exists(", "path.lexists(", "path.isfile(", "path.isdir(", "path.islink(", "path.getsize(", "scandir("] {
+            if l.contains(f) {
+                out.push((n, "read", format!("os.{}file)", f)));
+            }
+        }
+    }
+    out
+}
+
 fn polars_files(src: &str) -> Vec<(usize, &'static str, String)> {
     let mut out = vec![];
     for (n, l) in code_lines(src) {
@@ -1142,6 +1181,8 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     for (line, what) in paths.unwrap_or_default() {
         uses.push((line, "native", what));
     }
+    // open() and os's file functions read (and write) files.
+    uses.extend(py_files(src));
     // Brevi's polars reads and writes files (read_csv("x.csv"), df.write_csv("out.csv")).
     if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("polars")) {
         uses.extend(polars_files(src));
@@ -1319,15 +1360,15 @@ mod tests {
         assert_eq!(super::parse_paths("write", "/").unwrap(), ["write:/"]);
     }
 
-    // The modules built in place of CPython's under the sandbox (dynpy::sandbox_module) import only each other
-    // and Brevi's own math and time, and open nothing.
+    // The modules built in place of CPython's under the sandbox (dynpy::sandbox_module) import only each other,
+    // Brevi's own math and time, and _brevi_fs (files, under the read and write grants), and open nothing.
     #[test]
     fn sandbox_modules_reach_nothing() {
         for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py")), ("textwrap", include_str!("dynpy/py/textwrap.py"))] {
             for l in src.lines().map(str::trim) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["math", "time", "posixpath", "_brevi_mt"].contains(&m), "{name}.py imports {m}");
+                    assert!(["math", "time", "posixpath", "_brevi_mt", "_brevi_fs"].contains(&m), "{name}.py imports {m}");
                 }
                 for bad in ["open(", "__import__", "exec(", "eval(", "getattr(", "sys."] {
                     assert!(!l.contains(bad), "{name}.py uses {bad}");
