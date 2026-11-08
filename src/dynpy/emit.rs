@@ -199,7 +199,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
         "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
         "_brevi_stdio" => &["claim", "release", "read", "write", "poll"],
-        "_brevi_fs" => &["read", "write", "read_at", "size", "write_bytes"],
+        "_brevi_fs" => &["read", "write", "read_at", "size", "write_bytes", "listdir", "stat", "load", "save"],
         "_brevi_ort" => &["load", "providers", "build_info", "session", "run", "free"],
         "_brevi_st" => &["header", "header_len", "tensor", "dtype_name", "slice", "serialize"],
         "_brevi_sqlite" => &[
@@ -248,7 +248,7 @@ fn is_builtin_name(n: &str) -> bool {
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
     )
 }
 
@@ -1008,6 +1008,12 @@ impl Em {
                         return Err(err(line, "super used as a value is not supported"));
                     }
                     return Ok(format!("builtin_value({}).unwrap()", lit(name)));
+                }
+                // Brevi's own open() (_brevi_open.py) when no CPython library is in the program
+                if name == "open" && !self.bridge.on && self.user_modules.iter().any(|m| m == "_brevi_open") {
+                    let init = self.q("init__brevi_open()");
+                    let v = self.user_mod_load("_brevi_open", "open", line)?;
+                    return Ok(format!("{{ {init}; {v} }}"));
                 }
                 // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
                 if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
@@ -2214,7 +2220,7 @@ impl Em {
         }
         let (e, t) = &items[0];
         if let Ex::Call(f, _) = e {
-            if matches!(&**f, Ex::Name(n) if n == "open") && !self.bridge.on {
+            if matches!(&**f, Ex::Name(n) if n == "open") && !self.bridge.on && !self.user_modules.iter().any(|m| m == "_brevi_open") {
                 return Err(err(line, "open() is not supported in dynamic builds"));
             }
         }

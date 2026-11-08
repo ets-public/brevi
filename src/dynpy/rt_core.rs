@@ -1749,6 +1749,8 @@ pub fn init_builtin_classes() {
         ("FileNotFoundError", "OSError"),
         ("PermissionError", "OSError"),
         ("IsADirectoryError", "OSError"),
+        ("NotADirectoryError", "OSError"),
+        ("FileExistsError", "OSError"),
         ("TimeoutError", "OSError"),
         ("ConnectionError", "OSError"),
         ("ConnectionRefusedError", "ConnectionError"),

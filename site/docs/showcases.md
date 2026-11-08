@@ -9,6 +9,8 @@ Each showcase is an ordinary Python program, run two ways: built with `brevi bui
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [SQLite MCP server](repo:bench/showcase/sqlite_mcp.py) | Start to first tool call answered | **29 ms** | 614 ms | **21x** | yes | 16.1 MB | no |
 | [MCP time server](#the-official-mcp-time-server) (official, unchanged) | Start to first tool call answered | **29 ms** | 650 ms | **22x** | yes | 17.5 MB | no |
+| [Token count, one file](#token-counting) | Count of one file printed | **27 ms** | 371 ms | **14x** | yes | 11.3 MB | no |
+| [Token count, a source tree](#token-counting) | 1.8M tokens of Brevi's source counted | **321 ms** | 735 ms | **2.3x** | yes | 11.3 MB | no |
 
 Measured 8 November 2026 with Brevi 0.25.0 (main) on Linux x86_64 with 4 cores. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
 
@@ -39,9 +41,19 @@ claude mcp add time -- ./time-mcp
 
 The timed session sets `TZ=Europe/Paris`, lists the tools, then makes eight tool calls: two conversions, an unknown zone, a zone in the wrong case, a bad time, a tool that does not exist (a JSON-RPC error from the server's own middleware), and a conversion from the local zone. [time_mcp.py](repo:bench/showcase/time_mcp.py) is the package's `mcp-server-time` command: it reads `--local-timezone` and runs `serve`.
 
+## Token counting
+
+[count_tokens.py](repo:bench/showcase/count_tokens.py) does what [ttok](https://github.com/simonw/ttok) and [files-to-prompt](https://github.com/simonw/files-to-prompt) do for a model's context window. It walks the folders it is given with `os.walk`, skips hidden and build folders, reads each text file with `open()`, counts its tokens with tiktoken's `o200k_base`, and prints the largest files and the total. Brevi builds it, tiktoken and the vocabulary included, into one 11.3 MB binary. Counting one file takes 27 ms, most of which CPython spends starting up and loading tiktoken. On a whole source tree the counting itself takes most of the time, and Brevi still finishes in less than half the time CPython takes.
+
+```bash
+brevi build bench/showcase/count_tokens.py --release -o count-tokens
+./count-tokens src docs --ext .py .md --top 10
+```
+
+Under `--sandbox` it needs a read grant, and `--allow-read src,docs` holds it to those folders.
+
 ## Next showcases
 
 These are being made to build natively now. Each gets a row in the table above once its output matches CPython:
 
-- **Token counting** in the style of [ttok](https://github.com/simonw/ttok) and [files-to-prompt](https://github.com/simonw/files-to-prompt): exact tiktoken counts from one binary with no Python installed.
 - **Karpathy's [micrograd](https://github.com/karpathy/micrograd) and [microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95)**: an autograd engine and a GPT trained in pure Python. Today Brevi runs this class-heavy code slower than CPython, and the speed work is under way.

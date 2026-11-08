@@ -82,7 +82,82 @@ mod brevi_fsglue {
         std::fs::write(real, b).map_err(|e| os_err(e, p))
     }
 
+    // ----- Python's open(), os.listdir and os.path's file tests (_brevi_open.py, os.py, posixpath.py): CPython's
+    // errors, "[Errno 2] No such file or directory: 'x.txt'" -----
+    fn py_err(e: std::io::Error, p: &str) -> NetErr {
+        let n = e.raw_os_error().unwrap_or(0);
+        let kind = match n {
+            2 => "FileNotFoundError",
+            1 | 13 => "PermissionError",
+            17 => "FileExistsError",
+            20 => "NotADirectoryError",
+            21 => "IsADirectoryError",
+            _ => match e.kind() {
+                std::io::ErrorKind::NotFound => "FileNotFoundError",
+                std::io::ErrorKind::PermissionDenied => "PermissionError",
+                _ => "OSError",
+            },
+        };
+        let text = e.to_string();
+        let text = text.split(" (os error").next().unwrap_or(&text).to_string();
+        let q = if p.contains('\'') && !p.contains('"') { format!("\"{p}\"") } else { format!("'{}'", p.replace('\\', "\\\\").replace('\'', "\\'")) };
+        NetErr { kind, msg: format!("[Errno {n}] {text}: {q}") }
+    }
+
+    fn listdir(p: &str) -> Result<Vec<String>, NetErr> {
+        if FS_SANDBOX && !FS_READ {
+            return Err(refuse("read", p));
+        }
+        let mut out = vec![];
+        for e in std::fs::read_dir(scoped(p, false)?).map_err(|e| py_err(e, p))? {
+            let e = e.map_err(|e| py_err(e, p))?;
+            out.push(e.file_name().to_string_lossy().into_owned());
+        }
+        Ok(out)
+    }
+
+    // (kind, size): 1 a file, 2 a folder, 3 anything else, 4 a symlink (when not followed)
+    fn stat(p: &str, follow: bool) -> Result<(i64, u64), NetErr> {
+        if FS_SANDBOX && !FS_READ {
+            return Err(refuse("read", p));
+        }
+        let real = scoped(p, false)?;
+        let m = if follow { std::fs::metadata(&real) } else { std::fs::symlink_metadata(p) }.map_err(|e| py_err(e, p))?;
+        let t = m.file_type();
+        let kind = if t.is_symlink() { 4 } else if t.is_dir() { 2 } else if t.is_file() { 1 } else { 3 };
+        Ok((kind, m.len()))
+    }
+
+    fn load(p: &str) -> Result<Vec<u8>, NetErr> {
+        if FS_SANDBOX && !FS_READ {
+            return Err(refuse("read", p));
+        }
+        let real = scoped(p, false)?;
+        if std::fs::metadata(&real).map(|m| m.is_dir()).unwrap_or(false) {
+            return Err(py_err(std::io::Error::from_raw_os_error(21), p));
+        }
+        std::fs::read(real).map_err(|e| py_err(e, p))
+    }
+
+    // mode 0 replaces the file, 1 appends, 2 creates it (an error when it exists)
+    fn save(p: &str, b: &[u8], mode: i64) -> Result<(), NetErr> {
+        if FS_SANDBOX && !FS_WRITE {
+            return Err(refuse("write", p));
+        }
+        let real = scoped(p, true)?;
+        brevi_new_file(&real);
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true);
+        match mode {
+            1 => o.append(true).create(true),
+            2 => o.create_new(true),
+            _ => o.create(true).truncate(true),
+        };
+        let mut f = o.open(&real).map_err(|e| py_err(e, p))?;
+        f.write_all(b).map_err(|e| py_err(e, p))
+    }
+
     pub fn ops() -> FsOps {
-        FsOps { read, write, read_at, size, write_bytes }
+        FsOps { read, write, read_at, size, write_bytes, listdir, stat, load, save }
     }
 }

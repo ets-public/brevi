@@ -305,6 +305,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "_brevi_mcp_models" => include_str!("py/_brevi_mcp_models.py"),
         "_brevi_mcp_types" => include_str!("py/_brevi_mcp_types.py"),
         "contextlib" => include_str!("py/contextlib.py"),
+        "_brevi_open" => include_str!("py/_brevi_open.py"),
         "jinja2" => include_str!("py/jinja2.py"),
         "jinja2.ext" => include_str!("py/jinja2_ext.py"),
         "jinja2.exceptions" => include_str!("py/jinja2_exceptions.py"),
@@ -490,6 +491,10 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(&n).join("__init__.py").is_file()) {
                 imps.push(format!("{m}.{n}"));
             }
+        }
+        // the builtin open(): Brevi's, in _brevi_open (emit.rs loads it when the program uses no CPython library)
+        if texts.get(&mods[k].name).is_some_and(|t| uses_open(&t.1)) {
+            imps.push("_brevi_open".into());
         }
         for m in imps {
             if mods.iter().any(|x| x.name == m) || emit::builtin_mod(&m) {
@@ -1258,4 +1263,13 @@ pub fn rt_zone_norm(n: &str) -> String {
         o.push('_');
     }
     o
+}
+
+// Whether the source names the builtin open (a call, or open passed as a value).
+fn uses_open(src: &str) -> bool {
+    src.match_indices("open").any(|(i, _)| {
+        let before = src[..i].chars().next_back();
+        let after = src[i + 4..].chars().next();
+        !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
 }
