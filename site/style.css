@@ -144,6 +144,8 @@ table.vs td:first-child { color: var(--muted); }
 .side li a:hover { color: var(--fg); background: var(--panel); }
 .side li a[aria-current="page"] { color: var(--fg); background: var(--mark); font-weight: 500; }
 .group { font: 500 0.8rem var(--sans); color: var(--muted); margin: 0 0 6px; }
+.side .group a { color: inherit; text-decoration: none; }
+.side .group a:hover { color: var(--fg); text-decoration: underline; }
 .toc { position: sticky; top: calc(var(--header-h) + 24px); padding-block: 40px; font-size: 0.85rem; max-height: calc(100vh - var(--header-h) - 40px); overflow-y: auto; }
 .toc a { color: var(--muted); text-decoration: none; display: block; padding: 3px 0; line-height: 1.4; }
 .toc a:hover { color: var(--fg); }

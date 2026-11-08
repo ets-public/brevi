@@ -555,7 +555,9 @@ def build(out, out_run, version, guide_tokens, public):
         lead = '<p class="lead">%s</p>' % inline(intro, ctx) if intro else ""
         side = []
         for g, items in NAV:
-            side.append('<p class="group">%s</p><ul>' % html.escape(g))
+            # the group heading links to its first page, so "Brevi language (.bv)" opens the language guide
+            first = "/docs/" if items[0][0] == "index" else "/docs/" + items[0][0]
+            side.append('<p class="group"><a href="%s">%s</a></p><ul>' % (first, html.escape(g)))
             for s_, t_, _ in items:
                 href = "/docs/" if s_ == "index" else "/docs/" + s_
                 cur = ' aria-current="page"' if s_ == slug_ else ""
