@@ -763,6 +763,13 @@ pub struct FsOps {
     pub size: fn(&str) -> Result<u64, NetErr>,
     // write the bytes (the file replaced)
     pub write_bytes: fn(&str, &[u8]) -> Result<(), NetErr>,
+    // os.listdir: the names in a folder, in the order the system gives them
+    pub listdir: fn(&str) -> Result<Vec<String>, NetErr>,
+    // (kind, size) of a path, following symlinks or not: 1 file, 2 folder, 3 other, 4 symlink
+    pub stat: fn(&str, bool) -> Result<(i64, u64), NetErr>,
+    // open(): a file's bytes, and writing them (0 replace, 1 append, 2 create new), with CPython's errors
+    pub load: fn(&str) -> Result<Vec<u8>, NetErr>,
+    pub save: fn(&str, &[u8], i64) -> Result<(), NetErr>,
 }
 
 pub static FS: std::sync::OnceLock<FsOps> = std::sync::OnceLock::new();
@@ -788,6 +795,17 @@ pub fn brevi_fs_fn(n: &str, a: Args) -> R {
         "size" => Ok(V::Int((fs_ops()?.size)(&net_s(&arg(0))).map_err(net_err)? as i64)),
         "write_bytes" => {
             (fs_ops()?.write_bytes)(&net_s(&arg(0)), &bytes_of(&arg(1)).unwrap_or_default()).map_err(net_err)?;
+            Ok(V::None)
+        }
+        "listdir" => Ok(list((fs_ops()?.listdir)(&net_s(&arg(0))).map_err(net_err)?.into_iter().map(|x| s(&x)).collect())),
+        "stat" => {
+            let (k, n) = (fs_ops()?.stat)(&net_s(&arg(0)), truth(&arg(1))?).map_err(net_err)?;
+            Ok(tup(vec![V::Int(k), V::Int(n as i64)]))
+        }
+        "load" => Ok(bytesv((fs_ops()?.load)(&net_s(&arg(0))).map_err(net_err)?)),
+        "save" => {
+            let m = match arg(2) { V::Int(i) => i, _ => 0 };
+            (fs_ops()?.save)(&net_s(&arg(0)), &bytes_of(&arg(1)).unwrap_or_default(), m).map_err(net_err)?;
             Ok(V::None)
         }
         _ => Err(unsupported(&format!("_brevi_fs.{n}"))),

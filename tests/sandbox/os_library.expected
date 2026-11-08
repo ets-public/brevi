@@ -1,8 +1,8 @@
-{"line":3,"msg":"os.listdir needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); do without it, or the caller grants it: --allow-py os (MCP tools: \"allow_py\": [\"os\"])"}
+{"line":3,"msg":"os.listdir(file) needs allow read","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); do without it, or the caller grants it: --allow read (MCP tools: \"allow\": [\"read\"])"}
 exit 1
 -- dynamic
-{"line":3,"msg":"os.listdir needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); do without it, or the caller grants it: --allow-py os (MCP tools: \"allow_py\": [\"os\"])"}
+{"line":3,"msg":"os.listdir(file) needs allow read","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); do without it, or the caller grants it: --allow read (MCP tools: \"allow\": [\"read\"])"}
 exit 1
 -- typed
-{"line":3,"msg":"os.listdir needs allow native","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); do without it, or the caller grants it: --allow-py os (MCP tools: \"allow_py\": [\"os\"])"}
+{"line":3,"msg":"os.listdir(file) needs allow read","fix":"without it only path functions run (os.path.join, basename, dirname, splitext, normpath, os.sep, pathlib.PurePath); do without it, or the caller grants it: --allow read (MCP tools: \"allow\": [\"read\"])"}
 exit 1

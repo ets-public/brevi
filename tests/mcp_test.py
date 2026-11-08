@@ -100,7 +100,9 @@ if "structuredContent" in r:
 # The default sandbox holds Python too: a file read, a Python library or a write is refused, never run.
 start()
 expect("sandbox read", call("run", code="with open('/etc/hostname') as f:\n    print(f.read().strip())\n"), "needs allow read", True)
-expect("sandbox library", call("run", code="import os\nprint(os.listdir('.'))\n"), "needs allow native", True)
+expect("sandbox library", call("run", code="import os\nprint(os.getpid())\n"), "needs allow native", True)
+# Brevi's own os.listdir reads a folder: it needs allow read, not CPython
+expect("sandbox listdir", call("run", code="import os\nprint(os.listdir('.'))\n"), "needs allow read", True)
 esc = call("run", code="import sys\nsys.modules['os'].system('echo escaped')\n")
 if "escaped" in esc[0].replace("echo escaped", "") or not esc[1]:
     fails += 1
@@ -116,9 +118,9 @@ expect("sandbox allow argument", call("run", code="with open('/etc/hostname') as
 expect("sandbox allow read not write", call("run", code="open('x.txt', 'w').write('x')\n", allow=["read"]), "needs allow write", True)
 expect("sandbox allow_py", call("run", code="import os\nprint(os.getpid() > 0)\n", allow_py=["os"]), "True", False)
 # CPython is held to the file grants by the kernel (Linux Landlock): without allow read it lists nothing.
-expect("sandbox allow_py held to grants", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"]), "Permission denied", True)
-expect("sandbox allow_py with read", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"], allow=["read"]), "True", False)
-expect("sandbox allow_py other", call("run", code="import os\nprint(os.listdir('.'))\n", allow_py=["json"]), "allow_py", True)
+expect("sandbox allow_py held to grants", call("run", code="import os\nprint(len(list(os.scandir('.'))) >= 0)\n", allow_py=["os"]), "Permission denied", True)
+expect("sandbox allow_py with read", call("run", code="import os\nprint(len(list(os.scandir('.'))) >= 0)\n", allow_py=["os"], allow=["read"]), "True", False)
+expect("sandbox allow_py other", call("run", code="import os\nprint(os.getpid())\n", allow_py=["json"]), "allow_py", True)
 # allow_read / allow_write: files only inside the granted folders (relative to where brevi mcp started)
 expect("sandbox allow_read folder", call("run", code="with open('/etc/hostname') as f:\n    print(f.read())\n", allow_read=["tests/sandbox"]), "outside the folders granted to read", True)
 expect("sandbox allow_read inside", call("run", code="with open(" + repr(__import__('os').path.abspath('tests/sandbox/data.txt')) + ") as f:\n    print(len(f.read()) > 0)\n", allow_read=["tests/sandbox"]), "True", False)

@@ -40,6 +40,42 @@
    "speedup": 22.129354241569853,
    "binary_mb": 17.5,
    "needs_python": false
+  },
+  {
+   "name": "count_tokens_file",
+   "title": "Token count, one file",
+   "metric": "count of one file printed",
+   "runs": 10,
+   "same_output": true,
+   "brevi": {
+    "first_s": 0.02711585200040645,
+    "total_s": 0.02711585200040645
+   },
+   "cpython": {
+    "first_s": 0.37055929249982,
+    "total_s": 0.37055929249982
+   },
+   "speedup": 13.665780905363606,
+   "binary_mb": 11.3,
+   "needs_python": false
+  },
+  {
+   "name": "count_tokens_tree",
+   "title": "Token count, a source tree",
+   "metric": "Brevi's own source counted",
+   "runs": 10,
+   "same_output": true,
+   "brevi": {
+    "first_s": 0.3213463034999222,
+    "total_s": 0.3213463034999222
+   },
+   "cpython": {
+    "first_s": 0.7347387690001597,
+    "total_s": 0.7347387690001597
+   },
+   "speedup": 2.286439149907127,
+   "binary_mb": 11.3,
+   "needs_python": false
   }
  ]
 }

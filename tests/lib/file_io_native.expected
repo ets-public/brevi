@@ -1,0 +1,33 @@
+<_io.TextIOWrapper name='/tmp/brevi_file_io_native.txt' mode='w' encoding='utf-8'> w /tmp/brevi_file_io_native.txt False False True
+14
+True
+['one', 'two', 'three', 'four']
+'one\ntwo\r\nthree\nfour\n'
+<_io.BufferedReader name='/tmp/brevi_file_io_native.txt'> b'one\nt' b'wo\r\n' b'three\nfour\n'
+0 'one\n'
+1 'two\n'
+2 'three\n'
+3 'four\n'
+['one\n', 'two\n', 'three\n', 'four\n'] on
+5 25
+b'\x00\x01bytes\n'
+FileExistsError [Errno 17] File exists: '/tmp/brevi_file_io_native.txt' True
+FileNotFoundError [Errno 2] No such file or directory: 'tests/lib/tree/missing.txt' True
+IsADirectoryError [Errno 21] Is a directory: 'tests/lib/tree' True
+ValueError must have exactly one of create/read/write/append mode True
+ValueError invalid mode: 'q' True
+ValueError binary mode doesn't take an encoding argument 
+ValueError I/O operation on closed file.
+OSError not readable
+UnicodeDecodeError 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+'z\nwindows line\n'
+['a', 'c', 'top.md']
+tests/lib/tree ['a', 'c'] ['top.md']
+tests/lib/tree/a ['b'] ['x.py']
+tests/lib/tree/a/b [] ['y.txt']
+tests/lib/tree/c [] ['blob.bin']
+[('tests/lib/tree', ['a', 'c'], ['top.md']), ('tests/lib/tree/a', ['b'], ['x.py']), ('tests/lib/tree/a/b', [], ['y.txt']), ('tests/lib/tree/c', [], ['blob.bin'])]
+True True False True False False True
+12 []
+FileNotFoundError [Errno 2] No such file or directory: 'nope'
+NotADirectoryError [Errno 20] Not a directory: 'tests/lib/tree/a/x.py'

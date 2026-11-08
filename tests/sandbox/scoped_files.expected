@@ -10,8 +10,17 @@ refused tests/sandbox/scoped/in/y.txt brevi: --sandbox: 'tests/sandbox/scoped/in
 refused tests/sandbox/scoped/out/../z.txt brevi: --sandbox: 'tests/sandbox/scoped/out/../z.txt' is outside the folders granted to write (--allow-write)
 exit 0
 -- dynamic
-{"e":"dyn","at":"tests/sandbox/scoped_files.py","line":6,"msg":"open() is not supported in dynamic builds"}
-exit 1
+read tests/sandbox/scoped/in/a.txt hello
+refused tests/sandbox/scoped/secret.txt brevi: --sandbox: 'tests/sandbox/scoped/secret.txt' is outside the folders granted to read (--allow-read)
+refused tests/sandbox/scoped/in/link.txt brevi: --sandbox: 'tests/sandbox/scoped/in/link.txt' is outside the folders granted to read (--allow-read)
+refused tests/sandbox/scoped/in/../secret.txt brevi: --sandbox: 'tests/sandbox/scoped/in/../secret.txt' is outside the folders granted to read (--allow-read)
+refused tests/sandbox/scoped/in/missing.txt [Errno 2] No such file or directory: 'tests/sandbox/scoped/in/missing.txt'
+refused /etc/hostname brevi: --sandbox: '/etc/hostname' is outside the folders granted to read (--allow-read)
+refused /nowhere/x brevi: --sandbox: '/nowhere/x' is outside the folders granted to read (--allow-read)
+wrote tests/sandbox/scoped/out/x.txt
+refused tests/sandbox/scoped/in/y.txt brevi: --sandbox: 'tests/sandbox/scoped/in/y.txt' is outside the folders granted to write (--allow-write)
+refused tests/sandbox/scoped/out/../z.txt brevi: --sandbox: 'tests/sandbox/scoped/out/../z.txt' is outside the folders granted to write (--allow-write)
+exit 0
 -- typed
 read tests/sandbox/scoped/in/a.txt hello
 refused tests/sandbox/scoped/secret.txt brevi: --sandbox: 'tests/sandbox/scoped/secret.txt' is outside the folders granted to read (--allow-read)
