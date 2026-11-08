@@ -299,14 +299,16 @@ const PURE_PATHLIB: &[&str] = &["PurePath", "PurePosixPath"];
 // What src/dynpy/py/random.py has (CPython's generator, so seeded draws match).
 const OWN_RANDOM: &[&str] = &["Random", "seed", "random", "getrandbits", "randrange", "randint", "choice", "choices", "shuffle", "sample", "uniform", "gauss"];
 
-// What src/dynpy/py/asyncio.py has: the event loop without I/O, threads, processes or signals.
+// What src/dynpy/py/asyncio.py has: the event loop and child processes, without sockets, threads or signals.
 const OWN_ASYNCIO: &[&str] = &[
     "run", "Runner", "sleep", "gather", "create_task", "ensure_future", "wait", "wait_for", "as_completed", "shield", "current_task", "all_tasks",
     "Future", "Task", "Queue", "PriorityQueue", "LifoQueue", "QueueEmpty", "QueueFull", "QueueShutDown", "Lock", "Event", "Condition", "Semaphore",
     "BoundedSemaphore", "timeout", "timeout_at", "Timeout", "TaskGroup", "CancelledError", "InvalidStateError", "TimeoutError", "BrokenBarrierError",
     "FIRST_COMPLETED", "FIRST_EXCEPTION", "ALL_COMPLETED", "get_running_loop", "get_event_loop", "new_event_loop", "set_event_loop", "iscoroutine",
-    "isfuture", "AbstractEventLoop", "BaseEventLoop", "Handle", "TimerHandle",
+    "isfuture", "AbstractEventLoop", "BaseEventLoop", "Handle", "TimerHandle", "create_subprocess_exec", "create_subprocess_shell", "subprocess",
+    "StreamReader", "StreamWriter", "IncompleteReadError", "LimitOverrunError",
 ];
+const OWN_ASYNCIO_SUBPROCESS: &[&str] = &["PIPE", "STDOUT", "DEVNULL", "Process", "create_subprocess_exec", "create_subprocess_shell"];
 // What src/dynpy/py/tiktoken.py has.
 const OWN_TIKTOKEN: &[&str] = &["Encoding", "get_encoding", "encoding_for_model", "encoding_name_for_model", "list_encoding_names", "__version__"];
 // Encoding methods Brevi's tiktoken lacks (numpy arrays, the unstable API, regex splitting in Python).
@@ -555,6 +557,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "numpy.random" => Some("numpy.random"),
         "argparse" => Some("argparse"),
         "asyncio" => Some("asyncio"),
+        "asyncio.subprocess" => Some("asyncio.subprocess"),
         "tiktoken" => Some("tiktoken"),
         "tokenizers" => Some("tokenizers"),
         "requests" => Some("requests"),
@@ -619,6 +622,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         // all of argparse but FileType, which opens files
         "argparse" => attr != "FileType",
         "asyncio" => OWN_ASYNCIO.contains(&attr),
+        "asyncio.subprocess" => OWN_ASYNCIO_SUBPROCESS.contains(&attr),
         "tiktoken" => OWN_TIKTOKEN.contains(&attr),
         "tokenizers" => OWN_TOKENIZERS.contains(&attr),
         "requests" => OWN_REQUESTS.contains(&attr),
@@ -1227,6 +1231,14 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
         }
         uses.push((line, "native", format!("import {m} (a Python library, run by CPython)")));
     }
+    // Brevi's asyncio starts other programs: under the sandbox that is the native grant (they run unconfined).
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("asyncio")) {
+        for (n, l) in code_lines(src) {
+            if l.contains("create_subprocess_") {
+                uses.push((n, "native", "a child process (asyncio.create_subprocess_exec or _shell: another program, outside the sandbox)".into()));
+            }
+        }
+    }
     // Brevi's requests, httpx, anthropic and openai reach the network.
     for (line, m) in crate::pybridge::bridged_imports(src) {
         if matches!(m.split('.').next().unwrap_or(""), "requests" | "httpx" | "anthropic" | "openai") {
@@ -1450,10 +1462,11 @@ mod tests {
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
             if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                 let m = m.split_whitespace().next().unwrap();
-                assert!(["_brevi_async", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
+                assert!(["_brevi_async", "_brevi_proc", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
             }
-            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess"] {
-                assert!(!l.contains(bad), "asyncio.py uses {bad}");
+            // child processes only through _brevi_proc (whose system calls a program gets only when it starts one)
+            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "import subprocess", "subprocess.Popen", "import os", "fork"] {
+                assert!(!l.replace("subprocess_exec(", "").contains(bad), "asyncio.py uses {bad}");
             }
         }
     }

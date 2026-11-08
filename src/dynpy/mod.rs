@@ -271,6 +271,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "logging" => include_str!("py/logging.py"),
         "argparse" => include_str!("py/argparse.py"),
         "asyncio" => include_str!("py/asyncio.py"),
+        "asyncio.subprocess" => include_str!("py/asyncio_subprocess.py"),
         "tiktoken" => include_str!("py/tiktoken.py"),
         "tokenizers" => include_str!("py/tokenizers.py"),
         "requests" => include_str!("py/requests.py"),
@@ -724,6 +725,17 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         rust = rust.replacen("fn main() { ", "fn main() { NET.set(brevi_netglue::ops()).ok(); ", 1);
         rust.push_str(&net_glue());
+    }
+    // child processes (Brevi's asyncio create_subprocess_exec / _shell): the glue only where the program starts one
+    if own_mods.contains("asyncio") || mods.iter().any(|m| m.name == "asyncio") {
+        if texts.iter().any(|(n, (_, t))| n != "asyncio" && t.contains("create_subprocess_")) {
+            if !cfg!(unix) {
+                return Err((file.to_string(), 0, "Brevi's own asyncio subprocesses run on Linux and macOS".into()));
+            }
+            rust = rust.replacen("fn main() { ", "fn main() { PROC.set(brevi_procglue::ops()).ok(); ", 1);
+            rust.push('\n');
+            rust.push_str(include_str!("procglue.rs"));
+        }
     }
     if stdio_used {
         if !cfg!(unix) {

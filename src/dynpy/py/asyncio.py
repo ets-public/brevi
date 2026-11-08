@@ -9,6 +9,7 @@
 # future that is not done, and _brevi_async.suspend(None) is CPython's bare `yield` (sleep(0)).
 
 import _brevi_async
+import _brevi_proc
 import collections
 import heapq
 import math
@@ -1873,3 +1874,371 @@ class TaskGroup:
             self._abort()
             self._parent_cancel_requested = True
             self._parent_task.cancel()
+
+
+# ---------- subprocess.py, streams.py (the parts a child process's pipes use) ----------
+# Child processes through _brevi_proc (rt_net.rs; the system calls are pasted into a program that starts
+# one, src/dynpy/procglue.rs): pipes the event loop waits on with poll, as CPython's selector does, and the
+# exit status polled, where CPython's child watcher is told.
+
+class IncompleteReadError(EOFError):
+    def __init__(self, partial, expected):
+        r_expected = 'undefined' if expected is None else repr(expected)
+        super().__init__(f'{len(partial)} bytes read on a total of {r_expected} expected bytes')
+        self.partial = partial
+        self.expected = expected
+
+
+class LimitOverrunError(Exception):
+    def __init__(self, message, consumed):
+        super().__init__(message)
+        self.consumed = consumed
+
+
+def _brevi_proc_loop():
+    loop = get_running_loop()
+    if loop._io_poll is None:
+        loop._io_poll = _brevi_proc.poll
+    return loop
+
+
+class StreamReader:
+    # A pipe's data is read as it comes, as CPython's transport reads it (a child blocked writing to a full pipe
+    # would never finish), up to twice the limit ahead of the program, where CPython pauses reading too.
+    def __init__(self, fd, limit=2 ** 16):
+        self._fd = fd
+        self._limit = limit
+        self._buffer = b''
+        self._eof = fd is None
+        self._waiter = None
+        self._resume = None
+        self._pump_task = None
+        if fd is not None:
+            self._pump_task = ensure_future(self._pump())
+
+    def __repr__(self):
+        info = ['StreamReader']
+        if self._buffer:
+            info.append(f'{len(self._buffer)} bytes')
+        if self._eof:
+            info.append('eof')
+        return '<{}>'.format(' '.join(info))
+
+    def _wake(self):
+        w = self._waiter
+        if w is not None:
+            self._waiter = None
+            if not w.done():
+                w.set_result(None)
+
+    async def _pump(self):
+        loop = _brevi_proc_loop()
+        while True:
+            if len(self._buffer) > 2 * self._limit:
+                self._resume = loop.create_future()
+                await self._resume
+                continue
+            got = _brevi_proc.read(self._fd, 65536)
+            if got is None:
+                await loop._brevi_wait_fd(self._fd, 1)
+                continue
+            if got:
+                self._buffer = self._buffer + got
+                self._wake()
+            else:
+                self._eof = True
+                _brevi_proc.close(self._fd)
+                self._wake()
+                return
+
+    def _consumed(self):
+        r = self._resume
+        if r is not None and len(self._buffer) <= self._limit:
+            self._resume = None
+            if not r.done():
+                r.set_result(None)
+
+    async def _fill(self):
+        # until more data comes or the pipe ends
+        if self._eof:
+            return
+        self._waiter = get_running_loop().create_future()
+        self._consumed()
+        await self._waiter
+
+    def at_eof(self):
+        return self._eof and not self._buffer
+
+    def feed_eof(self):
+        self._eof = True
+
+    async def read(self, n=-1):
+        if n == 0:
+            return b''
+        if n < 0:
+            blocks = []
+            while True:
+                if self._buffer:
+                    blocks.append(self._buffer)
+                    self._buffer = b''
+                    self._consumed()
+                if self._eof:
+                    break
+                await self._fill()
+            return b''.join(blocks)
+        if not self._buffer and not self._eof:
+            await self._fill()
+        data = self._buffer[:n]
+        self._buffer = self._buffer[n:]
+        self._consumed()
+        return data
+
+    async def readline(self):
+        sep = b'\n'
+        try:
+            line = await self.readuntil(sep)
+        except IncompleteReadError as e:
+            return e.partial
+        except LimitOverrunError as e:
+            if self._buffer[e.consumed:].startswith(sep):
+                self._buffer = self._buffer[e.consumed + len(sep):]
+            else:
+                self._buffer = b''
+            raise ValueError(e.args[0])
+        return line
+
+    async def readuntil(self, separator=b'\n'):
+        if not separator:
+            raise ValueError('Separator should be at least one-byte string')
+        while True:
+            i = self._buffer.find(separator)
+            if i >= 0:
+                end = i + len(separator)
+                if end > self._limit:
+                    raise LimitOverrunError('Separator is found, but chunk is longer than limit', i)
+                chunk = self._buffer[:end]
+                self._buffer = self._buffer[end:]
+                self._consumed()
+                return chunk
+            if len(self._buffer) > self._limit:
+                raise LimitOverrunError('Separator is not found, and chunk exceed the limit', len(self._buffer))
+            if self._eof:
+                chunk = self._buffer
+                self._buffer = b''
+                raise IncompleteReadError(chunk, None)
+            await self._fill()
+
+    async def readexactly(self, n):
+        if n < 0:
+            raise ValueError('readexactly size can not be less than zero')
+        while len(self._buffer) < n:
+            if self._eof:
+                incomplete = self._buffer
+                self._buffer = b''
+                raise IncompleteReadError(incomplete, n)
+            await self._fill()
+        data = self._buffer[:n]
+        self._buffer = self._buffer[n:]
+        self._consumed()
+        return data
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        val = await self.readline()
+        if val == b'':
+            raise StopAsyncIteration
+        return val
+
+
+class StreamWriter:
+    def __init__(self, fd):
+        self._fd = fd
+        self._pending = b''
+        self._closing = False
+        self._closed = False
+        self._closer = None
+
+    def __repr__(self):
+        return '<StreamWriter>'
+
+    def _push(self):
+        while self._pending:
+            n = _brevi_proc.write(self._fd, self._pending)
+            if n == 0:
+                return False
+            self._pending = self._pending[n:]
+        return True
+
+    def write(self, data):
+        if self._closing:
+            return
+        self._pending = self._pending + bytes(data)
+        try:
+            self._push()
+        except (BrokenPipeError, ConnectionResetError):
+            self._pending = b''
+
+    def writelines(self, data):
+        for d in data:
+            self.write(d)
+
+    def can_write_eof(self):
+        return True
+
+    def write_eof(self):
+        self.close()
+
+    async def drain(self):
+        while self._pending and not self._closed:
+            await _brevi_proc_loop()._brevi_wait_fd(self._fd, 4)
+            self._push()
+
+    def is_closing(self):
+        return self._closing
+
+    def close(self):
+        if self._closing:
+            return
+        self._closing = True
+        if not self._pending:
+            self._close_now()
+        else:
+            self._closer = ensure_future(self._drain_close())
+
+    async def _drain_close(self):
+        try:
+            await self.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        self._close_now()
+
+    def _close_now(self):
+        if not self._closed:
+            self._closed = True
+            _brevi_proc.close(self._fd)
+
+    async def wait_closed(self):
+        if self._closer is not None:
+            await self._closer
+
+
+class Process:
+    def __init__(self, ident, pid, fds, limit):
+        self._id = ident
+        self.pid = pid
+        self.returncode = None
+        self.stdin = StreamWriter(fds[0]) if fds[0] is not None else None
+        self.stdout = StreamReader(fds[1], limit) if fds[1] is not None else None
+        self.stderr = StreamReader(fds[2], limit) if fds[2] is not None else None
+
+    def __repr__(self):
+        return f'<Process {self.pid}>'
+
+    async def wait(self):
+        delay = 0.0005
+        while self.returncode is None:
+            rc = _brevi_proc.wait(self._id, False)
+            if rc is not None:
+                self.returncode = rc
+                break
+            await sleep(delay)
+            delay = min(delay * 2, 0.02)
+        return self.returncode
+
+    def send_signal(self, signal):
+        if self.returncode is None and _brevi_proc.wait(self._id, False) is None:
+            _brevi_proc.signal(self.pid, signal)
+
+    def terminate(self):
+        self.send_signal(15)
+
+    def kill(self):
+        self.send_signal(9)
+
+    async def _feed_stdin(self, input):
+        self.stdin.write(input)
+        try:
+            await self.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        self.stdin.close()
+
+    async def _noop(self):
+        return None
+
+    async def _read_stream(self, stream):
+        return await stream.read()
+
+    async def communicate(self, input=None):
+        if self.stdin is not None:
+            stdin = self._feed_stdin(input) if input is not None else self._close_stdin()
+        else:
+            stdin = self._noop()
+        stdout = self._read_stream(self.stdout) if self.stdout is not None else self._noop()
+        stderr = self._read_stream(self.stderr) if self.stderr is not None else self._noop()
+        stdin, stdout, stderr = await gather(stdin, stdout, stderr)
+        await self.wait()
+        return (stdout, stderr)
+
+    async def _close_stdin(self):
+        self.stdin.close()
+
+
+class subprocess:
+    # asyncio.subprocess, as a namespace of this module (Brevi's `asyncio.subprocess` module is the same names)
+    PIPE = -1
+    STDOUT = -2
+    DEVNULL = -3
+
+
+subprocess.Process = Process
+
+
+def _brevi_mode(x, name):
+    if x is None:
+        return 0
+    if x in (-1, -2, -3):
+        if x == -2 and name != 'stderr':
+            raise ValueError('STDOUT can only be used for stderr')
+        return x
+    raise _unsupported(f'{name}= a file or fd for a child process (only PIPE, STDOUT, DEVNULL or None)')
+
+
+def _brevi_fspath(a):
+    if isinstance(a, (str, bytes)):
+        return a.decode() if isinstance(a, bytes) else a
+    if hasattr(a, '__fspath__'):
+        return a.__fspath__()
+    raise TypeError(f'expected str, bytes or os.PathLike object, not {type(a).__name__}')
+
+
+async def _brevi_spawn(argv, stdin, stdout, stderr, limit, cwd, env, kwds):
+    for k in kwds:
+        if k not in ('close_fds', 'text', 'universal_newlines', 'bufsize', 'encoding', 'errors'):
+            raise _unsupported(f'{k}= for a child process')
+    if kwds.get('text') or kwds.get('universal_newlines') or kwds.get('encoding') or kwds.get('errors'):
+        raise ValueError('text must be False')
+    if kwds.get('bufsize', 0) != 0:
+        raise ValueError('bufsize must be 0')
+    _brevi_proc_loop()
+    modes = [_brevi_mode(stdin, 'stdin'), _brevi_mode(stdout, 'stdout'), _brevi_mode(stderr, 'stderr')]
+    e = None
+    if env is not None:
+        e = {}
+        for k in env:
+            e[_brevi_fspath(k)] = _brevi_fspath(env[k])
+    ident, pid, fds = _brevi_proc.spawn(argv, None if cwd is None else _brevi_fspath(cwd), e, modes)
+    return Process(ident, pid, fds, limit)
+
+
+async def create_subprocess_exec(program, *args, stdin=None, stdout=None, stderr=None, limit=2 ** 16, cwd=None, env=None, **kwds):
+    argv = [_brevi_fspath(program)] + [_brevi_fspath(a) for a in args]
+    return await _brevi_spawn(argv, stdin, stdout, stderr, limit, cwd, env, kwds)
+
+
+async def create_subprocess_shell(cmd, stdin=None, stdout=None, stderr=None, limit=2 ** 16, cwd=None, env=None, **kwds):
+    if not isinstance(cmd, (str, bytes)):
+        raise ValueError('cmd must be a string')
+    return await _brevi_spawn(['/bin/sh', '-c', _brevi_fspath(cmd)], stdin, stdout, stderr, limit, cwd, env, kwds)
