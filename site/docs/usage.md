@@ -198,7 +198,7 @@ Some modules work without `allow native`, because Brevi builds its own copy of t
 
 - **argparse:** everything but `argparse.FileType` and `fromfile_prefix_chars` (both open files). Help text is 80 columns wide under the sandbox, which reads no environment; outside it, it follows `$COLUMNS` or the terminal's width, as in CPython.
 
-- **pydantic** (from the next release): Brevi's own copy needs nothing granted; what it lacks (see [pydantic](/docs/compatibility#pydantic)), such as `model_json_schema`, is refused by name unless the caller grants `--allow-py pydantic`.
+- **pydantic** (from the next release): Brevi's own copy needs nothing granted; what it lacks (see [pydantic](/docs/compatibility#pydantic)), such as `field_serializer`, is refused by name unless the caller grants `--allow-py pydantic`.
 
 - **requests and httpx** (from the next release): Brevi's own copies, over native sockets and TLS; they need `allow net` (or `--allow-net` for some hosts), not `allow native`.
 
