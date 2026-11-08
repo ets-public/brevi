@@ -290,7 +290,8 @@ if [ "$1" != "--update" ]; then
     echo "ok   sandbox sqlite3 (SQL reaches no file)"
   else
     echo "FAIL sandbox sqlite3 (SQL reaches no file)"; printf '%s\n' "$out"; fail=1
-  fi  out=$($BREVI run --sandbox --allow-read tests/sandbox/scoped/in,tests/sandbox/scoped/out --allow-write tests/sandbox/scoped/out tests/sqlite3/sandbox/scoped.py 2>/dev/null)
+  fi
+  out=$($BREVI run --sandbox --allow-read tests/sandbox/scoped/in,tests/sandbox/scoped/out --allow-write tests/sandbox/scoped/out tests/sqlite3/sandbox/scoped.py 2>/dev/null)
   if [ "$out" = "$(cat tests/sqlite3/sandbox/scoped.expected)" ] && ! ls tests/sandbox/scoped/x.db tests/sandbox/scoped/in/x.db >/dev/null 2>&1; then
     echo "ok   sandbox sqlite3 (held to the granted folders)"
   else
