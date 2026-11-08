@@ -257,8 +257,9 @@ pub fn ax_at(l: usize) -> String {
 }
 // The program's file table, set by ax_init, so the prelude can also be a separately compiled library.
 pub static AX_FILES_REG: std::sync::OnceLock<&'static [(&'static str, usize, usize)]> = std::sync::OnceLock::new();
-pub fn ax_init(files: &'static [(&'static str, usize, usize)]) {
+pub fn ax_init(files: &'static [(&'static str, usize, usize)], fs: AxFs) {
     AX_FILES_REG.set(files).ok();
+    AX_FS_REG.set(fs).ok();
     std::panic::set_hook(Box::new(|info| {
         let msg = match info.payload().downcast_ref::<&str>() {
             Some(s) => s.to_string(),
@@ -800,11 +801,29 @@ impl AxTruth for Dec {
 pub fn ax_t<T: AxTruth + ?Sized>(x: &T) -> bool {
     x.ax_truth()
 }
+// The caller's file grants, set by ax_init from the program's AX_FS: (read held to roots, the roots, write held
+// to roots, the roots). Unset (no ax_init yet) refuses every file.
+pub type AxFs = (bool, &'static [&'static str], bool, &'static [&'static str]);
+pub static AX_FS_REG: std::sync::OnceLock<AxFs> = std::sync::OnceLock::new();
+pub fn ax_fs_path(path: &str, write: bool) -> R<String> {
+    let Some(&(rs, rr, ws, wr)) = AX_FS_REG.get() else { return Err(AxErr(format!("{} {path}: brevi: no file access before the program starts", if write { "write" } else { "read" }))) };
+    let (scoped, roots, cap) = if write { (ws, wr, "write") } else { (rs, rr, "read") };
+    if !scoped {
+        return Ok(path.to_string());
+    }
+    brevi_scoped(path, roots, cap).map_err(AxErr)
+}
 pub fn read(path: String) -> R<String> {
-    std::fs::read_to_string(&path).map_err(|e| AxErr(format!("read {path}: {e}")))
+    let p = ax_fs_path(&path, false)?;
+    std::fs::read_to_string(&p).map_err(|e| AxErr(format!("read {path}: {e}")))
 }
 pub fn write(path: String, text: String) -> R<()> {
-    std::fs::write(&path, text).map_err(|e| AxErr(format!("write {path}: {e}")))
+    let p = ax_fs_path(&path, true)?;
+    std::fs::write(&p, text).map_err(|e| AxErr(format!("write {path}: {e}")))
+}
+// open(path).read() where a missing file reads as "" (the typed build's fix_opens).
+pub fn ax_try_read(path: String) -> String {
+    ax_fs_path(&path, false).ok().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default()
 }
 pub fn args() -> Vec<String> {
     std::env::args().skip(1).collect()

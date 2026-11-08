@@ -440,6 +440,10 @@ mod brevi_netglue {
             let p = if cafile.is_empty() { capath } else { cafile };
             return Err(NetErr { kind: "PermissionError", msg: format!("brevi sandbox: reading the CA certificates {p} needs --allow read") });
         }
+        // held to folders (--allow-read DIR): the CA file or folder is inside them
+        for p in [cafile, capath].into_iter().filter(|p| verify && NET_SANDBOX && !p.is_empty()) {
+            brevi_fs_path(p, false).map_err(|msg| NetErr { kind: "PermissionError", msg })?;
+        }
         with(id, |c| unsafe {
             let ctx = (s.SSL_CTX_new)((s.TLS_client_method)());
             if ctx.is_null() {

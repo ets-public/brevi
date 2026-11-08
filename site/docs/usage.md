@@ -39,6 +39,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
+| `--allow-read DIRS`, `--allow-write DIRS` | run, check, test | Under the sandbox, let the program read (or write) files only inside these folders or files, such as `--allow-read data --allow-write out` (implies `--sandbox`). |
 | `--allow-net HOSTS` | run, check, test | Under the sandbox, let the program reach only these hosts over the network, such as `--allow-net api.openai.com,localhost` (implies `--sandbox`). |
 | `--allow-py MODULES` | run, check, test | Under the sandbox, let CPython run these Python libraries only, such as `--allow-py requests,pydantic` (implies `--sandbox`). |
 | `--limit cpu=S,mem=MB,time=S,output=KB,file=MB` | run, test, verify | Stop the program at the first resource limit it reaches (see [Resource limits](#resource-limits)). Works with or without the sandbox. |
@@ -146,7 +147,7 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
-With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,net,native`, `--allow-net api.example.com` to let the program reach just those hosts, or `--allow-py pydantic,yaml` to let CPython run just those libraries (the MCP tools' `allow`, `allow_net` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from v0.24.6; before it, an allow line in the file was enough).
+With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,net,native`, `--allow-net api.example.com` to let the program reach just those hosts, `--allow-read data` and `--allow-write out` to let it read or write files only inside those folders, or `--allow-py pydantic,yaml` to let CPython run just those libraries (the MCP tools' `allow`, `allow_net`, `allow_read`, `allow_write` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from v0.24.6; before it, an allow line in the file was enough).
 
 ```
 $ brevi run --sandbox fetch.py
@@ -155,6 +156,8 @@ $ brevi run --allow-net api.example.com fetch.py
 ```
 
 `requests` and `httpx` are Brevi's own (see [requests and httpx](/docs/compatibility#requests-and-httpx)), so they need only the network, not CPython. With `--allow-net`, a connection to any host the caller did not name fails when the program makes it, as a `PermissionError` inside the library's own error (`httpx.ConnectError`, `requests.ConnectionError`): `brevi sandbox: the caller did not grant the network to evil.example (--allow-net evil.example, or --allow net for every host)`. Hosts are matched by the name in the URL (an IP address is its own name), and proxies from the environment are not used under the sandbox, which reads no environment.
+
+`--allow-read DIR` and `--allow-write DIR` (comma-separated folders or files, which must exist) hold file access to those folders: `--allow read` grants every file the user can read, `--allow-read data` only what is under `data`. Brevi checks each file the program opens by its real path, with `..` and symlinks resolved, so a symlink inside the folder that points outside, or `data/../secret`, is refused with a `PermissionError` (`brevi: --sandbox: 'data/../secret' is outside the folders granted to read (--allow-read)`), and so is a name outside the folders that does not exist. This holds for `open()`, polars, safetensors, sqlite3 (`ATTACH` included), duckdb (its SQL reaches files only in folders granted both read and write), onnxruntime (a model with external data files needs `--allow read`, as ONNX Runtime opens those itself) and the CA files of `requests` and `httpx`. In the MCP tools, `allow_read` and `allow_write` paths are relative to the folder `brevi mcp` was started in.
 
 `--allow-py` grants CPython for the named modules, and so whatever CPython can reach through them; it does not grant `rust fn`, crates or any other library.
 
@@ -169,8 +172,8 @@ A comment counts only when it holds nothing but capability names, so `# allow me
 
 | Capability | Covers |
 | --- | --- |
-| `read` | reading files |
-| `write` | writing files |
+| `read` | reading files; `--allow-read DIR` grants it for those folders only |
+| `write` | writing files; `--allow-write DIR` grants it for those folders only |
 | `net` | the network, through Brevi's `requests` and `httpx`; `--allow-net` grants it for named hosts only |
 | `native` | `rust fn`, `py fn`, `rust:` and `py:` blocks, crates, and Python libraries that CPython runs (`subprocess`, `numpy`, `requests`, file and process calls of `os` and `pathlib`, ...), which can do anything |
 | `none` | nothing beyond stdin, stdout and arguments |

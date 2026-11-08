@@ -110,10 +110,10 @@ mod brevi_sqlglue {
         let real = REAL;
         let mut flags = flags;
         if !name.is_null() && flags & OPEN_DELETEONCLOSE == 0 {
-            if !FS_READ {
+            if !FS_READ || !in_scope(name, false) {
                 return SQLITE_CANTOPEN;
             }
-            if !FS_WRITE && flags & OPEN_READWRITE != 0 {
+            if (!FS_WRITE || !in_scope(name, true)) && flags & OPEN_READWRITE != 0 {
                 if flags & OPEN_MAIN_DB == 0 {
                     return SQLITE_CANTOPEN;
                 }
@@ -122,15 +122,20 @@ mod brevi_sqlglue {
         }
         ((*real).xOpen.unwrap())(real, name, f, flags, out)
     }
+    // Under --allow-read / --allow-write DIR: the file SQLite names (a full path) is inside those folders.
+    unsafe fn in_scope(name: *const c_char, write: bool) -> bool {
+        let n = std::ffi::CStr::from_ptr(name).to_string_lossy();
+        brevi_fs_path(&n, write).is_ok()
+    }
     unsafe extern "C" fn sb_delete(_v: *mut Vfs, name: *const c_char, sync: c_int) -> c_int {
-        if !FS_WRITE {
+        if !FS_WRITE || (!name.is_null() && !in_scope(name, true)) {
             return SQLITE_IOERR_DELETE;
         }
         let real = REAL;
         ((*real).xDelete.unwrap())(real, name, sync)
     }
     unsafe extern "C" fn sb_access(_v: *mut Vfs, name: *const c_char, flags: c_int, out: *mut c_int) -> c_int {
-        if !FS_READ {
+        if !FS_READ || (!name.is_null() && !in_scope(name, false)) {
             *out = 0;
             return SQLITE_OK;
         }
@@ -222,7 +227,7 @@ mod brevi_sqlglue {
             vfs_register: sym!("sqlite3_vfs_register"),
             vfs_unregister: sym!("sqlite3_vfs_unregister"),
         };
-        if FS_SANDBOX && !(FS_READ && FS_WRITE) {
+        if FS_SANDBOX && !(FS_READ && FS_WRITE && FS_READ_IN.is_none() && FS_WRITE_IN.is_none()) {
             let real = (l.vfs_find)(std::ptr::null());
             if real.is_null() {
                 return Err("brevi: SQLite has no file layer".into());

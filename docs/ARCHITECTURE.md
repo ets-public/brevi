@@ -105,7 +105,7 @@ All commands live in `src/main.rs`.
 | `brevi verify` | Native build against CPython on the same inputs, with a certificate (`src/verify.rs`). |
 | `brevi mcp` | MCP server over stdin/stdout (`src/mcp.rs`): guide, check, run, test, verify, patch, edit, show. |
 
-Flags: `--release` (opt-level 3), `--sandbox` (only what the caller grants with `--allow read,write,net,native` / `--allow-net HOSTS` / `--allow-py MODULES`; the file's allow lines grant nothing), `--limit cpu=S,mem=MB,time=S,output=KB,file=MB` (resource limits on the program run: kernel rlimits set before it starts, wall-clock time and output held by `proc::run`; see [THREAT_MODEL.md](THREAT_MODEL.md)), `--window` (real tkinter windows via egui), `--explain`, `--native`.
+Flags: `--release` (opt-level 3), `--sandbox` (only what the caller grants with `--allow read,write,net,native` / `--allow-net HOSTS` / `--allow-read DIRS` / `--allow-write DIRS` / `--allow-py MODULES`; the file's allow lines grant nothing), `--limit cpu=S,mem=MB,time=S,output=KB,file=MB` (resource limits on the program run: kernel rlimits set before it starts, wall-clock time and output held by `proc::run`; see [THREAT_MODEL.md](THREAT_MODEL.md)), `--window` (real tkinter windows via egui), `--explain`, `--native`.
 
 ## Stage 1: front end
 

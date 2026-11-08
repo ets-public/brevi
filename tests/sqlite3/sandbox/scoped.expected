@@ -1,0 +1,4 @@
+[(1,)]
+refused attach 'tests/sandbox/scoped/x.db' as s unable to open database: tests/sandbox/scoped/x.db
+refused attach 'tests/sandbox/scoped/in/x.db' as s unable to open database: tests/sandbox/scoped/in/x.db
+refused secret unable to open database file

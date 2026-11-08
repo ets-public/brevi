@@ -160,6 +160,18 @@ for f in tests/tokenizers/*.py; do
     echo "ok   $f"
   fi
 done
+if [ "$1" != "--update" ]; then
+  out=$($BREVI run --sandbox tests/tokenizers/sandbox/from_file.py 2>&1)
+  case "$out" in
+    *"tokenizers Tokenizer.from_file(file) needs allow read"*) echo "ok   sandbox tokenizers (from_file needs allow read)" ;;
+    *) echo "FAIL sandbox tokenizers (from_file needs allow read)"; printf '%s\n' "$out"; fail=1 ;;
+  esac
+  out=$($BREVI run --sandbox --allow-read tests/tokenizers tests/tokenizers/sandbox/from_file.py 2>&1)
+  case "$out" in
+    *"is outside the folders granted to read"*) echo "ok   sandbox tokenizers (from_file held to the granted folders)" ;;
+    *) echo "FAIL sandbox tokenizers (from_file held to the granted folders)"; printf '%s\n' "$out"; fail=1 ;;
+  esac
+fi
 # pydantic programs must print what CPython's pydantic prints, with Brevi's own pydantic: never CPython. The
 # .expected files come from pydantic 2.13.5 / pydantic-core 2.46.5 (CI has none): `--update` needs it installed.
 for f in tests/pydantic/*.py; do
@@ -235,7 +247,9 @@ if [ "$1" != "--update" ]; then
   case "$out" in
     *"polars write_csv(file) needs allow write"*"polars read_csv(file) needs allow read"*) echo "ok   sandbox polars (files need allow read, write)" ;;
     *) echo "FAIL sandbox polars (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
-  esac
+  esac  # --allow-read / --allow-write DIR: only inside the granted folders
+  out=$($BREVI run --sandbox --allow-read tests/sandbox/scoped/in,tests/sandbox/scoped/out --allow-write tests/sandbox/scoped/out tests/polars/sandbox/scoped.py 2>/dev/null)
+  if [ "$out" = "$(cat tests/polars/sandbox/scoped.expected)" ]; then echo "ok   sandbox polars (held to the granted folders)"; else echo "FAIL sandbox polars (held to the granted folders)"; printf '%s\n' "$out"; fail=1; fi
 fi
 # sqlite3 programs must print what CPython's sqlite3 prints (stdout), with Brevi's own sqlite3 over the system's
 # SQLite: never CPython. `--update` writes the .expected files with python3.
@@ -266,6 +280,11 @@ if [ "$1" != "--update" ]; then
     echo "ok   sandbox sqlite3 (SQL reaches no file)"
   else
     echo "FAIL sandbox sqlite3 (SQL reaches no file)"; printf '%s\n' "$out"; fail=1
+  fi  out=$($BREVI run --sandbox --allow-read tests/sandbox/scoped/in,tests/sandbox/scoped/out --allow-write tests/sandbox/scoped/out tests/sqlite3/sandbox/scoped.py 2>/dev/null)
+  if [ "$out" = "$(cat tests/sqlite3/sandbox/scoped.expected)" ] && ! ls tests/sandbox/scoped/x.db tests/sandbox/scoped/in/x.db >/dev/null 2>&1; then
+    echo "ok   sandbox sqlite3 (held to the granted folders)"
+  else
+    echo "FAIL sandbox sqlite3 (held to the granted folders)"; printf '%s\n' "$out"; fail=1
   fi
 fi
 # duckdb programs must print what CPython's duckdb 2.0.0 prints (stdout), with Brevi's own duckdb over DuckDB's

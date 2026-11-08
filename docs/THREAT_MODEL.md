@@ -14,8 +14,8 @@ Under `--sandbox` a program gets stdin, stdout, stderr, its arguments, the clock
 
 | Capability | Grant | Without it |
 | --- | --- | --- |
-| read files | `--allow read` | refused at build time |
-| write files | `--allow write` | refused at build time |
+| read files | `--allow read` (all), `--allow-read DIR,...` (inside those folders) | refused at build time; outside the folders, refused when opened |
+| write files | `--allow write` (all), `--allow-write DIR,...` (inside those folders) | refused at build time; outside the folders, refused when opened |
 | network | `--allow-net HOST,...` (named hosts) or `--allow net` (all) | refused at build time; with named hosts, a connection to any other host fails when it is made |
 | CPython for some modules | `--allow-py MOD,...` | the CPython bridge is off |
 | native code (`rust fn`, crates, any CPython library) | `--allow native` | refused at build time |
@@ -42,7 +42,7 @@ The sandbox is **a compile-time capability check plus a runtime with nothing in 
 
 - **The guarantee rests on Brevi being right.** A bug that lets source reach a system call Brevi did not mean to expose (a missed name in the capability check, a runtime function that touches the file system) is an escape. So is any memory-safety bug in generated code or the runtime that a program can steer into running its own machine code. Both are treated as security bugs ([SECURITY.md](../SECURITY.md)).
 - **`--allow-py` and `--allow native` are full trust.** Once CPython is loaded, Python code can reach `os` through object introspection whatever module was named, and `rust fn` or a crate is arbitrary native code. Grant them only to code you would run unsandboxed. `--allow-py` limits which modules a program may import; it does not contain what those modules do.
-- **`read` and `write` are whole-account grants.** They are not scoped to a folder: a program with `--allow write` can write anywhere the user can.
+- **`--allow read` and `--allow write` are whole-account grants**: a program with `--allow write` can write anywhere the user can. `--allow-read DIR` and `--allow-write DIR` hold it to folders instead. Brevi resolves each path the program opens (`..` and symlinks) and opens the resolved path only if it lies inside a granted folder. The check and the open are two steps, so another process that swaps a folder for a symlink between them could redirect the open; the program itself has no way to make a symlink. Under `--allow-py` or `--allow native` the folders hold only Brevi's own code, not CPython's or native code's.
 - **The network grant matches host names, not addresses.** `--allow-net api.example.com` lets the program reach whatever that name resolves to. Under `--allow net` the program can reach anything the machine can, including services on `localhost` and cloud metadata endpoints.
 
 For hostile code, the sandbox and limits are a first layer. Running `brevi` itself inside a container or VM with no credentials is still the advice for code you have reason to distrust.
