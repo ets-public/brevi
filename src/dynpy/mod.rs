@@ -82,6 +82,95 @@ fn fnv(parts: &[&str]) -> u64 {
     h
 }
 
+// `from .x import y` in module `name` (a package's __init__ when `pkg`) as the absolute `from name.x import y`
+fn absolutize(body: &mut [parse::Stmt], name: &str, pkg: bool) {
+    use parse::St;
+    for s in body {
+        match &mut s.st {
+            St::ImportFrom(m, _) if m.starts_with('.') => {
+                let dots = m.chars().take_while(|c| *c == '.').count();
+                let mut base: Vec<&str> = name.split('.').collect();
+                if !pkg {
+                    base.pop();
+                }
+                for _ in 1..dots {
+                    base.pop();
+                }
+                let rest = &m[dots..];
+                let mut a = base.join(".");
+                if !rest.is_empty() {
+                    if !a.is_empty() {
+                        a.push('.');
+                    }
+                    a.push_str(rest);
+                }
+                *m = a;
+            }
+            St::Def(d) => absolutize(&mut d.body, name, pkg),
+            St::Class(c) => absolutize(&mut c.body, name, pkg),
+            St::If(arms, els) => {
+                for (_, b) in arms {
+                    absolutize(b, name, pkg);
+                }
+                if let Some(b) = els {
+                    absolutize(b, name, pkg);
+                }
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                absolutize(b, name, pkg);
+                if let Some(e) = e {
+                    absolutize(e, name, pkg);
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                absolutize(b, name, pkg);
+                for h in hs {
+                    absolutize(&mut h.body, name, pkg);
+                }
+                if let Some(e) = e {
+                    absolutize(e, name, pkg);
+                }
+                if let Some(f) = f {
+                    absolutize(f, name, pkg);
+                }
+            }
+            St::With(_, b) => absolutize(b, name, pkg),
+            _ => {}
+        }
+    }
+}
+// `from pkg import sub` where sub is a module of the program's package pkg: (pkg, sub) pairs
+fn from_names(body: &[parse::Stmt], out: &mut Vec<(String, String)>) {
+    use parse::St;
+    for s in body {
+        match &s.st {
+            St::ImportFrom(m, v) => out.extend(v.iter().map(|(n, _)| (m.clone(), n.clone()))),
+            St::Def(d) => from_names(&d.body, out),
+            St::Class(c) => from_names(&c.body, out),
+            St::If(arms, els) => {
+                arms.iter().for_each(|(_, b)| from_names(b, out));
+                if let Some(b) = els {
+                    from_names(b, out);
+                }
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                from_names(b, out);
+                if let Some(e) = e {
+                    from_names(e, out);
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                from_names(b, out);
+                hs.iter().for_each(|h| from_names(&h.body, out));
+                for x in [e, f].into_iter().flatten() {
+                    from_names(x, out);
+                }
+            }
+            St::With(_, b) => from_names(b, out),
+            _ => {}
+        }
+    }
+}
 fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
     use parse::St;
     for s in body {
@@ -393,6 +482,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     while k < mods.len() {
         let mut imps = vec![];
         walk_imports(&mods[k].body, &mut imps);
+        // a module of a package of the program's, named in `from pkg import sub`
+        let mut fr = vec![];
+        from_names(&mods[k].body, &mut fr);
+        for (m, n) in fr {
+            let d = dir.join(m.replace('.', "/"));
+            if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(&n).join("__init__.py").is_file()) {
+                imps.push(format!("{m}.{n}"));
+            }
+        }
         for m in imps {
             if mods.iter().any(|x| x.name == m) || emit::builtin_mod(&m) {
                 if m == "_brevi_net" {
@@ -451,7 +549,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 let src = std::fs::read_to_string(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;
                 let src = crate::modules::fill_file_name(&src, &p);
                 let src = crate::caps::split(&src).0;
-                let body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
+                let mut body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
+                absolutize(&mut body, &m, p.ends_with("__init__.py"));
                 own_ok &= pure(&src);
                 texts.insert(m.clone(), (ps.clone(), src.to_string()));
                 mods.push(emit::Module { name: m, body });

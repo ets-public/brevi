@@ -1988,6 +1988,14 @@ impl Em {
                     if !user && !module_has(m, n) {
                         return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
+                    let sub = format!("{m}.{n}");
+                    if user && self.user_modules.contains(&sub) && (self.module == *m || !self.mod_names.get(m).is_some_and(|s| s.contains(n))) {
+                        // `from pkg import sub`: the package's module sub
+                        let init = self.q(&format!("init_{}()", rust_ident(&sub)));
+                        write!(b, "{init}; ").unwrap();
+                        b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&sub))));
+                        continue;
+                    }
                     let v = if user { self.user_mod_load(m, n, line)? } else { self.q(&format!("module_attr({}, {})", lit(m), lit(n))) };
                     b.push_str(&self.store(&bind, &v));
                 }
