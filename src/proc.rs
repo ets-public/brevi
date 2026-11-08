@@ -62,6 +62,17 @@ pub struct Limits {
     pub time: Option<std::time::Duration>,
     pub output: Option<u64>,
     pub file: Option<u64>,
+    // Threads at once (Linux: the process's thread count, checked as it runs).
+    pub threads: Option<u64>,
+    // Open file descriptors at once (RLIMIT_NOFILE: an open past it fails with "Too many open files").
+    pub fds: Option<u64>,
+    // MB written other than to stdout and stderr: files, pipes, sockets (Linux: the kernel's count of bytes
+    // the process wrote, /proc/PID/io wchar, checked as it runs).
+    pub written: Option<u64>,
+    // Files the program creates, and bytes it sends and receives over the network, counted by Brevi's own file
+    // and network layers in the program (fsscope.rs); so only under --sandbox without CPython or native code.
+    pub files: Option<u64>,
+    pub net: Option<u64>,
 }
 
 pub static LIMITS: std::sync::OnceLock<Limits> = std::sync::OnceLock::new();
@@ -82,7 +93,7 @@ impl Limits {
     // are seconds for cpu and time, MB for mem and file, and KB for output; sizes also take kb, mb or gb and
     // times s or ms. Refuses a limit this OS cannot enforce rather than run the program without it.
     pub fn parse(&mut self, spec: &str) -> Result<(), String> {
-        const HINT: &str = "--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, comma separated (cpu=2,mem=256,time=5)";
+        const HINT: &str = "--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, written=MB, net=MB, threads=N, fds=N, files=N, comma separated (cpu=2,mem=256,time=5)";
         for part in spec.split([',', ' ']).map(str::trim).filter(|p| !p.is_empty()) {
             let Some((k, v)) = part.split_once('=') else { return Err(format!("{HINT}; '{part}' has no value")) };
             let (k, v) = (k.trim().to_ascii_lowercase(), v.trim().to_ascii_lowercase());
@@ -101,7 +112,15 @@ impl Limits {
                         self.time = Some(std::time::Duration::from_secs_f64(secs));
                     }
                 }
-                "mem" | "output" | "file" => {
+                "threads" | "fds" | "files" => {
+                    let n = v.parse::<u64>().ok().filter(|n| *n > 0 && *n <= 1 << 40).ok_or_else(bad)?;
+                    match k.as_str() {
+                        "threads" => self.threads = Some(n),
+                        "fds" => self.fds = Some(n.max(4)),
+                        _ => self.files = Some(n),
+                    }
+                }
+                "mem" | "output" | "file" | "written" | "net" => {
                     let unit = if k == "output" { 1u64 << 10 } else { 1 << 20 };
                     let (num, scale) = [("gb", 1u64 << 30), ("g", 1 << 30), ("mb", 1 << 20), ("m", 1 << 20), ("kb", 1 << 10), ("k", 1 << 10), ("b", 1)]
                         .iter()
@@ -112,6 +131,8 @@ impl Limits {
                         // mem and file are kept in MB, at least 1.
                         "mem" => self.mem = Some(bytes.div_ceil(1 << 20)),
                         "file" => self.file = Some(bytes.div_ceil(1 << 20)),
+                        "written" => self.written = Some(bytes),
+                        "net" => self.net = Some(bytes),
                         _ => self.output = Some(bytes),
                     }
                 }
@@ -120,6 +141,12 @@ impl Limits {
         }
         if cfg!(windows) && (self.cpu.is_some() || self.mem.is_some() || self.file.is_some()) {
             return Err("--limit cpu, mem and file are not enforced on Windows yet (time and output are); leave them out, or run on Linux or macOS".into());
+        }
+        if cfg!(windows) && self.fds.is_some() {
+            return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
+        }
+        if !cfg!(target_os = "linux") && (self.threads.is_some() || self.written.is_some()) {
+            return Err("--limit threads and written are enforced on Linux only (they read the kernel's counts in /proc); leave them out, or run on Linux".into());
         }
         if cfg!(target_os = "macos") && self.mem.is_some() {
             return Err("--limit mem is not enforced on macOS (the kernel ignores an address-space limit); leave it out, or run on Linux".into());
@@ -144,6 +171,21 @@ impl Limits {
         }
         if let Some(f) = self.file {
             p.push(format!("file={f}"));
+        }
+        if let Some(n) = self.threads {
+            p.push(format!("threads={n}"));
+        }
+        if let Some(n) = self.fds {
+            p.push(format!("fds={n}"));
+        }
+        if let Some(b) = self.written {
+            p.push(format!("written={b}b"));
+        }
+        if let Some(n) = self.files {
+            p.push(format!("files={n}"));
+        }
+        if let Some(b) = self.net {
+            p.push(format!("net={b}b"));
         }
         p.join(",")
     }
@@ -184,8 +226,15 @@ pub fn apply(c: &mut Command, l: &Limits) {
         };
         // Only Linux holds a program to an address-space limit; BREVI_MEM_MB is ignored elsewhere.
         let mem = if cfg!(target_os = "linux") { mem.map(|m| m.saturating_mul(1 << 20)) } else { None };
-        let (cpu, file) = (l.cpu, l.file.map(|f| f.saturating_mul(1 << 20)));
-        if mem.is_none() && cpu.is_none() && file.is_none() {
+        let (cpu, file, fds) = (l.cpu, l.file.map(|f| f.saturating_mul(1 << 20)), l.fds);
+        // files and net are counted by the program itself (fsscope.rs reads these once).
+        for (k, v) in [("BREVI_LIMIT_FILES", l.files), ("BREVI_LIMIT_NET", l.net)] {
+            match v {
+                Some(n) => drop(c.env(k, n.to_string())),
+                None => drop(c.env_remove(k)),
+            }
+        }
+        if mem.is_none() && cpu.is_none() && file.is_none() && fds.is_none() {
             return;
         }
         // RLIMIT_CPU is 0 and RLIMIT_FSIZE 1 on Linux and macOS; RLIMIT_AS is 9 on every Linux architecture
@@ -207,6 +256,10 @@ pub fn apply(c: &mut Command, l: &Limits) {
                 }
                 if let Some(b) = file {
                     set(1, b, b)?;
+                }
+                // RLIMIT_NOFILE: 7 on Linux, 8 on macOS and the BSDs
+                if let Some(n) = fds {
+                    set(if cfg!(target_os = "linux") { 7 } else { 8 }, n, n)?;
                 }
                 Ok(())
             });
@@ -249,6 +302,8 @@ pub fn limit_line(l: &Limits, on: &str) -> String {
             (format!("{t} s"), format!("the program was stopped after {t} s of wall-clock time"))
         }
         "output" => (format!("{} bytes", l.output.unwrap_or(0)), format!("the program was stopped after writing {} bytes to stdout and stderr", l.output.unwrap_or(0))),
+        "threads" => (format!("{} threads", l.threads.unwrap_or(0)), format!("the program started more than {} threads", l.threads.unwrap_or(0))),
+        "written" => (format!("{} bytes", l.written.unwrap_or(0)), format!("the program wrote more than {} bytes (files, pipes and sockets; stdout and stderr not counted)", l.written.unwrap_or(0))),
         _ => (format!("{} MB", l.file.unwrap_or(0)), format!("the program tried to write a file over {} MB", l.file.unwrap_or(0))),
     };
     format!("{{\"e\":\"limit\",\"on\":\"{on}\",\"limit\":\"{limit}\",\"msg\":\"{msg}\",\"fix\":\"raise it with --limit {on}=... if the program needs more\"}}")
@@ -273,10 +328,11 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
     let tail = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
     let over = Arc::new(AtomicBool::new(false));
     let mut pumps = vec![];
-    if l.output.is_some() || l.mem.is_some() {
+    // written subtracts stdout and stderr, so both are counted here
+    if l.output.is_some() || l.mem.is_some() || l.written.is_some() {
         c.stderr(std::process::Stdio::piped());
     }
-    if l.output.is_some() {
+    if l.output.is_some() || l.written.is_some() {
         c.stdout(std::process::Stdio::piped());
     }
     let start = std::time::Instant::now();
@@ -326,6 +382,8 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
                 stopped = Some("output");
             } else if l.time.is_some_and(|t| start.elapsed() >= t) {
                 stopped = Some("time");
+            } else if let Some(on) = over_counts(child.id(), l, written.load(Ordering::SeqCst)) {
+                stopped = Some(on);
             }
             if stopped.is_some() {
                 let _ = child.kill();
@@ -355,6 +413,28 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
         return Ok(LIMIT_EXIT);
     }
     Ok(code(status))
+}
+
+// Linux: whether the running program is over its threads or written limit, from the kernel's counts.
+pub fn over_counts(pid: u32, l: &Limits, piped: u64) -> Option<&'static str> {
+    if l.threads.is_none() && l.written.is_none() {
+        return None;
+    }
+    let field = |file: &str, key: &str| -> Option<u64> {
+        let t = std::fs::read_to_string(format!("/proc/{pid}/{file}")).ok()?;
+        t.lines().find_map(|x| x.strip_prefix(key)).and_then(|v| v.trim().parse().ok())
+    };
+    if let Some(n) = l.threads {
+        if field("status", "Threads:").is_some_and(|t| t > n) {
+            return Some("threads");
+        }
+    }
+    if let Some(b) = l.written {
+        if field("io", "wchar:").is_some_and(|w| w.saturating_sub(piped) > b) {
+            return Some("written");
+        }
+    }
+    None
 }
 
 // The exit code to pass on for a program's status. A program killed by a signal has no code: say what
@@ -449,7 +529,7 @@ mod tests {
         let mut o = Limits::default();
         o.parse("output=64").unwrap();
         assert_eq!(o.output, Some(64 << 10));
-        for bad in ["cpu", "cpu=0", "cpu=-1", "time=x", "disk=1", "mem=nan", "time=inf"] {
+        for bad in ["cpu", "cpu=0", "cpu=-1", "time=x", "disk=1", "mem=nan", "time=inf", "threads=0", "fds=x", "files=1.5", "net=0"] {
             assert!(Limits::default().parse(bad).is_err(), "{bad} should be refused");
         }
         #[cfg(target_os = "linux")]
@@ -458,6 +538,33 @@ mod tests {
             m.parse("mem=1gb").unwrap();
             assert_eq!(m.mem, Some(1024));
         }
+    }
+
+    // threads and written are read from /proc while the program runs.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn holds_threads_and_written() {
+        if Command::new("python3").arg("-c").arg("1").status().map_or(true, |s| !s.success()) {
+            return;
+        }
+        let py = |code: &str| {
+            let mut c = Command::new("python3");
+            c.arg("-c").arg(code).stdout(std::process::Stdio::null());
+            c
+        };
+        let mut l = Limits::default();
+        l.parse("threads=4,time=20").unwrap();
+        let threads = "import threading, time\nfor _ in range(8): threading.Thread(target=time.sleep, args=(3,)).start()\n";
+        assert_eq!(run_with(&mut py(threads), &l).unwrap(), LIMIT_EXIT);
+        let mut few = Limits::default();
+        few.parse("threads=16,time=20").unwrap();
+        assert_eq!(run_with(&mut py("import threading; t = threading.Thread(target=print); t.start(); t.join()"), &few).unwrap(), 0);
+        let dir = std::env::temp_dir().join(format!("brevi-written-{}", std::process::id()));
+        let mut w = Limits::default();
+        w.parse("written=1,time=20").unwrap();
+        let big = format!("import time\nfor i in range(40):\n    open({:?}, 'w').write('x' * 100000)\n    time.sleep(0.01)\n", dir.to_string_lossy());
+        assert_eq!(run_with(&mut py(&big), &w).unwrap(), LIMIT_EXIT);
+        let _ = std::fs::remove_file(&dir);
     }
 
     #[test]

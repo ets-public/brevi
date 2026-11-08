@@ -676,6 +676,24 @@ mod brevi_netglue {
         std::env::var(n).ok()
     }
 
+    // --limit net=MB: every byte the program sends and receives (fsscope.rs counts them)
+    fn op_send_counted(id: i64, b: &[u8]) -> Result<i64, NetErr> {
+        let r = op_send(id, b);
+        if let Ok(k) = r {
+            if k > 0 {
+                brevi_net_bytes(k as u64);
+            }
+        }
+        r
+    }
+    fn op_recv_counted(id: i64, n: usize) -> Result<Vec<u8>, NetErr> {
+        let r = op_recv(id, n);
+        if let Ok(b) = &r {
+            brevi_net_bytes(b.len() as u64);
+        }
+        r
+    }
+
     pub fn ops() -> NetOps {
         NetOps {
             connect: op_connect,
@@ -685,8 +703,8 @@ mod brevi_netglue {
             handshake: op_handshake,
             settimeout: op_settimeout,
             setblocking: op_setblocking,
-            send: op_send,
-            recv: op_recv,
+            send: op_send_counted,
+            recv: op_recv_counted,
             fileno: op_fileno,
             close: op_close,
             poll: op_poll,

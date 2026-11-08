@@ -404,6 +404,7 @@ mod brevi_ortglue {
             }
             if !o.optimized_path.is_empty() {
                 held(&o.optimized_path, true)?;
+                brevi_new_file(&o.optimized_path);
             }
             if !FS_WRITE && o.profiling {
                 return Err(refuse("write", "enable_profiling"));

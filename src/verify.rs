@@ -344,6 +344,9 @@ pub fn main(argv: &[String]) -> ! {
         }
         i += 1;
     }
+    if lims.files.is_some() || lims.net.is_some() {
+        usage("--limit files and net are counted by Brevi's own code under --sandbox, and CPython is not; verify does not take them");
+    }
     let _ = crate::proc::LIMITS.set(lims);
     let Some(file) = file else { usage("verify needs a .py file") };
     if !file.ends_with(".py") {

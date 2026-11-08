@@ -41,7 +41,9 @@ mod brevi_fsglue {
         if FS_SANDBOX && !FS_WRITE {
             return Err(refuse("write", p));
         }
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).append(append).truncate(!append).open(scoped(p, true)?).map_err(|e| os_err(e, p))?;
+        let real = scoped(p, true)?;
+        brevi_new_file(&real);
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).append(append).truncate(!append).open(real).map_err(|e| os_err(e, p))?;
         f.write_all(t.as_bytes()).map_err(|e| os_err(e, p))
     }
 
@@ -75,7 +77,9 @@ mod brevi_fsglue {
         if FS_SANDBOX && !FS_WRITE {
             return Err(refuse("write", p));
         }
-        std::fs::write(scoped(p, true)?, b).map_err(|e| os_err(e, p))
+        let real = scoped(p, true)?;
+        brevi_new_file(&real);
+        std::fs::write(real, b).map_err(|e| os_err(e, p))
     }
 
     pub fn ops() -> FsOps {

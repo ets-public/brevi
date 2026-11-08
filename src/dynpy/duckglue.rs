@@ -319,13 +319,19 @@ mod brevi_duckglue {
         }
         // --allow-read / --allow-write DIR: the database file is inside them (opened read-only when only the
         // read grant holds it), and SQL reaches files only in folders granted both.
-        let scoped = FS_READ_IN.is_some() || FS_WRITE_IN.is_some();
+        // --limit files=N: DuckDB's SQL could create files uncounted, so it reaches none; a new database counts
+        let counted = std::env::var_os("BREVI_LIMIT_FILES").is_some();
+        if counted && !memory {
+            brevi_new_file(path);
+        }
+        let scoped = FS_READ_IN.is_some() || FS_WRITE_IN.is_some() || counted;
         let ro_scope = FS_SANDBOX && !memory && FS_WRITE && brevi_fs_path(path, true).is_err();
         if FS_SANDBOX && !memory {
             brevi_fs_path(path, false).map_err(|m| format!("Permission Error: {m}"))?;
         }
         let sql_dirs: Vec<String> = match (FS_READ_IN, FS_WRITE_IN) {
             (None, None) => vec![],
+            _ if counted => vec![],
             (r, w) => r.into_iter().flatten().chain(w.into_iter().flatten()).filter(|d| brevi_fs_path(d, false).is_ok() && brevi_fs_path(d, true).is_ok()).map(|d| d.to_string()).collect(),
         };
         unsafe {

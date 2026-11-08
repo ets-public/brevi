@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -245,6 +245,12 @@ fn main() {
     if !limits.is_empty() {
         if !matches!(argv.first().map(String::as_str), Some("run" | "test")) {
             eprintln!("--limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)");
+            exit(2);
+        }
+        // files and net are counted by Brevi's own file and network layers, which hold only a sandboxed
+        // program that runs no CPython or native code.
+        if (limits.files.is_some() || limits.net.is_some()) && (!sandbox || grant.iter().any(|g| g == "native" || g.starts_with("py:"))) {
+            eprintln!("--limit files and net are counted by Brevi's own file and network code, so they need --sandbox without --allow native or --allow-py (CPython and native code are not counted); leave them out, or drop those grants");
             exit(2);
         }
         proc::LIMITS.set(limits).ok();

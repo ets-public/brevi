@@ -412,6 +412,11 @@ if [ "$1" != "--update" ]; then
   if printf '%s\n' "$out" | grep -q 'needs allow net' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   sandbox net (no grant)"; else echo "FAIL sandbox net (no grant)"; printf '%s\n' "$out"; fail=1; fi
   out=$(timeout 300 $BREVI run --sandbox --allow-net 127.0.0.1 tests/http/sandbox_net.py 2>/dev/null)
   if [ "$out" = "$(cat tests/http/sandbox_net.expected)" ]; then echo "ok   sandbox net (--allow-net 127.0.0.1)"; else echo "FAIL sandbox net (--allow-net 127.0.0.1)"; printf '%s\n' "$out" | diff tests/http/sandbox_net.expected -; fail=1; fi
+  out=$(timeout 300 $BREVI run --sandbox --allow-net 127.0.0.1 --limit net=20kb tests/http/sandbox_net_limit.py 2>&1; echo "exit $?")
+  case "$out" in
+    *'"on":"net"'*"exit 124") echo "ok   sandbox net (--limit net)" ;;
+    *) echo "FAIL sandbox net (--limit net)"; printf '%s\n' "$out" | tail -3; fail=1 ;;
+  esac
 fi
 kill $srv 2>/dev/null
 # anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.46 print (models, streams,
@@ -541,7 +546,7 @@ for f in tests/limits/*.py; do
   g=$(cat "${f%.py}.flags")
   case "$f" in */mem.py) [ "$(uname)" = Linux ] || continue ;; esac
   out=$($BREVI run --sandbox $g "$f" 2>/tmp/brevi-limits-err; echo "exit $?"; tail -1 /tmp/brevi-limits-err)
-  rm -f limits-file.out /tmp/brevi-limits-err
+  rm -f limits-*.out /tmp/brevi-limits-err
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1

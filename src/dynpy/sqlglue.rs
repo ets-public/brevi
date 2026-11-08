@@ -109,6 +109,9 @@ mod brevi_sqlglue {
     unsafe extern "C" fn sb_open(_v: *mut Vfs, name: *const c_char, f: P, flags: c_int, out: *mut c_int) -> c_int {
         let real = REAL;
         let mut flags = flags;
+        if !name.is_null() && flags & OPEN_CREATE != 0 {
+            brevi_new_file(&std::ffi::CStr::from_ptr(name).to_string_lossy());
+        }
         if !name.is_null() && flags & OPEN_DELETEONCLOSE == 0 {
             if !FS_READ || !in_scope(name, false) {
                 return SQLITE_CANTOPEN;
@@ -227,7 +230,8 @@ mod brevi_sqlglue {
             vfs_register: sym!("sqlite3_vfs_register"),
             vfs_unregister: sym!("sqlite3_vfs_unregister"),
         };
-        if FS_SANDBOX && !(FS_READ && FS_WRITE && FS_READ_IN.is_none() && FS_WRITE_IN.is_none()) {
+        // also under --limit files=N, which the file layer counts
+        if FS_SANDBOX && (!(FS_READ && FS_WRITE && FS_READ_IN.is_none() && FS_WRITE_IN.is_none()) || std::env::var_os("BREVI_LIMIT_FILES").is_some()) {
             let real = (l.vfs_find)(std::ptr::null());
             if real.is_null() {
                 return Err("brevi: SQLite has no file layer".into());
