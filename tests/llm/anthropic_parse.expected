@@ -1,0 +1,18 @@
+ParsedMessage[TypeVar] end_turn
+ParsedTextBlock[TypeVar] {"name": "Ada Lovelace, ada@example.com", "email": "Ada Lovelace, ada@example.com", "age": 42, "mood": "happy", "tags": ["Ada Lovelace, ada@example.com"], "note": "Ada Lovelace, ada@example.com"}
+Contact name='Ada Lovelace, ada@example.com' email='Ada Lovelace, ada@example.com' age=42 mood=<Mood.happy: 'happy'> tags=['Ada Lovelace, ada@example.com'] note='Ada Lovelace, ada@example.com'
+Ada Lovelace, ada@example.com 42 Mood.happy ['Ada Lovelace, ada@example.com'] Ada Lovelace, ada@example.com
+True
+ParsedMessage[TypeVar](id='msg_37785fe7499d177b1a04', container=None, content=[ParsedTextBlock[TypeVar](citations=None, text='{"name": "Ada Lovelace, ada@example.com", "email": "Ada Lovelace, ada@example.com", "age": 42, "mood": "happy", "tags": ["Ada Lovelace, ada@example.com"], "note": "Ada Lovelace, ada@example.com"}', type='text', parsed_output=Contact(name='Ada Lovelace, ada@example.com', email='Ada Lovelace, ada@example.com', age=42, mood=<Mood.happy: 'happy'>, tags=['Ada Lovelace, ada@example.com'], note='Ada Lovelace, ada@example.com'))], diagnostics=None, model='claude-mock-sonnet', role='assistant', stop_details=None, stop_reason='end_turn', stop_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=None, input_tokens=20, output_tokens=40, output_tokens_details=None, server_tool_use=None, service_tier='standard', speed=None))
+[{'text': '{"name": "Ada Lovelace, ada@example.com", "email": "Ada Lovelace, ada@example.com", "age": 42, "mood": "happy", "tags": ["Ada Lovelace, ada@example.com"], "note": "Ada Lovelace, ada@example.com"}', 'type': 'text'}]
+{'citations': None, 'text': '{"name": "Ada Lovelace, ada@example.com", "email": "Ada Lovelace, ada@example.com", "age": 42, "mood": "happy", "tags": ["Ada Lovelace, ada@example.com"], "note": "Ada Lovelace, ada@example.com"}', 'type': 'text'}
+{"text":"{\"name\": \"Ada Lovelace, ada@example.com\", \"email\": \"Ada Lovelace, ada@example.com\", \"age\": 42, \"mood\": \"happy\", \"tags\": [\"Ada Lovelace, ada@example.com\"], \"note\": \"Ada Lovelace, ada@example.com\"}","type":"text"}
+title='A book' authors=[Contact(name='A book', email='A book', age=42, mood=<Mood.happy: 'happy'>, tags=['A book'], note='A book')] pages=42
+True
+[42] [42]
+{'ok': True}
+Echo: plain None None
+TypeError: `output_format` must be a type; pass a schema dict as `output_config={'format': ...}` instead
+13
+ParsedMessage name='Grace Hopper' email='Grace Hopper' age=42 mood=<Mood.happy: 'happy'> tags=['Grace Hopper'] note='Grace Hopper'
+[2.5] [2.5]

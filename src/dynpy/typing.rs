@@ -600,6 +600,20 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                     return Ok(());
                 }
             }
+            // and anthropic's output_format=T (Brevi's anthropic hands T to TypeAdapter)
+            if OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed)
+                && matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "parse" | "stream" | "count_tokens"))
+                && args.iter().any(|a| matches!(a, Arg::Kw(k, _) if k == "output_format"))
+            {
+                go(f)?;
+                for a in args {
+                    match a {
+                        Arg::Kw(k, x) if k == "output_format" => expr(x, true, line, nm)?,
+                        Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => go(x)?,
+                    }
+                }
+                return Ok(());
+            }
             // `Stack[int]()`
             if let Ex::Index(o, i) = f.as_ref() {
                 if nm.generic_class(o) {

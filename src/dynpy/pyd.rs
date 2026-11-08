@@ -376,6 +376,24 @@ pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<St
                     *t = d;
                 }
             }
+            // anthropic's messages.parse/stream/count_tokens(output_format=T): T goes to a TypeAdapter, so it is a
+            // descriptor too. A class stays itself, as does a type alias (already a descriptor); another name may hold a
+            // typing form, so it is refused.
+            if matches!(f.as_ref(), Ex::Attr(_, m) if matches!(m.as_str(), "parse" | "stream" | "count_tokens")) {
+                for a in args.iter_mut() {
+                    if let Arg::Kw(k, t) = a {
+                        if k != "output_format" {
+                            continue;
+                        }
+                        match t {
+                            Ex::NoneV | Ex::Dict(..) => {}
+                            Ex::Name(n) if classes.contains(n) || cv.aliases.contains(n) || matches!(n.as_str(), "int" | "str" | "float" | "bool" | "dict" | "list") => {}
+                            Ex::Name(n) => *t = tup(vec![tag("?"), Ex::Str(format!("output_format={n}, a name that may hold a typing form"))]),
+                            _ => *t = cv.desc(t).unwrap_or_else(|why| tup(vec![tag("?"), Ex::Str(why)])),
+                        }
+                    }
+                }
+            }
         }
     });
 }
@@ -661,8 +679,14 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
             let mut why = None;
             super::emit::visit_any(std::slice::from_ref(s), &mut |e| {
                 if let Ex::Call(f, args) = e {
-                    if typing_name(f) == Some("TypeAdapter") {
-                        if let Some(Arg::Pos(Ex::Tuple(d))) = args.first() {
+                    let ta = typing_name(f) == Some("TypeAdapter");
+                    let fmt = args.iter().find_map(|a| match a {
+                        Arg::Kw(k, t) if k == "output_format" && matches!(f.as_ref(), Ex::Attr(..)) => Some(t),
+                        _ => None,
+                    });
+                    let t = if ta { args.first().and_then(|a| if let Arg::Pos(t) = a { Some(t) } else { None }) } else { fmt };
+                    {
+                        if let Some(Ex::Tuple(d)) = t {
                             if let (Some(Ex::Str(t)), Some(Ex::Str(w))) = (d.first(), d.get(1)) {
                                 if t == "?" && why.is_none() {
                                     why = Some(w.clone());

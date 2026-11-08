@@ -58,6 +58,8 @@ class BaseModel:
     _F = ()
     _FN = {}
     _RN = None
+    # fields left out of dumps (pydantic's Field(exclude=True))
+    _EX = ()
 
     def __init__(self, **data):
         _fill(self, data)
@@ -432,7 +434,10 @@ def parse_date(v):
 def _dump(m, js, by_alias, unset, defaults, none, include, exclude):
     out = {}
     fs = m._bv_fs
+    ex = type(m)._EX
     for name, alias, d, dflt in type(m)._F:
+        if name in ex:
+            continue
         if unset and name not in fs:
             continue
         if include is not None and name not in include:

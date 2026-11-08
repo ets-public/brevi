@@ -164,7 +164,9 @@ From the next release, a Python file that uses the `anthropic` or `openai` SDK b
 
 Under `--sandbox` they need the network granted, as requests and httpx do: `--allow-net api.anthropic.com` (or `api.openai.com`, or your proxy's host). A small program that makes one call starts in about 10 ms, where CPython takes about 0.9 s to import anthropic and 0.45 s to import openai.
 
-Differences from CPython: the `X-Stainless-Runtime` header says `Brevi` and `X-Stainless-Arch` says `unknown`; `DeprecationWarning`s are not printed. Not native yet (the program runs with CPython's SDK, or `--native` refuses it): the beta APIs (`client.beta`), message batches, files, `messages.parse` and `output_format`, the tool runners, `with_raw_response` and `with_streaming_response`, `http_client=`, credentials and profiles, Bedrock and Vertex clients; in openai, `chat.completions.parse` and `.stream`, `responses.parse` and `.stream`, audio, images, files, uploads, batches, fine-tuning, vector stores, moderations, realtime, webhooks, the legacy `completions`, Azure, providers and workload identity.
+From the next release, structured outputs are native too: `messages.parse(output_format=Model)`, and `output_format=` on `messages.stream` and `count_tokens`, with `parsed_output` on text blocks and messages; `output_format` takes a model or any type a pydantic field can have, written in the call or as a type alias (`Fmt = list[int]`).
+
+Differences from CPython: the `X-Stainless-Runtime` header says `Brevi` and `X-Stainless-Arch` says `unknown`; `DeprecationWarning`s are not printed. Not native yet (the program runs with CPython's SDK, or `--native` refuses it): the beta APIs (`client.beta`), message batches, files, the tool runners, `with_raw_response` and `with_streaming_response`, `http_client=`, credentials and profiles, Bedrock and Vertex clients; in openai, `chat.completions.parse` and `.stream`, `responses.parse` and `.stream`, audio, images, files, uploads, batches, fine-tuning, vector stores, moderations, realtime, webhooks, the legacy `completions`, Azure, providers and workload identity.
 
 ## jinja2
 

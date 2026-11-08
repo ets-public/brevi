@@ -59,6 +59,40 @@ def tool_input(schema, said):
     return out
 
 
+def sample(schema, said, defs=None):
+    # a value matching a JSON schema (structured outputs), worked out from the schema and the user's words
+    defs = schema.get("$defs", defs) or {}
+    if "$ref" in schema:
+        return sample(defs[schema["$ref"].split("/")[-1]], said, defs)
+    for k in ("anyOf", "oneOf", "allOf"):
+        if k in schema:
+            return sample(schema[k][0], said, defs)
+    if "enum" in schema:
+        return schema["enum"][0]
+    t = schema.get("type")
+    if t == "object":
+        return {n: sample(p, said, defs) for n, p in schema.get("properties", {}).items()}
+    if t == "array":
+        return [sample(schema.get("items", {"type": "string"}), said, defs)]
+    if t == "integer":
+        return 42
+    if t == "number":
+        return 2.5
+    if t == "boolean":
+        return True
+    if t == "null":
+        return None
+    return said[:40]
+
+
+def json_format(body):
+    # output_config.format (Anthropic) or response_format / text.format (OpenAI) asking for a JSON schema
+    f = (body.get("output_config") or {}).get("format") or body.get("response_format") or (body.get("text") or {}).get("format")
+    if isinstance(f, dict) and f.get("type") == "json_schema":
+        return f.get("schema") or (f.get("json_schema") or {}).get("schema") or {}
+    return None
+
+
 class H(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     wbufsize = 1 << 16
@@ -200,6 +234,10 @@ class H(http.server.BaseHTTPRequestHandler):
             blocks.append({"type": "text", "text": "I will use %s." % t["name"]})
             blocks.append({"type": "tool_use", "id": "toolu_" + h(json.dumps(msgs).encode(), 16), "name": t["name"], "input": tool_input(t.get("input_schema"), said)})
             return blocks, "tool_use", None
+        fmt = json_format(body)
+        if fmt is not None:
+            blocks.append({"type": "text", "text": json.dumps(sample(fmt, said))})
+            return blocks, "end_turn", None
         system = body.get("system")
         text = "Echo: " + said
         if system:

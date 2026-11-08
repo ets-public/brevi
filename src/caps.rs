@@ -353,6 +353,13 @@ const OWN_PYDANTIC: &[&str] = &[
     "NegativeFloat", "NonNegativeFloat", "NonPositiveFloat", "FiniteFloat", "StrictInt", "StrictFloat", "StrictStr", "StrictBool",
     "StrictBytes", "VERSION", "__version__", "ValidatorFunctionWrapHandler", "ModelWrapValidatorHandler", "TypeAdapter",
 ];
+// A lack in a line. A keyword lack (`config=`) is a whole name, so `output_config=` is not `config=`.
+fn lack_hit(l: &str, x: &str) -> bool {
+    if !x.ends_with('=') || !x.starts_with(|c: char| c.is_alphabetic() || c == '_') {
+        return l.contains(x);
+    }
+    l.match_indices(x).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_'))
+}
 const PYDANTIC_LACKS: &[&str] = &[
     "schema_generator", "GenerateJsonSchema", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
     ".parse_file(", ".from_orm(", ".dict(", ".json(", ".update_forward_refs(", ".__fields__", ".__pydantic_", ".model_fields_set.",
@@ -376,8 +383,8 @@ const OWN_ANTHROPIC: &[&str] = &[
     "RequestBodyTooLargeAfterDecodingError",
 ];
 const ANTHROPIC_LACKS: &[&str] = &[
-    ".beta", ".batches", ".files", ".skills", ".organization", ".user_profiles", ".parse(", "tool_runner", "with_raw_response",
-    "with_streaming_response", "output_format=", "http_client=", "credentials=", "config=", "profile=", "middleware=", "open_telemetry=",
+    ".beta", ".batches", ".files", ".skills", ".organization", ".user_profiles", "tool_runner", "with_raw_response",
+    "with_streaming_response", "http_client=", "credentials=", "config=", "profile=", "middleware=", "open_telemetry=",
     "_strict_response_validation", ".get_api_list(", "._client", ".raw_events(",
 ];
 // What src/dynpy/py/openai.py has, and what sends a program to CPython's openai instead.
@@ -855,7 +862,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
-                if let Some(x) = lacks.iter().find(|x| l.contains(*x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
+                if let Some(x) = lacks.iter().find(|x| lack_hit(l, x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
                 }
             }
@@ -1338,6 +1345,12 @@ pub fn check_src(src: &str, allowed: &[String]) -> Vec<Diag> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn keyword_lacks_are_whole_names() {
+        assert!(super::lack_hit("Anthropic(config=c)", "config="));
+        assert!(!super::lack_hit("m.create(output_config={})", "config="));
+        assert!(super::lack_hit("x.parse_obj(d)", ".parse_obj("));
+    }
     // --allow-read / --allow-write DIR: a path is held to the granted folders by its real path, so .., symlinks
     // and names that do not exist yet cannot lead outside.
     #[cfg(unix)]
@@ -1469,7 +1482,7 @@ mod tests {
     fn llm_copies_reach_only_httpx() {
         let ok = [
             "_brevi_sdk", "_brevi_http", "_brevi_anthropic_types", "_brevi_openai_types", "httpx", "asyncio", "base64", "datetime", "json", "random",
-            "time", "sys", "anthropic.types", "openai.types",
+            "time", "sys", "anthropic.types", "openai.types", "pydantic",
         ];
         for (name, src) in [
             ("_brevi_sdk.py", include_str!("dynpy/py/_brevi_sdk.py")),
