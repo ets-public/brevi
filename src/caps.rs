@@ -407,16 +407,17 @@ const OPENAI_LACKS: &[&str] = &[
     "openai.lib", "openai.resources", "openai.pagination", "openai.helpers", "openai.Completion", "client.completions",
 ];
 // What Brevi's mcp lacks (src/dynpy/py/_brevi_mcp.py): server-to-client requests (sampling, elicitation, roots),
-// the HTTP transports, auth, extensions, the subscription bus (MCPServer(subscriptions=False) is in it), request
-// state, and the client.
+// the Starlette apps (sse_app, streamable_http_app, custom routes; run(transport="streamable-http" / "sse") is in
+// it), resumability (event_store), auth, extensions, the subscription bus (MCPServer(subscriptions=False) is in
+// it), request state, and the client.
 // A program using any of them is run by CPython's mcp.
 const MCP_LACKS: &[&str] = &[
     ".elicit(", ".elicit_url(", ".elicit_form(", ".create_message(", ".list_roots(", ".send_ping(", ".send_request(", ".send_raw_request(",
     "notify_tools_changed", "notify_prompts_changed", "notify_resources_changed", "notify_resource_updated", "subscriptions=",
-    "streamable_http", "streamable-http", "\"sse\"", "'sse'", "sse_app", "run_sse_async", "custom_route", "session_manager", "auth=",
+    "streamable_http_app", "sse_app", "event_store", "custom_route", "session_manager", "auth=",
     "auth_server_provider", "token_verifier", "extensions=", "request_state", "cache_hints", "input_responses", "InputRequiredResult",
     "on_subscriptions_listen", "on_subscribe_resource", "on_unsubscribe_resource", "raise_exceptions", "ClientSession", "stdio_client",
-    "anyio", "transport=", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
+    "anyio", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
 ];
 // What src/dynpy/py/jinja2.py has, and what sends a program to CPython's jinja2 instead: async rendering, the
 // sandbox, i18n, custom extensions, bytecode caches, loaders that read files, the low-level API (lexer, parser,
@@ -595,6 +596,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "mcp.server.lowlevel" => Some("mcp.server.lowlevel"),
         "mcp.server.context" => Some("mcp.server.context"),
         "mcp.server.stdio" => Some("mcp.server.stdio"),
+        "mcp.server.transport_security" => Some("mcp.server.transport_security"),
         "mcp.shared.exceptions" => Some("mcp.shared.exceptions"),
         "mcp.server.mcpserver.exceptions" => Some("mcp.server.mcpserver.exceptions"),
         "mcp.server.mcpserver.prompts" => Some("mcp.server.mcpserver.prompts"),
@@ -659,6 +661,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "mcp.server.lowlevel" => defines(include_str!("dynpy/py/mcp_server_lowlevel.py"), attr),
         "mcp.server.context" => defines(include_str!("dynpy/py/mcp_server_context.py"), attr),
         "mcp.server.stdio" => defines(include_str!("dynpy/py/mcp_server_stdio.py"), attr),
+        "mcp.server.transport_security" => defines(include_str!("dynpy/py/mcp_server_transport_security.py"), attr),
         "mcp.shared.exceptions" => defines(include_str!("dynpy/py/mcp_shared_exceptions.py"), attr),
         "mcp.server.mcpserver.exceptions" => defines(include_str!("dynpy/py/mcp_server_mcpserver_exceptions.py"), attr),
         "mcp.server.mcpserver.prompts" => defines(include_str!("dynpy/py/mcp_server_mcpserver_prompts.py"), attr),
@@ -1236,6 +1239,19 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
         for (n, l) in code_lines(src) {
             if l.contains("create_subprocess_") {
                 uses.push((n, "native", "a child process (asyncio.create_subprocess_exec or _shell: another program, outside the sandbox)".into()));
+            }
+        }
+    }
+    // Brevi's mcp serving over HTTP listens on a network port.
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("mcp")) {
+        // (the transport is named in a string, so the raw lines)
+        for (i, l) in src.lines().enumerate() {
+            let n = i + 1;
+            if l.trim_start().starts_with('#') {
+                continue;
+            }
+            if l.contains("streamable-http") || l.contains("\"sse\"") || l.contains("'sse'") || l.contains("run_streamable_http_async") || l.contains("run_sse_async") {
+                uses.push((n, "net", "an MCP server on an HTTP port (transport=\"streamable-http\" or \"sse\")".into()));
             }
         }
     }

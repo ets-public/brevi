@@ -1,0 +1,152 @@
+== initialize
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"http-demo","version":""}}}
+== initialized
+status 202
+content-type: application/json
+== tools/list
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Add two numbers.","inputSchema":{"properties":{"a":{"title":"A","type":"integer"},"b":{"title":"B","type":"integer"}},"required":["a","b"],"type":"object","title":"addArguments"},"name":"add","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"addOutput"}},{"description":"Report progress.","inputSchema":{"properties":{"n":{"title":"N","type":"integer"}},"required":["n"],"type":"object","title":"slowArguments"},"name":"slow","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"slowOutput"}}]}}
+== call add
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"42","type":"text"}],"isError":false,"structuredContent":{"result":42}}}
+== call slow
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"p1","progress":1,"total":2}}
+| event: message
+| data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"step 1"}}
+| event: message
+| data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"p1","progress":2,"total":2}}
+| event: message
+| data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"step 2"}}
+| event: message
+| data: {"jsonrpc":"2.0","id":"s4","result":{"content":[{"text":"done 2","type":"text"}],"isError":false,"structuredContent":{"result":"done 2"}}}
+== call unknown
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":5,"result":{"content":[{"text":"Unknown tool: nope","type":"text"}],"isError":true}}
+== string id 7
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":"7","result":{}}
+== no session
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":6,"result":{"tools":[{"description":"Add two numbers.","inputSchema":{"properties":{"a":{"title":"A","type":"integer"},"b":{"title":"B","type":"integer"}},"required":["a","b"],"type":"object","title":"addArguments"},"name":"add","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"addOutput"}},{"description":"Report progress.","inputSchema":{"properties":{"n":{"title":"N","type":"integer"}},"required":["n"],"type":"object","title":"slowArguments"},"name":"slow","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"slowOutput"}}]}}
+== unknown session
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":6,"result":{"tools":[{"description":"Add two numbers.","inputSchema":{"properties":{"a":{"title":"A","type":"integer"},"b":{"title":"B","type":"integer"}},"required":["a","b"],"type":"object","title":"addArguments"},"name":"add","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"addOutput"}},{"description":"Report progress.","inputSchema":{"properties":{"n":{"title":"N","type":"integer"}},"required":["n"],"type":"object","title":"slowArguments"},"name":"slow","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"slowOutput"}}]}}
+== accept json only
+status 406
+content-type: application/json
+| {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Not Acceptable: Client must accept both application/json and text/event-stream"}}
+== accept none
+status 406
+content-type: application/json
+| {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Not Acceptable: Client must accept both application/json and text/event-stream"}}
+== text/plain body
+status 400
+| Invalid Content-Type header
+== jsonx
+status 415
+content-type: application/json
+| {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Unsupported Media Type: Content-Type must be application/json"}}
+== parse error
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error: key must be a string at line 1 column 2"}}
+== not json-rpc
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Validation error: ..."}}
+== evil host
+status 421
+| Invalid Host header
+== evil origin
+status 403
+| Invalid Origin header
+== local origin
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","id":9,"result":{}}
+== PUT
+status 405
+content-type: application/json
+allow: GET, POST, DELETE
+| {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Method Not Allowed"}}
+== other path
+status 404
+content-type: text/plain; charset=utf-8
+| Not Found
+== trailing slash
+status 307
+location: http://127.0.0.1:<port>/mcp
+== too large
+status 413
+| Request body too large
+== GET no sse
+status 406
+content-type: application/json
+| {"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Not Acceptable: Client must accept text/event-stream"}}
+== GET no session
+status 200
+== modern discover
+status 200
+content-type: application/json
+| {"jsonrpc":"2.0","id":10,"result":{"cacheScope":"private","capabilities":{"prompts":{"listChanged":true},"resources":{"listChanged":true,"subscribe":true},"tools":{"listChanged":true}},"resultType":"complete","supportedVersions":["2026-07-28"],"ttlMs":0,"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"http-demo","version":""}}}}
+== modern call
+status 200
+content-type: application/json
+| {"jsonrpc":"2.0","id":11,"result":{"content":[{"text":"3","type":"text"}],"isError":false,"resultType":"complete","structuredContent":{"result":3},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"http-demo","version":""}}}}
+== modern slow
+status 200
+content-type: text/event-stream
+| event: message
+| data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":3,"progress":1,"total":2}}
+| event: message
+| data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":3,"progress":2,"total":2}}
+| event: message
+| data: {"jsonrpc":"2.0","id":12,"result":{"content":[{"text":"done 2","type":"text"}],"isError":false,"resultType":"complete","structuredContent":{"result":"done 2"},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"http-demo","version":""}}}}
+== modern name mismatch
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","id":13,"error":{"code":-32020,"message":"mcp-name header does not match the request body's 'name' parameter"}}
+== modern method mismatch
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","id":14,"error":{"code":-32020,"message":"mcp-method header does not match the request body's method"}}
+== modern no meta
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","id":15,"error":{"code":-32602,"message":"params._meta must be an object carrying the required 'io.modelcontextprotocol/protocolVersion' and 'io.modelcontextprotocol/clientCapabilities' envelope keys"}}
+== modern bad version
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","id":16,"error":{"code":-32022,"message":"Unsupported protocol version","data":{"supported":["2026-07-28"],"requested":"2099-01-01"}}}
+== modern notification
+status 202
+== modern parse
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}
+== modern GET
+status 405
+allow: POST
+== modern batch
+status 400
+content-type: application/json
+| {"jsonrpc":"2.0","error":{"code":-32600,"message":"Body must be a single JSON-RPC request or notification object"},"id":null}

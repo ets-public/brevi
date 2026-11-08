@@ -1,0 +1,50 @@
+== GET /sse
+status 200
+| event: endpoint / data: /messages/?session_id=<sid>
+== init POST
+status 202
+| Accepted
+| event: message / data: {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"http-demo","version":""}}}
+== initialized POST
+status 202
+| Accepted
+== call POST
+status 202
+| Accepted
+| event: message / data: {"jsonrpc":"2.0","id":2,"result":{"content":[{"text":"11","type":"text"}],"isError":false,"structuredContent":{"result":11}}}
+== slow POST
+status 202
+| Accepted
+| event: message / data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":9,"progress":1,"total":1}}
+| event: message / data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"step 1"}}
+| event: message / data: {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"done 1","type":"text"}],"isError":false,"structuredContent":{"result":"done 1"}}}
+== no session_id
+status 400
+| session_id is required
+== bad session_id
+status 400
+| Invalid session ID
+== unknown session_id
+status 404
+| Could not find session
+== bad body
+status 400
+| Could not parse message
+== text body
+status 400
+| Invalid Content-Type header
+== GET messages
+status 405
+allow: POST
+== POST /sse
+status 405
+allow: GET, HEAD
+content-type: text/plain; charset=utf-8
+| Method Not Allowed
+== evil host /sse
+status 421
+| Invalid Host header
+== other
+status 404
+content-type: text/plain; charset=utf-8
+| Not Found

@@ -495,6 +495,34 @@ for f in tests/mcp_sdk/*.py; do
   done
   rm -f /tmp/brevi_mcp_$n
 done
+# The same over HTTP (MCPServer.run(transport="streamable-http" / "sse")): tests/mcp_sdk/http/drive.py sends raw
+# requests and prints status, headers and bodies; the .expected transcripts are CPython's (mcp 2.3.0 on uvicorn).
+# Then the official client (streamable HTTP and SSE) against the build, where python3 has mcp.
+H=tests/mcp_sdk/http
+if [ "$1" = "--update" ]; then
+  if python3 -c "import mcp, uvicorn" 2>/dev/null; then
+    for m in "streamable streamable-http" "json streamable-http json_response=1" "stateless streamable-http stateless_http=1" "sse sse"; do
+      python3 $H/drive.py ${m%% *} 18871 -- python3 $H/server.py ${m#* } 18871 > $H/${m%% *}.expected
+    done
+  fi
+elif ! BREVI_PATH=1 $BREVI build $H/server.py -o /tmp/brevi_mcp_http 2>/tmp/brevi_mcp_err || ! grep -q '"path":"dynamic"' /tmp/brevi_mcp_err || grep -q '"py"' /tmp/brevi_mcp_err; then
+  echo "FAIL $H/server.py (not built with Brevi's mcp)"; cat /tmp/brevi_mcp_err; fail=1
+else
+  for m in "streamable streamable-http" "json streamable-http json_response=1" "stateless streamable-http stateless_http=1" "sse sse"; do
+    c=${m%% *}
+    out=$(timeout 300 python3 $H/drive.py $c 18872 -- /tmp/brevi_mcp_http ${m#* } 18872)
+    if [ "$out" != "$(cat $H/$c.expected)" ]; then echo "FAIL mcp http ($c)"; printf '%s\n' "$out" | diff $H/$c.expected - | head -20; fail=1; else echo "ok   mcp http ($c)"; fi
+  done
+  if python3 -c "import mcp.client.streamable_http, mcp.client.sse" 2>/dev/null; then
+    for k in streamable sse; do
+      t=streamable-http; [ $k = sse ] && t=sse
+      out=$(timeout 300 python3 $H/client.py $k 18873 -- /tmp/brevi_mcp_http $t 18873 2>&1 | tail -1)
+      case "$out" in "['http-demo', ['add', 'slow'], {'result': 42}, 'done 3', [(1.0, 3.0), (2.0, 3.0), (3.0, 3.0)]]") echo "ok   mcp http official client ($k)" ;;
+        *) echo "FAIL mcp http official client ($k)"; printf '%s\n' "$out"; fail=1 ;; esac
+    done
+  fi
+  rm -f /tmp/brevi_mcp_http
+fi
 # brevi verify plays a server's .jsonl session in lockstep and certifies it (only where CPython has mcp installed).
 if [ "$1" != "--update" ] && python3 -c "import mcp" 2>/dev/null; then
   for c in basics.lead lowlevel.calls rich.calls; do
@@ -508,7 +536,13 @@ if [ "$1" != "--update" ]; then
   case "$out" in '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Add two numbers."'*) echo "ok   sandbox mcp (stdio, no grant)" ;;
     *) echo "FAIL sandbox mcp (stdio, no grant)"; printf '%s\n' "$out"; fail=1 ;; esac
   out=$($BREVI run --sandbox tests/mcp_sdk/sandbox/http.py 2>&1)
-  case "$out" in *"mcp transport needs allow native"*) echo "ok   sandbox mcp (what the copy lacks is refused)" ;;
+  case "$out" in *"an MCP server on an HTTP port"*"needs allow net"*) echo "ok   sandbox mcp (an HTTP server needs the net grant)" ;;
+    *) echo "FAIL sandbox mcp (an HTTP server needs the net grant)"; printf '%s\n' "$out"; fail=1 ;; esac
+  out=$(timeout 300 $BREVI run --sandbox --allow-net example.com tests/mcp_sdk/sandbox/http.py 2>&1)
+  case "$out" in *"cannot listen on it"*) echo "ok   sandbox mcp (listens only on a granted host)" ;;
+    *) echo "FAIL sandbox mcp (listens only on a granted host)"; printf '%s\n' "$out"; fail=1 ;; esac
+  out=$($BREVI run --sandbox tests/mcp_sdk/sandbox/lacks.py 2>&1)
+  case "$out" in *"needs allow native"*) echo "ok   sandbox mcp (what the copy lacks is refused)" ;;
     *) echo "FAIL sandbox mcp (what the copy lacks is refused)"; printf '%s\n' "$out"; fail=1 ;; esac
 fi
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.

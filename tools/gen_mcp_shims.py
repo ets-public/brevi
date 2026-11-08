@@ -36,6 +36,7 @@ FILES = {
     "mcp_server_context.py": [("_brevi_mcp", ["ServerRequestContext", "CallNext", "HandlerResult"])],
     "mcp_server_lowlevel.py": [("_brevi_mcp", ["Server", "NotificationOptions"])],
     "mcp_server_stdio.py": [("_brevi_mcp", ["stdio_server"])],
+    "mcp_server_transport_security.py": [("_brevi_mcp", ["TransportSecuritySettings", "DEFAULT_MAX_REQUEST_BODY_SIZE"])],
     "mcp_shared_exceptions.py": [("_brevi_mcp", ["MCPError", "MCPDeprecationWarning"])],
     "mcp_server_mcpserver_exceptions.py": [("_brevi_mcp", ["MCPServerError", "ResourceError", "UnexpectedResourceError", "ResourceNotFoundError",
                                                            "ToolError", "UnexpectedToolError", "InvalidSignature"])],
@@ -48,7 +49,7 @@ FILES = {
 }
 
 for name, parts in FILES.items():
-    mod = name[:-3].replace("_", ".").replace("mcp.types", "mcp_types").replace("mcp.server.mcpserver.utilities.types", "mcp.server.mcpserver.utilities.types")
+    mod = name[:-3].replace("_", ".").replace("mcp.types", "mcp_types").replace("mcp.server.mcpserver.utilities.types", "mcp.server.mcpserver.utilities.types").replace("transport.security", "transport_security")
     if name == "mcp_types.py":
         mod = "mcp.types (and mcp_types)"
     out = ["# %s, from Brevi's mcp copy: written by tools/gen_mcp_shims.py, do not edit." % mod]

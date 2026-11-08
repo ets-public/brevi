@@ -296,6 +296,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "mcp.server.lowlevel" => include_str!("py/mcp_server_lowlevel.py"),
         "mcp.server.context" => include_str!("py/mcp_server_context.py"),
         "mcp.server.stdio" => include_str!("py/mcp_server_stdio.py"),
+        "mcp.server.transport_security" => include_str!("py/mcp_server_transport_security.py"),
         "mcp.shared.exceptions" => include_str!("py/mcp_shared_exceptions.py"),
         "mcp.server.mcpserver.exceptions" => include_str!("py/mcp_server_mcpserver_exceptions.py"),
         "mcp.server.mcpserver.prompts" => include_str!("py/mcp_server_mcpserver_prompts.py"),
@@ -736,6 +737,18 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             rust.push('\n');
             rust.push_str(include_str!("procglue.rs"));
         }
+    }
+    // an HTTP server's sockets (Brevi's mcp, transport="streamable-http" or "sse"): only where the program may serve one
+    if stdio_used && texts.iter().any(|(n, (_, t))| !own_mods.contains(n) && (t.contains("streamable") || t.contains("\"sse\"") || t.contains("'sse'") || t.contains("run_sse"))) {
+        if !cfg!(unix) {
+            return Err((file.to_string(), 0, "Brevi's own mcp runs on Linux and macOS".into()));
+        }
+        rust = rust.replacen("fn main() { ", "fn main() { SRV.set(brevi_srvglue::ops()).ok(); ", 1);
+        // under --sandbox a server listens only on a host the caller granted (--allow-net HOST, or --allow net)
+        let (any, hosts) = crate::caps::net_hosts();
+        let list: Vec<String> = hosts.iter().map(|h| format!("{h:?}")).collect();
+        rust.push_str(&format!("\nconst SRV_ANY: bool = {any};\nconst SRV_HOSTS: &[&str] = &[{}];\n", list.join(", ")));
+        rust.push_str(include_str!("srvglue.rs"));
     }
     if stdio_used {
         if !cfg!(unix) {

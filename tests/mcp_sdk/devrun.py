@@ -61,6 +61,59 @@ st.write = write
 st.poll = None
 sys.modules["_brevi_stdio"] = st
 
+# _brevi_srv: an HTTP server's sockets (non-blocking), by fd
+import socket  # noqa: E402
+
+sv = types.ModuleType("_brevi_srv")
+_socks = {}
+
+
+def _listen(host, port):
+    s = socket.create_server((host, port))
+    s.setblocking(False)
+    _socks[s.fileno()] = s
+    return (s.fileno(), s.getsockname()[1])
+
+
+def _accept(fd):
+    try:
+        c, peer = _socks[fd].accept()
+    except BlockingIOError:
+        return None
+    c.setblocking(False)
+    _socks[c.fileno()] = c
+    return (c.fileno(), "%s:%d" % (peer[0], peer[1]))
+
+
+def _read(fd, n):
+    try:
+        return _socks[fd].recv(n)
+    except BlockingIOError:
+        return None
+
+
+def _write(fd, b):
+    try:
+        return _socks[fd].send(b)
+    except BlockingIOError:
+        return 0
+
+
+def _close(fd):
+    s = _socks.pop(fd, None)
+    if s is not None:
+        s.close()
+
+
+sv.listen = _listen
+sv.accept = _accept
+sv.read = _read
+sv.write = _write
+sv.close = _close
+sv.poll = None
+sv.random = os.urandom
+sys.modules["_brevi_srv"] = sv
+
 import pydantic  # noqa: E402  (Brevi's)
 
 assert pydantic.__file__.startswith(tmp), pydantic.__file__
@@ -178,11 +231,33 @@ async def _wait(fd):
 
 M._stdio_wait = _wait
 
+
+async def _srv_wait(fd, events):
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    fut = loop.create_future()
+    add, rm = (loop.add_reader, loop.remove_reader) if events == 1 else (loop.add_writer, loop.remove_writer)
+
+    def ready():
+        rm(fd)
+        if not fut.done():
+            fut.set_result(events)
+
+    add(fd, ready)
+    try:
+        return await fut
+    finally:
+        rm(fd)
+
+
+M._srv_wait = _srv_wait
+
 # the SDK's module names, all as Brevi's copy
 for name in ("mcp", "mcp.types", "mcp_types", "mcp.server", "mcp.server.mcpserver", "mcp.server.lowlevel", "mcp.server.stdio",
              "mcp.shared", "mcp.shared.exceptions", "mcp.server.mcpserver.exceptions", "mcp.server.mcpserver.prompts",
              "mcp.server.mcpserver.prompts.base", "mcp.server.mcpserver.utilities", "mcp.server.mcpserver.utilities.types",
-             "mcp.server.mcpserver.resources", "mcp.server.mcpserver.tools"):
+             "mcp.server.mcpserver.resources", "mcp.server.mcpserver.tools", "mcp.server.transport_security"):
     m = types.ModuleType(name)
     m.__dict__.update({k: v for k, v in vars(M).items() if not k.startswith("__")})
     m.__dict__.update({k: v for k, v in vars(M.T).items() if not k.startswith("__") and name in ("mcp.types", "mcp_types", "mcp")})
