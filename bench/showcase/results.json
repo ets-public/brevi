@@ -76,6 +76,24 @@
    "speedup": 2.286439149907127,
    "binary_mb": 11.3,
    "needs_python": false
+  },
+  {
+   "name": "micrograd",
+   "title": "micrograd, an MLP trained for 30 steps",
+   "metric": "training finished",
+   "runs": 10,
+   "same_output": true,
+   "brevi": {
+    "first_s": 5.488129326500015,
+    "total_s": 5.488129326500015
+   },
+   "cpython": {
+    "first_s": 30.251785284999983,
+    "total_s": 30.251785284999983
+   },
+   "speedup": 5.512221648809554,
+   "binary_mb": 6.2,
+   "needs_python": false
   }
  ]
 }
