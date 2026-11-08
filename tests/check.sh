@@ -101,6 +101,16 @@ for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
     echo "ok   $f"
   fi
 done
+# The same Brevi files under --sandbox with no grant: Brevi's own libraries hold to the sandbox, so they run
+# natively there too (never CPython, which a sandbox without a grant refuses).
+for f in tests/bv_libs/*.bv; do
+  out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 120 ../../$BREVI run --sandbox "$(basename "$f")" 2>/tmp/brevi_bv_err)
+  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err || [ "$out" != "$(cat "${f%.bv}.expected")" ]; then
+    echo "FAIL $f (--sandbox)"; cat /tmp/brevi_bv_err; fail=1
+  else
+    echo "ok   $f (--sandbox)"
+  fi
+done
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
 # The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
