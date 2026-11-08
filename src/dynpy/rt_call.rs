@@ -609,7 +609,7 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Ok(V::Dict(Rc::new(RefCell::new(d))));
                 }
                 "args" if ob.cls.base_bt() == BT::Exc => return Ok(tup(vec![])),
-                "__cause__" if ob.cls.base_bt() == BT::Exc => return Ok(V::None),
+                "__cause__" | "__context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::None),
                 "__suppress_context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::Bool(false)),
                 // `raise SystemExit(2)` sets only args: code is the one arg, None for none, else the args tuple.
                 "code" if ob.cls.base_bt() == BT::Exc && is_exc(o, "SystemExit") => {

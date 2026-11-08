@@ -16,7 +16,7 @@ use std::sync::Mutex;
 
 // The library modules (top-level names) Brevi has its own copies of, plus its built-in modules.
 const OWN: &[&str] = &[
-    "numpy", "tiktoken", "tokenizers", "requests", "httpx", "anthropic", "openai", "jinja2", "markupsafe", "polars", "sqlite3", "duckdb", "safetensors", "onnxruntime", "pydantic", "textwrap", "io", "argparse",
+    "numpy", "tiktoken", "tokenizers", "requests", "httpx", "anthropic", "openai", "jinja2", "markupsafe", "polars", "sqlite3", "duckdb", "safetensors", "onnxruntime", "pydantic", "textwrap", "io", "argparse", "logging",
 ];
 const NATIVE: &[&str] = &[
     "sys", "math", "collections", "typing", "dataclasses", "re", "functools", "itertools", "datetime", "json", "calendar", "decimal", "heapq", "bisect", "string", "statistics", "time", "copy",

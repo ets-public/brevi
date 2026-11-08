@@ -61,6 +61,22 @@ sandbox blocks all traffic, Modal's sandbox has `block_network`, and the Cloudfl
 internet. With `--allow-net HOST`, Brevi lets the program connect only to the granted hosts, and on Modal the
 sandbox's own domain allowlist holds the same hosts.
 
+## Brevi's MCP server in a sandbox
+
+From the next release, the image can also serve `brevi mcp` over HTTP, so an MCP client outside the sandbox
+(Claude, the Agents SDK, any Streamable HTTP client) uses Brevi's tools without starting a process:
+
+```sh
+brevi mcp --http 0.0.0.0:8000 --token "$BREVI_MCP_TOKEN"     # inside the sandbox
+```
+
+Then point the client at the platform's address for port 8000, path `/mcp`, with the header
+`Authorization: Bearer <token>`: E2B's `sandbox.get_host(8000)`, Daytona's `sandbox.get_preview_link(8000)`,
+Modal's `encrypted_ports=[8000]` tunnel, or a Cloudflare container port behind the Worker. The token is
+required on any address other than 127.0.0.1. Run it as a background process of the sandbox (E2B
+`commands.run(..., background=True)`, Daytona sessions, Modal `Sandbox.exec`). This has been tested locally
+with the official MCP client, not yet on the platforms themselves.
+
 ## Check the templates
 
 ```sh

@@ -16,6 +16,7 @@ import base64
 import re
 
 import _brevi_stdio
+import _brevi_srv
 import _brevi_async
 import pydantic
 from pydantic import BaseModel, ValidationError
@@ -2811,7 +2812,7 @@ class _DispatchContext:
     async def notify(self, method, params, opts=None):
         if self._closed:
             return
-        await self._dispatcher.notify(method, params)
+        await self._dispatcher.notify(method, params, self._request_id)
 
     async def progress(self, progress, total=None, message=None):
         if self._progress_token is None:
@@ -2856,14 +2857,20 @@ class _Dispatcher:
         self._in_flight = {}
         self._tasks = set()
         self._closed = False
+        self._related = hasattr(write_stream, "send_related")
+        self._unanswered = getattr(write_stream, "on_unanswered", None)
 
-    async def notify(self, method, params):
+    async def notify(self, method, params, related=None):
+        # related: the request a notification belongs to (an HTTP transport sends it on that request's stream)
         if self._closed:
             return
         msg = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             msg["params"] = dict(params)
-        await self._write.send(msg)
+        if related is not None and self._related:
+            await self._write.send_related(msg, related)
+        else:
+            await self._write.send(msg)
 
     async def run(self, on_request, on_notify):
         try:
@@ -2921,10 +2928,15 @@ class _Dispatcher:
                     del self._in_flight[k]
             if not dctx.cancel_requested.is_set():
                 await self._write.send({"jsonrpc": "2.0", "id": req.id, "result": result})
+            elif self._unanswered is not None:
+                await self._unanswered(req.id)
         except asyncio.CancelledError:
-            # cancelled by the peer: never answered; by the connection closing: "Connection closed"
+            # cancelled by the peer: never answered (over HTTP the request's stream ends with -32800); by the
+            # connection closing: "Connection closed"
             if not dctx.cancel_requested.is_set():
                 await self._write.send({"jsonrpc": "2.0", "id": req.id, "error": {"code": CONNECTION_CLOSED, "message": "Connection closed"}})
+            elif self._unanswered is not None and not self._closed:
+                await self._unanswered(req.id)
             raise
         except Exception as e:
             try:
@@ -2934,6 +2946,8 @@ class _Dispatcher:
                 err = {"code": 0, "message": "brevi: %s: %s" % (type(e2).__name__, e2)}
             if not dctx.cancel_requested.is_set():
                 await self._write.send({"jsonrpc": "2.0", "id": req.id, "error": err})
+            elif self._unanswered is not None:
+                await self._unanswered(req.id)
 
     def _unexpected(self, e, method):
         _log_exc(e, "handler for %r raised", method)
@@ -2991,9 +3005,9 @@ async def _serve_dual_era(server, read_stream, write_stream, state, init_options
         await write_stream.aclose()
 
 
-async def _serve_legacy(server, read_stream, write_stream, state, init_options, raise_exceptions):
+async def _serve_legacy(server, read_stream, write_stream, state, init_options, raise_exceptions, session_id=None):
     d = _Dispatcher(read_stream, write_stream, ("initialize",), raise_exceptions)
-    connection = Connection(d, protocol_version=LATEST_HANDSHAKE_VERSION)
+    connection = Connection(d, protocol_version=LATEST_HANDSHAKE_VERSION, session_id=session_id)
     runner = _Runner(server, connection, state, init_options)
 
     async def on_request(dctx, method, params):
@@ -3204,6 +3218,39 @@ class _LifespanWrap:
         return await self._cm.__aexit__(a, b, c)
 
 
+SUBSCRIPTION_ID_META_KEY = "io.modelcontextprotocol/subscriptionId"
+
+
+class _ListenHandler:
+    # mcp.server.subscriptions.ListenHandler over the in-memory bus: one subscriptions/listen call is one stream,
+    # acknowledged first. Brevi's mcp has no way to publish events (notify_tools_changed and the rest send a
+    # program to CPython's mcp), so after the acknowledgement a stream stays open until the client ends it.
+    def __init__(self, max_subscriptions=1024):
+        self._max = max_subscriptions
+        self._open = 0
+
+    async def __call__(self, ctx, params):
+        sid = ctx.request_id
+        if sid is None:
+            raise MCPError(INVALID_REQUEST, "subscriptions/listen requires a request id")
+        if self._open >= self._max:
+            raise MCPError(INTERNAL_ERROR, "Subscription limit reached")
+        req = params.notifications
+        honored = T.SubscriptionFilter(tools_list_changed=True if req.tools_list_changed else None,
+                                       prompts_list_changed=True if req.prompts_list_changed else None,
+                                       resources_list_changed=True if req.resources_list_changed else None,
+                                       resource_subscriptions=list(req.resource_subscriptions) if req.resource_subscriptions else None)
+        self._open += 1
+        try:
+            await ctx.session.send_notification(
+                T.SubscriptionsAcknowledgedNotification(params=T.SubscriptionsAcknowledgedNotificationParams(notifications=honored, _meta={SUBSCRIPTION_ID_META_KEY: sid})),
+                related_request_id=sid)
+            await asyncio.Event().wait()
+        finally:
+            self._open -= 1
+        return T.SubscriptionsListenResult()
+
+
 _TRANSPORTS = ("stdio", "sse", "streamable-http")
 
 
@@ -3234,6 +3281,7 @@ class MCPServer:
                                        on_call_tool=self._handle_call_tool, on_list_resources=self._handle_list_resources,
                                        on_read_resource=self._handle_read_resource, on_list_resource_templates=self._handle_list_resource_templates,
                                        on_list_prompts=self._handle_list_prompts, on_get_prompt=self._handle_get_prompt,
+                                       on_subscriptions_listen=None if subscriptions is False else _ListenHandler(),
                                        lifespan=_LifespanWrap(self, lifespan) if lifespan else None)
         self._lowlevel_server.middleware.extend(middleware or ())
         self._custom_starlette_routes = []
@@ -3512,5 +3560,1546 @@ def _settings_error(field, value):
                       % (field, value, type(value).__name__))
 
 
+# ---------------------------------------------------------------- the HTTP transports (mcp.server.streamable_http,
+# mcp.server.streamable_http_manager, mcp.server._streamable_http_modern, mcp.server.sse, mcp.server.transport_security)
+# MCPServer.run(transport="streamable-http" / "sse") as the SDK serves them with Starlette and uvicorn, over an
+# HTTP/1.1 server of Brevi's own (_brevi_srv: non-blocking sockets the event loop polls). No event store
+# (resumability), auth or custom routes: those send a program to CPython's mcp.
+
+DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024
+DEFAULT_SESSION_IDLE_TIMEOUT = 30 * 60
+DEFAULT_MAX_SESSIONS = 10000
+MCP_SESSION_ID_HEADER = "mcp-session-id"
+MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version"
+MCP_METHOD_HEADER = "mcp-method"
+MCP_NAME_HEADER = "mcp-name"
+LAST_EVENT_ID_HEADER = "last-event-id"
+CONTENT_TYPE_JSON = "application/json"
+CONTENT_TYPE_SSE = "text/event-stream"
+GET_STREAM_KEY = "_GET_stream"
+REQUEST_CANCELLED = -32800
+DEFAULT_NEGOTIATED_VERSION = "2025-03-26"
+_SSE_PING_INTERVAL = 15.0
+_HTTP_REASONS = {200: "OK", 202: "Accepted", 307: "Temporary Redirect", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
+                 406: "Not Acceptable", 409: "Conflict", 413: "Content Too Large", 415: "Unsupported Media Type", 421: "Misdirected Request",
+                 431: "Request Header Fields Too Large", 500: "Internal Server Error", 503: "Service Unavailable"}
+_ERROR_CODE_HTTP_STATUS = {PARSE_ERROR: 400, INVALID_REQUEST: 400, INVALID_PARAMS: 400, HEADER_MISMATCH: 400, MISSING_REQUIRED_CLIENT_CAPABILITY: 400,
+                           UNSUPPORTED_PROTOCOL_VERSION: 400, METHOD_NOT_FOUND: 404}
+_NAME_BEARING_METHODS = {"tools/call": "name", "prompts/get": "name", "resources/read": "uri"}
+
+
+class TransportSecuritySettings(BaseModel):
+    enable_dns_rebinding_protection = pydantic.Field(True)
+    allowed_hosts = pydantic.Field(default_factory=list)
+    allowed_origins = pydantic.Field(default_factory=list)
+    __annotations__ = (("enable_dns_rebinding_protection", ("bool",)), ("allowed_hosts", ("list", ("str",), "list", False)),
+                       ("allowed_origins", ("list", ("str",), "list", False)))
+
+
+TransportSecuritySettings.__module__ = "mcp.server.transport_security"
+
+
+class _Security:
+    # TransportSecurityMiddleware: the Content-Type of a POST, then Host and Origin against the allowed lists
+    def __init__(self, settings):
+        self.settings = settings if settings is not None else TransportSecuritySettings(enable_dns_rebinding_protection=False)
+
+    def _host_ok(self, host):
+        if not host:
+            _log(30, "Missing Host header in request")
+            return False
+        if host in self.settings.allowed_hosts:
+            return True
+        for a in self.settings.allowed_hosts:
+            if a.endswith(":*") and host.startswith(a[:-2] + ":"):
+                return True
+        _log(30, "Invalid Host header: %s", host)
+        return False
+
+    def _origin_ok(self, origin):
+        if not origin:
+            return True
+        if origin in self.settings.allowed_origins:
+            return True
+        for a in self.settings.allowed_origins:
+            if a.endswith(":*") and origin.startswith(a[:-2] + ":"):
+                return True
+        _log(30, "Invalid Origin header: %s", origin)
+        return False
+
+    def validate(self, req, is_post):
+        # None, or the (status, headers, body) of the refusal
+        if is_post:
+            ct = req.header("content-type")
+            if ct is None or not ct.lower().startswith("application/json"):
+                return (400, [], b"Invalid Content-Type header")
+        if not self.settings.enable_dns_rebinding_protection:
+            return None
+        if not self._host_ok(req.header("host")):
+            return (421, [], b"Invalid Host header")
+        if not self._origin_ok(req.header("origin")):
+            return (403, [], b"Invalid Origin header")
+        return None
+
+
+def _local_security(settings, host):
+    # what MCPServer.streamable_http_app / sse_app turn on for a local host
+    if settings is None and host in ("127.0.0.1", "localhost", "::1"):
+        return TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+                                         allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"])
+    return settings
+
+
+# ---- the HTTP/1.1 server
+
+
+def _srv_wait(fd, events):
+    loop = asyncio.get_running_loop()
+    if loop._io_poll is None:
+        loop._io_poll = _brevi_srv.poll
+    return loop._brevi_wait_fd(fd, events)
+
+
+class _HttpGone(Exception):
+    # the client went away
+    pass
+
+
+class _HttpBad(Exception):
+    def __init__(self, status, text):
+        Exception.__init__(self, text)
+        self.status = status
+        self.text = text
+
+
+class _HttpConn:
+    def __init__(self, fd, peer):
+        self.fd = fd
+        self.peer = peer
+        self.buf = b""
+        self.eof = False
+        self.closed = False
+
+    async def fill(self):
+        # more bytes into buf; False at the end of the connection
+        while True:
+            if self.closed:
+                return False
+            try:
+                data = _brevi_srv.read(self.fd, 65536)
+            except OSError:
+                self.eof = True
+                return False
+            if data is None:
+                await _srv_wait(self.fd, 1)
+                continue
+            if not data:
+                self.eof = True
+                return False
+            self.buf = self.buf + data
+            return True
+
+    async def head(self):
+        while True:
+            i = self.buf.find(b"\r\n\r\n")
+            if i >= 0:
+                h = self.buf[:i]
+                self.buf = self.buf[i + 4:]
+                return h
+            if len(self.buf) > 65536:
+                raise _HttpBad(431, "Request Header Fields Too Large")
+            if not await self.fill():
+                if self.buf.strip():
+                    raise _HttpBad(400, "Invalid HTTP request received.")
+                return None
+
+    async def exact(self, n):
+        while len(self.buf) < n:
+            if not await self.fill():
+                raise _HttpGone()
+        b = self.buf[:n]
+        self.buf = self.buf[n:]
+        return b
+
+    async def line(self):
+        while True:
+            i = self.buf.find(b"\r\n")
+            if i >= 0:
+                ln = self.buf[:i]
+                self.buf = self.buf[i + 2:]
+                return ln
+            if len(self.buf) > 65536:
+                raise _HttpBad(400, "Invalid HTTP request received.")
+            if not await self.fill():
+                raise _HttpGone()
+
+    async def write(self, b):
+        while b:
+            if self.closed:
+                raise _HttpGone()
+            try:
+                k = _brevi_srv.write(self.fd, b)
+            except OSError:
+                self.close()
+                raise _HttpGone()
+            if k == 0:
+                await _srv_wait(self.fd, 4)
+                continue
+            b = b[k:]
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            _brevi_srv.close(self.fd)
+
+
+class _HttpRequest:
+    def __init__(self, conn, method, target, version, headers):
+        self.conn = conn
+        self.method = method
+        self.target = target
+        self.version = version
+        self.headers = headers
+        q = target.find("?")
+        self.path = _unquote(target if q < 0 else target[:q])
+        self.query_string = "" if q < 0 else target[q + 1:]
+        self._body = None
+        self.body_read = False
+
+    def header(self, name, default=None):
+        # the first value, as Starlette's Headers.get gives it
+        for k, v in self.headers:
+            if k == name:
+                return v
+        return default
+
+    def query(self, name):
+        for part in self.query_string.split("&"):
+            if not part:
+                continue
+            k, _, v = part.partition("=")
+            if _unquote(k.replace("+", " ")) == name:
+                return _unquote(v.replace("+", " "))
+        return None
+
+    def declared_length(self):
+        v = self.header("content-length")
+        if v is None:
+            return None
+        try:
+            return int(v)
+        except ValueError:
+            return None
+
+    async def body(self, limit=None):
+        # the whole body; _HttpBad(413) past the limit
+        if self._body is not None:
+            return self._body
+        self.body_read = True
+        te = (self.header("transfer-encoding") or "").lower()
+        if "chunked" in te:
+            out = b""
+            while True:
+                ln = await self.conn.line()
+                try:
+                    n = int(ln.split(b";")[0].strip(), 16)
+                except ValueError:
+                    raise _HttpBad(400, "Invalid HTTP request received.")
+                if n == 0:
+                    while True:
+                        t = await self.conn.line()
+                        if not t:
+                            break
+                    break
+                if limit is not None and len(out) + n > limit:
+                    raise _HttpBad(413, "Request body too large")
+                out = out + await self.conn.exact(n)
+                await self.conn.exact(2)
+            self._body = out
+            return out
+        n = self.declared_length()
+        if n is None:
+            n = 0
+        if limit is not None and n > limit:
+            raise _HttpBad(413, "Request body too large")
+        self._body = await self.conn.exact(n)
+        return self._body
+
+
+def _unquote(s):
+    if "%" not in s:
+        return s
+    out = b""
+    i = 0
+    raw = s.encode("utf-8")
+    while i < len(raw):
+        c = raw[i]
+        if c == 37 and i + 2 < len(raw) + 0 and i + 2 <= len(raw) - 1:
+            try:
+                out = out + bytes([int(raw[i + 1:i + 3].decode("ascii"), 16)])
+                i += 3
+                continue
+            except ValueError:
+                pass
+        out = out + raw[i:i + 1]
+        i += 1
+    return out.decode("utf-8", "replace")
+
+
+def _quote_path(s):
+    out = []
+    for ch in s:
+        if ch.isalnum() or ch in "/-_.~":
+            out.append(ch)
+        else:
+            for b in ch.encode("utf-8"):
+                out.append("%%%02X" % b)
+    return "".join(out)
+
+
+class _HttpResponse:
+    def __init__(self, conn, req):
+        self.conn = conn
+        self.req = req
+        self.status = None
+        self.started = False
+        self.done = False
+        self.chunked = False
+        self.keep = req.version == "HTTP/1.1" and (req.header("connection") or "").lower() != "close"
+
+    def _head(self, status, headers, extra):
+        self.status = status
+        lines = ["HTTP/1.1 %d %s" % (status, _HTTP_REASONS.get(status, ""))]
+        for k, v in headers:
+            lines.append("%s: %s" % (k, v))
+        lines.extend(extra)
+        if not self.keep:
+            lines.append("connection: close")
+        return ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1")
+
+    async def send(self, status, headers, body=b""):
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        self.started = True
+        self.done = True
+        await self.conn.write(self._head(status, headers, ["content-length: %d" % len(body)]) + body)
+        _access_log(self.req, status)
+
+    async def start(self, status, headers):
+        self.started = True
+        self.chunked = True
+        await self.conn.write(self._head(status, headers, ["transfer-encoding: chunked"]))
+        _access_log(self.req, status)
+
+    async def chunk(self, b):
+        if b:
+            await self.conn.write(("%x\r\n" % len(b)).encode("ascii") + b + b"\r\n")
+
+    async def end(self):
+        if not self.done:
+            self.done = True
+            if self.chunked:
+                await self.conn.write(b"0\r\n\r\n")
+
+
+_access = [True]
+
+
+def _access_log(req, status):
+    # uvicorn's access log line (on stderr, at log level INFO and below)
+    if _access[0] and _log_level[0] <= 20:
+        q = ("?" + req.query_string) if req.query_string else ""
+        sys.stderr.write('INFO:     %s - "%s %s%s %s" %d %s\n' % (req.conn.peer, req.method, _quote_path(req.path), q, req.version, status,
+                                                              _HTTP_REASONS.get(status, "")))
+        sys.stderr.flush()
+
+
+async def _text(resp, status, text, headers=None):
+    h = list(headers or []) + [("content-type", "text/plain; charset=utf-8")]
+    await resp.send(status, h, text)
+
+
+async def _plain(resp, status, body=b"", headers=None):
+    # a Starlette Response with no media type
+    await resp.send(status, list(headers or []), body)
+
+
+def _err_body(message, code=INVALID_REQUEST, rid=None):
+    return _jdump({"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": message}})
+
+
+class _HttpServer:
+    def __init__(self, host, port, app):
+        self.host = host
+        self.port = port
+        self.app = app
+        self._tasks = set()
+
+    async def serve(self):
+        try:
+            fd, bound = _brevi_srv.listen(self.host, self.port)
+        except PermissionError as e:
+            if "brevi sandbox" not in str(e):
+                raise
+            sys.stderr.write("ERROR:    %s\n" % e)
+            sys.stderr.flush()
+            raise SystemExit(1)
+        except OSError as e:
+            sys.stderr.write("ERROR:    [Errno %s] error while attempting to bind on address (%r, %d): %s\n"
+                             % (getattr(e, "errno", "?"), self.host, self.port, _bind_reason(e)))
+            sys.stderr.flush()
+            raise SystemExit(1)
+        shown = ("[%s]" % self.host) if ":" in self.host else self.host
+        sys.stderr.write("INFO:     Brevi's mcp server running on http://%s:%d (Press CTRL+C to quit)\n" % (shown, bound))
+        sys.stderr.flush()
+        try:
+            while True:
+                await _srv_wait(fd, 1)
+                while True:
+                    got = _brevi_srv.accept(fd)
+                    if got is None:
+                        break
+                    t = asyncio.ensure_future(self._conn(_HttpConn(got[0], got[1])))
+                    self._tasks.add(t)
+                    t.add_done_callback(self._tasks.discard)
+        finally:
+            _brevi_srv.close(fd)
+            for t in list(self._tasks):
+                t.cancel()
+
+    async def _conn(self, conn):
+        try:
+            while not conn.closed:
+                try:
+                    head = await conn.head()
+                except _HttpBad as e:
+                    await conn.write(("HTTP/1.1 %d %s\r\ncontent-type: text/plain; charset=utf-8\r\nconnection: close\r\ncontent-length: %d\r\n\r\n%s"
+                                      % (e.status, _HTTP_REASONS.get(e.status, ""), len(e.text), e.text)).encode("latin-1"))
+                    break
+                if head is None:
+                    break
+                req = self._parse(conn, head)
+                if req is None:
+                    await conn.write(b"HTTP/1.1 400 Bad Request\r\ncontent-type: text/plain; charset=utf-8\r\nconnection: close\r\ncontent-length: 30\r\n\r\nInvalid HTTP request received.")
+                    break
+                resp = _HttpResponse(conn, req)
+                try:
+                    await self.app(req, resp)
+                except _HttpBad as e:
+                    if resp.started:
+                        raise _HttpGone()
+                    resp.keep = False
+                    await _plain(resp, e.status, e.text.encode("utf-8"))
+                if not resp.started:
+                    # an app that answered nothing: uvicorn's 500
+                    resp.keep = False
+                    await _text(resp, 500, "Internal Server Error")
+                elif not resp.done:
+                    await resp.end()
+                if not req.body_read:
+                    n = req.declared_length()
+                    if (req.header("transfer-encoding") or "") or (n is not None and n > 0):
+                        if n is not None and n <= len(conn.buf) + 1048576 and not (req.header("transfer-encoding") or ""):
+                            await conn.exact(n)
+                        else:
+                            await self._linger(conn)
+                            break
+                if not resp.keep:
+                    await self._linger(conn)
+                    break
+        except _HttpGone:
+            pass
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            _log_exc(e, "Exception in ASGI application\n")
+        finally:
+            conn.close()
+
+    async def _linger(self, conn):
+        # read and drop what the client is still sending (a body refused unread) for a moment before closing, so
+        # the close does not reset the connection under the response
+        loop = asyncio.get_running_loop()
+        end = loop.time() + 2.0
+        conn.buf = b""
+        while not conn.closed and loop.time() < end:
+            try:
+                data = _brevi_srv.read(conn.fd, 65536)
+            except OSError:
+                return
+            if data is None:
+                try:
+                    await asyncio.wait_for(_srv_wait(conn.fd, 1), max(0.0, end - loop.time()))
+                except asyncio.TimeoutError:
+                    return
+                continue
+            if not data:
+                return
+
+    def _parse(self, conn, head):
+        try:
+            text = head.decode("latin-1")
+        except Exception:
+            return None
+        lines = text.split("\r\n")
+        parts = lines[0].split(" ")
+        if len(parts) != 3 or not parts[2].startswith("HTTP/1."):
+            return None
+        headers = []
+        for ln in lines[1:]:
+            k, sep, v = ln.partition(":")
+            if not sep or not k or k != k.strip():
+                return None
+            headers.append((k.lower(), v.strip()))
+        return _HttpRequest(conn, parts[0], parts[1], parts[2], headers)
+
+
+def _bind_reason(e):
+    s = str(e)
+    if "] " in s:
+        s = s.split("] ", 1)[1]
+    return s.lower()
+
+
+def _sse_bytes(event=None, data=None, id=None, comment=None):
+    # sse_starlette's ServerSentEvent.encode, with its \r\n separator
+    out = ""
+    if comment is not None:
+        for c in re.split(r"\r\n|\r|\n", str(comment)):
+            out += ": " + c + "\r\n"
+    if id is not None:
+        out += "id: " + re.sub(r"\r\n|\r|\n", "", id) + "\r\n"
+    if event is not None:
+        out += "event: " + re.sub(r"\r\n|\r|\n", "", event) + "\r\n"
+    if data is not None:
+        for c in re.split(r"\r\n|\r|\n", str(data)):
+            out += "data: " + c + "\r\n"
+    out += "\r\n"
+    return out.encode("utf-8")
+
+
+def _ping_bytes():
+    return _sse_bytes(comment="ping - %s" % _utc_now())
+
+
+def _utc_now():
+    import datetime
+    return str(datetime.datetime.now(datetime.timezone.utc))
+
+
+def _accepts(req):
+    # check_accept_headers: (json, sse)
+    types = [t.strip().split(";")[0].strip().lower() for t in (req.header("accept") or "").split(",")]
+    wild = "*/*" in types
+    js = wild or any(t in (CONTENT_TYPE_JSON, "application/*") for t in types)
+    sse = wild or any(t in (CONTENT_TYPE_SSE, "text/*") for t in types)
+    return js, sse
+
+
+_CLOSED = object()
+_GONE = object()
+
+
+class _Pipe:
+    # an asyncio queue that can be closed: get gives _CLOSED after close
+    def __init__(self):
+        self.q = asyncio.Queue()
+        self.closed = False
+
+    def put(self, item):
+        if not self.closed:
+            self.q.put_nowait(item)
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self.q.put_nowait(_CLOSED)
+
+    async def get(self):
+        if self.closed and self.q.empty():
+            return _CLOSED
+        return await self.q.get()
+
+
+class _PipeReader:
+    # a server's read stream over a _Pipe of _Msg
+    def __init__(self, pipe):
+        self._pipe = pipe
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        item = await self._pipe.get()
+        if item is _CLOSED:
+            self._pipe.closed = True
+            raise StopAsyncIteration
+        return item
+
+    async def aclose(self):
+        self._pipe.close()
+
+
+async def _watch_gone(conn, pipe):
+    # the client closing the connection while a stream is open (http.disconnect)
+    try:
+        while not conn.closed:
+            await _srv_wait(conn.fd, 1)
+            if not await conn.fill():
+                pipe.put(_GONE)
+                return
+    except asyncio.CancelledError:
+        pass
+
+
+async def _next_event(pipe, ping):
+    # the next item, or None after `ping` seconds with nothing
+    try:
+        return await asyncio.wait_for(pipe.get(), ping)
+    except asyncio.TimeoutError:
+        return None
+
+
+class _HttpWriteStream:
+    # a session's write stream: each message routed to the stream of the request it answers or belongs to
+    def __init__(self, transport):
+        self._t = transport
+        self.closed = False
+
+    async def send(self, msg):
+        await self._t._route(msg, None)
+
+    async def send_related(self, msg, rid):
+        await self._t._route(msg, rid)
+
+    async def on_unanswered(self, rid):
+        # a request the client cancelled: its stream ends with -32800 (_terminate_unanswered_request)
+        await self._t._route({"jsonrpc": "2.0", "id": rid, "error": {"code": REQUEST_CANCELLED, "message": "Request cancelled"}}, None)
+
+    async def aclose(self):
+        self.closed = True
+
+
+class _StreamableTransport:
+    # StreamableHTTPServerTransport, without an event store
+    def __init__(self, session_id, json_response, security, idle_timeout=None):
+        self.mcp_session_id = session_id
+        self.json = json_response
+        self._security = security
+        self._idle_timeout = idle_timeout
+        self._streams = {}
+        self._terminated = False
+        self._in = _Pipe()
+        self.read_stream = _PipeReader(self._in)
+        self.write_stream = _HttpWriteStream(self)
+        self._in_flight = 0
+        self._idle = None
+        self.on_idle = None
+
+    @property
+    def is_terminated(self):
+        return self._terminated
+
+    def _sid_headers(self):
+        return [(MCP_SESSION_ID_HEADER, self.mcp_session_id)] if self.mcp_session_id else []
+
+    async def _error(self, resp, message, status, code=INVALID_REQUEST, headers=None):
+        h = [("content-type", CONTENT_TYPE_JSON)] + list(headers or [])
+        if self.mcp_session_id and not any(k.lower() == MCP_SESSION_ID_HEADER for k, v in h):
+            h.append((MCP_SESSION_ID_HEADER, self.mcp_session_id))
+        await resp.send(status, h, _err_body(message, code))
+
+    async def _json(self, resp, msg, status=200):
+        h = [("content-type", CONTENT_TYPE_JSON)] + self._sid_headers()
+        await resp.send(status, h, b"" if msg is None else _jdump(msg).encode("utf-8"))
+
+    async def _route(self, msg, related):
+        if self._terminated and not self._streams:
+            return
+        target = None
+        if ("result" in msg or "error" in msg) and msg.get("id") is not None:
+            target = str(msg["id"])
+        elif related is not None:
+            if self.json:
+                return
+            target = str(related)
+        key = target if target is not None else GET_STREAM_KEY
+        p = self._streams.get(key)
+        if p is not None:
+            p.put(msg)
+
+    def _drop(self, key):
+        p = self._streams.pop(key, None)
+        if p is not None:
+            p.close()
+
+    async def handle(self, req, resp):
+        if self._idle_timeout is None:
+            await self._handle(req, resp)
+            return
+        self._in_flight += 1
+        if self._idle is not None:
+            self._idle.cancel()
+            self._idle = None
+        try:
+            await self._handle(req, resp)
+        finally:
+            self._in_flight -= 1
+            if not self._in_flight and not self._terminated:
+                self._idle = asyncio.get_running_loop().call_later(self._idle_timeout, self._expire)
+
+    def _expire(self):
+        self._idle = None
+        if not self._in_flight and self.on_idle is not None:
+            _log(20, "Session %s idle timeout", self.mcp_session_id)
+            asyncio.ensure_future(self.on_idle())
+
+    async def _handle(self, req, resp):
+        is_post = req.method == "POST"
+        bad = self._security.validate(req, is_post)
+        if bad is not None:
+            await _plain(resp, bad[0], bad[2], bad[1])
+            return
+        if self._terminated:
+            await self._error(resp, "Not Found: Session has been terminated", 404)
+            return
+        if is_post:
+            await self._post(req, resp)
+        elif req.method == "GET":
+            await self._get(req, resp)
+        elif req.method == "DELETE":
+            await self._delete(req, resp)
+        else:
+            h = [("content-type", CONTENT_TYPE_JSON), ("allow", "GET, POST, DELETE")]
+            await self._error(resp, "Method Not Allowed", 405, headers=h[1:])
+
+    async def _session_ok(self, req, resp):
+        if not self.mcp_session_id:
+            return True
+        sid = req.header(MCP_SESSION_ID_HEADER)
+        if not sid:
+            await self._error(resp, "Bad Request: Missing session ID", 400)
+            return False
+        if sid != self.mcp_session_id:
+            await self._error(resp, "Not Found: Invalid or expired session ID", 404)
+            return False
+        return True
+
+    async def _post(self, req, resp):
+        js, sse = _accepts(req)
+        if self.json:
+            if not js:
+                await self._error(resp, "Not Acceptable: Client must accept application/json", 406)
+                return
+        elif not (js and sse):
+            await self._error(resp, "Not Acceptable: Client must accept both application/json and text/event-stream", 406)
+            return
+        ct = req.header("content-type") or ""
+        if not any(p.strip() == CONTENT_TYPE_JSON for p in ct.split(";")[0].split(",")):
+            await self._error(resp, "Unsupported Media Type: Content-Type must be application/json", 415)
+            return
+        body = await req.body()
+        ok, raw, why = _jiter(body)
+        if not ok:
+            await self._error(resp, "Parse error: %s" % why, 400, PARSE_ERROR)
+            return
+        m = _classify(raw)
+        if m is None:
+            await self._error(resp, "Validation error: %s" % _rpc_validation_text(raw), 400, INVALID_PARAMS)
+            return
+        init = m.kind == "request" and m.method == "initialize"
+        if init:
+            if self.mcp_session_id:
+                sid = req.header(MCP_SESSION_ID_HEADER)
+                if sid and sid != self.mcp_session_id:
+                    await self._error(resp, "Not Found: Invalid or expired session ID", 404)
+                    return
+        elif not await self._session_ok(req, resp):
+            return
+        if m.kind != "request":
+            await self._json(resp, None, 202)
+            self._in.put(m)
+            return
+        rid = str(m.id)
+        p = _Pipe()
+        self._streams[rid] = p
+        if self.json:
+            self._in.put(m)
+            item = await p.get()
+            self._streams.pop(rid, None)
+            if item is _CLOSED:
+                await self._error(resp, "Session terminated before the request completed", 500, INTERNAL_ERROR)
+            else:
+                await self._json(resp, item)
+            return
+        h = [("cache-control", "no-cache, no-transform"), ("connection", "keep-alive"), ("content-type", CONTENT_TYPE_SSE)] + self._sid_headers()
+        h.append(("x-accel-buffering", "no"))
+        watch = None
+        try:
+            await resp.start(200, h)
+            self._in.put(m)
+            watch = asyncio.ensure_future(_watch_gone(req.conn, p))
+            while True:
+                item = await _next_event(p, _SSE_PING_INTERVAL)
+                if item is None:
+                    await resp.chunk(_ping_bytes())
+                    continue
+                if item is _CLOSED or item is _GONE:
+                    break
+                await resp.chunk(_sse_bytes(event="message", data=_jdump(item)))
+                if "result" in item or "error" in item:
+                    break
+        finally:
+            if watch is not None:
+                watch.cancel()
+            if self._streams.get(rid) is p:
+                self._streams.pop(rid, None)
+        if req.conn.eof:
+            raise _HttpGone()
+        await resp.end()
+
+    async def _get(self, req, resp):
+        js, sse = _accepts(req)
+        if not sse:
+            await self._error(resp, "Not Acceptable: Client must accept text/event-stream", 406)
+            return
+        if not await self._session_ok(req, resp):
+            return
+        if req.header(LAST_EVENT_ID_HEADER):
+            # resumption needs an event store, which Brevi's mcp has not got: the SDK answers nothing (uvicorn's 500)
+            return
+        if GET_STREAM_KEY in self._streams:
+            await self._error(resp, "Conflict: Only one SSE stream is allowed per session", 409)
+            return
+        h = [("cache-control", "no-cache, no-transform"), ("connection", "keep-alive"), ("content-type", CONTENT_TYPE_SSE)] + self._sid_headers()
+        h.append(("x-accel-buffering", "no"))
+        p = _Pipe()
+        self._streams[GET_STREAM_KEY] = p
+        watch = None
+        try:
+            await resp.start(200, h)
+            watch = asyncio.ensure_future(_watch_gone(req.conn, p))
+            while True:
+                item = await _next_event(p, _SSE_PING_INTERVAL)
+                if item is None:
+                    await resp.chunk(_ping_bytes())
+                    continue
+                if item is _CLOSED or item is _GONE:
+                    break
+                await resp.chunk(_sse_bytes(event="message", data=_jdump(item)))
+        finally:
+            if watch is not None:
+                watch.cancel()
+            if self._streams.get(GET_STREAM_KEY) is p:
+                self._streams.pop(GET_STREAM_KEY, None)
+        if req.conn.eof:
+            raise _HttpGone()
+        await resp.end()
+
+    async def _delete(self, req, resp):
+        if not self.mcp_session_id:
+            await self._error(resp, "Method Not Allowed: Session termination not supported", 405)
+            return
+        if not await self._session_ok(req, resp):
+            return
+        await self.terminate()
+        await self._json(resp, None, 200)
+
+    async def terminate(self):
+        if self._terminated:
+            return
+        self._terminated = True
+        _log(20, "Terminating session: %s", self.mcp_session_id)
+        if self._idle is not None:
+            self._idle.cancel()
+            self._idle = None
+        for k in list(self._streams.keys()):
+            self._drop(k)
+        self._in.close()
+
+
+def _jiter(body):
+    # pydantic_core.from_json(body): (True, value, None), or (False, None, jiter's message)
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return False, None, "invalid unicode code point"
+    try:
+        return True, pydantic._jparse(text), None
+    except pydantic._JErr as e:
+        line, col = pydantic._jpos(text, e.pos)
+        return False, None, "%s at line %d column %d" % (e.msg, line, col)
+
+
+def _rpc_validation_text(raw):
+    # pydantic's error for a body no JSON-RPC message fits (the full text lists every union member's errors)
+    t = type(raw).__name__
+    if not isinstance(raw, dict):
+        return "4 validation errors for JSONRPCMessage\n  Input should be a valid dictionary or instance of the model [type=model_type, input_type=%s]" % t
+    return "validation errors for JSONRPCMessage"
+
+
+class _StreamableApp:
+    # Starlette's route for the path around StreamableHTTPSessionManager
+    def __init__(self, server, path, json_response, stateless, security, max_body, idle_timeout, max_sessions):
+        if idle_timeout is not None and not (idle_timeout > 0 and idle_timeout != float("inf")):
+            raise ValueError("session_idle_timeout must be a positive, finite number of seconds")
+        if max_body <= 0:
+            raise ValueError("max_request_body_size must be a positive number of bytes")
+        if max_sessions is not None and max_sessions <= 0:
+            raise ValueError("max_sessions must be a positive number of sessions or None")
+        self.server = server
+        self.path = path
+        self.json = json_response
+        self.stateless = stateless
+        self.security = _Security(security)
+        self.max_body = max_body
+        self.idle_timeout = idle_timeout
+        self.max_sessions = max_sessions
+        self.sessions = {}
+        self.state = None
+        self._tasks = set()
+
+    def _spawn(self, coro):
+        t = asyncio.ensure_future(coro)
+        self._tasks.add(t)
+        t.add_done_callback(self._tasks.discard)
+        return t
+
+    async def __call__(self, req, resp):
+        if req.path != self.path:
+            if req.path.rstrip("/") == self.path.rstrip("/") and req.path != "/":
+                to = self.path
+                host = req.header("host") or "localhost"
+                await resp.send(307, [("location", "http://%s%s%s" % (host, _quote_path(to), ("?" + req.query_string) if req.query_string else ""))])
+                return
+            await _text(resp, 404, "Not Found")
+            return
+        n = req.declared_length()
+        if n is not None and n > self.max_body:
+            resp.keep = False
+            await _plain(resp, 413, b"Request body too large")
+            return
+        try:
+            await req.body(self.max_body)
+        except _HttpBad as e:
+            resp.keep = False
+            await _plain(resp, e.status, e.text.encode("utf-8"))
+            return
+        pv = req.header(MCP_PROTOCOL_VERSION_HEADER)
+        if pv is not None and pv not in HANDSHAKE_PROTOCOL_VERSIONS:
+            await _modern_exchange(self.server, self.security, self.json, self.state, req, resp)
+            return
+        if self.stateless:
+            await self._stateless(pv, req, resp)
+        else:
+            await self._stateful(req, resp)
+
+    async def _stateless(self, pv, req, resp):
+        t = _StreamableTransport(None, self.json, self.security)
+        d = _Dispatcher(t.read_stream, t.write_stream, ("initialize",))
+        conn = Connection.from_envelope(pv if pv is not None else DEFAULT_NEGOTIATED_VERSION, None, None)
+        runner = _Runner(self.server, conn, self.state)
+
+        async def run():
+            try:
+                await d.run(runner.on_request, runner.on_notify)
+            except Exception as e:
+                _log_exc(e, "Stateless session crashed")
+
+        task = self._spawn(run())
+        try:
+            await t.handle(req, resp)
+        finally:
+            await t.terminate()
+
+    async def _stateful(self, req, resp):
+        sid = req.header(MCP_SESSION_ID_HEADER)
+        if sid is not None and sid in self.sessions:
+            t = self.sessions[sid]
+            await t.handle(req, resp)
+            if t.is_terminated:
+                await self._discard(sid, t)
+            return
+        if sid is not None:
+            _log(20, "Rejected request with unknown or expired session ID: %s", sid[:64])
+            await resp.send(404, [("content-type", "application/json")], _err_body("Session not found"))
+            return
+        if self.max_sessions is not None and len(self.sessions) >= self.max_sessions:
+            _log(30, "Refusing to open a new session: %d sessions are already open", self.max_sessions)
+            await resp.send(503, [("content-type", "application/json")], _err_body("Too many open sessions", INTERNAL_ERROR))
+            return
+        sid = _brevi_srv.random(16).hex()
+        t = _StreamableTransport(sid, self.json, self.security, self.idle_timeout)
+        self.sessions[sid] = t
+        _log(20, "Created new transport with session ID: %s", sid)
+
+        async def expire():
+            await self._discard(sid, t)
+
+        t.on_idle = expire
+
+        async def run():
+            try:
+                await _serve_legacy(self.server, t.read_stream, t.write_stream, self.state, None, False, session_id=sid)
+            except Exception as e:
+                _log_exc(e, "Session %s crashed" % sid)
+            finally:
+                await self._discard(sid, t)
+
+        self._spawn(run())
+        established = False
+        try:
+            await t.handle(req, resp)
+            established = resp.status is not None and resp.status < 400
+        finally:
+            if not established:
+                await self._discard(sid, t)
+
+    async def _discard(self, sid, t):
+        if self.sessions.get(sid) is t:
+            del self.sessions[sid]
+        if not t.is_terminated:
+            await t.terminate()
+
+
+# ---- the 2026-07-28 era over HTTP: one request per POST, no session (handle_modern_request)
+
+
+class _ExchangeContext:
+    def __init__(self, request_id, progress_token, sink):
+        self._request_id = request_id
+        self._progress_token = progress_token
+        self.sink = sink
+        self.cancel_requested = _Event()
+        self.message_metadata = None
+        self._closed = False
+
+    @property
+    def request_id(self):
+        return self._request_id
+
+    @property
+    def can_send_request(self):
+        return False
+
+    async def notify(self, method, params, opts=None):
+        if self.sink is None or self._closed:
+            return
+        n = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            n["params"] = dict(params)
+        self.sink.put(_sse_bytes(event="message", data=json.dumps(n, separators=(",", ":"))))
+
+    async def progress(self, progress, total=None, message=None):
+        if self._progress_token is None:
+            return
+        p = {"progressToken": self._progress_token, "progress": progress}
+        if total is not None:
+            p["total"] = total
+        if message is not None:
+            p["message"] = message
+        await self.notify("notifications/progress", p)
+
+    def close(self):
+        self._closed = True
+
+
+async def _modern_write(resp, msg):
+    status = _ERROR_CODE_HTTP_STATUS.get(msg["error"]["code"], 200) if "error" in msg else 200
+    await resp.send(status, [("content-type", "application/json")], _modern_json(msg))
+
+
+def _reject(rid, code, message, data=None):
+    e = {"code": code, "message": message}
+    if data is not None:
+        e["data"] = data
+    return {"jsonrpc": "2.0", "id": rid, "error": e}
+
+
+def _unsupported_version(requested):
+    if requested in MODERN_PROTOCOL_VERSIONS:
+        return None
+    return (UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", {"supported": list(MODERN_PROTOCOL_VERSIONS), "requested": requested})
+
+
+def _classify_http(body, headers):
+    # classify_inbound_request with the routing headers: (version, client info, capabilities) or (code, message, data)
+    params = body.get("params")
+    meta = params.get("_meta") if isinstance(params, dict) else None
+    if not isinstance(meta, dict):
+        return (INVALID_PARAMS, "params._meta must be an object carrying the required %r and %r envelope keys" % (PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY), None, False)
+    missing = [k for k in (PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY) if k not in meta]
+    if missing:
+        return (INVALID_PARAMS, "params._meta is missing the required envelope key(s): %s" % ", ".join(missing), None, False)
+    pv = meta[PROTOCOL_VERSION_META_KEY]
+    vh = headers.get(MCP_PROTOCOL_VERSION_HEADER)
+    if vh is None or vh != pv:
+        return (HEADER_MISMATCH, "%s header does not match the request envelope's protocol version" % MCP_PROTOCOL_VERSION_HEADER, None, False)
+    method = body.get("method")
+    if headers.get(MCP_METHOD_HEADER) != method:
+        return (HEADER_MISMATCH, "%s header does not match the request body's method" % MCP_METHOD_HEADER, None, False)
+    nk = _NAME_BEARING_METHODS.get(method)
+    if nk is not None:
+        bv = params.get(nk)
+        if bv is not None and _decode_header_value(headers.get(MCP_NAME_HEADER)) != bv:
+            return (HEADER_MISMATCH, "%s header does not match the request body's %r parameter" % (MCP_NAME_HEADER, nk), None, False)
+    if not isinstance(pv, str):
+        return (INVALID_PARAMS, "the protocol-version envelope value must be a string", None, False)
+    u = _unsupported_version(pv)
+    if u is not None:
+        return (u[0], u[1], u[2], False)
+    return (pv, meta.get(CLIENT_INFO_META_KEY), meta[CLIENT_CAPABILITIES_META_KEY], True)
+
+
+def _decode_header_value(value):
+    if value is None:
+        return None
+    m = re.fullmatch(r"=\?base64\?(.*)\?=", value)
+    if m is None:
+        return value
+    payload = m.group(1)
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except Exception:
+        return None
+    if base64.b64encode(raw).decode("ascii") != payload:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+_SUB_SINGLE = ("items", "contains", "unevaluatedItems", "additionalProperties", "propertyNames", "unevaluatedProperties", "not", "if", "then",
+               "else", "contentSchema")
+_SUB_LIST = ("allOf", "anyOf", "oneOf", "prefixItems")
+_SUB_MAP = ("patternProperties", "dependentSchemas", "$defs", "definitions")
+
+
+def _schema_positions(root):
+    out = []
+    stack = [((), root)]
+    while stack:
+        path, node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        out.append((path, node))
+        for kw, val in node.items():
+            if kw == "properties" and isinstance(val, dict):
+                for name, sub in val.items():
+                    stack.append(((path + (name,)) if path is not None else None, sub))
+            elif kw in _SUB_SINGLE:
+                stack.append((None, val))
+            elif kw in _SUB_LIST and isinstance(val, list):
+                for sub in val:
+                    stack.append((None, sub))
+            elif kw in _SUB_MAP and isinstance(val, dict):
+                for sub in val.values():
+                    stack.append((None, sub))
+    return out
+
+
+def _x_header_invalid(schema):
+    seen = {}
+    for path, s in _schema_positions(schema):
+        if "x-mcp-header" not in s:
+            continue
+        if not path:
+            return True
+        h = s["x-mcp-header"]
+        if not isinstance(h, str) or not re.fullmatch(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", h):
+            return True
+        t = s.get("type")
+        if not isinstance(t, str) or t not in ("string", "integer", "boolean"):
+            return True
+        if h.lower() in seen:
+            return True
+        seen[h.lower()] = path
+    return False
+
+
+def _render_scalar(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (str, int, float)):
+        return str(v)
+    return None
+
+
+def _value_at(args, path):
+    node = args
+    for k in path:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(k)
+    return node
+
+
+def _param_matches(t, value, rendered, decoded):
+    if t == "integer" and not isinstance(value, bool) and (isinstance(value, int) or (isinstance(value, float) and value == int(value))) \
+            and re.fullmatch(r"-?[0-9]+(\.[0-9]+)?", decoded):
+        whole, _, frac = decoded.partition(".")
+        if frac and set(frac) != {"0"}:
+            return False
+        return int(whole) == int(value)
+    return decoded == rendered
+
+
+def _mcp_param_check(schema, args, req):
+    # validate_mcp_param_headers: None, or (code, message)
+    if _x_header_invalid(schema):
+        return None
+    folded = {}
+    dup = set()
+    for k, v in req.headers:
+        if k in folded:
+            dup.add(k)
+        folded[k] = v
+    for path, s in _schema_positions(schema):
+        tok = s.get("x-mcp-header") if path else None
+        if not isinstance(tok, str):
+            continue
+        name = "Mcp-Param-" + tok
+        key = name.lower()
+        raw = folded.get(key)
+        value = _value_at(args, path)
+        arg = ".".join(path)
+        if raw is not None and key in dup:
+            return "%s header appears more than once" % name
+        if value is None:
+            if raw is not None:
+                return "%s header is present but the request body's %r argument is absent" % (name, arg)
+            continue
+        rendered = _render_scalar(value)
+        if rendered is None:
+            if raw is not None:
+                return "%s header does not match the request body's %r argument" % (name, arg)
+            continue
+        if raw is None:
+            return "%s header is missing but the request body's %r argument is present" % (name, arg)
+        dec = _decode_header_value(raw)
+        if dec is None:
+            return "%s header carries a malformed base64 sentinel value" % name
+        if not _param_matches(s.get("type"), value, rendered, dec):
+            return "%s header does not match the request body's %r argument" % (name, arg)
+    return None
+
+
+async def _modern_exchange(server, security, json_response, state, req, resp):
+    bad = security.validate(req, req.method == "POST")
+    if bad is not None:
+        await _plain(resp, bad[0], bad[2], bad[1])
+        return
+    if req.method != "POST":
+        await _plain(resp, 405, b"", [("allow", "POST")])
+        return
+    js, sse = _accepts(req)
+    if not js or (not json_response and not sse):
+        await _plain(resp, 406)
+        return
+    body = await req.body()
+    try:
+        decoded = json.loads(body.decode("utf-8"))
+    except Exception:
+        await _modern_write(resp, _reject(None, PARSE_ERROR, "Parse error"))
+        return
+    invalid = _reject(None, INVALID_REQUEST, "Body must be a single JSON-RPC request or notification object")
+    if isinstance(decoded, dict) and "id" not in decoded:
+        m = _classify(decoded)
+        if m is None or m.kind != "notification":
+            await _modern_write(resp, invalid)
+            return
+        u = _unsupported_version(req.header(MCP_PROTOCOL_VERSION_HEADER) or "")
+        if u is not None:
+            await _modern_write(resp, _reject(None, u[0], u[1], u[2]))
+            return
+        await _plain(resp, 202)
+        return
+    m = _classify(decoded) if isinstance(decoded, dict) else None
+    if m is None or m.kind != "request":
+        await _modern_write(resp, invalid)
+        return
+    if m.method == "subscriptions/listen" and not sse:
+        await _plain(resp, 406)
+        return
+    seen = set()
+    for k, v in req.headers:
+        if k in (MCP_PROTOCOL_VERSION_HEADER, MCP_METHOD_HEADER, MCP_NAME_HEADER):
+            if k in seen:
+                await _modern_write(resp, _reject(m.id, HEADER_MISMATCH, "%s header appears more than once" % k))
+                return
+            seen.add(k)
+    hd = {}
+    for k, v in req.headers:
+        hd[k] = v
+    route = _classify_http(decoded, hd)
+    if not route[3]:
+        await _modern_write(resp, _reject(m.id, route[0], route[1], route[2]))
+        return
+    if m.method == "tools/call":
+        params = m.params or {}
+        name = params.get("name")
+        args = params.get("arguments")
+        if isinstance(name, str) and (args is None or isinstance(args, dict)) and (args or any(k.startswith("mcp-param-") for k, v in req.headers)):
+            lookup = getattr(server, "get_tool_input_schema", None)
+            schema = None
+            if lookup is not None:
+                try:
+                    schema = lookup(name)
+                except Exception as e:
+                    _log_exc(e, "Mcp-Param header validation skipped: get_tool_input_schema raised")
+            if schema is not None:
+                why = _mcp_param_check(schema, args or {}, req)
+                if why is not None:
+                    await _modern_write(resp, _reject(m.id, HEADER_MISMATCH, why))
+                    return
+    conn = Connection.from_envelope(route[0], route[1], route[2])
+    use_sse = not (json_response and m.method != "subscriptions/listen")
+    sink = _Pipe() if use_sse else None
+    dctx = _ExchangeContext(m.id, _progress_token(m.params), sink)
+
+    async def one():
+        try:
+            r = await _Runner(server, conn, state).on_request(dctx, m.method, m.params)
+            return {"jsonrpc": "2.0", "id": m.id, "result": r}
+        except Exception as exc:
+            err = _error_of(exc)
+            if err is None:
+                _log_exc(exc, "modern request handler raised")
+                err = T.ErrorData(code=INTERNAL_ERROR, message="Internal server error")
+            return {"jsonrpc": "2.0", "id": m.id, "error": _error_wire(err)}
+        finally:
+            dctx.close()
+            if sink is not None:
+                sink.close()
+
+    if not use_sse:
+        await _modern_write(resp, await one())
+        return
+    task = asyncio.ensure_future(one())
+    watch = asyncio.ensure_future(_watch_gone(req.conn, sink))
+    try:
+        first = await _next_event(sink, _SSE_PING_INTERVAL)
+        if first is _CLOSED:
+            await _modern_write(resp, await task)
+            return
+        if first is _GONE:
+            task.cancel()
+            raise _HttpGone()
+        await resp.start(200, [("content-type", "text/event-stream"), ("cache-control", "no-cache, no-transform"), ("connection", "keep-alive"),
+                               ("x-accel-buffering", "no")])
+        ev = first
+        while True:
+            await resp.chunk(ev if ev is not None else b": ping\r\n\r\n")
+            ev = await _next_event(sink, _SSE_PING_INTERVAL)
+            if ev is _CLOSED:
+                break
+            if ev is _GONE:
+                task.cancel()
+                raise _HttpGone()
+        msg = await task
+        await resp.chunk(("event: message\r\ndata: %s\r\n\r\n" % _modern_json(msg)).encode("utf-8"))
+        await resp.end()
+    finally:
+        watch.cancel()
+
+
+def _modern_json(msg):
+    # json.dumps(model_dump(mode="json", exclude_none=True), separators=(",", ":")), id null kept on an error
+    if "error" in msg:
+        b = {"jsonrpc": "2.0"}
+        if msg.get("id") is not None:
+            b["id"] = msg["id"]
+        b["error"] = {k: v for k, v in msg["error"].items() if v is not None}
+        if msg.get("id") is None:
+            b["id"] = None
+        return json.dumps(b, separators=(",", ":"))
+    return json.dumps(msg, separators=(",", ":"))
+
+
+# ---- the SSE transport (mcp.server.sse.SseServerTransport)
+
+
+class _SseWriteStream:
+    def __init__(self, pipe):
+        self._pipe = pipe
+        self.closed = False
+
+    async def send(self, msg):
+        if not self.closed:
+            self._pipe.put(msg)
+
+    async def aclose(self):
+        self.closed = True
+
+
+class _SseApp:
+    def __init__(self, server, sse_path, message_path, security, max_body):
+        if max_body <= 0:
+            raise ValueError("max_request_body_size must be a positive number of bytes")
+        if "://" in message_path or message_path.startswith("//") or "?" in message_path or "#" in message_path:
+            raise ValueError("Given endpoint: %s is not a relative path (e.g., '/messages/'), expecting a relative path (e.g., '/messages/')." % message_path)
+        if not message_path.startswith("/"):
+            message_path = "/" + message_path
+        self.server = server
+        self.sse_path = sse_path
+        self.endpoint = message_path
+        self.security = _Security(security)
+        self.max_body = max_body
+        self.writers = {}
+
+    async def __call__(self, req, resp):
+        mount = self.endpoint.rstrip("/")
+        if req.path == self.sse_path:
+            if req.method not in ("GET", "HEAD"):
+                await _text(resp, 405, "Method Not Allowed", [("allow", "GET, HEAD")])
+                return
+            await self._sse(req, resp)
+            return
+        if req.path == mount or req.path.startswith(mount + "/"):
+            if req.method != "POST":
+                await _plain(resp, 405, b"", [("allow", "POST")])
+                return
+            await self._post(req, resp)
+            return
+        if req.path.rstrip("/") == self.sse_path.rstrip("/") and req.path != "/":
+            host = req.header("host") or "localhost"
+            await resp.send(307, [("location", "http://%s%s" % (host, _quote_path(self.sse_path)))])
+            return
+        await _text(resp, 404, "Not Found")
+
+    async def _sse(self, req, resp):
+        bad = self.security.validate(req, False)
+        if bad is not None:
+            await _plain(resp, bad[0], bad[2], bad[1])
+            # the SDK then raises "Request validation failed" in the route (uvicorn logs it)
+            _log_exc(ValueError("Request validation failed"), "Exception in ASGI application\n")
+            return
+        sid = _brevi_srv.random(16).hex()
+        inbound = _Pipe()
+        outbound = _Pipe()
+        self.writers[sid] = inbound
+        uri = "%s?session_id=%s" % (_quote_path(self.endpoint), sid)
+        w = _SseWriteStream(outbound)
+
+        async def run():
+            try:
+                await self.server.run(_PipeReader(inbound), w, self.server.create_initialization_options())
+            finally:
+                outbound.close()
+
+        task = asyncio.ensure_future(run())
+        watch = None
+        try:
+            await resp.start(200, [("cache-control", "no-store"), ("connection", "keep-alive"), ("x-accel-buffering", "no"),
+                                   ("content-type", "text/event-stream; charset=utf-8")])
+            await resp.chunk(_sse_bytes(event="endpoint", data=uri))
+            watch = asyncio.ensure_future(_watch_gone(req.conn, outbound))
+            while True:
+                item = await _next_event(outbound, _SSE_PING_INTERVAL)
+                if item is None:
+                    await resp.chunk(_ping_bytes())
+                    continue
+                if item is _CLOSED or item is _GONE:
+                    break
+                await resp.chunk(_sse_bytes(event="message", data=_jdump(item)))
+        finally:
+            if watch is not None:
+                watch.cancel()
+            self.writers.pop(sid, None)
+            inbound.close()
+            w.closed = True
+            try:
+                await task
+            except BaseException:
+                pass
+        if req.conn.eof:
+            raise _HttpGone()
+        await resp.end()
+
+    async def _post(self, req, resp):
+        n = req.declared_length()
+        if n is not None and n > self.max_body:
+            resp.keep = False
+            await _plain(resp, 413, b"Request body too large")
+            return
+        try:
+            body = await req.body(self.max_body)
+        except _HttpBad as e:
+            resp.keep = False
+            await _plain(resp, e.status, e.text.encode("utf-8"))
+            return
+        bad = self.security.validate(req, True)
+        if bad is not None:
+            await _plain(resp, bad[0], bad[2], bad[1])
+            return
+        sid = req.query("session_id")
+        if sid is None:
+            _log(30, "Received request without session_id")
+            await _plain(resp, 400, b"session_id is required")
+            return
+        key = _uuid_hex(sid)
+        if key is None:
+            _log(30, "Received invalid session ID: %s", sid)
+            await _plain(resp, 400, b"Invalid session ID")
+            return
+        p = self.writers.get(key)
+        if p is None:
+            _log(30, "Could not find session for ID: %s", _uuid_str(key))
+            await _plain(resp, 404, b"Could not find session")
+            return
+        ok, raw, why = _jiter(body)
+        m = _classify(raw) if ok else None
+        if m is None:
+            _log(40, "Failed to parse message")
+            await _plain(resp, 400, b"Could not parse message")
+            return
+        await _plain(resp, 202, b"Accepted")
+        p.put(m)
+
+
+def _uuid_hex(s):
+    # UUID(hex=s): 32 hex digits, braces, dashes and a urn:uuid: prefix allowed; the canonical hex, or None
+    h = s.replace("urn:", "").replace("uuid:", "").strip("{}").replace("-", "")
+    if len(h) != 32 or not re.fullmatch(r"[0-9a-fA-F]{32}", h):
+        return None
+    return h.lower()
+
+
+def _uuid_str(h):
+    return "%s-%s-%s-%s-%s" % (h[:8], h[8:12], h[12:16], h[16:20], h[20:])
+
+
 async def _run_http(app, kind, kw):
-    raise NotImplementedError("brevi: the %s transport is not in Brevi's mcp yet" % kind)
+    server = app._lowlevel_server
+    host = kw.pop("host", "127.0.0.1")
+    port = kw.pop("port", 8000)
+    security = _local_security(kw.pop("transport_security", None), host)
+    max_body = kw.pop("max_request_body_size", DEFAULT_MAX_REQUEST_BODY_SIZE)
+    if kind == "sse":
+        sse_path = kw.pop("sse_path", "/sse")
+        message_path = kw.pop("message_path", "/messages/")
+        if kw:
+            raise TypeError("MCPServer.run_sse_async() got an unexpected keyword argument '%s'" % list(kw.keys())[0])
+        h = _SseApp(server, sse_path, message_path, security, max_body)
+        await _HttpServer(host, port, h).serve()
+        return
+    path = kw.pop("streamable_http_path", "/mcp")
+    json_response = kw.pop("json_response", False)
+    stateless = kw.pop("stateless_http", False)
+    if kw.pop("event_store", None) is not None:
+        raise NotImplementedError("brevi: run_streamable_http_async(event_store=...) is not in Brevi's mcp")
+    kw.pop("retry_interval", None)
+    idle = kw.pop("session_idle_timeout", DEFAULT_SESSION_IDLE_TIMEOUT)
+    max_sessions = kw.pop("max_sessions", DEFAULT_MAX_SESSIONS)
+    if kw:
+        raise TypeError("MCPServer.run_streamable_http_async() got an unexpected keyword argument '%s'" % list(kw.keys())[0])
+    h = _StreamableApp(server, path, json_response, stateless, security, max_body, idle, max_sessions)
+    async with server.lifespan(server) as state:
+        h.state = state
+        _log(20, "StreamableHTTP session manager started")
+        try:
+            await _HttpServer(host, port, h).serve()
+        finally:
+            _log(20, "StreamableHTTP session manager shutting down")
