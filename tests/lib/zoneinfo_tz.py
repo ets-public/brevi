@@ -1,4 +1,4 @@
-# A zoneinfo.ZoneInfo as the tzinfo of a datetime the dynamic build makes natively (#211).
+# A zoneinfo.ZoneInfo as the tzinfo of a datetime, natively (#211; Brevi's own zoneinfo since the time server showcase).
 import datetime as dt
 from zoneinfo import ZoneInfo
 
