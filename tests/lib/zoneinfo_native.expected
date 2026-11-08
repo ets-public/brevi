@@ -1,0 +1,51 @@
+zoneinfo.ZoneInfo(key='America/New_York') America/New_York America/New_York True
+  1969-12-31T19:30:00-05:00 EST -1 day, 19:00:00 0:00:00 0
+  2001-03-24T20:30:00-05:00 EST -1 day, 19:00:00 0:00:00 0
+  2021-07-01T08:30:00-04:00 EDT -1 day, 20:00:00 1:00:00 0
+  2024-11-03T01:30:00-05:00 EST -1 day, 19:00:00 0:00:00 1
+  2049-10-31T19:30:00-04:00 EDT -1 day, 20:00:00 1:00:00 0
+zoneinfo.ZoneInfo(key='Europe/London') Europe/London Europe/London True
+  1970-01-01T01:30:00+01:00 BST 1:00:00 0:00:00 0
+  2001-03-25T02:30:00+01:00 BST 1:00:00 1:00:00 0
+  2021-07-01T13:30:00+01:00 BST 1:00:00 1:00:00 0
+  2024-11-03T06:30:00+00:00 GMT 0:00:00 0:00:00 0
+  2049-10-31T23:30:00+00:00 GMT 0:00:00 0:00:00 0
+zoneinfo.ZoneInfo(key='Australia/Lord_Howe') Australia/Lord_Howe Australia/Lord_Howe True
+  1970-01-01T10:30:00+10:00 AEST 10:00:00 0:00:00 0
+  2001-03-25T12:00:00+10:30 +1030 10:30:00 0:00:00 0
+  2021-07-01T23:00:00+10:30 +1030 10:30:00 0:00:00 0
+  2024-11-03T17:30:00+11:00 +11 11:00:00 0:30:00 0
+  2049-11-01T10:30:00+11:00 +11 11:00:00 0:30:00 0
+zoneinfo.ZoneInfo(key='Asia/Kolkata') Asia/Kolkata Asia/Kolkata True
+  1970-01-01T06:00:00+05:30 IST 5:30:00 0:00:00 0
+  2001-03-25T07:00:00+05:30 IST 5:30:00 0:00:00 0
+  2021-07-01T18:00:00+05:30 IST 5:30:00 0:00:00 0
+  2024-11-03T12:00:00+05:30 IST 5:30:00 0:00:00 0
+  2049-11-01T05:00:00+05:30 IST 5:30:00 0:00:00 0
+zoneinfo.ZoneInfo(key='Pacific/Chatham') Pacific/Chatham Pacific/Chatham True
+  1970-01-01T13:15:00+12:45 +1245 12:45:00 0:00:00 0
+  2001-03-25T14:15:00+12:45 +1245 12:45:00 0:00:00 0
+  2021-07-02T01:15:00+12:45 +1245 12:45:00 0:00:00 0
+  2024-11-03T20:15:00+13:45 +1345 13:45:00 1:00:00 0
+  2049-11-01T13:15:00+13:45 +1345 13:45:00 1:00:00 0
+zoneinfo.ZoneInfo(key='America/Sao_Paulo') America/Sao_Paulo America/Sao_Paulo True
+  1969-12-31T21:30:00-03:00 -03 -1 day, 21:00:00 0:00:00 0
+  2001-03-24T22:30:00-03:00 -03 -1 day, 21:00:00 0:00:00 0
+  2021-07-01T09:30:00-03:00 -03 -1 day, 21:00:00 0:00:00 0
+  2024-11-03T03:30:00-03:00 -03 -1 day, 21:00:00 0:00:00 0
+  2049-10-31T20:30:00-03:00 -03 -1 day, 21:00:00 0:00:00 0
+datetime.datetime(2024, 11, 3, 1, 30, tzinfo=zoneinfo.ZoneInfo(key='America/New_York')) -1 day, 20:00:00 EDT 2024-11-03T05:30:00+00:00
+datetime.datetime(2024, 11, 3, 1, 30, fold=1, tzinfo=zoneinfo.ZoneInfo(key='America/New_York')) -1 day, 19:00:00 EST 2024-11-03T06:30:00+00:00
+2024-03-10T02:30:00-05:00 2024-03-10T07:30:00+00:00 2024-03-10T06:30:00+00:00
+True 0:00:00 2024-11-03T02:30:00-05:00
+0 1
+Asia/Tokyo 2026-06-01T17:15:00+09:00 Monday 17:15 JST 0:00:00
+America/Los_Angeles 2026-06-01T01:15:00-07:00 Monday 01:15 PDT 0:00:00
+Pacific/Chatham 2026-06-01T21:00:00+12:45 Monday 21:00 +1245 0:00:00
+UTC 2026-06-01T08:15:00+00:00 Monday 08:15 UTC 0:00:00
+not found: 'No time zone found with key Mars/Olympus_Mons' True
+ValueError: ZoneInfo keys must be normalized relative paths, got: 
+ValueError: ZoneInfo keys must refer to subdirectories of TZPATH, got: ../etc/passwd
+ValueError: ZoneInfo keys may not be absolute paths, got: /usr/share/zoneinfo/UTC
+ValueError: ZoneInfo keys must be normalized relative paths, got: Europe/
+PackageNotFoundError: No package metadata was found for no-such-distribution-brevi True

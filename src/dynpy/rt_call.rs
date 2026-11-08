@@ -248,7 +248,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         }
         return type_err(format!("cannot create '{}' instances", c.name));
     }
-    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time" | "datetime.timezone") {
+    if matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time" | "datetime.timezone" | "zoneinfo.ZoneInfo") {
         return ext_construct(c.name, a).unwrap();
     }
     // builtin types called as constructors

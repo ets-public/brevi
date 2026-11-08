@@ -282,7 +282,7 @@ const OWN_PYDANTIC: &[&str] = &[
     "StrictBytes", "VERSION", "__version__", "ValidatorFunctionWrapHandler", "ModelWrapValidatorHandler",
 ];
 const PYDANTIC_LACKS: &[&str] = &[
-    ".model_json_schema(", ".model_rebuild(", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
+    ".model_json_schema(", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
     ".parse_file(", ".from_orm(", ".dict(", ".json(", ".update_forward_refs(", ".__fields__", ".__pydantic_", ".model_fields_set.",
     "discriminator=", "alias_generator", "union_mode=", "json_schema_mode", "serialize_as_any", "round_trip=", "fallback=",
     "__get_pydantic_core_schema__", "__get_pydantic_json_schema__", "ser_json_", "val_json_", "regex_engine", "coerce_numbers_to_str",
@@ -326,13 +326,14 @@ const OPENAI_LACKS: &[&str] = &[
     "openai.lib", "openai.resources", "openai.pagination", "openai.helpers", "openai.Completion", "client.completions",
 ];
 // What Brevi's mcp lacks (src/dynpy/py/_brevi_mcp.py): server-to-client requests (sampling, elicitation, roots),
-// the HTTP transports, auth, extensions and middleware, the subscription bus, request state, and the client.
+// the HTTP transports, auth, extensions, the subscription bus (MCPServer(subscriptions=False) is in it), request
+// state, and the client.
 // A program using any of them is run by CPython's mcp.
 const MCP_LACKS: &[&str] = &[
     ".elicit(", ".elicit_url(", ".elicit_form(", ".create_message(", ".list_roots(", ".send_ping(", ".send_request(", ".send_raw_request(",
     "notify_tools_changed", "notify_prompts_changed", "notify_resources_changed", "notify_resource_updated", "subscriptions=",
     "streamable_http", "streamable-http", "\"sse\"", "'sse'", "sse_app", "run_sse_async", "custom_route", "session_manager", "auth=",
-    "auth_server_provider", "token_verifier", "extensions=", "middleware", "request_state", "cache_hints", "input_responses", "InputRequiredResult",
+    "auth_server_provider", "token_verifier", "extensions=", "request_state", "cache_hints", "input_responses", "InputRequiredResult",
     "on_subscriptions_listen", "on_subscribe_resource", "on_unsubscribe_resource", "raise_exceptions", "ClientSession", "stdio_client",
     "anyio", "transport=", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
 ];
@@ -490,6 +491,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "mcp.server" => Some("mcp.server"),
         "mcp.server.mcpserver" => Some("mcp.server.mcpserver"),
         "mcp.server.lowlevel" => Some("mcp.server.lowlevel"),
+        "mcp.server.context" => Some("mcp.server.context"),
         "mcp.server.stdio" => Some("mcp.server.stdio"),
         "mcp.shared.exceptions" => Some("mcp.shared.exceptions"),
         "mcp.server.mcpserver.exceptions" => Some("mcp.server.mcpserver.exceptions"),
@@ -546,6 +548,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "mcp.server" => defines(include_str!("dynpy/py/mcp_server.py"), attr),
         "mcp.server.mcpserver" => defines(include_str!("dynpy/py/mcp_server_mcpserver.py"), attr),
         "mcp.server.lowlevel" => defines(include_str!("dynpy/py/mcp_server_lowlevel.py"), attr),
+        "mcp.server.context" => defines(include_str!("dynpy/py/mcp_server_context.py"), attr),
         "mcp.server.stdio" => defines(include_str!("dynpy/py/mcp_server_stdio.py"), attr),
         "mcp.shared.exceptions" => defines(include_str!("dynpy/py/mcp_shared_exceptions.py"), attr),
         "mcp.server.mcpserver.exceptions" => defines(include_str!("dynpy/py/mcp_server_mcpserver_exceptions.py"), attr),
@@ -772,7 +775,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
-                if let Some(x) = lacks.iter().find(|x| l.contains(*x)) {
+                if let Some(x) = lacks.iter().find(|x| l.contains(*x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
                 }
             }

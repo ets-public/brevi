@@ -33,6 +33,7 @@ FILES = {
     "mcp_server_mcpserver.py": [("_brevi_mcp", ["MCPServer", "Context", "Image", "Audio", "Message", "UserMessage", "AssistantMessage",
                                                 "ResourceSecurity", "DEFAULT_RESOURCE_SECURITY"]),
                                 ("_brevi_mcp_models", ["Icon"])],
+    "mcp_server_context.py": [("_brevi_mcp", ["ServerRequestContext", "CallNext", "HandlerResult"])],
     "mcp_server_lowlevel.py": [("_brevi_mcp", ["Server", "NotificationOptions"])],
     "mcp_server_stdio.py": [("_brevi_mcp", ["stdio_server"])],
     "mcp_shared_exceptions.py": [("_brevi_mcp", ["MCPError", "MCPDeprecationWarning"])],

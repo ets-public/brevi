@@ -342,7 +342,7 @@ fn duck_py(d: DuckV) -> R {
         DuckV::Float(f) => V::Float(f),
         DuckV::Str(s) => st(s),
         DuckV::Blob(b) => bytesv(b),
-        DuckV::Date(d) => dtv(DT { ord: ymd_to_ord(1970, 1, 1) + d, us: 0, has_time: false, tz: None }),
+        DuckV::Date(d) => dtv(DT { ord: ymd_to_ord(1970, 1, 1) + d, us: 0, has_time: false, tz: None, fold: false }),
         DuckV::Time(us) => tmv(us),
         DuckV::Ts(us) => {
             let day = 86_400_000_000i64;
@@ -351,7 +351,7 @@ fn duck_py(d: DuckV) -> R {
             if !(1..=3652059).contains(&ord) {
                 return Err(exc("ValueError", format!("year is out of range")));
             }
-            dtv(DT { ord, us: r, has_time: true, tz: None })
+            dtv(DT { ord, us: r, has_time: true, tz: None, fold: false })
         }
         DuckV::Interval(m, d, us) => tdv(TD { us: ((m * 30 + d) as i128) * 86_400_000_000 + us as i128 }),
         DuckV::Dec(s) => decimal_new(Args::p(vec![st(s)]))?,

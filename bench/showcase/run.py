@@ -5,6 +5,7 @@
 # Each showcase is built once with `brevi build --release`, then both sides run it N times (default 10) and the
 # median is kept. Output must match between the two sides, or the showcase is reported as a mismatch.
 # Results go to bench/showcase/results.json; the table on site/docs/showcases.md is written from it.
+import importlib.util
 import json
 import os
 import platform
@@ -20,11 +21,11 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 BREVI = os.environ.get("BREVI", os.path.join(ROOT, "target", "release", "brevi"))
 
 
-def mcp_session(cmd, script, cwd):
+def mcp_session(cmd, script, cwd, env=None):
     # Lockstep, as a client does: each request goes once the reply before it is in. Returns the replies,
     # the time to the first tools/call reply and the time for the whole session.
     t0 = time.perf_counter()
-    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=cwd)
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, cwd=cwd, env=env)
     replies, first = [], None
     for line in open(script).read().splitlines():
         msg = json.loads(line)
@@ -41,9 +42,9 @@ def mcp_session(cmd, script, cwd):
     return replies, first, time.perf_counter() - t0
 
 
-def cli_run(cmd, cwd):
+def cli_run(cmd, cwd, env=None):
     t0 = time.perf_counter()
-    r = subprocess.run(cmd, capture_output=True, cwd=cwd, timeout=600)
+    r = subprocess.run(cmd, capture_output=True, cwd=cwd, timeout=600, env=env)
     t = time.perf_counter() - t0
     return r.stdout.decode() + "exit %d" % r.returncode, t, t
 
@@ -65,11 +66,32 @@ SHOWCASES = [
         "script": "sqlite_mcp.jsonl",
         "metric": "first tool call answered",
     },
+    {
+        "name": "time_mcp",
+        "title": "MCP time server",
+        "file": "time_mcp.py",
+        "kind": "mcp",
+        "script": "time_mcp.jsonl",
+        "metric": "first tool call answered",
+        # the upstream file, unchanged, from the installed package
+        "beside": {"server.py": ("mcp_server_time", "server.py")},
+        "env": {"TZ": "Europe/Paris"},
+    },
 ]
 
 
 def measure(sc, runs, work):
     src = os.path.join(HERE, sc["file"])
+    if sc.get("beside"):
+        d = os.path.join(work, sc["name"] + "_src")
+        os.makedirs(d)
+        shutil.copy(src, d)
+        for name, (pkg, f) in sc["beside"].items():
+            spec = importlib.util.find_spec(pkg)
+            if spec is None:
+                return {"name": sc["name"], "error": "%s is not installed (pip install %s)" % (pkg, pkg.replace("_", "-"))}
+            shutil.copy(os.path.join(os.path.dirname(spec.origin), f), os.path.join(d, name))
+        src = os.path.join(d, sc["file"])
     exe = os.path.join(work, sc["name"])
     t0 = time.perf_counter()
     b = subprocess.run([BREVI, "build", src, "--release", "-o", exe], capture_output=True, text=True)
@@ -77,6 +99,7 @@ def measure(sc, runs, work):
     if b.returncode != 0:
         return {"name": sc["name"], "error": (b.stdout + b.stderr).strip()[-400:]}
     sides = {"brevi": [exe], "cpython": [sys.executable, src]}
+    env = dict(os.environ, **sc.get("env", {}))
     res = {}
     outs = {}
     for side, cmd in sides.items():
@@ -84,9 +107,9 @@ def measure(sc, runs, work):
         for i in range(runs):
             d = tempfile.mkdtemp(dir=work)
             if sc["kind"] == "mcp":
-                out, first, total = mcp_session(cmd + sc.get("args", []), os.path.join(HERE, sc["script"]), d)
+                out, first, total = mcp_session(cmd + sc.get("args", []), os.path.join(HERE, sc["script"]), d, env)
             else:
-                out, first, total = cli_run(cmd + sc.get("args", []), d)
+                out, first, total = cli_run(cmd + sc.get("args", []), d, env)
             shutil.rmtree(d, ignore_errors=True)
             outs.setdefault(side, out)
             firsts.append(first)

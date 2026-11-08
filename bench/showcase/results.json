@@ -22,6 +22,24 @@
    "binary_mb": 16.1,
    "needs_python": false,
    "build_s": 0.1
+  },
+  {
+   "name": "time_mcp",
+   "title": "MCP time server",
+   "metric": "first tool call answered",
+   "runs": 10,
+   "same_output": true,
+   "brevi": {
+    "first_s": 0.029379427000094438,
+    "total_s": 0.03813504500021736
+   },
+   "cpython": {
+    "first_s": 0.6501477474994317,
+    "total_s": 0.8570850910000445
+   },
+   "speedup": 22.129354241569853,
+   "binary_mb": 17.5,
+   "needs_python": false
   }
  ]
 }
