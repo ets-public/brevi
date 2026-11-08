@@ -517,14 +517,23 @@ fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
 // o.name at one place in the program: the index the name had in the last instance seen there (an inline
 // cache). A hit is the same instance attribute getattr would find first; anything else takes getattr.
 #[inline]
+#[inline]
 pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
     if let V::Obj(ob) = o {
         let d = ob.d.borrow();
         if let Some((k, v)) = d.get(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-            if k.as_ptr() == name.as_ptr() && k.len() == name.len() {
+            // the same name's text can sit at another address in another part of the program
+            if k.len() == name.len() && (k.as_ptr() == name.as_ptr() || k.as_bytes() == name.as_bytes()) {
                 return Ok(v.clone());
             }
         }
+    }
+    getattr_ic_slow(o, name, ic)
+}
+#[inline(never)]
+fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
+    if let V::Obj(ob) = o {
+        let d = ob.d.borrow();
         if let Some(i) = d.find(name) {
             ic.store(i, std::sync::atomic::Ordering::Relaxed);
             return Ok(d.get(i).unwrap().1.clone());
@@ -539,11 +548,20 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
         if ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
             if let Some(e) = d.get_mut(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-                if e.0.as_ptr() == name.as_ptr() && e.0.len() == name.len() {
+                if e.0.len() == name.len() && (e.0.as_ptr() == name.as_ptr() || e.0.as_bytes() == name.as_bytes()) {
                     e.1 = v;
                     return Ok(());
                 }
             }
+        }
+    }
+    setattr_ic_slow(o, name, v, ic)
+}
+#[inline(never)]
+fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
+    if let V::Obj(ob) = o {
+        if ob.cls.plain_set() {
+            let mut d = ob.d.borrow_mut();
             let i = match d.find(name) {
                 Some(i) => {
                     d.get_mut(i).unwrap().1 = v;

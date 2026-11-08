@@ -2168,6 +2168,19 @@ fn atexit_run() {
     ATEXIT.with(|x| x.borrow_mut().clear());
 }
 pub fn run_main(f: fn() -> Result<(), E>) {
+    // glibc hands freed memory back to the kernel and takes it again, zeroed, as soon as a program that
+    // builds and drops many objects (an autograd graph each step) grows again: keep it instead.
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        extern "C" {
+            fn mallopt(param: i32, value: i32) -> i32;
+        }
+        unsafe {
+            mallopt(-1, i32::MAX); // M_TRIM_THRESHOLD
+            mallopt(-3, 1 << 30); // M_MMAP_THRESHOLD
+            mallopt(-8, 1); // M_ARENA_MAX: the program's thread uses the main heap
+        }
+    }
     let child = std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
         init_builtin_classes();
         ARGV.with(|a| *a.borrow_mut() = std::env::args().collect());
