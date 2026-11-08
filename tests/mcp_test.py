@@ -114,7 +114,10 @@ expect("sandbox random one error", call("run", code="import random\nprint(random
 expect("sandbox comment allow refused", call("run", code="# allow read\nwith open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n"), "grants nothing under --sandbox", True)
 expect("sandbox allow argument", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", allow=["read"]), "True", False)
 expect("sandbox allow read not write", call("run", code="open('x.txt', 'w').write('x')\n", allow=["read"]), "needs allow write", True)
-expect("sandbox allow_py", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"]), "True", False)
+expect("sandbox allow_py", call("run", code="import os\nprint(os.getpid() > 0)\n", allow_py=["os"]), "True", False)
+# CPython is held to the file grants by the kernel (Linux Landlock): without allow read it lists nothing.
+expect("sandbox allow_py held to grants", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"]), "Permission denied", True)
+expect("sandbox allow_py with read", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"], allow=["read"]), "True", False)
 expect("sandbox allow_py other", call("run", code="import os\nprint(os.listdir('.'))\n", allow_py=["json"]), "allow_py", True)
 # allow_read / allow_write: files only inside the granted folders (relative to where brevi mcp started)
 expect("sandbox allow_read folder", call("run", code="with open('/etc/hostname') as f:\n    print(f.read())\n", allow_read=["tests/sandbox"]), "outside the folders granted to read", True)
