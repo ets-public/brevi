@@ -986,7 +986,7 @@ fn py_files(src: &str) -> Vec<(usize, &'static str, String)> {
                 out.push((n, "write", "open(file)".to_string()));
             }
         }
-        for f in ["listdir(", "walk(", "path.exists(", "path.lexists(", "path.isfile(", "path.isdir(", "path.islink(", "path.getsize(", "scandir("] {
+        for f in ["listdir(", "walk(", "path.exists(", "path.lexists(", "path.isfile(", "path.isdir(", "path.islink(", "path.getsize("] {
             if l.contains(f) {
                 out.push((n, "read", format!("os.{}file)", f)));
             }
