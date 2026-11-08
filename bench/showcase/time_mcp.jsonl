@@ -1,0 +1,10 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"bench","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"convert_time","arguments":{"source_timezone":"America/New_York","time":"16:30","target_timezone":"Asia/Tokyo"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"convert_time","arguments":{"source_timezone":"Europe/London","time":"09:15","target_timezone":"Asia/Kolkata"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_current_time","arguments":{"timezone":"Mars/Olympus_Mons"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"get_current_time","arguments":{"timezone":"europe/warsaw"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"convert_time","arguments":{"source_timezone":"UTC","time":"25:99","target_timezone":"Europe/Paris"}}}
+{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"get_weather","arguments":{}}}
+{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"convert_time","arguments":{"time":"12:00","target_timezone":"Australia/Lord_Howe"}}}

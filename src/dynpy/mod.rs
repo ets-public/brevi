@@ -39,6 +39,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_mod.rs"),
     include_str!("rt_text.rs"),
     include_str!("rt_ext.rs"),
+    include_str!("rt_zone.rs"),
     include_str!("rt_glue.rs"),
     include_str!("rt_gen.rs"),
     include_str!("rt_async.rs"),
@@ -165,6 +166,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "mcp.server" => include_str!("py/mcp_server.py"),
         "mcp.server.mcpserver" => include_str!("py/mcp_server_mcpserver.py"),
         "mcp.server.lowlevel" => include_str!("py/mcp_server_lowlevel.py"),
+        "mcp.server.context" => include_str!("py/mcp_server_context.py"),
         "mcp.server.stdio" => include_str!("py/mcp_server_stdio.py"),
         "mcp.shared.exceptions" => include_str!("py/mcp_shared_exceptions.py"),
         "mcp.server.mcpserver.exceptions" => include_str!("py/mcp_server_mcpserver_exceptions.py"),
@@ -345,6 +347,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let mut sql_used = false;
     let mut duck_used = false;
     let mut ort_used = false;
+    let mut zone_used = false;
+    let mut meta_used = false;
     let mut bridge = emit::Bridge::default();
     let mut texts: HashMap<String, (String, String)> = HashMap::new();
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
@@ -371,6 +375,12 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 }
                 if m == "_brevi_ort" {
                     ort_used = true;
+                }
+                if m == "importlib.metadata" {
+                    meta_used = true;
+                }
+                if m == "zoneinfo" || m == "tzlocal" {
+                    zone_used = true;
                 }
                 if m == "numpy" {
                     emit::NP_ON.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -430,7 +440,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     if bridge.on {
         // A coroutine handed to a library CPython runs would not be one of CPython's.
         if mods.iter().any(|m| m.name != "asyncio" && emit::uses_async(&m.body)) {
-            return Err((file.to_string(), 0, "async code with a library CPython runs".into()));
+            let mut libs: Vec<&str> = bridge.modules.iter().map(|m| m.as_str()).collect();
+            libs.sort();
+            return Err((file.to_string(), 0, format!("async code with a library CPython runs ({})", libs.join(", "))));
         }
         lib_classes(&mods, &texts, &mut bridge)?;
     }
@@ -556,6 +568,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust = rust.replacen("fn main() { ", "fn main() { STDIO.set(brevi_stdioglue::ops()).ok(); ", 1);
         rust.push('\n');
         rust.push_str(include_str!("stdioglue.rs"));
+    }
+    if meta_used {
+        let all: Vec<String> = texts.values().map(|(_, t)| t.clone()).collect();
+        rust = rust.replacen("fn main() { ", "fn main() { DISTS.set(BREVI_DISTS).ok(); ", 1);
+        rust.push_str(&dist_table(&all));
+    }
+    if zone_used {
+        rust = rust.replacen("fn main() { ", "fn main() { ZONE_FS.set(brevi_zoneglue::ops()).ok(); ", 1);
+        rust.push_str(include_str!("zoneglue.rs"));
     }
     if fs_used || sql_used || duck_used || ort_used || net_used {
         rust.push_str(&fs_consts());
@@ -977,5 +998,57 @@ fn jq(s: &str) -> String {
         }
     }
     o.push('"');
+    o
+}
+
+// importlib.metadata.version's table: each distribution installed for the build machine's python3 whose name
+// the program spells as a string, with its version. A name not in it raises PackageNotFoundError.
+fn dist_table(texts: &[String]) -> String {
+    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    const Q: &str = "import importlib.metadata as m\nfor d in m.distributions():\n    n = d.metadata['Name']\n    if n: print(n + '\\t' + d.version)";
+    let out = std::process::Command::new(&exe).args(["-I", "-c", Q]).output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
+    let mut named: HashSet<String> = HashSet::new();
+    for t in texts {
+        for q in ['"', '\''] {
+            for line in t.lines() {
+                for (i, part) in line.split(q).enumerate() {
+                    if i % 2 == 1 && part.len() < 120 {
+                        named.insert(crate::dynpy::rt_zone_norm(part));
+                    }
+                }
+            }
+        }
+    }
+    let mut rows: Vec<(String, String)> = vec![];
+    for l in out.lines() {
+        if let Some((n, v)) = l.split_once('\t') {
+            let k = crate::dynpy::rt_zone_norm(n);
+            if named.contains(&k) && !rows.iter().any(|(a, _)| *a == k) {
+                rows.push((k, v.to_string()));
+            }
+        }
+    }
+    rows.sort();
+    let body: Vec<String> = rows.iter().map(|(n, v)| format!("({n:?}, {v:?})")).collect();
+    format!("\nconst BREVI_DISTS: &[(&str, &str)] = &[{}];\n", body.join(", "))
+}
+// The same normalising as the runtime's dist_norm (rt_zone.rs), at build time.
+pub fn rt_zone_norm(n: &str) -> String {
+    let mut o = String::new();
+    let mut sep = false;
+    for c in n.chars() {
+        if matches!(c, '-' | '_' | '.') {
+            sep = true;
+            continue;
+        }
+        if sep {
+            o.push('_');
+        }
+        sep = false;
+        o.extend(c.to_lowercase());
+    }
+    if sep {
+        o.push('_');
+    }
     o
 }

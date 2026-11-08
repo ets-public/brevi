@@ -784,7 +784,10 @@ def _prop_schema(name, d, f, cx):
     metas = list(f.metadata) if f is not None else []
     s = _schema(d, cx, metas)
     s = dict(s)
-    is_ref = "$ref" in s
+    # pydantic sets no title on a field whose schema is a model or enum ($ref), or such a type or None
+    any_of = s.get("anyOf")
+    is_ref = "$ref" in s or (isinstance(any_of, list) and len(any_of) == 2 and {"type": "null"} in any_of
+                             and any(isinstance(x, dict) and list(x) == ["$ref"] for x in any_of))
     title = getattr(f, "title", None) if f is not None else None
     if title is not None:
         s["title"] = title
@@ -2318,6 +2321,17 @@ class ServerRequestContext:
 ServerRequestContext.__module__ = "mcp.server.context"
 
 
+def _ctx_class_getitem(cls, item):
+    return cls
+
+
+# ServerRequestContext[Any, Any] in an annotation is the class itself
+ServerRequestContext.__class_getitem__ = classmethod(_ctx_class_getitem)
+# mcp.server.context's typing aliases, for annotations: a middleware's result and its call_next
+HandlerResult = object
+CallNext = object
+
+
 class Context:
     # mcp.server.mcpserver.Context: what a tool, resource template or prompt function asks for by annotating a
     # parameter with it
@@ -2583,6 +2597,13 @@ Server.__module__ = "mcp.server.lowlevel.server"
 # ---------------------------------------------------------------- the runner (mcp.server.runner)
 
 
+def _bind_middleware(mw, call_next):
+    # one middleware in the CallNext shape: ctx taken at call time, so a rewritten context flows down the chain
+    def call(ctx):
+        return mw(ctx, call_next)
+    return call
+
+
 class _Runner:
     def __init__(self, server, connection, lifespan_state, init_options=None):
         self.server = server
@@ -2594,16 +2615,19 @@ class _Runner:
         meta = _extract_meta(params)
         version = self.connection.protocol_version
         ctx = self._make_context(dctx, method, params, meta, version)
-        if method in _spec_methods():
-            try:
-                ok = _request_ok(method, version, params)
-            except KeyError:
-                raise MCPError(METHOD_NOT_FOUND, "Method not found", method)
-            if not ok:
-                raise _InvalidParams()
-        if method == "initialize":
-            result = self._serialize(method, version, self._handle_initialize(params))
-        else:
+
+        async def inner(ctx):
+            # method and params off ctx, so a middleware's rewrite reaches lookup and the handler
+            method, params = ctx.method, ctx.params
+            if method in _spec_methods():
+                try:
+                    ok = _request_ok(method, version, params)
+                except KeyError:
+                    raise MCPError(METHOD_NOT_FOUND, "Method not found", method)
+                if not ok:
+                    raise _InvalidParams()
+            if method == "initialize":
+                return self._serialize(method, version, self._handle_initialize(params))
             entry = self.server.get_request_handler(method)
             if entry is None:
                 raise MCPError(METHOD_NOT_FOUND, "Method not found", method)
@@ -2613,41 +2637,55 @@ class _Runner:
             r = await entry.handler(ctx, typed)
             if isinstance(r, T.ErrorData):
                 raise MCPError.from_error_data(r)
-            result = self._serialize(method, version, r)
-        result = _dump_result(result)
+            return self._serialize(method, version, r)
+
+        result = _dump_result(await self._chain(inner)(ctx))
         if method == "initialize":
             self.connection.client_params, self.connection.protocol_version = self._negotiate(params)
         return result
+
+    def _chain(self, inner):
+        # Server.middleware around inner, outermost first (ServerRunner._compose_server_middleware)
+        call = inner
+        for mw in reversed(self.server.middleware):
+            call = _bind_middleware(mw, call)
+        return call
 
     async def on_notify(self, dctx, method, params):
         meta = _extract_meta(params)
         version = self.connection.protocol_version
         ctx = self._make_context(dctx, method, params, meta, version)
-        try:
+
+        async def inner(ctx):
+            method, params = ctx.method, ctx.params
             surf = _surface("client_notifications").get(method)
             if surf is not None:
                 if version not in surf:
-                    return
+                    return None
                 era = "m" if version in MODERN_PROTOCOL_VERSIONS else "h"
                 body = {"jsonrpc": "2.0", "method": method}
                 if params is not None:
                     body["params"] = params
                 if not _fits(("M", surf[version]), body, _wire(era)):
                     _log(30, "dropped %r: malformed params", method)
-                    return
+                    return None
             if method == "notifications/initialized":
                 self.connection.initialized.set()
             elif not self.connection.initialize_accepted:
-                return
+                return None
             entry = self.server.get_notification_handler(method)
             if entry is None:
-                return
+                return None
             try:
                 typed = entry.params_type.model_validate({} if params is None else params)
             except ValidationError:
                 _log(30, "dropped %r: malformed params", method)
-                return
+                return None
             await entry.handler(ctx, typed)
+            return None
+
+        try:
+            await self._chain(inner)(ctx)
         except Exception as e:
             _log_exc(e, "notification handler for %r raised", method)
 
@@ -3176,7 +3214,7 @@ class MCPServer:
                  auth=None, resource_security=DEFAULT_RESOURCE_SECURITY, request_state_security=None, cache_hints=None, subscriptions=None,
                  middleware=None):
         for what, v in (("auth_server_provider", auth_server_provider), ("token_verifier", token_verifier), ("extensions", extensions), ("auth", auth),
-                        ("request_state_security", request_state_security), ("cache_hints", cache_hints), ("middleware", middleware)):
+                        ("request_state_security", request_state_security), ("cache_hints", cache_hints)):
             if v:
                 raise NotImplementedError("brevi: MCPServer(%s=...) is not in Brevi's mcp" % what)
         if subscriptions not in (None, False):
@@ -3197,12 +3235,17 @@ class MCPServer:
                                        on_read_resource=self._handle_read_resource, on_list_resource_templates=self._handle_list_resource_templates,
                                        on_list_prompts=self._handle_list_prompts, on_get_prompt=self._handle_get_prompt,
                                        lifespan=_LifespanWrap(self, lifespan) if lifespan else None)
+        self._lowlevel_server.middleware.extend(middleware or ())
         self._custom_starlette_routes = []
         configure_logging(log_level)
 
     @property
     def name(self):
         return self._lowlevel_server.name
+
+    @property
+    def middleware(self):
+        return self._lowlevel_server.middleware
 
     @property
     def title(self):

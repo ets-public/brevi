@@ -318,7 +318,7 @@ pub fn engine_imports() -> (Vec<String>, Vec<(String, String)>) {
 pub fn stdlib_only() -> bool {
     let u = uses();
     // os and pathlib too: the dynamic build has their path text (and refuses a program that needs more).
-    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse"))
+    !u.is_empty() && u.iter().all(|m| NATIVE.contains(&m.split('.').next().unwrap_or(m)) || matches!(m.split('.').next().unwrap_or(m), "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse" | "zoneinfo" | "tzlocal" | "importlib"))
 }
 
 // The program's CPython calls are numpy (and Brevi's own modules): the dynamic build, with Brevi's own numpy,
@@ -329,7 +329,7 @@ pub fn numpy_only() -> bool {
     u.iter().any(|m| own(m.split('.').next().unwrap_or(m)))
         && u.iter().all(|m| {
             let top = m.split('.').next().unwrap_or(m);
-            own(top) || NATIVE.contains(&top) || matches!(top, "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse")
+            own(top) || NATIVE.contains(&top) || matches!(top, "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse" | "zoneinfo" | "tzlocal" | "importlib")
         })
         && std::env::var("BREVI_NUMPY").map_or(true, |v| v != "0")
 }

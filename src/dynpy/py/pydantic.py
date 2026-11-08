@@ -1790,6 +1790,14 @@ def _I(cls):
     return i
 
 
+def _has_lazy(d):
+    if isinstance(d, tuple):
+        if d and d[0] == "lazy":
+            return True
+        return any(_has_lazy(x) for x in d)
+    return False
+
+
 def _cfg(cls):
     return _I(cls).cfg
 
@@ -2767,6 +2775,15 @@ class BaseModel:
         cls = type(self)
         st = _St(strict=_cfg(cls).get("strict", False))
         _top(cls, lambda: _validate_model(cls, data, st, self))
+
+    @classmethod
+    def model_rebuild(cls, *, force=False, raise_errors=True, _parent_namespace_depth=2, _types_namespace=None):
+        # Brevi resolves a forward reference when it is first used, so there is nothing to rebuild. pydantic
+        # answers True for a model it had to leave incomplete (one naming a class defined later), else None.
+        _I(cls)
+        if force or any(_has_lazy(d) for d in _I(cls).descs.values()):
+            return True
+        return None
 
     @classmethod
     def model_validate(cls, obj, *, strict=None, from_attributes=None, context=None, by_alias=None, by_name=None):

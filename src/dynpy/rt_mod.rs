@@ -2043,7 +2043,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
     if m == "numpy" || m.starts_with("numpy.") {
         return np_module_call(m, n, a);
     }
-    if matches!(m, "decimal" | "fractions" | "datetime" | "csv" | "html" | "statistics" | "threading") {
+    if matches!(m, "decimal" | "fractions" | "datetime" | "csv" | "html" | "statistics" | "threading" | "zoneinfo" | "tzlocal" | "importlib.metadata") {
         return ext_module_call2(m, n, a).unwrap();
     }
     match m {

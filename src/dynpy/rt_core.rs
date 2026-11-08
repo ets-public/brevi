@@ -1576,6 +1576,8 @@ pub fn init_builtin_classes() {
         ("DivisionByZero", "ZeroDivisionError"),
         ("error", "Exception"),
         ("StatisticsError", "ValueError"),
+        ("ZoneInfoNotFoundError", "KeyError"),
+        ("PackageNotFoundError", "ModuleNotFoundError"),
         ("Error", "Exception"),
     ];
     for (n, p) in tree {
@@ -1585,6 +1587,8 @@ pub fn init_builtin_classes() {
             "InvalidOperation" | "DivisionByZero" => "decimal",
             "error" => "re",
             "StatisticsError" => "statistics",
+            "ZoneInfoNotFoundError" => "zoneinfo._common",
+            "PackageNotFoundError" => "importlib.metadata",
             "Error" => "_csv",
             _ => "builtins",
         };
