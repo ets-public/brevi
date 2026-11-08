@@ -1181,8 +1181,6 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     for (line, what) in paths.unwrap_or_default() {
         uses.push((line, "native", what));
     }
-    // open() and os's file functions read (and write) files.
-    uses.extend(py_files(src));
     // Brevi's polars reads and writes files (read_csv("x.csv"), df.write_csv("out.csv")).
     if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("polars")) {
         uses.extend(polars_files(src));
@@ -1208,6 +1206,12 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
             if l.contains("from_file(") {
                 uses.push((n, "read", "tokenizers Tokenizer.from_file(file)".to_string()));
             }
+        }
+    }
+    // open() and os's file functions read (and write) files, where nothing above already named the line.
+    for u in py_files(src) {
+        if !uses.iter().any(|(l, c, _)| *l == u.0 && *c == u.1) {
+            uses.push(u);
         }
     }
     uses.sort();
