@@ -24,11 +24,16 @@ mod brevi_fsglue {
         NetErr { kind: "PermissionError", msg: format!("brevi: --sandbox: {p:?} needs allow {cap}").replace('"', "'") }
     }
 
+    // The path to open: under --allow-read / --allow-write DIR, the real path, if it is inside them.
+    fn scoped(p: &str, write: bool) -> Result<String, NetErr> {
+        brevi_fs_path(p, write).map_err(|msg| NetErr { kind: "PermissionError", msg })
+    }
+
     fn read(p: &str) -> Result<String, NetErr> {
         if FS_SANDBOX && !FS_READ {
             return Err(refuse("read", p));
         }
-        let b = std::fs::read(p).map_err(|e| os_err(e, p))?;
+        let b = std::fs::read(scoped(p, false)?).map_err(|e| os_err(e, p))?;
         String::from_utf8(b).map_err(|e| NetErr { kind: "ValueError", msg: format!("invalid utf-8 sequence at byte {}", e.utf8_error().valid_up_to()) })
     }
 
@@ -36,7 +41,9 @@ mod brevi_fsglue {
         if FS_SANDBOX && !FS_WRITE {
             return Err(refuse("write", p));
         }
-        let mut f = std::fs::OpenOptions::new().write(true).create(true).append(append).truncate(!append).open(p).map_err(|e| os_err(e, p))?;
+        let real = scoped(p, true)?;
+        brevi_new_file(&real);
+        let mut f = std::fs::OpenOptions::new().write(true).create(true).append(append).truncate(!append).open(real).map_err(|e| os_err(e, p))?;
         f.write_all(t.as_bytes()).map_err(|e| os_err(e, p))
     }
 
@@ -45,7 +52,7 @@ mod brevi_fsglue {
         if FS_SANDBOX && !FS_READ {
             return Err(refuse("read", p));
         }
-        let mut f = std::fs::File::open(p).map_err(|e| os_err(e, p))?;
+        let mut f = std::fs::File::open(scoped(p, false)?).map_err(|e| os_err(e, p))?;
         if f.metadata().map(|m| m.is_dir()).unwrap_or(false) {
             return Err(NetErr { kind: "IsADirectoryError", msg: format!("Is a directory (os error 21): {p}") });
         }
@@ -63,14 +70,16 @@ mod brevi_fsglue {
         if FS_SANDBOX && !FS_READ {
             return Err(refuse("read", p));
         }
-        std::fs::metadata(p).map(|m| m.len()).map_err(|e| os_err(e, p))
+        std::fs::metadata(scoped(p, false)?).map(|m| m.len()).map_err(|e| os_err(e, p))
     }
 
     fn write_bytes(p: &str, b: &[u8]) -> Result<(), NetErr> {
         if FS_SANDBOX && !FS_WRITE {
             return Err(refuse("write", p));
         }
-        std::fs::write(p, b).map_err(|e| os_err(e, p))
+        let real = scoped(p, true)?;
+        brevi_new_file(&real);
+        std::fs::write(real, b).map_err(|e| os_err(e, p))
     }
 
     pub fn ops() -> FsOps {

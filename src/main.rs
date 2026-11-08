@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -212,7 +212,7 @@ fn main() {
     let mut grant: Vec<String> = vec![];
     loop {
         let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
-        let Some(i) = argv[..dash].iter().position(|a| a == "--allow" || a == "--allow-py" || a == "--allow-net" || a.starts_with("--allow=") || a.starts_with("--allow-py=") || a.starts_with("--allow-net=")) else { break };
+        let Some(i) = argv[..dash].iter().position(|a| matches!(a.split('=').next().unwrap_or(""), "--allow" | "--allow-py" | "--allow-net" | "--allow-read" | "--allow-write")) else { break };
         let flag = argv.remove(i);
         let (name, value) = match flag.split_once('=') {
             Some((n, v)) => (n.to_string(), v.to_string()),
@@ -222,7 +222,12 @@ fn main() {
                 exit(2);
             }
         };
-        let parsed = if name == "--allow-net" { caps::parse_net(&value) } else { caps::parse_grant(name == "--allow-py", &value) };
+        let parsed = match name.as_str() {
+            "--allow-net" => caps::parse_net(&value),
+            "--allow-read" => caps::parse_paths("read", &value),
+            "--allow-write" => caps::parse_paths("write", &value),
+            _ => caps::parse_grant(name == "--allow-py", &value),
+        };
         match parsed {
             Ok(g) => grant.extend(g),
             Err(m) => {
@@ -240,6 +245,12 @@ fn main() {
     if !limits.is_empty() {
         if !matches!(argv.first().map(String::as_str), Some("run" | "test")) {
             eprintln!("--limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)");
+            exit(2);
+        }
+        // files and net are counted by Brevi's own file and network layers, which hold only a sandboxed
+        // program that runs no CPython or native code.
+        if (limits.files.is_some() || limits.net.is_some()) && (!sandbox || grant.iter().any(|g| g == "native" || g.starts_with("py:"))) {
+            eprintln!("--limit files and net are counted by Brevi's own file and network code, so they need --sandbox without --allow native or --allow-py (CPython and native code are not counted); leave them out, or drop those grants");
             exit(2);
         }
         proc::LIMITS.set(limits).ok();
@@ -705,7 +716,7 @@ fn own_lib_refusal(diags: Vec<Diag>) -> Vec<Diag> {
     let shown = Path::new(&f).file_name().unwrap_or_default().to_string_lossy().to_string();
     let main = SEGS.get().and_then(|s| s.first()).and_then(|g| g.path.file_name()).map_or(true, |n| n.to_string_lossy() == shown);
     let at = if main { String::new() } else { format!(" ({shown})") };
-    let text = format!("{msg}{at}; under --sandbox CPython's {} needs a grant", mods.join(", "));
+    let text = if msg.contains("--sandbox") { format!("{msg}{at}") } else { format!("{msg}{at}; under --sandbox CPython's {} needs a grant", mods.join(", ")) };
     let d = Diag::new("caps", line.max(1), 1, &text).fix_hint(&caps::grant_hint("native", Some(&mods.join(", "))));
     let mut out = vec![d];
     out.extend(diags.into_iter().filter(|d| !generic(d)));

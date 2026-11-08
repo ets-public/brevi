@@ -1,0 +1,3 @@
+refused after 13 opens
+exit 0
+{"path":"pybridge","why":"os run in CPython","py":["os"]}

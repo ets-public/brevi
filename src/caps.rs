@@ -50,9 +50,73 @@ pub fn net_hosts() -> (bool, Vec<String>) {
     (g.iter().any(|c| c == "net"), g.iter().filter_map(|c| c.strip_prefix("net:")).map(String::from).collect())
 }
 
-// Whether the caller granted this capability (under --sandbox).
+// Whether the caller granted this capability (under --sandbox); read and write also when held to folders.
 pub fn granted(cap: &str) -> bool {
-    grant().iter().any(|c| c == cap)
+    grant().iter().any(|c| c == cap || (matches!(cap, "read" | "write") && c.strip_prefix(cap).is_some_and(|r| r.starts_with(':'))))
+}
+
+// The folders (and files) a program may read or write under --sandbox --allow-read / --allow-write: None when
+// it is not held to folders (outside the sandbox, or --allow read / write for every file).
+pub fn fs_scope(cap: &str) -> Option<Vec<String>> {
+    if !sandboxed() {
+        return None;
+    }
+    let g = grant();
+    if g.iter().any(|c| c == cap) {
+        return None;
+    }
+    let pre = format!("{cap}:");
+    Some(g.iter().filter_map(|c| c.strip_prefix(&pre)).map(String::from).collect())
+}
+
+// The program's AX_FS (prelude.rs): whether read and write are held to folders, and the folders. Under
+// --sandbox without the grant at all, held to none (the check refuses such a program first anyway).
+pub fn fs_static() -> String {
+    let one = |cap: &str| match fs_scope(cap) {
+        None => "false, &[]".to_string(),
+        Some(r) => format!("true, &[{}]", r.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ")),
+    };
+    format!("({}, {})", one("read"), one("write"))
+}
+
+// Only brevi_scoped is used at build time; the limit counters are for the programs it is pasted into.
+#[allow(dead_code)]
+mod fsscope {
+    include!("fsscope.rs");
+}
+use fsscope::brevi_scoped;
+
+// A file the compiler reads for the program while building it (tokenizers' Tokenizer.from_file): under
+// --sandbox only with the caller's read grant, inside its folders. The path to read.
+pub fn build_read(p: &str) -> Result<String, String> {
+    if !sandboxed() {
+        return Ok(p.to_string());
+    }
+    if !granted("read") {
+        return Err("reading it under --sandbox needs --allow read (or --allow-read DIR)".into());
+    }
+    match fs_scope("read") {
+        None => Ok(p.to_string()),
+        Some(r) => brevi_scoped(p, &r.iter().map(String::as_str).collect::<Vec<_>>(), "read"),
+    }
+}
+
+// The value of --allow-read / --allow-write: folders or files, comma separated, each made absolute with its
+// symlinks resolved (so the check at run time compares real paths). Each must exist.
+pub fn parse_paths(cap: &str, value: &str) -> Result<Vec<String>, String> {
+    let mut out = vec![];
+    for w in value.split(',').map(str::trim).filter(|w| !w.is_empty()) {
+        let real = std::fs::canonicalize(w).map_err(|e| format!("--allow-{cap} {w}: {e}"))?;
+        let real = real.to_str().ok_or_else(|| format!("--allow-{cap} {w}: the path is not UTF-8"))?;
+        if real.contains(',') {
+            return Err(format!("--allow-{cap} {w}: a path with a comma cannot be granted"));
+        }
+        out.push(format!("{cap}:{real}"));
+    }
+    if out.is_empty() {
+        return Err(format!("--allow-{cap} takes folders or files: --allow-{cap} data,out"));
+    }
+    Ok(out)
 }
 
 // A host name for --allow-net: letters, digits, '-', '.', or an IP address.
@@ -93,7 +157,9 @@ pub fn parse_grant(py: bool, value: &str) -> Result<Vec<String>, String> {
 // The grant as flags, for the brevi processes this one starts (and the result cache's key).
 pub fn grant_flags() -> Vec<String> {
     let g = grant();
-    let caps: Vec<&str> = g.iter().filter(|c| !c.starts_with("py:") && !c.starts_with("net:")).map(String::as_str).collect();
+    let caps: Vec<&str> = g.iter().filter(|c| !c.contains(':')).map(String::as_str).collect();
+    let reads: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("read:")).collect();
+    let writes: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("write:")).collect();
     let py: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("py:")).collect();
     let hosts: Vec<&str> = g.iter().filter_map(|c| c.strip_prefix("net:")).collect();
     let mut out = vec![];
@@ -105,6 +171,12 @@ pub fn grant_flags() -> Vec<String> {
     }
     if !hosts.is_empty() {
         out.extend(["--allow-net".to_string(), hosts.join(",")]);
+    }
+    if !reads.is_empty() {
+        out.extend(["--allow-read".to_string(), reads.join(",")]);
+    }
+    if !writes.is_empty() {
+        out.extend(["--allow-write".to_string(), writes.join(",")]);
     }
     out
 }
@@ -126,7 +198,7 @@ pub fn held(src: &str, allowed: Option<Vec<String>>, sandbox: bool) -> (Vec<Stri
         return (allowed.unwrap_or_default(), vec![]);
     }
     let g = grant();
-    let covered = |c: &str| c == "none" || g.iter().any(|x| x == c) || (c == "native" && g.iter().any(|x| x.starts_with("py:"))) || (c == "net" && g.iter().any(|x| x.starts_with("net:")));
+    let covered = |c: &str| c == "none" || granted(c) || g.iter().any(|x| x == c) || (c == "native" && g.iter().any(|x| x.starts_with("py:"))) || (c == "net" && g.iter().any(|x| x.starts_with("net:")));
     let mut errs = vec![];
     for (i, l) in src.split('\n').enumerate() {
         let list = match l.strip_prefix("allow ").filter(|r| !r.trim_start().starts_with(['=', '.', '(', '[', '+', '-'])) {
@@ -1086,6 +1158,14 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
     if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("onnxruntime")) {
         uses.extend(onnxruntime_files(src));
     }
+    // Brevi's tokenizers reads Tokenizer.from_file's file when the program is built (dynpy/hf.rs).
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("tokenizers")) {
+        for (n, l) in code_lines(src) {
+            if l.contains("from_file(") {
+                uses.push((n, "read", "tokenizers Tokenizer.from_file(file)".to_string()));
+            }
+        }
+    }
     uses.sort();
     let mut seen = Vec::new();
     let mut errs = Vec::new();
@@ -1093,7 +1173,9 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
         let module = if cap == "native" { use_module(&what) } else { None };
         let py_granted = module.as_ref().is_some_and(|m| allowed.iter().any(|a| a.strip_prefix("py:") == Some(m.as_str())));
         let net_granted = cap == "net" && allowed.iter().any(|a| a.starts_with("net:"));
-        if allowed.iter().any(|a| a == cap) || py_granted || net_granted || seen.contains(&(line, cap)) {
+        // --allow-read DIR / --allow-write DIR: granted, held to those folders when the program runs
+        let scoped = matches!(cap, "read" | "write") && allowed.iter().any(|a| a.strip_prefix(cap).is_some_and(|r| r.starts_with(':')));
+        if allowed.iter().any(|a| a == cap) || py_granted || net_granted || scoped || seen.contains(&(line, cap)) {
             continue;
         }
         seen.push((line, cap));
@@ -1200,6 +1282,40 @@ pub fn check_src(src: &str, allowed: &[String]) -> Vec<Diag> {
 
 #[cfg(test)]
 mod tests {
+    // --allow-read / --allow-write DIR: a path is held to the granted folders by its real path, so .., symlinks
+    // and names that do not exist yet cannot lead outside.
+    #[cfg(unix)]
+    #[test]
+    fn scoped_paths_stay_inside() {
+        let base = std::env::temp_dir().join(format!("brevi-scope-{}", std::process::id()));
+        let inside = base.join("in");
+        std::fs::create_dir_all(inside.join("sub")).unwrap();
+        std::fs::write(base.join("secret"), "s").unwrap();
+        std::fs::write(inside.join("a"), "a").unwrap();
+        std::os::unix::fs::symlink(base.join("secret"), inside.join("link")).unwrap();
+        std::os::unix::fs::symlink(base.join("nowhere"), inside.join("dangling")).unwrap();
+        std::os::unix::fs::symlink(&base, inside.join("up")).unwrap();
+        let root = std::fs::canonicalize(&inside).unwrap();
+        let roots = [root.to_str().unwrap()];
+        let ok = |p: std::path::PathBuf| super::brevi_scoped(p.to_str().unwrap(), &roots, "read").is_ok();
+        assert!(ok(inside.join("a")));
+        assert!(ok(inside.join("sub")));
+        assert!(ok(inside.join("new-file")));
+        assert!(ok(inside.join("sub/../a")));
+        assert!(!ok(base.join("secret")));
+        assert!(!ok(inside.join("../secret")));
+        assert!(!ok(inside.join("link")));
+        assert!(!ok(inside.join("dangling")));
+        assert!(!ok(inside.join("up/secret")));
+        assert!(!ok(inside.join("up/new")));
+        assert!(!ok(inside.join("..")));
+        assert!(!ok(base.join("in-other")));
+        assert!(!ok(std::path::PathBuf::from("/")));
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(super::parse_paths("read", "/no/such/folder").is_err());
+        assert_eq!(super::parse_paths("write", "/").unwrap(), ["write:/"]);
+    }
+
     // The modules built in place of CPython's under the sandbox (dynpy::sandbox_module) import only each other
     // and Brevi's own math and time, and open nothing.
     #[test]
@@ -1445,7 +1561,7 @@ mod tests {
             }
         }
         let glue = include_str!("dynpy/sqlglue.rs");
-        assert!(glue.contains("if !FS_READ {") && glue.contains("if !FS_WRITE && flags & OPEN_READWRITE != 0"));
+        assert!(glue.contains("if !FS_READ || !in_scope(name, false) {") && glue.contains("if (!FS_WRITE || !in_scope(name, true)) && flags & OPEN_READWRITE != 0"));
         assert!(glue.contains("vfs_unregister") && !glue.contains("enable_load_extension"));
     }
 

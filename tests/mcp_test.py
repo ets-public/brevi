@@ -116,6 +116,10 @@ expect("sandbox allow argument", call("run", code="with open('/etc/hostname') as
 expect("sandbox allow read not write", call("run", code="open('x.txt', 'w').write('x')\n", allow=["read"]), "needs allow write", True)
 expect("sandbox allow_py", call("run", code="import os\nprint(len(os.listdir('.')) >= 0)\n", allow_py=["os"]), "True", False)
 expect("sandbox allow_py other", call("run", code="import os\nprint(os.listdir('.'))\n", allow_py=["json"]), "allow_py", True)
+# allow_read / allow_write: files only inside the granted folders (relative to where brevi mcp started)
+expect("sandbox allow_read folder", call("run", code="with open('/etc/hostname') as f:\n    print(f.read())\n", allow_read=["tests/sandbox"]), "outside the folders granted to read", True)
+expect("sandbox allow_read inside", call("run", code="with open(" + repr(__import__('os').path.abspath('tests/sandbox/data.txt')) + ") as f:\n    print(len(f.read()) > 0)\n", allow_read=["tests/sandbox"]), "True", False)
+expect("sandbox allow_read missing folder", call("run", code="print(1)\n", allow_read=["no/such/folder"]), "allow_read no/such/folder", True)
 expect("sandbox bad allow", call("run", code="print(1)\n", allow=["network"]), "allow takes read, write, net or native", True)
 # requests and httpx are Brevi's own: they need the network granted (allow net, or allow_net hosts), not native.
 expect("sandbox net refused", call("run", code="import httpx\nprint(1)\n"), "needs allow net", True)
