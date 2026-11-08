@@ -563,6 +563,8 @@ fn no_such_method(m: &str, code: &str, dir: &std::path::Path, line_code: &str) -
             return false;
         }
     }
+    // a module METHODS covers: `urllib.parse` is, `urllib.request` is not
+    let full: HashSet<&str> = MODS.split_whitespace().collect();
     let known: HashSet<&str> = MODS.split_whitespace().map(|m| m.split('.').next().unwrap_or(m)).collect();
     for l in code.lines() {
         let t = l.trim();
@@ -579,6 +581,9 @@ fn no_such_method(m: &str, code: &str, dir: &std::path::Path, line_code: &str) -
                 continue;
             }
             if !known.contains(top) && !dir.join(format!("{top}.py")).exists() && !dir.join(top).is_dir() {
+                return false;
+            }
+            if md != top && known.contains(top) && !full.contains(md) {
                 return false;
             }
         }

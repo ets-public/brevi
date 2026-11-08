@@ -1503,7 +1503,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             let (cs, ce) = char_range(me, opt_idx(&a, 1)?, opt_idx(&a, 2)?);
             let hay = if cs <= ce { &t[byte_at(me, cs)..byte_at(me, ce)] } else { "" };
             let pats: Vec<V> = match a.p.first() {
-                Some(V::Tuple(x)) => (**x).clone(),
+                Some(V::Tuple(x)) => x.to_vec(),
                 Some(x) => vec![x.clone()],
                 None => return type_err(format!("{name}() takes at least 1 argument (0 given)")),
             };

@@ -334,6 +334,20 @@ pub fn numpy_only() -> bool {
         && std::env::var("BREVI_NUMPY").map_or(true, |v| v != "0")
 }
 
+// The program's CPython calls include a package of its own (a folder with __init__.py next to the main file),
+// and the rest are modules the dynamic build has: the dynamic build goes first, building the package with the
+// program (it hands the package to CPython itself when the package needs a library Brevi lacks).
+pub fn own_package_only(dir: &std::path::Path) -> bool {
+    let u = uses();
+    let pkg = |top: &str| dir.join(top).join("__init__.py").is_file();
+    let own = |top: &str| matches!(top, "numpy" | "tiktoken" | "tokenizers" | "requests" | "httpx" | "anthropic" | "openai" | "jinja2" | "markupsafe" | "polars" | "sqlite3" | "duckdb" | "safetensors" | "onnxruntime");
+    u.iter().any(|m| pkg(m.split('.').next().unwrap_or(m)))
+        && u.iter().all(|m| {
+            let top = m.split('.').next().unwrap_or(m);
+            pkg(top) || own(top) || NATIVE.contains(&top) || matches!(top, "os" | "posixpath" | "pathlib" | "io" | "textwrap" | "argparse" | "zoneinfo" | "tzlocal" | "importlib")
+        })
+}
+
 pub fn active() -> bool {
     REG.with(|r| r.borrow().is_some())
 }

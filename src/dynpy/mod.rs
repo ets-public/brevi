@@ -82,6 +82,95 @@ fn fnv(parts: &[&str]) -> u64 {
     h
 }
 
+// `from .x import y` in module `name` (a package's __init__ when `pkg`) as the absolute `from name.x import y`
+fn absolutize(body: &mut [parse::Stmt], name: &str, pkg: bool) {
+    use parse::St;
+    for s in body {
+        match &mut s.st {
+            St::ImportFrom(m, _) if m.starts_with('.') => {
+                let dots = m.chars().take_while(|c| *c == '.').count();
+                let mut base: Vec<&str> = name.split('.').collect();
+                if !pkg {
+                    base.pop();
+                }
+                for _ in 1..dots {
+                    base.pop();
+                }
+                let rest = &m[dots..];
+                let mut a = base.join(".");
+                if !rest.is_empty() {
+                    if !a.is_empty() {
+                        a.push('.');
+                    }
+                    a.push_str(rest);
+                }
+                *m = a;
+            }
+            St::Def(d) => absolutize(&mut d.body, name, pkg),
+            St::Class(c) => absolutize(&mut c.body, name, pkg),
+            St::If(arms, els) => {
+                for (_, b) in arms {
+                    absolutize(b, name, pkg);
+                }
+                if let Some(b) = els {
+                    absolutize(b, name, pkg);
+                }
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                absolutize(b, name, pkg);
+                if let Some(e) = e {
+                    absolutize(e, name, pkg);
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                absolutize(b, name, pkg);
+                for h in hs {
+                    absolutize(&mut h.body, name, pkg);
+                }
+                if let Some(e) = e {
+                    absolutize(e, name, pkg);
+                }
+                if let Some(f) = f {
+                    absolutize(f, name, pkg);
+                }
+            }
+            St::With(_, b) => absolutize(b, name, pkg),
+            _ => {}
+        }
+    }
+}
+// `from pkg import sub` where sub is a module of the program's package pkg: (pkg, sub) pairs
+fn from_names(body: &[parse::Stmt], out: &mut Vec<(String, String)>) {
+    use parse::St;
+    for s in body {
+        match &s.st {
+            St::ImportFrom(m, v) => out.extend(v.iter().map(|(n, _)| (m.clone(), n.clone()))),
+            St::Def(d) => from_names(&d.body, out),
+            St::Class(c) => from_names(&c.body, out),
+            St::If(arms, els) => {
+                arms.iter().for_each(|(_, b)| from_names(b, out));
+                if let Some(b) = els {
+                    from_names(b, out);
+                }
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                from_names(b, out);
+                if let Some(e) = e {
+                    from_names(e, out);
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                from_names(b, out);
+                hs.iter().for_each(|h| from_names(&h.body, out));
+                for x in [e, f].into_iter().flatten() {
+                    from_names(x, out);
+                }
+            }
+            St::With(_, b) => from_names(b, out),
+            _ => {}
+        }
+    }
+}
 fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
     use parse::St;
     for s in body {
@@ -133,6 +222,43 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
 // when the sandbox turns CPython off (no `allow native`). Each holds only what needs no file, process, network
 // or environment access: os is os.path and its constants, pathlib is PurePath. caps.rs refuses any other use
 // of os and pathlib before this runs. Their results match CPython's on POSIX systems.
+// every import in the package's .py files names the package itself, a module Brevi builds in, or a file of the
+// program next to the package
+fn package_native(pkg: &Path, top: &str) -> bool {
+    let Ok(rd) = std::fs::read_dir(pkg) else { return false };
+    let parent = pkg.parent().unwrap_or(Path::new("."));
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if p.join("__init__.py").is_file() && !package_native(&p, top) {
+                return false;
+            }
+            continue;
+        }
+        if p.extension().and_then(|x| x.to_str()) != Some("py") {
+            continue;
+        }
+        let Ok(src) = std::fs::read_to_string(&p) else { return false };
+        for l in src.lines() {
+            let t = l.trim_start();
+            let names: Vec<&str> = if let Some(r) = t.strip_prefix("import ") {
+                r.split(',').filter_map(|x| x.split_whitespace().next()).collect()
+            } else if let Some(r) = t.strip_prefix("from ") {
+                r.split_whitespace().next().into_iter().collect()
+            } else {
+                continue;
+            };
+            for n in names {
+                let first = n.split('.').next().unwrap_or(n);
+                if n.starts_with('.') || first == top || emit::builtin_mod(n) || emit::builtin_mod(first) || sandbox_module(n).is_some() || parent.join(format!("{first}.py")).is_file() {
+                    continue;
+                }
+                return false;
+            }
+        }
+    }
+    true
+}
 fn sandbox_module(m: &str) -> Option<&'static str> {
     Some(match m {
         "random" => include_str!("py/random.py"),
@@ -357,6 +483,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     while k < mods.len() {
         let mut imps = vec![];
         walk_imports(&mods[k].body, &mut imps);
+        // a module of a package of the program's, named in `from pkg import sub`
+        let mut fr = vec![];
+        from_names(&mods[k].body, &mut fr);
+        for (m, n) in fr {
+            let d = dir.join(m.replace('.', "/"));
+            if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(&n).join("__init__.py").is_file()) {
+                imps.push(format!("{m}.{n}"));
+            }
+        }
         // the builtin open(): Brevi's, in _brevi_open (emit.rs loads it when the program uses no CPython library)
         if texts.get(&mods[k].name).is_some_and(|t| uses_open(&t.1)) {
             imps.push("_brevi_open".into());
@@ -395,7 +530,14 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             if emit::np_native() && (m.starts_with("numpy.") || m == "numpy") {
                 return Err((file.to_string(), 0, format!("numpy: module {m} is not in Brevi's native numpy")));
             }
-            let p = dir.join(format!("{m}.py"));
+            // A program's own module: `a.b` is a/b.py, else the package a/b/__init__.py.
+            let base = m.replace('.', "/");
+            let p = dir.join(format!("{base}.py"));
+            let p = if !m.starts_with('.') && !p.exists() && dir.join(&base).join("__init__.py").is_file() { dir.join(&base).join("__init__.py") } else { p };
+            // A package of the program's builds with it only when its own imports all build natively too; one
+            // that leans on a library Brevi would hand to CPython goes to CPython whole, like a library.
+            let top = m.split('.').next().unwrap_or(&m);
+            let p = if p.exists() && (m.contains('.') || p.ends_with("__init__.py")) && !package_native(&dir.join(top), top) { dir.join("\0") } else { p };
             // Outside the sandbox too, when every use of these modules is one Brevi's copies have (checked
             // over all the program's files below). random's generator core is native (rt_rand.rs).
             if !p.exists() && ((copies && own_ok) || !crate::pybridge::py_allowed(&m)) {
@@ -412,7 +554,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 let src = std::fs::read_to_string(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;
                 let src = crate::modules::fill_file_name(&src, &p);
                 let src = crate::caps::split(&src).0;
-                let body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
+                let mut body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
+                absolutize(&mut body, &m, p.ends_with("__init__.py"));
                 own_ok &= pure(&src);
                 texts.insert(m.clone(), (ps.clone(), src.to_string()));
                 mods.push(emit::Module { name: m, body });
@@ -539,6 +682,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     emit::NP_ATTR_ST.store(own_mods.contains("safetensors"), std::sync::atomic::Ordering::Relaxed);
     emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && (narrow_libs || texts.values().any(|(_, t)| emit::names_narrow(t))), std::sync::atomic::Ordering::Relaxed);
     *emit::OWN_COPIES.lock().unwrap() = own_mods.iter().cloned().collect();
+    emit::ic_reset();
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
             Some((p, _)) => p.clone(),
@@ -547,6 +691,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         };
         (f, l, m)
     })?;
+    let walrus = mods.iter().any(|m| {
+        let mut w = false;
+        emit::visit_any(&m.body, &mut |x| w |= matches!(x, parse::Ex::Walrus(..)));
+        w
+    });
+    if !walrus {
+        rust = borrow_loads(&rust);
+    }
+    rust.push_str(&emit::ic_statics());
     if !used.is_empty() {
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
@@ -725,7 +878,12 @@ pub fn check(rust: &str, dir: &Path, cache: &Path, rustc_v: &str) -> Result<(), 
         .output()
         .map_err(|e| e.to_string())?;
     if !o.status.success() {
-        return Err(String::from_utf8_lossy(&o.stderr).to_string());
+        let err = String::from_utf8_lossy(&o.stderr).to_string();
+        // as in compile: without borrow_loads's borrows
+        if rust.contains("ldr(&") && ["E0506", "E0505", "E0502", "E0499"].iter().any(|c| err.contains(c)) {
+            return check(&rust.replace("ldr(&", "&ld(&"), dir, cache, rustc_v);
+        }
+        return Err(err);
     }
     if use_cache && std::fs::create_dir_all(cache.join("bin")).is_ok() {
         std::fs::write(&mark, "").ok();
@@ -733,6 +891,34 @@ pub fn check(rust: &str, dir: &Path, cache: &Path, rustc_v: &str) -> Result<(), 
     Ok(())
 }
 
+// `&ld(&v_x, "x")?` clones a local only to borrow it: `ldr` borrows it in place. A local is only assigned
+// inside an expression by `:=`, which could then clash with the borrow, so programs with one keep `ld`.
+fn borrow_loads(src: &str) -> String {
+    let pat = "&ld(&";
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    while let Some(i) = rest.find(pat) {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i + pat.len()..];
+        let id_len = tail.bytes().take_while(|b| b.is_ascii_alphanumeric() || *b == b'_').count();
+        let after = &tail[id_len..];
+        let lit_end = after.strip_prefix(", \"").and_then(|a| a.find('"').map(|k| k + 4));
+        match lit_end {
+            Some(k) if id_len > 0 && !out.ends_with('&') && after[k..].starts_with(")?") && !after[3..k - 1].contains('\\') => {
+                out.push_str("ldr(&");
+                out.push_str(&tail[..id_len]);
+                out.push_str(&after[..k + 2]);
+                rest = &after[k + 2..];
+            }
+            _ => {
+                out.push_str(pat);
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
 pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, rustc_v: &str) -> Result<(), String> {
     let lib = runtime_lib(cache, rustc_v)?;
     let opt = if release { "opt-level=3" } else { "opt-level=1" };
@@ -757,7 +943,28 @@ pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, 
         .output()
         .map_err(|e| e.to_string())?;
     if !o.status.success() {
-        return Err(String::from_utf8_lossy(&o.stderr).to_string());
+        let err = String::from_utf8_lossy(&o.stderr).to_string();
+        // borrow_loads's `ldr` borrows can clash with an assignment inside the same expression: build once more
+        // with every local cloned, as before that pass
+        if rust.contains("ldr(&") && (err.contains("E0506") || err.contains("E0505") || err.contains("E0502") || err.contains("E0499")) {
+            let plain = rust.replace("ldr(&", "&ld(&");
+            std::fs::write(&rs, &plain).map_err(|e| e.to_string())?;
+            let o2 = crate::rustc_cmd()
+                .args(["--edition", "2021", "--crate-name", "brevi_prog", "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", "strip=debuginfo"])
+                .args(if release { None } else { Some(["-C", crate::codegen_units()]) }.into_iter().flatten())
+                .arg("--extern")
+                .arg(format!("brevi_dyn={}", lib.display()))
+                .arg("-o")
+                .arg(out)
+                .arg(&rs)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !o2.status.success() {
+                return Err(String::from_utf8_lossy(&o2.stderr).to_string());
+            }
+        } else {
+            return Err(err);
+        }
     }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));

@@ -60,6 +60,41 @@ pub fn ld(v: &V, name: &str) -> R {
         v => Ok(v.clone()),
     }
 }
+// a local read only to be borrowed (the emitter turns `&ld(..)?` into this)
+#[inline(always)]
+pub fn ldr<'a>(v: &'a V, name: &str) -> Result<&'a V, E> {
+    match v {
+        V::Unbound => Err(exc("UnboundLocalError", format!("cannot access local variable '{name}' where it is not associated with a value"))),
+        v => Ok(v),
+    }
+}
+// For a nested function that calls itself: it holds its own cell, and the cell holds it, so neither is freed
+// (CPython's cycle collector frees them). Dropped as the enclosing function returns: when the cell still holds
+// the function the def made (mark), nothing else holds that function, and only the frame, this guard and the
+// function itself hold the cell, both are unreachable, so the cell is emptied.
+pub struct CellGuard(Rc<RefCell<V>>, Cell<usize>);
+impl CellGuard {
+    pub fn new(c: &Rc<RefCell<V>>) -> CellGuard {
+        CellGuard(Rc::clone(c), Cell::new(0))
+    }
+    pub fn mark(&self) {
+        if let V::Func(f) = &*self.0.borrow() {
+            self.1.set(Rc::as_ptr(f) as *const u8 as usize);
+        }
+    }
+}
+impl Drop for CellGuard {
+    fn drop(&mut self) {
+        if Rc::strong_count(&self.0) != 3 {
+            return;
+        }
+        let only = matches!(&*self.0.borrow(), V::Func(f) if Rc::strong_count(f) == 1 && Rc::as_ptr(f) as *const u8 as usize == self.1.get());
+        if only {
+            let v = std::mem::replace(&mut *self.0.borrow_mut(), V::Unbound);
+            drop(v);
+        }
+    }
+}
 pub fn cell() -> Rc<RefCell<V>> {
     Rc::new(RefCell::new(V::Unbound))
 }
