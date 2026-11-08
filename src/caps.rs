@@ -79,7 +79,12 @@ pub fn fs_static() -> String {
     format!("({}, {})", one("read"), one("write"))
 }
 
-include!("fsscope.rs");
+// Only brevi_scoped is used at build time; the limit counters are for the programs it is pasted into.
+#[allow(dead_code)]
+mod fsscope {
+    include!("fsscope.rs");
+}
+use fsscope::brevi_scoped;
 
 // A file the compiler reads for the program while building it (tokenizers' Tokenizer.from_file): under
 // --sandbox only with the caller's read grant, inside its folders. The path to read.
