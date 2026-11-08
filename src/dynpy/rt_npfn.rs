@@ -22,6 +22,10 @@ fn np_int_arg(v: &V) -> Result<i64, E> {
         Some(Sc::F(_)) => type_err("'numpy.float64' object cannot be interpreted as an integer".into()),
         Some(Sc::F32(_)) => type_err("'numpy.float32' object cannot be interpreted as an integer".into()),
         Some(Sc::U(_)) => type_err("'numpy.str_' object cannot be interpreted as an integer".into()),
+        Some(Sc::S(d, x)) => match d.int(x) {
+            Some(i) => Ok(i),
+            None => type_err(format!("'{}' object cannot be interpreted as an integer", d.cls())),
+        },
         None => match v {
             V::Float(_) => type_err("'float' object cannot be interpreted as an integer".into()),
             _ => idx_of(v),
@@ -71,6 +75,7 @@ fn np_py(x: Sc) -> V {
         Sc::I32(i) => V::Int(i as i64),
         Sc::F32(f) => V::Float(f as f64),
         Sc::U(i) => st(np_sget(i).to_string()),
+        Sc::S(d, x) => d.py(x),
     }
 }
 fn np_tolist(vals: &Buf, shape: &[usize], off: usize) -> V {
@@ -164,6 +169,7 @@ fn np_argsort_vals(v: &Buf, lo: usize, n: usize) -> Vec<usize> {
             let sv: Vec<Rc<str>> = x[lo..lo + n].iter().map(|i| np_sget(*i)).collect();
             idx.sort_by(|i, j| sv[*i].cmp(&sv[*j]))
         }
+        Buf::S(..) => unreachable!(),
     }
     idx
 }
@@ -520,7 +526,7 @@ fn np_ufunc2(name: &str, x: &V, y: &V) -> R {
                     let r: Vec<i64> = u.iter().zip(&v).map(|(p, q)| if mx { *p.max(q) } else { *p.min(q) }).collect();
                     if d == NT::I32 { Buf::I32(r.into_iter().map(|v| v as i32).collect()) } else { Buf::I(r) }
                 }
-                NT::U(_) => unreachable!(),
+                NT::U(_) | NT::S(_) => unreachable!(),
                 NT::B => {
                     let (u, v) = (np_bvals(&a.a, &shape).bv(), np_bvals(&b.a, &shape).bv());
                     Buf::B(u.iter().zip(&v).map(|(p, q)| if mx { *p || *q } else { *p && *q }).collect())
@@ -1030,6 +1036,14 @@ fn red_opts(a: &Args, x: &NdArr, axis_pos: usize) -> Result<RedOpts, E> {
 
 // Methods of arrays (x is the array); module functions taking an array first use them too.
 pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
+    if x.dt().is_s() || np_store_args(a) {
+        let d = if x.dt().is_s() { x.dt() } else { a.p.iter().chain(a.k.iter().map(|(_, v)| v)).find_map(np_store_dt).unwrap() };
+        // complex values have no Python value here (Brevi has no complex numbers)
+        let complex = d == NT::S(SD::C64) && matches!(n, "tolist" | "item" | "__int__" | "__float__" | "__index__");
+        if !NP_STORE_METHODS.contains(&n) || complex || (n != "astype" && np_store_args(a)) {
+            return Err(np_store_err(d, &format!(".{n}()")));
+        }
+    }
     if (x.dt().narrow() || np_narrow_args(a)) && !NP_NARROW_METHODS.contains(&n) && n != "astype" {
         return Err(np_unsup(&format!(".{n}() of a {} array", x.dt().name())));
     }
@@ -1176,11 +1190,11 @@ pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
             let s = x.first_c();
             Ok(match n {
                 // a float goes through Python's int(): nan and inf raise, a big value stays exact
-                "__int__" if s.dt().is_f() => return to_int(&V::Float(s.f())),
+                "__int__" if s.dt().is_f() || s.dt() == NT::S(SD::F16) => return to_int(&V::Float(s.f())),
                 "__int__" => V::Int(s.i()),
                 "__float__" => V::Float(s.f()),
                 _ => {
-                    if x.ndim() > 0 || s.dt().is_f() {
+                    if x.ndim() > 0 || s.dt().is_f() || s.dt() == NT::S(SD::F16) {
                         return type_err("only integer scalar arrays can be converted to a scalar index".into());
                     }
                     V::Int(s.i())
@@ -1395,6 +1409,27 @@ const NP_NARROW_OK: &[&str] = &[
     "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
     "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift",
 ];
+// What takes storage-dtype arrays (rt_np.rs SD): reading, reshaping and casting them; the rest refuses them.
+const NP_STORE_METHODS: &[&str] = &[
+    "reshape", "ravel", "flatten", "copy", "transpose", "swapaxes", "squeeze", "astype", "tolist", "item", "__getitem__", "__int__", "__float__", "__index__",
+];
+const NP_STORE_OK: &[&str] = &["shape", "ndim", "size", "dtype", "reshape", "ravel", "transpose", "swapaxes", "squeeze", "copy", "asarray", "asanyarray", "array", "isscalar"];
+fn np_store_dt(v: &V) -> Option<NT> {
+    if let Some(a) = as_np(v) {
+        return Some(a.dt()).filter(|d| d.is_s());
+    }
+    if let Some(x) = as_npsc(v) {
+        return Some(x.dt()).filter(|d| d.is_s());
+    }
+    match v {
+        V::List(l) => l.borrow().iter().find_map(np_store_dt),
+        V::Tuple(t) => t.iter().find_map(np_store_dt),
+        _ => None,
+    }
+}
+pub fn np_store_args(a: &Args) -> bool {
+    a.p.iter().any(|v| np_store_dt(v).is_some()) || a.k.iter().any(|(_, v)| np_store_dt(v).is_some())
+}
 const NP_NARROW_METHODS: &[&str] = &[
     "sum", "mean", "std", "var", "prod", "max", "min", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "clip", "reshape", "ravel",
     "flatten", "copy", "transpose", "swapaxes", "astype", "tolist", "item", "fill", "sort", "argsort", "nonzero", "squeeze", "diagonal", "repeat", "conj",
@@ -1485,6 +1520,10 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
             }
         }
         return Err(np_unsup(&format!("{}{n}() of strings", if m == "numpy" { "np.".to_string() } else { format!("{m}.") })));
+    }
+    if np_store_args(&a) && !(m == "numpy" && NP_STORE_OK.contains(&n)) {
+        let d = a.p.iter().chain(a.k.iter().map(|(_, v)| v)).find_map(np_store_dt).unwrap();
+        return Err(np_store_err(d, &format!("{}{n}()", if m == "numpy" { "np.".to_string() } else { format!("{m}.") })));
     }
     if m != "numpy" || !NP_NARROW_OK.contains(&n) {
         if np_narrow_args(&a) {
@@ -2218,6 +2257,12 @@ impl Ext for NpArr {
             },
             "itemsize" => V::Int(a.dt().size()),
             "nbytes" => V::Int(a.dt().size() * a.size() as i64),
+            "real" if a.dt() == NT::S(SD::C64) => np_new(Buf::F32(a.vals().f32v()), a.shape.clone()),
+            "imag" if a.dt() == NT::S(SD::C64) => {
+                let b = a.vals();
+                let im = (0..b.len()).map(|i| if let Sc::S(d, x) = b.get(i) { d.imag(x) as f32 } else { 0.0 }).collect();
+                np_new(Buf::F32(im), a.shape.clone())
+            }
             "real" => np_arr(a.clone()),
             "strides" => tup(a.st.iter().map(|s| V::Int(*s as i64 * a.dt().size())).collect()),
             _ => return None,
@@ -2243,6 +2288,7 @@ impl Ext for NpScal {
             Sc::B(_) => "numpy.bool",
             Sc::I32(_) => "numpy.int32",
             Sc::F32(_) => "numpy.float32",
+            Sc::S(d, _) => d.cls(),
         }
     }
     fn repr(&self) -> String {
@@ -2262,6 +2308,10 @@ impl Ext for NpScal {
             Sc::I(i) => hash_int(i),
             Sc::I32(i) => hash_int(i as i64),
             Sc::B(b) => b as i64,
+            Sc::S(d, x) => match d.int(x) {
+                Some(i) if d != SD::U64 || i >= 0 => hash_int(i),
+                _ => hash_float(d.float(x)),
+            },
         })
     }
     fn eq(&self, o: &V) -> Option<bool> {
@@ -2387,11 +2437,11 @@ impl Ext for NpScal {
         }
         Some(match n {
             "item" | "tolist" => Ok(np_py(x)),
-            "__int__" if x.dt().is_f() => to_int(&V::Float(x.f())),
+            "__int__" if x.dt().is_f() || x.dt() == NT::S(SD::F16) => to_int(&V::Float(x.f())),
             "__int__" => Ok(V::Int(x.i())),
             "__float__" => Ok(V::Float(x.f())),
             "__index__" => match x {
-                Sc::F(_) | Sc::F32(_) => type_err(format!("'{}' object cannot be interpreted as an integer", self.tname())),
+                Sc::F(_) | Sc::F32(_) | Sc::S(SD::F16 | SD::C64, _) => type_err(format!("'{}' object cannot be interpreted as an integer", self.tname())),
                 _ => Ok(V::Int(x.i())),
             },
             "__abs__" => np_unary(me, "abs"),
@@ -2472,6 +2522,7 @@ impl Ext for NpDtype {
                 NT::I | NT::I32 => "i",
                 NT::F | NT::F32 => "f",
                 NT::U(_) => "U",
+                NT::S(d) => d.kind(),
             }),
             "char" => s(match self.0 {
                 NT::B => "?",
@@ -2480,6 +2531,7 @@ impl Ext for NpDtype {
                 NT::I32 => "i",
                 NT::F32 => "f",
                 NT::U(_) => "U",
+                NT::S(d) => d.char(),
             }),
             "str" => s(&self.0.full_name()),
             "itemsize" => V::Int(self.0.size()),
@@ -2490,6 +2542,7 @@ impl Ext for NpDtype {
                 NT::I32 => "numpy.int32",
                 NT::F32 => "numpy.float32",
                 NT::U(_) => "numpy.str_",
+                NT::S(d) => d.cls(),
             })),
             _ => return None,
         }))

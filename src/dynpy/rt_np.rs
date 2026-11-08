@@ -16,6 +16,225 @@ pub enum NT {
     F32,
     // numpy's fixed-width unicode strings (<U n): n characters
     U(u32),
+    // a type Brevi's numpy holds but does not compute in (safetensors / onnxruntime results): see SD
+    S(SD),
+}
+
+// ---------- storage dtypes ----------
+// float16, the 8- and 16-bit integers, uint32, uint64 and complex64: arrays of these come from model files
+// (safetensors, onnxruntime). Brevi's numpy keeps their bytes as they are and has what reading weights needs:
+// shape and dtype, printing, indexing and slicing (views), reshape / transpose / copy, tolist and item, astype to a
+// type it computes in, and saving them back. Anything else (math, reductions, ufuncs) raises NotImplementedError
+// naming astype, so nothing computes them in another type. A program naming these dtypes gets CPython's numpy.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SD {
+    I8,
+    U8,
+    I16,
+    U16,
+    F16,
+    U32,
+    U64,
+    C64,
+}
+impl SD {
+    pub fn name(self) -> &'static str {
+        match self {
+            SD::I8 => "int8",
+            SD::U8 => "uint8",
+            SD::I16 => "int16",
+            SD::U16 => "uint16",
+            SD::F16 => "float16",
+            SD::U32 => "uint32",
+            SD::U64 => "uint64",
+            SD::C64 => "complex64",
+        }
+    }
+    pub fn size(self) -> usize {
+        match self {
+            SD::I8 | SD::U8 => 1,
+            SD::I16 | SD::U16 | SD::F16 => 2,
+            SD::U32 => 4,
+            SD::U64 | SD::C64 => 8,
+        }
+    }
+    // the value's bits from its little-endian bytes
+    pub fn read(self, b: &[u8]) -> u64 {
+        let mut x = 0u64;
+        for (k, c) in b[..self.size()].iter().enumerate() {
+            x |= (*c as u64) << (8 * k);
+        }
+        x
+    }
+    pub fn write(self, x: u64, out: &mut Vec<u8>) {
+        for k in 0..self.size() {
+            out.push((x >> (8 * k)) as u8);
+        }
+    }
+    // the value as numpy's C casts see it: an integer (exact), a float (float16's value; complex64's real part)
+    pub fn int(self, x: u64) -> Option<i64> {
+        Some(match self {
+            SD::I8 => x as u8 as i8 as i64,
+            SD::U8 => x as u8 as i64,
+            SD::I16 => x as u16 as i16 as i64,
+            SD::U16 => x as u16 as i64,
+            SD::U32 => x as u32 as i64,
+            // a C cast of a uint64 above int64's range wraps
+            SD::U64 => x as i64,
+            SD::F16 | SD::C64 => return None,
+        })
+    }
+    pub fn float(self, x: u64) -> f64 {
+        match self {
+            SD::F16 => f16_to_f64(x as u16),
+            SD::C64 => f32::from_bits(x as u32) as f64,
+            SD::U64 => x as f64,
+            d => d.int(x).unwrap() as f64,
+        }
+    }
+    pub fn imag(self, x: u64) -> f64 {
+        if self == SD::C64 {
+            f32::from_bits((x >> 32) as u32) as f64
+        } else {
+            0.0
+        }
+    }
+    pub fn truth(self, x: u64) -> bool {
+        match self {
+            SD::F16 => (x as u16) & 0x7fff != 0,
+            SD::C64 => (x as u32) & 0x7fff_ffff != 0 || ((x >> 32) as u32) & 0x7fff_ffff != 0,
+            _ => x != 0,
+        }
+    }
+    // a value of another type cast to this one (C casts: integers wrap, floats round to nearest)
+    pub fn from_sc(self, v: Sc) -> u64 {
+        if let Sc::S(d, x) = v {
+            if d == self {
+                return x;
+            }
+        }
+        let f = v.f();
+        match self {
+            SD::F16 => f64_to_f16(f) as u64,
+            SD::C64 => {
+                let im = if let Sc::S(d, x) = v { d.imag(x) } else { 0.0 };
+                (v.f32v().to_bits() as u64) | ((im as f32).to_bits() as u64) << 32
+            }
+            _ => {
+                let i = match v {
+                    Sc::F(_) | Sc::F32(_) => f_to_i(f),
+                    Sc::S(SD::F16 | SD::C64, _) => f_to_i(f),
+                    _ => v.i(),
+                } as u64;
+                match self.size() {
+                    1 => i & 0xff,
+                    2 => i & 0xffff,
+                    4 => i & 0xffff_ffff,
+                    _ => i,
+                }
+            }
+        }
+    }
+}
+impl SD {
+    pub fn cls(self) -> &'static str {
+        match self {
+            SD::I8 => "numpy.int8",
+            SD::U8 => "numpy.uint8",
+            SD::I16 => "numpy.int16",
+            SD::U16 => "numpy.uint16",
+            SD::F16 => "numpy.float16",
+            SD::U32 => "numpy.uint32",
+            SD::U64 => "numpy.uint64",
+            SD::C64 => "numpy.complex64",
+        }
+    }
+    pub fn kind(self) -> &'static str {
+        match self {
+            SD::I8 | SD::I16 => "i",
+            SD::U8 | SD::U16 | SD::U32 | SD::U64 => "u",
+            SD::F16 => "f",
+            SD::C64 => "c",
+        }
+    }
+    pub fn char(self) -> &'static str {
+        match self {
+            SD::I8 => "b",
+            SD::U8 => "B",
+            SD::I16 => "h",
+            SD::U16 => "H",
+            SD::F16 => "e",
+            SD::U32 => "I",
+            SD::U64 => "L",
+            SD::C64 => "F",
+        }
+    }
+    // the Python value of one item (tolist, item): an int or a float
+    pub fn py(self, x: u64) -> V {
+        match self {
+            SD::U64 => Big { neg: false, mag: vec![x as u32, (x >> 32) as u32] }.norm(),
+            SD::F16 | SD::C64 => V::Float(self.float(x)),
+            d => V::Int(d.int(x).unwrap()),
+        }
+    }
+    // numpy's str() of one item (C64 is refused before printing)
+    pub fn str_(self, x: u64) -> String {
+        match self {
+            SD::F16 => np_f16_str(x as u16),
+            SD::U64 => x.to_string(),
+            SD::C64 => format!("({}+{}j)", self.float(x), self.imag(x)),
+            d => d.int(x).unwrap().to_string(),
+        }
+    }
+}
+// IEEE half precision
+pub fn f16_to_f64(h: u16) -> f64 {
+    let s = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let e = ((h >> 10) & 0x1f) as i32;
+    let m = (h & 0x3ff) as f64;
+    if e == 0 {
+        s * m * 2f64.powi(-24)
+    } else if e == 31 {
+        if m == 0.0 {
+            s * f64::INFINITY
+        } else {
+            f64::NAN
+        }
+    } else {
+        s * (1.0 + m / 1024.0) * 2f64.powi(e - 15)
+    }
+}
+// rounded to nearest, ties to even (numpy's npy_double_to_half)
+pub fn f64_to_f16(x: f64) -> u16 {
+    let sign: u16 = if x.is_sign_negative() { 0x8000 } else { 0 };
+    let a = x.abs();
+    if a.is_nan() {
+        return 0x7e00 | sign;
+    }
+    if a >= 65520.0 {
+        return sign | 0x7c00;
+    }
+    // the value in units of the smallest subnormal (2^-24) for subnormals, else scaled by the exponent
+    let e = if a == 0.0 { -25 } else { a.log2().floor() as i32 };
+    let e = e.max(-14);
+    let q = 2f64.powi(e - 10);
+    let mut m = a / q;
+    let r = m.round();
+    m = if (r - m).abs() == 0.5 { 2.0 * (m / 2.0).round() } else { r };
+    let mut m = m as u32;
+    let mut e = e;
+    if m >= 2048 {
+        m /= 2;
+        e += 1;
+    }
+    if e > 15 {
+        return sign | 0x7c00;
+    }
+    if m < 1024 {
+        // subnormal (or zero)
+        return sign | m as u16;
+    }
+    sign | (((e + 15) as u16) << 10) | (m as u16 & 0x3ff)
 }
 impl NT {
     pub fn name(self) -> &'static str {
@@ -26,7 +245,11 @@ impl NT {
             NT::I32 => "int32",
             NT::F32 => "float32",
             NT::U(_) => "str",
+            NT::S(d) => d.name(),
         }
+    }
+    pub fn is_s(self) -> bool {
+        matches!(self, NT::S(_))
     }
     // the name numpy's repr gives: '<U9' for strings
     pub fn full_name(self) -> String {
@@ -43,6 +266,7 @@ impl NT {
             NT::B => 1,
             NT::I32 | NT::F32 => 4,
             NT::U(w) => 4 * w as i64,
+            NT::S(d) => d.size() as i64,
             _ => 8,
         }
     }
@@ -61,6 +285,9 @@ impl NT {
             NT::B => 0,
             NT::I | NT::I32 => 1,
             NT::U(_) => 3,
+            NT::S(SD::F16) => 2,
+            NT::S(SD::C64) => 4,
+            NT::S(_) => 1,
             _ => 2,
         }
     }
@@ -72,6 +299,7 @@ impl NT {
             NT::I32 => 11,
             NT::F | NT::F32 => 32,
             NT::U(w) => w,
+            NT::S(_) => 32,
         }
     }
     // the default type of numpy (float64, int64, bool): repr leaves its dtype out
@@ -108,6 +336,8 @@ pub enum Sc {
     F32(f32),
     // a string, by its number in np_strs (so Sc stays Copy)
     U(u32),
+    // a value of a storage dtype, by its bits
+    S(SD, u64),
 }
 thread_local! {
     static NP_STRS: RefCell<(Vec<Rc<str>>, HashMap<Rc<str>, u32>)> = RefCell::new((vec![Rc::from("")], HashMap::from([(Rc::from(""), 0u32)])));
@@ -149,6 +379,7 @@ pub fn np_num_str(x: Sc) -> String {
         Sc::I32(i) => i.to_string(),
         Sc::F(f) => float_repr(f),
         Sc::F32(f) => np_f32_str(f),
+        Sc::S(..) => np_sc_str(x),
     }
 }
 impl Sc {
@@ -160,6 +391,7 @@ impl Sc {
             Sc::I32(_) => NT::I32,
             Sc::F32(_) => NT::F32,
             Sc::U(i) => NT::U(np_nchars(i)),
+            Sc::S(d, _) => NT::S(d),
         }
     }
     // (a string's number: its float() when it has one; casts from strings are checked first, np_str_cast_check)
@@ -171,6 +403,7 @@ impl Sc {
             Sc::I32(i) => i as f64,
             Sc::F32(x) => x as f64,
             Sc::U(i) => np_parse_f(&np_sget(i)).unwrap_or(f64::NAN),
+            Sc::S(d, x) => d.float(x),
         }
     }
     pub fn i(self) -> i64 {
@@ -181,6 +414,7 @@ impl Sc {
             Sc::I32(i) => i as i64,
             Sc::F32(x) => f_to_i(x as f64),
             Sc::U(i) => np_parse_i(&np_sget(i)).unwrap_or(0),
+            Sc::S(d, x) => d.int(x).unwrap_or_else(|| f_to_i(d.float(x))),
         }
     }
     pub fn b(self) -> bool {
@@ -191,6 +425,7 @@ impl Sc {
             Sc::I32(i) => i != 0,
             Sc::F32(x) => x != 0.0,
             Sc::U(i) => i != 0,
+            Sc::S(d, x) => d.truth(x),
         }
     }
     // the C casts numpy's astype makes (an integer becomes float32 in one rounding)
@@ -202,6 +437,11 @@ impl Sc {
             Sc::F32(x) => x,
             Sc::F(x) => f_to_f32(x),
             Sc::U(_) => f_to_f32(self.f()),
+            Sc::S(d, x) => match d.int(x) {
+                Some(_) if d == SD::U64 => x as f32,
+                Some(i) => i as f32,
+                None => f_to_f32(d.float(x)),
+            },
         }
     }
     pub fn i32v(self) -> i32 {
@@ -212,6 +452,10 @@ impl Sc {
             Sc::F(x) => f_to_i32(x),
             Sc::F32(x) => f_to_i32(x as f64),
             Sc::U(_) => self.i() as i32,
+            Sc::S(d, x) => match d.int(x) {
+                Some(i) => i as i32,
+                None => f_to_i32(d.float(x)),
+            },
         }
     }
     // the string number of this value in a <U w array
@@ -229,6 +473,7 @@ impl Sc {
             NT::I32 => Sc::I32(self.i32v()),
             NT::F32 => Sc::F32(self.f32v()),
             NT::U(w) => Sc::U(self.uv(w)),
+            NT::S(d) => Sc::S(d, d.from_sc(self)),
         }
     }
 }
@@ -260,6 +505,7 @@ pub fn np_str_cast_check(b: &Buf, d: NT) -> Result<(), E> {
                     np_str_float(*i)?;
                 }
             }
+            NT::S(_) => return Err(np_unsup("casting strings to a storage dtype")),
         }
     }
     Ok(())
@@ -306,6 +552,8 @@ pub enum Buf {
     F32(Vec<f32>),
     // string numbers (np_sget) and the width in characters
     U(Vec<u32>, u32),
+    // a storage dtype's values as little-endian bytes (SD::size() each)
+    S(Vec<u8>, SD),
 }
 // the same expression over each kind of buffer (v is the Vec, and W the variant)
 macro_rules! buf_map {
@@ -317,6 +565,7 @@ macro_rules! buf_map {
             Buf::I32($v) => Buf::I32($e),
             Buf::F32($v) => Buf::F32($e),
             Buf::U($v, w) => Buf::U($e, *w),
+            Buf::S(..) => unreachable!(),
         }
     };
 }
@@ -329,6 +578,7 @@ impl Buf {
             Buf::I32(_) => NT::I32,
             Buf::F32(_) => NT::F32,
             Buf::U(_, w) => NT::U(*w),
+            Buf::S(_, d) => NT::S(*d),
         }
     }
     pub fn len(&self) -> usize {
@@ -339,6 +589,7 @@ impl Buf {
             Buf::I32(v) => v.len(),
             Buf::F32(v) => v.len(),
             Buf::U(v, _) => v.len(),
+            Buf::S(v, d) => v.len() / d.size(),
         }
     }
     pub fn get(&self, p: usize) -> Sc {
@@ -349,6 +600,7 @@ impl Buf {
             Buf::I32(v) => Sc::I32(v[p]),
             Buf::F32(v) => Sc::F32(v[p]),
             Buf::U(v, _) => Sc::U(v[p]),
+            Buf::S(v, d) => Sc::S(*d, d.read(&v[p * d.size()..])),
         }
     }
     pub fn set(&mut self, p: usize, x: Sc) {
@@ -359,6 +611,12 @@ impl Buf {
             Buf::I32(v) => v[p] = x.i32v(),
             Buf::F32(v) => v[p] = x.f32v(),
             Buf::U(v, w) => v[p] = x.uv(*w),
+            Buf::S(v, d) => {
+                let n = d.size();
+                let mut b = Vec::with_capacity(n);
+                d.write(d.from_sc(x), &mut b);
+                v[p * n..p * n + n].copy_from_slice(&b);
+            }
         }
     }
     pub fn zeros(d: NT, n: usize) -> Buf {
@@ -369,6 +627,7 @@ impl Buf {
             NT::I32 => Buf::I32(vec![0; n]),
             NT::F32 => Buf::F32(vec![0.0; n]),
             NT::U(w) => Buf::U(vec![0; n], w.max(1)),
+            NT::S(d) => Buf::S(vec![0; n * d.size()], d),
         }
     }
     pub fn from_sc(d: NT, xs: &[Sc]) -> Buf {
@@ -379,6 +638,13 @@ impl Buf {
             NT::I32 => Buf::I32(xs.iter().map(|x| x.i32v()).collect()),
             NT::F32 => Buf::F32(xs.iter().map(|x| x.f32v()).collect()),
             NT::U(w) => Buf::U(xs.iter().map(|x| x.uv(w)).collect(), w),
+            NT::S(d) => {
+                let mut v = Vec::with_capacity(xs.len() * d.size());
+                for x in xs {
+                    d.write(d.from_sc(*x), &mut v);
+                }
+                Buf::S(v, d)
+            }
         }
     }
     // one value n times
@@ -390,12 +656,25 @@ impl Buf {
             Sc::I32(v) => Buf::I32(vec![v; n]),
             Sc::F32(v) => Buf::F32(vec![v; n]),
             Sc::U(v) => Buf::U(vec![v; n], np_nchars(v)),
+            Sc::S(..) => Buf::from_sc(x.dt(), &vec![x; n]),
         }
     }
     pub fn pick(&self, ps: &[usize]) -> Buf {
+        if let Buf::S(v, d) = self {
+            let k = d.size();
+            let mut out = Vec::with_capacity(ps.len() * k);
+            for p in ps {
+                out.extend_from_slice(&v[p * k..p * k + k]);
+            }
+            return Buf::S(out, *d);
+        }
         buf_map!(self, v => ps.iter().map(|p| v[*p]).collect())
     }
     pub fn slice(&self, a: usize, n: usize) -> Buf {
+        if let Buf::S(v, d) = self {
+            let k = d.size();
+            return Buf::S(v[a * k..(a + n) * k].to_vec(), *d);
+        }
         buf_map!(self, v => v[a..a + n].to_vec())
     }
     pub fn cast(self, d: NT) -> Buf {
@@ -645,6 +924,10 @@ pub fn is_np(v: &V) -> bool {
 pub fn np_unsup(what: &str) -> E {
     exc("NotImplementedError", format!("{what} is not supported by Brevi's native numpy yet"))
 }
+// Math on a storage dtype (SD): refused, naming the cast that makes it work.
+pub fn np_store_err(d: NT, what: &str) -> E {
+    exc("NotImplementedError", format!("{what} of {} values is not supported by Brevi's native numpy yet (it reads them: use .astype(np.float32) or .astype(np.int64) first)", d.name()))
+}
 
 thread_local! {
     static NP_WARNED: RefCell<Vec<String>> = RefCell::new(vec![]);
@@ -815,6 +1098,7 @@ pub fn np_from(v: &V, dt: Option<NT>) -> Result<NdArr, E> {
                 Sc::I32(v) => v,
                 Sc::I(v) => py_i32(v)?,
                 Sc::U(i) => py_i32(np_str_int(i)?)?,
+                Sc::S(..) => x.i32v(),
                 Sc::F(_) | Sc::F32(_) => {
                     let f = x.f();
                     if f.is_nan() {
@@ -1313,6 +1597,11 @@ pub fn np_binop(a: &V, b: &V, op: &str) -> Option<R> {
             _ => return Err(exc("TypeError", format!("unsupported operand type(s) for {op}: '{}' and '{}'", tn(a), tn(b)))),
         };
         let scalar = x.scalar && y.scalar;
+        for o in [&x, &y] {
+            if o.a.dt().is_s() {
+                return Err(np_store_err(o.a.dt(), &format!("the {op} operator")));
+            }
+        }
         if x.a.dt().is_u() || y.a.dt().is_u() {
             return np_str_binop(&x, &y, op);
         }
@@ -1518,6 +1807,9 @@ pub fn np_iop(a: &NdArr, me: &V, b: &V, op: &str) -> R {
 
 pub fn np_unary(v: &V, op: &str) -> R {
     let o = np_opnd(v)?.unwrap();
+    if o.a.dt().is_s() {
+        return Err(np_store_err(o.a.dt(), op));
+    }
     let vals = o.a.vals();
     // a numpy integer scalar at its minimum: numpy warns that -x and abs(x) overflow
     if o.scalar && matches!(op, "neg" | "abs") && matches!(vals.get(0), Sc::I(i64::MIN) | Sc::I32(i32::MIN)) {
@@ -3372,7 +3664,7 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
                 Buf::I(v) => Buf::I((0..ng).map(|k| { let g = v[k * n..(k + 1) * n].iter(); if mx { *g.max().unwrap() } else { *g.min().unwrap() } }).collect()),
                 Buf::I32(v) => Buf::I32((0..ng).map(|k| { let g = v[k * n..(k + 1) * n].iter(); if mx { *g.max().unwrap() } else { *g.min().unwrap() } }).collect()),
                 Buf::B(v) => Buf::B((0..ng).map(|k| { let g = &v[k * n..(k + 1) * n]; if mx { g.iter().any(|x| *x) } else { g.iter().all(|x| *x) } }).collect()),
-                Buf::U(..) => unreachable!(),
+                Buf::U(..) | Buf::S(..) => unreachable!(),
             }
         }
         "argmax" | "argmin" => {
@@ -3407,6 +3699,7 @@ pub fn np_reduce(a: &NdArr, what: &str, o: &RedOpts) -> R {
                     let sv: Vec<Rc<str>> = v.iter().map(|i| np_sget(*i)).collect();
                     (0..ng).map(|k| arg(&(k * n..(k + 1) * n).collect::<Vec<usize>>(), |a: usize, b: usize| if mx { sv[a] > sv[b] } else { sv[a] < sv[b] }, |_| false)).collect()
                 }
+                Buf::S(..) => unreachable!(),
             })
         }
         "any" | "all" => {

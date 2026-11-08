@@ -638,30 +638,54 @@ fn st_validate(t: &[(String, StInfo)]) -> Result<usize, String> {
     Ok(start)
 }
 
-// An array of Brevi's numpy from a tensor's little-endian bytes.
-fn st_array(data: &[u8], d: usize, shape: Vec<usize>) -> R {
+// An array of Brevi's numpy from a tensor's little-endian bytes. float16, the small and unsigned integers and
+// complex64 are storage dtypes (rt_np.rs SD). Types numpy lacks fail as the package fails on them: load() looks
+// the dtype up in its table (KeyError), safe_open asks numpy for the type (opened).
+fn st_array(data: &[u8], d: usize, shape: Vec<usize>, opened: bool) -> R {
     let b = match ST_DTYPES[d] {
         "F64" => Buf::F(data.chunks_exact(8).map(|c| f64::from_le_bytes(c.try_into().unwrap())).collect()),
         "F32" => Buf::F32(data.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect()),
         "I64" => Buf::I(data.chunks_exact(8).map(|c| i64::from_le_bytes(c.try_into().unwrap())).collect()),
         "I32" => Buf::I32(data.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect()),
         "BOOL" => Buf::B(data.iter().map(|&c| c != 0).collect()),
-        other => return Err(np_unsup(&format!("the safetensors dtype {other} (numpy {})", st_npname(other)))),
+        other => match st_sd(other) {
+            Some(sd) => Buf::S(data.to_vec(), sd),
+            None if !opened => return Err(exc_v("KeyError", s(other))),
+            None => {
+                return Err(match other {
+                    "BF16" => exc("TypeError", "data type 'bfloat16' not understood".into()),
+                    "F6_E2M3" | "F6_E3M2" => exc("ValueError", format!("Dtype not understood: {other}")),
+                    f => exc("AttributeError", format!("module 'numpy' has no attribute '{}'", st_npname(f))),
+                })
+            }
+        },
     };
     Ok(np_new(b, shape))
 }
 
+fn st_sd(d: &str) -> Option<SD> {
+    Some(match d {
+        "F16" => SD::F16,
+        "U8" => SD::U8,
+        "I8" => SD::I8,
+        "I16" => SD::I16,
+        "U16" => SD::U16,
+        "U32" => SD::U32,
+        "U64" => SD::U64,
+        "C64" => SD::C64,
+        _ => return None,
+    })
+}
+
+// the type the package asks numpy for
 fn st_npname(d: &str) -> &'static str {
     match d {
-        "F16" => "float16",
-        "BF16" => "bfloat16",
-        "U8" => "uint8",
-        "I8" => "int8",
-        "I16" => "int16",
-        "U16" => "uint16",
-        "U32" => "uint32",
-        "U64" => "uint64",
-        "C64" => "complex64",
+        "F8_E5M2" => "float8_e5m2",
+        "F8_E4M3" => "float8_e4m3fn",
+        "F8_E8M0" => "float8_e8m0fnu",
+        "F8_E4M3FNUZ" => "float8_e4m3fnuz",
+        "F8_E5M2FNUZ" => "float8_e5m2fnuz",
+        "F4" => "float4_e2m1fn_x2",
         _ => "a type numpy lacks",
     }
 }
@@ -683,6 +707,7 @@ fn st_raw(a: &NdArr) -> Result<(usize, Vec<u8>), E> {
         Buf::I(v) => (20, v.iter().flat_map(|x| x.to_le_bytes()).collect()),
         Buf::I32(v) => (15, v.iter().flat_map(|x| x.to_le_bytes()).collect()),
         Buf::B(v) => (0, v.iter().map(|&x| x as u8).collect()),
+        Buf::S(v, sd) => (ST_DTYPES.iter().position(|n| st_sd(n) == Some(sd)).unwrap(), v),
         Buf::U(..) => return Err(exc("ValueError", "Unknown dtype str32. Supported dtypes: bool, int8, uint8, int16, uint16, int32, uint32, int64, uint64, float16, float32, float64, bfloat16, float8_e4m3fn, float8_e4m3fnuz, float8_e5m2, float8_e5m2fnuz, float8_e8m0fnu, float4_e2m1fn_x2, complex64".into())),
     };
     Ok((d, bytes))
@@ -887,10 +912,10 @@ pub fn brevi_st_fn(n: &str, a: Args) -> R {
             }
             Ok(V::Int(n as i64))
         }
-        // tensor(bytes, dtype, shape) -> array
+        // tensor(bytes, dtype, shape, opened) -> array; opened: read through safe_open (not load())
         "tensor" => {
             let shape = to_vec(&arg(2))?.iter().map(|x| st_int(x) as usize).collect();
-            st_array(&bytes(0), st_int(&arg(1)) as usize, shape)
+            st_array(&bytes(0), st_int(&arg(1)) as usize, shape, truth(&arg(3))?)
         }
         "dtype_name" => Ok(s(ST_DTYPES[st_int(&arg(0)) as usize])),
         // slice(bytes, dtype, shape, indexers, shown) -> array; shown is how the indexers print in errors
@@ -911,7 +936,7 @@ pub fn brevi_st_fn(n: &str, a: Args) -> R {
             for (s, e) in ranges {
                 out.extend_from_slice(&data[s..e]);
             }
-            st_array(&out, d, newshape)
+            st_array(&out, d, newshape, true)
         }
         // serialize([(name, array)], metadata pairs or None) -> bytes
         "serialize" => {

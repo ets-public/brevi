@@ -1,0 +1,1 @@
+--allow-py os --allow-read tests/sandbox/scoped/in --allow-write tests/sandbox/scoped/out
