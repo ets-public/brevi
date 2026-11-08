@@ -67,7 +67,7 @@ const CLIP_TAIL: usize = 4_000;
 // What is kept of a program's output for comparing with a case's expected output.
 const KEEP: usize = 8 << 20;
 
-fn to_json(j: &J) -> String {
+pub(crate) fn to_json(j: &J) -> String {
     match j {
         J::Null => "null".into(),
         J::Bool(b) => b.to_string(),
@@ -985,6 +985,9 @@ struct Job {
 }
 
 pub fn serve(argv: &[String]) {
+    if argv.iter().any(|a| a == "--http") {
+        crate::mcp_http::serve(argv);
+    }
     let mut c = Cfg { timeout: 20, mem_mb: default_mem_mb() };
     let mut i = 0;
     while i < argv.len() {
@@ -993,7 +996,7 @@ pub fn serve(argv: &[String]) {
             ("--timeout", Some(t)) => c.timeout = t.clamp(1, 600),
             ("--mem-mb", Some(m)) => c.mem_mb = m,
             _ => {
-                eprintln!("usage: brevi mcp [--timeout SECONDS] [--mem-mb MB (0: no limit)]");
+                eprintln!("usage: brevi mcp [--timeout SECONDS] [--mem-mb MB (0: no limit)] [--http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]]");
                 std::process::exit(2);
             }
         }
