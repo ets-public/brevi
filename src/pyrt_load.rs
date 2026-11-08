@@ -413,6 +413,153 @@ fn ax_inflate(d: &[u8], size: usize) -> Option<Vec<u8>> {
     (out.len() == size).then_some(out)
 }
 
+pub type AxPybHold = Option<(Option<&'static [&'static str]>, Option<&'static [&'static str]>, bool, Option<&'static [&'static str]>)>;
+
+// Under --sandbox Brevi checks every file its own code opens, but not what CPython's code (or a C extension)
+// opens, so before CPython starts the kernel holds the whole process to the grants: Linux Landlock, which
+// needs no privileges and cannot be undone. Reads stay open to CPython's own files (its home, sys.path, shared
+// libraries) and the few system files the C library and TLS read; nothing else outside the granted folders can
+// be opened, made, renamed or removed. Without Landlock (another OS, an older kernel) a caller who named
+// folders is refused rather than given every folder; with no folders named, CPython keeps the full trust its
+// grant always meant.
+fn ax_pyb_hold(h: (Option<&[&str]>, Option<&[&str]>, bool, Option<&[&str]>), lib: &str, home: &str, path: &[String]) -> Result<(), String> {
+    let (read, write, scoped, local) = h;
+    let refuse = |why: String| -> Result<(), String> {
+        if scoped {
+            Err(format!("brevi: --sandbox: CPython is held to --allow-read / --allow-write folders by the kernel (Linux Landlock), and {why}; grant read and write to every folder, or run on Linux 5.13 or later"))
+        } else {
+            Ok(())
+        }
+    };
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (read, write, local, lib, home, path);
+        return refuse("this system has no Landlock".into());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::ffi::{c_int, c_long, c_void};
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::io::AsRawFd;
+        extern "C" {
+            fn syscall(n: c_long, ...) -> c_long;
+            fn prctl(op: c_int, ...) -> c_int;
+        }
+        // Landlock's syscall numbers are the same on every Linux architecture.
+        const CREATE: c_long = 444;
+        const ADD_RULE: c_long = 445;
+        const RESTRICT: c_long = 446;
+        let abi = unsafe { syscall(CREATE, std::ptr::null::<c_void>(), 0usize, 1u32) };
+        if abi < 1 {
+            return refuse("this kernel has no Landlock (it needs Linux 5.13 or later, with Landlock on)".into());
+        }
+        // Rights on files and folders: read file, read dir; write file, remove dir/file, make char/dir/reg/
+        // sock/fifo/block/sym; refer (ABI 2: moving across folders); truncate (ABI 3). Execute is left alone.
+        const RF: u64 = 1 << 2;
+        const RD: u64 = 1 << 3;
+        let mut wr: u64 = (1 << 1) | (1 << 4) | (1 << 5) | (0x7f << 6);
+        if abi >= 2 {
+            wr |= 1 << 13;
+        }
+        if abi >= 3 {
+            wr |= 1 << 14;
+        }
+        let file_wr: u64 = (1 << 1) | if abi >= 3 { 1 << 14 } else { 0 };
+        let handled = RF | RD | wr;
+        let attr: u64 = handled;
+        let fd = unsafe { syscall(CREATE, &attr as *const u64, 8usize, 0u32) };
+        if fd < 0 {
+            return refuse(format!("Landlock refused a ruleset ({})", std::io::Error::last_os_error()));
+        }
+        #[repr(C, packed)]
+        struct Beneath {
+            allowed: u64,
+            parent: i32,
+        }
+        let add = |p: &str, rights: u64| -> Result<(), String> {
+            let Ok(f) = std::fs::OpenOptions::new().read(true).custom_flags(0o10000000).open(p) else { return Ok(()) };
+            let dir = f.metadata().map(|m| m.is_dir()).unwrap_or(false);
+            let rights = if dir { rights } else { rights & (RF | file_wr) };
+            if rights == 0 {
+                return Ok(());
+            }
+            let b = Beneath { allowed: rights, parent: f.as_raw_fd() };
+            if unsafe { syscall(ADD_RULE, fd as c_int, 1 as c_int, &b as *const Beneath, 0u32) } != 0 {
+                return Err(format!("brevi: --sandbox: Landlock refused a rule for {p} ({})", std::io::Error::last_os_error()));
+            }
+            Ok(())
+        };
+        let all = |rights: u64| add("/", rights);
+        match read {
+            None => all(RF | RD)?,
+            Some(rs) => {
+                for r in rs {
+                    add(r, RF | RD)?;
+                }
+                // CPython's own files, and what the C library, DNS and TLS read.
+                let libdir = std::path::Path::new(lib).parent().map(|d| d.to_string_lossy().to_string()).unwrap_or_default();
+                let exe = std::env::current_exe().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+                let own = [home, &libdir, &exe];
+                let sys = ["/usr/lib", "/usr/lib64", "/lib", "/lib64", "/usr/local/lib", "/usr/share/zoneinfo", "/usr/share/ca-certificates", "/etc/ssl", "/etc/pki", "/etc/ca-certificates", "/etc/localtime", "/etc/ld.so.cache", "/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/gai.conf", "/etc/services", "/etc/protocols", "/dev/null", "/dev/zero", "/dev/urandom", "/dev/random", "/sys/devices/system/cpu", "/proc/self", "/proc/cpuinfo", "/proc/meminfo"];
+                // sys.path minus the program's own folder and the working folder (and any folder above it):
+                // those hold the caller's files, which only --allow-read grants.
+                let canon = |p: &str| std::fs::canonicalize(p).ok();
+                let cwd = std::env::current_dir().ok().and_then(|d| std::fs::canonicalize(d).ok());
+                let mine = canon(AX_PYB_FILE).and_then(|f| f.parent().map(|d| d.to_path_buf()));
+                let lib_path = path.iter().map(String::as_str).filter(|p| match canon(p) {
+                    None => false,
+                    Some(c) => Some(&c) != mine.as_ref() && !cwd.as_ref().is_some_and(|w| w.starts_with(&c)),
+                });
+                // The libraries granted to CPython that sit in the program's folder or the working folder
+                // (`--allow-py mylib` for mylib.py or mylib/), or every one there under --allow native.
+                let mut mods: Vec<String> = Vec::new();
+                for d in mine.iter().chain(cwd.iter()) {
+                    let Ok(rd) = std::fs::read_dir(d) else { continue };
+                    for e in rd.flatten() {
+                        let p = e.path();
+                        let (name, ok) = match p.extension().and_then(|x| x.to_str()) {
+                            Some("py") => (p.file_stem().and_then(|x| x.to_str()).unwrap_or("").to_string(), p.is_file()),
+                            None if p.join("__init__.py").is_file() => (p.file_name().and_then(|x| x.to_str()).unwrap_or("").to_string(), true),
+                            _ => (String::new(), false),
+                        };
+                        if ok && local.map_or(true, |l| l.contains(&name.as_str())) && Some(&p) != canon(AX_PYB_FILE).as_ref() {
+                            mods.push(p.to_string_lossy().to_string());
+                        }
+                    }
+                }
+                // With such a library there, CPython's import finder must list that folder: names only (of that
+                // folder and those below it), never what the files hold.
+                if !mods.is_empty() {
+                    for d in mine.iter().chain(cwd.iter()) {
+                        add(&d.to_string_lossy(), RD)?;
+                    }
+                }
+                for p in own.iter().copied().chain(lib_path).chain(mods.iter().map(String::as_str)).chain(sys) {
+                    if !p.is_empty() {
+                        let real = std::fs::canonicalize(p).map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|_| p.to_string());
+                        add(&real, RF | RD)?;
+                    }
+                }
+            }
+        }
+        match write {
+            None => all(wr)?,
+            Some(ws) => {
+                for w in ws {
+                    add(w, wr)?;
+                }
+                add("/dev/null", file_wr)?;
+            }
+        }
+        // Python would write __pycache__ files it may no longer make.
+        std::env::set_var("PYTHONDONTWRITEBYTECODE", "1");
+        if unsafe { prctl(38, 1u64, 0u64, 0u64, 0u64) } != 0 || unsafe { syscall(RESTRICT, fd as c_int, 0u32) } != 0 {
+            return Err(format!("brevi: --sandbox: Landlock did not hold the program ({})", std::io::Error::last_os_error()));
+        }
+        Ok(())
+    }
+}
+
 fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     use std::ffi::CString;
     let (lib, home, path) = ax_pyb_conf()?;
@@ -527,6 +674,9 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
                 unsafe { *(p as *mut std::ffi::c_int) = 1 };
             }
         }
+    }
+    if let Some(h) = AX_PYB_HOLD {
+        ax_pyb_hold(h, &lib, &home, &path)?;
     }
     unsafe { (api.Init)(0) };
     // sys.argv as `python3 file.py args...` gives it (argparse reads it), sys.path as python3 has it.
