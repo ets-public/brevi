@@ -351,10 +351,10 @@ const OWN_PYDANTIC: &[&str] = &[
     "ValidationInfo", "PydanticUserError", "PydanticSchemaGenerationError", "Strict", "AfterValidator", "BeforeValidator",
     "PlainValidator", "WrapValidator", "PositiveInt", "NegativeInt", "NonNegativeInt", "NonPositiveInt", "PositiveFloat",
     "NegativeFloat", "NonNegativeFloat", "NonPositiveFloat", "FiniteFloat", "StrictInt", "StrictFloat", "StrictStr", "StrictBool",
-    "StrictBytes", "VERSION", "__version__", "ValidatorFunctionWrapHandler", "ModelWrapValidatorHandler",
+    "StrictBytes", "VERSION", "__version__", "ValidatorFunctionWrapHandler", "ModelWrapValidatorHandler", "TypeAdapter",
 ];
 const PYDANTIC_LACKS: &[&str] = &[
-    ".model_json_schema(", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
+    "schema_generator", "GenerateJsonSchema", ".model_parametrized_name", ".schema(", ".schema_json(", ".parse_obj(", ".parse_raw(",
     ".parse_file(", ".from_orm(", ".dict(", ".json(", ".update_forward_refs(", ".__fields__", ".__pydantic_", ".model_fields_set.",
     "discriminator=", "alias_generator", "union_mode=", "json_schema_mode", "serialize_as_any", "round_trip=", "fallback=",
     "__get_pydantic_core_schema__", "__get_pydantic_json_schema__", "ser_json_", "val_json_", "regex_engine", "coerce_numbers_to_str",
@@ -858,6 +858,14 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
                 if let Some(x) = lacks.iter().find(|x| l.contains(*x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
                 }
+            }
+        }
+    }
+    // a serialization-mode JSON schema (the mode is a string, which code_lines leaves out)
+    if uses("pydantic") {
+        for (n, l) in src.lines().enumerate() {
+            if l.contains("mode=\"serialization\"") || l.contains("mode='serialization'") {
+                bad.push((n + 1, "pydantic mode=\"serialization\"".to_string()));
             }
         }
     }
@@ -1802,7 +1810,8 @@ x", Some(vec!["read".into(), "native".into()]), true);
         assert!(uses("import argparse\np = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)\n").is_empty());
         // what Brevi's copies lack is found after `from M import ...` too
         assert!(uses("from pydantic import BaseModel, Field\nclass M(BaseModel):\n    x: int = Field(ge=0)\n").is_empty());
-        assert_eq!(uses("from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema()\n"), ["pydantic model_json_schema"]);
+        assert!(uses("from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema()\n").is_empty());
+        assert_eq!(uses("from pydantic import BaseModel\nclass M(BaseModel):\n    x: int\nM.model_json_schema(mode=\"serialization\")\n"), ["pydantic mode=\"serialization\""]);
         assert_eq!(uses("from tokenizers import Tokenizer\nt = Tokenizer.from_file('t.json')\nt.save('u.json')\n"), ["tokenizers .save"]);
         assert_eq!(uses("import argparse\np = argparse.ArgumentParser(fromfile_prefix_chars='@')\np.add_argument('f', type=argparse.FileType('r'))\n"), ["argparse fromfile_prefix_chars", "argparse.FileType"]);
     }

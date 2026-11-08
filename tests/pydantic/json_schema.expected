@@ -1,0 +1,263 @@
+{
+  "$defs": {
+    "Color": {
+      "enum": [
+        "red",
+        "blue"
+      ],
+      "title": "Color",
+      "type": "string"
+    },
+    "Level": {
+      "description": "How loud.",
+      "enum": [
+        1,
+        2
+      ],
+      "title": "Level",
+      "type": "integer"
+    },
+    "Pet": {
+      "description": "A pet.\n\nWith a second line.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "age": {
+          "default": 3,
+          "title": "Age",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Pet",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "first_name": {
+      "description": "Given name",
+      "maxLength": 40,
+      "minLength": 1,
+      "title": "First Name",
+      "type": "string"
+    },
+    "score": {
+      "default": 0.5,
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Score",
+      "type": "number"
+    },
+    "count": {
+      "exclusiveMaximum": 100,
+      "exclusiveMinimum": 0,
+      "multipleOf": 5,
+      "title": "Count",
+      "type": "integer"
+    },
+    "tags": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "pets": {
+      "items": {
+        "$ref": "#/$defs/Pet"
+      },
+      "title": "Pets",
+      "type": "array"
+    },
+    "best": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Pet"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "either": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Pet"
+        },
+        {
+          "type": "integer"
+        }
+      ],
+      "default": 1,
+      "title": "Either"
+    },
+    "color": {
+      "$ref": "#/$defs/Color",
+      "default": "red"
+    },
+    "level": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Level"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mode": {
+      "enum": [
+        "a",
+        "b"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "one": {
+      "const": 1,
+      "title": "One",
+      "type": "integer"
+    },
+    "mixed": {
+      "default": "x",
+      "enum": [
+        "x",
+        2
+      ],
+      "title": "Mixed"
+    },
+    "pair": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Pair",
+      "type": "array"
+    },
+    "many": {
+      "default": [],
+      "items": {
+        "type": "number"
+      },
+      "title": "Many",
+      "type": "array"
+    },
+    "meta": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "default": {},
+      "title": "Meta",
+      "type": "object"
+    },
+    "loose": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Loose",
+      "type": "object"
+    },
+    "u": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "U"
+    },
+    "maybe": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maybe"
+    },
+    "raw": {
+      "default": "x",
+      "format": "binary",
+      "title": "Raw",
+      "type": "string"
+    },
+    "s": {
+      "default": [],
+      "items": {
+        "type": "integer"
+      },
+      "title": "S",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "anything": {
+      "default": null,
+      "title": "Anything"
+    },
+    "pos": {
+      "default": 1,
+      "exclusiveMinimum": 0,
+      "title": "Pos",
+      "type": "integer"
+    },
+    "code": {
+      "default": "A",
+      "examples": [
+        "AB"
+      ],
+      "pattern": "^[A-Z]+$",
+      "title": "Code",
+      "type": "string"
+    },
+    "nickName": {
+      "default": "n",
+      "title": "Nickname",
+      "type": "string"
+    },
+    "old": {
+      "default": 0,
+      "deprecated": true,
+      "title": "Old",
+      "type": "integer"
+    },
+    "extra_info": {
+      "default": "",
+      "title": "Extra Info",
+      "type": "string",
+      "x-ui": "hidden"
+    }
+  },
+  "required": [
+    "first_name",
+    "count",
+    "pets",
+    "mode",
+    "one",
+    "pair",
+    "u"
+  ],
+  "title": "User",
+  "type": "object"
+}
+{"default": "n", "title": "Nickname", "type": "string"}
+{'items': {'$ref': '#/components/schemas/Pet'}, 'title': 'Pets', 'type': 'array'}
+{'additionalProperties': False, 'properties': {'x': {'title': 'X', 'type': 'integer'}}, 'required': ['x'], 'title': 'StrictThing', 'type': 'object'}
+{"$defs": {"Node": {"properties": {"value": {"title": "Value", "type": "integer"}, "children": {"default": [], "items": {"$ref": "#/$defs/Node"}, "title": "Children", "type": "array"}}, "required": ["value"], "title": "Node", "type": "object"}}, "$ref": "#/$defs/Node"}
+{'description': 'A pet.\n\nWith a second line.', 'properties': {'name': {'title': 'Name', 'type': 'string'}, 'age': {'default': 3, 'title': 'Age', 'type': 'integer'}}, 'required': ['name'], 'title': 'Pet', 'type': 'object'}

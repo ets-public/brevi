@@ -1,0 +1,31 @@
+[1, 2, 3]
+[4, 5]
+b'[1,2]' [1, 2]
+{'items': {'type': 'integer'}, 'type': 'array'}
+2 validation errors for list[int]
+1
+  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='x', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing
+2
+  Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_type
+[{'type': 'int_parsing', 'loc': (1,), 'msg': 'Input should be a valid integer, unable to parse string as an integer', 'input': 'x', 'url': 'https://errors.pydantic.dev/2.13/v/int_parsing'}, {'type': 'int_type', 'loc': (2,), 'msg': 'Input should be a valid integer', 'input': None, 'url': 'https://errors.pydantic.dev/2.13/v/int_type'}]
+[Item(name='a', price=0.0), Item(name='b', price=2.5)]
+[{'name': 'a', 'price': 0.0}, {'name': 'b', 'price': 2.5}] b'[\n  {\n    "name": "a",\n    "price": 0.0\n  },\n  {\n    "name": "b",\n    "price": 2.5\n  }\n]'
+{'$defs': {'Item': {'properties': {'name': {'title': 'Name', 'type': 'string'}, 'price': {'default': 0.0, 'title': 'Price', 'type': 'number'}}, 'required': ['name'], 'title': 'Item', 'type': 'object'}}, 'items': {'$ref': '#/$defs/Item'}, 'type': 'array'}
+None 7 {'anyOf': [{'type': 'integer'}, {'type': 'null'}]}
+{'a': 1, 'b': 'x'} {'additionalProperties': {'anyOf': [{'type': 'integer'}, {'type': 'string'}]}, 'type': 'object'}
+yes
+1 validation error for literal['yes','no']
+  Input should be 'yes' or 'no' [type=literal_error, input_value='maybe', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+3 {'maximum': 10, 'minimum': 0, 'type': 'integer'}
+1 validation error for constrained-int
+  Input should be less than or equal to 10 [type=less_than_equal, input_value=11, input_type=int]
+    For further information visit https://errors.pydantic.dev/2.13/v/less_than_equal
+name='z' price=0.0 {'properties': {'name': {'title': 'Name', 'type': 'string'}, 'price': {'default': 0.0, 'title': 'Price', 'type': 'number'}}, 'required': ['name'], 'title': 'Item', 'type': 'object'}
+s b'1.5' True
+1 int 1 validation error for int
+  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='abc', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing
+(1, 'a') {'items': {'type': 'string'}, 'type': 'array', 'uniqueItems': True}

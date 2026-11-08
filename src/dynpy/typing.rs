@@ -104,6 +104,9 @@ impl Names {
 }
 
 // Every module's typing uses, checked; Err(module, line, why) for the first one the runtime does not have.
+// Set while the program uses Brevi's pydantic (its TypeAdapter takes typing forms as descriptors).
+pub static OWN_PYDANTIC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     let mut names: HashMap<String, Names> = HashMap::new();
     // twice, for names a module imports from another module of the program
@@ -584,6 +587,18 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
             }
             if matches!(f.as_ref(), Ex::Name(n) if nm.tdicts.contains(n)) {
                 return all(false);
+            }
+            // Brevi's pydantic: TypeAdapter's type is an annotation (src/dynpy/pyd.rs makes it a descriptor)
+            if OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed) && matches!(f.as_ref(), Ex::Name(n) if n == "TypeAdapter") {
+                if let Some(Arg::Pos(t)) = args.first() {
+                    expr(t, true, line, nm)?;
+                    for a in &args[1..] {
+                        match a {
+                            Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => go(x)?,
+                        }
+                    }
+                    return Ok(());
+                }
             }
             // `Stack[int]()`
             if let Ex::Index(o, i) = f.as_ref() {

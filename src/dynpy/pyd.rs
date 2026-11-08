@@ -367,6 +367,170 @@ pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<St
         }
     }
     walk(body, &cv);
+    // TypeAdapter(T): T as a descriptor too (a type Brevi's pydantic lacks becomes ('?', why), refused by check)
+    stmts_mut(body, &mut |e| {
+        if let Ex::Call(f, args) = e {
+            if typing_name(f) == Some("TypeAdapter") {
+                if let Some(Arg::Pos(t)) = args.first_mut() {
+                    let d = cv.desc(t).unwrap_or_else(|why| tup(vec![tag("?"), Ex::Str(why)]));
+                    *t = d;
+                }
+            }
+        }
+    });
+}
+
+// Every expression of the statements (nested blocks, defs and classes too), children first.
+fn stmts_mut(body: &mut [Stmt], f: &mut dyn FnMut(&mut Ex)) {
+    for s in body.iter_mut() {
+        match &mut s.st {
+            St::Expr(e) => ex_mut(e, f),
+            St::Assign(ts, v) => {
+                ts.iter_mut().for_each(|t| ex_mut(t, f));
+                ex_mut(v, f);
+            }
+            St::AugAssign(t, _, v) => {
+                ex_mut(t, f);
+                ex_mut(v, f);
+            }
+            St::AnnAssign(t, v, _) => {
+                ex_mut(t, f);
+                if let Some(v) = v {
+                    ex_mut(v, f);
+                }
+            }
+            St::Return(Some(e)) => ex_mut(e, f),
+            St::Raise(a, b) => {
+                for x in [a, b].into_iter().flatten() {
+                    ex_mut(x, f);
+                }
+            }
+            St::Del(v) => v.iter_mut().for_each(|x| ex_mut(x, f)),
+            St::Assert(a, b) => {
+                ex_mut(a, f);
+                if let Some(b) = b {
+                    ex_mut(b, f);
+                }
+            }
+            St::If(arms, els) => {
+                for (c, b) in arms.iter_mut() {
+                    ex_mut(c, f);
+                    stmts_mut(b, f);
+                }
+                if let Some(b) = els {
+                    stmts_mut(b, f);
+                }
+            }
+            St::While(c, b, e) => {
+                ex_mut(c, f);
+                stmts_mut(b, f);
+                if let Some(e) = e {
+                    stmts_mut(e, f);
+                }
+            }
+            St::For(t, it, b, e) => {
+                ex_mut(t, f);
+                ex_mut(it, f);
+                stmts_mut(b, f);
+                if let Some(e) = e {
+                    stmts_mut(e, f);
+                }
+            }
+            St::Try(b, hs, e, fin) => {
+                stmts_mut(b, f);
+                for h in hs.iter_mut() {
+                    stmts_mut(&mut h.body, f);
+                }
+                for x in [e, fin].into_iter().flatten() {
+                    stmts_mut(x, f);
+                }
+            }
+            St::With(items, b) => {
+                for (c, t) in items.iter_mut() {
+                    ex_mut(c, f);
+                    if let Some(t) = t {
+                        ex_mut(t, f);
+                    }
+                }
+                stmts_mut(b, f);
+            }
+            St::Def(d) => {
+                d.decorators.iter_mut().for_each(|x| ex_mut(x, f));
+                for (_, dv) in d.params.pos.iter_mut().chain(d.params.kwonly.iter_mut()) {
+                    if let Some(dv) = dv {
+                        ex_mut(dv, f);
+                    }
+                }
+                stmts_mut(&mut d.body, f);
+            }
+            St::Class(c) => {
+                c.decorators.iter_mut().for_each(|x| ex_mut(x, f));
+                stmts_mut(&mut c.body, f);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn ex_mut(e: &mut Ex, f: &mut dyn FnMut(&mut Ex)) {
+    match e {
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter_mut().for_each(|x| ex_mut(x, f)),
+        Ex::Dict(v) => v.iter_mut().for_each(|(k, x)| {
+            if let Some(k) = k {
+                ex_mut(k, f);
+            }
+            ex_mut(x, f)
+        }),
+        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => ex_mut(x, f),
+        Ex::Yield(Some(x)) => ex_mut(x, f),
+        Ex::Index(a, b) | Ex::Bin(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => {
+            ex_mut(a, f);
+            ex_mut(b, f)
+        }
+        Ex::Slice(a, b, c) => {
+            for x in [a, b, c].into_iter().flatten() {
+                ex_mut(x, f);
+            }
+        }
+        Ex::Call(c, args) => {
+            ex_mut(c, f);
+            for a in args.iter_mut() {
+                match a {
+                    Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => ex_mut(x, f),
+                }
+            }
+        }
+        Ex::Cmp(a, rest) => {
+            ex_mut(a, f);
+            rest.iter_mut().for_each(|(_, x)| ex_mut(x, f))
+        }
+        Ex::IfExp(a, b, c) => {
+            ex_mut(a, f);
+            ex_mut(b, f);
+            ex_mut(c, f)
+        }
+        Ex::Comp(_, a, b, gens) => {
+            ex_mut(a, f);
+            if let Some(b) = b {
+                ex_mut(b, f);
+            }
+            for g in gens.iter_mut() {
+                ex_mut(&mut g.target, f);
+                ex_mut(&mut g.iter, f);
+                g.ifs.iter_mut().for_each(|x| ex_mut(x, f));
+            }
+        }
+        Ex::Lambda(p, b) => {
+            for (_, d) in p.pos.iter_mut().chain(p.kwonly.iter_mut()) {
+                if let Some(d) = d {
+                    ex_mut(d, f);
+                }
+            }
+            ex_mut(b, f);
+        }
+        _ => {}
+    }
+    f(e);
 }
 
 fn walk(body: &mut [Stmt], cv: &Conv) {
@@ -492,6 +656,27 @@ pub fn models(mods: &[(&str, &[Stmt])]) -> HashSet<String> {
 
 // Every model's annotations and decorators checked (after rewrite). Err(module, line, why).
 pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
+    for (m, body) in mods {
+        for s in body.iter() {
+            let mut why = None;
+            super::emit::visit_any(std::slice::from_ref(s), &mut |e| {
+                if let Ex::Call(f, args) = e {
+                    if typing_name(f) == Some("TypeAdapter") {
+                        if let Some(Arg::Pos(Ex::Tuple(d))) = args.first() {
+                            if let (Some(Ex::Str(t)), Some(Ex::Str(w))) = (d.first(), d.get(1)) {
+                                if t == "?" && why.is_none() {
+                                    why = Some(w.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            if let Some(w) = why {
+                return Err((m.to_string(), s.line, format!("pydantic: {w} (a TypeAdapter type Brevi's pydantic does not have)")));
+            }
+        }
+    }
     let models = models(mods);
     let all = all_classes(mods);
     for (m, c) in &all {
