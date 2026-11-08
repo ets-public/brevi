@@ -722,7 +722,7 @@ pub fn fmt_v(v: &V, spec: &str) -> R {
 // '%5.2f' % x
 pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
     let (items, dict): (Vec<V>, Option<V>) = match args {
-        V::Tuple(t) => ((**t).clone(), None),
+        V::Tuple(t) => (t.to_vec(), None),
         V::Dict(_) => (vec![args.clone()], Some(args.clone())),
         x => (vec![x.clone()], None),
     };

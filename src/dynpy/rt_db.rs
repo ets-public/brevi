@@ -167,7 +167,7 @@ pub fn brevi_sqlite_fn(n: &str, a: Args) -> R {
         "run" => {
             let stv = i(0);
             let ps = match arg(1) {
-                V::Tuple(t) => t.as_ref().clone(),
+                V::Tuple(t) => t.to_vec(),
                 V::List(l) => l.borrow().clone(),
                 _ => return Ok(V::Int(-1)),
             };

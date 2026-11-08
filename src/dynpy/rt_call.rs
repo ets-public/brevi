@@ -11,7 +11,7 @@ pub fn call(f: &V, a: Args) -> R {
         V::Func(fun) => (fun.f)(a),
         V::Bound(b) => {
             let mut a = a;
-            a.p.insert(0, b.0.clone());
+            prepend(&mut a.p, b.0.clone());
             call(&b.1, a)
         }
         V::BMeth(b) => call_method(&b.0, b.1, a),
@@ -19,7 +19,7 @@ pub fn call(f: &V, a: Args) -> R {
         V::Obj(o) => match o.cls.lookup("__call__") {
             Some(m) => {
                 let mut a = a;
-                a.p.insert(0, f.clone());
+                prepend(&mut a.p, f.clone());
                 call(&m, a)
             }
             None => type_err(format!("'{}' object is not callable", tn(f))),
@@ -47,8 +47,28 @@ pub struct Sig {
     pub star: bool,
     pub kwstar: bool,
 }
+// self (or the class) in front of a call's arguments, reallocating once when the Vec is full
+#[inline]
+pub fn prepend(p: &mut Vec<V>, v: V) {
+    if p.len() == p.capacity() {
+        let mut n = Vec::with_capacity(p.len() + 2);
+        n.push(v);
+        n.append(p);
+        *p = n;
+    } else {
+        p.insert(0, v);
+    }
+}
 pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
     let np = sig.params.len();
+    // the common call: positional arguments only, the rest from defaults
+    if a.k.is_empty() && !sig.star && !sig.kwstar && np == sig.npos && a.p.len() <= np && (a.p.len()..np).all(|i| dflt.get(i).is_some_and(|d| !matches!(d, V::Unbound))) {
+        let mut out = std::mem::take(&mut a.p);
+        for i in out.len()..np {
+            out.push(dflt[i].clone());
+        }
+        return Ok(out);
+    }
     let mut out: Vec<V> = vec![V::Unbound; np + sig.star as usize + sig.kwstar as usize];
     let npos = sig.npos;
     let given = a.p.len();
@@ -229,7 +249,46 @@ pub fn with_doc(f: V, doc: &str) -> V {
     }
     f
 }
+// a class of the program's own, of object or another such class: calling it makes an instance and runs __init__
+fn plain_new(c: &Rc<Class>) -> bool {
+    let ep = CLASS_EPOCH.with(|e| e.get());
+    let (e, b) = c.plain_new.get();
+    if e == ep {
+        return b;
+    }
+    let b = !matches!(c.module, "typing" | "enum" | "builtins" | "collections")
+        && !c.name.starts_with("numpy.")
+        && !matches!(c.name, "decimal.Decimal" | "fractions.Fraction" | "datetime.date" | "datetime.datetime" | "datetime.timedelta" | "datetime.time" | "datetime.timezone")
+        && c.lookup("__bv_typeddict__").is_none()
+        && !is_enum(c)
+        && !matches!(c.lookup("__new__"), Some(V::Func(_)))
+        && matches!(c.base_bt(), BT::Object | BT::Other);
+    c.plain_new.set((ep, b));
+    b
+}
 pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
+    if plain_new(c) {
+        let me = V::Obj(Obj::new(c.clone()));
+        match c.lookup("__init__") {
+            Some(init) if !is_builtin_init(&init) => {
+                let mut p = Vec::with_capacity(a.p.len() + 1);
+                p.push(me.clone());
+                p.append(&mut a.p);
+                a.p = p;
+                let r = call(&init, a)?;
+                if !matches!(r, V::None) {
+                    return type_err(format!("__init__() should return None, not '{}'", tn(&r)));
+                }
+            }
+            Some(_) => {}
+            None => {
+                if !a.p.is_empty() || !a.k.is_empty() {
+                    return type_err(format!("{}() takes no arguments", c.name));
+                }
+            }
+        }
+        return Ok(me);
+    }
     if c.module == "typing" {
         return typing_call(c.name, a);
     }
@@ -265,7 +324,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             if let V::Obj(ob) = &o {
                 if ob.cls.is_sub(c) {
                     if let Some(init) = c.lookup("__init__") {
-                        a.p.insert(0, o.clone());
+                        prepend(&mut a.p, o.clone());
                         call(&init, a)?;
                     }
                 }
@@ -277,7 +336,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         let g = eg_new(c, &a)?;
         if let Some(init) = c.lookup("__init__") {
             if !is_builtin_init(&init) {
-                a.p.insert(0, g.clone());
+                prepend(&mut a.p, g.clone());
                 call(&init, a)?;
             }
         }
@@ -303,7 +362,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     }
     if let Some(init) = c.lookup("__init__") {
         if !is_builtin_init(&init) {
-            a.p.insert(0, me.clone());
+            prepend(&mut a.p, me.clone());
             let r = call(&init, a)?;
             if !matches!(r, V::None) {
                 return type_err(format!("__init__() should return None, not '{}'", tn(&r)));
@@ -455,6 +514,52 @@ fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
 
 // ---------- attributes ----------
 
+// o.name at one place in the program: the index the name had in the last instance seen there (an inline
+// cache). A hit is the same instance attribute getattr would find first; anything else takes getattr.
+#[inline]
+pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
+    if let V::Obj(ob) = o {
+        let d = ob.d.borrow();
+        if let Some((k, v)) = d.get(ic.load(std::sync::atomic::Ordering::Relaxed)) {
+            if k.as_ptr() == name.as_ptr() && k.len() == name.len() {
+                return Ok(v.clone());
+            }
+        }
+        if let Some(i) = d.find(name) {
+            ic.store(i, std::sync::atomic::Ordering::Relaxed);
+            return Ok(d.get(i).unwrap().1.clone());
+        }
+    }
+    getattr(o, name)
+}
+// o.name = v at one place in the program, cached as getattr_ic is (only where setattr would just store)
+#[inline]
+pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
+    if let V::Obj(ob) = o {
+        if ob.cls.plain_set() {
+            let mut d = ob.d.borrow_mut();
+            if let Some(e) = d.get_mut(ic.load(std::sync::atomic::Ordering::Relaxed)) {
+                if e.0.as_ptr() == name.as_ptr() && e.0.len() == name.len() {
+                    e.1 = v;
+                    return Ok(());
+                }
+            }
+            let i = match d.find(name) {
+                Some(i) => {
+                    d.get_mut(i).unwrap().1 = v;
+                    i
+                }
+                None => {
+                    d.push((name, v));
+                    d.len() - 1
+                }
+            };
+            ic.store(i, std::sync::atomic::Ordering::Relaxed);
+            return Ok(());
+        }
+    }
+    setattr(o, name, v)
+}
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
@@ -628,6 +733,10 @@ pub fn getattr(o: &V, name: &str) -> R {
 }
 pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
     match o {
+        V::Obj(ob) if ob.cls.plain_set() => {
+            ob.set(name, v);
+            Ok(())
+        }
         V::Obj(ob) => {
             if let Some(V::Prop(p)) = ob.cls.lookup(name) {
                 if matches!(p.1, V::None) {
@@ -694,7 +803,21 @@ pub fn hasattr(o: &V, name: &str) -> Result<bool, E> {
 }
 
 // obj.name(args): methods of builtin types run directly; objects look the method up.
-pub fn call_method(o: &V, name: &str, a: Args) -> R {
+pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
+    // the commonest calls on builtin containers, before the general dispatch
+    if a.p.len() == 1 && a.k.is_empty() {
+        match (o, name) {
+            (V::List(l), "append") => {
+                l.borrow_mut().push(a.p.pop().unwrap());
+                return Ok(V::None);
+            }
+            (V::Set(st), "add") => {
+                st.borrow_mut().add(a.p.pop().unwrap())?;
+                return Ok(V::None);
+            }
+            _ => {}
+        }
+    }
     match o {
         V::Obj(ob) => {
             if let Some(v) = ob.get(name) {
@@ -706,12 +829,15 @@ pub fn call_method(o: &V, name: &str, a: Args) -> R {
                         1 => call(&v, a),
                         2 => {
                             let mut a = a;
-                            a.p.insert(0, V::Class(ob.cls.clone()));
+                            prepend(&mut a.p, V::Class(ob.cls.clone()));
                             call(&v, a)
                         }
                         _ => {
                             let mut a = a;
-                            a.p.insert(0, o.clone());
+                            let mut p = Vec::with_capacity(a.p.len() + 1);
+                            p.push(o.clone());
+                            p.append(&mut a.p);
+                            a.p = p;
                             (f.f)(a)
                         }
                     },
@@ -747,7 +873,7 @@ pub fn call_method(o: &V, name: &str, a: Args) -> R {
                 return match &v {
                     V::Func(f) if f.kind.get() == 2 => {
                         let mut a = a;
-                        a.p.insert(0, o.clone());
+                        prepend(&mut a.p, o.clone());
                         call(&v, a)
                     }
                     _ => call(&v, a),

@@ -998,7 +998,7 @@ pub fn py_i32(v: i64) -> Result<i32, E> {
 fn seq_items(v: &V) -> Option<Vec<V>> {
     match v {
         V::List(l) => Some(l.borrow().clone()),
-        V::Tuple(t) => Some((**t).clone()),
+        V::Tuple(t) => Some(t.to_vec()),
         V::Range(_) => to_vec(v).ok(),
         _ => None,
     }
@@ -3002,7 +3002,7 @@ enum Ix {
 
 fn np_index_items(i: &V) -> Result<Vec<Ix>, E> {
     let items: Vec<V> = match i {
-        V::Tuple(t) => (**t).clone(),
+        V::Tuple(t) => t.to_vec(),
         _ => vec![i.clone()],
     };
     let mut out = vec![];

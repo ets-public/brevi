@@ -507,6 +507,30 @@ fn stmt_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Ex>) {
         }
     }
 }
+// `def n` in this body (not in a nested function) whose own body calls n through the enclosing cell
+fn self_recursive_def(body: &[Stmt], n: &str) -> bool {
+    fn find<'a>(body: &'a [Stmt], n: &str) -> Option<&'a FuncDef> {
+        for s in body {
+            let inner: Vec<&[Stmt]> = match &s.st {
+                St::Def(d) if d.name == n => return Some(d),
+                St::If(arms, els) => arms.iter().map(|(_, b)| b.as_slice()).chain(els.as_deref()).collect(),
+                St::For(_, _, b, e) | St::While(_, b, e) => std::iter::once(b.as_slice()).chain(e.as_deref()).collect(),
+                _ => vec![],
+            };
+            if let Some(d) = inner.into_iter().find_map(|b| find(b, n)) {
+                return Some(d);
+            }
+        }
+        None
+    }
+    let Some(d) = find(body, n) else { return false };
+    if scope_of(&d.body, &lambda_params(&d.params)).locals.contains(n) {
+        return false;
+    }
+    let mut uses = false;
+    visit_any(&d.body, &mut |x| uses |= matches!(x, Ex::Name(m) if m == n));
+    uses
+}
 fn scope_of(body: &[Stmt], params: &[String]) -> Scope {
     let mut sc = Scope::default();
     for p in params {
@@ -863,6 +887,8 @@ impl Bridge {
 }
 
 pub struct Em {
+    // cells with a CellGuard (see self_recursive_def)
+    guards: HashSet<String>,
     out: String,
     items: String,
     n: usize,
@@ -1047,7 +1073,14 @@ impl Em {
                 format!("st({{ let mut __s = String::new(); {body} __s }})")
             }
             Ex::List(v) => format!("list({})", self.seq(v, line)?),
-            Ex::Tuple(v) => format!("tup({})", self.seq(v, line)?),
+            Ex::Tuple(v) => {
+                let sq = self.seq(v, line)?;
+                // a tuple of fixed size goes straight into its one allocation
+                match sq.strip_prefix("vec![").and_then(|r| r.strip_suffix(']')) {
+                    Some(items) if !v.is_empty() => format!("tupa([{items}])"),
+                    _ => format!("tup({sq})"),
+                }
+            }
             Ex::Set(v) => {
                 let s = self.seq(v, line)?;
                 // CPython builds a literal of 3 or more constants as a frozenset constant copied into a new
@@ -1102,7 +1135,8 @@ impl Em {
                 }
                 np_attr_check(n, &[], line)?;
                 let oo = self.ex(o, line)?;
-                self.q(&format!("getattr(&{oo}, {})", lit(n)))
+                let ic = new_ic();
+                self.q(&format!("getattr_ic(&{oo}, {}, &IC{ic})", lit(n)))
             }
             Ex::Index(o, i) if self.is_globals(o) => {
                 let ii = self.ex(i, line)?;
@@ -1558,7 +1592,11 @@ impl Em {
         }
         let saved: Vec<(String, Option<Var>)> = names.iter().map(|n| (n.clone(), self.f().vars.get(n).cloned())).collect();
         // the first iterable is evaluated in the enclosing scope
-        let first_iter = self.ex(&gens[0].iter, line)?;
+        let first_zip = match self.zip2(&gens[0].target, &gens[0].iter) {
+            Some((a, b, _, _)) if !gens[0].is_async => Some((self.ex(a, line)?, self.ex(b, line)?)),
+            _ => None,
+        };
+        let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
         let mut decl = String::new();
         for n in &names {
             let r = format!("c{id}_{}", rust_ident(n));
@@ -1574,8 +1612,28 @@ impl Em {
         write!(b, "{{ {acc}{decl}").unwrap();
         let mut close = String::new();
         for (k, g) in gens.iter().enumerate() {
-            let it = if k == 0 { first_iter.clone() } else { self.ex(&g.iter, line)? };
             let lbl = format!("'cl{id}_{k}");
+            let zipped = match (k, &first_zip, self.zip2(&g.target, &g.iter)) {
+                (_, _, _) if g.is_async => None,
+                (0, Some((a, b)), Some((_, _, t0, t1))) => Some((a.clone(), b.clone(), t0, t1)),
+                (0, None, _) | (_, _, None) => None,
+                (_, _, Some((a, b, t0, t1))) => Some((self.ex(a, line)?, self.ex(b, line)?, t0, t1)),
+            };
+            if let Some((za, zb, t0, t1)) = zipped {
+                let (ia, ib) = (self.q(&format!("iter(&{za})")), self.q(&format!("iter(&{zb})")));
+                let (na, nb) = (self.q(&format!("__it{k}a.next()")), self.q(&format!("__it{k}b.next()")));
+                write!(b, "let mut __it{k}a = {ia}; let mut __it{k}b = {ib}; {lbl}: while let Some(__x{k}a) = {na} {{ let Some(__x{k}b) = {nb} else {{ break {lbl}; }}; ").unwrap();
+                let a0 = self.assign(t0, &format!("__x{k}a"), line)?;
+                let a1 = self.assign(t1, &format!("__x{k}b"), line)?;
+                write!(b, "{a0} {a1} ").unwrap();
+                for c in &g.ifs {
+                    let cc = self.cond(c, line)?;
+                    write!(b, "if !({cc}) {{ continue {lbl}; }} ").unwrap();
+                }
+                close.push_str("} ");
+                continue;
+            }
+            let it = if k == 0 { first_iter.clone() } else { self.ex(&g.iter, line)? };
             let (itv, nx) = if g.is_async {
                 (self.q(&format!("bi_aiter(Args::p(vec![{it}]))")), self.q(&format!("afor_next(&__it{k})")))
             } else {
@@ -1639,7 +1697,8 @@ impl Em {
                     }
                 }
                 let oo = self.ex(o, line)?;
-                let c = self.q(&format!("setattr(&{oo}, {}, __v)", lit(n)));
+                let ic = new_ic();
+                let c = self.q(&format!("setattr_ic(&{oo}, {}, __v, &IC{ic})", lit(n)));
                 format!("{{ let __v = {val}; {c}; }}")
             }
             Ex::Index(o, i) => {
@@ -1651,6 +1710,12 @@ impl Em {
             Ex::Tuple(v) | Ex::List(v) => {
                 let id = self.id();
                 let star = v.iter().position(|x| matches!(x, Ex::Star(_)));
+                if star.is_none() && v.len() == 2 {
+                    let un = self.q(&format!("unpack2(__u{id})"));
+                    let a0 = self.assign(&v[0], &format!("__p{id}.0"), line)?;
+                    let a1 = self.assign(&v[1], &format!("__p{id}.1"), line)?;
+                    return Ok(format!("{{ let __u{id} = {val}; let __p{id} = {un}; {a0} {a1} }}"));
+                }
                 let un = match star {
                     None => self.q(&format!("unpack(&__u{id}, {})", v.len())),
                     Some(k) => self.q(&format!("unpack_star(&__u{id}, {k}, {})", v.len() - k - 1)),
@@ -1762,9 +1827,10 @@ impl Em {
                     }
                     Ex::Attr(o, n) => {
                         let oo = self.ex(o, line)?;
-                        let g = self.q(&format!("getattr(&__o, {})", lit(n)));
+                        let ic = new_ic();
+                        let g = self.q(&format!("getattr_ic(&__o, {}, &IC{ic})", lit(n)));
                         let r = self.q(&format!("iop(&__c, &__r, {})", lit(op)));
-                        let st = self.q(&format!("setattr(&__o, {}, __n)", lit(n)));
+                        let st = self.q(&format!("setattr_ic(&__o, {}, __n, &IC{ic})", lit(n)));
                         format!("{{ let __o = {oo}; let __c = {g}; let __r = {vv}; let __n = {r}; {st}; }}")
                     }
                     Ex::Index(o, i) => {
@@ -1965,7 +2031,11 @@ impl Em {
             St::With(items, body) => self.with_stmt(items, body, line)?,
             St::Def(d) => {
                 let f = self.def(d)?;
-                self.store(&d.name, &f)
+                let st = self.store(&d.name, &f);
+                match self.lookup(&d.name) {
+                    Some(Var::Cell(c)) if self.guards.contains(&c) => format!("{st} __cg_{c}.mark();"),
+                    _ => st,
+                }
             }
             St::Class(c) => {
                 if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
@@ -1984,6 +2054,19 @@ impl Em {
                 self.store(&c.name, &v)
             }
         })
+    }
+    // `for a, b in zip(xs, ys)` with the builtin zip: the two iterators are walked side by side without
+    // making a tuple per step (zip's order: next of xs, then of ys, stopping at the first that ends)
+    fn zip2<'a>(&self, t: &'a Ex, it: &'a Ex) -> Option<(&'a Ex, &'a Ex, &'a Ex, &'a Ex)> {
+        let (Ex::Tuple(ts) | Ex::List(ts)) = t else { return None };
+        let Ex::Call(f, args) = it else { return None };
+        if ts.len() != 2 || ts.iter().any(|x| matches!(x, Ex::Star(_))) || args.len() != 2 || !matches!(&**f, Ex::Name(n) if n == "zip") || self.lookup("zip").is_some() {
+            return None;
+        }
+        match (&args[0], &args[1]) {
+            (Arg::Pos(a), Arg::Pos(b)) => Some((a, b, &ts[0], &ts[1])),
+            _ => None,
+        }
     }
     fn for_stmt(&mut self, t: &Ex, it: &Ex, body: &[Stmt], els: Option<&[Stmt]>, line: usize) -> ER<String> {
         let id = self.id();
@@ -2006,13 +2089,24 @@ impl Em {
                 fast = true;
             }
         }
+        let mut asg = String::new();
+        if let (false, Some((a, b, t0, t1))) = (fast, self.zip2(t, it)) {
+            let (av, bv) = (self.ex(a, line)?, self.ex(b, line)?);
+            let (ia, ib) = (self.q(&format!("iter(&{av})")), self.q(&format!("iter(&{bv})")));
+            let (na, nb) = (self.q(&format!("__it{id}a.next()")), self.q(&format!("__it{id}b.next()")));
+            head = format!("let mut __it{id}a = {ia}; let mut __it{id}b = {ib}; {lbl}: while let Some(__x{id}a) = {na} {{ let Some(__x{id}b) = {nb} else {{ break {lbl}; }}; ");
+            asg = format!("{} {}", self.assign(t0, &format!("__x{id}a"), line)?, self.assign(t1, &format!("__x{id}b"), line)?);
+            fast = true;
+        }
         if !fast {
             let itv = self.ex(it, line)?;
             let iv = self.q(&format!("iter(&{itv})"));
             let nx = self.q(&format!("__it{id}.next()"));
             head = format!("let mut __it{id} = {iv}; {lbl}: while let Some(__x{id}) = {nx} {{ ");
         }
-        let asg = self.assign(t, &format!("__x{id}"), line)?;
+        if asg.is_empty() {
+            asg = self.assign(t, &format!("__x{id}"), line)?;
+        }
         self.f().frames.push(Frame::Loop(lbl.clone()));
         let bb = self.block(body)?;
         self.f().frames.pop();
@@ -2232,6 +2326,10 @@ impl Em {
                 let c = format!("k{id}_{}", rust_ident(n));
                 if all_params.contains(n) {
                     write!(cells_init, "let {c} = Rc::new(RefCell::new({r}.clone())); ").unwrap();
+                } else if !is_gen && !is_async && self_recursive_def(body, n) {
+                    // a nested function that calls itself holds its own cell: CellGuard breaks that loop on return
+                    write!(decls, "let {c} = cell(); let __cg_{c} = CellGuard::new(&{c}); ").unwrap();
+                    self.guards.insert(c.clone());
                 } else {
                     write!(decls, "let {c} = cell(); ").unwrap();
                 }
@@ -2460,8 +2558,31 @@ pub fn rust_ident(n: &str) -> String {
 
 // The Rust program for a set of modules (the first is __main__).
 // An error names the module whose code it is in, so the message can name that module's file.
+// inline caches for attribute access (getattr_ic): the program declares IC0..IC{n-1}
+thread_local! {
+    static IC_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+fn new_ic() -> usize {
+    IC_COUNT.with(|c| {
+        let k = c.get();
+        c.set(k + 1);
+        k
+    })
+}
+pub fn ic_reset() {
+    IC_COUNT.with(|c| c.set(0));
+}
+pub fn ic_statics() -> String {
+    let n = IC_COUNT.with(|c| c.get());
+    let mut s = String::new();
+    for k in 0..n {
+        s.push_str(&format!("static IC{k}: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);\n"));
+    }
+    s
+}
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     let mut em = Em {
+        guards: HashSet::new(),
         out: String::new(),
         items: String::new(),
         n: 0,

@@ -22,7 +22,7 @@ pub enum V {
     Float(f64),
     Str(Rc<S>),
     List(Rc<RefCell<Vec<V>>>),
-    Tuple(Rc<Vec<V>>),
+    Tuple(Rc<[V]>),
     Dict(Rc<RefCell<Dict>>),
     Set(Rc<RefCell<PSet>>),
     FSet(Rc<PSet>),
@@ -167,8 +167,12 @@ pub fn ch1(c: char) -> V {
 pub fn list(v: Vec<V>) -> V {
     V::List(Rc::new(RefCell::new(v)))
 }
+#[inline]
+pub fn tupa<const N: usize>(a: [V; N]) -> V {
+    V::Tuple(Rc::new(a))
+}
 pub fn tup(v: Vec<V>) -> V {
-    V::Tuple(Rc::new(v))
+    V::Tuple(Rc::from(v))
 }
 pub fn int(i: i64) -> V {
     V::Int(i)
@@ -831,6 +835,14 @@ pub fn hash_tuple(xs: &[V]) -> Result<i64, E> {
     }
     Ok(acc as i64)
 }
+// An instance's default hash. CPython's is its address over 16; allocators space same-size objects evenly,
+// so mixing the bits keeps sets and dicts of instances from piling into a few probe chains.
+#[inline]
+pub fn ptr_hash(p: usize) -> i64 {
+    let h = ((p >> 4) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let h = (h ^ (h >> 29)) as i64 & i64::MAX;
+    if h == -1 { -2 } else { h }
+}
 pub fn py_hash(v: &V) -> Result<i64, E> {
     Ok(match v {
         V::None => 0xFCA86420u32 as i64,
@@ -857,6 +869,17 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                 h
             }
         }
+        V::Obj(o) if {
+            let ep = CLASS_EPOCH.with(|e| e.get());
+            let (e, b) = o.cls.plain_hash.get();
+            if e == ep {
+                b
+            } else {
+                let b = !is_enum(&o.cls) && o.cls.lookup("__hash__").is_none() && o.cls.lookup("__eq__").is_none();
+                o.cls.plain_hash.set((ep, b));
+                b
+            }
+        } => ptr_hash(Rc::as_ptr(o) as usize),
         V::Obj(o) => {
             let mixin = if is_enum(&o.cls) { o.inner.borrow().clone() } else { None };
             if let Some(i) = mixin {
@@ -874,7 +897,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             } else if o.cls.lookup("__eq__").is_some() {
                 return type_err(format!("unhashable type: '{}'", o.cls.name));
             } else {
-                (Rc::as_ptr(o) as usize >> 4) as i64
+                ptr_hash(Rc::as_ptr(o) as usize)
             }
         }
         V::Class(c) => (Rc::as_ptr(c) as usize >> 4) as i64,
@@ -1050,6 +1073,15 @@ pub struct PSet {
     pub finger: usize,
 }
 const LINEAR_PROBES: usize = 9;
+// the same instance: sets and dicts check identity before ==, as CPython's do
+#[inline(always)]
+pub fn same_obj(a: &V, b: &V) -> bool {
+    match (a, b) {
+        (V::Obj(x), V::Obj(y)) => Rc::ptr_eq(x, y),
+        (V::Class(x), V::Class(y)) => Rc::ptr_eq(x, y),
+        _ => false,
+    }
+}
 impl PSet {
     pub fn new() -> PSet {
         PSet { t: vec![Slot::Empty; 8], used: 0, fill: 0, finger: 0 }
@@ -1069,7 +1101,7 @@ impl PSet {
             for j in 0..=probes {
                 match &self.t[i + j] {
                     Slot::Empty => return None,
-                    Slot::Full(x, xh) if *xh == h && eq(x, k).unwrap_or(false) => return Some(i + j),
+                    Slot::Full(x, xh) if *xh == h && (same_obj(x, k) || eq(x, k).unwrap_or(false)) => return Some(i + j),
                     _ => {}
                 }
             }
@@ -1103,7 +1135,7 @@ impl PSet {
                         }
                         return;
                     }
-                    Slot::Full(x, xh) if *xh == h && eq(x, &k).unwrap_or(false) => return,
+                    Slot::Full(x, xh) if *xh == h && (same_obj(x, &k) || eq(x, &k).unwrap_or(false)) => return,
                     _ => {}
                 }
             }
@@ -1322,6 +1354,14 @@ pub struct Class {
     pub fields: RefCell<Vec<Sym>>,
     // lookup() results, valid while CLASS_EPOCH (bumped by every change to any class's attributes) is unchanged
     lcache: RefCell<(u64, HashMap<Box<str>, Option<V>, FnvBuild>)>,
+    // a few recent lookup() results, found by the name's address before hashing it (same epoch rule)
+    fcache: RefCell<(u64, [(usize, Option<(Box<str>, Option<V>)>); 16])>,
+    // (epoch, whether `o.x = v` on an instance just stores: no property, __setattr__ or __frozen__ in the MRO)
+    plain_set: Cell<(u64, bool)>,
+    // (epoch, whether calling the class only makes an instance and runs __init__): see instantiate
+    pub plain_new: Cell<(u64, bool)>,
+    // (epoch, whether instances hash by identity: no __hash__ or __eq__ in the MRO, not an enum)
+    pub plain_hash: Cell<(u64, bool)>,
 }
 
 thread_local! {
@@ -1351,7 +1391,7 @@ impl std::hash::Hasher for FnvH {
 }
 impl Class {
     pub fn new(name: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())) });
+        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), plain_set: Cell::new((0, false)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -1384,10 +1424,42 @@ impl Class {
         c
     }
     pub fn own(&self, n: &str) -> Option<V> {
-        self.attrs.borrow().iter().find(|(k, _)| *k == n).map(|(_, v)| v.clone())
+        self.attrs.borrow().iter().find(|(k, _)| same_name(k, n)).map(|(_, v)| v.clone())
     }
     pub fn lookup(&self, n: &str) -> Option<V> {
         let ep = CLASS_EPOCH.with(|e| e.get());
+        let addr = n.as_ptr() as usize;
+        let slot = (addr >> 3 ^ n.len()) & 15;
+        {
+            let mut f = self.fcache.borrow_mut();
+            if f.0 != ep {
+                f.0 = ep;
+                f.1 = Default::default();
+            } else if let (a, Some((k, v))) = &f.1[slot] {
+                if *a == addr && **k == *n {
+                    return v.clone();
+                }
+            }
+        }
+        let r = self.lookup_hashed(n, ep);
+        let mut f = self.fcache.borrow_mut();
+        if f.0 == ep {
+            f.1[slot] = (addr, Some((n.into(), r.clone())));
+        }
+        r
+    }
+    // `o.x = v` on an instance of this class only stores the value (nothing in the MRO intercepts it)
+    pub fn plain_set(&self) -> bool {
+        let ep = CLASS_EPOCH.with(|e| e.get());
+        let (e, b) = self.plain_set.get();
+        if e == ep {
+            return b;
+        }
+        let b = self.mro.borrow().iter().all(|c| c.attrs.borrow().iter().all(|(k, v)| !matches!(v, V::Prop(_)) && *k != "__setattr__" && *k != "__frozen__"));
+        self.plain_set.set((ep, b));
+        b
+    }
+    fn lookup_hashed(&self, n: &str, ep: u64) -> Option<V> {
         {
             let mut c = self.lcache.borrow_mut();
             if c.0 != ep {
@@ -1448,21 +1520,139 @@ impl Class {
 
 pub struct Obj {
     pub cls: Rc<Class>,
-    pub d: RefCell<Vec<(Sym, V)>>,
+    pub d: RefCell<Attrs>,
     // the builtin value a subclass of a builtin type wraps (class Stack(list))
     pub inner: RefCell<Option<V>>,
 }
+// An instance's attributes in the order they were first set: the first four inside the object itself (one
+// allocation per instance, one pointer less to follow on each access), the rest in a Vec.
+#[derive(Clone)]
+pub struct Attrs {
+    n: usize,
+    a: [(Sym, V); 4],
+    more: Vec<(Sym, V)>,
+}
+impl Attrs {
+    pub fn new() -> Attrs {
+        Attrs { n: 0, a: [("", V::Unbound), ("", V::Unbound), ("", V::Unbound), ("", V::Unbound)], more: Vec::new() }
+    }
+    pub fn iter(&self) -> std::iter::Chain<std::slice::Iter<'_, (Sym, V)>, std::slice::Iter<'_, (Sym, V)>> {
+        self.a[..self.n].iter().chain(self.more.iter())
+    }
+    pub fn iter_mut(&mut self) -> std::iter::Chain<std::slice::IterMut<'_, (Sym, V)>, std::slice::IterMut<'_, (Sym, V)>> {
+        self.a[..self.n].iter_mut().chain(self.more.iter_mut())
+    }
+    pub fn push(&mut self, e: (Sym, V)) {
+        if self.n < 4 && self.more.is_empty() {
+            self.a[self.n] = e;
+            self.n += 1;
+        } else {
+            self.more.push(e);
+        }
+    }
+    pub fn len(&self) -> usize {
+        self.n + self.more.len()
+    }
+    #[inline]
+    pub fn get(&self, i: usize) -> Option<&(Sym, V)> {
+        if i < self.n { Some(&self.a[i]) } else { self.more.get(i - self.n) }
+    }
+    #[inline]
+    pub fn get_mut(&mut self, i: usize) -> Option<&mut (Sym, V)> {
+        if i < self.n { Some(&mut self.a[i]) } else { self.more.get_mut(i - self.n) }
+    }
+    // where a name is, by the address of its text (a call site's constant)
+    #[inline]
+    pub fn find_ptr(&self, n: &str) -> Option<usize> {
+        for i in 0..self.n {
+            let k = self.a[i].0;
+            if k.as_ptr() == n.as_ptr() && k.len() == n.len() {
+                return Some(i);
+            }
+        }
+        for (j, (k, _)) in self.more.iter().enumerate() {
+            if k.as_ptr() == n.as_ptr() && k.len() == n.len() {
+                return Some(self.n + j);
+            }
+        }
+        None
+    }
+    // by address first, then by text
+    #[inline]
+    pub fn find(&self, n: &str) -> Option<usize> {
+        if let Some(i) = self.find_ptr(n) {
+            return Some(i);
+        }
+        for i in 0..self.n {
+            if same_name(self.a[i].0, n) {
+                return Some(i);
+            }
+        }
+        for (j, (k, _)) in self.more.iter().enumerate() {
+            if same_name(k, n) {
+                return Some(self.n + j);
+            }
+        }
+        None
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    pub fn remove(&mut self, i: usize) -> (Sym, V) {
+        let mut v = std::mem::replace(self, Attrs::new()).into_vec();
+        let r = v.remove(i);
+        for e in v {
+            self.push(e);
+        }
+        r
+    }
+    pub fn into_vec(self) -> Vec<(Sym, V)> {
+        let Attrs { n, a, more } = self;
+        a.into_iter().take(n).chain(more).collect()
+    }
+}
+impl IntoIterator for Attrs {
+    type Item = (Sym, V);
+    type IntoIter = std::vec::IntoIter<(Sym, V)>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_vec().into_iter()
+    }
+}
+// names are mostly the program's own string constants: the same address is the same name
+#[inline(always)]
+pub fn same_name(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    if a.as_ptr() == b.as_ptr() {
+        return true;
+    }
+    // short names: compare in place rather than calling memcmp
+    let (x, y) = (a.as_bytes(), b.as_bytes());
+    if x.len() <= 16 {
+        let mut i = 0;
+        while i < x.len() {
+            if x[i] != y[i] {
+                return false;
+            }
+            i += 1;
+        }
+        return true;
+    }
+    x == y
+}
 impl Obj {
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
-        Rc::new(Obj { cls, d: RefCell::new(vec![]), inner: RefCell::new(None) })
+        Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), inner: RefCell::new(None) })
     }
     pub fn get(&self, n: &str) -> Option<V> {
-        self.d.borrow().iter().find(|(k, _)| *k == n).map(|(_, v)| v.clone())
+        let d = self.d.borrow();
+        d.find(n).map(|i| d.get(i).unwrap().1.clone())
     }
     pub fn set(&self, n: Sym, v: V) {
         let mut a = self.d.borrow_mut();
-        match a.iter_mut().find(|(k, _)| *k == n) {
-            Some(e) => e.1 = v,
+        match a.find(n) {
+            Some(i) => a.get_mut(i).unwrap().1 = v,
             None => a.push((n, v)),
         }
     }

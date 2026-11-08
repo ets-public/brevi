@@ -627,7 +627,7 @@ pub fn binop(a: &V, b: &V, op: &str) -> R {
             return Ok(list(v));
         }
         (V::Tuple(x), V::Tuple(y)) if op == "+" => {
-            let mut v = (**x).clone();
+            let mut v = x.to_vec();
             v.extend(y.iter().cloned());
             return Ok(tup(v));
         }
@@ -1463,7 +1463,7 @@ pub fn slice(a: V, b: V, c: V) -> V {
 
 pub enum It {
     List(Rc<RefCell<Vec<V>>>, usize),
-    Tuple(Rc<Vec<V>>, usize),
+    Tuple(Rc<[V]>, usize),
     Vec(std::vec::IntoIter<V>),
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
@@ -1652,7 +1652,7 @@ pub fn iter_v(v: &V) -> R {
 pub fn to_vec(v: &V) -> Result<Vec<V>, E> {
     Ok(match v {
         V::List(l) => l.borrow().clone(),
-        V::Tuple(t) => (**t).clone(),
+        V::Tuple(t) => t.to_vec(),
         _ => {
             let mut it = iter(v)?;
             let mut out = vec![];
@@ -1672,7 +1672,7 @@ pub fn vec_iter(v: Vec<V>) -> V {
 // a, b = x
 pub fn unpack(v: &V, n: usize) -> Result<Vec<V>, E> {
     let xs = match v {
-        V::Tuple(t) if t.len() == n => return Ok((**t).clone()),
+        V::Tuple(t) if t.len() == n => return Ok(t.to_vec()),
         V::List(l) if l.borrow().len() == n => return Ok(l.borrow().clone()),
         _ => to_vec(v)?,
     };
@@ -1683,6 +1683,16 @@ pub fn unpack(v: &V, n: usize) -> Result<Vec<V>, E> {
         return val_err(format!("not enough values to unpack (expected {n}, got {})", xs.len()));
     }
     Ok(xs)
+}
+// a, b = x without building a Vec (a tuple nobody else holds gives up its items)
+pub fn unpack2(v: V) -> Result<(V, V), E> {
+    if let V::Tuple(t) = &v {
+        if t.len() == 2 {
+            return Ok((t[0].clone(), t[1].clone()));
+        }
+    }
+    let mut it = unpack(&v, 2)?.into_iter();
+    Ok((it.next().unwrap(), it.next().unwrap()))
 }
 // a, *b, c = x
 pub fn unpack_star(v: &V, before: usize, after: usize) -> Result<Vec<V>, E> {
