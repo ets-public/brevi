@@ -165,6 +165,8 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
+**What it is, and what it is not.** The sandbox is a cheap capability and limit layer for agent code you mostly trust. It is not an isolation boundary for hostile code. Brevi's own generated code enforces it: there is no seccomp filter, namespace or VM around the program, so the guarantee rests on Brevi being right. `--allow-py` and `--allow native` are full trust, Landlock holds CPython to the file grants on Linux 5.13 and later only, a file check and the open that follows are two steps, and no outside security review has been done yet. Run untrusted code inside a container or VM as well, and use the sandbox as a second layer inside it.
+
 With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,net,native`, `--allow-net api.example.com` to let the program reach just those hosts, `--allow-read data` and `--allow-write out` to let it read or write files only inside those folders, or `--allow-py yaml,pandas` to let CPython run just those libraries (the MCP tools' `allow`, `allow_net`, `allow_read`, `allow_write` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from v0.24.6; before it, an allow line in the file was enough).
 
 ```
@@ -315,7 +317,7 @@ window "tk"
 
 Running `brevi check`, `build` or `run` again on files that did not change replays the last result: the same output, the same `{"path":...}` line and the same binary, in about 10 ms, with no parsing, type inference or `rustc`. The key is a hash of the program's files (every `.py` and `.bv` file in its folder and the package folders it imports), the command and flags, the `BREVI_*` and Python settings in the environment, the Brevi binary and the Rust toolchain; any change to one builds again. A failed build is replayed too when the program imports only its own files and Python's standard library (a later `pip install` must not meet an old refusal). Below that, builds are also cached by the generated code, so an edit that changes nothing in the generated Rust skips `rustc`. The cache keeps at most `BREVI_CACHE_MB` megabytes (default 1024), least recently used first out; `--no-cache` builds from scratch. A new small program builds in well under a second by default (about 0.15 to 0.3 s) and a few seconds with `--release`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
-Write the plain, direct program. Brevi runs plain loops over ints and lists 10 to 50 times faster than CPython, so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
+Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
 ## Environment variables
 
