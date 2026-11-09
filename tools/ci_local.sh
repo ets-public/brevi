@@ -16,6 +16,7 @@ step "Package versions"; python3 tools/version_sync.py
 step "Grammar"; python3 -c "import lark" 2>/dev/null || python3 -m pip install --quiet -r tools/requirements-ci.txt
 python3 tools/lark_to_gbnf.py --check; python3 tools/grammar_check.py tests/run/*.bv
 step "GUI runtime matches tkinter stand-in"; sh tools/gui_shim_check.sh
+step "GUI window front end compiles (eframe)"; cargo check -q --manifest-path runtime/brevi_tk/Cargo.toml --features window
 step "Bench scripts compile"; python3 -m py_compile bench/*.py bench/ref/*.py tools/*.py
 step "Agent platform templates"; python3 templates/test.py >/dev/null
 if [ "$1" != --quick ]; then
