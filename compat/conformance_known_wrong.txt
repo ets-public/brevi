@@ -5,8 +5,6 @@ test_dict.DictTest.test_clear_at_lookup dyn
 test_dict.DictTest.test_clear_at_lookup normal
 test_dict.DictTest.test_container_iterator dyn
 test_dict.DictTest.test_container_iterator normal
-test_dict.DictTest.test_dict_contain_use_after_free dyn
-test_dict.DictTest.test_dict_contain_use_after_free normal
 test_dict.DictTest.test_dictview_set_operations_on_items dyn
 test_dict.DictTest.test_dictview_set_operations_on_items normal
 test_dict.DictTest.test_errors_in_view_containment_check dyn

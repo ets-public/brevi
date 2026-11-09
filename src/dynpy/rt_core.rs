@@ -1031,7 +1031,7 @@ pub type HM<KK, VV> = HashMap<KK, VV, BuildHasherDefault<IdH>>;
 
 pub struct Dict {
     pub ents: Vec<Option<(V, V)>>,
-    pub idx: HM<K, usize>,
+    pub idx: Rc<HM<K, usize>>,
     pub n: usize,
     // 0 dict, 1 defaultdict, 2 Counter, 3 OrderedDict
     pub kind: u8,
@@ -1040,7 +1040,7 @@ pub struct Dict {
 }
 impl Dict {
     pub fn new() -> Dict {
-        Dict { ents: vec![], idx: HM::default(), n: 0, kind: 0, dflt: None, ver: 0 }
+        Dict { ents: vec![], idx: Rc::new(HM::default()), n: 0, kind: 0, dflt: None, ver: 0 }
     }
     pub fn len(&self) -> usize {
         self.n
@@ -1060,7 +1060,7 @@ impl Dict {
     pub fn set(&mut self, k: V, v: V) -> Result<(), E> {
         // one probe, so a user __eq__ runs once per insert, as CPython's does
         let key = K { h: py_hash(&k)?, v: k.clone() };
-        match self.idx.entry(key) {
+        match Rc::make_mut(&mut self.idx).entry(key) {
             std::collections::hash_map::Entry::Occupied(e) => {
                 key_err()?;
                 self.ents[*e.get()].as_mut().unwrap().1 = v;
@@ -1078,7 +1078,7 @@ impl Dict {
     // `d.setdefault(k, v)`: one hash and one lookup, as CPython (a test counts the __hash__ and __eq__ calls)
     pub fn set_default(&mut self, k: V, v: V) -> Result<V, E> {
         let key = K { h: py_hash(&k)?, v: k.clone() };
-        match self.idx.entry(key) {
+        match Rc::make_mut(&mut self.idx).entry(key) {
             std::collections::hash_map::Entry::Occupied(e) => {
                 key_err()?;
                 Ok(self.ents[*e.get()].as_ref().unwrap().1.clone())
@@ -1095,7 +1095,7 @@ impl Dict {
     }
     pub fn del(&mut self, k: &V) -> Result<Option<V>, E> {
         let key = K { h: py_hash(k)?, v: k.clone() };
-        let removed = self.idx.remove(&key);
+        let removed = Rc::make_mut(&mut self.idx).remove(&key);
         key_err()?;
         match removed {
             Some(i) => {
@@ -1112,10 +1112,11 @@ impl Dict {
     }
     pub fn compact(&mut self) {
         let ents: Vec<Option<(V, V)>> = std::mem::take(&mut self.ents).into_iter().filter(|e| e.is_some()).collect();
-        self.idx.clear();
+        let idx = Rc::make_mut(&mut self.idx);
+        idx.clear();
         for (i, e) in ents.iter().enumerate() {
             let k = &e.as_ref().unwrap().0;
-            self.idx.insert(K { h: py_hash(k).unwrap_or(0), v: k.clone() }, i);
+            idx.insert(K { h: py_hash(k).unwrap_or(0), v: k.clone() }, i);
         }
         self.ents = ents;
     }
@@ -1130,7 +1131,7 @@ impl Dict {
     }
     pub fn clear(&mut self) {
         self.ents.clear();
-        self.idx.clear();
+        self.idx = Rc::new(HM::default());
         self.n = 0;
         self.ver += 1;
     }
@@ -1163,6 +1164,41 @@ impl Dict {
     // The i-th live entry from the start, skipping holes (for iteration by position).
     pub fn first_live(&self, from: usize) -> Option<usize> {
         (from..self.ents.len()).find(|&i| self.ents[i].is_some())
+    }
+}
+
+// Lookups on a dict held behind a RefCell. The index itself is an Rc snapshot, so the RefCell borrow is
+// released before a key __eq__ / __hash__ can run user code; `ver` detects a structural mutation done by
+// that code and restarts, as CPython's dict lookup does.
+pub fn dict_get(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
+    let key = K { h: py_hash(k)?, v: k.clone() };
+    loop {
+        let (idx, ver) = {
+            let b = d.borrow();
+            (Rc::clone(&b.idx), b.ver)
+        };
+        let i = idx.get(&key).copied();
+        key_err()?;
+        let b = d.borrow();
+        if b.ver == ver {
+            return Ok(i.map(|i| b.ents[i].as_ref().unwrap().1.clone()));
+        }
+    }
+}
+
+pub fn dict_contains(d: &Rc<RefCell<Dict>>, k: &V) -> Result<bool, E> {
+    let key = K { h: py_hash(k)?, v: k.clone() };
+    loop {
+        let (idx, ver) = {
+            let b = d.borrow();
+            (Rc::clone(&b.idx), b.ver)
+        };
+        let r = idx.contains_key(&key);
+        key_err()?;
+        let b = d.borrow();
+        if b.ver == ver {
+            return Ok(r);
+        }
     }
 }
 

@@ -1160,7 +1160,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             }
             false
         }
-        V::Dict(d) => d.borrow().contains(x)?,
+        V::Dict(d) => dict_contains(d, x)?,
         V::Set(s) => s.borrow().contains(x)?,
         V::FSet(s) => s.contains(x)?,
         V::Range(r) => match x {
@@ -1175,7 +1175,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::View(v) => match (&v.0, v.1) {
-            (V::Dict(d), 0) => d.borrow().contains(x)?,
+            (V::Dict(d), 0) => dict_contains(d, x)?,
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::Deque(d) => {
@@ -1313,7 +1313,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             return Ok(t[j].clone());
         }
         (V::Dict(d), _) => {
-            let got = d.borrow().get(i)?;
+            let got = dict_get(d, i)?;
             if let Some(v) = got {
                 return Ok(v);
             }
@@ -1395,7 +1395,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             if let Some(inn) = inner_of(c) {
                 // A dict subclass with `__missing__`: a missing key calls it (`class D(dict)`).
                 if let (V::Dict(d), Some(f)) = (&inn, o.cls.lookup("__missing__")) {
-                    let got = d.borrow().get(i)?;
+                    let got = dict_get(d, i)?;
                     return match got {
                         Some(v) => Ok(v),
                         None => call(&f, Args::p(vec![c.clone(), i.clone()])),
