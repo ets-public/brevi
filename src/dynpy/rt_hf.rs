@@ -95,7 +95,7 @@ impl Ext for HfEnc {
             "word_ids" => list(e.words.iter().map(|w| w.map_or(V::None, |w| V::Int(w as i64))).collect()),
             "sequence_ids" => list(e.sequence_ids().into_iter().map(hf_opt).collect()),
             "n_sequences" => V::Int(e.n_sequences() as i64),
-            "overflowing" => list(e.overflowing.iter().map(|o| V::Ext(Rc::new(HfEnc(o.clone())))).collect()),
+            "overflowing" => list(e.overflowing.iter().map(|o| V::Ext(ExtRc::new(HfEnc(o.clone())))).collect()),
             // deprecated (a DeprecationWarning), and the methods that change an Encoding
             "words" | "pad" | "truncate" | "set_sequence_id" | "merge" => return Some(Err(unsupported(&format!("tokenizers Encoding.{n}")))),
             _ => return None,
@@ -139,7 +139,7 @@ impl Ext for HfEnc {
     }
 }
 
-fn hf_core_of(v: &V) -> Result<Rc<dyn Ext>, E> {
+fn hf_core_of(v: &V) -> Result<ExtRc, E> {
     match v {
         V::Ext(x) if x.any().downcast_ref::<HfCore>().is_some() => Ok(x.clone()),
         _ => type_err("expected a Tokenizer".into()),
@@ -188,11 +188,11 @@ fn hf_batch_item(v: &V, pretok: bool) -> Result<(HInput, Option<HInput>), E> {
 }
 
 fn hf_enc(e: HEnc) -> V {
-    V::Ext(Rc::new(HfEnc(e)))
+    V::Ext(ExtRc::new(HfEnc(e)))
 }
 
 fn hf_new(t: HTokenizer) -> V {
-    V::Ext(Rc::new(HfCore(RefCell::new(t))))
+    V::Ext(ExtRc::new(HfCore(RefCell::new(t))))
 }
 
 pub fn brevi_hf_fn(n: &str, a: Args) -> R {

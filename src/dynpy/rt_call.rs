@@ -34,8 +34,61 @@ pub fn call(f: &V, a: Args) -> R {
 pub fn call0(f: &V) -> R {
     call(f, Args::p(vec![]))
 }
+#[inline]
 pub fn call1(f: &V, x: V) -> R {
+    if let V::Func(g) = f {
+        if let FastFn::F1(h) = g.fast.get() {
+            return h(x);
+        }
+    }
     call(f, Args::p(vec![x]))
+}
+#[inline]
+pub fn call2(f: &V, x: V, y: V) -> R {
+    if let V::Func(g) = f {
+        if let FastFn::F2(h) = g.fast.get() {
+            return h(x, y);
+        }
+    }
+    call(f, Args::p(vec![x, y]))
+}
+#[inline]
+pub fn call3(f: &V, x: V, y: V, z: V) -> R {
+    if let V::Func(g) = f {
+        if let FastFn::F3(h) = g.fast.get() {
+            return h(x, y, z);
+        }
+    }
+    call(f, Args::p(vec![x, y, z]))
+}
+// f(me, *a.p): a method called on an instance
+#[inline]
+pub fn call_self(f: &V, me: V, mut a: Args) -> R {
+    if let V::Func(g) = f {
+        if a.k.is_empty() {
+            match (g.fast.get(), a.p.len()) {
+                (FastFn::F1(h), 0) => return h(me),
+                (FastFn::F2(h), 1) => return h(me, a.p.pop().unwrap()),
+                (FastFn::F3(h), 2) => {
+                    let y = a.p.pop().unwrap();
+                    let x = a.p.pop().unwrap();
+                    return h(me, x, y);
+                }
+                (FastFn::F4(h), 3) => {
+                    let z = a.p.pop().unwrap();
+                    let y = a.p.pop().unwrap();
+                    let x = a.p.pop().unwrap();
+                    return h(me, x, y, z);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut p = Vec::with_capacity(a.p.len() + 1);
+    p.push(me);
+    p.append(&mut a.p);
+    a.p = p;
+    call(f, a)
 }
 
 // Binds call arguments to a def's parameters: (names, number of positional-or-keyword params,
@@ -271,11 +324,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         let me = V::Obj(Obj::new(c.clone()));
         match c.lookup("__init__") {
             Some(init) if !is_builtin_init(&init) => {
-                let mut p = Vec::with_capacity(a.p.len() + 1);
-                p.push(me.clone());
-                p.append(&mut a.p);
-                a.p = p;
-                let r = call(&init, a)?;
+                let r = call_self(&init, me.clone(), a)?;
                 if !matches!(r, V::None) {
                     return type_err(format!("__init__() should return None, not '{}'", tn(&r)));
                 }
@@ -360,7 +409,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             Some(r) => r?,
             None => V::None,
         };
-        *o.inner.borrow_mut() = Some(inner);
+        o.set_inner(Some(inner));
     }
     if let Some(init) = c.lookup("__init__") {
         if !is_builtin_init(&init) {
@@ -447,14 +496,14 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                     Ok(V::None)
                 }));
             }
-            if o.inner.borrow().is_some() {
+            if o.has_inner() {
                 let me2 = me.clone();
                 return Ok(builtin("__init__", move |mut a: Args| {
                     if let V::Obj(o) = &me2 {
                         let bb = o.cls.base_bt();
                         let base = builtin_of_bt(bb);
                         if let Some(r) = builtin_type_call(&base, &mut a) {
-                            *o.inner.borrow_mut() = Some(r?);
+                            o.set_inner(Some(r?));
                         }
                     }
                     Ok(V::None)
@@ -480,7 +529,7 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                     }));
                 }
                 // str.__repr__(self) / super().__str__() on a subclass of a builtin: the builtin value's text
-                if let Some(i) = o.inner.borrow().clone() {
+                if let Some(i) = o.inner() {
                     return Ok(st(if rep { repr(&i)? } else { to_str(&i)? }));
                 }
                 return Ok(st(format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.name, Rc::as_ptr(o) as *const u8 as usize)));
@@ -550,11 +599,9 @@ fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
 pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
     if let V::Obj(ob) = o {
         let d = ob.d.borrow();
-        if let Some((k, v)) = d.get(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-            // the same name's text can sit at another address in another part of the program
-            if k.len() == name.len() && (k.as_ptr() == name.as_ptr() || k.as_bytes() == name.as_bytes()) {
-                return Ok(v.clone());
-            }
+        // the same name's text can sit at another address in another part of the program
+        if let Some(v) = d.at_named(ic.load(std::sync::atomic::Ordering::Relaxed), name) {
+            return Ok(v.clone());
         }
     }
     getattr_ic_slow(o, name, ic)
@@ -576,10 +623,19 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
     if let V::Obj(ob) = o {
         if ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
-            if let Some(e) = d.get_mut(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-                if e.0.len() == name.len() && (e.0.as_ptr() == name.as_ptr() || e.0.as_bytes() == name.as_bytes()) {
-                    e.1 = v;
-                    return Ok(());
+            let i = ic.load(std::sync::atomic::Ordering::Relaxed);
+            if let Some(e) = d.at_named_mut(i, name) {
+                *e = v;
+                return Ok(());
+            }
+            // a new attribute (as in __init__): the layout already has a child for this name, so it is not set yet
+            if i == d.len() {
+                match d.push_known(name, v) {
+                    Ok(()) => return Ok(()),
+                    Err(v) => {
+                        drop(d);
+                        return setattr_ic_slow(o, name, v, ic);
+                    }
                 }
             }
         }
@@ -593,7 +649,7 @@ fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) 
             let mut d = ob.d.borrow_mut();
             let i = match d.find(name) {
                 Some(i) => {
-                    d.get_mut(i).unwrap().1 = v;
+                    *d.get_mut(i).unwrap().1 = v;
                     i
                 }
                 None => {
@@ -808,7 +864,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             c.set(name, v);
             Ok(())
         }
-        V::Module("decimal.context") => decimal_context_set(name, &v),
+        V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
@@ -851,6 +907,21 @@ pub fn hasattr(o: &V, name: &str) -> Result<bool, E> {
 }
 
 // obj.name(args): methods of builtin types run directly; objects look the method up.
+// o.name(x): the commonest calls on builtin containers without building Args
+#[inline]
+pub fn call_method1(o: &V, name: &str, x: V) -> R {
+    match o {
+        V::List(l) if name == "append" => {
+            l.borrow_mut().push(x);
+            Ok(V::None)
+        }
+        V::Set(st) if name == "add" => {
+            st.borrow_mut().add(x)?;
+            Ok(V::None)
+        }
+        _ => call_method(o, name, Args::p(vec![x])),
+    }
+}
 pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
     // the commonest calls on builtin containers, before the general dispatch
     if a.p.len() == 1 && a.k.is_empty() {
@@ -880,14 +951,7 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                             prepend(&mut a.p, V::Class(ob.cls.clone()));
                             call(&v, a)
                         }
-                        _ => {
-                            let mut a = a;
-                            let mut p = Vec::with_capacity(a.p.len() + 1);
-                            p.push(o.clone());
-                            p.append(&mut a.p);
-                            a.p = p;
-                            (f.f)(a)
-                        }
+                        _ => call_self(&v, o.clone(), a),
                     },
                     V::Prop(p) => call(&call(&p.0, Args::p(vec![o.clone()]))?, a),
                     _ => call(&v, a),

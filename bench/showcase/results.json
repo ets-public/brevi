@@ -94,6 +94,25 @@
    "speedup": 5.512221648809554,
    "binary_mb": 6.2,
    "needs_python": false
+  },
+  {
+   "name": "microgpt",
+   "title": "microgpt, a GPT trained for 1000 steps and sampled",
+   "metric": "training and sampling finished",
+   "runs": 3,
+   "same_output": true,
+   "brevi": {
+    "first_s": 93.27650171500136,
+    "total_s": 93.27650171500136
+   },
+   "cpython": {
+    "first_s": 150.4702334249996,
+    "total_s": 150.4702334249996
+   },
+   "speedup": 1.6131633440193647,
+   "binary_mb": 6.8,
+   "needs_python": false,
+   "measured": "2026-11-09, Brevi main after 0.26.0 (object memory redesign)"
   }
  ]
 }

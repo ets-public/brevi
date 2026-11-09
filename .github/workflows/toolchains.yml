@@ -187,6 +187,12 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tests/mcp_test.py && python3 tests/mcp_http_test.py
 
+      - name: Python SDK and brevi-python
+        if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          BREVI: ./target/release/brevi
+        run: python3 tests/sdk_test.py
+
       - name: Core guide stays under its token budget
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/guide_budget.py

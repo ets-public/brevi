@@ -153,7 +153,7 @@ impl Drop for PyV {
 }
 
 fn pyv(p: P, live: bool) -> V {
-    V::Ext(Rc::new(PyV { p, live, tn: Cell::new(None) }))
+    V::Ext(ExtRc::new(PyV { p, live, tn: Cell::new(None) }))
 }
 fn pyv_of(v: &V) -> Option<&PyV> {
     match v {
@@ -717,13 +717,13 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
         }
         V::Ellipsis => pyd_builtins_attr("Ellipsis")?,
         V::NotImpl => pyd_builtins_attr("NotImplemented")?,
-        V::Module(m) => match *m {
+        V::Module(m) => match m.0 {
             "sys.stdout" | "sys.stderr" | "sys.stdin" => {
                 out_flush();
                 pyd_own((a.GetAttr)(pyd_own((a.Import)(c"sys".as_ptr()))?, CString::new(&m[4..]).unwrap().as_ptr()))?
             }
             _ => {
-                let c = CString::new(*m).unwrap();
+                let c = CString::new(m.0).unwrap();
                 pyd_own((a.Import)(c.as_ptr()))?
             }
         },

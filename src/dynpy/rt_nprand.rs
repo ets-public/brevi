@@ -729,12 +729,12 @@ pub fn np_random_call(n: &str, a: &mut Args) -> R {
                     np_seed_words(&v)?
                 }
             };
-            Ok(V::Ext(Rc::new(NpRng { bg: RefCell::new(Bg::P(np_pcg_from(&ent))), legacy: false })))
+            Ok(V::Ext(ExtRc::new(NpRng { bg: RefCell::new(Bg::P(np_pcg_from(&ent))), legacy: false })))
         }
         "RandomState" => {
             let r = NpRng { bg: RefCell::new(Bg::M(Box::new(Mt19937::new(0)))), legacy: true };
             np_rng_call(&r, "seed", a)?;
-            Ok(V::Ext(Rc::new(r)))
+            Ok(V::Ext(ExtRc::new(r)))
         }
         _ => {
             let g = np_legacy();

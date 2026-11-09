@@ -12,8 +12,9 @@ Each showcase is an ordinary Python program, run two ways: built with `brevi bui
 | [Token count, one file](#token-counting) | Count of one file printed | **27 ms** | 371 ms | **14x** | yes | 11.3 MB | no |
 | [Token count, a source tree](#token-counting) | 1.8M tokens of Brevi's source counted | **321 ms** | 735 ms | **2.3x** | yes | 11.3 MB | no |
 | [micrograd](#micrograd) (Karpathy's, unchanged) | An MLP trained for 30 steps | **5.5 s** | 30.3 s | **5.5x** | yes | 6.2 MB | no |
+| [microgpt](#microgpt) (Karpathy's, unchanged) | A GPT trained for 1000 steps, then 20 names sampled | **93 s** | 150 s | **1.6x** | yes | 6.8 MB | no |
 
-Measured 8 November 2026 with Brevi from `main` just before 0.26.0 on Linux x86_64 with 4 cores. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
+Measured 8 November 2026 with Brevi from `main` just before 0.26.0 on Linux x86_64 with 4 cores. microgpt was measured on 9 November 2026 with Brevi from `main` after 0.26.0 (it ships in the next release), as the median of 3 runs. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
 
 <!-- showcases:end -->
 
@@ -67,8 +68,12 @@ brevi build micrograd_train.py --release -o train
 ./train
 ```
 
-## Next showcases
+## microgpt
 
-These are being made to build natively now. Each gets a row in the table above once its output matches CPython:
+[microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95) is Andrej Karpathy's GPT in one file of pure, dependency-free Python: a scalar autograd engine with one `Value` object per number, a GPT with attention and an MLP block, Adam, and sampling. It trains for 1000 steps on 32,000 names and then makes up 20 new ones. Every training step builds a new graph of thousands of small objects and walks it backwards, which is the worst case for a compiler that keeps Python's objects. Brevi builds the file as published, with no edits, into a 6.8 MB binary that runs the whole thing in 93 s, where CPython takes 150 s, and prints the same losses and the same names. This row comes from the next release, which changes how a built program keeps its objects in memory: blocks from pages of one size, attribute names shared between instances, and values two words wide.
 
-- **Karpathy's [microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95)**: a GPT trained and sampled in pure Python. It builds natively, and the speed work to make it beat CPython is under way.
+```bash
+curl -sO https://gist.githubusercontent.com/karpathy/8627fe009c40f57531cb18360106ce95/raw/microgpt.py
+brevi build microgpt.py --release -o microgpt
+./microgpt
+```

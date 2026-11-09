@@ -112,6 +112,27 @@ pub fn cget_own(c: &Rc<RefCell<V>>, name: &str) -> R {
         V::Unbound => Err(exc("UnboundLocalError", format!("cannot access local variable '{name}' where it is not associated with a value"))),
         v => Ok(v.clone()),
     }
+// a free variable that only its own function assigns, read from a function nested in it: as cget, or borrowed in
+// place (cgsr) where the value is only borrowed. Nothing assigns the cell while the nested function runs.
+#[inline]
+pub fn cgs(c: &Rc<RefCell<V>>, name: &str) -> R {
+    cget(c, name)
+}
+#[inline]
+pub fn cgsr<'a>(c: &'a Rc<RefCell<V>>, name: &str) -> Result<std::cell::Ref<'a, V>, E> {
+    let r = c.borrow();
+    if matches!(&*r, V::Unbound) {
+        return Err(exc("NameError", format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope")));
+    }
+    Ok(r)
+}
+// a free variable's cell holds a value (before a direct call of the nested def it names)
+#[inline]
+pub fn cbound(c: &Rc<RefCell<V>>, name: &str) -> Result<(), E> {
+    if matches!(&*c.borrow(), V::Unbound) {
+        return Err(exc("NameError", format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope")));
+    }
+    Ok(())
 }
 #[inline]
 pub fn cset(c: &Rc<RefCell<V>>, v: V) {
