@@ -123,15 +123,15 @@ thread_local! {
     static AX_POOL: AxPool = const { AxPool::new() };
 }
 // while a thread is torn down (its pool gone), small blocks come from this shared pool, under a lock
-struct AxShared(std::sync::atomic::AtomicBool, AxPool);
-unsafe impl Sync for AxShared {}
-static AX_SHARED: AxShared = AxShared(std::sync::atomic::AtomicBool::new(false), AxPool::new());
-fn ax_shared<T>(f: impl FnOnce(&AxPool) -> T) -> T {
-    while AX_SHARED.0.compare_exchange_weak(false, true, std::sync::atomic::Ordering::Acquire, std::sync::atomic::Ordering::Relaxed).is_err() {
+struct AxPoolShared(std::sync::atomic::AtomicBool, AxPool);
+unsafe impl Sync for AxPoolShared {}
+static AX_POOL_SHARED: AxPoolShared = AxPoolShared(std::sync::atomic::AtomicBool::new(false), AxPool::new());
+fn ax_pool_shared<T>(f: impl FnOnce(&AxPool) -> T) -> T {
+    while AX_POOL_SHARED.0.compare_exchange_weak(false, true, std::sync::atomic::Ordering::Acquire, std::sync::atomic::Ordering::Relaxed).is_err() {
         std::hint::spin_loop();
     }
-    let r = f(&AX_SHARED.1);
-    AX_SHARED.0.store(false, std::sync::atomic::Ordering::Release);
+    let r = f(&AX_POOL_SHARED.1);
+    AX_POOL_SHARED.0.store(false, std::sync::atomic::Ordering::Release);
     r
 }
 #[inline(always)]
@@ -147,7 +147,7 @@ unsafe impl std::alloc::GlobalAlloc for AxAlloc {
         let c = (l.size() + 15) >> 4;
         match AX_POOL.try_with(|pool| pool.alloc(c)) {
             Ok(p) => p,
-            Err(_) => ax_shared(|pool| pool.alloc(c)),
+            Err(_) => ax_pool_shared(|pool| pool.alloc(c)),
         }
     }
     #[inline]
@@ -158,7 +158,7 @@ unsafe impl std::alloc::GlobalAlloc for AxAlloc {
         }
         let c = (l.size() + 15) >> 4;
         if AX_POOL.try_with(|pool| pool.free(p, c)).is_err() {
-            ax_shared(|pool| pool.free(p, c));
+            ax_pool_shared(|pool| pool.free(p, c));
         }
     }
     #[inline]
