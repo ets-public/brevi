@@ -100,7 +100,7 @@ Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a
 $ brevi verify main.py --input tests/ -- --verbose
 {"case":1,"input":"tests/1.in","same":true,"cpython_ms":38,"brevi_ms":2}
 {"case":2,"input":"tests/2.in","same":true,"cpython_ms":41,"brevi_ms":2}
-{"verify":"identical","file":"main.py","sha256":"15532f5a...","brevi":"0.25.0","python":"3.13.13","path":"typed","inputs":[{"input":"tests/1.in","sha256":"7de1555d..."},{"input":"tests/2.in","sha256":"10159baf..."}],"args":["--verbose"],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":0,"timeout":0,"limit":0,"cpython_ms":79,"brevi_ms":4,"speedup":19.8}
+{"verify":"identical","file":"main.py","sha256":"15532f5a...","brevi":"0.26.0","python":"3.13.13","path":"typed","inputs":[{"input":"tests/1.in","sha256":"7de1555d..."},{"input":"tests/2.in","sha256":"10159baf..."}],"args":["--verbose"],"compared":"stdout, exit code and stderr, CPython run twice","differ":0,"unstable":0,"timeout":0,"limit":0,"cpython_ms":79,"brevi_ms":4,"speedup":19.8}
 ```
 
 - `--input PATH` feeds a file to stdin, one run per `--input`; a folder gives one run per file in it (only its `*.in` files when it has any). With no input the program runs once with empty stdin. Arguments after `--` go to both.

@@ -103,7 +103,7 @@ All commands live in `src/main.rs`.
 | `brevi patch FILE PATCH` | Replace whole functions/types by name (`src/patch.rs`). |
 | `brevi guide [SECTION]` | Print the language guide or one section. |
 | `brevi verify` | Native build against CPython on the same inputs, with a certificate (`src/verify.rs`). |
-| `brevi mcp` | MCP server over stdin/stdout (`src/mcp.rs`): guide, check, run, test, verify, patch, edit, show. |
+| `brevi mcp` | MCP server over stdin/stdout (`src/mcp.rs`): guide, check, run, test, verify, patch, edit, show. `brevi mcp --http [HOST:]PORT` serves the same tools over Streamable HTTP (`src/mcp_http.rs`), with a bearer token off 127.0.0.1 and an Origin check. |
 
 Flags: `--release` (opt-level 3), `--sandbox` (only what the caller grants with `--allow read,write,net,native` / `--allow-net HOSTS` / `--allow-read DIRS` / `--allow-write DIRS` / `--allow-py MODULES`; the file's allow lines grant nothing), `--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N` (resource limits on the program run: kernel rlimits set before it starts, wall-clock time, output, threads and bytes written held by `proc::run`, files and network bytes counted in the program by `fsscope.rs`; see [THREAT_MODEL.md](THREAT_MODEL.md)), `--window` (real tkinter windows via egui), `--explain`, `--native`.
 
@@ -298,6 +298,7 @@ For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as 
 | `diag.rs` | The JSON error format: `{"line":..,"msg":..,"fix":..}`, plus machine-applicable edits used by autofix and `brevi fix`. |
 | `patch.rs` | `brevi patch`: edit by whole items, so a retry costs only the change. |
 | `mcp.rs` | `brevi mcp`: keeps the program in the server so tools can send only changes. |
+| `mcp_http.rs` | `brevi mcp --http`: each POST one JSON-RPC message, passed to a `brevi mcp` child over stdio, with the token, Origin and body-size checks. |
 | `json.rs` | Minimal JSON reader for rustc's error output. |
 | `grammar/` | A Lark grammar of Brevi for constrained decoding; CI parses every test program with it. |
 

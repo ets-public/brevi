@@ -13,7 +13,7 @@ Each showcase is an ordinary Python program, run two ways: built with `brevi bui
 | [Token count, a source tree](#token-counting) | 1.8M tokens of Brevi's source counted | **321 ms** | 735 ms | **2.3x** | yes | 11.3 MB | no |
 | [micrograd](#micrograd) (Karpathy's, unchanged) | An MLP trained for 30 steps | **5.5 s** | 30.3 s | **5.5x** | yes | 6.2 MB | no |
 
-Measured 8 November 2026 with Brevi 0.25.0 (main) on Linux x86_64 with 4 cores. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
+Measured 8 November 2026 with Brevi from `main` just before 0.26.0 on Linux x86_64 with 4 cores. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
 
 <!-- showcases:end -->
 
