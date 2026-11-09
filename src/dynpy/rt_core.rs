@@ -1327,6 +1327,13 @@ impl Dict {
     pub fn keys(&self) -> Vec<V> {
         self.ents.iter().flatten().map(|(k, _)| k.clone()).collect()
     }
+    // The live keys in insertion order, with the hashes the dict already computed.
+    pub fn keys_h(&self) -> Vec<(V, i64)> {
+        let mut kv: Vec<(usize, (V, i64))> =
+            self.idx.iter().map(|(k, &i)| (i, (k.v.clone(), k.h))).collect();
+        kv.sort_by_key(|&(i, _)| i);
+        kv.into_iter().map(|(_, kv)| kv).collect()
+    }
     pub fn values(&self) -> Vec<V> {
         self.ents.iter().flatten().map(|(_, v)| v.clone()).collect()
     }
@@ -1579,6 +1586,21 @@ impl PSet {
             p.add(x)?;
         }
         Ok(p)
+    }
+    // CPython's set_update_dict: one resize up front, then the dict's own
+    // hashes are reused, so the table order matches even for colliding keys.
+    pub fn update_dict(&mut self, d: &Dict) {
+        if (self.fill + d.n) * 5 >= self.mask() * 3 {
+            self.resize((self.used + d.n) * 2);
+        }
+        for (k, h) in d.keys_h() {
+            self.add_h(k, h);
+        }
+    }
+    pub fn from_dict(d: &Dict) -> PSet {
+        let mut p = PSet::new();
+        p.update_dict(d);
+        p
     }
 }
 

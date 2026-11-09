@@ -715,7 +715,34 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
             return Ok(if matches!(a, V::FSet(_)) { V::FSet(Rc::new(r)) } else { V::Set(Rc::new(RefCell::new(r))) });
         }
-        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && matches!(op, "|" | "&" | "-" | "^") => {
+        // CPython's dictviews_or: build the left side into an empty set, then
+        // update it with the right side. The left side is built by iterating
+        // (a set's table is copied, a plain dict's keys reuse its stored
+        // hashes); the right side is merged table-wise only when it is a real
+        // set, with the same fast path for a plain dict. Materialising a view
+        // into a table first and bulk-merging it gives the wrong iteration
+        // order, e.g. {1:1, 2:2}.items() | {1:1, 2:2, 3:3}.items().
+        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && op == "|" => {
+            let mut r = match a {
+                V::Set(_) | V::FSet(_) => set_of(a).unwrap().copy(),
+                V::View(v) if v.1 == 0 => match &v.0 {
+                    V::Dict(d) if d.borrow().kind == 0 => PSet::from_dict(&d.borrow()),
+                    _ => PSet::from_iter(to_vec(a)?)?,
+                },
+                _ => PSet::from_iter(to_vec(a)?)?,
+            };
+            match b {
+                V::Set(_) | V::FSet(_) => r.merge(&set_of(b).unwrap()),
+                V::Dict(d) if d.borrow().kind == 0 => r.update_dict(&d.borrow()),
+                _ => {
+                    for k in to_vec(b)? {
+                        r.add(k)?;
+                    }
+                }
+            }
+            return Ok(V::Set(Rc::new(RefCell::new(r))));
+        }
+        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && matches!(op, "&" | "-" | "^") => {
             let to_set = |v: &V| -> Result<PSet, E> {
                 match v {
                     V::Set(_) | V::FSet(_) => Ok(set_of(v).unwrap()),
