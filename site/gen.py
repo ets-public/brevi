@@ -488,7 +488,7 @@ def fill(t, version, guide_tokens, public, cssv):
     t = blocks_for(t, public)
     return (t.replace("__STATUS__", status_line(public)).replace("__FULLVERSION__", FULLVERSION or version).replace("__VERSION__", version)
              .replace("__GUIDE_TOKENS__", guide_tokens).replace("__CSSV__", cssv)
-             .replace("__GITHUB__", GITHUB))
+             .replace("__GITHUB__", GITHUB).replace("__GHICON__", GH_ICON))
 
 
 def page_source(src, public):
