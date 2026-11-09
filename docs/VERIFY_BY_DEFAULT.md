@@ -1,6 +1,7 @@
 # Design: verify by default
 
-Status: design, 9 November 2026 (ROADMAP.md, WS1). Builds on `brevi verify` and the MCP `verify` tool, which exist
+Status: built 9 November 2026 (PR #283, ships in v0.27.0): `brevi run --verify`, `brevi report`, the MCP `run`
+default and the cases rule as below; the release test logs `verify_differs` per pyb task (`bench/e2e.py`). Design: 9 November 2026 (ROADMAP.md, WS1). Builds on `brevi verify` and the MCP `verify` tool, which exist
 since v0.26.0 (`src/verify.rs`).
 
 ## The problem
