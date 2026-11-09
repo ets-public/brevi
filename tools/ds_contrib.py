@@ -41,6 +41,8 @@ Rules:
 - If the right fix is to refuse the program (compile error) instead of running it wrongly, that is acceptable.
 - If you cannot find a correct fix, say so in `finish` with ok=false and what you learned. A wrong fix is worse
   than none.
+- You have a limited number of tool calls (the harness tells you when few are left). Read what you need, then
+  edit: a first edit by about your 20th call is a good pace. Do not re-read files you have already seen.
 - When done, call `finish` with a short summary: the root cause, the fix, and what you tested."""
 
 TOOLS = [
@@ -197,8 +199,9 @@ def run_tool(name, a, task):
     raise ValueError("unknown tool " + name)
 
 
-def chat(model, messages, tools):
-    body = json.dumps({"model": model, "messages": messages, "tools": tools, "max_tokens": 32000}).encode()
+def chat(model, messages, tools, effort="max"):
+    body = json.dumps({"model": model, "messages": messages, "tools": tools, "max_tokens": 32000,
+                       "reasoning_effort": effort}).encode()
     for attempt in range(5):
         req = urllib.request.Request(BASE_URL + "/chat/completions", data=body, headers={
             "Content-Type": "application/json", "Authorization": "Bearer " + os.environ["DEEPSEEK_API_KEY"]})
@@ -231,8 +234,9 @@ def main():
     ap.add_argument("test_id", nargs="?")
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--model", default="deepseek-v4-pro", choices=sorted(PRICES))
+    ap.add_argument("--effort", default="max", choices=["low", "high", "max"], help="DeepSeek reasoning effort (default %(default)s)")
     ap.add_argument("--budget", type=float, default=1.50, help="stop at this many dollars (default %(default)s)")
-    ap.add_argument("--steps", type=int, default=60, help="most model calls (default %(default)s)")
+    ap.add_argument("--steps", type=int, default=150, help="most model calls (default %(default)s)")
     ap.add_argument("--python", default=os.environ.get("CONFORMANCE_PYTHON", "python3.13"))
     ap.add_argument("--branch", help="commit a successful fix on this new branch (default: no commit)")
     ap.add_argument("--log", type=Path)
@@ -263,7 +267,7 @@ def main():
     for step in range(a.steps):
         if spent >= a.budget:
             print(f"[ds] budget ${a.budget:.2f} reached", flush=True); break
-        resp = chat(a.model, messages, tools)
+        resp = chat(a.model, messages, tools, a.effort)
         u = resp.get("usage", {})
         spent += cost(a.model, u)
         m = resp["choices"][0]["message"]
@@ -296,6 +300,9 @@ def main():
             print(f"[ds] step {step} ${spent:.3f} {name} {short}", flush=True)
             note(event="tool", name=name, args=args, result=out[:4000])
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": out})
+        left = a.steps - step - 1
+        if left in (20, 8, 3) and not finished:
+            messages.append({"role": "user", "content": f"Note: {left} model calls left. Finish your edit, build, check_test, then call finish."})
         if finished:
             break
     print(f"[ds] done after ${spent:.3f}; rebuilding and checking", flush=True)
