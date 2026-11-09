@@ -181,7 +181,8 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         env:
           BREVI: ./target/release/brevi
-        run: sh tests/check.sh
+        # check.sh in parallel, one job per CPU (the same checks, the same report)
+        run: python3 tests/check_parallel.py
 
       - name: MCP server tests
         if: steps.seen.outputs.cache-hit != 'true'
