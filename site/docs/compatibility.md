@@ -258,7 +258,7 @@ Limits today:
 - The built program needs `python3` with its shared library (`libpython`) on the machine where it runs, unless built with `--standalone`, which carries CPython and the imported packages in the binary (Linux only).
 - A library program the typed build rejects goes to the dynamic build, which calls the library through CPython the same way and keeps the rest native (from v0.24.6). Classes built on a library's classes (`class Post(BaseModel)`) run in CPython as a whole. Such a class falls back to CPython for the whole file if it sits inside a function, uses a name of the program that is not an import, or is subclassed in another file. The path line lists what CPython runs (`"py":[...]`).
 - `async` code next to such a library keeps the dynamic build and Brevi's own event loop (from v0.26.0), unless a coroutine could cross between the two: a coroutine function or lambda handed to the library, an async method on a subclass of one of its classes, an `async def` it decorates, or something it made being awaited or handed to asyncio (an async library such as `aiohttp`). Those programs run in CPython.
-- On Windows, library calls run in CPython through the bridge too (the `python` on PATH must have its DLL); generators and `async` do not build natively there yet, and `--standalone` is Linux only.
+- On Windows, library calls run in CPython through the bridge too (the `python` on PATH must have its DLL), and generators and `async` build there too (Win32 fibers); `--standalone` is Linux only.
 - In typed builds, a `with` block on a library object does not pass exception details to its `__exit__`, and named functions cannot yet be passed as callbacks to a library (lambdas can). Dynamic builds do both.
 
 ## Integers

@@ -875,8 +875,8 @@ fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
     }
     out
 }
-// Generators switch stacks with a few lines of assembly (rt_gen.rs), written for these targets.
-const GEN_OK: bool = cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(windows)));
+// Generators switch stacks with a few lines of assembly (rt_gen.rs), or with a Windows fiber, for these targets.
+const GEN_OK: bool = cfg!(any(target_arch = "x86_64", target_arch = "aarch64"));
 
 // The line of a yield inside a try that has a finally, or inside a with block.
 fn yield_in_cleanup(body: &[Stmt], inside: bool) -> Option<usize> {

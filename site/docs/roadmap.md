@@ -46,7 +46,7 @@ The north star is the share of real agent-written programs that build natively, 
 ## Later (to 1.0)
 
 - **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once the platform's VM or microVM isolation and an outside security review are in place.
-- **Windows parity.** Library programs now build on Windows, typed and dynamic, with their library calls running in CPython through the bridge; generators and `async` on Windows, and `--standalone` on Windows and macOS, are next.
+- **Windows parity.** Library programs, generators and `async` now build on Windows (CPython bridge and Win32 fibers); `--standalone` on Windows and macOS is next.
 - **1.0** when conformance reaches 90% with no known wrong results, the typed path covers 90% of agent programs, `brevi check` answers in 30 ms, an outside security review is done, and three harnesses ship Brevi. Until then Brevi stays 0.x.
 
 ## Paused until 1.0

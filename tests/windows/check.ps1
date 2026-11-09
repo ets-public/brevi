@@ -44,6 +44,8 @@ function Check-Limit([string]$name, [string]$limit, [string]$on) {
 Check-Verify "plain.py"
 Check-Verify "bridge_yaml.py"
 Check-Verify "bridge_yaml_dynamic.py"
+Check-Verify "generator.py"
+Check-Verify "async.py"
 Check-Run "plain.py"
 Check-Run "bridge_yaml.py"
 
