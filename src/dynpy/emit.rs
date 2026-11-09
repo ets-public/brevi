@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 47] = ["_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 49] = ["_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -232,6 +232,8 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "tzlocal" => &["get_localzone_name", "get_localzone"],
         "importlib.metadata" => &["version", "PackageNotFoundError"],
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
+        "gc" => &["collect"],
+        "weakref" => &["ref"],
         _ => return false,
     };
     names.contains(&n)

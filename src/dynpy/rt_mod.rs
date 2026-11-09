@@ -1378,6 +1378,8 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "typing" | "typing_extensions" => typing_call(n, a),
         "dataclasses" => dataclass_fn(n, a),
         "abc" => Ok(a.p.first().cloned().unwrap_or(V::None)),
+        "gc" => gc_fn(n, a),
+        "weakref" => weakref_fn(n, a),
         _ => ext_module_call(m, n, a),
     }
 }
