@@ -8,9 +8,8 @@
 - Docs pages come from site/docs/*.md, plus four pages made straight from the repo's own files
   (docs/ARCHITECTURE.md, BREVI.md, REFERENCE.md, LIBRARIES.md), so they cannot drift from it. Each page is
   written as OUT/docs/NAME.html and, for agents, as OUT/docs/NAME.md.
-- `<!--public-->...<!--/public-->` is kept only once the GitHub repo is public (PUBLIC=1) and
-  `<!--private-->...<!--/private-->` only before. Links written `repo:PATH` point at the file on GitHub when
-  public and become plain text before, since a private repo's links 404 for visitors.
+- The repo is public and the site is always built that way: `<!--public-->` markers are just stripped and
+  `repo:PATH` links point at the file on GitHub. Do not add `<!--private-->` blocks; there is no private build.
 - Mermaid diagrams are drawn ahead of time into site/docs/img/mmd-HASH.svg by `node site/tools/diagrams.mjs`
   (needs playwright and mermaid); a diagram without its SVG is shown as its source, with a warning.
 """
@@ -640,5 +639,6 @@ def build(out, out_run, version, guide_tokens, public):
 if __name__ == "__main__":
     out, out_run, version, guide_tokens, public = sys.argv[1:6]
     FULLVERSION = sys.argv[6] if len(sys.argv) > 6 else ""
-    slugs = build(out, out_run, version, guide_tokens, public == "1")
+    # Always public: there is no private build any more (the PUBLIC argument is kept for compatibility).
+    slugs = build(out, out_run, version, guide_tokens, True)
     print("docs pages:", " ".join(slugs))

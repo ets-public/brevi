@@ -18,13 +18,6 @@ Brevi turns programs into Rust and calls `rustc` to build them, so it needs the 
 curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
 ```
 <!--/public-->
-<!--private-->
-From a clone of the repository (it is private until the public release):
-
-```
-sh install.sh
-```
-<!--/private-->
 
 The script:
 
