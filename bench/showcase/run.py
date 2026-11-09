@@ -173,10 +173,21 @@ def main():
     finally:
         shutil.rmtree(work, ignore_errors=True)
     brevi_v = subprocess.run([BREVI, "--version"], capture_output=True, text=True).stdout.strip()
+    commit = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or None
+    cpu = None
+    try:
+        for line in open("/proc/cpuinfo"):
+            if line.startswith("model name"):
+                cpu = line.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
     order = [s["name"] for s in SHOWCASES]
     out = {
         "date": time.strftime("%Y-%m-%d"), "brevi": brevi_v, "python": platform.python_version(),
         "machine": "%s %s, %d cores" % (platform.system(), platform.machine(), os.cpu_count() or 0),
+        # the commit the Brevi binary was built from and the CPU, so a reader can place the numbers
+        "commit": commit, "cpu": cpu or platform.processor() or None,
         "showcases": sorted(keep.values(), key=lambda s: order.index(s["name"]) if s["name"] in order else 99),
     }
     json.dump(out, open(path, "w"), indent=1)
