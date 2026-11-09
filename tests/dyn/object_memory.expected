@@ -1,0 +1,18 @@
+{'x': 1, 'y': 2} {'x': 3, 'y': 4, 'z': 5}
+{'x': 6, 'y': 7, 'w': 8, 'z': 9} ['x', 'y', 'w', 'z']
+{'y': 4, 'z': 5} False
+{'y': 4, 'z': 5, 'x': 10}
+80 0 79 ['a0', 'a1', 'a2'] ['a78', 'a79']
+40 1 79
+1 copy 79 True
+2.0 1.5 () ()
+[1, 2, 3] t 3
+[1.0, 2.0, 3.0, 4.0]
+NameError: cannot access free variable 'h' where it is not associated with a value in enclosing scope
+h
+(1, 2)
+[10, 22, 34]
+(7, 8, 9, 9)
+[(0, 1), (1, 2), (2, 3), (9, 'done')]
+bottom
+10.0 6000 1999.0

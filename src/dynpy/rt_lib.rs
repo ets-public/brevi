@@ -70,8 +70,8 @@ pub fn read_all() -> String {
 fn file_target(f: &V) -> Result<u8, E> {
     match f {
         V::None => Ok(1),
-        V::Module("sys.stdout") => Ok(1),
-        V::Module("sys.stderr") => Ok(2),
+        V::Module(&ModName("sys.stdout")) => Ok(1),
+        V::Module(&ModName("sys.stderr")) => Ok(2),
         V::Obj(_) | V::Ext(_) => Ok(3),
         _ => Err(unsupported("print(file=...) to this file")),
     }
@@ -894,7 +894,7 @@ pub fn bi_id(a: Args) -> R {
         V::List(o) => Rc::as_ptr(o) as *const u8 as i64,
         V::Dict(o) => Rc::as_ptr(o) as *const u8 as i64,
         V::Str(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Tuple(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Tuple(o) => Tup::as_ptr(o) as *const u8 as i64,
         V::Int(i) => *i * 32 + 1,
         _ => 1,
     }))
