@@ -21,11 +21,24 @@
     "url": "git+https://github.com/ets-public/brevi.git"
   },
   "license": "Apache-2.0",
+  "main": "lib/sdk.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./lib/sdk.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "brevi": "bin/brevi.js"
   },
   "files": [
     "bin",
+    "lib",
+    "index.mjs",
+    "index.d.ts",
     "README.md"
   ],
   "engines": {

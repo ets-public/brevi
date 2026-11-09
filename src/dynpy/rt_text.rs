@@ -916,7 +916,7 @@ impl Ext for RMatch {
             "string" => self.sv.clone(),
             "pos" => V::Int(self.pos as i64),
             "endpos" => V::Int(self.endpos as i64),
-            "re" => V::Ext(Rc::new(RPat { prog: self.prog.clone() })),
+            "re" => V::Ext(ExtRc::new(RPat { prog: self.prog.clone() })),
             "lastindex" => {
                 let mut best: Option<(usize, usize)> = None;
                 for g in 1..=self.prog.ngroups {
@@ -1073,7 +1073,7 @@ fn opt_pos(a: &mut Args, i: usize, name: &str, n: usize) -> Result<Option<usize>
     }
 }
 fn mk_match(prog: &Rc<Prog>, s: &Rc<Vec<char>>, sv: &V, caps: Vec<usize>, pos: usize, endpos: usize) -> V {
-    V::Ext(Rc::new(RMatch { prog: prog.clone(), s: s.clone(), sv: sv.clone(), caps, pos, endpos }))
+    V::Ext(ExtRc::new(RMatch { prog: prog.clone(), s: s.clone(), sv: sv.clone(), caps, pos, endpos }))
 }
 // all non-overlapping matches, as Python's scanner finds them
 fn all_matches(prog: &Prog, s: &[char], pos: usize, endpos: usize, limit: usize) -> Vec<Vec<usize>> {
@@ -1230,7 +1230,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                         }
                     }
                     None => {
-                        let r = call(&repl, Args::p(vec![V::Ext(Rc::new(m))]))?;
+                        let r = call(&repl, Args::p(vec![V::Ext(ExtRc::new(m))]))?;
                         match &r {
                             V::Str(x) => out.push_str(&x.s),
                             _ => return type_err(format!("expected str instance, {} found", tn(&r))),
@@ -1309,7 +1309,7 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
             if let V::Ext(_) = &pv {
                 return Ok(pv);
             }
-            Ok(V::Ext(Rc::new(RPat { prog: pat_of(&pv, f)? })))
+            Ok(V::Ext(ExtRc::new(RPat { prog: pat_of(&pv, f)? })))
         }
         "escape" => {
             let t = to_str(&pv)?;
@@ -1658,7 +1658,7 @@ fn json_mark(o: &JOpts, v: &V) -> Result<Option<usize>, E> {
     let id = match v {
         V::List(x) => Rc::as_ptr(x) as *const u8 as usize,
         V::Dict(x) => Rc::as_ptr(x) as *const u8 as usize,
-        V::Tuple(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Tuple(x) => Tup::as_ptr(x) as *const u8 as usize,
         V::Obj(x) => Rc::as_ptr(x) as *const u8 as usize,
         _ => return Ok(None),
     };
@@ -2026,7 +2026,7 @@ pub fn json_fn(n: &str, mut a: Args) -> R {
         "load" => {
             let f = a.p.first().cloned().or_else(|| a.kw("fp")).ok_or_else(|| exc("TypeError", "load() missing 1 required positional argument: 'fp'".into()))?;
             let t = match &f {
-                V::Module("sys.stdin") => st(read_all()),
+                V::Module(&ModName("sys.stdin")) => st(read_all()),
                 _ => call_method(&f, "read", Args::p(vec![]))?,
             };
             json_decode(&t, &mut a)
@@ -2048,8 +2048,8 @@ pub fn json_fn(n: &str, mut a: Args) -> R {
             a.p.clear();
             let out = json_encode(&v, &mut a, true)?;
             match &f {
-                V::Module("sys.stdout") => out_write(&out),
-                V::Module("sys.stderr") => {
+                V::Module(&ModName("sys.stdout")) => out_write(&out),
+                V::Module(&ModName("sys.stderr")) => {
                     out_flush();
                     err_write(&out)
                 }

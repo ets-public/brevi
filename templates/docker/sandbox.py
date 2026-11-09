@@ -1,5 +1,6 @@
 """Docker on your own machine: the same image the platforms run, with no account. Good for trying the
-templates and for CI. Build the image first: `docker build -t brevi-sandbox templates/image`."""
+templates and for CI. Build the image first: `docker build -t brevi-sandbox templates/image`, or (from v0.27.0)
+use the published one: BREVI_IMAGE=ghcr.io/ets-public/brevi-sandbox:latest."""
 import os, subprocess, sys, uuid
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

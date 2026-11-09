@@ -1,6 +1,7 @@
 # Prebuilt brevi binaries. Push a tag like v0.17.0 (or run this by hand) and each
 # platform's binary is built, smoke-tested and attached to that GitHub release, then published to
-# PyPI (`pip install brevi`), npm (`npx brevi`), crates.io (`cargo install brevi`) and the MCP registry.
+# PyPI (`pip install brevi`), npm (`npx brevi`), crates.io (`cargo install brevi`) and the MCP registry,
+# and the sandbox image is pushed to ghcr.io/ets-public/brevi-sandbox (templates/image/Dockerfile).
 # Publishing uses trusted publishing (OIDC): no tokens are stored in the repo. Each registry trusts
 # this file by name (release.yml), so renaming it breaks publishing. See packaging/README.md.
 name: release
@@ -72,6 +73,8 @@ jobs:
             mkdir $name
             if [ "$RUNNER_OS" = Windows ]; then cp target/$t/release/brevi.exe $name/; else cp target/$t/release/brevi $name/; fi
             cp LICENSE README.md BREVI.md $name/
+            # brevi-python: the same binary acting as python3 (see `brevi python`).
+            if [ "$RUNNER_OS" != Windows ]; then ln -s brevi $name/brevi-python; fi
             if [ "$RUNNER_OS" = Windows ]; then 7z a $name.zip $name >/dev/null; else tar czf $name.tar.gz $name; fi
           done
       - uses: actions/upload-artifact@v7
@@ -203,6 +206,36 @@ jobs:
           # --no-verify: the build job above already built and tested this exact source.
           mv runtime/brevi_tk/Cargo.toml runtime/brevi_tk/Cargo.toml.off
           cargo publish --locked --no-verify --allow-dirty
+
+  # The sandbox image every agent template runs, pushed to GitHub's registry with the workflow's own token
+  # (no account or secret). One Linux job a week: the python3 variant reuses the first build's layers.
+  image:
+    needs: [build, release]
+    if: ${{ !cancelled() && (needs.build.result == 'success' || inputs.from_release) && needs.release.result == 'success' && (github.event_name == 'push' || inputs.publish) }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Version check
+        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
+      - name: Build, test and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          v=${TAG#v}
+          img=ghcr.io/${GITHUB_REPOSITORY_OWNER}/brevi-sandbox
+          docker build --build-arg BREVI_VERSION=$v -t $img:$v -t $img:latest templates/image
+          docker build --build-arg BREVI_VERSION=$v --build-arg PYTHON3_SHIM=1 -t $img:$v-python3 -t $img:python3 templates/image
+          docker run --rm $img:$v sh -c 'echo "print(sum(range(10)))" > m.py && brevi run --sandbox m.py' | grep -qx 45
+          docker run --rm $img:$v python3 -c 'import brevi; print(brevi.run("print(6 * 7)").stdout, end="")' | grep -qx 42
+          docker run --rm $img:$v-python3 python3 -c 'print(sum(range(10)))' | grep -qx 45
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push --all-tags $img
+          docker image ls $img
 
   # The MCP registry checks that the PyPI and npm packages exist and name this server, so it goes last.
   mcp-registry:
