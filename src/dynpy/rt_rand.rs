@@ -106,7 +106,7 @@ fn mt_of(v: Option<&V>) -> Result<&MtV, E> {
 }
 pub fn brevi_mt_fn(n: &str, a: Args) -> R {
     match n {
-        "new" => Ok(V::Ext(Rc::new(MtV(RefCell::new(([0u32; 624], 624)))))),
+        "new" => Ok(V::Ext(ExtRc::new(MtV(RefCell::new(([0u32; 624], 624)))))),
         "seed" => {
             let st = mt_of(a.p.first())?;
             let mut key = vec![];
