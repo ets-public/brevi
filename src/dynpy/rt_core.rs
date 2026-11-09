@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::io::{BufRead, Read, Write};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub type R = Result<V, E>;
 pub type Sym = &'static str;
@@ -1037,10 +1037,17 @@ pub struct Dict {
     pub kind: u8,
     pub dflt: Option<V>,
     pub ver: u64,
+    // when this dict is an instance's __dict__, the instance to keep in step with every mutation
+    pub owner: Option<Weak<Obj>>,
 }
 impl Dict {
     pub fn new() -> Dict {
-        Dict { ents: vec![], idx: HM::default(), n: 0, kind: 0, dflt: None, ver: 0 }
+        Dict { ents: vec![], idx: HM::default(), n: 0, kind: 0, dflt: None, ver: 0, owner: None }
+    }
+    fn sync_owner(&self) {
+        if let Some(o) = self.owner.as_ref().and_then(Weak::upgrade) {
+            o.sync_ns(self);
+        }
     }
     pub fn len(&self) -> usize {
         self.n
@@ -1073,6 +1080,7 @@ impl Dict {
                 self.ver += 1;
             }
         }
+        self.sync_owner();
         Ok(())
     }
     // `d.setdefault(k, v)`: one hash and one lookup, as CPython (a test counts the __hash__ and __eq__ calls)
@@ -1089,6 +1097,7 @@ impl Dict {
                 e.insert(self.ents.len() - 1);
                 self.n += 1;
                 self.ver += 1;
+                self.sync_owner();
                 Ok(v)
             }
         }
@@ -1105,6 +1114,7 @@ impl Dict {
                 if self.ents.len() > 16 && self.ents.len() > 2 * self.n {
                     self.compact();
                 }
+                self.sync_owner();
                 Ok(Some(v))
             }
             None => Ok(None),
@@ -1133,6 +1143,7 @@ impl Dict {
         self.idx.clear();
         self.n = 0;
         self.ver += 1;
+        self.sync_owner();
     }
     pub fn copy(&self) -> Dict {
         let mut d = Dict::new();
@@ -1155,6 +1166,7 @@ impl Dict {
                     self.ents = rest;
                     self.n += 1;
                     self.compact();
+                    self.sync_owner();
                 }
                 Ok(true)
             }
@@ -1630,6 +1642,8 @@ impl Class {
 pub struct Obj {
     pub cls: Rc<Class>,
     pub d: RefCell<Attrs>,
+    // the instance's __dict__: the same Dict every access, so `f.__dict__[1] = 1` sticks
+    pub ns: Rc<RefCell<Dict>>,
     // the builtin value a subclass of a builtin type wraps (class Stack(list))
     pub inner: RefCell<Option<V>>,
 }
@@ -1752,27 +1766,65 @@ pub fn same_name(a: &str, b: &str) -> bool {
 }
 impl Obj {
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
-        Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), inner: RefCell::new(None) })
+        let ns = Rc::new(RefCell::new(Dict::new()));
+        let o = Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), ns, inner: RefCell::new(None) });
+        o.ns.borrow_mut().owner = Some(Rc::downgrade(&o));
+        o
     }
     pub fn get(&self, n: &str) -> Option<V> {
         let d = self.d.borrow();
         d.find(n).map(|i| d.get(i).unwrap().1.clone())
     }
     pub fn set(&self, n: Sym, v: V) {
-        let mut a = self.d.borrow_mut();
-        match a.find(n) {
-            Some(i) => a.get_mut(i).unwrap().1 = v,
-            None => a.push((n, v)),
+        {
+            let mut a = self.d.borrow_mut();
+            match a.find(n) {
+                Some(i) => a.get_mut(i).unwrap().1 = v.clone(),
+                None => a.push((n, v.clone())),
+            }
+        }
+        self.ns_set(n, v);
+    }
+    // a string attribute changed behind the Attrs fast path (setattr_ic): mirror it in __dict__
+    pub fn ns_set(&self, n: Sym, v: V) {
+        if !n.starts_with("__pydantic_") {
+            let _ = self.ns.borrow_mut().set(s(n), v);
         }
     }
     pub fn del(&self, n: &str) -> bool {
-        let mut a = self.d.borrow_mut();
-        match a.iter().position(|(k, _)| *k == n) {
-            Some(i) => {
-                a.remove(i);
-                true
+        let removed = {
+            let mut a = self.d.borrow_mut();
+            match a.iter().position(|(k, _)| *k == n) {
+                Some(i) => {
+                    a.remove(i);
+                    true
+                }
+                None => false,
             }
-            None => false,
+        };
+        if removed && !n.starts_with("__pydantic_") {
+            let _ = self.ns.borrow_mut().del(&s(n));
+        }
+        removed
+    }
+    // the instance __dict__ changed: rebuild the Attrs fast path from it (pydantic's slot-like
+    // attributes stay out of __dict__ and are kept as they were)
+    pub fn sync_ns(&self, d: &Dict) {
+        let hidden: Vec<(Sym, V)> = {
+            let a = self.d.borrow();
+            a.iter().filter(|(k, _)| k.starts_with("__pydantic_")).cloned().collect()
+        };
+        let mut a = self.d.borrow_mut();
+        *a = Attrs::new();
+        for (k, v) in d.ents.iter().flatten() {
+            if let V::Str(kv) = k {
+                if !kv.s.starts_with("__pydantic_") {
+                    a.push((sym(&kv.s), v.clone()));
+                }
+            }
+        }
+        for (k, v) in hidden {
+            a.push((k, v));
         }
     }
 }

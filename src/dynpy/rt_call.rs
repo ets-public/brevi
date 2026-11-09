@@ -575,12 +575,22 @@ fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
 pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
     if let V::Obj(ob) = o {
         if ob.cls.plain_set() {
-            let mut d = ob.d.borrow_mut();
-            if let Some(e) = d.get_mut(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-                if e.0.len() == name.len() && (e.0.as_ptr() == name.as_ptr() || e.0.as_bytes() == name.as_bytes()) {
-                    e.1 = v;
-                    return Ok(());
+            let hit = {
+                let mut d = ob.d.borrow_mut();
+                if let Some(e) = d.get_mut(ic.load(std::sync::atomic::Ordering::Relaxed)) {
+                    if e.0.len() == name.len() && (e.0.as_ptr() == name.as_ptr() || e.0.as_bytes() == name.as_bytes()) {
+                        e.1 = v.clone();
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
+            };
+            if hit {
+                ob.ns_set(name, v);
+                return Ok(());
             }
         }
     }
@@ -590,18 +600,21 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
 fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
     if let V::Obj(ob) = o {
         if ob.cls.plain_set() {
-            let mut d = ob.d.borrow_mut();
-            let i = match d.find(name) {
-                Some(i) => {
-                    d.get_mut(i).unwrap().1 = v;
-                    i
-                }
-                None => {
-                    d.push((name, v));
-                    d.len() - 1
+            let i = {
+                let mut d = ob.d.borrow_mut();
+                match d.find(name) {
+                    Some(i) => {
+                        d.get_mut(i).unwrap().1 = v.clone();
+                        i
+                    }
+                    None => {
+                        d.push((name, v.clone()));
+                        d.len() - 1
+                    }
                 }
             };
             ic.store(i, std::sync::atomic::Ordering::Relaxed);
+            ob.ns_set(name, v);
             return Ok(());
         }
     }
@@ -626,17 +639,7 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
             match name {
                 "__class__" => return Ok(V::Class(ob.cls.clone())),
-                "__dict__" => {
-                    let mut d = Dict::new();
-                    for (k, v) in ob.d.borrow().iter() {
-                        // pydantic keeps these in slots, not in __dict__
-                        if k.starts_with("__pydantic_") {
-                            continue;
-                        }
-                        d.set(s(k), v.clone())?;
-                    }
-                    return Ok(V::Dict(Rc::new(RefCell::new(d))));
-                }
+                "__dict__" => return Ok(V::Dict(ob.ns.clone())),
                 "args" if ob.cls.base_bt() == BT::Exc => return Ok(tup(vec![])),
                 "__cause__" | "__context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::None),
                 "__suppress_context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::Bool(false)),

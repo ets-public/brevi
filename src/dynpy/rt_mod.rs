@@ -990,7 +990,10 @@ pub fn shallow_copy(x: &V) -> R {
                 return call(&f, Args::p(vec![x.clone()]));
             }
             let n = Obj::new(o.cls.clone());
-            *n.d.borrow_mut() = o.d.borrow().clone();
+            let attrs = o.d.borrow().clone();
+            for (k, v) in attrs {
+                n.set(k, v);
+            }
             *n.inner.borrow_mut() = match &*o.inner.borrow() {
                 Some(i) => Some(shallow_copy(i)?),
                 None => None,
