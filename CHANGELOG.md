@@ -4,6 +4,7 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+- **Silent wrong output fixed: `x or y` ran `x` twice.** In the typed build, `g() or 5` and `f() and y` evaluated the first operand once to test it and again to return it, so `input() or "default"` read two lines and a counter went up twice. The first operand now runs once.
 - **Claims now match the measurements.** After an outside review, the README, the site, llms.txt, the agent skills and editor rules, and the MCP server's instructions say what the data shows. CPython's own test suite (58.2% match, 44 built programs that differ, 5 crashes) comes first, and the 591 saved programs are described as a regression set. Speed is given as 1.7x to 39.5x, median 8.5x, on 12 compute benchmarks, replacing "2 to 40x" and the agent-facing "10 to 50 times". Cost is described as about the same as CPython, and the 0.58x heavy-task figure is marked as having no CPython control yet. The sandbox is described as a limit layer, not an isolation boundary. Codon's 36 wrong programs are given as 36 of the 206 it built, and the stale FAQ answer about pip and npm is fixed. The benchmark's native-code prompt line uses the measured range.
 
 ## v0.26.0 (9 Nov 2026)
