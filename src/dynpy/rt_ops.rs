@@ -382,7 +382,7 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     let (l, r) = odunder(op);
     if let V::Obj(o) = a {
         if let Some(f) = o.cls.lookup(l) {
-            match call(&f, Args::p(vec![a.clone(), b.clone()])) {
+            match call2(&f, a.clone(), b.clone()) {
                 Ok(V::NotImpl) => {}
                 x => return Some(x),
             }
@@ -390,7 +390,7 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     }
     if let V::Obj(o) = b {
         if let Some(f) = o.cls.lookup(r) {
-            match call(&f, Args::p(vec![b.clone(), a.clone()])) {
+            match call2(&f, b.clone(), a.clone()) {
                 Ok(V::NotImpl) => {}
                 x => return Some(x),
             }

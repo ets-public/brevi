@@ -2808,10 +2808,19 @@ impl Em {
                     write!(sets, "gs({slot}, {}); ", dflt_codes[k]).unwrap();
                 }
                 let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
-                return Ok(format!("{{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dv.join(", ")));
+                let v = format!("{{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dv.join(", "));
+                if !is_async && !is_gen && (1..=4).contains(&nparams) {
+                    return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
+                }
+                return Ok(v);
             }
             let _ = need_defaults;
-            return Ok(format!("{{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dflt_all.join(", ")));
+            let v = format!("{{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dflt_all.join(", "));
+            // methods (and defs not called directly): calls passing every parameter by position skip bind()
+            if !is_async && !is_gen && !star && !kwstar && p.kwonly.is_empty() && (1..=4).contains(&nparams) {
+                return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
+            }
+            return Ok(v);
         }
         // a closure
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();

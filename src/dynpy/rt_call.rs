@@ -34,8 +34,61 @@ pub fn call(f: &V, a: Args) -> R {
 pub fn call0(f: &V) -> R {
     call(f, Args::p(vec![]))
 }
+#[inline]
 pub fn call1(f: &V, x: V) -> R {
+    if let V::Func(g) = f {
+        if let FastFn::F1(h) = g.fast.get() {
+            return h(x);
+        }
+    }
     call(f, Args::p(vec![x]))
+}
+#[inline]
+pub fn call2(f: &V, x: V, y: V) -> R {
+    if let V::Func(g) = f {
+        if let FastFn::F2(h) = g.fast.get() {
+            return h(x, y);
+        }
+    }
+    call(f, Args::p(vec![x, y]))
+}
+#[inline]
+pub fn call3(f: &V, x: V, y: V, z: V) -> R {
+    if let V::Func(g) = f {
+        if let FastFn::F3(h) = g.fast.get() {
+            return h(x, y, z);
+        }
+    }
+    call(f, Args::p(vec![x, y, z]))
+}
+// f(me, *a.p): a method called on an instance
+#[inline]
+pub fn call_self(f: &V, me: V, mut a: Args) -> R {
+    if let V::Func(g) = f {
+        if a.k.is_empty() {
+            match (g.fast.get(), a.p.len()) {
+                (FastFn::F1(h), 0) => return h(me),
+                (FastFn::F2(h), 1) => return h(me, a.p.pop().unwrap()),
+                (FastFn::F3(h), 2) => {
+                    let y = a.p.pop().unwrap();
+                    let x = a.p.pop().unwrap();
+                    return h(me, x, y);
+                }
+                (FastFn::F4(h), 3) => {
+                    let z = a.p.pop().unwrap();
+                    let y = a.p.pop().unwrap();
+                    let x = a.p.pop().unwrap();
+                    return h(me, x, y, z);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut p = Vec::with_capacity(a.p.len() + 1);
+    p.push(me);
+    p.append(&mut a.p);
+    a.p = p;
+    call(f, a)
 }
 
 // Binds call arguments to a def's parameters: (names, number of positional-or-keyword params,
@@ -271,11 +324,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         let me = V::Obj(Obj::new(c.clone()));
         match c.lookup("__init__") {
             Some(init) if !is_builtin_init(&init) => {
-                let mut p = Vec::with_capacity(a.p.len() + 1);
-                p.push(me.clone());
-                p.append(&mut a.p);
-                a.p = p;
-                let r = call(&init, a)?;
+                let r = call_self(&init, me.clone(), a)?;
                 if !matches!(r, V::None) {
                     return type_err(format!("__init__() should return None, not '{}'", tn(&r)));
                 }
@@ -872,14 +921,7 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                             prepend(&mut a.p, V::Class(ob.cls.clone()));
                             call(&v, a)
                         }
-                        _ => {
-                            let mut a = a;
-                            let mut p = Vec::with_capacity(a.p.len() + 1);
-                            p.push(o.clone());
-                            p.append(&mut a.p);
-                            a.p = p;
-                            (f.f)(a)
-                        }
+                        _ => call_self(&v, o.clone(), a),
                     },
                     V::Prop(p) => call(&call(&p.0, Args::p(vec![o.clone()]))?, a),
                     _ => call(&v, a),

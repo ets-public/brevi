@@ -1574,12 +1574,29 @@ pub struct Func {
     // 0 function, 1 staticmethod, 2 classmethod, 3 builtin
     pub kind: Cell<u8>,
     pub attrs: RefCell<Vec<(Sym, V)>>,
+    // the plain Rust function behind a def that takes exactly n positional arguments, for calls with n of them
+    pub fast: Cell<FastFn>,
+}
+#[derive(Clone, Copy)]
+pub enum FastFn {
+    No,
+    F1(fn(V) -> R),
+    F2(fn(V, V) -> R),
+    F3(fn(V, V, V) -> R),
+    F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]) }))
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), fast: Cell::new(FastFn::No) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]) }))
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), fast: Cell::new(FastFn::No) }))
+}
+// a def's function value, with its plain Rust function for calls that pass every parameter by position
+pub fn with_fast(f: V, fast: FastFn) -> V {
+    if let V::Func(x) = &f {
+        x.fast.set(fast);
+    }
+    f
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
