@@ -9,7 +9,7 @@ Each task is a fresh conversation. The model gets the same tools in both languag
 check() builds the program and runs the task's tests, printing PASS, the compiler errors, or the first
 failing test, exactly as run.sh does. The run ends when the model stops calling tools or after 8 checks.
 
-usage: python3 e2e.py RUN --lang brevi|python --model sonnet|haiku --set rel [--effort medium] [--jobs 3]
+usage: python3 e2e.py RUN --lang brevi|python|pyb --model sonnet|haiku --set rel [--effort medium] [--jobs 3] [--show-errors]
        python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
        python3 e2e.py --verdict "logs/e2e/RUN[a-d]-*.jsonl"   (the release bar over several runs)
 Needs BENCH_ANTHROPIC_KEY and `pip install anthropic`. Writes logs/e2e/RUN-MODEL-LANG.jsonl, one line per task,
@@ -37,6 +37,10 @@ GUIDE = ROOT / "BREVI.md"
 # hand-optimise (on the speed set this halved Sonnet's output). pyb runs get it unless --no-hint.
 NATIVE_HINT = "Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed."
 HINT = True
+# --show-errors (pyb): a check whose files Brevi cannot build still runs them with CPython, as `brevi run` does, but the
+# model also sees why Brevi refused (the line `brevi run` prints on stderr). This is the loop an agent with stderr
+# in view gets; the default arm hides the refusal and --native fails the check instead (docs/METRICS.md, WS4).
+SHOW_ERRORS = False
 
 
 def system_prompt(lang):
@@ -111,6 +115,7 @@ def run_check(lang, task, work, native_only=False):
         LAST_PATH[str(work)] = build_path(r.stderr) if native else None
         if not native and native_only:
             return (r.stdout + r.stderr).strip().replace(".bv", ".py"), False
+        refusal = "" if native else (r.stdout + r.stderr).strip().replace(".bv", ".py")
         cmd = [str(binp)] if native else [sys.executable, str(main)]
     elif lang == "brevi":
         r = subprocess.run([BREVI, "build", str(main), "-o", str(binp)], capture_output=True, text=True, cwd=work)
@@ -141,10 +146,13 @@ def run_check(lang, task, work, native_only=False):
         elif first is None:
             first = f"test {Path(t).stem} failed\ninput:\n{Path(t).read_text().rstrip()}\nexpected:\n{want.rstrip()}\ngot:\n{out}"
     native = native if lang == "pyb" else None
+    note = ""
+    if lang == "pyb" and SHOW_ERRORS and not native:
+        note = "\n\nBrevi could not build this natively, so it ran with CPython (slower). Brevi said:\n" + refusal
     if passed == len(tests):
         LAST_RUN_MS[(lang, str(work))] = round(ms, 1)
-        return f"PASS {passed}/{len(tests)}", native
-    return f"{first}\npassed {passed}/{len(tests)}", native
+        return f"PASS {passed}/{len(tests)}" + note, native
+    return f"{first}\npassed {passed}/{len(tests)}" + note, native
 
 
 def solve(client, model, lang, task, work, effort, thinking="adaptive", native_only=False, start_messages=None, start_checks=0, tag_of=None):
@@ -160,6 +168,10 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     checks, passed, calls, stop, native = start_checks, False, 0, "", None
     # pyb only: for each check, whether CPython passes the same files (a False where pyb failed is a Brevi bug)
     shadow = []
+    # pyb only: whether each check built natively, in order (natives[0] is the first-attempt native build)
+    natives = []
+    # tokens and dollars billed up to the call that followed the first PASS (tokens-to-green); None until then
+    green = None
     started = time.time()
     while calls < 40:
         calls += 1
@@ -209,6 +221,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
                     out, native = run_check(lang, task, work, native_only)
                     passed = out.startswith("PASS")
                     if lang == "pyb":
+                        natives.append(bool(native))
                         shadow.append([passed, run_check("python", task, work)[0].startswith("PASS")])
                     err = not passed
                 elif b.name == "guide":
@@ -217,6 +230,8 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
                 out, err = str(e), True
             results.append({"type": "tool_result", "tool_use_id": b.id, "content": out, "is_error": err})
         messages.append({"role": "user", "content": results})
+        if passed and green is None:
+            green = dict(use)
         if checks >= MAX_CHECKS and not passed:
             break
     # Keep the whole conversation (thinking, text, tool calls and results) for reading later.
@@ -226,8 +241,12 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
         return [b if isinstance(b, dict) else b.model_dump(exclude_none=True) for b in c]
     (work / "conversation.json").write_text(json.dumps([{"role": m["role"], "content": plain(m["content"])} for m in messages], indent=1))
     pin, pout, pread = PRICES[model]
-    cost = (use["input"] * pin + use["cache_write"] * pin * 1.25 + use["cache_read"] * pread + use["output"] * pout) / 1e6
-    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **({"shadow": shadow, "path": LAST_PATH.get(str(work))} if lang == "pyb" else {}), **use, "usd": round(cost, 5),
+    price = lambda u: (u["input"] * pin + u["cache_write"] * pin * 1.25 + u["cache_read"] * pread + u["output"] * pout) / 1e6
+    cost = price(use)
+    # green counts every call up to the PASS; the closing reply after it is in usd but not in usd_to_green.
+    togreen = {"tokens_to_green": sum(green.values()), "usd_to_green": round(price(green), 5)} if passed and green else {"tokens_to_green": None, "usd_to_green": None}
+    pyb = {"shadow": shadow, "path": LAST_PATH.get(str(work)), "natives": natives, "first_native": natives[0] if natives else None, "errors_shown": SHOW_ERRORS} if lang == "pyb" else {}
+    return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **pyb, **use, "usd": round(cost, 5), **togreen,
             "secs": round(time.time() - started, 1), "run_ms": LAST_RUN_MS.get((lang, str(work))) if passed else None}
 
 
@@ -236,7 +255,7 @@ def summary(pattern):
     for f in sorted(glob.glob(pattern)):
         rs = [json.loads(l) for l in open(f) if l.strip()]
         rows[Path(f).stem] = rs
-    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'typ':>3} {'bug':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8}")
+    print(f"{'run':28} {'tasks':>5} {'pass':>4} {'1st':>3} {'nat':>3} {'n1':>3} {'typ':>3} {'bug':>3} {'input':>8} {'c.write':>8} {'c.read':>9} {'output':>8} {'all tok':>9} {'usd':>8} {'usd2grn':>8}")
     for name, rs in rows.items():
         t = {k: sum(r[k] for r in rs) for k in ("input", "cache_write", "cache_read", "output", "usd")}
         first = sum(1 for r in rs if r["pass"] and r["checks"] == 1)
@@ -245,9 +264,14 @@ def summary(pattern):
         nat = sum(1 for r in rs if r.get("native")) if any("native" in r and r["native"] is not None for r in rs) else "-"
         # typ: pyb tasks whose last check Brevi built on the typed path (typed or pybridge); "-" before paths were logged
         typ = sum(1 for r in rs if r.get("path") in ("typed", "pybridge")) if any("path" in r for r in rs) else "-"
+        # n1: pyb tasks whose FIRST check Brevi built natively (first-attempt native); "-" before 9 Nov 2026
+        n1 = sum(1 for r in rs if r.get("first_native")) if any("first_native" in r for r in rs) else "-"
+        # usd2grn: dollars up to the first PASS, summed over tasks that passed (tokens-to-green); "-" before 9 Nov 2026
+        g = [r["usd_to_green"] for r in rs if r.get("usd_to_green") is not None]
+        g = f"{sum(g):8.4f}" if any("usd_to_green" in r for r in rs) else f"{'-':>8}"
         # bug: pyb checks that failed where CPython passed the same files (from e2e's shadow check, since s1a)
         bug = sum(1 for r in rs for p, c in r.get("shadow", []) if c and not p) if any("shadow" in r for r in rs) else "-"
-        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {typ:>3} {bug:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f}")
+        print(f"{name:28} {len(rs):5} {sum(r['pass'] for r in rs):4} {first:3} {nat:>3} {n1:>3} {typ:>3} {bug:>3} {t['input']:8} {t['cache_write']:8} {t['cache_read']:9} {t['output']:8} {total:9} {t['usd']:8.4f} {g}")
 
 
 def verdict(pattern):
@@ -287,6 +311,18 @@ def verdict(pattern):
         print(f"{model}: {len(runs)} runs, {len(side['pyb'])} pyb tasks, pyb ${usd['pyb']:.4f} / python ${usd['python']:.4f} per run = {ratio:.3f}x "
               f"(95% range {lo:.2f}x to {hi:.2f}x), failed pyb {fails['pyb']} python {fails['python']}, native {nat}/{len(side['pyb'])} "
               f"({100 * nat / len(side['pyb']):.0f}%): {'meets the bar' if good else 'misses the bar'}")
+        # Reported, not yet part of the bar (docs/METRICS.md): first-attempt native and tokens-to-green.
+        if any("first_native" in r for r in side["pyb"]):
+            n1 = sum(1 for r in side["pyb"] if r.get("first_native"))
+            print(f"  first-attempt native {n1}/{len(side['pyb'])} ({100 * n1 / len(side['pyb']):.0f}%), retries per pyb task {sum(r['checks'] - 1 for r in side['pyb']) / len(side['pyb']):.2f}"
+                  f" (python {sum(r['checks'] - 1 for r in side['python']) / len(side['python']):.2f})")
+        g = {lang: [r for r in side[lang] if r.get("usd_to_green") is not None] for lang in side}
+        both = {(r["run"].split("-")[0], r["task"]) for r in g["pyb"]} & {(r["run"].split("-")[0], r["task"]) for r in g["python"]}
+        if both:
+            tg = {lang: sum(r["usd_to_green"] for r in g[lang] if (r["run"].split("-")[0], r["task"]) in both) for lang in g}
+            tt = {lang: sum(r["tokens_to_green"] for r in g[lang] if (r["run"].split("-")[0], r["task"]) in both) for lang in g}
+            shown = " (errors shown)" if all(r.get("errors_shown") for r in g["pyb"]) else ""
+            print(f"  tokens-to-green{shown} over {len(both)} tasks both passed: {tt['pyb'] / tt['python']:.3f}x tokens, {tg['pyb'] / tg['python']:.3f}x dollars")
     print("release test PASSED" if ok else "release test not passed")
     return 0 if ok else 1
 
@@ -304,6 +340,7 @@ def main():
     ap.add_argument("--guide", help="a guide file to send instead of BREVI.md (for A/B tests)")
     ap.add_argument("--no-hint", action="store_true", help="pyb: leave out the native-code line (the prompt is then exactly the Python one)")
     ap.add_argument("--native", action="store_true", help="pyb: report Brevi build errors instead of running with CPython (the strict check used before e22)")
+    ap.add_argument("--show-errors", action="store_true", help="pyb: when Brevi cannot build the files, run them with CPython but show the model why (the errors-shown arm)")
     ap.add_argument("--summary")
     ap.add_argument("--verdict", help="log glob: check the release bar over these runs (e.g. \"logs/e2e/w1[a-d]-*.jsonl\")")
     a = ap.parse_args()
@@ -313,6 +350,9 @@ def main():
     if a.no_hint:
         global HINT
         HINT = False
+    if a.show_errors:
+        global SHOW_ERRORS
+        SHOW_ERRORS = True
     if a.summary:
         return summary(a.summary)
     if a.verdict:
