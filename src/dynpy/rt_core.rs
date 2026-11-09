@@ -1698,7 +1698,7 @@ impl Class {
                 f.0 = ep;
                 f.1 = Default::default();
             } else if let (a, Some((k, v))) = &f.1[slot] {
-                if *a == addr && **k == *n {
+                if *a == addr && same_name(k, n) {
                     return v.clone();
                 }
             }
