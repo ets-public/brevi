@@ -14,7 +14,7 @@ Spend is counted from the API's own usage numbers at the prices below and the ru
 Every request, reply and tool result is logged as JSON lines to --log (default bench/logs/ds_contrib/ID.jsonl)
 so the run can be read afterwards. Needs DEEPSEEK_API_KEY; stdlib only.
 """
-import argparse, json, os, re, shlex, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import argparse, http.client, json, os, re, shlex, subprocess, sys, tempfile, time, urllib.error, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -216,7 +216,7 @@ def chat(model, messages, tools, effort="max"):
             if e.code in (429, 500, 502, 503) and attempt < 4:
                 time.sleep(2 ** attempt * 3); continue
             raise RuntimeError(f"HTTP {e.code}: {e.read()[:500]!r}")
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException):
             if attempt < 4:
                 time.sleep(2 ** attempt * 3); continue
             raise
