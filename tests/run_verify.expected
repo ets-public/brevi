@@ -1,0 +1,59 @@
+-- run --verify tests/verify/sq.py
+0
+1
+4
+9
+{"verify":"identical","file":"tests/verify/sq.py","sha256":"15532f5ac9d457e04d013dd407d06e61ef01916a9723afb2b2de68155bff5098","inputs":["sha256:7de1555df0c2700329e815b93b32c571c3ea54dc967b89e81ab73b9972b72d1d"],"args":[],"exit":0,"stdout_same":true,"stderr_same":true}
+exit 0
+-- run --verify tests/verify/sq.py
+0
+1
+4
+9
+16
+25
+36
+Traceback (most recent call last):
+ValueError: seven
+{"verify":"identical","file":"tests/verify/sq.py","sha256":"15532f5ac9d457e04d013dd407d06e61ef01916a9723afb2b2de68155bff5098","inputs":["sha256:10159baf262b43a92d95db59dae1f72c645127301661e0a3ce4e38b295a97c58"],"args":[],"exit":1,"stdout_same":true,"stderr_same":true}
+exit 1
+-- run --verify tests/verify/argsum.py -- 3 4
+sum 7
+done
+{"verify":"identical","file":"tests/verify/argsum.py","sha256":"cd019970b9e657bb04253f5843dd8ad23f31b7ba6a62310414ddac3bcc008e19","inputs":["sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"],"args":["3","4"],"exit":0,"stdout_same":true,"stderr_same":true}
+exit 0
+-- run --verify tests/verify/clock_ok.py
+{"verify":"refused","why":"reads the clock","msg":"not checked against CPython: a second run could answer differently or repeat what it does; run as plain brevi run"}
+True
+exit 0
+-- run --verify tests/verify/writes.py
+{"verify":"refused","why":"writes files","msg":"not checked against CPython: a second run could answer differently or repeat what it does; run as plain brevi run"}
+wrote
+exit 0
+-- run --verify tests/verify/refused.py
+1
+exit 0
+-- run --verify tests/verify/sq.py
+0
+1
+one more line
+{"verify":"differs","on":"stdout","line":3,"brevi":"(no more output)","cpython":"one more line","file":"tests/verify/sq.py","sha256":"15532f5ac9d457e04d013dd407d06e61ef01916a9723afb2b2de68155bff5098","inputs":["sha256:53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3"],"args":[],"versions":{},"msg":"a wrong answer from Brevi: the output above is CPython's; brevi report shows it, ready to file"}
+exit 0
+-- run --verify --strict tests/verify/sq.py
+{"verify":"differs","on":"stdout","line":3,"brevi":"(no more output)","cpython":"one more line","file":"tests/verify/sq.py","sha256":"15532f5ac9d457e04d013dd407d06e61ef01916a9723afb2b2de68155bff5098","inputs":["sha256:53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3"],"args":[],"versions":{},"msg":"a wrong answer from Brevi: nothing printed (--strict); brevi report shows it, ready to file"}
+exit 1
+-- run --verify tests/verify/sq.py
+0
+1
+{"verify":"timeout","msg":"CPython had not finished N ms after the native run; the native answer above is unverified"}
+exit 0
+-- run --verify --sandbox tests/verify/sq.py
+{"verify":"error","msg":"--verify runs the program under CPython too, which the sandbox cannot hold to its grants; use --verify only for code you would run with python3","fix":"usage: brevi run --verify FILE.py [--strict] [--timeout SECS] [--limit SPEC] [--release] [--no-cache] [-- ARGS...]"}
+exit 2
+-- run --verify tests/run/arm_map.bv
+{"verify":"error","msg":"--verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)","fix":"usage: brevi run --verify FILE.py [--strict] [--timeout SECS] [--limit SPEC] [--release] [--no-cache] [-- ARGS...]"}
+exit 2
+-- report
+2
+cleared 2 logged wrong answers
+no wrong answers logged (...): brevi run --verify logs one each time the native build and CPython differ

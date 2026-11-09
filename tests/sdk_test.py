@@ -47,6 +47,10 @@ with tempfile.TemporaryDirectory() as d:
 r = brevi.run("while True:\n    pass\n", limits={"time": 1})
 expect("time limit", r.limit == "time" and not r.ok, (r.limit, r.text))
 
+# With sandbox off the MCP run checks the build against CPython (verify by default); stdout stays the program's.
+r = brevi.run("import sys\nprint(6 * 7)\nprint('e', file=sys.stderr)\n", sandbox=False)
+expect("unsandboxed run", (r.stdout, r.stderr, r.exit_code) == ("42\n", "e\n", 0), (r.stdout, r.stderr, r.text))
+
 # Cases and verify.
 r = brevi.run("print(int(input()) * 2)\n", cases=[{"stdin": "1\n", "expect": "2"}, {"stdin": "5\n", "expect": "10"}])
 expect("cases pass", r.ok and "passed 2/2" in r.text, r.text)
