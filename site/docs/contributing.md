@@ -9,7 +9,7 @@ Brevi is open source under the Apache License 2.0. Bug reports, failing programs
 git clone __GITHUB__
 cd brevi
 cargo build --release
-tests/check.sh            # sample programs and error cases against their expected output
+python3 tests/check_parallel.py   # tests/check.sh (sample programs and error cases) in parallel
 sh tools/ci_local.sh      # the same checks a pull request runs, locally
 ```
 

@@ -8,6 +8,7 @@ value, so the result cache and the generated-Rust cache both miss, as they do af
   check_edit       `brevi check` after an edit (front end + rustc --emit=metadata)
   check_cached     `brevi check` again with nothing changed (result cache)
   build_edit       `brevi build` after an edit (debug build, the default)
+  run_edit         `brevi run` after an edit (the quick opt-level 0 tier; docs/LATENCY.md, "Tiered builds")
   run_cached       `brevi run` again with nothing changed
   python_run       `python3 main.py`, for scale
 
@@ -19,7 +20,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 BREVI = os.path.abspath(os.environ.get('BREVI', str(REPO / 'target/release/brevi')))
-MODES = ['check_fast_edit', 'check_edit', 'check_cached', 'build_edit', 'run_cached', 'python_run']
+MODES = ['check_fast_edit', 'check_edit', 'check_cached', 'build_edit', 'run_edit', 'run_cached', 'python_run']
 
 
 def arg(name, default):
@@ -70,6 +71,7 @@ def main():
             'check_edit': [BREVI, 'check', 'main.py'],
             'check_cached': [BREVI, 'check', 'main.py'],
             'build_edit': [BREVI, 'build', 'main.py', '-o', str(work / 'out')],
+            'run_edit': [BREVI, 'run', 'main.py'],
             'run_cached': [BREVI, 'run', 'main.py'],
             'python_run': [sys.executable, 'main.py'],
         }[mode]
@@ -78,6 +80,9 @@ def main():
             bump()
             subprocess.run(cmd, cwd=prog, env=env, capture_output=True)
         for _ in range(runs):
+            # An agent reads the output before its next edit; by then the background opt-level 1 build of a
+            # tiered run has finished. Wait for it, so one edit's background build is not timed in the next.
+            settle(work / 'cache' / 'bin')
             if mode.endswith('_edit'):
                 bump()
             ms, p = timed(cmd, prog, env)
@@ -95,6 +100,12 @@ def main():
     if '--json' in sys.argv:
         Path(arg('--json', '')).write_text(json.dumps({'meta': meta, 'results': res}, indent=1) + '\n')
     shutil.rmtree(work, ignore_errors=True)
+
+
+def settle(bins, limit=30):
+    end = time.time() + limit
+    while time.time() < end and bins.is_dir() and any(p.name.startswith('.tmp-tier-') for p in bins.iterdir()):
+        time.sleep(0.05)
 
 
 def cpu():
