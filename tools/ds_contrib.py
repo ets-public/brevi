@@ -260,7 +260,9 @@ def main():
     def note(**kw):
         log.write(json.dumps({"t": round(time.time(), 1), **kw}) + "\n"); log.flush()
 
-    print(f"[ds] {a.test_id}: measuring the failure", flush=True)
+    print(f"[ds] {a.test_id}: building this checkout, then measuring the failure", flush=True)
+    if run_tool("build", {}, task) != "ok":  # a binary left by another checkout state would give a wrong "before"
+        sys.exit("the checkout does not build")
     before, before_text = task.results()
     script = task.script()
     note(event="start", test=a.test_id, model=a.model, before=before)
