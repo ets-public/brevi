@@ -1,0 +1,1 @@
+{"run": "dsq1-deepseek-python", "model": "deepseek-flash", "lang": "python", "effort": "medium", "thinking": "adaptive", "task": "calc", "pass": true, "checks": 1, "calls": 3, "stop": "end_turn", "native": null, "input": 1002, "cache_write": 0, "cache_read": 3328, "output": 1211, "usd": 0.00177, "tokens_to_green": 3665, "usd_to_green": 0.00169, "secs": 10.2, "run_ms": 43.7}
