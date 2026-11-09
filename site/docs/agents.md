@@ -117,7 +117,7 @@ python templates/agent.py --platform e2b --allow-net api.github.com --limit cpu=
   "How many open issues does ets-public/brevi have?"
 ```
 
-From v0.27.0 each release also publishes the image the templates use, `ghcr.io/ets-public/brevi-sandbox:VERSION` and `:latest` (Brevi, the Rust toolchain, python3, the Python SDK and a warm build cache), so a template needs no build step; `:python3` has `brevi-python` standing in for `python3`. Inside your own code, `pip install brevi` gives the Python SDK: `brevi.run(code, stdin=..., limits=..., allow_read=[...])` builds and runs a program sandboxed and returns its `stdout`, `stderr`, `exit_code` and `path`.
+From v0.27.0 each release also publishes the image the templates use, `ghcr.io/ets-public/brevi-sandbox:VERSION` and `:latest` (Brevi, the Rust toolchain, python3, the Python SDK and a warm build cache), so a template needs no build step; `:python3` has `brevi-python` standing in for `python3`. Inside your own code, `pip install brevi` gives the Python SDK: `brevi.run(code, stdin=..., limits=..., allow_read=[...])` builds and runs a program sandboxed and returns its `stdout`, `stderr`, `exit_code` and `path`, and `npm install brevi` gives the same from Node (`import { run, verify, handle, TOOL } from "brevi"`).
 
 `agent.py` is a plain Claude tool loop; `brevi_tool.py` has the tool definition, the grants and the result type to use in your own agent. Give each sandbox about 2 GB of memory, which rustc needs to link a program.
 
