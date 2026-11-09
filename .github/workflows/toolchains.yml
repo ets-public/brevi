@@ -94,6 +94,8 @@ jobs:
     env:
       # Room for every test program and old solution, so the cache doesn't evict mid-run.
       BREVI_CACHE_MB: "6144"
+      # No background optimised builds (src/tier.rs) for the test programs; the tiered-builds check turns them on.
+      BREVI_TIERED: "0"
     steps:
       - uses: actions/checkout@v7
         with:

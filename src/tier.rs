@@ -11,7 +11,9 @@
 // The background job is this binary again (`brevi __tier DEST WORK -- RUSTC ARGS...`), started detached with
 // no stdin, stdout or stderr (a caller reading the run's output must not wait for it) and at low priority.
 // It builds into its own folder under the cache, then renames the binary into place, so a reader sees the
-// whole file or nothing.
+// whole file or nothing. At most one or two run at once on the machine (a lock per slot in /tmp/brevi-tier-UID),
+// none start with under 2 GB of memory available, and one still running after five minutes is stopped.
+// Without a free slot no job is started: the quick binary is used, and a later run tries again.
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,6 +52,12 @@ pub fn background(dest: &Path, rust: &str, args: &[String]) {
     if dest.exists() {
         return;
     }
+    // Only a few at once on the whole machine, and none when memory is short: each is a full rustc (close to
+    // 1 GB for a large program), and a test suite or an agent running many programs at once would otherwise
+    // start one per run.
+    if low_memory() || slot().is_none() {
+        return;
+    }
     let Some(cdir) = dest.parent() else { return };
     let name = dest.file_name().unwrap_or_default().to_string_lossy().to_string();
     // `.tmp-` names are skipped by the cache's size pruning while the job runs.
@@ -81,7 +89,12 @@ pub fn job(argv: &[String]) -> ! {
     let (Some(dest), Some(work)) = (argv.first().map(PathBuf::from), argv.get(1).map(PathBuf::from)) else { std::process::exit(2) };
     let Some(rustc) = argv.get(3) else { std::process::exit(2) };
     let out = work.join("prog");
-    let ok = Command::new(rustc)
+    // The slot is held until this process exits (the lock goes with it, even when it is killed).
+    let Some(_slot) = slot() else {
+        std::fs::remove_dir_all(&work).ok();
+        std::process::exit(1)
+    };
+    let child = Command::new(rustc)
         .args(&argv[4..])
         .arg("-o")
         .arg(&out)
@@ -90,8 +103,22 @@ pub fn job(argv: &[String]) -> ! {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success());
+        .spawn();
+    // A build still going after five minutes is stopped: nothing waits for it, and it holds a slot.
+    let ok = child.is_ok_and(|mut ch| {
+        let start = std::time::Instant::now();
+        loop {
+            match ch.try_wait() {
+                Ok(Some(s)) => break s.success(),
+                Ok(None) if start.elapsed() < JOB_LIMIT => std::thread::sleep(std::time::Duration::from_millis(100)),
+                _ => {
+                    ch.kill().ok();
+                    ch.wait().ok();
+                    break false;
+                }
+            }
+        }
+    });
     let landed = ok && std::fs::rename(&out, &dest).is_ok();
     std::fs::remove_dir_all(&work).ok();
     if landed {
@@ -100,6 +127,46 @@ pub fn job(argv: &[String]) -> ! {
         }
     }
     std::process::exit(if landed { 0 } else { 1 })
+}
+
+const JOB_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
+
+// Background builds at once on this machine: 1, or 2 with 8 or more cores. Each slot is a lock on a file in
+// the cache, held by the job that builds; a job that dies (killed, out of memory) lets go of it.
+fn slots() -> usize {
+    if std::thread::available_parallelism().map_or(1, |n| n.get()) >= 8 { 2 } else { 1 }
+}
+
+// One folder for the whole machine (per user), whatever BREVI_CACHE, HOME or TMPDIR say: a test suite gives
+// each job its own cache and temp folder, and its jobs must still share the slots.
+fn slot_dir() -> PathBuf {
+    #[cfg(unix)]
+    {
+        PathBuf::from(format!("/tmp/brevi-tier-{}", unsafe { getuid() }))
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::temp_dir().join("brevi-tier")
+    }
+}
+
+// A free slot, locked: None when every one is taken.
+fn slot() -> Option<std::fs::File> {
+    let dir = slot_dir();
+    std::fs::create_dir_all(&dir).ok()?;
+    (0..slots()).find_map(|i| {
+        let f = std::fs::File::options().create(true).truncate(false).write(true).open(dir.join(format!("slot-{i}"))).ok()?;
+        f.try_lock().ok().map(|_| f)
+    })
+}
+
+// Linux: less than 2 GB available (MemAvailable). Elsewhere never.
+fn low_memory() -> bool {
+    let Ok(m) = std::fs::read_to_string("/proc/meminfo") else { return false };
+    m.lines()
+        .find_map(|l| l.strip_prefix("MemAvailable:"))
+        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+        .is_some_and(|kb| kb < 2 * 1024 * 1024)
 }
 
 // Not tied to the caller: no parent-death signal, its own process group (a Ctrl-C or a `timeout` that stops
@@ -127,6 +194,7 @@ fn detach(c: &mut Command) {
 #[cfg(unix)]
 unsafe extern "C" {
     fn setpriority(which: i32, who: u32, prio: i32) -> i32;
+    fn getuid() -> u32;
 }
 
 #[cfg(test)]

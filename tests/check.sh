@@ -748,7 +748,7 @@ rm -rf "$t2"
 # the next run of the unchanged file gets the opt-level 1 binary. build, --release and BREVI_TIERED=0 never tier.
 t3=$(mktemp -d)
 printf 'print(sum(i * i for i in range(10)))\n' > "$t3/main.py"
-tr() { c=$1; shift; env BREVI_CACHE="$t3/cache" BREVI_TIME=1 $TENV $BREVI "$c" "$t3/main.py" "$@" 2>&1 | sed 's/^time .* ms  tiered:/tiered:/' | grep -v '^time '; }
+tr() { c=$1; shift; env BREVI_CACHE="$t3/cache" BREVI_TIME=1 BREVI_TIERED=1 $TENV $BREVI "$c" "$t3/main.py" "$@" 2>&1 | sed 's/^time .* ms  tiered:/tiered:/' | grep -v '^time '; }
 t3out=$(tr run --native; i=0; while ls -a "$t3/cache/bin" | grep -q '^\.tmp-tier-' && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done
   tr run --native
   printf 'print(sum(i * i for i in range(11)))\n' > "$t3/main.py"
