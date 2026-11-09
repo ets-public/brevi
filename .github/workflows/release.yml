@@ -236,6 +236,16 @@ jobs:
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker push --all-tags $img
           docker image ls $img
+      # The dev container feature ghcr.io/ets-public/features/brevi (devcontainer/src/brevi); a feature
+      # version already published is skipped.
+      - name: Publish the dev container feature
+        uses: devcontainers/action@v1
+        with:
+          publish-features: "true"
+          base-path-to-features: ./devcontainer/src
+          features-namespace: ${{ github.repository_owner }}/features
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   # The MCP registry checks that the PyPI and npm packages exist and name this server, so it goes last.
   mcp-registry:
