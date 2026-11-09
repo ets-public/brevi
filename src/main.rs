@@ -29,6 +29,7 @@ mod pystd;
 mod pygen;
 mod scoped;
 mod runcache;
+mod shim;
 mod verify;
 
 use diag::{esc, Diag};
@@ -145,6 +146,9 @@ fn print_diag(d: &Diag) {
 
 fn main() {
     tm("start");
+    if let Some(args) = shim::args() {
+        shim::main(args);
+    }
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.first().map(|a| a.as_str()) == Some("mcp") {
         mcp::serve(&argv[1..]);

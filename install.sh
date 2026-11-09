@@ -2,7 +2,9 @@
 # Installs the brevi compiler. brevi turns programs into Rust, so it needs rustc: the Rust toolchain is
 # fetched first if it is missing. Then a prebuilt brevi is downloaded from the latest GitHub release when
 # one exists for this machine and checked against the release's SHA256SUMS, or brevi is built from source.
-# usage: sh install.sh            (BREVI_FROM_SOURCE=1 always builds from source)
+# It also links brevi-python, the brevi binary acting as python3 (native when Brevi can build the program).
+# usage: sh install.sh            (BREVI_FROM_SOURCE=1 always builds from source;
+#                                  BREVI_VERSION=0.27.0 installs that release instead of the latest)
 set -e
 # Stops with nothing installed: a download that cannot be verified is never unpacked.
 die() {
@@ -24,6 +26,7 @@ esac
 dest="$HOME/.cargo/bin"; mkdir -p "$dest"
 archive="brevi-$target.tar.gz"
 release="https://github.com/ets-public/brevi/releases/latest/download"
+[ -n "$BREVI_VERSION" ] && release="https://github.com/ets-public/brevi/releases/download/v${BREVI_VERSION#v}"
 tmp=$(mktemp -d)
 if [ -z "$BREVI_FROM_SOURCE" ] && [ -n "$target" ] && curl -fsSL "$release/$archive" -o "$tmp/b.tgz" 2>/dev/null; then
   curl -fsSL "$release/SHA256SUMS" -o "$tmp/SHA256SUMS" 2>/dev/null ||
@@ -40,7 +43,9 @@ if [ -z "$BREVI_FROM_SOURCE" ] && [ -n "$target" ] && curl -fsSL "$release/$arch
   cp "$tmp/brevi-$target/brevi" "$dest/brevi"
   echo "installed prebuilt brevi to $dest"
 else
-  cargo install --git https://github.com/ets-public/brevi brevi
+  [ -n "$BREVI_VERSION" ] && tag="--tag v${BREVI_VERSION#v}"
+  cargo install --git https://github.com/ets-public/brevi $tag brevi
 fi
 rm -rf "$tmp"
+ln -sf brevi "$dest/brevi-python"
 "$dest/brevi" --version

@@ -8,7 +8,9 @@ import os
 from daytona import CreateSnapshotParams, Daytona, Image, Resources
 
 here = os.path.dirname(os.path.abspath(__file__))
-image = Image.from_dockerfile(os.path.join(here, "..", "image", "Dockerfile"))
+# BREVI_IMAGE=ghcr.io/ets-public/brevi-sandbox:latest starts from the published image (from v0.27.0) instead.
+published = os.environ.get("BREVI_IMAGE")
+image = Image.base(published) if published else Image.from_dockerfile(os.path.join(here, "..", "image", "Dockerfile"))
 # rustc wants memory when it links a program: give each sandbox 2 vCPUs and 2 GB.
 snap = Daytona().snapshot.create(
     CreateSnapshotParams(name=os.environ.get("BREVI_DAYTONA_SNAPSHOT", "brevi"), image=image,

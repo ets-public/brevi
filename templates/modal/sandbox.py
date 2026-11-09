@@ -12,7 +12,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from brevi_tool import Box, Grants, Result, WORKDIR  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-IMAGE = modal.Image.from_dockerfile(os.path.join(HERE, "..", "image", "Dockerfile"))
+# BREVI_IMAGE=ghcr.io/ets-public/brevi-sandbox:latest pulls the published image (from v0.27.0) instead of building.
+IMAGE = (modal.Image.from_registry(os.environ["BREVI_IMAGE"]) if os.environ.get("BREVI_IMAGE")
+         else modal.Image.from_dockerfile(os.path.join(HERE, "..", "image", "Dockerfile")))
 
 
 class Sandbox(Box):
