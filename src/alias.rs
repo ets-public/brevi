@@ -20,6 +20,10 @@ struct Cx {
     // Functions (and class methods, by method name) that return an item of a list or dict they did not build
     // (`return self.waiting.get(sku, [])`, `return grid[r]`): a name set from a call of one is a copy here.
     item_fns: HashSet<String>,
+    // Getters to inline where their value is named, by function name (a class method's too): one line,
+    // `return self.waiting.get(sku, [])` (or `self.f[k]`, `self.f.get(k)`, `d[k]` with d global or a
+    // parameter): (the parameter names, self first for a method; the returned expression).
+    get_inline: Inline,
     // Class method name -> the fields of self its body names (`self.tx` in any way).
     method_fields: std::collections::HashMap<String, HashSet<String>>,
     // Copies that only matter when the value is not shared (a list of ints, not an object, record or row):
@@ -183,7 +187,36 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     }
-    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, item_fns, method_fields, pending: vec![] };
+    let mut get_inline: Inline = std::collections::HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { name, params, body: Expr::Block(st, t), .. } = it {
+            let e = match (st.as_slice(), t) {
+                ([Stmt::Return { value: Some(e), .. }], None) => e,
+                ([], Some(e)) => e.as_ref(),
+                _ => continue,
+            };
+            let ps: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+            let plain_base = |b: &Expr| match b {
+                Expr::Ident(n) => !ps.is_empty() || n != "self_",
+                Expr::Field(x, _) => matches!(x.as_ref(), Expr::Ident(n) if n == "self_" || ps.contains(n)),
+                _ => false,
+            };
+            let key_param = |k: &Expr| matches!(k, Expr::Ident(n) if ps.contains(n) && n != "self_");
+            let ok = match e {
+                Expr::Index(b, k) => plain_base(b) && key_param(k),
+                Expr::Method(b, m, a, _) if m == "get" || m == "get_or" => {
+                    plain_base(b) && a.first().is_some_and(|k| key_param(k)) && (a.len() == 1 || matches!(&a[1], Expr::List(x) if x.is_empty()) || matches!(&a[1], Expr::Map(x) if x.is_empty()) || matches!(&a[1], Expr::Call(f, x, _) if f == "none" && x.is_empty()))
+                }
+                _ => false,
+            };
+            if !ok {
+                continue;
+            }
+            // A method is a function here too (`book.backorders_for(sku)` is `Orders_backorders_for(book, sku)`).
+            get_inline.insert(name.clone(), (ps, e.clone()));
+        }
+    }
+    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, item_fns, get_inline, method_fields, pending: vec![] };
     let inl: Inline = items
         .iter()
         .filter_map(|it| match it {
@@ -1068,6 +1101,21 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                         continue;
                     }
                 }
+                // `lst = book.backorders_for(sku)` where the method returns `self.waiting.get(sku, [])`: the
+                // call is that expression (`lst = book.waiting.get(sku, [])`), which the write-back below covers.
+                if let Some(v) = inline_getter(&stmts[i], &cx.get_inline) {
+                    let r = match &stmts[i] {
+                        Stmt::Assign { target: Expr::Ident(r), .. } | Stmt::Let { name: Pat::Bind(r), .. } => r.clone(),
+                        _ => unreachable!(),
+                    };
+                    if changed(&r, &stmts[i + 1..], tail.as_deref()) {
+                        match &mut stmts[i] {
+                            Stmt::Assign { value, .. } | Stmt::Let { value, .. } => *value = v,
+                            _ => {}
+                        }
+                        continue;
+                    }
+                }
                 if let Some((r, key, line)) = keyed_alias(&stmts[i]) {
                     if changed(&r, &stmts[i + 1..], tail.as_deref()) {
                         let kn = format!("ax_ak{line}_{r}");
@@ -1471,6 +1519,11 @@ fn safe(r: &str, base: &Expr, key: &Expr, rest: &[Stmt], tail: Option<&Expr>) ->
     let b = root(base).unwrap_or("");
     let k = root(key).unwrap_or("");
     let slot = format!("{:?}", Expr::Index(Box::new(base.clone()), Box::new(key.clone())));
+    // `lst = waiting.get(sku)`, then `if lst is None: waiting[sku] = [x]` else `lst.append(x)`: the branch where
+    // r is None sets the slot to a new list and leaves r alone, so it does not stop the write-back after
+    // `lst.append(x)` in the other branch.
+    let (rest, tail) = (&without_none_branches(rest, r)[..], tail.map(|t| none_branches_out(t, r)));
+    let tail = tail.as_ref();
     let bad = any_stmt(rest, tail, &mut |st| match st {
         Stmt::Assign { target: Expr::Ident(n), .. } => n == r || n == k || n == b,
         Stmt::Let { name: Pat::Bind(n), .. } => n == r || n == k || n == b,
@@ -1492,6 +1545,28 @@ fn safe(r: &str, base: &Expr, key: &Expr, rest: &[Stmt], tail: Option<&Expr>) ->
         false
     });
     !bad && !shifted
+}
+
+// The statements with the body of each `if r is None:` taken out, when that body never names r.
+fn without_none_branches(stmts: &[Stmt], r: &str) -> Vec<Stmt> {
+    stmts
+        .iter()
+        .map(|st| match st {
+            Stmt::Expr { expr, line } => Stmt::Expr { expr: none_branches_out(expr, r), line: *line },
+            st => st.clone(),
+        })
+        .collect()
+}
+
+fn none_branches_out(e: &Expr, r: &str) -> Expr {
+    match e {
+        Expr::If(c, a, b) if matches!(c.as_ref(), Expr::Method(x, m, args, _) if m == "is_none" && args.is_empty() && matches!(x.as_ref(), Expr::Ident(n) if n == r)) && !names(a, r) => {
+            Expr::If(c.clone(), Box::new(Expr::Block(vec![], None)), b.as_ref().map(|b| Box::new(none_branches_out(b, r))))
+        }
+        Expr::If(c, a, b) => Expr::If(c.clone(), Box::new(none_branches_out(a, r)), b.as_ref().map(|b| Box::new(none_branches_out(b, r)))),
+        Expr::Block(st, t) => Expr::Block(without_none_branches(st, r), t.as_ref().map(|t| Box::new(none_branches_out(t, r)))),
+        e => e.clone(),
+    }
 }
 
 // Puts `base[key] = r` after each statement that changes r, at any depth (not inside lambdas).
@@ -1876,6 +1951,34 @@ fn getter_call(st: &Stmt, getters: &std::collections::HashMap<String, (Result<us
 }
 
 type Inline = std::collections::HashMap<String, (Vec<String>, Expr)>;
+
+// `r = f(a)` with f in get_inline (plain arguments): the getter's expression with the arguments put in.
+fn inline_getter(st: &Stmt, inl: &Inline) -> Option<Expr> {
+    let (r, value) = match st {
+        Stmt::Assign { target: Expr::Ident(r), op: "=", value, .. } => (r, value),
+        Stmt::Let { name: Pat::Bind(r), value, .. } => (r, value),
+        _ => return None,
+    };
+    let plain = |a: &Expr| matches!(a, Expr::Ident(_) | Expr::Field(..) | Expr::Int(_) | Expr::Str(_));
+    let (ps, e, args): (&Vec<String>, &Expr, Vec<Expr>) = match value {
+        Expr::Call(f, args, _) if args.iter().all(|(n, a)| n.is_none() && plain(a)) => {
+            let (ps, e) = inl.get(f)?;
+            (ps, e, args.iter().map(|(_, a)| a.clone()).collect())
+        }
+        _ => return None,
+    };
+    if ps.len() != args.len() || args.iter().any(|a| root(a) == Some(r.as_str())) {
+        return None;
+    }
+    let mut e = e.clone();
+    for (k, p) in ps.iter().enumerate() {
+        subst(&mut e, p, &Expr::Ident(format!("ax_gi{k}")));
+    }
+    for (k, a) in args.iter().enumerate() {
+        subst(&mut e, &format!("ax_gi{k}"), a);
+    }
+    Some(e)
+}
 
 // A call of a function that only returns an expression, with the arguments put in (plain arguments only).
 fn inline_call(it: &Expr, inl: &Inline) -> Option<Box<Expr>> {
