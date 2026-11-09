@@ -483,7 +483,7 @@ pub fn ax_py(f: usize, args: Vec<Json>) -> R<Json> {
     use std::io::{BufRead, Write};
     let mut g = AX_PY.lock().unwrap_or_else(|e| e.into_inner());
     if g.is_none() {
-        let exe = crate::python_exe();
+        let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".to_string() } else { "python3".to_string() });
         let mut c = std::process::Command::new(&exe)
             .args(["-u", "-c", AX_PY_SRC])
             .stdin(std::process::Stdio::piped())

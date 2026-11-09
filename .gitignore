@@ -6,3 +6,6 @@ __pycache__/
 /dist
 runtime/*/target/
 runtime/*/Cargo.lock
+.cache/
+.gh/
+ci-linux.log
