@@ -57,6 +57,7 @@ For hostile code, the sandbox and limits are a first layer. Running `brevi` itse
 - **Resources without a limit:** the number of connections to granted hosts (`net` bounds their bytes, `fds` how many are open at once), disk space a program uses by writing over the same bytes (`written` counts bytes written, not space used), and writes through memory maps (which only CPython or native code can make).
 - **Output the program had buffered when it was stopped** is lost; output it wrote before is kept.
 - **The build.** Limits hold the program, not `brevi build` or `rustc`. A build is bounded by the MCP call's `timeout` (or by the caller). Brevi compiles source to Rust and runs `rustc` on it; the program cannot add Rust of its own without `native`.
+- **Who reaches `brevi mcp --http`.** Anyone who can send it a request can run programs under the tools' sandbox, so on an address other than 127.0.0.1 it refuses to start without a bearer token (`--token` or `BREVI_MCP_TOKEN`, at least 16 characters) and refuses requests from web origins that are not local unless `--allow-origin` names them. It speaks plain HTTP: keep the token on a trusted network or behind the platform's TLS port forwarding, since anyone who reads the token can use the server.
 - **The machine's own state:** a malicious `rustc`, Python or shared library on `PATH`, or a build cache written by another user, is outside this model.
 
 ## Reporting

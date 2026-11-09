@@ -1,6 +1,6 @@
 {
   "name": "brevi",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Write plain Python and Brevi builds it to a fast native program: the Brevi skill and the brevi mcp tools, with one-line JSON errors.",
   "author": { "name": "Adam" },
   "homepage": "https://brevi-lang.org",

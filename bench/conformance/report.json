@@ -1,19 +1,19 @@
 {
-"brevi": "brevi 0.24.6",
+"brevi": "brevi 0.26.0",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-04",
+"date": "2026-11-09",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 180,
-"refused": 67,
+"matched": 181,
+"refused": 66,
 "wrong_output": 18,
-"wrong_exit": 27,
-"crash_or_timeout": 4,
+"wrong_exit": 26,
+"crash_or_timeout": 5,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
@@ -21,15 +21,15 @@
 "scored": 311,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.5788,
-"wrong": 45
+"coverage": 0.582,
+"wrong": 44
 },
 "dyn": {
-"matched": 179,
-"refused": 68,
+"matched": 180,
+"refused": 67,
 "wrong_output": 18,
-"wrong_exit": 27,
-"crash_or_timeout": 4,
+"wrong_exit": 26,
+"crash_or_timeout": 5,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
@@ -37,17 +37,17 @@
 "scored": 311,
 "matched_through_cpython": 0,
 "matched_silent": 33,
-"coverage": 0.5756,
-"wrong": 45
+"coverage": 0.5788,
+"wrong": 44
 }
 },
 "files": {
 "test_grammar": {
 "normal": {
-"matched": 36,
-"refused": 30,
+"matched": 38,
+"refused": 29,
 "wrong_output": 1,
-"wrong_exit": 5,
+"wrong_exit": 4,
 "crash_or_timeout": 0,
 "not_extractable": 7,
 "unstable": 0,
@@ -56,14 +56,14 @@
 "scored": 79,
 "matched_through_cpython": 0,
 "matched_silent": 23,
-"coverage": 0.4557,
-"wrong": 6
+"coverage": 0.481,
+"wrong": 5
 },
 "dyn": {
-"matched": 35,
-"refused": 31,
+"matched": 37,
+"refused": 30,
 "wrong_output": 1,
-"wrong_exit": 5,
+"wrong_exit": 4,
 "crash_or_timeout": 0,
 "not_extractable": 7,
 "unstable": 0,
@@ -72,8 +72,8 @@
 "scored": 79,
 "matched_through_cpython": 0,
 "matched_silent": 22,
-"coverage": 0.443,
-"wrong": 6
+"coverage": 0.4684,
+"wrong": 5
 }
 },
 "test_scope": {
@@ -180,11 +180,11 @@
 },
 "test_dict": {
 "normal": {
-"matched": 68,
+"matched": 67,
 "refused": 10,
 "wrong_output": 9,
 "wrong_exit": 10,
-"crash_or_timeout": 1,
+"crash_or_timeout": 2,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
@@ -192,15 +192,15 @@
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 8,
-"coverage": 0.6869,
+"coverage": 0.6768,
 "wrong": 19
 },
 "dyn": {
-"matched": 68,
+"matched": 67,
 "refused": 10,
 "wrong_output": 9,
 "wrong_exit": 10,
-"crash_or_timeout": 1,
+"crash_or_timeout": 2,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
@@ -208,21 +208,21 @@
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 8,
-"coverage": 0.6869,
+"coverage": 0.6768,
 "wrong": 19
 }
 }
 },
 "paths": {
 "normal": {
-"dynamic": 202,
-"refused": 67,
+"dynamic": 203,
+"refused": 66,
 "typed": 25,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 228,
-"refused": 68
+"dynamic": 229,
+"refused": 67
 }
 },
 "tests": [
@@ -246,7 +246,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what TokenTests_test_bad_numerical_literals returns"
+"detail": "no field check_synterror on type TokenTests: unknown field"
 },
 "dyn": {
 "category": "refused",
@@ -391,14 +391,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'A' has no attribute '__annotations__'"
+"category": "refused",
+"detail": "expected end of line, found A"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'A' has no attribute '__annotations__'"
+"category": "refused",
+"detail": "typing: .__annotations__ needs CPython's typing"
 }
 }
 },
@@ -447,12 +445,14 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found fn"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__code__'"
 },
 "dyn": {
-"category": "refused",
-"detail": "async is not supported"
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__code__'"
 }
 }
 },
@@ -461,12 +461,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Done"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "async is not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -475,12 +475,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Done"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "async is not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -766,11 +766,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "repr() of a one-item tuple shows (x,), which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 7: compile() is not supported in dynamic builds)"
+"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 215: typing: .__annotations__ needs CPython's typing)"
 },
 "dyn": {
 "category": "refused",
-"detail": "compile() is not supported in dynamic builds"
+"detail": "typing: .__annotations__ needs CPython's typing"
 }
 }
 },
@@ -1082,7 +1082,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "except* is not supported"
+"detail": "compile() is not supported in dynamic builds"
 }
 }
 },
@@ -1105,14 +1105,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__annotations__'"
+"category": "refused",
+"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: typing: .__annotations__ needs CPython's typing"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__annotations__'"
+"category": "refused",
+"detail": "typing: .__annotations__ needs CPython's typing"
 }
 }
 },
@@ -1194,7 +1192,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "exec() is not supported in dynamic builds"
+"detail": "typing: `typing.Tuple` used as a value needs CPython's typing"
 }
 }
 },
@@ -2092,7 +2090,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 12: a yield inside try"
+"detail": "`adjust_int_max_str_digits` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: a yield inside try/finally or with is not supported in "
 },
 "dyn": {
 "category": "refused",
@@ -2106,7 +2104,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+"detail": "unknown function type()"
 },
 "dyn": {
 "category": "refused",
@@ -2126,7 +2124,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+"detail": "unknown method .int_class()"
 },
 "dyn": {
 "category": "refused",
@@ -2140,7 +2138,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+"detail": "no field int_class on type IntStrDigitLimitsTests: unknown field"
 },
 "dyn": {
 "category": "refused",
@@ -2154,7 +2152,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+"detail": "unknown method .int_class()"
 },
 "dyn": {
 "category": "refused",
@@ -2168,7 +2166,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+"detail": "no field int_class on type IntStrDigitLimitsTests: unknown field"
 },
 "dyn": {
 "category": "refused",
@@ -2182,7 +2180,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what IntStrDigitLimitsTests_setUp returns"
+"detail": "unknown method .int_class()"
 },
 "dyn": {
 "category": "refused",
@@ -2208,7 +2206,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 12: a yield inside try"
+"detail": "`adjust_int_max_str_digits` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: a yield inside try/finally or with is not supported in "
 },
 "dyn": {
 "category": "refused",
@@ -2222,7 +2220,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what _Base1_setUp returns"
+"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
 },
 "dyn": {
 "category": "refused",
@@ -2242,7 +2240,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what _Base1_setUp returns"
+"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
 },
 "dyn": {
 "category": "refused",
@@ -2256,7 +2254,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what _Base1_setUp returns"
+"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
 },
 "dyn": {
 "category": "refused",
@@ -2270,7 +2268,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what _Base1_setUp returns"
+"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
 },
 "dyn": {
 "category": "refused",
@@ -2284,7 +2282,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what _Base1_setUp returns"
+"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
 },
 "dyn": {
 "category": "refused",
@@ -2298,7 +2296,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "cannot work out what _Base1_setUp returns"
+"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
 },
 "dyn": {
 "category": "refused",
@@ -3459,12 +3457,14 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: RefCell already borrowed"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "crash_or_timeout",
+"path": "dynamic",
+"detail": "panic: RefCell already borrowed"
 }
 }
 },
@@ -3736,7 +3736,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown name 'collections'"
+"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 18: collections.abc is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -4114,7 +4114,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown name 'collections'"
+"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 18: collections.abc is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
