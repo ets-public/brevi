@@ -1,7 +1,7 @@
 # Brevi documentation
 <!-- description: Brevi documentation: install, use, connect agents, and how the compiler works. -->
 
-Brevi is a compiler built for AI coding agents. The agent writes ordinary Python, and Brevi builds it through Rust into a native program that prints exactly what CPython prints, typically 2 to 40 times faster. When Brevi cannot build something, it says so in one short JSON line the agent can act on.
+Brevi is a compiler built for AI coding agents. The agent writes ordinary Python, and Brevi builds it through Rust into a native program. On our 12 compute benchmarks the default build runs 1.7x to 39.5x faster than CPython (median 8.5x). Brevi aims to print exactly what CPython prints and to refuse what it cannot match; on CPython 3.13's own tests it matches 58% today and still gets 14% wrong, so it is a preview, not a drop-in `python3` ([the numbers](/docs/compatibility#in-numbers)). When Brevi cannot build something, it says so in one short JSON line the agent can act on.
 
 Brevi is written in Rust and released under the Apache-2.0 license.
 

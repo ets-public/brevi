@@ -723,6 +723,28 @@ exp=tests/verify.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$vout" > "$exp"
 elif [ "$vout" != "$(cat "$exp")" ]; then echo "FAIL brevi verify"; printf '%s\n' "$vout" | diff "$exp" - ; fail=1
 else echo "ok   brevi verify"; fi
+# brevi run --verify: the run checked against CPython (docs/VERIFY_BY_DEFAULT.md). Same: the native output and a
+# certificate on stderr; different: CPython's output and the first differing line, logged for brevi report.
+rv_cache=$(mktemp -d)
+rv() { echo "-- run --verify $*"; o=$(env BREVI_CACHE="$rv_cache" $BREVI run --verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | grep -v '^{"path":' | sed -E 's/"(cpython_ms|brevi_ms|speedup)":[0-9.]+,?//g; s/"(brevi|cpython)":"[0-9]+\.[0-9]+\.[0-9]+",?//g; s/"path":"[a-z]+",?//g; s/"logged":"[^"]*",?//g; s/,}/}/; s/ [0-9]+ ms after/ N ms after/'; echo "exit $c"; }
+rvout=$(printf '4\n' | rv tests/verify/sq.py
+  printf '7\n' | rv tests/verify/sq.py
+  rv tests/verify/argsum.py -- 3 4 </dev/null
+  rv tests/verify/clock_ok.py </dev/null
+  rv tests/verify/writes.py </dev/null
+  rv tests/verify/refused.py </dev/null
+  printf '2\n' | BREVI_PYTHON=tests/verify/fakepy.sh rv tests/verify/sq.py
+  printf '2\n' | BREVI_PYTHON=tests/verify/fakepy.sh rv --strict tests/verify/sq.py
+  printf '2\n' | BREVI_PYTHON=tests/verify/slowpy.sh rv tests/verify/sq.py
+  rv --sandbox tests/verify/sq.py </dev/null
+  rv tests/run/arm_map.bv </dev/null
+  echo "-- report"; env BREVI_CACHE="$rv_cache" $BREVI report | grep -c '^--- issue body'
+  env BREVI_CACHE="$rv_cache" $BREVI report --clear; env BREVI_CACHE="$rv_cache" $BREVI report | sed 's/(.*)/(...)/')
+rm -rf "$rv_cache"
+exp=tests/run_verify.expected
+if [ "$1" = "--update" ]; then printf '%s\n' "$rvout" > "$exp"
+elif [ "$rvout" != "$(cat "$exp")" ]; then echo "FAIL brevi run --verify"; printf '%s\n' "$rvout" | diff "$exp" - ; fail=1
+else echo "ok   brevi run --verify"; fi
 exp=tests/cache.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
 elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1

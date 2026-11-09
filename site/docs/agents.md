@@ -6,7 +6,7 @@ Brevi is built for the agent in the loop. The agent writes the plain Python it a
 ## The loop
 
 1. Write normal Python to `main.py`. Standard library, or installed packages; split big programs into `.py` files that import each other.
-2. Run it: `brevi run main.py < input.txt`, or `brevi check main.py` to build without running.
+2. Run it: `brevi run main.py < input.txt`, or `brevi check main.py` to build without running. From v0.27.0, `brevi run --verify main.py < input.txt` is the recommended run for agents: it checks the run against CPython and gives CPython's answer, with a `{"verify":"differs"}` line, whenever Brevi's differs ([Verify by default](/docs/usage#verify-by-default)).
 3. Each error is `{"line":N,"msg":...,"fix":...}`. Change only the lines it names, then run again. Do not rewrite the whole file.
 4. If Brevi still cannot build a construct after one small change, keep the Python as it is and run it with `python3`. `brevi run` already does this on its own, with a one-line `{"path":"cpython",...}` report.
 
@@ -18,9 +18,9 @@ The one piece of prompting advice that matters: **ask for the plain, direct solu
 
 Brevi's skill, MCP server, editor rules and llms.txt all carry this advice. The benchmark prompt uses this exact line:
 
-> Your program is compiled to native code, which runs plain loops over ints and lists 10 to 50 times faster than CPython. Write the plain, direct solution; do not hand-optimise it for speed.
+> Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed.
 
-On four heavy tasks (Game of Life, knapsack, edit distance, Collatz chains), adding that line cut Sonnet's output tokens by half and Haiku's by over a quarter, and the total cost came to 0.58x (Sonnet) and 0.53x (Haiku) of the same models writing Python for CPython. Every plain program ran natively within the 10-second limit, where CPython needed 29 to 59 seconds. On ordinary tasks the line makes no clear difference either way. Details in [Benchmarks](/docs/benchmarks#heavy-tasks-and-the-plain-solution-line).
+On four heavy tasks (Game of Life, knapsack, edit distance, Collatz chains), adding that line cut Sonnet's output tokens by half and Haiku's by over a quarter, and the total cost came to 0.58x (Sonnet) and 0.53x (Haiku) of the same models writing Python for CPython with no extra line. CPython has not yet been run with the same line, so this shows the line helps, not yet how much of it Brevi itself saves. Those runs used an earlier wording that said "10 to 50 times faster"; the line now gives the measured range. Every plain program ran natively within the 10-second limit, where CPython needed 29 to 59 seconds. On ordinary tasks the line makes no clear difference either way. Details in [Benchmarks](/docs/benchmarks#heavy-tasks-and-the-plain-solution-line).
 
 ## MCP server
 
@@ -55,7 +55,7 @@ The server **keeps the program**. The agent sends its code once, then fixes it w
 | Tool | What it does |
 | --- | --- |
 | `check` | Compile without running. Returns `OK` or one JSON error per line. Takes `code` (once), `file` (for multi-file programs), `fast`, `fix` and `sandbox`. |
-| `run` | Compile and run the kept program with `stdin` and `args`. With `cases` (a list of `{stdin, expect}`), builds once and prints `ok` or the first differing line for each case. `timeout` gives a slow program more time; `limits` holds it to CPU, memory, time, output, file-size and other limits. |
+| `run` | Compile and run the kept program with `stdin` and `args`. With `cases` (a list of `{stdin, expect}`), builds once and prints `ok` or the first differing line for each case. `timeout` gives a slow program more time; `limits` holds it to CPU, memory, time, output, file-size and other limits. From v0.27.0, with `sandbox: false` plain Python is checked against CPython by default ([Verify by default](/docs/usage#verify-by-default)): the last line is `{"verify":"identical",...}`, or, when Brevi's answer differs, the output is CPython's with a `{"verify":"differs"}` line, and the program runs with CPython for the rest of the session. `verify: false` turns it off. A `cases` entry that fails natively but passes under CPython is reported as a Brevi bug, not the model's. Under the sandbox (the default) nothing is checked against CPython, which the sandbox cannot hold. |
 | `test` | Run the `test` blocks of a Brevi program (`limits` as for `run`). |
 | `verify` | Proof the native build answers as CPython does: builds the kept program natively, runs it and `python3` on each of `inputs` (stdin texts) with `args`, and compares stdout, exit code and stderr. One JSON line per input, then a certificate (`identical`, `differs`, `unstable`, `timeout`, `limit` or `not built`, with the file's SHA-256 and the speedup). CPython runs twice per input (`once: true` for one run). It runs CPython on the code, which the sandbox cannot hold, so it needs `sandbox: false`. From v0.26.0. See [Verify against CPython](/docs/usage#verify-against-cpython). |
 | `patch` | Replace each `def` or `class` (in Brevi code: `fn`, `type`, `enum` or `test`) by name, or add it, then check. |

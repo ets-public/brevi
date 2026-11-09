@@ -3922,7 +3922,18 @@ impl Ck<'_, '_> {
                     x = to_json(x);
                 }
                 let blk = |e: Expr| Box::new(Expr::Block(vec![], Some(Box::new(e))));
-                *e = if *op == "or" { Expr::If(Box::new(x.clone()), blk(x), Some(blk(y))) } else { Expr::If(Box::new(x.clone()), blk(y), Some(blk(x))) };
+                // The first operand is tested and then given back, so it must run once: anything but a plain name or
+                // literal (a call, an index) is bound first (`g() or 5` called g twice, `input() or "d"` read two lines).
+                let pure = matches!(x, Expr::Ident(_) | Expr::Int(_) | Expr::Float(_) | Expr::Bool(_))
+                    || matches!(&x, Expr::Str(parts) if parts.iter().all(|p| matches!(p, StrPart::Lit(_))));
+                let (pre, x) = if pure {
+                    (vec![], x)
+                } else {
+                    let tmp = "ax_or_v".to_string();
+                    (vec![Stmt::Let { name: Pat::Bind(tmp.clone()), ty: None, value: x, mutable: false, line: 0 }], Expr::Ident(tmp))
+                };
+                let test = if *op == "or" { Expr::If(Box::new(x.clone()), blk(x), Some(blk(y))) } else { Expr::If(Box::new(x.clone()), blk(y), Some(blk(x))) };
+                *e = if pre.is_empty() { test } else { Expr::Block(pre, Some(Box::new(test))) };
                 self.expr(e, env);
             }
             Expr::Binary(op, a, b) => {
