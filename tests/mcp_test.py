@@ -72,6 +72,33 @@ expect("verify names inputs", call("verify", sandbox=False, inputs=["5"]), '"inp
 expect("verify unstable", call("verify", sandbox=False, code="import time\nprint(time.time_ns())\n"), "pass once true", True)
 expect("verify not built", call("verify", sandbox=False, code='exec("print(1)")\n'), '"verify":"not built"', True)
 expect("verify Brevi code", call("verify", sandbox=False, code="fn main():\n    print(1)\n"), "no CPython answer", True)
+# Verify by default: run with sandbox false checks plain Python against CPython (docs/VERIFY_BY_DEFAULT.md).
+start()
+sq = "import sys\nn = int(sys.stdin.read())\nprint(sum(i * i for i in range(n)))\n"
+expect("run verifies by default", call("run", code=sq, sandbox=False, stdin="5"), '30\n{"verify":"identical","brevi_ms":', False)
+expect("run verify false", call("run", sandbox=False, stdin="5", verify=False), "30", False)
+if '"verify"' in call("run", sandbox=False, stdin="5", verify=False)[0] or '"verify"' in call("run", stdin="5")[0]:
+    fails += 1
+    print("FAIL run: verify false and the sandbox must not verify")
+expect("run verify refuses the clock", call("run", sandbox=False, code="import time\nprint(time.time() > 0)\n"), '{"verify":"refused","why":"reads the clock"}', False)
+expect("run verify refuses writes", call("run", sandbox=False, code="open('x.txt', 'w').write('x')\nprint(1)\n"), '"why":"writes files"', False)
+def start_with(**env):
+    global p
+    if p:
+        p.stdin.close()
+        p.wait()
+    p = subprocess.Popen([B, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=dict(os.environ, **env))
+import os
+start_with(BREVI_PYTHON=os.path.abspath("tests/verify/fakepy.sh"))
+d = call("run", code=sq, sandbox=False, stdin="5")
+expect("run verify differs gives CPython's answer", d, '30\none more line\n{"verify":"differs","on":"stdout","line":2', False)
+expect("run verify differs says whose bug", d, "runs with CPython for the rest of the session", False)
+expect("run after differs uses CPython", call("run", sandbox=False, stdin="5"), '"path":"cpython","why":"Brevi gave a wrong answer', False)
+start_with(BREVI_PYTHON=os.path.abspath("tests/verify/upperpy.sh"))
+expect("cases Brevi bug", call("run", code="print(input())\n", sandbox=False, cases=[{"stdin": "x\n", "expect": "X\n"}]), "this is a Brevi bug, not your code", True)
+expect("cases after Brevi bug use CPython", call("run", sandbox=False, cases=[{"stdin": "x\n", "expect": "X\n"}]), "passed 1/1", False)
+start()
+expect("cases sandbox note", call("run", code="print(input())\n", cases=[{"stdin": "x\n", "expect": "X\n"}]), "not checked against CPython", True)
 # Every build says which path it took: structuredContent always, the text's last line only off the typed path.
 start()
 def path_of(tool, **args):
