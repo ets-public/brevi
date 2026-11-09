@@ -564,7 +564,7 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             let f = a1(&a, name)?;
             builtin("K", move |a: Args| {
                 let x = a1(&a, "K")?;
-                Ok(V::Ext(Rc::new(CmpKey { f: f.clone(), v: x })))
+                Ok(V::Ext(ExtRc::new(CmpKey { f: f.clone(), v: x })))
             })
         }
         "partial" => {
@@ -1006,7 +1006,7 @@ fn ptr_of(x: &V) -> Option<usize> {
         V::Dict(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Set(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Obj(l) => Rc::as_ptr(l) as *const u8 as usize,
-        V::Tuple(l) => Rc::as_ptr(l) as *const u8 as usize,
+        V::Tuple(l) => Tup::as_ptr(l) as *const u8 as usize,
         V::Deque(l) => Rc::as_ptr(l) as *const u8 as usize,
         _ => return None,
     })
@@ -1383,9 +1383,9 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
 }
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
-        ("sys", "stdin") => V::Module("sys.stdin"),
-        ("sys", "stdout") => V::Module("sys.stdout"),
-        ("sys", "stderr") => V::Module("sys.stderr"),
+        ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
+        ("sys", "stdout") => V::Module(&ModName("sys.stdout")),
+        ("sys", "stderr") => V::Module(&ModName("sys.stderr")),
         ("sys", "argv") => list(ARGV.with(|a| a.borrow().iter().map(|x| s(x)).collect())),
         ("sys", "maxsize") => V::Int(i64::MAX),
         ("sys", "platform") => s("linux"),

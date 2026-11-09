@@ -774,7 +774,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             c.set(name, v);
             Ok(())
         }
-        V::Module("decimal.context") => decimal_context_set(name, &v),
+        V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),

@@ -24,7 +24,7 @@ pub enum V {
     Float(f64),
     Str(Rc<S>),
     List(Rc<RefCell<Vec<V>>>),
-    Tuple(Rc<[V]>),
+    Tuple(Tup),
     Dict(Rc<RefCell<Dict>>),
     Set(Rc<RefCell<PSet>>),
     FSet(Rc<PSet>),
@@ -37,10 +37,10 @@ pub enum V {
     Range(Rc<(i64, i64, i64)>),
     Slice(Rc<(V, V, V)>),
     Deque(Rc<RefCell<Deq>>),
-    Module(Sym),
+    Module(&'static ModName),
     View(Rc<(V, u8)>),
     Prop(Rc<(V, V)>),
-    Ext(Rc<dyn Ext>),
+    Ext(ExtRc),
     NotImpl,
     Ellipsis,
 }
@@ -226,10 +226,204 @@ pub fn list(v: Vec<V>) -> V {
 }
 #[inline]
 pub fn tupa<const N: usize>(a: [V; N]) -> V {
-    V::Tuple(Rc::new(a))
+    V::Tuple(Tup::from_array(a))
 }
 pub fn tup(v: Vec<V>) -> V {
-    V::Tuple(Rc::from(v))
+    V::Tuple(Tup::from(v))
+}
+
+// A library value (numpy array, Decimal, ...): Rc<dyn Ext> is a pointer and a vtable, so the value is boxed
+// once more behind a thin Rc, keeping V two words.
+pub struct ExtRc(pub Rc<Box<dyn Ext>>);
+impl ExtRc {
+    #[inline]
+    pub fn new<T: Ext + 'static>(x: T) -> ExtRc {
+        ExtRc(Rc::new(Box::new(x)))
+    }
+    #[inline]
+    pub fn from_box(b: Box<dyn Ext>) -> ExtRc {
+        ExtRc(Rc::new(b))
+    }
+    #[inline]
+    pub fn ptr_eq(a: &ExtRc, b: &ExtRc) -> bool {
+        Rc::ptr_eq(&a.0, &b.0)
+    }
+    #[inline]
+    pub fn as_ptr(a: &ExtRc) -> *const u8 {
+        Rc::as_ptr(&a.0) as *const u8
+    }
+    #[inline]
+    pub fn strong_count(a: &ExtRc) -> usize {
+        Rc::strong_count(&a.0)
+    }
+    pub fn downgrade(a: &ExtRc) -> std::rc::Weak<Box<dyn Ext>> {
+        Rc::downgrade(&a.0)
+    }
+}
+impl Clone for ExtRc {
+    #[inline]
+    fn clone(&self) -> ExtRc {
+        ExtRc(self.0.clone())
+    }
+}
+impl std::ops::Deref for ExtRc {
+    type Target = dyn Ext;
+    #[inline]
+    fn deref(&self) -> &(dyn Ext + 'static) {
+        &**self.0
+    }
+}
+// A module value's name, behind a thin reference (`&ModName("sys.stdout")` is a constant), so V stays two words
+#[derive(PartialEq, Eq, Debug)]
+pub struct ModName(pub Sym);
+impl std::ops::Deref for ModName {
+    type Target = str;
+    #[inline]
+    fn deref(&self) -> &str {
+        self.0
+    }
+}
+impl std::fmt::Display for ModName {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+thread_local! {
+    static MOD_NAMES: RefCell<HashMap<&'static str, &'static ModName>> = RefCell::new(HashMap::new());
+}
+// a module value for a name known only at run time
+pub fn module_v(name: &str) -> V {
+    let s = sym(name);
+    V::Module(MOD_NAMES.with(|m| *m.borrow_mut().entry(s).or_insert_with(|| Box::leak(Box::new(ModName(s))))))
+}
+// A tuple: one block holding a reference count, the length and the items. A thin pointer, where Rc<[V]> is
+// a pointer and a length, so V stays two words; and one word less of header (tuples have no weak references).
+pub struct Tup(std::ptr::NonNull<TupHdr>);
+#[repr(C)]
+pub struct TupHdr {
+    rc: Cell<usize>,
+    len: usize,
+}
+const TUP_HDR: usize = std::mem::size_of::<TupHdr>();
+impl Tup {
+    #[inline]
+    fn layout(n: usize) -> std::alloc::Layout {
+        std::alloc::Layout::from_size_align(TUP_HDR + n * std::mem::size_of::<V>(), 8).unwrap()
+    }
+    // a tuple of n items, written by fill (which must write all n)
+    #[inline]
+    fn build(n: usize, fill: impl FnOnce(*mut V)) -> Tup {
+        unsafe {
+            let p = std::alloc::alloc(Tup::layout(n)) as *mut TupHdr;
+            if p.is_null() {
+                std::alloc::handle_alloc_error(Tup::layout(n));
+            }
+            std::ptr::write(p, TupHdr { rc: Cell::new(1), len: n });
+            fill((p as *mut u8).add(TUP_HDR) as *mut V);
+            Tup(std::ptr::NonNull::new_unchecked(p))
+        }
+    }
+    #[inline]
+    pub fn from_array<const N: usize>(a: [V; N]) -> Tup {
+        let a = std::mem::ManuallyDrop::new(a);
+        Tup::build(N, |d| unsafe { std::ptr::copy_nonoverlapping(a.as_ptr(), d, N) })
+    }
+    #[inline]
+    pub fn as_slice(&self) -> &[V] {
+        unsafe {
+            let h = self.0.as_ptr();
+            std::slice::from_raw_parts((h as *const u8).add(TUP_HDR) as *const V, (*h).len)
+        }
+    }
+    #[inline]
+    pub fn ptr_eq(a: &Tup, b: &Tup) -> bool {
+        a.0 == b.0
+    }
+    #[inline]
+    pub fn as_ptr(t: &Tup) -> *const u8 {
+        t.0.as_ptr() as *const u8
+    }
+    #[inline]
+    pub fn strong_count(t: &Tup) -> usize {
+        unsafe { (*t.0.as_ptr()).rc.get() }
+    }
+    // the items, when this is the only reference
+    #[inline]
+    pub fn get_mut(t: &mut Tup) -> Option<&mut [V]> {
+        if Tup::strong_count(t) != 1 {
+            return None;
+        }
+        unsafe {
+            let h = t.0.as_ptr();
+            Some(std::slice::from_raw_parts_mut((h as *mut u8).add(TUP_HDR) as *mut V, (*h).len))
+        }
+    }
+}
+impl From<Vec<V>> for Tup {
+    #[inline]
+    fn from(v: Vec<V>) -> Tup {
+        let mut v = std::mem::ManuallyDrop::new(v);
+        let n = v.len();
+        let t = Tup::build(n, |d| unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), d, n) });
+        unsafe {
+            // the items moved: free the Vec's buffer only
+            v.set_len(0);
+            std::mem::ManuallyDrop::drop(&mut v);
+        }
+        t
+    }
+}
+impl From<&[V]> for Tup {
+    fn from(v: &[V]) -> Tup {
+        Tup::from(v.to_vec())
+    }
+}
+impl FromIterator<V> for Tup {
+    fn from_iter<I: IntoIterator<Item = V>>(it: I) -> Tup {
+        Tup::from(it.into_iter().collect::<Vec<V>>())
+    }
+}
+impl std::ops::Deref for Tup {
+    type Target = [V];
+    #[inline]
+    fn deref(&self) -> &[V] {
+        self.as_slice()
+    }
+}
+impl AsRef<[V]> for Tup {
+    fn as_ref(&self) -> &[V] {
+        self.as_slice()
+    }
+}
+impl Clone for Tup {
+    #[inline]
+    fn clone(&self) -> Tup {
+        unsafe {
+            let h = &*self.0.as_ptr();
+            h.rc.set(h.rc.get() + 1);
+        }
+        Tup(self.0)
+    }
+}
+impl Drop for Tup {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            let h = self.0.as_ptr();
+            let n = (*h).rc.get() - 1;
+            if n != 0 {
+                (*h).rc.set(n);
+                return;
+            }
+            tup_free(h);
+        }
+    }
+}
+#[inline(never)]
+unsafe fn tup_free(h: *mut TupHdr) {
+    let n = (*h).len;
+    std::ptr::drop_in_place(std::slice::from_raw_parts_mut((h as *mut u8).add(TUP_HDR) as *mut V, n));
+    std::alloc::dealloc(h as *mut u8, Tup::layout(n));
 }
 pub fn int(i: i64) -> V {
     V::Int(i)
@@ -2064,4 +2258,5 @@ pub fn inner_of(v: &V) -> Option<V> {
     None
 }
 
-const _: () = assert!(std::mem::size_of::<V>() == 24 && std::mem::size_of::<Option<V>>() == 24);
+// two words: a tag and a pointer or number (tuples, library values and module names are thin pointers)
+const _: () = assert!(std::mem::size_of::<V>() == 16 && std::mem::size_of::<Option<V>>() == 16);

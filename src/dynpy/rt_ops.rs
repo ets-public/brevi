@@ -83,7 +83,7 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             let (x, y) = (x.borrow().clone(), y.borrow().clone());
             seq_eq(&x, &y)?
         }
-        (V::Tuple(x), V::Tuple(y)) => Rc::ptr_eq(x, y) || seq_eq(x, y)?,
+        (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || seq_eq(x, y)?,
         (V::Dict(x), V::Dict(y)) => {
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
@@ -182,7 +182,7 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::Int(x), V::Int(y)) => x == y && (-5..=256).contains(x),
         (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || (x.s == y.s && x.s.len() <= 1),
         (V::List(x), V::List(y)) => Rc::ptr_eq(x, y),
-        (V::Tuple(x), V::Tuple(y)) => Rc::ptr_eq(x, y) || (x.is_empty() && y.is_empty()),
+        (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || (x.is_empty() && y.is_empty()),
         (V::Dict(x), V::Dict(y)) => Rc::ptr_eq(x, y),
         (V::Set(x), V::Set(y)) => Rc::ptr_eq(x, y),
         (V::FSet(x), V::FSet(y)) => Rc::ptr_eq(x, y),
@@ -191,7 +191,7 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::Obj(x), V::Obj(y)) => Rc::ptr_eq(x, y),
         (V::Deque(x), V::Deque(y)) => Rc::ptr_eq(x, y),
         (V::Iter(x), V::Iter(y)) => Rc::ptr_eq(x, y),
-        (V::Ext(x), V::Ext(y)) => Rc::ptr_eq(x, y),
+        (V::Ext(x), V::Ext(y)) => ExtRc::ptr_eq(x, y),
         (V::Module(x), V::Module(y)) => x == y,
         (V::NotImpl, V::NotImpl) | (V::Ellipsis, V::Ellipsis) => true,
         _ => false,
@@ -1500,7 +1500,7 @@ pub fn slice(a: V, b: V, c: V) -> V {
 
 pub enum It {
     List(Rc<RefCell<Vec<V>>>, usize),
-    Tuple(Rc<[V]>, usize),
+    Tuple(Tup, usize),
     Vec(std::vec::IntoIter<V>),
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
@@ -1679,7 +1679,7 @@ pub fn iter(v: &V) -> Result<It, E> {
             }
             return type_err(format!("'{}' object is not iterable", tn(v)));
         }
-        V::Module("sys.stdin") => It::Gen(Box::new(|| Ok(read_line().map(st)))),
+        V::Module(&ModName("sys.stdin")) => It::Gen(Box::new(|| Ok(read_line().map(st)))),
         V::Ext(x) => match x.lazy_iter() {
             Some(r) => return r,
             None => match x.iter() {

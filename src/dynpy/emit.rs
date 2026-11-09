@@ -2310,13 +2310,13 @@ impl Em {
                     if self.user_modules.contains(&target) {
                         let init = self.q(&format!("init_{}()", rust_ident(&target)));
                         write!(b, "{init}; ").unwrap();
-                        b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
+                        b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(&target))));
                     } else if self.bridge.has(m) {
                         self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
                         let v = self.q(&format!("pyd_import({}, {})", lit(m), a.is_none()));
                         b.push_str(&self.store(&bind, &v));
                     } else if builtin_mod(target.as_str()) || matches!(target.as_str(), "os.path") {
-                        b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&target))));
+                        b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(&target))));
                     } else {
                         return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
                     }
@@ -2367,7 +2367,7 @@ impl Em {
                         // `from pkg import sub`: the package's module sub
                         let init = self.q(&format!("init_{}()", rust_ident(&sub)));
                         write!(b, "{init}; ").unwrap();
-                        b.push_str(&self.store(&bind, &format!("V::Module({})", lit(&sub))));
+                        b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(&sub))));
                         continue;
                     }
                     let v = if user { self.user_mod_load(m, n, line)? } else { self.q(&format!("module_attr({}, {})", lit(m), lit(n))) };
