@@ -68,7 +68,8 @@ pub fn background(dest: &Path, rust: &str, args: &[String]) {
     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("brevi"));
     let mut c = Command::new(me);
     c.arg("__tier").arg(dest).arg(&work).arg("--").arg(crate::rustc_cmd().get_program()).args(args);
-    c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // Run from its own folder: it must not hold the caller's (a folder an MCP call made, deleted afterwards).
+    c.current_dir(&work).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     detach(&mut c);
     if c.spawn().is_err() {
         std::fs::remove_dir_all(&work).ok();

@@ -1486,7 +1486,8 @@ static RUST_LINES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLoc
 // Where crates are built once and shared by every program: $BREVI_CACHE, else ~/.cache/brevi.
 pub(crate) fn cache_dir() -> PathBuf {
     if let Ok(d) = std::env::var("BREVI_CACHE") {
-        return PathBuf::from(d);
+        // Absolute, so a background build (src/tier.rs), which runs in its own folder, finds the same cache.
+        return std::path::absolute(&d).unwrap_or_else(|_| PathBuf::from(d));
     }
     let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
     home.join(".cache").join("brevi")
