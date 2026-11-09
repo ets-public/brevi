@@ -114,6 +114,24 @@ $ brevi verify main.py --input tests/ -- --verbose
 
 Please report any `differs` at [github.com/ets-public/brevi/issues](https://github.com/ets-public/brevi/issues). How often Brevi gives a wrong answer on CPython's own test suite is measured for every release ([CPython conformance report](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md)).
 
+## Verify by default
+
+From v0.27.0, `brevi run --verify x.py` runs the program once natively and checks that run against CPython on the same stdin and arguments, with CPython running alongside the binary. It is the recommended run for agents: the caller gets either a certified native answer or CPython's, never an unchecked native one.
+
+```
+$ brevi run --verify main.py < input.txt
+30
+{"verify":"identical","file":"main.py","sha256":"...","inputs":["sha256:..."],"args":[],"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,"brevi_ms":3,"cpython_ms":41,"speedup":13.7,"brevi":"0.27.0","cpython":"3.13.13"}
+```
+
+- **Same**: the native output and exit code; the certificate is the last line on stderr.
+- **Different**: CPython's output and exit code (the answer the program means), then `{"verify":"differs","on":"stdout","line":3,"brevi":"...","cpython":"..."}` on stderr. The program, its input and both outputs are kept in `$BREVI_CACHE/differs/` (on this machine only), and `brevi report` prints each one as a GitHub issue body ready to paste (`brevi report --clear` deletes them). `--strict` prints neither run's output and exits 1 instead.
+- **Not checked**: a program a second run would change, or that would repeat what it does, runs once as a plain `brevi run`, after `{"verify":"refused","why":"..."}`: one that writes files, uses the network, a Python library run by CPython or native code, or reads the clock, unseeded random numbers, the environment or `sys.argv[0]`. A file Brevi cannot build runs with CPython, as `brevi run` does.
+- **Slow CPython**: if CPython has not finished 10 times the native run's time after it (at least 2 s), the native answer is given with `{"verify":"timeout",...}`, marked unverified. `--strict` waits for CPython (up to `--timeout SECS`, default 60), and also runs it twice, so output that changes from run to run is reported as `unstable`.
+- stdin is read in full before the program starts (both runs need it), so `--verify` is not for interactive programs. `--sandbox` is refused, as for `brevi verify`.
+
+The MCP server does the same on its own: `run` with `sandbox: false` checks plain Python against CPython unless the call passes `verify: false` (see [For AI agents](/docs/agents)).
+
 ## Errors
 
 Every error is one line of JSON on stderr, made for a model to read cheaply.

@@ -30,6 +30,7 @@ mod pygen;
 mod scoped;
 mod runcache;
 mod tier;
+mod shim;
 mod verify;
 
 use diag::{esc, Diag};
@@ -37,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -146,6 +147,9 @@ fn print_diag(d: &Diag) {
 
 fn main() {
     tm("start");
+    if let Some(args) = shim::args() {
+        shim::main(args);
+    }
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.first().map(|a| a.as_str()) == Some("mcp") {
         mcp::serve(&argv[1..]);
@@ -170,6 +174,18 @@ fn main() {
     }
     if argv.first().map(|a| a.as_str()) == Some("verify") {
         verify::main(&argv[1..]);
+    }
+    // `brevi run --verify`: the run checked against CPython (verify.rs).
+    if argv.first().map(|a| a.as_str()) == Some("run") {
+        let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+        if let Some(i) = argv[..dash].iter().position(|a| a == "--verify") {
+            let mut rest = argv[1..].to_vec();
+            rest.remove(i - 1);
+            verify::run_main(&rest);
+        }
+    }
+    if argv.first().map(|a| a.as_str()) == Some("report") {
+        verify::report(&argv[1..]);
     }
     if argv.first().map(|a| a.as_str()) == Some("guide") {
         let q = argv[1..].join(" ");

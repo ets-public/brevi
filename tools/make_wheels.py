@@ -3,7 +3,8 @@
 usage: make_wheels.py DIST_DIR OUT_DIR
 
 DIST_DIR holds the brevi-<target>.tar.gz / .zip archives the release workflow built. Each one becomes a
-wheel that puts the same `brevi` binary on the PATH (`pip install brevi`, `uvx brevi mcp`). Building the
+wheel that puts the same `brevi` binary on the PATH (`pip install brevi`, `uvx brevi mcp`), with the Python
+SDK (`import brevi`, packaging/pypi/brevi) and the `brevi-python` command (the binary acting as python3). Building the
 wheels from these archives instead of with maturin saves a second macOS build (10x Actions minutes).
 The manylinux tag comes from the newest glibc symbol the binary actually uses.
 """
@@ -81,8 +82,11 @@ def build(archive, target, ver, out):
     plat = PLATFORMS[target].format(glibc=glibc(data))
     tag = f"py3-none-{plat}"
     info = f"brevi-{ver}.dist-info"
+    sdk = os.path.join(ROOT, "packaging/pypi/brevi")
     files = [
         (f"brevi-{ver}.data/scripts/{exe}", data, 0o755),
+        *[(f"brevi/{n}", open(os.path.join(sdk, n), "rb").read(), 0o644) for n in sorted(os.listdir(sdk)) if n.endswith((".py", ".typed"))],
+        (f"{info}/entry_points.txt", b"[console_scripts]\nbrevi-python = brevi:_shim\n", 0o644),
         (f"{info}/METADATA", metadata(ver).encode(), 0o644),
         (f"{info}/WHEEL", f"Wheel-Version: 1.0\nGenerator: brevi make_wheels.py\nRoot-Is-Purelib: false\nTag: {tag}\n".encode(), 0o644),
         (f"{info}/licenses/LICENSE", open(os.path.join(ROOT, "LICENSE"), "rb").read(), 0o644),
