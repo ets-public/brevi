@@ -17,6 +17,9 @@ struct Cx {
     // Functions (and class methods, by method name) that return a filtered, sorted or sliced copy of a
     // list they did not build (`return [t for t in tasks if not t[1]]`, `return list(tasks)`).
     copy_fns: HashSet<String>,
+    // Functions (and class methods, by method name) that return an item of a list or dict they did not build
+    // (`return self.waiting.get(sku, [])`, `return grid[r]`): a name set from a call of one is a copy here.
+    item_fns: HashSet<String>,
     // Class method name -> the fields of self its body names (`self.tx` in any way).
     method_fields: std::collections::HashMap<String, HashSet<String>>,
     // Copies that only matter when the value is not shared (a list of ints, not an object, record or row):
@@ -169,7 +172,18 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             }
         }
     }
-    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, method_fields, pending: vec![] };
+    let mut item_fns = HashSet::new();
+    for it in items.iter() {
+        if let Item::Fn { name, body, .. } = it {
+            if returns_item(body) {
+                item_fns.insert(name.clone());
+                if let Some(c) = classes.iter().find(|c| name.starts_with(c.as_str())) {
+                    item_fns.insert(name[c.len()..].to_string());
+                }
+            }
+        }
+    }
+    let mut cx = Cx { errs: vec![], mutators, getters, copy_fns, item_fns, method_fields, pending: vec![] };
     let inl: Inline = items
         .iter()
         .filter_map(|it| match it {
@@ -1005,6 +1019,20 @@ fn mentions_name(e: &Expr) -> bool {
 }
 
 // Like `direct`, but a method call counts only when it is known to change its value.
+// Does this statement change the list or dict r itself (`r.append(x)`, `r.pop(i)`, `r[i] = v`), not just an
+// item inside it (`r[i][1] = v`)? A list of shared rows is still a copy of the list, so such a change needs r
+// itself to be shared (`@` in defer).
+fn structural(r: &str, st: &Stmt) -> bool {
+    let is_r = |e: &Expr| matches!(e, Expr::Ident(n) | Expr::Move(n) if n == r);
+    let call = |e: &Expr| matches!(e, Expr::Method(recv, m, _, _) if is_r(recv) && CHANGING.contains(&m.as_str()));
+    match st {
+        Stmt::Expr { expr, .. } => call(expr),
+        Stmt::Let { value, .. } => call(value),
+        Stmt::Assign { target, value, op, .. } => call(value) || matches!(target, Expr::Index(b, _) if is_r(b)) || (is_r(target) && *op != "="),
+        _ => false,
+    }
+}
+
 fn direct_strict(r: &str, st: &Stmt, mutators: &HashSet<String>) -> bool {
     match st {
         Stmt::Expr { expr: Expr::Method(recv, m, _, _), .. } => root(recv) == Some(r) && (CHANGING.contains(&m.as_str()) || mutators.contains(m)),
@@ -1075,10 +1103,13 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                             wbs.push((r.clone(), wb));
                         } else if any_stmt(&rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
                             let (rs, from) = (r.trim_end_matches('_').to_string(), show(&Expr::Index(Box::new(base.clone()), Box::new(key.clone()))));
+                            // `lst = waiting.get(sku)` then `lst.append(x)` or `lst.pop(i)`: shared rows in lst
+                            // are not enough, since the list itself changes, so lst must be shared whole.
+                            let whole = any_stmt(&rest, tail.as_deref(), &mut |s| structural(&r, s));
                             defer(
                                 cx,
                                 line,
-                                &r,
+                                &if whole { format!("@{r}") } else { r.clone() },
                                 format!("{rs} is a copy of {from}, and the code after changes {rs} in a way Brevi cannot copy back (the list, map or key changes too), so {from} would not change (Brevi values are copies, not shared)"),
                                 format!("change {from} directly, or set {from} = {rs} after changing {rs}"),
                             );
@@ -1133,12 +1164,28 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                     let rest = &stmts[i + 1..];
                     if any_stmt(rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
                         let rs = r.trim_end_matches('_').to_string();
+                        let whole = any_stmt(rest, tail.as_deref(), &mut |s| structural(&r, s));
                         defer(
                             cx,
                             line,
-                            &r,
+                            &if whole { format!("@{r}") } else { r.clone() },
                             format!("{rs} is a copy of the item {from} picks, so changing {rs} does not change the item in the list (Brevi values are copies, not shared)"),
                             "find the item's index or key, then change xs[i] directly".into(),
+                        );
+                    }
+                } else if let Some((r, from, line)) = from_item_fn(&stmts[i], &cx.item_fns) {
+                    // `lst = book.backorders_for(sku)` returning `self.waiting.get(sku, [])`, then `lst.pop(i)`:
+                    // in Python lst is the dict's own list; here a copy, so the dict would not change.
+                    let rest = &stmts[i + 1..];
+                    if any_stmt(rest, tail.as_deref(), &mut |s| direct_strict(&r, s, &cx.mutators)) {
+                        let rs = r.trim_end_matches('_').to_string();
+                        let whole = any_stmt(rest, tail.as_deref(), &mut |s| structural(&r, s));
+                        defer(
+                            cx,
+                            line,
+                            &if whole { format!("@{r}") } else { r.clone() },
+                            format!("{rs} is a copy of the item {from} returns, so changing {rs} does not change the list or dict it came from (Brevi values are copies, not shared)"),
+                            "change the item where it is kept (e.g. a method that changes self.waiting[sku] itself)".into(),
                         );
                     }
                 }
@@ -1241,6 +1288,52 @@ fn plain_key(k: &Expr) -> bool {
         Expr::Index(b, i) => matches!(b.as_ref(), Expr::Ident(_)) && matches!(i.as_ref(), Expr::Int(_) | Expr::Str(_)) && plain_key(i),
         _ => false,
     }
+}
+
+// Does a function return an item of a list or dict it did not build (`self.waiting.get(sku, [])`, `grid[r]`,
+// `d[k]` with d a parameter or a top-level name)?
+fn returns_item(body: &Expr) -> bool {
+    let mut rets: Vec<Expr> = vec![];
+    let mut locals: HashSet<String> = HashSet::new();
+    crate::infer::walk(body, &mut |e| {
+        if let Expr::Block(stmts, _) = e {
+            for st in stmts {
+                match st {
+                    Stmt::Return { value: Some(v), .. } => rets.push(v.clone()),
+                    Stmt::Let { name: Pat::Bind(n), .. } | Stmt::Assign { target: Expr::Ident(n), .. } => {
+                        locals.insert(n.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+    if let Expr::Block(_, Some(t)) = body {
+        rets.push(t.as_ref().clone());
+    }
+    rets.iter().any(|v| {
+        let base = match v {
+            Expr::Index(b, k) if !matches!(k.as_ref(), Expr::Range(..)) => b.as_ref(),
+            Expr::Method(b, m, _, _) if m == "get" || m == "get_or" => b.as_ref(),
+            _ => return false,
+        };
+        matches!(base, Expr::Ident(_) | Expr::Field(..)) && root(base).is_some_and(|n| !locals.contains(n))
+    })
+}
+
+// `r = f(...)` or `r = obj.m(...)` with f or m in item_fns: (r, the call as shown, line).
+fn from_item_fn(st: &Stmt, item_fns: &HashSet<String>) -> Option<(String, String, usize)> {
+    let (r, value, line) = match st {
+        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
+        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        _ => return None,
+    };
+    let hit = match value {
+        Expr::Call(f, _, _) => item_fns.contains(f),
+        Expr::Method(_, m, _, _) => item_fns.contains(m) && !matches!(m.as_str(), "get" | "get_or"),
+        _ => false,
+    };
+    hit.then(|| (r.clone(), show(value), line))
 }
 
 // `r = base[key]` where base is a name or a field path and key a name or a constant.
