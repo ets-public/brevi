@@ -513,7 +513,12 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
         let me2 = me.clone();
         return Ok(builtin("__setattr__", move |a: Args| {
             if let (V::Obj(o), V::Str(n)) = (&me2, &a.p[0]) {
-                o.set(sym(&n.s), a.p[1].clone());
+                let name = sym(&n.s);
+                if name == "__dict__" {
+                    o.set_dict(a.p[1].clone())?;
+                } else {
+                    o.set(name, a.p[1].clone());
+                }
             }
             Ok(V::None)
         }));
@@ -549,11 +554,13 @@ fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
 #[inline]
 pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
     if let V::Obj(ob) = o {
-        let d = ob.d.borrow();
-        if let Some((k, v)) = d.get(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-            // the same name's text can sit at another address in another part of the program
-            if k.len() == name.len() && (k.as_ptr() == name.as_ptr() || k.as_bytes() == name.as_bytes()) {
-                return Ok(v.clone());
+        if name != "__dict__" && ob.pd.borrow().is_none() {
+            let d = ob.d.borrow();
+            if let Some((k, v)) = d.get(ic.load(std::sync::atomic::Ordering::Relaxed)) {
+                // the same name's text can sit at another address in another part of the program
+                if k.len() == name.len() && (k.as_ptr() == name.as_ptr() || k.as_bytes() == name.as_bytes()) {
+                    return Ok(v.clone());
+                }
             }
         }
     }
@@ -562,10 +569,12 @@ pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
 #[inline(never)]
 fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
     if let V::Obj(ob) = o {
-        let d = ob.d.borrow();
-        if let Some(i) = d.find(name) {
-            ic.store(i, std::sync::atomic::Ordering::Relaxed);
-            return Ok(d.get(i).unwrap().1.clone());
+        if name != "__dict__" && ob.pd.borrow().is_none() {
+            let d = ob.d.borrow();
+            if let Some(i) = d.find(name) {
+                ic.store(i, std::sync::atomic::Ordering::Relaxed);
+                return Ok(d.get(i).unwrap().1.clone());
+            }
         }
     }
     getattr(o, name)
@@ -574,7 +583,7 @@ fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
 #[inline]
 pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
     if let V::Obj(ob) = o {
-        if ob.cls.plain_set() {
+        if name != "__dict__" && ob.pd.borrow().is_none() && ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
             if let Some(e) = d.get_mut(ic.load(std::sync::atomic::Ordering::Relaxed)) {
                 if e.0.len() == name.len() && (e.0.as_ptr() == name.as_ptr() || e.0.as_bytes() == name.as_bytes()) {
@@ -589,7 +598,7 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
 #[inline(never)]
 fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
     if let V::Obj(ob) = o {
-        if ob.cls.plain_set() {
+        if name != "__dict__" && ob.pd.borrow().is_none() && ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
             let i = match d.find(name) {
                 Some(i) => {
@@ -626,17 +635,7 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
             match name {
                 "__class__" => return Ok(V::Class(ob.cls.clone())),
-                "__dict__" => {
-                    let mut d = Dict::new();
-                    for (k, v) in ob.d.borrow().iter() {
-                        // pydantic keeps these in slots, not in __dict__
-                        if k.starts_with("__pydantic_") {
-                            continue;
-                        }
-                        d.set(s(k), v.clone())?;
-                    }
-                    return Ok(V::Dict(Rc::new(RefCell::new(d))));
-                }
+                "__dict__" => return Ok(ob.dict()),
                 "args" if ob.cls.base_bt() == BT::Exc => return Ok(tup(vec![])),
                 "__cause__" | "__context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::None),
                 "__suppress_context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::Bool(false)),
@@ -782,7 +781,11 @@ pub fn getattr(o: &V, name: &str) -> R {
 pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
     match o {
         V::Obj(ob) if ob.cls.plain_set() => {
-            ob.set(name, v);
+            if name == "__dict__" {
+                ob.set_dict(v)?;
+            } else {
+                ob.set(name, v);
+            }
             Ok(())
         }
         V::Obj(ob) => {
@@ -801,7 +804,11 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
                 let _ = slots;
                 return Err(exc("FrozenInstanceError", format!("cannot assign to field '{name}'")));
             }
-            ob.set(name, v);
+            if name == "__dict__" {
+                ob.set_dict(v)?;
+            } else {
+                ob.set(name, v);
+            }
             Ok(())
         }
         V::Class(c) => {

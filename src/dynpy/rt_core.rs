@@ -1630,6 +1630,10 @@ impl Class {
 pub struct Obj {
     pub cls: Rc<Class>,
     pub d: RefCell<Attrs>,
+    // the dict `__dict__` points at once it has been read or written: from then on attribute reads and
+    // writes go there (the Attrs keeps only pydantic's slot-like private names), so `o.__dict__ = d` shares
+    // d exactly as CPython's does
+    pub pd: RefCell<Option<Rc<RefCell<Dict>>>>,
     // the builtin value a subclass of a builtin type wraps (class Stack(list))
     pub inner: RefCell<Option<V>>,
 }
@@ -1752,13 +1756,31 @@ pub fn same_name(a: &str, b: &str) -> bool {
 }
 impl Obj {
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
-        Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), inner: RefCell::new(None) })
+        Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), pd: RefCell::new(None), inner: RefCell::new(None) })
     }
     pub fn get(&self, n: &str) -> Option<V> {
+        if n == "__dict__" {
+            return None;
+        }
+        if !n.starts_with("__pydantic_") {
+            if let Some(pd) = self.pd.borrow().clone() {
+                return pd.borrow().get(&s(n)).ok().flatten();
+            }
+        }
         let d = self.d.borrow();
         d.find(n).map(|i| d.get(i).unwrap().1.clone())
     }
     pub fn set(&self, n: Sym, v: V) {
+        if n == "__dict__" {
+            let _ = self.set_dict(v);
+            return;
+        }
+        if !n.starts_with("__pydantic_") {
+            if let Some(pd) = self.pd.borrow().clone() {
+                let _ = pd.borrow_mut().set(s(n), v);
+                return;
+            }
+        }
         let mut a = self.d.borrow_mut();
         match a.find(n) {
             Some(i) => a.get_mut(i).unwrap().1 = v,
@@ -1766,6 +1788,15 @@ impl Obj {
         }
     }
     pub fn del(&self, n: &str) -> bool {
+        if n == "__dict__" {
+            self.clear_dict();
+            return true;
+        }
+        if !n.starts_with("__pydantic_") {
+            if let Some(pd) = self.pd.borrow().clone() {
+                return pd.borrow_mut().del(&s(n)).ok().flatten().is_some();
+            }
+        }
         let mut a = self.d.borrow_mut();
         match a.iter().position(|(k, _)| *k == n) {
             Some(i) => {
@@ -1774,6 +1805,57 @@ impl Obj {
             }
             None => false,
         }
+    }
+    // `o.__dict__`: the one live dict, made on first access if the attributes are still inline
+    pub fn dict(&self) -> V {
+        let existing = self.pd.borrow().clone();
+        let pd = match existing {
+            Some(pd) => pd,
+            None => self.promote(),
+        };
+        V::Dict(pd)
+    }
+    // `o.__dict__ = d` (CPython shares d; later attribute reads and writes go through it)
+    pub fn set_dict(&self, v: V) -> Result<(), E> {
+        match v {
+            V::Dict(pd) => {
+                *self.d.borrow_mut() = self.take_private();
+                *self.pd.borrow_mut() = Some(pd);
+                Ok(())
+            }
+            _ => Err(exc("TypeError", format!("__dict__ must be set to a dictionary, not a '{}'", tn(&v)))),
+        }
+    }
+    // `del o.__dict__` replaces the dict with a fresh empty one, as CPython does
+    pub fn clear_dict(&self) {
+        *self.d.borrow_mut() = self.take_private();
+        *self.pd.borrow_mut() = Some(Rc::new(RefCell::new(Dict::new())));
+    }
+    // move the attributes into a live dict, keeping pydantic's private names out of it (they are slots)
+    fn promote(&self) -> Rc<RefCell<Dict>> {
+        let attrs: Vec<(Sym, V)> = self.d.borrow().iter().cloned().collect();
+        let mut nd = Dict::new();
+        let mut privs = Attrs::new();
+        for (k, v) in attrs {
+            if k.starts_with("__pydantic_") {
+                privs.push((k, v));
+            } else {
+                let _ = nd.set(s(k), v);
+            }
+        }
+        *self.d.borrow_mut() = privs;
+        let pd = Rc::new(RefCell::new(nd));
+        *self.pd.borrow_mut() = Some(pd.clone());
+        pd
+    }
+    pub fn take_private(&self) -> Attrs {
+        let mut privs = Attrs::new();
+        for (k, v) in self.d.borrow().iter() {
+            if k.starts_with("__pydantic_") {
+                privs.push((*k, v.clone()));
+            }
+        }
+        privs
     }
 }
 

@@ -990,7 +990,22 @@ pub fn shallow_copy(x: &V) -> R {
                 return call(&f, Args::p(vec![x.clone()]));
             }
             let n = Obj::new(o.cls.clone());
-            *n.d.borrow_mut() = o.d.borrow().clone();
+            if let Some(pd) = o.pd.borrow().clone() {
+                *n.d.borrow_mut() = o.take_private();
+                let mut nd = Dict::new();
+                {
+                    let src = pd.borrow();
+                    nd.kind = src.kind;
+                    nd.dflt = src.dflt.clone();
+                }
+                let items = pd.borrow().items();
+                for (k, v) in items {
+                    let _ = nd.set(k, v);
+                }
+                *n.pd.borrow_mut() = Some(Rc::new(RefCell::new(nd)));
+            } else {
+                *n.d.borrow_mut() = o.d.borrow().clone();
+            }
             *n.inner.borrow_mut() = match &*o.inner.borrow() {
                 Some(i) => Some(shallow_copy(i)?),
                 None => None,
@@ -1077,6 +1092,21 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             let n = Obj::new(o.cls.clone());
             memo.push((p.unwrap(), V::Obj(n.clone())));
+            if let Some(pd) = o.pd.borrow().clone() {
+                let items = pd.borrow().items();
+                let mut nd = Dict::new();
+                {
+                    let src = pd.borrow();
+                    nd.kind = src.kind;
+                    nd.dflt = src.dflt.clone();
+                }
+                for (k, v) in items {
+                    let k = deepcopy(&k, memo)?;
+                    let v = deepcopy(&v, memo)?;
+                    nd.set(k, v)?;
+                }
+                *n.pd.borrow_mut() = Some(Rc::new(RefCell::new(nd)));
+            }
             let attrs = o.d.borrow().clone();
             for (k, v) in attrs {
                 let c = deepcopy(&v, memo)?;
