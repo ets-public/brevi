@@ -1008,14 +1008,17 @@ pub fn to_int(v: &V) -> R {
         }
         V::Str(s) => parse_int(&s.s, 10).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
         V::Obj(o) => {
-            for n in ["__int__", "__index__", "__trunc__"] {
+            if let Some(f) = o.cls.lookup("__int__") {
+                return call(&f, Args::p(vec![v.clone()]));
+            }
+            // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
+                return to_int(&i);
+            }
+            for n in ["__index__", "__trunc__"] {
                 if let Some(f) = o.cls.lookup(n) {
                     return call(&f, Args::p(vec![v.clone()]));
                 }
-            }
-            // a subclass of int, float or str (IntEnum, StrEnum)
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
-                return to_int(&i);
             }
             type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v)))
         }

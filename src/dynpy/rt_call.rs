@@ -468,10 +468,17 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     }
     if name == "__eq__" {
         let me2 = me.clone();
+        // super().__eq__(other) on a subclass of str, int or tuple compares the values
+        if let Some(inner) = inner_of(me) {
+            return Ok(builtin("__eq__", move |a: Args| Ok(V::Bool(eq(&inner, &a.p[0])?))));
+        }
         return Ok(builtin("__eq__", move |a: Args| Ok(if is(&me2, &a.p[0]) { V::Bool(true) } else { V::NotImpl })));
     }
     if name == "__hash__" {
         let me2 = me.clone();
+        if let Some(inner) = inner_of(me) {
+            return Ok(builtin("__hash__", move |_a: Args| Ok(V::Int(py_hash(&inner)?))));
+        }
         return Ok(builtin("__hash__", move |_a: Args| Ok(V::Int(match &me2 {
             V::Obj(o) => (Rc::as_ptr(o) as usize >> 4) as i64,
             _ => 0,

@@ -659,6 +659,16 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Str(_) | V::List(_) | V::Tuple(_), n) | (n, V::Str(_) | V::List(_) | V::Tuple(_)) if op == "*" && is_intlike(n) => {
             let (sq, n) = if is_intlike(a) { (b, a) } else { (a, b) };
             let k = ival(n).unwrap_or(0).max(0) as usize;
+            let len = match sq {
+                V::Str(x) => x.s.len(),
+                V::List(x) => x.borrow().len(),
+                V::Tuple(x) => x.len(),
+                _ => 0,
+            };
+            // `[0] * sys.maxsize`: CPython raises MemoryError instead of trying.
+            if len.checked_mul(k).map_or(true, |t| t > (1usize << 40)) {
+                return Err(exc("MemoryError", String::new()));
+            }
             return Ok(match sq {
                 V::Str(x) => V::Str(Rc::new(S { s: x.s.repeat(k), ascii: x.ascii })),
                 V::List(x) => {
@@ -836,6 +846,9 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
         }
         (V::List(l), "*") => {
             let k = ival(b).ok_or_else(|| exc("TypeError", format!("can't multiply sequence by non-int of type '{}'", tn(b))))?.max(0) as usize;
+            if l.borrow().len().checked_mul(k).map_or(true, |t| t > (1usize << 40)) {
+                return Err(exc("MemoryError", String::new()));
+            }
             let v = l.borrow().clone();
             let mut l = l.borrow_mut();
             l.clear();
@@ -1245,15 +1258,16 @@ fn slice_positions(sl: &(V, V, V), n: usize) -> Result<Vec<usize>, E> {
     let (a, b, st) = slice_idx(sl, n)?;
     let mut out = vec![];
     let mut i = a;
+    // `xs[3::sys.maxsize]`: the step can be too big to add to a position, which ends the slice.
     if st > 0 {
         while i < b {
             out.push(i as usize);
-            i += st;
+            i = match i.checked_add(st) { Some(x) => x, None => break };
         }
     } else {
         while i > b {
             out.push(i as usize);
-            i += st;
+            i = match i.checked_add(st) { Some(x) => x, None => break };
         }
     }
     Ok(out)
@@ -1520,11 +1534,14 @@ impl It {
             }));
         }
         if let It::List(l, i) = self {
-            let l = l.borrow();
-            return Ok(l.get(*i).map(|x| {
+            let got = l.borrow().get(*i).cloned();
+            if got.is_some() {
                 *i += 1;
-                x.clone()
-            }));
+                return Ok(got);
+            }
+            // An exhausted list iterator stays exhausted, as in CPython, even if the list grows afterwards.
+            *self = It::Done;
+            return Ok(None);
         }
         self.next_slow()
     }
@@ -1532,11 +1549,12 @@ impl It {
     fn next_slow(&mut self) -> Result<Option<V>, E> {
         match self {
             It::List(l, i) => {
-                let l = l.borrow();
-                if *i < l.len() {
+                let got = l.borrow().get(*i).cloned();
+                if got.is_some() {
                     *i += 1;
-                    Ok(Some(l[*i - 1].clone()))
+                    Ok(got)
                 } else {
+                    *self = It::Done;
                     Ok(None)
                 }
             }

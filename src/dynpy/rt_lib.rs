@@ -1858,6 +1858,13 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
             l.borrow_mut().push(x);
             V::None
         }
+        // `a.__init__([4, 5, 6])` called on an existing list replaces its items
+        "__init__" => {
+            a.want("__init__", 0, 1)?;
+            let v = match a.p.first() { Some(x) => to_vec(x)?, None => vec![] };
+            *l.borrow_mut() = v;
+            V::None
+        }
         "extend" => {
             let x = a1(&a, "extend")?;
             let v = to_vec(&x)?;
@@ -1874,6 +1881,9 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
             V::None
         }
         "pop" => {
+            if a.p.len() > 1 || !a.k.is_empty() {
+                return type_err(format!("pop expected at most 1 argument, got {}", a.p.len() + a.k.len()));
+            }
             let mut l = l.borrow_mut();
             if l.is_empty() {
                 return Err(exc("IndexError", "pop from empty list".into()));
@@ -1985,15 +1995,10 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
         }
         "setdefault" => {
             a.want("setdefault", 1, 2)?;
-            let r = d.borrow().get(&a.p[0])?;
-            match r {
-                Some(v) => v,
-                None => {
-                    let v = a.p.get(1).cloned().unwrap_or(V::None);
-                    d.borrow_mut().set(a.p[0].clone(), v.clone())?;
-                    v
-                }
-            }
+            let v = a.p.get(1).cloned().unwrap_or(V::None);
+            let k = a.p[0].clone();
+            let mut dd = d.borrow_mut();
+            dd.set_default(k, v)?
         }
         "pop" => {
             a.want("pop", 1, 2)?;
@@ -2036,8 +2041,14 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
                 return counter_update(o, a, true);
             }
             if let Some(x) = a.p.first() {
+                let other = if let V::Dict(y) = x { Some((y.clone(), y.borrow().n)) } else { None };
                 for (k, v) in dict_items_of(x)? {
                     d.borrow_mut().set(k, v)?;
+                    if let Some((y, n0)) = &other {
+                        if y.try_borrow().map_or(false, |y| y.n != *n0) {
+                            return Err(exc("RuntimeError", "dict mutated during update".into()));
+                        }
+                    }
                 }
             }
             for (k, v) in a.k.drain(..) {
@@ -2046,6 +2057,23 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
             V::None
         }
         "subtract" => return counter_update(o, a, false),
+        "__or__" | "__ror__" => {
+            let x = a1(&a, name)?;
+            let V::Dict(y) = &x else { return Ok(V::NotImpl) };
+            let (first, second) = if name == "__or__" { (d, y) } else { (y, d) };
+            let mut r = first.borrow().copy();
+            for (k, v) in second.borrow().items() {
+                r.set(k, v)?;
+            }
+            V::Dict(Rc::new(RefCell::new(r)))
+        }
+        "__ior__" => {
+            let x = a1(&a, name)?;
+            for (k, v) in dict_items_of(&x)? {
+                d.borrow_mut().set(k, v)?;
+            }
+            o.clone()
+        }
         "copy" => V::Dict(Rc::new(RefCell::new(d.borrow().copy()))),
         "clear" => {
             d.borrow_mut().clear();
