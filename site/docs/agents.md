@@ -48,6 +48,8 @@ Use the full path that `which brevi` prints (on Windows, `where brevi`, written 
 
 **Docker**, with nothing installed locally: `docker run --rm -i brevi mcp` (see [Install](/docs/install#docker)).
 
+**Over HTTP**, from the next release: `brevi mcp --http 8000` serves the same tools over Streamable HTTP at `http://127.0.0.1:8000/mcp`, for a client that cannot start a process, such as one reaching Brevi inside a hosted sandbox through the platform's port forwarding. Each POST carries one JSON-RPC message and a request gets its reply as JSON. Since a client can run programs, any address other than this machine's (`--http 0.0.0.0:8000`) needs a bearer token: `--token TOKEN` or `BREVI_MCP_TOKEN`, at least 16 characters, sent by the client as `Authorization: Bearer TOKEN`. Requests from web pages are refused unless their origin is local or allowed with `--allow-origin ORIGIN`. `--path` changes `/mcp`; `--timeout` and `--mem-mb` work as for stdio.
+
 The server **keeps the program**. The agent sends its code once, then fixes it with `patch` or `edit`, which change only what they are sent and check again in the same call. A retry costs only the lines that change, not the whole file.
 
 | Tool | What it does |

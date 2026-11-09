@@ -299,14 +299,16 @@ const PURE_PATHLIB: &[&str] = &["PurePath", "PurePosixPath"];
 // What src/dynpy/py/random.py has (CPython's generator, so seeded draws match).
 const OWN_RANDOM: &[&str] = &["Random", "seed", "random", "getrandbits", "randrange", "randint", "choice", "choices", "shuffle", "sample", "uniform", "gauss"];
 
-// What src/dynpy/py/asyncio.py has: the event loop without I/O, threads, processes or signals.
+// What src/dynpy/py/asyncio.py has: the event loop and child processes, without sockets, threads or signals.
 const OWN_ASYNCIO: &[&str] = &[
     "run", "Runner", "sleep", "gather", "create_task", "ensure_future", "wait", "wait_for", "as_completed", "shield", "current_task", "all_tasks",
     "Future", "Task", "Queue", "PriorityQueue", "LifoQueue", "QueueEmpty", "QueueFull", "QueueShutDown", "Lock", "Event", "Condition", "Semaphore",
     "BoundedSemaphore", "timeout", "timeout_at", "Timeout", "TaskGroup", "CancelledError", "InvalidStateError", "TimeoutError", "BrokenBarrierError",
     "FIRST_COMPLETED", "FIRST_EXCEPTION", "ALL_COMPLETED", "get_running_loop", "get_event_loop", "new_event_loop", "set_event_loop", "iscoroutine",
-    "isfuture", "AbstractEventLoop", "BaseEventLoop", "Handle", "TimerHandle",
+    "isfuture", "AbstractEventLoop", "BaseEventLoop", "Handle", "TimerHandle", "create_subprocess_exec", "create_subprocess_shell", "subprocess",
+    "StreamReader", "StreamWriter", "IncompleteReadError", "LimitOverrunError",
 ];
+const OWN_ASYNCIO_SUBPROCESS: &[&str] = &["PIPE", "STDOUT", "DEVNULL", "Process", "create_subprocess_exec", "create_subprocess_shell"];
 // What src/dynpy/py/tiktoken.py has.
 const OWN_TIKTOKEN: &[&str] = &["Encoding", "get_encoding", "encoding_for_model", "encoding_name_for_model", "list_encoding_names", "__version__"];
 // Encoding methods Brevi's tiktoken lacks (numpy arrays, the unstable API, regex splitting in Python).
@@ -405,16 +407,17 @@ const OPENAI_LACKS: &[&str] = &[
     "openai.lib", "openai.resources", "openai.pagination", "openai.helpers", "openai.Completion", "client.completions",
 ];
 // What Brevi's mcp lacks (src/dynpy/py/_brevi_mcp.py): server-to-client requests (sampling, elicitation, roots),
-// the HTTP transports, auth, extensions, the subscription bus (MCPServer(subscriptions=False) is in it), request
-// state, and the client.
+// the Starlette apps (sse_app, streamable_http_app, custom routes; run(transport="streamable-http" / "sse") is in
+// it), resumability (event_store), auth, extensions, the subscription bus (MCPServer(subscriptions=False) is in
+// it), request state, and the client.
 // A program using any of them is run by CPython's mcp.
 const MCP_LACKS: &[&str] = &[
     ".elicit(", ".elicit_url(", ".elicit_form(", ".create_message(", ".list_roots(", ".send_ping(", ".send_request(", ".send_raw_request(",
     "notify_tools_changed", "notify_prompts_changed", "notify_resources_changed", "notify_resource_updated", "subscriptions=",
-    "streamable_http", "streamable-http", "\"sse\"", "'sse'", "sse_app", "run_sse_async", "custom_route", "session_manager", "auth=",
+    "streamable_http_app", "sse_app", "event_store", "custom_route", "session_manager", "auth=",
     "auth_server_provider", "token_verifier", "extensions=", "request_state", "cache_hints", "input_responses", "InputRequiredResult",
     "on_subscriptions_listen", "on_subscribe_resource", "on_unsubscribe_resource", "raise_exceptions", "ClientSession", "stdio_client",
-    "anyio", "transport=", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
+    "anyio", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
 ];
 // What src/dynpy/py/jinja2.py has, and what sends a program to CPython's jinja2 instead: async rendering, the
 // sandbox, i18n, custom extensions, bytecode caches, loaders that read files, the low-level API (lexer, parser,
@@ -424,6 +427,22 @@ const OWN_JINJA2: &[&str] = &[
     "StrictUndefined", "Template", "TemplateAssertionError", "TemplateError", "TemplateNotFound", "TemplateRuntimeError", "TemplateSyntaxError",
     "TemplatesNotFound", "Undefined", "UndefinedError", "__version__", "clear_caches", "is_undefined", "pass_context", "pass_environment",
     "pass_eval_context", "select_autoescape", "Markup", "escape",
+];
+// Brevi's logging (src/dynpy/py/logging.py) and what it has not got: other handlers and config, files, and
+// the record fields it cannot fill (the caller's file, line and function, process and thread ids), which a
+// format names in a string (LOGGING_RAW).
+const OWN_LOGGING: &[&str] = &[
+    "BASIC_FORMAT", "BufferingFormatter", "CRITICAL", "DEBUG", "ERROR", "FATAL", "Filter", "Filterer", "Formatter", "Handler", "INFO", "LogRecord",
+    "Logger", "LoggerAdapter", "Manager", "NOTSET", "NullHandler", "PercentStyle", "RootLogger", "StrFormatStyle", "StreamHandler",
+    "StringTemplateStyle", "WARN", "WARNING", "addLevelName", "basicConfig", "critical", "debug", "disable", "error", "exception", "fatal",
+    "getHandlerByName", "getHandlerNames", "getLevelName", "getLevelNamesMapping", "getLogRecordFactory", "getLogger", "getLoggerClass",
+    "info", "lastResort", "log", "makeLogRecord", "raiseExceptions", "root", "setLogRecordFactory", "setLoggerClass", "shutdown", "warn",
+    "warning", "logThreads", "logProcesses", "logMultiprocessing", "logAsyncioTasks",
+];
+const LOGGING_LACKS: &[&str] = &["FileHandler", "captureWarnings", "stack_info=", ".findCaller(", "currentframe", "_srcfile"];
+const LOGGING_RAW: &[&str] = &[
+    "logging.handlers", "logging.config", "lineno", "funcName", "pathname", "(filename)", "{filename", "$filename", "(module)", "{module",
+    "$module", "(process", "{process", "$process", "(thread", "{thread", "$thread", "taskName",
 ];
 const OWN_MARKUPSAFE: &[&str] = &["Markup", "escape", "escape_silent", "soft_str", "__version__"];
 const JINJA2_LACKS: &[&str] = &[
@@ -533,11 +552,13 @@ fn path_module(m: &str) -> Option<&'static str> {
         "random" => Some("random"),
         "io" => Some("io"),
         "textwrap" => Some("textwrap"),
+        "logging" => Some("logging"),
         "numpy" => Some("numpy"),
         "numpy.linalg" => Some("numpy.linalg"),
         "numpy.random" => Some("numpy.random"),
         "argparse" => Some("argparse"),
         "asyncio" => Some("asyncio"),
+        "asyncio.subprocess" => Some("asyncio.subprocess"),
         "tiktoken" => Some("tiktoken"),
         "tokenizers" => Some("tokenizers"),
         "requests" => Some("requests"),
@@ -575,6 +596,7 @@ fn path_module(m: &str) -> Option<&'static str> {
         "mcp.server.lowlevel" => Some("mcp.server.lowlevel"),
         "mcp.server.context" => Some("mcp.server.context"),
         "mcp.server.stdio" => Some("mcp.server.stdio"),
+        "mcp.server.transport_security" => Some("mcp.server.transport_security"),
         "mcp.shared.exceptions" => Some("mcp.shared.exceptions"),
         "mcp.server.mcpserver.exceptions" => Some("mcp.server.mcpserver.exceptions"),
         "mcp.server.mcpserver.prompts" => Some("mcp.server.mcpserver.prompts"),
@@ -593,6 +615,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "random" => OWN_RANDOM.contains(&attr),
         "io" => attr == "StringIO",
         "textwrap" => matches!(attr, "wrap" | "fill" | "shorten" | "dedent" | "indent" | "TextWrapper"),
+        "logging" => OWN_LOGGING.contains(&attr),
         // Brevi's numpy (rt_np*.rs) has no file, network or process access: np.load, np.save, tofile and the rest
         // are not in it. What else it lacks the dynamic build refuses, naming the grant.
         "numpy" => matches!(attr, "linalg" | "random" | "__version__") || crate::dynpy::emit::np_func_kw(attr).is_some(),
@@ -601,6 +624,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         // all of argparse but FileType, which opens files
         "argparse" => attr != "FileType",
         "asyncio" => OWN_ASYNCIO.contains(&attr),
+        "asyncio.subprocess" => OWN_ASYNCIO_SUBPROCESS.contains(&attr),
         "tiktoken" => OWN_TIKTOKEN.contains(&attr),
         "tokenizers" => OWN_TOKENIZERS.contains(&attr),
         "requests" => OWN_REQUESTS.contains(&attr),
@@ -637,6 +661,7 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "mcp.server.lowlevel" => defines(include_str!("dynpy/py/mcp_server_lowlevel.py"), attr),
         "mcp.server.context" => defines(include_str!("dynpy/py/mcp_server_context.py"), attr),
         "mcp.server.stdio" => defines(include_str!("dynpy/py/mcp_server_stdio.py"), attr),
+        "mcp.server.transport_security" => defines(include_str!("dynpy/py/mcp_server_transport_security.py"), attr),
         "mcp.shared.exceptions" => defines(include_str!("dynpy/py/mcp_shared_exceptions.py"), attr),
         "mcp.server.mcpserver.exceptions" => defines(include_str!("dynpy/py/mcp_server_mcpserver_exceptions.py"), attr),
         "mcp.server.mcpserver.prompts" => defines(include_str!("dynpy/py/mcp_server_mcpserver_prompts.py"), attr),
@@ -859,7 +884,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
         }
     }
-    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS)] {
+    for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS), ("logging", LOGGING_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
                 if let Some(x) = lacks.iter().find(|x| lack_hit(l, x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
@@ -891,6 +916,20 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
             }
             if let Some(x) = SAFETENSORS_RAW.iter().find(|x| l.contains(*x)) {
                 bad.push((n + 1, format!("safetensors framework or device {}", x.trim_matches(|c| c == '"' || c == '\''))));
+            }
+        }
+    }
+    // Record fields Brevi's logging cannot fill, named in format strings, and logging's other modules.
+    if uses("logging") {
+        for (n, l) in src.lines().enumerate() {
+            if let Some(x) = LOGGING_RAW.iter().find(|x| l.contains(*x)) {
+                bad.push((n + 1, format!("logging {}", x.trim_matches(|c| c == '(' || c == ')' || c == '{' || c == '$'))));
+            }
+        }
+        // basicConfig(filename=...) writes a file
+        if src.contains("basicConfig(") {
+            if let Some((n, _)) = lines.iter().find(|(_, l)| lack_hit(l, "filename=") || lack_hit(l, "filemode=")) {
+                bad.push((*n, "logging basicConfig(filename=)".into()));
             }
         }
     }
@@ -1195,6 +1234,27 @@ pub fn check(src: &str, items: &[Item], allowed: &[String]) -> Vec<Diag> {
         }
         uses.push((line, "native", format!("import {m} (a Python library, run by CPython)")));
     }
+    // Brevi's asyncio starts other programs: under the sandbox that is the native grant (they run unconfined).
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("asyncio")) {
+        for (n, l) in code_lines(src) {
+            if l.contains("create_subprocess_") {
+                uses.push((n, "native", "a child process (asyncio.create_subprocess_exec or _shell: another program, outside the sandbox)".into()));
+            }
+        }
+    }
+    // Brevi's mcp serving over HTTP listens on a network port.
+    if crate::pybridge::bridged_imports(src).iter().any(|(_, m)| m.split('.').next() == Some("mcp")) {
+        // (the transport is named in a string, so the raw lines)
+        for (i, l) in src.lines().enumerate() {
+            let n = i + 1;
+            if l.trim_start().starts_with('#') {
+                continue;
+            }
+            if l.contains("streamable-http") || l.contains("\"sse\"") || l.contains("'sse'") || l.contains("run_streamable_http_async") || l.contains("run_sse_async") {
+                uses.push((n, "net", "an MCP server on an HTTP port (transport=\"streamable-http\" or \"sse\")".into()));
+            }
+        }
+    }
     // Brevi's requests, httpx, anthropic and openai reach the network.
     for (line, m) in crate::pybridge::bridged_imports(src) {
         if matches!(m.split('.').next().unwrap_or(""), "requests" | "httpx" | "anthropic" | "openai") {
@@ -1418,10 +1478,11 @@ mod tests {
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
             if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                 let m = m.split_whitespace().next().unwrap();
-                assert!(["_brevi_async", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
+                assert!(["_brevi_async", "_brevi_proc", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
             }
-            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "subprocess"] {
-                assert!(!l.contains(bad), "asyncio.py uses {bad}");
+            // child processes only through _brevi_proc (whose system calls a program gets only when it starts one)
+            for bad in ["open(", "__import__", "exec(", "eval(", "socket", "import subprocess", "subprocess.Popen", "import os", "fork"] {
+                assert!(!l.replace("subprocess_exec(", "").contains(bad), "asyncio.py uses {bad}");
             }
         }
     }
@@ -1773,6 +1834,20 @@ mod tests {
             }
             for bad in ["open(", "__import__", "exec(", "eval(", "_sys.stdin", "environ"] {
                 assert!(!l.contains(bad), "argparse.py uses {bad}");
+            }
+        }
+    }
+
+    // Brevi's logging writes records to the streams it is given (sys.stderr by default) and opens nothing.
+    #[test]
+    fn logging_copy_reaches_nothing() {
+        for l in include_str!("dynpy/py/logging.py").lines().map(str::trim).filter(|l| !l.starts_with('#')) {
+            if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
+                let m = m.split_whitespace().next().unwrap();
+                assert!(["sys", "time", "re", "datetime", "tzlocal"].contains(&m), "logging.py imports {m}");
+            }
+            for bad in ["open(", "__import__", "exec(", "eval(", "environ", "stdin"] {
+                assert!(!l.contains(bad), "logging.py uses {bad}");
             }
         }
     }

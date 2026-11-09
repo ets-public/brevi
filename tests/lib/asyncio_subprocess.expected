@@ -1,0 +1,15 @@
+(0, b'hello world\n', b'')
+(3, b'out\n', b'err\n')
+(0, b'SHOUT THIS\n', b'')
+[b'a\n', b'b\n', b'c'] 0 0
+b'one\n' b'two\n' b'' 0
+-9
+(b'x\n', None)
+FNF [Errno 2] No such file or directory: '/no/such/prog'
+[(0, b'0\n', b''), (0, b'1\n', b''), (0, b'2\n', b''), (0, b'3\n', b'')]
+200000 0
+0 None
+timeout
+['bar', '/tmp'] 0 -3
+FileNotFoundError [Errno 2] No such file or directory: '/no/dir'
+0

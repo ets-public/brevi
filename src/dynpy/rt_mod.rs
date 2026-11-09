@@ -1180,6 +1180,46 @@ pub fn operator_fn(name: &str, a: Args) -> R {
         }
     }
 }
+// The exceptions being handled (innermost last), for sys.exception() and sys.exc_info().
+// An except block pushes one with ExcGuard and the guard removes it again, however the
+// block ends. Entries carry an id so tasks that interleave across awaits remove their own.
+thread_local! {
+    static EXC_STACK: RefCell<Vec<(u64, V)>> = const { RefCell::new(Vec::new()) };
+    static EXC_ID: Cell<u64> = const { Cell::new(0) };
+}
+pub struct ExcGuard(u64);
+impl ExcGuard {
+    pub fn push(e: V) -> ExcGuard {
+        let id = EXC_ID.with(|c| {
+            c.set(c.get() + 1);
+            c.get()
+        });
+        EXC_STACK.with(|s| s.borrow_mut().push((id, e)));
+        ExcGuard(id)
+    }
+}
+impl Drop for ExcGuard {
+    fn drop(&mut self) {
+        let id = self.0;
+        EXC_STACK.with(|s| {
+            let mut s = s.borrow_mut();
+            if let Some(i) = s.iter().rposition(|(k, _)| *k == id) {
+                s.remove(i);
+            }
+        });
+    }
+}
+// `raise X` inside an except block: X.__context__ is the exception being handled (unless it is X itself).
+pub fn set_context(e: &E) {
+    if let (V::Obj(o), Some(V::Obj(c))) = (&e.0, cur_exc()) {
+        if !Rc::ptr_eq(o, &c) && o.get("__context__").is_none() {
+            o.set("__context__", V::Obj(c));
+        }
+    }
+}
+fn cur_exc() -> Option<V> {
+    EXC_STACK.with(|s| s.borrow().last().map(|(_, e)| e.clone()))
+}
 pub fn sys_fn(name: &str, a: Args) -> R {
     match name {
         "exit" => bi_exit(a),
@@ -1192,6 +1232,17 @@ pub fn sys_fn(name: &str, a: Args) -> R {
         "set_int_max_str_digits" => Ok(V::None),
         "intern" => Ok(a1(&a, name)?),
         "getsizeof" => Ok(V::Int(64)),
+        "exception" => {
+            a.want(name, 0, 0)?;
+            Ok(cur_exc().unwrap_or(V::None))
+        }
+        "exc_info" => {
+            a.want(name, 0, 0)?;
+            Ok(match cur_exc() {
+                Some(e) => tup(vec![V::Class(type_of(&e)), e, V::None]),
+                None => tup(vec![V::None, V::None, V::None]),
+            })
+        }
         _ => Err(unsupported(&format!("sys.{name}"))),
     }
 }
@@ -2058,6 +2109,8 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "_brevi_tok" => brevi_tok_fn(n, a),
         "_brevi_net" => brevi_net_fn(n, a),
         "_brevi_stdio" => brevi_stdio_fn(n, a),
+        "_brevi_proc" => brevi_proc_fn(n, a),
+        "_brevi_srv" => brevi_srv_fn(n, a),
         "_brevi_fs" => brevi_fs_fn(n, a),
         "_brevi_st" => brevi_st_fn(n, a),
         "_brevi_ort" => brevi_ort_fn(n, a),

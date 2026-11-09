@@ -1,0 +1,14 @@
+INFO 40 Level 25
+DEBUG    __main__ | debug 3 x
+a root 10
+ERROR    a.b.c | kept v
+'CRITICAL:to buf\n'
+ZeroDivisionError: division by zero
+WARNING [E] public
+WARNING [E] adapter
+WARNING [E] x
+<Logger __main__ (DEBUG)> <RootLogger root (DEBUG)> <StreamHandler <
+a a.b
+VE Invalid format '%(levelname)' for '%' style
+hello w
+True

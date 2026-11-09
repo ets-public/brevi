@@ -268,8 +268,10 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "pathlib" => include_str!("py/pathlib.py"),
         "io" => include_str!("py/io.py"),
         "textwrap" => include_str!("py/textwrap.py"),
+        "logging" => include_str!("py/logging.py"),
         "argparse" => include_str!("py/argparse.py"),
         "asyncio" => include_str!("py/asyncio.py"),
+        "asyncio.subprocess" => include_str!("py/asyncio_subprocess.py"),
         "tiktoken" => include_str!("py/tiktoken.py"),
         "tokenizers" => include_str!("py/tokenizers.py"),
         "requests" => include_str!("py/requests.py"),
@@ -294,6 +296,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "mcp.server.lowlevel" => include_str!("py/mcp_server_lowlevel.py"),
         "mcp.server.context" => include_str!("py/mcp_server_context.py"),
         "mcp.server.stdio" => include_str!("py/mcp_server_stdio.py"),
+        "mcp.server.transport_security" => include_str!("py/mcp_server_transport_security.py"),
         "mcp.shared.exceptions" => include_str!("py/mcp_shared_exceptions.py"),
         "mcp.server.mcpserver.exceptions" => include_str!("py/mcp_server_mcpserver_exceptions.py"),
         "mcp.server.mcpserver.prompts" => include_str!("py/mcp_server_mcpserver_prompts.py"),
@@ -427,7 +430,7 @@ fn duck_libs() -> (Vec<String>, String) {
     (parts.filter(|x| !x.is_empty()).collect(), pre)
 }
 
-const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3, duckdb, safetensors or onnxruntime beyond Brevi's own copies runs in CPython";
+const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, logging, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3, duckdb, safetensors or onnxruntime beyond Brevi's own copies runs in CPython";
 
 // The ONNX Runtime library inside the onnxruntime Python package (it has the C API), asked of python3 when the
 // program is built, without importing onnxruntime.
@@ -587,11 +590,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
     }
     if bridge.on {
-        // A coroutine handed to a library CPython runs would not be one of CPython's.
+        // A coroutine handed to a library CPython runs would not be one of CPython's, nor CPython's awaitables
+        // Brevi's: async code builds next to the library only when none can cross (emit::async_crosses_bridge).
         if mods.iter().any(|m| m.name != "asyncio" && emit::uses_async(&m.body)) {
-            let mut libs: Vec<&str> = bridge.modules.iter().map(|m| m.as_str()).collect();
-            libs.sort();
-            return Err((file.to_string(), 0, format!("async code with a library CPython runs ({})", libs.join(", "))));
+            let bodies: Vec<&[parse::Stmt]> = mods.iter().map(|m| m.body.as_slice()).collect();
+            if let Some((l, what)) = emit::async_crosses_bridge(&bodies, &|m: &str| bridge.has(m)) {
+                let mut libs: Vec<&str> = bridge.modules.iter().map(|m| m.as_str()).collect();
+                libs.sort();
+                return Err((file.to_string(), l, format!("async code with a library CPython runs ({}): {what}", libs.join(", "))));
+            }
         }
         lib_classes(&mods, &texts, &mut bridge)?;
     }
@@ -719,6 +726,29 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         rust = rust.replacen("fn main() { ", "fn main() { NET.set(brevi_netglue::ops()).ok(); ", 1);
         rust.push_str(&net_glue());
+    }
+    // child processes (Brevi's asyncio create_subprocess_exec / _shell): the glue only where the program starts one
+    if own_mods.contains("asyncio") || mods.iter().any(|m| m.name == "asyncio") {
+        if texts.iter().any(|(n, (_, t))| n != "asyncio" && t.contains("create_subprocess_")) {
+            if !cfg!(unix) {
+                return Err((file.to_string(), 0, "Brevi's own asyncio subprocesses run on Linux and macOS".into()));
+            }
+            rust = rust.replacen("fn main() { ", "fn main() { PROC.set(brevi_procglue::ops()).ok(); ", 1);
+            rust.push('\n');
+            rust.push_str(include_str!("procglue.rs"));
+        }
+    }
+    // an HTTP server's sockets (Brevi's mcp, transport="streamable-http" or "sse"): only where the program may serve one
+    if stdio_used && texts.iter().any(|(n, (_, t))| !own_mods.contains(n) && (t.contains("streamable") || t.contains("\"sse\"") || t.contains("'sse'") || t.contains("run_sse"))) {
+        if !cfg!(unix) {
+            return Err((file.to_string(), 0, "Brevi's own mcp runs on Linux and macOS".into()));
+        }
+        rust = rust.replacen("fn main() { ", "fn main() { SRV.set(brevi_srvglue::ops()).ok(); ", 1);
+        // under --sandbox a server listens only on a host the caller granted (--allow-net HOST, or --allow net)
+        let (any, hosts) = crate::caps::net_hosts();
+        let list: Vec<String> = hosts.iter().map(|h| format!("{h:?}")).collect();
+        rust.push_str(&format!("\nconst SRV_ANY: bool = {any};\nconst SRV_HOSTS: &[&str] = &[{}];\n", list.join(", ")));
+        rust.push_str(include_str!("srvglue.rs"));
     }
     if stdio_used {
         if !cfg!(unix) {

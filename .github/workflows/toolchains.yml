@@ -85,7 +85,7 @@ jobs:
   test:
     needs: versions
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -185,7 +185,7 @@ jobs:
 
       - name: MCP server tests
         if: steps.seen.outputs.cache-hit != 'true'
-        run: python3 tests/mcp_test.py
+        run: python3 tests/mcp_test.py && python3 tests/mcp_http_test.py
 
       - name: Core guide stays under its token budget
         if: steps.seen.outputs.cache-hit != 'true'

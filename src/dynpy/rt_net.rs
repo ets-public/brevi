@@ -747,6 +747,144 @@ pub fn brevi_stdio_fn(n: &str, a: Args) -> R {
     }
 }
 
+// ---------- _brevi_proc: child processes for Brevi's asyncio (create_subprocess_exec/shell) ----------
+// The system calls are in src/dynpy/procglue.rs, pasted into a program that starts processes. Pipe fds are
+// non-blocking: read gives None and write 0 when they would block, and asyncio waits on poll.
+
+pub struct ProcOps {
+    // (argv, cwd, env, [stdin, stdout, stderr] modes: 0 inherit, -1 a pipe, -2 stdout's, -3 /dev/null)
+    // -> (id, pid, [the parent's ends of the pipes, -1 for none])
+    pub spawn: fn(&[String], Option<&str>, Option<&[(String, String)]>, [i64; 3]) -> Result<(i64, i64, [i64; 3]), NetErr>,
+    pub read: fn(i64, usize) -> Result<Option<Vec<u8>>, NetErr>,
+    pub write: fn(i64, &[u8]) -> Result<i64, NetErr>,
+    pub close: fn(i64),
+    // the return code (minus the signal for a killed one), None while it runs (with block false)
+    pub wait: fn(i64, bool) -> Result<Option<i64>, NetErr>,
+    pub signal: fn(i64, i64) -> Result<(), NetErr>,
+    pub poll: fn(&[(i64, i64)], f64) -> Result<Vec<i64>, NetErr>,
+}
+
+pub static PROC: std::sync::OnceLock<ProcOps> = std::sync::OnceLock::new();
+
+fn procs() -> Result<&'static ProcOps, E> {
+    PROC.get().ok_or_else(|| exc("OSError", "brevi: this program was built without child processes".into()))
+}
+
+pub fn brevi_proc_fn(n: &str, a: Args) -> R {
+    let arg = |i: usize| a.p.get(i).cloned().unwrap_or(V::None);
+    match n {
+        "spawn" => {
+            let ops = procs()?;
+            let argv: Vec<String> = to_vec(&arg(0))?.iter().map(to_str).collect::<Result<_, _>>()?;
+            let cwd = match arg(1) {
+                V::None => None,
+                v => Some(to_str(&v)?),
+            };
+            let env = match arg(2) {
+                V::None => None,
+                v => Some(dict_items_of(&v)?.iter().map(|(k, x)| Ok((to_str(k)?, to_str(x)?))).collect::<Result<Vec<_>, E>>()?),
+            };
+            let m = to_vec(&arg(3))?;
+            let modes = [net_id(&m[0])?, net_id(&m[1])?, net_id(&m[2])?];
+            out_flush();
+            let (id, pid, fds) = (ops.spawn)(&argv, cwd.as_deref(), env.as_deref(), modes).map_err(net_err)?;
+            Ok(tup(vec![V::Int(id), V::Int(pid), tup(fds.iter().map(|f| if *f < 0 { V::None } else { V::Int(*f) }).collect())]))
+        }
+        "read" => Ok(match (procs()?.read)(net_id(&arg(0))?, net_id(&arg(1))?.max(1) as usize).map_err(net_err)? {
+            Some(b) => bytesv(b),
+            None => V::None,
+        }),
+        "write" => {
+            let b = bytes_of(&arg(1)).ok_or_else(|| exc("TypeError", "a bytes-like object is required".into()))?;
+            Ok(V::Int((procs()?.write)(net_id(&arg(0))?, &b).map_err(net_err)?))
+        }
+        "close" => {
+            (procs()?.close)(net_id(&arg(0))?);
+            Ok(V::None)
+        }
+        "wait" => Ok(match (procs()?.wait)(net_id(&arg(0))?, truth(&arg(1))?).map_err(net_err)? {
+            Some(c) => V::Int(c),
+            None => V::None,
+        }),
+        "signal" => {
+            (procs()?.signal)(net_id(&arg(0))?, net_id(&arg(1))?).map_err(net_err)?;
+            Ok(V::None)
+        }
+        "poll" => {
+            let ops = procs()?;
+            let mut fds = vec![];
+            for x in to_vec(&arg(0))? {
+                let p = to_vec(&x)?;
+                fds.push((net_id(&p[0])?, net_id(&p[1])?));
+            }
+            let r = (ops.poll)(&fds, net_f(&arg(1))).map_err(net_err)?;
+            Ok(list(r.into_iter().map(V::Int).collect()))
+        }
+        _ => Err(unsupported(&format!("_brevi_proc.{n}"))),
+    }
+}
+
+// ---------- _brevi_srv: an HTTP server's sockets for Brevi's mcp (transport="streamable-http" / "sse") ----------
+// The system calls are in src/dynpy/srvglue.rs, pasted into a program that serves MCP over HTTP. Sockets are
+// non-blocking: accept and read give None and write 0 when they would block, and asyncio waits on poll.
+
+pub struct SrvOps {
+    // (host, port) -> (listening fd, the port it is bound to)
+    pub listen: fn(&str, u16) -> Result<(i64, i64), NetErr>,
+    // (fd of a connection, the peer's address), None when none is waiting
+    pub accept: fn(i64) -> Result<Option<(i64, String)>, NetErr>,
+    pub read: fn(i64, usize) -> Result<Option<Vec<u8>>, NetErr>,
+    pub write: fn(i64, &[u8]) -> Result<i64, NetErr>,
+    pub close: fn(i64),
+    pub poll: fn(&[(i64, i64)], f64) -> Result<Vec<i64>, NetErr>,
+    // n bytes from the system's random source (session ids, as uuid4 makes them)
+    pub random: fn(usize) -> Result<Vec<u8>, NetErr>,
+}
+
+pub static SRV: std::sync::OnceLock<SrvOps> = std::sync::OnceLock::new();
+
+fn srv() -> Result<&'static SrvOps, E> {
+    SRV.get().ok_or_else(|| exc("OSError", "brevi: this program was built without an HTTP server".into()))
+}
+
+pub fn brevi_srv_fn(n: &str, a: Args) -> R {
+    let arg = |i: usize| a.p.get(i).cloned().unwrap_or(V::None);
+    match n {
+        "listen" => {
+            let (fd, port) = (srv()?.listen)(&net_s(&arg(0)), net_id(&arg(1))? as u16).map_err(net_err)?;
+            Ok(tup(vec![V::Int(fd), V::Int(port)]))
+        }
+        "accept" => Ok(match (srv()?.accept)(net_id(&arg(0))?).map_err(net_err)? {
+            Some((fd, peer)) => tup(vec![V::Int(fd), s(&peer)]),
+            None => V::None,
+        }),
+        "read" => Ok(match (srv()?.read)(net_id(&arg(0))?, net_id(&arg(1))?.max(1) as usize).map_err(net_err)? {
+            Some(b) => bytesv(b),
+            None => V::None,
+        }),
+        "write" => {
+            let b = bytes_of(&arg(1)).ok_or_else(|| exc("TypeError", "a bytes-like object is required".into()))?;
+            Ok(V::Int((srv()?.write)(net_id(&arg(0))?, &b).map_err(net_err)?))
+        }
+        "close" => {
+            (srv()?.close)(net_id(&arg(0))?);
+            Ok(V::None)
+        }
+        "poll" => {
+            let ops = srv()?;
+            let mut fds = vec![];
+            for x in to_vec(&arg(0))? {
+                let p = to_vec(&x)?;
+                fds.push((net_id(&p[0])?, net_id(&p[1])?));
+            }
+            let r = (ops.poll)(&fds, net_f(&arg(1))).map_err(net_err)?;
+            Ok(list(r.into_iter().map(V::Int).collect()))
+        }
+        "random" => Ok(bytesv((srv()?.random)(net_id(&arg(0))?.max(0) as usize).map_err(net_err)?)),
+        _ => Err(unsupported(&format!("_brevi_srv.{n}"))),
+    }
+}
+
 // ---------- _brevi_fs: whole-file reads and writes for Brevi's polars (read_csv, write_csv, ...) ----------
 // The file system calls are in src/dynpy/fsglue.rs, pasted into a program that imports Brevi's polars. Under
 // --sandbox the glue reads only with the read grant and writes only with the write grant (FS_READ / FS_WRITE,
