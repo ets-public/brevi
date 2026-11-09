@@ -244,6 +244,7 @@ def main():
     ap.add_argument("--python", default=os.environ.get("CONFORMANCE_PYTHON", "python3.13"))
     ap.add_argument("--branch", help="commit a successful fix on this new branch (default: no commit)")
     ap.add_argument("--log", type=Path)
+    ap.add_argument("--note", help="review feedback on an earlier attempt, added to the task (text, or @file)")
     a = ap.parse_args()
     if a.list:
         print("\n".join(baseline_ids())); return 0
@@ -265,6 +266,9 @@ def main():
     note(event="start", test=a.test_id, model=a.model, before=before)
     prompt = (f"Failing test: {a.test_id}\n\nCurrent result:\n{before_text}\n\nThe generated script and how to reproduce it:\n"
               f"```python\n{clip(script, 12000)}\n```\nFind and fix the root cause.")
+    if a.note:
+        note_text = Path(a.note[1:]).read_text() if a.note.startswith("@") else a.note
+        prompt += "\n\nA reviewer rejected an earlier fix for this test. Their notes, which your fix must respect:\n" + note_text
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
     tools = tool_schemas()
     spent, finished = 0.0, None
