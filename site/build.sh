@@ -12,19 +12,15 @@ FV=$(sed -n 's/^version = "\([0-9.]*\)".*/\1/p' $R/Cargo.toml | head -1)
 # needs BENCH_ANTHROPIC_KEY once).
 G=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import tokcount; print(f"{tokcount.count(open(sys.argv[2]).read()):,}")' $R/bench $R/BREVI.md) \
   || { echo "could not count BREVI.md tokens (set BENCH_ANTHROPIC_KEY)"; exit 1; }
-# The repo has been public since 2026-11-03, so GitHub links, the install one-liner and the status line are
-# always built in. BREVI_PUBLIC=0 builds the old private variant. (This used to probe github.com, and a
-# deploy from a machine where that probe failed silently shipped the site with every GitHub link removed.)
-BREVI_PUBLIC=${BREVI_PUBLIC:-1}
-echo "repo public: $BREVI_PUBLIC"
-python3 $S/gen.py $O $S/out-run "$V" "$G" "$BREVI_PUBLIC" "$FV"
+# The repo is public, so the site is always built with its GitHub links, the install one-liner and the
+# open-source status line. There is no private mode any more (Adam, 2026-11-09): a deploy built that way
+# once shipped the live site with every GitHub link removed.
+python3 $S/gen.py $O $S/out-run "$V" "$G" 1 "$FV"
 # Logo and favicons (favicon.svg is the source; node site/icons/make.js redraws the PNG and ICO sizes).
 for d in $O $S/out-run; do cp $S/icons/*.{svg,ico,png,webmanifest} $d/; done
 # Fonts are served from the site itself (IBM Plex, latin subset; the licence goes with them).
 for d in $O $S/out-run; do cp $S/fonts/*.woff2 $S/fonts/OFL.txt $d/; done
-# While the repo is private, leave its link out of the served llms.txt.
-if [ "$BREVI_PUBLIC" = 1 ]; then cp $S/llms.txt $O/llms.txt; else
-  grep -v 'github.com/ets-public/brevi' $S/llms.txt | sed '/^## Tools$/{N;/\n$/d}' | cat -s > $O/llms.txt; fi
+cp $S/llms.txt $O/llms.txt
 cp $R/BREVI.md $O/guide.md
 cp $R/LIBRARIES.md $O/libraries.md
 cp $R/REFERENCE.md $O/reference.md

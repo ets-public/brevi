@@ -91,12 +91,6 @@ The repository is also a Claude Code plugin marketplace. The plugin adds the ski
 /plugin install brevi@brevi
 ```
 <!--/public-->
-<!--private-->
-```
-/plugin marketplace add ets-public/brevi      # works once the repository is public
-/plugin install brevi@brevi
-```
-<!--/private-->
 
 ## Editor rules
 
