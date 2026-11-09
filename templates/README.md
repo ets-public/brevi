@@ -26,6 +26,21 @@ with, `brevi` from the latest release (checked against its SHA256SUMS), and `pyt
 Cloudflare image is the same file plus the shim the Sandbox SDK needs. Give each sandbox about 2 GB of memory:
 rustc needs it to link a program.
 
+## Published image
+
+From v0.27.0 each release publishes the image, so a platform can start from it instead of building it:
+
+| Tag | What `python3` is |
+| --- | --- |
+| `ghcr.io/ets-public/brevi-sandbox:latest`, `:VERSION` | CPython; `brevi-python` beside it |
+| `ghcr.io/ets-public/brevi-sandbox:python3`, `:VERSION-python3` | `brevi-python` (native when Brevi builds the program, CPython otherwise); CPython is `/usr/bin/python3`, also `python3.real` |
+
+Both have the Python SDK (`import brevi`) and a build cache warmed for both of Brevi's runtime libraries, so the first `brevi.run` in a fresh sandbox takes about half a second rather than a minute. Set `BREVI_IMAGE` to a tag and the E2B, Daytona, Modal and Docker templates use it instead of building `image/Dockerfile`. The image is linux/amd64, about 1.4 GB.
+
+```sh
+docker run --rm ghcr.io/ets-public/brevi-sandbox python3 -c 'import brevi; print(brevi.run("print(6 * 7)").stdout)'
+```
+
 ## Run an agent
 
 ```sh

@@ -236,6 +236,9 @@ struct Files {
     // The path report of the call's last build ({"path":"typed"}, ...; see say_path in main.rs), sent as the
     // result's structuredContent.
     path: Option<String>,
+    // A plain run's own outcome (stdout, stderr, exit_code, ms, as JSON fields), also in structuredContent,
+    // so a client such as the Python SDK gets them apart instead of the merged text.
+    run: Option<String>,
     // Programs Brevi gave a wrong answer on in this session (a run with verify, or a case CPython passes):
     // with sandbox false they run with CPython from then on.
     cpython_only: BTreeSet<String>,
@@ -482,10 +485,36 @@ fn secs(d: Duration) -> String {
 
 // Runs this same binary on the kept files: (text, failed, the main file afterwards: `brevi fix` rewrites it).
 fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Duration) -> (String, bool, String) {
+    let (t, err, after, _) = brevi_done(files, cmd, extra, stdin, limit);
+    (t, err, after)
+}
+
+// The structuredContent fields of a plain run: the program's stdout and stderr apart (each kept up to KEEP
+// bytes), its exit code (null when it was stopped by the timeout) and the milliseconds the call took.
+fn run_fields(d: &Done, took: Duration) -> String {
+    let keep = |s: &str| {
+        let mut n = s.len().min(KEEP);
+        while !s.is_char_boundary(n) {
+            n -= 1;
+        }
+        s[..n].to_string()
+    };
+    let code = d.status.and_then(|s| s.code()).map_or("null".into(), |c| c.to_string());
+    format!(
+        r#""stdout":"{}","stderr":"{}","exit_code":{code},"timed_out":{},"ms":{}"#,
+        esc(&keep(&d.out)),
+        esc(&keep(&d.err)),
+        d.timed_out,
+        took.as_millis()
+    )
+}
+
+// brevi_file, also giving back the finished process (None when it could not start).
+fn brevi_done(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Duration) -> (String, bool, String, Option<Done>) {
     wait_warm();
     let dir = match write_files(files) {
         Ok(d) => d,
-        Err(m) => return (m, true, String::new()),
+        Err(m) => return (m, true, String::new(), None),
     };
     let main = files.main();
     files.built.insert(main.clone());
@@ -500,14 +529,14 @@ fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
     c.env("BREVI_PATH", "1");
     let mut done = match spawn(c, stdin, limit) {
         Ok(d) => d,
-        Err(m) => return (m, true, String::new()),
+        Err(m) => return (m, true, String::new(), None),
     };
     if let Some(p) = take_path(&mut done.err) {
         files.path = Some(p);
     }
     let after = std::fs::read_to_string(&f).unwrap_or_default();
     // Notes like {"line":3,"fixed":"totl -> total"} go to stderr; keep them, they matter to the model.
-    let mut text = done.out;
+    let mut text = done.out.clone();
     // The CLI's --limit advice in the tool's own words.
     let err = done.err.replace("raise it with --limit ", "raise it in limits: ");
     if !err.trim().is_empty() {
@@ -523,7 +552,7 @@ fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
             }
             text.push_str(&format!("{{\"e\":\"timeout\",\"msg\":\"stopped after {}; pass timeout (seconds, up to 600) for a longer run\"}}", secs(limit)));
         }
-        return (text, true, after);
+        return (text, true, after, Some(done));
     };
     if text.contains("rustc not found") {
         text.push_str("Brevi needs the Rust toolchain: install it from https://rustup.rs, then restart the MCP client.\n");
@@ -531,7 +560,7 @@ fn brevi_file(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
     if !st.success() && text.trim().is_empty() {
         text = format!("failed with exit code {} and no output", st.code().map_or("?".into(), |c| c.to_string()));
     }
-    (text, !st.success(), after)
+    (text, !st.success(), after, Some(done))
 }
 
 // Takes the first {"path":...} line out of a build's stderr. Brevi prints it before the program runs, so a
@@ -552,8 +581,13 @@ fn take_path(err: &mut String) -> Option<String> {
 
 // The text and structuredContent of a tool result: the path line is also the text's last line when the
 // program is off the typed path, for clients that ignore structured results.
-fn with_path(text: String, path: Option<&str>) -> (String, String) {
-    let Some(p) = path else { return (text, String::new()) };
+fn with_path(text: String, path: Option<&str>, run: Option<String>) -> (String, String) {
+    let Some(p) = path else {
+        return match run {
+            Some(r) => (text, format!(",\"structuredContent\":{{{r}}}")),
+            None => (text, String::new()),
+        };
+    };
     let typed = parse(p).and_then(|j| j.get("path").and_then(|v| v.str()).map(|v| v == "typed")).unwrap_or(false);
     let text = if typed {
         text
@@ -562,7 +596,11 @@ fn with_path(text: String, path: Option<&str>) -> (String, String) {
     } else {
         format!("{text}\n{p}")
     };
-    (text, format!(",\"structuredContent\":{p}"))
+    let structured = match run {
+        Some(r) => format!("{},{r}}}", p.trim_end().strip_suffix('}').unwrap_or(p)),
+        None => p.to_string(),
+    };
+    (text, format!(",\"structuredContent\":{structured}"))
 }
 
 fn brevi(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Duration) -> (String, bool) {
@@ -684,10 +722,21 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             match a.get("cases").map(|c| c.arr().to_vec()).filter(|c| !c.is_empty()) {
                 Some(cases) => run_cases(files, &extra, &cases, sandboxed, n("timeout").map(|t| Duration::from_secs(t.clamp(1, 600) as u64)), &lims),
                 None if verifying => {
-                    let (t, err) = brevi(files, "run", &extra, &s("stdin"), limit);
+                    let t0 = Instant::now();
+                    let (t, err, _, done) = brevi_done(files, "run", &extra, &s("stdin"), limit);
+                    // The verdict line is the reply's to show, not the program's stderr.
+                    files.run = done.map(|mut d| {
+                        d.err = d.err.split_inclusive('\n').filter(|l| !l.starts_with("{\"verify\":")).collect();
+                        run_fields(&d, t0.elapsed())
+                    });
                     verified(files, t, err)
                 }
-                None => brevi(files, "run", &extra, &s("stdin"), limit),
+                None => {
+                    let t0 = Instant::now();
+                    let (t, err, _, done) = brevi_done(files, "run", &extra, &s("stdin"), limit);
+                    files.run = done.map(|d| run_fields(&d, t0.elapsed()));
+                    (t, err)
+                }
             }
         }
         "test" => brevi(files, "test", &[sandbox.clone(), lims.flags()].concat(), "", limit),
@@ -1152,6 +1201,7 @@ pub fn serve(argv: &[String]) {
                     CANCELLED.store(false, Ordering::SeqCst);
                 }
                 files.path = None;
+                files.run = None;
                 let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| call(&mut files, &job.name, &job.args)));
                 BUILT.lock().unwrap_or_else(|e| e.into_inner()).extend(files.built.iter().cloned());
                 let (text, err) = r.unwrap_or_else(|p| {
@@ -1165,7 +1215,7 @@ pub fn serve(argv: &[String]) {
                 };
                 // A cancelled request gets no reply (the MCP spec's rule).
                 if !cancelled {
-                    let (text, structured) = with_path(clip(&text), files.path.take().as_deref());
+                    let (text, structured) = with_path(clip(&text), files.path.take().as_deref(), files.run.take());
                     let r = format!(r#"{{"content":[{{"type":"text","text":"{}"}}]{structured},"isError":{err}}}"#, esc(&text));
                     reply(&job.id, Ok(if job.modern { stamp(&r, false) } else { r }));
                 }
