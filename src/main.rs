@@ -29,6 +29,7 @@ mod pystd;
 mod pygen;
 mod scoped;
 mod runcache;
+mod tier;
 mod verify;
 
 use diag::{esc, Diag};
@@ -149,6 +150,9 @@ fn main() {
     if argv.first().map(|a| a.as_str()) == Some("mcp") {
         mcp::serve(&argv[1..]);
         return;
+    }
+    if argv.first().map(|a| a.as_str()) == Some("__tier") {
+        tier::job(&argv[1..]);
     }
     if matches!(argv.first().map(|a| a.as_str()), Some("--help" | "-h" | "help")) {
         println!("{USAGE}");
@@ -280,6 +284,10 @@ fn main() {
             exit(2);
         }
     };
+    // run and test are the edit loop: a new build may be the quick tier (src/tier.rs).
+    if matches!(cmd, "run" | "test") && !argv.iter().take_while(|a| a.as_str() != "--").any(|a| a == "--release") {
+        tier::edit_loop();
+    }
     // A .bv file written in plain Python (no Brevi spellings) takes the .py path: the guard, the typed build and the
     // dynamic build, but never python3 (it is a Brevi file).
     let bv_py = matches!(cmd, "build" | "run" | "check" | "emit") && bv_as_py(&file);
@@ -799,7 +807,9 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
     args.extend(opts);
     args.extend(flags.iter().cloned());
     // A refusal of `build -o OUT` may be about OUT (a missing folder), which the key leaves out: not kept.
-    let done = runcache::phase(&args, file, bin.as_deref(), &[], cmd != "build");
+    // A run is the edit loop: its build may be the quick tier (src/tier.rs). A build is never.
+    let envs: &[(&str, &str)] = if cmd == "run" && !args.iter().any(|a| a == "--release") { &[tier::ENV] } else { &[] };
+    let done = runcache::phase(&args, file, bin.as_deref(), envs, cmd != "build");
     if done.hit {
         tm("replayed from the result cache");
     }
@@ -843,7 +853,10 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
     // Exit code 3 from the build: a sure mistake (pydiag), which CPython stops on too.
     let mut args: Vec<String> = vec!["build".into(), file.into(), "-o".into(), bin.to_string_lossy().to_string()];
     args.extend(flags);
-    let envs = [("BREVI_NATIVE", "1"), ("BREVI_SURE_EXIT", "3"), ("BREVI_DYN_WHY", "1")];
+    let mut envs = vec![("BREVI_NATIVE", "1"), ("BREVI_SURE_EXIT", "3"), ("BREVI_DYN_WHY", "1")];
+    if !argv[2..dash].iter().any(|a| a == "--release") {
+        envs.push(tier::ENV);
+    }
     // Through the result cache: an unchanged file is not built again, and one Brevi could not build is not
     // tried again before it runs with python3.
     let built: std::io::Result<runcache::Done> = if runcache::on() {
@@ -1625,9 +1638,25 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     static PRELUDE_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     let ph = PRELUDE_HASH.get_or_init(|| format!("{:016x}", fnv(&[emit::PRELUDE, env!("CARGO_PKG_VERSION")], 3)));
     let eng = engine::lib().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    let key = format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version(), ph, &eng], 0), fnv(&[rust, &extra.join(" "), rustc_version(), ph, &eng], 7));
+    let key_for = |extra: &[&str]| format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version(), ph, &eng], 0), fnv(&[rust, &extra.join(" "), rustc_version(), ph, &eng], 7));
+    let key = key_for(extra);
     let cdir = cache_dir().join("bin");
     let cached = cdir.join(&key);
+    // The edit loop (src/tier.rs): an opt-level 1 binary not built yet is built at opt-level 0 now, and at
+    // opt-level 1 in the background.
+    if link && tier::on() && !cached.exists() {
+        if let Some(quick) = tier::quick_flags(extra) {
+            tm("tiered: building at opt-level 0, opt-level 1 in the background");
+            let r = compile(rust, dir, out, &quick, link);
+            if matches!(r, Some(Ok(()))) {
+                let rust = engine_rust(rust);
+                let mut args = rustc_args(extra, rt.as_deref(), release);
+                args.extend(["-C".into(), "strip=debuginfo".into()]);
+                tier::background(&cached, &rust, &args);
+            }
+            return r;
+        }
+    }
     if use_cache {
         if let Ok(e) = std::fs::read_to_string(cached.with_extension("err")) {
             return Some(Err(e));
@@ -1637,27 +1666,11 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
             return Some(Ok(()));
         }
     }
-    // Libraries on Brevi's engine: its runtime is linked too, and the program uses that runtime's allocator.
-    let engine_lib = engine::lib();
-    let rust: &str = &match engine_lib {
-        // (as many lines as it replaces, so rustc's line numbers still match the program's)
-        Some(_) => rust.replacen(include_str!("alloc_rt.rs"), &format!("pub use brevi_dyn::AX_ASCII;{}", "\n".repeat(include_str!("alloc_rt.rs").matches('\n').count())), 1),
-        None => rust.to_string(),
-    };
+    let rust: &str = &engine_rust(rust);
     let rs = dir.join("main.rs");
     std::fs::write(&rs, rust).expect("write generated rust");
     let mut c = rustc_cmd();
-    if let Some(lib) = engine_lib {
-        c.arg("--extern").arg(format!("brevi_dyn={}", lib.display()));
-    }
-    c.args(["--edition", "2021", "--error-format=json", "--crate-name", "brevi_prog", "-A", "warnings", "-C", "overflow-checks=on"]);
-    c.args(extra);
-    if !release {
-        c.args(["-C", codegen_units()]);
-    }
-    if let Some(lib) = &rt {
-        c.arg("--extern").arg(format!("brevi_rt={}", lib.display()));
-    }
+    c.args(rustc_args(extra, rt.as_deref(), release));
     if link {
         // Debug info is never used (runtime errors carry Brevi line numbers), and it is most of the file.
         c.args(["-C", "strip=debuginfo"]);
@@ -1699,6 +1712,32 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
         }
     }
     Some(r)
+}
+
+// Libraries on Brevi's engine: its runtime is linked too, and the program uses that runtime's allocator.
+fn engine_rust(rust: &str) -> String {
+    match engine::lib() {
+        // (as many lines as it replaces, so rustc's line numbers still match the program's)
+        Some(_) => rust.replacen(include_str!("alloc_rt.rs"), &format!("pub use brevi_dyn::AX_ASCII;{}", "\n".repeat(include_str!("alloc_rt.rs").matches('\n').count())), 1),
+        None => rust.to_string(),
+    }
+}
+
+// rustc's arguments for a program build, without the output and the source file.
+fn rustc_args(extra: &[&str], rt: Option<&Path>, release: bool) -> Vec<String> {
+    let mut a: Vec<String> = vec![];
+    if let Some(lib) = engine::lib() {
+        a.extend(["--extern".into(), format!("brevi_dyn={}", lib.display())]);
+    }
+    a.extend(["--edition", "2021", "--error-format=json", "--crate-name", "brevi_prog", "-A", "warnings", "-C", "overflow-checks=on"].map(String::from));
+    a.extend(extra.iter().map(|e| e.to_string()));
+    if !release {
+        a.extend(["-C".into(), codegen_units().into()]);
+    }
+    if let Some(lib) = rt {
+        a.extend(["--extern".into(), format!("brevi_rt={}", lib.display())]);
+    }
+    a
 }
 
 // True when every rustc error points into the program. An error with no place in it (a folder that could not
