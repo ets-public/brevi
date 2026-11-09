@@ -479,7 +479,7 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 // subclass of a builtin container: the instance wraps the builtin value
                 let base = builtin_of_bt(bb);
                 if let Some(r) = builtin_type_call(&base, &mut a) {
-                    *o.inner.borrow_mut() = Some(r?);
+                    o.set_inner(Some(r?));
                 }
             }
             Ok(V::Obj(o))
