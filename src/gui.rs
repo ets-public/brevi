@@ -786,9 +786,11 @@ pub fn window() -> bool {
     WINDOW.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-// The crate a window build needs.
+// The crate a window build needs. From 0.37 eframe's default renderer is wgpu, which is a much bigger
+// build and needs a GPU driver; Brevi keeps the OpenGL (glow) renderer, as in `runtime/brevi_tk/Cargo.toml`.
 pub fn window_dep() -> crate::ffi::Dep {
-    crate::ffi::Dep { name: "eframe".into(), version: "0.31".into(), features: vec![], line: 0 }
+    let features = ["-default", "accesskit", "clipboard", "default_fonts", "glow", "links", "wayland", "x11"];
+    crate::ffi::Dep { name: "eframe".into(), version: "0.37".into(), features: features.iter().map(|f| f.to_string()).collect(), line: 0 }
 }
 
 // The runtime and the glue, pasted into the program as a `rust:` block would be. A window build also pastes
@@ -809,3 +811,21 @@ pub fn runtime() -> String {
 }
 
 const GLUE: &str = include_str!("gui_glue.rs");
+
+#[cfg(test)]
+mod tests {
+    // `brevi build --window` must ask for the same eframe as the runtime crate is built and tested with.
+    #[test]
+    fn window_dep_matches_runtime_crate() {
+        let manifest = include_str!("../runtime/brevi_tk/Cargo.toml");
+        let line = manifest.lines().find(|l| l.starts_with("eframe = ")).expect("eframe line");
+        let d = super::window_dep();
+        assert!(line.contains(&format!("version = \"{}\"", d.version)), "{line}");
+        assert!(line.contains("default-features = false") && d.features.iter().any(|f| f == "-default"));
+        for f in d.features.iter().filter(|f| *f != "-default") {
+            assert!(line.contains(&format!("\"{f}\"")), "feature {f} missing from {line}");
+        }
+        let toml = crate::ffi::cargo_toml("app", &[d]);
+        assert!(toml.contains("eframe = { version = \"0.37\", default-features = false, features = [\"accesskit\""), "{toml}");
+    }
+}
