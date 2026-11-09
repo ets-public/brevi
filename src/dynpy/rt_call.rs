@@ -545,9 +545,20 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
     if let V::Obj(ob) = o {
         if ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
-            if let Some(e) = d.at_named_mut(ic.load(std::sync::atomic::Ordering::Relaxed), name) {
+            let i = ic.load(std::sync::atomic::Ordering::Relaxed);
+            if let Some(e) = d.at_named_mut(i, name) {
                 *e = v;
                 return Ok(());
+            }
+            // a new attribute (as in __init__): the layout already has a child for this name, so it is not set yet
+            if i == d.len() {
+                match d.push_known(name, v) {
+                    Ok(()) => return Ok(()),
+                    Err(v) => {
+                        drop(d);
+                        return setattr_ic_slow(o, name, v, ic);
+                    }
+                }
             }
         }
     }

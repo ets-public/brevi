@@ -1881,6 +1881,25 @@ impl Attrs {
     pub fn len(&self) -> usize {
         self.shape.names.len()
     }
+    // add n when this layout already has a child along n (so n is not one of its names); else give v back
+    #[inline]
+    pub fn push_known(&mut self, n: Sym, v: V) -> Result<(), V> {
+        let child = {
+            let next = self.shape.next.borrow();
+            match next.iter().find(|(k, _)| k.as_ptr() == n.as_ptr() && k.len() == n.len()) {
+                Some((_, c)) => c.clone(),
+                None => return Err(v),
+            }
+        };
+        let i = self.shape.names.len();
+        self.shape = child;
+        if i < 4 {
+            self.a[i] = v;
+        } else {
+            self.more.get_or_insert_with(|| Box::new(Vec::new())).push(v);
+        }
+        Ok(())
+    }
     #[inline]
     pub fn get(&self, i: usize) -> Option<(Sym, &V)> {
         let k = *self.shape.names.get(i)?;
