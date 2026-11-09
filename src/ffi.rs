@@ -320,8 +320,13 @@ pub fn cargo_toml(name: &str, deps: &[Dep]) -> String {
     );
     for d in deps {
         s.push_str(&format!("{} = {{ version = \"{}\"", d.name, d.version));
-        if !d.features.is_empty() {
-            let fs: Vec<String> = d.features.iter().map(|f| format!("\"{f}\"")).collect();
+        // A `-default` feature (not a valid cargo feature name) means default-features = false.
+        if d.features.iter().any(|f| f == "-default") {
+            s.push_str(", default-features = false");
+        }
+        let features: Vec<&String> = d.features.iter().filter(|f| *f != "-default").collect();
+        if !features.is_empty() {
+            let fs: Vec<String> = features.iter().map(|f| format!("\"{f}\"")).collect();
             s.push_str(&format!(", features = [{}]", fs.join(", ")));
         }
         s.push_str(" }\n");

@@ -113,12 +113,12 @@ impl Ui {
                 let cur = text_of(w);
                 let buf = self.edits.entry(w).or_insert_with(|| cur.clone());
                 // A change made by the program wins over the box's copy.
-                if *buf != cur && !ui.memory(|m| m.has_focus(egui::Id::new(("box", w)))) {
+                if *buf != cur && !ui.memory(|m| m.has_focus(egui::Id::unique(("box", w)))) {
                     *buf = cur.clone();
                 }
                 let width = opts.get("width").map(|v| v.int() as f32 * 8.0).unwrap_or(160.0);
                 let te = if kind == Kind::Text { egui::TextEdit::multiline(buf) } else { egui::TextEdit::singleline(buf) };
-                let te = te.id(egui::Id::new(("box", w))).desired_width(width).password(opts.get("show").map(|v| !v.text().is_empty()).unwrap_or(false));
+                let te = te.id(egui::Id::unique(("box", w))).desired_width(width).password(opts.get("show").map(|v| !v.text().is_empty()).unwrap_or(false));
                 let r = ui.add_enabled(!disabled, te);
                 if r.changed() {
                     acts.push(Act::SetText(w, buf.clone()));
@@ -300,23 +300,32 @@ impl Ui {
 struct Front(Ui);
 
 impl eframe::App for Front {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        let _ = frame;
+    // `after()` timers and quitting run here, so they keep going while the window is minimized
+    // (eframe 0.37 skips `ui` for a hidden window but still calls `logic`).
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         run_timers(self.0.started.elapsed().as_millis() as u64);
         if quitting() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
+    fn ui(&mut self, root: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if quitting() {
             return;
         }
+        let ctx = root.ctx().clone();
+        let ctx = &ctx;
         let mut acts = vec![];
         let title = snapshot(|ws| ws[0].title.clone());
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(root, |ui| {
             egui::ScrollArea::both().show(ui, |ui| self.0.draw(ui, 0, &mut acts));
         });
         // Toplevel windows as egui windows inside the main one.
         let tops: Vec<(W, String)> = snapshot(|ws| ws.iter().enumerate().filter(|(_, w)| w.kind == Kind::Toplevel && w.alive).map(|(i, w)| (i, w.title.clone())).collect());
         for (t, name) in tops {
-            egui::Window::new(name).id(egui::Id::new(("top", t))).show(ctx, |ui| self.0.draw(ui, t, &mut acts));
+            egui::Window::new(name).id(egui::Id::unique(("top", t))).show(ctx, |ui| self.0.draw(ui, t, &mut acts));
         }
         self.0.dialogs.extend(DIALOGS.with(|d| std::mem::take(&mut *d.borrow_mut())));
         if let Some((t, m)) = self.0.dialogs.first().cloned() {
@@ -385,7 +394,6 @@ impl eframe::App for Front {
                 }
             }
         }
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
     }
 }
 
