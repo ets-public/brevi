@@ -37,6 +37,24 @@ thread_local! {
 }
 
 pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
+    // A Python loop body's last call (`for k, v in d.items(): v.pop(0)`) is a statement, whose value nothing
+    // uses: made one, so the write-back after it is put in as after any other change.
+    if crate::infer::py_on() {
+        for it in items.iter_mut() {
+            if let Item::Fn { body, .. } = it {
+                crate::parser::walk_mut(body, &mut |e| {
+                    if let Expr::For(_, _, b) | Expr::While(_, b) = e {
+                        if let Expr::Block(st, t) = b.as_mut() {
+                            if matches!(t.as_deref(), Some(Expr::Method(..) | Expr::Call(..))) {
+                                let line = st.last().map_or(0, stmt_line);
+                                st.push(Stmt::Expr { expr: *t.take().unwrap(), line });
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
     // Python's `players, dealt = cur` names the same lists the tuple holds: when one is changed later,
     // it is also set as `players = cur[0]`, so the change is written back like any item taken out.
     for it in items.iter_mut() {
@@ -197,7 +215,7 @@ pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
             };
             let ps: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
             let plain_base = |b: &Expr| match b {
-                Expr::Ident(n) => !ps.is_empty() || n != "self_",
+                Expr::Ident(n) => n != "self_",
                 Expr::Field(x, _) => matches!(x.as_ref(), Expr::Ident(n) if n == "self_" || ps.contains(n)),
                 _ => false,
             };
@@ -783,7 +801,7 @@ fn stored_then_changed(e: &Expr, cx: &mut Cx) {
     for b in blocks {
         let Expr::Block(stmts, tail) = b else { continue };
         for (i, st) in stmts.iter().enumerate() {
-            let Some((x, into, line)) = stored(st) else { continue };
+            for (x, into, line) in stored(st).into_iter().chain(stored_in_literal(st)) {
             let rest = &stmts[i + 1..];
             // Only up to the next setting of x as a whole.
             let end = rest.iter().position(|s| matches!(s, Stmt::Assign { target: Expr::Ident(n), op: "=", .. } | Stmt::Let { name: Pat::Bind(n), .. } if *n == x)).unwrap_or(rest.len());
@@ -799,8 +817,24 @@ fn stored_then_changed(e: &Expr, cx: &mut Cx) {
                     format!("finish {xs} before putting it in {into}, or change it through {into}"),
                 );
             }
+            }
         }
     }
+}
+
+// `d1 = {"k": a}`, `pair = [a, b]`: a dict, list or tuple written with a name in it holds a copy here, where
+// Python's holds the list or dict itself.
+fn stored_in_literal(st: &Stmt) -> Vec<(String, String, usize)> {
+    let (into, value, line) = match st {
+        Stmt::Let { name: Pat::Bind(n), value, line, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, line } => (n, value, *line),
+        _ => return vec![],
+    };
+    let items: Vec<&Expr> = match value {
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().collect(),
+        Expr::Map(kv) => kv.iter().map(|(_, v)| v).collect(),
+        _ => return vec![],
+    };
+    items.into_iter().filter_map(|x| if let Expr::Ident(n) = x { (n != into).then(|| (n.clone(), into.trim_end_matches('_').to_string(), line)) } else { None }).collect()
 }
 
 // Python's `b = a` gives a second name for the same list or dict: `b.append(x)` changes a too. Brevi copies
@@ -1221,7 +1255,15 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                             "find the item's index or key, then change xs[i] directly".into(),
                         );
                     }
-                } else if let Some((r, from, line)) = from_item_fn(&stmts[i], &cx.item_fns) {
+                } else if let Some(from) = changes_item_call(&stmts[i], &cx.item_fns) {
+                    let line = stmt_line(&stmts[i]);
+                    err(
+                        cx,
+                        line,
+                        format!("{from} gives a copy of the list or dict it returns, so changing it here does not change the original (Brevi values are copies, not shared)"),
+                        "change the list where it is kept, or name the result and set it back".into(),
+                    );
+                } else if let Some((r, from, line)) = from_item_fn(&stmts[i], &cx.item_fns).or_else(|| or_default(&stmts[i])) {
                     // `lst = book.backorders_for(sku)` returning `self.waiting.get(sku, [])`, then `lst.pop(i)`:
                     // in Python lst is the dict's own list; here a copy, so the dict would not change.
                     let rest = &stmts[i + 1..];
@@ -1359,14 +1401,27 @@ fn returns_item(body: &Expr) -> bool {
     if let Expr::Block(_, Some(t)) = body {
         rets.push(t.as_ref().clone());
     }
-    rets.iter().any(|v| {
+    // `x.kids` of a parameter (or self) is part of something the function did not build too, and so is either
+    // branch of `book["bids"] if s == "b" else book["asks"]`.
+    fn item(v: &Expr, locals: &HashSet<String>) -> bool {
         let base = match v {
             Expr::Index(b, k) if !matches!(k.as_ref(), Expr::Range(..)) => b.as_ref(),
             Expr::Method(b, m, _, _) if m == "get" || m == "get_or" => b.as_ref(),
+            Expr::Field(b, _) if matches!(b.as_ref(), Expr::Ident(_)) => return root(b).is_some_and(|n| !locals.contains(n)),
+            Expr::If(_, a, b) => return item(a, locals) || b.as_ref().is_some_and(|b| item(b, locals)),
+            Expr::Block(st, Some(t)) if st.is_empty() => return item(t, locals),
             _ => return false,
         };
         matches!(base, Expr::Ident(_) | Expr::Field(..)) && root(base).is_some_and(|n| !locals.contains(n))
-    })
+    }
+    rets.iter().any(|v| item(v, &locals))
+}
+
+// `get_bucket("a").append(1)` with get_bucket in item_fns: the call gives a copy here, so the change is lost.
+fn changes_item_call(st: &Stmt, item_fns: &HashSet<String>) -> Option<String> {
+    let Stmt::Expr { expr: Expr::Method(recv, m, _, _), .. } = st else { return None };
+    let Expr::Call(f, _, _) = recv.as_ref() else { return None };
+    (item_fns.contains(f) && CHANGING.contains(&m.as_str())).then(|| show(recv))
 }
 
 // `r = f(...)` or `r = obj.m(...)` with f or m in item_fns: (r, the call as shown, line).
@@ -1382,6 +1437,23 @@ fn from_item_fn(st: &Stmt, item_fns: &HashSet<String>) -> Option<(String, String
         _ => false,
     };
     hit.then(|| (r.clone(), show(value), line))
+}
+
+// `lst = d.get(k) or []` (also `d[k] or ...`): in Python lst is the stored list when it is not empty, and a
+// new one otherwise, so a change to lst cannot be written back: (r, what it reads, line).
+fn or_default(st: &Stmt) -> Option<(String, String, usize)> {
+    let (r, value, line) = match st {
+        Stmt::Assign { target: Expr::Ident(r), op: "=", value, line } => (r, value, *line),
+        Stmt::Let { name: Pat::Bind(r), value, line, .. } => (r, value, *line),
+        _ => return None,
+    };
+    let Expr::Binary("or" | "||", a, _) = value else { return None };
+    let base = match a.as_ref() {
+        Expr::Index(b, _) => b,
+        Expr::Method(b, m, _, _) if m == "get" || m == "get_or" => b,
+        _ => return None,
+    };
+    (matches!(base.as_ref(), Expr::Ident(_) | Expr::Field(..)) && root(base) != Some(r.as_str())).then(|| (r.clone(), show(a), line))
 }
 
 // `r = base[key]` where base is a name or a field path and key a name or a constant.

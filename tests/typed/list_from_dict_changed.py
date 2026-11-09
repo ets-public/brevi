@@ -1,6 +1,7 @@
 # A list taken out of a dict, then changed with append or pop: in Python it is the dict's own list. The
-# typed build made a copy (its rows were shared, the list itself was not), so the dict did not change.
-# Found by the DeepSeek release test (warehouse backorders, 9 Nov 2026). It must give CPython's output.
+# typed build made a copy (its rows were shared, the list itself was not), so the dict did not change
+# (found by the DeepSeek release test, warehouse backorders, 9 Nov 2026). The typed build now writes the
+# list back: after `lst.append` past an `is None` check, and when a getter method gives the list.
 class Orders:
     def __init__(self):
         self.waiting = {}
