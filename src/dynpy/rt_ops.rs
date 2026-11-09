@@ -80,8 +80,26 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
             }
-            let (x, y) = (x.borrow().clone(), y.borrow().clone());
-            seq_eq(&x, &y)?
+            if x.borrow().len() != y.borrow().len() {
+                return Ok(false);
+            }
+            // item by item against the live lists: an item's __eq__ may change either list (CPython checks
+            // the lengths again when the items differ)
+            let mut i = 0;
+            loop {
+                let (p, q) = {
+                    let (bx, by) = (x.borrow(), y.borrow());
+                    if i >= bx.len() || i >= by.len() {
+                        return Ok(bx.len() == by.len());
+                    }
+                    (bx[i].clone(), by[i].clone())
+                };
+                if !(is(&p, &q) || eq(&p, &q)?) {
+                    let (bx, by) = (x.borrow(), y.borrow());
+                    return Ok((i >= bx.len() || i >= by.len()) && bx.len() == by.len());
+                }
+                i += 1;
+            }
         }
         (V::Tuple(x), V::Tuple(y)) => Rc::ptr_eq(x, y) || seq_eq(x, y)?,
         (V::Dict(x), V::Dict(y)) => {

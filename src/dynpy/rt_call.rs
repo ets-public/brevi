@@ -324,8 +324,10 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             if let V::Obj(ob) = &o {
                 if ob.cls.is_sub(c) {
                     if let Some(init) = c.lookup("__init__") {
-                        prepend(&mut a.p, o.clone());
-                        call(&init, a)?;
+                        if !is_builtin_init(&init) {
+                            prepend(&mut a.p, o.clone());
+                            call(&init, a)?;
+                        }
                     }
                 }
             }
@@ -414,6 +416,26 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
         }
     }
     // object / builtin bases
+    if name == "__new__" {
+        return Ok(builtin("__new__", |mut a: Args| {
+            let Some(V::Class(k)) = a.p.first().cloned() else {
+                return type_err("__new__(X): X is not a type object".into());
+            };
+            a.p.remove(0);
+            let o = Obj::new(k.clone());
+            let bb = k.base_bt();
+            if bb == BT::Exc {
+                o.set("args", tup(a.p));
+            } else if bb != BT::Object && bb != BT::Other {
+                // subclass of a builtin container: the instance wraps the builtin value
+                let base = builtin_of_bt(bb);
+                if let Some(r) = builtin_type_call(&base, &mut a) {
+                    *o.inner.borrow_mut() = Some(r?);
+                }
+            }
+            Ok(V::Obj(o))
+        }));
+    }
     if name == "__init__" {
         if let V::Obj(o) = me {
             if o.cls.base_bt() == BT::Exc {
@@ -693,6 +715,7 @@ pub fn getattr(o: &V, name: &str) -> R {
         }
         V::Func(f) => match name {
             "__name__" | "__qualname__" => Ok(s(f.name)),
+            "__call__" => Ok(o.clone()),
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),

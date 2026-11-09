@@ -178,6 +178,9 @@ pub fn bi_str(mut a: Args) -> R {
 pub fn bi_int(mut a: Args) -> R {
     let base = a.kw("base");
     a.no_kw("int")?;
+    if a.p.len() > 2 {
+        return type_err(format!("int() takes at most 2 arguments ({} given)", a.p.len()));
+    }
     if a.p.is_empty() {
         if base.is_some() {
             return type_err("int() missing string argument".into());
@@ -1127,6 +1130,8 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
             }
             Ok(V::Dict(Rc::new(RefCell::new(d))))
         })),
+        // only defaultdict has __missing__ (dict subclasses test `hasattr(dict, "__missing__")`)
+        _ if name == "__missing__" && c.name != "defaultdict" => None,
         _ => {
             let n = sym(name);
             let cname = c.name;

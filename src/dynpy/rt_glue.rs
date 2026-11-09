@@ -105,6 +105,14 @@ pub fn cget(c: &Rc<RefCell<V>>, name: &str) -> R {
         v => Ok(v.clone()),
     }
 }
+/// A read of a cell this function owns (a local that an inner function captures): unbound is UnboundLocalError.
+#[inline]
+pub fn cget_own(c: &Rc<RefCell<V>>, name: &str) -> R {
+    match &*c.borrow() {
+        V::Unbound => Err(exc("UnboundLocalError", format!("cannot access local variable '{name}' where it is not associated with a value"))),
+        v => Ok(v.clone()),
+    }
+}
 #[inline]
 pub fn cset(c: &Rc<RefCell<V>>, v: V) {
     *c.borrow_mut() = v;
