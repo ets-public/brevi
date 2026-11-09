@@ -2035,7 +2035,7 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
     Ok(match name {
         "get" => {
             a.want("get", 1, 2)?;
-            let r = d.borrow().get(&a.p[0])?;
+            let r = dict_get(d, &a.p[0])?;
             r.unwrap_or_else(|| a.p.get(1).cloned().unwrap_or(V::None))
         }
         "setdefault" => {
