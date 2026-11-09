@@ -54,7 +54,7 @@ With one extra line in the prompt telling the model its code is compiled and to 
 | Sonnet | $0.222 | $0.128 | **0.58x** |
 | Haiku | $0.0221 | $0.0117 | **0.53x** |
 
-Every task passed on both sides, every Brevi program built natively, and no check failed because of Brevi. The saving is the model not hand-optimising: output tokens fell by about half for Sonnet and a quarter for Haiku. **This is not yet a fair test of Brevi:** only the Brevi side got the extra line, and CPython has not been run with the same line, so part or all of the saving may come from the prompt. The line also said "10 to 50 times faster", which overstated the measured speed-up; it now gives the measured range. A run with a CPython-plus-line control is next. On the ordinary release-suite tasks the same line made no clear difference (runs v1a, v1b: Sonnet 1.07x, Haiku 1.00x, bar still met).
+Every task passed on both sides, every Brevi program built natively, and no check failed because of Brevi. The saving is the model not hand-optimising: output tokens fell by about half for Sonnet and a quarter for Haiku. **This is not yet a fair test of Brevi:** only the Brevi side got the extra line, and CPython has not been run with the same line, so part or all of the saving may come from the prompt. The line also said "10 to 50 times faster", which overstated the measured speed-up; it now gives the measured range. The benchmark now has that control (`e2e.py --lang pyh`: the Python prompt with the same line, checked with CPython); the results will be added here once it has run. On the ordinary release-suite tasks the same line made no clear difference (runs v1a, v1b: Sonnet 1.07x, Haiku 1.00x, bar still met).
 
 ## Brevi, Codon and Nuitka
 

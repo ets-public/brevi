@@ -34,15 +34,16 @@ GUIDE = ROOT / "BREVI.md"
 
 
 # What Brevi's skill, MCP server and llms.txt tell an agent: its plain code runs natively, so it need not
-# hand-optimise (on the speed set this halved Sonnet's output). pyb runs get it unless --no-hint.
+# hand-optimise (on the speed set this halved Sonnet's output). pyb runs get it unless --no-hint. "pyh" is the
+# control: the Python prompt with the same line, checked with CPython, so a saving the line alone produces shows.
 NATIVE_HINT = "Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed."
 HINT = True
 
 
 def system_prompt(lang):
     # "pyb": the model is told what the Python runs are told, plus NATIVE_HINT; check builds its .py files with Brevi.
-    hint = lang == "pyb" and HINT
-    lang = "python" if lang == "pyb" else lang
+    hint = (lang == "pyb" and HINT) or lang == "pyh"
+    lang = "python" if lang in ("pyb", "pyh") else lang
     name = {"brevi": "Brevi", "python": "Python 3 (standard library only)"}[lang]
     ext = {"brevi": "bv", "python": "py"}[lang]
     text = (
@@ -60,7 +61,7 @@ def system_prompt(lang):
 
 
 def tools(lang):
-    lang = "python" if lang == "pyb" else lang
+    lang = "python" if lang in ("pyb", "pyh") else lang
     ts = [
         {"name": "write_file", "description": "Write a whole file.", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"], "additionalProperties": False}, "strict": True},
         {"name": "edit_file", "description": "Replace the one occurrence of old with new in a file.", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old": {"type": "string"}, "new": {"type": "string"}}, "required": ["path", "old", "new"], "additionalProperties": False}, "strict": True},
@@ -92,7 +93,7 @@ def build_path(stderr):
 def run_check(lang, task, work, native_only=False):
     """The same feedback as run.sh, without its logging. Returns (feedback, native): for pyb, native says whether
     Brevi built the files; when it could not, the files run with CPython, as `brevi run x.py` does (unless native_only)."""
-    ext = {"brevi": "bv", "python": "py", "pyb": "py"}[lang]
+    ext = {"brevi": "bv", "python": "py", "pyb": "py", "pyh": "py"}[lang]
     tdir = B / "tasks" / task
     files = (tdir / "files").read_text().split() if (tdir / "files").exists() else ["main"]
     missing = [f"{f}.{ext}" for f in files if not (work / f"{f}.{ext}").exists()]
@@ -294,7 +295,7 @@ def verdict(pattern):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run", nargs="?")
-    ap.add_argument("--lang", choices=["brevi", "python", "pyb"], help="pyb: the Python prompt, built with Brevi")
+    ap.add_argument("--lang", choices=["brevi", "python", "pyb", "pyh"], help="pyb: the Python prompt, built with Brevi; pyh: the control, the Python prompt with pyb's native-code line, checked with CPython")
     ap.add_argument("--model", choices=list(MODELS), default="sonnet")
     ap.add_argument("--set", default="rel", choices=list(SETS))
     ap.add_argument("--tasks", help="comma-separated, instead of --set")
