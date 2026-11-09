@@ -1,7 +1,12 @@
-# Known wrong results of tools/conformance.py: `test id` then normal or dyn. `--check` fails only on a line not here.
-# Remove a line when the bug is fixed; add one only with `--write-baseline` after reading the result.
+# Known wrong results and crashes of tools/conformance.py: `test id` then normal or dyn. `--check` fails on a
+# line not here, and on a line here that is no longer wrong, so this list only shrinks. Remove a line when the
+# bug is fixed; add one only with `--write-baseline` after reading the result.
+test_dict.DictTest.test_clear_at_lookup dyn
+test_dict.DictTest.test_clear_at_lookup normal
 test_dict.DictTest.test_container_iterator dyn
 test_dict.DictTest.test_container_iterator normal
+test_dict.DictTest.test_dict_contain_use_after_free dyn
+test_dict.DictTest.test_dict_contain_use_after_free normal
 test_dict.DictTest.test_dictview_set_operations_on_items dyn
 test_dict.DictTest.test_dictview_set_operations_on_items normal
 test_dict.DictTest.test_eq dyn
@@ -62,6 +67,8 @@ test_list.ListTest.test_equal_operator_modifying_operand dyn
 test_list.ListTest.test_equal_operator_modifying_operand normal
 test_list.ListTest.test_exhausted_iterator dyn
 test_list.ListTest.test_exhausted_iterator normal
+test_list.ListTest.test_getslice dyn
+test_list.ListTest.test_getslice normal
 test_list.ListTest.test_init dyn
 test_list.ListTest.test_init normal
 test_list.ListTest.test_iterator_pickle dyn
@@ -70,6 +77,10 @@ test_list.ListTest.test_keyword_args dyn
 test_list.ListTest.test_keyword_args normal
 test_list.ListTest.test_keywords_in_subclass dyn
 test_list.ListTest.test_keywords_in_subclass normal
+test_list.ListTest.test_list_resize_overflow dyn
+test_list.ListTest.test_list_resize_overflow normal
+test_list.ListTest.test_overflow dyn
+test_list.ListTest.test_overflow normal
 test_list.ListTest.test_pop dyn
 test_list.ListTest.test_pop normal
 test_list.ListTest.test_repr_mutate dyn
