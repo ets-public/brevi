@@ -299,8 +299,10 @@ pub fn repr(v: &V) -> Result<String, E> {
                         return Ok("mappingproxy({...})".into());
                     }
                     let mut parts = vec![];
+                    // Copy the items out first: a user __repr__ may change the dict.
+                    let items = d.borrow().items();
                     let r = (|| -> Result<(), E> {
-                        for (k, v) in d.borrow().items() {
+                        for (k, v) in items {
                             parts.push(format!("{}: {}", repr(&k)?, repr(&v)?));
                         }
                         Ok(())
