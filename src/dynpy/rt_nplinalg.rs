@@ -625,7 +625,7 @@ pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
     }
 }
 fn np_dtype_v(d: NT) -> V {
-    V::Ext(Rc::new(NpDtype(d)))
+    V::Ext(ExtRc::new(NpDtype(d)))
 }
 fn np_norm(a: &Args) -> R {
     let x0 = npa(a, 0, "x").ok_or_else(|| exc("TypeError", "norm() missing required argument 'x' (pos 0)".into()))?;

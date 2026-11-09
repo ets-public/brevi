@@ -8,7 +8,7 @@ feedback cannot change) does not add noise.
 usage: python3 replay.py OUT --from "work/e2e/sh1*-haiku-pyb/*" --feedback plain|diff [--samples 2] [--jobs 4]
        python3 replay.py --summary "logs/replay/*.jsonl"
 """
-import argparse, concurrent.futures as cf, difflib, glob, json, os, shutil, subprocess, sys, tempfile
+import argparse, concurrent.futures as cf, difflib, functools, glob, json, os, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 B = Path(__file__).resolve().parent
@@ -155,7 +155,7 @@ def replay(client, src, feedback, sample, outdir):
         k += 2
     if branch is None:
         return None
-    r = e2e.solve(client, model, "pyb", task, work, "medium", start_messages=msgs, start_checks=1, tag_of=Path(src).parent.name)
+    r = e2e.solve(client(model), model, "pyb", task, work, "medium", start_messages=msgs, start_checks=1, tag_of=Path(src).parent.name)
     return {"src": str(Path(src).relative_to(B)), "task": task, "feedback": feedback, "sample": sample, "fb_chars": len(branch), **r}
 
 
@@ -190,8 +190,8 @@ def main():
     a = ap.parse_args()
     if a.summary:
         return summary(a.summary)
-    import anthropic
-    client = anthropic.Anthropic(api_key=os.environ["BENCH_ANTHROPIC_KEY"], max_retries=4)
+    # one client per model id (the source runs may mix Claude and DeepSeek); see e2e.make_client
+    client = functools.lru_cache(maxsize=None)(e2e.make_client)
     outdir = B / "work" / "replay" / a.out
     log = B / "logs" / "replay" / f"{a.out}.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)

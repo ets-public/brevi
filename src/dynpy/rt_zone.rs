@@ -615,7 +615,7 @@ pub fn zoneinfo_new(mut a: Args) -> R {
         let mut r = r.borrow_mut();
         let i = r.zones.len() as u32;
         r.zones.push(Rc::new(z));
-        let v = V::Ext(Rc::new(ZIV(i)));
+        let v = V::Ext(ExtRc::new(ZIV(i)));
         r.vals.push(v.clone());
         r.by_key.insert(key, i);
         v
@@ -855,7 +855,7 @@ fn zi_uncached(key: &str, data: &[u8]) -> R {
         let mut r = r.borrow_mut();
         let i = r.zones.len() as u32;
         r.zones.push(Rc::new(z));
-        let v = V::Ext(Rc::new(ZIV(i)));
+        let v = V::Ext(ExtRc::new(ZIV(i)));
         r.vals.push(v.clone());
         v
     }))

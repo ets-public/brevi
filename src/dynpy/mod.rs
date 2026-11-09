@@ -707,6 +707,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     if !walrus {
         rust = borrow_loads(&rust);
     }
+    rust = borrow_cells(&rust);
     rust.push_str(&emit::ic_statics());
     if !used.is_empty() {
         crate::pybridge::set_file(file);
@@ -922,6 +923,33 @@ pub fn check(rust: &str, dir: &Path, cache: &Path, rustc_v: &str) -> Result<(), 
     Ok(())
 }
 
+// `&cgs(&k1_x, "x")?` clones a free variable's value only to borrow it: `&*cgsr(..)?` borrows it in the cell.
+fn borrow_cells(src: &str) -> String {
+    let pat = "&cgs(&";
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    while let Some(i) = rest.find(pat) {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i + pat.len()..];
+        let id_len = tail.bytes().take_while(|b| b.is_ascii_alphanumeric() || *b == b'_').count();
+        let after = &tail[id_len..];
+        let lit_end = after.strip_prefix(", \"").and_then(|a| a.find('"').map(|k| k + 4));
+        match lit_end {
+            Some(k) if id_len > 0 && !out.ends_with('&') && after[k..].starts_with(")?") && !after[3..k - 1].contains('\\') => {
+                out.push_str("&*cgsr(&");
+                out.push_str(&tail[..id_len]);
+                out.push_str(&after[..k + 2]);
+                rest = &after[k + 2..];
+            }
+            _ => {
+                out.push_str(pat);
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
 // `&ld(&v_x, "x")?` clones a local only to borrow it: `ldr` borrows it in place. A local is only assigned
 // inside an expression by `:=`, which could then clash with the borrow, so programs with one keep `ld`.
 fn borrow_loads(src: &str) -> String {
