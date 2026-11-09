@@ -12,12 +12,10 @@ FV=$(sed -n 's/^version = "\([0-9.]*\)".*/\1/p' $R/Cargo.toml | head -1)
 # needs BENCH_ANTHROPIC_KEY once).
 G=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import tokcount; print(f"{tokcount.count(open(sys.argv[2]).read()):,}")' $R/bench $R/BREVI.md) \
   || { echo "could not count BREVI.md tokens (set BENCH_ANTHROPIC_KEY)"; exit 1; }
-# Public or private repo: GitHub links, the install one-liner and the status line appear only once the
-# repo is public (it answers 404 while private). BREVI_PUBLIC=1 or 0 overrides the check.
-if [ -z "$BREVI_PUBLIC" ]; then
-  code=$(curl -s -o /dev/null -w '%{http_code}' https://github.com/ets-public/brevi || true)
-  [ "$code" = 200 ] && BREVI_PUBLIC=1 || BREVI_PUBLIC=0
-fi
+# The repo has been public since 2026-11-03, so GitHub links, the install one-liner and the status line are
+# always built in. BREVI_PUBLIC=0 builds the old private variant. (This used to probe github.com, and a
+# deploy from a machine where that probe failed silently shipped the site with every GitHub link removed.)
+BREVI_PUBLIC=${BREVI_PUBLIC:-1}
 echo "repo public: $BREVI_PUBLIC"
 python3 $S/gen.py $O $S/out-run "$V" "$G" "$BREVI_PUBLIC" "$FV"
 # Logo and favicons (favicon.svg is the source; node site/icons/make.js redraws the PNG and ICO sizes).
