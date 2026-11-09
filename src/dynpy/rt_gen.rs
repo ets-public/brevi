@@ -66,6 +66,14 @@ unsafe fn coro_init_stack(top: *mut u8, arg: *mut Coro) -> *mut u8 {
 
 pub const GEN_SUPPORTED: bool = cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(windows)));
 
+// Windows has no generator stack switch yet; the build refuses generator/async syntax before any of this runs,
+// but coro_main still names the switch, so give it a stub that can never be reached.
+#[cfg(windows)]
+unsafe extern "C" fn brevi_ctx_switch(_from: *mut *mut u8, _to: *mut u8) {
+    unreachable!("generator context switch on Windows")
+}
+
+#[cfg(not(windows))]
 extern "C" {
     fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8;
     fn munmap(addr: *mut u8, len: usize) -> i32;
@@ -125,6 +133,13 @@ impl Coro {
         if self.running {
             return Err(exc("ValueError", "generator already executing".into()));
         }
+        #[cfg(windows)]
+        {
+            let _ = sent;
+            // Generators need a stack switch, which only the Unix x86-64/aarch64 builds carry.
+            return Err(exc("SystemError", "generators are not supported on Windows yet".into()));
+        }
+        #[cfg(not(windows))]
         unsafe {
             if !self.started {
                 let p = mmap(std::ptr::null_mut(), CORO_STACK, 3, MAP_ANON_FLAGS, -1, 0);
@@ -183,7 +198,10 @@ impl Coro {
     }
     fn free_stack(&mut self) {
         if !self.stack.is_null() {
-            unsafe { munmap(self.stack, CORO_STACK) };
+            #[cfg(not(windows))]
+            unsafe {
+                munmap(self.stack, CORO_STACK)
+            };
             self.stack = std::ptr::null_mut();
         }
     }
@@ -199,16 +217,24 @@ impl Drop for Coro {
 
 // `yield v` inside a generator body: hands v to next() and returns what send() passes back (None for next()).
 pub fn gen_yield(v: V) -> R {
-    let c = CORO_NOW.with(|s| s.borrow().last().copied());
-    let Some(c) = c else { return Err(exc("SystemError", "yield outside a generator".into())) };
-    unsafe {
-        (*c).xfer = Some(v);
-        brevi_ctx_switch(&mut (*c).sp, (*c).caller_sp);
-        if let Some(e) = (*c).thrown.take() {
-            (*c).xfer = None;
-            return Err(e);
+    #[cfg(windows)]
+    {
+        let _ = v;
+        return Err(exc("SystemError", "generators are not supported on Windows yet".into()));
+    }
+    #[cfg(not(windows))]
+    {
+        let c = CORO_NOW.with(|s| s.borrow().last().copied());
+        let Some(c) = c else { return Err(exc("SystemError", "yield outside a generator".into())) };
+        unsafe {
+            (*c).xfer = Some(v);
+            brevi_ctx_switch(&mut (*c).sp, (*c).caller_sp);
+            if let Some(e) = (*c).thrown.take() {
+                (*c).xfer = None;
+                return Err(e);
+            }
+            Ok((*c).xfer.take().unwrap_or(V::None))
         }
-        Ok((*c).xfer.take().unwrap_or(V::None))
     }
 }
 

@@ -27,7 +27,7 @@ pub fn bridged() -> Vec<String> {
 // Whether this build may hand libraries to CPython: not under the sandbox without allow native, and only with
 // a python3 that has libpython (asked once, only when a program imports such a library).
 fn bridge_ok() -> bool {
-    cfg!(unix) && !crate::pybridge::no_native() && !NO_BRIDGE.load(Ordering::Relaxed) && std::env::var("BREVI_DYN_BRIDGE").map_or(true, |v| v != "0") && crate::pybridge::python_ok().is_ok()
+    !crate::pybridge::no_native() && !NO_BRIDGE.load(Ordering::Relaxed) && std::env::var("BREVI_DYN_BRIDGE").map_or(true, |v| v != "0") && crate::pybridge::python_ok().is_ok()
 }
 
 pub const RUNTIME: &str = concat!(
