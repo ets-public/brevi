@@ -1589,17 +1589,20 @@ impl PSet {
     }
     // CPython's set_update_dict: one resize up front, then the dict's own
     // hashes are reused, so the table order matches even for colliding keys.
-    pub fn update_dict(&mut self, d: &Dict) {
-        if (self.fill + d.n) * 5 >= self.mask() * 3 {
-            self.resize((self.used + d.n) * 2);
+    // Takes the dict's keys_h() rather than the dict: add_h may run a user __eq__, which may change the
+    // dict, so the caller copies the keys out and releases its borrow first.
+    pub fn update_dict(&mut self, keys: Vec<(V, i64)>) {
+        let n = keys.len();
+        if (self.fill + n) * 5 >= self.mask() * 3 {
+            self.resize((self.used + n) * 2);
         }
-        for (k, h) in d.keys_h() {
+        for (k, h) in keys {
             self.add_h(k, h);
         }
     }
-    pub fn from_dict(d: &Dict) -> PSet {
+    pub fn from_dict(keys: Vec<(V, i64)>) -> PSet {
         let mut p = PSet::new();
-        p.update_dict(d);
+        p.update_dict(keys);
         p
     }
 }

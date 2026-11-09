@@ -726,14 +726,20 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             let mut r = match a {
                 V::Set(_) | V::FSet(_) => set_of(a).unwrap().copy(),
                 V::View(v) if v.1 == 0 => match &v.0 {
-                    V::Dict(d) if d.borrow().kind == 0 => PSet::from_dict(&d.borrow()),
+                    V::Dict(d) if d.borrow().kind == 0 => {
+                        let ks = d.borrow().keys_h();
+                        PSet::from_dict(ks)
+                    }
                     _ => PSet::from_iter(to_vec(a)?)?,
                 },
                 _ => PSet::from_iter(to_vec(a)?)?,
             };
             match b {
                 V::Set(_) | V::FSet(_) => r.merge(&set_of(b).unwrap()),
-                V::Dict(d) if d.borrow().kind == 0 => r.update_dict(&d.borrow()),
+                V::Dict(d) if d.borrow().kind == 0 => {
+                    let ks = d.borrow().keys_h();
+                    r.update_dict(ks)
+                }
                 _ => {
                     for k in to_vec(b)? {
                         r.add(k)?;
