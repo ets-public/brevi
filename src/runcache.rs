@@ -59,6 +59,17 @@ pub fn not_kept() {
     }
 }
 
+// The line (then a tab and a path) a child build prints on stderr when the binary it made is a quick
+// opt-level 0 one (src/tier.rs): the optimised binary will land at that path. The parent keeps the entry with
+// the quick binary and the path, and a replay swaps the optimised binary in once it is there.
+const UPGRADE: &str = "{\"brevi_cache\":\"upgrade\"}";
+
+pub fn upgrade_at(path: &Path) {
+    if in_child() {
+        eprintln!("{UPGRADE}\t{}", path.display());
+    }
+}
+
 // Takes the child's not-kept line out of its stderr: true when it was there.
 fn take_not_kept(stderr: &mut Vec<u8>) -> bool {
     let text = String::from_utf8_lossy(stderr);
@@ -68,6 +79,16 @@ fn take_not_kept(stderr: &mut Vec<u8>) -> bool {
     let kept: String = text.split_inclusive('\n').filter(|l| l.trim_end_matches(['\n', '\r']) != NOT_KEPT).collect();
     *stderr = kept.into_bytes();
     true
+}
+
+// Takes the child's upgrade lines out of its stderr: the path of the last one, if any.
+fn take_upgrade(stderr: &mut Vec<u8>) -> Option<String> {
+    let text = String::from_utf8_lossy(stderr).to_string();
+    let at = |l: &str| l.trim_end_matches(['\n', '\r']).strip_prefix(UPGRADE).and_then(|r| r.strip_prefix('\t')).map(String::from);
+    let path = text.lines().filter_map(at).last()?;
+    let kept: String = text.split_inclusive('\n').filter(|l| at(l).is_none()).collect();
+    *stderr = kept.into_bytes();
+    Some(path)
 }
 
 // Runs `brevi ARGS` (a check, or a build to `bin`), or replays it from the cache. `file` is the program.
@@ -91,9 +112,10 @@ pub fn phase(args: &[String], file: &str, bin: Option<&Path>, envs: &[(&str, &st
         Err(e) => Done { stdout: format!("{{\"e\":\"io\",\"msg\":\"{}\"}}\n", crate::diag::esc(&e.to_string())).into_bytes(), stderr: vec![], code: Some(1), hit: false },
     };
     let machine = take_not_kept(&mut done.stderr);
+    let upgrade = take_upgrade(&mut done.stderr);
     if let Some(d) = &dir {
         if !machine && (done.ok() || (refusals && refusal_kept(&done, file))) {
-            save(d, &done, bin);
+            save(d, &done, bin, upgrade.as_deref().filter(|_| done.ok()));
         }
     }
     done
@@ -103,6 +125,17 @@ fn replay(d: &Path, bin: Option<&Path>) -> Option<Done> {
     let code: i32 = std::fs::read_to_string(d.join("code")).ok()?.trim().parse().ok()?;
     let stdout = std::fs::read(d.join("out")).ok()?;
     let stderr = std::fs::read(d.join("err")).ok()?;
+    // A quick (opt-level 0) entry whose optimised binary has landed: it takes the quick one's place.
+    if let Ok(at) = std::fs::read_to_string(d.join("upgrade")) {
+        let at = Path::new(at.trim());
+        let tmp = d.join(format!("bin.tmp{}", std::process::id()));
+        if at.is_file() && crate::copy_bin(at, &tmp) && std::fs::rename(&tmp, d.join("bin")).is_ok() {
+            std::fs::remove_file(d.join("upgrade")).ok();
+            crate::tm("tiered: the opt-level 1 binary took the quick one's place");
+        } else {
+            std::fs::remove_file(&tmp).ok();
+        }
+    }
     if code == 0 {
         if let Some(b) = bin {
             if !crate::copy_bin(&d.join("bin"), b) {
@@ -122,7 +155,7 @@ fn refusal_kept(done: &Done, file: &str) -> bool {
     matches!(done.code, Some(1 | 3)) && !text.contains("\"e\":") && !text.contains("cargo") && !text.contains("\"line\":0") && only_local_and_stdlib(file)
 }
 
-fn save(d: &Path, done: &Done, bin: Option<&Path>) {
+fn save(d: &Path, done: &Done, bin: Option<&Path>, upgrade: Option<&str>) {
     let runs = d.parent().unwrap();
     if std::fs::create_dir_all(runs).is_err() {
         return;
@@ -137,6 +170,9 @@ fn save(d: &Path, done: &Done, bin: Option<&Path>) {
         if let Some(b) = bin {
             ok = ok && crate::copy_bin(b, &tmp.join("bin"));
         }
+    }
+    if let Some(u) = upgrade {
+        ok = ok && std::fs::write(tmp.join("upgrade"), u).is_ok();
     }
     // `code` last: an entry without it is never read.
     ok = ok && std::fs::write(tmp.join("code"), done.code.unwrap_or(1).to_string()).is_ok();
@@ -332,6 +368,9 @@ mod tests {
         let mut e = b"note: a\n{\"brevi_cache\":\"not kept\"}\nnote: b\n".to_vec();
         assert!(super::take_not_kept(&mut e));
         assert_eq!(e, b"note: a\nnote: b\n");
+        let mut u = b"note: a\n{\"brevi_cache\":\"upgrade\"}\t/c/bin/k\n".to_vec();
+        assert_eq!(super::take_upgrade(&mut u).as_deref(), Some("/c/bin/k"));
+        assert_eq!(u, b"note: a\n");
         let mut plain = b"note: a\n".to_vec();
         assert!(!super::take_not_kept(&mut plain));
         assert_eq!(plain, b"note: a\n");

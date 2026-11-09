@@ -64,7 +64,7 @@ jobs:
         if: ${{ matrix.test }}
         run: |
           cargo test --release --locked
-          BREVI=./target/${{ matrix.targets }}/release/brevi sh tests/check.sh
+          BREVI=./target/${{ matrix.targets }}/release/brevi python3 tests/check_parallel.py
       - name: Package
         shell: bash
         run: |

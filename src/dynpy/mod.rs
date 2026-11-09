@@ -979,9 +979,38 @@ fn borrow_loads(src: &str) -> String {
     out
 }
 pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, rustc_v: &str) -> Result<(), String> {
-    let lib = runtime_lib(cache, rustc_v)?;
     let opt = if release { "opt-level=3" } else { "opt-level=1" };
-    let key = format!("{:016x}", fnv(&[rust, opt, rustc_v, RUNTIME, "dyn"]));
+    // The edit loop (src/tier.rs): an opt-level 1 binary not built yet is built at opt-level 0 now, and at
+    // opt-level 1 in the background.
+    if !release && crate::tier::on() {
+        let dest = cache.join("bin").join(bin_key(rust, opt, rustc_v));
+        if !dest.exists() {
+            crate::tm("tiered: building at opt-level 0, opt-level 1 in the background");
+            let built = build(rust, dir, out, "opt-level=0", cache, rustc_v)?;
+            let mut args = rustc_args(opt, &runtime_lib(cache, rustc_v)?);
+            args.extend(["-C".into(), crate::codegen_units().into()]);
+            crate::tier::background(&dest, &built, &args);
+            return Ok(());
+        }
+    }
+    build(rust, dir, out, opt, cache, rustc_v).map(|_| ())
+}
+
+fn bin_key(rust: &str, opt: &str, rustc_v: &str) -> String {
+    format!("{:016x}", fnv(&[rust, opt, rustc_v, RUNTIME, "dyn"]))
+}
+
+fn rustc_args(opt: &str, lib: &Path) -> Vec<String> {
+    let mut a: Vec<String> = ["--edition", "2021", "--crate-name", "brevi_prog", "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", "strip=debuginfo"].map(String::from).to_vec();
+    a.extend(["--extern".into(), format!("brevi_dyn={}", lib.display())]);
+    a
+}
+
+// Builds at `opt`, through the build cache: the Rust that compiled (the program, or its plainer form).
+fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &str) -> Result<String, String> {
+    let lib = runtime_lib(cache, rustc_v)?;
+    let release = opt == "opt-level=3";
+    let key = bin_key(rust, opt, rustc_v);
     // BREVI_DYN_SRC=file: save the generated Rust there (for profiling a dynamic build)
     if let Ok(p) = std::env::var("BREVI_DYN_SRC") {
         let _ = std::fs::write(p, rust);
@@ -989,39 +1018,33 @@ pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, 
     let cdir = cache.join("bin");
     let cached = cdir.join(&key);
     let use_cache = crate::runcache::on();
+    // borrow_loads's `ldr` borrows can clash with an assignment inside the same expression: such a program
+    // builds once more with every local cloned, as before that pass
+    let plain = || rust.replace("ldr(&", "&ld(&");
     if use_cache && cached.exists() && crate::copy_bin(&cached, out) {
         crate::touch(&cached);
-        return Ok(());
+        let used = if cached.with_extension("plain").exists() { plain() } else { rust.to_string() };
+        return Ok(used);
     }
     let rs = dir.join("dyn_main.rs");
-    std::fs::write(&rs, rust).map_err(|e| e.to_string())?;
-    let o = crate::rustc_cmd()
-        .args(["--edition", "2021", "--crate-name", "brevi_prog", "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", "strip=debuginfo"])
-        .args(if release { None } else { Some(["-C", crate::codegen_units()]) }.into_iter().flatten())
-        .arg("--extern")
-        .arg(format!("brevi_dyn={}", lib.display()))
-        .arg("-o")
-        .arg(out)
-        .arg(&rs)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let run = |src: &str| -> Result<std::process::Output, String> {
+        std::fs::write(&rs, src).map_err(|e| e.to_string())?;
+        crate::rustc_cmd()
+            .args(rustc_args(opt, &lib))
+            .args(if release { None } else { Some(["-C", crate::codegen_units()]) }.into_iter().flatten())
+            .arg("-o")
+            .arg(out)
+            .arg(&rs)
+            .output()
+            .map_err(|e| e.to_string())
+    };
+    let o = run(rust)?;
+    let mut used = rust.to_string();
     if !o.status.success() {
         let err = String::from_utf8_lossy(&o.stderr).to_string();
-        // borrow_loads's `ldr` borrows can clash with an assignment inside the same expression: build once more
-        // with every local cloned, as before that pass
         if rust.contains("ldr(&") && (err.contains("E0506") || err.contains("E0505") || err.contains("E0502") || err.contains("E0499")) {
-            let plain = rust.replace("ldr(&", "&ld(&");
-            std::fs::write(&rs, &plain).map_err(|e| e.to_string())?;
-            let o2 = crate::rustc_cmd()
-                .args(["--edition", "2021", "--crate-name", "brevi_prog", "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", "strip=debuginfo"])
-                .args(if release { None } else { Some(["-C", crate::codegen_units()]) }.into_iter().flatten())
-                .arg("--extern")
-                .arg(format!("brevi_dyn={}", lib.display()))
-                .arg("-o")
-                .arg(out)
-                .arg(&rs)
-                .output()
-                .map_err(|e| e.to_string())?;
+            used = plain();
+            let o2 = run(&used)?;
             if !o2.status.success() {
                 return Err(String::from_utf8_lossy(&o2.stderr).to_string());
             }
@@ -1032,12 +1055,15 @@ pub fn compile(rust: &str, dir: &Path, out: &Path, release: bool, cache: &Path, 
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
         if std::fs::copy(out, &tmp).is_ok() && std::fs::rename(&tmp, &cached).is_ok() {
+            if used != rust {
+                std::fs::write(cached.with_extension("plain"), "").ok();
+            }
             crate::runcache::prune(&cdir);
         } else {
             std::fs::remove_file(&tmp).ok();
         }
     }
-    Ok(())
+    Ok(used)
 }
 
 // ------------------------------------------------------------------------------------------- library classes
